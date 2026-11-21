@@ -1307,6 +1307,8 @@ impl MacOSWindow {
                 crate::desktop::shell2::common::event::WindowStateSource::Os,
                 |ws| ws.size.dpi = new_dpi,
             );
+            // The CPU frame at the new scale is repainted in full.
+            self.cpu_frame_scale_changed();
         }
 
         // Notify compositor of resize (this is private in mod.rs, so we inline it here)

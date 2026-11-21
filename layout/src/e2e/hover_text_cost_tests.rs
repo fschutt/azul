@@ -139,10 +139,14 @@ fn a_plain_move_along_the_text_labels_lays_nothing_out_and_paints_the_label_unde
     };
     assert_eq!(count("layout_passes"), 0, "a hover that changes a colour lays nothing out");
     assert_eq!(count("dom_regenerations"), 0);
+    // A3-window-07: a label's hover background is painted into the list the view has
+    // (`dl_node_patches`), which builds no list; a restyle the patch cannot show builds it.
     assert!(
-        (1..=30).contains(&count("dl_rebuilds")),
-        "the view's list is rebuilt for an enter or a leave, once a move at most: {}",
-        count("dl_rebuilds")
+        (1..=30).contains(&(count("dl_rebuilds") + count("dl_node_patches"))),
+        "the view's list is rebuilt or patched for an enter or a leave, once a move at most: \
+         {} + {}",
+        count("dl_rebuilds"),
+        count("dl_node_patches")
     );
 
     // The label under the pointer is in the view's list, painted in its hover colour:

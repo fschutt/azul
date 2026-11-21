@@ -143,7 +143,7 @@ fn test_phase1_decoding() {
     writeln!(font_out).unwrap();
 
     // CVT values
-    if let Some(ref hint_mutex) = font.hint_instance {
+    if let Some(hint_mutex) = font.hint_instance() {
         let mut hint = hint_mutex.lock().unwrap();
 
         if let Err(e) = hint.set_ppem(ppem, ppem as f64) {
@@ -368,7 +368,7 @@ fn test_phase2_hinting() {
     let upem = font.font_metrics.units_per_em;
     let scale = compute_scale(ppem, upem);
 
-    let hint_mutex = match &font.hint_instance {
+    let hint_mutex = match font.hint_instance() {
         Some(h) => h,
         None => {
             eprintln!("Skipping: no hint_instance");
@@ -557,7 +557,7 @@ fn test_phase2b_trace_t() {
     let upem = font.font_metrics.units_per_em;
     let scale = compute_scale(ppem, upem);
 
-    let hint_mutex = match &font.hint_instance {
+    let hint_mutex = match font.hint_instance() {
         Some(h) => h,
         None => {
             eprintln!("Skipping: no hint_instance");

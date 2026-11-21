@@ -387,26 +387,37 @@ mod autotest_generated {
     }
 
     #[test]
-    fn new_perspective_zero_distance_divides_by_zero() {
-        // -1.0 / 0.0 is -inf in IEEE-754: no panic, but the matrix is unusable.
-        // This is the documented (if hazardous) behaviour of `perspective(0)`.
+    fn new_perspective_zero_distance_is_treated_as_one_pixel() {
+        // A2-gpu-11 (audit 2026-11-21). This test used to pin `-1.0 / 0.0 = -inf`
+        // ("no panic, but the matrix is unusable") as the behaviour of
+        // `perspective(0)`. CSS Transforms 2 says what it is: a depth below 1px
+        // is treated as 1px. The guard's number changes with the fix: -inf -> -1.
         let t = ComputedTransform3D::new_perspective(0.0);
-        assert!(t.m[2][3].is_infinite() && t.m[2][3].is_sign_negative());
-        assert!(!all_finite(&t));
+        assert_eq!(t, ComputedTransform3D::new_perspective(1.0));
+        assert_eq!(t.m[2][3], -1.0);
+        assert!(all_finite(&t));
+        // ... as is every depth below one pixel, and a negative one.
+        assert_eq!(ComputedTransform3D::new_perspective(0.25).m[2][3], -1.0);
+        assert_eq!(ComputedTransform3D::new_perspective(-50.0).m[2][3], -1.0);
+        // One pixel and more are themselves.
+        assert_eq!(ComputedTransform3D::new_perspective(2.0).m[2][3], -0.5);
     }
 
     #[test]
     fn new_perspective_extreme_distances_do_not_panic() {
+        // A2-gpu-11: a depth that is not a number is the 1px depth too (was: a
+        // NaN in the matrix).
         let nan = ComputedTransform3D::new_perspective(f32::NAN);
-        assert!(nan.m[2][3].is_nan());
+        assert_eq!(nan.m[2][3], -1.0);
 
         let inf = ComputedTransform3D::new_perspective(f32::INFINITY);
         assert_eq!(inf.m[2][3], -0.0); // -1/inf == -0.0 => equals the identity
         assert!(all_finite(&inf));
 
-        // -1 / (smallest subnormal) overflows f32 => -inf, still no panic.
+        // A2-gpu-11: the smallest subnormal is below 1px, so it is 1px (was:
+        // -1 / 1e-45 overflowed f32 to -inf).
         let tiny = ComputedTransform3D::new_perspective(1e-45);
-        assert!(tiny.m[2][3].is_infinite() && tiny.m[2][3].is_sign_negative());
+        assert_eq!(tiny.m[2][3], -1.0);
     }
 
     #[test]
@@ -620,39 +631,51 @@ mod autotest_generated {
     }
 
     #[test]
-    fn inverse_treats_near_singular_as_singular() {
-        // PRECISION HAZARD, asserted as the documented contract: the guard is
-        // `det.abs() < f32::EPSILON` (~1.19e-7), so a *perfectly invertible*
-        // uniform scale of 1e-3 (det = 1e-9) is rejected and the identity is
-        // returned instead of the true inverse (a 1000x up-scale).
+    fn inverse_of_a_small_scale_is_the_large_scale() {
+        // A2-gpu-11 (audit 2026-11-21). This test used to pin a PRECISION HAZARD
+        // "as the documented contract": the guard was `det.abs() < f32::EPSILON`
+        // (~1.19e-7), so a perfectly invertible uniform scale of 1e-3
+        // (det = 1e-9) was called singular and the IDENTITY came back instead
+        // of the 1000x up-scale. A matrix is singular when its determinant is
+        // zero, not when it is small: the number changes with the fix.
         let tiny = ComputedTransform3D::new_scale(1e-3, 1e-3, 1e-3);
         let det = tiny.determinant();
         assert!(
             det > 0.0 && det < f32::EPSILON,
             "det = {det} (must be a nonzero sub-EPSILON)"
         );
-        assert_eq!(tiny.inverse(), ComputedTransform3D::IDENTITY);
+        let inv = tiny.try_inverse().expect("a scale of 1e-3 has an inverse");
+        assert_mat_approx(&inv, &ComputedTransform3D::new_scale(1e3, 1e3, 1e3), 1e-2);
+        assert_eq!(tiny.inverse(), inv);
+        assert_mat_approx(&tiny.then(&inv), &ComputedTransform3D::IDENTITY, 1e-5);
     }
 
     #[test]
     fn inverse_of_nan_matrix_does_not_panic() {
-        // det is NaN, and `NaN.abs() < EPSILON` is false, so the singular guard
-        // does NOT catch it: the algorithm runs and yields an all-NaN matrix.
-        let inv = filled(f32::NAN).inverse();
-        assert!(inv.m.iter().flatten().all(|v| v.is_nan()));
+        // A2-gpu-11: a determinant that is not a number is no determinant: the
+        // matrix has no inverse. (Was: the `< EPSILON` guard let NaN through
+        // and an all-NaN matrix came back.)
+        assert_eq!(filled(f32::NAN).try_inverse(), None);
+        assert_eq!(filled(f32::NAN).inverse(), ComputedTransform3D::IDENTITY);
     }
 
     #[test]
-    fn inverse_of_overflowing_matrix_yields_nan_not_a_panic() {
-        // det = +inf => scale factor 1/inf = 0.0 => cofactor(inf) * 0.0 = NaN.
+    fn inverse_of_a_matrix_whose_f32_products_overflow_is_still_its_inverse() {
+        // A2-gpu-11: diag(1e20, 1e20, 1e20, 1e20) inverts to diag(1e-20, ...).
+        // (Was pinned as NaN: in f32 the determinant was +inf, the factor
+        // 1/inf = 0, and cofactor(inf) * 0 = NaN. The adjugate and the
+        // determinant are accumulated in f64 now: 1e60 / 1e80.)
         let mut big = ComputedTransform3D::new_scale(1e20, 1e20, 1e20);
         big.m[3][3] = 1e20;
-        let inv = big.inverse();
-        assert!(
-            inv.m[0][0].is_nan(),
-            "expected NaN from inf * 0.0, got {}",
-            inv.m[0][0]
-        );
+        let inv = big.try_inverse().expect("a diagonal matrix without a zero has an inverse");
+        for i in 0..4 {
+            assert!(
+                (inv.m[i][i] - 1e-20).abs() < 1e-26,
+                "m[{i}][{i}] = {}, expected 1e-20",
+                inv.m[i][i]
+            );
+        }
+        assert_eq!(inv.m[0][1], 0.0);
     }
 
     // ------------------------------------------------------- multiply_scalar
@@ -794,21 +817,18 @@ mod autotest_generated {
     }
 
     #[test]
-    fn transform_point2d_zero_w_divides_by_zero_instead_of_returning_none() {
-        // BOUNDARY: the guard is `!w.is_sign_positive()`, and (+0.0) IS
-        // sign-positive — so a fully degenerate w == +0.0 slips through and the
-        // function divides by zero, returning Some(inf, inf) rather than None.
-        // Asserted as-is (no panic, defined IEEE result); flagged in the report.
+    fn transform_point2d_zero_w_has_no_image() {
+        // A2-gpu-11 (audit 2026-11-21). This test used to pin the BOUNDARY it
+        // flagged: the guard was `!w.is_sign_positive()`, (+0.0) is sign-positive,
+        // so a fully degenerate w == +0.0 slipped through and the function
+        // divided by zero, returning Some(inf, inf). A point in the plane of the
+        // eye has no image: `None`, whatever the sign of the zero.
         let mut t = ComputedTransform3D::IDENTITY;
         t.m[3][3] = 0.0;
-        let out = t.transform_point2d(LogicalPosition::new(1.0, 1.0));
-        let out = out.expect("w == +0.0 is treated as a valid positive w");
-        assert!(out.x.is_infinite(), "expected 1.0/0.0 = inf, got {}", out.x);
-        assert!(out.y.is_infinite());
+        assert!(t
+            .transform_point2d(LogicalPosition::new(1.0, 1.0))
+            .is_none());
 
-        // ... whereas a w that comes out as -0.0 IS rejected, so the sign of a
-        // zero w decides between Some(inf) and None. (The whole w column must be
-        // -0.0: fma(1.0, +0.0, -0.0) would round back to +0.0.)
         let mut neg = ComputedTransform3D::IDENTITY;
         neg.m[0][3] = -0.0;
         neg.m[1][3] = -0.0;
@@ -816,6 +836,13 @@ mod autotest_generated {
         assert!(neg
             .transform_point2d(LogicalPosition::new(1.0, 1.0))
             .is_none());
+
+        // The smallest positive w is still a point in front of the eye.
+        let mut near = ComputedTransform3D::IDENTITY;
+        near.m[3][3] = f32::MIN_POSITIVE;
+        assert!(near
+            .transform_point2d(LogicalPosition::new(0.0, 0.0))
+            .is_some());
     }
 
     #[test]
@@ -1443,14 +1470,16 @@ mod autotest_generated {
     }
 
     #[test]
-    fn from_style_transform_perspective_zero_is_infinite() {
+    fn from_style_transform_perspective_zero_is_one_pixel() {
         let p = build(
             &StyleTransform::Perspective(PixelValue::const_px(0)),
             0.0,
             0.0,
         );
-        // perspective(0) => -1/0 => -inf. No panic, but a poisoned matrix.
-        assert!(p.m[2][3].is_infinite() && p.m[2][3].is_sign_negative());
+        // A2-gpu-11: perspective(0) is perspective(1px) (CSS Transforms 2), a
+        // finite matrix. (Was pinned as -1/0 = -inf, "a poisoned matrix".)
+        assert_eq!(p.m[2][3], -1.0);
+        assert!(all_finite(&p));
 
         let ok = build(
             &StyleTransform::Perspective(PixelValue::const_px(100)),

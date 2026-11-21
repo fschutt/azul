@@ -261,8 +261,13 @@ impl LayoutFontMetrics {
     /// [`split_leading`]. `None` for a face without units.
     #[must_use]
     pub fn inline_box_px(&self, font_size_px: f32, line_height: &LineHeight) -> Option<(f32, f32)> {
-        let (ascent, descent, _) = self.line_metrics_px(font_size_px)?;
-        let line_height = line_height.resolve_with_metrics(font_size_px, self);
+        let (ascent, descent, line_gap) = self.line_metrics_px(font_size_px)?;
+        // `LineHeight::resolve_with_metrics` from the metrics just computed (it
+        // computed them a second time for `normal`, A8-33).
+        let line_height = match line_height {
+            LineHeight::Px(px) => *px,
+            LineHeight::Normal => ascent + descent + line_gap,
+        };
         Some(split_leading(line_height, ascent, descent))
     }
 
@@ -369,5 +374,55 @@ impl LayoutFontMetrics {
     #[must_use]
     pub const fn central_baseline(&self) -> f32 {
         f32::midpoint(self.ascent, self.descent)
+    }
+}
+
+/// Guards of the 2026-11-21 audit, area A8 (`audit/A8.md`).
+#[cfg(test)]
+mod audit_a8_tests {
+    use super::*;
+
+    /// A8-33: a glyph's inline box is the one `inline_box_px` gave when it
+    /// resolved the line height through `resolve_with_metrics` (the old body,
+    /// the reference), bit for bit, over faces with and without a boosted
+    /// ascent, negative and zero line gaps, sizes from 0 to 97 px and both
+    /// kinds of line height; a face without units still has none.
+    /// Mutation: `ascent + descent` (the gap left out) fails it.
+    #[test]
+    fn an_inline_box_is_the_box_resolved_through_the_line_height() {
+        let old = |m: &LayoutFontMetrics, size: f32, lh: &LineHeight| {
+            let (ascent, descent, _) = m.line_metrics_px(size)?;
+            let lh = lh.resolve_with_metrics(size, m);
+            Some(split_leading(lh, ascent, descent))
+        };
+        let bits = |v: Option<(f32, f32)>| v.map(|(a, b)| (a.to_bits(), b.to_bits()));
+        for units_per_em in [0_u16, 1000, 2048] {
+            for (ascent, descent, line_gap) in
+                [(800.0, -200.0, 0.0), (1854.0, -434.0, 67.0), (900.0, 0.0, -50.0), (1000.0, -300.0, 90.0)]
+            {
+                for browser_ascent_boost in [false, true] {
+                    let m = LayoutFontMetrics {
+                        ascent,
+                        descent,
+                        line_gap,
+                        units_per_em,
+                        x_height: None,
+                        cap_height: None,
+                        browser_ascent_boost,
+                    };
+                    for tenth in 0..970 {
+                        #[allow(clippy::cast_precision_loss)] // small integers
+                        let size = tenth as f32 / 10.0;
+                        for lh in [LineHeight::Normal, LineHeight::Px(size * 1.37), LineHeight::Px(0.0)] {
+                            assert_eq!(
+                                bits(m.inline_box_px(size, &lh)),
+                                bits(old(&m, size, &lh)),
+                                "{m:?} {size} {lh:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 }

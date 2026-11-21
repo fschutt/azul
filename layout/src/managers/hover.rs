@@ -194,6 +194,9 @@ pub struct HoverManager {
     /// point's next hit test: that one stands in for what was hovered before
     /// the rebuild too (see [`Self::push_hit_test`]).
     rebuilt_doms: std::collections::BTreeSet<(InputPointId, azul_core::dom::DomId)>,
+    /// The input points with a hit test newer than the last delivery of
+    /// their hover change ([`Self::hover_change_pending`]).
+    undelivered: std::collections::BTreeSet<InputPointId>,
 }
 
 impl HoverManager {
@@ -204,7 +207,35 @@ impl HoverManager {
             hover_histories: BTreeMap::new(),
             press_targets: Vec::new(),
             rebuilt_doms: std::collections::BTreeSet::new(),
+            undelivered: std::collections::BTreeSet::new(),
         }
+    }
+
+    /// Is the change between `input_id`'s last two hit tests still to be
+    /// told - has a hit test arrived since
+    /// [`Self::mark_hover_changes_delivered`]?
+    ///
+    /// The two newest frames of a history are a DELTA, like the two window
+    /// states an event pass diffs: what entered and what left between them is
+    /// told once. The frames stay as they are until the next hit test, though,
+    /// and an event pass runs without one for a key, a window event, a timer's
+    /// state change and for every re-run after a callback rebuilt the DOM: each
+    /// of those found the same two frames and sent the same `MouseEnter` /
+    /// `MouseLeave` / `MouseOver` / `MouseOut` again (to the callbacks, to the
+    /// `:hover` restyle and to the tooltip timer), for as long as the pointer
+    /// rested. A host that never marks a delivery (a manager fed by hand) is
+    /// told about the two frames on every ask, as before.
+    #[must_use]
+    pub fn hover_change_pending(&self, input_id: &InputPointId) -> bool {
+        self.undelivered.contains(input_id)
+    }
+
+    /// The pass that asked about the hover changes has taken them: they are
+    /// not told again until a new hit test arrives ([`Self::push_hit_test`]).
+    /// Call once per event pass, after everything that reads the two newest
+    /// frames as a change (event determination, the tooltip timer).
+    pub fn mark_hover_changes_delivered(&mut self) {
+        self.undelivered.clear();
     }
 
     /// The node `button` is currently pressed on by the PRIMARY seat, if its
@@ -378,6 +409,8 @@ impl HoverManager {
 
         // Add to front (most recent)
         history.push_front(hit_test);
+        // A new frame: what changed against the one before it is news.
+        self.undelivered.insert(input_id);
 
         let rebuilt: Vec<azul_core::dom::DomId> = self
             .rebuilt_doms
@@ -402,6 +435,7 @@ impl HoverManager {
     /// Remove an input point's history (e.g., when touch ends)
     pub fn remove_input_point(&mut self, input_id: &InputPointId) {
         self.hover_histories.remove(input_id);
+        self.undelivered.remove(input_id);
     }
 
     /// Get the most recent hit test result for an input point
@@ -481,6 +515,7 @@ impl HoverManager {
     pub fn clear(&mut self) {
         self.hover_histories.clear();
         self.rebuilt_doms.clear();
+        self.undelivered.clear();
     }
 
     /// Clear history for a specific input point

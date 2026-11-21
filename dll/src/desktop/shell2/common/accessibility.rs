@@ -204,6 +204,26 @@ impl A11yTreeFeed {
         }
     }
 
+    /// Built on demand (A3-core-10 / A10-19): the adapter holds no tree (it is not active yet,
+    /// was just activated, or missed an update), so the next update it takes has to be the whole
+    /// tree. On that path `next_update` / `initial_tree` are not called and the feed keeps no
+    /// copy of the tree (nothing is built to keep), only the phase.
+    #[must_use]
+    pub fn wants_full_tree(&self) -> bool {
+        self.phase() != ACTIVE
+    }
+
+    /// Built on demand: the adapter was activated and waits for its first tree.
+    #[must_use]
+    pub fn awaiting_tree(&self) -> bool {
+        self.phase() == AWAITING_TREE
+    }
+
+    /// Built on demand: the adapter took an update that was built inside its closure.
+    pub fn built_and_taken(&self) {
+        self.set_phase(ACTIVE);
+    }
+
     fn phase(&self) -> u8 {
         self.phase.load(std::sync::atomic::Ordering::SeqCst)
     }

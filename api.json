@@ -10495,6 +10495,66 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "TextHaloStats": {
+                        "doc": [
+                            "What the frames of this thread did with the text halos kept as",
+                            "pictures on the GPU backend: the numbers of the last scan of the",
+                            "display lists, the sums so far and what is kept now."
+                        ],
+                        "external": "azul_layout::window::TextHaloStats",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "scans": {
+                                    "type": "u64"
+                                },
+                                "created_total": {
+                                    "type": "u64"
+                                },
+                                "evicted_total": {
+                                    "type": "u64"
+                                },
+                                "created": {
+                                    "type": "u64"
+                                },
+                                "evicted": {
+                                    "type": "u64"
+                                },
+                                "pending": {
+                                    "type": "u64"
+                                },
+                                "unkept": {
+                                    "type": "u64"
+                                },
+                                "stand_ins": {
+                                    "type": "u64"
+                                },
+                                "previews": {
+                                    "type": "u64"
+                                },
+                                "frame_halos": {
+                                    "type": "u64"
+                                },
+                                "frame_box_bytes": {
+                                    "type": "u64"
+                                },
+                                "kept": {
+                                    "type": "u64"
+                                },
+                                "kept_bytes": {
+                                    "type": "u64"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -21025,6 +21085,23 @@
                                 },
                                 "fn_body": "object.get_frame_timings()"
                             },
+                            "get_text_halo_stats": {
+                                "doc": [
+                                    "What the frames of this thread did with the text halos the GPU",
+                                    "backend keeps as pictures: drawn, dropped, left for a later frame,",
+                                    "painted with a stand-in, and what one frame uses. All zero on the",
+                                    "CPU backend."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextHaloStats"
+                                },
+                                "fn_body": "object.get_text_halo_stats()"
+                            },
                             "get_scroll_momentum_phase": {
                                 "doc": [
                                     "Where the delta of the current `Scroll` callback lies in the OS's",
@@ -29295,6 +29372,43 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.with_part_of_parent(part)"
+                            },
+                            "with_virtual_view_version": {
+                                "doc": [
+                                    "States the version of what the root node's `VirtualView` shows: a number",
+                                    "the app changes whenever the view's callback would build another DOM.",
+                                    "A rebuild of the DOM around the view (`Update::RefreshDom`) that hands in",
+                                    "the same callback and the same version keeps the view as it is: its",
+                                    "callback is not invoked and its document is not laid out again. Without a",
+                                    "version every rebuild renders the view again. An explicit re-render",
+                                    "(`update_virtual_view`, `trigger_virtual_view_rerender`) always renders."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "version": "u64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.with_virtual_view_version(version)"
+                            },
+                            "set_virtual_view_version": {
+                                "doc": [
+                                    "Setter form of `with_virtual_view_version`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "version": "u64"
+                                    }
+                                ],
+                                "fn_body": "object.set_virtual_view_version(version)"
                             },
                             "with_key": {
                                 "doc": [
