@@ -31,17 +31,17 @@ mod tests {
     #[test]
     fn counts_never_make_two_structs_unequal() {
         #[derive(PartialEq, Eq, Debug)]
-        struct Counted {
+        struct StructThatHoldsAWorkCount {
             content: u32,
             work: WorkCount,
         }
         let (a, b) = (
-            Counted { content: 1, work: WorkCount::new() },
-            Counted { content: 1, work: WorkCount::new() },
+            StructThatHoldsAWorkCount { content: 1, work: WorkCount::new() },
+            StructThatHoldsAWorkCount { content: 1, work: WorkCount::new() },
         );
         b.work.add(1000);
         assert_eq!(a, b);
-        assert_ne!(a, Counted { content: 2, work: WorkCount::new() });
+        assert_ne!(a, StructThatHoldsAWorkCount { content: 2, work: WorkCount::new() });
     }
 
     /// Two threads count into one without losing a step.
