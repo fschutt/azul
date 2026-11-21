@@ -6175,8 +6175,12 @@ unsafe extern "C" {
 }
 
 impl PlatformWindow for MacOSWindow {
-    fn start_native_eyedropper(&mut self, request_id: u64) -> bool {
-        crate::desktop::eyedropper::macos::start(request_id)
+    fn start_native_eyedropper(
+        &mut self,
+        request_id: u64,
+        channel: &azul_layout::managers::eyedropper::EyedropperChannel,
+    ) -> bool {
+        crate::desktop::eyedropper::macos::start(request_id, channel)
     }
 
     fn webview_backend(
@@ -7958,7 +7962,7 @@ impl MacOSWindow {
             app_data_arc,
             undo_manager,
         );
-        common.layout_window = Some(layout_window);
+        common.set_layout_window(layout_window);
         common.owner_window_id = owner_window_id;
         common.renderer_resources = renderer_resources;
         common.render_api = wr_render_api;

@@ -21,8 +21,9 @@
 //!
 //! # Which App
 //!
-//! `App::run` makes its `SharedGlobalHotkeys` the event-loop thread's current
-//! App for the whole run ([`app`]); the pumps and the probe below act on it.
+//! `App::run` registers its services, `SharedGlobalHotkeys` included, as the App of this process
+//! ([`crate::desktop::process_app`], read by [`app`]); the pumps and the probe below act on it.
+//! A window acts on the manager it joined.
 //!
 //! # Delivery
 //!
@@ -95,10 +96,11 @@ fn wayland_session() -> bool {
     std::env::var_os("WAYLAND_DISPLAY").is_some_and(|d| !d.is_empty())
 }
 
-/// The App whose loop runs on this thread (`App::run` enters it).
+/// The hotkey manager of the App that runs in this process (`App::run` registers it,
+/// [`crate::desktop::process_app`]).
 #[must_use]
 pub fn app() -> Option<SharedGlobalHotkeys> {
-    SharedGlobalHotkeys::current()
+    crate::desktop::process_app::services().map(|services| services.hotkeys)
 }
 
 /// Choose this platform's backend for the current App WITHOUT building it:
@@ -301,7 +303,7 @@ pub(crate) fn deliver<W: PlatformWindow>(
     );
     let app_level = delivery.target == manager::HotkeySource::App;
     let callback = delivery.callback;
-    let result = manager::with_delivered_event(delivery.event, || {
+    let result = app.with_delivered_event(delivery.event, || {
         window.invoke_menu_callback(
             callback,
             MenuInvocation::Native {

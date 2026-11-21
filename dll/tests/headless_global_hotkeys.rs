@@ -32,7 +32,10 @@ use azul_core::{
 };
 use azul_layout::{
     callbacks::{Callback, CallbackInfo},
-    managers::global_hotkey::{BackendGrant, GlobalHotkeyBackend, SharedGlobalHotkeys},
+    managers::{
+        app_services::AppServices,
+        global_hotkey::{BackendGrant, GlobalHotkeyBackend, SharedGlobalHotkeys},
+    },
     window_state::WindowCreateOptions,
 };
 use rust_fontconfig::FcFontCache;
@@ -156,7 +159,13 @@ extern "C" fn declaring_layout(mut data: RefAny, info: LayoutCallbackInfo) -> Do
     Dom::create_div()
 }
 
-fn make_window(state: HotkeyState) -> HeadlessWindow {
+/// A window of the app whose hotkey manager is `shared`: it joins the app's services when it is built,
+/// as every window the app's loop builds does.
+fn make_window(state: HotkeyState, shared: &SharedGlobalHotkeys) -> HeadlessWindow {
+    let services = AppServices {
+        hotkeys: shared.clone(),
+        ..AppServices::new()
+    };
     let fc_cache = Arc::new(FcFontCache::default());
     let app_data = Arc::new(RefCell::new(RefAny::new(state)));
     let icon_provider = SharedIconProvider::from_handle(IconProviderHandle::default());
@@ -166,7 +175,7 @@ fn make_window(state: HotkeyState) -> HeadlessWindow {
     HeadlessWindow::new(
         options,
         app_data,
-        azul::desktop::shell2::common::event::SharedUndoManager::new(),
+        azul::desktop::shell2::common::event::SharedUndoManager::with_services(services),
         AppConfig::default(),
         icon_provider,
         fc_cache,
@@ -187,11 +196,10 @@ fn with_state<R>(window: &HeadlessWindow, f: impl FnOnce(&mut HotkeyState) -> R)
 #[test]
 fn the_first_layout_grabs_what_it_declares() {
     let (shared, log) = app();
-    let _app = shared.enter();
     let mut window = make_window(HotkeyState {
         enabled: true,
         ..HotkeyState::default()
-    });
+    }, &shared);
     let joined = window
         .common
         .layout_window
@@ -212,11 +220,10 @@ fn the_first_layout_grabs_what_it_declares() {
 #[test]
 fn a_second_identical_layout_touches_nothing_at_the_os() {
     let (shared, log) = app();
-    let _app = shared.enter();
     let mut window = make_window(HotkeyState {
         enabled: true,
         ..HotkeyState::default()
-    });
+    }, &shared);
     window.regenerate_layout().expect("first layout");
     let _ = log.grabs();
     window.regenerate_layout().expect("second layout");
@@ -226,11 +233,10 @@ fn a_second_identical_layout_touches_nothing_at_the_os() {
 #[test]
 fn a_refresh_that_stops_declaring_releases() {
     let (shared, log) = app();
-    let _app = shared.enter();
     let mut window = make_window(HotkeyState {
         enabled: true,
         ..HotkeyState::default()
-    });
+    }, &shared);
     window.regenerate_layout().expect("first layout");
     let _ = log.grabs();
 
@@ -248,11 +254,10 @@ fn a_refresh_that_stops_declaring_releases() {
 #[test]
 fn a_sync_without_a_new_layout_keeps_the_grab() {
     let (shared, log) = app();
-    let _app = shared.enter();
     let mut window = make_window(HotkeyState {
         enabled: true,
         ..HotkeyState::default()
-    });
+    }, &shared);
     window.regenerate_layout().expect("first layout");
     let _ = log.grabs();
     for _ in 0..3 {
@@ -267,15 +272,14 @@ fn a_sync_without_a_new_layout_keeps_the_grab() {
 #[test]
 fn closing_the_window_releases_what_only_it_declared() {
     let (shared, log) = app();
-    let _app = shared.enter();
     let mut first = make_window(HotkeyState {
         enabled: true,
         ..HotkeyState::default()
-    });
+    }, &shared);
     let mut second = make_window(HotkeyState {
         enabled: true,
         ..HotkeyState::default()
-    });
+    }, &shared);
     first.regenerate_layout().expect("first window");
     second.regenerate_layout().expect("second window");
     assert_eq!(log.grabs(), vec!["register Ctrl+Alt+K"], "one shared grab");
@@ -308,8 +312,7 @@ extern "C" fn count_press(mut data: RefAny, info: CallbackInfo) -> Update {
 fn an_app_config_hotkey_is_grabbed_and_pressed_without_any_layout() {
     let shared = SharedGlobalHotkeys::new();
     shared.install_simulated_backend();
-    let _app = shared.enter();
-    let mut stub = make_window(HotkeyState::default());
+    let mut stub = make_window(HotkeyState::default(), &shared);
     let presses = RefAny::new(Presses::default());
     shared.set_app_declarations(
         vec![azul_core::global_hotkey::GlobalHotkeyCallbackData::create(
@@ -337,12 +340,11 @@ fn an_app_config_hotkey_is_grabbed_and_pressed_without_any_layout() {
 #[test]
 fn a_status_read_costs_exactly_one_extra_layout() {
     let (shared, _log) = app();
-    let _app = shared.enter();
     let mut window = make_window(HotkeyState {
         enabled: true,
         read_status: true,
         ..HotkeyState::default()
-    });
+    }, &shared);
     window.regenerate_layout().expect("first layout");
     let _ = window.common.take_regeneration();
 

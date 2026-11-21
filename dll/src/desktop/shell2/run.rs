@@ -2743,7 +2743,12 @@ fn run_linux_windows(
                             // toplevel is the eyedropper's loupe, and the popup that
                             // asked (the color picker) has to survive to hear the
                             // answer (see managers/eyedropper.rs module docs).
-                            if !azul_layout::managers::eyedropper::in_flight_anywhere() {
+                            if !wayland_window
+                                .common
+                                .layout_window
+                                .as_ref()
+                                .is_some_and(|lw| lw.app_services.eyedropper.in_flight_anywhere())
+                            {
                                 wayland_window.dismiss_active_popup();
                             }
 

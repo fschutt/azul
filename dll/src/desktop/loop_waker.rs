@@ -162,9 +162,13 @@ pub fn must_not_park() -> bool {
     if crate::desktop::global_hotkey::has_buffered_input() {
         return true;
     }
-    azul_layout::managers::tray_event::has_queued_tray_events()
-        || azul_layout::managers::notification::has_queued_requests()
-        || azul_layout::managers::notification::has_queued_events()
+    // The App's mailboxes (the run loop is process-wide: it reads the App's services from
+    // `process_app`).
+    crate::desktop::process_app::services().is_some_and(|services| {
+        services.tray.has_queued_tray_events()
+            || services.notifications.has_queued_requests()
+            || services.notifications.has_queued_events()
+    })
 }
 
 /// The descriptors the Linux loops add to their `poll(2)` set: the wake

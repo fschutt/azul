@@ -156,6 +156,8 @@ pub mod notifications;
 /// The run loops' wake-up line for the app-level sources: their fds for the
 /// Linux poll sets, a cross-thread wake, and the per-iteration service.
 pub mod loop_waker;
+/// The App's services for the platform code that has no handle to it.
+pub mod process_app;
 /// The app-level event collector: tray, notification and hotkey callbacks,
 /// run against the most recently focused window, else the oldest.
 pub(crate) mod app_events;

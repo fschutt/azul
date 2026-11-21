@@ -780,7 +780,11 @@ impl Win32Window {
                     core::mem::size_of::<dlopen::RAWINPUTDEVICE>() as u32,
                 );
             }
-            crate::desktop::extra::hid::windows::enumerate(&win32.user32);
+            // The device list is published on the App's HID channel.
+            crate::desktop::extra::hid::windows::enumerate(
+                &win32.user32,
+                &undo_manager.services().hid,
+            );
         }
 
         // File drag-and-drop is enabled via OLE `RegisterDragDrop` (modern
@@ -821,7 +825,7 @@ impl Win32Window {
             app_data,
             undo_manager,
         );
-        common.layout_window = Some(layout_window);
+        common.set_layout_window(layout_window);
         common.owner_window_id =
             crate::desktop::shell2::common::owned_window::owner_of(&options);
         common.gl_context_ptr = gl_context_ptr;
@@ -5575,7 +5579,9 @@ unsafe extern "system" fn window_proc(
             // while unfocused. A joystick axis is not that - it carries no
             // desktop position - and gating it would make `get_hid_reports()`
             // silent unless a game happened to hold a pointer lock.
-            crate::desktop::extra::hid::windows::handle_wm_input(&window.win32.user32, lparam);
+            // The reports are parked in the App's HID channel.
+            let hid = window.common.undo_manager.services().hid.clone();
+            crate::desktop::extra::hid::windows::handle_wm_input(&window.win32.user32, &hid, lparam);
 
             let locked = window
                 .common
@@ -6678,7 +6684,11 @@ unsafe extern "system" fn window_proc(
         // (`extra::session`). A power broadcast is answered TRUE.
         crate::desktop::extra::session::windows::WM_POWERBROADCAST
         | crate::desktop::extra::session::windows::WM_WTSSESSION_CHANGE => {
-            crate::desktop::extra::session::windows::handle(msg, wparam as usize);
+            crate::desktop::extra::session::windows::handle(
+                msg,
+                wparam as usize,
+                &window.common.undo_manager.services().session,
+            );
             if msg == crate::desktop::extra::session::windows::WM_POWERBROADCAST {
                 1
             } else {

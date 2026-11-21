@@ -2361,7 +2361,7 @@ impl WaylandWindow {
             resources.app_data.clone(),
             resources.undo_manager.clone(),
         );
-        common.layout_window = Some(layout_window);
+        common.set_layout_window(layout_window);
         common.cpu_hit_tester = Some(azul_layout::headless::CpuHitTester::new());
         common.gl_context_ptr = None.into();
         common.regen = crate::desktop::shell2::common::event::RegenerationState::idle_initial();
@@ -3047,7 +3047,7 @@ impl WaylandWindow {
                 if let Ok(mut guard) = layout_window.monitors.lock() {
                     *guard = crate::desktop::display::refresh_monitors();
                 }
-                window.common.layout_window = Some(layout_window);
+                window.common.set_layout_window(layout_window);
                 // A fresh layout window starts with no tablet-device list;
                 // re-publish what the descriptive listeners accumulated.
                 window.sync_tablet_devices();
@@ -3114,7 +3114,7 @@ impl WaylandWindow {
                     if let Ok(mut guard) = layout_window.monitors.lock() {
                         *guard = crate::desktop::display::refresh_monitors();
                     }
-                    window.common.layout_window = Some(layout_window);
+                    window.common.set_layout_window(layout_window);
                     // Fresh layout window: re-publish the tablet-device list.
                     window.sync_tablet_devices();
                 }
@@ -10003,7 +10003,7 @@ impl WaylandPopup {
             parent.common.app_data.clone(),
             parent.resources.undo_manager.clone(),
         );
-        common.layout_window = Some(layout_window);
+        common.set_layout_window(layout_window);
         common.cpu_hit_tester = Some(azul_layout::headless::CpuHitTester::new());
         common.gl_context_ptr = None.into();
         common.regen = crate::desktop::shell2::common::event::RegenerationState::idle_initial();

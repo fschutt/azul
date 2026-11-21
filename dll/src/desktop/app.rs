@@ -351,13 +351,13 @@ impl App {
         crate::desktop::tray::TrayIcon::is_available()
     }
 
-    /// Make this App's global-hotkey manager the event-loop thread's current
-    /// App for as long as the returned scope lives, and choose the
-    /// platform's backend for it (built at the first sync, so a run that
-    /// turns out headless installs the simulation first and never touches
-    /// the OS). Every window the loop builds joins the manager.
-    fn enter_global_hotkeys(&self) -> azul_layout::managers::global_hotkey::AppHotkeysScope {
-        let scope = self.ptr.global_hotkeys.enter();
+    /// Make this App's services the ones the platform callbacks and the run loops reach
+    /// ([`crate::desktop::process_app`]), and choose the platform's global-hotkey backend for
+    /// it (built at the first sync, so a run that turns out headless installs the simulation
+    /// first and never touches the OS). Every window the loop builds joins the App's services
+    /// (`LayoutWindow::join_app`), hotkey manager included.
+    fn start_app_services(&self) {
+        crate::desktop::process_app::register(self.ptr.undo_manager.services());
         crate::desktop::global_hotkey::choose_platform_backend();
         // The AppConfig's own set: the static list is declared now, the
         // derived callback runs at the loop's first hotkey pump - after the
@@ -368,7 +368,6 @@ impl App {
             config.global_hotkeys_callback.to_option(),
             self.ptr.data.clone(),
         );
-        scope
     }
 
     /// Run with a tray and NO window.
@@ -396,12 +395,15 @@ impl App {
         let fc_cache = (*self.ptr.fc_cache).clone();
         let font_registry = self.ptr.font_registry.clone();
         let undo_manager = self.ptr.undo_manager.clone();
-        // A tray utility is exactly the app that notifies - and whose
-        // notifications get clicked after it restarted.
-        crate::desktop::notifications::set_app_handler(config.notification_handler.clone());
         // A tray utility's summon key is exactly what global hotkeys are for:
         // the stub window and the tray timer act on this App's manager.
-        let _global_hotkeys = self.enter_global_hotkeys();
+        self.start_app_services();
+        // A tray utility is exactly the app that notifies - and whose
+        // notifications get clicked after it restarted.
+        crate::desktop::notifications::set_app_handler(
+            self.ptr.undo_manager.services(),
+            config.notification_handler.clone(),
+        );
 
         #[cfg(target_os = "macos")]
         {
@@ -449,14 +451,18 @@ impl App {
         let fc_cache = (*self.ptr.fc_cache).clone();
         let font_registry = self.ptr.font_registry.clone();
         let undo_manager = self.ptr.undo_manager.clone();
-        // This App's global hotkeys, for the whole run: every window the loop
-        // builds declares into this manager, and the loop's pumps sync it.
-        let _global_hotkeys = self.enter_global_hotkeys();
+        // This App's services (global hotkeys included), for the whole run: every window the loop
+        // builds joins them and declares its hotkeys into this manager, and the loop's pumps
+        // sync it.
+        self.start_app_services();
 
         // The app-level notification handler, before any run loop exists: the
         // tap that LAUNCHED the app is delivered during launch, and there is
         // no notification callback in this fresh process for it to reach.
-        crate::desktop::notifications::set_app_handler(config.notification_handler.clone());
+        crate::desktop::notifications::set_app_handler(
+            self.ptr.undo_manager.services(),
+            config.notification_handler.clone(),
+        );
 
         // Publish the AppConfig snapshot the engine services read outside
         // callbacks: the updater (manifest URL, version, mode) and the
@@ -590,7 +596,7 @@ impl App {
 
         // A callback reads the clipboard outside a paste through the shells'
         // own transports.
-        azul_layout::managers::clipboard::set_system_clipboard_reader(Some(
+        self.ptr.undo_manager.services().clipboard.install(Some(
             crate::desktop::shell2::common::clipboard::read_clipboard_for_callbacks,
         ));
 
@@ -611,7 +617,7 @@ impl App {
         // The last window's workers were told to stop when it closed, without
         // the window waiting for them; the process gives them their grace now,
         // before it ends.
-        azul_layout::managers::thread_owner::join_stopping_workers();
+        self.ptr.undo_manager.services().stopping_workers.join_all();
 
         // Telemetry: persist + upload whatever the interval uploader has not
         // sent yet. Without this a SHORT run (an e2e drive, a screenshot
@@ -825,6 +831,10 @@ impl AppInternal {
             None,
         );
 
+        // The App's undo history and services come as one handle (see `SharedUndoManager`); the
+        // hotkey manager the App exposes is the one its windows join.
+        let undo_manager = crate::desktop::shell2::common::event::SharedUndoManager::new();
+        let global_hotkeys = undo_manager.services().hotkeys.clone();
         Self {
             windows: WindowCreateOptionsVec::from_const_slice(&[]),
             data: initial_data,
@@ -839,8 +849,8 @@ impl AppInternal {
                 .map(Arc::new),
             fc_cache: Box::new(fc_cache),
             font_registry,
-            undo_manager: crate::desktop::shell2::common::event::SharedUndoManager::new(),
-            global_hotkeys: azul_layout::managers::global_hotkey::SharedGlobalHotkeys::new(),
+            undo_manager,
+            global_hotkeys,
         }
     }
 }

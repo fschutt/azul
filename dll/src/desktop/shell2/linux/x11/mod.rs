@@ -3497,7 +3497,7 @@ impl X11Window {
         if let Ok(mut guard) = layout_window.monitors.lock() {
             *guard = crate::desktop::display::get_monitors();
         }
-        self.common.layout_window = Some(layout_window);
+        self.common.set_layout_window(layout_window);
         // The tablet-device list was enumerated at window creation, before
         // any layout window existed to hold it; hand it over now so
         // `CallbackInfo::get_tablet_devices` answers from the first frame.

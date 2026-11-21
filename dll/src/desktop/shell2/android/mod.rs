@@ -257,7 +257,7 @@ impl AndroidWindow {
             Arc::new(RefCell::new(app_data)),
             undo_manager,
         );
-        common.layout_window = Some(layout_window);
+        common.set_layout_window(layout_window);
         common.cpu_hit_tester = Some(azul_layout::headless::CpuHitTester::new());
 
         Ok(Self {

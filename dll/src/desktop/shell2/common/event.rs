@@ -2897,10 +2897,17 @@ pub fn ime_sync_key(window_focused: bool, layout_window: Option<&LayoutWindow>) 
 /// App-global undo/redo manager handle, shared (Arc) between the App and every
 /// window. The actual mini-git manager only exists under the `json` feature;
 /// without it every method is a no-op so the type can be threaded unconditionally.
+///
+/// It is also the handle every window of the App is given at creation, so it carries the
+/// App's [`AppServices`] too: the queues between the platform and the windows (the
+/// notification mailbox, the gamepad states, the hotkey manager, ...). A window that is
+/// handed this handle joins the App's services (`LayoutWindow::join_app`); a handle made
+/// by [`SharedUndoManager::new`] starts a set of its own, which is what every test gets.
 #[derive(Clone, Debug)]
 pub struct SharedUndoManager {
     #[cfg(feature = "json")]
     inner: Arc<std::sync::Mutex<azul_layout::json::RefAnyUndoManager>>,
+    services: azul_layout::managers::app_services::AppServices,
 }
 
 impl SharedUndoManager {
@@ -2910,7 +2917,24 @@ impl SharedUndoManager {
             inner: Arc::new(std::sync::Mutex::new(
                 azul_layout::json::RefAnyUndoManager::new(0),
             )),
+            services: azul_layout::managers::app_services::AppServices::new(),
         }
+    }
+
+    /// A handle that carries `services` as the App's: an App that wants to observe or prepare
+    /// them (the global hotkey manager of a test's recording backend), before its windows join.
+    #[must_use]
+    pub fn with_services(services: azul_layout::managers::app_services::AppServices) -> Self {
+        Self {
+            services,
+            ..Self::new()
+        }
+    }
+
+    /// The queues and slots this App's windows, run loop and platform backends share.
+    #[must_use]
+    pub const fn services(&self) -> &azul_layout::managers::app_services::AppServices {
+        &self.services
     }
 
     /// Snapshot current app state into history. No-op (returns false) without json.
@@ -3677,6 +3701,10 @@ impl CommonWindowState {
         let mut current_window_state = current_window_state;
         current_window_state.mode = initial_window_theme(requested_theme, system_style.mode);
         let desktop_theme = system_style.mode;
+        // Newer than every window the App has made, never focused.
+        let app_order = azul_layout::managers::app_target::WindowActivationOrder::for_new_window(
+            &undo_manager.services().activation_clock,
+        );
         Self {
             layout_window: None,
             current_window_state,
@@ -3703,7 +3731,7 @@ impl CommonWindowState {
             content_repaint_pending: false,
             defer_content_layout: false,
             a11y_dirty: true,
-            app_order: azul_layout::managers::app_target::WindowActivationOrder::for_new_window(),
+            app_order,
             desktop_theme,
             renderer_clear_color: None,
             close_unconfirmed: false,
@@ -3897,7 +3925,17 @@ impl CommonWindowState {
     /// `WM_SETFOCUS`), next to its `window_focused = true`. Stamps the
     /// activation clock that decides where app-level events run.
     pub fn note_focus_gained(&mut self) {
-        self.app_order.note_focused();
+        self.app_order
+            .note_focused(&self.undo_manager.services().activation_clock);
+    }
+
+    /// Give this window its `LayoutWindow`, which joins the App behind this window's
+    /// `undo_manager` first (`LayoutWindow::join_app`): it uses the App's queues and takes its
+    /// place in the App's global hotkeys from its first callback on. Every backend installs its
+    /// layout window through here, right after building it.
+    pub fn set_layout_window(&mut self, mut layout_window: LayoutWindow) {
+        layout_window.join_app(self.undo_manager.services());
+        self.layout_window = Some(layout_window);
     }
 
     /// Everything a layout pass needs from here, as disjoint borrows — see
@@ -5749,9 +5787,13 @@ pub trait PlatformWindow {
     fn apply_window_shape(&mut self, _rects: &[azul_layout::cpurender::ShapeRect]) {}
 
     /// Start the OS's own eyedropper for `request_id` (macOS: the system
-    /// sampler). `true` if one started - the answer arrives through
-    /// `azul_layout::managers::eyedropper::push_result`. The default has none.
-    fn start_native_eyedropper(&mut self, _request_id: u64) -> bool {
+    /// sampler). `true` if one started - the answer arrives through the app's `channel`
+    /// (`EyedropperChannel::push_result`). The default has none.
+    fn start_native_eyedropper(
+        &mut self,
+        _request_id: u64,
+        _channel: &azul_layout::managers::eyedropper::EyedropperChannel,
+    ) -> bool {
         false
     }
 
@@ -5767,13 +5809,20 @@ pub trait PlatformWindow {
     /// neither can serve is answered "cancelled" so the asking callback is
     /// not left waiting.
     fn dispatch_eyedropper_requests(&mut self) {
-        for req in azul_layout::managers::eyedropper::drain_requests() {
-            if self.start_native_eyedropper(req.request_id) {
+        // The app's channel: the picks its windows queued, and where the answers are parked.
+        let Some(channel) = self
+            .get_layout_window()
+            .map(|lw| lw.app_services.eyedropper.clone())
+        else {
+            return;
+        };
+        for req in channel.drain_requests() {
+            if self.start_native_eyedropper(req.request_id, &channel) {
                 continue;
             }
             let dpi = self.get_current_window_state().size.dpi;
             match self.capture_screen_for_eyedropper().and_then(|shot| {
-                crate::desktop::eyedropper::loupe_window(shot, req.request_id, dpi)
+                crate::desktop::eyedropper::loupe_window(shot, req.request_id, dpi, &channel)
             }) {
                 Some(options) => {
                     log_debug!(
@@ -5783,7 +5832,7 @@ pub trait PlatformWindow {
                     );
                     self.queue_window_create(options);
                 }
-                None => crate::desktop::eyedropper::finish(req.request_id, None),
+                None => crate::desktop::eyedropper::finish(&channel, req.request_id, None),
             }
         }
     }
@@ -5950,7 +5999,11 @@ pub trait PlatformWindow {
             return;
         }
 
-        if let Some(cause) = popup_dismiss_cause(&previous, &current) {
+        // A pick the app runs keeps its popups open (the loupe takes the focus).
+        let pick_in_flight = self
+            .get_layout_window()
+            .is_some_and(|lw| lw.app_services.eyedropper.in_flight_anywhere());
+        if let Some(cause) = popup_dismiss_cause(&previous, &current, pick_in_flight) {
             // A window-based MENU (a fallback / headless menu window) has no
             // mailbox and no parent node to post to: it just closes, and its
             // owner takes the rest of the chain down with it. It used to stay
@@ -7804,8 +7857,8 @@ pub trait PlatformWindow {
                 // here; dispatched right away (the loupe is queued, or the
                 // system sampler starts) rather than on the next pump.
                 if let Some(lw) = self.get_layout_window_mut() {
-                    let id = lw.eyedropper_manager.begin_request();
-                    azul_layout::managers::eyedropper::push_request(
+                    let id = lw.eyedropper_manager.begin_request(&lw.app_services.eyedropper);
+                    lw.app_services.eyedropper.push_request(
                         azul_layout::managers::eyedropper::EyedropperRequest { request_id: id },
                     );
                 }
@@ -8361,7 +8414,12 @@ pub trait PlatformWindow {
                 // and later through its own channel when it cannot (Android's
                 // delayed grant): both land as `SystemAudioChange` events.
                 use azul_core::media_session::SystemAudioChange;
-                let answer = crate::desktop::extra::media_keys::set_system_audio_takeover(*active);
+                let answer = self.get_layout_window().and_then(|lw| {
+                    crate::desktop::extra::media_keys::set_system_audio_takeover(
+                        *active,
+                        &lw.app_services.media_keys,
+                    )
+                });
                 if let Some(lw) = self.get_layout_window_mut() {
                     lw.media_session_manager.set_system_audio_active(*active);
                     if *active {
@@ -11918,30 +11976,34 @@ pub trait PlatformWindow {
         // the Win32 `WM_APPCOMMAND` arm does: neither transport has a release,
         // and leaving the key latched would make it look held forever.
         if depth == 0 {
-            crate::desktop::extra::media_keys::ensure_started(self.get_raw_window_handle());
+            let window = self.get_raw_window_handle();
+            if let Some(lw) = self.get_layout_window() {
+                crate::desktop::extra::media_keys::ensure_started(window, &lw.app_services);
+            }
             // SEEKS (9h-i-a-i-a) ride the same drain: into the media session
             // manager, whose `EventProvider` impl turns each into a
             // `MediaControl` event at the root on this pass. And the other
             // direction: a position jump the app reported is announced to
             // the desktop (MPRIS `Seeked`) so its scrubber re-syncs.
-            for request in azul_layout::managers::media_keys::drain_media_controls() {
-                if let Some(lw) = self.get_layout_window_mut() {
+            if let Some(lw) = self.get_layout_window_mut() {
+                for request in lw.app_services.media_keys.drain_media_controls() {
                     lw.media_session_manager.push_request(request);
                 }
             }
             // SESSION CHANGES (the screen locked, the machine sleeps), from
-            // the platform's observers: each window reads the process's log
+            // the platform's observers: each window reads the app's log
             // for itself and the change is a `SessionChange` event at its
             // root on this pass.
-            crate::desktop::extra::session::ensure_started();
             if let Some(lw) = self.get_layout_window_mut() {
-                lw.device_event_manager.read_session_log();
+                crate::desktop::extra::session::ensure_started(&lw.app_services.session);
+                lw.device_event_manager
+                    .read_session_log(&lw.app_services.session);
             }
             // SYSTEM AUDIO CHANGES (9h-i-a-i-d-i) ride the same drain: an iOS
             // interruption or an Android focus change becomes a
             // `SystemAudioChange` event on this pass.
-            for change in azul_layout::managers::media_keys::drain_system_audio_changes() {
-                if let Some(lw) = self.get_layout_window_mut() {
+            if let Some(lw) = self.get_layout_window_mut() {
+                for change in lw.app_services.media_keys.drain_system_audio_changes() {
                     lw.media_session_manager.push_system_audio_change(change);
                 }
             }
@@ -11951,7 +12013,10 @@ pub trait PlatformWindow {
             {
                 crate::desktop::extra::media_keys::announce_seeked(position_us);
             }
-            let keys = azul_layout::managers::media_keys::drain_media_keys();
+            let keys = self
+                .get_layout_window()
+                .map(|lw| lw.app_services.media_keys.drain_media_keys())
+                .unwrap_or_default();
             for key in keys {
                 use azul_core::window::OptionVirtualKeyCode;
                 self.get_common_mut()
@@ -12001,7 +12066,10 @@ pub trait PlatformWindow {
         // first answer a request meant for the other, which is a coin flip.
         if depth == 0 {
             let id = self.registry_window_id();
-            if azul_layout::managers::window_activation::take_raise_request(id) {
+            if self
+                .get_layout_window()
+                .is_some_and(|lw| lw.app_services.raise.take_raise_request(id))
+            {
                 let handle = self.get_raw_window_handle();
                 if !crate::desktop::extra::window_activation::raise_window(handle) {
                     // A REFUSAL IS AN ANSWER, not a failure to retry: Windows
@@ -12054,7 +12122,13 @@ pub trait PlatformWindow {
                 .and_then(|lw| lw.media_session_manager.take_if_dirty());
             if let Some(info) = announce {
                 let window = self.get_raw_window_handle();
-                crate::desktop::extra::media_keys::publish_now_playing(&info, window);
+                if let Some(lw) = self.get_layout_window() {
+                    crate::desktop::extra::media_keys::publish_now_playing(
+                        &info,
+                        window,
+                        &lw.app_services,
+                    );
+                }
             }
         }
 
