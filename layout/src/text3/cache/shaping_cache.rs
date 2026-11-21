@@ -1662,4 +1662,70 @@ mod audit_a8_tests {
         pass(&mut cache);
         assert_eq!(shaped(), after_first, "the next pass over the same text shapes nothing");
     }
+
+    /// A8-16 (wrong output): the same text of the same node laid out at
+    /// 21.0 px, then at 21.3 px (a zoom settle), then back, gets logical items
+    /// that carry the style it is laid out in. The first stage keyed them by
+    /// a style hash that rounded the size, so 21.3 px was served the 21.0 px
+    /// items - and shaped and drawn at 21.0 px.
+    /// Mutation: round the size in `StyleProperties::hash` again.
+    #[test]
+    fn a_paragraph_whose_size_changes_by_less_than_a_pixel_is_laid_out_at_the_new_size() {
+        let fm: FontManager<FontRef> =
+            FontManager::new(FcFontCache::default()).expect("a font manager");
+        let selectors = vec![FontSelector {
+            family: "Azul Mock Mono".to_string(),
+            ..FontSelector::default()
+        }];
+        let key = FontChainKey::from_selectors(&selectors);
+        let chain = resolve_chain_on_miss(&key, &fm.fc_cache);
+        let mut chains = HashMap::new();
+        chains.insert(key.clone(), chain.clone());
+        let mut resolved = crate::solver3::getters::ResolvedFontChains::default();
+        resolved.chains.insert(FontChainKeyOrRef::Chain(key), chain);
+        let loader = crate::text3::default::PathLoader::new();
+        let failed = fm.load_missing_for_chains(&resolved, |bytes, index| {
+            loader.load_font_shared(bytes, index)
+        });
+        assert!(failed.is_empty(), "premise: the mock face loads: {failed:?}");
+        let loaded = fm.get_loaded_fonts();
+        let constraints = UnifiedConstraints::default();
+        let content = |px: f32| {
+            vec![InlineContent::Text(StyledRun {
+                text: Arc::from("Hauptstrasse"),
+                style: Arc::new(StyleProperties {
+                    font_stack: FontStack::Stack(selectors.clone()),
+                    font_size_px: px,
+                    ..StyleProperties::default()
+                }),
+                logical_start_byte: 0,
+                source_node_id: None,
+            })]
+        };
+        let mut cache = TextShapingCache::new();
+        for px in [21.0_f32, 21.3, 21.0, 21.4] {
+            let (logical, _) = cache
+                .shape_content(
+                    &content(px),
+                    &[],
+                    &constraints,
+                    &chains,
+                    &fm.fc_cache,
+                    &loaded,
+                    &mut None,
+                )
+                .expect("the paragraph shapes");
+            let sizes: Vec<f32> = logical
+                .iter()
+                .filter_map(|item| match item {
+                    LogicalItem::Text { style, .. } => Some(style.font_size_px),
+                    _ => None,
+                })
+                .collect();
+            assert!(
+                !sizes.is_empty() && sizes.iter().all(|size| size.to_bits() == px.to_bits()),
+                "laid out at {px} px, its logical items are at {sizes:?}"
+            );
+        }
+    }
 }
