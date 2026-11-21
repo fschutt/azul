@@ -1167,3 +1167,21 @@ the hit tester composes the chain per node, so two nested frames are its ordinar
 `get_rect` / the cull box read the graph (model coordinates), not the DOM. Keep the switch
 `AZ_NODEGRAPH_PAN=nodes` (per-node writes) and decide its default by the picture on the real window: drag a
 node, pan, pan across the culling edge, undo a move after a pan.
+
+## api.json
+
+No change by this area so far (A6-13, 25b, 17c, 56 are internal to `azul-layout`: `ScrollManager`'s new
+methods, `layout_tree::DomBoxes` and the bridge's journal are not part of the public API). Row 34 will add: a
+transient-content callback type and `NodeData::set_transient_content` / `Dom::with_transient_content` (third
+hand-over, 34 point 1).
+
+## What to look at on the real window (third agent's rows)
+
+- A6-13: a view with a scrollbar (a `VirtualView` whose document is longer than its box): the bar is there after
+  a resize, fades after a scroll, its thumb follows the wheel and can be dragged; type into a text field of the
+  same window while the bar is shown (the fold in `reshape_text_node`), let a caret blink beside it (the fold in
+  `regenerate_display_list_for_dom`): the bar stays.
+- 17c: flex layouts after a resize and while typing: a row of cards, a toolbar, the node graph's fields, a
+  split pane. A box that keeps a stale size or stale text lines after a neighbour changed is this row; compare
+  with `AZ_NO_TAFFY_MEASURE_JOURNAL=1`.
+- 56: a row of floats that fills its box exactly keeps its last float on the line.
