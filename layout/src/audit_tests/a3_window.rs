@@ -1733,3 +1733,88 @@ fn the_pass_after_a_write_compares_the_written_node_alone() {
         );
     }
 }
+
+// -- A3-window-43: a node dragged inside a view moves by a value; its view's list opens the frame
+
+/// The reference frames the list of `dom` opens under `key`.
+fn frames_under(lw: &LayoutWindow, dom: DomId, key: azul_core::resources::TransformKey) -> usize {
+    lw.layout_results[&dom]
+        .display_list
+        .items
+        .iter()
+        .filter(|item| {
+            matches!(item, DisplayListItem::PushReferenceFrame { transform_key, .. } if *transform_key == key)
+        })
+        .count()
+}
+
+/// Label 0 of a view (node 1 of its document) is dragged: the first move builds the VIEW's
+/// list once, which opens the node's frame, and asks for a repaint; every later move writes a
+/// value and builds nothing; the window's own list is the allocation it was throughout. The
+/// first move used to ask for the display-list tier, for which the shell builds the window's
+/// list and never the view's.
+#[test]
+fn a_node_dragged_inside_a_view_moves_by_a_value_after_its_first_move() {
+    use azul_core::{
+        drag::{DragContext, DragData},
+        events::ProcessEventResult,
+    };
+
+    let (mut lw, child) = label_window(16);
+    let node = NodeId::new(1);
+    let press = LogicalPosition::new(20.0, 15.0);
+    // A weak reference: it names the list by its allocation and keeps that allocation from
+    // being handed to a list built later.
+    let windows_list = Arc::downgrade(&lw.layout_results[&DomId::ROOT_ID].display_list);
+    lw.gesture_drag_manager.active_drag =
+        Some(DragContext::node_drag(child, node, press, DragData::default(), 1));
+    lw.frame_report.reset_counters();
+
+    lw.gesture_drag_manager
+        .update_active_drag_positions(LogicalPosition::new(30.0, 18.0));
+    assert_eq!(
+        lw.update_drag_visual(),
+        ProcessEventResult::ShouldReRenderCurrentWindow,
+        "the first move: the view's list is built here, the frame is a repaint"
+    );
+    assert_eq!(lw.frame_report.dl_rebuilds, 1, "the view's list, once");
+    let key = lw
+        .gpu_state_manager
+        .caches
+        .get(&child)
+        .and_then(|cache| cache.anim_transform_keys.get(&node).copied())
+        .expect("the dragged node is keyed");
+    assert_eq!(frames_under(&lw, child, key), 1, "the view's list opens the node's frame");
+
+    for step in 1..=5 {
+        let pointer = LogicalPosition::new(30.0 + 7.0 * step as f32, 18.0 + 3.0 * step as f32);
+        lw.gesture_drag_manager.update_active_drag_positions(pointer);
+        assert_eq!(lw.update_drag_visual(), ProcessEventResult::ShouldReRenderCurrentWindow);
+        let value = lw
+            .gpu_state_manager
+            .caches
+            .get(&child)
+            .and_then(|cache| cache.anim_current_transform_values.get(&node).copied())
+            .expect("the dragged node has a value");
+        assert_eq!(
+            value,
+            azul_core::transform::ComputedTransform3D::new_translation(
+                pointer.x - press.x,
+                pointer.y - press.y,
+                0.0
+            ),
+            "move {step}: the pointer's way since the press"
+        );
+    }
+    assert_eq!(lw.frame_report.dl_rebuilds, 1, "five moves built no list");
+    assert!(
+        core::ptr::eq(
+            windows_list.as_ptr(),
+            Arc::as_ptr(&lw.layout_results[&DomId::ROOT_ID].display_list)
+        ),
+        "the window's own list is the allocation it was"
+    );
+
+    assert!(lw.end_drag_visual(), "the drag moved something back");
+    assert_eq!(frames_under(&lw, child, key), 0, "the view's list closed the frame");
+}

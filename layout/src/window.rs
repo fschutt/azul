@@ -10971,6 +10971,14 @@ impl LayoutWindow {
         cache.note_value_write();
         if keyed && previous.is_some() {
             ProcessEventResult::ShouldReRenderCurrentWindow
+        } else if dom_id != DomId::ROOT_ID {
+            // The node is in a view's document: that document's list opens the frame, and
+            // it is built here. The display-list tier means the WINDOW's list to the shells
+            // (macOS builds the root's list for it and no other): the view's list never
+            // opened the frame, so the dragged node stayed put, and the window's list was
+            // built for nothing.
+            self.regenerate_display_list_for_dom(dom_id);
+            ProcessEventResult::ShouldReRenderCurrentWindow
         } else {
             ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
         }
@@ -10990,6 +10998,11 @@ impl LayoutWindow {
             cache.anim_transform_keys.remove(&node);
             cache.anim_current_transform_values.remove(&node);
             cache.note_value_write();
+        }
+        // A view's document closes the frame it opened for the drag here: no caller builds
+        // the list of a DOM that is not the window's.
+        if dom != DomId::ROOT_ID {
+            self.regenerate_display_list_for_dom(dom);
         }
         true
     }
