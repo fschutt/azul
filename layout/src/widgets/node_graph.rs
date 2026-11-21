@@ -1128,20 +1128,33 @@ impl NodeGraph {
         let marker_prefix = next_marker_prefix();
         let connections_marker: AzString = format!("{}-connections", marker_prefix.as_str()).into();
 
+        let callbacks = self.callbacks.clone();
+        let culled = view.map(|view| CulledDom::of(&self, view));
+        // The graph MOVES into the dataset - a render makes no copy of it -
+        // and the build reads it back from there (`graph`, below).
         let node_graph_local_dataset = RefAny::new(NodeGraphLocalDataset {
-            node_graph: self.clone(), // TODO: expensive
+            node_graph: self,
             last_input_or_output_clicked: None,
             active_node_being_dragged: None,
             marker_prefix: marker_prefix.clone(),
-            callbacks: self.callbacks.clone(),
-            culled: view.map(|view| CulledDom::of(&self, view)),
+            callbacks,
+            culled,
             graph_dragged: false,
         });
+        // A second handle on the dataset, borrowed shared until the DOM is
+        // built: the nodes' datasets take clones of the first handle, and
+        // `render_node` reads the port types through them, shared too.
+        let mut graph_handle = node_graph_local_dataset.clone();
+        let Some(dataset) = graph_handle.downcast_ref::<NodeGraphLocalDataset>() else {
+            // Not reached: the dataset was made just above, nothing borrows it.
+            return Dom::create_div();
+        };
+        let graph = &dataset.node_graph;
 
         let context_menu = Menu::create(
             vec![MenuItem::String(
-                StringMenuItem::create(self.add_node_str.clone()).with_children(
-                    self.node_types
+                StringMenuItem::create(graph.add_node_str.clone()).with_children(
+                    graph.node_types
                         .iter()
                         .map(
                             |NodeTypeIdInfoMap {
@@ -1171,7 +1184,7 @@ impl NodeGraph {
             .into(),
         );
 
-        Dom::create_div()
+        let dom = Dom::create_div()
             .with_css_props(nodegraph_wrapper_props.into())
             .with_context_menu(context_menu)
             .with_children(
@@ -1202,19 +1215,19 @@ impl NodeGraph {
                     .with_children({
                         vec![
                             // connections
-                            render_connections(&self, connections_marker, view.as_ref()),
+                            render_connections(graph, connections_marker, view.as_ref()),
                             // nodes
-                            self.nodes
+                            graph.nodes
                                 .iter()
                                 .filter_map(|NodeIdNodeMap { node_id, node }| {
-                                    let node_type_info = self
+                                    let node_type_info = graph
                                         .node_types
                                         .iter()
                                         .find(|i| i.node_type_id == node.node_type)?;
                                     // A node nowhere near the box gets no DOM.
                                     if let Some(view) = view.as_ref() {
                                         if !node_in_view(
-                                            &self,
+                                            graph,
                                             &node_type_info.node_type_info,
                                             node,
                                             view,
@@ -1229,10 +1242,10 @@ impl NodeGraph {
 
                                     Some(render_node(
                                         node,
-                                        (self.offset.x, self.offset.y),
+                                        (graph.offset.x, graph.offset.y),
                                         &node_type_info.node_type_info,
                                         node_local_dataset,
-                                        self.scale_factor,
+                                        graph.scale_factor,
                                         node_marker(&marker_prefix, *node_id),
                                     ))
                                 })
@@ -1251,7 +1264,10 @@ impl NodeGraph {
             .with_dataset(Some(node_graph_local_dataset).into())
             // The wrapper's marker: what the context-menu callback resolves
             // to place a new node relative to this graph's on-screen box.
-            .with_marker(Some(marker_prefix).into())
+            .with_marker(Some(marker_prefix).into());
+        // The DOM is built: the dataset is the callbacks' to borrow.
+        drop(dataset);
+        dom
     }
 }
 
@@ -7517,6 +7533,64 @@ mod audit_a3_solver_tests {
                 })]
                 .into()
             )
+        );
+    }
+
+    /// How many nodes of `dom` carry the class `name`.
+    fn with_class(dom: &Dom, name: &str) -> usize {
+        let own = dom
+            .root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == name));
+        usize::from(own)
+            + dom
+                .children
+                .as_ref()
+                .iter()
+                .map(|child| with_class(child, name))
+                .sum::<usize>()
+    }
+
+    /// A3-solver-35e. A render cloned the whole graph into its dataset (every
+    /// node with its fields and connections, every type) and built the DOM
+    /// from the original. The graph moves into the dataset and the DOM is
+    /// built from it there. Counted: of the graph's three lists, how many the
+    /// dataset holds in the allocation the caller made - 3, where a copy of
+    /// the graph has none of them.
+    ///
+    /// The DOM is the same: the nodes still read their port types through the
+    /// dataset while the builder borrows it (8 nodes, an input and an output
+    /// port each).
+    ///
+    /// Mutation: `node_graph: self.clone()` in `dom_in_view` counts 0.
+    #[test]
+    fn a_render_moves_the_graph_into_its_dataset_and_copies_none_of_it() {
+        let g = column(8);
+        let made = [
+            g.nodes.as_ref().as_ptr() as usize,
+            g.node_types.as_ref().as_ptr() as usize,
+            g.input_output_types.as_ref().as_ptr() as usize,
+        ];
+        let dom = g.dom_in_view(VIEW);
+        let mut data = dom.root.get_dataset().expect("the wrapper's dataset").clone();
+        let local = data
+            .downcast_ref::<NodeGraphLocalDataset>()
+            .expect("the graph's dataset");
+        let held = [
+            local.node_graph.nodes.as_ref().as_ptr() as usize,
+            local.node_graph.node_types.as_ref().as_ptr() as usize,
+            local.node_graph.input_output_types.as_ref().as_ptr() as usize,
+        ];
+        let moved = made.iter().zip(held.iter()).filter(|(a, b)| a == b).count();
+        assert_eq!(moved, 3, "the render copied {} of the graph's three lists", 3 - moved);
+        assert_eq!(local.node_graph.nodes.len(), 8);
+        assert_eq!(with_dom(&dom), (8, 7), "every node and wire of the column has DOM");
+        assert_eq!(
+            (with_class(&dom, "node_input"), with_class(&dom, "node_output")),
+            (8, 8),
+            "the ports a node renders from the dataset's port types"
         );
     }
 }
