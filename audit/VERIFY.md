@@ -44,8 +44,20 @@ Merged into `audit/integration` by the verifier (all without conflict unless sai
 Generated code:
 - `css/src/codegen/lower_types.rs` (tracked): current (`python3 css/tools/gen_codegen_lowering.py`: no change after
   any merge round since `5db5f406d`).
-- `<worktree>/target/codegen` (untracked; what `dll/build.rs` checks and `dll/src/lib.rs` includes), made from
-  the `api.json` of head `f55c9cd9f` (unchanged by every merge since): CURRENT are the Rust outputs
+- SECOND ROUND (fourth verifier): `target/codegen` was made AGAIN from the `api.json` of `eb8d93d88` (the merge of
+  `audit/A3-solver` at `8539c5b03`: `callbacks.TransientContentCallbackType`, `dom.TransientContentCallback`,
+  `Dom.with_transient_content` / `set_transient_content`, `NodeData.set_transient_content`; +109 lines), the same
+  way as below: `cargo build -p azul-doc` (dev, 1 min 23 s), `<target>/debug/azul-doc codegen all` from the
+  worktree root, killed when `[14/35]` appeared (211 s; NOTE: the generator EMPTIES `target/codegen` when it
+  starts, so a run stopped early loses the files of the later steps, `api.json.br` and `material_icons.ttf.br`:
+  a first run stopped at 160 s had to be repeated), the C / C++ headers of steps 4-10 deleted, `api.json.br` made
+  with python (minified, key order kept) + `brotli -q 11` (324,897 bytes), `material_icons.ttf.br` copied back
+  from the editor's bindings (identical to `~/Development/m4p-bin/azul-codegen-19e207928/`). Sizes:
+  `dll_api_internal.rs` 24,990,864, `dll_api_external.rs` 10,153,413, `reexports.rs` 384,165, `azul.rs` 9,895,717,
+  `python_api.rs` 17,631,237, `php_api.rs` 196,369, `memtest.rs` 26,971,691. THE EDITOR'S BINDINGS
+  (`mapedit3/target/azul-codegen`) must be made from this directory at the next pin move (`api.json` changed).
+- `<worktree>/target/codegen` (untracked; what `dll/build.rs` checks and `dll/src/lib.rs` includes), FIRST made from
+  the `api.json` of head `f55c9cd9f` (unchanged by every merge of the first round): the Rust outputs
   `dll_api_internal.rs`, `dll_api_external.rs`, `reexports.rs`, `python_api.rs`, `php_api.rs`, `memtest.rs`,
   `azul.rs`, and `api.json.br` (made here with the `brotli` CLI, quality 11, from the minified `api.json`: the
   generator writes it last) and `material_icons.ttf.br` (copied from the editor's codegen directory: the same font).
@@ -310,9 +322,27 @@ editor's pin moves once, after the last green merge of the round, on its word):
   the merge (milestone 6 stands). NOT run for 2a: the Linux / Windows `cargo check` (shared code changed:
   `layout/`, `dll/.../common/layout.rs`): once before the pin moves, at the end of the round. `api.json`
   unchanged by 2a. The coordinator pushes; the verifier pushes nothing.
-- 2b `audit/A3-solver` at `8539c5b03` (an `api.json` addition: the Rust outputs of `target/codegen` must be made
-  again, see "Generated code"), 2c `audit/A5` at `dbde1ccf5`, 2d `audit/dom-builder` at `234ec3de2`: NOT merged
-  yet. A dry `git merge-tree` of each against `70b0434de` showed no conflict.
+- After 2a, on the coordinator's word: `5bad31036` (a carried box whose DOM node id changed also re-emits the
+  root of its inline context; row 4 under "ROWS FOR THE LEDGER").
+- **2b `audit/A3-solver` at `8539c5b03`: MERGED as `eb8d93d88`** (no conflict; A3-solver-34, the lazy picker
+  panel; `api.json` +109 lines). `target/codegen` made again for Rust (see "Generated code": how, and that the
+  generator empties the directory first). 0 compile errors anywhere, no fix. THE GATE on `eb8d93d88`
+  (`gate4.sh`, logs `530`..`534`): core lib 3,147 / 0; core `--tests` 0 failed (rc 0); layout lib 10,919 / 0 /
+  1 ignored, `tests/all` 3,060 / 0 / 5 (the area's four tests and the 26 of `color_input.rs` are in these);
+  dll lib 3,874 / 1 / 9 ignored; `headless_lifecycle` 8 / 0.
+  The 1: `shell2::macos::headless_gpu::retained_list_tests::a_zoom_step_of_a_view_draws_no_tile_again_and_the_settle_draws_them_once`
+  ("every step of the zoom drew tiles again: [1, 2, 1, 2, 1]"): a TEST RACE on the process-wide tile counter
+  (`webrender::azul_counters`), which the test's own comment names: it takes the smallest count of five steps,
+  and in the parallel schedule of this binary (3,884 tests, one more than before: the generated `memtest`) a
+  neighbour draws during all five. Measured: whole suite in parallel 3 of 3 red (`533`, `536-1`, `536-2`); the
+  test alone 5 of 5 green; with its module 3 of 3 green; the WHOLE suite with `--test-threads=1`: 3,875 / 0 / 9
+  (`537`, 217 s). It was green in the three parallel runs of the 2a tree. WITH THE COORDINATOR (proposal: every
+  test that draws with the real renderer holds one process-wide lock through `HeadlessGpu`, so the counts are
+  exact; the assertion stays).
+- 2c `audit/A5` at `dbde1ccf5`, 2d `audit/dom-builder` at `234ec3de2` (a second `api.json` addition: the Rust
+  outputs once more): NOT merged yet.
+- At the end of the round: the Linux / Windows `cargo check`; then, on the coordinator's word, the editor's pin
+  (bindings from the new `target/codegen`), and one `AZ_PATCH_DEBUG=1` e2e run for row 6.
 <!-- STATE4-END -->
 
 <!-- STATE3-BEGIN -->
