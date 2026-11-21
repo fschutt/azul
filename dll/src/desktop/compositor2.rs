@@ -183,6 +183,37 @@ fn show_hit_test_overlay() -> bool {
     *ON.get_or_init(|| azul_core::window::DebugState::from_az_overlay_env().show_hit_test_areas)
 }
 
+/// Whether the hit-test areas of a display list are handed to WebRender
+/// (`AZ_WR_HIT_TEST=1`; off by default).
+///
+/// Nothing in azul asks WebRender's hit tester any more: every backend answers
+/// from the layout's own (`CommonWindowState::perform_hit_test`). The items
+/// were still translated - 3,703 of the 17,495 items of a map view - put into
+/// the scene's hit-testing scene, and they made the render backend build a new
+/// hit tester over every spatial node after each scroll offset or property
+/// value that changed (`Document::rebuild_hit_tester`): once per pan frame and
+/// per zoom step (audit A4-03). Read once per process, like the overlay switch.
+fn wr_hit_test_items() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("AZ_WR_HIT_TEST").map(|v| v == "1").unwrap_or(false))
+}
+
+/// `builder.push_hit_test` for the lists that still feed WebRender's hit
+/// tester ([`wr_hit_test_items`]); nothing otherwise.
+#[inline]
+fn push_wr_hit_test(
+    builder: &mut WrDisplayListBuilder,
+    rect: LayoutRect,
+    clip_chain_id: WrClipChainId,
+    spatial_id: SpatialId,
+    flags: WrPrimitiveFlags,
+    tag: ItemTag,
+) {
+    if wr_hit_test_items() {
+        builder.push_hit_test(rect, clip_chain_id, spatial_id, flags, tag);
+    }
+}
+
 #[cfg(test)]
 thread_local! {
     /// How many display lists [`translate_displaylist_to_wr`] has translated on
@@ -542,7 +573,7 @@ pub fn translate_displaylist_to_wr(
                         *scrollbar_hit_id,
                     );
 
-                    builder.push_hit_test(
+                    push_wr_hit_test(&mut builder,
                         rect,
                         current_clip_chain,
                         current_spatial_id,
@@ -672,7 +703,7 @@ pub fn translate_displaylist_to_wr(
                             crate::desktop::wr_translate2::wr_translate_scrollbar_hit_id(
                                 track_hit_id,
                             );
-                        builder.push_hit_test(
+                        push_wr_hit_test(&mut builder,
                             track_rect,
                             clip_chain_id,
                             spatial_id,
@@ -823,7 +854,7 @@ pub fn translate_displaylist_to_wr(
                     let (tag, _) = crate::desktop::wr_translate2::wr_translate_scrollbar_hit_id(
                         *scrollbar_hit_id,
                     );
-                    builder.push_hit_test(
+                    push_wr_hit_test(&mut builder,
                         thumb_rect,
                         clip_chain_id,
                         thumb_spatial_id,
@@ -1113,7 +1144,7 @@ pub fn translate_displaylist_to_wr(
                 // during wheel/trackpad events. This uses TAG_TYPE_SCROLL_CONTAINER (0x0500).
                 // The tag encodes: tag.0 = scroll_id, tag.1 = 0x0500
                 let scroll_container_tag: ItemTag = (*scroll_id, TAG_TYPE_SCROLL_CONTAINER);
-                builder.push_hit_test(
+                push_wr_hit_test(&mut builder,
                     adjusted_frame_rect,
                     scroll_clip_chain, // Use the scroll clip chain we just created
                     parent_space,      // Push in parent space (stationary viewport)
@@ -1199,7 +1230,7 @@ pub fn translate_displaylist_to_wr(
 
                 // Use WebRender's push_hit_test to create a hittable area
                 // This is required for the hit tester to find items at cursor position
-                builder.push_hit_test(
+                push_wr_hit_test(&mut builder,
                     rect,
                     current_clip!(),
                     current_spatial!(),
@@ -4539,5 +4570,47 @@ mod log_volume_tests {
             trace >= ITEMS,
             "AZ_LOG=trace keeps the per-item dump: at least {ITEMS} records, got {trace}"
         );
+    }
+}
+
+#[cfg(test)]
+mod audit_a4_tests {
+    //! A4-03: what the translation leaves out, counted in the built list.
+    use azul_layout::solver3::display_list::DisplayListItem;
+    use webrender::api::DisplayItem;
+
+    use super::stacking_context_tests::{built, rect};
+
+    /// The hit-test areas of a list are not WebRender's business: azul's own hit
+    /// tester answers every pointer, so a list of n hit areas reaches WebRender
+    /// with none (and a scene without hit-test items rebuilds no hit tester).
+    /// Mutation: `push_wr_hit_test` pushing unconditionally -> 64 items, not 0.
+    #[test]
+    fn a4_03_hit_test_areas_are_not_sent_to_webrender() {
+        let mut items = Vec::new();
+        for i in 0..64u16 {
+            let r = rect(f32::from(i) * 4.0, 10.0, 3.0, 12.0);
+            items.push(DisplayListItem::Rect {
+                bounds: r.into(),
+                color: azul_css::props::basic::color::ColorU::new(30, 60, 170, 255),
+                border_radius: Default::default(),
+            });
+            items.push(DisplayListItem::HitTestArea {
+                bounds: r.into(),
+                tag: (u64::from(i), 0x0100),
+            });
+        }
+        let list = built(items, 1.0);
+        let (mut rects, mut hit_tests) = (0usize, 0usize);
+        let mut iter = list.iter();
+        while let Some(item) = iter.next() {
+            match item.item() {
+                DisplayItem::Rectangle(..) => rects += 1,
+                DisplayItem::HitTest(..) => hit_tests += 1,
+                _ => {}
+            }
+        }
+        assert_eq!(rects, 64, "what paints is translated");
+        assert_eq!(hit_tests, 0, "the hit areas stay with azul's hit tester");
     }
 }

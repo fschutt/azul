@@ -571,7 +571,12 @@ impl Document {
     }
 
     fn rebuild_hit_tester(&mut self) {
-        self.spatial_tree.update_tree(&self.dynamic_properties);
+        // The tree is brought up to date for the hit tester alone (a frame
+        // build updates it itself, `FrameBuilder::build`): a scene without
+        // hit-test items reads nothing of it (audit A4-03).
+        if !self.scene.hit_testing_scene.is_empty() {
+            self.spatial_tree.update_tree(&self.dynamic_properties);
+        }
 
         let hit_tester = Arc::new(self.scene.create_hit_tester(&self.spatial_tree));
         self.hit_tester = Some(Arc::clone(&hit_tester));
