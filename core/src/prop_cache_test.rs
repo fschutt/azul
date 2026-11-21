@@ -2292,6 +2292,7 @@ mod scoped_rule_index_tests {
         let styled = StyledDom::create_from_dom(page());
         let attempts = styled.get_css_property_cache().match_work.attempts.get();
         let nodes = styled.node_data.as_ref().len() as u64;
+        assert!(attempts > 0, "the cascade matched no selector, or its matches were not counted");
         assert!(
             attempts <= nodes * 11,
             "{attempts} selector matches for {nodes} nodes: every node was tried against \
