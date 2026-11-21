@@ -2366,6 +2366,14 @@ pub struct ImageRefHash {
     pub inner: u64,
 }
 
+impl ImageRefHash {
+    /// What a renderer key "shows" while it is only the PLACE of a node's
+    /// picture to come (`RendererResources::image_key_map` of the slot key of
+    /// a node that shows a null image): no image has this id - the ids count
+    /// up from 1.
+    pub const PLACE: Self = Self { inner: u64::MAX };
+}
+
 impl_option!(
     ImageRef,
     OptionImageRef,
@@ -2835,6 +2843,10 @@ pub enum ImageSlot {
     Node(DomId, NodeId),
     /// A background layer's callback frame.
     Background(BackgroundSlot),
+    /// A text shadow kept as a picture (a label's halo), by the number the
+    /// keeper of the pictures gives it: the picture drawn at the label's new
+    /// size replaces, under the one key, the one that stood in for it.
+    TextHalo(u64),
 }
 
 /// Renderer resources that manage font, image and font instance keys.
@@ -2916,6 +2928,37 @@ impl fmt::Debug for RendererResources {
 }
 
 impl RendererResources {
+    /// Whether the renderer shows the image `shown` of `node` through a key
+    /// that stays the node's own when `with` replaces it in place: the key of
+    /// the node's slot ([`Self::image_slots`]) shows it - or `shown` is a null
+    /// image and the slot's key is the place kept for the node's first picture
+    /// ([`ImageRefHash::PLACE`]) - and `with` is a picture the renderer is
+    /// handed under that key: pixels in memory or a GL texture (not a null
+    /// image, and not a callback, which is drawn first).
+    ///
+    /// Then a display list that paints the node names the same key before and
+    /// after the replacement: the list the renderer holds need not be sent
+    /// again, the new pixels reach it as an update of the key.
+    #[must_use]
+    pub fn node_image_is_replaced_in_place(
+        &self,
+        dom: DomId,
+        node: NodeId,
+        shown: &ImageRef,
+        with: &ImageRef,
+    ) -> bool {
+        if !matches!(with.get_data(), DecodedImage::Raw(_) | DecodedImage::Gl(_)) {
+            return false;
+        }
+        self.image_slots
+            .get(&ImageSlot::Node(dom, node))
+            .and_then(|key| self.image_key_map.get(key))
+            .is_some_and(|frame| {
+                *frame == shown.get_hash()
+                    || (shown.is_null_image() && *frame == ImageRefHash::PLACE)
+            })
+    }
+
     /// `key` no longer shows `frame` (its slot shows another one now). Two
     /// slots may show one frame - the render cache hands identical surfaces
     /// one image - each under its own key: the frame stays resolvable through

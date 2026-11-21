@@ -7565,10 +7565,17 @@ impl MacOSWindow {
             renderer.set_external_image_handler(Box::new(WrCompositor::default()));
 
             let render_api = sender.create_api();
-            let physical_size = azul_core::geom::PhysicalSize {
-                width: (options.window_state.size.dimensions.width * actual_hidpi_factor) as u32,
-                height: (options.window_state.size.dimensions.height * actual_hidpi_factor) as u32,
-            };
+            // The document is born at the size every later frame gives it
+            // (`WindowSize::get_physical_size` -> `LogicalSize::to_physical`:
+            // ROUNDED): truncated here, it was one pixel smaller than the
+            // viewport and the framebuffer for a fractional product (333.7
+            // units at 1.5: 500.55 -> 500 here, 501 everywhere else) until the
+            // first transaction set the document view (audit A10-15).
+            let physical_size = options
+                .window_state
+                .size
+                .dimensions
+                .to_physical(actual_hidpi_factor);
             let framebuffer_size = webrender::api::units::DeviceIntSize::new(
                 physical_size.width as i32,
                 physical_size.height as i32,
@@ -10899,12 +10906,16 @@ impl MacOSWindow {
         // frame WebRender published has nothing to send).
         let only_shows_a_published_frame =
             std::mem::take(&mut self.frame_waiting) && !display_list_needs_rebuild && txn.is_empty();
+        // From here to the flush's return the UI thread waits for the scene
+        // builder and the render backend: the frame's `gpu_blocked_us`.
+        let blocked_started = std::time::Instant::now();
         if let Some(layout_window) = self
             .common
             .layout_window
             .as_ref()
             .filter(|_| !only_shows_a_published_frame)
         {
+            crate::desktop::wr_translate2::count_transaction(&txn);
             let doc_id = wr_translate_document_id(layout_window.document_id);
             log_trace!(
                 LogCategory::Rendering,
@@ -10923,8 +10934,11 @@ impl MacOSWindow {
                 .flush_scene_builder();
         }
         log_trace!(LogCategory::Rendering, "[WebRender] Transaction sent");
+        let blocked_us = crate::desktop::wr_translate2::elapsed_us(blocked_started);
 
         // Step 2: Call WebRender to composite the scene
+        let render_started = std::time::Instant::now();
+        let mut draw_calls = 0u64;
         let physical_size = self.common.current_window_state().size.get_physical_size();
         // The canvas follows the mode the window shows (THE clear colour).
         self.common.sync_renderer_clear_color();
@@ -10955,6 +10969,7 @@ impl MacOSWindow {
                         "[WebRender] Render successful: {:?}",
                         results.stats
                     );
+                    draw_calls = results.stats.total_draw_calls as u64;
 
                     // Store WebRender's dirty rects for per-rect compositor invalidation.
                     // request_redraw() uses these to call setNeedsDisplayInRect: instead
@@ -11006,6 +11021,14 @@ impl MacOSWindow {
             // still composites the whole window on present; see the report
             // VIDEO_PATH_2026_09_30.)
             let (paint, present) = gpu_frame_damage(&self.gpu_damage_rects);
+            // What the GPU path did for this frame, for the frame report and
+            // `get_frame_timings` (the swap below is not in `render_us`).
+            crate::desktop::wr_translate2::publish_gpu_frame(
+                layout_window,
+                blocked_us,
+                crate::desktop::wr_translate2::elapsed_us(render_started),
+                draw_calls,
+            );
             layout_window.record_frame(paint, present);
         }
 

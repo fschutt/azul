@@ -2662,7 +2662,10 @@ thread_local! {
 #[derive(Debug)]
 pub struct LayoutTreeBuilder {
     nodes: Vec<LayoutNode>,
-    dom_to_layout: BTreeMap<NodeId, Vec<usize>>,
+    /// As [`LayoutTree::dom_to_layout`] has it, so that `build` hands the
+    /// map over as it is (it made a second map from this one, entry by
+    /// entry: A3-solver-25).
+    dom_to_layout: BTreeMap<NodeId, Vec<LayoutNodeId>>,
     viewport_size: LogicalSize,
 }
 
@@ -3534,7 +3537,7 @@ impl LayoutTreeBuilder {
         self.dom_to_layout
             .entry(list_item_dom_id)
             .or_default()
-            .push(index);
+            .push(LayoutNodeId::new(index));
 
         Some(index)
     }
@@ -3724,7 +3727,10 @@ impl LayoutTreeBuilder {
         if let Some(p) = parent {
             self.nodes[p].children.push(index);
         }
-        self.dom_to_layout.entry(dom_id).or_default().push(index);
+        self.dom_to_layout
+            .entry(dom_id)
+            .or_default()
+            .push(LayoutNodeId::new(index));
         // DEBUG (2026-06-02 children-None tree-build): count create_node_from_dom
         // calls @0x40500 + record each dom_id into a 14-slot ring @0x40504. REVERT
         // before commit. Runs only in lifted wasm (server lifts, never runs natively).
@@ -3809,7 +3815,7 @@ impl LayoutTreeBuilder {
             if indices.len() != 1 {
                 continue; // already split (or exotic mapping)
             }
-            let idx = indices[0];
+            let idx = indices[0].index();
 
             // Child-boundary split (no text byte): a container splits BETWEEN
             // its children — a `<ul>` between `<li>`s, a section between
@@ -3889,7 +3895,10 @@ impl LayoutTreeBuilder {
                 self.nodes[p].children.insert(pos, part2_idx);
                 self.nodes[p].dirty_flag = DirtyFlag::Layout;
             }
-            self.dom_to_layout.entry(*node).or_default().push(part2_idx);
+            self.dom_to_layout
+                .entry(*node)
+                .or_default()
+                .push(LayoutNodeId::new(part2_idx));
         }
     }
 
@@ -3979,7 +3988,7 @@ impl LayoutTreeBuilder {
         self.dom_to_layout
             .entry(dom_node)
             .or_default()
-            .push(part2_idx);
+            .push(LayoutNodeId::new(part2_idx));
     }
 
     /// The min/max DOM ordinal among an anonymous wrapper's DIRECT layout
@@ -4074,7 +4083,7 @@ impl LayoutTreeBuilder {
         if indices.len() != 1 {
             return; // exotic mapping (already part-split); one preview at a time
         }
-        let idx = indices[0];
+        let idx = indices[0].index();
         let children = self.nodes[idx].children.clone();
         let mut kept: Vec<usize> = Vec::new();
         let mut changed = false;
@@ -4137,6 +4146,7 @@ impl LayoutTreeBuilder {
         ) else {
             return;
         };
+        let (first_idx, second_idx) = (first_idx.index(), second_idx.index());
 
         let moved = core::mem::take(&mut self.nodes[second_idx].children);
         for &m in &moved {
@@ -4235,7 +4245,10 @@ impl LayoutTreeBuilder {
             self.nodes[p].children.push(index);
         }
         if let Some(dom_id) = new_dom_id {
-            self.dom_to_layout.entry(dom_id).or_default().push(index);
+            self.dom_to_layout
+                .entry(dom_id)
+                .or_default()
+                .push(LayoutNodeId::new(index));
         }
         index
     }
@@ -4280,11 +4293,7 @@ impl LayoutTreeBuilder {
             warm: warm_nodes,
             cold: cold_nodes,
             root: root_idx,
-            dom_to_layout: self
-                .dom_to_layout
-                .into_iter()
-                .map(|(k, v)| (k, v.into_iter().map(LayoutNodeId::new).collect()))
-                .collect(),
+            dom_to_layout: self.dom_to_layout,
             children_arena: arena,
             children_offsets: offsets,
             // Populated by `generate_layout_tree` after the tree is built,
@@ -7492,7 +7501,9 @@ mod autotest_generated {
         assert!(n.ifc_id.is_none());
         assert_eq!(b.get(root).unwrap().children, vec![anon]);
         assert!(
-            b.dom_to_layout.values().all(|v| !v.contains(&anon)),
+            b.dom_to_layout
+                .values()
+                .all(|v| !v.contains(&LayoutNodeId::new(anon))),
             "anon boxes are never registered in dom_to_layout"
         );
     }
@@ -7528,7 +7539,7 @@ mod autotest_generated {
         assert_eq!(b.get(child).unwrap().dom_node_id, Some(NodeId::new(1)));
         assert_eq!(b.get(child).unwrap().parent, Some(root));
         assert_eq!(b.get(root).unwrap().children, vec![child]);
-        assert_eq!(b.dom_to_layout[&NodeId::new(1)], vec![child]);
+        assert_eq!(b.dom_to_layout[&NodeId::new(1)], vec![LayoutNodeId::new(child)]);
         assert_eq!(b.get(child).unwrap().dirty_flag, DirtyFlag::Layout);
     }
 
@@ -7651,7 +7662,7 @@ mod autotest_generated {
         );
         assert_eq!(
             b.dom_to_layout.get(&new_id).map(Vec::as_slice),
-            Some(&[idx][..]),
+            Some(&[LayoutNodeId::new(idx)][..]),
             "dom_to_layout must index the clone under its NEW id"
         );
         assert!(
@@ -9220,6 +9231,49 @@ mod audit_a3_solver_tests {
         assert!(builder.nodes.capacity() >= 1_000);
         assert!(builder.nodes.is_empty());
         assert!(builder.dom_to_layout.is_empty());
+    }
+
+    /// A3-solver-25: `build` hands the builder's DOM-to-box map to the tree as it is. The
+    /// builder kept the box indices as `usize` and `build` made the tree's map from it entry
+    /// by entry - every list converted, the map's nodes allocated a second time - for every
+    /// reconcile of every pass (25,000 entries for a view of 12,500 labels).
+    ///
+    /// The entries are where they were (the address of an entry's list inside the map, not
+    /// only of the list's buffer, which a conversion in place keeps too), and say what the
+    /// builder said.
+    ///
+    /// Mutation: a map made anew in `build` (`.into_iter().map(..).collect()`) holds its
+    /// entries in other nodes - unless the allocator hands the very blocks back.
+    #[test]
+    fn build_hands_the_dom_map_over_as_it_is() {
+        let mut body = azul_core::dom::Dom::create_body();
+        for _ in 0..40 {
+            body = body.with_child(azul_core::dom::Dom::create_div());
+        }
+        let sd = StyledDom::create_from_dom(body);
+        let mut builder = LayoutTreeBuilder::new(LogicalSize::new(800.0, 600.0));
+        let mut msgs = None;
+        let root = builder.create_node_from_dom(&sd, NodeId::ZERO, None, &mut msgs);
+        let boxes: Vec<usize> = (1..=40)
+            .map(|i| builder.create_node_from_dom(&sd, NodeId::new(i), Some(root), &mut msgs))
+            .collect();
+        let entry_of = |map: &BTreeMap<NodeId, Vec<LayoutNodeId>>, i: usize| {
+            core::ptr::from_ref(&map[&NodeId::new(i)]) as usize
+        };
+        let before: Vec<usize> = (0..=40).map(|i| entry_of(&builder.dom_to_layout, i)).collect();
+        let tree = builder.build(root);
+        let after: Vec<usize> = (0..=40).map(|i| entry_of(&tree.dom_to_layout, i)).collect();
+        assert_eq!(before, after, "the entries of the map moved: it was made a second time");
+        assert_eq!(tree.dom_to_layout.len(), 41);
+        assert_eq!(tree.dom_to_layout[&NodeId::ZERO], vec![LayoutNodeId::new(root)]);
+        for (i, index) in boxes.iter().enumerate() {
+            assert_eq!(
+                tree.dom_to_layout[&NodeId::new(i + 1)],
+                vec![LayoutNodeId::new(*index)],
+                "DOM node {} maps to its box",
+                i + 1
+            );
+        }
     }
 
     /// `body(0) > div(1)` as a tree of two boxes, the div's carrying what a layout leaves on
