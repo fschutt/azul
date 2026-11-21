@@ -191,6 +191,7 @@ pub(super) fn slice_inline_content_by_bytes(
 /// children (`audit_tests::a3_solver`: n log n for a root of n elements, not
 /// n * n).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static IFC_CHILD_PROBES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
@@ -200,6 +201,7 @@ thread_local! {
 /// (`audit_tests::a3_solver`: a sweep compares one collection of a paragraph
 /// with one, however often the page was laid out).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static IFC_CHILD_PROBES_MOST: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }

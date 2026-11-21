@@ -847,6 +847,7 @@ pub fn unshare(tree: alloc::sync::Arc<LayoutTree>) -> LayoutTree {
 /// How many times a pass on this thread copied a whole layout tree because the window still
 /// held the previous result of its DOM ([`unshare`]): what a test reads.
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static TREE_COPIES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
@@ -868,6 +869,7 @@ pub fn own_mut(tree: &mut alloc::sync::Arc<LayoutTree>) -> &mut LayoutTree {
 /// How many times a write to a result's tree on this thread copied the whole tree because
 /// the solver's cache still shared it ([`own_mut`]): what a test reads.
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static TREE_WRITE_COPIES: core::cell::Cell<usize> =
         const { core::cell::Cell::new(0) };
@@ -2857,6 +2859,7 @@ fn reconcile_table_children(
 /// thread to list their anonymous inline wrappers: each parent's children once,
 /// not once per inline run (the size sweep of `audit_tests::a3_solver` reads it).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static OLD_WRAPPER_CANDIDATES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
@@ -3518,6 +3521,7 @@ struct ReconciledNode {
 /// How many boxes [`reconcile_node`] kept on this thread because the values of
 /// their insets were all that moved (`audit_tests::a3_solver`).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static INSET_MOVES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
@@ -5212,6 +5216,7 @@ pub(super) fn position_bfc_child_descendants(
 /// sweep of the tests reads (`audit_tests::a3_solver`) to say that a block of
 /// many absolutely positioned children is not scanned once per child.
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static CHILD_LOOKUP_STEPS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }

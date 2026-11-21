@@ -150,6 +150,7 @@ impl BundledUiFace {
 /// EB Garamond 400 and 700, upright and italic.
 #[must_use]
 pub fn bundled_ui_fonts() -> &'static [BundledUiFace] {
+    // KEPT: the bundled faces decompressed once, a pure function of the embedded bytes.
     static FACES: OnceLock<Vec<BundledUiFace>> = OnceLock::new();
     FACES.get_or_init(|| {
         let face = |packed: &[u8], bold: bool, italic: bool| BundledUiFace {

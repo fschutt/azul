@@ -630,6 +630,7 @@ fn resolve_font_size_slow(
 /// this thread ([`resolve_font_size_slow_in_viewport`]), which the memo is
 /// there to spare (`audit_tests::a3_solver`).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static FONT_SIZE_WALKS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
@@ -3008,6 +3009,7 @@ fn background_as_declared(
 
 /// How many nodes [`inherited_color_override`] looked at on this thread.
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static COLOR_OVERRIDE_WALK_STEPS: core::cell::Cell<usize> =
         const { core::cell::Cell::new(0) };
@@ -4411,6 +4413,7 @@ fn style_equals_itself(style: &StyleProperties) -> bool {
 /// style of a node that is in it already (`audit_tests::a3_solver`: a pass
 /// resolves a node's style once, the reconcile and the layout share one memo).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static STYLE_BUILT_NODES: core::cell::RefCell<std::collections::HashSet<u32>> =
         core::cell::RefCell::new(std::collections::HashSet::new());
@@ -4424,6 +4427,7 @@ thread_local! {
 /// build by which a hit checks itself in test and debug builds is not
 /// counted.)
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static STYLE_VALUE_HITS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
     pub(crate) static STYLE_VALUE_HIT_NODES: core::cell::RefCell<std::collections::HashSet<u32>> =
@@ -6752,6 +6756,10 @@ pub fn variable_instance(
 ) -> Option<rust_fontconfig::FontMatch> {
     use std::{collections::BTreeMap, sync::Mutex};
 
+    // OPEN, the owner's question (see the report of refactor/statics-solver): the font manager
+    // owns the faces this memo is about, but `select_variable_instances` is reached through
+    // `resolve_chain_on_miss(key, fc_cache)` from ~15 call sites of three clusters that pass
+    // the `FcFontCache` alone.
     /// `(source face, wght baked or 0, opsz baked as f32 bits or 0)` -> the
     /// baked instance, or `None` when the source has no such instance.
     static INSTANCES: Mutex<BTreeMap<(FontId, u16, u32), Option<FontId>>> =
@@ -6829,6 +6837,7 @@ struct VariationAxes {
 fn variation_axes(fc_cache: &FcFontCache, source: FontId) -> Option<VariationAxes> {
     use std::{collections::BTreeMap, sync::Mutex};
 
+    // OPEN: the same question as `INSTANCES` in `variable_instance`.
     static AXES: Mutex<BTreeMap<FontId, VariationAxes>> = Mutex::new(BTreeMap::new());
 
     if let Some(known) = AXES.lock().ok().and_then(|memo| memo.get(&source).copied()) {
@@ -8087,6 +8096,7 @@ pub struct ScrollbarBaseMemo {
 /// node-independent part of its answer, on this thread
 /// (`audit_tests::a3_solver`: once per context, not once per node).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static SCROLLBAR_STYLE_ASKS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
     pub(crate) static SCROLLBAR_BASE_BUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };

@@ -324,6 +324,10 @@ impl NamedFlowIndex {
     }
 }
 
+// OPEN, the owner's question (see the report of refactor/statics-solver): a cache of a pure
+// function of the `StyledDom`, read by `flow_index`, `flow_children` and `is_region`, free
+// functions that take no context; it needs the same handle as the docking state of
+// `layout_tree::TRANSIENT_DOCKS`.
 thread_local! {
     /// The named flows of the document whose box tree is being built, while
     /// a [`NamedFlowScope`] for it is alive: the address of its `StyledDom`

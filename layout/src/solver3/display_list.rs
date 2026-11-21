@@ -9055,7 +9055,7 @@ where
         };
         let view_box = self.enclosing_view_box(dom_id);
         #[cfg(feature = "cpurender")]
-        let mask = self.ctx.pass_memo.svg_masks.get_or_rasterise(
+        let mask = self.ctx.pass_memo.svg_masks.borrow_mut().get_or_rasterise(
             crate::solver3::svg_masks::MaskKind::Stroke,
             &path,
             &paint_rect,
@@ -9185,7 +9185,7 @@ where
                 let even_odd = node_data
                     .layout_attribute(azul_core::layout_inputs::LayoutAttribute::SvgFillRule)
                     .is_some_and(|rule| rule.as_str().trim() == "evenodd");
-                self.ctx.pass_memo.svg_masks.get_or_rasterise(
+                self.ctx.pass_memo.svg_masks.borrow_mut().get_or_rasterise(
                     if even_odd {
                         crate::solver3::svg_masks::MaskKind::ClipEvenOdd
                     } else {
@@ -12204,8 +12204,9 @@ where
         {
             return None;
         }
+        // (No memo of the font stacks: a clamped box's ellipsis is no hot path.)
         let style = Arc::new(super::getters::get_style_properties_with(
-            Some(&mut self.ctx.style_cache.font_stacks),
+            None,
             sd,
             dom_id,
             self.ctx.system_style.as_ref(),
@@ -13787,6 +13788,7 @@ fn get_scroll_content_size(node: &LayoutNodeHot, warm: Option<&LayoutNodeWarm>) 
 /// (`ScrollChain::of`) for `DisplayListGenerator::enter_scroll_chain`: what
 /// the tests read to say the positioned boxes of one parent share one walk.
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static SCROLL_CHAIN_WALKS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
     /// How many texts the inline content painter entered into its per-block
@@ -13798,6 +13800,7 @@ thread_local! {
 /// text block's lines as a copy (`materialized_inline_layout_for_node`): what
 /// the tests read to say a block without a selection or a caret costs none.
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static INLINE_LAYOUT_COPIES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
@@ -13806,6 +13809,7 @@ thread_local! {
 /// ([`get_tag_id`], [`tags_by_node`]): what the size sweep of the tests reads
 /// to say a display list looks at the list once, not once per box.
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static TAG_LIST_READS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }

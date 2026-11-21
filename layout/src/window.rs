@@ -31503,7 +31503,7 @@ impl LayoutWindow {
 
         // Generate the new display list from the existing layout tree. The SVG masks the
         // document's earlier builds drew are lent to this one and taken back after it.
-        ctx.pass_memo.svg_masks = std::mem::take(&mut self.layout_cache.svg_masks);
+        *ctx.pass_memo.svg_masks.borrow_mut() = std::mem::take(&mut self.layout_cache.svg_masks);
         let new_display_list = generate_display_list(
             &mut ctx,
             tree,
@@ -31521,7 +31521,7 @@ impl LayoutWindow {
 
         // Restore the cache_map (and the SVG masks) back to layout_cache
         self.layout_cache.cache_map = std::mem::take(&mut ctx.cache_map);
-        self.layout_cache.svg_masks = std::mem::take(&mut ctx.pass_memo.svg_masks);
+        self.layout_cache.svg_masks = ctx.pass_memo.svg_masks.take();
 
         match new_display_list {
             Ok(mut display_list) => {

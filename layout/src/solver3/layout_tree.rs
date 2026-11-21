@@ -370,6 +370,7 @@ impl core::ops::Deref for GlyphRunList {
 /// was first read (`audit_tests::a3_solver::ifc`: a measure builds none when
 /// it is stored).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static GLYPH_RUNS_BUILT_AT_STORE: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
     pub(crate) static GLYPH_RUNS_BUILT_ON_READ: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
@@ -459,6 +460,7 @@ fn compute_glyph_runs(
 /// flag-on reftests green. `AZ_DENSE_TEXT=0` is the escape hatch;
 /// `verify` retains both forms and A/B-asserts every dense-first arm.
 pub(crate) fn dense_text_mode() -> u8 {
+    // KEPT: the process-wide `AZ_DENSE_TEXT` configuration, read once from the environment.
     static MODE: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
     *MODE.get_or_init(|| match std::env::var("AZ_DENSE_TEXT").as_deref() {
         Ok("0" | "off") => 0,
@@ -778,6 +780,7 @@ impl CachedInlineLayout {
         let fully_covered = !layout.items.is_empty()
             && dense.is_some_and(|d| d.clusters.len() == layout.items.len());
         if dense_text_mode() == 1 && fully_covered {
+            // KEPT: one shared, immutable empty layout (a constant), made on first use.
             static EMPTY: std::sync::OnceLock<Arc<UnifiedLayout>> = std::sync::OnceLock::new();
             let sentinel = EMPTY
                 .get_or_init(|| {
@@ -2915,6 +2918,7 @@ fn compute_subtree_needs_intrinsic(styled_dom: &StyledDom, tree: &LayoutTree) ->
 /// computed itself on this thread (`audit_tests::a3_solver`: none for the nodes
 /// the reconcile creates, which hands over the one it computed).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static BUILDER_FINGERPRINTS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
@@ -2923,6 +2927,7 @@ thread_local! {
 /// thread (`audit_tests::a3_solver::ifc`: none once the reconcile hands its
 /// copy of a clean node over with [`LayoutTreeBuilder::adopt_node_from_old`]).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static BUILDER_NODE_CLONES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
@@ -5691,6 +5696,10 @@ pub fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDispla
 // Inline-docked transient windows: the per-pass dock set
 // ---------------------------------------------------------------------------
 
+// OPEN, the owner's question (see the report of refactor/statics-solver): the pass's docking
+// state is read by ~50 call sites of `get_display_type` and `layout_children`, free functions
+// that take no context; it needs a handle threaded to each of them, or a home beside the cascade
+// context of the `StyledDom` (azul-core).
 thread_local! {
     /// The docking state of the layout pass running on this thread (set by
     /// [`with_transient_docks`] for exactly the duration of a solver call).

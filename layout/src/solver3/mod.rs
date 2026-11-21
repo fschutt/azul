@@ -180,6 +180,7 @@ pub fn pos_get(positions: &PositionVec, idx: usize) -> Option<LogicalPosition> {
 /// position vector made for one box and written at that box's index in the
 /// tree is filled up to it, per box).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static POSITION_FILLS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
@@ -250,7 +251,7 @@ pub struct PassMemo<T> {
     /// The SVG masks of the display-list build ([`svg_masks::SvgMaskMemo`]):
     /// the document's own, lent to the pass by `LayoutCache::svg_masks` for
     /// the build and given back after it (empty otherwise).
-    pub svg_masks: svg_masks::SvgMaskMemo,
+    pub svg_masks: core::cell::RefCell<svg_masks::SvgMaskMemo>,
     /// The IDs the pass gives its inline formatting contexts
     /// ([`layout_tree::IfcIdSequence`]): each pass counts from 0.
     pub ifc_ids: layout_tree::IfcIdSequence,
@@ -272,7 +273,7 @@ impl<T> Default for PassMemo<T> {
             measured: sizing::MeasuredParagraphs::default(),
             patch_counters: cache::DisplayListPatchCounters::default(),
             scrollbar_base: getters::ScrollbarBaseMemo::default(),
-            svg_masks: svg_masks::SvgMaskMemo::default(),
+            svg_masks: core::cell::RefCell::default(),
             ifc_ids: layout_tree::IfcIdSequence::default(),
             loaded_fonts: Default::default(),
         }
@@ -292,6 +293,7 @@ impl<T> core::fmt::Debug for PassMemo<T> {
 /// ([`LayoutContext::loaded_fonts`]) on this thread (`audit_tests::a3_solver`:
 /// once per context, not once per inline formatting context).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static LOADED_FONTS_ASKS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
@@ -1538,7 +1540,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 .display_list_patch_counters
                 .lists_patched_after_a_named_cascade += 1;
         }
-        ctx.pass_memo.svg_masks = core::mem::take(&mut cache.svg_masks);
+        *ctx.pass_memo.svg_masks.borrow_mut() = core::mem::take(&mut cache.svg_masks);
         let built = display_list::generate_display_list_impl(
             &mut ctx,
             tree,
@@ -1551,7 +1553,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             dom_id,
             early_patch,
         );
-        cache.svg_masks = core::mem::take(&mut ctx.pass_memo.svg_masks);
+        cache.svg_masks = ctx.pass_memo.svg_masks.take();
         cache
             .display_list_patch_counters
             .add(&core::mem::take(&mut ctx.pass_memo.patch_counters));
@@ -2629,7 +2631,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     .map(|m| (m.dominant_delta, m.mover_rects_old.len(), m.exceptions.len()))
             );
         }
-        ctx.pass_memo.svg_masks = core::mem::take(&mut cache.svg_masks);
+        *ctx.pass_memo.svg_masks.borrow_mut() = core::mem::take(&mut cache.svg_masks);
         let built = display_list::generate_display_list_impl(
             &mut ctx,
             &new_tree,
@@ -2642,7 +2644,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             dom_id,
             patch,
         );
-        cache.svg_masks = core::mem::take(&mut ctx.pass_memo.svg_masks);
+        cache.svg_masks = ctx.pass_memo.svg_masks.take();
         cache
             .display_list_patch_counters
             .add(&core::mem::take(&mut ctx.pass_memo.patch_counters));

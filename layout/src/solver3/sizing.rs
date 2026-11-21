@@ -249,6 +249,7 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
 /// (`audit_tests::a3_solver`: one per child of a box, not one per child per
 /// child).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static INTRINSIC_CHILD_PROBES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
@@ -293,6 +294,7 @@ fn intrinsic_of_child<'a>(
 /// had something dirty (`audit_tests::a3_solver`: one per label of a layer
 /// of labels, not one for the label's text and one more for the label).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static IFC_MEASURES_PER_PASS: core::cell::RefCell<Vec<usize>> = const { core::cell::RefCell::new(Vec::new()) };
 }
@@ -325,6 +327,7 @@ impl IfcMeasureKey {
 /// a dirty set that was not empty, on this thread (`audit_tests::a3_solver`:
 /// the intrinsic pass builds none, it asks [`DirtyAncestors`]).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static DIRTY_CLOSURE_HASH_BUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
@@ -415,6 +418,7 @@ impl DirtyAncestors {
 /// calls with nothing dirty included (`audit_tests::a3_solver`: the turns of
 /// `layout_document`'s loop).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static INTRINSIC_PASS_CALLS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
@@ -2925,6 +2929,7 @@ pub(crate) fn measure_ifc_intrinsic_sizes_keeping<T: ParsedFontTrait>(
 /// the same pass ([`MeasuredParagraphs::take`]) on this thread, and how many
 /// the measure kept for it: what the tests count (`audit_tests::a3_solver`).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static MEASURED_PARAGRAPHS_KEPT: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
     pub(crate) static MEASURED_PARAGRAPHS_TAKEN: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
