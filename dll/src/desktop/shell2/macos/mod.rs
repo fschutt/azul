@@ -8799,9 +8799,28 @@ impl MacOSWindow {
 
         let old_dims = self.common.current_window_state().size.dimensions;
 
+        // A10-02: the CPU frame is sized from the STATE (`ceil(dims * dpi)`)
+        // and the view's framebuffer from the VIEW's bounds, by the same
+        // formula. Inside the tolerance below the two can still be one pixel
+        // apart (a window asked for at 800.2 pt that AppKit made 800 pt at
+        // 2x: frame 1601 px, view 1600 px), and a frame of another size than
+        // the view is rescaled into it on every present. So the state also
+        // follows the view whenever the two make frames of different sizes.
+        let dpi = self.common.current_window_state().size.dpi as f32 / BASE_DPI;
+        let frame_differs = azul_layout::window::present_geometry::frame_size_px(
+            old_dims.width,
+            old_dims.height,
+            dpi,
+        ) != azul_layout::window::present_geometry::frame_size_px(
+            new_logical_width,
+            new_logical_height,
+            dpi,
+        );
+
         // Only update if dimensions actually changed (with small tolerance for float comparison)
         if (old_dims.width - new_logical_width).abs() > 0.5
             || (old_dims.height - new_logical_height).abs() > 0.5
+            || frame_differs
         {
             // Snapshot the event-diff baseline BEFORE mutating: this fallback
             // (for a windowDidResize the loop never saw) has to dispatch the

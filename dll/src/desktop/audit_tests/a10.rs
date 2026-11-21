@@ -328,3 +328,27 @@ fn wayland_buffers_and_frame_are_the_surfaces_size_at_a_fractional_scale() {
         "at a fractional scale the frame must be sized from the surface's device pixels"
     );
 }
+
+/// A10-02. The macOS window state follows the view's bounds not only when
+/// they differ by more than half a point, but whenever the two would make CPU
+/// frames of different pixel sizes: the frame is sized from the state, the
+/// view's framebuffer from the bounds, and a frame of another size than the
+/// view is rescaled into it on every present.
+///
+/// 800.2 pt in the state, 800 pt in the view, 2x: `ceil(1600.4)` = 1601 px
+/// against 1600 px, inside the 0.5 pt tolerance.
+///
+/// Mutation: dropping `|| frame_differs` fails here.
+#[test]
+fn the_macos_state_follows_the_view_when_their_frames_differ() {
+    let sync = body(MACOS_RS, "fn sync_window_size_from_content_view(&mut self)");
+    assert!(
+        sync.contains("let frame_differs = azul_layout::window::present_geometry::frame_size_px(")
+            && sync.contains("|| frame_differs"),
+        "the size sync no longer looks at the frame sizes"
+    );
+    use azul_layout::window::present_geometry::frame_size_px;
+    assert_ne!(frame_size_px(800.2, 600.0, 2.0), frame_size_px(800.0, 600.0, 2.0));
+    assert_eq!(frame_size_px(800.2, 600.0, 2.0), (1601, 1200));
+    assert_eq!(frame_size_px(800.0, 600.0, 2.0), (1600, 1200));
+}
