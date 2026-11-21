@@ -126,7 +126,7 @@ frequency for the editor's loads). One row per finding id; the text blocks below
 | A3-solver-23 | waste | `fc/white_space.rs` plain text | low | fixed 16395bc3e | `white_space.rs` tests of the helper (see the commit) |
 | A3-solver-24 | waste | `layout_tree.rs` / `cache.rs` a kept node cloned twice | medium | fixed 7b39826e2 | `ifc.rs` count test (with 1ee264920: revert both) |
 | A3-solver-25 | waste | `layout_tree.rs` `build` makes the DOM-to-box map a second time | low | fixed 99d7efff1 | `layout_tree::audit_a3_solver_tests::build_hands_the_dom_map_over_as_it_is` |
-| A3-solver-25b | waste | `layout_tree.rs` `dom_to_layout: BTreeMap<NodeId, Vec<..>>`: one heap list per DOM node | low | blocked (a): the public type of `LayoutTree::dom_to_layout` (215 uses in 74 files of every area) becomes a dense table; design below | - |
+| A3-solver-25b | waste | `layout_tree.rs` `dom_to_layout: BTreeMap<NodeId, Vec<..>>`: one heap list per DOM node | low | fixed 8b7055be4 | `layout_tree::audit_a3_solver_tests::a_tree_of_one_box_per_node_keeps_no_list_per_node`, `the_table_answers_what_the_map_answered`, `a3_solver::a_laid_out_page_keeps_the_boxes_of_its_nodes_in_one_table` |
 | A3-solver-26 | waste | `sizing.rs` dirty closure as a hash set | low | fixed 4909c9d07 | `sizing.rs` tests of the helper (see the commit) |
 | A3-solver-27 | quadratic | `positioning.rs` nested shifted relative boxes | low | fixed 8abfe10f9 | `nested_shifted_boxes_are_moved_by_one_walk`, `nested_shifts_are_added_one_after_the_other_outermost_first` |
 | A3-solver-28 | n x depth | several (list below) | low | checked: fine | - |
@@ -162,6 +162,7 @@ frequency for the editor's loads). One row per finding id; the text blocks below
 | A3-solver-53 | wrong-output | `positioning.rs` a sticky box inside an absolutely positioned box | low | fixed 9019db74d | `a_sticky_box_inside_an_absolute_one_stands_at_its_shift_and_keeps_its_place` ([reveals] 6f54a959e) |
 | A3-solver-54 | wrong-output | `positioning.rs` the boxes inside a sticky box do not move with its baked shift | medium | fixed 6f402e476 | `the_boxes_inside_a_sticky_box_go_with_it` and two more ([reveals] in the commit before) |
 | A3-solver-55 | wrong-output | `widgets/node_graph.rs` the transforms a drag or pan writes outlive the gesture (`migrate_user_overrides_from`) | medium | open: the widget must clear its overrides when the gesture ends, and a clear costs a rebuild of the cascade tables of the whole DOM per box today; needs the fast path in `apply_node_css_change` written out under "For area A3-window (4)" | - |
+| A6-13 | waste | `managers/scroll_registration.rs` `register_scroll_nodes`: the layout tree of a DOM copied per pass when its view raises a scrollbar (A6's row, built here) | medium | fixed 5ce5eae2f | `audit_tests::a3_solver::raised_bars::a_layout_pass_of_a_view_that_raises_a_bar_copies_no_layout_tree` and seven more |
 
 ### Fixed (details in the commit messages)
 
@@ -993,3 +994,50 @@ Decided by reading, not fixed: no minimal patch is right, and no rule on values 
   (16b: `or_insert_with` with `?` in the closure).
 - Golden values expected to move since the merge: boxes inside a sticky box with a baked shift (54), sticky
   boxes inside absolutely positioned boxes (53). Nothing else places a box differently.
+
+## The engine rows (third agent: A6-13, 25b, 17c, 34, 35b, 55)
+
+The branch contains `audit/integration` (aeb5d0dfe) since `ceb7587af`.
+
+## For area A6
+
+- **A6-13: fixed 5ce5eae2f** (built by the solver area's third agent from A6's design and hand-over).
+  What was built differs from the hand-over in three points, each found by reading the readers:
+  1. The raised set lives as long as the layout RESULT: a `Weak` of the tree names it, AND a layout pass of the
+     DOM drops it (`ScrollManager::forget_raised_bars` in `layout_dom_recursive_impl`). The tree's identity alone
+     is not enough: a pass with nothing to lay out (the reconcile finds everything clean, or the structural
+     display-list cache answers) leaves `LayoutCache::tree` in place and hands the SAME allocation to the new
+     result; before A6-13 that result started from the cache's unraised tree.
+  2. `display_list.rs` `paint_scrollbars` IS a reader after the registration: `regenerate_display_list_for_dom`
+     builds from the result's tree outside a pass (caret blink, a text edit, a `set_css_property`), and re-derives
+     only a view's extent, from the extent of that moment. So the set is folded into the result's own tree
+     before such a build (`ScrollManager::settle_raised_bars`): one copy, the one the registration used to make
+     after every pass, now only when a display-list-only rebuild follows the pass. To remove that one too the
+     builder must take the raised flags as an input (A3-core's `generate_display_list`).
+  3. No re-keying at the text-edit writes: `reshape_text_node` folds the set into the tree before its first
+     write (the tree becomes the result's own there anyway), after which everything in that function reads and
+     writes the tree as it always did, the plan's `old_info` and `warm.scrollbar_info = plan.now_reqs` included.
+     With a `Weak` outstanding every `Arc::make_mut` moves the tree, so "follow the tree" cannot be done at the
+     write.
+- The registration writes into the tree as before when the result holds it alone (a hand-built result in a test,
+  a result a text edit made its own): `Arc::get_mut`, no copy.
+- A reader that stays on the tree by its contract: `focus_cursor::can_manually_scroll` in the layout-only model
+  (`SpatialNavigationEnv::layout_only`: no scroll manager; the shells use the live model). It no longer sees a
+  view's bar raised after layout.
+- Golden dumps: `sb=` of a box whose bar only the registration raised is no longer in the dump of a shared tree.
+  If a dump loses an `sb=` on a box that is no `VirtualView`, the registration raised a bar the layout pass did
+  not (`apply_content_scroll_necessity` against the padding box vs. Phase 3 against the content box): by
+  reading that cannot happen right after a pass; a dump that shows it is a finding.
+- New test counter `solver3::cache::TREE_WRITE_COPIES` (copies made by `cache::own_mut`, which
+  `DomLayoutResult::layout_tree_mut` now calls); `TREE_COPIES` counts what it counted.
+
+### A3-solver-25b (fixed 8b7055be4)
+
+- `layout_tree::DomBoxes`: a slot per DOM node index (vacant / the node's one box inline / the number of a list),
+  16 bytes a slot, one allocation per tree (reserved with the builder's nodes). The map's method names and
+  answers; `get` and `[&node]` hand out a slice, the iterators a key by value. Every use was read: what changed
+  outside `layout_tree.rs` is in the commit message by access pattern (4 loops / lookups, 2 fixtures, 48 literals).
+- For whoever adds a use: there is no `entry`, `remove`, `get_mut` (nothing needed one); a fixture literal writes
+  `dom_to_layout: Default::default()`.
+- A copy of a tree (`LayoutTree::clone`: the text-edit writes, a display-list-only rebuild after A6-13) copies
+  one buffer for the table instead of a list per node.

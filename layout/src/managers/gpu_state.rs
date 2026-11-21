@@ -894,9 +894,11 @@ fn update_scroll_driven_box(
     // for a `VirtualView`, whose scrollable extent layout cannot see. This
     // path deliberately re-derives nothing: it reads the one stored answer,
     // so a bar that `paint_scrollbars` drew always gets its thumb moved.
-    let bars = warm
-        .scrollbar_info
-        .as_ref()
+    // The amended answer stands beside the tree, in the scroll manager
+    // (`ScrollManager::scrollbar_info`), and in the tree for a box nothing
+    // was raised for.
+    let bars = scroll_manager
+        .scrollbar_info(dom_id, node_idx, layout_tree)
         .map(|info| {
             (
                 info.presence(ScrollbarOrientation::Vertical),
@@ -1451,7 +1453,7 @@ mod autotest_generated {
             warm,
             cold: vec![LayoutNodeCold::default(); n],
             root: 0,
-            dom_to_layout: BTreeMap::new(),
+            dom_to_layout: Default::default(),
             children_arena: Vec::new(),
             children_offsets: vec![(0, 0); n],
             subtree_needs_intrinsic: Vec::new(),

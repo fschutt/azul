@@ -464,6 +464,9 @@ struct Stage {
     child: DomId,
     edits: Arc<AtomicUsize>,
     dpi: f32,
+    /// The last value `write` wrote per (DOM, class): a write of the value a node has is a
+    /// no-op (`ContentDirtyTier::Unchanged`), not a repaint.
+    written: BTreeMap<(usize, String), CssProperty>,
 }
 
 fn node_with_class(lw: &LayoutWindow, dom: DomId, class: &str) -> NodeId {
@@ -514,6 +517,7 @@ fn stage(dpi: u32, ground: bool, badge: bool) -> Stage {
         child,
         edits,
         dpi: dpi as f32 / 96.0,
+        written: BTreeMap::new(),
     }
 }
 
@@ -568,6 +572,13 @@ impl Stage {
     /// `CallbackInfo::set_css_property` of a value the display list binds: no rebuild.
     fn write(&mut self, dom: DomId, class: &str, prop: CssProperty) {
         let node = node_with_class(&self.lw, dom, class);
+        // The value this node was last written (the random steps pick from a few values and
+        // pick the same one twice now and then: the write is `Unchanged` then, a no-op by
+        // the tier's definition; this harness asked `Paint` of every write).
+        let same_as_last = self
+            .written
+            .insert((dom.inner, class.to_string()), prop.clone())
+            .is_some_and(|last| last == prop);
         let tier = self
             .lw
             .apply_content_change(ContentChange::NodeCss {
@@ -577,10 +588,11 @@ impl Stage {
                 override_only: false,
             })
             .tier;
-        assert_eq!(
-            tier,
-            ContentDirtyTier::Paint,
-            "harness: a value under the key of `{class}`, not a rebuild"
+        assert!(
+            tier == ContentDirtyTier::Paint
+                || (same_as_last && tier == ContentDirtyTier::Unchanged),
+            "harness: a value under the key of `{class}`, not a rebuild (and a no-op only \
+             for the value it had): {tier:?}, same as the last write: {same_as_last}"
         );
     }
 

@@ -3614,8 +3614,47 @@ extern "C" fn nodegraph_set_active_node(mut refany: RefAny, _info: CallbackInfo)
     Update::DoNothing
 }
 
-extern "C" fn nodegraph_unset_active_node(mut refany: RefAny, _info: CallbackInfo) -> Update {
+/// A3-solver-55 (the widget half): the gesture is over, its transforms go back to the model.
+///
+/// A drag or a pan writes `set_css_property(box, transform)` per mouse move, which pins the
+/// value as an override (and keeps the box's own style equal to it). An override is carried
+/// onto the matched node of every rebuild and outranks the rebuilt style, so a rebuild from
+/// a model that says otherwise - an undo of the move, a programmatic move, a zoom - showed
+/// the gesture's transform. The override of every node box and wire is cleared here: the
+/// own styles are in sync, so the picture stays (the engine takes the entry out and nothing
+/// else, `LayoutWindow::apply_node_css_change`), and the next rebuild is the model's.
+///
+/// `graph_box` is the graph's box (the node the drag and the release are heard on): its
+/// first child holds the wires, the next one the nodes, each in a holder of its own
+/// (`dom_in_view`).
+fn release_gesture_transforms(info: &mut CallbackInfo, graph_box: azul_core::dom::DomNodeId) {
+    let Some(connections) = info.get_first_child(graph_box) else {
+        return;
+    };
+    let mut written = Vec::new();
+    let mut next = info.get_first_child(connections);
+    while let Some(holder) = next {
+        next = info.get_next_sibling(holder);
+        written.extend(info.get_first_child(holder));
+    }
+    if let Some(nodes) = info.get_next_sibling(connections) {
+        let mut next = info.get_first_child(nodes);
+        while let Some(holder) = next {
+            next = info.get_next_sibling(holder);
+            written.extend(info.get_first_child(holder));
+        }
+    }
+    for node in written {
+        info.override_css_property(node, CssProperty::initial(CssPropertyType::Transform));
+    }
+}
+
+extern "C" fn nodegraph_unset_active_node(mut refany: RefAny, mut info: CallbackInfo) -> Update {
     if let Some(mut refany) = refany.downcast_mut::<NodeGraphLocalDataset>() {
+        if refany.active_node_being_dragged.is_some() || refany.graph_dragged {
+            let graph_box = info.get_hit_node();
+            release_gesture_transforms(&mut info, graph_box);
+        }
         refany.active_node_being_dragged = None;
         // A graph dragged while its DOM is culled to the box shows the nodes the
         // drag brought near the box only once its DOM is built again at the
@@ -4618,7 +4657,7 @@ mod autotest_generated {
                 warm: Vec::new(),
                 cold: Vec::new(),
                 root: 0,
-                dom_to_layout: BTreeMap::new(),
+                dom_to_layout: Default::default(),
                 children_arena: Vec::new(),
                 children_offsets: Vec::new(),
                 subtree_needs_intrinsic: Vec::new(),
@@ -6349,6 +6388,60 @@ mod autotest_generated {
             let mut probe = gd.clone();
             let d = probe.downcast_ref::<NodeGraphLocalDataset>().expect("gd");
             assert!(d.active_node_being_dragged.is_none());
+        }
+    }
+
+    /// A3-solver-55 (the widget half): the release after a pan or a node drag clears the
+    /// transform override of every node box and wire - one `override_css_property(initial
+    /// transform)` each and nothing else - so the next rebuild shows the model (an undo, a
+    /// programmatic move), not the gesture; a release without a gesture writes nothing.
+    /// Mutation: `release_gesture_transforms` not called (no change is pushed: the
+    /// overrides stay and migrate onto every rebuild).
+    #[test]
+    fn the_release_after_a_gesture_hands_every_transform_back() {
+        let g = graph();
+        let dom = g.clone().dom();
+        let boxes = dom.children.as_ref()[0].children.as_ref()[1].children.len();
+        let wires = connections_with_dom(&dom);
+        assert!(boxes > 0, "harness: the graph has nodes");
+        // The graph's box: the first child of the widget's wrapper.
+        let graph_box = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(azul_core::dom::NodeId::new(1))),
+        };
+        let release = |gd: &RefAny| {
+            with_info(StyledDom::create_from_dom(g.clone().dom()), graph_box, |info| {
+                nodegraph_unset_active_node(gd.clone(), *info)
+            })
+            .1
+        };
+
+        let untouched = graph_dataset(&g);
+        assert!(release(&untouched).is_empty(), "no gesture: nothing to hand back");
+
+        for pan in [true, false] {
+            let gd = graph_dataset(&g);
+            {
+                let mut probe = gd.clone();
+                let mut d = probe.downcast_mut::<NodeGraphLocalDataset>().expect("gd");
+                if pan {
+                    d.graph_dragged = true;
+                } else {
+                    d.active_node_being_dragged = Some(N2);
+                }
+            }
+            let changes = release(&gd);
+            assert_eq!(changes.len(), boxes + wires, "pan {pan}: one clear per box and wire");
+            for change in &changes {
+                let clears = matches!(
+                    change,
+                    CallbackChange::OverrideNodeCssProperties { properties, .. }
+                        if properties.as_ref().len() == 1
+                            && properties.as_ref()[0]
+                                == CssProperty::initial(CssPropertyType::Transform)
+                );
+                assert!(clears, "pan {pan}: every change clears a transform override");
+            }
         }
     }
 

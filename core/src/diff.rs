@@ -3338,6 +3338,16 @@ pub struct DomFingerprints {
     /// nodes differ in the characters of those texts and in nothing else
     /// ([`texts_alone_changed`]): the same tree, the same nodes, the same styles.
     pub text_shapes: Vec<(usize, u64)>,
+    /// Per node, pre-order: how many nodes its subtree holds, itself included. A pre-order
+    /// with every node's subtree size has ONE shape, so two builds with equal `subtree_len`
+    /// are the same tree whatever their nodes are: index `i` names the node at the same
+    /// place in both ([`same_tree_changes`]).
+    pub subtree_len: Vec<u32>,
+    /// `(index, hash)` of every node that has sheets attached (`Dom::with_css` with rules,
+    /// `Dom::with_component_css`), in pre-order: the sheet half of `style`, alone. Equal
+    /// lists mean every sheet is what it was and hangs where it hung, so a `style` hash that
+    /// still differs is a node's own inline style.
+    pub sheets: Vec<(usize, u64)>,
 }
 
 /// The payloads of a fresh build the pre-cascade skip carries onto the DOM it
@@ -3441,11 +3451,34 @@ pub fn fingerprint_dom(dom: &crate::dom::Dom) -> (DomFingerprints, PreCascadeTra
         h.finish()
     }
 
+    /// The sheets attached to `dom`'s own node, as [`node_style_hash`] folds them.
+    fn node_sheets_hash(dom: &crate::dom::Dom) -> u64 {
+        use core::hash::{Hash, Hasher};
+        let mut h = crate::hash::DefaultHasher::new();
+        dom.css.as_ref().len().hash(&mut h);
+        for css in dom.css.as_ref() {
+            for rule in css.rules.as_ref() {
+                rule.path.hash(&mut h);
+                for decl in rule.declarations.as_ref() {
+                    decl.hash(&mut h);
+                }
+                rule.conditions.as_slice().hash(&mut h);
+                rule.priority.hash(&mut h);
+            }
+        }
+        h.finish()
+    }
+
     fn walk(dom: &crate::dom::Dom, fp: &mut DomFingerprints, transfers: &mut PreCascadeTransfers) {
         let idx = fp.structure.len();
         fp.structure
             .push(node_structure_hash(&dom.root, dom.children.as_ref().len()));
         fp.style.push(node_style_hash(dom));
+        // Filled in once the children are walked: the subtree ends where the walk stands then.
+        fp.subtree_len.push(0);
+        if !dom.css.as_ref().is_empty() {
+            fp.sheets.push((idx, node_sheets_hash(dom)));
+        }
         if let NodeType::Text(text) = dom.root.get_node_type() {
             fp.text_shapes.push((
                 idx,
@@ -3466,6 +3499,10 @@ pub fn fingerprint_dom(dom: &crate::dom::Dom) -> (DomFingerprints, PreCascadeTra
         for child in dom.children.as_ref() {
             walk(child, fp, transfers);
         }
+        let len = u32::try_from(fp.structure.len() - idx).unwrap_or(u32::MAX);
+        if let Some(slot) = fp.subtree_len.get_mut(idx) {
+            *slot = len;
+        }
     }
 
     let mut fp = DomFingerprints {
@@ -3474,6 +3511,8 @@ pub fn fingerprint_dom(dom: &crate::dom::Dom) -> (DomFingerprints, PreCascadeTra
         structure_root: 0,
         style_root: 0,
         text_shapes: Vec::new(),
+        subtree_len: Vec::new(),
+        sheets: Vec::new(),
     };
     let mut transfers = PreCascadeTransfers::default();
     walk(dom, &mut fp, &mut transfers);
@@ -3604,6 +3643,152 @@ pub fn adopt_fresh_texts(retained: &mut [NodeData], fresh: &crate::dom::Dom, cha
             old.set_node_type(new.get_node_type().clone());
         }
     }
+}
+
+/// The nodes a rebuild changed when it kept the TREE: the pre-order indices at which `next`
+/// differs from `prev` in what the node is (`structure`) or in its own style (`style`),
+/// ascending. `None` when the two builds are alike, and when the rebuild did more than change
+/// nodes where they stand: a node came, went or moved (`subtree_len` differs), or a sheet
+/// attached to a node changed, came or went (`sheets` differs).
+///
+/// Equal `subtree_len`: the same tree, so index `i` names the node at the same place in both
+/// builds. Equal `sheets`: every attached sheet is what it was and hangs where it hung, and
+/// with the same tree its scope (the subtree of its node) covers the same nodes. What is left
+/// is per node: its type and text, its handlers' events, its flags, attributes, ids and
+/// classes, its key (`structure`), and its inline style (`style`). A node this does not name
+/// is, field for field of the table the fingerprints compare
+/// ([`crate::layout_inputs::NodeField`]), the node it was.
+///
+/// Which of the named nodes can be written onto the retained arena is
+/// [`changed_nodes_are_adoptable`]'s to say.
+#[must_use]
+pub fn same_tree_changes(prev: &DomFingerprints, next: &DomFingerprints) -> Option<Vec<usize>> {
+    let n = next.structure.len();
+    if prev.structure.len() != n
+        || prev.style.len() != n
+        || next.style.len() != n
+        || prev.subtree_len.len() != n
+        || next.subtree_len.len() != n
+        || prev.subtree_len != next.subtree_len
+        || prev.sheets != next.sheets
+    {
+        return None;
+    }
+    let changed: Vec<usize> = (0..n)
+        .filter(|i| prev.structure[*i] != next.structure[*i] || prev.style[*i] != next.style[*i])
+        .collect();
+    (!changed.is_empty()).then_some(changed)
+}
+
+/// Whether [`adopt_changed_nodes`] can write the nodes of `fresh` at `changed` onto `retained`
+/// so that the arena reads as a full rebuild would leave it, the node at each index being THE
+/// SAME NODE as before (its focus, scroll, hover, text-edit state and dataset stay with it).
+///
+/// A full rebuild pairs the nodes with `reconcile_dom`. In the same tree, a node whose type,
+/// terminal key (`with_key`, or the id where `identity.id_is_key`) and - where
+/// `identity.class_change_remounts` - classes are what they were has the reconciliation key
+/// it had (the key is those three, the node's place and its parent's key), so the positional
+/// pass pairs it with the node at its place. What a full rebuild does for a pair beyond
+/// styling it and laying it out keeps this off, node by node:
+/// - an `Updated` handler on the node: the reconciliation tells it that its content moved;
+/// - an image: a rebuilt image node takes the live frame of the node before it
+///   (`transfer_states`), and counts as re-initialised;
+/// - an icon, a virtual view, a localizable text or a text that was translated: the passes
+///   between the app's callback and the cascade resolve, host or translate them;
+/// - a presentational attribute (a `Custom` attribute on the fresh node, a hint already in
+///   the retained node's style): `StyledDom`'s creation turns those into declarations;
+/// - a style that makes generated content (an inline list item, a footnote): the creation
+///   adds nodes for it;
+/// - other handlers' events, a dataset that came or went, a geolocation probe: the tail of
+///   the shell's rebuild reads them off every node of the new DOM (the lists of nodes with
+///   window handlers and datasets, the sensor and gamepad listeners, the permission diff).
+#[must_use]
+pub fn changed_nodes_are_adoptable(
+    retained: &[NodeData],
+    fresh: &crate::dom::Dom,
+    changed: &[usize],
+    identity: NodeIdentityConfig,
+) -> bool {
+    /// A node the passes around the cascade treat specially (see above).
+    fn special(node: &NodeData) -> bool {
+        match node.get_node_type() {
+            NodeType::Image(_)
+            | NodeType::Icon(_)
+            | NodeType::VirtualView
+            | NodeType::GeolocationProbe(_) => true,
+            NodeType::Text(text) => text.as_ref().is_localizable(),
+            _ => false,
+        }
+    }
+    /// A presentational hint among the node's own rules: any rule below the inline priority.
+    fn has_hint(node: &NodeData) -> bool {
+        node.style
+            .rules
+            .as_ref()
+            .iter()
+            .any(|rule| rule.priority < azul_css::css::rule_priority::INLINE)
+    }
+
+    let nodes = nodes_at(fresh, changed);
+    nodes.len() == changed.len()
+        && changed.iter().zip(nodes.iter()).all(|(index, new)| {
+            let Some(old) = retained.get(*index) else {
+                return false;
+            };
+            core::mem::discriminant(old.get_node_type())
+                == core::mem::discriminant(new.get_node_type())
+                && identity.terminal_key(old) == identity.terminal_key(new)
+                && !identity.classes_differ(old, new)
+                && !has_update_callback(new)
+                && !special(old)
+                && !special(new)
+                && old.get_localization_key().is_none()
+                && !has_hint(old)
+                && !has_hint(new)
+                && !crate::generated_content::node_generates_nodes(new)
+                && crate::layout_inputs::NodeField::Callbacks.reads_alike(old, new)
+                && old.get_dataset().is_some() == new.get_dataset().is_some()
+                && !new
+                    .attributes()
+                    .as_ref()
+                    .iter()
+                    .any(|attr| matches!(attr, AttributeType::Custom(_)))
+        })
+}
+
+/// Writes the nodes a rebuild changed onto the arena the window keeps, and answers the nodes
+/// that stood there: `(index, the node before)`, ascending. The caller has asked
+/// [`changed_nodes_are_adoptable`], and has carried the fresh build's payloads onto the arena
+/// ([`adopt_fresh_payloads`]) BEFORE this.
+///
+/// The node written at an index is the fresh build's node - every field the table compares
+/// ([`crate::layout_inputs::NodeField`]): its type and text, flags, attributes, style, key -
+/// with, for every field the table carries and the fresh node holds a value of (its handlers,
+/// its dataset, a menu, its marker...), the value the retained node holds after the payloads
+/// were carried: the fresh one, merged with the state of the build before where the node has
+/// a merge callback. A carried field the fresh node holds nothing of stays empty, as it is on
+/// the node a full rebuild makes.
+pub fn adopt_changed_nodes(
+    retained: &mut [NodeData],
+    fresh: &crate::dom::Dom,
+    changed: &[usize],
+) -> Vec<(usize, NodeData)> {
+    use crate::layout_inputs::NodeField;
+
+    let mut replaced = Vec::with_capacity(changed.len());
+    for (index, new) in changed.iter().zip(nodes_at(fresh, changed)) {
+        let Some(held) = retained.get_mut(*index) else {
+            continue;
+        };
+        let mut node = new.clone();
+        for field in NodeField::ALL {
+            if field.retained().carries() && field.holds_value(new) {
+                field.carry(held, &mut node);
+            }
+        }
+        replaced.push((*index, core::mem::replace(held, node)));
+    }
+    replaced
 }
 
 #[cfg(test)]

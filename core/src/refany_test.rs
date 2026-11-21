@@ -1296,3 +1296,76 @@ mod autotest_generated {
         assert!(released.downcast_ref::<u8>().is_none());
     }
 }
+
+/// A3-window-42: the table of the allocations a rebuild's merges dropped is asked by address.
+#[cfg(test)]
+mod audit_a3_window_tests {
+    use super::*;
+
+    /// A merge that dropped A for B and a later one that dropped B for C: every clone of A or
+    /// of B ends at C; a merge of an allocation that is known already changes nothing; a
+    /// `RefAny` of another allocation is left alone.
+    /// Mutation: `by_address` not filled in `replace` (no lookup finds its entry: no holder is
+    /// repointed).
+    #[test]
+    fn a_dropped_dataset_leads_on_to_what_finally_replaced_it() {
+        let (a, b, c) = (RefAny::new(1_u8), RefAny::new(2_u8), RefAny::new(3_u8));
+        let mut repointing = Repointing::default();
+        assert!(repointing.is_empty());
+        repointing.replace(&a, &b);
+        repointing.replace(&b, &c);
+        repointing.replace(&a, &c);
+        repointing.replace(&c, &c);
+        assert!(!repointing.is_empty());
+
+        for start in [&a, &b] {
+            let mut held = start.clone();
+            repointing.repoint(&mut held);
+            assert!(
+                core::ptr::eq(held.sharing_info.ptr, c.sharing_info.ptr),
+                "a clone of a dropped dataset ends at the one that finally replaced it"
+            );
+        }
+        let mut other = RefAny::new(9_u8);
+        let before = other.sharing_info.ptr;
+        repointing.repoint(&mut other);
+        assert!(core::ptr::eq(other.sharing_info.ptr, before), "another allocation stays");
+
+        // What another table replaced is added, with the same lookups.
+        let (d, e) = (RefAny::new(4_u8), RefAny::new(5_u8));
+        let mut more = Repointing::default();
+        more.replace(&d, &e);
+        repointing.extend(more);
+        let mut held = d.clone();
+        repointing.repoint(&mut held);
+        assert!(core::ptr::eq(held.sharing_info.ptr, e.sharing_info.ptr));
+    }
+
+    /// The lookups of a rebuild with `merges` merging nodes: one per `RefAny` asked about and
+    /// one more to see where its replacement leads, whatever the number of merges. They were
+    /// a search of the merges each (800 merges: 640,000 pointer compares to collect them and
+    /// as many again per pass over the holders).
+    #[test]
+    fn a_lookup_among_the_merges_of_a_rebuild_does_not_search_them() {
+        let probes = |merges: usize| {
+            let kept = RefAny::new(0_u8);
+            let dropped: Vec<RefAny> = (0..merges).map(RefAny::new).collect();
+            let mut repointing = Repointing::default();
+            for dataset in &dropped {
+                repointing.replace(dataset, &kept);
+            }
+            let mut holders: Vec<RefAny> = dropped.clone();
+            REPOINT_PROBES.with(|probes| probes.set(0));
+            for holder in &mut holders {
+                repointing.repoint(holder);
+            }
+            assert!(holders
+                .iter()
+                .all(|holder| core::ptr::eq(holder.sharing_info.ptr, kept.sharing_info.ptr)));
+            REPOINT_PROBES.with(core::cell::Cell::get)
+        };
+        let (small, large) = (probes(200), probes(800));
+        assert_eq!(small, 2 * 200, "two lookups per holder");
+        assert!(large <= small * 6, "{small} lookups at 200 merges, {large} at 800");
+    }
+}

@@ -2143,15 +2143,12 @@ struct LcdTileKey {
 const MAX_TILE_ENTRIES: usize = 4096;
 
 impl GlyphCache {
-    /// Pre-blended tile for one glyph on a uniform opaque background.
-    /// `None` = the glyph produced no cells (whitespace) — nothing to paint.
-    ///
-    /// The tile is shared with the cache: a hit used to clone it, its pixel
-    /// vector included - an allocation and a copy of the tile per glyph per
-    /// repaint, on the path that exists to make a glyph a row copy.
-    #[allow(clippy::too_many_arguments)]
-    pub fn get_or_build_lcd_tile(
-        &mut self,
+    /// The key of the tile [`Self::get_or_build_lcd_tile`] keeps for these arguments, and the
+    /// integer pixel offset it hands out with it: one function for the builder and the
+    /// read-only probe [`Self::cached_lcd_tile`], so both key alike (audit A1-49; the lines
+    /// are the builder's, moved).
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::too_many_arguments)]
+    fn lcd_tile_key(
         font_hash: u64,
         glyph_id: u16,
         ppem: u16,
@@ -2162,9 +2159,7 @@ impl GlyphCache {
         hint_correction: f32,
         color: azul_css::props::basic::color::ColorU,
         bg: azul_css::props::basic::color::ColorU,
-        lut: &agg_rust::pixfmt_lcd::LcdDistributionLut,
-        params: agg_rust::pixfmt_lcd::LcdBlendParams,
-    ) -> Option<(std::sync::Arc<LcdGlyphTile>, i32, i32)> {
+    ) -> (LcdTileKey, i32, i32) {
         let rescale_hinted = is_hinted && (hint_correction - 1.0).abs() > 1e-4;
         let subpx = text_subpixel_enabled();
         let (int_x, subpx_x) = if subpx {
@@ -2191,6 +2186,100 @@ impl GlyphCache {
             color: (color.r, color.g, color.b, color.a),
             bg: (bg.r, bg.g, bg.b),
         };
+        (key, int_x, int_y)
+    }
+
+    /// What [`Self::get_or_build_lcd_tile`] hands out for these arguments when this cache
+    /// holds the tile, without building or evicting anything: `None` when it does not hold
+    /// it, `Some(None)` when it holds that the glyph has no tile. A read-only probe through
+    /// a shared `&GlyphCache`, as [`Self::cached_cells`] is: the band threads of a repaint
+    /// ask the window's cache before they build a tile into their own (audit A1-49: without
+    /// it every band built the cells and the tile of every glyph of every run over a
+    /// uniform background again on every banded repaint). The tile is the one a cache with
+    /// the same text settings and stripe order builds, which a band's cache has.
+    #[allow(clippy::too_many_arguments, clippy::option_option)]
+    #[must_use]
+    pub fn cached_lcd_tile(
+        &self,
+        font_hash: u64,
+        glyph_id: u16,
+        ppem: u16,
+        glyph_x: f32,
+        glyph_y: f32,
+        scale: f32,
+        is_hinted: bool,
+        hint_correction: f32,
+        color: azul_css::props::basic::color::ColorU,
+        bg: azul_css::props::basic::color::ColorU,
+    ) -> Option<Option<(std::sync::Arc<LcdGlyphTile>, i32, i32)>> {
+        let (key, int_x, int_y) = Self::lcd_tile_key(
+            font_hash,
+            glyph_id,
+            ppem,
+            glyph_x,
+            glyph_y,
+            scale,
+            is_hinted,
+            hint_correction,
+            color,
+            bg,
+        );
+        let entry = self.lcd_tiles.get(&key)?;
+        Some(entry.clone().map(|tile| (tile, int_x, int_y)))
+    }
+
+    /// The kind of the path this cache holds for a glyph, without building it: `None` when
+    /// neither generation holds it, `Some(None)` when it is held as "no outline",
+    /// `Some(Some(is_hinted))` otherwise. Read-only, as [`Self::cached_cells`]: with hinting
+    /// on, the key of a glyph's cells and of its tile needs the path's kind, and a band that
+    /// had to build the path in its own cache to learn it ran the hinting program for every
+    /// glyph on every banded repaint (audit A1-49).
+    #[allow(clippy::option_option)]
+    #[must_use]
+    pub fn cached_path_kind(&self, font_hash: u64, glyph_id: u16, ppem: u16) -> Option<Option<bool>> {
+        let key = GlyphPathKey {
+            font_hash,
+            glyph_id,
+            ppem,
+        };
+        let entry = self.paths.get(&key).or_else(|| self.paths_prev.get(&key))?;
+        Some(entry.as_ref().map(|(_, is_hinted)| *is_hinted))
+    }
+
+    /// Pre-blended tile for one glyph on a uniform opaque background.
+    /// `None` = the glyph produced no cells (whitespace) — nothing to paint.
+    ///
+    /// The tile is shared with the cache: a hit used to clone it, its pixel
+    /// vector included - an allocation and a copy of the tile per glyph per
+    /// repaint, on the path that exists to make a glyph a row copy.
+    #[allow(clippy::too_many_arguments)]
+    pub fn get_or_build_lcd_tile(
+        &mut self,
+        font_hash: u64,
+        glyph_id: u16,
+        ppem: u16,
+        glyph_x: f32,
+        glyph_y: f32,
+        scale: f32,
+        is_hinted: bool,
+        hint_correction: f32,
+        color: azul_css::props::basic::color::ColorU,
+        bg: azul_css::props::basic::color::ColorU,
+        lut: &agg_rust::pixfmt_lcd::LcdDistributionLut,
+        params: agg_rust::pixfmt_lcd::LcdBlendParams,
+    ) -> Option<(std::sync::Arc<LcdGlyphTile>, i32, i32)> {
+        let (key, int_x, int_y) = Self::lcd_tile_key(
+            font_hash,
+            glyph_id,
+            ppem,
+            glyph_x,
+            glyph_y,
+            scale,
+            is_hinted,
+            hint_correction,
+            color,
+            bg,
+        );
 
         if let Some(hit) = self.lcd_tiles.get(&key) {
             return hit.clone().map(|t| (t, int_x, int_y));
@@ -2531,5 +2620,74 @@ mod audit_a8_tests {
         let _ = window.get_or_build_cells_lcd_emboldened(7, glyph, 0, 1.25, 2.0, scale, false, 1.0, 0.0);
         let _ = window.get_or_build_cells(9, glyph, 0, 0.0, 0.0, scale, false, 1.0);
         assert_eq!(window.cells_built(), 0, "what a band built is not built again");
+    }
+}
+
+/// Guards of the 2026-11-21 audit, area A1 (`audit/A1.md`): the read-only probes the band
+/// threads of a repaint ask the window's cache with.
+#[cfg(test)]
+mod audit_a1_tests {
+    use super::*;
+
+    /// A1-49: `cached_path_kind` and `cached_lcd_tile` find what `get_or_build_decoding` and
+    /// `get_or_build_lcd_tile` keep - the same tile (the same allocation) with the offsets
+    /// the builder hands out - and nothing they do not keep (another colour pair, another
+    /// sub-pixel step); and what a band's cache built is found in the window's cache after
+    /// `absorb`, for another pen in the same sub-pixel step.
+    /// Mutation: a probe that keys the tile without the colours finds the white-on-black
+    /// tile for black on white; `cached_path_kind` reading the young generation alone
+    /// loses a path the rotation aged.
+    #[test]
+    fn the_tile_and_path_probes_find_what_the_builders_keep() {
+        use azul_css::props::basic::color::ColorU;
+        let font = ParsedFont::from_bytes(crate::text3::mock_fonts::MOCK_MONO_TTF, 0, &mut Vec::new())
+            .expect("the mock font parses");
+        let gid = font.lookup_glyph_index('A' as u32).expect("the mock font maps 'A'");
+        let scale = 20.0 / f32::from(font.font_metrics.units_per_em);
+        let lut = agg_rust::pixfmt_lcd::LcdDistributionLut::new(
+            f64::from(0x56u32),
+            f64::from(0x4Du32),
+            f64::from(0x08u32),
+        );
+        let params = agg_rust::pixfmt_lcd::LcdBlendParams::default();
+        let black = ColorU { r: 0, g: 0, b: 0, a: 255 };
+        let white = ColorU { r: 255, g: 255, b: 255, a: 255 };
+
+        let mut band = GlyphCache::new();
+        assert_eq!(band.cached_path_kind(7, gid, 0), None, "not held yet");
+        assert!(band.cached_lcd_tile(7, gid, 0, 10.25, 30.0, scale, false, 1.0, black, white).is_none());
+        let built = band
+            .get_or_build_decoding(7, gid, &font, 0, || font.get_or_decode_glyph(gid))
+            .map(|path| path.is_hinted);
+        assert_eq!(built, Some(false), "without hinting the path is the face's own");
+        assert_eq!(band.cached_path_kind(7, gid, 0), Some(Some(false)));
+        let (tile, x, y) = band
+            .get_or_build_lcd_tile(7, gid, 0, 10.25, 30.0, scale, false, 1.0, black, white, &lut, params)
+            .expect("'A' has a tile");
+        let (found, found_x, found_y) = band
+            .cached_lcd_tile(7, gid, 0, 10.25, 30.0, scale, false, 1.0, black, white)
+            .expect("held")
+            .expect("a tile");
+        assert!(std::sync::Arc::ptr_eq(&tile, &found), "the kept tile, not a copy");
+        assert_eq!((found_x, found_y), (x, y));
+        assert!(
+            band.cached_lcd_tile(7, gid, 0, 10.25, 30.0, scale, false, 1.0, white, black).is_none(),
+            "another colour pair is another tile"
+        );
+        assert!(
+            band.cached_lcd_tile(7, gid, 0, 10.75, 30.0, scale, false, 1.0, black, white).is_none(),
+            "another sub-pixel step is another tile"
+        );
+
+        let mut window = GlyphCache::new();
+        window.absorb(band);
+        assert_eq!(window.cached_path_kind(7, gid, 0), Some(Some(false)), "the band's path is the window's now");
+        let (in_window, window_x, _) = window
+            .cached_lcd_tile(7, gid, 0, 50.25, 30.0, scale, false, 1.0, black, white)
+            .expect("held")
+            .expect("a tile");
+        assert!(std::sync::Arc::ptr_eq(&tile, &in_window), "and so is its tile");
+        assert_eq!(window_x, 50, "at the pen it is asked for");
+        assert_eq!(window.cells_built(), 0, "taken over, not built");
     }
 }

@@ -625,7 +625,7 @@ fn the_ime_caret_rect_is_lifted_out_of_the_nested_dom() {
     );
     let host_origin = lw
         .get_layout_result(&DomId::ROOT_ID)
-        .and_then(|lr| lr.layout_tree.dom_to_layout.get(&NodeId::new(1)).cloned())
+        .and_then(|lr| lr.layout_tree.dom_to_layout.get(&NodeId::new(1)).map(<[_]>::to_vec))
         .and_then(|ix| ix.first().copied())
         .and_then(|ix| {
             lw.get_layout_result(&DomId::ROOT_ID)

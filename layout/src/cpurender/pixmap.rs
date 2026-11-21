@@ -2005,6 +2005,13 @@ pub fn snapshot_region(pixmap: &AzulPixmap, x: i32, y: i32, w: u32, h: u32) -> V
 // bounded image-dimension / non-negative-loop-index coordinate casts
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
 pub fn write_region(dst: &mut AzulPixmap, src: &[u8], w: u32, h: u32, x: i32, y: i32) {
+    // A side that does not fit an `i32` writes nothing, as the per-pixel loops this replaced
+    // did (their `0..w as i32` was an empty range then): no source is 2^31 px wide, and the
+    // row copies below would take the first pixels of `src` for a row of such a region
+    // (`write_region_u32_max_dimensions_are_a_noop`).
+    if i32::try_from(w).is_err() || i32::try_from(h).is_err() {
+        return;
+    }
     // As `snapshot_region`: the rows and columns that land, a copy per row.
     let Some((cols, rows)) = landing(w, x, dst.width as i32).zip(landing(h, y, dst.height as i32)) else {
         return;
