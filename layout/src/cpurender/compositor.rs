@@ -802,8 +802,12 @@ impl CompositorState {
                     // frame's origin.
                     let live = azul_core::transform::ComputedTransform3D { m: *m };
                     let origin = bounds.inner().origin;
+                    // (With the frames inside it where their live matrices paint them, A1-60.)
                     let extent = device_pixel_box(
-                        reference_frame_extent(display_list, i)
+                        display_list
+                            .frame_index()
+                            .extent_with(&display_list.items, i, live_transforms)
+                            .or_else(|| reference_frame_extent(display_list, i))
                             .unwrap_or_else(|| *bounds.inner()),
                         dpi_factor,
                     );
@@ -1729,7 +1733,9 @@ fn painted_over_later(
                 } else {
                     // Everything it paints, moved - then past its pop.
                     let frame = index.frame_at(i);
-                    let content = frame.map_or_else(|| *bounds.inner(), |f| f.extent);
+                    let content = index
+                        .extent_with(items, i, live_transforms)
+                        .unwrap_or_else(|| frame.map_or_else(|| *bounds.inner(), |f| f.extent));
                     let moved = affine_rect_about(m, bounds.inner().origin, content)
                         .unwrap_or(UNBOUNDED);
                     let seen = later.iter().flatten().next().copied().unwrap_or(moved);
@@ -2453,10 +2459,35 @@ pub fn scroll_fast_path_eligible_in(
     scroll_offsets: &ScrollOffsetMap,
     transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
 ) -> bool {
+    scroll_fast_path_eligible_with(
+        display_list,
+        &frame_pushes(display_list, scroll_id),
+        scroll_id,
+        clip_bounds,
+        scroll_offset,
+        prev_offset,
+        scroll_offsets,
+        transforms,
+    )
+}
+
+/// [`scroll_fast_path_eligible_in`] with the frame's pushes ([`frame_pushes`]) found by the
+/// caller: a scroll step asks this and then for the overlays, and each found them again - two
+/// more passes over the list, each with a walk from the push to its pop.
+#[allow(clippy::too_many_arguments, clippy::implicit_hasher)]
+fn scroll_fast_path_eligible_with(
+    display_list: &DisplayList,
+    pushes: &[(usize, usize)],
+    scroll_id: LocalScrollId,
+    clip_bounds: &LogicalRect,
+    scroll_offset: (f32, f32),
+    prev_offset: (f32, f32),
+    scroll_offsets: &ScrollOffsetMap,
+    transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
+) -> bool {
     let _p = crate::probe::Probe::span("scroll_fastpath_check");
 
     let items = &display_list.items;
-    let pushes = frame_pushes(display_list, scroll_id);
     let Some(&(start, _)) = pushes.first() else {
         return true; // no frame for this id → nothing to shift
     };
@@ -2913,9 +2944,14 @@ fn gpu_value_damage_of(
                 // unlike a moved reference frame whose content extent is
                 // unknowable from the item.
                 if changed_o.contains(&k.id) {
-                    // All of what the group paints fades (A2-gpu-06), not only its box.
-                    let faded = index.opacity_extent(idx).unwrap_or_else(|| *bounds.inner());
-                    both(&mut out, moved_by(faded, scrolled), &frames_old, &frames_new);
+                    // All of what the group paints fades (A2-gpu-06), not only its box: where
+                    // the frames inside it were painted and where they are (A1-60).
+                    for values in [old_transforms, new_transforms] {
+                        let faded = index
+                            .opacity_extent_with(items, idx, values)
+                            .unwrap_or_else(|| *bounds.inner());
+                        both(&mut out, moved_by(faded, scrolled), &frames_old, &frames_new);
+                    }
                 }
             }
             _ => {}
@@ -3218,8 +3254,11 @@ pub fn node_groups_on_screen(
                         .get(&transform_key.id)
                         .copied()
                         .unwrap_or(*initial_transform);
-                    let content =
-                        reference_frame_extent(display_list, idx).unwrap_or_else(|| *bounds.inner());
+                    let content = display_list
+                        .frame_index()
+                        .extent_with(&display_list.items, idx, live_transforms)
+                        .or_else(|| reference_frame_extent(display_list, idx))
+                        .unwrap_or_else(|| *bounds.inner());
                     // Through its own matrix and the frames around it, in one go.
                     let mut frames = stack.frames.clone();
                     frames.push(moved_by(*bounds.inner(), scrolled).origin, m);
@@ -3503,8 +3542,11 @@ pub fn execute_scroll_shift(
     let mut present_extra = Vec::new();
     let mut moves = Vec::new();
     let prev_offset = (offset.0 - delta.0, offset.1 - delta.1);
-    if scroll_fast_path_eligible_in(
+    // The frame's pushes, found once for the check and for the overlays.
+    let pushes = frame_pushes(display_list, scroll_id);
+    if scroll_fast_path_eligible_with(
         display_list,
+        &pushes,
         scroll_id,
         clip,
         offset,
@@ -3527,13 +3569,10 @@ pub fn execute_scroll_shift(
         let moved = !strips.is_empty();
         damage.extend(strips);
         if moved {
-            for g in overlay_rects_after_frame_in(
-                display_list,
-                scroll_id,
-                clip,
-                scroll_offsets,
-                transforms,
-            ) {
+            let overlays = pushes.first().map_or_else(Vec::new, |&(_, end)| {
+                overlay_rects_after(display_list, scroll_id, end, clip, scroll_offsets, transforms)
+            });
+            for g in overlays {
                 damage.push(g);
                 let mut ghost = g;
                 ghost.origin.x -= delta.0;
@@ -3954,23 +3993,49 @@ pub fn overlay_rects_after_frame_in(
     scroll_offsets: &ScrollOffsetMap,
     transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
 ) -> Vec<LogicalRect> {
-    let mut out = Vec::new();
     let Some(&(_, end)) = frame_pushes(display_list, scroll_id).first() else {
-        return out;
+        return Vec::new();
     };
+    overlay_rects_after(display_list, scroll_id, end, clip_bounds, scroll_offsets, transforms)
+}
+
+#[cfg(test)]
+std::thread_local! {
+    /// Tests: how many items [`overlay_rects_after`] has read the bounds of on this thread.
+    static OVERLAY_BOUNDS_READ: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+}
+
+/// [`overlay_rects_after_frame_in`] for a frame whose first pop is at `end` (the caller found
+/// its pushes).
+#[allow(clippy::implicit_hasher)]
+fn overlay_rects_after(
+    display_list: &DisplayList,
+    scroll_id: LocalScrollId,
+    end: usize,
+    clip_bounds: &LogicalRect,
+    scroll_offsets: &ScrollOffsetMap,
+    transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
+) -> Vec<LogicalRect> {
+    let mut out = Vec::new();
     let cx1 = clip_bounds.origin.x + clip_bounds.size.width;
     let cy1 = clip_bounds.origin.y + clip_bounds.size.height;
     let mut stack = ScrollStack::with_transforms(scroll_offsets, transforms);
     for (i, it) in display_list.items.iter().enumerate() {
-        // Where the item paints, shadow and all; read before stepping over it.
-        let on_screen = it
-            .visual_bounds()
-            .map(|b| stack.on_screen(b).unwrap_or(UNBOUNDED));
         let moved_with_the_frame = stack.is_open(scroll_id);
+        // Where the item paints, shadow and all, read before stepping over it - for an item
+        // that can be an overlay. The bounds of EVERY item were read first and the test came
+        // after: the pen bounds of every text run of the page, on every scroll step, for the
+        // few items painted after the frame.
+        let can_be_one =
+            i >= end && !moved_with_the_frame && !it.is_state_management() && !paints_nothing(it);
+        let on_screen = if can_be_one {
+            #[cfg(test)]
+            OVERLAY_BOUNDS_READ.with(|n| n.set(n.get() + 1));
+            it.visual_bounds().map(|b| stack.on_screen(b).unwrap_or(UNBOUNDED))
+        } else {
+            None
+        };
         stack.step(it);
-        if i < end || moved_with_the_frame || it.is_state_management() || paints_nothing(it) {
-            continue;
-        }
         let Some(b) = on_screen else { continue };
         // STRICT overlap: merely touching shares no pixels with the clip and
         // cannot be dragged.
@@ -4370,7 +4435,12 @@ fn render_display_list_range(
         render_single_item(
             item,
             display_list.uniform_text_bgs.get(i).copied().flatten(),
-            reference_frame_extent(display_list, i),
+            // A frame's extent with the frames inside it where their live matrices paint
+            // them, as the flat walk takes it (A1-60).
+            display_list
+                .frame_index()
+                .extent_with(&display_list.items, i, &render_state.transforms)
+                .or_else(|| reference_frame_extent(display_list, i)),
             pixmap,
             dpi_factor,
             renderer_resources,
@@ -12697,5 +12767,42 @@ mod audit_a1_tests {
         assert_eq!(at(&pm, 55, 15), (59, 15), "the last column that is the clip's");
         assert_eq!(at(&pm, 56, 15), (56, 15), "not the neighbour's column 60");
         assert_eq!(at(&pm, 60, 15), (60, 15));
+    }
+
+
+    /// A1-61: the overlay scan of a scroll step reads the bounds of the items that can be
+    /// overlays - those painted after the frame - and not of every item of the list. A page
+    /// of n rows inside the frame and two boxes after it (one over the frame's clip, one
+    /// beside it): two bounds are read whether n is 50 or 200, and the overlay found is the
+    /// part of the first box inside the clip. (Every item's bounds were read before the test
+    /// that skips it: n + 2 reads.)
+    /// Mutation: the bounds read before `can_be_one` counts 52 and 202.
+    #[test]
+    fn the_overlay_scan_reads_the_bounds_of_what_is_painted_after_the_frame() {
+        let clip = lr(0.0, 0.0, 100.0, 300.0);
+        let page = |rows: usize| {
+            let mut items = vec![DisplayListItem::PushScrollFrame {
+                clip_bounds: clip.into(),
+                content_size: LogicalSize { width: 100.0, height: 2000.0 },
+                scroll_id: 4,
+            }];
+            for row in 0..rows {
+                items.push(opaque(0.0, row as f32 * 10.0, 100.0, 10.0, [240, 240, 230]));
+            }
+            items.push(DisplayListItem::PopScrollFrame);
+            items.push(opaque(80.0, 20.0, 40.0, 30.0, [0, 0, 200]));
+            items.push(opaque(150.0, 20.0, 40.0, 30.0, [0, 200, 0]));
+            listed(items)
+        };
+        let scan = |rows: usize| {
+            OVERLAY_BOUNDS_READ.with(|n| n.set(0));
+            let found = overlay_rects_after_frame_in(&page(rows), 4, &clip, &ScrollOffsetMap::new(), &HashMap::new());
+            (found, OVERLAY_BOUNDS_READ.with(core::cell::Cell::get))
+        };
+        let (small, read_small) = scan(50);
+        let (large, read_large) = scan(200);
+        assert_eq!((read_small, read_large), (2, 2), "the two boxes after the frame, however long the page");
+        assert_eq!(small, vec![lr(80.0, 20.0, 20.0, 30.0)], "the box over the clip, cut to it");
+        assert_eq!(small, large);
     }
 }

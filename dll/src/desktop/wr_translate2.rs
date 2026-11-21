@@ -844,10 +844,21 @@ pub fn publish_gpu_frame(
     frame.texture_upload_px = wr.texture_upload_px;
     frame.scene_build_us = wr.scene_build_ns / 1_000;
     frame.frame_build_us = wr.frame_build_ns / 1_000;
+    frame.tiles_drawn = wr.tiles_drawn;
     frame.blocked_us = blocked_us;
     frame.render_us = render_us;
     frame.draw_calls = draw_calls;
     layout_window.frame_clock.note_gpu(&frame);
+}
+
+/// The transaction a pass just sent is not drawn by that pass: its frame is
+/// drawn when the renderer has built it, by a later pass (audit A4-31,
+/// `shell2::common::frame_schedule`). What this thread counted for it stays
+/// counted and is published with the frame that shows it
+/// ([`publish_gpu_frame`]); until then the builders of the passes in between
+/// do not publish it as a frame of its own ([`publish_stale_gpu_frame`]).
+pub fn gpu_frame_is_drawn_later() {
+    GPU_FRAME_OPEN.with(|open| open.set(false));
 }
 
 /// Publish the counters of a frame whose shell did not ([`publish_gpu_frame`])
@@ -883,7 +894,8 @@ const HALO_FRAME_BUDGET: std::time::Duration = std::time::Duration::from_millis(
 /// before them left (a quarter of a minute at 60 frames a second, and every one
 /// draws at least [`HALOS_DRAWN_ANYWAY`]). A backstop: a scan drops no halo it
 /// uses (audit A5-01), so each follow-up leaves fewer than the one before and the
-/// chain ends by itself; a halo that cannot be kept is not left, and owes no frame.
+/// chain ends by itself; a halo that cannot be kept is not left, and owes no frame
+/// but the one whose scan may drop the frame before's pictures (audit A5-19).
 const HALO_FOLLOW_UPS_MAX: u32 = 900;
 
 #[cfg(test)]
@@ -2103,6 +2115,38 @@ where
         if shown_here {
             continue;
         }
+        // A text halo's picture that the key of ANOTHER halo slot shows, in a
+        // slot that has no key yet: the keeper of the pictures gave the picture
+        // a new slot (another window on this thread drew a picture into its
+        // place; the kept pictures are a thread's, the keys a window's). The key
+        // goes with the picture: the list that names it paints what it painted,
+        // nothing is uploaded, and the old slot's key is not left behind showing
+        // a picture that is registered elsewhere, which no GC reaches (audit
+        // A5-16). One window alone never comes here: there a slot that lost its
+        // picture was given another in the same scan.
+        if matches!(slot, azul_core::resources::ImageSlot::TextHalo(_))
+            && !rr.image_slots.contains_key(&slot)
+        {
+            let shows = rr
+                .currently_registered_images
+                .get(&hash)
+                .map(|resolved| resolved.key)
+                .filter(|key| rr.image_key_map.get(key) == Some(&hash));
+            let from = shows.and_then(|key| {
+                rr.image_slots
+                    .iter()
+                    .find(|(other, shown)| {
+                        **shown == key
+                            && matches!(other, azul_core::resources::ImageSlot::TextHalo(_))
+                    })
+                    .map(|(other, _)| *other)
+            });
+            if let (Some(key), Some(from)) = (shows, from) {
+                rr.image_slots.remove(&from);
+                rr.image_slots.insert(slot, key);
+                continue;
+            }
+        }
         let (key, update) = match rr.image_slots.get(&slot) {
             Some(&key) if rr.image_key_map.contains_key(&key) => (key, true),
             _ => {
@@ -2172,8 +2216,21 @@ where
                     // of the window to find that out - for each of the pictures
                     // a frame replaces (2,200 keys x 40 pictures a frame on a
                     // municipal map).
-                    rr.currently_registered_images.remove(&old);
-                    rr.image_last_seen_epoch.remove(&old);
+                    // Unless the picture is painted from another slot by now and
+                    // that slot was planned before this one (two windows on one
+                    // thread share the kept pictures: the other's scan put a new
+                    // picture into this slot and the old one got a new slot at
+                    // its next use): its registration is then that slot's, and
+                    // removing it left the label that paints it without a halo
+                    // for good (audit A5-15).
+                    if rr
+                        .currently_registered_images
+                        .get(&old)
+                        .is_some_and(|resolved| resolved.key == key)
+                    {
+                        rr.currently_registered_images.remove(&old);
+                        rr.image_last_seen_epoch.remove(&old);
+                    }
                 } else {
                     rr.release_frame(key, old);
                 }

@@ -1606,7 +1606,8 @@ mod audit_a8_tests {
         let flow = TextShapingCache::new()
             .layout_flow(&content, &[], &fragments, &chains, &fm.fc_cache, &fm.get_loaded_fonts(), &mut None)
             .expect("the column lays out");
-        flow.fragment_layouts.values().next().expect("a fragment").clone()
+        let first = flow.fragment_layouts.values().next().expect("a fragment").clone();
+        first
     }
 
     /// The item bounds measured to select everything from the first cluster

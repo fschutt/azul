@@ -115,7 +115,7 @@ frequency for the editor's loads). One row per finding id; the text blocks below
 | A3-solver-16b | quadratic | `fc/ifc.rs` `inline_static_place_in_tree` (footnotes, columns) | low | fixed bd29ecca4 | `a3_solver::ifc::the_anchor_lines_of_many_boxes_of_a_paragraph_list_its_items_once` |
 | A3-solver-17 | waste | `taffy_bridge.rs` width-only answers | high | fixed b27f65a88 | `a_nested_flex_row_answers_each_width_question_of_a_first_layout_once` |
 | A3-solver-17b | waste | `taffy_bridge.rs` measure spill | medium | fixed 9d4637c90 | `the_measurement_a_second_store_evicts_is_found_in_the_second_way` |
-| A3-solver-17c | waste | `taffy_bridge.rs` `set_final_layout_current(node, false)` on every measure | medium | blocked (a): a measure in the taffy bridge writes the tree's final state (sizes, offsets, inline layout, per-node caches); keeping the final layout current across a computed measure needs side-effect-free measures; design below | - |
+| A3-solver-17c | waste | `taffy_bridge.rs` `set_final_layout_current(node, false)` on every measure | medium | fixed 083fe5ada | `taffy_bridge::audit_a3_solver_tests::a_measure_of_a_block_item_leaves_its_subtree_as_the_final_layout_wrote_it`, `a_measure_of_a_flex_container_whose_items_leave_no_write_keeps_its_final_layout` |
 | A3-solver-18 | quadratic | `taffy_bridge.rs` style conversion per bridge | medium | fixed 134b2fb7f | `the_cells_of_the_taffy_style_memo_grow_with_the_document_not_with_its_bridges` |
 | A3-solver-19 | waste | `sizing.rs` a text measured for itself and for the box around it | medium | fixed dfe923716 | `sizing.rs` tests of the helper (see the commit) |
 | A3-solver-19b | waste | `mod.rs` intrinsic pass per turn of the layout loop | medium | fixed a74109c49 | `a_later_turn_of_the_layout_loop_measures_no_label_whose_inputs_stayed` |
@@ -126,7 +126,7 @@ frequency for the editor's loads). One row per finding id; the text blocks below
 | A3-solver-23 | waste | `fc/white_space.rs` plain text | low | fixed 16395bc3e | `white_space.rs` tests of the helper (see the commit) |
 | A3-solver-24 | waste | `layout_tree.rs` / `cache.rs` a kept node cloned twice | medium | fixed 7b39826e2 | `ifc.rs` count test (with 1ee264920: revert both) |
 | A3-solver-25 | waste | `layout_tree.rs` `build` makes the DOM-to-box map a second time | low | fixed 99d7efff1 | `layout_tree::audit_a3_solver_tests::build_hands_the_dom_map_over_as_it_is` |
-| A3-solver-25b | waste | `layout_tree.rs` `dom_to_layout: BTreeMap<NodeId, Vec<..>>`: one heap list per DOM node | low | blocked (a): the public type of `LayoutTree::dom_to_layout` (215 uses in 74 files of every area) becomes a dense table; design below | - |
+| A3-solver-25b | waste | `layout_tree.rs` `dom_to_layout: BTreeMap<NodeId, Vec<..>>`: one heap list per DOM node | low | fixed 8b7055be4 | `layout_tree::audit_a3_solver_tests::a_tree_of_one_box_per_node_keeps_no_list_per_node`, `the_table_answers_what_the_map_answered`, `a3_solver::a_laid_out_page_keeps_the_boxes_of_its_nodes_in_one_table` |
 | A3-solver-26 | waste | `sizing.rs` dirty closure as a hash set | low | fixed 4909c9d07 | `sizing.rs` tests of the helper (see the commit) |
 | A3-solver-27 | quadratic | `positioning.rs` nested shifted relative boxes | low | fixed 8abfe10f9 | `nested_shifted_boxes_are_moved_by_one_walk`, `nested_shifts_are_added_one_after_the_other_outermost_first` |
 | A3-solver-28 | n x depth | several (list below) | low | checked: fine | - |
@@ -162,6 +162,7 @@ frequency for the editor's loads). One row per finding id; the text blocks below
 | A3-solver-53 | wrong-output | `positioning.rs` a sticky box inside an absolutely positioned box | low | fixed 9019db74d | `a_sticky_box_inside_an_absolute_one_stands_at_its_shift_and_keeps_its_place` ([reveals] 6f54a959e) |
 | A3-solver-54 | wrong-output | `positioning.rs` the boxes inside a sticky box do not move with its baked shift | medium | fixed 6f402e476 | `the_boxes_inside_a_sticky_box_go_with_it` and two more ([reveals] in the commit before) |
 | A3-solver-55 | wrong-output | `widgets/node_graph.rs` the transforms a drag or pan writes outlive the gesture (`migrate_user_overrides_from`) | medium | open: the widget must clear its overrides when the gesture ends, and a clear costs a rebuild of the cascade tables of the whole DOM per box today; needs the fast path in `apply_node_css_change` written out under "For area A3-window (4)" | - |
+| A6-13 | waste | `managers/scroll_registration.rs` `register_scroll_nodes`: the layout tree of a DOM copied per pass when its view raises a scrollbar (A6's row, built here) | medium | fixed 5ce5eae2f | `audit_tests::a3_solver::raised_bars::a_layout_pass_of_a_view_that_raises_a_bar_copies_no_layout_tree` and seven more |
 
 ### Fixed (details in the commit messages)
 
@@ -993,3 +994,68 @@ Decided by reading, not fixed: no minimal patch is right, and no rule on values 
   (16b: `or_insert_with` with `?` in the closure).
 - Golden values expected to move since the merge: boxes inside a sticky box with a baked shift (54), sticky
   boxes inside absolutely positioned boxes (53). Nothing else places a box differently.
+
+## The engine rows (third agent: A6-13, 25b, 17c, 34, 35b, 55)
+
+The branch contains `audit/integration` (aeb5d0dfe) since `ceb7587af`.
+
+## For area A6
+
+- **A6-13: fixed 5ce5eae2f** (built by the solver area's third agent from A6's design and hand-over).
+  What was built differs from the hand-over in three points, each found by reading the readers:
+  1. The raised set lives as long as the layout RESULT: a `Weak` of the tree names it, AND a layout pass of the
+     DOM drops it (`ScrollManager::forget_raised_bars` in `layout_dom_recursive_impl`). The tree's identity alone
+     is not enough: a pass with nothing to lay out (the reconcile finds everything clean, or the structural
+     display-list cache answers) leaves `LayoutCache::tree` in place and hands the SAME allocation to the new
+     result; before A6-13 that result started from the cache's unraised tree.
+  2. `display_list.rs` `paint_scrollbars` IS a reader after the registration: `regenerate_display_list_for_dom`
+     builds from the result's tree outside a pass (caret blink, a text edit, a `set_css_property`), and re-derives
+     only a view's extent, from the extent of that moment. So the set is folded into the result's own tree
+     before such a build (`ScrollManager::settle_raised_bars`): one copy, the one the registration used to make
+     after every pass, now only when a display-list-only rebuild follows the pass. To remove that one too the
+     builder must take the raised flags as an input (A3-core's `generate_display_list`).
+  3. No re-keying at the text-edit writes: `reshape_text_node` folds the set into the tree before its first
+     write (the tree becomes the result's own there anyway), after which everything in that function reads and
+     writes the tree as it always did, the plan's `old_info` and `warm.scrollbar_info = plan.now_reqs` included.
+     With a `Weak` outstanding every `Arc::make_mut` moves the tree, so "follow the tree" cannot be done at the
+     write.
+- The registration writes into the tree as before when the result holds it alone (a hand-built result in a test,
+  a result a text edit made its own): `Arc::get_mut`, no copy.
+- A reader that stays on the tree by its contract: `focus_cursor::can_manually_scroll` in the layout-only model
+  (`SpatialNavigationEnv::layout_only`: no scroll manager; the shells use the live model). It no longer sees a
+  view's bar raised after layout.
+- Golden dumps: `sb=` of a box whose bar only the registration raised is no longer in the dump of a shared tree.
+  If a dump loses an `sb=` on a box that is no `VirtualView`, the registration raised a bar the layout pass did
+  not (`apply_content_scroll_necessity` against the padding box vs. Phase 3 against the content box): by
+  reading that cannot happen right after a pass; a dump that shows it is a finding.
+- New test counter `solver3::cache::TREE_WRITE_COPIES` (copies made by `cache::own_mut`, which
+  `DomLayoutResult::layout_tree_mut` now calls); `TREE_COPIES` counts what it counted.
+
+### A3-solver-25b (fixed 8b7055be4)
+
+- `layout_tree::DomBoxes`: a slot per DOM node index (vacant / the node's one box inline / the number of a list),
+  16 bytes a slot, one allocation per tree (reserved with the builder's nodes). The map's method names and
+  answers; `get` and `[&node]` hand out a slice, the iterators a key by value. Every use was read: what changed
+  outside `layout_tree.rs` is in the commit message by access pattern (4 loops / lookups, 2 fixtures, 48 literals).
+- For whoever adds a use: there is no `entry`, `remove`, `get_mut` (nothing needed one); a fixture literal writes
+  `dom_to_layout: Default::default()`.
+- A copy of a tree (`LayoutTree::clone`: the text-edit writes, a display-list-only rebuild after A6-13) copies
+  one buffer for the table instead of a list per node.
+
+### A3-solver-17c (fixed 083fe5ada)
+
+- Built as three rules in `TaffyBridge::compute_child_layout` (the commit message has them): a computed measure
+  of a block / inline box is journaled (`MeasureJournal`: the subtree's nodes and `NodeCache`s copied, moved
+  back, the answers of the nodes below stored again); a flex / grid container keeps its flag when its measure
+  left no write (`TaffyPassMemo::unrestored_writes`); the two bypass paths follow that rule.
+- Differences from the design above: the journal is ONE per pass (the outermost measure's; `TaffyPassMemo`
+  holds it because a pass nests bridges: flex item -> block -> flex container makes a second bridge), not a
+  stack of snapshots - what an inner measure writes is put back by the outer one; point (ii) is not built.
+- Switch: `AZ_NO_TAFFY_MEASURE_JOURNAL` (any value) = every computed measure marks the final layout stale, as
+  before. Default: on. Counters for a run: test thread-locals `MEASURES_JOURNALED`, `FINAL_LAYOUTS_COMPUTED`;
+  the probe span `taffy_final_layout_stale` counts the finals still computed again.
+- Cost model to check by a run: a journal copies its subtree (about 1.5 KB a box, at most 2,048 boxes) against
+  one layout of that subtree saved. It loses where the measure itself is served from the per-node caches of a
+  deep block subtree (the copy is deep, the layout it saves shallow).
+- Not covered by a count test: the replay of the three kinds of kept measurements (`KeptMeasure`) through a
+  nested bridge; a window-level scenario (the tests ask a bridge directly).

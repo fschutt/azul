@@ -186,7 +186,7 @@ fn layout_tree_node_struct_sizes_are_pinned() {
     );
     assert_size!(
         LayoutNodeCold,
-        344,
+        360,
         "Per layout node, rarely touched. GREW 280 -> 288 (2026-08-22): NodeDataFingerprint \
          gained `dataset_hash` so a dataset's allocation is no longer a LAYOUT change (the \
          TextArea-over-Slider fix). GREW 288 -> 296 (2026-10-03, CSS `zoom`, aa4a3f9e1): \
@@ -203,7 +203,11 @@ fn layout_tree_node_struct_sizes_are_pinned() {
          `descendants_hash`, the attributes and SVG data the layout reads, so a page that \
          changes only a cell's span or an SVG text's position is laid out again. GREW 336 -> \
          344: NodeDataFingerprint gained `hit_test_target`, so a box that starts or stops \
-         listening is painted with its hit-test area or without one."
+         listening is painted with its hit-test area or without one. GREW 344 -> 360 \
+         (2026-11-21, the audit's A3-window-08 / A3-solver-41): NodeDataFingerprint gained \
+         `inline_inset_hash` and `inline_gpu_hash`, the values of a node's inline insets and \
+         of its inline `transform` / `opacity`, so a label that only moved or turned keeps \
+         its box and is placed again instead of being laid out anew."
     );
 }
 

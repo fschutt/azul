@@ -14,7 +14,7 @@ use agg_rust::{
     rendering_buffer::RowAccessor,
     rounded_rect::RoundedRect,
     scanline_u::ScanlineU8,
-    span_gradient::{GradientConic, GradientRadialD, GradientRepeatAdaptor, GradientX},
+    span_gradient::{GradientRadialD, GradientRepeatAdaptor, GradientX},
     trans_affine::TransAffine,
 };
 use azul_core::{
@@ -522,8 +522,6 @@ fn render_conic_gradient(
         return;
     }
 
-    let lut = build_gradient_lut_radial(&gradient.stops, system_colors);
-
     let w = f64::from(rect.width);
     let h = f64::from(rect.height);
 
@@ -543,8 +541,11 @@ fn render_conic_gradient(
     transform.translate(cx, cy);
     transform.invert();
 
-    // GradientConic maps atan2(y,x) * d / pi, covering [0, d] for the half-circle.
-    // We use d2 = 100 as the range; the LUT maps 0..1 over that.
+    // The stops run over the whole turn (CSS Images 4, 3.3: a stop at an angle `a` is at
+    // `a / 360` of it); gradient space is 100 units a turn and the LUT maps 0..1 over that.
+    // agg's `GradientConic` is `|atan2(y, x)| d / pi`: the ramp over HALF a turn, mirrored on
+    // the other half. `conic-gradient(red, blue)` was red at 12 o'clock, blue at 6 and the
+    // same purple at 3 and at 9 (A1-58, found by A3-solver).
     let d2 = 100.0;
 
     let mut path = if border_radius.is_zero() {
@@ -553,16 +554,67 @@ fn render_conic_gradient(
         build_rounded_rect_path(&rect, border_radius, dpi_factor)
     };
 
+    // `repeating-conic-gradient`: the part of the turn between the first and the last stop
+    // repeats (A1-59; `extend_mode` was not read). The LUT is built over that part.
+    if gradient.extend_mode == azul_css::props::style::background::ExtendMode::Repeat {
+        let resolved: Vec<(f32, ColorU)> = stops
+            .iter()
+            .map(|stop| {
+                (
+                    (stop.angle.to_degrees_raw() / 360.0).clamp(0.0, 1.0),
+                    resolve_color(&stop.color, system_colors),
+                )
+            })
+            .filter(|(t, _)| t.is_finite())
+            .collect();
+        let first = resolved.iter().map(|(t, _)| *t).fold(f32::INFINITY, f32::min);
+        let last = resolved.iter().map(|(t, _)| *t).fold(f32::NEG_INFINITY, f32::max);
+        // A part under a thousandth of the turn cannot repeat: it paints clamped.
+        if (last - first).is_finite() && last - first >= 1.0e-3 {
+            let over_part: Vec<(f32, ColorU)> =
+                resolved.iter().map(|(t, c)| ((t - first) / (last - first), *c)).collect();
+            let lut = build_gradient_lut(&over_part, GRADIENT_LUT_MIN);
+            let turn = ConicTurn { repeat: Some((f64::from(first), f64::from(last - first))) };
+            agg_fill_gradient_clipped(pixmap, &mut path, &lut, turn, transform, 0.0, d2, clip);
+            return;
+        }
+    }
+
+    let lut = build_gradient_lut_radial(&gradient.stops, system_colors);
     agg_fill_gradient_clipped(
         pixmap,
         &mut path,
         &lut,
-        GradientConic,
+        ConicTurn { repeat: None },
         transform,
         0.0,
         d2,
         clip,
     );
+}
+
+/// The angle of a point about the gradient's centre as a part of the whole turn, from the
+/// local +x axis towards +y (after `render_conic_gradient`'s transform: from the gradient's
+/// start angle, clockwise on screen), scaled to the gradient's far end `d`. With `repeat`
+/// `(first, part)`: the angle counted from `first` and wrapped into `part` of a turn, as a
+/// fraction of that part.
+struct ConicTurn {
+    repeat: Option<(f64, f64)>,
+}
+
+impl agg_rust::span_gradient::GradientFunction for ConicTurn {
+    #[allow(clippy::cast_possible_truncation)] // 0 ..= d
+    fn calculate(&self, x: i32, y: i32, d: i32) -> i32 {
+        let mut turn = f64::from(y).atan2(f64::from(x)) / core::f64::consts::TAU;
+        if turn < 0.0 {
+            turn += 1.0;
+        }
+        let t = match self.repeat {
+            Some((first, part)) if part > 0.0 => (turn - first).rem_euclid(part) / part,
+            _ => turn,
+        };
+        (t * f64::from(d) + 0.5) as i32
+    }
 }
 
 // ============================================================================
@@ -591,7 +643,7 @@ fn render_conic_gradient(
 /// unbounded memory.
 const SHADOW_CACHE_MAX_BYTES: usize = 16 * 1024 * 1024;
 
-struct ShadowCacheEntry {
+pub(crate) struct ShadowCacheEntry {
     data: std::sync::Arc<Vec<u8>>,
     w: u32,
     h: u32,
@@ -610,7 +662,7 @@ thread_local! {
 }
 
 /// The blurred box shadows a thread keeps: by key, their order of use, their bytes.
-type ShadowCache = (
+pub(crate) type ShadowCache = (
     HashMap<u64, ShadowCacheEntry>,
     std::collections::VecDeque<u64>,
     usize,
@@ -1679,23 +1731,117 @@ thread_local! {
     /// the walk culled inside them).
     #[cfg(test)]
     static GROUP_CULL_OFF: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Tests: test every item of every level against the walk's cull, as before a level had
+    /// a grid (`item_grid`).
+    #[cfg(test)]
+    static GRID_OFF: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Tests: the items a walk on this thread hands to the painter (the list's address and
+    /// the item's index), in order, pushes and pops left out; `None`: not recorded.
+    #[cfg(test)]
+    static PAINT_TRACE: std::cell::RefCell<Option<Vec<(usize, usize)>>> = const { std::cell::RefCell::new(None) };
 }
 
 /// Tests: the switches of this thread's walk, for the band threads it starts (a thread starts
-/// with its own thread-locals): whether the walk culls by the clip, whether halos are kept.
+/// with its own thread-locals): whether the walk culls by the clip, whether halos are kept,
+/// whether the levels' grids are left unused.
 #[cfg(test)]
-pub(crate) fn walk_test_flags() -> (bool, bool) {
+pub(crate) fn walk_test_flags() -> (bool, bool, bool) {
     (
         GROUP_CULL_OFF.with(std::cell::Cell::get),
         super::text_halo::cpu_halos_are_kept(),
+        GRID_OFF.with(std::cell::Cell::get),
     )
 }
 
 /// Tests: paint on this thread with the switches of [`walk_test_flags`].
 #[cfg(test)]
-pub(crate) fn set_walk_test_flags((cull_off, halos_kept): (bool, bool)) {
+pub(crate) fn set_walk_test_flags((cull_off, halos_kept, grid_off): (bool, bool, bool)) {
     GROUP_CULL_OFF.with(|c| c.set(cull_off));
     super::text_halo::keep_cpu_halos(halos_kept);
+    GRID_OFF.with(|c| c.set(grid_off));
+}
+
+/// Does a walk ask the grids of a list's levels which children can paint (`item_grid`; the
+/// default), or test every item (`AZ_CPU_GRID=off`)?
+fn walk_uses_grids() -> bool {
+    #[cfg(test)]
+    if GRID_OFF.with(std::cell::Cell::get) {
+        return false;
+    }
+    super::item_grid::grid_is_used()
+}
+
+/// The rect outside which a walk culls every direct child of the level it is entering, in the
+/// coordinates the items are stored in, and whether it culls by its clip (`true`) or by its
+/// damage rect; `None` when it culls nothing there, or not by a rect.
+///
+/// A level is the top of a list or the inside of one scope (`item_grid`), and the walk's state
+/// is the same at all of its direct children, so this is asked once, when the walk enters.
+/// The walk's own tests, per item (`walk_range`):
+///
+/// - inside an isolated frame, and in a view's list, by the innermost clip
+///   (`outside_active_clip`): `bounds - offset`, widened by the text shadows' reach, against
+///   `clip / dpi`; nothing is culled without a clip, or while a filter or a mask is open;
+/// - else, under a damage rect: `bounds - offset`, widened the same, against the rect;
+/// - else nothing.
+///
+/// Here the rect is moved instead of the bounds: `[x0 + ox - g, y0 + oy - g, x1 + ox + g,
+/// y1 + oy + g]`, with `g` the reach of the text shadows open now, one px, and 1e-5 of the
+/// largest coordinate (the two subtractions round apart by an ulp or two; 1e-5 is eighty).
+/// What meets the walk's test meets this rect; the walk still makes its test on what it visits.
+///
+/// Example: a damage rect (40, 200) 100 x 30 at the offset (0, 1500) of a scrolled page, no
+/// shadow: [38.98, 1698.98, 141.02, 1731.02] (g = 1 + 1730 x 1e-5 = 1.02).
+fn level_cull_rect(
+    cull: &WalkCull,
+    mask_stack: &[MaskEntry],
+    clip: Option<AzRect>,
+    scroll_offset: (f32, f32),
+    text_shadow_stack: &[StyleBoxShadow],
+    dpi_factor: f32,
+) -> Option<(super::item_grid::Box4, bool)> {
+    // (Tests that paint "unculled" walk every item.)
+    if !walk_culls_by_clip() {
+        return None;
+    }
+    let by_clip = inside_isolated_transform(mask_stack) || matches!(cull, WalkCull::ActiveClip);
+    let [x0, y0, x1, y1] = if by_clip {
+        if !(dpi_factor > 0.0) {
+            return None;
+        }
+        let clip = clip?;
+        if mask_stack.iter().any(|e| match e {
+            MaskEntry::Filter(_) => true,
+            MaskEntry::ImageMask { width, height, .. } => *width > 0 && *height > 0,
+            _ => false,
+        }) {
+            return None;
+        }
+        [
+            clip.x / dpi_factor,
+            clip.y / dpi_factor,
+            clip.x / dpi_factor + clip.width / dpi_factor,
+            clip.y / dpi_factor + clip.height / dpi_factor,
+        ]
+    } else if let WalkCull::Damage(damage) = cull {
+        [
+            damage.origin.x,
+            damage.origin.y,
+            damage.origin.x + damage.size.width,
+            damage.origin.y + damage.size.height,
+        ]
+    } else {
+        return None;
+    };
+    let (ox, oy) = scroll_offset;
+    let moved = [x0 + ox, y0 + oy, x1 + ox, y1 + oy];
+    let largest = moved
+        .iter()
+        .chain([x0, y0, x1, y1, ox, oy].iter())
+        .fold(0.0_f32, |m, v| m.max(v.abs()));
+    let grow = text_shadow_reach(text_shadow_stack).max(0.0) + 1.0 + largest * 1e-5;
+    let rect = [moved[0] - grow, moved[1] - grow, moved[2] + grow, moved[3] + grow];
+    rect.iter().all(|v| v.is_finite()).then_some((rect, by_clip))
 }
 
 /// Does the walk cull by the clip it paints under (always, outside tests)?
@@ -2878,9 +3024,49 @@ pub(crate) fn walk_range(
     let mut frames: Option<std::sync::Arc<crate::solver3::display_list::FrameIndex>> = None;
     // The frames this walk is painting whose surface is kept when they close (`retained`).
     let mut keeping: Vec<(usize, RetainedCandidate)> = Vec::new();
+    // The opacity groups this walk is painting whose picture is kept when they close.
+    let mut keeping_fades: Vec<(usize, FadeCandidate)> = Vec::new();
     let mut next = range.start;
     let end = range.end.min(list.items.len());
+    // The grids of the list's levels (`item_grid`), for a list long enough to have any, and
+    // where this walk is in each level it has entered: the children that can paint under its
+    // cull there. The walk steps from one of them to the next; everything it visits goes
+    // through the tests below as before.
+    let grid = (list.items.len() > super::item_grid::MIN_GRID_CHILDREN && walk_uses_grids())
+        .then(|| {
+            let index = frames.get_or_insert_with(|| list.frame_index());
+            super::item_grid::ItemGrid::of_list(list, index)
+        })
+        .flatten()
+        .filter(|grid| grid.has_levels());
+    let mut cursors: Vec<super::item_grid::Cursor> = Vec::new();
+    if let Some(grid) = grid.as_deref() {
+        let rect = level_cull_rect(
+            &cull,
+            mask_stack,
+            clip_stack.last().copied().flatten(),
+            *scroll_offset_stack.last().unwrap_or(&(0.0, 0.0)),
+            text_shadow_stack,
+            dpi_factor,
+        );
+        cursors.extend(grid.cursor_for_walk(range.start, end, rect));
+    }
     while next < end {
+        if let Some(grid) = grid.as_deref() {
+            // Out of the levels that ended; in the innermost one left, on to the next child
+            // that can paint (or to the level's end, whose pop is the walk's to make).
+            while cursors.last().is_some_and(|cursor| next >= cursor.end) {
+                cursors.pop();
+            }
+            if let Some(cursor) = cursors.last_mut() {
+                let target = cursor.step(next, grid);
+                if target > next {
+                    skipped += target - next;
+                    next = target;
+                    continue;
+                }
+            }
+        }
         let item_idx = next;
         next += 1;
         let item = &list.items[item_idx];
@@ -2926,6 +3112,16 @@ pub(crate) fn walk_range(
                     }
                 }
                 continue;
+            }
+        }
+        // The pop of an opacity group whose picture is kept: the pixels the group painted on
+        // transparent, before the pop (handled below like any other) blends them into what
+        // was set aside, go to the cache.
+        if keeping_fades.last().is_some_and(|(end, _)| *end == item_idx) {
+            if let Some((_, candidate)) = keeping_fades.pop() {
+                if let (Some(retained), true) = (render_state.retained.as_deref(), surfaces.is_empty()) {
+                    candidate.keep(retained, pixmap);
+                }
             }
         }
         // Inside a turned or scaled frame the clip the items paint under is the frame's
@@ -3005,7 +3201,7 @@ pub(crate) fn walk_range(
                     item,
                     &frame,
                     frames.as_ref().and_then(|index| index.inner_of(item_idx)),
-                    in_group || !surfaces.is_empty(),
+                    in_group || !surfaces.is_empty() || !keeping_fades.is_empty(),
                     below,
                     dpi_factor,
                     clip_stack.last().copied().flatten(),
@@ -3029,6 +3225,43 @@ pub(crate) fn walk_range(
                     }
                     crate::cpu_counters::count(crate::cpu_counters::Counter::RetainedMisses, 1);
                     keeping.push((frame.end, candidate));
+                }
+            }
+        }
+        // An opacity group whose picture is kept from an earlier frame is blended again, at
+        // its live opacity, not painted: a fade writes one value (`fade_candidate`).
+        if let (DisplayListItem::PushOpacity { .. }, Some(retained), true) =
+            (item, render_state.retained.as_deref(), surfaces.is_empty())
+        {
+            let index = std::sync::Arc::clone(frames.get_or_insert_with(|| list.frame_index()));
+            if let Some(scope) = index.opacity_scope_at(item_idx) {
+                let fade = fade_candidate(
+                    list,
+                    item,
+                    item_idx,
+                    scope,
+                    index.opacity_extent_with(&list.items, item_idx, &render_state.transforms),
+                    (pixmap.width, pixmap.height),
+                    dpi_factor,
+                    clip_stack.last().copied().flatten(),
+                    *scroll_offset_stack.last().unwrap_or(&(0.0, 0.0)),
+                    mask_stack,
+                    text_shadow_stack,
+                    glyph_cache,
+                    font_manager,
+                    render_state,
+                    retained,
+                );
+                if let Some((candidate, opacity, blend)) = fade {
+                    if let Some(kept) = retained.lookup(&candidate.key, candidate.part()) {
+                        crate::cpu_counters::count(crate::cpu_counters::Counter::RetainedHits, 1);
+                        candidate.blend(&kept, pixmap, opacity, blend);
+                        skipped += 1;
+                        next = scope.end + 1;
+                        continue;
+                    }
+                    crate::cpu_counters::count(crate::cpu_counters::Counter::RetainedMisses, 1);
+                    keeping_fades.push((scope.end, candidate));
                 }
             }
         }
@@ -3111,6 +3344,14 @@ pub(crate) fn walk_range(
         }
 
         painted += 1;
+        #[cfg(test)]
+        if !item.is_state_management() {
+            PAINT_TRACE.with(|trace| {
+                if let Some(trace) = trace.borrow_mut().as_mut() {
+                    trace.push((list as *const DisplayList as usize, item_idx));
+                }
+            });
+        }
         let _p_item = crate::probe::Probe::span(probe_label_for_item(item));
         let bound_item = if bind_colors {
             item_with_bound_color(item, list.color_binding(item_idx), render_state)
@@ -3122,7 +3363,13 @@ pub(crate) fn walk_range(
         // content paints past its box.
         let scope_extent = frame.map(|f| f.extent).or_else(|| {
             matches!(item, DisplayListItem::PushOpacity { .. })
-                .then(|| frames.get_or_insert_with(|| list.frame_index()).opacity_extent(item_idx))
+                .then(|| {
+                    // With the frames inside the group where their live matrices paint them
+                    // (A1-60): the group's region has to hold what a moved child paints.
+                    frames
+                        .get_or_insert_with(|| list.frame_index())
+                        .opacity_extent_with(&list.items, item_idx, &render_state.transforms)
+                })
                 .flatten()
         });
         render_single_item(
@@ -3143,6 +3390,21 @@ pub(crate) fn walk_range(
             text_shadow_stack,
             render_state,
         )?;
+        // The walk made a push: the level inside it, when that has a grid, with the walk's
+        // state as it is now (the push's clip, offset, shadow or group is in it).
+        if let Some(grid) = grid.as_deref() {
+            if grid.has_level_inside(item_idx) {
+                let rect = level_cull_rect(
+                    &cull,
+                    mask_stack,
+                    clip_stack.last().copied().flatten(),
+                    *scroll_offset_stack.last().unwrap_or(&(0.0, 0.0)),
+                    text_shadow_stack,
+                    dpi_factor,
+                );
+                cursors.extend(grid.cursor_inside(item_idx, rect));
+            }
+        }
     }
     Ok((painted, skipped))
 }
@@ -3457,6 +3719,244 @@ pub(super) fn layer_candidate(
         clip: candidate.group.outer_clip,
         transform_key: transform_key.id,
     })
+}
+
+/// An opacity group the walk is about to open whose picture can be kept (`retained`,
+/// "Opacity groups"): the key of the picture, where the group's whole device box lies in the
+/// target, and the part of it this walk blends.
+struct FadeCandidate {
+    key: super::retained::SurfaceKey,
+    /// The device pixel of the target that the kept surface's pixel (0, 0) is: the corner of
+    /// the group's whole box.
+    origin: (i32, i32),
+    /// Target px, half-open: the group's box inside the clip and inside the target - what the
+    /// group's push sets aside and its pop blends, of the pixels that exist.
+    region: [i32; 4],
+    list: std::sync::Arc<DisplayList>,
+    placement: super::retained::Placement,
+}
+
+impl FadeCandidate {
+    /// `region` in the kept surface's own pixels: what a hit reads and what a miss keeps.
+    fn part(&self) -> [i32; 4] {
+        let ([x0, y0, x1, y1], (ox, oy)) = (self.region, self.origin);
+        [x0 - ox, y0 - oy, x1 - ox, y1 - oy]
+    }
+
+    /// A hit: the kept picture's part blended onto `pixmap` as the group's pop blends what
+    /// the group painted ([`blend_group_pixels`], the pop's own loop).
+    #[allow(clippy::cast_sign_loss)] // the region lies inside the box: `part` is not negative
+    fn blend(
+        &self,
+        kept: &AzulPixmap,
+        pixmap: &mut AzulPixmap,
+        opacity: f32,
+        blend: azul_css::props::style::effects::StyleMixBlendMode,
+    ) {
+        let [x0, y0, x1, y1] = self.region;
+        let part = self.part();
+        blend_group_pixels(
+            pixmap,
+            kept.data(),
+            kept.width,
+            (part[0] as u32, part[1] as u32),
+            (x0, y0, (x1 - x0) as u32, (y1 - y0) as u32),
+            opacity,
+            blend,
+        );
+    }
+
+    /// A miss, when the walk reaches the group's pop: the pixels of `region` - what the group
+    /// painted on the transparent pixels its push left there - are offered to the cache, in a
+    /// surface of the group's whole box (zeroed by the allocator: only the part costs memory).
+    #[allow(clippy::cast_sign_loss)] // a region with x1 > x0, y1 > y0
+    fn keep(self, retained: &RetainedFrames, pixmap: &AzulPixmap) {
+        let [x0, y0, x1, y1] = self.region;
+        let (w, h) = ((x1 - x0) as u32, (y1 - y0) as u32);
+        let Some(mut surface) = AzulPixmap::new_transparent(self.key.size.0, self.key.size.1) else {
+            return;
+        };
+        let part = self.part();
+        let painted = snapshot_region(pixmap, x0, y0, w, h);
+        write_region(&mut surface, &painted, w, h, part[0], part[1]);
+        retained.offer_fade(self.key, self.list, surface, part, self.placement);
+    }
+}
+
+/// The opacity group pushed by `item` (at `push` of `list`, `scope` from the list's
+/// `FrameIndex`) as one whose picture can be kept, with the opacity and the blend mode its pop
+/// blends with; or `None`.
+///
+/// The picture is what the group paints on the transparent pixels of its region. It may be
+/// kept when it depends on nothing but the list, the values bound inside the group, the phase
+/// of the group's box and the paint settings (the [`super::retained::SurfaceKey`]):
+///
+/// - the group is BLENDED (an opacity under 1, or a blend mode): its text is then grayscale
+///   whatever lies under it and wherever a clip cuts it (`inside_blended_group`). At an
+///   opacity of exactly 1 a run may be painted in LCD stripes, chosen by the pixels under the
+///   part of it the clip leaves: another picture, and one that depends on the clip;
+/// - no text shadow of the list around it is open (the runs inside would paint a halo the
+///   group's extent does not hold), and no group, mask or filter is open around it (the one
+///   around it decides how text inside is painted; a turned frame's surface is the one worth
+///   keeping). A rounded clip, and a frame that is the identity or a move, may be open;
+/// - it holds no view (`values_inside`), and its box is large enough to be worth a lookup and
+///   small enough for the cache.
+///
+/// `extent` is what the group paints when that is more than its box (`opacity_extent_with`),
+/// `target` the size of the pixmap the walk paints into, `clip` the walk's innermost clip.
+/// The box is `device_region` of the extent at the walk's offset - what the `PushOpacity` arm
+/// of `render_single_item` sets aside under no clip - and the region the same under `clip`,
+/// cut to the target.
+///
+/// Example (scale factor 2, offset (0, 0)): a group with the extent (10.25, 20) 300 x 200
+/// has the box x 20 .. 621 (20.5 floored, 620.5 ceiled), y 40 .. 440: a surface of 601 x 400
+/// px with the phase (512, 0). Under a band's clip (0, 100) 2000 x 200 px its region is
+/// [20, 100, 621, 300], the part [0, 60, 601, 260] of the surface.
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_possible_wrap)] // a box of whole pixels
+fn fade_candidate(
+    list: &DisplayList,
+    item: &DisplayListItem,
+    push: usize,
+    scope: &crate::solver3::display_list::OpacityScope,
+    extent: Option<LogicalRect>,
+    target: (u32, u32),
+    dpi_factor: f32,
+    clip: Option<AzRect>,
+    scroll_offset: (f32, f32),
+    mask_stack: &[MaskEntry],
+    text_shadow_stack: &[StyleBoxShadow],
+    glyph_cache: &GlyphCache,
+    font_manager: &FontManager<FontRef>,
+    render_state: &CpuRenderState,
+    retained: &RetainedFrames,
+) -> Option<(FadeCandidate, f32, azul_css::props::style::effects::StyleMixBlendMode)> {
+    use azul_css::props::style::effects::StyleMixBlendMode;
+    let DisplayListItem::PushOpacity {
+        bounds,
+        opacity,
+        opacity_key,
+        mix_blend_mode,
+    } = item
+    else {
+        return None;
+    };
+    // The live value, as the `PushOpacity` arm reads it.
+    let opacity = opacity_key
+        .and_then(|k| render_state.opacities.get(&k.id).copied())
+        .unwrap_or(*opacity);
+    let blended = opacity < 1.0 || !matches!(mix_blend_mode, StyleMixBlendMode::Normal);
+    if !blended || !text_shadow_stack.is_empty() {
+        return None;
+    }
+    let only_moves_around = mask_stack.iter().all(|entry| {
+        matches!(
+            entry,
+            MaskEntry::RoundedClip { .. }
+                | MaskEntry::Transform(ReferenceFrameGroup::Identity | ReferenceFrameGroup::Translated)
+        )
+    });
+    if !only_moves_around {
+        return None;
+    }
+    let extent = extent.unwrap_or_else(|| *bounds.inner());
+    let on_surface = LogicalRect {
+        origin: LogicalPosition {
+            x: extent.origin.x - scroll_offset.0,
+            y: extent.origin.y - scroll_offset.1,
+        },
+        size: extent.size,
+    };
+    let boxed = logical_rect_to_az_rect(&on_surface, dpi_factor);
+    let whole = device_region(boxed, None)?;
+    let inside_clip = device_region(boxed, clip)?;
+    let (ox, oy) = (whole.x as i32, whole.y as i32);
+    let (width, height) = (whole.width as i32, whole.height as i32);
+    if width <= 0 || height <= 0 || width > MAX_TRANSFORM_GROUP_SIDE || height > MAX_TRANSFORM_GROUP_SIDE {
+        return None;
+    }
+    let px = u64::from(width as u32) * u64::from(height as u32);
+    if px < super::retained::MIN_SURFACE_PX || !retained.can_keep_fade((px as usize).saturating_mul(4)) {
+        return None;
+    }
+    let region = [
+        (inside_clip.x as i32).max(0),
+        (inside_clip.y as i32).max(0),
+        ((inside_clip.x + inside_clip.width) as i32).min(target.0 as i32),
+        ((inside_clip.y + inside_clip.height) as i32).min(target.1 as i32),
+    ];
+    if region[2] <= region[0] || region[3] <= region[1] {
+        return None;
+    }
+    let (shared, slot) = shared_list(list, render_state)?;
+    let values = values_inside(Some(&scope.inner), render_state)?;
+    Some((
+        FadeCandidate {
+            key: super::retained::SurfaceKey {
+                list: std::sync::Arc::as_ptr(&shared) as usize,
+                push,
+                size: (width as u32, height as u32),
+                dpi_bits: dpi_factor.to_bits(),
+                phase: surface_phase(&on_surface, dpi_factor),
+                values,
+                settings: paint_settings(glyph_cache, font_manager, render_state),
+            },
+            origin: (ox, oy),
+            region,
+            list: shared,
+            placement: super::retained::Placement {
+                offset: (
+                    scroll_offset.0 + ox as f32 / dpi_factor,
+                    scroll_offset.1 + oy as f32 / dpi_factor,
+                ),
+                slot,
+            },
+        },
+        opacity,
+        *mix_blend_mode,
+    ))
+}
+
+/// What the pop of an opacity group does with the pixels the group painted: the `w` x `h`
+/// pixels at `(sx, sy)` of `src` (RGBA rows of `src_w` px) are put onto the pixels at
+/// `(x, y)` of `pixmap` at `opacity`, with `blend` (`Blender`: `blend_pixel`'s levels). The
+/// pop's own loop, and what a kept picture is blended with (`FadeCandidate::blend`): one
+/// arithmetic for both, so a kept group is the group painted.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_possible_wrap)] // bounded pixel coords
+fn blend_group_pixels(
+    pixmap: &mut AzulPixmap,
+    src: &[u8],
+    src_w: u32,
+    (sx, sy): (u32, u32),
+    (x, y, w, h): (i32, i32, u32, u32),
+    opacity: f32,
+    blend: azul_css::props::style::effects::StyleMixBlendMode,
+) {
+    let pw = pixmap.width as i32;
+    let ph = pixmap.height as i32;
+    let op = (opacity * 255.0).clamp(0.0, 255.0) as u32;
+    // `blend_pixel`'s levels, without its work where the group
+    // painted nothing or painted opaque.
+    let blender = super::blend::Blender::new(op, blend);
+    for py in 0..h as i32 {
+        let dy = y + py;
+        if dy < 0 || dy >= ph {
+            continue;
+        }
+        for px in 0..w as i32 {
+            let dx = x + px;
+            if dx < 0 || dx >= pw {
+                continue;
+            }
+            let pi = (dy as usize * pixmap.width as usize + dx as usize) * 4;
+            let si = ((sy as usize + py as usize) * src_w as usize + sx as usize + px as usize) * 4;
+            if pi + 3 >= pixmap.data.len() || si + 3 >= src.len() {
+                continue;
+            }
+            let from = [src[si], src[si + 1], src[si + 2], src[si + 3]];
+            blender.blend(&mut pixmap.data[pi..pi + 4], from);
+        }
+    }
 }
 
 thread_local! {
@@ -4115,6 +4615,11 @@ pub fn refresh_retained_surfaces(
         .collect();
     for mut entry in retained.take_stale(&current) {
         let repaired = (|| -> Option<Result<(), String>> {
+            // The picture of an opacity group is not repaired box by box: dropped, and the
+            // group is painted (and kept) by the next walk that reaches it.
+            if entry.fade {
+                return None;
+            }
             let new = list_in_slot(entry.placement.slot, render_state)?;
             if entry.key.dpi_bits != dpi_factor.to_bits()
                 || entry.key.settings != paint_settings(glyph_cache, font_manager, render_state)
@@ -5841,35 +6346,11 @@ pub fn render_single_item(
                 let y = rect.y as i32;
                 let w = rect.width as u32;
                 let h = rect.height as u32;
-                let pw = pixmap.width as i32;
-                let ph = pixmap.height as i32;
                 // What the group painted into its cleared region, then the
                 // backdrop back, then the one over the other at its opacity.
                 let painted = snapshot_region(pixmap, x, y, w, h);
                 write_region(pixmap, &snapshot, w, h, x, y);
-                let op = (opacity * 255.0).clamp(0.0, 255.0) as u32;
-                // `blend_pixel`'s levels, without its work where the group
-                // painted nothing or painted opaque.
-                let blender = super::blend::Blender::new(op, blend);
-                for py in 0..h as i32 {
-                    let dy = y + py;
-                    if dy < 0 || dy >= ph {
-                        continue;
-                    }
-                    for px in 0..w as i32 {
-                        let dx = x + px;
-                        if dx < 0 || dx >= pw {
-                            continue;
-                        }
-                        let pi = ((dy as u32 * pixmap.width + dx as u32) * 4) as usize;
-                        let si = ((py as u32 * w + px as u32) * 4) as usize;
-                        if pi + 3 >= pixmap.data.len() || si + 3 >= painted.len() {
-                            continue;
-                        }
-                        let src = [painted[si], painted[si + 1], painted[si + 2], painted[si + 3]];
-                        blender.blend(&mut pixmap.data[pi..pi + 4], src);
-                    }
-                }
+                blend_group_pixels(pixmap, &painted, w, (0, 0), (x, y, w, h), opacity, blend);
             }
         }
 
@@ -6753,9 +7234,19 @@ fn render_glyphs_lcd(
 
         // A band asks the window's cache for the cells before it builds anything into its
         // own. Without hinting (`ppem == 0`) no path is hinted (`GlyphCache::get_or_build`),
-        // so the cells' key is known before the path is looked up: a glyph the window holds
-        // costs the band no path.
-        if ppem == 0 {
+        // so the cells' key is known without a path: a glyph the window holds costs the band
+        // no path.
+        // (With hinting the key needs the path's kind, which the window's cache says without
+        // building the path: `cached_path_kind`, A1-49.)
+        let window_kind = if ppem == 0 {
+            Some(false)
+        } else {
+            shared
+                .as_deref()
+                .and_then(|window| window.cached_path_kind(font_hash.font_hash, glyph_index, ppem))
+                .flatten()
+        };
+        if let Some(window_hinted) = window_kind {
             if let Some(held) = shared.as_deref().and_then(|window| {
                 window.cached_cells_lcd(
                     font_hash.font_hash,
@@ -6764,7 +7255,7 @@ fn render_glyphs_lcd(
                     glyph_x,
                     glyph_baseline_y,
                     scale,
-                    false,
+                    window_hinted,
                     hint_correction,
                     embolden_px,
                 )
@@ -6789,29 +7280,6 @@ fn render_glyphs_lcd(
             continue;
         };
         let is_hinted = cached.is_hinted;
-
-        // With hinting the key needs the path's kind: the band's own path, then the window's
-        // cells.
-        if ppem != 0 {
-            if let Some(held) = shared.as_deref().and_then(|window| {
-                window.cached_cells_lcd(
-                    font_hash.font_hash,
-                    glyph_index,
-                    ppem,
-                    glyph_x,
-                    glyph_baseline_y,
-                    scale,
-                    is_hinted,
-                    hint_correction,
-                    embolden_px,
-                )
-            }) {
-                if let Some((cells, int_x, int_y)) = held {
-                    ras.add_cells_offset(cells, int_x * 3, int_y);
-                }
-                continue;
-            }
-        }
 
         // Cells are rasterized once per (glyph, ppem, scale, 1/3-px bucket)
         // and replayed here at an integer offset. `int_x` is in whole pixels
@@ -7129,6 +7597,8 @@ fn render_text_prerendered_lcd(
     let mut next_component = 0usize;
     // The face is in use (`FontManager::evict_unused`), though cached paths decode nothing.
     parsed_font.touch();
+    // In a band: the window's cache, asked first and never written (`shared_glyphs`).
+    let shared = shared_glyphs();
     for glyph in glyphs {
         let gx = (glyph.point.x - scroll_offset.0) * dpi_factor;
         let gy = (glyph.point.y - scroll_offset.1) * dpi_factor;
@@ -7138,32 +7608,63 @@ fn render_text_prerendered_lcd(
             continue;
         }
         let glyph_index = glyph.index as u16;
-        // A glyph without an outline has no tile: skipped here as below.
-        let Some(is_hinted) = glyph_cache
-            .get_or_build_decoding(font_hash.font_hash, glyph_index, parsed_font, ppem, || {
-                parsed_font.get_or_decode_glyph(glyph_index)
+        // A band asks the window's cache first (A1-49): the kind of the glyph's path, then
+        // its tile - a glyph the window holds costs the band nothing.
+        let window_kind = shared
+            .as_deref()
+            .and_then(|window| window.cached_path_kind(font_hash.font_hash, glyph_index, ppem));
+        if window_kind == Some(None) {
+            continue; // held as "no outline": no tile, as below
+        }
+        let window_tile = window_kind.flatten().and_then(|is_hinted| {
+            shared.as_deref().and_then(|window| {
+                window.cached_lcd_tile(
+                    font_hash.font_hash,
+                    glyph_index,
+                    ppem,
+                    gx,
+                    gy,
+                    scale,
+                    is_hinted,
+                    hint_correction,
+                    color,
+                    bg,
+                )
             })
-            .map(|c| c.is_hinted)
-        else {
-            continue;
+        });
+        let tile = if let Some(tile) = window_tile {
+            tile
+        } else {
+            // This cache: its path first (a tile is built from the path of the cache it is
+            // built in), then its tile.
+            // A glyph without an outline has no tile: skipped here as below.
+            let Some(is_hinted) = glyph_cache
+                .get_or_build_decoding(font_hash.font_hash, glyph_index, parsed_font, ppem, || {
+                    parsed_font.get_or_decode_glyph(glyph_index)
+                })
+                .map(|c| c.is_hinted)
+            else {
+                continue;
+            };
+            let cells_built_before = glyph_cache.cells_built();
+            let tile = glyph_cache.get_or_build_lcd_tile(
+                font_hash.font_hash,
+                glyph.index as u16,
+                ppem,
+                gx,
+                gy,
+                scale,
+                is_hinted,
+                hint_correction,
+                color,
+                bg,
+                lut,
+                params,
+            );
+            // Per glyph: the loop has a `return` of its own below.
+            count_cells_built(glyph_cache, cells_built_before);
+            tile
         };
-        let cells_built_before = glyph_cache.cells_built();
-        let tile = glyph_cache.get_or_build_lcd_tile(
-            font_hash.font_hash,
-            glyph.index as u16,
-            ppem,
-            gx,
-            gy,
-            scale,
-            is_hinted,
-            hint_correction,
-            color,
-            bg,
-            lut,
-            params,
-        );
-        // Per glyph: the loop has a `return` of its own below.
-        count_cells_built(glyph_cache, cells_built_before);
         let Some((tile, int_x, int_y)) = tile else {
             continue; // no cells (space) — nothing to paint for this glyph
         };
@@ -7448,7 +7949,15 @@ pub(super) fn render_text(
         // A band asks the window's cache for the cells before it builds anything into its
         // own; without hinting (`ppem == 0`: no path is hinted) before the path is looked
         // up (see `render_glyphs_lcd`).
-        if ppem == 0 {
+        let window_kind = if ppem == 0 {
+            Some(false)
+        } else {
+            shared
+                .as_deref()
+                .and_then(|window| window.cached_path_kind(font_hash.font_hash, glyph_index, ppem))
+                .flatten()
+        };
+        if let Some(window_hinted) = window_kind {
             if let Some(held) = shared.as_deref().and_then(|window| {
                 window.cached_cells(
                     font_hash.font_hash,
@@ -7457,7 +7966,7 @@ pub(super) fn render_text(
                     glyph_x,
                     glyph_baseline_y,
                     scale,
-                    false,
+                    window_hinted,
                     hint_correction,
                     embolden_px,
                 )
@@ -7481,29 +7990,6 @@ pub(super) fn render_text(
         else {
             continue;
         };
-
-        // With hinting the key needs the path's kind: the band's own path, then the window's
-        // cells.
-        if ppem != 0 {
-            if let Some(held) = shared.as_deref().and_then(|window| {
-                window.cached_cells(
-                    font_hash.font_hash,
-                    glyph_index,
-                    ppem,
-                    glyph_x,
-                    glyph_baseline_y,
-                    scale,
-                    is_hinted,
-                    hint_correction,
-                    embolden_px,
-                )
-            }) {
-                if let Some((cells, int_x, int_y)) = held {
-                    ras.add_cells_offset(cells, int_x, int_y);
-                }
-                continue;
-            }
-        }
 
         let Some((cells, int_x, int_y)) = glyph_cache.get_or_build_cells_emboldened(
             font_hash.font_hash,
@@ -9198,68 +9684,14 @@ fn render_border_sides(
     let iw = ow - wl - wr;
     let ih = oh - wt - wb;
 
-    // Each side is a trapezoid with 4 vertices:
-    // Top:    (ox, oy) → (ox+ow, oy) → (ix+iw, iy) → (ix, iy)
-    // Right:  (ox+ow, oy) → (ox+ow, oy+oh) → (ix+iw, iy+ih) → (ix+iw, iy)
-    // Bottom: (ox+ow, oy+oh) → (ox, oy+oh) → (ix, iy+ih) → (ix+iw, iy+ih)
-    // Left:   (ox, oy+oh) → (ox, oy) → (ix, iy) → (ix, iy+ih)
+    // A side that is drawn in dashes or dots.
+    let patterned = |side: usize| {
+        widths[side] > 0.0
+            && colors[side].a > 0
+            && matches!(styles[side], BorderStyle::Dashed | BorderStyle::Dotted)
+    };
 
-    let sides: [(f64, f64, f64, f64, f64, f64, f64, f64, ColorU, f32); 4] = [
-        // Top trapezoid
-        (
-            ox,
-            oy,
-            ox + ow,
-            oy,
-            ix + iw,
-            iy,
-            ix,
-            iy,
-            colors[0],
-            widths[0],
-        ),
-        // Right trapezoid
-        (
-            ox + ow,
-            oy,
-            ox + ow,
-            oy + oh,
-            ix + iw,
-            iy + ih,
-            ix + iw,
-            iy,
-            colors[1],
-            widths[1],
-        ),
-        // Bottom trapezoid
-        (
-            ox + ow,
-            oy + oh,
-            ox,
-            oy + oh,
-            ix,
-            iy + ih,
-            ix + iw,
-            iy + ih,
-            colors[2],
-            widths[2],
-        ),
-        // Left trapezoid
-        (
-            ox,
-            oy + oh,
-            ox,
-            oy,
-            ix,
-            iy,
-            ix,
-            iy + ih,
-            colors[3],
-            widths[3],
-        ),
-    ];
-
-    if border_radius.is_zero() {
+    if border_radius.is_zero() && !(0..4).any(patterned) {
         // Fast path: axis-aligned border strips — no rasterizer needed
         let pw = pixmap.width;
         let ph = pixmap.height;
@@ -9353,26 +9785,124 @@ fn render_border_sides(
             );
         }
     } else {
-        // Rounded borders: use trapezoid rasterizer
-        for &(x0, y0, x1, y1, x2, y2, x3, y3, color, width) in &sides {
-            if width <= 0.0 || color.a == 0 {
-                continue;
+        // A radius, or a side in dashes or dots (A1-47): the border's RING - the rounded outer
+        // edge minus the inner edge - filled once, each pixel in the colour of the side it
+        // belongs to (`BorderSideSpans`). The sides used to be four straight trapezoids,
+        // filled solid: under a radius the border had square corners and the arcs between
+        // them were not painted at all, and a dashed or dotted side was a solid one.
+        let mut ring = build_rounded_rect_path(&rect, border_radius, dpi_factor);
+        if let Some(inner) = AzRect::from_xywh(ix as f32, iy as f32, iw as f32, ih as f32) {
+            // The inner edge's corners are elliptical: the outer radius less the width of
+            // the side it meets on each axis (CSS Backgrounds 3, 5.2); `widths` are logical,
+            // as the radii are.
+            let less = |r: f32, w: f32| (r - w.max(0.0)).max(0.0);
+            let [wt_l, wr_l, wb_l, wl_l] = widths;
+            let inner_x = BorderRadius {
+                top_left: less(border_radius.top_left, wl_l),
+                top_right: less(border_radius.top_right, wr_l),
+                bottom_right: less(border_radius.bottom_right, wr_l),
+                bottom_left: less(border_radius.bottom_left, wl_l),
+            };
+            let inner_y = BorderRadius {
+                top_left: less(border_radius.top_left, wt_l),
+                top_right: less(border_radius.top_right, wt_l),
+                bottom_right: less(border_radius.bottom_right, wb_l),
+                bottom_left: less(border_radius.bottom_left, wb_l),
+            };
+            let mut hole = build_rounded_rect_path_xy(&inner, &inner_x, &inner_y, dpi_factor);
+            ring.concat_path(&mut hole, 0);
+        }
+        // The pattern `render_border_xy` strokes: a dash of three widths and a gap of one, a
+        // dot of one width and a gap of one.
+        let pattern = |side: usize, width: f64| {
+            if !patterned(side) {
+                (0.0, 0.0)
+            } else if styles[side] == BorderStyle::Dashed {
+                (3.0 * width, width)
+            } else {
+                (width, width)
             }
+        };
+        let mut spans = BorderSideSpans {
+            outer: (ox, oy, ow, oh),
+            widths: [wt, wr, wb, wl],
+            colors,
+            dashes: [pattern(0, wt), pattern(1, wr), pattern(2, wb), pattern(3, wl)],
+        };
+        super::pixmap::agg_fill_spans_clipped(pixmap, &mut ring, FillingRule::EvenOdd, &mut spans, clip);
+    }
+}
 
-            let mut path = PathStorage::new();
-            path.move_to(x0, y0);
-            path.line_to(x1, y1);
-            path.line_to(x2, y2);
-            path.line_to(x3, y3);
-            path.close_polygon(PATH_FLAGS_NONE);
+/// The colour of each pixel of a border whose sides differ ([`render_border_sides`]): a pixel
+/// belongs to the side it is least deep in, the depth counted in that side's own width. In a
+/// square corner that is the mitre from the outer to the inner corner; in a rounded one the
+/// same line carried on through the arc. A side without a width owns nothing; a side without
+/// a style (its colour made transparent) owns its pixels and leaves them unpainted. Along a
+/// dashed or dotted side the alpha is the part of the pixel that lies in a dash.
+struct BorderSideSpans {
+    /// The border box, device px: x, y, width, height.
+    outer: (f64, f64, f64, f64),
+    /// Device widths: top, right, bottom, left.
+    widths: [f64; 4],
+    colors: [ColorU; 4],
+    /// Dash and gap, device px, per side; `(0, 0)` for a solid one.
+    dashes: [(f64, f64); 4],
+}
 
-            let agg_color = Rgba8::new(
-                u32::from(color.r),
-                u32::from(color.g),
-                u32::from(color.b),
-                u32::from(color.a),
-            );
-            agg_fill_path_clipped(pixmap, &mut path, &agg_color, FillingRule::NonZero, clip);
+/// How much of the pixel `[at - 0.5, at + 0.5]` along a side lies in a dash: dashes of `dash`
+/// px start every `dash + gap` px from 0.
+fn dash_coverage(at: f64, dash: f64, gap: f64) -> f64 {
+    let period = dash + gap;
+    // The length in dashes from 0 to `v`.
+    let filled = |v: f64| {
+        let k = (v / period).floor();
+        k * dash + (v - k * period).min(dash)
+    };
+    (filled(at + 0.5) - filled(at - 0.5)).clamp(0.0, 1.0)
+}
+
+impl agg_rust::renderer_scanline::SpanGenerator for BorderSideSpans {
+    type Color = Rgba8;
+
+    fn prepare(&mut self) {}
+
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)] // an alpha, a span index
+    fn generate(&mut self, span: &mut [Rgba8], x: i32, y: i32, len: u32) {
+        let (ox, oy, ow, oh) = self.outer;
+        let py = f64::from(y) + 0.5;
+        for (i, out) in span.iter_mut().take(len as usize).enumerate() {
+            let px = f64::from(x) + i as f64 + 0.5;
+            // How deep the pixel is in each side: top, right, bottom, left.
+            let depth = [py - oy, ox + ow - px, oy + oh - py, px - ox];
+            let mut owner: Option<(usize, f64)> = None;
+            for side in 0..4 {
+                if self.widths[side] > 0.0 {
+                    let d = depth[side] / self.widths[side];
+                    if owner.is_none_or(|(_, least)| d < least) {
+                        owner = Some((side, d));
+                    }
+                }
+            }
+            *out = match owner {
+                Some((side, _)) if self.colors[side].a > 0 => {
+                    let c = self.colors[side];
+                    let (dash, gap) = self.dashes[side];
+                    let in_dash = if dash > 0.0 && gap > 0.0 {
+                        // Along the side: x for top and bottom, y for left and right.
+                        let along = if side % 2 == 0 { px - ox } else { py - oy };
+                        dash_coverage(along, dash, gap)
+                    } else {
+                        1.0
+                    };
+                    Rgba8::new(
+                        u32::from(c.r),
+                        u32::from(c.g),
+                        u32::from(c.b),
+                        (f64::from(c.a) * in_dash).round() as u32,
+                    )
+                }
+                _ => Rgba8::new(0, 0, 0, 0),
+            };
         }
     }
 }
@@ -15362,7 +15892,19 @@ mod autotest_generated {
             &state,
         )
         .unwrap();
-        assert!(st.masks.is_empty(), "a 0-sized mask rect pushes no entry");
+        // Since A1-05 every mask push leaves an entry, so that its pop takes its own and not
+        // the entry of the group around it (this test asked for no entry before). A 0-sized
+        // mask rect leaves an EMPTY one: no snapshot, no mask, no pixel to restore.
+        assert_eq!(st.masks.len(), 1, "a 0-sized mask rect pushes one entry, its own");
+        assert!(
+            matches!(
+                st.masks.last(),
+                Some(MaskEntry::ImageMask { snapshot, mask_data, width: 0, height: 0, .. })
+                    if snapshot.is_empty() && mask_data.is_empty()
+            ),
+            "and the entry is empty: it took no snapshot and masks nothing: {:?}",
+            st.masks.last()
+        );
     }
 
     // ==================================================================
@@ -16697,15 +17239,15 @@ pub(super) mod lcd_pretile_tests {
     use super::*;
     use crate::font::parsed::ParsedFont;
 
-    pub(super) fn load_test_font_pub() -> Option<ParsedFont> {
+    pub(in crate::cpurender) fn load_test_font_pub() -> Option<ParsedFont> {
         load_test_font()
     }
-    pub(super) fn rr_with_pub(
+    pub(in crate::cpurender) fn rr_with_pub(
         f: &ParsedFont,
     ) -> (RendererResources, FontManager<FontRef>, FontHash) {
         rr_with(f)
     }
-    pub(super) fn shape_pub(
+    pub(in crate::cpurender) fn shape_pub(
         p: &ParsedFont,
         t: &str,
         sz: f32,
@@ -18600,10 +19142,19 @@ mod audit_a1_tests {
             assert_eq!(counted.bands, 3, "dpi {dpi}: 630,000 px are three bands: {counted:?}");
             assert_eq!(counted.band_threads, 2, "dpi {dpi}: this thread and two more: {counted:?}");
             assert_eq!((counted_single.bands, counted_single.band_threads), (0, 0), "dpi {dpi}: one pass");
-            assert_eq!(
+            // Every band walks the list once, stepping over the frames that cannot paint in
+            // its rows (A1-07 (h): the third band steps over the scaled group's 144 cells, the
+            // first over the two turned labels; at DPI 1 that is 364 items against 3 x 173),
+            // and every band's count reaches the frame's: one band alone walks at most what
+            // the one pass walks, so more than that is more than one thread's count. (The
+            // test asked for exactly 3 x the pass, which held before the walk stepped.)
+            assert!(
+                counted.items_walked > counted_single.items_walked
+                    && counted.items_walked <= 3 * counted_single.items_walked,
+                "dpi {dpi}: every band walks the list at most once, and its count reaches the \
+                 frame's: {} in bands, {} in one pass",
                 counted.items_walked,
-                3 * counted_single.items_walked,
-                "dpi {dpi}: every band walks the list once, and its count reaches the frame's"
+                counted_single.items_walked
             );
             assert_eq!(counted.px_cleared, counted_single.px_cleared, "dpi {dpi}: every pixel is cleared once");
             let coloured = single.data().chunks_exact(4).filter(|p| p[..3] != [236, 233, 225]).count();
@@ -20234,5 +20785,836 @@ mod audit_a1_tests {
         }
         let clamped = radial_gradient_picture(Shape::Circle, Size::ClosestSide, false, &[(0.0, 0), (20.0, 255)]);
         assert_eq!(grey(&clamped, 122), 255, "not repeating: white beyond the last stop");
+    }
+
+
+    /// A conic gradient about the centre of a 100 x 100 box from 12 o'clock, painted.
+    fn conic_gradient_picture(repeat: bool, stops_degrees: &[(f32, [u8; 3])]) -> AzulPixmap {
+        use azul_css::props::{
+            basic::angle::AngleValue,
+            style::background::{
+                BackgroundPositionHorizontal, BackgroundPositionVertical, ConicGradient, ExtendMode,
+                NormalizedRadialColorStop, StyleBackgroundPosition,
+            },
+        };
+        let stops: Vec<NormalizedRadialColorStop> = stops_degrees
+            .iter()
+            .map(|(degrees, rgb)| NormalizedRadialColorStop {
+                angle: AngleValue::deg(*degrees),
+                color: ColorOrSystem::Color(ColorU { r: rgb[0], g: rgb[1], b: rgb[2], a: 255 }),
+            })
+            .collect();
+        let gradient = ConicGradient {
+            extend_mode: if repeat { ExtendMode::Repeat } else { ExtendMode::Clamp },
+            center: StyleBackgroundPosition {
+                horizontal: BackgroundPositionHorizontal::Center,
+                vertical: BackgroundPositionVertical::Center,
+            },
+            angle: AngleValue::deg(0.0),
+            stops: stops.into(),
+        };
+        let mut pm = AzulPixmap::new(100, 100).unwrap();
+        pm.fill(0, 255, 0, 255);
+        render_conic_gradient(&mut pm, &rect(0.0, 0.0, 100.0, 100.0), &gradient, &BorderRadius::default(), None, 1.0, None);
+        pm
+    }
+
+    /// A1-58 (found by A3-solver): a conic gradient runs over the whole turn. `conic-gradient(
+    /// red, blue)` on a 100 x 100 box, centre (50, 50): the pixel (90, 50), at 3 o'clock, is a
+    /// quarter of the turn: rgb(191, 0, 64); (50, 90), 6 o'clock, half: rgb(128, 0, 128);
+    /// (10, 50), 9 o'clock, three quarters: rgb(64, 0, 191). Over half a turn and mirrored
+    /// (agg's `GradientConic`) they were rgb(128, 0, 128), rgb(0, 0, 255), rgb(128, 0, 128).
+    /// Mutation: `atan2(..).abs() / PI` in `ConicTurn`.
+    #[test]
+    fn a_conic_gradient_runs_over_the_whole_turn() {
+        let pm = conic_gradient_picture(false, &[(0.0, [255, 0, 0]), (360.0, [0, 0, 255])]);
+        for ((x, y), want) in [((90, 50), [191, 0, 64]), ((50, 90), [128, 0, 128]), ((10, 50), [64, 0, 191])] {
+            let got = px(&pm, x, y);
+            assert!(
+                (0..3).all(|c| got[c].abs_diff(want[c]) <= 3) && got[3] == 255,
+                "({x}, {y}): wanted {want:?}, got {got:?}"
+            );
+        }
+    }
+
+    /// A1-59: a repeating conic gradient repeats the part of the turn between its first and
+    /// its last stop. Black at 0deg, white at 90deg: the pixels at 45, 135, 225 and 315
+    /// degrees ((80, 19), (80, 80), (19, 80), (19, 19): 45.5 .. 46 degrees into their quarter)
+    /// are all half way: grey 128. Clamped, everything past 3 o'clock was white.
+    /// Mutation: `repeat: None` for a repeating gradient.
+    #[test]
+    fn a_repeating_conic_gradient_repeats_its_part_of_the_turn() {
+        let pm = conic_gradient_picture(true, &[(0.0, [0, 0, 0]), (90.0, [255, 255, 255])]);
+        for (x, y) in [(80, 19), (80, 80), (19, 80), (19, 19)] {
+            let got = px(&pm, x, y);
+            assert!(got[0] == got[1] && got[1] == got[2], "a grey at ({x}, {y}): {got:?}");
+            assert!(got[0].abs_diff(128) <= 8, "half way into its quarter at ({x}, {y}): {got:?}");
+        }
+        let clamped = conic_gradient_picture(false, &[(0.0, [0, 0, 0]), (90.0, [255, 255, 255])]);
+        assert_eq!(px(&clamped, 80, 80), [255, 255, 255, 255], "not repeating: white past the last stop");
+    }
+
+
+    /// A1-60 (found by A3-solver): what is painted inside a reference frame counts, in every
+    /// bound gathered over a group's items, where the frame's matrix puts it - not where it is
+    /// laid out. A column, box (0, 0) 200 x 400, holds a card, box (0, 0) 200 x 80 filled, built
+    /// with `translate(-100, 0)`: the card paints x -100 .. 100, so the column's laid-out
+    /// extent is (-100, 0) 300 x 400 (it was (0, 0) 200 x 400: only `extent_with` knew). The
+    /// same for an opacity group around the card; and with the card's LIVE matrix
+    /// `translate(50, 0)` the group paints (0, 0) 250 x 400.
+    /// Mutation: the `PushReferenceFrame` arm left out of `GroupBounds::step`.
+    #[test]
+    fn a_frame_inside_a_group_counts_where_its_matrix_paints_it() {
+        use azul_core::transform::ComputedTransform3D;
+        let card = frame(
+            2,
+            turn_scale_move(0.0, 1.0, -100.0, 0.0),
+            (200.0, 80.0),
+            vec![fill(0.0, 0.0, 200.0, 80.0, [200, 0, 0])],
+        );
+        let column = list(frame(1, IDENTITY, (200.0, 400.0), card.clone()));
+        let want = rect(-100.0, 0.0, 300.0, 400.0);
+        assert_eq!(column.frame_index().extent_of(0), Some(want));
+        assert_eq!(crate::solver3::display_list::reference_frame_extent_walked(&column.items, 0), Some(want));
+        assert_eq!(column.frame_index().extent_with(&column.items, 0, &HashMap::new()), Some(want));
+
+        let mut items = vec![DisplayListItem::PushOpacity {
+            bounds: wrect(0.0, 0.0, 200.0, 400.0),
+            opacity: 0.5,
+            opacity_key: None,
+            mix_blend_mode: Default::default(),
+        }];
+        items.extend(card);
+        items.push(DisplayListItem::PopOpacity);
+        let faded = list(items);
+        let index = faded.frame_index();
+        assert_eq!(index.opacity_extent(0), Some(want));
+        assert_eq!(index.opacity_extent_with(&faded.items, 0, &HashMap::new()), Some(want));
+        let mut live = HashMap::new();
+        live.insert(2, ComputedTransform3D { m: turn_scale_move(0.0, 1.0, 50.0, 0.0) });
+        assert_eq!(index.opacity_extent_with(&faded.items, 0, &live), Some(rect(0.0, 0.0, 250.0, 400.0)));
+    }
+
+    /// A1-60: a child that a transform moves out of a faded group's box is faded where it is
+    /// painted. A half-opaque group, box (10, 10) 40 x 40, holds a frame of the same box with a
+    /// red fill, moved by 60 px: the fill is painted at x 70 .. 110, half red over white
+    /// (255, 128, 128), and nothing is painted where it is laid out. With the group's region
+    /// taken from where the child is laid out, the moved fill was painted outside it at full
+    /// red. Both for a frame built with the matrix and for one moved by a live value.
+    /// Mutation: `opacity_extent` in place of `opacity_extent_with` in the walk fails the live
+    /// case; the frame arm left out of `GroupBounds::step` fails both.
+    #[test]
+    fn a_child_moved_out_of_a_faded_groups_box_is_faded_where_it_is_painted() {
+        use azul_core::transform::ComputedTransform3D;
+        let group = |built_with: [[f32; 4]; 4]| {
+            list(vec![
+                DisplayListItem::PushOpacity {
+                    bounds: wrect(10.0, 10.0, 40.0, 40.0),
+                    opacity: 0.5,
+                    opacity_key: None,
+                    mix_blend_mode: Default::default(),
+                },
+                DisplayListItem::PushReferenceFrame {
+                    transform_key: azul_core::resources::TransformKey { id: 7 },
+                    initial_transform: ComputedTransform3D { m: built_with },
+                    bounds: wrect(10.0, 10.0, 40.0, 40.0),
+                },
+                fill(10.0, 10.0, 40.0, 40.0, [255, 0, 0]),
+                DisplayListItem::PopReferenceFrame,
+                DisplayListItem::PopOpacity,
+            ])
+        };
+        let moved = turn_scale_move(0.0, 1.0, 60.0, 0.0);
+        let (built, _) = full(&group(moved), &CpuRenderState::new(ScrollOffsetMap::new()), (160, 60));
+        let mut state = CpuRenderState::new(ScrollOffsetMap::new());
+        state.transforms.insert(7, ComputedTransform3D { m: moved });
+        let (live, _) = full(&group(IDENTITY), &state, (160, 60));
+        for (what, painted) in [("built with the matrix", &built), ("moved by a live value", &live)] {
+            let [r, g, b, a] = px(painted, 90, 30);
+            assert!(
+                r == 255 && (120..=136).contains(&g) && (120..=136).contains(&b) && a == 255,
+                "{what}: half red over white where the child is painted, got {:?}",
+                [r, g, b, a]
+            );
+            assert_eq!(px(painted, 30, 30), [255, 255, 255, 255], "{what}: nothing where it is laid out");
+        }
+    }
+
+
+    /// A1-47: a border whose sides differ follows its radius, and each pixel is the side's it
+    /// lies least deep in. Box (10, 10) 60 x 40, radius 10, every side 4 px, the top red, the
+    /// others blue. The outer arc of the top-left corner is about (20, 20), radius 10; the
+    /// inner one radius 6.
+    /// - (11, 11) is 12.0 px from the arc's centre: outside the border. The sides were square
+    ///   trapezoids and painted it.
+    /// - (14, 15) and (15, 14) lie whole in the ring (their corners are 6.4 to 7.8 px from the
+    ///   centre), right of the left side's strip (x < 14) and below the top side's (y < 14):
+    ///   no trapezoid held them. (14, 15) is 1.375 widths into the top side and 1.125 into
+    ///   the left one: blue; (15, 14) the other way round: red.
+    /// - (16, 13) is 0.875 widths into the top side, 1.625 into the left: red.
+    /// - (40, 11), on the straight part of the top side: red; (40, 30), inside: not painted.
+    /// Mutation: the outer path built without the radius paints (11, 11); the depth not
+    /// divided by the width, with a top side of 8 px, moves the mitre.
+    #[test]
+    fn a_border_with_different_sides_follows_its_radius() {
+        use azul_css::props::style::border::BorderStyle;
+        let (red, blue) = (ColorU { r: 255, g: 0, b: 0, a: 255 }, ColorU { r: 0, g: 0, b: 255, a: 255 });
+        let white = [255, 255, 255, 255];
+        let mut pm = AzulPixmap::new(90, 70).unwrap();
+        pm.fill(255, 255, 255, 255);
+        let radius = BorderRadius { top_left: 10.0, top_right: 10.0, bottom_left: 10.0, bottom_right: 10.0 };
+        render_border_sides(
+            &mut pm,
+            &rect(10.0, 10.0, 60.0, 40.0),
+            [red, blue, blue, blue],
+            [4.0; 4],
+            [BorderStyle::Solid; 4],
+            &radius,
+            None,
+            1.0,
+        );
+        assert_eq!(px(&pm, 11, 11), white, "outside the rounded corner");
+        assert_eq!(px(&pm, 14, 15), [0, 0, 255, 255], "on the arc, the left side's");
+        assert_eq!(px(&pm, 15, 14), [255, 0, 0, 255], "on the arc, the top side's");
+        assert_eq!(px(&pm, 16, 13), [255, 0, 0, 255], "in the top side's strip, on the arc");
+        assert_eq!(px(&pm, 40, 11), [255, 0, 0, 255], "the top side");
+        assert_eq!(px(&pm, 11, 30), [0, 0, 255, 255], "the left side");
+        assert_eq!(px(&pm, 40, 30), white, "inside the border");
+        assert_eq!(px(&pm, 16, 16), white, "inside the inner arc (5.0 px from its centre, radius 6)");
+    }
+
+    /// A1-47: a dashed or dotted side of a border whose sides differ is drawn in dashes. Box
+    /// (10, 10) 80 x 30 without a radius, every side 4 px, the top dashed red (dashes of 12 px
+    /// and gaps of 4 from the box's left edge: 10 .. 22, 26 .. 38, ...), the others solid blue.
+    /// The pixel (30, 11) is in the second dash: red. (23, 11) is in the first gap (22 .. 26):
+    /// not painted - it was red, the side was drawn solid. A dotted bottom side (4 px on,
+    /// 4 px off): (20, 37) in a dot, (24, 37) in a gap.
+    /// Mutation: the pattern taken as `(0, 0)` for every side paints the gaps.
+    #[test]
+    fn a_dashed_side_of_a_border_with_different_sides_is_dashed() {
+        use azul_css::props::style::border::BorderStyle;
+        let (red, blue) = (ColorU { r: 255, g: 0, b: 0, a: 255 }, ColorU { r: 0, g: 0, b: 255, a: 255 });
+        let white = [255, 255, 255, 255];
+        let mut pm = AzulPixmap::new(100, 50).unwrap();
+        pm.fill(255, 255, 255, 255);
+        render_border_sides(
+            &mut pm,
+            &rect(10.0, 10.0, 80.0, 30.0),
+            [red, blue, red, blue],
+            [4.0; 4],
+            [BorderStyle::Dashed, BorderStyle::Solid, BorderStyle::Dotted, BorderStyle::Solid],
+            &BorderRadius::default(),
+            None,
+            1.0,
+        );
+        assert_eq!(px(&pm, 30, 11), [255, 0, 0, 255], "in a dash of the top side");
+        assert_eq!(px(&pm, 23, 11), white, "in a gap of the top side");
+        assert_eq!(px(&pm, 20, 37), [255, 0, 0, 255], "in a dot of the bottom side (18 .. 22)");
+        assert_eq!(px(&pm, 24, 37), white, "in a gap of the bottom side (22 .. 26)");
+        assert_eq!(px(&pm, 11, 25), [0, 0, 255, 255], "the solid left side");
+        assert_eq!(px(&pm, 88, 25), [0, 0, 255, 255], "the solid right side");
+        assert_eq!(px(&pm, 50, 25), white, "inside the border");
+        // The coverage of a pixel across a dash's end: half in, half out.
+        assert!((dash_coverage(12.0, 12.0, 4.0) - 0.5).abs() < 1e-9);
+        assert!((dash_coverage(5.5, 12.0, 4.0) - 1.0).abs() < 1e-9 && dash_coverage(14.0, 12.0, 4.0).abs() < 1e-9);
+    }
+
+    // ---- A1-26: kept opacity groups ---------------------------------------------------------
+
+    /// A window (900 x 700) with a group that fades: a ground, 48 cells, then the group (key
+    /// 7, box (100, 80) 500 x 400) around a panel, 30 cells, a label with a halo (when there is
+    /// a font) and a card in a frame of its own (key 8, moved by the render state), then a bar
+    /// painted over the group's lower edge. `edit` 1 recolours a cell OUTSIDE the group (a tile
+    /// that arrived), `edit` 2 the panel inside it (a label that was edited).
+    fn fade_scene(font: Option<(&ParsedFont, FontHash)>, edit: u8) -> Arc<DisplayList> {
+        let mut items = vec![fill(0.0, 0.0, 900.0, 700.0, [236, 233, 225])];
+        for i in 0..8u8 {
+            for j in 0..6u8 {
+                let rgb = if edit == 1 && i == 7 && j == 5 { [255, 0, 255] } else { [i * 30, j * 40, 120] };
+                items.push(fill(f32::from(i) * 110.0 + 10.0, f32::from(j) * 115.0 + 8.0, 90.0, 95.0, rgb));
+            }
+        }
+        items.push(DisplayListItem::PushOpacity {
+            bounds: wrect(100.0, 80.0, 500.0, 400.0),
+            opacity: 1.0,
+            opacity_key: Some(azul_core::resources::OpacityKey { id: 7 }),
+            mix_blend_mode: Default::default(),
+        });
+        items.push(fill(100.0, 80.0, 500.0, 400.0, if edit == 2 { [90, 200, 90] } else { [250, 250, 250] }));
+        for i in 0..6u8 {
+            for j in 0..5u8 {
+                items.push(fill(120.0 + f32::from(i) * 78.0, 150.0 + f32::from(j) * 60.0, 60.0, 44.0, [200 - i * 20, 60 + j * 30, 40]));
+            }
+        }
+        items.extend(haloed(halo(0.0, 2.0, [255, 255, 255]), label(font, "Hirschauer Steige", 22.0, 130.0, 120.0)));
+        items.push(DisplayListItem::PushReferenceFrame {
+            transform_key: azul_core::resources::TransformKey { id: 8 },
+            initial_transform: azul_core::transform::ComputedTransform3D { m: IDENTITY },
+            bounds: wrect(420.0, 400.0, 120.0, 60.0),
+        });
+        items.push(fill(420.0, 400.0, 120.0, 60.0, [30, 30, 160]));
+        items.push(DisplayListItem::PopReferenceFrame);
+        items.push(DisplayListItem::PopOpacity);
+        items.push(fill(80.0, 460.0, 300.0, 30.0, [20, 20, 20]));
+        Arc::new(list(items))
+    }
+
+    /// The render state of a frame of `scene`: the group at `opacity`, its card moved by
+    /// `card` px to the right, kept surfaces in `retained` (if any).
+    fn fade_state(scene: &Arc<DisplayList>, opacity: f32, card: f32, retained: Option<&Arc<RetainedFrames>>, threads: usize) -> CpuRenderState {
+        let mut state = CpuRenderState::new(ScrollOffsetMap::new())
+            .with_root_display_list(Arc::clone(scene))
+            .with_paint_threads(threads);
+        if let Some(retained) = retained {
+            state = state.with_retained_frames(Arc::clone(retained));
+        }
+        state.opacities.insert(7, opacity);
+        state.transforms.insert(8, azul_core::transform::ComputedTransform3D { m: turn_scale_move(0.0, 1.0, card, 0.0) });
+        state
+    }
+
+    /// One frame of `scene` as the backend paints it (the whole window repainted), and what
+    /// was counted.
+    fn fade_frame(
+        scene: &Arc<DisplayList>,
+        state: &CpuRenderState,
+        pm: &mut AzulPixmap,
+        (rr, fm): (&RendererResources, &FontManager<FontRef>),
+    ) -> crate::cpu_counters::CpuFrameCounters {
+        let mut gc = GlyphCache::new();
+        let whole = [rect(0.0, 0.0, 900.0, 700.0)];
+        crate::cpu_counters::reset();
+        if let Some(retained) = &state.retained {
+            refresh_retained_surfaces(state, rr, fm, &mut gc, 1.0).unwrap();
+            retained.begin_frame(&[Arc::as_ptr(scene) as usize]);
+        }
+        render_display_list_damaged(scene, pm, 1.0, rr, fm, &mut gc, state, &whole).unwrap();
+        if let Some(retained) = &state.retained {
+            retained.commit();
+        }
+        crate::cpu_counters::take()
+    }
+
+    /// The same frame painted afresh: nothing kept, one pass, a new target.
+    fn fresh_fade_frame(scene: &Arc<DisplayList>, opacity: f32, card: f32, resources: (&RendererResources, &FontManager<FontRef>)) -> AzulPixmap {
+        let mut pm = AzulPixmap::new(900, 700).unwrap();
+        pm.fill(255, 255, 255, 255);
+        let _ = fade_frame(scene, &fade_state(scene, opacity, card, None, 1), &mut pm, resources);
+        pm
+    }
+
+    /// A1-26: a fade blends the picture it kept. The group of `fade_scene` fades out and in:
+    /// opacity 1.0, 0.8, 0.6, 0.4, 0.2, 0.5, 1.0. Every frame is, pixel for pixel, the frame
+    /// painted afresh; on one thread and in bands (900 x 700 on 4 threads: 3 bands of 234 rows,
+    /// and the group's rows 80 .. 480 reach all three).
+    ///
+    /// - 1.0: the group is not blended (its text may be LCD): painted, nothing looked up.
+    /// - 0.8: painted and kept (a miss per pass).
+    /// - 0.6, 0.4, 0.2, 0.5: blended from the kept picture (a hit per pass); nothing of the
+    ///   group is painted: on one thread the walk paints exactly the items outside the group.
+    /// - 1.0: painted again, nothing looked up.
+    ///
+    /// The kept surface is the group's box, 500 x 400 px = 800,000 bytes.
+    /// Mutations: the group's own opacity key counted among the values inside the group
+    /// (`bind_inside` before the push) makes every step a miss; a hit that blends with the
+    /// opacity the picture was kept under shows 0.8 at 0.6; a hit that does not step past the
+    /// pop paints the group's items over the blended picture.
+    #[test]
+    fn a_fade_blends_the_picture_it_kept_and_it_is_the_frame_painted_afresh() {
+        let font = test_font();
+        let (rr, fm, font_hash) = resources(font.as_ref());
+        let scene = fade_scene(font.as_ref().zip(font_hash), 0);
+        let push = scene.items.iter().position(|i| matches!(i, DisplayListItem::PushOpacity { .. })).unwrap();
+        let pop = scene.items.iter().position(|i| matches!(i, DisplayListItem::PopOpacity)).unwrap();
+        let outside = (scene.items.len() - (pop - push + 1)) as u64;
+        for threads in [1usize, 4] {
+            let passes = if threads == 1 { 1 } else { 3 };
+            let retained = Arc::new(RetainedFrames::with_max_bytes(64 << 20));
+            let mut pm = AzulPixmap::new(900, 700).unwrap();
+            pm.fill(255, 255, 255, 255);
+            let steps: [(f32, (u64, u64)); 7] = [
+                (1.0, (0, 0)),
+                (0.8, (0, passes)),
+                (0.6, (passes, 0)),
+                (0.4, (passes, 0)),
+                (0.2, (passes, 0)),
+                (0.5, (passes, 0)),
+                (1.0, (0, 0)),
+            ];
+            for (step, (opacity, hits_misses)) in steps.into_iter().enumerate() {
+                let state = fade_state(&scene, opacity, 0.0, Some(&retained), threads);
+                let counted = fade_frame(&scene, &state, &mut pm, (&rr, &fm));
+                let what = format!("{threads} thread(s), step {} (opacity {opacity})", step + 1);
+                assert_eq!((counted.retained_hits, counted.retained_misses), hits_misses, "{what}: {counted:?}");
+                if hits_misses.0 > 0 && threads == 1 {
+                    assert_eq!(counted.items_painted, outside, "{what}: nothing of the group is painted: {counted:?}");
+                    assert_eq!(counted.text_runs, 0, "{what}: no text of the group: {counted:?}");
+                }
+                if hits_misses.1 > 0 && threads == 1 {
+                    assert_eq!(counted.items_painted, scene.items.len() as u64, "{what}: the group is painted: {counted:?}");
+                }
+                let fresh = fresh_fade_frame(&scene, opacity, 0.0, (&rr, &fm));
+                assert_eq!(differing_pixels(&pm, &fresh), 0, "{what}: the frame is the one painted afresh");
+            }
+            assert_eq!((retained.len(), retained.bytes()), (1, 500 * 400 * 4), "{threads} thread(s): the group's box");
+        }
+        // Harness: the fade shows (the panel at 0.2 is not the panel at 0.8), and so does the group.
+        let (strong, weak) = (fresh_fade_frame(&scene, 0.8, 0.0, (&rr, &fm)), fresh_fade_frame(&scene, 0.2, 0.0, (&rr, &fm)));
+        assert!(differing_pixels(&strong, &weak) > 100_000);
+        // The bar painted after the group lies over it: (200, 470) is the bar's colour.
+        assert_eq!(px(&weak, 200, 470), [20, 20, 20, 255]);
+    }
+
+    /// A1-26, the invalidation rules of a kept group, each against the frame painted afresh.
+    /// After a frame at 0.8 that keeps the group's picture:
+    /// - the control: a frame at 0.6 blends it (a hit);
+    /// - rule 5, a value inside the group: the card's matrix is written (moved by 30 px): the
+    ///   group is painted again and the picture kept for it replaces the old one;
+    /// - rule 1, the list: a cell OUTSIDE the group changes colour (a tile arrives during the
+    ///   fade) or the panel INSIDE it does (an edit): the picture is dropped with its list (it
+    ///   is not repaired), the group is painted and kept again, and the next step blends it;
+    /// - no cache (`AZ_CPU_RETAINED_MB=0`): painted, nothing kept.
+    /// Mutations: `values` without the keys inside the group shows the card where it was; an
+    /// entry that outlives its list shows the old panel.
+    #[test]
+    fn a_kept_group_is_painted_again_when_what_it_shows_changed() {
+        let font = test_font();
+        let (rr, fm, font_hash) = resources(font.as_ref());
+        let font = font.as_ref().zip(font_hash);
+        let kept_scene = || {
+            let scene = fade_scene(font, 0);
+            let retained = Arc::new(RetainedFrames::with_max_bytes(64 << 20));
+            let mut pm = AzulPixmap::new(900, 700).unwrap();
+            pm.fill(255, 255, 255, 255);
+            let first = fade_frame(&scene, &fade_state(&scene, 0.8, 0.0, Some(&retained), 1), &mut pm, (&rr, &fm));
+            assert_eq!((first.retained_hits, first.retained_misses, retained.len()), (0, 1, 1));
+            (scene, retained, pm)
+        };
+
+        // The control.
+        let (scene, retained, mut pm) = kept_scene();
+        let next = fade_frame(&scene, &fade_state(&scene, 0.6, 0.0, Some(&retained), 1), &mut pm, (&rr, &fm));
+        assert_eq!((next.retained_hits, next.retained_misses), (1, 0), "{next:?}");
+        assert_eq!(differing_pixels(&pm, &fresh_fade_frame(&scene, 0.6, 0.0, (&rr, &fm))), 0);
+
+        // Rule 5: a value inside the group.
+        let (scene, retained, mut pm) = kept_scene();
+        let moved = fade_frame(&scene, &fade_state(&scene, 0.6, 30.0, Some(&retained), 1), &mut pm, (&rr, &fm));
+        assert_eq!((moved.retained_hits, moved.retained_misses), (0, 1), "the card moved: {moved:?}");
+        assert_eq!(moved.retained_invalidations, 1, "the picture of the card's old place is replaced: {moved:?}");
+        let fresh = fresh_fade_frame(&scene, 0.6, 30.0, (&rr, &fm));
+        assert_eq!(differing_pixels(&pm, &fresh), 0, "the card 30 px to the right");
+        assert!(differing_pixels(&fresh, &fresh_fade_frame(&scene, 0.6, 0.0, (&rr, &fm))) > 500, "harness: the move shows");
+        assert_eq!(retained.len(), 1);
+        let after = fade_frame(&scene, &fade_state(&scene, 0.4, 30.0, Some(&retained), 1), &mut pm, (&rr, &fm));
+        assert_eq!((after.retained_hits, after.retained_misses), (1, 0), "{after:?}");
+        assert_eq!(differing_pixels(&pm, &fresh_fade_frame(&scene, 0.4, 30.0, (&rr, &fm))), 0);
+
+        // Rule 1: the list, changed outside the group and inside it.
+        for edit in [1u8, 2] {
+            let (scene, retained, mut pm) = kept_scene();
+            assert_eq!(Arc::strong_count(&scene), 2, "the kept picture holds its list");
+            let edited = fade_scene(font, edit);
+            let frame = fade_frame(&edited, &fade_state(&edited, 0.6, 0.0, Some(&retained), 1), &mut pm, (&rr, &fm));
+            assert_eq!((frame.retained_patched, frame.retained_invalidations), (0, 1), "edit {edit}: dropped: {frame:?}");
+            assert_eq!((frame.retained_hits, frame.retained_misses), (0, 1), "edit {edit}: painted: {frame:?}");
+            assert_eq!(Arc::strong_count(&scene), 1, "edit {edit}: the old list is let go of");
+            let fresh = fresh_fade_frame(&edited, 0.6, 0.0, (&rr, &fm));
+            assert_eq!(differing_pixels(&pm, &fresh), 0, "edit {edit}: the edited list");
+            assert!(differing_pixels(&fresh, &fresh_fade_frame(&scene, 0.6, 0.0, (&rr, &fm))) > 500, "harness: edit {edit} shows");
+            let next = fade_frame(&edited, &fade_state(&edited, 0.4, 0.0, Some(&retained), 1), &mut pm, (&rr, &fm));
+            assert_eq!((next.retained_hits, next.retained_misses), (1, 0), "edit {edit}: kept again: {next:?}");
+            assert_eq!(differing_pixels(&pm, &fresh_fade_frame(&edited, 0.4, 0.0, (&rr, &fm))), 0);
+        }
+
+        // A cache that keeps nothing: the group is no candidate at all.
+        let scene = fade_scene(font, 0);
+        let none = Arc::new(RetainedFrames::with_max_bytes(0));
+        let mut pm = AzulPixmap::new(900, 700).unwrap();
+        pm.fill(255, 255, 255, 255);
+        for opacity in [0.8_f32, 0.6] {
+            let frame = fade_frame(&scene, &fade_state(&scene, opacity, 0.0, Some(&none), 1), &mut pm, (&rr, &fm));
+            assert_eq!((frame.retained_hits, frame.retained_misses, none.len()), (0, 0, 0), "{frame:?}");
+            assert_eq!(differing_pixels(&pm, &fresh_fade_frame(&scene, opacity, 0.0, (&rr, &fm))), 0);
+        }
+    }
+
+    /// A1-26: which opacity groups a walk may step over (`FrameIndex::opacity_scope_at`), and
+    /// what their pictures depend on. In one list:
+    /// - a group around a fill, an inner group (key 5), a frame (key 6) and a bound colour:
+    ///   it ends at its pop and depends on the keys 5 and 6 and the colour key 9 - not on its
+    ///   own key 4;
+    /// - the inner group: ends at its own pop, depends on nothing;
+    /// - a group whose pop comes after the pop of a clip that was opened inside it: none;
+    /// - a group opened inside a frame and popped after the frame's pop: none.
+    /// Each of the last two is refused by more than one rule (the pop did not close its own
+    /// push, the group was marked at the pop that went wrong, the scope stack is not as long
+    /// as before the push): the test pins the answer, not which rule gives it.
+    /// Mutation: a scope recorded for every popped group gives the third one (a walk that
+    /// steps over it leaves the clip stack one short) and the fourth (it never pops the frame).
+    #[test]
+    fn an_opacity_group_is_stepped_over_only_when_it_closes_what_it_opened() {
+        let group = |key: usize| DisplayListItem::PushOpacity {
+            bounds: wrect(0.0, 0.0, 300.0, 300.0),
+            opacity: 0.5,
+            opacity_key: Some(azul_core::resources::OpacityKey { id: key }),
+            mix_blend_mode: Default::default(),
+        };
+        let mut items = vec![group(4), fill(0.0, 0.0, 10.0, 10.0, [1, 2, 3]), group(5), fill(0.0, 0.0, 5.0, 5.0, [1, 2, 3]), DisplayListItem::PopOpacity];
+        items.extend(frame(6, IDENTITY, (20.0, 20.0), vec![fill(0.0, 0.0, 20.0, 20.0, [9, 9, 9])]));
+        items.push(DisplayListItem::PopOpacity);
+        let first_end = items.len() - 1;
+        // 3: a clip opened inside the group and closed after it.
+        let third = items.len();
+        items.push(group(10));
+        items.push(DisplayListItem::PushClip { bounds: wrect(0.0, 0.0, 50.0, 50.0), border_radius: BorderRadius::default() });
+        items.push(DisplayListItem::PopOpacity);
+        items.push(DisplayListItem::PopClip);
+        // 4: a group opened inside a frame, popped after the frame.
+        let frame_push = items.len();
+        items.push(DisplayListItem::PushReferenceFrame {
+            transform_key: azul_core::resources::TransformKey { id: 12 },
+            initial_transform: azul_core::transform::ComputedTransform3D { m: IDENTITY },
+            bounds: wrect(0.0, 0.0, 40.0, 40.0),
+        });
+        let fourth = items.len();
+        items.push(group(11));
+        items.push(DisplayListItem::PopReferenceFrame);
+        items.push(DisplayListItem::PopOpacity);
+        let mut dl = list(items);
+        dl.color_bindings = vec![None; dl.items.len()];
+        dl.color_bindings[1] = Some(azul_core::resources::ColorKey { id: 9 });
+        let index = dl.frame_index();
+        let first = index.opacity_scope_at(0).expect("the first group closes what it opened");
+        assert_eq!(first.end, first_end);
+        assert_eq!((first.inner.opacity_keys.clone(), first.inner.transform_keys.clone(), first.inner.color_keys.clone()), (vec![5], vec![6], vec![9]));
+        assert!(first.inner.scroll_ids.is_empty() && !first.inner.has_view);
+        let inner = index.opacity_scope_at(2).expect("the group inside it");
+        assert_eq!((inner.end, inner.inner.clone()), (4, crate::solver3::display_list::FrameInner::default()));
+        assert!(index.opacity_scope_at(third).is_none(), "its pop closes a clip's scope");
+        assert!(index.opacity_scope_at(fourth).is_none(), "the frame around its push ends inside it");
+        assert!(index.opacity_scope_at(1).is_none() && index.opacity_scope_at(frame_push).is_none(), "no group is pushed there");
+    }
+
+    // ---- A1-07b: the grids of a list's levels -----------------------------------------------
+
+    /// A fixed sequence of numbers per seed.
+    struct Lcg(u64);
+
+    impl Lcg {
+        fn below(&mut self, n: u32) -> u32 {
+            self.0 = self.0.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+            ((self.0 >> 33) % u64::from(n.max(1))) as u32
+        }
+
+        /// A coordinate below `max`, on quarter pixels.
+        fn coord(&mut self, max: u32) -> f32 {
+            self.below(max * 4) as f32 / 4.0
+        }
+
+        fn rgb(&mut self) -> [u8; 3] {
+            [self.below(256) as u8, self.below(256) as u8, self.below(256) as u8]
+        }
+
+        /// `count` fills of up to 62 x 42 px with their corners inside `(x, y) w x h`.
+        fn fills(&mut self, count: usize, (x, y, w, h): (f32, f32, u32, u32)) -> Vec<DisplayListItem> {
+            (0..count)
+                .map(|_| {
+                    let (fx, fy) = (x + self.coord(w), y + self.coord(h));
+                    let (fw, fh) = (self.coord(60) + 2.0, self.coord(40) + 2.0);
+                    let rgb = self.rgb();
+                    fill(fx, fy, fw, fh, rgb)
+                })
+                .collect()
+        }
+    }
+
+    /// A list of about 2,000 items over (0, 0) 1600 x 1400 with every kind of scope a level
+    /// can hold, from the sequence of `seed`, and the live values it is painted with (scroll
+    /// offsets, matrices): 260 loose fills, then forty blocks of thirty more loose fills or of
+    /// one scope: clips (square and rounded), opacity groups, text shadows, moved frames,
+    /// scroll frames in their clips, masks; then a clip around 320 fills (a level with a grid
+    /// inside the top level's), a frame scaled by 1.3 around 330 fills (a level whose items
+    /// are culled by the clip of the frame's surface), a box shadow and two large fills.
+    fn random_list(seed: u64) -> (DisplayList, ScrollOffsetMap, HashMap<usize, azul_core::transform::ComputedTransform3D>) {
+        let mut rng = Lcg(seed);
+        let mut scrolls = ScrollOffsetMap::new();
+        let mut transforms = HashMap::new();
+        let world = (0.0, 0.0, 1600, 1400);
+        let mut items = vec![fill(0.0, 0.0, 1600.0, 1400.0, [236, 233, 225])];
+        // (So that the top level has a grid whatever the sequence deals.)
+        items.extend(rng.fills(260, world));
+        for block in 0..40usize {
+            let (bx, by) = (rng.coord(1400), rng.coord(1200));
+            let inside = (bx, by, 200, 150);
+            match rng.below(9) {
+                0..=2 => items.extend(rng.fills(30, world)),
+                3 => {
+                    let r = if rng.below(2) == 0 { 0.0 } else { 12.0 };
+                    items.push(DisplayListItem::PushClip {
+                        bounds: wrect(bx, by, 200.0, 150.0),
+                        border_radius: BorderRadius { top_left: r, top_right: r, bottom_left: r, bottom_right: r },
+                    });
+                    items.extend(rng.fills(20, (bx - 30.0, by - 30.0, 260, 210)));
+                    items.push(DisplayListItem::PopClip);
+                }
+                4 => {
+                    items.push(DisplayListItem::PushOpacity {
+                        bounds: wrect(bx, by, 200.0, 150.0),
+                        opacity: 0.6,
+                        opacity_key: None,
+                        mix_blend_mode: Default::default(),
+                    });
+                    items.extend(rng.fills(10, inside));
+                    items.push(DisplayListItem::PopOpacity);
+                }
+                5 => {
+                    let (blur, spread) = (rng.coord(6), rng.coord(4));
+                    items.extend(haloed(halo(blur, spread, [255, 255, 255]), rng.fills(10, inside)));
+                }
+                6 => {
+                    let key = 100 + block;
+                    transforms.insert(
+                        key,
+                        azul_core::transform::ComputedTransform3D {
+                            m: turn_scale_move(0.0, 1.0, rng.coord(80) - 40.0, rng.coord(60) - 30.0),
+                        },
+                    );
+                    items.push(DisplayListItem::PushStackingContext { z_index: 0, bounds: wrect(bx, by, 200.0, 150.0) });
+                    items.push(DisplayListItem::PushReferenceFrame {
+                        transform_key: azul_core::resources::TransformKey { id: key },
+                        initial_transform: azul_core::transform::ComputedTransform3D { m: IDENTITY },
+                        bounds: wrect(bx, by, 200.0, 150.0),
+                    });
+                    items.extend(rng.fills(10, inside));
+                    items.push(DisplayListItem::PopReferenceFrame);
+                    items.push(DisplayListItem::PopStackingContext);
+                }
+                7 => {
+                    let id = 500 + block as u64;
+                    scrolls.insert(id, (rng.coord(40), rng.coord(300)));
+                    items.push(DisplayListItem::PushClip { bounds: wrect(bx, by, 200.0, 150.0), border_radius: BorderRadius::default() });
+                    items.push(DisplayListItem::PushScrollFrame {
+                        clip_bounds: wrect(bx, by, 200.0, 150.0),
+                        content_size: LogicalSize { width: 240.0, height: 450.0 },
+                        scroll_id: id,
+                    });
+                    items.extend(rng.fills(20, (bx, by, 240, 450)));
+                    items.push(DisplayListItem::PopScrollFrame);
+                    items.push(DisplayListItem::PopClip);
+                }
+                _ => {
+                    items.push(DisplayListItem::PushImageMaskClip {
+                        bounds: wrect(bx, by, 200.0, 150.0),
+                        mask_image: None,
+                        mask_rect: wrect(bx + 20.0, by + 20.0, 120.0, 90.0),
+                        geometry: None,
+                    });
+                    items.extend(rng.fills(5, inside));
+                    items.push(DisplayListItem::PopImageMaskClip);
+                }
+            }
+        }
+        items.push(DisplayListItem::PushClip { bounds: wrect(100.0, 60.0, 1300.0, 1100.0), border_radius: BorderRadius::default() });
+        items.extend(rng.fills(320, world));
+        items.push(DisplayListItem::PopClip);
+        transforms.insert(900, azul_core::transform::ComputedTransform3D { m: turn_scale_move(0.0, 1.3, 40.0, 30.0) });
+        items.push(DisplayListItem::PushReferenceFrame {
+            transform_key: azul_core::resources::TransformKey { id: 900 },
+            initial_transform: azul_core::transform::ComputedTransform3D { m: IDENTITY },
+            bounds: wrect(0.0, 0.0, 1000.0, 900.0),
+        });
+        items.extend(rng.fills(330, (0.0, 0.0, 940, 860)));
+        items.push(DisplayListItem::PopReferenceFrame);
+        items.push(DisplayListItem::BoxShadow {
+            bounds: wrect(300.0, 200.0, 160.0, 60.0),
+            shadow: StyleBoxShadow { color: ColorU { r: 0, g: 0, b: 0, a: 160 }, ..halo(9.0, 2.0, [0, 0, 0]) },
+            border_radius: BorderRadius::default(),
+        });
+        items.push(fill(20.0, 640.0, 1500.0, 12.0, [10, 10, 10]));
+        items.push(fill(700.0, 0.0, 14.0, 1400.0, [10, 10, 10]));
+        (list(items), scrolls, transforms)
+    }
+
+    /// The damage rects `damage` of `dl` repainted into a white 900 x 700 frame on one thread,
+    /// with the levels' grids or (`grid` false) with every item tested: the frame, the items
+    /// handed to the painter (list and index, in order), and what was counted.
+    fn traced_repaint(
+        dl: &DisplayList,
+        state: &CpuRenderState,
+        damage: &[LogicalRect],
+        dpi: f32,
+        grid: bool,
+    ) -> (AzulPixmap, Vec<(usize, usize)>, crate::cpu_counters::CpuFrameCounters) {
+        let (rr, fm) = (RendererResources::default(), empty_font_manager());
+        let mut pm = AzulPixmap::new(900, 700).unwrap();
+        pm.fill(255, 255, 255, 255);
+        let mut gc = GlyphCache::new();
+        GRID_OFF.with(|c| c.set(!grid));
+        PAINT_TRACE.with(|trace| *trace.borrow_mut() = Some(Vec::new()));
+        crate::cpu_counters::reset();
+        let painted = render_display_list_damaged(dl, &mut pm, dpi, &rr, &fm, &mut gc, state, damage);
+        let counted = crate::cpu_counters::take();
+        let trace = PAINT_TRACE.with(|trace| trace.borrow_mut().take()).unwrap_or_default();
+        GRID_OFF.with(|c| c.set(false));
+        painted.unwrap();
+        (pm, trace, counted)
+    }
+
+    /// A1-07b: a walk that asks the grids of a list's levels hands the painter the items the
+    /// walk that tests every item hands it, in the same order, and paints the same pixels.
+    /// Three lists from fixed sequences (`random_list`), each as a window's own list (culled
+    /// by the damage rect; by the clip of its surface inside the scaled frame) at a scale
+    /// factor of 1 and of 2, and as a view's list (culled by the view's clip), under twelve
+    /// damage rects each: positions and sizes from the sequence, up to 300 x 200 px.
+    /// The lists' top level, the clip around 320 fills and the scaled frame around 330 have a
+    /// grid; over all the rects the grids make the walk visit less than a third of the items.
+    /// Mutations: a rect that is not moved by the walk's offset (`level_cull_rect`) loses
+    /// the content of scroll frames and of the view; a cursor that does not wait for the end
+    /// of a child it entered steps out of a clip without its pop (the clip stack is one short
+    /// and later items are cut); a level's rect taken before the push's own clip, offset or
+    /// shadow is on the stacks loses the items a moved frame brings into the rect.
+    #[test]
+    fn a_walk_through_the_grids_paints_the_items_of_the_walk_that_tests_every_item() {
+        let (mut walked_grid, mut walked_scan, mut painted_items) = (0u64, 0u64, 0usize);
+        for seed in [11u64, 12, 13] {
+            let (dl, scrolls, transforms) = random_list(seed);
+            let grid = crate::cpurender::item_grid::ItemGrid::of(&dl.items);
+            assert!(grid.has_levels(), "seed {seed}: the list is a tree and its top level has a grid");
+            let child = Arc::new(dl);
+            let host = Arc::new(list(vec![
+                fill(0.0, 0.0, 900.0, 700.0, [200, 200, 200]),
+                DisplayListItem::VirtualView {
+                    child_dom_id: azul_core::dom::DomId { inner: 1 },
+                    bounds: wrect(50.0, 40.0, 800.0, 600.0),
+                    clip_rect: wrect(50.0, 40.0, 800.0, 600.0),
+                    content_offset: LogicalPosition { x: 120.5, y: 80.25 },
+                },
+            ]));
+            let state_of = |as_view: bool| {
+                let mut state = CpuRenderState::new(scrolls.clone()).with_paint_threads(1);
+                state.transforms = transforms.clone();
+                if as_view {
+                    state = state
+                        .with_virtual_view_display_lists(
+                            [(azul_core::dom::DomId { inner: 1 }, Arc::clone(&child))].into_iter().collect(),
+                        )
+                        .with_root_display_list(Arc::clone(&host));
+                }
+                state
+            };
+            let mut rng = Lcg(seed * 977);
+            for (as_view, dpi) in [(false, 1.0_f32), (false, 2.0), (true, 1.0)] {
+                let state = state_of(as_view);
+                let painted_list: &DisplayList = if as_view { &host } else { &child };
+                for _ in 0..12 {
+                    let (w, h) = (rng.coord(300) + 4.0, rng.coord(200) + 4.0);
+                    let damage = [rect(rng.coord(800) / dpi, rng.coord(600) / dpi, w / dpi, h / dpi)];
+                    let (with_grid, trace, counted) = traced_repaint(painted_list, &state, &damage, dpi, true);
+                    let (scanned, trace_scan, counted_scan) = traced_repaint(painted_list, &state, &damage, dpi, false);
+                    let what = format!("seed {seed}, view {as_view}, dpi {dpi}, damage {:?}", damage[0]);
+                    assert_eq!(trace, trace_scan, "{what}: the same items in the same order");
+                    assert_eq!(differing_pixels(&with_grid, &scanned), 0, "{what}: the same pixels");
+                    assert!(counted.items_walked <= counted_scan.items_walked, "{what}: never more items visited");
+                    walked_grid += counted.items_walked;
+                    walked_scan += counted_scan.items_walked;
+                    painted_items += trace.len();
+                }
+            }
+        }
+        assert!(painted_items > 1000, "the comparison is not vacuous: {painted_items} items were painted");
+        assert!(walked_grid * 3 < walked_scan, "the grids are asked: {walked_grid} items visited against {walked_scan}");
+    }
+
+    /// A page of `n` rows of 24 px in a scroll frame (id 5): a ground, a clip, the scroll
+    /// frame, and per row a stacking context around two fills.
+    fn page(n: usize) -> DisplayList {
+        let mut items = vec![fill(0.0, 0.0, 900.0, 700.0, [250, 250, 250])];
+        items.push(DisplayListItem::PushClip { bounds: wrect(0.0, 0.0, 900.0, 700.0), border_radius: BorderRadius::default() });
+        items.push(DisplayListItem::PushScrollFrame {
+            clip_bounds: wrect(0.0, 0.0, 900.0, 700.0),
+            content_size: LogicalSize { width: 900.0, height: n as f32 * 24.0 },
+            scroll_id: 5,
+        });
+        for row in 0..n {
+            let y = row as f32 * 24.0;
+            items.push(DisplayListItem::PushStackingContext { z_index: 0, bounds: wrect(10.0, y, 710.0, 20.0) });
+            items.push(fill(10.0, y, 600.0, 20.0, [(row % 200) as u8, 90, 160]));
+            items.push(fill(620.0, y + 2.0, 100.0, 16.0, [30, (row % 150) as u8, 60]));
+            items.push(DisplayListItem::PopStackingContext);
+        }
+        items.push(DisplayListItem::PopScrollFrame);
+        items.push(DisplayListItem::PopClip);
+        list(items)
+    }
+
+    /// A1-07b, the size sweep: under a fixed small damage rect the walk visits the same few
+    /// items of a page of 500 rows and of one of 2,000. The page is scrolled by 300 px; the
+    /// damage (40, 200) 100 x 30 shows the content's y 500 .. 530: the rows 20, 21 and 22
+    /// (y 480, 504, 528; row 20 ends at 500 and touches the rect), of each the first fill
+    /// (x 10 .. 610; the second one, from x 620, is tested and culled). The walk visits the
+    /// ground, the clip's and the scroll frame's push and pop, and the four items of each of
+    /// those rows: 17 items, whatever the page's length. The walk that tests every item
+    /// visits 4 n + 5.
+    /// Mutation: a grid whose cells grow with the list (a fixed number of cells) hands out
+    /// four times the rows for four times the page.
+    #[test]
+    fn four_times_the_rows_do_not_cost_a_small_repaint_more() {
+        let damage = [rect(40.0, 200.0, 100.0, 30.0)];
+        let mut state = CpuRenderState::new(ScrollOffsetMap::new()).with_paint_threads(1);
+        state.scroll_offsets.insert(5, (0.0, 300.0));
+        let mut walked = Vec::new();
+        for n in [500usize, 2000] {
+            let dl = page(n);
+            let (with_grid, trace, counted) = traced_repaint(&dl, &state, &damage, 1.0, true);
+            let (scanned, trace_scan, counted_scan) = traced_repaint(&dl, &state, &damage, 1.0, false);
+            assert_eq!(trace, trace_scan, "n = {n}");
+            assert_eq!(differing_pixels(&with_grid, &scanned), 0, "n = {n}");
+            // The ground and the first fill of the rows 20 .. 22 (a row is four items from
+            // index 3 on: a push, two fills, a pop).
+            let wanted: Vec<usize> = vec![0, 3 + 20 * 4 + 1, 3 + 21 * 4 + 1, 3 + 22 * 4 + 1];
+            assert_eq!(trace.iter().map(|(_, index)| *index).collect::<Vec<_>>(), wanted, "n = {n}");
+            assert_eq!(counted_scan.items_walked, 4 * n as u64 + 5, "n = {n}: every item is tested");
+            assert_eq!(counted.items_walked, 17, "n = {n}: the three rows and what is around them");
+            assert_ne!(px(&with_grid, 100, 215), [255, 255, 255, 255], "n = {n}: the rows are painted");
+            walked.push(counted.items_walked);
+        }
+        assert!(walked[1] * 2 < walked[0] * 3, "four times the rows, under 1.5 times the items: {walked:?}");
+    }
+
+    /// A1-07b: the bands of a repaint ask the grids with their own rects, and the frame is the
+    /// one a single pass paints while testing every item. The whole 900 x 700 frame of a
+    /// `random_list` on four threads (three bands of 234 rows: each asks for a third of the
+    /// rows) against one pass without grids.
+    /// Mutation: a cursor made from the frame's rect instead of the band's paints the same
+    /// pixels but visits every child in every band (the count); a grid that is not shared
+    /// read-only between the band threads does not compile.
+    #[test]
+    fn bands_that_ask_the_grids_paint_the_frame_of_one_pass_that_tests_every_item() {
+        let (rr, fm) = (RendererResources::default(), empty_font_manager());
+        let (dl, scrolls, transforms) = random_list(21);
+        let whole = [rect(0.0, 0.0, 900.0, 700.0)];
+        let paint = |threads: usize, grid: bool| {
+            let mut state = CpuRenderState::new(scrolls.clone()).with_paint_threads(threads);
+            state.transforms = transforms.clone();
+            let mut pm = AzulPixmap::new(900, 700).unwrap();
+            pm.fill(255, 255, 255, 255);
+            let mut gc = GlyphCache::new();
+            GRID_OFF.with(|c| c.set(!grid));
+            crate::cpu_counters::reset();
+            let painted = render_display_list_damaged(&dl, &mut pm, 1.0, &rr, &fm, &mut gc, &state, &whole);
+            GRID_OFF.with(|c| c.set(false));
+            painted.unwrap();
+            (pm, crate::cpu_counters::take())
+        };
+        let (banded, counted) = paint(4, true);
+        let (banded_scan, counted_banded_scan) = paint(4, false);
+        let (single, counted_single) = paint(1, false);
+        assert_eq!((counted.bands, counted_single.bands), (3, 0));
+        assert_eq!(differing_pixels(&banded, &single), 0, "bands with grids against one pass without");
+        assert_eq!(differing_pixels(&banded_scan, &single), 0, "premise: the bands are the pass");
+        assert!(counted.items_walked < counted_banded_scan.items_walked, "a band visits what its rows can show: {counted:?}");
+        let coloured = single.data().chunks_exact(4).filter(|p| p[..3] != [236, 233, 225]).count();
+        assert!(coloured > 100_000, "the frame shows the list ({coloured} px)");
     }
 }

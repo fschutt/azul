@@ -1690,6 +1690,45 @@ pub fn agg_fill_gradient_clipped<G: GradientFunction>(
     render_scanlines_aa(&mut ras, &mut sl, &mut rb, &mut alloc, &mut sg);
 }
 
+/// Fill `path` (by `rule`) with the colour a span generator gives each pixel, under the
+/// optional pixel clip: [`agg_fill_gradient_clipped`] for any generator (a border whose sides
+/// differ, `raster::BorderSideSpans`).
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded pixel casts
+pub(crate) fn agg_fill_spans_clipped<SG>(
+    pixmap: &mut AzulPixmap,
+    path: &mut dyn VertexSource,
+    rule: FillingRule,
+    spans: &mut SG,
+    clip: Option<AzRect>,
+) where
+    SG: agg_rust::renderer_scanline::SpanGenerator<Color = Rgba8>,
+{
+    let w = pixmap.width;
+    let h = pixmap.height;
+    let stride = (w * 4) as i32;
+    let mut ra = unsafe { RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), w, h, stride) };
+    let mut pf = PixfmtRgba32::new(&mut ra);
+    let mut rb = RendererBase::new(pf);
+    if let Some(c) = clip {
+        // Degenerate clip = nothing visible (see `agg_fill_path_clipped`).
+        if c.width <= 0.0 || c.height <= 0.0 {
+            return;
+        }
+        rb.clip_box_i(
+            c.x as i32,
+            c.y as i32,
+            (c.x + c.width) as i32 - 1,
+            (c.y + c.height) as i32 - 1,
+        );
+    }
+    let mut ras = RasterizerScanlineAa::new();
+    ras.filling_rule(rule);
+    add_path_for_target(&mut ras, path, w, h, clip);
+    let mut sl = ScanlineU8::new();
+    let mut alloc = SpanAllocator::<Rgba8>::new();
+    render_scanlines_aa(&mut ras, &mut sl, &mut rb, &mut alloc, spans);
+}
+
 // ============================================================================
 // Gradient helpers
 // ============================================================================
@@ -1966,6 +2005,13 @@ pub fn snapshot_region(pixmap: &AzulPixmap, x: i32, y: i32, w: u32, h: u32) -> V
 // bounded image-dimension / non-negative-loop-index coordinate casts
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
 pub fn write_region(dst: &mut AzulPixmap, src: &[u8], w: u32, h: u32, x: i32, y: i32) {
+    // A side that does not fit an `i32` writes nothing, as the per-pixel loops this replaced
+    // did (their `0..w as i32` was an empty range then): no source is 2^31 px wide, and the
+    // row copies below would take the first pixels of `src` for a row of such a region
+    // (`write_region_u32_max_dimensions_are_a_noop`).
+    if i32::try_from(w).is_err() || i32::try_from(h).is_err() {
+        return;
+    }
     // As `snapshot_region`: the rows and columns that land, a copy per row.
     let Some((cols, rows)) = landing(w, x, dst.width as i32).zip(landing(h, y, dst.height as i32)) else {
         return;

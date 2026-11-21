@@ -30,7 +30,8 @@ pub use shape::*;
 pub use svg::*;
 pub use text_halo::{
     begin_cpu_halo_frame, halo_scan_changed_pictures, halos_drawn, release_cpu_halos,
-    text_halo_bounds_in_this_thread, text_halo_slots_in_this_thread, text_halo_stats, text_halos,
-    text_halos_of_held_list, text_halos_of_list, within_halo_budget, TextHalo, TextHaloStats,
+    release_text_halos, text_halo_bounds_in_this_thread, text_halo_slots_in_this_thread,
+    text_halo_stats, text_halos, text_halos_in_use, text_halos_of_held_list, text_halos_of_list,
+    within_halo_budget, TextHalo, TextHaloStats, TextHalosReleased,
 };
 pub use text_raster::*;
