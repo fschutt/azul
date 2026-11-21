@@ -3359,6 +3359,59 @@ fn connection_drag_writes(graph: &NodeGraph, rect: &LogicalRect) -> Vec<CssPrope
     )]
 }
 
+/// What a pan of the graph writes on its node boxes: for each of `boxes` - a
+/// node box and the dataset it carries - whose dataset names a node of
+/// `graph`, the `transform` that puts the box where the node stands under the
+/// graph's offset. A box without a dataset, with a dataset of another type or
+/// of a node the graph does not have is passed over; the boxes after it are
+/// written like the ones before it.
+#[allow(clippy::float_cmp)] // intentional exact compare: at scale 1 the transform carries no scale
+fn pan_node_writes<N>(
+    graph: &NodeGraph,
+    boxes: Vec<(N, Option<RefAny>)>,
+) -> Vec<(N, CssProperty)> {
+    let mut writes = Vec::with_capacity(boxes.len());
+    for (node_box, dataset) in boxes {
+        let Some(mut dataset) = dataset else {
+            continue;
+        };
+        let Some(node_id) = dataset
+            .downcast_ref::<NodeLocalDataset>()
+            .map(|node| node.node_id)
+        else {
+            continue;
+        };
+        let Some(position) = graph
+            .nodes
+            .iter()
+            .find(|i| i.node_id == node_id)
+            .map(|i| i.node.position)
+        else {
+            continue;
+        };
+        let translate = StyleTransformTranslate2D {
+            x: PixelValue::px(position.x + graph.offset.x),
+            y: PixelValue::px(position.y + graph.offset.y),
+        };
+        writes.push((
+            node_box,
+            CssProperty::transform(
+                if graph.scale_factor == 1.0 {
+                    vec![StyleTransform::Translate(translate)]
+                } else {
+                    vec![
+                        StyleTransform::Translate(translate),
+                        StyleTransform::ScaleX(PercentageValue::new(graph.scale_factor * 100.0)),
+                        StyleTransform::ScaleY(PercentageValue::new(graph.scale_factor * 100.0)),
+                    ]
+                }
+                .into(),
+            ),
+        ));
+    }
+    writes
+}
+
 extern "C" fn nodegraph_set_active_node(mut refany: RefAny, _info: CallbackInfo) -> Update {
     if let Some(mut refany) = refany.downcast_mut::<NodeLocalDataset>() {
         let node_id = refany.node_id;
@@ -3549,66 +3602,21 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                 return Update::DoNothing;
             };
 
-            let Some(mut node) = info.get_first_child(node_container) else {
-                return Update::DoNothing;
-            };
+            // The node boxes - the first child of each child of the container -
+            // with their datasets. A step takes the next sibling before it
+            // looks at the node it stands on, so the walk ends with the
+            // siblings whatever a node turns out to be.
+            let mut node_boxes = Vec::new();
+            let mut next_node = info.get_first_child(node_container);
+            while let Some(node) = next_node {
+                next_node = info.get_next_sibling(node);
+                if let Some(node_box) = info.get_first_child(node) {
+                    node_boxes.push((node_box, info.get_dataset(node_box)));
+                }
+            }
 
-            loop {
-                let Some(node_first_child) = info.get_first_child(node) else {
-                    return Update::DoNothing;
-                };
-
-                let Some(mut node_local_dataset) = info.get_dataset(node_first_child) else {
-                    return Update::DoNothing;
-                };
-
-                let Some(node_graph_node_id) =
-                    node_local_dataset.downcast_ref::<NodeLocalDataset>()
-                else {
-                    continue;
-                };
-
-                let node_graph_node_id = node_graph_node_id.node_id;
-
-                let node_position = match refany
-                    .node_graph
-                    .nodes
-                    .iter()
-                    .find(|i| i.node_id == node_graph_node_id)
-                {
-                    Some(s) => s.node.position,
-                    None => continue,
-                };
-
-                let node_transform = StyleTransformTranslate2D {
-                    x: PixelValue::px(node_position.x + refany.node_graph.offset.x),
-                    y: PixelValue::px(node_position.y + refany.node_graph.offset.y),
-                };
-
-                info.set_css_property(
-                    node_first_child,
-                    CssProperty::transform(
-                        if refany.node_graph.scale_factor == 1.0 {
-                            vec![StyleTransform::Translate(node_transform)]
-                        } else {
-                            vec![
-                                StyleTransform::Translate(node_transform),
-                                StyleTransform::ScaleX(PercentageValue::new(
-                                    refany.node_graph.scale_factor * 100.0,
-                                )),
-                                StyleTransform::ScaleY(PercentageValue::new(
-                                    refany.node_graph.scale_factor * 100.0,
-                                )),
-                            ]
-                        }
-                        .into(),
-                    ),
-                );
-
-                node = match info.get_next_sibling(node) {
-                    Some(s) => s,
-                    None => break,
-                };
+            for (node_box, transform) in pan_node_writes(&refany.node_graph, node_boxes) {
+                info.set_css_property(node_box, transform);
             }
 
             let connections_marker: AzString =
@@ -7460,6 +7468,55 @@ mod audit_a3_solver_tests {
                 })]
                 .into()
             )]
+        );
+    }
+
+    /// The dataset a node box carries for the graph node `id`.
+    fn box_of(id: u64) -> Option<RefAny> {
+        Some(RefAny::new(NodeLocalDataset {
+            node_id: NodeGraphNodeId { inner: id },
+            backref: RefAny::new(0_u8),
+        }))
+    }
+
+    /// A3-solver-35d. The pan's walk over the node boxes was a `loop` that
+    /// took the next sibling at its end and `continue`d from two places
+    /// before it - a box whose dataset is no node's, a node the graph does
+    /// not have: the walk stood on that box for good, in the callback of
+    /// every mouse move. The boxes are listed (each step takes the next
+    /// sibling first) and `pan_node_writes` passes over what it cannot place.
+    ///
+    /// Five boxes: node 1, a dataset of another type, no dataset, a node the
+    /// graph does not have, node 2. Two are written, the first and the last.
+    ///
+    /// Mutation: a walk that ends at the first box it cannot place (`break`
+    /// for `continue` in `pan_node_writes`) writes 1.
+    #[test]
+    fn a_pan_passes_over_the_boxes_it_cannot_place_and_writes_the_rest() {
+        let g = panned(&graph_of(&[(10.0, 20.0), (300.0, 40.0)]), 5.0, 7.0);
+        let boxes = vec![
+            (0_usize, box_of(1)),
+            (1, Some(RefAny::new(0_u32))),
+            (2, None),
+            (3, box_of(99)),
+            (4, box_of(2)),
+        ];
+        let writes = pan_node_writes(&g, boxes);
+        assert_eq!(
+            writes.iter().map(|w| w.0).collect::<Vec<_>>(),
+            vec![0, 4],
+            "the boxes of the graph's two nodes, and no other"
+        );
+        // node 2 at (300, 40) under the offset (5, 7)
+        assert_eq!(
+            writes[1].1,
+            CssProperty::transform(
+                vec![StyleTransform::Translate(StyleTransformTranslate2D {
+                    x: PixelValue::px(305.0),
+                    y: PixelValue::px(47.0),
+                })]
+                .into()
+            )
         );
     }
 }
