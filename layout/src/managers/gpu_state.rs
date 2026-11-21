@@ -109,6 +109,26 @@ pub struct GpuValueSource {
     )>,
 }
 
+/// A view's zoom frame as the renderer holds it (audit A4-29): the one
+/// reference frame of a view's display list that the renderer's host declared
+/// a 2D scale / translation and opened above a picture cache slice of its own,
+/// so that a step of the zoom scales the tiles the renderer has. Written and
+/// read by the renderer's host only ([`GpuStateManager::zoom_frames`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ZoomFrameState {
+    /// The id of the frame's transform key.
+    pub key: usize,
+    /// The node the frame is of: its bound transform is the zoom.
+    pub node: NodeId,
+    /// The frame's scale when the host last looked at it.
+    pub scale: f32,
+    /// Whether the renderer was told that the frame is being zoomed (it then
+    /// keeps the tiles below the frame at the scale they were drawn at).
+    pub zooming: bool,
+    /// When the scale last changed, in microseconds of the host's clock.
+    pub changed_at_us: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct GpuStateManager {
     /// GPU value caches indexed by DOM ID
@@ -201,6 +221,18 @@ pub struct GpuStateManager {
     /// the lists name leaves it empty. Set by the host's scan, cleared by the
     /// host for each DOM whose list it sends.
     pub stale_display_lists: alloc::collections::BTreeSet<DomId>,
+    /// Per view: the zoom frame its display list was last sent with
+    /// ([`ZoomFrameState`], audit A4-29); a DOM whose list has none is absent.
+    /// The host declared that frame a 2D scale / translation to the renderer,
+    /// which is a promise about every value the frame gets while the renderer
+    /// holds the list: the host checks it before every transaction and sends
+    /// the list again when it no longer holds. Written by the host only.
+    pub zoom_frames: BTreeMap<DomId, ZoomFrameState>,
+    /// Whether a frame of [`Self::zoom_frames`] is being zoomed: the renderer
+    /// was told so and has to be told when the zoom has come to rest, so the
+    /// platform loop keeps asking for frames until then ([`Self::frames_owed`]).
+    /// Kept by the host with every change of the map.
+    pub zoom_gesture_running: bool,
     /// GPU events produced during layout (CSS transform / opacity synchronization,
     /// scrollbar transform / opacity updates) that have not yet been pushed to
     /// the renderer. Drained by the platform render path when a transaction is
@@ -459,7 +491,7 @@ impl GpuStateManager {
     /// true.
     #[must_use]
     pub const fn frames_owed(&self) -> bool {
-        self.scrollbar_fade_active || self.halos_owed
+        self.scrollbar_fade_active || self.halos_owed || self.zoom_gesture_running
     }
 
     /// Creates a new GPU state manager with specified fade timing.
@@ -482,6 +514,8 @@ impl GpuStateManager {
             submitted_translation_env: 0,
             text_halo_digests: BTreeMap::new(),
             stale_display_lists: alloc::collections::BTreeSet::new(),
+            zoom_frames: BTreeMap::new(),
+            zoom_gesture_running: false,
             pending_changes: GpuEventChanges::empty(),
             scroll_driven: BTreeMap::new(),
             scroll_boxes_looked_at: 0,
@@ -1087,6 +1121,21 @@ impl crate::managers::NodeIdRemap for GpuStateManager {
         // rebuild replaces: the layout pass that follows a rebuild walks
         // the new tree, and a frame before it walks rather than trust it.
         self.scroll_driven.remove(&dom);
+        // The view's zoom frame names its node too (audit A4-29): it follows
+        // the node, and goes with it (the list that held it is built again).
+        if let Some(node) = self.zoom_frames.get(&dom).map(|zoom| zoom.node) {
+            match map.resolve(node) {
+                Some(now) => {
+                    if let Some(zoom) = self.zoom_frames.get_mut(&dom) {
+                        zoom.node = now;
+                    }
+                }
+                None => {
+                    let _ = self.zoom_frames.remove(&dom);
+                    self.zoom_gesture_running = self.zoom_frames.values().any(|zoom| zoom.zooming);
+                }
+            }
+        }
         let Some(cache) = self.caches.get_mut(&dom) else {
             return;
         };
