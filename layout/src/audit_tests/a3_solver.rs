@@ -222,7 +222,7 @@ fn blocks_behind_out_of_flow_siblings_are_stacked_from_the_top() {
 /// scrollbar merged in) for every node of every pass before it found that the node has no
 /// scrollbar CSS. It is made once per context and kept.
 ///
-/// Mutation: building it on every ask (no `SCROLLBAR_BASE`) makes `builds` equal `asks`.
+/// Mutation: building it on every ask (no `ScrollbarBaseMemo`) makes `builds` equal `asks`.
 #[test]
 fn the_scrollbar_style_every_node_starts_from_is_made_once_per_context() {
     use crate::solver3::getters::{SCROLLBAR_BASE_BUILDS, SCROLLBAR_STYLE_ASKS};
