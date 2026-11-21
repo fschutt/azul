@@ -1202,52 +1202,22 @@ impl ReferenceFrameGroup {
             return Self::Translated;
         }
 
-        // The surface covers what the frame paints, not only its box: a
-        // shadow or an overflowing child turns with the frame.
-        let x = (extent.origin.x * dpi_factor).floor() as i32;
-        let y = (extent.origin.y * dpi_factor).floor() as i32;
-        let x1 = ((extent.origin.x + extent.size.width) * dpi_factor).ceil() as i32;
-        let y1 = ((extent.origin.y + extent.size.height) * dpi_factor).ceil() as i32;
-        let width = x1.saturating_sub(x).clamp(0, MAX_TRANSFORM_GROUP_SIDE) as u32;
-        let height = y1.saturating_sub(y).clamp(0, MAX_TRANSFORM_GROUP_SIDE) as u32;
+        let GroupGeometry {
+            x,
+            y,
+            width,
+            height,
+            matrix,
+            outer_clip,
+        } = GroupGeometry::of(
+            m,
+            bounds,
+            extent,
+            dpi_factor,
+            clip_stack.last().copied().flatten(),
+        );
         crate::cpu_counters::count(crate::cpu_counters::Counter::GroupsOpened, 1);
         crate::cpu_counters::count(crate::cpu_counters::Counter::GroupPx, u64::from(width) * u64::from(height));
-
-        let outer_clip = clip_stack.last().copied().flatten().map(|c| {
-            (
-                c.x.round() as i32,
-                c.y.round() as i32,
-                (c.x + c.width).round() as i32,
-                (c.y + c.height).round() as i32,
-            )
-        });
-
-        // Group pixel s -> pixmap: p = (x, y) + s, then about the frame's
-        // origin o: o + M (p - o), M's translation in logical units scaled
-        // to device pixels (the compositor's `layer_h`).
-        let dpi = f64::from(dpi_factor);
-        let (ox, oy) = (
-            f64::from(bounds.origin.x) * dpi,
-            f64::from(bounds.origin.y) * dpi,
-        );
-        let layer_h: Mat3 = [
-            f64::from(m[0][0]),
-            f64::from(m[1][0]),
-            f64::from(m[3][0]) * dpi,
-            f64::from(m[0][1]),
-            f64::from(m[1][1]),
-            f64::from(m[3][1]) * dpi,
-            f64::from(m[0][3]) / dpi,
-            f64::from(m[1][3]) / dpi,
-            f64::from(m[3][3]),
-        ];
-        let matrix = mat3_mul(
-            &mat3_translation(ox, oy),
-            &mat3_mul(
-                &layer_h,
-                &mat3_translation(f64::from(x) - ox, f64::from(y) - oy),
-            ),
-        );
 
         // The group's surface: its pixel (0, 0) is the box's device pixel
         // (x, y), so the walk paints at its position less the box's origin.
@@ -1338,6 +1308,92 @@ impl ReferenceFrameGroup {
 /// (a degenerate layout must not become a giant allocation).
 const MAX_TRANSFORM_GROUP_SIDE: i32 = 16_384;
 
+/// Where the surface of an isolated group lies and how it lands: everything
+/// [`ReferenceFrameGroup::begin`] derives from the frame's matrix, box and
+/// extent before it opens anything. Pure, so the walk can ask it for a frame
+/// it is about to open (is a retained surface of this geometry kept?) and the
+/// push that follows opens exactly that.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct GroupGeometry {
+    /// The device pixel of the surface below that the group's pixel (0, 0) is.
+    pub(crate) x: i32,
+    pub(crate) y: i32,
+    /// The surface's size in device pixels.
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    /// Group pixel -> pixel of the surface below, a column-vector homography (`Mat3`).
+    pub(crate) matrix: Mat3,
+    /// The clip open around the push, device pixels of the surface below, half-open.
+    pub(crate) outer_clip: Option<(i32, i32, i32, i32)>,
+}
+
+impl GroupGeometry {
+    /// The geometry of the group of the frame whose live matrix is `m`, around content laid
+    /// out in `bounds` and painting `extent` (both device-logical: already moved by the scroll
+    /// frames around the push), under `clip` (the innermost clip of the walk, device px).
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded pixel box
+    pub(crate) fn of(
+        m: &[[f32; 4]; 4],
+        bounds: &LogicalRect,
+        extent: &LogicalRect,
+        dpi_factor: f32,
+        clip: Option<AzRect>,
+    ) -> Self {
+        // The surface covers what the frame paints, not only its box: a
+        // shadow or an overflowing child turns with the frame.
+        let x = (extent.origin.x * dpi_factor).floor() as i32;
+        let y = (extent.origin.y * dpi_factor).floor() as i32;
+        let x1 = ((extent.origin.x + extent.size.width) * dpi_factor).ceil() as i32;
+        let y1 = ((extent.origin.y + extent.size.height) * dpi_factor).ceil() as i32;
+        let width = x1.saturating_sub(x).clamp(0, MAX_TRANSFORM_GROUP_SIDE) as u32;
+        let height = y1.saturating_sub(y).clamp(0, MAX_TRANSFORM_GROUP_SIDE) as u32;
+
+        let outer_clip = clip.map(|c| {
+            (
+                c.x.round() as i32,
+                c.y.round() as i32,
+                (c.x + c.width).round() as i32,
+                (c.y + c.height).round() as i32,
+            )
+        });
+
+        // Group pixel s -> pixmap: p = (x, y) + s, then about the frame's
+        // origin o: o + M (p - o), M's translation in logical units scaled
+        // to device pixels (the compositor's `layer_h`).
+        let dpi = f64::from(dpi_factor);
+        let (ox, oy) = (
+            f64::from(bounds.origin.x) * dpi,
+            f64::from(bounds.origin.y) * dpi,
+        );
+        let layer_h: Mat3 = [
+            f64::from(m[0][0]),
+            f64::from(m[1][0]),
+            f64::from(m[3][0]) * dpi,
+            f64::from(m[0][1]),
+            f64::from(m[1][1]),
+            f64::from(m[3][1]) * dpi,
+            f64::from(m[0][3]) / dpi,
+            f64::from(m[1][3]) / dpi,
+            f64::from(m[3][3]),
+        ];
+        let matrix = mat3_mul(
+            &mat3_translation(ox, oy),
+            &mat3_mul(
+                &layer_h,
+                &mat3_translation(f64::from(x) - ox, f64::from(y) - oy),
+            ),
+        );
+        Self {
+            x,
+            y,
+            width,
+            height,
+            matrix,
+            outer_clip,
+        }
+    }
+}
+
 impl TransformGroup {
     /// Composites the group's `surface` through its matrix into `pixmap`.
     fn finish(&self, surface: &AzulPixmap, pixmap: &mut AzulPixmap) {
@@ -1387,12 +1443,25 @@ fn walk_culls_by_clip() -> bool {
 /// `outer` is the clip open around the push in that surface's pixels and `below` its size. The
 /// box is empty when nothing lands. `None` when the matrix has a perspective part or cannot be
 /// inverted: the whole surface is kept.
-#[allow(clippy::cast_possible_truncation, clippy::many_single_char_names)]
 fn group_visible_part(
     matrix: &Mat3,
     outer: Option<(i32, i32, i32, i32)>,
     below: (u32, u32),
     surface: (u32, u32),
+) -> Option<(i32, i32, i32, i32)> {
+    group_part_within(matrix, outer, below, surface, GROUP_VISIBLE_MARGIN)
+}
+
+/// [`group_visible_part`] widened by `margin` group pixels instead of [`GROUP_VISIBLE_MARGIN`]:
+/// with the two pixels of the composite's bilinear taps it is the part of a kept surface a
+/// composite READS (`retained`), with the full margin the part a walk PAINTS.
+#[allow(clippy::cast_possible_truncation, clippy::many_single_char_names)]
+pub(crate) fn group_part_within(
+    matrix: &Mat3,
+    outer: Option<(i32, i32, i32, i32)>,
+    below: (u32, u32),
+    surface: (u32, u32),
+    margin: i32,
 ) -> Option<(i32, i32, i32, i32)> {
     if !walk_culls_by_clip() || !mat3_is_affine(matrix) {
         return None;
@@ -1427,7 +1496,7 @@ fn group_visible_part(
     if ![x0, y0, x1, y1].iter().all(|v| v.is_finite()) {
         return None;
     }
-    let margin = f64::from(GROUP_VISIBLE_MARGIN);
+    let margin = f64::from(margin);
     let clamp = |v: f64, hi: u32| (v.clamp(-1.0e9, 1.0e9) as i32).clamp(0, hi as i32);
     Some((
         clamp((x0 - margin).floor(), surface.0),
@@ -2054,6 +2123,14 @@ pub struct CpuRenderState {
     pub clear_color: [u8; 4],
     pub virtual_view_display_lists:
         std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
+    /// The most threads a repaint may paint its bands on (`bands`): `0` is the default
+    /// (`bands::max_threads`), `1` paints every damage rect on the calling thread as one pass.
+    /// The picture does not depend on it.
+    pub paint_threads: usize,
+    /// The group surfaces kept from frame to frame (`retained`): the picture of a turned or
+    /// scaled reference frame whose content did not change is composited again, not painted
+    /// again. `None` (a one-off render, a test of the walk) keeps nothing.
+    pub retained: Option<std::sync::Arc<RetainedFrames>>,
 }
 
 impl CpuRenderState {
@@ -2067,7 +2144,23 @@ impl CpuRenderState {
             system_style: None,
             clear_color: [255, 255, 255, 255],
             virtual_view_display_lists: std::collections::BTreeMap::new(),
+            paint_threads: 0,
+            retained: None,
         }
+    }
+
+    /// Paint a repaint's bands on at most `threads` threads (see the field).
+    #[must_use]
+    pub const fn with_paint_threads(mut self, threads: usize) -> Self {
+        self.paint_threads = threads;
+        self
+    }
+
+    /// Keep group surfaces from frame to frame in `retained` (see the field).
+    #[must_use]
+    pub fn with_retained_frames(mut self, retained: std::sync::Arc<RetainedFrames>) -> Self {
+        self.retained = Some(retained);
+        self
     }
 
     /// Clear damage rects to `color` (see the field).
@@ -2126,6 +2219,8 @@ impl CpuRenderState {
             system_style: None,
             clear_color: [255, 255, 255, 255],
             virtual_view_display_lists: std::collections::BTreeMap::new(),
+            paint_threads: 0,
+            retained: None,
         }
     }
 }
@@ -2294,48 +2389,172 @@ fn render_display_list_with_state(
     let mut text_shadow_stack: Vec<StyleBoxShadow> = Vec::new();
 
     let _p_loop = crate::probe::Probe::span("raster_loop");
-    for (item_idx, item) in display_list.items.iter().enumerate() {
+    walk_items(
+        display_list,
+        WalkCull::InGroups,
+        true,
+        pixmap,
+        dpi_factor,
+        renderer_resources,
+        font_manager,
+        glyph_cache,
+        &mut transform_stack,
+        &mut clip_stack,
+        &mut real_clip_stack,
+        &mut mask_stack,
+        &mut surfaces,
+        &mut scroll_offset_stack,
+        &mut text_shadow_stack,
+        render_state,
+    )?;
+
+    Ok(())
+}
+
+/// How a walk over a list culls the items it steps over. State items (a push, a pop) are never
+/// culled: one skipped under its partner corrupts the stacks.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum WalkCull {
+    /// A list painted in full: an item is culled only inside an isolated frame, by the clip of
+    /// the frame's surface ([`outside_active_clip`]).
+    InGroups,
+    /// One damage rect (or a band of one) of a list: outside isolated frames an item is also
+    /// culled by the rect, given in the logical px the items are stored in.
+    Damage(LogicalRect),
+    /// A view's child list: every item is culled by the clip it paints under (the list is a
+    /// map or a page far larger than the box that shows it).
+    ActiveClip,
+}
+
+/// ONE walk over the items of `list`, in list order (painter's order): the loop of the full
+/// repaint, of each damage rect, of each band of one, and of a view's child list. They differ
+/// only in how they cull ([`WalkCull`]) and in whether the list's colour bindings are read
+/// (`bind_colors`).
+///
+/// Everything the walk shares with the other bands of a frame is behind `&` (`list`, the
+/// resources, the fonts, `render_state`); everything behind `&mut` is this walk's alone: the
+/// pixmap (a band's own rows), the stacks, the surfaces of its open groups, its glyph cache.
+/// See `bands` for how a frame is cut into walks.
+///
+/// Returns how many items it handed to [`render_single_item`] and how many it culled.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn walk_items(
+    list: &DisplayList,
+    cull: WalkCull,
+    bind_colors: bool,
+    pixmap: &mut AzulPixmap,
+    dpi_factor: f32,
+    renderer_resources: &RendererResources,
+    font_manager: &FontManager<FontRef>,
+    glyph_cache: &mut GlyphCache,
+    transform_stack: &mut Vec<TransAffine>,
+    clip_stack: &mut Vec<Option<AzRect>>,
+    real_clip_stack: &mut Vec<Option<AzRect>>,
+    mask_stack: &mut Vec<MaskEntry>,
+    surfaces: &mut Vec<AzulPixmap>,
+    scroll_offset_stack: &mut Vec<(f32, f32)>,
+    text_shadow_stack: &mut Vec<StyleBoxShadow>,
+    render_state: &CpuRenderState,
+) -> Result<(usize, usize), String> {
+    let (mut painted, mut skipped) = (0usize, 0usize);
+    let mut next = 0usize;
+    while next < list.items.len() {
+        let item_idx = next;
+        next += 1;
+        let item = &list.items[item_idx];
         crate::cpu_counters::count(crate::cpu_counters::Counter::ItemsWalked, 1);
-        if inside_isolated_transform(&mask_stack)
+        // Inside a turned or scaled frame the clip the items paint under is the frame's
+        // surface's own (the damage, or the view's box, mapped back through the frame), not a
+        // rect of the pixels below: there the walk culls by that clip alone.
+        let in_group = inside_isolated_transform(mask_stack);
+        let by_clip = in_group || matches!(cull, WalkCull::ActiveClip);
+        if by_clip
             && outside_active_clip(
                 item,
-                &text_shadow_stack,
+                text_shadow_stack,
                 *scroll_offset_stack.last().unwrap_or(&(0.0, 0.0)),
                 clip_stack.last().copied().flatten(),
-                &mask_stack,
+                mask_stack,
                 dpi_factor,
             )
         {
+            skipped += 1;
             continue;
         }
+        if let WalkCull::Damage(damage) = &cull {
+            // Always process state-management items (Push/Pop) regardless of bounds,
+            // because skipping a Push while processing its matching Pop corrupts stacks.
+            if !item.is_state_management() && !in_group {
+                // INK bounds for the cull, not box bounds: `Text.bounds()`
+                // returns the IFC owner's WHOLE content box, so a 3px scroll
+                // strip touching one paragraph admitted EVERY line of it (and
+                // for a block that owns its own scroll, every text item in
+                // the document) - each admitted run then paid the full LCD
+                // accumulate+sweep even for glyphs nowhere near the strip.
+                // `visual_bounds()` is the tight per-line ink box (padded).
+                // EXCEPTION: with a text-shadow in effect the ink extends by
+                // offset+blur that visual_bounds does not model - keep the
+                // coarse box there or shadows get clipped at strip edges.
+                let cull_bounds = if text_shadow_stack.is_empty() {
+                    item.visual_bounds().or_else(|| item.bounds())
+                } else {
+                    item.bounds()
+                };
+                if let Some(item_bounds) = cull_bounds {
+                    // Items inside a scroll frame are stored at CONTENT coords but
+                    // RENDER at `pos - scroll_offset`. The damage rects are in viewport
+                    // space, so we must apply the current scroll offset to the bounds
+                    // before the intersection test — otherwise scrolled content is
+                    // filtered against the wrong position and rows that actually fall
+                    // in a damage strip get dropped (visible as a missing band).
+                    let (sdx, sdy) = *scroll_offset_stack.last().unwrap_or(&(0.0, 0.0));
+                    let test_bounds = if sdx == 0.0 && sdy == 0.0 {
+                        item_bounds
+                    } else {
+                        LogicalRect {
+                            origin: LogicalPosition {
+                                x: item_bounds.origin.x - sdx,
+                                y: item_bounds.origin.y - sdy,
+                            },
+                            size: item_bounds.size,
+                        }
+                    };
+                    if !rects_overlap_or_adjacent(&test_bounds, damage, 0.0) {
+                        skipped += 1;
+                        continue;
+                    }
+                }
+            }
+        }
+
+        painted += 1;
         let _p_item = crate::probe::Probe::span(probe_label_for_item(item));
-        let bound_item = item_with_bound_color(item, display_list.color_binding(item_idx), render_state);
+        let bound_item = if bind_colors {
+            item_with_bound_color(item, list.color_binding(item_idx), render_state)
+        } else {
+            alloc::borrow::Cow::Borrowed(item)
+        };
         let item = &*bound_item;
         render_single_item(
             item,
-            display_list
-                .uniform_text_bgs
-                .get(item_idx)
-                .copied()
-                .flatten(),
-            reference_frame_extent(display_list, item_idx),
+            list.uniform_text_bgs.get(item_idx).copied().flatten(),
+            reference_frame_extent(list, item_idx),
             pixmap,
             dpi_factor,
             renderer_resources,
             font_manager,
             glyph_cache,
-            &mut transform_stack,
-            &mut clip_stack,
-            &mut real_clip_stack,
-            &mut mask_stack,
-            &mut surfaces,
-            &mut scroll_offset_stack,
-            &mut text_shadow_stack,
+            transform_stack,
+            clip_stack,
+            real_clip_stack,
+            mask_stack,
+            surfaces,
+            scroll_offset_stack,
+            text_shadow_stack,
             render_state,
         )?;
     }
-
-    Ok(())
+    Ok((painted, skipped))
 }
 
 /// Compact item-kind label for [`crate::probe`]. Names must be `'static`
@@ -2519,16 +2738,16 @@ fn damage_logging_enabled() -> bool {
 
 /// A damage rect snapped to physical pixels, carried both ways so the clear,
 /// the clip and the item filter all read the same box.
-struct SnappedRect {
-    x0: i32,
-    y0: i32,
-    x1: i32,
-    y1: i32,
-    logical: LogicalRect,
+pub(crate) struct SnappedRect {
+    pub(crate) x0: i32,
+    pub(crate) y0: i32,
+    pub(crate) x1: i32,
+    pub(crate) y1: i32,
+    pub(crate) logical: LogicalRect,
 }
 
 impl SnappedRect {
-    fn from_physical(x0: i32, y0: i32, x1: i32, y1: i32, dpi_factor: f32) -> Self {
+    pub(crate) fn from_physical(x0: i32, y0: i32, x1: i32, y1: i32, dpi_factor: f32) -> Self {
         Self {
             x0,
             y0,
@@ -2678,126 +2897,28 @@ pub fn render_display_list_damaged(
         );
     }
 
+    // What a rect is cleared to before it is repainted (the same for every rect of the frame).
+    let clear = if std::env::var_os("AZ_DEBUG_FILL").is_some() {
+        damage_clear_color()
+    } else {
+        // Explicit destructure, NOT `.into()`: the array→tuple conversion
+        // resolved to the wrong thing and painted damage rects with a bad
+        // clear colour, hiding content on every repaint.
+        let [r, g, b, a] = render_state.clear_color;
+        (r, g, b, a)
+    };
     for sr in &rects {
-        let (cr, cg, cb, ca) = if std::env::var_os("AZ_DEBUG_FILL").is_some() {
-            damage_clear_color()
-        } else {
-            // Explicit destructure, NOT `.into()`: the array→tuple conversion
-            // resolved to the wrong thing and painted damage rects with a bad
-            // clear colour, hiding content on every repaint.
-            let [r, g, b, a] = render_state.clear_color;
-            (r, g, b, a)
-        };
-        crate::cpu_counters::count(crate::cpu_counters::Counter::PxCleared, u64::from((sr.x1 - sr.x0) as u32) * u64::from((sr.y1 - sr.y0) as u32));
-        pixmap.fill_rect(sr.x0, sr.y0, sr.x1 - sr.x0, sr.y1 - sr.y0, cr, cg, cb, ca);
-
-        let base_clip = AzRect::from_xywh(
-            sr.x0 as f32,
-            sr.y0 as f32,
-            (sr.x1 - sr.x0) as f32,
-            (sr.y1 - sr.y0) as f32,
-        );
-        let (mut painted, mut skipped) = (0usize, 0usize);
-        let mut transform_stack = vec![TransAffine::new()];
-        let mut clip_stack: Vec<Option<AzRect>> = vec![base_clip];
-        let mut real_clip_stack: Vec<Option<AzRect>> = vec![None];
-        let mut mask_stack: Vec<MaskEntry> = Vec::new();
-        let mut surfaces: Vec<AzulPixmap> = Vec::new();
-        let mut scroll_offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
-        let mut text_shadow_stack: Vec<StyleBoxShadow> = Vec::new();
-
-        for (item_idx, item) in display_list.items.iter().enumerate() {
-            crate::cpu_counters::count(crate::cpu_counters::Counter::ItemsWalked, 1);
-            // Always process state-management items (Push/Pop) regardless of bounds,
-            // because skipping a Push while processing its matching Pop corrupts stacks.
-            // Nor is anything culled inside a turned / scaled reference frame:
-            // it paints at its layout place and lands elsewhere at the pop.
-            // Inside a turned or scaled frame the damage rect is not the clip the items paint
-            // under (they paint at their layout place, in the frame's surface): they are culled
-            // by the surface's own clip instead, which is the damage mapped back through the frame.
-            if inside_isolated_transform(&mask_stack) {
-                let (sdx, sdy) = *scroll_offset_stack.last().unwrap_or(&(0.0, 0.0));
-                if outside_active_clip(
-                    item,
-                    &text_shadow_stack,
-                    (sdx, sdy),
-                    clip_stack.last().copied().flatten(),
-                    &mask_stack,
-                    dpi_factor,
-                ) {
-                    skipped += 1;
-                    continue;
-                }
-            }
-            if !item.is_state_management() && !inside_isolated_transform(&mask_stack) {
-                // INK bounds for the cull, not box bounds: `Text.bounds()`
-                // returns the IFC owner's WHOLE content box, so a 3px scroll
-                // strip touching one paragraph admitted EVERY line of it (and
-                // for a block that owns its own scroll, every text item in
-                // the document) - each admitted run then paid the full LCD
-                // accumulate+sweep even for glyphs nowhere near the strip.
-                // `visual_bounds()` is the tight per-line ink box (padded).
-                // EXCEPTION: with a text-shadow in effect the ink extends by
-                // offset+blur that visual_bounds does not model - keep the
-                // coarse box there or shadows get clipped at strip edges.
-                let cull_bounds = if text_shadow_stack.is_empty() {
-                    item.visual_bounds().or_else(|| item.bounds())
-                } else {
-                    item.bounds()
-                };
-                if let Some(item_bounds) = cull_bounds {
-                    // Items inside a scroll frame are stored at CONTENT coords but
-                    // RENDER at `pos - scroll_offset`. The damage rects are in viewport
-                    // space, so we must apply the current scroll offset to the bounds
-                    // before the intersection test — otherwise scrolled content is
-                    // filtered against the wrong position and rows that actually fall
-                    // in a damage strip get dropped (visible as a missing band).
-                    let (sdx, sdy) = *scroll_offset_stack.last().unwrap_or(&(0.0, 0.0));
-                    let test_bounds = if sdx == 0.0 && sdy == 0.0 {
-                        item_bounds
-                    } else {
-                        LogicalRect {
-                            origin: LogicalPosition {
-                                x: item_bounds.origin.x - sdx,
-                                y: item_bounds.origin.y - sdy,
-                            },
-                            size: item_bounds.size,
-                        }
-                    };
-                    if !rects_overlap_or_adjacent(&test_bounds, &sr.logical, 0.0) {
-                        skipped += 1;
-                        continue;
-                    }
-                }
-            }
-
-            painted += 1;
-            let _p = crate::probe::Probe::span(probe_label_for_item(item));
-            let bound_item = item_with_bound_color(item, display_list.color_binding(item_idx), render_state);
-            let item = &*bound_item;
-            render_single_item(
-                item,
-                display_list
-                    .uniform_text_bgs
-                    .get(item_idx)
-                    .copied()
-                    .flatten(),
-                reference_frame_extent(display_list, item_idx),
-                pixmap,
-                dpi_factor,
-                renderer_resources,
-                font_manager,
-                glyph_cache,
-                &mut transform_stack,
-                &mut clip_stack,
-                &mut real_clip_stack,
-                &mut mask_stack,
-                &mut surfaces,
-                &mut scroll_offset_stack,
-                &mut text_shadow_stack,
-                render_state,
-            )?;
-        }
+        let (painted, skipped) = paint_damage_rect(
+            display_list,
+            pixmap,
+            dpi_factor,
+            renderer_resources,
+            font_manager,
+            glyph_cache,
+            render_state,
+            sr,
+            clear,
+        )?;
         if damage_logging_enabled() {
             eprintln!(
                 "[damage]   rect {}x{} @ ({}, {}) phys — painted {painted} item(s), skipped \
@@ -2815,6 +2936,62 @@ pub fn render_display_list_damaged(
     // larger than what was asked for: the caller has to present (and, on a
     // pool-order target, byte-convert) what was written, not what it wanted.
     Ok(rects.iter().map(|r| r.logical).collect())
+}
+
+/// One pass of the damaged walk: clear the rect `sr` of `pixmap` to `clear` and paint the items
+/// of `display_list` that reach it, clipped to it, with stacks of its own. The unit a frame's
+/// repaint is made of: a damage rect, or one band of rows of one (`bands`). A pass writes no
+/// pixel outside `sr`, and what it writes inside does not depend on what lies outside, so the
+/// passes of disjoint rects are independent of each other and of their order.
+///
+/// Returns how many items it painted and how many it culled.
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)] // a rect inside the pixmap
+pub(crate) fn paint_damage_rect(
+    display_list: &DisplayList,
+    pixmap: &mut AzulPixmap,
+    dpi_factor: f32,
+    renderer_resources: &RendererResources,
+    font_manager: &FontManager<FontRef>,
+    glyph_cache: &mut GlyphCache,
+    render_state: &CpuRenderState,
+    sr: &SnappedRect,
+    (cr, cg, cb, ca): (u8, u8, u8, u8),
+) -> Result<(usize, usize), String> {
+    crate::cpu_counters::count(crate::cpu_counters::Counter::PxCleared, u64::from((sr.x1 - sr.x0) as u32) * u64::from((sr.y1 - sr.y0) as u32));
+    pixmap.fill_rect(sr.x0, sr.y0, sr.x1 - sr.x0, sr.y1 - sr.y0, cr, cg, cb, ca);
+
+    let base_clip = AzRect::from_xywh(
+        sr.x0 as f32,
+        sr.y0 as f32,
+        (sr.x1 - sr.x0) as f32,
+        (sr.y1 - sr.y0) as f32,
+    );
+    let mut transform_stack = vec![TransAffine::new()];
+    let mut clip_stack: Vec<Option<AzRect>> = vec![base_clip];
+    let mut real_clip_stack: Vec<Option<AzRect>> = vec![None];
+    let mut mask_stack: Vec<MaskEntry> = Vec::new();
+    let mut surfaces: Vec<AzulPixmap> = Vec::new();
+    let mut scroll_offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
+    let mut text_shadow_stack: Vec<StyleBoxShadow> = Vec::new();
+    walk_items(
+        display_list,
+        WalkCull::Damage(sr.logical),
+        true,
+        pixmap,
+        dpi_factor,
+        renderer_resources,
+        font_manager,
+        glyph_cache,
+        &mut transform_stack,
+        &mut clip_stack,
+        &mut real_clip_stack,
+        &mut mask_stack,
+        &mut surfaces,
+        &mut scroll_offset_stack,
+        &mut text_shadow_stack,
+        render_state,
+    )
 }
 
 #[allow(
@@ -3604,38 +3781,25 @@ pub fn render_single_item(
                 // The view's own frames open their surfaces here and
                 // composite them into what this walk paints into.
                 let mut view_surfaces: Vec<AzulPixmap> = Vec::new();
-                for (child_idx, child_item) in child_dl.items.iter().enumerate() {
-                    crate::cpu_counters::count(crate::cpu_counters::Counter::ItemsWalked, 1);
-                    // A view's list is a map or a page far larger than the box it shows.
-                    if outside_active_clip(
-                        child_item,
-                        text_shadow_stack,
-                        scroll_offset_stack.last().copied().unwrap_or((0.0, 0.0)),
-                        clip_stack.last().copied().flatten(),
-                        mask_stack,
-                        dpi_factor,
-                    ) {
-                        continue;
-                    }
-                    render_single_item(
-                        child_item,
-                        child_dl.uniform_text_bgs.get(child_idx).copied().flatten(),
-                        reference_frame_extent(&child_dl, child_idx),
-                        pixmap,
-                        dpi_factor,
-                        renderer_resources,
-                        font_manager,
-                        glyph_cache,
-                        transform_stack,
-                        clip_stack,
-                        real_clip_stack,
-                        mask_stack,
-                        &mut view_surfaces,
-                        scroll_offset_stack,
-                        text_shadow_stack,
-                        render_state,
-                    )?;
-                }
+                // A view's list is a map or a page far larger than the box it shows.
+                walk_items(
+                    &child_dl,
+                    WalkCull::ActiveClip,
+                    false,
+                    pixmap,
+                    dpi_factor,
+                    renderer_resources,
+                    font_manager,
+                    glyph_cache,
+                    transform_stack,
+                    clip_stack,
+                    real_clip_stack,
+                    mask_stack,
+                    &mut view_surfaces,
+                    scroll_offset_stack,
+                    text_shadow_stack,
+                    render_state,
+                )?;
                 scroll_offset_stack.pop();
                 real_clip_stack.pop();
                 clip_stack.pop();
@@ -14808,5 +14972,65 @@ mod dilate_disk_tests {
         // a disk of radius 4.5 around the dot: between its area (63) and the square's (81)
         assert!((57..=81).contains(&covered), "{covered} pixels covered");
         assert_eq!(dot.data[centre + 3], 255, "the dot itself stays");
+    }
+}
+
+/// Guards of the 2026-11-21 audit, area A1 (`audit/A1.md`): the ones that need this file's
+/// private items.
+#[cfg(test)]
+mod audit_a1_tests {
+    use super::*;
+
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+        LogicalRect {
+            origin: LogicalPosition { x, y },
+            size: LogicalSize { width: w, height: h },
+        }
+    }
+
+    /// A row-vector 4x4 that scales by `k` and then moves by `(tx, ty)` logical px.
+    fn scale_then_move(k: f32, tx: f32, ty: f32) -> [[f32; 4]; 4] {
+        [
+            [k, 0.0, 0.0, 0.0],
+            [0.0, k, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [tx, ty, 0.0, 1.0],
+        ]
+    }
+
+    /// A1-02 (structure): the geometry of a group is what `ReferenceFrameGroup::begin` opened
+    /// before it was split off. Hand-computed: a 40 x 30 box at (10, 20), scaled by 2 about its
+    /// origin and moved by 5 logical px in x, at DPI 2. Device box: x = 20, y = 40, 80 x 60.
+    /// Group pixel s lands at o + M (p - o) with o = (20, 40), p = (20, 40) + s and the move
+    /// 5 * 2 = 10 device px: (0, 0) -> (30, 40), (80, 60) -> (190, 160).
+    /// Mutation: `* dpi` -> `/ dpi` on the matrix's translation lands (0, 0) at (22.5, 40).
+    #[test]
+    fn the_geometry_of_a_group_is_its_device_box_and_the_matrix_about_its_origin() {
+        let b = rect(10.0, 20.0, 40.0, 30.0);
+        let clip = AzRect::from_xywh(4.0, 6.0, 300.0, 200.0);
+        let g = GroupGeometry::of(&scale_then_move(2.0, 5.0, 0.0), &b, &b, 2.0, clip);
+        assert_eq!((g.x, g.y, g.width, g.height), (20, 40, 80, 60));
+        assert_eq!(g.outer_clip, Some((4, 6, 304, 206)));
+        let land = |sx: f64, sy: f64| {
+            (
+                g.matrix[0] * sx + g.matrix[1] * sy + g.matrix[2],
+                g.matrix[3] * sx + g.matrix[4] * sy + g.matrix[5],
+            )
+        };
+        assert_eq!(land(0.0, 0.0), (30.0, 40.0));
+        assert_eq!(land(80.0, 60.0), (190.0, 160.0));
+        assert!(mat3_is_affine(&g.matrix));
+        // The part of the surface that can land under the clip: the clip mapped back,
+        // ((4 - 30) / 2, (6 - 40) / 2) .. ((304 - 30) / 2, (206 - 40) / 2) = (-13, -17) ..
+        // (137, 83), widened and cut to the 80 x 60 surface: all of it. With no margin and a
+        // clip of the right half of where it lands, x from (110 - 30) / 2 = 40.
+        assert_eq!(
+            group_visible_part(&g.matrix, g.outer_clip, (400, 300), (g.width, g.height)),
+            Some((0, 0, 80, 60))
+        );
+        assert_eq!(
+            group_part_within(&g.matrix, Some((110, 0, 400, 300)), (400, 300), (g.width, g.height), 0),
+            Some((40, 0, 80, 60))
+        );
     }
 }

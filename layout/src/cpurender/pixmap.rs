@@ -692,6 +692,12 @@ impl core::fmt::Debug for PixBuf {
 // move across threads with its pixmap.
 unsafe impl Send for PixBuf {}
 
+// SAFETY: a `&PixBuf` gives out `&[u8]` only (`Deref`); every write goes through `&mut PixBuf`.
+// Under the creator's contract of the borrowed variant (the region is reached through this
+// pixmap alone) shared reads from several threads are reads of an ordinary byte slice: the
+// bands of a repaint composite from one kept group surface this way (`retained`).
+unsafe impl Sync for PixBuf {}
+
 /// A simple RGBA pixel buffer. Replaces `tiny_skia::Pixmap`.
 #[derive(Debug)]
 pub struct AzulPixmap {
@@ -749,6 +755,28 @@ impl AzulPixmap {
         let data = PixBuf::from(vec![255u8; len]); // opaque white
         Some(Self {
             data,
+            width,
+            height,
+        })
+    }
+
+    /// Create a new pixmap of transparent black.
+    ///
+    /// The bytes come zeroed from the allocator (`alloc_zeroed`), which for a buffer of this
+    /// size hands out pages the system has not touched yet: nothing is written here, and a page
+    /// costs memory only once something is painted on it. [`Self::new`] followed by
+    /// `fill(0, 0, 0, 0)` wrote every byte twice - 46 MB of writes for the 23 MB surface of a
+    /// zoomed map, of which a walk then paints a part.
+    #[must_use]
+    pub fn new_transparent(width: u32, height: u32) -> Option<Self> {
+        if width == 0 || height == 0 {
+            return None;
+        }
+        let len = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|n| n.checked_mul(4))?;
+        Some(Self {
+            data: PixBuf::from(vec![0u8; len]),
             width,
             height,
         })

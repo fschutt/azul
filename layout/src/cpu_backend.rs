@@ -223,6 +223,10 @@ pub struct CpuBackend {
     /// Where zombie exits painted LAST frame (logical px) — see the
     /// zombie-damage computation in `render_frame`.
     pub previous_zombie_rects: Vec<azul_core::geom::LogicalRect>,
+    /// The group surfaces kept between frames (`cpurender::retained`): the picture of a turned
+    /// or scaled reference frame whose content did not change is composited again instead of
+    /// painted again. Handed to every incremental frame's render state.
+    pub retained_frames: Arc<crate::cpurender::RetainedFrames>,
 }
 
 
@@ -275,6 +279,7 @@ impl CpuBackend {
             previous_vview_dls: BTreeMap::new(),
             previous_gpu_values: crate::cpurender::WindowGpuValues::default(),
             previous_zombie_rects: Vec::new(),
+            retained_frames: Arc::new(crate::cpurender::RetainedFrames::new()),
         }
     }
 
@@ -1208,7 +1213,8 @@ impl CpuBackend {
             .with_gpu_values(self.previous_gpu_values.clone())
             .with_system_style(layout_window.system_style.clone())
             .with_clear_color(clear_color)
-            .with_virtual_view_display_lists(vview_dls);
+            .with_virtual_view_display_lists(vview_dls)
+            .with_retained_frames(Arc::clone(&self.retained_frames));
 
         // An INCREMENTAL frame paints exactly its damage - and nothing when it
         // has none: the target already holds this frame (a scroll step that
