@@ -3298,6 +3298,35 @@ fn scrollbar_fade_work(boxes: usize) {
 #[inline(always)]
 const fn scrollbar_fade_work(_boxes: usize) {}
 
+std::thread_local! {
+    /// The choice of [`set_diff_first_on_this_thread`] for the calling thread.
+    static DIFF_FIRST_ON_THIS_THREAD: core::cell::Cell<Option<bool>> =
+        const { core::cell::Cell::new(None) };
+}
+
+/// Whether a rebuild of a DOM is diffed against the build before it BEFORE it is styled, and
+/// styled, reconciled and laid out only for what that diff names (`audit/A3-window.md`, "The
+/// diff-first pipeline"). On unless the environment says `AZ_DIFF_FIRST=0`: then every rebuild
+/// whose fingerprints moved takes the full path (the cascade, the reconciliation, the
+/// equivalence check), which is the path the diff-first one must agree with.
+#[must_use]
+pub fn diff_first_enabled() -> bool {
+    static FROM_ENVIRONMENT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if let Some(on) = DIFF_FIRST_ON_THIS_THREAD.with(core::cell::Cell::get) {
+        return on;
+    }
+    *FROM_ENVIRONMENT
+        .get_or_init(|| std::env::var_os("AZ_DIFF_FIRST").is_none_or(|value| value != "0"))
+}
+
+/// Chooses the path of [`diff_first_enabled`] for the calling thread, whatever the environment
+/// says (`None`: the environment's again). For a test that runs one rebuild down both paths
+/// and compares what they leave: the tests of a process share its environment and run side by
+/// side, one per thread.
+pub fn set_diff_first_on_this_thread(on: Option<bool>) {
+    DIFF_FIRST_ON_THIS_THREAD.with(|choice| choice.set(on));
+}
+
 /// How many steps `LayoutWindow::get_node_layout_rect` took on this thread to find a node's
 /// box (one per call now): what a test reads to say the lookup does not walk the tree.
 #[cfg(test)]
@@ -9154,6 +9183,7 @@ impl LayoutWindow {
                 solver3::getters::collect_and_resolve_font_chains_covering,
                 text3::default::PathLoader,
             };
+            let _span_fonts = crate::probe::Probe::span("font_requirements");
 
             // Per-node font dirty tracking (P4):
             // Check font_dirty_nodes populated by build_compact_cache(),
@@ -9606,6 +9636,7 @@ impl LayoutWindow {
             // the previous pass's sizes stand in (exact in steady state); the
             // refresh after the solve below corrects the first frame and any
             // size change.
+            let _span_gpu_sync = crate::probe::Probe::span("sync_css_gpu_values");
             let previous = self.layout_results.get(&dom_id);
             let previous_size = |node: NodeId| -> Option<(f32, f32)> {
                 let lr = previous?;
@@ -10940,6 +10971,14 @@ impl LayoutWindow {
         cache.note_value_write();
         if keyed && previous.is_some() {
             ProcessEventResult::ShouldReRenderCurrentWindow
+        } else if dom_id != DomId::ROOT_ID {
+            // The node is in a view's document: that document's list opens the frame, and
+            // it is built here. The display-list tier means the WINDOW's list to the shells
+            // (macOS builds the root's list for it and no other): the view's list never
+            // opened the frame, so the dragged node stayed put, and the window's list was
+            // built for nothing.
+            self.regenerate_display_list_for_dom(dom_id);
+            ProcessEventResult::ShouldReRenderCurrentWindow
         } else {
             ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
         }
@@ -10959,6 +10998,11 @@ impl LayoutWindow {
             cache.anim_transform_keys.remove(&node);
             cache.anim_current_transform_values.remove(&node);
             cache.note_value_write();
+        }
+        // A view's document closes the frame it opened for the drag here: no caller builds
+        // the list of a DOM that is not the window's.
+        if dom != DomId::ROOT_ID {
+            self.regenerate_display_list_for_dom(dom);
         }
         true
     }
@@ -11366,11 +11410,15 @@ impl LayoutWindow {
             .iter()
             .any(|key| key.is_none_or(|ty| ty.can_trigger_relayout()));
         // A host that lays out on the tier (`host_lays_out`) does it once for
-        // all of a callback's changes.
+        // all of a callback's changes - of the window's own DOM. A view's
+        // document is laid out here: the host's pass keeps a view whose host
+        // node did not change and never reaches its document.
         if needs_relayout && dom_id == DomId::ROOT_ID {
             if !self.host_lays_out {
                 self.relayout_root_dom_in_place();
             }
+        } else if needs_relayout {
+            self.relayout_child_dom_in_place(dom_id, node_id);
         } else if !self.host_lays_out || dom_id != DomId::ROOT_ID {
             self.regenerate_display_list_for_dom(dom_id);
         }
@@ -11689,6 +11737,13 @@ impl LayoutWindow {
                 if !self.host_lays_out {
                     self.relayout_root_dom_in_place();
                 }
+            } else if needs_relayout {
+                // A geometry property of a node in a view's document: that
+                // document is laid out again, in place (the window's pass
+                // keeps the view and does not reach it). Only its list was
+                // built here, from the boxes of the layout before the write:
+                // the node stayed where it was until the view rendered again.
+                self.relayout_child_dom_in_place(dom_id, node_id);
             } else if !self.host_lays_out || dom_id != DomId::ROOT_ID {
                 // The full-write path rebuilds the DL inline (its historical
                 // contract); a host rebuilds the root's list once, on the
@@ -12133,6 +12188,79 @@ impl LayoutWindow {
             #[cfg(feature = "std")]
             eprintln!("[azul][layout] relayout after a runtime CSS change failed: {e:?}");
             drop(e);
+        }
+    }
+
+    /// [`Self::relayout_root_dom_in_place`] for the document of a `VirtualView`: `child` is
+    /// laid out again over its existing `StyledDom`, for the box it has, after the app wrote a
+    /// geometry property of its node `written` (`set_node_style`, `set_css_property`).
+    ///
+    /// Nothing else lays such a document out. The window's pass keeps a view whose host node
+    /// is unchanged (`unchanged_virtual_views`) and `follow_host_in_kept_view` returns at
+    /// once while the host's values, the mode, the texts and the box did not move. The
+    /// write used to end in `regenerate_display_list_for_dom`: the document's whole list
+    /// built from the positions of the layout BEFORE the write, so a label dragged with
+    /// `left` / `top` (a map editor's move tool: one `set_node_style` per mouse move, 12,470
+    /// nodes and 17,495 items rebuilt each time) stayed where it was until its view rendered
+    /// again.
+    ///
+    /// The solver is told that `written` and what is below it are the nodes that moved: every
+    /// other node is as its box was laid out from, unless a text or a restyle of this document
+    /// is still owed a pass (then the solver compares every node, as a pass without the diff).
+    fn relayout_child_dom_in_place(&mut self, child: DomId, written: NodeId) {
+        let Some(previous) = self.layout_results.remove(&child) else {
+            return;
+        };
+        // As for the root: the pass takes the tree as its own only when this result no
+        // longer holds it.
+        drop(previous.layout_tree);
+        let viewport = previous.viewport;
+        let nothing_else_owed = !self.content_changed_doms.contains(&child)
+            && !self.css_dirty_waiting.contains_key(&child)
+            && !self
+                .pending_css_dirty
+                .as_ref()
+                .is_some_and(|(dom, _)| *dom == child);
+        if nothing_else_owed {
+            if let Some(cache) = self.child_layout_caches.get_mut(&child) {
+                let hierarchy = previous.styled_dom.node_hierarchy.as_container();
+                let n = previous.styled_dom.node_data.as_ref().len();
+                let mut clean = vec![true; n];
+                if let Some(flag) = clean.get_mut(written.index()) {
+                    *flag = false;
+                }
+                // Pre-order: a parent is before its children, so one pass carries the mark
+                // down the subtree.
+                for index in 0..n {
+                    let parent_clean = hierarchy
+                        .get(NodeId::new(index))
+                        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+                        .is_none_or(|parent| clean.get(parent.index()).copied().unwrap_or(false));
+                    clean[index] = clean[index] && parent_clean;
+                }
+                cache.dom_diff_clean = Some(clean);
+            }
+        }
+        let window_state = self.current_window_state.clone();
+        let system_callbacks = ExternalSystemCallbacks::rust_internal();
+        let mut debug_messages = None;
+        let renderer_resources = core::mem::take(&mut self.renderer_resources);
+        let result = self.layout_dom_recursive_with_viewport(
+            previous.styled_dom,
+            &window_state,
+            &renderer_resources,
+            &system_callbacks,
+            &mut debug_messages,
+            Some(viewport),
+        );
+        self.renderer_resources = renderer_resources;
+        match result {
+            Ok(()) => self.reapply_overlay_text_of(child),
+            Err(e) => {
+                #[cfg(feature = "std")]
+                eprintln!("[azul][layout] relayout of a view's document after a runtime CSS change failed: {e:?}");
+                drop(e);
+            }
         }
     }
 
@@ -18203,6 +18331,7 @@ impl LayoutWindow {
         // Clone the old tree out first: it releases the `layout_results` borrow
         // before the `&mut self` work below, and the old arena is about to be
         // discarded anyway.
+        let span_arena_copy = crate::probe::Probe::span("reconcile_arena_copy");
         let (mut old_node_data, old_hierarchy) = match self.layout_results.get(&dom_id) {
             Some(r) => (
                 r.styled_dom.node_data.as_ref().to_vec(),
@@ -18218,8 +18347,10 @@ impl LayoutWindow {
         // one copy of them after the states moved over.
         let new_hierarchy: Vec<azul_core::styled_dom::NodeHierarchyItem> =
             styled_dom.node_hierarchy.as_ref().to_vec();
+        drop(span_arena_copy);
 
         let empty_layout = azul_core::OrderedMap::default();
+        let span_reconcile_dom = crate::probe::Probe::span("reconcile_dom");
         let diff = azul_core::diff::reconcile_dom(
             &old_node_data,
             styled_dom.node_data.as_ref(),
@@ -18231,15 +18362,7 @@ impl LayoutWindow {
             now,
             self.node_identity,
         );
-
-        // Geometry captured BEFORE the swap, because the old solved rects die
-        // with the old tree.
-        let mut first_rects = BTreeMap::new();
-        for m in &diff.node_moves {
-            if let Some(r) = self.get_node_bounds(dom_id, m.old_node_id) {
-                first_rects.insert(m.old_node_id, layout_rect_to_logical(r));
-            }
-        }
+        drop(span_reconcile_dom);
 
         // Mount / Unmount, derived STRUCTURALLY from the correspondence.
         //
@@ -18251,31 +18374,48 @@ impl LayoutWindow {
         //
         // A node absent from `node_moves` is by definition unmatched: present
         // in one tree and not the other.
-        let matched_old: BTreeSet<NodeId> = diff.node_moves.iter().map(|m| m.old_node_id).collect();
-        let matched_new: BTreeSet<NodeId> = diff.node_moves.iter().map(|m| m.new_node_id).collect();
+        //
+        // A flag per node of each tree, and the unmatched nodes in document order. These were
+        // four `BTreeSet`s of node ids - the matched and the unmatched of both trees, n
+        // inserts each on every rebuild - asked for one node at a time below.
+        let mut old_is_matched = vec![false; old_node_data.len()];
+        let mut new_is_matched = vec![false; styled_dom.node_data.len()];
+        for m in &diff.node_moves {
+            if let Some(flag) = old_is_matched.get_mut(m.old_node_id.index()) {
+                *flag = true;
+            }
+            if let Some(flag) = new_is_matched.get_mut(m.new_node_id.index()) {
+                *flag = true;
+            }
+        }
 
         // Only SUBTREE ROOTS animate. A descendant of an entering node is drawn
         // inside its ancestor's transform, so animating it as well would apply
         // the effect twice and cost a GPU key per node in the subtree.
         let is_root = |id: NodeId,
                        hier: &[azul_core::styled_dom::NodeHierarchyItem],
-                       unmatched: &BTreeSet<NodeId>|
+                       is_matched: &[bool]|
          -> bool {
             hier.get(id.index()).is_none_or(|item| {
-                // `parent` is a 1-based index with 0 meaning "no parent".
+                // `parent` is a 1-based index with 0 meaning "no parent". A parent that is
+                // no node of the tree is no unmatched node of it.
                 item.parent
                     .checked_sub(1)
-                    .is_none_or(|p| !unmatched.contains(&NodeId::new(p)))
+                    .is_none_or(|p| is_matched.get(p).copied().unwrap_or(true))
             })
         };
 
-        let unmatched_new: BTreeSet<NodeId> = (0..styled_dom.node_data.len())
-            .map(NodeId::new)
-            .filter(|id| !matched_new.contains(id))
+        let unmatched_new: Vec<NodeId> = new_is_matched
+            .iter()
+            .enumerate()
+            .filter(|(_, matched)| !**matched)
+            .map(|(index, _)| NodeId::new(index))
             .collect();
-        let unmatched_old: BTreeSet<NodeId> = (0..old_node_data.len())
-            .map(NodeId::new)
-            .filter(|id| !matched_old.contains(id))
+        let unmatched_old: Vec<NodeId> = old_is_matched
+            .iter()
+            .enumerate()
+            .filter(|(_, matched)| !**matched)
+            .map(|(index, _)| NodeId::new(index))
             .collect();
 
         // An INITIAL mount is not a transition. With no previous tree every node
@@ -18288,13 +18428,13 @@ impl LayoutWindow {
             unmatched_new
                 .iter()
                 .copied()
-                .filter(|id| is_root(*id, &new_hierarchy, &unmatched_new))
+                .filter(|id| is_root(*id, &new_hierarchy, &new_is_matched))
                 .collect()
         };
         let unmounted: Vec<NodeId> = unmatched_old
             .iter()
             .copied()
-            .filter(|id| is_root(*id, &old_hierarchy, &unmatched_old))
+            .filter(|id| is_root(*id, &old_hierarchy, &old_is_matched))
             .collect();
 
         // Departing geometry, captured before the old arena goes: where each
@@ -18330,6 +18470,7 @@ impl LayoutWindow {
             BTreeMap::new();
         let mut compared = 0usize;
         let mut compared_properties = 0usize;
+        let span_css_diff = crate::probe::Probe::span("reconcile_css_diff");
         if let Some(old_result) = self.layout_results.get(&dom_id) {
             let old_cache = &old_result.styled_dom.css_property_cache.ptr;
             let new_cache = &styled_dom.css_property_cache.ptr;
@@ -18491,7 +18632,26 @@ impl LayoutWindow {
                 }
             }
         }
+        drop(span_css_diff);
 
+        // Geometry captured BEFORE the swap, because the old solved rects die with the old
+        // tree: of the nodes that DECLARE a move, the only ones `finish_reconciliation` slides
+        // and so the only ones whose first rect is ever read. Every matched node's rect was
+        // looked up and put into the map on every rebuild - a box lookup and a map insert per
+        // node of the window - for a page in which nothing declares a move.
+        let mut first_rects = BTreeMap::new();
+        if !move_modes.is_empty() {
+            for m in &diff.node_moves {
+                if !move_modes.contains_key(&m.new_node_id) {
+                    continue;
+                }
+                if let Some(r) = self.get_node_bounds(dom_id, m.old_node_id) {
+                    first_rects.insert(m.old_node_id, layout_rect_to_logical(r));
+                }
+            }
+        }
+
+        let span_transfer = crate::probe::Probe::span("reconcile_transfer_states");
         if !diff.node_moves.is_empty() {
             // A merge callback consumes the old node's dataset, and the old
             // arena stays in the record: it keeps a clone of each dataset a
@@ -18540,12 +18700,16 @@ impl LayoutWindow {
             }
         }
 
+        drop(span_transfer);
+
         // ALWAYS, even with no match: an old id absent from the map was
         // unmounted and its focus / scroll / hover state must be DROPPED (and
         // a focused node that went reports its focus loss), not kept pointing
         // at whatever element inherited its arena index.
+        let span_remap = crate::probe::Probe::span("reconcile_remap_node_ids");
         let map = crate::managers::NodeIdMap::from_node_moves(&diff.node_moves);
         self.remap_node_ids(dom_id, &map);
+        drop(span_remap);
 
         // A tween the rebuild left running (remapped to its new node just
         // now) finds its target in the new tree's cascade - that is what made
@@ -18727,7 +18891,7 @@ impl LayoutWindow {
             first_rects,
             exit_rects,
             new_node_count: styled_dom.node_data.len(),
-            entered: unmatched_new.into_iter().collect(),
+            entered: unmatched_new,
             events: diff.events,
             old_node_data,
             animate_moves: true,
@@ -36767,6 +36931,39 @@ pub(crate) fn css_diff_between(
         out.push((m.new_node_id, worst));
     }
     Some(out)
+}
+
+/// Whether any node of `styled_dom` declares `animation: move` under the state it is in: the
+/// nodes a rebuild slides to their new places ([`LayoutWindow::finish_reconciliation`]). A
+/// rebuild that keeps the styled DOM without a reconciliation asks this first, because it
+/// seeds no slide. A declared-only lookup per node; nothing is cascaded.
+#[must_use]
+pub fn styled_dom_declares_a_move(styled_dom: &StyledDom) -> bool {
+    use azul_css::props::property::{CssProperty, CssPropertyType};
+
+    let cache = &styled_dom.css_property_cache.ptr;
+    let nodes = styled_dom.node_data.as_ref();
+    let states = styled_dom.styled_nodes.as_ref();
+    nodes
+        .iter()
+        .zip(states.iter())
+        .enumerate()
+        .any(|(index, (node, state))| {
+            cache
+                .get_property_if_declared(
+                    node,
+                    &NodeId::new(index),
+                    &state.styled_node_state,
+                    &CssPropertyType::Animation,
+                )
+                .and_then(|property| match property {
+                    CssProperty::Animation(value) => value.get_property().cloned(),
+                    _ => None,
+                })
+                .as_ref()
+                .and_then(declared_move)
+                .is_some()
+        })
 }
 
 /// The motion `animation: move <duration> [timing]` asks a node's moves for
