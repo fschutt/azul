@@ -819,6 +819,32 @@ fn render_box_shadow(
         if sw == 0 || sh == 0 || sw > MAX_SHADOW_PIXBUF_SIZE || sh > MAX_SHADOW_PIXBUF_SIZE {
             return Ok(());
         }
+        // The finished buffer - filled, blurred, cut to the padding box's curve - depends on
+        // nothing but these (the box's PLACE is the blit's offset below), and was made again
+        // on every draw: for every pass, and for every band the box reaches (A1-54).
+        let inset_key = {
+            use core::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            0x49_u8.hash(&mut h);
+            (sw, sh).hash(&mut h);
+            for v in [rect.width, rect.height, blur_r, spread, offset_x, offset_y, dpi_factor] {
+                v.to_bits().hash(&mut h);
+            }
+            (color.r, color.g, color.b, color.a).hash(&mut h);
+            for r in [
+                border_radius.top_left,
+                border_radius.top_right,
+                border_radius.bottom_left,
+                border_radius.bottom_right,
+            ] {
+                r.to_bits().hash(&mut h);
+            }
+            h.finish()
+        };
+        let kept = with_shadow_cache(|c| kept_shadow(c, inset_key));
+        let finished = if let Some((data, _, _)) = kept {
+            data
+        } else {
         let mut tmp = AzulPixmap::new_transparent(sw, sh).ok_or("cannot create shadow pixmap")?;
         let agg_color = Rgba8::new(
             u32::from(color.r),
@@ -892,6 +918,10 @@ fn render_box_shadow(
                 }
             }
         }
+            let data = std::sync::Arc::new(tmp.data.into_vec());
+            with_shadow_cache(|c| keep_shadow(c, inset_key, &data, sw, sh));
+            data
+        };
         // Never outside the padding box (nor the active clip).
         let padding_clip = (
             rect.x.floor() as i32,
@@ -914,7 +944,7 @@ fn render_box_shadow(
         blit_clipped(
             pixmap,
             Some(clip),
-            tmp.data(),
+            &finished,
             sw,
             sh,
             0,
@@ -1136,10 +1166,30 @@ fn render_box_shadow(
     // 3, 7.1): a rounded box is cut out of it through its own curve, or a
     // translucent box would show its shadow through it.
     if matches!(shadow.clip_mode, BoxShadowClipMode::Outset) && !border_radius.is_zero() {
+        // The shadow with the box cut out depends on the blurred buffer (`cache_key`) and on
+        // where the box lies in it - which is the shadow's offset and the fraction of a pixel
+        // the shadow starts at, not the box's place. It was made again on every draw (a mask
+        // of the buffer's size rasterised, the buffer copied, every pixel multiplied): for
+        // every pass and every band a rounded, shadowed box reaches (A1-54). A box that
+        // stands still or moves by whole pixels finds it kept.
+        let (box_x, box_y) = (rect.x - dst_x as f32, rect.y - dst_y as f32);
+        let cut_key = {
+            use core::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            0x52_u8.hash(&mut h);
+            cache_key.hash(&mut h);
+            box_x.to_bits().hash(&mut h);
+            box_y.to_bits().hash(&mut h);
+            h.finish()
+        };
+        if let Some((cut, _, _)) = with_shadow_cache(|c| kept_shadow(c, cut_key)) {
+            blit_clipped(pixmap, clip_px, &cut, sw, sh, 0, 0, sw, sh, dst_x, dst_y);
+            return Ok(());
+        }
         let mut mask = AzulPixmap::new_transparent(sw, sh).ok_or("cannot create shadow mask")?;
         if let Some(border_box) = AzRect::from_xywh(
-            rect.x - dst_x as f32,
-            rect.y - dst_y as f32,
+            box_x,
+            box_y,
             rect.width,
             rect.height,
         ) {
@@ -1162,6 +1212,8 @@ fn render_box_shadow(
                 *channel = ((u32::from(*channel) * left + 127) / 255) as u8;
             }
         }
+        let outside_the_box = std::sync::Arc::new(outside_the_box);
+        with_shadow_cache(|c| keep_shadow(c, cut_key, &outside_the_box, sw, sh));
         blit_clipped(
             pixmap,
             clip_px,
@@ -19848,5 +19900,54 @@ mod audit_a1_tests {
         assert!(kept_shadow(&mut cache, 5).is_none());
         assert_eq!(held(&cache), vec![1, 4]);
         assert_eq!(cache.2, cache.0.values().map(|e| e.data.len()).sum::<usize>());
+    }
+
+
+    /// A1-54: the shadow of a rounded box with the box cut out of it, and an inner shadow cut
+    /// to its padding box, are made once and kept; they were made again on every draw. An
+    /// outer shadow keeps two buffers (the blur, and the blur with the box cut out where it
+    /// lies in the buffer), an inner one keeps one; a draw at another place a whole number of
+    /// pixels away makes nothing new, and what is drawn from the kept buffer is, byte for
+    /// byte, what a draw with an empty cache paints there. Half a pixel further the box lies
+    /// elsewhere in the buffer: a third buffer.
+    /// Mutation: the place of the box left out of the cut's key draws the half-pixel shadow
+    /// with the whole-pixel cut (the last assert); a cut kept under the blur's key fails the
+    /// counts.
+    #[test]
+    fn a_rounded_or_inner_shadow_is_cut_once_and_kept() {
+        let clear = || SHADOW_BLUR_CACHE.with(|c| *c.borrow_mut() = ShadowCache::default());
+        let kept = || SHADOW_BLUR_CACHE.with(|c| c.borrow().0.len());
+        let radius = BorderRadius { top_left: 6.0, top_right: 6.0, bottom_left: 6.0, bottom_right: 6.0 };
+        let draw = |shadow: &StyleBoxShadow, x: f32, y: f32| {
+            let mut pm = AzulPixmap::new(120, 90).unwrap();
+            pm.fill(255, 255, 255, 255);
+            render_box_shadow(&mut pm, &rect(x, y, 50.0, 30.0), shadow, &radius, None, 1.0).unwrap();
+            pm
+        };
+        let outer = StyleBoxShadow { color: ColorU { r: 0, g: 0, b: 0, a: 160 }, ..halo(5.0, 2.0, [0, 0, 0]) };
+        let inner = StyleBoxShadow {
+            color: ColorU { r: 0, g: 0, b: 0, a: 160 },
+            clip_mode: azul_css::props::style::box_shadow::BoxShadowClipMode::Inset,
+            ..halo(5.0, 2.0, [0, 0, 0])
+        };
+        for (shadow, buffers) in [(&outer, 2_usize), (&inner, 1)] {
+            clear();
+            let first = draw(shadow, 20.0, 20.0);
+            assert!(first.data().chunks_exact(4).any(|p| p != [255, 255, 255, 255]), "premise: a shadow is painted");
+            assert_eq!(kept(), buffers);
+            let moved = draw(shadow, 33.0, 27.0);
+            assert_eq!(kept(), buffers, "moved by whole pixels: nothing new is made");
+            let again = draw(shadow, 20.0, 20.0);
+            assert!(first.data() == again.data(), "the kept shadow is the shadow that was drawn");
+            clear();
+            let cold = draw(shadow, 33.0, 27.0);
+            assert!(moved.data() == cold.data(), "and elsewhere it is the shadow a first draw paints there");
+        }
+        clear();
+        let _ = draw(&outer, 20.0, 20.0);
+        let half = draw(&outer, 20.5, 20.0);
+        assert_eq!(kept(), 3, "half a pixel further the box lies elsewhere in the buffer: another cut");
+        clear();
+        assert!(half.data() == draw(&outer, 20.5, 20.0).data(), "which is the cut a first draw makes there");
     }
 }
