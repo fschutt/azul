@@ -557,6 +557,21 @@ fn color_inputs_and_their_pickers_read_in_both_themes_in_both_looks() {
                 format!("{look} color input {name}"),
                 ColorInput::create(color).with_theme(theme).dom(),
             ));
+            // The picker's panel is built when its popup is shown
+            // (A3-solver-34): taken as the engine takes it, from the popup
+            // node - the last node of the input - through its content callback.
+            let page = azul_core::styled_dom::StyledDom::create_from_dom(
+                azul_core::dom::Dom::create_body()
+                    .with_child(ColorInput::create(color).with_theme(theme).dom()),
+            );
+            let popup = azul_core::dom::NodeId::new(page.node_data.as_ref().len() - 1);
+            let panel = azul_core::transient::extract_subtree_as_dom(&page, popup)
+                .expect("the colour input's popup node is its last node");
+            assert!(
+                !panel.children.as_ref().is_empty(),
+                "harness: the popup shows the picker's panel"
+            );
+            widgets.push((format!("{look} color picker {name}"), panel));
         }
     }
     assert_follow_the_theme(widgets);

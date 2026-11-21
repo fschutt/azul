@@ -6243,6 +6243,13 @@ const FLORA_PICKER_GRIP_HANDLE_CSS: &str =
 /// The flora colour input: a sample in a hairline frame, and a leaf picker.
 #[must_use]
 pub fn color_input(c: crate::widgets::color_input::ColorInput) -> Dom {
+    crate::widgets::color_input::build(c, &color_input_look())
+}
+
+/// The flora colour input's look: what [`color_input`] builds the swatch
+/// with, and what the picker's panel is built with when its popup is shown
+/// (`color_input::picker_content`).
+pub(crate) fn color_input_look() -> crate::widgets::color_input::ColorInputLook {
     use super::decl;
     use crate::widgets::color_input::ColorInputLook;
 
@@ -6252,18 +6259,16 @@ pub fn color_input(c: crate::widgets::color_input::ColorInput) -> Dom {
     swatch.extend(decl::hover_border_color(LIGHT_BD3, DARK_BD3));
     swatch.extend(decl::focus_ring(LIGHT_ACC, DARK_GLOW));
 
-    crate::widgets::color_input::build(
-        c,
-        &ColorInputLook {
-            swatch,
-            panel_css: FLORA_PICKER_PANEL_CSS,
-            preview_css: FLORA_PICKER_PREVIEW_CSS,
-            eyedropper_css: FLORA_PICKER_EYEDROPPER_CSS,
-            grip_handle_css: FLORA_PICKER_GRIP_HANDLE_CSS,
-            slider_focus: decl::focus_halo(LIGHT_ACC, DARK_GLOW).to_vec(),
-            marker: Some("__azul-theme-flora"),
-        },
-    )
+    ColorInputLook {
+        swatch,
+        panel_css: FLORA_PICKER_PANEL_CSS,
+        preview_css: FLORA_PICKER_PREVIEW_CSS,
+        eyedropper_css: FLORA_PICKER_EYEDROPPER_CSS,
+        grip_handle_css: FLORA_PICKER_GRIP_HANDLE_CSS,
+        slider_focus: decl::focus_halo(LIGHT_ACC, DARK_GLOW).to_vec(),
+        marker: Some("__azul-theme-flora"),
+        theme: super::UiTheme::Flora,
+    }
 }
 
 // ==== date_picker ====

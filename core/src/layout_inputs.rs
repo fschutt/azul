@@ -491,6 +491,9 @@ pub enum NodeField {
     Attributes,
     /// A virtual view's callback and data.
     VirtualView,
+    /// What builds a transient window's content when it is shown: a callback
+    /// and its data.
+    TransientContent,
     /// The widget state it carries.
     Dataset,
     /// An SVG node's geometry or `viewBox`, a clip mask.
@@ -517,7 +520,7 @@ pub enum NodeField {
 
 impl NodeField {
     /// Every row of the table.
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 20] = [
         Self::NodeType,
         Self::Callbacks,
         Self::Style,
@@ -526,6 +529,7 @@ impl NodeField {
         Self::FluentArgs,
         Self::Attributes,
         Self::VirtualView,
+        Self::TransientContent,
         Self::Dataset,
         Self::SvgData,
         Self::MenuBar,
@@ -551,6 +555,7 @@ impl NodeField {
             Self::FluentArgs => "fluent_args",
             Self::Attributes => "attributes",
             Self::VirtualView => "virtual_view",
+            Self::TransientContent => "transient_content",
             Self::Dataset => "dataset",
             Self::SvgData => "svg_data",
             Self::MenuBar => "menu_bar",
@@ -583,7 +588,10 @@ impl NodeField {
             | Self::SvgData
             | Self::Key
             | Self::PartOfParent => Retained::Compared,
+            // (The content of a transient window is asked for where the
+            // window is shown, from the DOM as it is then.)
             Self::VirtualView
+            | Self::TransientContent
             | Self::Dataset
             | Self::Marker
             | Self::DatasetMergeCallback
@@ -641,6 +649,7 @@ impl NodeField {
                 ..none
             },
             Self::VirtualView
+            | Self::TransientContent
             | Self::Dataset
             | Self::MenuBar
             | Self::Marker
@@ -697,6 +706,7 @@ impl NodeField {
             Self::PartOfParent => node.is_part_of_parent().hash(h),
             Self::Style
             | Self::VirtualView
+            | Self::TransientContent
             | Self::Dataset
             | Self::Marker
             | Self::DatasetMergeCallback
@@ -732,6 +742,7 @@ impl NodeField {
             Self::Key => old.get_key() == new.get_key(),
             Self::PartOfParent => old.is_part_of_parent() == new.is_part_of_parent(),
             Self::VirtualView
+            | Self::TransientContent
             | Self::Dataset
             | Self::Marker
             | Self::DatasetMergeCallback
@@ -750,6 +761,7 @@ impl NodeField {
             Self::NodeType => image_callback(node).is_some(),
             Self::Callbacks => !node.callbacks.as_ref().is_empty(),
             Self::VirtualView => extra.is_some_and(|e| e.virtual_view.is_some()),
+            Self::TransientContent => extra.is_some_and(|e| e.transient_content.is_some()),
             Self::Dataset => extra.is_some_and(|e| e.dataset.is_some()),
             Self::MenuBar => extra.is_some_and(|e| e.menu_bar.is_some()),
             Self::ContextMenu => extra.is_some_and(|e| e.context_menu.is_some()),
@@ -793,6 +805,9 @@ impl NodeField {
             Self::Callbacks => to.callbacks = from.callbacks.clone(),
             Self::VirtualView => carry_extra(from, to, |fresh, held| {
                 held.virtual_view.clone_from(&fresh.virtual_view);
+            }),
+            Self::TransientContent => carry_extra(from, to, |fresh, held| {
+                held.transient_content.clone_from(&fresh.transient_content);
             }),
             Self::Dataset => carry_extra(from, to, |fresh, held| {
                 held.dataset.clone_from(&fresh.dataset);
@@ -862,6 +877,14 @@ impl NodeField {
                     .and_then(|extra| extra.virtual_view.as_mut())
                 {
                     view.for_each_refany(visit);
+                }
+            }
+            Self::TransientContent => {
+                if let Some(content) = node
+                    .existing_extra_fields_mut()
+                    .and_then(|extra| extra.transient_content.as_mut())
+                {
+                    content.for_each_refany(visit);
                 }
             }
             Self::Dataset => {

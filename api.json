@@ -12486,6 +12486,22 @@
                             }
                         }
                     },
+                    "TransientContentCallbackType": {
+                        "doc": [
+                            "Type alias for extern \"C\" fn (RefAny) -> Dom: builds the content of a `<transient-window>` when the engine shows it"
+                        ],
+                        "external": "azul_core::callbacks::TransientContentCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Dom"
+                            }
+                        }
+                    },
                     "CoreCallbackType": {
                         "doc": [
                             "Core callback type - uses usize instead of function pointer to avoid circular dependencies. **IMPORTANT**: This is NOT actually a usize at runtime - it's a function pointer that is cast to usize for storage in the data model. When invoking the callback, this usize is unsafely cast back to the actual function pointer type: `extern \"C\" fn(&mut RefAny, &mut CallbackInfo) -> Update` This design allows azul-core to store callbacks without depending on azul-layout's CallbackInfo type. The actual function pointer type is defined in azul-layout as `CallbackType`."
@@ -29108,6 +29124,49 @@
                                 ],
                                 "fn_body": "object.set_merge_callback(callback)"
                             },
+                            "with_transient_content": {
+                                "doc": [
+                                    "Lets the engine ask for the content of this `<transient-window>` when it",
+                                    "shows the window, instead of building it with the DOM around it:",
+                                    "`callback(data)` returns the content, which becomes the last child of the",
+                                    "window's root. A closed popup then costs its DOM one node, not its panel.",
+                                    "",
+                                    "The content is styled by what it carries itself and inherits from the",
+                                    "transient node; rules of a stylesheet around the node do not reach it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "TransientContentCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.with_transient_content(data, callback)"
+                            },
+                            "set_transient_content": {
+                                "doc": [
+                                    "Setter form of `with_transient_content`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "TransientContentCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_transient_content(data, callback)"
+                            },
                             "with_css": {
                                 "doc": [
                                     "Builder method for `set_css`"
@@ -30176,6 +30235,29 @@
                                     }
                                 ],
                                 "fn_body": "object.set_merge_callback(callback)"
+                            },
+                            "set_transient_content": {
+                                "doc": [
+                                    "Lets the engine ask for the content of this `<transient-window>` when it",
+                                    "shows the window, instead of building it with the DOM around it:",
+                                    "`callback(data)` returns the content, which becomes the last child of the",
+                                    "window's root. A closed popup then costs its DOM one node, not its panel.",
+                                    "",
+                                    "The content is styled by what it carries itself and inherits from the",
+                                    "transient node; rules of a stylesheet around the node do not reach it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "TransientContentCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_transient_content(data, callback)"
                             },
                             "get_merge_callback": {
                                 "doc": [
@@ -34576,6 +34658,33 @@
                             {
                                 "cb": {
                                     "type": "VirtualViewCallbackType"
+                                },
+                                "ctx": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TransientContentCallback": {
+                        "doc": [
+                            "C-ABI wrapper over an `TransientContentCallbackType`"
+                        ],
+                        "priority": 54.0,
+                        "external": "azul_core::callbacks::TransientContentCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "TransientContentCallbackType"
                                 },
                                 "ctx": {
                                     "type": "OptionRefAny"
