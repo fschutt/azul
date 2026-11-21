@@ -6003,60 +6003,392 @@ pub(super) fn shadow_spread_px(spread_logical: f32, dpi_factor: f32) -> f32 {
     clippy::needless_range_loop
 )] // a bounded radius and pixel indices
 pub(super) fn dilate_disk(p: &mut AzulPixmap, r: f32) {
-    if r.is_nan() || r <= 0.0 {
+    let (w, h) = (p.width as usize, p.height as usize);
+    dilate_disk_channels(p.data_mut(), w, h, r, 0);
+}
+
+/// [`dilate_disk`] of the channels `first..4` of the RGBA pixels `data`
+/// (`w` x `h`, row by row); the channels before `first` are left as they
+/// are. `first == 3` grows the coverage alone - what a kept halo keeps - for
+/// a quarter of the work: each channel is grown on its own, so the alpha is
+/// the alpha `first == 0` makes.
+///
+/// Each pixel takes, per channel, the strongest `source * weight` of the
+/// pixels with ink (alpha above 0) that the disk around it reaches; a weight
+/// is 256 inside the disk and falls to 0 over its antialiased rim. The disk is
+/// symmetric, so it is done from the sources (a text shadow's buffer is mostly
+/// empty). A row of the disk, `dy` rows from the source, reaches `b` pixels to
+/// each side with weights that never rise with the distance. So a RUN of
+/// sources in one row holding one value gives a pixel of that disk row the
+/// value times the weight at its distance from the nearest pixel of the run (0
+/// inside it): one pass over the run and its `2 b` fringe pixels per disk row,
+/// where every source walked every tap of its disk row (`2 b + 1`) before.
+/// Glyphs have such runs (the inside of a stem, a bar's rows, a flat edge); a
+/// pixel alone is a run of one and costs what it did.
+///
+/// The same bytes as walking every source over every tap: the taps and their
+/// weights are computed by the same expression, a disk row's taps are the
+/// distances `0..=b` (the weight only falls with the distance, so those with
+/// `w > 0` are a prefix), the most of `value * weight(d)` over a run is
+/// `value * weight(nearest d)`, and the result is rounded as before.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::many_single_char_names,
+    clippy::needless_range_loop
+)] // a bounded radius and pixel indices
+fn dilate_disk_channels(data: &mut [u8], w: usize, h: usize, r: f32, first: usize) {
+    if r.is_nan() || r <= 0.0 || first > 3 || w == 0 || h == 0 || data.len() < w * h * 4 {
         return;
     }
     let reach = (r + 0.5).ceil() as i32;
-    // The disk's offsets with their weights, the full ones first. The disk is
-    // symmetric: a tap and its opposite have one weight.
-    let mut taps: Vec<(i32, i32, u32)> = Vec::new();
+    // The disk by rows: `(dy, start, len)` into `weights`, which holds the
+    // row's weights at the distances 0, 1, .. len - 1 from a source.
+    let mut rows: Vec<(i32, usize, usize)> = Vec::new();
+    let mut weights: Vec<u16> = Vec::new();
     for dy in -reach..=reach {
-        for dx in -reach..=reach {
+        let start = weights.len();
+        for dx in 0..=reach {
             let d = ((dx * dx + dy * dy) as f32).sqrt();
-            let w = (r + 0.5 - d).clamp(0.0, 1.0);
-            if w > 0.0 {
-                taps.push((dx, dy, (w * 256.0).round() as u32));
+            let wt = (r + 0.5 - d).clamp(0.0, 1.0);
+            if wt <= 0.0 {
+                break; // and every tap further out in this row
             }
+            weights.push((wt * 256.0).round() as u16);
+        }
+        if weights.len() > start {
+            rows.push((dy, start, weights.len() - start));
         }
     }
-    let (w, h) = (p.width as i32, p.height as i32);
-    let src = p.data.to_vec();
-    // Each pixel takes, per channel, the strongest `source * weight` of the
-    // pixels the disk around it reaches. Done from the SOURCE pixels that have
-    // ink to the pixels they reach - the result is the same, since the disk is
-    // symmetric and a pixel without ink reaches nothing - because a text
-    // shadow's buffer is mostly empty: the glyphs are a tenth of it, and the
-    // other way round every pixel of the buffer walked every tap of the disk
-    // (700 x 100 px at 2x: 70 000 pixels x 80 taps, 200 ms per halo on the UI
-    // thread in a frame that drew 25).
-    let mut best = vec![0u32; (w * h * 4) as usize];
-    for y in 0..h {
-        for x in 0..w {
-            let i = ((y * w + x) * 4) as usize;
-            if src[i + 3] == 0 {
+    // 255 x 256 = 65 280: a product fits a u16.
+    let channels = 4 - first;
+    let mut best = vec![0u16; w * h * channels];
+    for sy in 0..h {
+        let row = &data[sy * w * 4..(sy + 1) * w * 4];
+        let mut x = 0;
+        while x < w {
+            if row[x * 4 + 3] == 0 {
+                x += 1;
                 continue;
             }
-            let px = [
-                u32::from(src[i]),
-                u32::from(src[i + 1]),
-                u32::from(src[i + 2]),
-                u32::from(src[i + 3]),
-            ];
-            for &(dx, dy, weight) in &taps {
-                let (ox, oy) = (x + dx, y + dy);
-                if ox < 0 || oy < 0 || ox >= w || oy >= h {
+            let value = &row[x * 4 + first..x * 4 + 4];
+            let x0 = x;
+            x += 1;
+            while x < w && row[x * 4 + 3] != 0 && row[x * 4 + first..x * 4 + 4] == *value {
+                x += 1;
+            }
+            let x1 = x - 1;
+            for &(dy, start, len) in &rows {
+                let ty = sy as i64 + i64::from(dy);
+                if ty < 0 || ty >= h as i64 {
                     continue;
                 }
-                let o = ((oy * w + ox) * 4) as usize;
-                for c in 0..4 {
-                    best[o + c] = best[o + c].max(px[c] * weight);
+                let ty = ty as usize;
+                grow_run(
+                    &mut best[ty * w * channels..(ty + 1) * w * channels],
+                    value,
+                    (x0, x1),
+                    &weights[start..start + len],
+                );
+            }
+        }
+    }
+    for (i, px) in data.chunks_exact_mut(4).take(w * h).enumerate() {
+        for c in 0..channels {
+            px[first + c] = ((u32::from(best[i * channels + c]) + 128) >> 8).min(255) as u8;
+        }
+    }
+}
+
+/// One disk row of [`dilate_disk_channels`]: the run `x0..=x1` of `value`
+/// (one byte per grown channel) into `target` (one row, `value.len()`
+/// channels a pixel): a pixel `d` from the run's nearest pixel takes
+/// `value * weights[d]` where that is more, for `d` up to `weights.len() - 1`.
+#[inline]
+fn grow_run(target: &mut [u16], value: &[u8], (x0, x1): (usize, usize), weights: &[u16]) {
+    let channels = value.len();
+    let w = target.len() / channels;
+    #[cfg(test)]
+    let mut touched = 0u64;
+    let mut put = |x: usize, weight: u16| {
+        let o = x * channels;
+        for (t, &v) in target[o..o + channels].iter_mut().zip(value) {
+            let grown = u16::from(v) * weight;
+            if grown > *t {
+                *t = grown;
+            }
+        }
+        #[cfg(test)]
+        {
+            touched += 1;
+        }
+    };
+    for x in x0..=x1 {
+        put(x, weights[0]);
+    }
+    for (d, &weight) in weights.iter().enumerate().skip(1) {
+        if let Some(x) = x0.checked_sub(d) {
+            put(x, weight);
+        }
+        if x1 + d < w {
+            put(x1 + d, weight);
+        }
+    }
+    #[cfg(test)]
+    DILATE_TOUCHED.with(|n| n.set(n.get() + touched));
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: the pixels `grow_run` has written on this thread (once per pixel
+    /// and disk row a run reaches), the dilation's work.
+    static DILATE_TOUCHED: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+}
+
+/// Guards of the 2026-11-21 audit, area A8 (`audit/A8.md`): the disk dilation.
+#[cfg(test)]
+mod audit_a8_dilate_tests {
+    use super::*;
+
+    /// `dilate_disk` before A8-01 - every pixel with ink over every tap of
+    /// the disk - kept as the reference. (`dilate_disk_tests::reference`
+    /// keeps the gather before that.)
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+    fn scatter_reference(p: &mut AzulPixmap, r: f32) {
+        if r.is_nan() || r <= 0.0 {
+            return;
+        }
+        let reach = (r + 0.5).ceil() as i32;
+        let mut taps: Vec<(i32, i32, u32)> = Vec::new();
+        for dy in -reach..=reach {
+            for dx in -reach..=reach {
+                let d = ((dx * dx + dy * dy) as f32).sqrt();
+                let w = (r + 0.5 - d).clamp(0.0, 1.0);
+                if w > 0.0 {
+                    taps.push((dx, dy, (w * 256.0).round() as u32));
+                }
+            }
+        }
+        let (w, h) = (p.width as i32, p.height as i32);
+        let src = p.data.to_vec();
+        let mut best = vec![0u32; (w * h * 4) as usize];
+        for y in 0..h {
+            for x in 0..w {
+                let i = ((y * w + x) * 4) as usize;
+                if src[i + 3] == 0 {
+                    continue;
+                }
+                let px = [
+                    u32::from(src[i]),
+                    u32::from(src[i + 1]),
+                    u32::from(src[i + 2]),
+                    u32::from(src[i + 3]),
+                ];
+                for &(dx, dy, weight) in &taps {
+                    let (ox, oy) = (x + dx, y + dy);
+                    if ox < 0 || oy < 0 || ox >= w || oy >= h {
+                        continue;
+                    }
+                    let o = ((oy * w + ox) * 4) as usize;
+                    for c in 0..4 {
+                        best[o + c] = best[o + c].max(px[c] * weight);
+                    }
+                }
+            }
+        }
+        let out = &mut p.data;
+        for (o, b) in best.iter().enumerate() {
+            out[o] = ((b + 128) >> 8).min(255) as u8;
+        }
+    }
+
+    /// A fixed-seed xorshift stream.
+    struct Rng(u64);
+
+    impl Rng {
+        fn below(&mut self, n: u64) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0 % n.max(1)
+        }
+
+        #[allow(clippy::cast_possible_truncation)] // below 256
+        fn byte(&mut self, at_most: u8) -> u8 {
+            self.below(u64::from(at_most) + 1) as u8
+        }
+    }
+
+    /// A `w` x `h` buffer like a shadow's glyphs: transparent, with strokes
+    /// (rectangles of one pixel value: solid insides, partial edges, bars),
+    /// lone pixels of any value, pixels of colour without alpha (which grow
+    /// nothing), and ink on every border. `coloured`: the colour under the
+    /// alpha is random (premultiplied-looking), else it is the alpha (white).
+    #[allow(clippy::cast_possible_truncation)] // bounded by w and h
+    fn glyphs_like(w: u32, h: u32, seed: u64, coloured: bool) -> AzulPixmap {
+        let mut p = AzulPixmap::new_transparent(w, h).expect("a pixmap");
+        let (wu, hu) = (w as usize, h as usize);
+        let mut rng = Rng(seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1);
+        let pixel = |rng: &mut Rng| {
+            let a = if rng.below(2) == 0 { 255 } else { rng.byte(254) + 1 };
+            if coloured {
+                [rng.byte(a), rng.byte(a), rng.byte(a), a]
+            } else {
+                [a, a, a, a]
+            }
+        };
+        let data = p.data_mut();
+        let put = |data: &mut [u8], x: usize, y: usize, px: [u8; 4]| {
+            if x < wu && y < hu {
+                data[(y * wu + x) * 4..(y * wu + x) * 4 + 4].copy_from_slice(&px);
+            }
+        };
+        for _ in 0..(wu * hu / 150 + 3) {
+            let px = pixel(&mut rng);
+            let (x0, y0) = (rng.below(w.into()) as usize, rng.below(h.into()) as usize);
+            let (len, thick) = if rng.below(2) == 0 {
+                (rng.below(u64::from(w) / 2 + 1) as usize + 1, rng.below(4) as usize + 1)
+            } else {
+                (rng.below(4) as usize + 1, rng.below(u64::from(h) / 2 + 1) as usize + 1)
+            };
+            for y in y0..y0 + thick {
+                for x in x0..x0 + len {
+                    put(data, x, y, px);
+                }
+            }
+        }
+        for _ in 0..(wu * hu / 40 + 2) {
+            let px = pixel(&mut rng);
+            put(data, rng.below(w.into()) as usize, rng.below(h.into()) as usize, px);
+        }
+        for _ in 0..(wu * hu / 200 + 1) {
+            let rgb = [rng.byte(255), rng.byte(255), rng.byte(255), 0];
+            put(data, rng.below(w.into()) as usize, rng.below(h.into()) as usize, rgb);
+        }
+        for i in 0..wu.max(hu) {
+            let px = pixel(&mut rng);
+            match i % 4 {
+                0 => put(data, i % wu, 0, px),
+                1 => put(data, i % wu, hu - 1, px),
+                2 => put(data, 0, i % hu, px),
+                _ => put(data, wu - 1, i % hu, px),
+            }
+        }
+        p
+    }
+
+    /// Quarter-pixel radii 0 ..= 8, the radii whose `r + 0.5` is a whole
+    /// pixel, and two large ones.
+    fn radii() -> Vec<f32> {
+        #[allow(clippy::cast_precision_loss)] // 0 ..= 32
+        let mut r: Vec<f32> = (0..=32).map(|i| i as f32 * 0.25).collect();
+        r.extend([0.1, 1.5, 3.5, 12.0, 17.3]);
+        r
+    }
+
+    /// A8-01: the run dilation makes the bytes the scatter made, for every
+    /// radius and buffer shape (one pixel, one row, one column, borders full
+    /// of ink, colour without alpha, empty).
+    /// Mutation: `weights[0]` -> `weights[1]` for a run's own pixels in
+    /// `grow_run`, or `<=` -> `<` in the `break` of the disk rows, fails it.
+    #[test]
+    fn a_disk_grown_by_runs_is_the_disk_grown_by_pixels() {
+        let shapes = [(1, 1), (1, 23), (23, 1), (2, 2), (17, 9), (40, 16)];
+        for (w, h) in shapes {
+            for seed in 1..=2 {
+                for coloured in [false, true] {
+                    for r in radii() {
+                        let mut fast = glyphs_like(w, h, seed, coloured);
+                        let mut slow = glyphs_like(w, h, seed, coloured);
+                        dilate_disk(&mut fast, r);
+                        scatter_reference(&mut slow, r);
+                        assert!(
+                            fast.data() == slow.data(),
+                            "{w} x {h}, seed {seed}, coloured {coloured}, radius {r}: bytes differ"
+                        );
+                    }
+                }
+            }
+        }
+        for r in [1.0_f32, 2.25, 4.5, 8.0] {
+            let mut fast = glyphs_like(130, 40, 7, true);
+            let mut slow = glyphs_like(130, 40, 7, true);
+            dilate_disk(&mut fast, r);
+            scatter_reference(&mut slow, r);
+            assert!(fast.data() == slow.data(), "130 x 40, radius {r}: bytes differ");
+        }
+        let mut empty = AzulPixmap::new_transparent(30, 20).expect("a pixmap");
+        dilate_disk(&mut empty, 3.0);
+        assert!(empty.data().iter().all(|b| *b == 0), "nothing grows from nothing");
+    }
+
+    /// A8-04: growing the alpha alone (`first == 3`) makes the alpha that
+    /// growing every channel makes, and leaves the colour as it was; and after
+    /// the stack blur too, which also treats each channel on its own. What a
+    /// kept halo keeps.
+    /// Mutation: `px[first + c]` -> `px[c]` in the write-back fails it.
+    #[test]
+    fn growing_the_alpha_alone_grows_the_alpha_the_whole_pixels_grow() {
+        let alpha = |p: &AzulPixmap| p.data().chunks_exact(4).map(|px| px[3]).collect::<Vec<u8>>();
+        let colour = |p: &AzulPixmap| {
+            p.data()
+                .chunks_exact(4)
+                .flat_map(|px| [px[0], px[1], px[2]])
+                .collect::<Vec<u8>>()
+        };
+        for (w, h) in [(1, 9), (17, 9), (40, 16)] {
+            for r in radii() {
+                for blur in [0_u32, 1, 3] {
+                    let before = glyphs_like(w, h, 3, true);
+                    let mut whole = glyphs_like(w, h, 3, true);
+                    let mut alone = glyphs_like(w, h, 3, true);
+                    dilate_disk(&mut whole, r);
+                    dilate_disk_channels(alone.data_mut(), w as usize, h as usize, r, 3);
+                    if blur == 0 {
+                        assert_eq!(colour(&alone), colour(&before), "{w} x {h}, radius {r}");
+                    }
+                    for p in [&mut whole, &mut alone] {
+                        if blur > 0 {
+                            let stride = (w * 4) as i32;
+                            let mut ra = unsafe {
+                                RowAccessor::new_with_buf(p.data_mut().as_mut_ptr(), w, h, stride)
+                            };
+                            stack_blur_rgba32(&mut ra, blur, blur);
+                        }
+                    }
+                    assert_eq!(alpha(&alone), alpha(&whole), "{w} x {h}, radius {r}, blur {blur}");
                 }
             }
         }
     }
-    let out = &mut p.data;
-    for (o, b) in best.iter().enumerate() {
-        out[o] = ((b + 128) >> 8).min(255) as u8;
+
+    /// A8-01: the work follows the runs, not the disk's area. A solid 64 x 16
+    /// block (one run a row), grown by 2 and by 8 px: the pixels written are
+    /// 5,376 and 20,736 (x 3.9); one run per pixel, as every pixel walked
+    /// every tap before, it is 21,504 and 230,400 (x 10.7).
+    /// Mutation: end every run after one pixel (`x0 == x1`) fails it.
+    #[test]
+    fn the_dilation_work_grows_with_the_radius_not_with_the_disk_area() {
+        let work = |r: f32| {
+            let (w, h) = (64 + 2 * 10, 16 + 2 * 10);
+            let mut p = AzulPixmap::new_transparent(w, h).expect("a pixmap");
+            let data = p.data_mut();
+            for y in 10..26 {
+                for x in 10..74 {
+                    data[(y * w as usize + x) * 4..(y * w as usize + x) * 4 + 4]
+                        .copy_from_slice(&[255; 4]);
+                }
+            }
+            DILATE_TOUCHED.with(|n| n.set(0));
+            dilate_disk(&mut p, r);
+            DILATE_TOUCHED.with(core::cell::Cell::get)
+        };
+        let (small, large) = (work(2.0), work(8.0));
+        assert_eq!(small, 5_376, "5 disk rows x 16 runs x (64 + 2 b)");
+        assert_eq!(large, 20_736);
+        assert!(large < 6 * small, "{large} vs {small}: the work grows with the disk area");
     }
 }
 
