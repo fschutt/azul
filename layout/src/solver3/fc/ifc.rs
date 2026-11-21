@@ -1281,8 +1281,10 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
     // (`shape_content`), then broken, positioned and reported
     // (`ParagraphToBreak`, `lay_out_shaped_ifc`), the same functions a
     // relayout after an edit runs.
-    // Get pre-loaded fonts from font manager (fonts should be loaded before layout)
-    let loaded_fonts = ctx.font_manager.get_loaded_fonts();
+    // Get pre-loaded fonts from font manager (fonts should be loaded before
+    // layout): asked once per pass (`LayoutContext::loaded_fonts`), not once
+    // per inline formatting context.
+    let loaded_fonts = ctx.loaded_fonts();
     let flow_probe = crate::probe::Probe::span("text_layout_flow");
     let shaped = text_cache.shape_content(
         &inline_content,
@@ -1766,7 +1768,7 @@ pub(crate) fn flow_paragraph<T: ParsedFontTrait>(
     {
         text3_constraints.text_indent = 0.0;
     }
-    let loaded_fonts = ctx.font_manager.get_loaded_fonts();
+    let loaded_fonts = ctx.loaded_fonts();
     let (logical_items, shaped_items) = text_cache
         .shape_content(
             &content,

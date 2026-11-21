@@ -217,12 +217,46 @@ use crate::{
 /// never change again. Not for anything that must outlive the pass (that is
 /// `cache::LayoutCache`) or that another pass could read by mistake: a slot is
 /// empty at the start of every pass by construction.
-#[derive(Debug, Default)]
-pub struct PassMemo {
+pub struct PassMemo<T> {
     /// `fc::layout_bfc`'s slot.
     pub bfc: fc::BfcPassMemo,
     /// The taffy bridge's slot.
     pub taffy: taffy_bridge::TaffyPassMemo,
+    /// The fonts the font manager holds, as the first ask of the pass found
+    /// them ([`LayoutContext::loaded_fonts`]). `T` is the context's font
+    /// type, which is why this struct has it.
+    #[cfg(feature = "text_layout")]
+    loaded_fonts: core::cell::OnceCell<Arc<crate::text3::cache::LoadedFonts<T>>>,
+    #[cfg(not(feature = "text_layout"))]
+    loaded_fonts: core::marker::PhantomData<T>,
+}
+
+// By hand: a derive would ask `T: Default` / `T: Debug`, which no slot needs.
+impl<T> Default for PassMemo<T> {
+    fn default() -> Self {
+        Self {
+            bfc: fc::BfcPassMemo::default(),
+            taffy: taffy_bridge::TaffyPassMemo::default(),
+            loaded_fonts: Default::default(),
+        }
+    }
+}
+
+impl<T> core::fmt::Debug for PassMemo<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PassMemo")
+            .field("bfc", &self.bfc)
+            .field("taffy", &self.taffy)
+            .finish_non_exhaustive()
+    }
+}
+
+/// How often a pass asked the font manager for the fonts it holds
+/// ([`LayoutContext::loaded_fonts`]) on this thread (`audit_tests::a3_solver`:
+/// once per context, not once per inline formatting context).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static LOADED_FONTS_ASKS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
 /// Central context for a single layout pass.
@@ -343,10 +377,31 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     pub scrollbar_style_cache:
         core::cell::RefCell<HashMap<NodeId, getters::ComputedScrollbarStyle>>,
     /// What this pass keeps for itself ([`PassMemo`]).
-    pub pass_memo: PassMemo,
+    pub pass_memo: PassMemo<T>,
 }
 
 impl<T: ParsedFontTrait> LayoutContext<'_, T> {
+    /// The fonts the font manager holds (`FontManager::get_loaded_fonts`),
+    /// asked for ONCE per pass and kept.
+    ///
+    /// The fonts a text needs are loaded before its layout pass starts, so
+    /// the pool does not change under one. Asking the manager is two mutex
+    /// locks and a fold over every loaded face (its memo's check): every
+    /// inline formatting context asked twice per pass, 12,000 labels 24,000
+    /// times. A face registered while a pass runs (another thread) is seen by
+    /// the pass that follows - `text3::fontreg::generation` lays that one out
+    /// cold - instead of by the boxes of this pass that happened to come
+    /// after it.
+    #[cfg(feature = "text_layout")]
+    #[must_use]
+    pub fn loaded_fonts(&self) -> Arc<crate::text3::cache::LoadedFonts<T>> {
+        Arc::clone(self.pass_memo.loaded_fonts.get_or_init(|| {
+            #[cfg(test)]
+            LOADED_FONTS_ASKS.with(|n| n.set(n.get() + 1));
+            self.font_manager.get_loaded_fonts()
+        }))
+    }
+
     /// The one overlay→DOM content read order for this context's DOM.
     /// Layout (intrinsic sizing) and display-list build resolve node content
     /// exclusively through this — never via `NodeType::Image` directly.

@@ -955,6 +955,27 @@ fn labels_that_only_moved_keep_their_boxes_when_the_shell_rebuilds_the_page() {
     assert_as_in_a_fresh_layout(&lw, &fresh, &[2, 3, 100, 101, 102, 2 * k, 2 * k + 1]);
 }
 
+/// A3-solver-42 (A8-13). Every inline formatting context asked the font manager for the fonts
+/// it holds (`FontManager::get_loaded_fonts`: two mutex locks and a fold over every loaded
+/// face) when its lines were laid out. A pass asks once and keeps the answer
+/// (`LayoutContext::loaded_fonts`).
+///
+/// Mutation: `loaded_fonts` asking the manager on every call asks once per label.
+#[test]
+fn a_pass_asks_the_font_manager_for_its_fonts_once() {
+    use crate::solver3::LOADED_FONTS_ASKS;
+    let mut lw = window();
+    LOADED_FONTS_ASKS.with(|n| n.set(0));
+    lay_out(&mut lw, layer_of_absolute_spans(200));
+    let asks = LOADED_FONTS_ASKS.with(std::cell::Cell::get);
+    let nodes = lw.layout_results[&DomId::ROOT_ID].layout_tree.nodes.len();
+    assert!(nodes >= 400, "harness: the 200 labels and their texts have boxes ({nodes})");
+    assert!(
+        (1..=4).contains(&asks),
+        "one layout of 200 labels asked the font manager for its fonts {asks} times"
+    );
+}
+
 // The guards of the second round, one file per part of the solver (`a3_solver/*.rs`).
 mod ifc;
 mod sizing;
