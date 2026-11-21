@@ -2149,20 +2149,22 @@ fn halo_pixels(
     glyph_cache: &mut GlyphCache,
 ) -> Option<(PixelBox, Vec<u8>)> {
     #[cfg(test)]
-    if HALO_FROM_THE_WHOLE_BOX.with(Cell::get) {
-        let whole = blurred_glyphs(
-            runs,
-            ColorU::WHITE,
-            buffer,
-            radius,
-            spread,
-            renderer_resources,
-            font_manager,
-            dpi,
-            glyph_cache,
-            (0.0, 0.0),
-        )?;
-        return Some((buffer, whole.data().to_vec()));
+    {
+        if HALO_FROM_THE_WHOLE_BOX.with(Cell::get) {
+            let whole = blurred_glyphs(
+                runs,
+                ColorU::WHITE,
+                buffer,
+                radius,
+                spread,
+                renderer_resources,
+                font_manager,
+                dpi,
+                glyph_cache,
+                (0.0, 0.0),
+            )?;
+            return Some((buffer, whole.data().to_vec()));
+        }
     }
     let (part, coverage) = blurred_glyph_coverage(
         runs,
