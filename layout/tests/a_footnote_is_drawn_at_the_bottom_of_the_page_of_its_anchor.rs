@@ -429,7 +429,7 @@ fn an_export_draws_the_note_at_the_bottom_of_its_page_above_nothing() {
     // and its text was in no page of the PDF.
     let (result, _, _) = pages_with(
         &html(&format!(
-            "<p>one<br/>two<span class=\"fn\"><sup>1</sup> A first note</span><br/>three</p>{}",
+            "<p>one<br/>two<span class=\"fn\"><sup>1</sup> A label note</span><br/>three</p>{}",
             blocks(6, 40)
         )),
         export_config(),
@@ -452,7 +452,9 @@ fn an_export_draws_the_note_at_the_bottom_of_its_page_above_nothing() {
         .collect();
     assert_eq!(notes.len(), 1, "one text block below the flow: {blocks_of_page:?}");
     let (note, items) = notes[0];
-    assert_eq!(*items, Some(14), "`1 A first note`");
+    // Glyphs are counted, so the words hold no pair of letters a font may set as one glyph: with
+    // "first" ("fi") the fonts of the CI run of 2026-11-21 gave one glyph fewer (13, not 14).
+    assert_eq!(*items, Some(14), "`1 A label note`");
     assert!(
         (note.origin.y - flow_end).abs() < 0.01 && note.origin.y + note.size.height <= PAGE + 0.01,
         "the note stands from the end of the flow ({flow_end}) to the bottom edge: {note:?}"

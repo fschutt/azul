@@ -161,7 +161,7 @@ fn in_a_window_no_mark_is_generated() {
     // Continuous media: the element stays in the flow (`float: none`), and
     // there is nothing to call and nothing to mark.
     let lw = crate::table_markup::laid_out(
-        &html("", "<p id=\"p\">one<span class=\"fn\">first</span></p>"),
+        &html("", "<p id=\"p\">one<span class=\"fn\">label</span></p>"),
         800.0,
         600.0,
     );
@@ -173,7 +173,9 @@ fn in_a_window_no_mark_is_generated() {
         })
         .sum::<usize>()
         .to_string();
-    assert_eq!(text, "8", "`one` and `first`, no `1` and no `1. `");
+    // Glyphs are counted, so the words hold no pair of letters a font may set as one glyph: with
+    // "first" ("fi") the fonts of the CI run of 2026-11-21 gave one glyph fewer (7, not 8).
+    assert_eq!(text, "8", "`one` and `label`, no `1` and no `1. `");
 }
 
 #[test]
