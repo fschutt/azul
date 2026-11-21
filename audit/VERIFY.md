@@ -225,50 +225,45 @@ core, 7 failing (all new tests of diff-first, `cfc4d6d72`; messages verbatim in 
 ## State for a successor (CURRENT; kept by the second verifier, who took over at `a23a72fde`)
 
 <!-- STATE-BEGIN -->
-**VERIFIED COMMIT of the checkpoint (milestone 5): `98a2ebd8bd2508c8f2703679c138b1c4929d22ac`** (`audit/integration`; the commits after it
-change `audit/VERIFY.md` only). NOT green (core 3143 / 1, one layout test race): NOTHING IS PUSHED. The gate
-table and the open items: "MILESTONE 5" at the end of the log.
+**azul: MILESTONE 6 is GREEN** on the merge `5b7f319a3` (`audit/diff-first` at `3afb0f554` on the checkpoint
+commit); table at the end of the log. The coordinator decides the push (the verifier pushes NOTHING).
+**The checkpoint build** (milestone 5 tree): azul `98a2ebd8bd2508c8f2703679c138b1c4929d22ac`, m4p
+`audit/integration` `8cf454d` (+ `22725f9`), binary `~/Development/m4p-bin/mapedit3-8cf454d`. On it: editor tests
+233 / 2, e2e 7 ok / 6 failed (verbatim in the log, "Pin pass"): with the coordinator, not triaged.
 
 Merged since the first verifier's hand-over: `audit/A4` at `a1fc02edf`, `audit/A3-solver` at `79a700d1f`,
 `audit/A1` at `6c4d7265a` and `269117619`, `audit/A3-window` at `1af12829a`, `audit/diff-first` at `8e7a62d2c`,
-`bf43a5e96` and `8e9ead705`. Verifier commits: `2f34d89fa`, `b1a7898b2`, `270e178c9`, `13545f86c`, `35d1d70c5`,
-`98a2ebd8b` (listed with reasons under "MILESTONE 5").
+`bf43a5e96`, `8e9ead705`, `3afb0f554`. Verifier commits: `2f34d89fa`, `b1a7898b2`, `270e178c9`, `13545f86c`,
+`35d1d70c5`, `98a2ebd8b` (reasons under "MILESTONE 5").
 
-What runs now / next: the editor's PIN PASS (the coordinator's word; no push), in
-`<scratchpad>/wt/m4p-integration` on its branch `audit/integration`, per `audit/PIN_PASS.md` there:
-- pin `98a2ebd8bd2508c8f2703679c138b1c4929d22ac` in the four `rev` lines of `mapedit3/Cargo.toml` (the URL stays GitHub's);
-  cargo finds the unpushed commit through the environment, in front of every cargo command that may fetch:
-  `CARGO_NET_GIT_FETCH_WITH_CLI=true GIT_CONFIG_COUNT=1
-  GIT_CONFIG_KEY_0=url.file:///Users/fschutt/Development/azul-m4p.insteadOf
-  GIT_CONFIG_VALUE_0=https://github.com/fschutt/azul`;
-- bindings: only what the editor needs (the Rust outputs; `<azul worktree>/target/codegen` holds them for the
-  `api.json` of this tree if `git diff f55c9cd9f 98a2ebd8b -- api.json` is empty), not the 0.9 GB `codegen all`;
-- default features, lock files, `cargo check`, `cargo check --features e2e`, `cargo test --bin mapedit3`, the
-  release build into `CARGO_TARGET_DIR=$HOME/Development/m4p/mapedit3/target` (tell the coordinator BEFORE the
-  first cargo command: it frees space), `scripts/e2e.sh` headless, the budgets calibration, `perf_matrix.py`
-  three times (default; `AZ_DL_TRANSLATE_MOVED_RUNS=1`; `AZ_MOVE_IN_PLACE=0`), the release binary copied to
-  `~/Development/m4p-bin/mapedit3-<short m4p hash>`; commits on the m4p branch, not pushed.
-The progress of the pin pass is logged at the end of this file ("Pin pass").
+NEXT, in this order (the coordinator's steps 4 and 5; wait for its word after milestone 6: it pushes first):
+1. Move the editor's pin to the commit the coordinator names (m4p worktree `<scratchpad>/wt/m4p-integration`,
+   branch `audit/integration`): the four `rev` lines of `mapedit3/Cargo.toml` and the two hashes in the comment
+   and in `[features]`; `source <scratchpad>/verify/pinenv.sh` (exports `CARGO_TARGET_DIR` = the shared editor
+   target, `AZ_CODEGEN_DIR` = the worktree's bindings, the insteadOf fetch rewrite: harmless once the commit is on
+   GitHub; `prun <log> <cargo args>` runs cargo in `mapedit3/` through `cg`); `cargo update -p azul-dll` (or
+   the first build) moves the eight azul packages in `mapedit3/Cargo.lock`; bindings: `api.json` is unchanged
+   (check `git diff 98a2ebd8b <new> -- api.json`), so only `mapedit3/target/azul-codegen/.rev` gets the new hash.
+2. `prun NN build --release -j 2` (6 min); commit the pin on m4p; copy `~/Development/m4p/mapedit3/target/release/
+   mapedit3` to `~/Development/m4p-bin/mapedit3-<new short m4p hash>`; one line to the coordinator.
+3. `cd <worktree>/mapedit3 && scripts/e2e.sh > <log> 2>&1` (pinenv sourced; never under `cg`; 7 min build + 5 min);
+   compare with the six failing scenarios of the checkpoint build.
+4. Budgets: `python3 -I scripts/budgets.py calibrate --keep-logs <dir>` then `--apply` (PIN_PASS.md section 7);
+   a missed `equals` or a FAILS row is a finding, not a number to raise.
+5. `python3 -I scripts/perf_matrix.py` three times (default; with `AZ_DL_TRANSLATE_MOVED_RUNS=1`; with
+   `AZ_MOVE_IN_PLACE=0` in the environment), `--out` three directories; the coordinator wants the settle and the
+   label-drag rows compared. Needs `target/e2e/mapedit3-e2e` (made by e2e.sh) and `target/samples` (a symlink).
+6. At the very end: `prun NN build --release -j 2` once more so that the shared
+   `~/Development/m4p/mapedit3/target/release/mapedit3` is the final PLAIN release build of the new pin (e2e.sh
+   overwrites it with the e2e-feature build); tell the coordinator its sha256 and the m4p hash.
+Disk: 9.8 GB free; stop line 9 GB before a build (ask the coordinator: it can free 0.6 GB of the old pin's units).
+The azul target directory `<scratchpad>/azul-target` (3.5 GB) is only needed for a second round of azul merges.
 
 Second round (only on the coordinator's word): `audit/A5` `dbde1ccf5`, `audit/dom-builder`, `audit/A10` and
-`audit/A8` beyond what is merged, the diff-first successor's fix for the open core test, the font test race,
-the fixture of `a_box_that_moved_in_a_pass_...`. After each merge: build, the named tests, the area's module,
-then the gate again (`<scratchpad>/verify/gate2.sh` runs it as one chain into `gate2.txt`).
-Build notes: `source <scratchpad>/verify/env.sh` (`run <log> <cargo args>` appends `-j 2`, so no `--` test
-arguments through it: run the built binary instead, cwd = the crate, `CARGO_MANIFEST_DIR` set); before a build
-delete stale binaries (`find $S/azul-target/debug/deps -maxdepth 1 -type f -perm +111 ! -name '*.dylib'
--delete; rm -f $S/azul-target/debug/deps/libazul.a $S/azul-target/debug/deps/libazul.dylib`). Disk: about 9.8 GB
-free with the target directory at 3.5 GB; `run` refuses under 9 GB.
-AFTER the checkpoint (the coordinator's order, in sequence): (1) `scripts/e2e.sh` on the checkpoint build, one
-line to the coordinator; (2) azul: `audit/diff-first` at `3afb0f554` is merged (`5b7f319a3`); run
-`<scratchpad>/verify/gate3.sh` (results in `gate3.txt`), MILESTONE 6 with the new verified commit (full hash); if
-green apart from the font test race the coordinator pushes; (3) on its word: the editor's pin to that commit (four
-rev lines, lock via `cargo update -p azul-dll` or any build; bindings unchanged if `api.json` is), plain release
-build, the binary to `~/Development/m4p-bin/mapedit3-<new short m4p hash>`, `scripts/e2e.sh` again, the budgets
-calibration (`python3 -I mapedit3/scripts/budgets.py calibrate --keep-logs <dir>`, then `--apply`), `perf_matrix.py`
-three ways (default; `AZ_DL_TRANSLATE_MOVED_RUNS=1`; `AZ_MOVE_IN_PLACE=0`); (4) at the end leave the shared
-`~/Development/m4p/mapedit3/target/release/mapedit3` as the final PLAIN release build of the new pin and tell the
-coordinator its hash.
+`audit/A8` beyond what is merged, the font test race, the fixture of `a_box_that_moved_in_a_pass_...`. After each
+merge: build, the named tests, the area's module, then the gate (`gate2.sh` = the full chain, `gate3.sh` = without
+css and the cross checks). `run <log> <cargo args>` of `env.sh` appends `-j 2`: no `--` test arguments through it
+(run the built binary instead, cwd = the crate, `CARGO_MANIFEST_DIR` set); delete stale test binaries first.
 <!-- STATE-END -->
 
 ## State for a successor (the FIRST verifier's hand-over at `a23a72fde`; superseded by the section above)
@@ -607,3 +602,27 @@ GIT_CONFIG_VALUE_0=https://github.com/fschutt/azul` (cargo found `98a2ebd8b` wit
   `core/src/styled_dom_test.rs`). The gate for it: `<scratchpad>/verify/gate3.sh` -> `gate3.txt` (core lib, core
   `--tests`, layout lib + `tests/all`, dll lib, `headless_lifecycle`; css, the cross checks and the fork stand:
   untouched by a core-only commit). Started after the e2e scenarios (one build at a time).
+
+### MILESTONE 6: the gate after diff-first-19's completion (GREEN)
+
+Verified tree: the merge `5b7f319a3` (`audit/diff-first` at `3afb0f554` on the checkpoint commit `98a2ebd8b`);
+every commit after it changes `audit/VERIFY.md` only (`git diff --stat 5b7f319a3 HEAD`). The verified COMMIT is
+the one that adds this section (the coordinator has its full hash). Chain `<scratchpad>/verify/gate3.sh` ->
+`gate3.txt`, logs `100-` .. `104-`.
+
+| suite | command | passed | failed | ignored | note |
+|---|---|---|---|---|---|
+| core lib | `cargo test -p azul-core --lib --no-fail-fast` | 3145 | 0 | 0 | `a_state_that_hands_a_colour_down_costs_no_other_node_what_it_inherits` is green; new `a_state_hands_down_a_property_whose_copy_survives_the_prune` |
+| core integration | `cargo test -p azul-core --tests --no-fail-fast` | every target | 0 | | `tests/css_inheritance.rs` among them |
+| layout lib | `cargo test -p azul-layout --features e2e-server --lib --test all --no-fail-fast` | 10910 | 0 | 1 | the font test race did not occur in this run (open as a test race, second round) |
+| layout `tests/all` | (same command) | 3060 | 0 | 5 | |
+| dll lib | `cargo test -p azul-dll --lib --no-fail-fast` | 3864 | 0 | 9 | |
+| dll `headless_lifecycle` | `cargo test -p azul-dll --test headless_lifecycle` | 8 | 0 | 0 | |
+| css lib | stands from milestone 5 (2942 / 0 on `ad353db9a`): `css/` untouched since | | | | |
+| Linux / Windows | stand from milestone 5 (0 errors each on `ad353db9a`): the commits since change `core/src/prop_cache.rs` (no platform code) and tests | | | | |
+| fork | stands (107 / 0; `webrender/` is tree `9d963f70` still) | | | | |
+
+Open after milestone 6: the font-registry TEST race (`text3::fontreg::tests::a_face_registered_once_is_put_in_a_
+cache_under_one_id`; 1 failure in 9 whole runs of the lib); the fixture of `a_box_that_moved_in_a_pass_...`; on the
+EDITOR side: 6 failing e2e scenarios and 2 failing unit tests of the checkpoint build (above, with the
+coordinator).
