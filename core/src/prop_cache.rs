@@ -356,7 +356,7 @@ macro_rules! match_property_value {
 /// Replaces the per-pseudo-state `BTreeMap` approach: instead of 6 `BTreeMaps`
 /// per node (Normal/Hover/Active/Focus/Dragging/DragOver), we store one Vec
 /// per node and tag each property with its state. Lookups use `.iter().find()`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StatefulCssProperty {
     pub state: azul_css::dynamic_selector::PseudoStateType,
     pub prop_type: CssPropertyType,
@@ -634,23 +634,54 @@ impl<T> FlatVecVec<T> {
     /// is rebuilt wholesale by `sort_each_and_flatten` / `retain`, never patched
     /// in place.
     ///
-    /// The run table is scanned linearly and CAPPED: distinct runs are few in
-    /// practice (a stylesheet has far fewer rule combinations than nodes), and
-    /// the cap turns the pathological case into "stops deduplicating" rather
-    /// than into quadratic time.
+    /// The run table is CAPPED: distinct runs are few in practice (a
+    /// stylesheet has far fewer rule combinations than nodes), and beyond the
+    /// cap new runs are stored without being recorded.
+    ///
+    /// A node's run is looked for in two steps, neither of which reads the
+    /// table: the run the node before it had (nodes of one rule set come one
+    /// after the other: the labels of a text style), then the recorded runs
+    /// filed under a key of the run's length and its first and last entry.
+    /// The table used to be read from its start for every node: nodes x
+    /// distinct runs when the rule sets alternate (the cells of a table with
+    /// a class per column, a list whose rows cycle through styles). Which run
+    /// is found does not depend on the order they are tried in: a run is
+    /// recorded once, so the one that equals is the same.
     fn dedup_runs(&mut self)
     where
-        T: Clone + PartialEq,
+        T: Clone + PartialEq + core::hash::Hash,
     {
         /// Beyond this many distinct runs, stop recording new ones. Existing
         /// runs are still reused, so the result is partial sharing, never wrong.
         const MAX_RUNS: usize = 1024;
+
+        /// Is the recorded run `(start, len)` of `data` the run `run`?
+        fn same<T: PartialEq>(data: &[T], (rs, rl): (u32, u32), run: &[T]) -> bool {
+            #[cfg(all(test, feature = "std"))]
+            RUN_COMPARES.with(|c| c.set(c.get() + 1));
+            rl as usize == run.len() && data[rs as usize..(rs + rl) as usize] == *run
+        }
+
+        /// What a run is filed under: its length, its first and its last entry.
+        fn key_of<T: core::hash::Hash>(run: &[T]) -> u64 {
+            use core::hash::{Hash, Hasher};
+            let mut h = crate::hash::FastHasher::new();
+            run.len().hash(&mut h);
+            run.first().hash(&mut h);
+            run.last().hash(&mut h);
+            h.finish()
+        }
 
         if self.offsets.is_empty() {
             return;
         }
         let mut new_data: Vec<T> = Vec::new();
         let mut runs: Vec<(u32, u32)> = Vec::new();
+        // The recorded runs (their indices in `runs`) by `key_of`.
+        let mut by_key: alloc::collections::BTreeMap<u64, Vec<u32>> =
+            alloc::collections::BTreeMap::new();
+        // The recorded run the node before this one had.
+        let mut last: Option<usize> = None;
         let mut new_offsets = Vec::with_capacity(self.offsets.len());
 
         for &(start, len) in &self.offsets {
@@ -660,17 +691,34 @@ impl<T> FlatVecVec<T> {
             }
             let s = start as usize;
             let run = &self.data[s..s + len as usize];
-            let existing = runs
-                .iter()
-                .copied()
-                .find(|&(rs, rl)| rl == len && new_data[rs as usize..(rs + rl) as usize] == *run);
-            if let Some((rs, rl)) = existing {
-                new_offsets.push((rs, rl));
+            let mut existing = last.filter(|at| same(&new_data, runs[*at], run));
+            let mut key = None;
+            if existing.is_none() {
+                let k = key_of(run);
+                existing = by_key.get(&k).and_then(|filed| {
+                    filed
+                        .iter()
+                        .map(|at| *at as usize)
+                        .find(|at| Some(*at) != last && same(&new_data, runs[*at], run))
+                });
+                key = Some(k);
+            }
+            if let Some(at) = existing {
+                new_offsets.push(runs[at]);
+                last = Some(at);
                 continue;
             }
             let ns = u32::try_from(new_data.len()).unwrap_or(u32::MAX);
             new_data.extend_from_slice(run);
+            last = None;
             if runs.len() < MAX_RUNS {
+                if let Some(k) = key {
+                    by_key
+                        .entry(k)
+                        .or_default()
+                        .push(u32::try_from(runs.len()).unwrap_or(u32::MAX));
+                }
+                last = Some(runs.len());
                 runs.push((ns, len));
             }
             new_offsets.push((ns, len));
@@ -687,7 +735,7 @@ impl<T> FlatVecVec<T> {
     /// Drains all build-phase Vecs. After this call, only `get_slice()` works.
     pub fn sort_each_and_flatten<K: Ord + Eq>(&mut self, key_fn: impl Fn(&T) -> K)
     where
-        T: Clone + PartialEq,
+        T: Clone + PartialEq + core::hash::Hash,
     {
         let node_count = self.build.len();
         let total: usize = self.build.iter().map(alloc::vec::Vec::len).sum();
@@ -750,7 +798,7 @@ impl<T> FlatVecVec<T> {
     /// Must be called after flatten. Preserves per-node ordering.
     pub fn retain(&mut self, predicate: impl Fn(&T) -> bool)
     where
-        T: Clone + PartialEq,
+        T: Clone + PartialEq + core::hash::Hash,
     {
         if self.offsets.is_empty() {
             return;
@@ -892,6 +940,29 @@ impl<'a, T> Iterator for FlatVecVecIter<'a, T> {
 
 impl<T> ExactSizeIterator for FlatVecVecIter<'_, T> {}
 
+#[cfg(all(test, feature = "std"))]
+std::thread_local! {
+    /// How many recorded runs `FlatVecVec::dedup_runs` compared a node's run
+    /// with on this thread: what the size sweep of the tests reads to say
+    /// nodes of one rule set do not each read the table of runs.
+    pub(crate) static RUN_COMPARES: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+}
+
+#[cfg(all(test, feature = "std"))]
+std::thread_local! {
+    /// How many buckets of [`InheritedValues`] stores this thread looked at
+    /// to read or place values (`values_for`: all of them; placing a value:
+    /// its parent's, else the ones under its hash): what the size sweep of
+    /// the tests reads to say the inheritance pass does not look at every
+    /// distinct value of the DOM for every node.
+    pub(crate) static INHERITED_BUCKET_READS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+    /// How many times `CssPropertyCache::generate_tag_ids` walked a DOM on
+    /// this thread.
+    pub(crate) static TAG_ID_PASSES: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+    /// How many buckets [`InheritedValues::get`] searched on this thread.
+    pub(crate) static INHERITED_GET_READS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+}
+
 /// The slow path's inherited-value store, TRANSPOSED: one copy of each distinct
 /// value plus the nodes that resolve to it.
 ///
@@ -918,6 +989,18 @@ pub struct InheritedValues {
     /// Node count this store was sized for; `Vec<Vec<_>>::len()` used to answer
     /// this and several callers (and tests) still ask.
     node_count: usize,
+    /// The buckets by the hash of their (type, value) ([`Self::bucket_hash`]),
+    /// in the order they were made: where a value's bucket is looked for
+    /// ([`Self::bucket_of`]). A map view has a bucket per text style and
+    /// inherited property; reading all of them for every value of every
+    /// node was nodes times distinct values.
+    by_hash: alloc::collections::BTreeMap<u64, Vec<u32>>,
+    /// The buckets of each property type, in the order they were made: what
+    /// [`Self::get`] searches. It used to pass over every bucket of the
+    /// store to find the ones of its type - 150 to 200 buckets on a map with
+    /// 26 text styles, for a property (`user-select`, `direction`) that has
+    /// one or two.
+    by_type: alloc::collections::BTreeMap<CssPropertyType, Vec<u32>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -934,7 +1017,46 @@ impl InheritedValues {
         Self {
             buckets: Vec::new(),
             node_count: 0,
+            by_hash: alloc::collections::BTreeMap::new(),
+            by_type: alloc::collections::BTreeMap::new(),
         }
+    }
+
+    /// The key a (type, value) is kept under in `by_hash`.
+    fn bucket_hash(prop_type: CssPropertyType, value: &CssPropertyWithOrigin) -> u64 {
+        use core::hash::{Hash, Hasher};
+        let mut hasher = crate::hash::FastHasher::new();
+        prop_type.hash(&mut hasher);
+        value.property.hash(&mut hasher);
+        value.origin.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    /// The bucket of (type, value), if there is one (there is at most one).
+    fn bucket_of(&self, prop_type: CssPropertyType, value: &CssPropertyWithOrigin) -> Option<usize> {
+        let candidates = self.by_hash.get(&Self::bucket_hash(prop_type, value))?;
+        candidates.iter().map(|b| *b as usize).find(|b| {
+            #[cfg(all(test, feature = "std"))]
+            INHERITED_BUCKET_READS.with(|c| c.set(c.get() + 1));
+            self.buckets
+                .get(*b)
+                .is_some_and(|bucket| bucket.prop_type == prop_type && bucket.value == *value)
+        })
+    }
+
+    /// Adds `bucket` as the newest one and answers its index.
+    fn push_bucket(&mut self, bucket: InheritedBucket) -> usize {
+        let index = self.buckets.len();
+        self.by_hash
+            .entry(Self::bucket_hash(bucket.prop_type, &bucket.value))
+            .or_default()
+            .push(u32::try_from(index).unwrap_or(u32::MAX));
+        self.by_type
+            .entry(bucket.prop_type)
+            .or_default()
+            .push(u32::try_from(index).unwrap_or(u32::MAX));
+        self.buckets.push(bucket);
+        index
     }
 
     #[must_use]
@@ -954,6 +1076,18 @@ impl InheritedValues {
         self.buckets.len()
     }
 
+    /// Every distinct `(type, value)` of the store with the nodes that resolve to it
+    /// (ascending): the store as it lies. For a reader that compares the values of many
+    /// nodes of two stores: [`Self::values_for`] reads every bucket for ONE node, so asking
+    /// it per node is nodes times distinct values.
+    pub fn buckets(
+        &self,
+    ) -> impl Iterator<Item = (CssPropertyType, &CssPropertyWithOrigin, &[u32])> + '_ {
+        self.buckets
+            .iter()
+            .map(|b| (b.prop_type, &b.value, b.nodes.as_slice()))
+    }
+
     /// Total (node, property) pairs — what the old per-node vecs would have
     /// stored one entry each for.
     #[must_use]
@@ -968,17 +1102,27 @@ impl InheritedValues {
     /// Drop every value, keeping the sizing. Called at the head of a cascade.
     pub fn clear_values(&mut self) {
         self.buckets.clear();
+        self.by_hash.clear();
+        self.by_type.clear();
     }
 
     /// The resolved value of `prop_type` for `node`, if any.
     ///
-    /// Linear over buckets (a handful) then binary over the node list.
+    /// Over the buckets of the type, in the order they were made (the first
+    /// that holds the node, as the scan of all buckets found it), then
+    /// binary over the node list.
     #[must_use]
     pub fn get(&self, node: usize, prop_type: CssPropertyType) -> Option<&CssPropertyWithOrigin> {
         let n = u32::try_from(node).ok()?;
-        self.buckets
+        self.by_type
+            .get(&prop_type)?
             .iter()
-            .find(|b| b.prop_type == prop_type && b.nodes.binary_search(&n).is_ok())
+            .filter_map(|index| self.buckets.get(*index as usize))
+            .find(|b| {
+                #[cfg(all(test, feature = "std"))]
+                INHERITED_GET_READS.with(|c| c.set(c.get() + 1));
+                b.nodes.binary_search(&n).is_ok()
+            })
             .map(|b| &b.value)
     }
 
@@ -989,6 +1133,8 @@ impl InheritedValues {
         let Ok(n) = u32::try_from(node) else {
             return Vec::new();
         };
+        #[cfg(all(test, feature = "std"))]
+        INHERITED_BUCKET_READS.with(|c| c.set(c.get() + self.buckets.len() as u64));
         let mut out: Vec<_> = self
             .buckets
             .iter()
@@ -1025,42 +1171,74 @@ impl InheritedValues {
     /// Nodes are cascaded in ascending index order, so each `nodes` list is
     /// built by `push` and stays sorted without an insert.
     pub fn set_node(&mut self, node: usize, entries: &[(CssPropertyType, CssPropertyWithOrigin)]) {
-        let Ok(n) = u32::try_from(node) else { return };
+        drop(self.set_node_near(node, entries, None));
+    }
+
+    /// [`Self::set_node`], answering the bucket each entry went to (in the
+    /// order of `entries`), and looking for an entry's bucket first where
+    /// `near` has its type: `near` is another node's entries (ascending by
+    /// type) with the buckets they went to - the node's parent's. A value a
+    /// node inherits unchanged is in its parent's bucket, so most entries
+    /// are placed without reading the other buckets; an entry `near` does
+    /// not place is found by its hash ([`Self::bucket_of`]). A (type, value)
+    /// has one bucket, so both ways find the same one - the one a scan of
+    /// all buckets from the first found.
+    pub fn set_node_near(
+        &mut self,
+        node: usize,
+        entries: &[(CssPropertyType, CssPropertyWithOrigin)],
+        near: Option<(&[(CssPropertyType, CssPropertyWithOrigin)], &[u32])>,
+    ) -> Vec<u32> {
+        let Ok(n) = u32::try_from(node) else {
+            return Vec::new();
+        };
+        let mut placed = Vec::with_capacity(entries.len());
         for (prop_type, value) in entries {
-            match self
-                .buckets
-                .iter_mut()
-                .find(|b| b.prop_type == *prop_type && b.value == *value)
-            {
-                Some(b) => {
+            let hinted = near.and_then(|(near_entries, near_buckets)| {
+                let at = near_entries
+                    .binary_search_by_key(prop_type, |(t, _)| *t)
+                    .ok()?;
+                let bucket = *near_buckets.get(at)? as usize;
+                let b = self.buckets.get(bucket)?;
+                #[cfg(all(test, feature = "std"))]
+                INHERITED_BUCKET_READS.with(|c| c.set(c.get() + 1));
+                (b.prop_type == *prop_type && b.value == *value).then_some(bucket)
+            });
+            let found = hinted.or_else(|| self.bucket_of(*prop_type, value));
+            let bucket = match found {
+                Some(bucket) => {
+                    let b = &mut self.buckets[bucket];
                     if b.nodes.last() != Some(&n) {
                         b.nodes.push(n);
                     }
+                    bucket
                 }
-                None => self.buckets.push(InheritedBucket {
+                None => self.push_bucket(InheritedBucket {
                     prop_type: *prop_type,
                     value: value.clone(),
                     nodes: vec![n],
                 }),
-            }
+            };
+            placed.push(u32::try_from(bucket).unwrap_or(u32::MAX));
         }
+        placed
     }
 
     /// Absorb another store whose nodes sit after this one's (subtree
     /// composition), shifting its node indices by this store's node count.
     pub fn append(&mut self, other: &mut Self) {
         let shift = u32::try_from(self.node_count).unwrap_or(u32::MAX);
+        other.by_hash.clear();
+        other.by_type.clear();
         for mut ob in core::mem::take(&mut other.buckets) {
             for n in &mut ob.nodes {
                 *n = n.saturating_add(shift);
             }
-            match self
-                .buckets
-                .iter_mut()
-                .find(|b| b.prop_type == ob.prop_type && b.value == ob.value)
-            {
-                Some(b) => b.nodes.extend_from_slice(&ob.nodes),
-                None => self.buckets.push(ob),
+            match self.bucket_of(ob.prop_type, &ob.value) {
+                Some(b) => self.buckets[b].nodes.extend_from_slice(&ob.nodes),
+                None => {
+                    self.push_bucket(ob);
+                }
             }
         }
         self.node_count += other.node_count;
@@ -1153,6 +1331,25 @@ pub struct CssPropertyCache {
 
     // properties that were overridden in callbacks (not specific to any node state)
     pub user_overridden_properties: Vec<Vec<(CssPropertyType, CssProperty)>>,
+    /// Some node has, or had, a runtime override of `color` in
+    /// [`Self::user_overridden_properties`]. That is the one override a
+    /// node's DESCENDANTS take through inheritance while the precomputed
+    /// tables cannot see it, so a reader of the used colour walks to the
+    /// root for it (`inherited_color_override` in the layout crate) - once
+    /// ANY override exists, were it only a bound `transform`, unless this
+    /// says no node ever had one of `color`. Raised by every writer of the
+    /// table (`StyledDom::set_user_property_override_fast`,
+    /// `StyledDom::migrate_user_overrides_from`, [`Self::append`]) and never
+    /// lowered: `false` means there is none.
+    pub text_color_override_seen: bool,
+    /// Another styled DOM was appended to this one
+    /// (`StyledDom::append_child`) and the inheritance tables and the
+    /// compact cache have not been rebuilt for the composed tree since
+    /// (`StyledDom::recompute_inheritance_and_compact_cache`): what the
+    /// appended subtree inherits and its compact entries are still the ones
+    /// of its own, isolated cascade. A DOM that came out of one cascade has
+    /// both right and this `false`.
+    pub composed_since_recompute: bool,
     /// The window's dynamic-selector context (viewport size, theme, OS,
     /// media type...), provided by the layout funnel before the first
     /// layout. `None` = context UNKNOWN (a freshly created `StyledDom` that no
@@ -1449,9 +1646,11 @@ impl CssPropertyCache {
 
         let compact_bytes = self.compact_cache.as_ref().map_or(0, |c| {
             c.tier1_enums.capacity() * 8
-                + c.tier2_dims.capacity() * 68
+                + c.tier2_dims.capacity()
+                    * size_of::<azul_css::compact_cache::CompactNodeProps>()
                 + c.tier2_cold.capacity() * 28
-                + c.tier2b_text.capacity() * 24
+                + c.tier2b_text.capacity()
+                    * size_of::<azul_css::compact_cache::CompactTextProps>()
                 + c.prev_font_hashes.capacity() * 8
                 + c.font_dirty_nodes.capacity() * 8
         });
@@ -1934,14 +2133,15 @@ fn clone_inheritable_property(p: &CssProperty) -> CssProperty {
 }
 
 impl CssPropertyCache {
-    /// Match CSS selectors to nodes and populate `css_props`.
-    /// Returns tag IDs for hit-testing. If `compact_cache` is available,
-    /// uses it for fast display/overflow checks; otherwise falls back to slow path.
+    /// [`Self::restyle_cascade`], then the tag ids for hit-testing
+    /// ([`Self::generate_tag_ids`]).
+    ///
+    /// A caller that builds the compact cache next wants the ids made AFTER
+    /// it (`generate_tag_ids` reads the compact cache for display and
+    /// overflow): it calls `restyle_cascade` and generates them once, then.
+    /// Both callers in `StyledDom` took the ids from here, dropped them and
+    /// generated them again: two walks of every node per styling.
     #[must_use]
-    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive:
-                                                                   // single-purpose
-                                                                   // parser/builder/dispatch (one
-                                                                   // branch per input variant)
     pub fn restyle(
         &mut self,
         css: &mut Css,
@@ -1951,6 +2151,32 @@ impl CssPropertyCache {
         html_tree: &NodeDataContainerRef<'_, CascadeInfo>,
         node_states: &[StyledNodeState],
     ) -> Vec<TagIdToNodeIdMapping> {
+        self.restyle_cascade(
+            css,
+            node_data,
+            node_hierarchy,
+            non_leaf_nodes,
+            html_tree,
+            node_states,
+        );
+        self.generate_tag_ids(node_data, node_hierarchy)
+    }
+
+    /// Match CSS selectors to nodes and populate `css_props`: the cascade
+    /// itself, without the tag ids ([`Self::restyle`]).
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive:
+                                                                   // single-purpose
+                                                                   // parser/builder/dispatch (one
+                                                                   // branch per input variant)
+    pub fn restyle_cascade(
+        &mut self,
+        css: &mut Css,
+        node_data: &NodeDataContainerRef<'_, NodeData>,
+        node_hierarchy: &NodeHierarchyItemVec,
+        non_leaf_nodes: &ParentWithNodeDepthVec,
+        html_tree: &NodeDataContainerRef<'_, CascadeInfo>,
+        node_states: &[StyledNodeState],
+    ) {
         use azul_css::{
             css::{
                 CssDeclaration,
@@ -2229,18 +2455,25 @@ impl CssPropertyCache {
                         mask | crate::style::left_state_bits(&rule.path)
                     });
 
-                // Each node is tried only against the rules that can match it:
-                // the unscoped ones and those of the `with_css` scopes around
-                // it (`ScopedRuleIndex`), not every widget's sheet on the page.
+                // Each node is tried only against the rules that can match it
+                // (`SubjectRuleIndex`): the unscoped ones and those of the
+                // `with_css` scopes around it, not every widget's sheet on
+                // the page - and of the rules that name a class, only those
+                // of the classes it carries, not every class of a sheet.
                 let hierarchy = node_hierarchy.as_container();
-                let mut index = crate::style::ScopedRuleIndex::new(
+                let mut index = crate::style::SubjectRuleIndex::new(
                     specific_rules.iter().map(|rule| &rule.path),
                     &hierarchy,
                 );
+                let mut candidates: Vec<usize> = Vec::new();
+                // What the `~` combinators of the rules found, for the nodes
+                // still to come (the node states and the rules are the same
+                // for every node and pass of this cascade).
+                let mut sibling_memo = crate::style::GeneralSiblingMemo::default();
                 let node_total = if live_passes == 0 { 0 } else { node_data.len() };
                 for node_index in 0..node_total {
                     let node_id = NodeId::new(node_index);
-                    let candidates = index.candidates(node_index);
+                    index.candidates_into(node_index, &node_data[node_id], &mut candidates);
                     for (pass, (pseudo, state)) in passes.iter().enumerate() {
                         let bit = 1u16 << pass;
                         if live_passes & bit == 0 {
@@ -2248,12 +2481,12 @@ impl CssPropertyCache {
                         }
                         let state = *state;
                         // Each pass reads the node's candidates from the start.
-                        for rule_idx in candidates.clone() {
+                        for &rule_idx in &candidates {
                             if takes_part[rule_idx] & bit == 0 {
                                 continue;
                             }
                             let rule_block: &CssRuleBlock = specific_rules[rule_idx];
-                            if !crate::style::matches_html_element_in(
+                            if !crate::style::matches_html_element_remembering(
                                 &rule_block.path,
                                 node_id,
                                 &hierarchy,
@@ -2261,6 +2494,7 @@ impl CssPropertyCache {
                                 html_tree,
                                 pseudo.clone(),
                                 Some(ancestor_states),
+                                Some((&mut sibling_memo, rule_idx)),
                             ) {
                                 continue;
                             }
@@ -2596,8 +2830,6 @@ impl CssPropertyCache {
         // Restyling can change font-size properties; the memoized resolved font
         // sizes are now stale and must be recomputed on next access.
         self.invalidate_resolved_font_sizes();
-
-        self.generate_tag_ids(node_data, node_hierarchy)
     }
 
     /// Generate hit-test tag IDs for nodes that need event handling.
@@ -2609,6 +2841,8 @@ impl CssPropertyCache {
         node_data: &NodeDataContainerRef<'_, NodeData>,
         node_hierarchy: &NodeHierarchyItemVec,
     ) -> Vec<TagIdToNodeIdMapping> {
+        #[cfg(all(test, feature = "std"))]
+        TAG_ID_PASSES.with(|c| c.set(c.get() + 1));
         // Tag ID generation: determine which nodes need hit-test tags for
         // hover/click/scroll events. Uses compact cache for display/overflow
         // checks instead of get_property_slow (which searches 6 data structures).
@@ -3102,6 +3336,8 @@ impl CssPropertyCache {
             paged_footnotes: PagedFootnotes::default(),
             retained_author_css: Css::default(),
             user_overridden_properties: Vec::new(),
+            text_color_override_seen: false,
+            composed_since_recompute: false,
             dynamic_context: None,
             ua_applied: false,
             cascade_epoch: 0,
@@ -3139,6 +3375,7 @@ impl CssPropertyCache {
     pub fn append(&mut self, other: &mut Self) {
         self.user_overridden_properties
             .append(&mut other.user_overridden_properties);
+        self.text_color_override_seen |= other.text_color_override_seen;
         // The parent's dynamic context wins; a child subtree styled before
         // composition has no window context of its own worth keeping.
         if self.dynamic_context.is_none() {
@@ -6075,28 +6312,57 @@ impl CssPropertyCache {
         // The values a node in a state hands its children on top of its
         // resting ones (Step 5b): few nodes are in a state at a time.
         let mut state_overlays: Vec<(usize, Vec<CssProperty>)> = Vec::new();
+        // The nodes whose children the walk is in, outermost first: each
+        // with the values it stored (what `values_for` reads back for it)
+        // and the buckets they went to. The arena is in document order, so
+        // a node's parent is on top once the subtrees that ended before the
+        // node are popped. Reading the parent's values back from the store
+        // instead cost every node a probe of every distinct value of the
+        // DOM, and placing a node's values a comparison with each of them.
+        let mut ancestors: Vec<(usize, Vec<(CssPropertyType, CssPropertyWithOrigin)>, Vec<u32>)> =
+            Vec::new();
         node_hierarchy
             .iter()
             .enumerate()
             .filter_map(|(node_index, hierarchy_item)| {
                 let node_id = NodeId::new(node_index);
                 let parent_id = hierarchy_item.parent_id();
-                // Materialised from the transposed store (a handful of bucket
-                // probes) instead of DEEP-CLONING the parent's vec of 136-byte
-                // enums once per node, which is what the per-node shape forced.
-                // A HOSTED root's parent values are its host's
-                // (`inherited_from_host`): it inherits them, and an `em` of its
-                // own resolves against the host's font size.
-                let parent_computed: Option<Vec<(CssPropertyType, CssPropertyWithOrigin)>> =
+                // Whether the parent's stored values are on top of
+                // `ancestors` (not for an arena out of document order: its
+                // nodes read the store, as every node did).
+                let mut parent_on_top = false;
+                if let Some(pid) = parent_id {
+                    while ancestors
+                        .last()
+                        .is_some_and(|(node, _, _)| *node != pid.index())
+                    {
+                        ancestors.pop();
+                    }
+                    parent_on_top = !ancestors.is_empty();
+                }
+                // The parent's values as it shows them in the state it is in
+                // (Step 5b), which is what it hands down.
+                let overlay = parent_id
+                    .and_then(|pid| state_overlays.iter().find(|(i, _)| *i == pid.index()));
+                // A copy of the parent's values only where they are not the
+                // stored ones on top of `ancestors`: under a state overlay,
+                // read back from the store, or a HOSTED root's - its parent
+                // values are its host's (`inherited_from_host`): it inherits
+                // them, and an `em` of its own resolves against the host's
+                // font size.
+                let parent_owned: Option<Vec<(CssPropertyType, CssPropertyWithOrigin)>> =
                     match parent_id {
+                        Some(_) if parent_on_top && overlay.is_none() => None,
                         Some(pid) => {
-                            let mut values = self.computed_values.values_for(pid.index());
-                            // The parent's values as it shows them in the
-                            // state it is in (Step 5b), which is what it hands
-                            // down.
-                            if let Some((_, held)) =
-                                state_overlays.iter().find(|(i, _)| *i == pid.index())
-                            {
+                            let mut values = if parent_on_top {
+                                ancestors
+                                    .last()
+                                    .map(|(_, values, _)| values.clone())
+                                    .unwrap_or_default()
+                            } else {
+                                self.computed_values.values_for(pid.index())
+                            };
+                            if let Some((_, held)) = overlay {
                                 for property in held {
                                     let ty = property.get_type();
                                     let entry = (
@@ -6119,6 +6385,12 @@ impl CssPropertyCache {
                         }
                         None => None,
                     };
+                let parent_computed: Option<&Vec<(CssPropertyType, CssPropertyWithOrigin)>> =
+                    match parent_owned.as_ref() {
+                        Some(owned) => Some(owned),
+                        None if parent_on_top => ancestors.last().map(|(_, values, _)| values),
+                        None => None,
+                    };
 
                 let mut ctx = InheritanceContext {
                     node_id,
@@ -6132,7 +6404,7 @@ impl CssPropertyCache {
                 self.css_wide_values.extend(keyword_values);
 
                 // Step 1: Inherit from parent
-                if let Some(ref parent_values) = parent_computed {
+                if let Some(parent_values) = parent_computed {
                     Self::inherit_from_parent(&mut ctx, parent_values);
                 }
 
@@ -6140,7 +6412,7 @@ impl CssPropertyCache {
                 self.apply_cascade_properties(
                     &mut ctx,
                     node_id,
-                    parent_computed.as_ref(),
+                    parent_computed,
                     node_data,
                     node_index,
                 );
@@ -6160,7 +6432,17 @@ impl CssPropertyCache {
                 Self::compute_font_relative_line_height(&mut ctx);
 
                 // Check for changes and store
-                let changed = self.store_if_changed(&ctx, &previous);
+                let near = if parent_on_top {
+                    ancestors
+                        .last()
+                        .map(|(_, values, buckets)| (values.as_slice(), buckets.as_slice()))
+                } else {
+                    None
+                };
+                let (changed, stored, buckets) = self.store_if_changed(&ctx, &previous, near);
+                if hierarchy_item.last_child_id().is_some() {
+                    ancestors.push((node_index, stored, buckets));
+                }
                 changed.then_some(node_id)
             })
             .collect()
@@ -6674,7 +6956,17 @@ impl CssPropertyCache {
     /// `resolve_font_size_property`), which is itself inheritable. Non-inherited
     /// properties are still answered by `cascaded_props` / `css_props` / the
     /// compact cache, which is where the layout path reads them from anyway.
-    fn store_if_changed(&mut self, ctx: &InheritanceContext, previous: &InheritedValues) -> bool {
+    ///
+    /// `near` is the node's parent's stored values and their buckets, when
+    /// the caller has them ([`InheritedValues::set_node_near`]). Answers
+    /// whether the values differ from `previous`'s, the values stored
+    /// (ascending by type) and the bucket each went to.
+    fn store_if_changed(
+        &mut self,
+        ctx: &InheritanceContext,
+        previous: &InheritedValues,
+        near: Option<(&[(CssPropertyType, CssPropertyWithOrigin)], &[u32])>,
+    ) -> (bool, Vec<(CssPropertyType, CssPropertyWithOrigin)>, Vec<u32>) {
         let inheritable: Vec<(CssPropertyType, CssPropertyWithOrigin)> = ctx
             .computed_values
             .iter()
@@ -6682,9 +6974,10 @@ impl CssPropertyCache {
             .cloned()
             .collect();
         let changed = previous.values_for(ctx.node_id.index()) != inheritable;
-        self.computed_values
-            .set_node(ctx.node_id.index(), &inheritable);
-        changed
+        let buckets = self
+            .computed_values
+            .set_node_near(ctx.node_id.index(), &inheritable, near);
+        (changed, inheritable, buckets)
     }
 }
 

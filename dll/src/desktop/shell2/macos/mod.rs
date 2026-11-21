@@ -356,7 +356,7 @@ mod view_handlers {
         let loc = unsafe { event.locationInWindow() };
         crate::log_debug!(
             LogCategory::Input,
-            "[mouseDown] LEFT at ({:.1}, {:.1})",
+            "[mouseDown] LEFT at AppKit ({:.1}, {:.1}) (y from the window's bottom edge)",
             loc.x,
             loc.y
         );
@@ -422,7 +422,7 @@ mod view_handlers {
         let loc = unsafe { event.locationInWindow() };
         crate::log_debug!(
             LogCategory::Input,
-            "[mouseUp] LEFT at ({:.1}, {:.1})",
+            "[mouseUp] LEFT at AppKit ({:.1}, {:.1}) (y from the window's bottom edge)",
             loc.x,
             loc.y
         );
@@ -2064,6 +2064,27 @@ pub struct CPUViewIvars {
     /// framebuffer is filled with before the frame at the new size is in it
     /// (`blank_frame_pixel`); kept by every render.
     blank_rgb: Cell<[u8; 3]>,
+    /// The framebuffer holds the blank fill, not a frame: `drawRect:` made it
+    /// anew without a frame to keep (the first one, a resize over content
+    /// that was not a frame, another backing scale). Whatever the next
+    /// present's damage says, the whole frame has to be copied in, or the
+    /// fill is what the window shows (`CPUView::shows_blank`). Cleared by
+    /// every full copy.
+    fb_blank: Cell<bool>,
+    /// Backing pixels per point the framebuffer was last sized with (`0.0`
+    /// before the first `drawRect:`): pixels kept across a resize are only
+    /// the frame before while this stays the same.
+    backing_scale: Cell<f64>,
+    /// The spans (top-down `(x0, x1, y0, y1)`) the `drawRect:` that is
+    /// running right now draws; empty outside one. A frame rendered inside
+    /// that `drawRect:` does not mark what lies in them as needing display
+    /// again (A10-13, `rects_left_to_invalidate`).
+    drawing_spans: RefCell<Vec<(usize, usize, usize, usize)>>,
+    /// The `cgimage` present (A10-06) found Core Graphics holding on to the
+    /// image of the framebuffer after the draw: it is off for this view from
+    /// then on (the bitmap path copies, and nothing can read the framebuffer
+    /// late).
+    cg_tripped: Cell<bool>,
 }
 
 /// The RGBA a CPU view's framebuffer is filled with when its size changes,
@@ -2120,18 +2141,782 @@ fn dirty_rows_to_copy(
     width: usize,
     height: usize,
 ) -> (usize, usize, usize, usize) {
-    let (x, y, w, h) = dirty;
-    if full || !(w > 0.0 && h > 0.0) || width == 0 || height == 0 {
-        return (0, width, 0, height);
+    // bottom-left origin -> top-down rows: the arithmetic is shared (and
+    // tested on every platform) in `present_geometry`.
+    azul_layout::window::present_geometry::rows_of_bottom_left_rect(full, dirty, width, height)
+}
+
+/// The size in backing pixels of the framebuffer of a CPU view whose bounds
+/// are `bounds_pt` (points) at `scale` backing pixels per point.
+///
+/// THE renderer's formula ([`frame_size_px`]: `ceil(points * scale)` in
+/// `f32`), on the same numbers the window state holds (`bounds as f32`,
+/// `handle_resize`): the frame the renderer hands over and the buffer
+/// `drawRect:` keeps for it are the same size by construction. The view used
+/// to truncate the `f64` product, which is one pixel short of the frame for
+/// bounds that are not whole pixels (1280.3 pt at 2x: 2560 against 2561), and
+/// a frame of another size than the buffer takes the rescaling copy path on
+/// every present.
+///
+/// [`frame_size_px`]: azul_layout::window::present_geometry::frame_size_px
+pub(crate) fn cpu_view_framebuffer_size(bounds_pt: (f64, f64), scale: f64) -> (usize, usize) {
+    let (w, h) = azul_layout::window::present_geometry::frame_size_px(
+        bounds_pt.0 as f32,
+        bounds_pt.1 as f32,
+        scale as f32,
+    );
+    (w as usize, h as usize)
+}
+
+/// Where the present rect `rect` (buffer px: top-left origin, y down) of a
+/// framebuffer `fb_h` pixels high lies in the CPU view, in the view's own
+/// coordinates (points, BOTTOM-left origin: the view is not `isFlipped`), at
+/// `scale` backing pixels per point: what `setNeedsDisplayInRect:` takes.
+///
+/// `x' = x / s`, `y' = (fb_h - (y + h)) / s`, `w' = w / s`, `h' = h / s`. The
+/// exact inverse of what `drawRect:` does with the dirty rect it is handed
+/// (`convertRectToBacking:` = times `s`, then [`dirty_rows_to_copy`]), so the
+/// rows that are invalidated are the rows that are copied and drawn.
+pub(crate) fn present_rect_in_view_points(
+    rect: (u32, u32, u32, u32),
+    fb_h: usize,
+    scale: f64,
+) -> (f64, f64, f64, f64) {
+    let fb_h = u32::try_from(fb_h).unwrap_or(u32::MAX);
+    let (x, y, w, h) = azul_layout::window::present_geometry::flip_rect_y(rect, fb_h);
+    let s = if scale > 0.0 { scale } else { 1.0 };
+    (
+        f64::from(x) / s,
+        f64::from(y) / s,
+        f64::from(w) / s,
+        f64::from(h) / s,
+    )
+}
+
+/// The rect of the bitmap that holds the rows `y0..y1` and the columns
+/// `x0..x1` (top-down, half-open, what [`dirty_rows_to_copy`] returns) of a
+/// frame `height` pixels high, in the bitmap's own space: pixels with the
+/// origin at the BOTTOM-left, although its bytes are stored top row first.
+pub(crate) fn bitmap_source_rect(
+    span: (usize, usize, usize, usize),
+    height: usize,
+) -> (f64, f64, f64, f64) {
+    let (x0, x1, y0, y1) = span;
+    (
+        x0 as f64,
+        height.saturating_sub(y1) as f64,
+        x1.saturating_sub(x0) as f64,
+        y1.saturating_sub(y0) as f64,
+    )
+}
+
+/// How the CPU view presents, from `AZ_CPU_PRESENT` (words separated by
+/// commas; unknown words are ignored). Everything here changes what AppKit is
+/// asked to do, which no headless test sees: so each has a word, and the
+/// defaults are stated with their reasons in `audit/A10.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CpuPresentOptions {
+    /// Draw the dirty part straight from the framebuffer through a `CGImage`
+    /// over its memory (A10-06, A10-25): the view keeps ONE copy of the frame
+    /// and copies no row to present. Default ON; the word `bitmap` turns it
+    /// off: the rows are then copied into an `NSBitmapImageRep` (a second
+    /// buffer of the frame's size) and that is drawn, as before.
+    pub cgimage: bool,
+    /// `twice`: mark the frame's rects as needing display even when the
+    /// `drawRect:` that rendered the frame draws them itself, as before
+    /// A10-13 (every frame rendered inside `drawRect:` presented twice).
+    /// Default OFF (present once).
+    pub twice: bool,
+}
+
+impl Default for CpuPresentOptions {
+    fn default() -> Self {
+        Self {
+            cgimage: true,
+            twice: false,
+        }
+    }
+}
+
+/// `AZ_CPU_PRESENT=bitmap,twice` as options.
+pub(crate) fn parse_cpu_present_options(value: &str) -> CpuPresentOptions {
+    let mut options = CpuPresentOptions::default();
+    for word in value.split(',') {
+        match word.trim() {
+            "bitmap" => options.cgimage = false,
+            "cgimage" => options.cgimage = true,
+            "twice" => options.twice = true,
+            _ => {}
+        }
+    }
+    options
+}
+
+/// How many buffers of the frame's size the CPU view itself holds: the
+/// framebuffer, and with `bitmap` the `NSBitmapImageRep` its rows are copied
+/// into. (AppKit's backing store of the view's layer is one more, in every
+/// mode.) On the user's display, 2940 x 1912 px = 22.5 MB each.
+pub(crate) fn view_frame_buffers(options: CpuPresentOptions) -> usize {
+    if options.cgimage {
+        1
+    } else {
+        2
+    }
+}
+
+/// The process's [`CpuPresentOptions`], read once.
+fn cpu_present_options() -> CpuPresentOptions {
+    static OPTIONS: std::sync::OnceLock<CpuPresentOptions> = std::sync::OnceLock::new();
+    *OPTIONS.get_or_init(|| {
+        std::env::var("AZ_CPU_PRESENT")
+            .map(|value| parse_cpu_present_options(&value))
+            .unwrap_or_default()
+    })
+}
+
+/// The rows and columns that lie WHOLLY inside a rect in backing pixels
+/// (bottom-left origin), as a top-down span `(x0, x1, y0, y1)` of a `width` x
+/// `height` frame: the inward twin of [`dirty_rows_to_copy`]. What AppKit
+/// certainly lets a `drawRect:` draw of one of its rects being drawn.
+pub(crate) fn rows_inside_backing_rect(
+    rect: (f64, f64, f64, f64),
+    width: usize,
+    height: usize,
+) -> (usize, usize, usize, usize) {
+    let (x, y, w, h) = rect;
+    if !(w > 0.0 && h > 0.0) || width == 0 || height == 0 {
+        return (0, 0, 0, 0);
     }
     let fw = width as f64;
     let fh = height as f64;
-    let x0 = x.floor().clamp(0.0, fw) as usize;
-    let x1 = (x + w).ceil().clamp(0.0, fw) as usize;
-    // bottom-left origin -> top-down rows
-    let y0 = (fh - (y + h)).floor().clamp(0.0, fh) as usize;
-    let y1 = (fh - y).ceil().clamp(0.0, fh) as usize;
-    (x0.min(x1), x1, y0.min(y1), y1)
+    let x0 = x.ceil().clamp(0.0, fw) as usize;
+    let x1 = (x + w).floor().clamp(0.0, fw) as usize;
+    let y0 = (fh - (y + h)).ceil().clamp(0.0, fh) as usize;
+    let y1 = (fh - y).floor().clamp(0.0, fh) as usize;
+    (x0, x1.max(x0), y0, y1.max(y0))
+}
+
+/// The present rects (buffer px) that still have to be marked as needing
+/// display while a `drawRect:` runs that draws the spans `being_drawn`
+/// (top-down `(x0, x1, y0, y1)`): those that no single span contains whole.
+///
+/// A frame rendered INSIDE `drawRect:` (no display link, a live resize) used
+/// to mark all its rects: the running `drawRect:` drew them, and the next
+/// pass drew them again (A10-13). A rect inside one of the rects AppKit is
+/// having drawn right now is presented by this pass; one that is only
+/// covered by several of them together is kept, to stay on the proven side.
+pub(crate) fn rects_left_to_invalidate(
+    rects: &[(u32, u32, u32, u32)],
+    being_drawn: &[(usize, usize, usize, usize)],
+) -> Vec<(u32, u32, u32, u32)> {
+    rects
+        .iter()
+        .copied()
+        .filter(|&(x, y, w, h)| {
+            let (x0, y0) = (x as usize, y as usize);
+            let (x1, y1) = (x0 + w as usize, y0 + h as usize);
+            !being_drawn
+                .iter()
+                .any(|&(dx0, dx1, dy0, dy1)| dx0 <= x0 && x1 <= dx1 && dy0 <= y0 && y1 <= dy1)
+        })
+        .collect()
+}
+
+/// Give the view's framebuffer (RGBA8, tight rows, top row first) the size
+/// `new` (pixels), in place.
+///
+/// With `keep`, the top-left part both sizes share stays where it is on
+/// screen (the window's content is top-left anchored); everything else is
+/// `blank`. Without, all of it is `blank`.
+///
+/// In place: the rows are moved inside the one allocation (towards the start
+/// when the rows get shorter, from the last row backwards when they get
+/// longer), so a drag that stays inside the buffer's capacity allocates
+/// nothing, and a kept pixel is written once. It used to be a new zeroed
+/// buffer, a `blank` fill of ALL of it, and the copy of the kept part on top:
+/// one allocation of the frame's size and up to three writes per pixel, per
+/// step of a live resize (A10-14).
+pub(crate) fn resize_framebuffer(
+    fb: &mut Vec<u8>,
+    old: (usize, usize),
+    new: (usize, usize),
+    keep: bool,
+    blank: [u8; 4],
+) {
+    fn fill(pixels: &mut [u8], blank: [u8; 4]) {
+        for pixel in pixels.chunks_exact_mut(4) {
+            pixel.copy_from_slice(&blank);
+        }
+    }
+    let (old_w, old_h) = old;
+    let (new_w, new_h) = new;
+    let new_len = new_w * new_h * 4;
+    if !(keep && old_w > 0 && old_h > 0 && fb.len() >= old_w * old_h * 4) {
+        fb.clear();
+        fb.resize(new_len, 0);
+        fill(fb, blank);
+        return;
+    }
+    let (kept_w, kept_h) = (old_w.min(new_w), old_h.min(new_h));
+    let (old_stride, new_stride) = (old_w * 4, new_w * 4);
+    let kept_bytes = kept_w * 4;
+    if new_w <= old_w {
+        // Shorter (or equal) rows: every row moves towards the start, and a
+        // row's new place ends before the next row's old place begins.
+        if new_w < old_w {
+            for row in 0..kept_h {
+                fb.copy_within(row * old_stride..row * old_stride + kept_bytes, row * new_stride);
+            }
+        }
+        fb.resize(new_len, 0);
+    } else {
+        // Longer rows: grow first, then move from the last row backwards, so
+        // a row's new place never covers a row that has not moved yet.
+        if fb.len() < new_len {
+            fb.resize(new_len, 0);
+        }
+        for row in (0..kept_h).rev() {
+            fb.copy_within(row * old_stride..row * old_stride + kept_bytes, row * new_stride);
+        }
+        fb.truncate(new_len);
+    }
+    // What the kept part does not cover: right of it, and below it.
+    if kept_w < new_w {
+        for row in 0..kept_h {
+            fill(&mut fb[row * new_stride + kept_bytes..(row + 1) * new_stride], blank);
+        }
+    }
+    fill(&mut fb[kept_h * new_stride..], blank);
+}
+
+/// The pixel size of the bitmap to make for a `width` x `height` frame, or
+/// `None` when the bitmap the view has (`have`, its pixel size) still serves.
+///
+/// The bitmap is a staging buffer: only the span drawn in a `drawRect:` is
+/// read from it, so it may be larger than the frame. It is made in steps of
+/// 256 px and kept while the frame fits and it is not more than twice the
+/// size a new one would be. A live resize made a new one per step (two
+/// allocations of the frame's size: the bitmap and its sRGB twin); dragging
+/// an edge by 300 px now makes two or three (A10-14).
+pub(crate) fn bitmap_size_to_allocate(
+    width: usize,
+    height: usize,
+    have: Option<(usize, usize)>,
+) -> Option<(usize, usize)> {
+    const STEP: usize = 256;
+    let want = (
+        width.div_ceil(STEP).max(1) * STEP,
+        height.div_ceil(STEP).max(1) * STEP,
+    );
+    match have {
+        Some((w, h)) if w >= width && h >= height && w * h <= 2 * want.0 * want.1 => None,
+        _ => Some(want),
+    }
+}
+
+/// How many bytes the view copies out of the framebuffer to present the span
+/// `(x0, x1, y0, y1)`: all of the span's with the bitmap in between, none
+/// when AppKit draws from the framebuffer itself (`cgimage`).
+pub(crate) fn present_copy_bytes(options: CpuPresentOptions, span: (usize, usize, usize, usize)) -> usize {
+    let (x0, x1, y0, y1) = span;
+    if options.cgimage {
+        0
+    } else {
+        x1.saturating_sub(x0) * y1.saturating_sub(y0) * 4
+    }
+}
+
+/// Why a window gives its regenerable memory back (A9-09, A10-26).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MemoryRelease {
+    /// Nobody sees the window: it is in the Dock, or the app is hidden (Cmd-H).
+    NotShown,
+    /// The system warns that memory is getting short (the window may be on
+    /// screen).
+    PressureWarn,
+    /// The system is critically short of memory.
+    PressureCritical,
+}
+
+/// What one release gives back. Everything in it is made again by the frames
+/// that follow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ReleasePlan {
+    /// The CPU compositor's layers (the next frame makes them again).
+    pub compositor: bool,
+    /// The glyph cache's older generation.
+    pub glyph_generation: bool,
+    /// The CPU view's staging bitmap (only there with `AZ_CPU_PRESENT=bitmap`).
+    pub staging_bitmap: bool,
+    /// WebRender's caches (textures, glyphs, GPU cache: uploaded again from
+    /// the templates it keeps).
+    pub webrender_caches: bool,
+    /// The allocator's free pages, back to the system.
+    pub free_pages: bool,
+}
+
+/// What a window gives back for `reason`. `keep` is the user's switch
+/// (`AZ_KEEP_CACHES_MINIMIZED=1`): nothing.
+///
+/// A window nobody sees, and any window when memory is critical, gives back
+/// everything. On a WARNING a window that may be on screen keeps WebRender's
+/// caches: flushing them makes the next frame upload every texture again (a
+/// visible hitch, and more memory for its duration), which is the right price
+/// only when the system is about to kill something.
+pub(crate) fn release_plan(reason: MemoryRelease, keep: bool) -> ReleasePlan {
+    if keep {
+        return ReleasePlan {
+            compositor: false,
+            glyph_generation: false,
+            staging_bitmap: false,
+            webrender_caches: false,
+            free_pages: false,
+        };
+    }
+    ReleasePlan {
+        compositor: true,
+        glyph_generation: true,
+        staging_bitmap: true,
+        webrender_caches: reason != MemoryRelease::PressureWarn,
+        free_pages: true,
+    }
+}
+
+/// The release a memory-pressure event asks for, from the flags the dispatch
+/// source reports (`DISPATCH_MEMORYPRESSURE_WARN` 0x02, `_CRITICAL` 0x04;
+/// `_NORMAL` 0x01 is not asked for and asks for nothing).
+pub(crate) fn memory_release_for_pressure(flags: usize) -> Option<MemoryRelease> {
+    if flags & memory_pressure::CRITICAL != 0 {
+        Some(MemoryRelease::PressureCritical)
+    } else if flags & memory_pressure::WARN != 0 {
+        Some(MemoryRelease::PressureWarn)
+    } else {
+        None
+    }
+}
+
+/// `AZ_KEEP_CACHES_MINIMIZED=1`: A9-09's switch, for every release (the Dock,
+/// Cmd-H, memory pressure).
+fn keep_caches() -> bool {
+    static KEEP: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *KEEP.get_or_init(|| std::env::var_os("AZ_KEEP_CACHES_MINIMIZED").is_some_and(|v| v != "0"))
+}
+
+/// Every open window gives back what `reason` asks for. Main thread.
+fn release_memory_of_every_window(reason: MemoryRelease) {
+    for window in registry::get_all_window_ptrs() {
+        // SAFETY: a registered window is alive; this runs on the main thread,
+        // from an AppKit delegate callback or from the main queue (the
+        // precedent of `windowDidMiniaturize:` and of the vsync tick).
+        unsafe { (*window).release_regenerable_memory(reason) };
+    }
+}
+
+/// The system's memory-pressure events, delivered on the main queue (A10-26).
+mod memory_pressure {
+    use std::ffi::c_void;
+
+    /// `DISPATCH_MEMORYPRESSURE_WARN`.
+    pub const WARN: usize = 0x02;
+    /// `DISPATCH_MEMORYPRESSURE_CRITICAL`.
+    pub const CRITICAL: usize = 0x04;
+
+    extern "C" {
+        static _dispatch_source_type_memorypressure: c_void;
+        static _dispatch_main_q: c_void;
+        fn dispatch_source_create(
+            source_type: *const c_void,
+            handle: usize,
+            mask: usize,
+            queue: *const c_void,
+        ) -> *mut c_void;
+        fn dispatch_set_context(object: *mut c_void, context: *mut c_void);
+        fn dispatch_source_set_event_handler_f(
+            source: *mut c_void,
+            handler: Option<extern "C" fn(*mut c_void)>,
+        );
+        fn dispatch_source_get_data(source: *mut c_void) -> usize;
+        fn dispatch_resume(object: *mut c_void);
+    }
+
+    /// The handler: its context is the source itself, which says the level.
+    extern "C" fn on_memory_pressure(source: *mut c_void) {
+        // SAFETY: `source` is the live source this handler was installed on.
+        let flags = unsafe { dispatch_source_get_data(source) };
+        if let Some(reason) = super::memory_release_for_pressure(flags) {
+            // A panic must not cross into libdispatch.
+            let _ = crate::desktop::recoverable_panic::catch(|| {
+                super::release_memory_of_every_window(reason);
+            });
+        }
+    }
+
+    /// Ask the system, once per process, to say when memory gets short
+    /// (warning and critical). The source lives as long as the process.
+    pub fn install() {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            // SAFETY: the documented way to make and start a dispatch source;
+            // the type and the main queue are process-wide statics.
+            unsafe {
+                let source = dispatch_source_create(
+                    core::ptr::addr_of!(_dispatch_source_type_memorypressure),
+                    0,
+                    WARN | CRITICAL,
+                    core::ptr::addr_of!(_dispatch_main_q),
+                );
+                if source.is_null() {
+                    return;
+                }
+                dispatch_set_context(source, source);
+                dispatch_source_set_event_handler_f(source, Some(on_memory_pressure));
+                dispatch_resume(source);
+            }
+        });
+    }
+}
+
+/// Whether the accessibility tree is built eagerly, after every layout, as
+/// before A10-19: asked for with `AZ_A11Y_EAGER=1`, and always with the debug
+/// server or an E2E script attached (they read the layout side's tree,
+/// `a11y_manager.full_tree()`, without an adapter).
+#[cfg(feature = "a11y")]
+fn a11y_eager() -> bool {
+    a11y_eager_for(
+        std::env::var("AZ_A11Y_EAGER").ok().as_deref(),
+        crate::desktop::shell2::common::debug_server::is_debug_enabled(),
+    )
+}
+
+/// The rule of [`a11y_eager`]: `AZ_A11Y_EAGER` set to anything but `0`, or a
+/// debug / E2E reader attached.
+#[cfg(feature = "a11y")]
+pub(crate) fn a11y_eager_for(env: Option<&str>, debug_reader: bool) -> bool {
+    debug_reader || env.is_some_and(|value| value != "0" && !value.is_empty())
+}
+
+/// What the frame report says of a GPU frame that was rendered and flushed:
+/// `(paint, present)`.
+///
+/// `dirty` are WebRender's dirty rects of the frame (logical px). The fork
+/// only computes them when it is given a partial-present budget, and the
+/// macOS shell gives it none (`max_partial_present_rects` is 0): the list is
+/// always empty here, and "empty" was recorded as `FrameDamage::None`, so the
+/// report said "nothing was drawn" for every GPU frame that drew (audit
+/// A10-18, from A4). Without rects the truth is that WebRender composited the
+/// whole framebuffer; and whatever was painted, `flushBuffer` presents the
+/// whole surface: the present damage of a GPU frame is `Full`.
+fn gpu_frame_damage(
+    dirty: &[azul_core::geom::LogicalRect],
+) -> (
+    crate::desktop::shell2::headless::FrameDamage,
+    crate::desktop::shell2::headless::FrameDamage,
+) {
+    use crate::desktop::shell2::headless::FrameDamage;
+    let paint = if dirty.is_empty() {
+        FrameDamage::Full
+    } else {
+        FrameDamage::Rects(dirty.to_vec())
+    };
+    (paint, FrameDamage::Full)
+}
+
+/// A frame that is not the size of the view's framebuffer cannot be rendered
+/// into it, nor copied into it 1:1: it is rendered into a pixmap of its own
+/// and rescaled into the view (`CPUView::update_framebuffer`), the whole
+/// frame, on every present. One such frame is normal (a tick that renders at
+/// the new size before `drawRect:` resized the buffer, a move to a display of
+/// another scale); the same mismatch frame after frame means the two sizes are
+/// computed from numbers that disagree, and every frame is slow and soft. That
+/// is said once it has lasted three frames, at the error level so that a plain
+/// run shows it, and again every 600 frames.
+fn note_cpu_frame_size(frame: (usize, usize), view: (usize, usize)) {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static MISMATCHED_IN_A_ROW: AtomicU32 = AtomicU32::new(0);
+    if frame == view {
+        MISMATCHED_IN_A_ROW.store(0, Ordering::Relaxed);
+        return;
+    }
+    let n = MISMATCHED_IN_A_ROW.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
+    if n == 3 || n % 600 == 0 {
+        log_error!(
+            LogCategory::Rendering,
+            "[CPUView] the frame is {}x{} px and the view's framebuffer {}x{} px, {} frames in a \
+             row: every present rescales the whole frame (slow, and not pixel-exact)",
+            frame.0,
+            frame.1,
+            view.0,
+            view.1,
+            n
+        );
+    }
+}
+
+/// Copy the rows `y0..y1` and the columns `x0..x1` of `framebuffer` (`width` x
+/// `height` pixels of RGBA8, top row first, tight rows) into `bitmap` and draw
+/// exactly that part of the bitmap, 1:1, into `to` of the current graphics
+/// context: the whole present of a `drawRect:`.
+///
+/// `from` is the span in the bitmap's space ([`bitmap_source_rect`]) and `to`
+/// its twin in the destination's coordinates (the view's points). Returns
+/// whether AppKit drew.
+///
+/// Nothing is read or written outside either buffer: a span that leaves the
+/// frame, a bitmap of another size than the frame and a framebuffer shorter
+/// than the frame draw nothing (and say so) instead of copying garbage.
+///
+/// # Safety
+/// Runs on the main thread with a current `NSGraphicsContext` (inside
+/// `drawRect:`, or with a bitmap context made current by a test).
+pub(crate) unsafe fn draw_framebuffer_span(
+    bitmap: &NSBitmapImageRep,
+    framebuffer: &[u8],
+    width: usize,
+    height: usize,
+    span: (usize, usize, usize, usize),
+    from: NSRect,
+    to: NSRect,
+) -> bool {
+    let (x0, x1, y0, y1) = span;
+    if x1 <= x0 || y1 <= y0 {
+        return false;
+    }
+    // The rep's stride is read back rather than assumed: AppKit allocated
+    // the buffer, and the sRGB copy of the bitmap may pad its rows. A padded
+    // `bytesPerRow` copied with the framebuffer's stride would shear every
+    // row, which on screen looks exactly like squashed, doubled text.
+    let stride = width * 4;
+    let dst_stride = usize::try_from(bitmap.bytesPerRow()).unwrap_or(0);
+    let dst_rows = usize::try_from(bitmap.pixelsHigh()).unwrap_or(0);
+    let dst = bitmap.bitmapData();
+    let fits = x1 <= width
+        && y1 <= height
+        && height <= dst_rows
+        && stride <= dst_stride
+        && framebuffer.len() >= stride * height;
+    if dst.is_null() || !fits {
+        log_error!(
+            LogCategory::Rendering,
+            "[CPUView] not presenting rows {}..{} x columns {}..{} of a {}x{} frame: framebuffer \
+             {} bytes, bitmap {} rows of {} bytes (null: {})",
+            y0,
+            y1,
+            x0,
+            x1,
+            width,
+            height,
+            framebuffer.len(),
+            dst_rows,
+            dst_stride,
+            dst.is_null()
+        );
+        return false;
+    }
+    {
+        // Our own part of a present: the framebuffer rows into the bitmap.
+        let _rows = azul_layout::probe::Probe::span("draw_rect_cpu_rows");
+        let n = (x1 - x0) * 4;
+        for row in y0..y1 {
+            // In bounds: `row < height`, `x1 <= width`, so the source ends at
+            // most at `stride * height <= framebuffer.len()` and the
+            // destination at most at `dst_stride * dst_rows`.
+            std::ptr::copy_nonoverlapping(
+                framebuffer.as_ptr().add(row * stride + x0 * 4),
+                dst.add(row * dst_stride + x0 * 4),
+                n,
+            );
+        }
+    }
+    // AppKit's part: the bitmap's span into the view's backing store.
+    let _draw = azul_layout::probe::Probe::span("draw_rect_cpu_appkit");
+    bitmap.drawInRect_fromRect_operation_fraction_respectFlipped_hints(
+        to,
+        from,
+        NSCompositingOperation::Copy,
+        1.0,
+        false,
+        None,
+    )
+}
+
+/// Core Graphics and Core Foundation, as far as the `cgimage` present needs
+/// them (A10-06). Opaque pointers: the types are never looked into.
+mod cg_present {
+    use std::ffi::c_void;
+
+    use objc2_foundation::NSRect;
+
+    /// `kCGImageAlphaPremultipliedLast | kCGBitmapByteOrderDefault`: the bytes
+    /// of a pixel in memory are R, G, B, A, alpha premultiplied: the
+    /// renderer's layout.
+    pub const RGBA8_PREMULTIPLIED: u32 = 1;
+    /// `kCGRenderingIntentDefault`.
+    pub const INTENT_DEFAULT: i32 = 0;
+    /// `kCGBlendModeCopy`: the source replaces the destination, alpha and all
+    /// (what `NSCompositingOperation::Copy` is on the bitmap path).
+    pub const BLEND_COPY: i32 = 17;
+    /// `kCGInterpolationNone`: one frame pixel is one backing pixel.
+    pub const INTERPOLATION_NONE: i32 = 1;
+
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        pub static kCGColorSpaceSRGB: *const c_void;
+        pub fn CGColorSpaceCreateWithName(name: *const c_void) -> *mut c_void;
+        pub fn CGColorSpaceRelease(space: *mut c_void);
+        pub fn CGDataProviderCreateWithData(
+            info: *mut c_void,
+            data: *const c_void,
+            size: usize,
+            release: Option<extern "C" fn(*mut c_void, *const c_void, usize)>,
+        ) -> *mut c_void;
+        pub fn CGDataProviderRelease(provider: *mut c_void);
+        pub fn CGImageCreate(
+            width: usize,
+            height: usize,
+            bits_per_component: usize,
+            bits_per_pixel: usize,
+            bytes_per_row: usize,
+            space: *mut c_void,
+            bitmap_info: u32,
+            provider: *mut c_void,
+            decode: *const f64,
+            should_interpolate: bool,
+            intent: i32,
+        ) -> *mut c_void;
+        pub fn CGImageCreateWithImageInRect(image: *mut c_void, rect: NSRect) -> *mut c_void;
+        pub fn CGImageRelease(image: *mut c_void);
+        pub fn CGContextSaveGState(context: *mut c_void);
+        pub fn CGContextRestoreGState(context: *mut c_void);
+        pub fn CGContextSetBlendMode(context: *mut c_void, mode: i32);
+        pub fn CGContextSetInterpolationQuality(context: *mut c_void, quality: i32);
+        pub fn CGContextDrawImage(context: *mut c_void, rect: NSRect, image: *mut c_void);
+    }
+
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        pub fn CFGetRetainCount(object: *const c_void) -> isize;
+    }
+}
+
+/// What [`draw_framebuffer_span_cg`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CgDraw {
+    /// The span is drawn, and nothing holds the framebuffer's image any more.
+    Drawn,
+    /// The span is drawn, but something kept the image's data provider after
+    /// our own references were released: it may read the framebuffer later.
+    DrawnButHeld,
+    /// Nothing was drawn (no graphics context, a span outside the frame, an
+    /// image that could not be made): the caller presents another way.
+    NotDrawn,
+}
+
+/// Draw the rows `y0..y1` and the columns `x0..x1` of `framebuffer` (`width` x
+/// `height` pixels of RGBA8 premultiplied, top row first, tight rows) into
+/// `to` of the current graphics context, 1:1, WITHOUT copying them first: a
+/// `CGImage` is laid over the framebuffer's memory, the span is cut out of it
+/// (`CGImageCreateWithImageInRect`: a view into the same memory) and drawn
+/// with `CGContextDrawImage` in copy mode (A10-06; the default,
+/// `AZ_CPU_PRESENT=bitmap` turns it off).
+///
+/// The rect an image is cut by is in the image's own pixels, origin at its
+/// TOP-left (the first row of its bytes), so the span needs no flip there;
+/// `to` is the destination in the context's coordinates (the view's points,
+/// y up), where `CGContextDrawImage` lays the image's first row at the top.
+///
+/// The image only references the framebuffer. Drawing into a bitmap context
+/// reads it during the call; to notice a context that does not, the provider's
+/// retain count is read after every reference of ours but one is released: 1
+/// means nothing else holds it ([`CgDraw::Drawn`]).
+///
+/// # Safety
+/// Main thread, with a current `NSGraphicsContext` (inside `drawRect:`, or a
+/// bitmap context made current by a test). `framebuffer` must not be written
+/// during the call.
+pub(crate) unsafe fn draw_framebuffer_span_cg(
+    framebuffer: &[u8],
+    width: usize,
+    height: usize,
+    span: (usize, usize, usize, usize),
+    to: NSRect,
+) -> CgDraw {
+    use std::ffi::c_void;
+
+    let (x0, x1, y0, y1) = span;
+    let stride = width * 4;
+    if x1 <= x0 || y1 <= y0 || x1 > width || y1 > height || framebuffer.len() < stride * height {
+        return CgDraw::NotDrawn;
+    }
+    let Some(ns_context) = objc2_app_kit::NSGraphicsContext::currentContext() else {
+        return CgDraw::NotDrawn;
+    };
+    // The context as an opaque pointer (whatever smart pointer holds it).
+    let cg_context = ns_context.CGContext();
+    let context = (&*cg_context) as *const _ as *mut c_void;
+
+    let _draw = azul_layout::probe::Probe::span("draw_rect_cpu_cgimage");
+    let space = cg_present::CGColorSpaceCreateWithName(cg_present::kCGColorSpaceSRGB);
+    if space.is_null() {
+        return CgDraw::NotDrawn;
+    }
+    let provider = cg_present::CGDataProviderCreateWithData(
+        std::ptr::null_mut(),
+        framebuffer.as_ptr().cast::<c_void>(),
+        stride * height,
+        None,
+    );
+    if provider.is_null() {
+        cg_present::CGColorSpaceRelease(space);
+        return CgDraw::NotDrawn;
+    }
+    let image = cg_present::CGImageCreate(
+        width,
+        height,
+        8,
+        32,
+        stride,
+        space,
+        cg_present::RGBA8_PREMULTIPLIED,
+        provider,
+        std::ptr::null(),
+        false,
+        cg_present::INTENT_DEFAULT,
+    );
+    let part = if image.is_null() {
+        std::ptr::null_mut()
+    } else {
+        cg_present::CGImageCreateWithImageInRect(
+            image,
+            NSRect::new(
+                NSPoint::new(x0 as f64, y0 as f64),
+                NSSize::new((x1 - x0) as f64, (y1 - y0) as f64),
+            ),
+        )
+    };
+    let drawn = !part.is_null();
+    if drawn {
+        cg_present::CGContextSaveGState(context);
+        cg_present::CGContextSetBlendMode(context, cg_present::BLEND_COPY);
+        cg_present::CGContextSetInterpolationQuality(context, cg_present::INTERPOLATION_NONE);
+        cg_present::CGContextDrawImage(context, to, part);
+        cg_present::CGContextRestoreGState(context);
+        cg_present::CGImageRelease(part);
+    }
+    if !image.is_null() {
+        cg_present::CGImageRelease(image);
+    }
+    cg_present::CGColorSpaceRelease(space);
+    // Ours is the one reference left, unless the context kept the image.
+    let held = cg_present::CFGetRetainCount(provider.cast_const()) > 1;
+    cg_present::CGDataProviderRelease(provider);
+    match (drawn, held) {
+        (true, false) => CgDraw::Drawn,
+        (true, true) => CgDraw::DrawnButHeld,
+        (false, false) => CgDraw::NotDrawn,
+        // Not drawn and still held: treated as held, the caller keeps the
+        // framebuffer alive either way.
+        (false, true) => CgDraw::DrawnButHeld,
+    }
 }
 
 /// The safe-area insets (`top, left, bottom, right`, points) the ROOT is laid
@@ -2467,10 +3252,24 @@ define_class!(
             let bounds = unsafe { self.bounds() };
             // Convert to backing pixels (2x on Retina)
             let backing = unsafe { self.convertRectToBacking(bounds) };
-            let width = backing.size.width as usize;
-            let height = backing.size.height as usize;
+            // Backing pixels per point, and the framebuffer's size from it:
+            // the renderer's own rounding (`cpu_view_framebuffer_size`).
+            let scale = if bounds.size.width > 0.0 {
+                backing.size.width / bounds.size.width
+            } else {
+                1.0
+            };
+            let (width, height) =
+                cpu_view_framebuffer_size((bounds.size.width, bounds.size.height), scale);
 
             let ivars = self.ivars();
+
+            // Another backing scale (the window is on another display now):
+            // what the framebuffer holds is a frame at the old scale, and
+            // its top-left part is not the top-left part of the next frame.
+            let previous_scale = ivars.backing_scale.get();
+            let scale_changed = previous_scale > 0.0 && (previous_scale - scale).abs() > 1e-6;
+            ivars.backing_scale.set(scale);
 
             // Resize framebuffer if view bounds changed
             let current_width = ivars.width.get();
@@ -2498,25 +3297,33 @@ define_class!(
                 let kept = current_width > 0
                     && current_height > 0
                     && fb.len() >= current_width * current_height * 4
-                    && ivars.fb_content_valid.get();
-                let old = if kept { Some(core::mem::take(&mut *fb)) } else { None };
-                fb.clear();
-                fb.resize(width * height * 4, 0);
-                for chunk in fb.chunks_exact_mut(4) {
-                    chunk.copy_from_slice(&blank);
-                }
-                if let Some(old) = old {
-                    let cols = current_width.min(width) * 4;
-                    for row in 0..current_height.min(height) {
-                        let src = row * current_width * 4;
-                        let dst = row * width * 4;
-                        fb[dst..dst + cols].copy_from_slice(&old[src..src + cols]);
-                    }
-                }
+                    && ivars.fb_content_valid.get()
+                    && !scale_changed;
+                // In place, each kept pixel written once (A10-14).
+                resize_framebuffer(
+                    &mut fb,
+                    (current_width, current_height),
+                    (width, height),
+                    kept,
+                    blank,
+                );
                 // Without a frame to keep (none drawn yet), a partial present
                 // against this buffer would leave everything outside its rects
                 // blank: the next present goes through a full copy.
                 ivars.fb_content_valid.set(kept);
+                if !kept {
+                    // And a present that says "nothing changed" would leave
+                    // ALL of it blank: the next present copies the frame in
+                    // whatever its damage is (`shows_blank`).
+                    ivars.fb_blank.set(true);
+                }
+            }
+
+            // What this very pass draws (A10-13): a frame rendered below does
+            // not have to mark it as needing display again.
+            let present = cpu_present_options();
+            if !present.twice {
+                *ivars.drawing_spans.borrow_mut() = self.spans_being_drawn(dirty_rect, width, height);
             }
 
             // CPU render on every drawRect that needs it (first frame, after
@@ -2557,24 +3364,80 @@ define_class!(
             // dirty rect AppKit hands us is the damage; the bitmap's other
             // rows still hold the previous frame, which is exactly what the
             // framebuffer holds there too.
+            // The frame's rects are drawn below: from here on a rect marked
+            // as needing display is a new one.
+            ivars.drawing_spans.borrow_mut().clear();
+
+            // A10-06 (the default; `AZ_CPU_PRESENT=bitmap` is the other): AppKit draws the dirty part
+            // straight from the framebuffer (a `CGImage` over its memory): no
+            // rows are copied, and no bitmap is kept beside the framebuffer.
+            let mut drawn_from_framebuffer = false;
+            if present.cgimage && !ivars.cg_tripped.get() {
+                let framebuffer = ivars.framebuffer.borrow();
+                let dirty_px = unsafe { self.convertRectToBacking(dirty_rect) };
+                let span = dirty_rows_to_copy(
+                    false,
+                    (
+                        dirty_px.origin.x,
+                        dirty_px.origin.y,
+                        dirty_px.size.width,
+                        dirty_px.size.height,
+                    ),
+                    width,
+                    height,
+                );
+                let (fx, fy, fw, fh) = bitmap_source_rect(span, height);
+                let to_pt = unsafe {
+                    self.convertRectFromBacking(NSRect::new(NSPoint::new(fx, fy), NSSize::new(fw, fh)))
+                };
+                match unsafe { draw_framebuffer_span_cg(&framebuffer, width, height, span, to_pt) } {
+                    CgDraw::Drawn => drawn_from_framebuffer = true,
+                    CgDraw::DrawnButHeld => {
+                        drawn_from_framebuffer = true;
+                        ivars.cg_tripped.set(true);
+                    }
+                    CgDraw::NotDrawn => {}
+                }
+            }
+            if ivars.cg_tripped.get() && drawn_from_framebuffer {
+                // Core Graphics kept the image of the framebuffer: whoever
+                // holds it may read that memory later. It stays alive for
+                // good (one buffer, once), the view goes on with a copy, and
+                // the bitmap path presents from now on.
+                let mut fb = ivars.framebuffer.borrow_mut();
+                let copy = fb.clone();
+                core::mem::forget(core::mem::replace(&mut *fb, copy));
+                log_error!(
+                    LogCategory::Rendering,
+                    "[CPUView] present from the framebuffer: Core Graphics held the framebuffer's image \
+                     after the draw; presenting through the bitmap from now on"
+                );
+            }
+
+            if !drawn_from_framebuffer {
             unsafe {
                 let framebuffer = ivars.framebuffer.borrow();
 
-                // Reuse cached bitmap if size matches, otherwise allocate new
+                // Reuse the cached bitmap while the frame fits it (it may be
+                // larger: `bitmap_size_to_allocate`, A10-14), otherwise
+                // allocate a new one.
                 let mut cached = ivars.cached_bitmap.borrow_mut();
-                let cached_w = ivars.cached_bitmap_w.get();
-                let cached_h = ivars.cached_bitmap_h.get();
-
-                if cached.is_none() || cached_w != width || cached_h != height {
-                    *cached = color_space::cpu_frame_bitmap(width, height);
-                    ivars.cached_bitmap_w.set(width);
-                    ivars.cached_bitmap_h.set(height);
+                let have = cached
+                    .is_some()
+                    .then(|| (ivars.cached_bitmap_w.get(), ivars.cached_bitmap_h.get()));
+                if let Some((bitmap_w, bitmap_h)) = bitmap_size_to_allocate(width, height, have) {
+                    *cached = color_space::cpu_frame_bitmap(bitmap_w, bitmap_h);
+                    ivars.cached_bitmap_w.set(bitmap_w);
+                    ivars.cached_bitmap_h.set(bitmap_h);
                     ivars.cached_bitmap_stale.set(true);
                 }
+                // The bitmap's own height: its space is measured from ITS
+                // bottom edge, and the frame's rows are its top rows.
+                let bitmap_h = ivars.cached_bitmap_h.get();
 
                 if let Some(ref bitmap) = *cached {
                     let dirty_px = self.convertRectToBacking(dirty_rect);
-                    let (x0, x1, y0, y1) = dirty_rows_to_copy(
+                    let span = dirty_rows_to_copy(
                         ivars.cached_bitmap_stale.get(),
                         (
                             dirty_px.origin.x,
@@ -2588,48 +3451,33 @@ define_class!(
                     ivars.cached_bitmap_stale.set(false);
 
                     // Copy the dirty rows (or everything, once, after a
-                    // (re)allocation) into the bitmap's pixel buffer. The
-                    // rep's stride is read back rather than assumed: AppKit
-                    // allocated the buffer, and the sRGB copy of the bitmap
-                    // may pad its rows. A padded `bytesPerRow` copied with
-                    // the framebuffer's stride would shear every row, which
-                    // on screen looks exactly like squashed, doubled text.
-                    let stride = width * 4;
-                    let dst_stride = bitmap.bytesPerRow() as usize;
-                    let dst = bitmap.bitmapData();
-                    let span = (x1 - x0) * 4;
-                    if !dst.is_null() && span > 0 {
-                        for row in y0..y1 {
-                            let src_off = row * stride + x0 * 4;
-                            let dst_off = row * dst_stride + x0 * 4;
-                            if src_off + span <= framebuffer.len() {
-                                std::ptr::copy_nonoverlapping(
-                                    framebuffer.as_ptr().add(src_off),
-                                    dst.add(dst_off),
-                                    span,
-                                );
-                            }
-                        }
-                    }
-
-                    // Draw just that region, 1:1. The rep's coordinate space
-                    // is bottom-left-origin pixels, like the view's backing
+                    // (re)allocation) into the bitmap's pixel buffer and draw
+                    // just that region, 1:1. The rep's coordinate space is
+                    // bottom-left-origin pixels, like the view's backing
                     // space, so the source rect is the copied span flipped
-                    // back, and the destination is its point-space twin.
-                    let from_px = NSRect::new(
-                        NSPoint::new(x0 as f64, (height - y1) as f64),
-                        NSSize::new((x1 - x0) as f64, (y1 - y0) as f64),
-                    );
-                    let to_pt = self.convertRectFromBacking(from_px);
-                    let _drawn: bool = bitmap.drawInRect_fromRect_operation_fraction_respectFlipped_hints(
-                        to_pt,
+                    // back (`bitmap_source_rect`), and the destination is its
+                    // point-space twin.
+                    // Where the span lies in the VIEW (the frame's rows are
+                    // the view's rows) and where in the BITMAP (which may be
+                    // taller than the frame).
+                    let (vx, vy, vw, vh) = bitmap_source_rect(span, height);
+                    let to_pt = self.convertRectFromBacking(NSRect::new(
+                        NSPoint::new(vx, vy),
+                        NSSize::new(vw, vh),
+                    ));
+                    let (fx, fy, fw, fh) = bitmap_source_rect(span, bitmap_h);
+                    let from_px = NSRect::new(NSPoint::new(fx, fy), NSSize::new(fw, fh));
+                    let _drawn: bool = draw_framebuffer_span(
+                        bitmap,
+                        &framebuffer,
+                        width,
+                        height,
+                        span,
                         from_px,
-                        NSCompositingOperation::Copy,
-                        1.0,
-                        false,
-                        None,
+                        to_pt,
                     );
                 }
+            }
             }
 
             if let Some(window_ptr) = ivars.window_ptr.get() {
@@ -3075,6 +3923,10 @@ define_class!(
             cached_bitmap_stale: Cell::new(true),
                 transparent: Cell::new(false),
                 blank_rgb: Cell::new([255, 255, 255]),
+                fb_blank: Cell::new(true),
+                backing_scale: Cell::new(0.0),
+                drawing_spans: RefCell::new(Vec::new()),
+                cg_tripped: Cell::new(false),
             });
             unsafe {
                 msg_send_id![super(this), initWithFrame: frame]
@@ -3463,30 +4315,28 @@ impl CPUView {
                     }
                 }
                 drop(fb);
-                let bounds = self.bounds();
-                let scale_x = view_w as f64 / bounds.size.width.max(1.0);
-                let scale_y = view_h as f64 / bounds.size.height.max(1.0);
-                for (rx, ry, rw, rh) in rects {
-                    let x_pt = f64::from(*rx) / scale_x;
-                    let w_pt = f64::from(*rw) / scale_x;
-                    let h_pt = f64::from(*rh) / scale_y;
-                    // flip: physical top-left origin → view bottom-left origin
-                    let y_pt = bounds.size.height - (f64::from(*ry) + f64::from(*rh)) / scale_y;
-                    let dirty = NSRect::new(NSPoint::new(x_pt, y_pt), NSSize::new(w_pt, h_pt));
-                    unsafe {
-                        let _: () = objc2::msg_send![self, setNeedsDisplayInRect: dirty];
-                    }
-                }
+                self.invalidate_px_rects(rects, view_w, view_h);
                 return;
             }
         }
 
         // Every branch below rewrites the whole buffer.
-        self.ivars().fb_content_valid.set(true);
+        note_cpu_frame_size((pixmap_w, pixmap_h), (view_w, view_h));
         if pixmap_w == view_w && pixmap_h == view_h {
             let len = (view_w * view_h * 4).min(pixmap_data.len()).min(fb.len());
             fb[..len].copy_from_slice(&pixmap_data[..len]);
+            // The framebuffer is this frame, pixel for pixel: the next one
+            // may be rendered into it, or copied into it rect by rect.
+            self.ivars().fb_content_valid.set(true);
+            self.ivars().fb_blank.set(false);
         } else if pixmap_w > 0 && pixmap_h > 0 {
+            // It shows this frame, but STRETCHED: no pixel of it is a pixel
+            // of the frame. It is no base for an incremental frame (a frame
+            // rendered into it, or rects copied into it, would stand next to
+            // stretched pixels for good): the next present of a frame of the
+            // view's size is a full copy, which revalidates.
+            self.ivars().fb_content_valid.set(false);
+            self.ivars().fb_blank.set(false);
             // Nearest-neighbor scale for DPI mismatch
             let sx = pixmap_w as f32 / view_w as f32;
             let sy = pixmap_h as f32 / view_h as f32;
@@ -3507,8 +4357,13 @@ impl CPUView {
         }
 
         drop(fb);
-        unsafe {
-            self.setNeedsDisplay(true);
+        // The whole view, unless the `drawRect:` that is running draws the
+        // whole frame itself (A10-13).
+        let whole = [(0_u32, 0_u32, view_w as u32, view_h as u32)];
+        if !rects_left_to_invalidate(&whole, &self.ivars().drawing_spans.borrow()).is_empty() {
+            unsafe {
+                self.setNeedsDisplay(true);
+            }
         }
     }
 
@@ -3540,6 +4395,7 @@ impl CPUView {
         // copy path (which also handles DPI-mismatch rescaling).
         let (vw, vh) = (ivars.width.get(), ivars.height.get());
         if (vw != 0 || vh != 0) && (vw != w || vh != h) {
+            // Counted in `update_framebuffer`, where this frame ends up.
             return None;
         }
         // A resize just white-filled the buffer: the engine would render only
@@ -3552,9 +4408,89 @@ impl CPUView {
         }
         ivars.width.set(w);
         ivars.height.set(h);
+        note_cpu_frame_size((w, h), (w, h));
         let mut fb = ivars.framebuffer.borrow_mut();
         fb.resize(w * h * 4, 255);
         Some(fb.as_mut_ptr())
+    }
+
+    /// The spans of the `width` x `height` frame that the `drawRect:` running
+    /// right now draws: the rects AppKit reports as being drawn
+    /// (`getRectsBeingDrawn:count:`: the area the view is asked to draw, and
+    /// what its drawing is clipped to), each cut INWARD to whole pixels; the
+    /// dirty rect itself when AppKit reports none.
+    fn spans_being_drawn(
+        &self,
+        dirty_rect: NSRect,
+        width: usize,
+        height: usize,
+    ) -> Vec<(usize, usize, usize, usize)> {
+        let mut rects: *const NSRect = std::ptr::null();
+        let mut count: isize = 0;
+        // SAFETY: both are valid out-pointers; AppKit owns the list it
+        // returns, which lives for the duration of this `drawRect:`.
+        unsafe { self.getRectsBeingDrawn_count(&mut rects, &mut count) };
+        let being_drawn: Vec<NSRect> = if rects.is_null() || count <= 0 {
+            vec![dirty_rect]
+        } else {
+            // SAFETY: `rects` points at `count` rects (above).
+            (0..count as usize).map(|i| unsafe { *rects.add(i) }).collect()
+        };
+        being_drawn
+            .into_iter()
+            .map(|rect| {
+                let px = unsafe { self.convertRectToBacking(rect) };
+                rows_inside_backing_rect(
+                    (px.origin.x, px.origin.y, px.size.width, px.size.height),
+                    width,
+                    height,
+                )
+            })
+            .filter(|&(x0, x1, y0, y1)| x1 > x0 && y1 > y0)
+            .collect()
+    }
+
+    /// Let go of the staging bitmap (A10-26). It is only a copy of rows of
+    /// the framebuffer on their way to AppKit: the next `drawRect:` that
+    /// needs one makes it again.
+    pub fn release_staging_bitmap(&self) {
+        let ivars = self.ivars();
+        if let Ok(mut cached) = ivars.cached_bitmap.try_borrow_mut() {
+            *cached = None;
+            ivars.cached_bitmap_w.set(0);
+            ivars.cached_bitmap_h.set(0);
+            ivars.cached_bitmap_stale.set(true);
+        }
+    }
+
+    /// Whether the framebuffer holds the blank fill instead of a frame (see
+    /// the ivar): the next present has to copy the whole frame in, even one
+    /// whose damage says that nothing changed.
+    pub fn shows_blank(&self) -> bool {
+        self.ivars().fb_blank.get()
+    }
+
+    /// Mark the present rects `rects` (buffer px of the `fb_w` x `fb_h`
+    /// framebuffer: top-left origin, y down) as needing display: each one
+    /// flipped to the view's bottom-left origin and divided by the backing
+    /// scale ([`present_rect_in_view_points`]).
+    fn invalidate_px_rects(&self, rects: &[(u32, u32, u32, u32)], fb_w: usize, fb_h: usize) {
+        // The scale `drawRect:` sized the framebuffer with; before the first
+        // one, the framebuffer's own pixels per point.
+        let mut scale = self.ivars().backing_scale.get();
+        if !(scale > 0.0) {
+            scale = fb_w as f64 / self.bounds().size.width.max(1.0);
+        }
+        // Inside a `drawRect:` that draws them itself, nothing is marked
+        // (A10-13); outside one, `drawing_spans` is empty and all are.
+        let rects = rects_left_to_invalidate(rects, &self.ivars().drawing_spans.borrow());
+        for rect in &rects {
+            let (x, y, w, h) = present_rect_in_view_points(*rect, fb_h, scale);
+            let dirty = NSRect::new(NSPoint::new(x, y), NSSize::new(w, h));
+            unsafe {
+                let _: () = objc2::msg_send![self, setNeedsDisplayInRect: dirty];
+            }
+        }
     }
 
     /// #27: invalidate-only present — the frame was rendered DIRECTLY into
@@ -3567,20 +4503,7 @@ impl CPUView {
         if view_w == 0 || view_h == 0 {
             return;
         }
-        let bounds = self.bounds();
-        let scale_x = view_w as f64 / bounds.size.width.max(1.0);
-        let scale_y = view_h as f64 / bounds.size.height.max(1.0);
-        for (rx, ry, rw, rh) in rects {
-            let x_pt = f64::from(*rx) / scale_x;
-            let w_pt = f64::from(*rw) / scale_x;
-            let h_pt = f64::from(*rh) / scale_y;
-            // flip: physical top-left origin → view bottom-left origin
-            let y_pt = bounds.size.height - (f64::from(*ry) + f64::from(*rh)) / scale_y;
-            let dirty = NSRect::new(NSPoint::new(x_pt, y_pt), NSSize::new(w_pt, h_pt));
-            unsafe {
-                let _: () = objc2::msg_send![self, setNeedsDisplayInRect: dirty];
-            }
-        }
+        self.invalidate_px_rects(rects, view_w, view_h);
     }
 }
 
@@ -3647,6 +4570,16 @@ define_class!(
             });
             // SAFETY: null or the live NSNotification AppKit hands this method.
             unsafe { crate::desktop::notifications::note_launch_notification(ptr) };
+            // A10-26: from here on the system can say when memory gets short.
+            memory_pressure::install();
+        }
+
+        /// The app was hidden (Cmd-H, "Hide" in the app menu): none of its
+        /// windows shows anything until it is shown again. Each gives back
+        /// what a window in the Dock gives back (A9-09, A10-26).
+        #[unsafe(method(applicationDidHide:))]
+        fn application_did_hide(&self, _notification: Option<&objc2::runtime::AnyObject>) {
+            release_memory_of_every_window(MemoryRelease::NotShown);
         }
 
         /// The app is asked to quit: the app menu's Quit (Cmd+Q), the Dock's
@@ -3819,6 +4752,26 @@ define_class!(
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     set_window_frame_and_dispatch(macos_window, WindowFrame::Minimized);
                     macos_window.set_display_link_paused(true);
+                    // A9-09: a window in the Dock shows nothing until it comes back, and what
+                    // is given back here is drawn again then: the CPU compositor's layers
+                    // (its root layer is one frame of pixels: 22 MB at 2940 x 1912, 59 MB
+                    // at 5120 x 2880; made again by the first frame after the window is
+                    // back), the glyph cache's older generation, WebRender's caches
+                    // (textures, glyphs, GPU cache:
+                    // re-uploaded from the templates it keeps), and the allocator's free
+                    // pages. `AZ_KEEP_CACHES_MINIMIZED=1` keeps everything.
+                    static KEEP: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+                    let keep = *KEEP.get_or_init(|| {
+                        std::env::var_os("AZ_KEEP_CACHES_MINIMIZED").is_some_and(|v| v != "0")
+                    });
+                    if !keep {
+                        macos_window.cpu_backend.compositor = None;
+                        macos_window.cpu_backend.glyph_cache.gc();
+                        if let Some(api) = macos_window.common.render_api.as_ref() {
+                            api.notify_memory_pressure();
+                        }
+                        azul_layout::probe::hint_purge_allocator();
+                    }
                 }
                 log_debug!(LogCategory::Window, "[WindowDelegate] Window minimized");
             }
@@ -6635,9 +7588,19 @@ impl MacOSWindow {
 
             let document_id = translate_document_id_wr(render_api.add_document(framebuffer_size));
             let id_namespace = translate_id_namespace_wr(render_api.get_namespace_id());
-            let hit_tester = render_api
-                .request_hit_tester(wr_translate_document_id(document_id))
-                .resolve();
+            // WebRender's hit tester is asked by nobody: every hit test is
+            // answered by the layout-based tester
+            // (`CommonWindowState::perform_hit_test`). It is not requested
+            // any more - `resolve()` was a blocking round trip to the render
+            // backend at every window creation. `AZ_WR_HIT_TESTER=1` requests
+            // it as before (audit A6-17).
+            let hit_tester = std::env::var_os("AZ_WR_HIT_TESTER").is_some().then(|| {
+                AsyncHitTester::Resolved(
+                    render_api
+                        .request_hit_tester(wr_translate_document_id(document_id))
+                        .resolve(),
+                )
+            });
             let gl_ctx_inner = gl_context
                 .as_ref()
                 .map(|_| GlContextPtr::new(RendererType::Hardware, gl_funcs.clone()));
@@ -6655,7 +7618,7 @@ impl MacOSWindow {
                     Some(render_api),
                     Some(document_id),
                     Some(id_namespace),
-                    Some(AsyncHitTester::Resolved(hit_tester)),
+                    hit_tester,
                     gl_ctx_inner.into(),
                     RendererType::Hardware,
                 )
@@ -7399,6 +8362,11 @@ impl MacOSWindow {
             .update_window_state(event::WindowStateSource::Os, |ws| {
                 ws.size.dpi = (new_hidpi.inner.get() * BASE_DPI) as u32
             });
+        // A frame at another scale shares no pixel with the one before it,
+        // and the display list (logical px) is the same at both: without
+        // this the CPU frame kept the old scale's pixels wherever the list
+        // did not change (see `cpu_frame_scale_changed`).
+        self.cpu_frame_scale_changed();
         let result = self.process_window_events(0);
         self.apply_activation_pass_result(result);
 
@@ -8561,6 +9529,55 @@ impl MacOSWindow {
         }
     }
 
+    /// Give back what `reason` asks for of this window's regenerable memory
+    /// (`release_plan`): the release A9-09 does when the window goes to the
+    /// Dock, for the app being hidden and for memory pressure too (A10-26).
+    /// What is given back is made again by the frames that follow; the frame
+    /// on screen (the view's framebuffer, AppKit's backing store) stays.
+    pub(crate) fn release_regenerable_memory(&mut self, reason: MemoryRelease) {
+        let plan = release_plan(reason, keep_caches());
+        #[cfg(feature = "cpurender")]
+        {
+            if plan.compositor {
+                self.cpu_backend.compositor = None;
+            }
+            if plan.glyph_generation {
+                self.cpu_backend.glyph_cache.gc();
+            }
+        }
+        if plan.staging_bitmap {
+            if let Some(ref cpu_view) = self.cpu_view {
+                cpu_view.release_staging_bitmap();
+            }
+        }
+        if plan.webrender_caches {
+            if let Some(api) = self.common.render_api.as_ref() {
+                api.notify_memory_pressure();
+            }
+        }
+        if plan.free_pages {
+            azul_layout::probe::hint_purge_allocator();
+        }
+    }
+
+    /// The window's DPI factor is changing: the next CPU frame is repainted
+    /// in full.
+    ///
+    /// `CpuBackend::render_frame` repaints what the display list's diff
+    /// reports and keeps every other pixel of the frame before. The list is
+    /// in logical pixels, so at another DPI factor it is the SAME list while
+    /// every device pixel is another one: the frame kept the old scale's
+    /// pixels (its top-left quarter when the factor doubles: the previous
+    /// frame, half size; cropped and doubled when it halves) until something
+    /// else damaged them. Called at every write of `size.dpi` that changes
+    /// it.
+    pub(super) fn cpu_frame_scale_changed(&mut self) {
+        #[cfg(feature = "cpurender")]
+        {
+            self.cpu_backend.force_full_repaint = true;
+        }
+    }
+
     /// Synchronize window size from content view bounds
     ///
     /// This ensures the window state always reflects the actual view size,
@@ -8578,9 +9595,28 @@ impl MacOSWindow {
 
         let old_dims = self.common.current_window_state().size.dimensions;
 
+        // A10-02: the CPU frame is sized from the STATE (`ceil(dims * dpi)`)
+        // and the view's framebuffer from the VIEW's bounds, by the same
+        // formula. Inside the tolerance below the two can still be one pixel
+        // apart (a window asked for at 800.2 pt that AppKit made 800 pt at
+        // 2x: frame 1601 px, view 1600 px), and a frame of another size than
+        // the view is rescaled into it on every present. So the state also
+        // follows the view whenever the two make frames of different sizes.
+        let dpi = self.common.current_window_state().size.dpi as f32 / BASE_DPI;
+        let frame_differs = azul_layout::window::present_geometry::frame_size_px(
+            old_dims.width,
+            old_dims.height,
+            dpi,
+        ) != azul_layout::window::present_geometry::frame_size_px(
+            new_logical_width,
+            new_logical_height,
+            dpi,
+        );
+
         // Only update if dimensions actually changed (with small tolerance for float comparison)
         if (old_dims.width - new_logical_width).abs() > 0.5
             || (old_dims.height - new_logical_height).abs() > 0.5
+            || frame_differs
         {
             // Snapshot the event-diff baseline BEFORE mutating: this fallback
             // (for a windowDidResize the loop never saw) has to dispatch the
@@ -8612,6 +9648,9 @@ impl MacOSWindow {
             // Os-source for the same reason as the dimension write above: the
             // scale is an OS fact, keep the OS-sync baseline in lockstep.
             let new_dpi = (scale_factor * BASE_DPI) as u32;
+            if new_dpi != self.common.current_window_state().size.dpi {
+                self.cpu_frame_scale_changed();
+            }
             self.common
                 .update_window_state(event::WindowStateSource::Os, |ws| ws.size.dpi = new_dpi);
 
@@ -9104,6 +10143,19 @@ impl MacOSWindow {
                 "operation_not_allowed" | "not-allowed" => NSCursor::operationNotAllowedCursor(),
                 _ => NSCursor::arrowCursor(), // Default fallback
             };
+            // A pointer move asks for the cursor of the node under it, which
+            // is nearly always the one that is set: AppKit is asked what its
+            // current cursor is, and `set` (a message to the window server)
+            // is sent only for another one. `currentCursor` is what the
+            // application last set, by this call or by AppKit itself (a
+            // resize cursor at the window's edge), so nothing is remembered
+            // here that could go stale. `AZ_CURSOR_SET_ALWAYS=1`: `set` on
+            // every call, as before.
+            if !cursor_is_set_on_every_call()
+                && core::ptr::eq::<NSCursor>(&*NSCursor::currentCursor(), &*cursor)
+            {
+                return;
+            }
             cursor.set();
         }
     }
@@ -9197,6 +10249,8 @@ impl MacOSWindow {
     /// - The window must not be moved in memory after this call
     /// - The delegate is owned by the window and doesn't outlive it
     pub unsafe fn finalize_delegate_pointer(&mut self) {
+        // A10-26: also for an app whose delegate is not azul's (once per process).
+        memory_pressure::install();
         unsafe {
             let window_ptr = self as *mut MacOSWindow as *mut std::ffi::c_void;
             let delegate_ptr = &*self.window_delegate as *const WindowDelegate;
@@ -9624,7 +10678,8 @@ impl MacOSWindow {
                 let ws = &layout_window.current_window_state;
                 let width = ws.size.dimensions.width;
                 let height = ws.size.dimensions.height;
-                let dpi = ws.size.dpi as f32 / BASE_DPI;
+                // THE factor of the window's frame (A10-17).
+                let dpi = layout_window.frame_scale();
 
                 if width > 0.0 && height > 0.0 {
                     // Shared per-frame content preparation (journal clock, image
@@ -9645,8 +10700,8 @@ impl MacOSWindow {
                     // (rescale in flight) skips the arm; that frame takes the
                     // legacy copy path below. BLIND-IMPLEMENTED per USER
                     // directive 2026-08-12 — not yet run on real hardware.
-                    let native_pw = (width * dpi).ceil() as u32;
-                    let native_ph = (height * dpi).ceil() as u32;
+                    let (native_pw, native_ph) =
+                        azul_layout::window::present_geometry::frame_size_px(width, height, dpi);
                     // Transparent material: the frame clears to alpha 0
                     // and the view composites it (macOS shapes the window's
                     // hit-testing by that alpha on its own).
@@ -9719,7 +10774,24 @@ impl MacOSWindow {
                     if let Some(ref pixmap) = self.cpu_backend.last_frame {
                         if let Some(ref cpu_view) = self.cpu_view {
                             match &self.cpu_backend.last_present_damage {
-                                crate::desktop::shell2::headless::FrameDamage::None => {}
+                                // "Nothing changed" is about the frame, not
+                                // about the view: a framebuffer `drawRect:`
+                                // just made anew holds the blank fill, and
+                                // the frame is copied in all the same. (A
+                                // resize whose render ran at the tick BEFORE
+                                // `drawRect:` resized the buffer ends here:
+                                // that render was the full repaint, this one
+                                // finds nothing left to do.)
+                                crate::desktop::shell2::headless::FrameDamage::None
+                                    if !cpu_view.shows_blank() => {}
+                                crate::desktop::shell2::headless::FrameDamage::None => {
+                                    cpu_view.update_framebuffer(
+                                        pixmap.data(),
+                                        pixmap.width() as usize,
+                                        pixmap.height() as usize,
+                                        None,
+                                    );
+                                }
                                 damage => {
                                     let rects = damage.to_present_rects_physical(
                                         dpi,
@@ -9935,17 +11007,12 @@ impl MacOSWindow {
 
         // Update frame report for E2E tests
         if let Some(layout_window) = self.common.layout_window.as_mut() {
-            use crate::desktop::shell2::headless::FrameDamage;
             // WebRender's own dirty rects, not a collapse to "full": a video
             // frame on one tile must be visible as that tile's damage. (CGL
             // still composites the whole window on present; see the report
             // VIDEO_PATH_2026_09_30.)
-            let paint = if self.gpu_damage_rects.is_empty() {
-                FrameDamage::None
-            } else {
-                FrameDamage::Rects(self.gpu_damage_rects.clone())
-            };
-            layout_window.record_frame(paint.clone(), paint);
+            let (paint, present) = gpu_frame_damage(&self.gpu_damage_rects);
+            layout_window.record_frame(paint, present);
         }
 
         // Step 3: Swap buffers to show the rendered frame
@@ -10785,9 +11852,39 @@ impl MacOSWindow {
             );
         }
 
+        // A10-19 (A3-core-10): the tree is built ON DEMAND, inside accesskit's
+        // `update_if_active` closure, i.e. only while an assistive technology
+        // is active. `AZ_A11Y_EAGER=1`, and any run with the debug server or
+        // an E2E script attached (they read the layout side's tree without an
+        // adapter), keep the eager path below.
+        let on_demand = !a11y_eager();
+        let window_token = if on_demand {
+            core::ptr::addr_of_mut!(*self) as usize
+        } else {
+            0
+        };
+
         // Create the adapter
-        let adapter = accessibility::MacOSAccessibilityAdapter::new(view_ptr);
+        let adapter = accessibility::MacOSAccessibilityAdapter::new(view_ptr, window_token);
         self.accessibility_adapter = Some(adapter);
+
+        if on_demand {
+            // No forced activation and no first tree: the adapter becomes
+            // active when a client really asks (its activation handler then
+            // schedules a delivery), and the placeholder -> active transition
+            // that posts the focus notification happens at that delivery.
+            if let Some(lw) = self.common.layout_window.as_mut() {
+                lw.a11y_manager.on_demand = true;
+            }
+            if let Some(adapter) = self.accessibility_adapter.as_mut() {
+                adapter.update_view_focus_state(true);
+            }
+            log_debug!(
+                LogCategory::Platform,
+                "[a11y] Accessibility adapter initialized (tree built on demand)"
+            );
+            return;
+        }
 
         // Force the adapter from Inactive → Placeholder by querying accessibilityChildren.
         // request_initial_tree() returns None intentionally, so the adapter creates a
@@ -10828,6 +11925,11 @@ impl MacOSWindow {
     /// focus, cursor state and builds the tree.  Then submits to the OS adapter.
     #[cfg(feature = "a11y")]
     fn update_accessibility(&mut self) {
+        if self.a11y_on_demand() {
+            self.deliver_a11y_on_demand(true);
+            return;
+        }
+
         let adapter = match self.accessibility_adapter.as_mut() {
             Some(a) => a,
             None => return,
@@ -10877,6 +11979,10 @@ impl MacOSWindow {
             return;
         }
         self.rebuild_a11y_after_scroll_if_due();
+        if self.a11y_on_demand() {
+            self.deliver_a11y_on_demand(false);
+            return;
+        }
         let pending = self
             .common
             .layout_window
@@ -10884,6 +11990,37 @@ impl MacOSWindow {
             .and_then(|lw| lw.a11y_manager.take_pending());
         if let (Some(update), Some(adapter)) = (pending, self.accessibility_adapter.as_mut()) {
             adapter.update_tree(update);
+        }
+    }
+
+    /// Whether this window builds its accessibility tree on demand (A10-19).
+    #[cfg(feature = "a11y")]
+    fn a11y_on_demand(&self) -> bool {
+        self.common
+            .layout_window
+            .as_ref()
+            .is_some_and(|lw| lw.a11y_manager.on_demand)
+    }
+
+    /// The on-demand delivery (A10-19): note that a pass is due (`note_pass`,
+    /// after a layout), and if one is due or the adapter waits for its first
+    /// tree, let the adapter build it: INSIDE `update_if_active`, so with no
+    /// assistive technology active nothing is built and the layout side's
+    /// retained tree does not advance.
+    #[cfg(feature = "a11y")]
+    fn deliver_a11y_on_demand(&mut self, note_pass: bool) {
+        let (Some(adapter), Some(lw)) = (
+            self.accessibility_adapter.as_mut(),
+            self.common.layout_window.as_mut(),
+        ) else {
+            return;
+        };
+        if note_pass {
+            // On demand this only notes that a pass is due.
+            lw.update_a11y_tree();
+        }
+        if lw.a11y_update_pending() || adapter.awaiting_tree() {
+            adapter.update_tree_on_demand(|full| lw.a11y_update_on_demand(full));
         }
     }
 
@@ -11367,5 +12504,680 @@ pub fn play_haptic(request: &azul_core::haptics::HapticRequest) {
             performFeedbackPattern: pattern,
             performanceTime: PERFORM_NOW
         ];
+    }
+}
+
+/// `AZ_CURSOR_SET_ALWAYS=1`: `MacOSWindow::set_cursor` sends `-[NSCursor set]`
+/// on every call (every pointer move), as it did before audit A6-12, instead
+/// of only when AppKit's current cursor is another one. For a machine where
+/// the cursor is found stale after it left and re-entered the content.
+fn cursor_is_set_on_every_call() -> bool {
+    static ALWAYS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ALWAYS.get_or_init(|| std::env::var_os("AZ_CURSOR_SET_ALWAYS").is_some_and(|v| v != "0"))
+}
+
+#[cfg(test)]
+mod audit_a10_tests {
+    //! A10 (`audit/A10.md`): the CPU present of the macOS shell. The
+    //! conversions between the renderer's rects (buffer px: top-left origin,
+    //! y down) and AppKit's (points, bottom-left origin, y up), and the one
+    //! AppKit call of a present, drawn into an offscreen bitmap so that the
+    //! rows can be read back without a window.
+
+    use objc2_app_kit::{NSColorSpace, NSGraphicsContext};
+
+    use super::*;
+
+    /// A10-01. The damage of a pan step: the strip at (1267, 20), 13 x 1402
+    /// logical px, in a 1280 x 1440 pt view.
+    ///
+    /// Scale 1: buffer 1280 x 1440, the rect is (1267, 20, 13, 1402) px. Its
+    /// bottom edge is 20 + 1402 = 1422 px from the top, 1440 - 1422 = 18 px
+    /// from the bottom: AppKit rect (1267, 18, 13, 1402) pt.
+    /// Scale 2: buffer 2560 x 2880, the rect is (2534, 40, 26, 2804) px,
+    /// bottom edge 2844 from the top, 36 px = 18 pt from the bottom: the SAME
+    /// AppKit rect.
+    ///
+    /// Mutation: `flip_rect_y` returning `y` unflipped invalidates y = 20 pt
+    /// (scale 1) and fails here.
+    #[test]
+    fn a_present_rect_is_invalidated_flipped_and_in_points() {
+        assert_eq!(
+            present_rect_in_view_points((1267, 20, 13, 1402), 1440, 1.0),
+            (1267.0, 18.0, 13.0, 1402.0)
+        );
+        assert_eq!(
+            present_rect_in_view_points((2534, 40, 26, 2804), 2880, 2.0),
+            (1267.0, 18.0, 13.0, 1402.0)
+        );
+        // An odd pixel rect at 2x is a half-point rect, still exact.
+        assert_eq!(
+            present_rect_in_view_points((2535, 41, 25, 2803), 2880, 2.0),
+            (1267.5, 18.0, 12.5, 1401.5)
+        );
+        // The whole buffer is the whole view.
+        assert_eq!(
+            present_rect_in_view_points((0, 0, 2560, 2880), 2880, 2.0),
+            (0.0, 0.0, 1280.0, 1440.0)
+        );
+    }
+
+    /// A10-01. `drawRect:` gets the invalidated rect back (in points), turns
+    /// it into backing pixels (times the scale) and copies and draws the
+    /// rows `dirty_rows_to_copy` names: exactly the rows of the present rect.
+    ///
+    /// Scale 1: rows 20..1422, columns 1267..1280, drawn from the bitmap's
+    /// (1267, 18, 13, 1402). Scale 2: rows 40..2844, columns 2534..2560, from
+    /// (2534, 36, 26, 2804).
+    #[test]
+    fn the_rows_drawn_are_the_rows_invalidated() {
+        for (rect, (fb_w, fb_h), scale) in [
+            ((1267_u32, 20_u32, 13_u32, 1402_u32), (1280_usize, 1440_usize), 1.0_f64),
+            ((2534, 40, 26, 2804), (2560, 2880), 2.0),
+            ((0, 0, 1, 1), (2560, 2880), 2.0),
+            ((2559, 2879, 1, 1), (2560, 2880), 2.0),
+            ((2535, 41, 25, 2803), (2560, 2880), 2.0),
+            ((0, 0, 2560, 2880), (2560, 2880), 2.0),
+        ] {
+            let (x, y, w, h) = present_rect_in_view_points(rect, fb_h, scale);
+            // What `convertRectToBacking:` does to the dirty rect.
+            let dirty_px = (x * scale, y * scale, w * scale, h * scale);
+            let span = dirty_rows_to_copy(false, dirty_px, fb_w, fb_h);
+            let (rx, ry, rw, rh) = rect;
+            assert_eq!(
+                span,
+                (
+                    rx as usize,
+                    (rx + rw) as usize,
+                    ry as usize,
+                    (ry + rh) as usize
+                ),
+                "{rect:?} at {scale}x"
+            );
+            // And the bitmap's part that is drawn is that span, flipped back.
+            assert_eq!(bitmap_source_rect(span, fb_h), dirty_px, "{rect:?} at {scale}x");
+        }
+        assert_eq!(
+            dirty_rows_to_copy(false, (1267.0, 18.0, 13.0, 1402.0), 1280, 1440),
+            (1267, 1280, 20, 1422)
+        );
+        assert_eq!(
+            bitmap_source_rect((1267, 1280, 20, 1422), 1440),
+            (1267.0, 18.0, 13.0, 1402.0)
+        );
+        assert_eq!(
+            dirty_rows_to_copy(false, (2534.0, 36.0, 26.0, 2804.0), 2560, 2880),
+            (2534, 2560, 40, 2844)
+        );
+    }
+
+    /// A10-01. AppKit may hand back MORE than was invalidated (a half-point
+    /// rect rounded to whole points, the bounding box of several rects): the
+    /// rows drawn are then a superset, never a subset.
+    #[test]
+    fn a_dirty_rect_rounded_outward_by_appkit_still_covers_the_damage() {
+        // (2535, 41, 25, 2803) px at 2x = (1267.5, 18, 12.5, 1401.5) pt,
+        // rounded outward to whole points: (1267, 18, 13, 1402) pt.
+        let span = dirty_rows_to_copy(false, (2534.0, 36.0, 26.0, 2804.0), 2560, 2880);
+        let (x0, x1, y0, y1) = span;
+        assert!(x0 <= 2535 && x1 >= 2560 && y0 <= 41 && y1 >= 2844, "{span:?}");
+    }
+
+    /// A10-02. The framebuffer is as large as the frame the renderer makes
+    /// for the same bounds: `ceil(points * scale)` in `f32`.
+    ///
+    /// 1280.3 pt at 2x: 2560.6, a 2561 px frame. The view truncated to 2560
+    /// and every present of that window took the rescaling copy path.
+    /// Mutation: `as usize` of the `f64` product instead of the shared
+    /// formula gives 2560 and fails here.
+    #[test]
+    fn the_views_framebuffer_is_the_size_of_the_renderers_frame() {
+        use azul_layout::window::present_geometry::frame_size_px;
+        assert_eq!(cpu_view_framebuffer_size((1280.0, 1440.0), 1.0), (1280, 1440));
+        assert_eq!(cpu_view_framebuffer_size((1280.0, 1440.0), 2.0), (2560, 2880));
+        assert_eq!(cpu_view_framebuffer_size((1280.5, 720.5), 2.0), (2561, 1441));
+        assert_eq!(cpu_view_framebuffer_size((1280.3, 720.0), 2.0), (2561, 1440));
+        for bounds in [(1280.3_f64, 719.9_f64), (1.0, 1.0), (2559.999_999_9, 1440.000_000_1)] {
+            for scale in [1.0_f64, 2.0] {
+                let (w, h) = frame_size_px(bounds.0 as f32, bounds.1 as f32, scale as f32);
+                assert_eq!(
+                    cpu_view_framebuffer_size(bounds, scale),
+                    (w as usize, h as usize),
+                    "{bounds:?} at {scale}x"
+                );
+            }
+        }
+    }
+
+    /// An sRGB surface AppKit can draw into, `width` x `height`, every pixel
+    /// `fill`: the stand-in for the view's backing store.
+    fn surface(width: usize, height: usize, fill: [u8; 4]) -> Retained<NSBitmapImageRep> {
+        let plain = unsafe {
+            NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel(
+                NSBitmapImageRep::alloc(),
+                std::ptr::null_mut(),
+                width as isize,
+                height as isize,
+                8,
+                4,
+                true,
+                false,
+                ns_string!("NSDeviceRGBColorSpace"),
+                (width * 4) as isize,
+                32,
+            )
+        }
+        .expect("a bitmap");
+        let surface = plain
+            .bitmapImageRepByRetaggingWithColorSpace(&NSColorSpace::sRGBColorSpace())
+            .expect("an RGB bitmap takes the sRGB colour space");
+        let data = surface.bitmapData();
+        assert!(!data.is_null(), "the surface has a pixel buffer");
+        let stride = surface.bytesPerRow() as usize;
+        for row in 0..height {
+            for x in 0..width {
+                // SAFETY: `row < height` rows of `stride >= width * 4` bytes.
+                unsafe {
+                    std::ptr::copy_nonoverlapping(fill.as_ptr(), data.add(row * stride + x * 4), 4);
+                }
+            }
+        }
+        surface
+    }
+
+    /// The pixel of `surface` in column `x` of the row `row` from the TOP.
+    fn pixel(surface: &NSBitmapImageRep, x: usize, row: usize) -> [u8; 3] {
+        let data = surface.bitmapData();
+        let stride = surface.bytesPerRow() as usize;
+        let mut px = [0_u8; 4];
+        // SAFETY: the callers stay inside the surface.
+        unsafe { std::ptr::copy_nonoverlapping(data.add(row * stride + x * 4), px.as_mut_ptr(), 4) };
+        [px[0], px[1], px[2]]
+    }
+
+    /// The colour of the frame's pixel in column `x` of the row `row` from
+    /// the top: every pixel another one.
+    fn frame_pixel(x: usize, row: usize) -> [u8; 4] {
+        [20 + 25 * x as u8, 20 + 35 * row as u8, 90, 255]
+    }
+
+    /// A10-01, on AppKit itself (no window: the backing store is a bitmap).
+    ///
+    /// An 8 x 6 frame whose every pixel is another colour; AppKit asks for
+    /// the dirty rect (2, 1, 3, 2) in its bottom-left pixels: columns 2..5,
+    /// and the rows whose bottom edge is 1..3 px above the bottom, which are
+    /// rows 3..5 from the top (6 - 3 = 3, 6 - 1 = 5). After the present the
+    /// surface holds the frame's rows 3..5 x columns 2..5 in the same place,
+    /// and its fill everywhere else.
+    ///
+    /// Mutations this must fail: `bitmap_source_rect` without the flip
+    /// (`y0` for `height - y1`) draws the bitmap's rows 1..3, which were not
+    /// copied; `rows_of_bottom_left_rect` without the flip copies rows 1..3
+    /// and draws rows 3..5; a row copied to another row of the bitmap
+    /// (bottom-up storage assumed) shows the frame upside down.
+    #[test]
+    fn appkit_shows_the_copied_rows_where_the_frame_has_them() {
+        const W: usize = 8;
+        const H: usize = 6;
+        const FILL: [u8; 4] = [3, 5, 7, 255];
+        let mut frame = vec![0_u8; W * H * 4];
+        for row in 0..H {
+            for x in 0..W {
+                frame[(row * W + x) * 4..][..4].copy_from_slice(&frame_pixel(x, row));
+            }
+        }
+        let bitmap = color_space::cpu_frame_bitmap(W, H).expect("the view's bitmap");
+        let target = surface(W, H, FILL);
+
+        let dirty = (2.0, 1.0, 3.0, 2.0);
+        let span = dirty_rows_to_copy(false, dirty, W, H);
+        assert_eq!(span, (2, 5, 3, 5), "columns 2..5, rows 3..5 from the top");
+        let (fx, fy, fw, fh) = bitmap_source_rect(span, H);
+        assert_eq!((fx, fy, fw, fh), dirty);
+        let from = NSRect::new(NSPoint::new(fx, fy), NSSize::new(fw, fh));
+
+        let context = NSGraphicsContext::graphicsContextWithBitmapImageRep(&target)
+            .expect("a graphics context on the surface");
+        NSGraphicsContext::saveGraphicsState_class();
+        NSGraphicsContext::setCurrentContext(Some(&context));
+        // One point is one pixel in a bitmap context: the destination is the
+        // source rect, as it is in a view at scale 1.
+        let drawn = unsafe { draw_framebuffer_span(&bitmap, &frame, W, H, span, from, from) };
+        context.flushGraphics();
+        NSGraphicsContext::restoreGraphicsState_class();
+        assert!(drawn, "AppKit drew the span");
+
+        for row in 0..H {
+            for x in 0..W {
+                let inside = (2..5).contains(&x) && (3..5).contains(&row);
+                let want = if inside { frame_pixel(x, row) } else { FILL };
+                let got = pixel(&target, x, row);
+                assert!(
+                    got.iter().zip(&want[..3]).all(|(a, b)| a.abs_diff(*b) <= 2),
+                    "column {x}, row {row} from the top: {got:?}, expected {:?} ({})",
+                    &want[..3],
+                    if inside { "the frame's pixel" } else { "untouched" }
+                );
+            }
+        }
+    }
+
+    /// A10-26. What a window gives back, and when. Nobody sees it (the Dock,
+    /// Cmd-H) or memory is critical: everything regenerable. A warning while
+    /// it may be on screen: everything but WebRender's caches (flushing them
+    /// makes the next frame upload every texture again). The user's switch:
+    /// nothing.
+    ///
+    /// Mutation: WebRender's caches flushed on a warning fails the second
+    /// assertion; a release that ignores the switch fails the last.
+    #[test]
+    fn a_window_gives_back_its_regenerable_memory_when_hidden_or_under_pressure() {
+        let everything = ReleasePlan {
+            compositor: true,
+            glyph_generation: true,
+            staging_bitmap: true,
+            webrender_caches: true,
+            free_pages: true,
+        };
+        assert_eq!(release_plan(MemoryRelease::NotShown, false), everything);
+        assert_eq!(
+            release_plan(MemoryRelease::PressureWarn, false),
+            ReleasePlan { webrender_caches: false, ..everything }
+        );
+        assert_eq!(release_plan(MemoryRelease::PressureCritical, false), everything);
+        let nothing = ReleasePlan {
+            compositor: false,
+            glyph_generation: false,
+            staging_bitmap: false,
+            webrender_caches: false,
+            free_pages: false,
+        };
+        for reason in [
+            MemoryRelease::NotShown,
+            MemoryRelease::PressureWarn,
+            MemoryRelease::PressureCritical,
+        ] {
+            assert_eq!(release_plan(reason, true), nothing, "AZ_KEEP_CACHES_MINIMIZED=1: {reason:?}");
+        }
+    }
+
+    /// A10-26. The dispatch source reports the pressure level as flags:
+    /// warning 0x02, critical 0x04 (normal, 0x01, is not asked for).
+    #[test]
+    fn a_memory_pressure_event_names_its_release() {
+        assert_eq!(memory_release_for_pressure(0x02), Some(MemoryRelease::PressureWarn));
+        assert_eq!(memory_release_for_pressure(0x04), Some(MemoryRelease::PressureCritical));
+        assert_eq!(memory_release_for_pressure(0x06), Some(MemoryRelease::PressureCritical));
+        assert_eq!(memory_release_for_pressure(0x01), None);
+        assert_eq!(memory_release_for_pressure(0), None);
+    }
+
+    /// A10-19. The accessibility tree is built on demand unless the user asks
+    /// for the old path (`AZ_A11Y_EAGER=1`) or a debug / E2E reader, which
+    /// reads the layout side's tree without an adapter, is attached.
+    #[cfg(feature = "a11y")]
+    #[test]
+    fn the_accessibility_tree_is_eager_only_when_asked_for_or_read_by_a_debug_reader() {
+        assert!(!a11y_eager_for(None, false), "the default: on demand");
+        assert!(a11y_eager_for(Some("1"), false));
+        assert!(!a11y_eager_for(Some("0"), false));
+        assert!(!a11y_eager_for(Some(""), false));
+        assert!(a11y_eager_for(None, true), "an E2E script reads the tree itself");
+    }
+
+    /// The switch of the CPU present: words of `AZ_CPU_PRESENT`.
+    #[test]
+    fn the_cpu_present_switch_is_a_list_of_words() {
+        assert_eq!(parse_cpu_present_options(""), CpuPresentOptions::default());
+        assert_eq!(
+            CpuPresentOptions::default(),
+            CpuPresentOptions { cgimage: true, twice: false },
+            "the defaults: straight from the framebuffer, each frame presented once"
+        );
+        assert_eq!(
+            parse_cpu_present_options("bitmap"),
+            CpuPresentOptions { cgimage: false, twice: false }
+        );
+        assert_eq!(
+            parse_cpu_present_options(" twice , bitmap,nonsense"),
+            CpuPresentOptions { cgimage: false, twice: true }
+        );
+        assert_eq!(parse_cpu_present_options("bitmap,cgimage").cgimage, true);
+    }
+
+    /// A10-25 (A9's count). The CPU view kept the frame twice (framebuffer and
+    /// bitmap), AppKit's backing store is a third copy: on the user's display
+    /// (2940 x 1912 px, 22.5 MB a copy) 67 MB, plus the compositor's root
+    /// layer 90 MB. Presenting straight from the framebuffer, the view keeps
+    /// it once: 45 MB with the backing store.
+    ///
+    /// Mutation: the bitmap path as the default keeps two.
+    #[test]
+    fn the_cpu_view_keeps_the_frame_once() {
+        assert_eq!(view_frame_buffers(CpuPresentOptions::default()), 1);
+        assert_eq!(view_frame_buffers(parse_cpu_present_options("bitmap")), 2);
+        let frame_bytes = 2940_usize * 1912 * 4;
+        assert_eq!(frame_bytes, 22_485_120);
+        // The view's buffers plus AppKit's backing store.
+        assert_eq!((view_frame_buffers(CpuPresentOptions::default()) + 1) * frame_bytes, 44_970_240);
+        assert_eq!((view_frame_buffers(parse_cpu_present_options("bitmap")) + 1) * frame_bytes, 67_455_360);
+    }
+
+    /// A10-13. A frame rendered INSIDE `drawRect:` (no display link, every
+    /// step of a live resize) marked its rects as needing display although
+    /// that very `drawRect:` draws them: two presents per frame. Rects that
+    /// one of the rects being drawn contains are not marked any more.
+    ///
+    /// Count, a pan step rendered inside a `drawRect:` that draws the whole
+    /// 2940 x 1912 view: the strip and the clip, 2 rects marked (old), 0
+    /// (new): one present instead of two. Rendered at the display link's tick
+    /// (nothing is being drawn): 2 marked, as before.
+    ///
+    /// Mutation: `any` -> `all`, or a containment test that lets a rect stick
+    /// out, fails here.
+    #[test]
+    fn a_frame_rendered_inside_draw_rect_is_presented_once() {
+        let strip = (2914_u32, 76_u32, 26_u32, 1800_u32);
+        let clip = (100, 76, 2840, 1800);
+        let whole_view = [(0_usize, 2940_usize, 0_usize, 1912_usize)];
+        assert_eq!(rects_left_to_invalidate(&[strip, clip], &whole_view), Vec::new());
+        assert_eq!(rects_left_to_invalidate(&[strip, clip], &[]), vec![strip, clip]);
+        // AppKit asked for the sidebar only: the map's rects are not drawn by
+        // this pass and stay marked.
+        let sidebar = [(0_usize, 100_usize, 0_usize, 1912_usize)];
+        assert_eq!(rects_left_to_invalidate(&[strip, clip], &sidebar), vec![strip, clip]);
+        // A rect that sticks out of what is being drawn by one pixel stays.
+        let almost = [(100_usize, 2939_usize, 76_usize, 1876_usize)];
+        assert_eq!(rects_left_to_invalidate(&[strip, clip], &almost), vec![strip, clip]);
+        // Covered only by two rects together: kept (the proven side).
+        let halves = [(0_usize, 1500_usize, 0_usize, 1912_usize), (1500, 2940, 0, 1912)];
+        assert_eq!(rects_left_to_invalidate(&[strip, clip], &halves), vec![clip]);
+    }
+
+    /// A10-13. What AppKit certainly draws of a rect being drawn is the
+    /// pixels wholly inside it: a fractional rect is cut inward.
+    #[test]
+    fn the_span_inside_a_rect_being_drawn_is_cut_inward() {
+        // A 100 x 80 frame; x 10.5..29.5, y 20.5..49.5 from the bottom:
+        // columns 11..29, rows 80 - 49.5 = 30.5 -> 31 to 80 - 20.5 = 59.5 -> 59.
+        assert_eq!(rows_inside_backing_rect((10.5, 20.5, 19.0, 29.0), 100, 80), (11, 29, 31, 59));
+        assert_eq!(rows_inside_backing_rect((0.0, 0.0, 100.0, 80.0), 100, 80), (0, 100, 0, 80));
+        // The outward span of the same rect contains the inward one.
+        assert_eq!(dirty_rows_to_copy(false, (10.5, 20.5, 19.0, 29.0), 100, 80), (10, 30, 30, 60));
+        let (x0, x1, y0, y1) = rows_inside_backing_rect((0.2, 0.2, 0.5, 0.5), 100, 80);
+        assert!(x1 == x0 || y1 == y0, "no whole pixel inside");
+        assert_eq!(rows_inside_backing_rect((0.0, 0.0, 0.0, 5.0), 100, 80), (0, 0, 0, 0));
+    }
+
+    /// What `drawRect:` did on a resize before A10-14: a new buffer, blank
+    /// all over, the kept top-left part copied on top.
+    fn resized_by_the_old_recipe(
+        old: &[u8],
+        (old_w, old_h): (usize, usize),
+        (new_w, new_h): (usize, usize),
+        keep: bool,
+        blank: [u8; 4],
+    ) -> Vec<u8> {
+        let mut out = Vec::with_capacity(new_w * new_h * 4);
+        for _ in 0..new_w * new_h {
+            out.extend_from_slice(&blank);
+        }
+        if keep && old_w > 0 && old_h > 0 {
+            let n = old_w.min(new_w) * 4;
+            for row in 0..old_h.min(new_h) {
+                out[row * new_w * 4..row * new_w * 4 + n]
+                    .copy_from_slice(&old[row * old_w * 4..row * old_w * 4 + n]);
+            }
+        }
+        out
+    }
+
+    /// A10-14. The framebuffer resized in place holds exactly what the old
+    /// recipe made, for every pair of sizes up to 5 x 5, kept or not: the
+    /// shared top-left part where it was, blank everywhere else.
+    ///
+    /// Mutation: moving the rows of a WIDER buffer first row first (instead
+    /// of last row first) overwrites rows that have not moved; it fails here
+    /// at 2 x 2 -> 3 x 2.
+    #[test]
+    fn a_framebuffer_resized_in_place_is_the_one_the_old_recipe_made() {
+        const BLANK: [u8; 4] = [9, 8, 7, 255];
+        for old_w in 0..=5_usize {
+            for old_h in 0..=5_usize {
+                let mut old = Vec::new();
+                for row in 0..old_h {
+                    for x in 0..old_w {
+                        old.extend_from_slice(&[10 + x as u8, 100 + row as u8, 3, 255]);
+                    }
+                }
+                for new_w in 0..=5_usize {
+                    for new_h in 0..=5_usize {
+                        for keep in [true, false] {
+                            let mut fb = old.clone();
+                            resize_framebuffer(&mut fb, (old_w, old_h), (new_w, new_h), keep, BLANK);
+                            assert_eq!(
+                                fb,
+                                resized_by_the_old_recipe(&old, (old_w, old_h), (new_w, new_h), keep, BLANK),
+                                "{old_w}x{old_h} -> {new_w}x{new_h}, keep {keep}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// A10-14, the count. A live resize that stays inside the size the
+    /// buffer once had allocates nothing: the buffer of a 300 x 200 frame is
+    /// the buffer of every smaller frame after it, and of 300 x 200 again.
+    /// (Before: one allocation of the frame's size per step, 5 here.)
+    #[test]
+    fn a_resize_inside_the_buffers_capacity_allocates_nothing() {
+        const BLANK: [u8; 4] = [0, 0, 0, 255];
+        let mut fb = Vec::new();
+        resize_framebuffer(&mut fb, (0, 0), (300, 200), false, BLANK);
+        let (buffer, capacity) = (fb.as_ptr(), fb.capacity());
+        let mut size = (300, 200);
+        for next in [(250, 200), (250, 150), (300, 200), (280, 190), (300, 200)] {
+            resize_framebuffer(&mut fb, size, next, true, BLANK);
+            size = next;
+            assert_eq!(fb.len(), next.0 * next.1 * 4);
+            assert_eq!((fb.as_ptr(), fb.capacity()), (buffer, capacity), "reallocated at {next:?}");
+        }
+    }
+
+    /// A10-14, the bitmap. It is a staging buffer that may be larger than the
+    /// frame, made in steps of 256 px: dragging an edge from 1000 to 1300 px
+    /// (301 sizes) makes 3 bitmaps (1024, 1280, 1536 px wide), where every
+    /// size made one before; a window that shrinks to less than half gets a
+    /// smaller one.
+    ///
+    /// Mutation: `None` only for an exact fit allocates 301 times.
+    #[test]
+    fn a_live_resize_makes_a_bitmap_every_256_pixels() {
+        let mut have = None;
+        let mut made = Vec::new();
+        for width in 1000..=1300_usize {
+            if let Some(size) = bitmap_size_to_allocate(width, 800, have) {
+                made.push(size);
+                have = Some(size);
+            }
+            let (w, h) = have.expect("a bitmap");
+            assert!(w >= width && h >= 800, "the frame fits its bitmap");
+        }
+        assert_eq!(made, vec![(1024, 1024), (1280, 1024), (1536, 1024)]);
+        // Back to a small window: the large bitmap is let go.
+        assert_eq!(bitmap_size_to_allocate(600, 400, have), Some((768, 512)));
+        // The user's display: 2940 x 1912 px in a 3072 x 2048 bitmap.
+        assert_eq!(bitmap_size_to_allocate(2940, 1912, None), Some((3072, 2048)));
+        assert_eq!(bitmap_size_to_allocate(2940, 1912, Some((3072, 2048))), None);
+        assert_eq!(bitmap_size_to_allocate(0, 0, None), Some((256, 256)));
+    }
+
+    /// A10-14, on AppKit (offscreen). A frame of 8 x 6 presented through a
+    /// bitmap of 16 x 8: the frame's rows are the bitmap's TOP rows, and the
+    /// bitmap's space is measured from ITS bottom edge, so rows 3..5 of the
+    /// frame are at y = 8 - 5 = 3 in the bitmap and at y = 6 - 5 = 1 in the
+    /// view.
+    ///
+    /// Mutation: the frame's height for the bitmap's in the source rect draws
+    /// the bitmap's rows 5..7 (never written).
+    #[test]
+    fn appkit_shows_the_rows_of_a_frame_smaller_than_its_bitmap() {
+        const W: usize = 8;
+        const H: usize = 6;
+        const FILL: [u8; 4] = [3, 5, 7, 255];
+        let mut frame = vec![0_u8; W * H * 4];
+        for row in 0..H {
+            for x in 0..W {
+                frame[(row * W + x) * 4..][..4].copy_from_slice(&frame_pixel(x, row));
+            }
+        }
+        let bitmap = color_space::cpu_frame_bitmap(16, 8).expect("the view's bitmap");
+        let target = surface(W, H, FILL);
+        let span = (2, 5, 3, 5);
+        let (vx, vy, vw, vh) = bitmap_source_rect(span, H);
+        assert_eq!((vx, vy, vw, vh), (2.0, 1.0, 3.0, 2.0));
+        let (fx, fy, fw, fh) = bitmap_source_rect(span, 8);
+        assert_eq!((fx, fy, fw, fh), (2.0, 3.0, 3.0, 2.0));
+        let to = NSRect::new(NSPoint::new(vx, vy), NSSize::new(vw, vh));
+        let from = NSRect::new(NSPoint::new(fx, fy), NSSize::new(fw, fh));
+
+        let context = NSGraphicsContext::graphicsContextWithBitmapImageRep(&target)
+            .expect("a graphics context on the surface");
+        NSGraphicsContext::saveGraphicsState_class();
+        NSGraphicsContext::setCurrentContext(Some(&context));
+        let drawn = unsafe { draw_framebuffer_span(&bitmap, &frame, W, H, span, from, to) };
+        context.flushGraphics();
+        NSGraphicsContext::restoreGraphicsState_class();
+        assert!(drawn, "AppKit drew the span");
+        for row in 0..H {
+            for x in 0..W {
+                let inside = (2..5).contains(&x) && (3..5).contains(&row);
+                let want = if inside { frame_pixel(x, row) } else { FILL };
+                let got = pixel(&target, x, row);
+                assert!(
+                    got.iter().zip(&want[..3]).all(|(a, b)| a.abs_diff(*b) <= 2),
+                    "column {x}, row {row} from the top: {got:?}, expected {:?}",
+                    &want[..3]
+                );
+            }
+        }
+    }
+
+    /// A10-06, the default present, on Core Graphics itself (offscreen).
+    /// The same 8 x 6 frame and dirty rect as the bitmap test: the span is
+    /// drawn straight from the frame's memory, no row copied, and lands in
+    /// the same place; and after the draw nothing holds the frame's memory.
+    ///
+    /// If this fails with `DrawnButHeld`, Core Graphics keeps the image of a
+    /// draw into a bitmap context: the view then falls back to the bitmap
+    /// path at its first draw (by design), and the mode is of no use.
+    ///
+    /// Mutations: the span's rect flipped for `CGImageCreateWithImageInRect`
+    /// (the image's rect is top-down: no flip) draws rows 1..3; blend mode
+    /// normal instead of copy cannot be told apart with opaque pixels (the
+    /// transparent-window case is a line for the real window).
+    #[test]
+    fn core_graphics_draws_the_span_straight_from_the_frame() {
+        const W: usize = 8;
+        const H: usize = 6;
+        const FILL: [u8; 4] = [3, 5, 7, 255];
+        let mut frame = vec![0_u8; W * H * 4];
+        for row in 0..H {
+            for x in 0..W {
+                frame[(row * W + x) * 4..][..4].copy_from_slice(&frame_pixel(x, row));
+            }
+        }
+        let target = surface(W, H, FILL);
+        let span = dirty_rows_to_copy(false, (2.0, 1.0, 3.0, 2.0), W, H);
+        assert_eq!(span, (2, 5, 3, 5));
+        let (vx, vy, vw, vh) = bitmap_source_rect(span, H);
+        let to = NSRect::new(NSPoint::new(vx, vy), NSSize::new(vw, vh));
+
+        let context = NSGraphicsContext::graphicsContextWithBitmapImageRep(&target)
+            .expect("a graphics context on the surface");
+        NSGraphicsContext::saveGraphicsState_class();
+        NSGraphicsContext::setCurrentContext(Some(&context));
+        let result = unsafe { draw_framebuffer_span_cg(&frame, W, H, span, to) };
+        context.flushGraphics();
+        NSGraphicsContext::restoreGraphicsState_class();
+        assert_eq!(result, CgDraw::Drawn);
+        for row in 0..H {
+            for x in 0..W {
+                let inside = (2..5).contains(&x) && (3..5).contains(&row);
+                let want = if inside { frame_pixel(x, row) } else { FILL };
+                let got = pixel(&target, x, row);
+                assert!(
+                    got.iter().zip(&want[..3]).all(|(a, b)| a.abs_diff(*b) <= 2),
+                    "column {x}, row {row} from the top: {got:?}, expected {:?}",
+                    &want[..3]
+                );
+            }
+        }
+        // Outside the frame, or without a context: nothing, and no crash.
+        unsafe {
+            assert_eq!(draw_framebuffer_span_cg(&frame, W, H, (0, W + 1, 0, H), to), CgDraw::NotDrawn);
+            assert_eq!(draw_framebuffer_span_cg(&frame[..8], W, H, span, to), CgDraw::NotDrawn);
+        }
+    }
+
+    /// A10-06, the count. A pan step on the user's display (2940 x 1912 px)
+    /// presents the view's clip, here 2840 x 1800 px: through the bitmap the
+    /// view copies 20,448,000 bytes out of the framebuffer per frame, with
+    /// `cgimage` none (AppKit reads the framebuffer itself).
+    #[test]
+    fn a_pan_frame_copies_the_clip_through_the_bitmap_and_nothing_with_cgimage() {
+        let clip = (100, 2940, 76, 1876);
+        assert_eq!(present_copy_bytes(parse_cpu_present_options("bitmap"), clip), 20_448_000);
+        assert_eq!(present_copy_bytes(CpuPresentOptions::default(), clip), 0);
+    }
+
+    /// A10-18. A GPU frame that was rendered and flushed is never "no
+    /// damage": without dirty rects from WebRender (the macOS shell gets none)
+    /// the whole framebuffer was composited, and the flush presents the whole
+    /// surface either way.
+    ///
+    /// Mutation: `FrameDamage::None` for an empty list fails the first
+    /// assertion; the paint damage as the present damage fails the second.
+    #[test]
+    fn a_rendered_gpu_frame_is_recorded_as_presented_in_full() {
+        use crate::desktop::shell2::headless::FrameDamage;
+        assert_eq!(gpu_frame_damage(&[]), (FrameDamage::Full, FrameDamage::Full));
+        let tile = azul_core::geom::LogicalRect {
+            origin: azul_core::geom::LogicalPosition { x: 10.0, y: 20.0 },
+            size: azul_core::geom::LogicalSize {
+                width: 256.0,
+                height: 256.0,
+            },
+        };
+        assert_eq!(
+            gpu_frame_damage(&[tile]),
+            (FrameDamage::Rects(vec![tile]), FrameDamage::Full)
+        );
+    }
+
+    /// A10-03. A span that leaves the frame, or a framebuffer shorter than
+    /// the frame, draws nothing instead of reading past the buffer.
+    #[test]
+    fn a_span_outside_the_frame_is_not_presented() {
+        const W: usize = 4;
+        const H: usize = 4;
+        let bitmap = color_space::cpu_frame_bitmap(W, H).expect("the view's bitmap");
+        let frame = vec![9_u8; W * H * 4];
+        let rect = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(W as f64, H as f64));
+        unsafe {
+            // Rows 0..5 of a 4-row frame.
+            assert!(!draw_framebuffer_span(&bitmap, &frame, W, H, (0, W, 0, H + 1), rect, rect));
+            // Columns 0..5 of a 4-column frame.
+            assert!(!draw_framebuffer_span(&bitmap, &frame, W, H, (0, W + 1, 0, H), rect, rect));
+            // A framebuffer of 3 rows presented as 4.
+            assert!(!draw_framebuffer_span(&bitmap, &frame[..W * 3 * 4], W, H, (0, W, 0, H), rect, rect));
+            // A frame larger than the bitmap.
+            let big = vec![9_u8; W * (H + 2) * 4];
+            assert!(!draw_framebuffer_span(&bitmap, &big, W, H + 2, (0, W, 0, H + 2), rect, rect));
+            // An empty span.
+            assert!(!draw_framebuffer_span(&bitmap, &frame, W, H, (2, 2, 0, H), rect, rect));
+        }
     }
 }

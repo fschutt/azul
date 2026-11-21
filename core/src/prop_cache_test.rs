@@ -2318,3 +2318,404 @@ mod scoped_rule_index_tests {
         );
     }
 }
+
+/// Guards of the 2026-11-21 audit, area A3-core (`audit/A3-core.md`).
+#[cfg(all(test, feature = "std", feature = "css_parser"))]
+mod audit_a3_core_tests {
+    use azul_css::{
+        css::Css,
+        dynamic_selector::PseudoStateType,
+        props::{
+            layout::spacing::LayoutMarginTop,
+            property::{CssProperty, CssPropertyType},
+        },
+    };
+
+    use crate::{
+        dom::{Dom, NodeId},
+        style::MATCH_ATTEMPTS,
+        styled_dom::{StyledDom, StyledNodeState},
+    };
+
+    fn margin_top(px: isize) -> CssProperty {
+        CssProperty::const_margin_top(LayoutMarginTop::const_px(px))
+    }
+
+    /// The `margin-top` node `node` of `styled` has at rest.
+    fn margin_of(styled: &StyledDom, node: usize) -> Option<CssProperty> {
+        let id = NodeId::new(node);
+        let data = styled.node_data.as_container();
+        let rest = StyledNodeState::new();
+        let value = styled
+            .get_css_property_cache()
+            .get_property(&data[id], &id, &rest, &CssPropertyType::MarginTop)
+            .cloned();
+        value
+    }
+
+    /// A sheet of `classes` classes, each with a resting and a `:hover`
+    /// rule, as the sheet of a map view's labels has them.
+    fn sheet(classes: usize) -> Css {
+        let mut text = String::new();
+        for c in 0..classes {
+            text.push_str(&format!(
+                ".c{c} {{ margin-top: {}px; }} .c{c}:hover {{ opacity: 0.5; }} ",
+                c + 1
+            ));
+        }
+        Css::from_string(text.into())
+    }
+
+    /// `nodes` children of one root that carries `sheet(classes)`, the i-th
+    /// of class `c{i % classes}`; and how often a selector was matched
+    /// while it was styled.
+    fn styled_page(nodes: usize, classes: usize) -> (StyledDom, u64) {
+        let mut root = Dom::create_body().with_component_css(sheet(classes));
+        for i in 0..nodes {
+            root = root
+                .with_child(Dom::create_div().with_class(format!("c{}", i % classes).into()));
+        }
+        MATCH_ATTEMPTS.with(|c| c.set(0));
+        let styled = StyledDom::create_from_dom(root);
+        (styled, MATCH_ATTEMPTS.with(core::cell::Cell::get))
+    }
+
+    /// A3-core-04: one sheet on the root scoped each of its rules to every
+    /// node below, so a node was tried against every rule of the sheet:
+    /// nodes x rules. A node is tried against the rules of its own classes.
+    #[test]
+    fn a_node_is_tried_against_the_rules_of_its_own_classes() {
+        let nodes = 400;
+        let (_, few) = styled_page(nodes, 10);
+        let (styled, many) = styled_page(nodes, 160);
+        assert!(few >= nodes as u64, "harness: the nodes were matched ({few})");
+        assert!(
+            many <= few * 2,
+            "sixteen times the classes took {many} selector matches for {few}: every node was \
+             tried against every class"
+        );
+        // And every node has its own class's margin and hover rule.
+        let cache = styled.get_css_property_cache();
+        for i in 0..nodes {
+            let node = 1 + i;
+            assert_eq!(
+                margin_of(&styled, node),
+                Some(margin_top((i % 160) as isize + 1)),
+                "node {node}"
+            );
+            assert!(
+                cache.css_props.get_slice(node).iter().any(|p| {
+                    p.prop_type == CssPropertyType::Opacity && p.state == PseudoStateType::Hover
+                }),
+                "node {node} has its hover opacity"
+            );
+        }
+        assert!(cache.css_props.get_slice(0).is_empty(), "the root has no class");
+    }
+
+    /// `nodes` nodes in `sets` rule sets of three entries, the nodes of a
+    /// set one after the other, flattened; and how many recorded runs the
+    /// nodes' runs were compared with.
+    fn flattened_sets(nodes: usize, sets: usize) -> (crate::prop_cache::FlatVecVec<(i32, i32)>, u64) {
+        let mut f = crate::prop_cache::FlatVecVec::<(i32, i32)>::new(nodes);
+        let per_set = nodes / sets;
+        for node in 0..nodes {
+            let set = (node / per_set) as i32;
+            for key in [2, 0, 1] {
+                f.push_to(node, (key, set * 10 + key));
+            }
+        }
+        crate::prop_cache::RUN_COMPARES.with(|c| c.set(0));
+        f.sort_each_and_flatten(|entry| entry.0);
+        (f, crate::prop_cache::RUN_COMPARES.with(core::cell::Cell::get))
+    }
+
+    /// A3-core-07: collapsing equal runs compared every node's run with the
+    /// recorded runs from the first on: nodes x distinct rule sets. The run
+    /// the last node matched is tried first.
+    #[test]
+    fn nodes_of_one_rule_set_do_not_each_read_the_table_of_runs() {
+        let nodes = 8_000;
+        let (_, few) = flattened_sets(nodes, 20);
+        let (f, many) = flattened_sets(nodes, 80);
+        assert!(few >= nodes as u64 - 20, "harness: the runs were compared ({few})");
+        assert!(
+            many <= few * 2,
+            "four times the rule sets took {many} run compares for {few}: every node read the \
+             table"
+        );
+        // Every node still reads its own set, sorted by key.
+        for node in 0..nodes {
+            let set = (node / 100) as i32;
+            let expected = [(0, set * 10), (1, set * 10 + 1), (2, set * 10 + 2)];
+            assert_eq!(f.get_slice(node), &expected[..], "node {node}");
+        }
+    }
+
+    /// `labels` labels (a span of class `c{i % classes}` around its text)
+    /// under one root whose sheet gives every class a colour and a letter
+    /// spacing of its own - two inherited values per class, as the text
+    /// styles of a map have them; and how many buckets of the inherited
+    /// values were looked at while it was styled.
+    fn styled_labels(labels: usize, classes: usize) -> (StyledDom, u64) {
+        let mut text = String::new();
+        for c in 0..classes {
+            text.push_str(&format!(
+                ".c{c} {{ color: rgb({}, {}, 7); letter-spacing: {}px; }} ",
+                c % 256,
+                c / 256,
+                c + 1
+            ));
+        }
+        let mut root = Dom::create_body().with_component_css(Css::from_string(text.into()));
+        for i in 0..labels {
+            root = root.with_child(
+                Dom::create_span_with_text("label").with_class(format!("c{}", i % classes).into()),
+            );
+        }
+        crate::prop_cache::INHERITED_BUCKET_READS.with(|c| c.set(0));
+        let styled = StyledDom::create_from_dom(root);
+        let reads = crate::prop_cache::INHERITED_BUCKET_READS.with(core::cell::Cell::get);
+        (styled, reads)
+    }
+
+    /// A3-core-06: the inheritance pass read a node's parent's values back
+    /// from the store (a probe of every distinct value of the DOM) and
+    /// placed each of the node's values by comparing it with every distinct
+    /// value: nodes x distinct values. A node takes its parent's values from
+    /// the walk and finds a value's bucket by its parent's or by its hash.
+    #[test]
+    fn the_inheritance_pass_does_not_read_every_distinct_value_for_every_node() {
+        let labels = 300;
+        let (_, few) = styled_labels(labels, 10);
+        let (styled, many) = styled_labels(labels, 160);
+        assert!(few >= labels as u64, "harness: values were placed ({few})");
+        assert!(
+            many <= few * 2,
+            "sixteen times the distinct values took {many} bucket reads for {few}: every node \
+             read every value"
+        );
+
+        // The values themselves: a text has its span's colour, two classes
+        // differ, and a value shared by many nodes is stored once (per
+        // origin).
+        let values = &styled.get_css_property_cache().computed_values;
+        let colour = |node: usize| values.get(node, CssPropertyType::TextColor);
+        for i in 0..labels {
+            let (span, text) = (1 + 2 * i, 2 + 2 * i);
+            let own = colour(span).expect("the span's colour");
+            let inherited = colour(text).expect("the text's colour");
+            assert_eq!(own.property, inherited.property, "label {i}");
+            // The label 160 further on has the same class.
+            if i + 160 < labels {
+                assert_eq!(colour(span + 320).map(|v| &v.property), Some(&own.property));
+            }
+            if i + 1 < labels {
+                assert_ne!(colour(span + 2).map(|v| &v.property), Some(&own.property));
+            }
+        }
+        assert!(
+            values.bucket_count() <= 4 * 160 + 64,
+            "{} buckets for 160 classes of two values: equal values were not stored once",
+            values.bucket_count()
+        );
+    }
+
+    /// A3-core-11e: `.a ~ .b` asks for the nearest `.a` before every `.b`
+    /// and found it by walking back over the siblings: one `.a` in front of
+    /// k `.b` took k * k / 2 steps. What a walk found is remembered for the
+    /// siblings it passed, so the next `.b` asks its neighbour.
+    #[test]
+    fn the_general_sibling_combinator_does_not_walk_back_from_every_sibling() {
+        let class = |d: Dom, c: &str| d.with_class(c.into());
+        // 0 body, 1 a `.b` (before any `.a`), 2 the `.a`, 3.. `k` more `.b`.
+        let page = |k: usize| {
+            let mut root = Dom::create_body()
+                .with_component_css(Css::from_string(".a ~ .b { width: 7px; }".into()))
+                .with_child(class(Dom::create_div(), "b"))
+                .with_child(class(Dom::create_div(), "a"));
+            for _ in 0..k {
+                root = root.with_child(class(Dom::create_div(), "b"));
+            }
+            crate::style::GENERAL_SIBLING_STEPS.with(|c| c.set(0));
+            let styled = StyledDom::create_from_dom(root);
+            (styled, crate::style::GENERAL_SIBLING_STEPS.with(core::cell::Cell::get))
+        };
+        let (styled, few) = page(200);
+        let (_, many) = page(800);
+        assert!(few >= 200, "harness: the combinator looked at siblings ({few})");
+        assert!(few <= 3 * 200, "{few} sibling steps for 200 siblings");
+        assert!(
+            many <= few * 6,
+            "four times the siblings took {many} steps for {few}: every sibling walked back"
+        );
+
+        // The rule holds for every `.b` after the `.a`, and for nothing else.
+        let cache = styled.get_css_property_cache();
+        let compact = cache.compact_cache.as_ref().expect("the compact cache");
+        let has_width = |node: usize| compact.get_width_raw(node) != azul_css::compact_cache::U32_AUTO;
+        assert!(!has_width(1), "the `.b` before the `.a` has no `.a` before it");
+        assert!(!has_width(2), "the `.a` is no `.b`");
+        for node in 3..203 {
+            assert!(has_width(node), "`.b` number {node} follows the `.a`");
+        }
+    }
+
+    /// A3-core-07b: when the rule sets ALTERNATE from node to node (the cells
+    /// of a table with a class per column, rows cycling through styles) the
+    /// run the node before had is never the node's own, and every node read
+    /// the table of recorded runs: nodes x distinct runs. A run is found by
+    /// a key of its length and its first and last entry; the result is the
+    /// table it always was.
+    #[test]
+    fn nodes_whose_rule_sets_alternate_do_not_each_read_the_table_of_runs() {
+        // `nodes` nodes cycling through `sets` rule sets of three entries.
+        let cycled = |nodes: usize, sets: usize| {
+            let mut f = crate::prop_cache::FlatVecVec::<(i32, i32)>::new(nodes);
+            for node in 0..nodes {
+                let set = (node % sets) as i32;
+                for key in [2, 0, 1] {
+                    f.push_to(node, (key, set * 10 + key));
+                }
+            }
+            crate::prop_cache::RUN_COMPARES.with(|c| c.set(0));
+            f.sort_each_and_flatten(|entry| entry.0);
+            (f, crate::prop_cache::RUN_COMPARES.with(core::cell::Cell::get))
+        };
+        let nodes = 8_000;
+        let (_, few) = cycled(nodes, 16);
+        let (f, many) = cycled(nodes, 256);
+        assert!(few >= nodes as u64 - 16, "harness: the runs were compared ({few})");
+        assert!(
+            many <= few * 2,
+            "sixteen times the rule sets took {many} run compares for {few}: every node read \
+             the table"
+        );
+        assert!(many <= 3 * nodes as u64, "{many} compares for {nodes} nodes");
+        // Every node reads its own set, and equal runs are stored once.
+        for node in 0..nodes {
+            let set = (node % 256) as i32;
+            let expected = [(0, set * 10), (1, set * 10 + 1), (2, set * 10 + 2)];
+            assert_eq!(f.get_slice(node), &expected[..], "node {node}");
+        }
+        let first = f.get_slice(0).as_ptr();
+        assert_eq!(f.get_slice(256).as_ptr(), first, "node 256 shares the run of node 0");
+        assert_ne!(f.get_slice(1).as_ptr(), first);
+    }
+
+    /// A3-core-06b: reading ONE inherited value passed over every bucket of
+    /// the store to find those of its type. It searches the buckets of the
+    /// type alone: a property all nodes share costs the same in a DOM of 10
+    /// text styles and of 160.
+    #[test]
+    fn one_inherited_value_is_looked_for_among_the_buckets_of_its_type() {
+        let labels = 300;
+        let reads_for = |classes: usize| {
+            let (styled, _) = styled_labels(labels, classes);
+            let values = &styled.get_css_property_cache().computed_values;
+            // A property every label has from the root, not from its class.
+            let shared = [
+                CssPropertyType::FontSize,
+                CssPropertyType::FontFamily,
+                CssPropertyType::Cursor,
+                CssPropertyType::Direction,
+                CssPropertyType::LineHeight,
+            ]
+            .into_iter()
+            .find(|ty| values.get(2, *ty).is_some())
+            .expect("harness: a text node inherits some property from the root");
+            crate::prop_cache::INHERITED_GET_READS.with(|c| c.set(0));
+            for i in 0..labels {
+                assert!(values.get(2 + 2 * i, shared).is_some(), "text {i} has it");
+            }
+            let reads = crate::prop_cache::INHERITED_GET_READS.with(core::cell::Cell::get);
+            // And a class's own colour is still found, among its type's buckets.
+            assert!(values.get(1, CssPropertyType::TextColor).is_some());
+            (reads, values.bucket_count())
+        };
+        let (few, few_buckets) = reads_for(10);
+        let (many, many_buckets) = reads_for(160);
+        assert!(many_buckets >= few_buckets + 250, "harness: {few_buckets} -> {many_buckets} buckets");
+        assert!(
+            few <= 4 * labels as u64,
+            "{few} buckets searched for {labels} reads of a shared value"
+        );
+        assert!(
+            many <= few * 2,
+            "{many} buckets searched with 160 text styles for {few} with 10: the read passed over \
+             the buckets of other types"
+        );
+    }
+
+    /// A3-core-04: the rules a node gets by its classes apply in the order
+    /// of the sheet, together with the rules that name no class, and only
+    /// inside the subtree their sheet is on.
+    #[test]
+    fn the_rules_of_a_nodes_classes_apply_in_sheet_order_and_scope() {
+        let class = |d: Dom, c: &str| d.with_class(c.into());
+        // 0 body, then the children in order.
+        let page = |sheet: &str, children: Vec<Dom>| {
+            let mut root = Dom::create_body().with_component_css(Css::from_string(sheet.into()));
+            for child in children {
+                root = root.with_child(child);
+            }
+            StyledDom::create_from_dom(root)
+        };
+        let div = Dom::create_div;
+
+        // A compound of two classes is kept under its first one.
+        let styled = page(
+            ".a { margin-top: 1px; } .b { margin-top: 2px; } .a.b { margin-top: 5px; }",
+            vec![
+                class(class(div(), "a"), "b"),
+                class(class(div(), "b"), "a"),
+                class(div(), "b"),
+                class(div(), "a"),
+                class(class(div(), "a"), "a"),
+                div(),
+            ],
+        );
+        assert_eq!(margin_of(&styled, 1), Some(margin_top(5)), "a b");
+        assert_eq!(margin_of(&styled, 2), Some(margin_top(5)), "b a");
+        assert_eq!(margin_of(&styled, 3), Some(margin_top(2)), "b alone: `.a.b` is not its rule");
+        assert_eq!(margin_of(&styled, 4), Some(margin_top(1)), "a alone");
+        assert_eq!(margin_of(&styled, 5), Some(margin_top(1)), "a listed twice");
+        assert!(
+            styled.get_css_property_cache().css_props.get_slice(6).is_empty(),
+            "a node without a class gets no class rule"
+        );
+
+        // Equal specificity: the later rule of the sheet wins, whichever
+        // class the node lists first.
+        let styled = page(
+            ".b { margin-top: 2px; } .a { margin-top: 1px; }",
+            vec![class(class(div(), "a"), "b"), class(class(div(), "b"), "a")],
+        );
+        assert_eq!(margin_of(&styled, 1), Some(margin_top(1)), "a b: `.a` is the later rule");
+        assert_eq!(margin_of(&styled, 2), Some(margin_top(1)), "b a: `.a` is the later rule");
+
+        // A rule that names no class reaches the node beside its class rules.
+        let styled = page(
+            "div { margin-top: 9px; } .a { margin-top: 1px; } #x { margin-top: 7px; }",
+            vec![class(div(), "a"), class(div(), "a").with_id("x".into()), div()],
+        );
+        assert_eq!(margin_of(&styled, 1), Some(margin_top(1)), "the class over the type");
+        assert_eq!(margin_of(&styled, 2), Some(margin_top(7)), "the id over the class");
+        assert_eq!(margin_of(&styled, 3), Some(margin_top(9)), "the type rule alone");
+
+        // Two subtrees, each with its own sheet for the same class.
+        let part = |px: usize| {
+            Dom::create_div()
+                .with_component_css(Css::from_string(
+                    format!(".a {{ margin-top: {px}px; }}").into(),
+                ))
+                .with_child(class(Dom::create_div(), "a"))
+        };
+        let styled = StyledDom::create_from_dom(
+            Dom::create_body().with_child(part(1)).with_child(part(2)),
+        );
+        // 0 body, 1 first part, 2 its child, 3 second part, 4 its child.
+        assert_eq!(margin_of(&styled, 2), Some(margin_top(1)), "the first part's sheet");
+        assert_eq!(margin_of(&styled, 4), Some(margin_top(2)), "the second part's sheet");
+    }
+}

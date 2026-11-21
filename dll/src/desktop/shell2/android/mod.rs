@@ -444,7 +444,8 @@ impl AndroidWindow {
             let ws = self.common.current_window_state();
             let width = ws.size.dimensions.width;
             let height = ws.size.dimensions.height;
-            let dpi = ws.size.dpi as f32 / 96.0;
+            // THE factor of the window's frame (A10-17), not get_hidpi_factor().
+            let dpi = azul_layout::window::present_geometry::frame_dpi_factor(ws.size.dpi);
             // Shared per-frame content preparation (journal clock, image
             // callbacks through the content chokepoint, scrollbar cache).
             // Before this, image callbacks were NEVER invoked on this host —
@@ -1209,6 +1210,11 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 // Android-native scale factor, not the framework's).
                 let density = app.config().density().filter(|&d| d > 0).unwrap_or(160);
                 let dpi = ((density as f32) * 96.0 / 160.0).round() as u32;
+                if window.common.current_window_state().size.dpi != dpi.max(1) {
+                    // A CPU frame at another scale is repainted in full
+                    // (A10-08): the list's diff is in logical px.
+                    window.cpu_backend.force_full_repaint = true;
+                }
                 window
                     .common
                     .update_window_state(event::WindowStateSource::Os, |ws| {
@@ -1296,6 +1302,9 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                         .update_window_state(event::WindowStateSource::Os, |ws| {
                             ws.size.dpi = dpi;
                         });
+                    // A CPU frame at another scale is repainted in full
+                    // (A10-08): the list's diff is in logical px.
+                    window.cpu_backend.force_full_repaint = true;
                     #[cfg(feature = "ndk")]
                     if let Some(nw) = window.native_window.as_ref() {
                         let android_scale = (density as f32) / 160.0;

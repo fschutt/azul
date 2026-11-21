@@ -1273,9 +1273,28 @@ impl Win32Window {
                     // to know one exists before computing window dims.
                     if layout_window.layout_results.contains_key(&dom_id) {
                         let ws = &layout_window.current_window_state;
-                        let width = ws.size.dimensions.width;
-                        let height = ws.size.dimensions.height;
-                        let dpi = ws.size.dpi as f32 / 96.0;
+                        // THE factor of the window's frame (A10-17).
+                        let dpi = layout_window.frame_scale();
+                        // A10-05: the frame is as large as the CLIENT AREA, in
+                        // device pixels. The logical size is px / dpi, and the
+                        // renderer's ceil(logical * dpi) of that lands one
+                        // pixel above px wherever the f32 round trip
+                        // overshoots (1003 px at 175 %: a 1004 px frame, and a
+                        // DIB one pixel larger than the window). Hand it the
+                        // length that renders to exactly px: px is
+                        // round(logical * dpi), with the frame's own factor.
+                        let phys_w = azul_layout::window::present_geometry::surface_len_px(
+                            ws.size.dimensions.width, dpi,
+                        );
+                        let phys_h = azul_layout::window::present_geometry::surface_len_px(
+                            ws.size.dimensions.height, dpi,
+                        );
+                        let width = azul_layout::window::present_geometry::logical_len_for_px(
+                            phys_w, dpi,
+                        );
+                        let height = azul_layout::window::present_geometry::logical_len_for_px(
+                            phys_h, dpi,
+                        );
 
                         if width > 0.0 && height > 0.0 {
                             // #27 native backbuffer (Windows): a persistent
@@ -2248,10 +2267,12 @@ impl Win32Window {
         unsafe {
             (self.win32.user32.ScreenToClient)(self.hwnd, &mut pt);
         }
-        let hf = self.common.current_window_state().size.get_hidpi_factor();
+        let hf = azul_layout::window::present_geometry::frame_dpi_factor(
+            self.common.current_window_state().size.dpi,
+        );
         let pos = azul_core::geom::LogicalPosition::new(
-            pt.x as f32 / hf.inner.get(),
-            pt.y as f32 / hf.inner.get(),
+            pt.x as f32 / hf,
+            pt.y as f32 / hf,
         );
         self.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(pos);
     }
@@ -3712,13 +3733,9 @@ impl Win32Window {
         if get_type(pointer_id, &mut ptype) == 0 {
             return false;
         }
-        let hf = self
-            .common
-            .current_window_state()
-            .size
-            .get_hidpi_factor()
-            .inner
-            .get();
+        let hf = azul_layout::window::present_geometry::frame_dpi_factor(
+            self.common.current_window_state().size.dpi,
+        );
 
         if ptype == PT_PEN {
             let get_pen = match self.win32.user32.GetPointerPenInfo {
@@ -4827,10 +4844,12 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
-            let hidpi_factor = window.common.current_window_state().size.get_hidpi_factor();
+            let hidpi_factor = azul_layout::window::present_geometry::frame_dpi_factor(
+                window.common.current_window_state().size.dpi,
+            );
             let logical_pos = LogicalPosition::new(
-                x as f32 / hidpi_factor.inner.get(),
-                y as f32 / hidpi_factor.inner.get(),
+                x as f32 / hidpi_factor,
+                y as f32 / hidpi_factor,
             );
 
             // A held scrollbar thumb takes the move (not part of the normal
@@ -4893,7 +4912,7 @@ unsafe extern "system" fn window_proc(
                 unsafe {
                     (window.win32.user32.GetCursorPos)(&mut pt);
                 }
-                let hf = hidpi_factor.inner.get();
+                let hf = hidpi_factor;
                 azul_core::geom::LogicalPosition::new(pt.x as f32 / hf, pt.y as f32 / hf)
             };
             window.record_input_sample(logical_pos, button_state, false, false, Some(screen_pos));
@@ -4907,7 +4926,8 @@ unsafe extern "system" fn window_proc(
             // CPU fallback, with a parallel WebRender path below for GPU mode;
             // the two disagreed on coordinate space, so which node a click
             // resolved to depended on the renderer.
-            PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
+            // ONE hit test, pushed once below (A6-10: `update_hit_test_at` as
+            // well pushed a second, identical frame: no hover change to see).
             let hit_test = window.common.perform_hit_test(logical_pos);
 
             // Update hit test (GPU mode only — CPU mode handled above)
@@ -5042,10 +5062,12 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
-            let hidpi_factor = window.common.current_window_state().size.get_hidpi_factor();
+            let hidpi_factor = azul_layout::window::present_geometry::frame_dpi_factor(
+                window.common.current_window_state().size.dpi,
+            );
             let logical_pos = LogicalPosition::new(
-                x as f32 / hidpi_factor.inner.get(),
-                y as f32 / hidpi_factor.inner.get(),
+                x as f32 / hidpi_factor,
+                y as f32 / hidpi_factor,
             );
 
             // Check for scrollbar hit FIRST (before state changes)
@@ -5127,7 +5149,7 @@ unsafe extern "system" fn window_proc(
                 unsafe {
                     (window.win32.user32.GetCursorPos)(&mut pt);
                 }
-                let hf = hidpi_factor.inner.get();
+                let hf = hidpi_factor;
                 azul_core::geom::LogicalPosition::new(pt.x as f32 / hf, pt.y as f32 / hf)
             };
             window.record_input_sample(
@@ -5147,7 +5169,8 @@ unsafe extern "system" fn window_proc(
             // CPU fallback, with a parallel WebRender path below for GPU mode;
             // the two disagreed on coordinate space, so which node a click
             // resolved to depended on the renderer.
-            PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
+            // ONE hit test, pushed once below (A6-10: `update_hit_test_at` as
+            // well pushed a second, identical frame: no hover change to see).
             let hit_test = window.common.perform_hit_test(logical_pos);
 
             // Update hit test (GPU mode only — CPU mode handled above)
@@ -5178,10 +5201,12 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
-            let hidpi_factor = window.common.current_window_state().size.get_hidpi_factor();
+            let hidpi_factor = azul_layout::window::present_geometry::frame_dpi_factor(
+                window.common.current_window_state().size.dpi,
+            );
             let logical_pos = LogicalPosition::new(
-                x as f32 / hidpi_factor.inner.get(),
-                y as f32 / hidpi_factor.inner.get(),
+                x as f32 / hidpi_factor,
+                y as f32 / hidpi_factor,
             );
 
             // End scrollbar drag if active (before state changes). The shared
@@ -5219,7 +5244,7 @@ unsafe extern "system" fn window_proc(
                 unsafe {
                     (window.win32.user32.GetCursorPos)(&mut pt);
                 }
-                let hf = hidpi_factor.inner.get();
+                let hf = hidpi_factor;
                 azul_core::geom::LogicalPosition::new(pt.x as f32 / hf, pt.y as f32 / hf)
             };
             window.record_input_sample(
@@ -5239,7 +5264,8 @@ unsafe extern "system" fn window_proc(
             // CPU fallback, with a parallel WebRender path below for GPU mode;
             // the two disagreed on coordinate space, so which node a click
             // resolved to depended on the renderer.
-            PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
+            // ONE hit test, pushed once below (A6-10: `update_hit_test_at` as
+            // well pushed a second, identical frame: no hover change to see).
             let hit_test = window.common.perform_hit_test(logical_pos);
 
             // Update hit test (GPU mode only — CPU mode handled above)
@@ -5274,10 +5300,12 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
-            let hidpi_factor = window.common.current_window_state().size.get_hidpi_factor();
+            let hidpi_factor = azul_layout::window::present_geometry::frame_dpi_factor(
+                window.common.current_window_state().size.dpi,
+            );
             let logical_pos = LogicalPosition::new(
-                x as f32 / hidpi_factor.inner.get(),
-                y as f32 / hidpi_factor.inner.get(),
+                x as f32 / hidpi_factor,
+                y as f32 / hidpi_factor,
             );
 
             // Save previous state BEFORE making changes
@@ -5296,7 +5324,8 @@ unsafe extern "system" fn window_proc(
             // CPU fallback, with a parallel WebRender path below for GPU mode;
             // the two disagreed on coordinate space, so which node a click
             // resolved to depended on the renderer.
-            PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
+            // ONE hit test, pushed once below (A6-10: `update_hit_test_at` as
+            // well pushed a second, identical frame: no hover change to see).
             let hit_test = window.common.perform_hit_test(logical_pos);
 
             // Update hit test (GPU mode only — CPU mode handled above)
@@ -5324,10 +5353,12 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
-            let hidpi_factor = window.common.current_window_state().size.get_hidpi_factor();
+            let hidpi_factor = azul_layout::window::present_geometry::frame_dpi_factor(
+                window.common.current_window_state().size.dpi,
+            );
             let logical_pos = LogicalPosition::new(
-                x as f32 / hidpi_factor.inner.get(),
-                y as f32 / hidpi_factor.inner.get(),
+                x as f32 / hidpi_factor,
+                y as f32 / hidpi_factor,
             );
 
             // Save previous state BEFORE making changes
@@ -5346,7 +5377,8 @@ unsafe extern "system" fn window_proc(
             // CPU fallback, with a parallel WebRender path below for GPU mode;
             // the two disagreed on coordinate space, so which node a click
             // resolved to depended on the renderer.
-            PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
+            // ONE hit test, pushed once below (A6-10: `update_hit_test_at` as
+            // well pushed a second, identical frame: no hover change to see).
             let hit_test = window.common.perform_hit_test(logical_pos);
 
             // Update hit test (GPU mode only — CPU mode handled above)
@@ -5381,10 +5413,12 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
-            let hidpi_factor = window.common.current_window_state().size.get_hidpi_factor();
+            let hidpi_factor = azul_layout::window::present_geometry::frame_dpi_factor(
+                window.common.current_window_state().size.dpi,
+            );
             let logical_pos = LogicalPosition::new(
-                x as f32 / hidpi_factor.inner.get(),
-                y as f32 / hidpi_factor.inner.get(),
+                x as f32 / hidpi_factor,
+                y as f32 / hidpi_factor,
             );
 
             // Save previous state
@@ -5409,10 +5443,12 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
-            let hidpi_factor = window.common.current_window_state().size.get_hidpi_factor();
+            let hidpi_factor = azul_layout::window::present_geometry::frame_dpi_factor(
+                window.common.current_window_state().size.dpi,
+            );
             let logical_pos = LogicalPosition::new(
-                x as f32 / hidpi_factor.inner.get(),
-                y as f32 / hidpi_factor.inner.get(),
+                x as f32 / hidpi_factor,
+                y as f32 / hidpi_factor,
             );
 
             // Save previous state
@@ -5453,10 +5489,12 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::geom::LogicalPosition;
 
-            let hidpi_factor = window.common.current_window_state().size.get_hidpi_factor();
+            let hidpi_factor = azul_layout::window::present_geometry::frame_dpi_factor(
+                window.common.current_window_state().size.dpi,
+            );
             let logical_pos = LogicalPosition::new(
-                x as f32 / hidpi_factor.inner.get(),
-                y as f32 / hidpi_factor.inner.get(),
+                x as f32 / hidpi_factor,
+                y as f32 / hidpi_factor,
             );
 
             // Save previous state
@@ -5641,10 +5679,12 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
-            let hidpi_factor = window.common.current_window_state().size.get_hidpi_factor();
+            let hidpi_factor = azul_layout::window::present_geometry::frame_dpi_factor(
+                window.common.current_window_state().size.dpi,
+            );
             let logical_pos = LogicalPosition::new(
-                x as f32 / hidpi_factor.inner.get(),
-                y as f32 / hidpi_factor.inner.get(),
+                x as f32 / hidpi_factor,
+                y as f32 / hidpi_factor,
             );
 
             // Save previous state
@@ -5661,7 +5701,8 @@ unsafe extern "system" fn window_proc(
             // CPU fallback, with a parallel WebRender path below for GPU mode;
             // the two disagreed on coordinate space, so which node a click
             // resolved to depended on the renderer.
-            PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
+            // ONE hit test, pushed once below (A6-10: `update_hit_test_at` as
+            // well pushed a second, identical frame: no hover change to see).
             let hit_test = window.common.perform_hit_test(logical_pos);
             if let Some(ref mut layout_window) = window.common.layout_window {
                 {
@@ -6541,6 +6582,15 @@ unsafe extern "system" fn window_proc(
                 crate::desktop::shell2::common::event::WindowStateSource::Os,
                 |ws| ws.size.dpi = new_dpi,
             );
+            // A CPU frame at another scale is repainted in full (A10-08): the
+            // list's diff is in logical px, and the frame kept from the old
+            // scale shares no pixel with the new one.
+            #[cfg(feature = "cpurender")]
+            {
+                if new_dpi != old_dpi {
+                    window.cpu_backend.force_full_repaint = true;
+                }
+            }
 
             // Get suggested size from lParam (RECT*). Per MSDN this is "a
             // suggested size and position of the current window scaled for
@@ -6707,10 +6757,12 @@ unsafe extern "system" fn window_proc(
                 unsafe {
                     (window.win32.user32.ScreenToClient)(hwnd, &mut pt);
                 }
-                let hidpi = window.common.current_window_state().size.get_hidpi_factor();
+                let hidpi = azul_layout::window::present_geometry::frame_dpi_factor(
+                    window.common.current_window_state().size.dpi,
+                );
                 azul_core::geom::LogicalPosition::new(
-                    pt.x as f32 / hidpi.inner.get(),
-                    pt.y as f32 / hidpi.inner.get(),
+                    pt.x as f32 / hidpi,
+                    pt.y as f32 / hidpi,
                 )
             };
 

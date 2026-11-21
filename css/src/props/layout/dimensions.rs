@@ -952,8 +952,8 @@ mod autotest_generated {
 
     #[test]
     fn calc_sub_millisecond_precision_is_quantised_to_zero() {
-        // FloatValue keeps 3 decimal places; anything below 0.001 collapses to 0.
-        let parsed = parse_calc_expression("0.0005px").unwrap();
+        // FloatValue keeps 3 decimal places; anything below 0.0005 rounds to 0.
+        let parsed = parse_calc_expression("0.0004px").unwrap();
         match parsed.get(0).unwrap() {
             CalcAstItem::Value(v) => assert_eq!(v.number.get(), 0.0),
             other => panic!("expected a Value, got {other:?}"),
@@ -1676,8 +1676,8 @@ mod autotest_generated {
 
     #[test]
     fn sizing_parser_px_quantisation_limits() {
-        // Sub-0.001 collapses to zero...
-        match parse_layout_width("0.0005px").unwrap() {
+        // Below half a thousandth rounds to zero...
+        match parse_layout_width("0.0004px").unwrap() {
             LayoutWidth::Px(v) => assert_eq!(v.number.get(), 0.0),
             other => panic!("expected Px, got {other:?}"),
         }

@@ -27,5 +27,8 @@ pub use raster::*;
 pub use retained::RetainedFrames;
 pub use shape::*;
 pub use svg::*;
-pub use text_halo::{halos_drawn, text_halos, within_halo_budget, TextHalo};
+pub use text_halo::{
+    halos_drawn, text_halo_bounds_in_this_thread, text_halo_stats, text_halos,
+    within_halo_budget, TextHalo, TextHaloStats,
+};
 pub use text_raster::*;

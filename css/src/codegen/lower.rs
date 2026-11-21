@@ -102,12 +102,11 @@ impl Lower for AzString {
 /// The shortest decimal text `t` for which `FloatValue::new(t as f32)`
 /// stores exactly `number` again.
 ///
-/// `FloatValue` keeps `value * 1000` TRUNCATED to an `isize`, so the naive
-/// `number / 1000` is not always stable: `0.7px` parses to `699` (0.7_f32 is
-/// 0.69999..), and `PixelValue::px(0.699)` would give `698`. This tries the
-/// short roundings first (`699` -> `"0.7"`), then the exact decimal, then a
-/// value half a unit further out (`"0.7005"` -> `700`), verifying each with
-/// the real `FloatValue::new`.
+/// `FloatValue` keeps `value * 1000` rounded to an `isize` (it used to cut
+/// the fourth decimal off, and then `number / 1000` did not always give
+/// `number` back). This tries the short roundings first, then the exact
+/// decimal, then a value half a unit further out, verifying each with the
+/// real `FloatValue::new`.
 #[must_use]
 pub fn fixed_point_text(number: isize) -> String {
     let ok = |t: &str| {
@@ -725,7 +724,7 @@ mod tests {
 
     #[test]
     fn a_parsed_decimal_prints_as_the_decimal_the_author_wrote() {
-        // 0.7_f32 * 1000 truncates to 699: "0.7" is what reproduces it
+        // "0.7" is the shortest text that gives 0.7's number back
         let n = FloatValue::new(0.7).number;
         assert_eq!(fixed_point_text(n), "0.7");
         assert_eq!(fixed_point_text(10_000), "10.0");

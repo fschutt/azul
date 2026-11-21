@@ -517,14 +517,60 @@ mod autotest_generated {
     }
 
     #[test]
-    fn margin_i16_keeps_auto_and_otherwise_matches_the_pixel_encoder() {
+    fn margin_slot_keeps_auto_and_otherwise_matches_the_pixel_encoder() {
         let auto: CssPropertyValue<LayoutMarginTop> = CssPropertyValue::Auto;
-        assert_eq!(encode_margin_i16(&auto), I16_AUTO);
+        assert_eq!(encode_margin_px_slot(&auto), PX_SLOT_AUTO);
         for px in [-50.0f32, 0.0, 12.5, 3276.3, 5.0e9, f32::NAN] {
             let m = CssPropertyValue::Exact(LayoutMarginTop {
                 inner: PixelValue::px(px),
             });
-            assert_eq!(encode_margin_i16(&m), encode_css_pixel_as_i16(&padding(px)));
+            assert_eq!(encode_margin_px_slot(&m), encode_css_pixel_as_px_slot(&padding(px)));
+        }
+    }
+
+    /// A3-core-12: a box length is kept in thousandths of a pixel, the number the declared
+    /// value has (`10.04px` is 10040, not the 100 of tenths), and a length beyond the old
+    /// +-3276 px fits. Another unit and the keywords are sentinels, as before.
+    #[test]
+    fn a_box_length_slot_holds_the_declared_thousandths() {
+        assert_eq!(encode_css_pixel_as_px_slot(&padding(0.0)), 0);
+        assert_eq!(encode_css_pixel_as_px_slot(&padding(10.04)), 10_040);
+        assert_eq!(encode_css_pixel_as_px_slot(&padding(10.05)), 10_050);
+        assert_eq!(encode_css_pixel_as_px_slot(&padding(-10.5)), -10_500);
+        assert_eq!(encode_css_pixel_as_px_slot(&padding(123.456)), 123_456);
+        // Past the old range of the i16 slot (3276.3 px).
+        assert_eq!(encode_css_pixel_as_px_slot(&padding(3276.4)), 3_276_400);
+        assert_eq!(encode_css_pixel_as_px_slot(&padding(5000.25)), 5_000_250);
+        // What it holds is read back as the declared length.
+        for px in [0.0f32, 10.04, 10.05, -10.5, 123.456, 5000.25] {
+            let slot = encode_css_pixel_as_px_slot(&padding(px));
+            assert_eq!(px_slot_length(slot), Some(PixelValue::px(px)), "{px}");
+            assert_eq!(decode_px_slot(slot), Some(PixelValue::px(px).number.get()), "{px}");
+        }
+
+        // Beyond the slot (2,147,483.643 px) and non-finite: the sentinel, never a keyword.
+        for px in [3.0e6f32, -3.0e6, f32::INFINITY, f32::NEG_INFINITY, f32::MAX] {
+            let slot = encode_css_pixel_as_px_slot(&padding(px));
+            assert!(
+                slot == PX_SLOT_SENTINEL || slot < PX_SLOT_THRESHOLD,
+                "{px} encoded as the keyword {slot}"
+            );
+        }
+        assert_eq!(encode_css_pixel_as_px_slot(&padding(f32::INFINITY)), PX_SLOT_SENTINEL);
+
+        // Another unit needs a context to resolve.
+        let em = CssPropertyValue::Exact(LayoutPaddingTop { inner: PixelValue::em(1.0) });
+        assert_eq!(encode_css_pixel_as_px_slot(&em), PX_SLOT_SENTINEL);
+
+        let auto: CssPropertyValue<LayoutPaddingTop> = CssPropertyValue::Auto;
+        let initial: CssPropertyValue<LayoutPaddingTop> = CssPropertyValue::Initial;
+        let inherit: CssPropertyValue<LayoutPaddingTop> = CssPropertyValue::Inherit;
+        assert_eq!(encode_css_pixel_as_px_slot(&auto), PX_SLOT_AUTO);
+        assert_eq!(encode_css_pixel_as_px_slot(&initial), PX_SLOT_INITIAL);
+        assert_eq!(encode_css_pixel_as_px_slot(&inherit), PX_SLOT_INHERIT);
+        for sentinel in [PX_SLOT_SENTINEL, PX_SLOT_AUTO, PX_SLOT_INHERIT, PX_SLOT_INITIAL] {
+            assert_eq!(px_slot_length(sentinel), None);
+            assert_eq!(decode_px_slot(sentinel), None);
         }
     }
 
@@ -792,14 +838,83 @@ mod autotest_generated {
         assert_eq!(nan.dims.flex_shrink, 0);
     }
 
+    /// A3-core-18: letter spacing, word spacing and text indent are kept in
+    /// thousandths of a pixel (`PxSlot`), the declared number: as tenths a
+    /// `letter-spacing: 0.25px` was 0.3 px at rest and 0.25 px in any other
+    /// state.
+    #[test]
+    fn a_letter_spacing_is_kept_to_the_thousandth() {
+        use azul_css::props::style::text::{StyleLetterSpacing, StyleWordSpacing};
+
+        let mut s = Sink::new();
+        s.apply(&CssProperty::LetterSpacing(CssPropertyValue::Exact(StyleLetterSpacing {
+            inner: PixelValue::px(0.25),
+        })));
+        s.apply(&CssProperty::WordSpacing(CssPropertyValue::Exact(StyleWordSpacing {
+            inner: PixelValue::px(-1.137),
+        })));
+        assert_eq!(s.text.letter_spacing, 250, "0.25 px (was 3 tenths = 0.3 px)");
+        assert_eq!(s.text.word_spacing, -1_137);
+        assert_eq!(decode_px_slot(s.text.letter_spacing), Some(0.25));
+
+        // Another unit needs the font size: the cascade is asked.
+        let mut em = Sink::new();
+        em.apply(&CssProperty::LetterSpacing(CssPropertyValue::Exact(StyleLetterSpacing {
+            inner: PixelValue::em(0.1),
+        })));
+        assert_eq!(em.text.letter_spacing, PX_SLOT_SENTINEL);
+        assert_eq!(decode_px_slot(em.text.letter_spacing), None);
+        // Nothing declared: no spacing.
+        assert_eq!(decode_px_slot(Sink::new().text.letter_spacing), Some(0.0));
+    }
+
+    /// A3-core-24: `tab-size: 4` is kept by the parser as `4em`; encoded as a
+    /// px length it was the sentinel, which the reader takes for the default
+    /// 8. And a `border-spacing` in another unit than px left its slot at
+    /// 0, which the reader takes for 0 px. The slot holds the tab size's
+    /// number, and the sentinel ("read the cascade") for such a spacing.
+    #[test]
+    fn a_declared_tab_size_and_a_relative_border_spacing_are_not_the_default() {
+        use azul_css::props::{layout::table::LayoutBorderSpacing, style::text::StyleTabSize};
+
+        let tab = |inner: PixelValue| {
+            let mut s = Sink::new();
+            s.apply(&CssProperty::TabSize(CssPropertyValue::Exact(StyleTabSize { inner })));
+            s.cold.tab_size
+        };
+        assert_eq!(tab(PixelValue::em(4.0)), 40, "tab-size: 4");
+        assert_eq!(tab(PixelValue::em(2.5)), 25, "tab-size: 2.5");
+        assert_eq!(tab(PixelValue::px(20.0)), 200, "tab-size: 20px");
+        assert_eq!(tab(PixelValue::em(0.0)), 0, "tab-size: 0");
+        let mut unset = Sink::new();
+        unset.apply(&CssProperty::TabSize(CssPropertyValue::Initial));
+        assert!(unset.cold.tab_size >= I16_SENTINEL_THRESHOLD, "a keyword is no number");
+
+        let spacing = |horizontal: PixelValue, vertical: PixelValue| {
+            let mut s = Sink::new();
+            s.apply(&CssProperty::BorderSpacing(CssPropertyValue::Exact(LayoutBorderSpacing {
+                horizontal,
+                vertical,
+            })));
+            (s.cold.border_spacing_h, s.cold.border_spacing_v)
+        };
+        assert_eq!(spacing(PixelValue::px(3.0), PixelValue::px(4.5)), (30, 45));
+        assert_eq!(
+            spacing(PixelValue::em(0.5), PixelValue::px(2.0)),
+            (I16_SENTINEL, 20),
+            "an em spacing is asked of the cascade, not read as 0"
+        );
+    }
+
     #[test]
     fn apply_gap_px_sets_both_axes_and_ignores_unresolvable_units() {
         let mut s = Sink::new();
         s.apply(&CssProperty::Gap(CssPropertyValue::Exact(LayoutGap {
             inner: PixelValue::px(8.0),
         })));
-        assert_eq!(s.dims.row_gap, 80);
-        assert_eq!(s.dims.column_gap, 80);
+        // 8 px in thousandths (`PxSlot`); it was 80 tenths in the i16 slot.
+        assert_eq!(s.dims.row_gap, 8_000);
+        assert_eq!(s.dims.column_gap, 8_000);
 
         // An `em` gap cannot be resolved without a font context: it is marked with the
         // sentinel so the layout asks the cascade, never encoded as 2px or as no gap.
@@ -807,8 +922,8 @@ mod autotest_generated {
         em.apply(&CssProperty::Gap(CssPropertyValue::Exact(LayoutGap {
             inner: PixelValue::em(2.0),
         })));
-        assert_eq!(em.dims.row_gap, I16_SENTINEL);
-        assert_eq!(em.dims.column_gap, I16_SENTINEL);
+        assert_eq!(em.dims.row_gap, PX_SLOT_SENTINEL);
+        assert_eq!(em.dims.column_gap, PX_SLOT_SENTINEL);
     }
 
     // -------------------------------------------------------------------------
@@ -1280,11 +1395,11 @@ mod autotest_generated {
         let r = cache.build_compact_cache_with_inheritance(&nodes, &linear_hierarchy(2), &[], &[]);
 
         assert_eq!(
-            r.tier2_dims[0].padding_top, 50,
+            r.tier2_dims[0].padding_top, 5_000,
             "the `*` rule must apply to the element"
         );
         assert_ne!(
-            r.tier2_dims[1].padding_top, 50,
+            r.tier2_dims[1].padding_top, 5_000,
             "the `*` rule must NOT apply to a text node"
         );
     }

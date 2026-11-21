@@ -504,6 +504,17 @@ fn collect_tab_order(
         // parent's dead copy rather than the live control the popup displays
         // (device report, 2026-09-01).
         let node_data = layout.styled_dom.node_data.as_container();
+        // The nodes that can take focus at all, first: a DOM that has none
+        // (a map's 12,500 labels) is done after this one pass - the walks
+        // below (for transient windows, for what is rendered) are over every
+        // node again and decide only about these.
+        let focusable: Vec<NodeId> = (0..node_data.len())
+            .map(NodeId::new)
+            .filter(|n| node_data.get(*n).is_some_and(|nd| nd.is_focusable()))
+            .collect();
+        if focusable.is_empty() {
+            continue;
+        }
         let hierarchy = layout.styled_dom.node_hierarchy.as_container();
         let transient_roots: Vec<NodeId> = (0..node_data.len())
             .map(NodeId::new)
@@ -539,12 +550,12 @@ fn collect_tab_order(
         // A control the window does not render (a display:none subtree) is
         // no stop: focus there would be invisible.
         let rendered = crate::managers::a11y::rendered_nodes(layout);
-        for index in 0..node_data.len() {
-            let node_id = NodeId::new(index);
+        for node_id in focusable {
+            let index = node_id.index();
             let Some(nd) = node_data.get(node_id) else {
                 continue;
             };
-            if !nd.is_focusable() || !rendered.get(index).copied().unwrap_or(true) {
+            if !rendered.get(index).copied().unwrap_or(true) {
                 continue;
             }
             if under_transient(node_id) {
@@ -1856,6 +1867,32 @@ mod autotest_generated {
                 .with_child(Dom::create_div()),
         );
         assert_eq!(tab_order_of(sd), Vec::new());
+    }
+
+    /// Audit A6-16: a DOM with no node that can take focus (a map's labels)
+    /// is left after one pass over its nodes, and takes no stop away from the
+    /// DOMs around it: the order is that of the other DOM alone.
+    /// Mutation: the early `continue` leaving the LOOP over the doms (a
+    /// `break`) loses the stops of every DOM after the first without any.
+    #[test]
+    fn a_dom_without_tab_stops_changes_nothing_of_the_order() {
+        let alone = tab_order_of(tab_fixture());
+        assert!(!alone.is_empty(), "harness: the fixture has tab stops");
+        let labels: Vec<Dom> = (0..2000).map(|_| Dom::create_div()).collect();
+        let map = StyledDom::create_from_dom(Dom::create_body().with_children(labels.into()));
+        // The DOM without stops first (dom 0), the one with stops after it.
+        let both = collect_tab_order(
+            &window(vec![(dom(0), map), (dom(1), tab_fixture())]),
+            &BTreeSet::new(),
+        );
+        let alone_as_dom_1: Vec<DomNodeId> = alone
+            .iter()
+            .map(|id| DomNodeId {
+                dom: dom(1),
+                node: id.node,
+            })
+            .collect();
+        assert_eq!(both, alone_as_dom_1);
     }
 
     #[test]
