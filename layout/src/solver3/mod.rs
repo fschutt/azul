@@ -1469,6 +1469,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // The layout roots below the tree root whose box came out another
         // size: the boxes sized by their content around them follow.
         let mut resized: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
+        // The size each of those roots had before this pass: what follows a
+        // root in its parent's flow moves by what it grew
+        // (`cache::reposition_block_flow_siblings`).
+        let mut sizes_before: BTreeMap<usize, LogicalSize> = BTreeMap::new();
         for &root_idx in &recon_result.layout_roots {
             let (cb_pos, cb_size) = get_containing_block_for_node(
                 &new_tree,
@@ -1579,6 +1583,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             let size_before = new_tree
                 .get(LayoutNodeId::new(root_idx))
                 .and_then(|n| n.used_size);
+            if let Some(was) = size_before {
+                sizes_before.insert(root_idx, was);
+            }
             let clr = {
                 let _p = crate::probe::Probe::span("root_layout_pass");
                 cache::calculate_layout_for_subtree(
@@ -1679,6 +1686,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 new_dom,
                 &new_tree,
                 &recon_result.layout_roots,
+                &sizes_before,
                 &mut calculated_positions,
             );
         }

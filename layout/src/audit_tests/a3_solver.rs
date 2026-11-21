@@ -604,6 +604,126 @@ fn a_flat_layer_of_absolute_labels_takes_position_lookups_in_proportion_to_its_l
     }
 }
 
+/// `dom` under the stylesheet `css` (its nodes are matched by class).
+fn styled_page(mut dom: Dom, css: &str) -> StyledDom {
+    let (css, _warnings) = azul_css::parser2::new_from_str(css);
+    StyledDom::create(&mut dom, css)
+}
+
+/// A div of class `class`.
+fn div_class(class: &'static str) -> Dom {
+    Dom::create_div()
+        .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class(class.into())].into())
+}
+
+/// A window that laid `page` out under `first` and then, as the shell rebuilds a page whose
+/// stylesheet changed (the CSS diff first), under `second`: the second pass is an INCREMENTAL
+/// one, it lays out again only what the changed rules reach.
+fn restyled(page: fn() -> Dom, first: &str, second: &str) -> LayoutWindow {
+    let mut lw = window();
+    lay_out_styled(&mut lw, styled_page(page(), first));
+    let mut next = styled_page(page(), second);
+    let _pending =
+        lw.begin_reconciliation(DomId::ROOT_ID, &mut next, azul_core::task::Instant::now());
+    lay_out_styled(&mut lw, next);
+    lw
+}
+
+/// A window that laid `page` out under `css` once, from nothing.
+fn fresh(page: fn() -> Dom, css: &str) -> LayoutWindow {
+    let mut lw = window();
+    lay_out_styled(&mut lw, styled_page(page(), css));
+    lw
+}
+
+/// The boxes of the DOM nodes `nodes` stand where a fresh layout of the same page puts them.
+fn assert_as_in_a_fresh_layout(incremental: &LayoutWindow, fresh: &LayoutWindow, nodes: &[usize]) {
+    for &node in nodes {
+        let (was, is) = (position_of(fresh, node), position_of(incremental, node));
+        assert!(
+            (was.x - is.x).abs() < 0.01 && (was.y - is.y).abs() < 0.01,
+            "DOM node {node} stands at ({}, {}) after the incremental pass, a fresh layout of \
+             the same page puts it at ({}, {})",
+            is.x,
+            is.y,
+            was.x,
+            was.y
+        );
+    }
+}
+
+/// `body(0) > .g(1) > [.a(2) > .x(3), .s(4)]`.
+fn two_blocks_in_a_box() -> Dom {
+    Dom::create_body().with_child(
+        div_class("g")
+            .with_child(div_class("a").with_child(div_class("x")))
+            .with_child(div_class("s")),
+    )
+}
+
+/// `body(0) > .g(1) > [.b(2), .a(3) > .x(4), .s(5)]`.
+fn three_blocks_in_a_box() -> Dom {
+    Dom::create_body().with_child(
+        div_class("g")
+            .with_child(div_class("b"))
+            .with_child(div_class("a").with_child(div_class("x")))
+            .with_child(div_class("s")),
+    )
+}
+
+/// A3-solver-29. `.x` gets another WIDTH: its parent `.a` is laid out again and keeps its
+/// size, so nothing may move. `cache::reposition_block_flow_siblings` stacked `.a`'s siblings
+/// again from the parent's position + padding, without its BORDER: `.s` moved 5px to the left
+/// (fresh: `.g`'s content box starts at (5, 5), `.a` is 20 high, `.s` stands at (5, 25); it
+/// was put at (0, 25)).
+#[test]
+fn a_clean_sibling_keeps_its_place_in_a_bordered_box_when_its_neighbour_is_laid_out_again() {
+    let base = "body { margin: 0; } .g { border: 5px solid black; width: 300px; } \
+                .x { height: 20px; } .s { height: 10px; }";
+    let (first, second) = (
+        format!("{base} .x {{ width: 100px; }}"),
+        format!("{base} .x {{ width: 150px; }}"),
+    );
+    let incremental = restyled(two_blocks_in_a_box, &first, &second);
+    assert_as_in_a_fresh_layout(&incremental, &fresh(two_blocks_in_a_box, &second), &[2, 3, 4]);
+}
+
+/// A3-solver-29. The same in a PADDED box with margins that collapse between the two blocks
+/// (`.a`'s bottom 10 and `.s`'s top 10 are one gap of 10): fresh, `.a` stands at (5, 5), 20
+/// high, and `.s` at (5, 35). The stacking summed the two margins and put `.s` at (5, 45).
+#[test]
+fn a_clean_sibling_keeps_its_collapsed_margin_when_its_neighbour_is_laid_out_again() {
+    let base = "body { margin: 0; } .g { padding: 5px; width: 300px; } .x { height: 20px; } \
+                .a { margin-bottom: 10px; } .s { margin-top: 10px; height: 10px; }";
+    let (first, second) = (
+        format!("{base} .x {{ width: 100px; }}"),
+        format!("{base} .x {{ width: 150px; }}"),
+    );
+    let incremental = restyled(two_blocks_in_a_box, &first, &second);
+    assert_as_in_a_fresh_layout(&incremental, &fresh(two_blocks_in_a_box, &second), &[2, 3, 4]);
+}
+
+/// A3-solver-29. Three siblings in a bordered box of a definite height, and the middle one
+/// GROWS (`.x` from 20 to 50 high): the one before it stays, the one after it moves down by
+/// 30 and keeps its x. Fresh under the second sheet: `.b` (7 high, margin-bottom 4) at (5, 5),
+/// `.a` at (5, 16), 50 high, `.s` (margin-top 6) at (5, 72). The stacking put `.b` at (0, 0)
+/// and `.s` at (0, 72).
+#[test]
+fn siblings_of_a_block_that_grew_in_a_bordered_box_stand_as_in_a_fresh_layout() {
+    let base = "body { margin: 0; } .g { border: 5px solid black; width: 300px; height: 200px; } \
+                .b { height: 7px; margin-bottom: 4px; } .s { height: 10px; margin-top: 6px; }";
+    let (first, second) = (
+        format!("{base} .x {{ height: 20px; }}"),
+        format!("{base} .x {{ height: 50px; }}"),
+    );
+    let incremental = restyled(three_blocks_in_a_box, &first, &second);
+    assert_as_in_a_fresh_layout(
+        &incremental,
+        &fresh(three_blocks_in_a_box, &second),
+        &[2, 3, 4, 5],
+    );
+}
+
 // The guards of the second round, one file per part of the solver (`a3_solver/*.rs`).
 mod ifc;
 mod sizing;

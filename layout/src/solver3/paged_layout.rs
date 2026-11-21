@@ -1293,10 +1293,13 @@ fn compute_layout_pass<T: ParsedFontTrait + Sync + 'static>(
             }
         }
 
+        // No sizes from before the pass here: what follows a root is
+        // stacked from the root's end, as it always was on this path.
         cache::reposition_clean_subtrees(
             new_dom,
             &new_tree,
             &recon_result.layout_roots,
+            &BTreeMap::new(),
             &mut calculated_positions,
         );
 

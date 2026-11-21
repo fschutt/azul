@@ -1332,6 +1332,9 @@ pub fn reposition_clean_subtrees(
     styled_dom: &StyledDom,
     tree: &LayoutTree,
     layout_roots: &BTreeSet<usize>,
+    // The used size each layout root had BEFORE this pass laid it out again
+    // (none for a root built fresh): how far what follows it has to move.
+    sizes_before: &BTreeMap<usize, LogicalSize>,
     calculated_positions: &mut super::PositionVec,
 ) {
     // Find the unique parents of all dirty layout roots. These are the containers
@@ -1357,6 +1360,7 @@ pub fn reposition_clean_subtrees(
                     parent_idx,
                     tree,
                     layout_roots,
+                    sizes_before,
                     calculated_positions,
                 );
             }
@@ -1440,14 +1444,37 @@ pub fn collect_children_dom_ids(styled_dom: &StyledDom, parent_dom_id: NodeId) -
     children
 }
 
-/// Repositions clean children within a simple block-flow layout (like a BFC or a
-/// table-row-group). It stacks children along the main axis, preserving their
-/// previously calculated cross-axis alignment.
+/// Moves the children of the block-flow parent `parent_idx` (a block container or a
+/// table-row-group) that come AFTER a child this pass laid out again as a
+/// layout root, without laying anything out.
+///
+/// A layout root is laid out where it stood, in the slot its parent's last
+/// pass gave it. What changes for its siblings is its SIZE: every child after
+/// it moves along the main axis by what the root grew (its used size now
+/// minus `sizes_before`), with its whole subtree - the gaps between the
+/// children, collapsed margins included, stay what the parent's last layout
+/// made them. A root that kept its size moves nothing, and children before a
+/// root never move. A later root moves by the growth of the roots before it
+/// like any other child (it was laid out at its old place).
+///
+/// A root whose size before the pass is not known (one built fresh) cannot
+/// say how much it grew: the children after it are stacked from its end
+/// along the main axis, each at its own margins, as this function did for
+/// every child - right for plain blocks without collapsing margins only.
+///
+/// What this replaced: all children - before and after the root, in flow or
+/// not - were stacked again from the parent's content-box origin with their
+/// full margins. That origin left the parent's BORDER out, sibling margins
+/// were summed where the layout had collapsed them, and an absolutely
+/// positioned child was given room like a block, so a pass that changed
+/// nothing but one box's width moved its clean siblings: left and up by the
+/// parent's border, down by every collapsed margin.
 pub fn reposition_block_flow_siblings(
     styled_dom: &StyledDom,
     parent_idx: usize,
     tree: &LayoutTree,
     layout_roots: &BTreeSet<usize>,
+    sizes_before: &BTreeMap<usize, LogicalSize>,
     calculated_positions: &mut super::PositionVec,
 ) {
     let Some(parent_node) = tree.get(LayoutNodeId::new(parent_idx)) else {
@@ -1468,13 +1495,16 @@ pub fn reposition_block_flow_siblings(
         .copied()
         .unwrap_or_default();
 
+    // The parent's content box: inside its border and its padding
+    // (`calculate_content_box_pos`).
     let parent_bp = parent_node.box_props.unpack();
-    let content_box_origin = LogicalPosition::new(
-        parent_pos.x + parent_bp.padding.left,
-        parent_pos.y + parent_bp.padding.top,
-    );
+    let content_box_origin = calculate_content_box_pos(parent_pos, &parent_bp);
 
-    let mut main_pen = 0.0;
+    // How far the children after the roots met so far move along the main axis.
+    let mut shift = 0.0f32;
+    // `Some` from the first root of unknown former size on: where the next
+    // child's margin box starts, from the content-box origin.
+    let mut main_pen: Option<f32> = None;
 
     for &child_idx in tree.children(parent_idx) {
         let Some(child_node) = tree.get(LayoutNodeId::new(child_idx)) else {
@@ -1487,8 +1517,42 @@ pub fn reposition_block_flow_siblings(
         let margin_box_main_size = child_size.main(writing_mode) + child_main_sum;
 
         if layout_roots.contains(&child_idx) {
-            // This child was DIRTY and has been correctly repositioned.
-            // Update the pen to the position immediately after this child.
+            // Laid out again by this pass, at the place it had.
+            if calculated_positions.get(child_idx).is_none() {
+                continue;
+            }
+            let grown = match (sizes_before.get(&child_idx), child_node.used_size) {
+                (Some(before), Some(after)) if main_pen.is_none() => {
+                    Some(after.main(writing_mode) - before.main(writing_mode))
+                }
+                _ => None,
+            };
+            if let Some(grown) = grown {
+                // It follows the roots before it, then pushes what follows.
+                if shift != 0.0 {
+                    shift_subtree_position(
+                        child_idx,
+                        LogicalPosition::from_main_cross(shift, 0.0, writing_mode),
+                        tree,
+                        calculated_positions,
+                    );
+                }
+                if grown.is_finite() {
+                    shift += grown;
+                }
+                continue;
+            }
+            // Its former size is unknown: what follows is stacked from its
+            // end. The root itself stays where it was laid out (moved only
+            // with the roots that grew before it).
+            if main_pen.is_none() && shift != 0.0 {
+                shift_subtree_position(
+                    child_idx,
+                    LogicalPosition::from_main_cross(shift, 0.0, writing_mode),
+                    tree,
+                    calculated_positions,
+                );
+            }
             let new_pos = match calculated_positions.get(child_idx) {
                 Some(p) => *p,
                 None => continue,
@@ -1500,19 +1564,21 @@ pub fn reposition_block_flow_siblings(
                 new_pos.y - content_box_origin.y
             };
 
-            main_pen = main_axis_offset
-                + child_size.main(writing_mode)
-                + child_bp.margin.main_end(writing_mode);
-        } else {
-            // This child is *clean*. Calculate its new position and shift its
-            // entire subtree.
+            main_pen = Some(
+                main_axis_offset
+                    + child_size.main(writing_mode)
+                    + child_bp.margin.main_end(writing_mode),
+            );
+        } else if let Some(pen) = main_pen {
+            // This child is *clean*, behind a root of unknown former size:
+            // its place in the stack, its cross position as it was.
             let old_pos = match calculated_positions.get(child_idx) {
                 Some(p) => *p,
                 None => continue,
             };
 
             let child_main_start = child_bp.margin.main_start(writing_mode);
-            let new_main_pos = main_pen + child_main_start;
+            let new_main_pos = pen + child_main_start;
             let old_relative_pos = tree
                 .warm(LayoutNodeId::new(child_idx))
                 .and_then(|w| w.relative_position)
@@ -1538,7 +1604,15 @@ pub fn reposition_block_flow_siblings(
                 shift_subtree_position(child_idx, delta, tree, calculated_positions);
             }
 
-            main_pen += margin_box_main_size;
+            main_pen = Some(pen + margin_box_main_size);
+        } else if shift != 0.0 {
+            // This child is *clean*, behind roots that grew by `shift`.
+            shift_subtree_position(
+                child_idx,
+                LogicalPosition::from_main_cross(shift, 0.0, writing_mode),
+                tree,
+                calculated_positions,
+            );
         }
     }
 }
@@ -7711,14 +7785,14 @@ mod autotest_generated {
         let before = positions.clone();
 
         // No dirty roots → nothing to reposition.
-        reposition_clean_subtrees(&sd, &tree, &BTreeSet::new(), &mut positions);
+        reposition_clean_subtrees(&sd, &tree, &BTreeSet::new(), &BTreeMap::new(), &mut positions);
         assert_eq!(positions, before);
 
         // A layout root that isn't in the tree must not panic.
         let mut roots = BTreeSet::new();
         roots.insert(99);
         roots.insert(usize::MAX);
-        reposition_clean_subtrees(&sd, &tree, &roots, &mut positions);
+        reposition_clean_subtrees(&sd, &tree, &roots, &BTreeMap::new(), &mut positions);
         assert_eq!(positions, before);
     }
 
@@ -7743,17 +7817,19 @@ mod autotest_generated {
         roots.insert(1);
 
         // Taffy owns flex layout; the sibling-repositioning shortcut is skipped.
-        reposition_clean_subtrees(&sd, &tree, &roots, &mut positions);
+        reposition_clean_subtrees(&sd, &tree, &roots, &BTreeMap::new(), &mut positions);
         assert_eq!(positions, before);
     }
 
-    #[test]
-    fn reposition_block_flow_siblings_stacks_clean_children_from_the_content_origin() {
-        // body(0) is the parent; children 1 and 2 are clean, 3 is a grandchild.
+    /// body(0), bordered 5 and padded 3, at (10, 20): its content box starts
+    /// at (18, 28). Children 1 (50 high), 2 (30 high) and 3 (10 high) stand
+    /// below each other with a gap of 4 between 1 and 2 (a collapsed margin
+    /// the box props do not show); 4 is a grandchild inside 2.
+    fn three_stacked_children() -> (StyledDom, LayoutTree, Vec<LogicalPosition>) {
         let sd = styled(Dom::create_body().with_child(Dom::create_div()), "");
         let parent_bp = box_props(
             edges(0.0, 0.0, 0.0, 0.0),
-            edges(5.0, 5.0, 5.0, 5.0), // border — see the note below
+            edges(5.0, 5.0, 5.0, 5.0), // border
             edges(3.0, 3.0, 3.0, 3.0), // padding
         );
         let tree = build_tree(
@@ -7766,33 +7842,83 @@ mod autotest_generated {
                 ),
                 hot(Some(0), None, Some(size(200.0, 50.0)), &zero_box_props()),
                 hot(Some(0), None, Some(size(200.0, 30.0)), &zero_box_props()),
-                plain(Some(1)),
+                hot(Some(0), None, Some(size(200.0, 10.0)), &zero_box_props()),
+                plain(Some(2)),
             ],
-            warm_default(4),
-            &[vec![1, 2], vec![3], vec![], vec![]],
+            warm_default(5),
+            &[vec![1, 2, 3], vec![], vec![4], vec![], vec![]],
         );
-        let mut positions = vec![
-            pos(10.0, 20.0), // parent (border-box origin)
-            pos(0.0, 0.0),
-            pos(0.0, 0.0),
-            pos(0.0, 0.0),
+        let positions = vec![
+            pos(10.0, 20.0),  // parent (border-box origin)
+            pos(18.0, 28.0),  // child 1
+            pos(18.0, 82.0),  // child 2: 28 + 50 + the gap of 4
+            pos(18.0, 112.0), // child 3: 82 + 30
+            pos(20.0, 85.0),  // the grandchild in 2
         ];
+        (sd, tree, positions)
+    }
 
-        reposition_block_flow_siblings(&sd, 0, &tree, &BTreeSet::new(), &mut positions);
+    /// A3-solver-29. A root that kept its size moves none of its siblings:
+    /// not the one before it, not the ones after it. (They were all stacked
+    /// again from `parent position + padding`, without the border and without
+    /// the gap: child 1 went to (13, 23), child 3 to (13, 103).)
+    #[test]
+    fn reposition_block_flow_siblings_keeps_the_siblings_of_a_root_that_kept_its_size() {
+        let (sd, tree, mut positions) = three_stacked_children();
+        let before = positions.clone();
+        let mut roots = BTreeSet::new();
+        roots.insert(2);
+        let mut sizes_before = BTreeMap::new();
+        sizes_before.insert(2, size(200.0, 30.0));
 
-        // BEHAVIOUR PIN: the content origin is computed as parent_pos + PADDING
-        // only — the parent's border is NOT added, unlike calculate_content_box_pos
-        // (which adds border + padding to the same border-box origin). With a
-        // bordered parent the clean siblings therefore land 5px up/left of where
-        // the full layout pass would put them.
-        assert_eq!(positions[1], pos(13.0, 23.0));
+        reposition_block_flow_siblings(&sd, 0, &tree, &roots, &sizes_before, &mut positions);
+
+        assert_eq!(positions, before);
+    }
+
+    /// A3-solver-29. A root that grew pushes what follows it by its growth,
+    /// subtree and all, and leaves what stands before it and every x alone.
+    /// Child 1 grew from 20 to 50: child 2 from 82 to 112, its grandchild
+    /// from 85 to 115, child 3 from 112 to 142.
+    #[test]
+    fn reposition_block_flow_siblings_moves_what_follows_a_root_by_what_it_grew() {
+        let (sd, tree, mut positions) = three_stacked_children();
+        let mut roots = BTreeSet::new();
+        roots.insert(1);
+        let mut sizes_before = BTreeMap::new();
+        sizes_before.insert(1, size(200.0, 20.0));
+
+        reposition_block_flow_siblings(&sd, 0, &tree, &roots, &sizes_before, &mut positions);
+
+        assert_eq!(positions[0], pos(10.0, 20.0));
+        assert_eq!(positions[1], pos(18.0, 28.0), "the root stays where it was laid out");
+        assert_eq!(positions[2], pos(18.0, 112.0));
+        assert_eq!(positions[3], pos(18.0, 142.0));
+        assert_eq!(positions[4], pos(20.0, 115.0), "the grandchild moves with its parent");
+    }
+
+    /// A3-solver-29. A root whose former size is unknown (built fresh): what
+    /// follows is stacked from its end, from the parent's CONTENT box - inside
+    /// the border AND the padding - at the cross position each child had. The
+    /// child before the root stays. Root 2 ends at 82 + 30 = 112: child 3
+    /// stands at (18 + 0, 28 + (112 - 28)) = (18, 112).
+    #[test]
+    fn reposition_block_flow_siblings_stacks_what_follows_a_root_of_unknown_former_size() {
+        let (sd, tree, mut positions) = three_stacked_children();
+        // Child 3 stood somewhere else before (the root's old extent).
+        positions[3] = pos(18.0, 300.0);
+        let mut roots = BTreeSet::new();
+        roots.insert(2);
+
+        reposition_block_flow_siblings(&sd, 0, &tree, &roots, &BTreeMap::new(), &mut positions);
+
+        assert_eq!(positions[1], pos(18.0, 28.0), "before the root: untouched");
+        assert_eq!(positions[2], pos(18.0, 82.0), "the root stays where it was laid out");
         assert_eq!(
-            positions[2],
-            pos(13.0, 73.0),
-            "second child stacked below the first"
+            positions[3],
+            pos(18.0, 112.0),
+            "stacked at the root's end, inside the parent's border and padding"
         );
-        // The grandchild moved with its parent's subtree.
-        assert_eq!(positions[3], pos(13.0, 23.0));
     }
 
     // ==================================================================
