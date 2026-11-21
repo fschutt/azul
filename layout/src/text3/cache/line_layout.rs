@@ -1364,10 +1364,21 @@ pub fn break_one_line<T: ParsedFontTrait>(
                 current_width = width_with_unit;
                 cursor.consume(unit_len);
             } else {
-                // The unit as a list, for the hyphenation and the emergency
-                // break below (once per line).
-                let next_unit: Vec<ShapedItem> =
-                    cursor.upcoming().take(unit_len).cloned().collect();
+                // The unit as a slice, for the hyphenation and the emergency
+                // break below (once per line): borrowed from the paragraph's
+                // items when no split remainder stands in front (the unit is
+                // then contiguous there), else collected. A word longer than
+                // a line under `overflow-wrap: anywhere / break-word` reaches
+                // here once per line it fills, and cloning the rest of it each
+                // time was W^2 / 2w clones for W clusters at w per line.
+                let collected: Vec<ShapedItem>;
+                let next_unit: &[ShapedItem] = if cursor.partial_remainder.is_empty() {
+                    let items = cursor.items;
+                    &items[cursor.next_item_index..cursor.next_item_index + unit_len]
+                } else {
+                    collected = cursor.upcoming().take(unit_len).cloned().collect();
+                    &collected
+                };
                 let available_width = line_constraints.total_available - current_width;
                 // 3. The unit overflows. Can we hyphenate it? It breaks at
                 // its soft hyphens (hyphens: manual or auto) or, with none
@@ -1376,7 +1387,7 @@ pub fn break_one_line<T: ParsedFontTrait>(
                 // break whose part fits.
                 if line_break != LineBreakStrictness::Anywhere {
                     let breaks =
-                        unit_hyphenation_breaks(&next_unit, cursor, hyphenator, is_vertical, fonts);
+                        unit_hyphenation_breaks(next_unit, cursor, hyphenator, is_vertical, fonts);
                     if let Some(chosen) = breaks
                         .iter()
                         .rposition(|b| b.width_on_line <= available_width)
@@ -1409,7 +1420,7 @@ pub fn break_one_line<T: ParsedFontTrait>(
                             // of characters may be broken at an arbitrary point" when
                             // overflow-wrap is anywhere/break-word.
                             let avail = line_constraints.total_available;
-                            for item in &next_unit {
+                            for item in next_unit {
                                 // Same fold as the fit test and the intrinsic scan.
                                 let width_with_item =
                                     fold_line_width(current_width, item, is_vertical);
@@ -1439,7 +1450,7 @@ pub fn break_one_line<T: ParsedFontTrait>(
                             // overflow-wrap:normal keeps an unbreakable word intact and
                             // lets it overflow the line box — it must NOT be shredded one
                             // grapheme per line. Place the whole unit on this (empty) line.
-                            line_items.extend_from_slice(&next_unit);
+                            line_items.extend_from_slice(next_unit);
                             cursor.consume(next_unit.len());
                         }
                     }

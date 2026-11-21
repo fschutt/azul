@@ -724,6 +724,12 @@ pub(super) mod audit_a8_tests {
                                 cursor.upcoming().take(len).cloned().collect();
                             assert_eq!(got, want, "{text:?} {word_break:?} {line_break:?}");
                             assert_eq!(cursor.peek_next_unit(), want);
+                            // A8-18: without a remainder the unit is contiguous
+                            // in the items (what the overflow branch borrows).
+                            if cursor.partial_remainder.is_empty() {
+                                let at = cursor.next_item_index;
+                                assert_eq!(&cursor.items[at..at + len], &want[..]);
+                            }
                             cursor.consume(1 + next(len));
                         }
                     }
