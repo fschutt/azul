@@ -536,7 +536,7 @@ fn render_conic_gradient(
 const SHADOW_CACHE_MAX_BYTES: usize = 16 * 1024 * 1024;
 
 struct ShadowCacheEntry {
-    data: std::rc::Rc<Vec<u8>>,
+    data: std::sync::Arc<Vec<u8>>,
     w: u32,
     h: u32,
 }
@@ -551,6 +551,60 @@ thread_local! {
         std::collections::VecDeque::new(),
         0,
     ));
+}
+
+/// The blurred box shadows a thread keeps: by key, their order of use, their bytes.
+type ShadowCache = (
+    HashMap<u64, ShadowCacheEntry>,
+    std::collections::VecDeque<u64>,
+    usize,
+);
+
+/// The frame thread's blurred box shadows while the bands of a repaint run (`bands`), behind
+/// a lock its band threads share: a band thread starts with no thread-locals of its own, and
+/// one that blurred every shadow of its band again on every frame would lose what the cache
+/// is for (as for the kept text halos, `text_halo::SharedCpuHalos`).
+pub(crate) type SharedShadowCache = std::sync::Arc<std::sync::Mutex<ShadowCache>>;
+
+thread_local! {
+    /// Set on a thread while it paints a band: the frame's shared shadows, read and kept
+    /// instead of this thread's own [`SHADOW_BLUR_CACHE`].
+    static FRAME_SHADOW_CACHE: core::cell::RefCell<Option<SharedShadowCache>> =
+        const { core::cell::RefCell::new(None) };
+}
+
+/// This thread's blurred box shadows, moved out to be shared with the band threads of the
+/// frame it paints; [`restore_shadow_cache`] moves them back.
+pub(crate) fn share_shadow_cache() -> SharedShadowCache {
+    let cache = SHADOW_BLUR_CACHE.with(|c| core::mem::take(&mut *c.borrow_mut()));
+    std::sync::Arc::new(std::sync::Mutex::new(cache))
+}
+
+/// Paint on this thread with the frame's shared box shadows (`Some`), or its own (`None`).
+pub(crate) fn adopt_shadow_cache(shared: Option<SharedShadowCache>) {
+    FRAME_SHADOW_CACHE.with(|frame| *frame.borrow_mut() = shared);
+}
+
+/// Move the shadows shared for a frame's bands back into this thread's own cache, with what
+/// the bands kept.
+pub(crate) fn restore_shadow_cache(shared: SharedShadowCache) {
+    adopt_shadow_cache(None);
+    if let Ok(lock) = std::sync::Arc::try_unwrap(shared) {
+        let cache = lock.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
+        SHADOW_BLUR_CACHE.with(|c| *c.borrow_mut() = cache);
+    }
+}
+
+/// The box-shadow cache this thread paints with: the frame's shared one in a band, else its own.
+fn with_shadow_cache<R>(f: impl FnOnce(&mut ShadowCache) -> R) -> R {
+    let shared = FRAME_SHADOW_CACHE.with(|frame| frame.borrow().clone());
+    match shared {
+        Some(shared) => {
+            let mut cache = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            f(&mut cache)
+        }
+        None => SHADOW_BLUR_CACHE.with(|c| f(&mut c.borrow_mut())),
+    }
 }
 
 fn render_box_shadow(
@@ -827,8 +881,7 @@ fn render_box_shadow(
         h.finish()
     };
 
-    let cached = SHADOW_BLUR_CACHE.with(|c| {
-        let mut c = c.borrow_mut();
+    let cached = with_shadow_cache(|c| {
         if let Some(e) = c.0.get(&cache_key) {
             // LRU touch.
             let data = e.data.clone();
@@ -903,9 +956,8 @@ fn render_box_shadow(
             stack_blur_rgba32(&mut ra, blur_radius, blur_radius);
         }
 
-        let data = std::rc::Rc::new(tmp.data.into_vec());
-        SHADOW_BLUR_CACHE.with(|c| {
-            let mut c = c.borrow_mut();
+        let data = std::sync::Arc::new(tmp.data.into_vec());
+        with_shadow_cache(|c| {
             let bytes = data.len();
             // Evict LRU until the new entry fits.
             while c.2 + bytes > SHADOW_CACHE_MAX_BYTES {
@@ -17704,5 +17756,38 @@ mod audit_a1_tests {
         assert_eq!(at(Some(1.0)), [0, 0, 0, 255]);
         assert_eq!(at(None), [0, 0, 0, 255], "no value: the bar shows");
         assert_eq!(at(Some(0.0)), [255, 255, 255, 255], "faded out");
+    }
+
+    /// A1-25: the blurred box shadows the frame's thread keeps are shared with a band thread,
+    /// and come back with what the band kept. Mutation: a band thread that does not adopt the
+    /// cache finds nothing kept and blurs every shadow of its band on every frame.
+    #[test]
+    fn a_band_thread_reads_and_keeps_the_box_shadows_of_the_frames_thread() {
+        fn entry(w: u32) -> ShadowCacheEntry {
+            ShadowCacheEntry { data: Arc::new(vec![9; (w * 4) as usize]), w, h: 1 }
+        }
+        fn keep(key: u64, w: u32) {
+            with_shadow_cache(|c| {
+                c.2 += (w * 4) as usize;
+                c.0.insert(key, entry(w));
+                c.1.push_back(key);
+            });
+        }
+        let kept = |key: u64| with_shadow_cache(|c| c.0.get(&key).map(|e| e.w));
+        keep(71, 3);
+        let shared = share_shadow_cache();
+        assert_eq!(kept(71), None, "moved out of this thread's cache while it is shared");
+        let for_band = Arc::clone(&shared);
+        std::thread::spawn(move || {
+            adopt_shadow_cache(Some(for_band));
+            assert_eq!(with_shadow_cache(|c| c.0.get(&71).map(|e| e.w)), Some(3), "the band reads the frame's shadow");
+            keep(72, 5);
+            adopt_shadow_cache(None);
+        })
+        .join()
+        .expect("the band thread");
+        restore_shadow_cache(shared);
+        assert_eq!((kept(71), kept(72)), (Some(3), Some(5)), "back, with what the band kept");
+        assert_eq!(with_shadow_cache(|c| c.2), 32, "and the bytes of both");
     }
 }

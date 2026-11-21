@@ -285,8 +285,9 @@ struct BandThread {
 }
 
 impl BandThread {
-    fn enter(halos: text_halo::SharedCpuHalos) -> Self {
+    fn enter(halos: text_halo::SharedCpuHalos, shadows: super::raster::SharedShadowCache) -> Self {
         text_halo::adopt_cpu_halos(Some(halos));
+        super::raster::adopt_shadow_cache(Some(shadows));
         Self { was_in_band: IN_BAND.with(|b| b.replace(true)) }
     }
 }
@@ -295,6 +296,7 @@ impl Drop for BandThread {
     fn drop(&mut self) {
         IN_BAND.with(|b| b.set(self.was_in_band));
         text_halo::adopt_cpu_halos(None);
+        super::raster::adopt_shadow_cache(None);
     }
 }
 
@@ -340,6 +342,7 @@ fn paint_bands(
     // What the bands share with this thread's frame: its kept halos, behind a lock; and what
     // each thread needs of its own: a glyph cache (kept for the next frame).
     let halos = text_halo::share_cpu_halos();
+    let shadows = super::raster::share_shadow_cache();
     let mut band_caches = glyph_cache.take_band_caches(workers - 1);
     #[cfg(test)]
     let test_flags = super::raster::walk_test_flags();
@@ -380,10 +383,11 @@ fn paint_bands(
             .map(|cache| {
                 let work = &work;
                 let halos = Arc::clone(&halos);
+                let shadows = Arc::clone(&shadows);
                 scope.spawn(move || {
                     #[cfg(test)]
                     super::raster::set_walk_test_flags(test_flags);
-                    let band_thread = BandThread::enter(halos);
+                    let band_thread = BandThread::enter(halos, shadows);
                     cpu_counters::reset();
                     let result = work(cache);
                     drop(band_thread);
@@ -392,7 +396,7 @@ fn paint_bands(
             })
             .collect();
         // This thread paints bands, too; its counts go straight into the frame's.
-        let band_thread = BandThread::enter(Arc::clone(&halos));
+        let band_thread = BandThread::enter(Arc::clone(&halos), Arc::clone(&shadows));
         let own = work(glyph_cache);
         drop(band_thread);
         for handle in handles {
@@ -403,6 +407,7 @@ fn paint_bands(
         own
     });
     text_halo::restore_cpu_halos(halos);
+    super::raster::restore_shadow_cache(shadows);
     glyph_cache.put_band_caches(band_caches);
 
     cpu_counters::count(Counter::Bands, bands.len() as u64);
