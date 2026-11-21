@@ -126,12 +126,14 @@ pub fn create_logical_items(
                 current_run_overrides.is_some() || run.style.text_combine_upright.is_some();
             let mut scan_cursor = 0;
             while needs_scan && scan_cursor < text.len() {
-                let style_at_cursor = current_run_overrides
+                // Only the cursor's `text-combine-upright` is read: the override's
+                // at the cursor, as `apply_override` takes it, else the run's. The
+                // whole style was built (cloned, or cloned and overridden) for
+                // every character scanned (A8-34).
+                let combine_at_cursor = current_run_overrides
                     .and_then(|o| o.get(&(scan_cursor as u32)))
-                    .map_or_else(
-                        || (*run.style).clone(),
-                        |partial| run.style.apply_override(partial),
-                    );
+                    .and_then(|partial| partial.text_combine_upright)
+                    .unwrap_or(run.style.text_combine_upright);
 
                 let current_char = text[scan_cursor..].chars().next().unwrap();
 
@@ -142,9 +144,7 @@ pub fn create_logical_items(
                 // Rule 1: Multi-character features take precedence.
                 // +spec:containing-block:9a26bd - text-combine-upright digit runs scoped by
                 // ancestor style boundaries
-                if let Some(TextCombineUpright::Digits(max_digits)) =
-                    style_at_cursor.text_combine_upright
-                {
+                if let Some(TextCombineUpright::Digits(max_digits)) = combine_at_cursor {
                     if max_digits > 0 && current_char.is_ascii_digit() {
                         let digit_chunk: String = text[scan_cursor..]
                             .chars()
@@ -688,5 +688,79 @@ mod audit_a8_tests {
                 }
             }
         }
+    }
+
+    /// A8-34: the `text-combine-upright` the boundary scan reads at a
+    /// character is the one of the style it built there before - the run's
+    /// style with the override at that byte applied - for every kind of
+    /// override value over every kind of run value.
+    #[test]
+    fn the_scan_reads_the_combine_value_of_the_style_it_built() {
+        let values = [
+            None,
+            Some(TextCombineUpright::None),
+            Some(TextCombineUpright::All),
+            Some(TextCombineUpright::Digits(2)),
+        ];
+        for base in values {
+            let style = StyleProperties {
+                text_combine_upright: base,
+                ..StyleProperties::default()
+            };
+            for over in [None, Some(None), Some(Some(TextCombineUpright::Digits(4)))]
+                .into_iter()
+                .chain(values.iter().map(|v| Some(*v)))
+            {
+                let partial = PartialStyleProperties {
+                    text_combine_upright: over,
+                    ..PartialStyleProperties::default()
+                };
+                let new = Some(&partial)
+                    .and_then(|partial| partial.text_combine_upright)
+                    .unwrap_or(style.text_combine_upright);
+                assert_eq!(new, style.apply_override(&partial).text_combine_upright, "{base:?} {over:?}");
+            }
+        }
+    }
+
+    /// A8-34: digits under `text-combine-upright: digits 2` are combined two
+    /// by two, and an override at one digit that turns it off cuts that
+    /// digit out on its own: "x12345y" with the override at the "3" gives
+    /// x, [12], 3, [45], y.
+    #[test]
+    fn an_override_cuts_a_digit_out_of_a_combined_run() {
+        let style = Arc::new(StyleProperties {
+            text_combine_upright: Some(TextCombineUpright::Digits(2)),
+            ..StyleProperties::default()
+        });
+        let content = [InlineContent::Text(StyledRun {
+            text: Arc::from("x12345y"),
+            style,
+            logical_start_byte: 0,
+            source_node_id: None,
+        })];
+        let overrides = [StyleOverride {
+            target: ContentIndex {
+                run_index: 0,
+                item_index: 3,
+            },
+            style: PartialStyleProperties {
+                text_combine_upright: Some(None),
+                ..PartialStyleProperties::default()
+            },
+        }];
+        let got: Vec<(bool, String)> = create_logical_items(&content, &overrides, &mut None)
+            .iter()
+            .filter_map(|item| match item {
+                LogicalItem::Text { text, .. } => Some((false, text.to_string())),
+                LogicalItem::CombinedText { text, .. } => Some((true, text.to_string())),
+                _ => None,
+            })
+            .collect();
+        let want: Vec<(bool, String)> = [(false, "x"), (true, "12"), (false, "3"), (true, "45"), (false, "y")]
+            .iter()
+            .map(|(c, t)| (*c, (*t).to_string()))
+            .collect();
+        assert_eq!(got, want);
     }
 }
