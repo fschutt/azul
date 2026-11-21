@@ -187,6 +187,11 @@ struct Inner {
     outbox: Vec<Painted>,
     clock: u64,
     max_bytes: usize,
+    /// How many kept surfaces were dropped because what they show changed, since
+    /// [`RetainedFrames::take_invalidated`] last asked.
+    invalidated: u64,
+    /// Whether the log was told that a surface is over the bound ([`RetainedFrames::can_keep`]).
+    said_over_bound: bool,
 }
 
 /// The group surfaces a backend keeps between its frames. Shared with the frame's passes
@@ -371,11 +376,18 @@ impl RetainedFrames {
         let before = inner.entries.len();
         inner.entries.retain(|entry| current.contains(&entry.key.list));
         let dropped = before - inner.entries.len();
-        crate::cpu_counters::count(
-            crate::cpu_counters::Counter::RetainedInvalidations,
-            dropped as u64,
-        );
+        inner.invalidated += dropped as u64;
         dropped
+    }
+
+    /// How many kept surfaces were dropped because what they show changed (a list replaced, a
+    /// frame whose picture is another one now) since this was last asked: what a frame counts
+    /// as `Counter::RetainedInvalidations`. Zeroed by the ask.
+    #[must_use]
+    pub fn take_invalidated(&self) -> u64 {
+        self.inner
+            .lock()
+            .map_or(0, |mut inner| core::mem::take(&mut inner.invalidated))
     }
 
     /// The kept surface of `key` when the box `needed` of it (surface px, what a composite
@@ -429,15 +441,19 @@ impl RetainedFrames {
     pub(crate) fn can_keep(&self, bytes: usize) -> bool {
         let max_bytes = self.inner.lock().map_or(0, |inner| inner.max_bytes);
         if bytes > max_bytes && max_bytes > 0 {
-            static SAID: std::sync::Once = std::sync::Once::new();
-            SAID.call_once(|| {
+            // Said once for these frames (not on every step they are painted).
+            let first = self
+                .inner
+                .lock()
+                .is_ok_and(|mut inner| !core::mem::replace(&mut inner.said_over_bound, true));
+            if first {
                 eprintln!(
                     "[cpurender] a group surface of {} MB is over the bound of {} MB \
                      (AZ_CPU_RETAINED_MB): it is not kept and its frame is painted on every step",
                     bytes >> 20,
                     max_bytes >> 20,
                 );
-            });
+            }
         }
         bytes > 0 && bytes <= max_bytes
     }
@@ -551,10 +567,7 @@ impl RetainedFrames {
             inner.entries.retain(|e| {
                 !(e.key.list == painted.key.list && e.key.push == painted.key.push)
             });
-            crate::cpu_counters::count(
-                crate::cpu_counters::Counter::RetainedInvalidations,
-                (before - inner.entries.len()) as u64,
-            );
+            inner.invalidated += (before - inner.entries.len()) as u64;
             let bytes = painted.surface.data().len();
             if bytes == 0 || bytes > inner.max_bytes {
                 continue;
@@ -985,5 +998,33 @@ mod tests {
         cache.put_back(stale.remove(0), true);
         let repainted = cache.kept(&k).map(|(_, stamp)| stamp).expect("kept");
         assert_ne!(repainted, merged, "a repaired box: other pixels");
+    }
+
+    /// The surfaces a frame drops because what they show changed are the cache's own count, taken
+    /// by the frame that reports them: a list that is not painted any more is counted once at the
+    /// next frame, and an ask zeroes the count. (They were counted into a thread-local, where the
+    /// drops of one window's frame were in the report of another window's on the same thread.)
+    /// Mutation: a count that is not zeroed by the ask makes the second ask 1 again.
+    #[test]
+    fn the_drops_of_a_frame_are_counted_by_the_cache_that_made_them() {
+        let (mine, other) = (
+            RetainedFrames::with_max_bytes(1 << 20),
+            RetainedFrames::with_max_bytes(1 << 20),
+        );
+        let list = Arc::new(DisplayList::default());
+        let whole = [0, 0, 40, 30];
+        let k = key(&list, 3, 11);
+        mine.offer(k, Arc::clone(&list), surface(whole, 100), whole, PLACED);
+        mine.commit();
+        assert_eq!(mine.take_invalidated(), 0, "nothing was dropped");
+        // A frame of another list drops the surface of this one.
+        let rebuilt = Arc::new(DisplayList::default());
+        assert_eq!(mine.begin_frame(&[Arc::as_ptr(&rebuilt) as usize]), 1);
+        assert_eq!(
+            (mine.take_invalidated(), mine.take_invalidated()),
+            (1, 0),
+            "counted once, and an ask zeroes it"
+        );
+        assert_eq!(other.take_invalidated(), 0, "another cache's drops are its own");
     }
 }

@@ -73,6 +73,7 @@ use super::raster::{
     blurred_glyph_coverage, shadow_blur_radius, shadow_spread_px, text_run_clip, BufferedRun,
     PixelBox,
 };
+use super::scratch::PaintScratch;
 use crate::{
     glyph_cache::GlyphCache,
     image_memo::ImageMemo,
@@ -123,133 +124,96 @@ pub(super) struct CpuHalo {
     pub(super) coverage: Vec<u8>,
 }
 
-thread_local! {
-    /// The CPU renderer's halos by what their pixels depend on (`raster::kept_shadow_key`). `None`
-    /// remembers a shadow that cannot be kept (too large), so it is not measured again.
-    static CPU_HALOS: RefCell<ImageMemo<u64, Option<Arc<CpuHalo>>>> =
-        RefCell::new(ImageMemo::new(MAX_CPU_HALOS, MAX_CPU_HALO_BYTES));
+/// The CPU renderer's halos by what their pixels depend on (`raster::kept_shadow_key`): the memo
+/// of one painting glyph cache (`PaintScratch::halos`), which the frame's thread owns and the
+/// bands of a repaint share behind a lock (`SharedOrOwn`).
+pub(crate) struct CpuHaloMemo {
+    /// `None` remembers a shadow that cannot be kept (too large), so it is not measured again.
+    memo: ImageMemo<u64, Option<Arc<CpuHalo>>>,
+    /// The memo's clock at the start of the frame before the one being painted, and at the start
+    /// of this one ([`Self::begin_frame`]).
+    frames: (u64, u64),
     /// Tests: keep no halo, so a shadow is drawn the way it was before halos were kept.
     #[cfg(test)]
-    static CPU_HALOS_OFF: Cell<bool> = const { Cell::new(false) };
+    off: bool,
 }
 
-thread_local! {
-    /// The memo's clock at the start of the frame before the one being painted, and at the
-    /// start of this one ([`begin_cpu_halo_frame`]).
-    static CPU_HALO_FRAMES: Cell<(u64, u64)> = const { Cell::new((0, 0)) };
-}
-
-/// The start of a frame that paints, on the thread that paints it: from here on the halos
-/// this thread keeps are not dropped to make room while they were used by this frame or the
-/// frame before (`ImageMemo::keep_used_since`). The store is an LRU with a bound, and a
-/// frame with more halos than the bound holds evicted, while it painted, the halos it still
-/// needed and drew every one of them again on every frame: the fault the GPU's halo cache
-/// had (A5-01), here as cost instead of flicker.
-pub fn begin_cpu_halo_frame() {
-    CPU_HALOS.with(|halos| {
-        let mut halos = halos.borrow_mut();
-        let (_, last) = CPU_HALO_FRAMES.with(Cell::get);
-        CPU_HALO_FRAMES.with(|frames| frames.set((last, halos.clock())));
-        halos.keep_used_since(Some(last));
-    });
-}
-
-/// Drop every halo (and turned text picture) this thread's CPU renderer keeps: under memory
-/// pressure, or for a window that is not shown. The next frame draws the ones it shows again.
-pub fn release_cpu_halos() {
-    CPU_HALOS.with(|halos| {
-        *halos.borrow_mut() = ImageMemo::new(MAX_CPU_HALOS, MAX_CPU_HALO_BYTES);
-    });
-    CPU_HALO_FRAMES.with(|frames| frames.set((0, 0)));
-}
-
-/// The CPU renderer's kept halos while the bands of a repaint run (`bands`): the memo of the
-/// thread that paints the frame, moved behind a lock that its band threads share. A band thread
-/// starts with no thread-locals of its own, and one that drew every halo of its band again
-/// would lose what keeping them gains.
-pub(super) type SharedCpuHalos = Arc<std::sync::Mutex<ImageMemo<u64, Option<Arc<CpuHalo>>>>>;
-
-thread_local! {
-    /// Set on a thread while it paints a band: the frame's shared halos ([`SharedCpuHalos`]),
-    /// read and kept instead of this thread's own [`CPU_HALOS`].
-    static FRAME_CPU_HALOS: RefCell<Option<SharedCpuHalos>> = const { RefCell::new(None) };
-}
-
-/// This thread's kept halos, moved out to be shared with the band threads of the frame it
-/// paints; [`restore_cpu_halos`] moves them back.
-pub(super) fn share_cpu_halos() -> SharedCpuHalos {
-    let memo = CPU_HALOS.with(|halos| {
-        core::mem::replace(
-            &mut *halos.borrow_mut(),
-            ImageMemo::new(MAX_CPU_HALOS, MAX_CPU_HALO_BYTES),
-        )
-    });
-    Arc::new(std::sync::Mutex::new(memo))
-}
-
-/// Paint on this thread with the frame's shared halos (`Some`), or with its own again (`None`).
-/// A band thread sets `None` before it ends, so that the frame's thread is the only holder
-/// when it restores them.
-pub(super) fn adopt_cpu_halos(shared: Option<SharedCpuHalos>) {
-    FRAME_CPU_HALOS.with(|frame| *frame.borrow_mut() = shared);
-}
-
-/// Move the halos shared for a frame's bands back into this thread's own memo, with what the
-/// bands kept. Left as they are (the thread then keeps an empty memo and draws halos again) if
-/// a band thread still holds the store.
-pub(super) fn restore_cpu_halos(shared: SharedCpuHalos) {
-    adopt_cpu_halos(None);
-    if let Ok(lock) = Arc::try_unwrap(shared) {
-        let memo = lock.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
-        CPU_HALOS.with(|halos| *halos.borrow_mut() = memo);
+impl Default for CpuHaloMemo {
+    fn default() -> Self {
+        Self {
+            memo: ImageMemo::new(MAX_CPU_HALOS, MAX_CPU_HALO_BYTES),
+            frames: (0, 0),
+            #[cfg(test)]
+            off: false,
+        }
     }
 }
 
-/// The frame's shared halos, while this thread paints a band of it.
-fn frame_cpu_halos() -> Option<SharedCpuHalos> {
-    FRAME_CPU_HALOS.with(|frame| frame.borrow().clone())
+impl CpuHaloMemo {
+    /// The start of a frame that paints: from here on the halos kept are not dropped to make
+    /// room while they were used by this frame or the frame before
+    /// (`ImageMemo::keep_used_since`). The store is an LRU with a bound, and a frame with more
+    /// halos than the bound holds evicted, while it painted, the halos it still needed and drew
+    /// every one of them again on every frame: the fault the GPU's halo cache had (A5-01), here
+    /// as cost instead of flicker.
+    pub(super) const fn begin_frame(&mut self) {
+        let (_, last) = self.frames;
+        self.frames = (last, self.memo.clock());
+        self.memo.keep_used_since(Some(last));
+    }
+
+    /// Drop every halo (and turned text picture) kept: under memory pressure, or for a window
+    /// that is not shown. The next frame draws the ones it shows again.
+    pub(super) fn release(&mut self) {
+        self.memo = ImageMemo::new(MAX_CPU_HALOS, MAX_CPU_HALO_BYTES);
+        self.frames = (0, 0);
+    }
+}
+
+/// The start of a frame that paints with `glyph_cache`: from here on the halos it keeps are not
+/// dropped to make room while they were used by this frame or the frame before
+/// ([`CpuHaloMemo::begin_frame`]).
+pub fn begin_cpu_halo_frame(glyph_cache: &mut GlyphCache) {
+    glyph_cache.scratch.halos.with(CpuHaloMemo::begin_frame);
+}
+
+/// Drop every halo (and turned text picture) the CPU renderer keeps for `glyph_cache`: under
+/// memory pressure, or for a window that is not shown. The next frame draws the ones it shows
+/// again.
+pub fn release_cpu_halos(glyph_cache: &mut GlyphCache) {
+    glyph_cache.scratch.halos.with(CpuHaloMemo::release);
 }
 
 /// The halo kept under `key`: `Some(None)` for a shadow that is not kept, `None` for one not seen.
 // three states, as the doc says: `None` unknown, `Some(None)` known absent, `Some(Some(_))` known present
 #[allow(clippy::option_option)]
-pub(super) fn kept_cpu_halo(key: u64) -> Option<Option<Arc<CpuHalo>>> {
-    if let Some(shared) = frame_cpu_halos() {
-        return shared.lock().ok().and_then(|mut halos| halos.get(&key));
-    }
-    CPU_HALOS.with(|halos| halos.borrow_mut().get(&key))
+pub(super) fn kept_cpu_halo(scratch: &mut PaintScratch, key: u64) -> Option<Option<Arc<CpuHalo>>> {
+    scratch.halos.with(|halos| halos.memo.get(&key))
 }
 
 /// Keep `halo` under `key`.
-pub(super) fn keep_cpu_halo(key: u64, halo: Option<Arc<CpuHalo>>) {
+pub(super) fn keep_cpu_halo(scratch: &mut PaintScratch, key: u64, halo: Option<Arc<CpuHalo>>) {
     let bytes = halo.as_ref().map_or(0, |h| h.coverage.len());
-    if let Some(shared) = frame_cpu_halos() {
-        if let Ok(mut halos) = shared.lock() {
-            halos.insert(key, halo, bytes);
-        }
-        return;
-    }
-    CPU_HALOS.with(|halos| halos.borrow_mut().insert(key, halo, bytes));
+    scratch.halos.with(|halos| halos.memo.insert(key, halo, bytes));
 }
 
-/// Whether this thread keeps the CPU renderer's halos (always, outside tests).
-// Not `const`: the tests' build reads a thread-local, which a `const fn` cannot.
-#[allow(clippy::missing_const_for_fn)]
-pub(super) fn cpu_halos_are_kept() -> bool {
-    #[cfg(test)]
-    {
-        !CPU_HALOS_OFF.with(Cell::get)
-    }
-    #[cfg(not(test))]
-    {
-        true
-    }
-}
-
-/// Tests: keep (or not) the CPU renderer's halos on this thread.
+/// Whether this cache keeps the CPU renderer's halos (always, outside tests).
 #[cfg(test)]
-pub(super) fn keep_cpu_halos(on: bool) {
-    CPU_HALOS_OFF.with(|c| c.set(!on));
+pub(super) fn cpu_halos_are_kept(scratch: &PaintScratch) -> bool {
+    scratch.halos.peek(|halos| !halos.off)
+}
+
+/// Whether this cache keeps the CPU renderer's halos (always, outside tests).
+#[cfg(not(test))]
+pub(super) const fn cpu_halos_are_kept(_scratch: &PaintScratch) -> bool {
+    true
+}
+
+/// Tests: keep (or not) the CPU renderer's halos of this cache (and of the bands of its repaints,
+/// which share its memo).
+#[cfg(test)]
+pub(super) fn keep_cpu_halos(scratch: &mut PaintScratch, on: bool) {
+    scratch.halos.with(|halos| halos.off = !on);
 }
 
 thread_local! {

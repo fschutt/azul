@@ -580,43 +580,42 @@ fn a_backend_that_released_its_caches_paints_the_same_frames() {
 /// again with the same values is collected for; so is the first frame of a backend and the
 /// frame after the backend's lists were forgotten.
 ///
-/// Counted: the values a frame collects for its own use (`GPU_VALUES_COLLECTED`; the
-/// collection a debug build makes to check a skip is not counted).
+/// Counted: the values a frame collects for its own use (`CpuBackend::gpu_values_collected`;
+/// the collection a debug build makes to check a skip is not counted).
 /// Mutations: the generation left out of `values_unchanged` fails "a value was written" (and
 /// the debug assertion of the frame); `same_lists` left out fails "another list"; the skip
 /// taken out fails "nothing was written".
 #[test]
 fn a6_25_a_frame_with_nothing_written_collects_no_gpu_value() {
-    let collected = || crate::cpu_backend::GPU_VALUES_COLLECTED.with(core::cell::Cell::get);
     let mut z = zoomable(None);
     let mut backend = CpuBackend::new();
 
     // The first frame of a backend collects: the picture's matrix and the veil's opacity.
-    let before = collected();
+    let before = backend.gpu_values_collected;
     let _ = z.frame(&mut backend);
-    let per_frame = collected() - before;
+    let per_frame = backend.gpu_values_collected - before;
     assert!(per_frame >= 2, "the picture's transform and the veil's opacity: {per_frame}");
 
     // Nothing written, the same lists: three frames collect nothing and paint nothing.
-    let before = collected();
+    let before = backend.gpu_values_collected;
     for _ in 0..3 {
         let _ = z.frame(&mut backend);
         assert_eq!(backend.last_frame_damage, FrameDamage::None);
     }
-    assert_eq!(collected() - before, 0, "nothing was written: no value is read again");
+    assert_eq!(backend.gpu_values_collected - before, 0, "nothing was written: no value is read again");
 
     // A write of a value: collected once, painted, and then nothing again.
     z.write(z.picture, zoom(40.0, 20.0, 2.0));
-    let before = collected();
+    let before = backend.gpu_values_collected;
     let zoomed = z.frame(&mut backend);
-    assert_eq!(collected() - before, per_frame, "a value was written");
+    assert_eq!(backend.gpu_values_collected - before, per_frame, "a value was written");
     assert_eq!(red_box(&zoomed), Some(z.on_screen((60.0, 35.0, 80.0, 60.0))));
     assert_the_frame_is_what_a_full_paint_gives(&z, &zoomed, "after the write");
-    // Counted from here: the check above paints with a backend of its own, whose first
-    // frame collects its values into the same (thread's) counter.
-    let before = collected();
+    // (The check above paints with a backend of its own: its first frame collects into that
+    // backend's count, not into this one's.)
+    let before = backend.gpu_values_collected;
     let _ = z.frame(&mut backend);
-    assert_eq!(collected() - before, 0, "and not again");
+    assert_eq!(backend.gpu_values_collected - before, 0, "and not again");
 
     // A value written straight into a public map of the view's cache: no method, no note.
     z.lw
@@ -624,9 +623,9 @@ fn a6_25_a_frame_with_nothing_written_collects_no_gpu_value() {
         .get_or_create_cache(z.child)
         .current_opacity_values
         .insert(z.veil, 0.4);
-    let before = collected();
+    let before = backend.gpu_values_collected;
     let faded = z.frame(&mut backend);
-    assert_eq!(collected() - before, per_frame, "a map written directly");
+    assert_eq!(backend.gpu_values_collected - before, per_frame, "a map written directly");
     assert!(
         near(z.veil_centre(&faded), [153, 153, 255]),
         "blue at 0.4 over white, got {:?}",
@@ -636,18 +635,18 @@ fn a6_25_a_frame_with_nothing_written_collects_no_gpu_value() {
     // The view's list built again with the same items and the same values: another list.
     let rebuilt = std::sync::Arc::new((*z.lw.layout_results[&z.child].display_list).clone());
     z.lw.layout_results.get_mut(&z.child).expect("the view's DOM").display_list = rebuilt;
-    let before = collected();
+    let before = backend.gpu_values_collected;
     let again = z.frame(&mut backend);
-    assert_eq!(collected() - before, per_frame, "another list: its values are collected");
+    assert_eq!(backend.gpu_values_collected - before, per_frame, "another list: its values are collected");
     assert_the_frame_is_what_a_full_paint_gives(&z, &again, "after the list was built again");
-    // As above: the check's own backend collected too.
-    let before = collected();
+    // As above: the check paints with a backend of its own.
+    let before = backend.gpu_values_collected;
     let _ = z.frame(&mut backend);
-    assert_eq!(collected() - before, 0, "the same list again: nothing is collected");
+    assert_eq!(backend.gpu_values_collected - before, 0, "the same list again: nothing is collected");
 
     // A shell that forgets the backend's list (its way to force a full frame) collects too.
     backend.previous_display_list = None;
-    let before = collected();
+    let before = backend.gpu_values_collected;
     let _ = z.frame(&mut backend);
-    assert_eq!(collected() - before, per_frame, "no list of the frame before: the full path");
+    assert_eq!(backend.gpu_values_collected - before, per_frame, "no list of the frame before: the full path");
 }

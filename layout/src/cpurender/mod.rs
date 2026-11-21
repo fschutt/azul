@@ -16,6 +16,7 @@ pub mod pixmap;
 pub mod present_layer;
 mod raster;
 pub mod retained;
+mod scratch;
 mod shape;
 mod svg;
 mod text_halo;
@@ -26,6 +27,7 @@ pub use compositor::*;
 pub use pixmap::*;
 pub use raster::*;
 pub use retained::RetainedFrames;
+pub(crate) use scratch::{BandShare, PaintScratch};
 pub use shape::*;
 pub use svg::*;
 pub use text_halo::{

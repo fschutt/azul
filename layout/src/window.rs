@@ -4453,8 +4453,9 @@ impl LayoutWindow {
         report
     }
 
-    /// Keep the counters of a CPU frame ([`crate::cpu_counters::FrameScope`]): the last frame's,
-    /// and the sum since the counters were last reset.
+    /// Keep the counters of a CPU frame (what `CpuBackend::render_frame` took from its glyph
+    /// cache when the frame was done): the last frame's, and the sum since the counters were last
+    /// reset.
     pub fn record_cpu_counters(&self, frame: crate::cpu_counters::CpuFrameCounters) {
         let generation = self.frame_report_reset_request.load(Ordering::SeqCst);
         if let Ok(mut state) = self.cpu_counters.lock() {
@@ -41217,7 +41218,9 @@ impl LayoutWindow {
                 } else {
                     None
                 };
-                crate::cpurender::blit_pixmap_affine_clipped(&cut, output, &m, job.opacity, clip);
+                let written =
+                    crate::cpurender::blit_pixmap_affine_clipped(&cut, output, &m, job.opacity, clip);
+                glyph_cache.counts().add(crate::cpu_counters::Counter::PxBlitted, written);
                 drew = true;
             }
         }

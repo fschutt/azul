@@ -133,6 +133,45 @@ pub fn present_by_moves(
     }
 }
 
+/// The debug dumps one backend writes: what `AZ_DUMP_DL_DIR` (the first display lists as JSON:
+/// splits "the list's clip is collapsed" from "the list is fine, the renderer clips wrong") and
+/// `AZ_DUMP_FRAME_DIR` (every rendered frame as a numbered PNG: splits "rendered wrong" from
+/// "presented wrong") ask of it, and how many it has written. The environment is read when the
+/// backend is made, and the counts are this backend's: a dump is limited to the first few frames
+/// of a window, not of the process.
+#[derive(Debug)]
+pub struct DebugDumps {
+    /// `AZ_DUMP_DL_DIR`: where the first display lists go.
+    dl_dir: Option<String>,
+    /// `AZ_DUMP_FRAME_DIR`: where the rendered frames go.
+    frame_dir: Option<String>,
+    /// Display lists dumped so far.
+    lists: usize,
+    /// Frames dumped so far.
+    frames: usize,
+    /// Whether the one-shot item dump of `AZ_MAP_DEBUG` was printed.
+    items_printed: bool,
+}
+
+impl DebugDumps {
+    /// Most display lists a backend dumps.
+    const MAX_LISTS: usize = 8;
+    /// Most frames a backend dumps.
+    const MAX_FRAMES: usize = 40;
+
+    /// The dumps the environment asks for: none unless a variable is set.
+    #[must_use]
+    pub fn from_env() -> Self {
+        Self {
+            dl_dir: std::env::var("AZ_DUMP_DL_DIR").ok(),
+            frame_dir: std::env::var("AZ_DUMP_FRAME_DIR").ok(),
+            lists: 0,
+            frames: 0,
+            items_printed: false,
+        }
+    }
+}
+
 // plain flags, set and read one by one: a state enum would not be simpler
 #[allow(clippy::struct_excessive_bools)]
 // holds renderer state without a `Debug` of its own
@@ -333,16 +372,15 @@ pub struct CpuBackend {
     /// (A10-06) Frames to pass before a frame is promoted again, after a promoted frame's
     /// surface was not complete when its frame was painted.
     pub present_layer_backoff: u32,
+    /// The debug dumps this backend writes (`AZ_DUMP_DL_DIR`, `AZ_DUMP_FRAME_DIR`).
+    pub debug_dumps: DebugDumps,
+    /// How many bound GPU values (transforms, opacities and colours) this backend's frames have
+    /// collected from the window's caches for their own use: a frame whose values and lists are
+    /// the frame before's collects none (the collection a debug build makes to check that is not
+    /// counted). A number the backend keeps, so that a test pins the work of its own frames.
+    pub gpu_values_collected: usize,
 }
 
-
-/// Tests: how many bound GPU values the frames of this thread collected from the caches for
-/// their own use (what a debug build collects to check a skipped collection is not counted).
-#[cfg(test)]
-thread_local! {
-    pub(crate) static GPU_VALUES_COLLECTED: core::cell::Cell<usize> =
-        const { core::cell::Cell::new(0) };
-}
 
 impl Default for CpuBackend {
     fn default() -> Self {
@@ -405,6 +443,8 @@ impl CpuBackend {
             last_present_layer: None,
             promoted: None,
             present_layer_backoff: 0,
+            debug_dumps: DebugDumps::from_env(),
+            gpu_values_collected: 0,
         }
     }
 
@@ -417,7 +457,7 @@ impl CpuBackend {
     /// its picture once, a repaint draws the halos and turned labels it shows.
     pub fn release_caches(&mut self) {
         self.retained_frames.clear();
-        cpurender::release_cpu_halos();
+        cpurender::release_cpu_halos(&mut self.glyph_cache);
         self.compositor = None;
         // (A10-06) A promoted frame's picture was in the kept surface alone: not in the
         // window's frame. The next frame is painted in full (and is never skipped as idle),
@@ -473,7 +513,65 @@ impl CpuBackend {
     /// - On resize, uses grow-only buffer reuse for window expansion
     ///
     /// Returns the damage rects that were rendered (empty = full repaint).
+    ///
+    /// What the frame does is counted for the window's frame report
+    /// ([`crate::cpu_counters`]): the counters of this backend's glyph cache, which paints the
+    /// frame, start at zero, and what they hold when it is done - with the scans of the lists'
+    /// indexes and the kept surfaces dropped, which the painting does not count - is the
+    /// frame's, kept by `layout_window`.
     pub fn render_frame(
+        &mut self,
+        layout_window: &LayoutWindow,
+        renderer_resources: &RendererResources,
+        width: f32,
+        height: f32,
+        dpi_factor: f32,
+    ) -> Vec<azul_core::geom::LogicalRect> {
+        use crate::cpu_counters::Counter;
+        self.glyph_cache.counts().reset();
+        // (Drops before this frame are not this frame's.)
+        let _ = self.retained_frames.take_invalidated();
+        let lists = self.lists_scanned(layout_window);
+        let damage =
+            self.render_frame_counted(layout_window, renderer_resources, width, height, dpi_factor);
+        let scanned: u64 = lists
+            .iter()
+            .map(|(list, before)| list.index_items_scanned().saturating_sub(*before))
+            .sum();
+        let counts = self.glyph_cache.counts();
+        counts.add(Counter::ScanItems, scanned);
+        counts.add(Counter::RetainedInvalidations, self.retained_frames.take_invalidated());
+        layout_window.record_cpu_counters(counts.take());
+        damage
+    }
+
+    /// The lists a frame is charged the scans of their frame indexes for
+    /// ([`Counter::ScanItems`](crate::cpu_counters::Counter::ScanItems)): the window's own and its
+    /// views' and the ones the frame before painted (its diff reads their indexes too), each once,
+    /// with how many items the scans that made its indexes had read when the frame began. An
+    /// index is made once for a list's items (`DisplayList::frame_index`), so what the frame owes
+    /// is what the lists' counts rose by while it ran.
+    fn lists_scanned(
+        &self,
+        layout_window: &LayoutWindow,
+    ) -> Vec<(Arc<crate::solver3::display_list::DisplayList>, u64)> {
+        let mut lists: Vec<(Arc<crate::solver3::display_list::DisplayList>, u64)> = Vec::new();
+        let candidates = layout_window
+            .layout_results
+            .values()
+            .map(|result| &result.display_list)
+            .chain(self.previous_display_list.iter())
+            .chain(self.previous_vview_dls.values());
+        for list in candidates {
+            if !lists.iter().any(|(held, _)| Arc::ptr_eq(held, list)) {
+                lists.push((Arc::clone(list), list.index_items_scanned()));
+            }
+        }
+        lists
+    }
+
+    /// [`Self::render_frame`] without the counting around it.
+    fn render_frame_counted(
         &mut self,
         layout_window: &LayoutWindow,
         renderer_resources: &RendererResources,
@@ -496,8 +594,6 @@ impl CpuBackend {
         // frame generation moves (the debug server's screenshot cache keys
         // on it).
         layout_window.note_frame_presented();
-        // What this frame does is counted for the window's frame report.
-        let _counted = crate::cpu_counters::FrameScope::begin(layout_window);
 
         // Every early return below must leave `last_frame_damage` /
         // `last_present_damage` describing THIS call ("nothing changed"), not
@@ -699,10 +795,8 @@ impl CpuBackend {
                 &layout_window.gpu_state_manager,
                 layout_window.layout_results.keys().copied(),
             );
-            #[cfg(test)]
-            GPU_VALUES_COLLECTED.with(|n| {
-                n.set(n.get() + values.transforms.len() + values.opacities.len() + values.colors.len());
-            });
+            self.gpu_values_collected +=
+                values.transforms.len() + values.opacities.len() + values.colors.len();
             Some(values)
         };
         // (A10-06) The promoted frame's own matrix is no value of the window's frame: its
@@ -791,6 +885,9 @@ impl CpuBackend {
                 &next_scroll_baseline,
             )
         };
+        self.glyph_cache
+            .counts()
+            .add(crate::cpu_counters::Counter::ScanItems, gpu_damage.scanned_items);
         let has_gpu_damage = !gpu_damage.rects.is_empty() || gpu_damage.needs_full;
         // Zombie exits repaint every tick with no display-list change — their
         // per-frame contribution is `previous ∪ current` painted rects
@@ -1568,11 +1665,9 @@ impl CpuBackend {
                 other,
                 dark_rect
             );
-            // One-shot full item dump (first frame only): every Push/Pop with
+            // One-shot full item dump (first frame of this backend only): every Push/Pop with
             // bounds — the header is dropped by SOMETHING among these.
-            use std::sync::atomic::{AtomicBool, Ordering as AOrd};
-            static DUMPED_ITEMS: AtomicBool = AtomicBool::new(false);
-            if !DUMPED_ITEMS.swap(true, AOrd::Relaxed) {
+            if !core::mem::replace(&mut self.debug_dumps.items_printed, true) {
                 for (i, it) in display_list.items.iter().enumerate() {
                     let desc = match it {
                         I::Rect { color, bounds, .. } => format!(
@@ -1641,7 +1736,7 @@ impl CpuBackend {
             )
             .collect();
         // The halos this frame and the frame before use are not evicted while it paints.
-        cpurender::begin_cpu_halo_frame();
+        cpurender::begin_cpu_halo_frame(&mut self.glyph_cache);
         // A kept surface whose list was replaced by one that differs in a few items (a tile
         // that arrived during a zoom, a label that was edited) is repaired, not dropped.
         if let Err(e) = cpurender::refresh_retained_surfaces(
@@ -1737,7 +1832,7 @@ impl CpuBackend {
                 ) {
                     eprintln!("[CpuBackend] render_layers error: {e}");
                 }
-                compositor.composite_frame(&mut output, dpi_factor);
+                compositor.composite_frame_counted(&mut output, dpi_factor, self.glyph_cache.counts());
             } else if let Err(e) = cpurender::render_display_list_whole(
                 display_list,
                 &mut output,
@@ -1815,12 +1910,10 @@ impl CpuBackend {
         // AZ_DUMP_DL_DIR=/tmp/dls dumps the first display lists as JSON —
         // splits "the DL's clip is collapsed" (layout/reconcile bug) from
         // "the DL is fine, the renderer clips wrong" (cpurender bug).
-        static DUMP_DL_DIR: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
-        if let Some(dir) = DUMP_DL_DIR.get_or_init(|| std::env::var("AZ_DUMP_DL_DIR").ok()) {
-            use std::sync::atomic::{AtomicUsize, Ordering};
-            static DL_N: AtomicUsize = AtomicUsize::new(0);
-            let n = DL_N.fetch_add(1, Ordering::Relaxed);
-            if n < 8 {
+        if let Some(dir) = self.debug_dumps.dl_dir.as_deref() {
+            let n = self.debug_dumps.lists;
+            if n < DebugDumps::MAX_LISTS {
+                self.debug_dumps.lists += 1;
                 let _unused = std::fs::create_dir_all(dir);
                 let _unused = std::fs::write(
                     format!("{dir}/dl_{n:03}.json"),
@@ -1831,12 +1924,10 @@ impl CpuBackend {
         // AZ_DUMP_FRAME_DIR=/tmp/frames dumps every rendered CPU frame as a
         // numbered PNG — splits "rendered wrong" from "presented wrong" when a
         // backend shows pixels that contradict the display list.
-        static DUMP_FRAME_DIR: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
-        if let Some(dir) = DUMP_FRAME_DIR.get_or_init(|| std::env::var("AZ_DUMP_FRAME_DIR").ok()) {
-            use std::sync::atomic::{AtomicUsize, Ordering};
-            static FRAME_N: AtomicUsize = AtomicUsize::new(0);
-            let n = FRAME_N.fetch_add(1, Ordering::Relaxed);
-            if n < 40 {
+        if let Some(dir) = self.debug_dumps.frame_dir.as_deref() {
+            let n = self.debug_dumps.frames;
+            if n < DebugDumps::MAX_FRAMES {
+                self.debug_dumps.frames += 1;
                 if let Ok(bytes) = output.encode_png() {
                     let _unused = std::fs::create_dir_all(dir);
                     let _unused = std::fs::write(
