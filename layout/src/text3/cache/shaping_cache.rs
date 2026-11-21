@@ -1283,7 +1283,22 @@ impl TextShapingCache {
             loaded_fonts,
             debug_messages,
         )?;
+        Ok(Self::intrinsic_widths_of_shaped(shaped_items, constraints, loaded_fonts))
+    }
 
+    /// [`Self::measure_intrinsic_widths`] of a paragraph that is shaped
+    /// already (`shape_content`'s items): stage 4 and the scan, the whole of
+    /// that function after its shaping. For a caller that keeps the shaped
+    /// items for the layout of the same paragraph later in its pass (the
+    /// solver's intrinsic measure, `solver3::sizing::MeasuredParagraphs`),
+    /// so that the paragraph is shaped once per pass and not twice.
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    #[must_use]
+    pub fn intrinsic_widths_of_shaped<T: ParsedFontTrait>(
+        shaped_items: Arc<Vec<ShapedItem>>,
+        constraints: &UnifiedConstraints,
+        loaded_fonts: &LoadedFonts<T>,
+    ) -> IntrinsicTextSizes {
         // Stage 4: the paragraph the line breaker sees, oriented as it is.
         let paragraph = ParagraphToBreak::new(shaped_items, constraints);
 
@@ -1459,11 +1474,11 @@ impl TextShapingCache {
         };
 
         // CEIL to the 1/64 px grid before reporting (`ceil_to_layout_unit`).
-        Ok(IntrinsicTextSizes {
+        IntrinsicTextSizes {
             min_content_width: ceil_to_layout_unit(min_content_width),
             max_content_width: ceil_to_layout_unit(max_line),
             max_content_height: max_line_height,
-        })
+        }
     }
 }
 

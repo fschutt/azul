@@ -1375,7 +1375,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             // contained EMPTY_GROUP → systemic fix found.
             let _ = (cl, loaded_fonts.len());
         }
-        let sizes = measure_ifc_intrinsic_sizes(
+        let (sizes, shaped) = measure_ifc_intrinsic_sizes_keeping(
             self.text_cache,
             &inline_content,
             &shape_min_widths,
@@ -1385,6 +1385,20 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             &loaded_fonts,
             self.ctx.debug_messages,
         );
+        // For the layout of this root, later in the pass
+        // ([`MeasuredParagraphs`]). Not with debug messages on: shaping
+        // writes them, and the layout's would be missing.
+        match shaped {
+            Some(shaped) if self.ctx.debug_messages.is_none() => {
+                self.ctx
+                    .pass_memo
+                    .measured
+                    .keep(node_index, inline_content, &constraints, shaped);
+            }
+            _ => {
+                self.ctx.pass_memo.measured.forget(node_index);
+            }
+        }
         self.last_ifc_measure = Some((
             node_index,
             IfcMeasureKey::of(&constraints),
@@ -1439,6 +1453,8 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         }
         // The box around this one may hold nothing else either.
         self.last_ifc_measure = Some((node_index, key, fonts, sizes));
+        // What the measure shaped is this root's now: its layout shapes it.
+        self.ctx.pass_memo.measured.hand_up(measured_root, node_index);
         Some(sizes)
     }
 
@@ -2747,8 +2763,47 @@ pub(crate) fn measure_ifc_intrinsic_sizes<T: ParsedFontTrait>(
     loaded_fonts: &crate::text3::cache::LoadedFonts<T>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> IntrinsicSizes {
+    measure_ifc_intrinsic_sizes_keeping(
+        text_cache,
+        inline_content,
+        shape_min_widths,
+        constraints,
+        font_chain_cache,
+        fc_cache,
+        loaded_fonts,
+        debug_messages,
+    )
+    .0
+}
+
+/// The logical and the shaped items of a paragraph, as
+/// `TextShapingCache::shape_content` hands them out.
+pub(crate) type ShapedParagraph = (
+    Arc<Vec<crate::text3::cache::LogicalItem>>,
+    Arc<Vec<crate::text3::cache::ShapedItem>>,
+);
+
+/// [`measure_ifc_intrinsic_sizes`], and what it shaped `inline_content`
+/// into (none when the shaping failed): the measure is the shaping
+/// (`shape_content`) and a scan of the shaped items
+/// (`intrinsic_widths_of_shaped`), which is all
+/// `TextShapingCache::measure_intrinsic_widths` is.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn measure_ifc_intrinsic_sizes_keeping<T: ParsedFontTrait>(
+    text_cache: &mut LayoutCache,
+    inline_content: &[InlineContent],
+    shape_min_widths: &[(usize, f32)],
+    constraints: &UnifiedConstraints,
+    font_chain_cache: &std::collections::HashMap<
+        crate::text3::cache::FontChainKey,
+        rust_fontconfig::FontFallbackChain,
+    >,
+    fc_cache: &FcFontCache,
+    loaded_fonts: &crate::text3::cache::LoadedFonts<T>,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+) -> (IntrinsicSizes, Option<ShapedParagraph>) {
     let _p_measure = crate::probe::Probe::span("intrinsic_measure_widths");
-    let Ok(intrinsic_text) = text_cache.measure_intrinsic_widths(
+    let Ok(shaped) = text_cache.shape_content(
         inline_content,
         &[],
         constraints,
@@ -2757,16 +2812,21 @@ pub(crate) fn measure_ifc_intrinsic_sizes<T: ParsedFontTrait>(
         loaded_fonts,
         debug_messages,
     ) else {
-        return IntrinsicSizes {
-            min_content_width: FALLBACK_MIN_CONTENT_WIDTH,
-            max_content_width: FALLBACK_MAX_CONTENT_WIDTH,
-            preferred_width: None,
-            min_content_height: FALLBACK_MIN_CONTENT_HEIGHT,
-            max_content_height: FALLBACK_MAX_CONTENT_HEIGHT,
-            preferred_height: None,
-            preferred_aspect_ratio: None,
-        };
+        return (
+            IntrinsicSizes {
+                min_content_width: FALLBACK_MIN_CONTENT_WIDTH,
+                max_content_width: FALLBACK_MAX_CONTENT_WIDTH,
+                preferred_width: None,
+                min_content_height: FALLBACK_MIN_CONTENT_HEIGHT,
+                max_content_height: FALLBACK_MAX_CONTENT_HEIGHT,
+                preferred_height: None,
+                preferred_aspect_ratio: None,
+            },
+            None,
+        );
     };
+    let intrinsic_text =
+        LayoutCache::intrinsic_widths_of_shaped(shaped.1.clone(), constraints, loaded_fonts);
 
     let mut min_width = intrinsic_text.min_content_width;
     let max_width = intrinsic_text.max_content_width;
@@ -2811,14 +2871,147 @@ pub(crate) fn measure_ifc_intrinsic_sizes<T: ParsedFontTrait>(
     // the physical axis. In vertical writing modes the "inline" axis is vertical,
     // so these are swapped by calculate_block_intrinsic_sizes when computing
     // the parent's intrinsic sizes. The physical naming is intentional here.
-    IntrinsicSizes {
-        min_content_width: min_width,
-        max_content_width: max_width,
-        preferred_width: None,
-        min_content_height: max_content_height,
-        max_content_height,
-        preferred_height: None,
-        preferred_aspect_ratio: None,
+    (
+        IntrinsicSizes {
+            min_content_width: min_width,
+            max_content_width: max_width,
+            preferred_width: None,
+            min_content_height: max_content_height,
+            max_content_height,
+            preferred_height: None,
+            preferred_aspect_ratio: None,
+        },
+        Some(shaped),
+    )
+}
+
+/// How many shaped paragraphs the layout took from the intrinsic measure of
+/// the same pass ([`MeasuredParagraphs::take`]) on this thread, and how many
+/// the measure kept for it: what the tests count (`audit_tests::a3_solver`).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static MEASURED_PARAGRAPHS_KEPT: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    pub(crate) static MEASURED_PARAGRAPHS_TAKEN: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// The most shaped items [`MeasuredParagraphs`] holds at a time. A kept
+/// paragraph is one more reference to items the layout builds anyway, but it
+/// is held from the intrinsic pass to the paragraph's layout - on a first
+/// pass every paragraph of the document at once. Past this bound a measure
+/// keeps nothing and the layout shapes again (cache hits), as before.
+pub(crate) const MEASURED_ITEMS_KEPT_AT_MOST: usize = 65_536;
+
+/// One paragraph the intrinsic pass shaped: its content, what of the
+/// constraints the shaping read, and the result.
+struct MeasuredParagraph {
+    /// The inline content that was shaped.
+    content: Vec<InlineContent>,
+    /// `UnifiedConstraints::direction` and `unicode_bidi` of the measure: all
+    /// `shape_content` reads of its constraints (`paragraph_bidi`).
+    direction: Option<crate::text3::cache::BidiDirection>,
+    unicode_bidi: crate::text3::cache::UnicodeBidi,
+    /// `text3::fontreg::generation()` at the shaping: a face registered
+    /// since changes what a family resolves to.
+    fonts_generation: u64,
+    shaped: ShapedParagraph,
+}
+
+/// The intrinsic pass's slot of the pass (`PassMemo::measured`): the
+/// paragraphs it shaped, by the layout node of their inline formatting
+/// context, for the layout of the same paragraphs later in the pass.
+///
+/// The intrinsic measure of an inline formatting context and its layout
+/// each shaped its content (`TextShapingCache::shape_content`): the second
+/// time a hit in every cache, which still hashes the content, looks its
+/// stages up, expands every cached cluster into a new vector and stamps it.
+/// The layout of a root takes what the measure of that root made when it
+/// would be handed the same: the same content (compared, not hashed), the
+/// same paragraph direction, the same registered faces - within one pass,
+/// so the same loaded fonts and font chains (`LayoutContext::loaded_fonts`).
+#[derive(Default)]
+pub struct MeasuredParagraphs {
+    by_root: std::collections::HashMap<usize, MeasuredParagraph>,
+    items_kept: usize,
+}
+
+impl core::fmt::Debug for MeasuredParagraphs {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("MeasuredParagraphs")
+            .field("paragraphs", &self.by_root.len())
+            .field("items_kept", &self.items_kept)
+            .finish()
+    }
+}
+
+impl MeasuredParagraphs {
+    /// Keeps what the measure of the inline formatting context `root` shaped
+    /// `content` into under `constraints`, while there is room
+    /// ([`MEASURED_ITEMS_KEPT_AT_MOST`]).
+    fn keep(
+        &mut self,
+        root: usize,
+        content: Vec<InlineContent>,
+        constraints: &UnifiedConstraints,
+        shaped: ShapedParagraph,
+    ) {
+        self.forget(root);
+        let items = shaped.1.len();
+        if self.items_kept + items > MEASURED_ITEMS_KEPT_AT_MOST {
+            return;
+        }
+        self.items_kept += items;
+        #[cfg(test)]
+        MEASURED_PARAGRAPHS_KEPT.with(|n| n.set(n.get() + 1));
+        self.by_root.insert(
+            root,
+            MeasuredParagraph {
+                content,
+                direction: constraints.direction,
+                unicode_bidi: constraints.unicode_bidi,
+                fonts_generation: crate::text3::fontreg::generation(),
+                shaped,
+            },
+        );
+    }
+
+    /// Drops what is kept for `root`.
+    fn forget(&mut self, root: usize) -> Option<MeasuredParagraph> {
+        let kept = self.by_root.remove(&root)?;
+        self.items_kept = self.items_kept.saturating_sub(kept.shaped.1.len());
+        Some(kept)
+    }
+
+    /// The measure of `child` served for `root` too (the box around one
+    /// inline box, `reuse_last_ifc_measure`): what is kept for the child is
+    /// the root's, whose layout is the one that shapes this content.
+    fn hand_up(&mut self, child: usize, root: usize) {
+        if let Some(kept) = self.by_root.remove(&child) {
+            if let Some(replaced) = self.by_root.insert(root, kept) {
+                self.items_kept = self.items_kept.saturating_sub(replaced.shaped.1.len());
+            }
+        }
+    }
+
+    /// What the measure of `root` shaped, if `shape_content` would hand the
+    /// layout the same for `content` under `constraints`. Whatever is kept
+    /// for the root is dropped: its layout is the one use.
+    pub(crate) fn take(
+        &mut self,
+        root: usize,
+        content: &[InlineContent],
+        constraints: &UnifiedConstraints,
+    ) -> Option<ShapedParagraph> {
+        let kept = self.forget(root)?;
+        let same = kept.direction == constraints.direction
+            && kept.unicode_bidi == constraints.unicode_bidi
+            && kept.fonts_generation == crate::text3::fontreg::generation()
+            && kept.content.as_slice() == content;
+        if !same {
+            return None;
+        }
+        #[cfg(test)]
+        MEASURED_PARAGRAPHS_TAKEN.with(|n| n.set(n.get() + 1));
+        Some(kept.shaped)
     }
 }
 
@@ -6259,5 +6452,48 @@ mod audit_a3_solver_tests {
             parents.get(idx).copied().flatten()
         });
         assert!(none.is_empty());
+    }
+    /// A3-solver-50. What a measure shaped is handed to the layout of the same
+    /// root once, and only for the content and the paragraph direction it was
+    /// shaped with; `hand_up` moves it to the box around the measured one.
+    ///
+    /// Mutations: `take` without the comparison of the content (the first
+    /// assertion fails) or of the direction (the third), `take` leaving the
+    /// entry in place (the second), `hand_up` as a no-op (the last two).
+    #[test]
+    fn a_measured_paragraph_is_taken_once_for_the_content_it_was_shaped_from() {
+        let text = |t: &str| {
+            InlineContent::Text(crate::text3::cache::StyledRun {
+                text: Arc::from(t),
+                style: Arc::new(StyleProperties::default()),
+                logical_start_byte: 0,
+                source_node_id: None,
+            })
+        };
+        let shaped = || -> ShapedParagraph { (Arc::new(Vec::new()), Arc::new(Vec::new())) };
+        let constraints = UnifiedConstraints::default();
+        let mut memo = MeasuredParagraphs::default();
+
+        memo.keep(7, vec![text("label")], &constraints, shaped());
+        assert!(memo.take(7, &[text("other")], &constraints).is_none(), "other content");
+        assert!(memo.take(7, &[text("label")], &constraints).is_none(), "gone after one try");
+
+        memo.keep(7, vec![text("label")], &constraints, shaped());
+        let turned = UnifiedConstraints {
+            direction: Some(match constraints.direction {
+                Some(crate::text3::cache::BidiDirection::Rtl) => {
+                    crate::text3::cache::BidiDirection::Ltr
+                }
+                _ => crate::text3::cache::BidiDirection::Rtl,
+            }),
+            ..UnifiedConstraints::default()
+        };
+        assert!(memo.take(7, &[text("label")], &turned).is_none(), "another direction");
+
+        memo.keep(7, vec![text("label")], &constraints, shaped());
+        memo.hand_up(7, 3);
+        assert!(memo.take(7, &[text("label")], &constraints).is_none(), "handed up");
+        assert!(memo.take(3, &[text("label")], &constraints).is_some(), "to the box around");
+        assert_eq!(memo.items_kept, 0);
     }
 }

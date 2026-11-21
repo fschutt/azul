@@ -222,6 +222,9 @@ pub struct PassMemo<T> {
     pub bfc: fc::BfcPassMemo,
     /// The taffy bridge's slot.
     pub taffy: taffy_bridge::TaffyPassMemo,
+    /// The intrinsic pass's slot: the paragraphs it shaped, for their
+    /// layout.
+    pub measured: sizing::MeasuredParagraphs,
     /// The fonts the font manager holds, as the first ask of the pass found
     /// them ([`LayoutContext::loaded_fonts`]). `T` is the context's font
     /// type, which is why this struct has it.
@@ -237,6 +240,7 @@ impl<T> Default for PassMemo<T> {
         Self {
             bfc: fc::BfcPassMemo::default(),
             taffy: taffy_bridge::TaffyPassMemo::default(),
+            measured: sizing::MeasuredParagraphs::default(),
             loaded_fonts: Default::default(),
         }
     }

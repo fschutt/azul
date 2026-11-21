@@ -1187,6 +1187,43 @@ fn a_pass_for_a_paragraph_lays_out_no_interior_of_the_flex_boxes_beside_it() {
     assert_as_in_a_fresh_layout(&lw, &fresh, &[2, 3, 4, 10, 11]);
 }
 
+/// A3-solver-50 (handed over by A8). The intrinsic measure of an inline formatting context and
+/// its layout each shaped its content: the second time a hit in every cache of the text
+/// layout, which still hashes the content, looks its stages up and expands every cached
+/// cluster into a new vector. The layout takes what the measure of the same root shaped, when
+/// the content it collected is the measure's (`sizing::MeasuredParagraphs`).
+///
+/// If the second assertion fails, the content the layout collects for a text label is not
+/// equal to the content its measure collected (`sizing::collect_inline_content_for_sizing`
+/// against `fc::collect_and_measure_inline_content`): nothing is taken, the layout shapes as
+/// before, and the two collections are to be made one.
+///
+/// Mutation: `MeasuredParagraphs::keep` keeping nothing (or `take` answering `None`) takes 0.
+#[test]
+fn the_layout_of_a_label_takes_what_its_measure_shaped() {
+    use crate::solver3::sizing::{MEASURED_PARAGRAPHS_KEPT, MEASURED_PARAGRAPHS_TAKEN};
+    let k = 200;
+    let mut lw = window();
+    MEASURED_PARAGRAPHS_KEPT.with(|n| n.set(0));
+    MEASURED_PARAGRAPHS_TAKEN.with(|n| n.set(0));
+    lay_out(&mut lw, layer_of_absolute_blocks(k));
+    let kept = MEASURED_PARAGRAPHS_KEPT.with(std::cell::Cell::get);
+    let taken = MEASURED_PARAGRAPHS_TAKEN.with(std::cell::Cell::get);
+    assert!(kept >= k, "harness: the measure of the {k} labels kept what it shaped ({kept})");
+    assert!(
+        taken >= k,
+        "the layout of {taken} of {k} labels took what the label's measure had shaped"
+    );
+    // The labels stand at their insets (label i at 10 * (i % 50), 9 * (i / 50)).
+    let label = position_of(&lw, 2 + 2 * 57);
+    assert!(
+        (label.x - 70.0).abs() < 0.01 && (label.y - 9.0).abs() < 0.01,
+        "label 57 stands at ({}, {}), not at its insets (70, 9)",
+        label.x,
+        label.y
+    );
+}
+
 // The guards of the second round, one file per part of the solver (`a3_solver/*.rs`).
 mod ifc;
 mod sizing;

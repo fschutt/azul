@@ -1439,15 +1439,28 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
     // per inline formatting context.
     let loaded_fonts = ctx.loaded_fonts();
     let flow_probe = crate::probe::Probe::span("text_layout_flow");
-    let shaped = text_cache.shape_content(
-        &inline_content,
-        &[],
-        &text3_constraints,
-        &ctx.font_manager.font_chain_cache,
-        &ctx.font_manager.fc_cache,
-        &loaded_fonts,
-        ctx.debug_messages,
-    );
+    // What the intrinsic measure of this root shaped, when it is what
+    // `shape_content` would hand out here (`sizing::MeasuredParagraphs`):
+    // the same content, direction and faces within the same pass.
+    let measured = if ctx.debug_messages.is_none() {
+        ctx.pass_memo
+            .measured
+            .take(node_index, &inline_content, &text3_constraints)
+    } else {
+        None
+    };
+    let shaped = match measured {
+        Some(shaped) => Ok(shaped),
+        None => text_cache.shape_content(
+            &inline_content,
+            &[],
+            &text3_constraints,
+            &ctx.font_manager.font_chain_cache,
+            &ctx.font_manager.fc_cache,
+            &loaded_fonts,
+            ctx.debug_messages,
+        ),
+    };
     let laid_out = shaped.and_then(|(logical_items, shaped_items)| {
         let paragraph = text3::cache::ParagraphToBreak::new(shaped_items, &text3_constraints);
         lay_out_shaped_ifc(
