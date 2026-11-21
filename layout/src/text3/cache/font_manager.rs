@@ -113,6 +113,8 @@ impl Default for FaceStyle {
 /// `head` italic bit). Falls back to upright Normal when the font can't be
 /// parsed, so registration never fails on a malformed face.
 pub(crate) fn parse_face_style(bytes: &[u8], family: &str) -> FaceStyle {
+    #[cfg(test)]
+    FACE_STYLE_PARSES.with(|n| n.set(n.get() + 1));
     let Some(faces) = rust_fontconfig::FcParseFontBytes(bytes, family) else {
         return FaceStyle::default();
     };
@@ -126,6 +128,13 @@ pub(crate) fn parse_face_style(bytes: &[u8], family: &str) -> FaceStyle {
         stretch: pat.stretch,
         weight_axis: None,
     }
+}
+
+#[cfg(test)]
+std::thread_local! {
+    /// Tests: how often this thread has parsed a face's style
+    /// ([`parse_face_style`]: a whole-face parse).
+    pub(crate) static FACE_STYLE_PARSES: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
 }
 
 /// One face an app registered for the process ([`set_app_fonts`]): every

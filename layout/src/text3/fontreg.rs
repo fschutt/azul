@@ -29,7 +29,7 @@ use std::{
 use rust_fontconfig::{FcFontCache, FontId, UnicodeRange};
 
 use crate::text3::cache::{
-    cmap_coverage, memory_face, memory_font_pattern, parse_face_style, MemoryFace,
+    cmap_coverage, memory_face, memory_font_pattern, parse_face_style, FaceStyle, MemoryFace,
     MemoryFontTier,
 };
 
@@ -45,6 +45,12 @@ struct RuntimeFace {
     bytes: Vec<u8>,
     /// The code points of its cmap, read once.
     ranges: Vec<UnicodeRange>,
+    /// Its weight, slant and stretch, read once: `parse_face_style` parses
+    /// the whole face (every cmap mapping, every name record, a copy of the
+    /// bytes per face). [`ensure_in`] parsed every registered face on every
+    /// call - once per registration of each later face, and twice per chain
+    /// resolution of every window once anything was registered.
+    style: FaceStyle,
 }
 
 /// Every face registered at runtime, in registration order.
@@ -67,10 +73,16 @@ pub fn register_font(family: &str, bytes: &[u8]) -> bool {
         return false;
     }
     let norm = rust_fontconfig::utils::normalize_family_name(family);
+    let known = |faces: &[RuntimeFace]| faces.iter().any(|f| f.norm == norm && f.bytes == bytes);
+    if FACES.read().is_ok_and(|faces| known(&faces)) {
+        return true;
+    }
+    // Parsed outside the lock; a face registered meanwhile is found below.
+    let style = parse_face_style(bytes, family);
     let Ok(mut faces) = FACES.write() else {
         return false;
     };
-    if faces.iter().any(|f| f.norm == norm && f.bytes == bytes) {
+    if known(&faces) {
         return true;
     }
     faces.push(RuntimeFace {
@@ -79,6 +91,7 @@ pub fn register_font(family: &str, bytes: &[u8]) -> bool {
         id: FontId::new(),
         bytes: bytes.to_vec(),
         ranges,
+        style,
     });
     GENERATION.fetch_add(1, Ordering::AcqRel);
     true
@@ -100,7 +113,7 @@ pub(crate) fn ensure_in(fc_cache: &FcFontCache) -> Vec<(String, MemoryFace)> {
     faces
         .iter()
         .map(|face| {
-            let style = parse_face_style(&face.bytes, &face.family);
+            let style = face.style;
             if !fc_cache.is_memory_font(&face.id) {
                 fc_cache.with_memory_font_with_id(
                     face.id,
@@ -321,5 +334,35 @@ mod tests {
         assert_eq!(ids(&first).len(), 1);
         assert_eq!(ids(&first), ids(&second));
         assert!(cache.is_memory_font(&ids(&first)[0]));
+    }
+}
+
+/// Guards of the 2026-11-21 audit, area A8 (`audit/A8.md`).
+#[cfg(test)]
+mod audit_a8_tests {
+    use super::*;
+
+    /// A8-08: a runtime face's style is parsed once, when it is registered,
+    /// however often it is put into font caches. `CallbackInfo::register_font`
+    /// calls `ensure_in` after each registration, and every window's chain
+    /// resolution calls it twice: it parsed every registered face each time
+    /// (n registrations: n (n + 1) / 2 parses).
+    /// Mutation: `let style = face.style;` -> `parse_face_style(&face.bytes,
+    /// &face.family)` in `ensure_in` fails it.
+    #[test]
+    fn a_registered_faces_style_is_parsed_once() {
+        let fonts = crate::text3::ui_fonts::bundled_ui_fonts();
+        let parses = || crate::text3::cache::FACE_STYLE_PARSES.with(core::cell::Cell::get);
+        let before = parses();
+        for i in 0..8 {
+            let bytes = &fonts[i % fonts.len()].bytes;
+            assert!(register_font(&format!("Azul A8 Style Face {i}"), bytes));
+            drop(ensure_in(&FcFontCache::default()));
+        }
+        assert_eq!(parses() - before, 8, "one parse per face registered, none per `ensure_in`");
+        for _ in 0..4 {
+            drop(ensure_in(&FcFontCache::default()));
+        }
+        assert_eq!(parses() - before, 8);
     }
 }
