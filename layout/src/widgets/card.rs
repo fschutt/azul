@@ -850,24 +850,26 @@ mod autotest_generated {
     }
 
     #[test]
-    fn flex_grow_below_the_encoding_precision_truncates_to_zero() {
-        // Everything under one milli-unit is quantised away — including the sign, because
-        // the truncating cast of -0.0001 * 1000 = -0.1 lands on integer 0.
+    fn flex_grow_below_half_the_encoding_precision_rounds_to_zero() {
+        // Everything under HALF a milli-unit is quantised away — including the sign, because
+        // -0.0001 * 1000 = -0.1 rounds to integer 0. (`FloatValue::new` rounds to the nearest
+        // thousandth since A3-core-14; it truncated before, and this test asked 0.0005 and
+        // -0.0009 for zero.)
         for v in [
             f32::EPSILON,
             f32::MIN_POSITIVE,
             -f32::MIN_POSITIVE,
             1e-4,
             -1e-4,
-            0.0005,
-            -0.0009,
+            0.0004,
+            -0.0004,
         ] {
             let got = dom_flex_grow(&Card::default().with_flex_grow(v).dom())
                 .expect("flex-grow must always be declared");
             assert_eq!(
                 got.to_bits(),
                 0_u32,
-                "sub-milli flex_grow {v} did not truncate to +0.0 (got {got})"
+                "sub-milli flex_grow {v} did not round to +0.0 (got {got})"
             );
         }
 
@@ -877,6 +879,9 @@ mod autotest_generated {
             smallest > 0.0,
             "0.001 is supposed to be the smallest representable factor"
         );
+        // Half a milli-unit is the first value that rounds up to it.
+        let half = dom_flex_grow(&Card::default().with_flex_grow(0.0005).dom()).unwrap();
+        assert_eq!(half.to_bits(), smallest.to_bits(), "0.0005 rounds to 0.001");
     }
 
     #[test]

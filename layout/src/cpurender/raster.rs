@@ -15331,7 +15331,19 @@ mod autotest_generated {
             &state,
         )
         .unwrap();
-        assert!(st.masks.is_empty(), "a 0-sized mask rect pushes no entry");
+        // Since A1-05 every mask push leaves an entry, so that its pop takes its own and not
+        // the entry of the group around it (this test asked for no entry before). A 0-sized
+        // mask rect leaves an EMPTY one: no snapshot, no mask, no pixel to restore.
+        assert_eq!(st.masks.len(), 1, "a 0-sized mask rect pushes one entry, its own");
+        assert!(
+            matches!(
+                st.masks.last(),
+                Some(MaskEntry::ImageMask { snapshot, mask_data, width: 0, height: 0, .. })
+                    if snapshot.is_empty() && mask_data.is_empty()
+            ),
+            "and the entry is empty: it took no snapshot and masks nothing: {:?}",
+            st.masks.last()
+        );
     }
 
     // ==================================================================
@@ -18569,10 +18581,19 @@ mod audit_a1_tests {
             assert_eq!(counted.bands, 3, "dpi {dpi}: 630,000 px are three bands: {counted:?}");
             assert_eq!(counted.band_threads, 2, "dpi {dpi}: this thread and two more: {counted:?}");
             assert_eq!((counted_single.bands, counted_single.band_threads), (0, 0), "dpi {dpi}: one pass");
-            assert_eq!(
+            // Every band walks the list once, stepping over the frames that cannot paint in
+            // its rows (A1-07 (h): the third band steps over the scaled group's 144 cells, the
+            // first over the two turned labels; at DPI 1 that is 364 items against 3 x 173),
+            // and every band's count reaches the frame's: one band alone walks at most what
+            // the one pass walks, so more than that is more than one thread's count. (The
+            // test asked for exactly 3 x the pass, which held before the walk stepped.)
+            assert!(
+                counted.items_walked > counted_single.items_walked
+                    && counted.items_walked <= 3 * counted_single.items_walked,
+                "dpi {dpi}: every band walks the list at most once, and its count reaches the \
+                 frame's: {} in bands, {} in one pass",
                 counted.items_walked,
-                3 * counted_single.items_walked,
-                "dpi {dpi}: every band walks the list once, and its count reaches the frame's"
+                counted_single.items_walked
             );
             assert_eq!(counted.px_cleared, counted_single.px_cleared, "dpi {dpi}: every pixel is cleared once");
             let coloured = single.data().chunks_exact(4).filter(|p| p[..3] != [236, 233, 225]).count();
