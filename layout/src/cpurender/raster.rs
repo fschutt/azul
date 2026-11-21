@@ -5148,7 +5148,7 @@ fn render_text_prerendered_lcd(
     // runs the old all-or-nothing check sent to the full sweep (44 of 158
     // on big.md — ~4.8 ms of the remaining repaint).
     struct Placed {
-        tile: LcdGlyphTile,
+        tile: std::sync::Arc<LcdGlyphTile>,
         x0: i32,
         y0: i32,
         glyph: GlyphInstance,

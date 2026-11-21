@@ -170,7 +170,8 @@ pub struct GlyphCache {
     cells_prev: FastMap<GlyphCellKey, Option<CachedCells>>,
     /// Pre-blended LCD tiles (uniform-background fast path). `None` entry =
     /// glyph has no cells. Flat cap with full drop — see `MAX_TILE_ENTRIES`.
-    lcd_tiles: FastMap<LcdTileKey, Option<LcdGlyphTile>>,
+    /// Shared: a hit hands out the tile, not a copy of its pixels.
+    lcd_tiles: FastMap<LcdTileKey, Option<std::sync::Arc<LcdGlyphTile>>>,
     /// LCD stripe order of the panel this cache's window is on.
     lcd_subpixel_order: LcdSubpixelOrder,
     text_aa: crate::cpurender::TextAaSettings,
@@ -1959,6 +1960,10 @@ const MAX_TILE_ENTRIES: usize = 4096;
 impl GlyphCache {
     /// Pre-blended tile for one glyph on a uniform opaque background.
     /// `None` = the glyph produced no cells (whitespace) — nothing to paint.
+    ///
+    /// The tile is shared with the cache: a hit used to clone it, its pixel
+    /// vector included - an allocation and a copy of the tile per glyph per
+    /// repaint, on the path that exists to make a glyph a row copy.
     #[allow(clippy::too_many_arguments)]
     pub fn get_or_build_lcd_tile(
         &mut self,
@@ -1974,7 +1979,7 @@ impl GlyphCache {
         bg: azul_css::props::basic::color::ColorU,
         lut: &agg_rust::pixfmt_lcd::LcdDistributionLut,
         params: agg_rust::pixfmt_lcd::LcdBlendParams,
-    ) -> Option<(LcdGlyphTile, i32, i32)> {
+    ) -> Option<(std::sync::Arc<LcdGlyphTile>, i32, i32)> {
         let rescale_hinted = is_hinted && (hint_correction - 1.0).abs() > 1e-4;
         let subpx = text_subpixel_enabled();
         let (int_x, subpx_x) = if subpx {
@@ -2085,14 +2090,14 @@ impl GlyphCache {
             render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &agg_color);
         }
 
-        let tile = LcdGlyphTile {
+        let tile = std::sync::Arc::new(LcdGlyphTile {
             w,
             h,
             dx: min_px,
             dy: min_y,
             rgba,
-        };
-        self.lcd_tiles.insert(key, Some(tile.clone()));
+        });
+        self.lcd_tiles.insert(key, Some(std::sync::Arc::clone(&tile)));
         Some((tile, int_x, int_y))
     }
 }
@@ -2220,5 +2225,42 @@ mod audit_a8_tests {
         }
         assert_eq!(decodes.get(), 2, "nothing was kept, so each lookup asks again");
         assert_eq!(cache.paths_len(), 0);
+    }
+
+    /// A8-05: a pre-blended LCD tile found in the cache is the cached tile,
+    /// shared, not a copy of its pixels.
+    /// Mutation: keep tiles by value and clone them on a hit (as before) and
+    /// `Arc::ptr_eq` fails (it would not compile as such: the type is the guard).
+    #[test]
+    fn a_kept_lcd_tile_is_shared_not_copied() {
+        use azul_css::props::basic::color::ColorU;
+        let font = ParsedFont::from_bytes(crate::text3::mock_fonts::MOCK_MONO_TTF, 0, &mut Vec::new())
+            .expect("the mock font parses");
+        let gid = font.lookup_glyph_index('A' as u32).expect("the mock font maps 'A'");
+        let glyph = font.get_or_decode_glyph(gid).expect("'A' decodes");
+        let mut cache = GlyphCache::new();
+        assert!(cache.get_or_build(7, gid, &glyph, &font, 0).is_some(), "'A' has an outline");
+        let scale = 20.0 / f32::from(font.font_metrics.units_per_em);
+        let lut = agg_rust::pixfmt_lcd::LcdDistributionLut::new(
+            f64::from(0x56u32),
+            f64::from(0x4Du32),
+            f64::from(0x08u32),
+        );
+        let params = agg_rust::pixfmt_lcd::LcdBlendParams::default();
+        let black = ColorU { r: 0, g: 0, b: 0, a: 255 };
+        let white = ColorU { r: 255, g: 255, b: 255, a: 255 };
+        let mut tile = |x: f32| {
+            cache
+                .get_or_build_lcd_tile(7, gid, 0, x, 30.0, scale, false, 1.0, black, white, &lut, params)
+                .expect("'A' has a tile")
+        };
+        let (first, x1, _) = tile(10.0);
+        let (again, x2, _) = tile(50.0);
+        assert!(
+            std::sync::Arc::ptr_eq(&first, &again),
+            "one glyph, colour pair and sub-pixel step share one tile"
+        );
+        assert_eq!((x1, x2), (10, 50));
+        assert!(!first.rgba.is_empty());
     }
 }
