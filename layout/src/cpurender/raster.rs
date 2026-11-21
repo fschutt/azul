@@ -1503,6 +1503,23 @@ pub(crate) fn group_part_within(
     ))
 }
 
+/// How far past a text item's box the text shadows in effect can paint, logical px: the largest
+/// of each shadow's offset plus its blur and its spread. What every cull of a text item under a
+/// shadow widens the item's box by.
+fn text_shadow_reach(text_shadow_stack: &[StyleBoxShadow]) -> f32 {
+    let length = |v: &azul_css::props::basic::pixel::PixelValue| {
+        v.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
+    };
+    text_shadow_stack
+        .iter()
+        .map(|sh| {
+            length(&sh.offset_x.inner).abs().max(length(&sh.offset_y.inner).abs())
+                + length(&sh.blur_radius.inner).max(0.0)
+                + length(&sh.spread_radius.inner).max(0.0)
+        })
+        .fold(0.0_f32, f32::max)
+}
+
 /// Does `item` paint nothing under `clip`, the innermost clip the walk paints under (device px
 /// of the surface being painted)? The items of a view or of an isolated group are laid out far
 /// past the pixels they can land on, and every one used to be painted to a clip that cut it.
@@ -1538,17 +1555,7 @@ fn outside_active_clip(
     let Some(bounds) = bounds else {
         return false;
     };
-    let length = |v: &azul_css::props::basic::pixel::PixelValue| {
-        v.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
-    };
-    let reach = text_shadow_stack
-        .iter()
-        .map(|sh| {
-            length(&sh.offset_x.inner).abs().max(length(&sh.offset_y.inner).abs())
-                + length(&sh.blur_radius.inner).max(0.0)
-                + length(&sh.spread_radius.inner).max(0.0)
-        })
-        .fold(0.0_f32, f32::max);
+    let reach = text_shadow_reach(text_shadow_stack);
     let on_surface = LogicalRect {
         origin: LogicalPosition {
             x: bounds.origin.x - scroll_offset.0 - reach,
@@ -2515,6 +2522,24 @@ pub(crate) fn walk_items(
                             },
                             size: item_bounds.size,
                         }
+                    };
+                    // A shadow paints past the box by its offset, blur and spread
+                    // (`outside_active_clip` widens by the same): a rect that meets the
+                    // shadow and not the box still has to repaint it.
+                    let reach = text_shadow_reach(text_shadow_stack);
+                    let test_bounds = if reach > 0.0 {
+                        LogicalRect {
+                            origin: LogicalPosition {
+                                x: test_bounds.origin.x - reach,
+                                y: test_bounds.origin.y - reach,
+                            },
+                            size: LogicalSize {
+                                width: test_bounds.size.width + 2.0 * reach,
+                                height: test_bounds.size.height + 2.0 * reach,
+                            },
+                        }
+                    } else {
+                        test_bounds
                     };
                     if !rects_overlap_or_adjacent(&test_bounds, damage, 0.0) {
                         skipped += 1;
@@ -8839,6 +8864,113 @@ mod text_shadow_tests {
             touched.first()
         );
         assert!(shadowed > 0, "the shadow paints inside the strip");
+    }
+
+    /// A2-cpu-18 (`audit/A2-cpu.md`). A damage rect that meets a text's SHADOW and not its box
+    /// repaints the shadow.
+    ///
+    /// Hand-computed: "Hi" at 32 px, baseline y = 30, line box rows 0 .. 34; a shadow 40 px
+    /// below it (`text-shadow: 0 40px red`, no blur), so its ink is in rows of about 47 .. 70.
+    /// A damage rect of rows 50 .. 70 does not meet the line box: the damaged walk culled the
+    /// run by its box alone (the cull inside groups and views, `outside_active_clip`, widens
+    /// the box by the shadow's reach, 40 px), cleared the rect and painted nothing into it.
+    /// Expected: the rows 50 .. 70 of the shadow are there again.
+    ///
+    /// mutation: dropping the `reach` widening of `test_bounds` in `walk_items` fails here.
+    #[test]
+    fn a2_cpu_18_a_damage_rect_on_a_text_shadow_alone_repaints_the_shadow() {
+        let Some(font) = load_test_font() else {
+            eprintln!("[skip] no system font available");
+            return;
+        };
+        let (rr, fm, font_hash) = renderer_resources_with(&font);
+        let (w, h) = (200u32, 120u32);
+        let glyphs = shape(&font, "Hi", 32.0, 40.0, 30.0);
+        #[allow(clippy::cast_precision_loss)]
+        let clip_rect: crate::solver3::display_list::WindowLogicalRect = LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize {
+                width: w as f32,
+                height: h as f32,
+            },
+        }
+        .into();
+        let line_box: crate::solver3::display_list::WindowLogicalRect = LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize {
+                width: 200.0,
+                height: 34.0,
+            },
+        }
+        .into();
+        let shadow = StyleBoxShadow {
+            offset_x: PixelValueNoPercent {
+                inner: PixelValue::px(0.0),
+            },
+            offset_y: PixelValueNoPercent {
+                inner: PixelValue::px(40.0),
+            },
+            blur_radius: PixelValueNoPercent {
+                inner: PixelValue::px(0.0),
+            },
+            spread_radius: PixelValueNoPercent {
+                inner: PixelValue::px(0.0),
+            },
+            color: ColorU {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+            clip_mode: azul_css::props::style::box_shadow::BoxShadowClipMode::Outset,
+        };
+        let dl = DisplayList {
+            items: vec![
+                DisplayListItem::PushTextShadow { shadow },
+                DisplayListItem::Text {
+                    glyphs,
+                    font_hash,
+                    font_size_px: 32.0,
+                    color: ColorU {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 0,
+                    },
+                    clip_rect,
+                    line_box,
+                    source_node_index: None,
+                },
+                DisplayListItem::PopTextShadow,
+            ],
+            ..Default::default()
+        };
+        let mut pm = AzulPixmap::new(w, h).unwrap();
+        pm.fill(0, 200, 0, 255);
+        // Rows 50 .. 70, the whole width: below the line box (rows 0 .. 34), on the shadow.
+        let strip = vec![LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 50.0 },
+            size: LogicalSize {
+                width: 200.0,
+                height: 20.0,
+            },
+        }];
+        let state = CpuRenderState::new(ScrollOffsetMap::new());
+        let mut gc = GlyphCache::new();
+        render_display_list_damaged(&dl, &mut pm, 1.0, &rr, &fm, &mut gc, &state, &strip).unwrap();
+        let wide = w as usize;
+        let mut shadowed = 0usize;
+        for (i, p) in pm.data().chunks_exact(4).enumerate() {
+            let y = i / wide;
+            if (50..70).contains(&y) && p[0] > 150 && p[1] < 100 && p[2] < 100 {
+                shadowed += 1;
+            }
+        }
+        assert!(
+            shadowed > 0,
+            "the damage rect was cleared and the shadow in it not repainted: no red pixel in \
+             rows 50 .. 70"
+        );
     }
 
     /// A label under a `text-shadow` of `blur` and `spread` px in `color`, its first pen at
