@@ -1309,3 +1309,85 @@ fn a_frame_computes_a_scrollbar_fade_for_no_box_of_a_page_without_bars() {
         );
     }
 }
+
+// -- A3-window-22 / -23 / -24: what the font chains of a DOM were resolved for -----------------
+
+fn font_resolutions() -> usize {
+    crate::window::FONT_RESOLUTIONS.with(core::cell::Cell::get)
+}
+
+/// A3-window-22: a view that renders again with the font stacks and the characters it had
+/// resolves no font. Its pass started from an empty slot of the font manager and resolved
+/// cold every time: every node's stack and every character of the view.
+#[test]
+fn a_view_rendered_again_with_the_stacks_and_characters_it_had_resolves_no_font() {
+    let shift = Arc::new(AtomicUsize::new(0));
+    let (mut lw, _child) = moved_label_window(12, &shift);
+    let ws = lw.current_window_state.clone();
+    // The same labels, five pixels further right: another DOM, the same text.
+    shift.store(5, Ordering::SeqCst);
+    crate::window::FONT_RESOLUTIONS.with(|ran| ran.set(0));
+    render_the_view_again(&mut lw, &ws);
+    assert_eq!(font_resolutions(), 0, "the chains of the view's last pass answer for it");
+}
+
+/// A page of one line of text, laid out in `lw` as a rebuild of the window's DOM.
+fn lay_out_text(lw: &mut LayoutWindow, ws: &FullWindowState, text: &str) {
+    let mut dom = Dom::create_body().with_child(Dom::create_p_with_text(text));
+    let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    lw.layout_and_generate_display_list(
+        styled,
+        ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+}
+
+/// A3-window-24: the same font stacks over other CHARACTERS are another requirement (a
+/// chain holds the faces its characters need). A rebuilt page whose text has a character it
+/// did not have resolves again; one whose characters were all covered before does not, also
+/// when one of them had left the text in between.
+#[test]
+fn a_rebuilt_page_resolves_its_fonts_again_for_a_character_it_did_not_have() {
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+    lw.current_window_state = ws.clone();
+    lay_out_text(&mut lw, &ws, "abc");
+
+    crate::window::FONT_RESOLUTIONS.with(|ran| ran.set(0));
+    lay_out_text(&mut lw, &ws, "cab cab");
+    assert_eq!(font_resolutions(), 0, "the same characters in another order");
+    lay_out_text(&mut lw, &ws, "abd");
+    assert_eq!(font_resolutions(), 1, "`d` is new: the chains were resolved for a, b, c");
+    lay_out_text(&mut lw, &ws, "abc");
+    assert_eq!(font_resolutions(), 1, "`c` was covered before and still is");
+}
+
+/// A3-window-23: the font collector may run on the keep-set of the window's own DOM only
+/// while no child DOM is alive - and a view's document the running pass set aside is alive.
+#[test]
+fn the_font_collector_does_not_run_while_a_views_document_is_set_aside() {
+    let (mut lw, child) = label_window(4);
+    assert!(
+        !lw.font_keep_set_is_the_windows(DomId::ROOT_ID),
+        "a view's document is laid out"
+    );
+    // As the funnel of a new generation leaves the window for the pass over its own DOM.
+    let root = lw.layout_results.remove(&DomId::ROOT_ID);
+    let view = lw.layout_results.remove(&child).expect("the view's document");
+    lw.retired_child_results.insert(child, view);
+    assert!(lw.layout_results.is_empty() && root.is_some());
+    assert!(
+        !lw.font_keep_set_is_the_windows(DomId::ROOT_ID),
+        "the view's document is set aside, to be taken back or rendered again"
+    );
+    assert!(
+        !lw.font_keep_set_is_the_windows(child),
+        "and never on a child's own keep-set"
+    );
+    lw.retired_child_results.clear();
+    assert!(lw.font_keep_set_is_the_windows(DomId::ROOT_ID), "a window without a view");
+}

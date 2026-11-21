@@ -1414,6 +1414,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         image_callback_inputs: _,
         // A counter per DOM and the few callback-image boxes found per DOM.
         dom_generations: _,
+        // A set of characters per DOM (8 KB) and a view's handful of font chains.
+        font_resolutions: _,
         // One small entry per background layer that declares a render
         // callback: bounded by such layers.
         background_callback_inputs: _,
@@ -2073,6 +2075,8 @@ pub struct LayoutWindow {
     /// The generation of each DOM ([`Self::dom_generation`]) and what is kept per
     /// generation (the boxes that draw a callback image).
     pub dom_generations: DomGenerations,
+    /// What each DOM's font chains were last resolved for ([`FontResolutions`]).
+    pub font_resolutions: FontResolutions,
     /// What each background layer that declares a render callback
     /// (`background: url(id)` / `builtin(<name>)` naming a callback image)
     /// was last drawn from. A frame asks the callback again only when these
@@ -2644,6 +2648,158 @@ impl DomGenerations {
             .retain(|dom_id, _| live.contains_key(dom_id));
     }
 }
+
+/// A set of characters: a bit per code point of the Basic Multilingual Plane, the few others
+/// in a set. What a DOM's text uses is collected into one per layout pass (a step per
+/// character, no search), and compared with what its font chains cover.
+#[derive(Debug, Clone, Default)]
+pub struct CharSet {
+    /// 1,024 words once a character is in, none before.
+    bmp: Vec<u64>,
+    beyond: BTreeSet<char>,
+}
+
+impl CharSet {
+    const BMP_WORDS: usize = 0x1_0000 / 64;
+
+    fn insert(&mut self, c: char) {
+        let code = c as u32;
+        if code < 0x1_0000 {
+            if self.bmp.is_empty() {
+                self.bmp = vec![0; Self::BMP_WORDS];
+            }
+            self.bmp[(code / 64) as usize] |= 1_u64 << (code % 64);
+        } else {
+            self.beyond.insert(c);
+        }
+    }
+
+    /// The characters a DOM draws: its text nodes and its placeholder prompts, as the font
+    /// chain resolver collects them (`solver3::getters::collect_used_codepoints_all`).
+    #[must_use]
+    pub fn of_dom(styled_dom: &StyledDom) -> Self {
+        let mut out = Self::default();
+        for node in styled_dom.node_data.as_ref().iter() {
+            if let NodeType::Text(text) = node.get_node_type() {
+                for c in text.as_str().chars() {
+                    out.insert(c);
+                }
+            }
+            if let Some(prompt) = node.get_placeholder() {
+                for c in prompt.chars() {
+                    out.insert(c);
+                }
+            }
+        }
+        out
+    }
+
+    /// Whether every character of `other` is in this set.
+    #[must_use]
+    pub fn covers(&self, other: &Self) -> bool {
+        other
+            .bmp
+            .iter()
+            .enumerate()
+            .all(|(i, word)| *word & !self.bmp.get(i).copied().unwrap_or(0) == 0)
+            && other.beyond.is_subset(&self.beyond)
+    }
+
+    /// Takes in every character of `other`.
+    pub fn add(&mut self, other: &Self) {
+        if self.bmp.len() < other.bmp.len() {
+            self.bmp.resize(other.bmp.len(), 0);
+        }
+        for (mine, theirs) in self.bmp.iter_mut().zip(&other.bmp) {
+            *mine |= *theirs;
+        }
+        self.beyond.extend(other.beyond.iter().copied());
+    }
+
+    /// The characters as the resolver takes them.
+    #[must_use]
+    pub fn to_set(&self) -> BTreeSet<char> {
+        let mut out = self.beyond.clone();
+        for (i, word) in self.bmp.iter().enumerate() {
+            let mut bits = *word;
+            while bits != 0 {
+                let bit = bits.trailing_zeros();
+                bits &= bits - 1;
+                let code = u32::try_from(i).unwrap_or(u32::MAX).saturating_mul(64) + bit;
+                if let Some(c) = char::from_u32(code) {
+                    out.insert(c);
+                }
+            }
+        }
+        out
+    }
+}
+
+/// What the font chains of the window's DOMs were last resolved for: the inputs the skip of
+/// the font resolution compares besides the signature of the font stacks
+/// (`layout_dom_recursive_impl`, "Font Resolution And Loading").
+#[derive(Default)]
+pub struct FontResolutions {
+    /// Per DOM the characters its chains cover: those of its text at every resolution since
+    /// its font stacks last changed. A chain is resolved for the characters it has to draw
+    /// (the faces of a fallback script are in it only when the text has that script), so the
+    /// same stacks with other text are another requirement.
+    covered: BTreeMap<DomId, CharSet>,
+    /// Per child DOM the signature of its font stacks and the chains its last pass ended
+    /// with: what its next pass starts from. The font manager has one slot, the window's,
+    /// and a child's pass used to start from an empty one: it resolved its fonts cold on
+    /// every pass, every node's stack and every character of a view of 12,470 labels.
+    of_children: BTreeMap<
+        DomId,
+        (
+            u64,
+            HashMap<crate::text3::cache::FontChainKey, rust_fontconfig::FontFallbackChain>,
+        ),
+    >,
+}
+
+impl core::fmt::Debug for FontResolutions {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("FontResolutions")
+            .field("doms", &self.covered.len())
+            .field("children", &self.of_children.len())
+            .finish()
+    }
+}
+
+impl FontResolutions {
+    /// Lets go of what is kept for DOMs that have no layout result.
+    fn forget_all_but(&mut self, live: &BTreeMap<DomId, DomLayoutResult>) {
+        self.covered.retain(|dom_id, _| live.contains_key(dom_id));
+        self.of_children
+            .retain(|dom_id, _| live.contains_key(dom_id));
+    }
+
+    /// Lets go of everything kept for child DOMs: the font collector ran, and may have
+    /// given back a face their chains name.
+    fn forget_children(&mut self) {
+        self.covered.retain(|dom_id, _| *dom_id == DomId::ROOT_ID);
+        self.of_children.clear();
+    }
+}
+
+/// How often the fonts of a DOM were resolved on this thread (the cold branch of the font
+/// block of `layout_dom_recursive_impl`): what a test reads to say a pass over the same font
+/// stacks and characters resolves nothing.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static FONT_RESOLUTIONS: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn font_resolution_ran() {
+    FONT_RESOLUTIONS.with(|ran| ran.set(ran.get() + 1));
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+const fn font_resolution_ran() {}
 
 /// How many layout nodes the search for callback images looked at on this thread
 /// (`LayoutWindow::invoke_image_callbacks_into_overlay`): what a test reads to say a frame of
@@ -3248,6 +3404,7 @@ impl LayoutWindow {
             content_overlay: crate::overlay::ContentOverlay::default(),
             image_callback_inputs: BTreeMap::new(),
             dom_generations: DomGenerations::default(),
+            font_resolutions: FontResolutions::default(),
             background_callback_inputs: BTreeMap::new(),
             background_callbacks_waiting: BTreeSet::new(),
             material_light: crate::texture::MaterialLight::DEFAULT,
@@ -3738,6 +3895,7 @@ impl LayoutWindow {
         // A DOM that has no result after the pass has no generation (`DomGenerations`): one
         // that comes back gets a new value from the clock.
         self.dom_generations.forget_all_but(&self.layout_results);
+        self.font_resolutions.forget_all_but(&self.layout_results);
         // A kept view this pass never reached (its host laid out no box for
         // it any more - hidden by a restyle) keeps nothing: its child result
         // goes, as the clear above took it before views were kept, and the
@@ -8194,6 +8352,16 @@ impl LayoutWindow {
             // view still finds its chains).
             let host_font_chains = core::mem::take(&mut self.font_manager.font_chain_cache);
             let host_font_sig = self.font_manager.last_resolved_font_stacks_sig.take();
+            // Not against an empty slot when the child was laid out before: against the
+            // chains its last pass ended with, under the signature they were resolved for
+            // (`FontResolutions::of_children`). The pass then skips the resolution when its
+            // stacks and its characters are the ones those chains answer; it resolved cold
+            // on every pass, because nothing it could compare with survived the pass.
+            if let Some((stacks, chains)) = self.font_resolutions.of_children.remove(&child_dom_id)
+            {
+                self.font_manager.font_chain_cache = chains;
+                self.font_manager.last_resolved_font_stacks_sig = Some(stacks);
+            }
             let result = self.layout_dom_recursive_sized_by_views(
                 styled_dom,
                 window_state,
@@ -8206,11 +8374,19 @@ impl LayoutWindow {
             self.child_layout_caches.insert(child_dom_id, child_cache);
             let view_font_chains =
                 core::mem::replace(&mut self.font_manager.font_chain_cache, host_font_chains);
-            for (key, chain) in view_font_chains {
-                self.font_manager
-                    .font_chain_cache
-                    .entry(key)
-                    .or_insert(chain);
+            let view_font_sig = self.font_manager.last_resolved_font_stacks_sig;
+            for (key, chain) in &view_font_chains {
+                if !self.font_manager.font_chain_cache.contains_key(key) {
+                    self.font_manager
+                        .font_chain_cache
+                        .insert(key.clone(), chain.clone());
+                }
+            }
+            // What the child's next pass starts from.
+            if let Some(stacks) = view_font_sig.filter(|_| !view_font_chains.is_empty()) {
+                self.font_resolutions
+                    .of_children
+                    .insert(child_dom_id, (stacks, view_font_chains));
             }
             self.font_manager.last_resolved_font_stacks_sig = host_font_sig;
             return result;
@@ -8496,7 +8672,7 @@ impl LayoutWindow {
         // This must happen BEFORE layout_document() is called
         {
             use crate::{
-                solver3::getters::collect_and_resolve_font_chains_with_registration_in_viewport,
+                solver3::getters::collect_and_resolve_font_chains_covering,
                 text3::default::PathLoader,
             };
 
@@ -8618,9 +8794,34 @@ impl LayoutWindow {
             // must actually have been recorded, and there must be chains to
             // reuse. `evict_unused` only drops loca/glyf from a live face
             // (default.rs), so an eviction cannot invalidate a cached chain.
-            let font_requirements_unchanged = font_stacks_sig.is_some()
+            let stacks_unchanged = font_stacks_sig.is_some()
                 && font_stacks_sig == self.font_manager.last_resolved_font_stacks_sig
                 && !self.font_manager.font_chain_cache.is_empty();
+            // The stacks are not the whole requirement: the chains are resolved for the
+            // CHARACTERS the DOM draws (a fallback script's faces are in a chain only when
+            // the text has that script, and the chain is pruned to the faces its characters
+            // need). The same stacks over text in a script the DOM did not have - a rebuilt
+            // page, a map's labels after a pan - skipped the resolver and shaped that text
+            // with chains that have no face for it. So the skip also asks that the chains
+            // cover what the DOM draws now (`FontResolutions::covered`).
+            let used_chars = CharSet::of_dom(&styled_dom);
+            // Text typed into a child DOM and not yet in it extended the WINDOW's chains
+            // (`reshape_text_node`), not the ones this child's pass starts from: the
+            // resolution below extends them for it.
+            let typed_text_pending = dom_id != DomId::ROOT_ID
+                && self
+                    .content_overlay
+                    .iter_text()
+                    .filter(|((d, _), _)| *d == dom_id)
+                    .next()
+                    .is_some();
+            let font_requirements_unchanged = stacks_unchanged
+                && !typed_text_pending
+                && self
+                    .font_resolutions
+                    .covered
+                    .get(&dom_id)
+                    .is_some_and(|covered| covered.covers(&used_chars));
 
             if font_requirements_unchanged {
                 if let Some(msgs) = debug_messages.as_mut() {
@@ -8653,12 +8854,26 @@ impl LayoutWindow {
                 // `FontContext::load_fonts_for_chains` and the CPU
                 // rasterizer's preview pre-fill — one implementation,
                 // three callers.
+                font_resolution_ran();
+                // While the stacks are the ones resolved before, the new chains also cover
+                // what the old ones covered: a character that left the text and comes back
+                // (a counter's digits, a label panned out and in) is then still covered,
+                // and the pass that brings it back resolves nothing.
+                let also_covered: BTreeSet<char> = if stacks_unchanged {
+                    self.font_resolutions
+                        .covered
+                        .get(&dom_id)
+                        .map(CharSet::to_set)
+                        .unwrap_or_default()
+                } else {
+                    BTreeSet::new()
+                };
                 crate::probe::sample_peak_rss("rss:before_font_chain");
                 let mut chains = {
                     let _p = crate::probe::Probe::span("font_chain_resolve");
                     // The DOM's text is laid out in `viewport`: a `vw` font
                     // size's chain is collected at the size the text asks for.
-                    collect_and_resolve_font_chains_with_registration_in_viewport(
+                    collect_and_resolve_font_chains_covering(
                         &styled_dom,
                         &self.font_manager.fc_cache,
                         &self.font_manager,
@@ -8667,6 +8882,7 @@ impl LayoutWindow {
                             viewport.size.width,
                             viewport.size.height,
                         ),
+                        &also_covered,
                     )
                 };
                 // [g80] localize where font_chain_cache drops to 0: chains right after
@@ -8795,9 +9011,11 @@ impl LayoutWindow {
                 // shape its text-input prompt with (widgets demo: no placeholder
                 // until the next full relayout). A child's keep-set never
                 // describes the window.
-                let single_dom =
-                    dom_id == DomId::ROOT_ID && self.layout_results.keys().all(|d| *d == dom_id);
+                let single_dom = self.font_keep_set_is_the_windows(dom_id);
                 if single_dom {
+                    // No child DOM is alive, and what was kept for one names faces the
+                    // collector may give back now.
+                    self.font_resolutions.forget_children();
                     let keep_ids = solver3::getters::collect_font_ids_from_chains(&chains);
                     // The family-hash keep-set comes from the compact style
                     // cache — which a runtime CSS patch legitimately DROPS
@@ -8848,6 +9066,28 @@ impl LayoutWindow {
                 }
                 self.font_manager
                     .set_font_chain_cache_with_sig(fc_chains, font_stacks_sig);
+                // What these chains cover (see `used_chars` above).
+                let mut covered = used_chars;
+                if stacks_unchanged {
+                    if let Some(before) = self.font_resolutions.covered.get(&dom_id) {
+                        covered.add(before);
+                    }
+                }
+                self.font_resolutions.covered.insert(dom_id, covered);
+                // The window's chains were REPLACED by the ones of its own DOM: the chains
+                // of its views' documents, kept beside them since their passes (text edited
+                // inside a view finds its chain there), come back in.
+                if dom_id == DomId::ROOT_ID {
+                    for (_, chains) in self.font_resolutions.of_children.values() {
+                        for (key, chain) in chains {
+                            if !self.font_manager.font_chain_cache.contains_key(key) {
+                                self.font_manager
+                                    .font_chain_cache
+                                    .insert(key.clone(), chain.clone());
+                            }
+                        }
+                    }
+                }
                 // [g80] font_chain_cache right after set (does set_font_chain_cache_with_sig
                 // persist it?).
                 unsafe {
@@ -10057,6 +10297,20 @@ impl LayoutWindow {
     #[must_use]
     pub fn dom_generation(&self, dom_id: DomId) -> u64 {
         self.dom_generations.get(dom_id)
+    }
+
+    /// Whether the fonts the window's own DOM names are ALL the fonts the window draws with:
+    /// `dom_id` is that DOM and no child DOM is alive - none laid out, and none set aside by
+    /// the pass that is running (`retired_child_results`: on a new generation the funnel
+    /// takes every child's result out of `layout_results` before the window's DOM is laid
+    /// out, so "no other DOM has a result" was true with a view in the window). Only then
+    /// may the font collector run on this DOM's keep-set: it gave back the faces only a
+    /// view's document uses, and a view taken back unchanged gets no pass that loads them
+    /// again.
+    pub(crate) fn font_keep_set_is_the_windows(&self, dom_id: DomId) -> bool {
+        dom_id == DomId::ROOT_ID
+            && self.layout_results.keys().all(|d| *d == dom_id)
+            && self.retired_child_results.is_empty()
     }
 
     /// `dom_id` is another DOM than it was: THE one place its generation moves. Called by
@@ -30589,6 +30843,8 @@ impl LayoutWindow {
             // nodes of its old arena and go (below) - its layout pass, which
             // follows, starts a new generation anyway.
             dom_generations,
+            // Keyed by DOM, not by node.
+            font_resolutions: _,
             // Remapped, not dropped: a rebuild changes none of what a
             // background layer's frame is drawn from (an app that changed the
             // data of a callback it reuses says so with
