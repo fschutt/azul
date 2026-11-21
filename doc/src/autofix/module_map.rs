@@ -542,12 +542,41 @@ pub fn get_module_keywords() -> BTreeMap<&'static str, Vec<&'static str>> {
     map
 }
 
+/// Whether `path` is a test file that sits next to the code it tests: `x_test.rs`, which its parent
+/// file `x.rs` declares as `#[cfg(test)] #[path = "x_test.rs"] mod x_test;` (the convention of the
+/// crates). The declaration is what makes it one: core's `hit_test.rs` ends in `_test` and is the
+/// hit-testing code, with API types in it.
+fn is_adjacent_test_file(path: &std::path::Path) -> bool {
+    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    let Some(stem) = name.strip_suffix("_test.rs") else {
+        return false;
+    };
+    let Some(parent_file) = path.parent().map(|dir| dir.join(format!("{stem}.rs"))) else {
+        return false;
+    };
+    let Ok(parent_text) = std::fs::read_to_string(parent_file) else {
+        return false;
+    };
+    // `#[cfg(test)]`, then `#[path = "<name>"]`, as the next attribute.
+    let declaration = format!("#[path = \"{name}\"]");
+    parent_text
+        .match_indices(&declaration)
+        .any(|(at, _)| parent_text[..at].trim_end().ends_with("#[cfg(test)]"))
+}
+
 /// Paths to exclude from the workspace index (tests, examples, etc.)
 pub fn should_exclude_path(path: &std::path::Path) -> bool {
     let path_str = path.to_string_lossy();
 
-    // Exclude test directories
-    if path_str.contains("/tests/") || path_str.contains("/test/") {
+    // Exclude test directories (`audit_tests/` holds the November audit's test code)
+    if path_str.contains("/tests/") || path_str.contains("/test/") || path_str.contains("/audit_tests/") {
+        return true;
+    }
+
+    // Exclude the test files next to the code they test
+    if is_adjacent_test_file(path) {
         return true;
     }
 
@@ -1785,6 +1814,24 @@ mod tests {
         assert!(should_exclude_path(Path::new("/foo/examples/demo.rs")));
         assert!(should_exclude_path(Path::new("/foo/build.rs")));
         assert!(!should_exclude_path(Path::new("/foo/src/lib.rs")));
+    }
+
+    /// The index must not see test code: a `struct Frame` in the audit's test files made the
+    /// autofix job fail on a duplicate type name (CI run of 2026-11-21), and `hit_test.rs` (the
+    /// hit-testing code, not a test file) must stay in it.
+    #[test]
+    fn test_exclude_paths_covers_the_test_files_and_only_them() {
+        use std::path::Path;
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let excluded = |rel: &str| should_exclude_path(&root.join(rel));
+        // declared as `#[cfg(test)] #[path = "a11y_test.rs"] mod a11y_test;` by core/src/a11y.rs
+        assert!(excluded("core/src/a11y_test.rs"));
+        assert!(excluded("dll/src/desktop/audit_tests/a5.rs"));
+        // named like a test file, but code with API types in it
+        assert!(!excluded("core/src/hit_test.rs"));
+        assert!(!excluded("layout/src/hit_test.rs"));
+        assert!(!excluded("dll/src/desktop/shell2/common/e2e_test.rs"));
+        assert!(!excluded("core/src/a11y.rs"));
     }
 
     /// The manual override runs BEFORE the keyword heuristic, and is what
