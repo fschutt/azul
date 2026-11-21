@@ -808,3 +808,65 @@ mod bound_values {
         assert_eq!(opacities, want_o, "every opacity channel of this DOM, by key");
     }
 }
+
+/// Guards of the 2026-11-21 audit, area A3-core (`audit/A3-core.md`).
+#[cfg(test)]
+mod audit_a3_core_tests {
+    use super::*;
+
+    /// A3-core-08 (A9's H4, H6, H7): the write generation moves when a
+    /// bound value or a key changes, and stays when an event writes the
+    /// value the cache already holds - however many events there are.
+    #[test]
+    fn the_value_generation_moves_with_a_value_and_not_with_an_event() {
+        let node = NodeId::new(3);
+        let key = TransformKey::unique();
+        let identity = ComputedTransform3D::IDENTITY;
+        let moved = ComputedTransform3D::new(
+            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 12.0, 34.0, 0.0, 1.0,
+        );
+        assert_ne!(identity, moved, "harness: two matrices");
+
+        let mut cache = GpuValueCache::empty();
+        let start = cache.value_generation();
+        cache.apply_transform_events(&[GpuTransformKeyEvent::Added(node, key, identity)]);
+        let added = cache.value_generation();
+        assert_ne!(added, start, "a key and its value are new");
+
+        // The event every synchronize reports for a transformed node whose
+        // value did not move: the generation stays.
+        for _ in 0..3 {
+            cache.apply_transform_events(&[GpuTransformKeyEvent::Changed(
+                node, key, identity, identity,
+            )]);
+        }
+        assert_eq!(cache.value_generation(), added, "the same value, written again");
+
+        cache.apply_transform_events(&[GpuTransformKeyEvent::Changed(node, key, identity, moved)]);
+        let changed = cache.value_generation();
+        assert_ne!(changed, added, "the value moved");
+        assert_eq!(cache.css_current_transform_values.get(&node), Some(&moved));
+
+        cache.apply_transform_events(&[GpuTransformKeyEvent::Removed(node, key)]);
+        let removed = cache.value_generation();
+        assert_ne!(removed, changed, "the key is gone");
+        cache.apply_transform_events(&[GpuTransformKeyEvent::Removed(node, key)]);
+        assert_eq!(cache.value_generation(), removed, "nothing was left to remove");
+
+        // Opacities alike.
+        let opacity_key = OpacityKey::unique();
+        cache.apply_opacity_events(&[GpuOpacityKeyEvent::Added(node, opacity_key, 0.5)]);
+        let faded = cache.value_generation();
+        assert_ne!(faded, removed);
+        cache.apply_opacity_events(&[GpuOpacityKeyEvent::Changed(node, opacity_key, 0.5, 0.5)]);
+        assert_eq!(cache.value_generation(), faded, "the same opacity");
+        cache.apply_opacity_events(&[GpuOpacityKeyEvent::Changed(node, opacity_key, 0.5, 0.25)]);
+        assert_ne!(cache.value_generation(), faded, "another opacity");
+
+        // A writer outside this type says so itself.
+        let before = cache.value_generation();
+        cache.anim_current_opacity_values.insert(node, 0.75);
+        cache.note_value_write();
+        assert_ne!(cache.value_generation(), before);
+    }
+}
