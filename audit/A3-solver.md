@@ -130,7 +130,7 @@ frequency for the editor's loads). One row per finding id; the text blocks below
 | A3-solver-27 | quadratic | `positioning.rs` nested shifted relative boxes | low | open: one subtree walk per shifted ancestor; a single walk adds the offsets in another order | - |
 | A3-solver-28 | n x depth | several (list below) | low | checked: fine | - |
 | A3-solver-29 | wrong-output | `cache.rs` `reposition_block_flow_siblings` | medium | fixed b66f75aca | `a_clean_sibling_keeps_its_place_in_a_bordered_box_when_its_neighbour_is_laid_out_again` and two more |
-| A3-solver-30 | waste | `cache.rs` `lift_to_slot_container` | medium | open: a dirty label lifts its layout root to the layer; see the block below | - |
+| A3-solver-30 | waste | `cache.rs` `lift_to_slot_container` | medium | fixed 949321484 | `a_restyled_label_is_laid_out_without_its_layer` |
 | A3-solver-31 | waste | `fc/bfc.rs` `centers_blocks_the_legacy_way` | low | checked: fine | - |
 | A3-solver-32 | wrong-output | `sizing.rs` out-of-flow child in its parent's intrinsic sizes | medium | fixed 1e8fd3a32 | `[reveals]` d9e4f6da1 + two more in `a3_solver/sizing.rs` |
 | A3-solver-33 | wrong-output | `getters.rs` font-stack memo by hash alone | low | fixed dc3e29f49 | `getters::audit_a3_solver_tests` |
@@ -149,14 +149,16 @@ frequency for the editor's loads). One row per finding id; the text blocks below
 | A3-solver-42 | waste | `mod.rs` / `fc/ifc.rs` / `sizing.rs` fonts asked per IFC (A8-13) | medium | fixed 58f61dce6 | `a_pass_asks_the_font_manager_for_its_fonts_once` (sizing half: f83fec4f7) |
 | A3-solver-42b | waste | `regions.rs`, `display_list.rs` font asks | low | open: `regions.rs:1617` still asks the font manager per region chain; display_list.rs is A3-core's | - |
 | A3-solver-43 | wrong-output | `positioning.rs` relative offset added again per incremental pass | medium | fixed 283a32482 | `a_relatively_positioned_box_beside_a_re_laid_one_is_not_shifted_again` and two more |
-| A3-solver-44 | wrong-output | `positioning.rs` `adjust_sticky_positions` outside re-laid subtrees | medium | open: same mistake as 43 for sticky boxes; needs the kept constraint | - |
-| A3-solver-45 | wrong-output | `positioning.rs` relative offset inside an absolute box | medium | open: `position_bfc_child_descendants` in the positioning pass re-derives descendants from the flow and drops their relative shift | - |
-| A3-solver-46 | wrong-output | `positioning.rs` static position read back from the final one | low | open: an RTL box with all insets auto and a right margin moves by that margin on each pass that does not re-derive its static position | - |
+| A3-solver-44 | wrong-output | `positioning.rs` `adjust_sticky_positions` outside re-laid subtrees | medium | fixed e193ca69f | `a_sticky_box_beside_a_re_laid_one_keeps_its_static_place_for_later_scrolls` ([reveals] 9943af97e; with 88ad0aa7b) |
+| A3-solver-45 | wrong-output | `positioning.rs` relative offset inside an absolute box | medium | fixed aeb67d400 | `a_relatively_positioned_box_inside_an_absolute_one_stands_at_its_offset` ([reveals] be2c9aff1) |
+| A3-solver-46 | wrong-output | `positioning.rs` static position read back from the final one | low | fixed a3ddc3b26 | `a_box_at_its_static_position_in_an_rtl_block_does_not_drift_by_its_margin` ([reveals] 318ecf506) |
 | A3-solver-47 | wrong-output | `sizing.rs` marker of an absolutely positioned list item | low | open: the `::marker` box carries its item's DOM node and counts as out of flow in three places | - |
 | A3-solver-48 | wrong-output | `sizing.rs` inside markers not in intrinsic widths | low | open: a shrink-to-fit list item with `list-style-position: inside` is sized without its marker | - |
 | A3-solver-49 | wrong-output | `getters.rs` spacing fallback `Px(0)` vs `PxF(0.0)` | low | open: a hovered node's text style differs from its resting one with no rule involved | - |
 | A3-solver-50 | waste | `sizing.rs` / `fc/ifc.rs` / `text3/cache/shaping_cache.rs` an IFC shaped twice per pass (A8-06 hand-over) | medium | fixed 011b0043c | `the_layout_of_a_label_takes_what_its_measure_shaped` |
 | A3-solver-51 | wrong-output | `fc/table_rows.rs` overflow of a shifted cell | low | open: reads the retired sentinel's default overflow instead of the kept one | - |
+| A3-solver-52 | wrong-output | `mod.rs` root loop / `cache.rs` `process_out_of_flow_children` (static position of a layout root's out-of-flow children) | medium | fixed d14e782a9 | `a_box_at_its_static_position_follows_the_flow_of_a_parent_laid_out_again` ([reveals] 5a31c9af8) |
+| A3-solver-53 | wrong-output | `positioning.rs` a sticky box inside an absolutely positioned box | low | open: the positioning pass derives the positions below an absolute box from the flow again and the sticky shift goes with them (as 45 for relative); needs the sticky step for those boxes after the box is placed | - |
 
 ### Fixed (details in the commit messages)
 
@@ -706,4 +708,27 @@ Done short of it: 35a (no rebuild per pan release), 35c (a drag writes transform
 - `cache::calculate_layout_for_subtree_fragment` is now a wrapper; the former body is
   `calculate_layout_for_subtree_visit_counted`. A merge that brings another area's hunk into the old body lands
   in that function.
+
+### Third round, part 2: the positioning passes on incremental layouts (44, 45, 46, 52, 30)
+
+Each wrong output got a `[reveals]` commit (the test alone) and the fix as the next commit, so the verification
+pass keeps or reverts the fix by what the test did before it.
+- **45** `be2c9aff1` / `aeb67d400`: the loop body of `adjust_relative_positions_of` is now
+  `shift_if_relatively_positioned`; the positioning pass calls it for the boxes below each absolute box it places
+  (`shift_relative_descendants`). Changes FRESH layouts too (a relative box in an absolute one used to stand
+  unshifted): reftests with that shape move by the box's offset - expected.
+- **46** `318ecf506` / `a3ddc3b26`: `flow_static_position` in the `Rtl` all-auto arm only.
+- **52** `5a31c9af8` / `d14e782a9`: the slots of a layout root's own out-of-flow children are emptied before the
+  root is laid out (only when the root holds no layout entry; restored if the layout leaves one empty).
+  Not covered: boxes taken out of an inline box of the root, children of a node laid out below a root that was
+  served from its cache.
+- **44** `9943af97e` / `e193ca69f` + `88ad0aa7b`: `adjust_sticky_positions_of(.., placed_now)`; the old tree's
+  constraints are handed to the reconciled tree first (a reconciled tree had none: `LayoutNode::split`).
+  Revert the two together.
+- **30** `949321484`: narrow form - only an out-of-flow box whose css scope stayed below `Full`, under a block
+  container. The general lift rule (a block holding only inline content lifts to its parent) is kept on purpose:
+  it is what relays a table cell or a shrink-to-fit box around a restyled paragraph (cell -> row -> table goes
+  through that one level), and the css-dirty channel lays a block out through its parent by design (scroll extent
+  and auto height of the parent).
+- New: **53** (sticky inside an absolute box), see the table.
 
