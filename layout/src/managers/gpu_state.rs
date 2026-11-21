@@ -482,9 +482,12 @@ impl GpuStateManager {
     /// no comparison with the previous ones, no walk for the compositor
     /// (`synchronize_gpu_values`).
     ///
-    /// NOT yet safe to skip work by: until the cache's maps are private,
-    /// every writer outside `GpuValueCache`'s own methods has to say so
-    /// (`audit/A2-gpu.md`, "Integration", lists them). Only equality is
+    /// Safe to skip work by (A6-22): every bound value of a cache stamps
+    /// itself, whoever writes it and however (`StampedMap`, `StampedValue`),
+    /// so no writer has to say anything. What it does NOT cover is the
+    /// display lists: a list that was rebuilt with the same values still
+    /// has its own keys to read, so a frame keys its skip on this number
+    /// AND on the identity of the lists it draws. Only equality is
     /// meaningful.
     #[must_use]
     pub fn value_generation(&self) -> u64 {
