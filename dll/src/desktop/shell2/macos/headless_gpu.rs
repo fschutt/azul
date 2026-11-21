@@ -1457,11 +1457,17 @@ mod retained_list_tests {
     }
 
     /// The hover of a label of the map - a paint-only restyle in the map's own DOM - with the
-    /// style sidebar open (ten thousand items in the window's list): the pass rebuilds the
-    /// MAP's list and asks for a repaint, and the frame the shells make for it - the lightweight
-    /// pass - sends that one list and draws the label on its background. The window's list is
-    /// neither rebuilt (macOS rebuilt it, and translated and sent every item of it, for each
-    /// label the pointer entered or left) nor sent again.
+    /// style sidebar open (ten thousand items in the window's list): the pass asks for a
+    /// repaint, and the frame the shells make for it - the lightweight pass - draws the label
+    /// on its background. The window's list is neither rebuilt (macOS rebuilt it, and
+    /// translated and sent every item of it, for each label the pointer entered or left) nor
+    /// sent again.
+    ///
+    /// Audit A4-23 (A3-window-55): NO list is sent at all. The label's background is bound to
+    /// a colour key by the build of the map's list (a see-through rect while it rests), and
+    /// the enter and the leave are that key's value: a lightweight transaction of values, no
+    /// translation, no scene build. (This test expected the map's list to be rebuilt and
+    /// translated once per enter and per leave: 1 rebuild, 1 and 2 translations.)
     #[test]
     fn the_hover_of_a_label_in_the_map_sends_the_maps_list_alone_and_draws_it() {
         let Some(mut gpu) = GpuSession::new(600.0, 320.0, 1.0) else {
@@ -1515,12 +1521,12 @@ mod retained_list_tests {
         assert_eq!(
             tier,
             ProcessEventResult::ShouldReRenderCurrentWindow,
-            "a repaint: the list is rebuilt in the pass"
+            "a repaint: the colour is the value of a key the map's list binds"
         );
         let frame = gpu
             .present_lightweight()
             .expect("the harness")
-            .expect("the rebuilt list of the map is a frame the lightweight pass owes");
+            .expect("the value of the label's colour key is a frame the lightweight pass owes");
         let (x0, y0, x1, y1) = red_box(&frame).expect("the hovered label is drawn on its background");
         assert!(
             (219..=222).contains(&x0) && (298..=301).contains(&x1) && (19..=22).contains(&y0)
@@ -1528,7 +1534,7 @@ mod retained_list_tests {
             "its box (200 + 20, 20, 80 x 24): {:?}",
             (x0, y0, x1, y1)
         );
-        assert_eq!(translated() - translated_before, 1, "the map's list alone was sent");
+        assert_eq!(translated() - translated_before, 0, "no list was sent: a value changed");
         assert_eq!(
             Arc::as_ptr(&gpu.window.layout_results[&DomId::ROOT_ID].display_list),
             host_before,
@@ -1540,7 +1546,14 @@ mod retained_list_tests {
                 .display_lists_unsubmitted(&gpu.window.layout_results),
             "nothing is owed to the renderer after the frame"
         );
-        assert_eq!(gpu.window.frame_report.dl_rebuilds, 1, "one list rebuilt: the map's");
+        assert_eq!(
+            (
+                gpu.window.frame_report.dl_rebuilds,
+                gpu.window.frame_report.dl_node_patches
+            ),
+            (0, 0),
+            "no list was built and none was patched"
+        );
         assert_eq!(gpu.window.frame_report.layout_passes, 0, "no layout ran");
 
         // And the pointer leaves it.
@@ -1560,7 +1573,7 @@ mod retained_list_tests {
             .expect("the harness")
             .expect("a frame");
         assert!(red_box(&frame).is_none(), "the label is plain again");
-        assert_eq!(translated() - translated_before, 2, "the map's list again, and only it");
+        assert_eq!(translated() - translated_before, 0, "no list for the leave either");
         assert_eq!(
             Arc::as_ptr(&gpu.window.layout_results[&DomId::ROOT_ID].display_list),
             host_before,

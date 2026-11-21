@@ -56,6 +56,21 @@ Round 5:
   A3-solver's `widgets/node_graph.rs` (`nodegraph_unset_active_node`, new `release_gesture_transforms`, as its
   notes specify); the dll's state-restyle tests (`event.rs`: the leave and the release are values).
 
+Round 6 (the rows successor; as owner of A3-core's builder and of A6's hit tester and dispatch for these rows, by
+the coordinator's word):
+- `layout/src/window.rs`: new `bind_state_colors` (replaces `release_state_colors` and
+  `settle_state_colors_in_the_kept_list`), `state_colored_nodes`, `fading_backgrounds_of`,
+  `state_colors_from_the_build` / `set_state_colors_from_the_build_on_this_thread`; `patch_restyled_decorations`
+  (the value path asks the list; the node limit counts patched nodes), `tick_animations` (the end of a fade keeps
+  a state colour's key), `regenerate_display_list_for_dom` (each DOM's own solver cache takes the built list),
+  `move_node_in_place` (drops the box's `AbsPlacement`), `apply_node_css_change` (the changes of a write).
+- `layout/src/solver3/display_list.rs` (A3-core's): `DisplayListBuilder::bound_color_ids`, `bind_colors_of`,
+  `try_copy_cached_run` (the binding of a copied rect), `paint_node_background_and_border_inner` (the see-through
+  rect of a bound node); `display_list/node_patch.rs` `plan_one` (the node's own key).
+- Tests changed in other areas' files: dll `shell2/common/event.rs` (the state-restyle guards, both bindings),
+  `shell2/headless/mod.rs` (the hover sweep, both bindings), `shell2/macos/headless_gpu.rs` (A4's GPU hover
+  guard: 0 lists).
+
 ## The four answers
 
 ### 1. One hover enter or leave over a label
@@ -1129,6 +1144,73 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
 - test: `a_tile_that_arrives_in_a_view_is_patched_into_the_list_where_it_lies`.
 - severity: medium
 - status: fixed a0b428212
+
+### A3-window-55 a state colour is a patched list at the first enter of every node (A4-23, the eager binding)
+- file:line: `window.rs` `bind_state_colors`, `state_colored_nodes`, `patch_restyled_decorations`,
+  `tick_animations`; `display_list.rs` `paint_node_background_and_border_inner`, `try_copy_cached_run`
+- class: waste, per first enter of a node after every list build: a patched list (the GPU renderer translates
+  the view's whole list and builds the scene again; the CPU compositor copies the list it holds and diffs it):
+  a pointer swept across n labels it had not touched changed the list n times
+- fix: every build of a DOM's list (a layout pass, `regenerate_display_list_for_dom`) binds the background of
+  every STATE-COLOURED node to a colour key: a node whose own style (a matched rule or an inline declaration)
+  sets `background` / `background-color` under `:hover`, `:active` or `:focus`, whose backgrounds under every
+  state are one colour or nothing, and whose background is one colour or nothing now. The builder pushes the
+  node's background rect bound to the key, a see-through rect (`Rect`, alpha 0) where the node has no background
+  of its own; both renderers draw nothing for a bound rect whose value has alpha 0. From then on EVERY enter and
+  leave is `set_color_value` and touches no list.
+  - who is asked: only nodes with a hit-test tag (`tag_ids_to_node_ids`: a node gets one for any `:hover` /
+    `:active` / `:focus` declaration), then the node's own rules; not every node of the DOM.
+  - the value path is gated by the LIST: `frame_index().binds_a_color_key(key)` (one walk per list, kept with
+    it). A node with a key whose rect the list does not hold takes the patch, which paints and binds it (the
+    lazy binding of row 50, still the path for a node that came by its rule without a re-emit of its run).
+  - keys do not accumulate: `bind_state_colors` keeps exactly the keys of the state-coloured nodes of the
+    build and (window's DOM) of the fades in flight; a key that stays keeps its id (the list cache's key and
+    copied runs hold it), one that goes has its VALUE written into the kept list's rect first (a copied run
+    loses the binding with the key) and a see-through rect that lost its key is not copied.
+  - fades (the window's DOM): a state colour with `animation: background` is the same key. The hover owes
+    nothing but the fade's start; the fade's frames write the key's value; the key stays when the fade ends.
+    It was a build of the window's list per enter and per leave (the patch refused a fading node's unchanged
+    run).
+  - found on the way, fixed here: (a) `try_copy_cached_run` asked every key of the DOM per copied bound rect
+    (keys x bound rects per patched pass): a set of ids. (b) `plan_one` copied every key of the DOM into its
+    scratch builder per patched node: the node's own. (c) `patch_restyled_decorations` for the window's DOM let
+    every key of a settled fade go before it painted ANOTHER node: the settled node's rect fell back to the
+    colour the list was built with. Only the patched nodes' keys go now. (d) a list built for a view's
+    document (`regenerate_display_list_for_dom`) left that document's solver cache with the list from before:
+    the next pass copied runs from it (a state colour let go by the build came back). Each DOM's cache takes
+    the list built for it. (e) the node limit of the patch (8) counted nodes that are values.
+- cost (what the predecessor avoided, now paid on purpose): one item and one key per state-coloured node that
+  has no background of its own, one key per state-coloured node. The editor's view on m4p `master`: every
+  label span has `.t<layer>:hover { background: rgba(66,134,244,0.35) }` (`map.rs:1140`): about 1,570 spans
+  among the 12,470 nodes (A4's count for the Tuebingen view), so up to +1,570 items (+9 %; fewer by the labels
+  that have a background of their own) and 1,570 keys. With A7-editor-37 (the hover as one node moved by a
+  transform) the labels have no state rule and the view gets 0 of either. Per frame that writes any value the
+  GPU transaction carries the colour values too (K + 1,570 values, about 30 KB), and the CPU's value compare
+  reads them. A bound rect is no opaque fill for `FrameIndex` (a button face with a hover rule is not an
+  occluder any more).
+- switch: `AZ_EAGER_STATE_COLORS=0` = the binding of row 50 (a node is bound when a state first paints it).
+  Default ON: the user's directive (row 1 of this round). A test picks one for its thread with
+  `window::set_state_colors_from_the_build_on_this_thread`.
+- not served by a value (they take the patch or the build as before): a state rule that changes more than the
+  background (border, shadow, text colour: row 38), a gradient or image under a state, an inline box painted
+  by its line, a table part, the root and `body` (the canvas), `:focus-within` / `:seat-focus` / drag states,
+  a rule that reaches the node through an ancestor's state (`.row:hover .cell`: the cell declares nothing
+  under a state of its own and is not bound; it takes the patch).
+- test (layout `audit_tests::a3_window`): `a_build_binds_one_rect_per_node_with_a_state_colour_and_none_else`,
+  `a_pointer_swept_over_labels_it_never_touched_writes_values_and_changes_no_list` (0 builds, 0 patches, 2n
+  values, the picture of a built list at every step, at 40 and 160 labels),
+  `a_node_whose_rect_the_list_does_not_bind_takes_the_patch`,
+  `a_state_colour_by_value_is_right_through_a_build_and_a_pass`,
+  `a_label_removed_while_hovered_leaves_no_colour_and_no_key`,
+  `a_hover_that_fades_changes_no_list_from_its_first_frame`; dll:
+  `a_hover_over_a_label_is_the_value_of_a_colour_key_from_its_first_enter`,
+  `a_press_on_a_label_is_the_value_of_a_colour_key_from_the_first_press`,
+  `a_mouse_move_over_the_text_of_labels_changes_no_list`; A4's
+  `the_hover_of_a_label_in_the_map_sends_the_maps_list_alone_and_draws_it` (GPU: 0 lists translated per enter
+  and leave, was 1 each) and `a4_23_a_bound_background_colour_changes_as_a_value_and_no_list` (unchanged).
+  The guards of the patch (rows 07, 50, 06) run with the switch off on their thread.
+- severity: medium
+- status: fixed (this commit: see the log, `A3-window-55`)
 
 ### Checked: fine
 - `scan_used_fonts`, `scan_used_images`: no caller outside tests.

@@ -368,6 +368,25 @@ fn label_window(count: usize) -> (LayoutWindow, DomId) {
     (lw, child)
 }
 
+/// While this lives, the windows this thread builds bind a state colour when a state first
+/// PAINTS it (the binding of A3-window-50), not from the build of the list (A3-window-55):
+/// for the tests of the decoration patch, which is what still shows every restyle that is
+/// not the value of a bound colour (a border, a shadow, a gradient, a node without a key).
+struct BoundWhenPainted;
+
+impl BoundWhenPainted {
+    fn on_this_thread() -> Self {
+        crate::window::set_state_colors_from_the_build_on_this_thread(Some(false));
+        Self
+    }
+}
+
+impl Drop for BoundWhenPainted {
+    fn drop(&mut self) {
+        crate::window::set_state_colors_from_the_build_on_this_thread(None);
+    }
+}
+
 /// The span of label `i` and its text, as the hover manager enters and leaves them.
 fn label_nodes(i: usize) -> Vec<NodeId> {
     vec![NodeId::new(2 + 2 * i), NodeId::new(1 + 2 * i)]
@@ -388,8 +407,9 @@ fn lines(list: &DisplayList) -> Vec<String> {
         .collect()
 }
 
-/// The pointer enters (or leaves) label `i`: the restyle, shown by the decoration patch.
-/// Returns the view's list as the patch left it.
+/// The pointer enters (or leaves) label `i`: the restyle, shown by
+/// `patch_restyled_decorations` (the value of a colour key, or a run painted into the list).
+/// Returns the view's list as that left it.
 fn hover(lw: &mut LayoutWindow, child: DomId, i: usize, enters: bool) -> Vec<String> {
     let (entered_nodes, left_nodes) = if enters {
         (label_nodes(i), Vec::new())
@@ -427,6 +447,7 @@ fn hover(lw: &mut LayoutWindow, child: DomId, i: usize, enters: bool) -> Vec<Str
 /// frame); entering and leaving.
 #[test]
 fn a_hover_colour_patched_into_the_list_is_the_list_a_build_gives() {
+    let _binding = BoundWhenPainted::on_this_thread();
     let (mut lw, child) = label_window(12);
     for label in [0_usize, 1, 2, 9, 10, 11] {
         for enters in [true, false] {
@@ -450,6 +471,7 @@ fn a_hover_colour_patched_into_the_list_is_the_list_a_build_gives() {
 /// every other item is the item it was, in its place. 400 labels: a build emits them all.
 #[test]
 fn a_hover_over_one_label_of_many_touches_that_labels_items_alone() {
+    let _binding = BoundWhenPainted::on_this_thread();
     let (mut lw, child) = label_window(400);
     let before = lines(&lw.layout_results[&child].display_list);
     assert!(before.len() >= 400, "harness: the view's list holds the labels ({})", before.len());
@@ -555,6 +577,7 @@ fn painted_lines(lw: &LayoutWindow, dom: DomId) -> Vec<String> {
 /// colour after the leave).
 #[test]
 fn a_hover_that_comes_again_is_a_value_and_no_list() {
+    let _binding = BoundWhenPainted::on_this_thread();
     let (mut lw, child) = label_window(40);
     let at_rest = lines(&lw.layout_results[&child].display_list);
     // Label 9 (9 % 3 == 0: no background of its own).
@@ -590,6 +613,7 @@ fn a_hover_that_comes_again_is_a_value_and_no_list() {
 /// has no key and its leave is a patch.
 #[test]
 fn a_state_colour_without_a_key_still_takes_the_patch() {
+    let _binding = BoundWhenPainted::on_this_thread();
     let (mut lw, child) = label_window(40);
     let at_rest = lines(&lw.layout_results[&child].display_list);
     lw.frame_report.reset_counters();
@@ -631,6 +655,478 @@ fn a_restyle_that_is_no_decoration_is_not_patched() {
     assert!(!restyle.is_empty(), "harness: the width changed");
     assert!(!lw.patch_restyled_decorations(child, &restyle), "a width is no decoration");
     assert_eq!(lines(&lw.layout_results[&child].display_list), before, "the list is untouched");
+}
+
+// -- A3-window-55 (A4-23, the eager binding): a state colour is a value from the first enter ---
+
+/// How many rects of `dom`'s list the renderers paint in the labels' hover colour
+/// (`rgba(66, 134, 244, 0.35)`): a rect bound to a colour key counts in the key's value.
+fn hover_painted(lw: &LayoutWindow, dom: DomId) -> usize {
+    let hover = azul_css::props::basic::color::ColorU {
+        r: 66,
+        g: 134,
+        b: 244,
+        a: 89,
+    };
+    let list = &lw.layout_results[&dom].display_list;
+    let mut values: BTreeMap<usize, azul_css::props::basic::color::ColorU> = BTreeMap::new();
+    if let Some(cache) = lw.gpu_state_manager.caches.get(&dom) {
+        cache.for_each_bound_color(|key, color| {
+            values.insert(key, color);
+        });
+    }
+    list.items
+        .iter()
+        .enumerate()
+        .filter(|(index, item)| {
+            let DisplayListItem::Rect { color, .. } = item else {
+                return false;
+            };
+            list.color_binding(*index)
+                .and_then(|key| values.get(&key.id).copied())
+                .unwrap_or(*color)
+                == hover
+        })
+        .count()
+}
+
+/// How many colour keys the document `dom` holds.
+fn color_keys(lw: &LayoutWindow, dom: DomId) -> usize {
+    lw.gpu_state_manager
+        .caches
+        .get(&dom)
+        .map_or(0, |cache| cache.color_keys.len())
+}
+
+/// What a build binds: the background rect of every node that has a `:hover` background, a
+/// see-through rect where the node has no background of its own, and nothing for any other
+/// node. 12 labels, 4 of them with a background of their own: 12 bound rects, 12 keys, 8
+/// items more than the same page built without the binding; a page of labels without a
+/// state rule gets no key and no rect.
+/// Mutations: the see-through layer not pushed in `paint_node_background_and_border_inner`
+/// (4 bound rects, 0 items more); `state_colored_nodes` answering every tagged node (keys on
+/// the page without a state rule).
+#[test]
+fn a_build_binds_one_rect_per_node_with_a_state_colour_and_none_else() {
+    let bound = |lw: &LayoutWindow, dom: DomId| {
+        lw.layout_results[&dom]
+            .display_list
+            .color_bindings
+            .iter()
+            .flatten()
+            .count()
+    };
+    let (lw, child) = label_window(12);
+    assert_eq!(bound(&lw, child), 12, "one bound rect per label with a hover colour");
+    assert_eq!(color_keys(&lw, child), 12, "and one key each");
+    assert_eq!(color_keys(&lw, DomId::ROOT_ID), 0, "the window's own nodes have no state rule");
+    assert_eq!(hover_painted(&lw, child), 0, "nothing is hovered");
+    let items = lw.layout_results[&child].display_list.items.len();
+
+    let (plain_items, plain_bound, plain_keys) = {
+        let _binding = BoundWhenPainted::on_this_thread();
+        let (plain, plain_child) = label_window(12);
+        (
+            plain.layout_results[&plain_child].display_list.items.len(),
+            bound(&plain, plain_child),
+            color_keys(&plain, plain_child),
+        )
+    };
+    assert_eq!((plain_bound, plain_keys), (0, 0), "harness: the switch binds nothing at a build");
+    assert_eq!(
+        items,
+        plain_items + 8,
+        "one see-through rect for each of the 8 labels without a background of their own"
+    );
+
+    // Labels without a state rule (every one of them takes the pointer: `cursor`).
+    let (lw, child) = moved_label_window(12, &Arc::new(AtomicUsize::new(0)));
+    assert_eq!((bound(&lw, child), color_keys(&lw, child)), (0, 0), "no state rule: no key");
+}
+
+/// The budget of the eager binding: a pointer swept across labels it never touched changes
+/// the view's list 0 times - no build, no patch, the list the allocation it was - and writes
+/// one value per enter and per leave; and what is painted is at every step what a list BUILT
+/// under the same states paints. In a view of 40 labels as in one of 160.
+/// Mutations: `bind_state_colors` given no nodes (the first enter of each label is a patch:
+/// `dl_node_patches` 12); `set_color_value` not called in the value path (0 writes, and the
+/// first step paints no hover); the value path taken without asking the list for the key
+/// (not caught here: see `a_node_whose_rect_the_list_does_not_bind_takes_the_patch`).
+#[test]
+fn a_pointer_swept_over_labels_it_never_touched_writes_values_and_changes_no_list() {
+    use crate::window::STATE_COLOR_WRITES;
+
+    const SWEPT: usize = 12;
+    for labels in [40_usize, 160] {
+        let (mut lw, child) = label_window(labels);
+        let list = Arc::as_ptr(&lw.layout_results[&child].display_list);
+        let at_rest = painted_lines(&lw, child);
+        lw.frame_report.reset_counters();
+        STATE_COLOR_WRITES.with(|written| written.set(0));
+        let mut steps: Vec<Vec<String>> = Vec::new();
+        for label in 0..SWEPT {
+            for enters in [true, false] {
+                drop(hover(&mut lw, child, label, enters));
+                steps.push(painted_lines(&lw, child));
+            }
+        }
+        assert_eq!(
+            (lw.frame_report.dl_rebuilds, lw.frame_report.dl_node_patches),
+            (0, 0),
+            "{labels} labels: no list was built or patched"
+        );
+        assert!(
+            core::ptr::eq(list, Arc::as_ptr(&lw.layout_results[&child].display_list)),
+            "{labels} labels: the view's list is the allocation it was"
+        );
+        assert_eq!(
+            STATE_COLOR_WRITES.with(core::cell::Cell::get),
+            2 * SWEPT,
+            "{labels} labels: a value per enter and per leave"
+        );
+        assert_eq!(painted_lines(&lw, child), at_rest, "{labels} labels: at rest again");
+
+        // The same sweep with the list BUILT after every step.
+        let (mut built, built_child) = label_window(labels);
+        let mut step = 0;
+        for label in 0..SWEPT {
+            for enters in [true, false] {
+                drop(hover(&mut built, built_child, label, enters));
+                built.regenerate_display_list_for_dom(built_child);
+                assert_eq!(
+                    steps[step],
+                    painted_lines(&built, built_child),
+                    "{labels} labels, label {label}, enters {enters}: what a built list paints"
+                );
+                step += 1;
+            }
+        }
+    }
+}
+
+/// A node with a key whose rect the list does not hold is NOT served by a value (nobody
+/// would read it): it takes the patch, which paints the run. Here the key is there and the
+/// bound rect is taken out of the list behind the window's back.
+/// Mutation: the value path taken for any node with a key, the list not asked
+/// (`binds_a_color_key`): the hover writes a value no rect shows, `hover_painted` stays 0.
+#[test]
+fn a_node_whose_rect_the_list_does_not_bind_takes_the_patch() {
+    let (mut lw, child) = label_window(12);
+    // Label 3 (no background of its own): its see-through rect loses its binding.
+    let span = NodeId::new(7);
+    {
+        let result = lw.layout_results.get_mut(&child).expect("the view's document");
+        let list = Arc::make_mut(&mut result.display_list);
+        let mut unbound = 0;
+        for index in 0..list.items.len() {
+            if list.node_mapping.get(index).copied().flatten() == Some(span)
+                && list.color_bindings.get(index).copied().flatten().is_some()
+            {
+                list.color_bindings[index] = None;
+                unbound += 1;
+            }
+        }
+        list.frame_index.clear();
+        assert_eq!(unbound, 1, "harness: the label had one bound rect");
+    }
+    if let Some(cache) = lw.child_layout_caches.get_mut(&child) {
+        cache.cached_display_list = None;
+    }
+    lw.frame_report.reset_counters();
+    drop(hover(&mut lw, child, 3, true));
+    assert_eq!(hover_painted(&lw, child), 1, "the hover is painted");
+    assert_eq!(
+        (lw.frame_report.dl_rebuilds, lw.frame_report.dl_node_patches),
+        (0, 1),
+        "by a run painted into the list"
+    );
+}
+
+/// A state colour that goes by value stays right through everything that can happen between
+/// an enter and a leave: a BUILD of the list (it paints the hover it is built under, and the
+/// leave after it is a value still), a layout PASS of the document (the same), and a build or
+/// a pass AFTER the leave (the colour does not come back).
+/// Mutations: `bind_state_colors` writing no value for a kept key (after a build the leave
+/// is right but a hover that began before the build shows the colour of the rest); the keys
+/// let go at every build as before A3-window-55 (`dl_node_patches` is not 0).
+#[test]
+fn a_state_colour_by_value_is_right_through_a_build_and_a_pass() {
+    use azul_css::props::{
+        basic::PixelValue, layout::dimensions::LayoutWidth, property::CssProperty,
+    };
+
+    use crate::overlay::{ContentChange, ContentDirtyTier};
+
+    let (mut lw, child) = label_window(40);
+    let at_rest = painted_lines(&lw, child);
+    lw.frame_report.reset_counters();
+
+    // Enter, a build in between, leave.
+    drop(hover(&mut lw, child, 9, true));
+    assert_eq!(hover_painted(&lw, child), 1, "the hover is painted");
+    lw.regenerate_display_list_for_dom(child);
+    assert_eq!(hover_painted(&lw, child), 1, "a built list paints the hover it is built under");
+    drop(hover(&mut lw, child, 9, false));
+    assert_eq!(painted_lines(&lw, child), at_rest, "the leave after a build");
+
+    // Enter and leave, then a build: the colour does not come back.
+    drop(hover(&mut lw, child, 10, true));
+    drop(hover(&mut lw, child, 10, false));
+    lw.regenerate_display_list_for_dom(child);
+    assert_eq!(painted_lines(&lw, child), at_rest, "a build after a leave");
+
+    // Enter, a layout pass of the document in between (label 1 gets another width), leave.
+    let pass = |lw: &mut LayoutWindow, width: f32| {
+        let tier = lw
+            .apply_content_change(ContentChange::NodeCss {
+                dom_id: child,
+                node_id: NodeId::new(3),
+                props: vec![CssProperty::width(LayoutWidth::Px(PixelValue::px(width)))],
+                override_only: false,
+            })
+            .tier;
+        assert_eq!(tier, ContentDirtyTier::Relayout, "premise: a width is a pass");
+    };
+    drop(hover(&mut lw, child, 9, true));
+    pass(&mut lw, 64.0);
+    assert_eq!(hover_painted(&lw, child), 1, "after a pass the hovered label is painted hovered");
+    drop(hover(&mut lw, child, 9, false));
+    assert_eq!(hover_painted(&lw, child), 0, "and the leave after a pass takes the colour");
+
+    // Enter and leave, then a pass: the colour does not come back with it.
+    drop(hover(&mut lw, child, 11, true));
+    drop(hover(&mut lw, child, 11, false));
+    pass(&mut lw, 66.0);
+    assert_eq!(hover_painted(&lw, child), 0, "a hover that went does not come back with a pass");
+
+    assert_eq!(
+        lw.frame_report.dl_node_patches, 0,
+        "every enter and leave above was a value: no run was painted into a list"
+    );
+    assert_eq!(color_keys(&lw, child), 40, "the keys are those of the labels, no more");
+}
+
+/// The data of the view of [`counted_label_page`]: how many labels it draws now.
+struct CountedLabels(Arc<AtomicUsize>);
+
+/// [`label_page`] with a number of labels that can change between two renders; every label
+/// has a hover colour and no background of its own.
+extern "C" fn counted_label_page(mut data: RefAny, _info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+    let count = data
+        .downcast_ref::<CountedLabels>()
+        .map(|labels| labels.0.load(Ordering::SeqCst))
+        .expect("the view's data");
+    let mut layer = Dom::create_div();
+    for i in 0..count {
+        layer = layer.with_child(Dom::create_span_with_text(format!("Label {i}")).with_css(&format!(
+            "position: absolute; left: {}px; top: {}px; width: 60px; height: 12px; font-size: \
+             12px; line-height: 1; white-space: pre; cursor: pointer; :hover {{ background: \
+             rgba(66, 134, 244, 0.35); }}",
+            10 + (i % 8) * 70,
+            10 + (i / 8) * 16,
+        )));
+    }
+    let window = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(600.0, 400.0));
+    VirtualViewReturn::with_dom(layer, window, window)
+}
+
+/// A label that is REMOVED while the pointer is over it (the view renders again without it)
+/// leaves no colour and no key behind, labels that come later get their keys, and a label
+/// of the new document is a value from its first enter. The keys of a document number its
+/// state-coloured nodes after every render, whatever was hovered.
+/// Mutation: `bind_state_colors` keeping the keys the cache holds (`retain_colors` removed):
+/// 12 keys after the render of 8 labels.
+#[test]
+fn a_label_removed_while_hovered_leaves_no_colour_and_no_key() {
+    let count = Arc::new(AtomicUsize::new(12));
+    let mut dom = Dom::create_body().with_css("margin: 0px;").with_child(
+        Dom::create_virtual_view(
+            RefAny::new(CountedLabels(count.clone())),
+            VirtualViewCallback::create(counted_label_page),
+        )
+        .with_css("position: absolute; left: 0px; top: 0px; width: 600px; height: 400px;"),
+    );
+    let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(600.0, 400.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    let view = |lw: &LayoutWindow| {
+        *lw.layout_results
+            .keys()
+            .find(|dom| **dom != DomId::ROOT_ID)
+            .expect("the view's document")
+    };
+    let child = view(&lw);
+    assert_eq!(color_keys(&lw, child), 12, "a key per label");
+
+    // The pointer is over the last label when the view renders again without it.
+    drop(hover(&mut lw, child, 11, true));
+    assert_eq!(hover_painted(&lw, child), 1, "harness: the last label is hovered");
+    count.store(8, Ordering::SeqCst);
+    render_the_view_again(&mut lw, &ws);
+    let child = view(&lw);
+    assert_eq!(
+        lw.layout_results[&child].styled_dom.node_count(),
+        17,
+        "harness: the view rendered 8 labels"
+    );
+    assert_eq!(hover_painted(&lw, child), 0, "no label is painted hovered");
+    assert_eq!(color_keys(&lw, child), 8, "the keys are those of the labels that are left");
+
+    // Four labels come back: each has its key and its rect, none is hovered.
+    count.store(12, Ordering::SeqCst);
+    render_the_view_again(&mut lw, &ws);
+    let child = view(&lw);
+    assert_eq!(color_keys(&lw, child), 12, "a key per label again");
+    assert_eq!(hover_painted(&lw, child), 0, "the label that came back is not hovered");
+    lw.frame_report.reset_counters();
+    drop(hover(&mut lw, child, 11, true));
+    assert_eq!(hover_painted(&lw, child), 1, "its hover is painted");
+    assert_eq!(
+        (lw.frame_report.dl_rebuilds, lw.frame_report.dl_node_patches),
+        (0, 0),
+        "by a value: the label was bound by the build of its document's list"
+    );
+}
+
+/// A state colour that FADES (the window's DOM: `animation: background`) changes no list
+/// either: the hover starts the fade and owes nothing else, every frame of the fade is the
+/// value of the node's key, and the key stays when the fade ends - so the leave and its
+/// fade back are values too. It was a build of the window's list per enter and per leave
+/// (the patch refused the unchanged run of a fading node) and a key minted and let go per
+/// fade.
+/// Mutations: the fade's end releasing the key of a state colour (`tick_animations`): the
+/// leave paints a run (`dl_node_patches` 1) or builds the list; a fading node sent to the
+/// patch as before (`dl_rebuilds` 1 at the enter).
+#[test]
+fn a_hover_that_fades_changes_no_list_from_its_first_frame() {
+    use azul_css::props::basic::color::ColorU;
+
+    let rest = ColorU {
+        r: 0xee,
+        g: 0xee,
+        b: 0xee,
+        a: 0xff,
+    };
+    let lit = ColorU {
+        r: 0x33,
+        g: 0x66,
+        b: 0xff,
+        a: 0xff,
+    };
+    let mut dom = Dom::create_body().with_css("margin: 0px;").with_child(Dom::create_div().with_css(
+        "width: 80px; height: 24px; background: #eeeeee; animation: background 160ms linear; \
+         :hover { background: #3366ff; }",
+    ));
+    let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(300.0, 200.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    let (root, node) = (DomId::ROOT_ID, NodeId::new(1));
+
+    // The colour the renderers fill the box with.
+    let shown = |lw: &LayoutWindow| {
+        let list = &lw.layout_results[&root].display_list;
+        let cache = lw.gpu_state_manager.caches.get(&root);
+        list.items.iter().enumerate().find_map(|(index, item)| {
+            if list.node_mapping.get(index).copied().flatten() != Some(node) {
+                return None;
+            }
+            let DisplayListItem::Rect { color, .. } = item else {
+                return None;
+            };
+            let value = list
+                .color_binding(index)
+                .and_then(|_| cache.and_then(|cache| cache.color_value(node)));
+            Some(value.unwrap_or(*color))
+        })
+    };
+    // The pointer enters or leaves the box, as the shell applies it (`apply_hover_restyle`).
+    let state_change = |lw: &mut LayoutWindow, enters: bool| {
+        let before = lw.node_states(root, [node]);
+        let (entered_nodes, left_nodes) = if enters {
+            (vec![node], Vec::new())
+        } else {
+            (Vec::new(), vec![node])
+        };
+        let restyled = lw
+            .layout_results
+            .get_mut(&root)
+            .expect("laid out")
+            .styled_dom
+            .restyle_on_state_change(
+                None,
+                Some(HoverChange {
+                    left_nodes,
+                    entered_nodes,
+                }),
+                None,
+            );
+        assert!(
+            lw.seed_state_change_transitions(root, &before, &restyled.changed_nodes),
+            "harness: the state change starts a fade (enters: {enters})"
+        );
+        assert!(
+            lw.patch_restyled_decorations(root, &restyled.changed_nodes),
+            "the restyle of a fading state colour owes no list (enters: {enters})"
+        );
+    };
+    // The frames of the next 0.4 s; a frame that owes a list is counted by `dl_rebuilds`.
+    let frames = |lw: &mut LayoutWindow| {
+        for _ in 0..24 {
+            let _ = lw.tick_animations(1.0 / 60.0);
+            if lw.take_animation_frame_work()
+                == azul_core::events::ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+            {
+                lw.regenerate_display_list_for_dom(root);
+            }
+        }
+    };
+
+    assert_eq!(shown(&lw), Some(rest), "harness: the box rests");
+    assert_eq!(color_keys(&lw, root), 1, "harness: the box has its key from the build");
+    let list = Arc::as_ptr(&lw.layout_results[&root].display_list);
+    lw.frame_report.reset_counters();
+
+    state_change(&mut lw, true);
+    assert_eq!(shown(&lw), Some(rest), "frame 0 of the fade holds the colour on screen");
+    frames(&mut lw);
+    assert!(lw.css_transitions.is_empty(), "harness: the fade is over");
+    assert_eq!(shown(&lw), Some(lit), "the box is painted in its hover colour");
+    assert_eq!(color_keys(&lw, root), 1, "the key of a state colour stays when its fade ends");
+
+    state_change(&mut lw, false);
+    frames(&mut lw);
+    assert!(lw.css_transitions.is_empty(), "harness: the fade back is over");
+    assert_eq!(shown(&lw), Some(rest), "and at rest again after the leave");
+
+    assert_eq!(
+        (lw.frame_report.dl_rebuilds, lw.frame_report.dl_node_patches),
+        (0, 0),
+        "no list was built or patched for the enter, the leave or a frame of either fade"
+    );
+    assert!(
+        core::ptr::eq(list, Arc::as_ptr(&lw.layout_results[&root].display_list)),
+        "the window's list is the allocation it was"
+    );
 }
 
 // -- A3-window-19: the generation of a DOM, and what is kept per generation (A3-window-05) ------
@@ -1814,6 +2310,7 @@ fn background_items_scanned() -> usize {
 /// walked once more, and only that list.
 #[test]
 fn a_frame_over_the_lists_of_the_frame_before_walks_no_item_for_callback_backgrounds() {
+    let _binding = BoundWhenPainted::on_this_thread();
     let (mut lw, child) = label_window(40);
     lw.image_cache.add_css_image_id(
         "probe".into(),
@@ -2808,5 +3305,6 @@ fn a_decoration_written_from_a_callback_is_painted_into_the_list() {
     assert_eq!(lw.frame_report.dl_rebuilds, 0, "no list was built");
     let patched = painted_lines(&lw, child);
     lw.regenerate_display_list_for_dom(child);
-    assert_eq!(patched, lines(&lw.layout_results[&child].display_list), "what a build gives");
+    // As the renderers paint both (a rect bound to a colour key in the key's value).
+    assert_eq!(patched, painted_lines(&lw, child), "what a build gives");
 }
