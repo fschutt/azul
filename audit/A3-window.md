@@ -1162,32 +1162,40 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
   all DOMs (the window's chains and `FontResolutions::of_children`) would let it run again.
 - `FontResolutions` holds 8 KB per DOM (`CharSet`) and a view's handful of font chains.
 
-## Handover for round 3 (the session that wrote this ran out of context)
-- **Done:** the merge into `audit/integration` is `f295e3c1a` (kept the integration form of `core/src/gpu.rs`;
-  the 23 notes checked against the stamped maps; the three `.entry()` writers of transform keys maps - the sheen
-  keys, the slides of the animation tick, `publish_live_sample` - use `ensure_transform_key` / `key_transform`
-  THERE, and `publish_live_sample` notes its opacity write THERE). Those four edits exist only in the merge
-  commit: this branch still has the plain-map form of `gpu.rs` from the cherry-pick `9c486a5a3`, so do not port
-  them back (they would not compile here).
-- **Not started, in the coordinator's order:** 11, 43, 38, 16, 32, then 14, 15, 27, 29, 36, 39, 42. Each block
-  above says what is missing; nothing of them is half-done in the tree (the working tree is clean).
-  - 11: `git cherry-pick -x 505c953ee` (A3-core-17; touches `solver3/display_list.rs` and
-    `audit_tests/a3_core.rs`), then add the arm for its new `EmitPhase` variant in `node_patch::locate`
-    (`solver3/display_list/node_patch.rs`, the `match phase`), then the patch as designed in the block of 11.
-  - 43: `update_drag_visual` (`window.rs`): for `dom_id != DomId::ROOT_ID` call
-    `self.regenerate_display_list_for_dom(dom_id)` and return `ShouldReRenderCurrentWindow`; the test needs a
-    node drag inside a view (`gesture_drag_manager`, A6's manager: read its test helpers first).
-  - 38: the whitelist is in `patch_restyled_decorations`; `color` needs the Text items of the node's content run
-    re-emitted (the run is tagged `(layout index, Content)`), `outline` is painted after the content.
-  - 16: `tick_animations`, the block that starts at `for (tr, rect) in self.css_transitions.iter_mut().zip(rects)`;
-    the copy per tick comes from `cached.5 = patched` keeping a second `Arc` of the root's list.
-- **Not read (item 3 of round 3):** `AnimationManager::tick`, `run_track_frames`, `dispatch_events_propagated`,
-  the unread parts of `apply_user_change` / `apply_system_change` (line ranges under "Not read"),
-  `layout_transient_content`.
-- The helpers this area uses for tests are in `layout/src/audit_tests/a3_window.rs` (`label_window`,
-  `moved_label_window`, `render_the_view_again`, `hover`, `boxes_page`) and the counters are `cfg(test)`
-  thread-locals in `window.rs` (`CSS_DIFF_WORK`, `FONT_RESOLUTIONS`, `SCROLLBAR_FADE_WORK`,
-  `BACKGROUND_ITEM_SCAN`, `LAYOUT_NODE_LOOKUPS`, `CALLBACK_IMAGE_SCAN`).
+## Handover for round 5 (round 4 stopped before its context ran out; everything of it is committed)
+
+Round 4 = commits `fd1230f3d` (the merge of `audit/integration` `480e156d8`) .. the tip. The working tree is clean.
+- **Done in round 4:** the trace "Why a full DOM rebuild is slow"; A3-window-14, -43, -44, -45, -46, -47; the
+  design "The diff-first pipeline" (step 1 built); A3-window-49 designed; the A4-23 text (under "Integration").
+- **The pipeline, next steps in order** (section "The diff-first pipeline", "Order of work and tests"): step 2
+  (own styles: split the `style` tier of `fingerprint_dom` into inline and sheets; the exit sits next to step
+  1.45 in `regenerate_layout` and, for a view, in `reconcile_rematerialized_child` beside
+  `reclaim_unchanged_child`), step 3 (the early pairing, tested against `reconcile_dom`'s moves before anything
+  reads it), 6, 5, 7, then 4 (the styling tables: read `core/src/prop_cache.rs` and
+  `css/src/compact_cache*.rs` IN FULL first; nothing of step 4 is started). The harness for every step is
+  `a_rebuild_down_the_diff_first_path_leaves_what_the_full_path_leaves` (dll, `headless/mod.rs`): add a mutation
+  kind per step and keep the switch `window::diff_first_enabled()` as the one gate.
+- **Rows still open, nothing half-done:** 11 (start: `git log audit/integration --grep 505c953ee` / A3-core-17
+  is in the merge: the `EmitPhase::Selection` arm of `node_patch::locate` may already be there - check
+  `layout/src/solver3/display_list/node_patch.rs` first), 38, 16, 32, 15, 27, 29, 36, 39, 42, 49. The starting
+  points of the round-3 hand-over still hold for 11, 38, 16 (they are in the blocks).
+- **Not read in round 4 either:** `AnimationManager::tick`, `run_track_frames`, `dispatch_events_propagated`,
+  `layout_transient_content`; of `apply_user_change` / `apply_system_change` only the arms around
+  `UpdateVirtualView`, `ChangeNodeCssProperties`, `SetNodeStyle`, `ScrollTo` (7330-7490) and the drag arms
+  (9262-9440) were read, with nothing found beyond A3-window-43 / -44.
+- **Read in full in round 4:** `regenerate_layout` (`dll/.../common/layout.rs` 237-1680), `incremental_relayout`,
+  `apply_runtime_states_before_layout`; `begin_reconciliation`; `apply_node_style_change`,
+  `apply_node_css_change`, `write_bound_gpu_properties`, `update_drag_visual`, `follow_host_in_kept_view`,
+  `layout_dom_recursive_with_viewport`, `regenerate_display_list_for_dom`, `patch_restyled_decorations`; the
+  restyle functions of `event.rs` (556-1171); `fingerprint_dom`, `transfer_states`; `layout_document` 745-1037
+  (the skips and the list cache); `core/src/gpu.rs` 36-640.
+- **Test helpers added:** dll `headless/mod.rs` `mod tests`: `a3w_texts_layout` / `a3w_texts_state` /
+  `a3w_texts_window` / `a3w_change` / `a3w_rebuild(window, diff_first)` / `a3w_dump` (the two-window equality
+  harness), `a3w_hover_left_of_subject_layout`, `a3w_ink_colour`; layout `audit_tests/a3_window.rs`:
+  `rects_page`, `reconciliation_of(first, next)`, `a_label_written_to_another_place`, `frames_under`.
+  The cascade count is `azul_core::styled_dom::compact_cache_rebuilds_on_this_thread()` (not `cfg(test)`).
+- **What a compile error in round 4 most likely is:** see the risk ranking of the final message; the tests in
+  `headless/mod.rs` use the harness's private helpers by name (`make_window_sized`, `step`, `node_with_class`).
 
 ## Integration
 - `9c486a5a3` on this branch is A3-core's `b37653684` cherry-picked (A3-core-08, `core/src/gpu.rs` +
@@ -1283,5 +1291,7 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
   `reconcile_webviews` after its first loop; `AnimationManager::tick`, `run_track_frames`,
   `node_groups_on_screen`, `extract_gpu_values`.
 - `event.rs`: `apply_user_change` and `apply_system_change` only in parts (6265-6722, 6898-7159, 7510-7999,
-  8156-8352, 8498-8771, 8772-9371 not read); `dispatch_events_propagated`.
+  8156-8352, 8498-8771, 8772-9261 not read; 7330-7490 and 9262-9440 read in round 4); `dispatch_events_propagated`.
+- Round 4 did not get to the per-frame ranges it was asked to read (`AnimationManager::tick`, `run_track_frames`,
+  `dispatch_events_propagated`, `layout_transient_content`): the diff-first task took their place.
 - `core/src/gpu.rs` (`synchronize_with_sizes`), `StyledDom::restyle_*`, the cascade: other areas.
