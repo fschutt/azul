@@ -11410,19 +11410,33 @@ where
         let mut ancestors: BTreeMap<NodeId, Vec<NodeId>> = BTreeMap::new();
         let mut box_paints: BTreeMap<NodeId, Option<super::getters::InlineBoxPaint>> =
             BTreeMap::new();
-        // Text node -> whether a span around it paints.
+        // Text node -> whether a span around it paints. A text without an
+        // inline box around it (the text of a label, straight in its block)
+        // is in neither map: nothing around it paints, which is what a
+        // missing entry says below, and its (empty) list of boxes is made
+        // again by whoever asks (`paint_inline_box_fragments`). Entering it
+        // cost every text block of a list two map nodes: 12,400 allocations
+        // for the 6,200 labels of a map.
         let mut in_painting_box: BTreeMap<NodeId, bool> = BTreeMap::new();
+        // The text of the run before: the runs of one text come in a row.
+        let mut last_text: Option<NodeId> = None;
         for run in glyph_runs {
             let Some(text) = run.source_node_id else {
                 continue;
             };
-            if in_painting_box.contains_key(&text) {
+            if last_text == Some(text) || in_painting_box.contains_key(&text) {
                 continue;
             }
+            last_text = Some(text);
             let boxes = self.inline_ancestors(text, ifc_root);
+            if boxes.is_empty() {
+                continue;
+            }
             let paints = boxes
                 .iter()
                 .any(|&b| self.inline_box_paint(b, &mut box_paints).is_some());
+            #[cfg(test)]
+            INLINE_BOX_MEMO_ENTRIES.with(|n| n.set(n.get() + 1));
             ancestors.insert(text, boxes);
             in_painting_box.insert(text, paints);
         }
@@ -12381,6 +12395,9 @@ fn get_scroll_content_size(node: &LayoutNodeHot, warm: Option<&LayoutNodeWarm>) 
 #[cfg(test)]
 thread_local! {
     pub(crate) static SCROLL_CHAIN_WALKS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    /// How many texts the inline content painter entered into its per-block
+    /// maps of inline boxes on this thread (texts with a box around them).
+    pub(crate) static INLINE_BOX_MEMO_ENTRIES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
 /// How often the selection and caret painters of this thread asked for a

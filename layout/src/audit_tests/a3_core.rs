@@ -13,8 +13,8 @@ use crate::{
     callbacks::ExternalSystemCallbacks,
     solver3::{
         display_list::{
-            DisplayList, DisplayListItem, EmitPhase, INLINE_LAYOUT_COPIES, SCROLL_CHAIN_WALKS,
-            TAG_LIST_READS,
+            DisplayList, DisplayListItem, EmitPhase, INLINE_BOX_MEMO_ENTRIES, INLINE_LAYOUT_COPIES,
+            SCROLL_CHAIN_WALKS, TAG_LIST_READS,
         },
         layout_tree::LayoutNodeId,
     },
@@ -977,4 +977,47 @@ fn between_a_boxes_background_run_and_its_content_run_a_build_emits_only_what_th
          run right after its background run"
     );
     assert!(background_end[plain].is_some(), "harness: the plain label paints both runs");
+}
+
+/// A3-core-11d: the inline content painter kept two maps per text block (text -> the inline
+/// boxes around it, text -> whether one of them paints) and entered every text into both: two
+/// map nodes allocated and freed per label of a map. A text that stands straight in its block
+/// has no box around it and is entered into neither; one inside a span still is, and the span's
+/// background is painted.
+#[test]
+fn a_text_without_an_inline_box_around_it_is_entered_into_no_map() {
+    let entries_for = |dom: Dom| {
+        INLINE_BOX_MEMO_ENTRIES.with(|n| n.set(0));
+        let lw = laid_out_with(dom, FcFontCache::build());
+        let texts = lw
+            .layout_results
+            .get(&DomId::ROOT_ID)
+            .expect("the root's layout")
+            .display_list
+            .items
+            .iter()
+            .filter(|item| matches!(item, DisplayListItem::Text { .. }))
+            .count();
+        (INLINE_BOX_MEMO_ENTRIES.with(std::cell::Cell::get), texts, lw)
+    };
+    // 40 labels: each text straight in its (absolutely positioned) span.
+    let (entries, texts, _) = entries_for(label_layer(40, 0));
+    assert!(texts >= 40, "harness: the labels' text is painted ({texts} runs)");
+    assert_eq!(entries, 0, "no label's text has an inline box around it");
+
+    // A paragraph whose text is inside a span with a background: 0 body, 1 p, 2 span, 3 text.
+    let (entries, texts, lw) = entries_for(
+        Dom::create_body().with_css("margin: 0px;").with_child(
+            Dom::create_p().with_child(
+                Dom::create_span_with_text("marked").with_css("background: #ffff00;"),
+            ),
+        ),
+    );
+    assert!(texts >= 1, "harness: the paragraph's text is painted");
+    assert_eq!(entries, 1, "the text inside the span is entered once");
+    let list = &lw.layout_results.get(&DomId::ROOT_ID).expect("the root's layout").display_list;
+    let yellow = list.items.iter().any(|item| {
+        matches!(item, DisplayListItem::Rect { color, .. } if (color.r, color.g, color.b) == (255, 255, 0))
+    });
+    assert!(yellow, "the span's background is painted");
 }
