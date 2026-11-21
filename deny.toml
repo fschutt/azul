@@ -26,6 +26,14 @@ ignore = [
     { id = "RUSTSEC-2026-0367", reason = "zip keeps SUID/SGID bits when extracting to disk. azul never extracts an archive to the filesystem (in-memory reads by index/name only), so no file is created with archive permissions. Fix: zip >= 9.0.0." },
     { id = "RUSTSEC-2026-0368", reason = "zip's ZipArchive::extract creates symlinks whose targets leave the destination. No caller of ZipArchive::extract exists in the tree; archives are read into memory. Fix: zip >= 9.0.0." },
     { id = "RUSTSEC-2026-0369", reason = "zip's extract() applies Unix permissions through extracted symlinks. No caller of extract() exists in the tree; archives are read into memory. Fix: zip >= 9.0.0." },
+    # ── Three more advisories on the same zip 2.4 and the same unreachable paths. The five users of
+    # zip 2.4 (azul-layout's optional `zip` feature, AzMaps, azul-search-index, and the third-party
+    # docx-parser / ooxml-common that AzWriter takes from git) all use default-features = false with
+    # deflate only, so `aes-crypto` is not enabled; none of them calls extract(), ZipStreamReader or a
+    # *_decrypt reader (checked in the sources of all five, 2026-11-21). ──
+    { id = "RUSTSEC-2026-0429", reason = "zip 2.4's ZipArchive::extract() sizes a symlink-target buffer from the declared entry size and can abort the process. No caller of extract() exists in the tree; archives are read into memory by index/name. Fix: zip >= 9.0.0." },
+    { id = "RUSTSEC-2026-0545", reason = "zip 2.4 hands out WinZip-AES entries without checking their authentication code when the data ends early. Reachable only through a password reader (ZipArchive::by_name_decrypt) with the `aes-crypto` feature: no user of zip 2.4 enables that feature or calls a *_decrypt reader. Fix: zip >= 9.0.0." },
+    { id = "RUSTSEC-2026-0548", reason = "zip 2.4's ZipStreamReader extracts under local-header names that can differ from the central directory. Nothing in the tree uses ZipStreamReader; archives are read into memory by index/name. Fix: zip >= 9.0.5." },
     # ── Unmaintained — no known vulnerability; deep-transitive in third-party
     # crates we don't own. Tracked, with fix paths noted. ──
     { id = "RUSTSEC-2025-0141", reason = "bincode 1.3.3/2.0.1 — team ceased development; 1.3.3 is declared a complete/stable release. Transitive via webrender 0.62, hyphenation (build dep), and rust-fontconfig. Migrating off it (postcard/…) needs upstream changes in those crates." },
@@ -35,6 +43,12 @@ ignore = [
     { id = "RUSTSEC-2026-0372", reason = "zvariant_derive unmaintained: merged into zbus 6 (no vulnerability). Same path as RUSTSEC-2026-0370 (zbus 5: the dll's D-Bus clients and accesskit_unix)." },
     { id = "RUSTSEC-2024-0436", reason = "paste 1.0.15 archived (-> pastey). Transitive via nokhwa, netlink-packet-core, and rustls-rustcrypto-azul. Build-time macro only, no runtime/security impact; awaiting upstreams to migrate." },
     { id = "RUSTSEC-2024-0449", reason = "unsafe-libyaml 0.2.11 unmaintained. Pulled only by serde_yaml 0.9 in azul-doc, the build and docs tool that is never shipped; it parses the repo's own front matter and FUNDING.yml, no untrusted YAML. Fix path: move azul-doc to a maintained YAML reader." },
+    { id = "RUSTSEC-2026-0543", reason = "chrono 0.4 unmaintained (no vulnerability; the advisory names no safe upgrade and suggests jiff or time). azul-layout takes it as an optional dependency (std, clock) for date and time formatting; azul-doc and the example apps use it directly. Fix path: move those callers to jiff or time, a design decision not taken yet." },
+    { id = "RUSTSEC-2026-0555", reason = "chrono-tz unmaintained, the same family as RUSTSEC-2026-0543 (no vulnerability, no safe upgrade). Reached only through AzClock and ironcalc_base; azul-dll and azul-layout do not reach it." },
+    # ── Bundled SQLite of AzStorage's optional `sql` feature (an example crate; azul-dll and azul-layout
+    # do not reach it). sqlx-sqlite 0.8.6 pins libsqlite3-sys ^0.30.1, so the fix (>= 0.39.0) needs
+    # sqlx 0.9, a major-version move of the OpenDAL SQL services that feature is built on. ──
+    { id = "RUSTSEC-2026-0459", reason = "libsqlite3-sys 0.30.1 bundles SQLite before 3.54.0, which can return uninitialised page-cache memory for a database file whose -wal file has another page size. Only a process that opens such a pair written by a less trusted party is exposed: here that is the example apps' DatabaseDrive (examples/azul-storage, feature `sql`) on files the user points it at. Fix: libsqlite3-sys >= 0.39.0, i.e. sqlx 0.9." },
 ]
 
 [licenses]

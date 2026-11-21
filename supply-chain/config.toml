@@ -244,8 +244,9 @@ version = "2.5.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.async-executor]]
-version = "1.14.0"
+version = "1.14.1"
 criteria = "safe-to-deploy"
+notes = "replaces 1.14.0, which crates.io yanked (the supply-chain preflight refuses yanked versions); pulled by zbus 5 and accesskit_unix; the diff from 1.14.0 was not read."
 
 [[exemptions.async-io]]
 version = "2.6.0"
@@ -1995,8 +1996,9 @@ criteria = "safe-to-deploy"
 notes = "Microsoft's Lepton (Apache-2.0), azlin-compress's JPEG transform; #![forbid(unsafe_code)]; pinned exactly because the stored format depends on it (examples/azlin-compress/FORMAT.md); not read beyond its API and header writer."
 
 [[exemptions.lettre]]
-version = "0.11.23"
+version = "0.11.24"
 criteria = "safe-to-deploy"
+notes = "0.11.24 (published 2026-11-17, younger than the 14-day cooldown on purpose) is the fix for RUSTSEC-2026-0560 to 0565 (STARTTLS reply injection, dot-stuffing after a bare LF or CR, an EHLO panic, a quoted local part, a display-name panic, unbounded reply buffering); used by AzMail and azul-mail-core only; the diff from 0.11.23 was not read."
 
 [[exemptions.levenshtein_automata]]
 version = "0.2.1"
