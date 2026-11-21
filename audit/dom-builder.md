@@ -475,6 +475,8 @@ waveform (media controls) looks and seeks as without it.
   tree is `git merge-tree --write-tree b8258caa9 205bf0d6d` plus the resolution.
 - `bff367635` dom-builder-05: the two calls in `regenerate_layout`, `flat_expansions_on_this_thread`, the dll test.
 - `617fd509c` dom-builder-06: the view's site calls `fingerprint_built_dom_against`.
+- dom-builder-06b (the commit after the notes'): `Dom::set_children` expands flat children through an owned vector
+  (`into_library_owned_vec`), not through `as_mut` of a list that may not be library-allocated.
 
 **Tests to run** (core first; each names what it guards in its doc comment):
 - `cargo test -p azul-core --lib audit_dom_builder_tests` (six tests; this test binary now has a counting

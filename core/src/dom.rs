@@ -7602,9 +7602,13 @@ impl Dom {
         // `Dom` carried flat are the ones being replaced.
         let mut children = children;
         if children.iter().any(Self::is_flat) {
-            for child in children.as_mut().iter_mut() {
+            // Through an owned vector: a list that is not library-allocated is copied
+            // first instead of being written where it lies.
+            let mut owned = children.into_library_owned_vec();
+            for child in &mut owned {
                 child.expand_flat();
             }
+            children = owned.into();
         }
         if let Some(extra) = self.root.existing_extra_fields_mut() {
             extra.flat = None;
