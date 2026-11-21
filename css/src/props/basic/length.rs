@@ -218,11 +218,21 @@ impl FloatValue {
         }
     }
 
+    /// `value` to the NEAREST thousandth (a half away from zero: `0.0005`
+    /// is `0.001`, `-0.0005` is `-0.001`). `NaN` is 0, an infinity or a
+    /// value past the range the nearest bound, as the cast has them.
+    ///
+    /// It used to cut the fourth decimal off: a value a float operation
+    /// left one step under a thousandth lost that whole thousandth - a
+    /// scale of `0.99999994` (a zoom in and back out) became `0.999`, which
+    /// is no identity for a renderer, and 923 of the three-decimal texts
+    /// between -20 and 100 (`"0.251"`, `"2.001"`, ...) parsed one
+    /// thousandth short.
     #[inline]
     #[must_use]
     pub fn new(value: f32) -> Self {
         Self {
-            number: crate::cast::f32_to_isize(value * FP_PRECISION_MULTIPLIER),
+            number: crate::cast::f32_to_isize(libm::roundf(value * FP_PRECISION_MULTIPLIER)),
         }
     }
 
@@ -754,20 +764,49 @@ mod autotest_generated {
 
     #[test]
     fn float_value_new_underflows_subnormals_to_zero() {
-        // Anything below 1/1000 truncates away entirely.
+        // Anything below half of 1/1000 rounds away entirely.
         assert_eq!(FloatValue::new(f32::MIN_POSITIVE).number(), 0);
         assert_eq!(FloatValue::new(1e-30).number(), 0);
-        assert_eq!(FloatValue::new(0.0009).number(), 0);
+        assert_eq!(FloatValue::new(0.0004).number(), 0);
+        assert_eq!(FloatValue::new(-0.0004).number(), 0);
     }
 
+    /// A2-cpu-24 (was `float_value_new_truncates_toward_zero_not_to_nearest`,
+    /// which pinned the truncation): the encoding is the NEAREST thousandth,
+    /// a half away from zero, on both sides of zero.
     #[test]
-    fn float_value_new_truncates_toward_zero_not_to_nearest() {
-        // Encoding is `(v * 1000) as isize`, i.e. truncation — 0.0019 must NOT
-        // round up to 0.002, and the negative side must truncate toward zero too.
-        assert_eq!(FloatValue::new(0.0019).number(), 1);
-        assert_eq!(FloatValue::new(0.0019).get(), 0.001);
-        assert_eq!(FloatValue::new(-0.0019).number(), -1);
-        assert_eq!(FloatValue::new(-0.0019).get(), -0.001);
+    fn float_value_new_rounds_to_the_nearest_thousandth() {
+        // One float step under 1 (a zoom in and back out): 999.99994 -> 1000.
+        assert_eq!(FloatValue::new(0.999_999_94).number(), 1000);
+        assert_eq!(FloatValue::new(0.999_999_94).get(), 1.0);
+        // 4/3: 1333.3334 -> 1333.
+        assert_eq!(FloatValue::new(1.333_333_4).number(), 1333);
+        // 2/3: 666.6667 -> 667 (was 666).
+        assert_eq!(FloatValue::new(2.0 / 3.0).number(), 667);
+        // -0.6 -> -1, 0.4 -> 0.
+        assert_eq!(FloatValue::new(-0.0006).number(), -1);
+        assert_eq!(FloatValue::new(-0.0006).get(), -0.001);
+        assert_eq!(FloatValue::new(0.0004).number(), 0);
+        // 1.9 -> 2 and -1.9 -> -2 (were 1 and -1).
+        assert_eq!(FloatValue::new(0.0019).number(), 2);
+        assert_eq!(FloatValue::new(0.0019).get(), 0.002);
+        assert_eq!(FloatValue::new(-0.0019).number(), -2);
+        assert_eq!(FloatValue::new(-0.0019).get(), -0.002);
+        // Exactly a half (0.0005_f32 * 1000 is 0.5 in f32): away from zero.
+        assert_eq!(FloatValue::new(0.0005).number(), 1);
+        assert_eq!(FloatValue::new(-0.0005).number(), -1);
+        // A decimal text of three places is the number it says (the first
+        // four were stored one thousandth short: 250, 1003, 2000, -16382).
+        for (text, number) in [
+            ("0.251", 251),
+            ("1.004", 1004),
+            ("2.001", 2001),
+            ("-16.383", -16383),
+            ("0.7", 700),
+        ] {
+            let value: f32 = text.parse().expect("a float");
+            assert_eq!(FloatValue::new(value).number(), number, "{text}");
+        }
     }
 
     #[test]
