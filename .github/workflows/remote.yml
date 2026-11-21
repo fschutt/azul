@@ -43,6 +43,10 @@ on:
         description: 'Paths to upload when the command is done (globs, one per line); the log is always uploaded'
         type: string
         default: ''
+      codegen:
+        description: 'Generate the bindings first (cargo run -r -p azul-doc codegen all): azul-dll does not build without them'
+        type: boolean
+        default: false
       tag:
         description: 'Free text that ends up in the run name (scripts/remote.sh puts a unique one there to find its run)'
         type: string
@@ -107,6 +111,10 @@ jobs:
           key: remote-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ steps.key.outputs.command }}
           restore-keys: |
             remote-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+
+      - name: Generate the bindings
+        if: inputs.codegen
+        run: cargo run -r -p azul-doc codegen all
 
       - name: Run the command
         shell: bash

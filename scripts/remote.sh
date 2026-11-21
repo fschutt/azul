@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # remote.sh: run a command on a GitHub-hosted runner (.github/workflows/remote.yml) instead of on this machine.
 #
-#   scripts/remote.sh run <ref> <runner> '<command>' [--artifacts '<globs>']   dispatch; prints the run id and its URL
+#   scripts/remote.sh run <ref> <runner> '<command>' [--codegen] [--artifacts '<globs>']   dispatch; prints the run id and URL
+#       --codegen generates the bindings first (cargo run -r -p azul-doc codegen all): ANY command that builds azul-dll
+#       (cargo test -p azul-dll ..., cargo check -p azul-dll ...) needs it
 #   scripts/remote.sh status <id>                                               queued | in_progress | success | failure
 #   scripts/remote.sh wait <id>                                                 poll until it is done; exit 0 when it succeeded
 #   scripts/remote.sh log <id> [lines]                                          the end of the log (default 150 lines), also while it runs
@@ -23,19 +25,19 @@ case "$cmd" in
     [ $# -ge 3 ] || { echo "usage: remote.sh run <ref> <runner> '<command>' [--artifacts '<globs>']" >&2; exit 2; }
     ref="$1"; os="$2"; command="$3"; shift 3
     artifacts=""
+    codegen="false"
     while [ $# -gt 0 ]; do
       case "$1" in
         --artifacts) shift; artifacts="${1:-}";;
+        --codegen) codegen="true";;
         *) echo "unknown option $1" >&2; exit 2;;
       esac
       shift
     done
     tag="r$(date +%s)$$"
-    if [ -n "$artifacts" ]; then
-      gh workflow run remote.yml --repo "$REPO" --ref master -f ref="$ref" -f os="$os" -f command="$command" -f tag="$tag" -f artifacts="$artifacts"
-    else
-      gh workflow run remote.yml --repo "$REPO" --ref master -f ref="$ref" -f os="$os" -f command="$command" -f tag="$tag"
-    fi
+    args=(-f ref="$ref" -f os="$os" -f command="$command" -f tag="$tag" -f codegen="$codegen")
+    [ -n "$artifacts" ] && args+=(-f artifacts="$artifacts")
+    gh workflow run remote.yml --repo "$REPO" --ref master "${args[@]}"
     id=""
     for _ in $(seq 1 40); do
       id="$(gh run list --repo "$REPO" --workflow remote.yml --limit 30 --json databaseId,displayTitle \
