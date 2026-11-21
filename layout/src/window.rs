@@ -2870,6 +2870,23 @@ fn scrollbar_fade_work(boxes: usize) {
 #[inline(always)]
 const fn scrollbar_fade_work(_boxes: usize) {}
 
+/// How many steps `LayoutWindow::get_node_layout_rect` took on this thread to find a node's
+/// box (one per call now): what a test reads to say the lookup does not walk the tree.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static LAYOUT_NODE_LOOKUPS: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn layout_node_lookup(steps: usize) {
+    LAYOUT_NODE_LOOKUPS.with(|work| work.set(work.get() + steps));
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+const fn layout_node_lookup(_steps: usize) {}
+
 #[cfg(test)]
 fn css_diff_types(compared: usize) {
     CSS_DIFF_WORK.with(|work| {
@@ -20220,11 +20237,16 @@ impl LayoutWindow {
             let _ = (0xE5_000002u32 | ((layout_tree.nodes.len() as u32 & 0xff) << 8));
         }
 
-        // Find the layout node index corresponding to this DOM node
-        let Some(layout_idx) = layout_tree
-            .nodes
-            .iter()
-            .position(|node| node.dom_node_id == target_node_id)
+        // The first box of this DOM node, by the tree's own index of its nodes' boxes (the
+        // lists are filled in the order the boxes are made, so the smallest index is the
+        // one a scan from the front finds). Every call scanned the layout nodes for it:
+        // 12,470 compares for a label of a map view, and nodes x nodes for an app that asks
+        // for each of its nodes. No node (`None`) is no box - the scan answered the first
+        // ANONYMOUS box for it, a rect that belongs to no node.
+        layout_node_lookup(1);
+        let Some(layout_idx) = target_node_id
+            .and_then(|node| layout_tree.dom_to_layout.get(&node))
+            .and_then(|boxes| boxes.iter().map(|b| b.index()).min())
         else {
             {
                 let _ = (0xE5_0000FFu32);

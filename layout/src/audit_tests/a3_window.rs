@@ -1430,3 +1430,44 @@ fn css_dirt_held_beside_the_slot_is_taken_by_its_own_doms_pass() {
         "the window's pass took what waited for it"
     );
 }
+
+// -- A3-window-30: a node's layout rect ---------------------------------------------------------
+
+/// The rect of a node is found by the tree's index of its boxes: one step per call, whatever
+/// the size of the view (it was a scan of every layout node), and the box it finds is the
+/// one `get_node_bounds` reads. No node has no rect.
+#[test]
+fn a_nodes_layout_rect_is_found_without_a_walk_of_the_layout_tree() {
+    use azul_core::{dom::DomNodeId, styled_dom::NodeHierarchyItemId};
+
+    for labels in [40, 160] {
+        let (lw, child) = label_window(labels);
+        let last = NodeId::new(1 + 2 * (labels - 1));
+        crate::window::LAYOUT_NODE_LOOKUPS.with(|work| work.set(0));
+        let rect = lw
+            .get_node_layout_rect(DomNodeId {
+                dom: child,
+                node: NodeHierarchyItemId::from_crate_internal(Some(last)),
+            })
+            .expect("the last label has a box");
+        assert_eq!(
+            crate::window::LAYOUT_NODE_LOOKUPS.with(core::cell::Cell::get),
+            1,
+            "{labels} labels: one lookup"
+        );
+        let bounds = lw.get_node_bounds(child, last).expect("the last label has a box");
+        assert_eq!(
+            (rect.origin.x as isize, rect.origin.y as isize),
+            (bounds.origin.x, bounds.origin.y),
+            "the same box as `get_node_bounds`"
+        );
+        assert_eq!(
+            lw.get_node_layout_rect(DomNodeId {
+                dom: child,
+                node: NodeHierarchyItemId::from_crate_internal(None),
+            }),
+            None,
+            "no node, no rect (it was the rect of the first anonymous box)"
+        );
+    }
+}
