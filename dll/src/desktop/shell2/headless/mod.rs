@@ -14933,6 +14933,125 @@ mod tests {
         );
     }
 
+    // --- A style a callback wrote, and the rebuild it asked for (a slider's drag) -------------
+    //
+    // `set_css_property` from a callback writes the node's own style on the KEPT arena, and
+    // the shell lays out once, in the rebuild the callback asked for. The exits that keep the
+    // styled DOM compare the app's two BUILDS: for them the written node is "what it was",
+    // and telling the solver so (`dom_diff_clean`) made it take over the fingerprint from
+    // before the write - the written style was never laid out, from the first rebuild on
+    // that came without a state change (`dragging_the_slider_leaves_no_thumb_behind`).
+
+    /// The app state of [`dfw_layout`]: how often the pad's handler ran.
+    struct DfwMoves(usize);
+
+    /// The pad's handler: slides the pad's first child with `set_css_property(margin-left)`,
+    /// 10 px per call, counts the call and asks for a rebuild - what a slider does on every
+    /// move of a drag in an app that refreshes on change. The app does not store the margin:
+    /// the DOM it builds next differs from the one before in the caption's text alone.
+    extern "C" fn dfw_on_move(
+        mut data: RefAny,
+        mut info: azul_layout::callbacks::CallbackInfo,
+    ) -> azul_core::callbacks::Update {
+        use azul_css::props::{layout::LayoutMarginLeft, property::CssProperty};
+        let moves = match data.downcast_mut::<DfwMoves>() {
+            Some(mut state) => {
+                state.0 += 1;
+                state.0
+            }
+            None => return azul_core::callbacks::Update::DoNothing,
+        };
+        let pad = info.get_hit_node();
+        if let Some(knob) = info.get_first_child(pad) {
+            info.set_css_property(
+                knob,
+                CssProperty::const_margin_left(LayoutMarginLeft::const_px(10 * moves as isize)),
+            );
+        }
+        azul_core::callbacks::Update::RefreshDom
+    }
+
+    /// `body > (div > "moves: N"), (div.dfw-pad[MouseMove] > div.dfw-knob)`: the caption is
+    /// 20 px high whatever it says, the pad 300 x 100 below it, the knob 10 x 10 at the pad's
+    /// top left.
+    extern "C" fn dfw_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_core::events::{EventFilter, HoverEventFilter};
+        let moves = data
+            .downcast_ref::<DfwMoves>()
+            .map(|state| state.0)
+            .expect("app state");
+        Dom::create_body()
+            .with_css("margin: 0px; font-size: 14px;")
+            .with_child(Dom::create_div().with_css("height: 20px;").with_child(
+                Dom::create_text_do_not_use_without_block_level_wrapper(format!("moves: {moves}")),
+            ))
+            .with_child(
+                Dom::create_div()
+                    .with_class("dfw-pad".into())
+                    .with_css("width: 300px; height: 100px; background: #dddddd;")
+                    .with_callback(
+                        EventFilter::Hover(HoverEventFilter::MouseMove),
+                        data.clone(),
+                        dfw_on_move as usize,
+                    )
+                    .with_child(
+                        Dom::create_div()
+                            .with_class("dfw-knob".into())
+                            .with_css("width: 10px; height: 10px; background: #333333;"),
+                    ),
+            )
+    }
+
+    /// The pointer walks along the bottom of the pad (away from the knob: after it entered,
+    /// no node's state changes); every move slides the knob by a write from the handler and
+    /// rebuilds a DOM in which only the caption's text is new. After every move the knob
+    /// stands where the handler put it - down the full path, with the step `text` alone, and
+    /// with every step.
+    #[test]
+    fn a_style_a_callback_wrote_is_laid_out_by_the_rebuild_it_asked_for() {
+        use azul_layout::window::DiffFirstStep;
+
+        let knob_x = |window: &HeadlessWindow| {
+            rects_by_class(window, "dfw-knob").first().map(|r| r.origin.x)
+        };
+        let all = DiffFirstStep::ALL;
+        let paths: [&[DiffFirstStep]; 3] = [&[], &[DiffFirstStep::Text], &all];
+        for steps in paths {
+            azul_layout::window::set_diff_first_steps_on_this_thread(Some(steps));
+            let state = Arc::new(RefCell::new(RefAny::new(DfwMoves(0))));
+            let mut window = make_window_sized(&state, dfw_layout, 400.0, 200.0);
+            window.regenerate_layout().expect("initial layout");
+            window.regenerate_layout().expect("settle");
+            let _ = window.common.take_regeneration();
+            let start = knob_x(&window).expect("the knob is laid out");
+            let mut calls_per_move = Vec::new();
+            let mut before = 0;
+            for (i, x) in [100.0_f32, 120.0, 140.0, 160.0, 180.0].into_iter().enumerate() {
+                step(&mut window, HeadlessEvent::MouseMove { x, y: 100.0 });
+                let moves = state
+                    .borrow_mut()
+                    .downcast_ref::<DfwMoves>()
+                    .map(|state| state.0)
+                    .unwrap_or(0);
+                calls_per_move.push(moves - before);
+                before = moves;
+                assert_eq!(
+                    knob_x(&window),
+                    Some(start + 10.0 * moves as f32),
+                    "steps {steps:?}, move {i}: the handler ran {moves} times and wrote a \
+                     margin of {} px, the knob is not there",
+                    10 * moves
+                );
+            }
+            azul_layout::window::set_diff_first_steps_on_this_thread(None);
+            assert!(
+                calls_per_move[2..].iter().all(|calls| *calls >= 1),
+                "premise (steps {steps:?}): the handler runs on every move inside the pad \
+                 ({calls_per_move:?})"
+            );
+        }
+    }
+
     // --- diff first, step `view`: a VirtualView's document that renders again ----------------
     //
     // A map view after a pan: its labels are keyed boxes, absolutely positioned by their own

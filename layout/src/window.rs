@@ -3276,6 +3276,11 @@ pub struct DomGenerations {
     /// indices of the `Image` items found then
     /// (`LayoutWindow::invoke_background_image_callbacks_into_overlay`).
     image_items: BTreeMap<DomId, ((u64, u64), Vec<usize>)>,
+    /// Per DOM: the generation its last LAYOUT PASS gave it ([`Self::bump_for_pass`]). While
+    /// it is the DOM's generation, nothing wrote the DOM since that pass
+    /// ([`Self::written_since_pass`]): the fingerprints the pass left on the layout tree's
+    /// nodes describe the arena as it is.
+    laid_out_at: BTreeMap<DomId, u64>,
 }
 
 impl DomGenerations {
@@ -3291,6 +3296,23 @@ impl DomGenerations {
         self.of.insert(dom_id, self.clock);
     }
 
+    /// [`Self::bump`] by a layout pass that installed `dom_id`'s result: the generation it
+    /// hands out is the one the DOM was last laid out at.
+    fn bump_for_pass(&mut self, dom_id: DomId) {
+        self.bump(dom_id);
+        self.laid_out_at.insert(dom_id, self.clock);
+    }
+
+    /// Whether `dom_id` was WRITTEN since its last layout pass: its generation moved without
+    /// a pass (a style or a property a callback wrote, a clip mask, a reshaped text: the
+    /// writers listed on [`DomGenerations`]). Also `true` for a DOM no pass has laid out.
+    fn written_since_pass(&self, dom_id: DomId) -> bool {
+        match (self.of.get(&dom_id), self.laid_out_at.get(&dom_id)) {
+            (Some(now), Some(at_pass)) => now != at_pass,
+            _ => true,
+        }
+    }
+
     /// Lets go of everything kept for a DOM that has no result in `live`.
     fn forget_all_but(&mut self, live: &BTreeMap<DomId, DomLayoutResult>) {
         self.of.retain(|dom_id, _| live.contains_key(dom_id));
@@ -3299,6 +3321,8 @@ impl DomGenerations {
         self.list_revisions
             .retain(|dom_id, _| live.contains_key(dom_id));
         self.image_items
+            .retain(|dom_id, _| live.contains_key(dom_id));
+        self.laid_out_at
             .retain(|dom_id, _| live.contains_key(dom_id));
     }
 
@@ -10260,7 +10284,7 @@ impl LayoutWindow {
                         scroll_id_to_node_id: self.layout_cache.scroll_id_to_node_id.clone(),
                     },
                 );
-                self.note_dom_changed(dom_id);
+                self.note_dom_laid_out(dom_id);
             }
             return Ok(());
         }
@@ -11062,7 +11086,7 @@ impl LayoutWindow {
             },
         );
         // The DOM has another layout result: its generation moves.
-        self.note_dom_changed(dom_id);
+        self.note_dom_laid_out(dom_id);
 
         // Caret / selection tween post-pass: compare the freshly built caret /
         // selection geometry against what the previous frame rendered and, if
@@ -11225,6 +11249,29 @@ impl LayoutWindow {
     /// [`DomGenerations`]); a new such site calls it too.
     pub fn note_dom_changed(&mut self, dom_id: DomId) {
         self.dom_generations.bump(dom_id);
+    }
+
+    /// [`Self::note_dom_changed`] by a layout pass that just installed `dom_id`'s result
+    /// (the two inserts of `layout_dom_recursive_impl`): the DOM is as that pass read it.
+    fn note_dom_laid_out(&mut self, dom_id: DomId) {
+        self.dom_generations.bump_for_pass(dom_id);
+    }
+
+    /// Whether something WROTE `dom_id` since its last layout pass - a property or a style
+    /// a callback set on a node (`set_css_property` writes the node's own style on the
+    /// retained arena, `set_node_style` replaces it), a clip mask, a text reshaped in place
+    /// (every writer moves the DOM's generation: [`DomGenerations`]).
+    ///
+    /// What a rebuild must ask before it tells the layout "this node is the node it was"
+    /// (`LayoutCache::dom_diff_clean`): the layout then takes over the fingerprint its last
+    /// pass computed for the node, and that fingerprint is older than the write. A rebuild
+    /// compares the app's two BUILDS, which know nothing of what a callback wrote onto the
+    /// kept arena in between - a slider that slides its thumb with `set_css_property` and
+    /// whose app rebuilds on every change left the thumb where it was from the second move
+    /// on. A written DOM is fingerprinted node by node, as without a diff.
+    #[must_use]
+    pub fn dom_written_since_its_pass(&self, dom_id: DomId) -> bool {
+        self.dom_generations.written_since_pass(dom_id)
     }
 
     /// Shared per-frame content preparation for CPU-presented frames.
@@ -14244,6 +14291,13 @@ impl LayoutWindow {
 
         // Whether the styles of the DOM the callback built moved since its last build.
         let mut styles_moved = false;
+        // Whether a callback wrote the view's document since its last pass, read before
+        // anything below takes or replaces the document (a document that has none yet
+        // counts as written: nothing is known of it).
+        let written_since_its_pass = self
+            .virtual_view_manager
+            .get_nested_dom_id(parent_dom_id, node_id)
+            .is_none_or(|child| self.dom_written_since_its_pass(child));
         // Step `view` of the diff-first pipeline: the DOM comes out of the match below
         // UNSTYLED and is styled after its nodes are paired with the render before
         // (`reconcile_rematerialized_child`), with the sheets hung on the nodes of both
@@ -14448,9 +14502,14 @@ impl LayoutWindow {
         };
         // Step `view`: the nodes that are what they were under the id they had, for the
         // reconcile of the pass below (a layout cache that was just dropped lays out cold).
-        if let (Some(clean), Some(cache)) =
-            (layout_clean, self.child_layout_caches.get_mut(&child_dom_id))
-        {
+        // Not for a document a callback wrote since its last pass
+        // (`dom_written_since_its_pass`, read before the render took the document:
+        // `written_since_its_pass`): the fingerprints of its boxes are older than the write.
+        if let (Some(clean), Some(cache), false) = (
+            layout_clean,
+            self.child_layout_caches.get_mut(&child_dom_id),
+            written_since_its_pass,
+        ) {
             cache.dom_diff_clean = Some(clean);
         }
 

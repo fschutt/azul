@@ -736,6 +736,11 @@ pub fn regenerate_layout(
     // unchanged" exit below may keep the retained layout; the pass lays out
     // as a new generation instead.
     let overlay_retires = layout_window.rebuild_must_lay_out();
+    // Whether a callback wrote the window's kept DOM since its last layout pass (a style or
+    // a property set on a node of the retained arena): read before any exit lays it out.
+    // The exits that keep the DOM hand the solver no "this node is what it was" then.
+    let written_since_its_pass =
+        layout_window.dom_written_since_its_pass(azul_core::dom::DomId::ROOT_ID);
     let precascade_skip = match (&precascade, layout_window.last_dom_fingerprints.as_ref()) {
         (Some((fp, _)), Some(prev)) => {
             !theme_rebuild
@@ -1010,8 +1015,13 @@ pub fn regenerate_layout(
 
         // The diff, handed to the solver: a node is clean when it and its ancestors are what
         // they were. Not when a state came with the rebuild: the solver reads the states of
-        // the nodes it fingerprints, and this diff does not know them.
-        if !states_changed {
+        // the nodes it fingerprints, and this diff does not know them. And not when a
+        // callback WROTE the kept DOM since its last pass (`set_css_property`,
+        // `set_node_style`: `dom_written_since_its_pass`): the diff compares the app's two
+        // builds, the solver would take over a fingerprint from before the write for a node
+        // the diff calls clean, and the written style was never laid out - a slider's thumb
+        // stopped following the pointer.
+        if !states_changed && !written_since_its_pass {
             let n = retained.node_data.as_ref().len();
             let hierarchy = retained.node_hierarchy.as_container();
             let mut clean = vec![true; n];
@@ -1172,8 +1182,9 @@ pub fn regenerate_layout(
 
         // The diff, handed to the solver: a node the changes do not reach is what it was.
         // Not when a state came with the rebuild: the solver reads the states of the nodes it
-        // fingerprints, and this diff does not know them.
-        if !states_changed {
+        // fingerprints, and this diff does not know them. Nor when a callback wrote the kept
+        // DOM since its last pass (see exit 1.45).
+        if !states_changed && !written_since_its_pass {
             layout_window.layout_cache.dom_diff_clean =
                 Some(reached.iter().map(|reached| !*reached).collect());
         }
@@ -1898,10 +1909,13 @@ pub fn regenerate_layout(
     // its nodes from the reconciliation itself, whatever the node count: the nodes that
     // are what they were under the id they had. The layout takes the fingerprint each of
     // them had; with the count changed it used to hash every node again.
-    if let Some(clean) = kept_rows
-        .take()
-        .filter(|clean| clean.len() == styled_dom.node_data.as_ref().len())
-    {
+    // Not when a callback wrote the kept DOM since its last pass (`written_since_its_pass`):
+    // these flags compare the two ARENAS, and a node the app now builds exactly as the
+    // callback had written it reads alike in both while the layout's fingerprint of it is
+    // from before the write.
+    if let Some(clean) = kept_rows.take().filter(|clean| {
+        !written_since_its_pass && clean.len() == styled_dom.node_data.as_ref().len()
+    }) {
         layout_window.layout_cache.dom_diff_clean = Some(clean);
     } else if let (Some((new_fp, _)), Some(prev_fp)) = (&precascade, &prev_dom_fingerprints) {
         let n = styled_dom.node_data.as_ref().len();
