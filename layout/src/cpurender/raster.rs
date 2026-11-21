@@ -4658,7 +4658,8 @@ pub fn refresh_retained_surfaces(
         .map(|list| std::sync::Arc::as_ptr(list) as usize)
         .collect();
     for mut entry in retained.take_stale(&current) {
-        let repaired = (|| -> Option<Result<(), String>> {
+        // (`Ok(true)`: a box of the surface was painted again.)
+        let repaired = (|| -> Option<Result<bool, String>> {
             // The picture of an opacity group is not repaired box by box: dropped, and the
             // group is painted (and kept) by the next walk that reaches it.
             if entry.fade {
@@ -4731,12 +4732,14 @@ pub fn refresh_retained_surfaces(
             }
             entry.key.list = std::sync::Arc::as_ptr(&new) as usize;
             entry.list = new;
-            Some(Ok(()))
+            Some(Ok(!boxes.is_empty()))
         })();
         match repaired {
-            Some(Ok(())) => {
+            Some(Ok(repainted)) => {
                 count(Counter::RetainedPatched, 1);
-                retained.put_back(entry);
+                // (The stamp of the surface's pixels moves only when a box was painted again:
+                // A10's `## For area A1`, 7 (d).)
+                retained.put_back(entry, repainted);
             }
             Some(Err(e)) => {
                 count(Counter::RetainedInvalidations, 1);
