@@ -2214,11 +2214,13 @@ pub(crate) fn bitmap_source_rect(
 /// commas; unknown words are ignored). Everything here changes what AppKit is
 /// asked to do, which no headless test sees: so each has a word, and the
 /// defaults are stated with their reasons in `audit/A10.md`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct CpuPresentOptions {
-    /// `cgimage`: draw the dirty part straight from the framebuffer through a
-    /// `CGImage` over its memory, instead of copying the rows into an
-    /// `NSBitmapImageRep` and drawing that (A10-06). Default OFF.
+    /// Draw the dirty part straight from the framebuffer through a `CGImage`
+    /// over its memory (A10-06, A10-25): the view keeps ONE copy of the frame
+    /// and copies no row to present. Default ON; the word `bitmap` turns it
+    /// off: the rows are then copied into an `NSBitmapImageRep` (a second
+    /// buffer of the frame's size) and that is drawn, as before.
     pub cgimage: bool,
     /// `twice`: mark the frame's rects as needing display even when the
     /// `drawRect:` that rendered the frame draws them itself, as before
@@ -2227,17 +2229,39 @@ pub(crate) struct CpuPresentOptions {
     pub twice: bool,
 }
 
-/// `AZ_CPU_PRESENT=cgimage,twice` as options.
+impl Default for CpuPresentOptions {
+    fn default() -> Self {
+        Self {
+            cgimage: true,
+            twice: false,
+        }
+    }
+}
+
+/// `AZ_CPU_PRESENT=bitmap,twice` as options.
 pub(crate) fn parse_cpu_present_options(value: &str) -> CpuPresentOptions {
     let mut options = CpuPresentOptions::default();
     for word in value.split(',') {
         match word.trim() {
+            "bitmap" => options.cgimage = false,
             "cgimage" => options.cgimage = true,
             "twice" => options.twice = true,
             _ => {}
         }
     }
     options
+}
+
+/// How many buffers of the frame's size the CPU view itself holds: the
+/// framebuffer, and with `bitmap` the `NSBitmapImageRep` its rows are copied
+/// into. (AppKit's backing store of the view's layer is one more, in every
+/// mode.) On the user's display, 2940 x 1912 px = 22.5 MB each.
+pub(crate) fn view_frame_buffers(options: CpuPresentOptions) -> usize {
+    if options.cgimage {
+        1
+    } else {
+        2
+    }
 }
 
 /// The process's [`CpuPresentOptions`], read once.
@@ -2642,7 +2666,8 @@ pub(crate) enum CgDraw {
 /// `to` of the current graphics context, 1:1, WITHOUT copying them first: a
 /// `CGImage` is laid over the framebuffer's memory, the span is cut out of it
 /// (`CGImageCreateWithImageInRect`: a view into the same memory) and drawn
-/// with `CGContextDrawImage` in copy mode (A10-06, `AZ_CPU_PRESENT=cgimage`).
+/// with `CGContextDrawImage` in copy mode (A10-06; the default,
+/// `AZ_CPU_PRESENT=bitmap` turns it off).
 ///
 /// The rect an image is cut by is in the image's own pixels, origin at its
 /// TOP-left (the first row of its bytes), so the span needs no flip there;
@@ -3193,7 +3218,7 @@ define_class!(
             // as needing display is a new one.
             ivars.drawing_spans.borrow_mut().clear();
 
-            // A10-06, `AZ_CPU_PRESENT=cgimage`: AppKit draws the dirty part
+            // A10-06 (the default; `AZ_CPU_PRESENT=bitmap` is the other): AppKit draws the dirty part
             // straight from the framebuffer (a `CGImage` over its memory): no
             // rows are copied, and no bitmap is kept beside the framebuffer.
             let mut drawn_from_framebuffer = false;
@@ -3234,7 +3259,7 @@ define_class!(
                 core::mem::forget(core::mem::replace(&mut *fb, copy));
                 log_error!(
                     LogCategory::Rendering,
-                    "[CPUView] AZ_CPU_PRESENT=cgimage: Core Graphics held the framebuffer's image \
+                    "[CPUView] present from the framebuffer: Core Graphics held the framebuffer's image \
                      after the draw; presenting through the bitmap from now on"
                 );
             }
@@ -12518,17 +12543,36 @@ mod audit_a10_tests {
         assert_eq!(parse_cpu_present_options(""), CpuPresentOptions::default());
         assert_eq!(
             CpuPresentOptions::default(),
-            CpuPresentOptions { cgimage: false, twice: false },
-            "the defaults: through the bitmap, each frame presented once"
+            CpuPresentOptions { cgimage: true, twice: false },
+            "the defaults: straight from the framebuffer, each frame presented once"
         );
         assert_eq!(
-            parse_cpu_present_options("cgimage"),
-            CpuPresentOptions { cgimage: true, twice: false }
+            parse_cpu_present_options("bitmap"),
+            CpuPresentOptions { cgimage: false, twice: false }
         );
         assert_eq!(
-            parse_cpu_present_options(" twice , cgimage,nonsense"),
-            CpuPresentOptions { cgimage: true, twice: true }
+            parse_cpu_present_options(" twice , bitmap,nonsense"),
+            CpuPresentOptions { cgimage: false, twice: true }
         );
+        assert_eq!(parse_cpu_present_options("bitmap,cgimage").cgimage, true);
+    }
+
+    /// A10-25 (A9's count). The CPU view kept the frame twice (framebuffer and
+    /// bitmap), AppKit's backing store is a third copy: on the user's display
+    /// (2940 x 1912 px, 22.5 MB a copy) 67 MB, plus the compositor's root
+    /// layer 90 MB. Presenting straight from the framebuffer, the view keeps
+    /// it once: 45 MB with the backing store.
+    ///
+    /// Mutation: the bitmap path as the default keeps two.
+    #[test]
+    fn the_cpu_view_keeps_the_frame_once() {
+        assert_eq!(view_frame_buffers(CpuPresentOptions::default()), 1);
+        assert_eq!(view_frame_buffers(parse_cpu_present_options("bitmap")), 2);
+        let frame_bytes = 2940_usize * 1912 * 4;
+        assert_eq!(frame_bytes, 22_485_120);
+        // The view's buffers plus AppKit's backing store.
+        assert_eq!((view_frame_buffers(CpuPresentOptions::default()) + 1) * frame_bytes, 44_970_240);
+        assert_eq!((view_frame_buffers(parse_cpu_present_options("bitmap")) + 1) * frame_bytes, 67_455_360);
     }
 
     /// A10-13. A frame rendered INSIDE `drawRect:` (no display link, every
@@ -12733,7 +12777,7 @@ mod audit_a10_tests {
         }
     }
 
-    /// A10-06, `AZ_CPU_PRESENT=cgimage`, on Core Graphics itself (offscreen).
+    /// A10-06, the default present, on Core Graphics itself (offscreen).
     /// The same 8 x 6 frame and dirty rect as the bitmap test: the span is
     /// drawn straight from the frame's memory, no row copied, and lands in
     /// the same place; and after the draw nothing holds the frame's memory.
@@ -12797,8 +12841,8 @@ mod audit_a10_tests {
     #[test]
     fn a_pan_frame_copies_the_clip_through_the_bitmap_and_nothing_with_cgimage() {
         let clip = (100, 2940, 76, 1876);
-        assert_eq!(present_copy_bytes(CpuPresentOptions::default(), clip), 20_448_000);
-        assert_eq!(present_copy_bytes(parse_cpu_present_options("cgimage"), clip), 0);
+        assert_eq!(present_copy_bytes(parse_cpu_present_options("bitmap"), clip), 20_448_000);
+        assert_eq!(present_copy_bytes(CpuPresentOptions::default(), clip), 0);
     }
 
     /// A10-18. A GPU frame that was rendered and flushed is never "no
