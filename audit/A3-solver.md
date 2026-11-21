@@ -110,9 +110,9 @@ frequency for the editor's loads). One row per finding id; the text blocks below
 | A3-solver-14 | waste | `positioning.rs` `position_out_of_flow_elements`, `cache.rs` `calculate_layout_for_subtree_fragment` | high | fixed 93cf4a98a | `a_pass_for_a_paragraph_lays_out_no_interior_of_the_labels_beside_it` and three more |
 | A3-solver-14b | waste | `positioning.rs` the solve of every absolute box in every pass | medium | fixed f8e1e7c73 | `a_pass_for_a_paragraph_solves_none_of_the_labels_beside_it`, `labels_that_moved_are_solved_again` |
 | A3-solver-15 | quadratic | `fc/bfc.rs` Pass 1 position vector | low | fixed 4eabd302a | `the_first_pass_of_a_block_borrows_its_position_vector_from_the_pass` |
-| A3-solver-15b | quadratic | `fc/table_rows.rs`, `fc/table_columns.rs`, `fc/table.rs` temp position vectors | low | open: the table passes still make a vector per call; same pool as 15 | - |
+| A3-solver-15b | quadratic | `fc/table_rows.rs`, `fc/table_columns.rs`, `fc/table.rs` temp position vectors | low | open: `fc/table_rows.rs:256`, `fc/table_columns.rs:394`, `fc/table.rs:909` each make a `PositionVec` per call; lend it from `ctx.pass_memo.bfc` (`BfcPassMemo::lend` / `take_back`, as `layout_bfc` Pass 1 does: `fc/bfc.rs`) - `take_back` needs the list of the boxes that were sized with it | - |
 | A3-solver-16 | quadratic | `fc/ifc.rs` `static_positions_of` | low | fixed 640fefd1b | `the_static_places_of_many_boxes_in_one_paragraph_are_read_off_one_listing_of_its_items` |
-| A3-solver-16b | quadratic | `fc/ifc.rs` `inline_static_place_in_tree` (footnotes, columns) | low | open: one expansion and scan per footnote / column anchor; paged media only | - |
+| A3-solver-16b | quadratic | `fc/ifc.rs` `inline_static_place_in_tree` (footnotes, columns) | low | open: `fc::inline_static_place_in_tree` (callers `footnotes.rs:655`, `columns.rs:431`) expands the layout and scans it once per footnote / column anchor; build `StaticPlaces` (640fefd1b, `fc/ifc.rs`) once per inline formatting context and ask it per anchor; paged media only | - |
 | A3-solver-17 | waste | `taffy_bridge.rs` width-only answers | high | fixed b27f65a88 | `a_nested_flex_row_answers_each_width_question_of_a_first_layout_once` |
 | A3-solver-17b | waste | `taffy_bridge.rs` measure spill | medium | fixed 9d4637c90 | `the_measurement_a_second_store_evicts_is_found_in_the_second_way` |
 | A3-solver-17c | waste | `taffy_bridge.rs` `set_final_layout_current(node, false)` on every measure | medium | blocked (a): a measure in the taffy bridge writes the tree's final state (sizes, offsets, inline layout, per-node caches); keeping the final layout current across a computed measure needs side-effect-free measures; design below | - |
@@ -125,9 +125,9 @@ frequency for the editor's loads). One row per finding id; the text blocks below
 | A3-solver-22 | waste | `layout_tree.rs` paint runs of measures | medium | fixed 318d1a97d | `a_measure_of_a_table_cell_builds_no_paint_runs` |
 | A3-solver-23 | waste | `fc/white_space.rs` plain text | low | fixed 16395bc3e | `white_space.rs` tests of the helper (see the commit) |
 | A3-solver-24 | waste | `layout_tree.rs` / `cache.rs` a kept node cloned twice | medium | fixed 7b39826e2 | `ifc.rs` count test (with 1ee264920: revert both) |
-| A3-solver-25 | waste | `layout_tree.rs` `dom_to_layout: BTreeMap<NodeId, Vec<..>>` | low | open: one heap `Vec` per DOM node and a map rebuild per `build`; the public type is read by window.rs and display_list.rs | - |
+| A3-solver-25 | waste | `layout_tree.rs` `dom_to_layout: BTreeMap<NodeId, Vec<..>>` | low | open: step 1 (in `layout_tree.rs` alone): the builder's map holds `Vec<LayoutNodeId>` from the start, so `build` moves it instead of rebuilding the `BTreeMap` (5 push sites, 3 read sites, 3 test assertions; `LayoutNodeId` is `repr(transparent)` over `usize`). Step 2 (one heap `Vec` per DOM node) changes the public type of `LayoutTree::dom_to_layout`, read at about 150 sites in 40 files of four areas: to do after the merge, as `enum One/Many` with `Deref<Target = [LayoutNodeId]>` and `From<Vec<LayoutNodeId>>` | - |
 | A3-solver-26 | waste | `sizing.rs` dirty closure as a hash set | low | fixed 4909c9d07 | `sizing.rs` tests of the helper (see the commit) |
-| A3-solver-27 | quadratic | `positioning.rs` nested shifted relative boxes | low | open: one subtree walk per shifted ancestor; a single walk adds the offsets in another order | - |
+| A3-solver-27 | quadratic | `positioning.rs` nested shifted relative boxes | low | open: `positioning::shift_if_relatively_positioned` shifts the whole subtree of each shifted box, so a box under k shifted ancestors is moved k times; one walk that carries the sum of the shifts adds them in another order (p + (d1 + d2) instead of (p + d1) + d2), which is not bit-identical: decide the order (sum first is the simpler statement of CSS 2.2 9.4.3) and accept the golden dumps moving in the last digit, or keep it | - |
 | A3-solver-28 | n x depth | several (list below) | low | checked: fine | - |
 | A3-solver-29 | wrong-output | `cache.rs` `reposition_block_flow_siblings` | medium | fixed b66f75aca | `a_clean_sibling_keeps_its_place_in_a_bordered_box_when_its_neighbour_is_laid_out_again` and two more |
 | A3-solver-30 | waste | `cache.rs` `lift_to_slot_container` | medium | fixed 949321484 | `a_restyled_label_is_laid_out_without_its_layer` |
@@ -147,16 +147,16 @@ frequency for the editor's loads). One row per finding id; the text blocks below
 | A3-solver-35h | waste | `widgets/node_graph.rs` per-node property lists | low | fixed fe18a2172 | `the_box_of_a_node_declares_its_constants_from_one_slice_and_boxes_no_shadow` |
 | A3-solver-41 | waste | `cache.rs` `reconcile_node` (inset-only moves; solver half of A3-window-08) | high | fixed 36b4c0248 | `labels_that_only_moved_and_turned_keep_their_boxes_and_stand_as_in_a_fresh_layout` |
 | A3-solver-42 | waste | `mod.rs` / `fc/ifc.rs` / `sizing.rs` fonts asked per IFC (A8-13) | medium | fixed 58f61dce6 | `a_pass_asks_the_font_manager_for_its_fonts_once` (sizing half: f83fec4f7) |
-| A3-solver-42b | waste | `regions.rs`, `display_list.rs` font asks | low | open: `regions.rs:1617` still asks the font manager per region chain; display_list.rs is A3-core's | - |
+| A3-solver-42b | waste | `regions.rs`, `display_list.rs` font asks | low | fixed 903e5fa66 | none of its own (needs a named-flow page); `a_pass_asks_the_font_manager_for_its_fonts_once` pins the function it now calls |
 | A3-solver-43 | wrong-output | `positioning.rs` relative offset added again per incremental pass | medium | fixed 283a32482 | `a_relatively_positioned_box_beside_a_re_laid_one_is_not_shifted_again` and two more |
 | A3-solver-44 | wrong-output | `positioning.rs` `adjust_sticky_positions` outside re-laid subtrees | medium | fixed e193ca69f | `a_sticky_box_beside_a_re_laid_one_keeps_its_static_place_for_later_scrolls` ([reveals] 9943af97e; with 88ad0aa7b) |
 | A3-solver-45 | wrong-output | `positioning.rs` relative offset inside an absolute box | medium | fixed aeb67d400 | `a_relatively_positioned_box_inside_an_absolute_one_stands_at_its_offset` ([reveals] be2c9aff1) |
 | A3-solver-46 | wrong-output | `positioning.rs` static position read back from the final one | low | fixed a3ddc3b26 | `a_box_at_its_static_position_in_an_rtl_block_does_not_drift_by_its_margin` ([reveals] 318ecf506) |
-| A3-solver-47 | wrong-output | `sizing.rs` marker of an absolutely positioned list item | low | open: the `::marker` box carries its item's DOM node and counts as out of flow in three places | - |
-| A3-solver-48 | wrong-output | `sizing.rs` inside markers not in intrinsic widths | low | open: a shrink-to-fit list item with `list-style-position: inside` is sized without its marker | - |
-| A3-solver-49 | wrong-output | `getters.rs` spacing fallback `Px(0)` vs `PxF(0.0)` | low | open: a hovered node's text style differs from its resting one with no rule involved | - |
+| A3-solver-47 | wrong-output | `sizing.rs` marker of an absolutely positioned list item | low | checked: fine | - |
+| A3-solver-48 | wrong-output | `sizing.rs` inside markers not in intrinsic widths | low | fixed 352e773e8 | `a_shrink_to_fit_list_item_is_as_wide_as_its_inside_marker_and_its_text` |
+| A3-solver-49 | wrong-output | `getters.rs` spacing fallback `Px(0)` vs `PxF(0.0)` | low | fixed 48f11a9ba | `getters::audit_a3_solver_tests::a_hovered_node_has_the_spacings_it_has_at_rest` |
 | A3-solver-50 | waste | `sizing.rs` / `fc/ifc.rs` / `text3/cache/shaping_cache.rs` an IFC shaped twice per pass (A8-06 hand-over) | medium | fixed 011b0043c | `the_layout_of_a_label_takes_what_its_measure_shaped` |
-| A3-solver-51 | wrong-output | `fc/table_rows.rs` overflow of a shifted cell | low | open: reads the retired sentinel's default overflow instead of the kept one | - |
+| A3-solver-51 | wrong-output | `fc/table_rows.rs` overflow of a shifted cell | low | fixed b805defbd | `a3_solver::ifc::a_cell_moved_down_in_its_row_keeps_the_bounds_of_its_lines` |
 | A3-solver-52 | wrong-output | `mod.rs` root loop / `cache.rs` `process_out_of_flow_children` (static position of a layout root's out-of-flow children) | medium | fixed d14e782a9 | `a_box_at_its_static_position_follows_the_flow_of_a_parent_laid_out_again` ([reveals] 5a31c9af8) |
 | A3-solver-53 | wrong-output | `positioning.rs` a sticky box inside an absolutely positioned box | low | open: the positioning pass derives the positions below an absolute box from the flow again and the sticky shift goes with them (as 45 for relative); needs the sticky step for those boxes after the box is placed | - |
 
@@ -775,4 +775,69 @@ To keep the final current across a COMPUTED measure, a measure must leave the tr
 5. Tests: the existing `flex_items_keep_the_size_their_container_gave_them` family (they pin what a measure must
    not leak into the final) plus a count test: a flex row of text items laid out twice with one probe in
    between runs each item's final once.
+
+### Third round, part 3 (48, 49, 51, 42b; 47 closed; A8-13)
+
+- **48** `352e773e8`: the intrinsic measure opens with the markers of `markers_on_first_line`, as the layout's
+  collection does. Golden dumps: `ic=` of list items with `list-style-position: inside` grows by the marker.
+- **49** `48f11a9ba`: `spacing_of_px`: zero spacing is `Spacing::default()` on both read paths.
+- **51** `b805defbd`: one field (`cached_layout.overflow` for `cached_layout.layout.overflow`).
+- **42b** `903e5fa66`: `regions.rs` reads `ctx.loaded_fonts()`.
+- **47** checked: fine. The three predicates of `sizing.rs` that take a `::marker` box of an absolutely positioned
+  list item for out of flow (`adds_nothing_to_its_parent`, `process_layout_children`,
+  `sole_inline_content_child`) give the numbers they would give otherwise: a marker box holds no intrinsic size
+  of its own (0 / 0; its content is its line's, 48) and no edges, a marker on a line is passed by the second arm
+  of `adds_nothing_to_its_parent` anyway, and `sole_inline_content_child` answers `None` either way. If a marker
+  box ever gets sizes or edges of its own, put `!fc::is_marker_box(tree, idx) &&` in front of the three tests.
+- **A8-13** (the coordinator's second note): done as A3-solver-42 (`58f61dce6`, `f83fec4f7`, `903e5fa66`).
+  `LayoutContext::loaded_fonts()` fills `pass_memo.loaded_fonts` at the FIRST ask of a context, so no refresh is
+  needed after `FontManager::extend_chains_for_content`: its one caller (`window.rs`, the relayout after an edit)
+  extends the chains before it builds the context that lays the paragraph out. The two asks left are
+  `display_list.rs:9848` and `:10647` (`self.ctx.font_manager.get_loaded_fonts()`), A3-core's file: they can
+  read `self.ctx.loaded_fonts()` at the merge.
+
+## Hand-over (the context of this agent ran long; written for whoever continues)
+
+### Open rows and where to start
+
+See the table: 15b, 16b, 25, 27 (low, each with its starting point in the status cell) and 53 (low): a sticky box
+inside an absolutely positioned box - `position_out_of_flow_elements` derives the positions below the box from
+the flow after the sticky step ran; the fix is the shape of 45: after `shift_relative_descendants` call a
+`shift_sticky_descendants` that runs the per-box body of `adjust_sticky_positions_of` (to be extracted like
+`shift_if_relatively_positioned`) for the boxes below the placed box and RETURNS their constraints, which
+`layout_document` must merge into the ones it stores (`warm.sticky`); the positioning pass has no channel for
+that yet (it returns `()`): give it a `&mut Vec<(usize, StickyConstraint)>`.
+Blocked (a), designs above: 34 (lazy picker panel), 35b (pan as one transform per container), 17c
+(side-effect-free measures in the taffy bridge).
+
+### What the merge into `audit/integration` must do
+
+1. `core/src/diff.rs` conflicts: my branch's only change to that file is the cherry-pick `bdecb2813` of
+   A3-window's `f57838478`. Take integration's file whole (`git checkout --theirs` in a merge of my branch INTO
+   integration means: keep integration's side); nothing of mine is lost. `cache::reconcile_node` reads
+   `NodeChangeSet::AFFECTS_LAYOUT` and `INLINE_STYLE_INSETS` from it: check both names still exist.
+2. `LayoutContext` literals: every one needs `pass_memo: Default::default(),` - A3-window's second literal
+   (`patch_restyled_decorations` in `window.rs`) and any literal another area added.
+3. A3-core's `PxSlot` (box slots as `i32` thousandths): `getters::style_inputs_of` (20b, `f56165e9d`) tests
+   `dims.padding_top / _right / _bottom / _left != 0` and `dims.margin_left / _right != 0` on the compact row:
+   use the slot type's zero test. Its text slots (`line_height`, `letter_spacing`, `word_spacing`, `tab_size`
+   as `i16`, `font_size` as `u32`) are tier-2b / cold fields: check they are unchanged. No other raw box-slot
+   read was added on this branch (`git diff audit/base HEAD | grep _raw` is empty for sizing.rs and
+   taffy_bridge.rs).
+4. `DOM_HAS_*`: this branch adds no flag bit (it reads three existing ones in `style_inputs_of`).
+5. `display_list.rs`: `DisplayListGenerator`'s two `get_loaded_fonts()` asks -> `self.ctx.loaded_fonts()`.
+6. Un-ignore `labels_that_only_moved_keep_their_boxes_when_the_shell_rebuilds_the_page`
+   (`audit_tests/a3_solver.rs`): A3-window's css-diff half is in integration (`072419824`).
+7. A8's `0a88603d3` changed two resolvers in my files (four lines each): keep them; my `spacing_of_px` (49)
+   and `style_inputs_of` (20b) are in other functions of `getters.rs`.
+8. `text3/cache/shaping_cache.rs`: my split of `measure_intrinsic_widths` (50) is between A8's hunks; if git
+   reports a conflict there, the resolution is A8's file with `measure_intrinsic_widths` ending in
+   `Ok(Self::intrinsic_widths_of_shaped(shaped_items, constraints, loaded_fonts))` and the scan as the body of
+   that new function.
+9. Revert pairs, if the verification pass rejects one half: 24 (`1ee264920` + `7b39826e2`), 44 (`e193ca69f` +
+   `88ad0aa7b`), 19b before 32 (`a74109c49`, then `1e8fd3a32`), 14b before 14 (`f8e1e7c73`, then `93cf4a98a`).
+   Each `[reveals]` commit stays; its fix is the commit after it (45, 46, 52, 44, 32).
+10. Expected to move in the golden dumps: `ic=` of four documents (32, listed in `1e8fd3a32`), `ic=` of list
+    items with inside markers (48), positions of relatively positioned boxes inside absolutely positioned ones
+    (45).
 
