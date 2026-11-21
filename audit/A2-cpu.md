@@ -212,7 +212,10 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
 - file:line `compositor.rs:5607-5624` (base), `display_list.rs:3461` - class: wrong-output (missed damage) - severity: medium
   (a halo's colour or width changes: idle frame in the window's list; in a view only when something else changed too)
 - test: `a2_cpu_05_a_changed_text_shadow_is_not_an_idle_frame`
-- status: fixed `f47353dc3` (the diff returns `None` for such a pair)
+- status: fixed `f47353dc3` (the diff returns `None` for such a pair: the window, or the view's box, is repainted).
+  Coarse on purpose (blind). Finer, if a shadow changes often (a pressed text's highlight follows the light,
+  `shadow_following_light`): keep a stack of "this shadow changed, reach r" through the paired walk and damage each
+  `Text` under it at `bounds()` widened by `r` (`text_shadow_reach`), old and new.
 
 ### A2-cpu-06 one clip, six ways to round it
 - file:line see the table "P -> D" - class: rounding - severity: low at dpi 1 / 2 (whole device edges), visible at 1.25 / 1.5
