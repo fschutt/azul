@@ -9,14 +9,13 @@
 use azul_layout::probe::Probe;
 
 use crate::{
-    a_one_box_slide_does_not_re_lay_out_the_page::{count, restore_ambient_recording, window},
+    a_one_box_slide_does_not_re_lay_out_the_page::{count, window},
     accordion_animation::{click, node_with_class},
     an_accordion_frame_does_not_re_lay_out_the_page::{accordion_page, step},
 };
 
 #[test]
 fn an_accordion_tween_frame_builds_its_display_list_once() {
-    let _serialised = crate::probe_lock();
     if !Probe::enabled() {
         eprintln!("[an_accordion_tween_frame] the probe is compiled out: nothing to count");
         return;
@@ -32,11 +31,11 @@ fn an_accordion_tween_frame_builds_its_display_list_once() {
     );
 
     for frame in 0..3 {
-        Probe::set_recording(true);
+        let recording = Probe::record_on_this_thread(true);
         let _ = Probe::drain();
         step(&mut lw);
         let events = Probe::drain();
-        Probe::set_recording(false);
+        drop(recording);
         let passes = count(&events, "root_layout_pass");
         let builds = count(&events, "dl_generate");
         let full_rebuilds = count(&events, "dl_regenerate_full");
@@ -50,5 +49,4 @@ fn an_accordion_tween_frame_builds_its_display_list_once() {
              full rebuilds after the pass): one build per frame"
         );
     }
-    restore_ambient_recording();
 }

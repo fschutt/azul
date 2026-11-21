@@ -164,6 +164,10 @@ pub struct DebugRequest {
     /// Discover the live ids with the `list_doms` op.
     pub dom_id: Option<u64>,
     pub response_tx: mpsc::Sender<DebugResponseData>,
+    /// What the op answered with, as JSON, written by [`send_ok`] and read by the executor
+    /// ([`process_debug_event`]) once the op returned: the window's session keeps it for
+    /// `print_response`. Per request, so it needs no slot of the process to live in.
+    pub answered: Mutex<Option<String>>,
 }
 
 /// Where a debug request goes ([`route_debug_request`]).
@@ -202,69 +206,217 @@ pub fn route_debug_request(target: Option<&str>, me: u64, windows: &[(u64, Strin
     }
 }
 
-/// The windows with a debug timer: `(slot, window id)` in registration order.
+/// What the windows of ONE debug server share: the registry of the windows that have a debug timer
+/// (`(slot, window id)` in registration order), the requests handed over between them, the numbers
+/// they and the requests are given, and the wake the server thread raises when it queues a request.
+///
+/// An object, so that a test owns one and no other test moves its registry, its flag or its
+/// counters. The process has ONE ([`process_debug_hub`]), on purpose: the debug server is one per
+/// application (`AZ_DEBUG` is a process-level service), and what reads the wake - the desktop run
+/// loops' app-event collector, the loop wakers - is process-level too and has no handle to ask.
 #[cfg(feature = "std")]
-fn debug_windows() -> &'static Mutex<Vec<(u64, String)>> {
-    static WINDOWS: OnceLock<Mutex<Vec<(u64, String)>>> = OnceLock::new();
-    WINDOWS.get_or_init(|| Mutex::new(Vec::new()))
+pub struct DebugHub {
+    /// The windows with a debug timer, in registration order.
+    windows: Mutex<Vec<(u64, String)>>,
+    /// The requests handed over to a window, by slot.
+    forwarded: Mutex<BTreeMap<u64, VecDeque<DebugRequest>>>,
+    /// The slot the next window registers under.
+    next_slot: AtomicU64,
+    /// The id the next request is given.
+    next_request_id: AtomicU64,
+    /// Set by [`Self::announce_request`], cleared by [`Self::take_wake`].
+    wake: AtomicBool,
+    /// Counts [`Self::announce_request`]s, so that EVERY window sees each one
+    /// ([`Self::take_wake_for`]) - the flag above is taken by whichever loop looks first.
+    wake_generation: AtomicU64,
+    /// Every loop that wants to hear about a queued request: the desktop run loops'
+    /// `loop_waker::wake` (registered by the dll at debug-server setup), a headless window's
+    /// condvar.
+    wakers: Mutex<Vec<Arc<dyn Fn() + Send + Sync>>>,
 }
 
-/// The requests handed over to a window, by slot.
 #[cfg(feature = "std")]
-fn forwarded_debug_requests() -> &'static Mutex<BTreeMap<u64, VecDeque<DebugRequest>>> {
-    static FORWARDED: OnceLock<Mutex<BTreeMap<u64, VecDeque<DebugRequest>>>> = OnceLock::new();
-    FORWARDED.get_or_init(|| Mutex::new(BTreeMap::new()))
+impl core::fmt::Debug for DebugHub {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("DebugHub")
+            .field("windows", &self.windows)
+            .field("wake_generation", &self.wake_generation)
+            .finish_non_exhaustive()
+    }
 }
 
-/// Registers a window's debug timer under a new slot.
+#[cfg(feature = "std")]
+impl Default for DebugHub {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "std")]
+impl DebugHub {
+    /// A hub with no window, no request and no waker.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            windows: Mutex::new(Vec::new()),
+            forwarded: Mutex::new(BTreeMap::new()),
+            next_slot: AtomicU64::new(1),
+            next_request_id: AtomicU64::new(1),
+            wake: AtomicBool::new(false),
+            wake_generation: AtomicU64::new(0),
+            wakers: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Registers a window's debug timer under a new slot.
+    fn register_window(&self, window_id: &str) -> u64 {
+        let slot = self.next_slot.fetch_add(1, Ordering::SeqCst);
+        if let Ok(mut windows) = self.windows.lock() {
+            windows.push((slot, window_id.to_string()));
+        }
+        slot
+    }
+
+    /// A window's debug timer is gone (the window closed): its slot leaves the registry, and the
+    /// requests still waiting for it are answered.
+    fn unregister_window(&self, slot: u64) {
+        if let Ok(mut windows) = self.windows.lock() {
+            windows.retain(|(s, _)| *s != slot);
+        }
+        for request in self.take_forwarded_requests(slot) {
+            send_err(&request, "the window this request named was closed");
+        }
+    }
+
+    /// The registered windows, `(slot, window id)` in registration order.
+    #[must_use]
+    pub fn registered_windows(&self) -> Vec<(u64, String)> {
+        self.windows.lock().map(|w| w.clone()).unwrap_or_default()
+    }
+
+    /// Hands `request` to the window registered under `slot` (its timer serves it at its next
+    /// tick, [`Self::take_forwarded_requests`]).
+    pub fn forward_request(&self, slot: u64, request: DebugRequest) {
+        if let Ok(mut forwarded) = self.forwarded.lock() {
+            forwarded.entry(slot).or_default().push_back(request);
+        }
+    }
+
+    /// The requests other windows handed to the window registered under `slot`, oldest first.
+    #[must_use]
+    pub fn take_forwarded_requests(&self, slot: u64) -> Vec<DebugRequest> {
+        self.forwarded
+            .lock()
+            .ok()
+            .and_then(|mut forwarded| forwarded.remove(&slot))
+            .map(Vec::from)
+            .unwrap_or_default()
+    }
+
+    /// The id the next request is given.
+    #[must_use]
+    pub fn mint_request_id(&self) -> u64 {
+        self.next_request_id.fetch_add(1, Ordering::SeqCst)
+    }
+
+    /// Registers a way to wake a UI loop when the debug server thread queues a request. Callable
+    /// from any thread; wakers are kept for the hub's life.
+    ///
+    /// Why: the requests arrive on the server thread and the debug timer drains them on the UI
+    /// thread. Without a wake, the UI loop had to LOOK - a poll timer that stayed at 250 ms in an
+    /// idle app (IDLE_CPU, 2026-09-30). Now the server wakes the loop, the loop re-arms the poll at
+    /// the busy rate (`PlatformWindow::serve_debug_request_wake` in the dll), and the idle poll
+    /// ([`DEBUG_POLL_IDLE_MS`]) is only a safety net.
+    pub fn add_waker(&self, waker: Arc<dyn Fn() + Send + Sync>) {
+        if let Ok(mut wakers) = self.wakers.lock() {
+            wakers.push(waker);
+        }
+    }
+
+    /// The server thread queued a request: flag it and wake every registered loop. Call it AFTER
+    /// the request is in the channel - a loop takes the requests after it saw the wake, never
+    /// before.
+    pub fn announce_request(&self) {
+        self.wake.store(true, Ordering::Release);
+        self.wake_generation.fetch_add(1, Ordering::AcqRel);
+        let wakers: Vec<Arc<dyn Fn() + Send + Sync>> =
+            self.wakers.lock().map(|w| w.clone()).unwrap_or_default();
+        for wake in wakers {
+            wake();
+        }
+    }
+
+    /// Has a request been announced since the last call? Clears the flag (UI thread: the loop
+    /// that answers re-arms its debug poll).
+    #[must_use]
+    pub fn take_wake(&self) -> bool {
+        self.wake.swap(false, Ordering::AcqRel)
+    }
+
+    /// How many requests were announced so far.
+    #[must_use]
+    pub fn wake_generation(&self) -> u64 {
+        self.wake_generation.load(Ordering::Acquire)
+    }
+
+    /// Has a request been announced since THIS window last looked? The per-window twin of
+    /// [`Self::take_wake`]: each window's loop turn (`PlatformWindow::serve_debug_request_wake` in
+    /// the dll) re-arms its debug poll at the busy rate once per announcement.
+    #[must_use]
+    pub fn take_wake_for(&self, layout_window: &azul_layout::window::LayoutWindow) -> bool {
+        let generation = self.wake_generation();
+        layout_window
+            .e2e_scratch
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .debug_wake
+            .take_at(generation)
+    }
+}
+
+// The process's hub: see the type. One debug server per application, read by process-level code.
+#[cfg(feature = "std")]
+static PROCESS_DEBUG_HUB: DebugHub = DebugHub::new();
+
+/// The process's [`DebugHub`].
+#[cfg(feature = "std")]
+#[must_use]
+pub const fn process_debug_hub() -> &'static DebugHub {
+    &PROCESS_DEBUG_HUB
+}
+
+/// Registers a window's debug timer under a new slot of the process's hub.
 #[cfg(feature = "std")]
 fn register_debug_window(window_id: &str) -> u64 {
-    static NEXT_SLOT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-    let slot = NEXT_SLOT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    if let Ok(mut windows) = debug_windows().lock() {
-        windows.push((slot, window_id.to_string()));
-    }
-    slot
+    process_debug_hub().register_window(window_id)
 }
 
-/// A window's debug timer is gone (the window closed): its slot leaves the registry, and the
-/// requests still waiting for it are answered.
+/// A window's debug timer is gone (the window closed): its slot leaves the process's registry,
+/// and the requests still waiting for it are answered.
 #[cfg(feature = "std")]
 fn unregister_debug_window(slot: u64) {
-    if let Ok(mut windows) = debug_windows().lock() {
-        windows.retain(|(s, _)| *s != slot);
-    }
-    for request in take_forwarded_debug_requests(slot) {
-        send_err(&request, "the window this request named was closed");
-    }
+    process_debug_hub().unregister_window(slot);
 }
 
-/// The registered windows, `(slot, window id)` in registration order.
+/// The registered windows of the process's hub, `(slot, window id)` in registration order.
 #[cfg(feature = "std")]
 #[must_use]
 pub fn registered_debug_windows() -> Vec<(u64, String)> {
-    debug_windows().lock().map(|w| w.clone()).unwrap_or_default()
+    process_debug_hub().registered_windows()
 }
 
 /// Hands `request` to the window registered under `slot` (its timer serves it at its next
 /// tick, [`take_forwarded_debug_requests`]).
 #[cfg(feature = "std")]
 pub fn forward_debug_request(slot: u64, request: DebugRequest) {
-    if let Ok(mut forwarded) = forwarded_debug_requests().lock() {
-        forwarded.entry(slot).or_default().push_back(request);
-    }
+    process_debug_hub().forward_request(slot, request);
 }
 
 /// The requests other windows handed to the window registered under `slot`, oldest first.
 #[cfg(feature = "std")]
 #[must_use]
 pub fn take_forwarded_debug_requests(slot: u64) -> Vec<DebugRequest> {
-    forwarded_debug_requests()
-        .lock()
-        .ok()
-        .and_then(|mut forwarded| forwarded.remove(&slot))
-        .map(Vec::from)
-        .unwrap_or_default()
+    process_debug_hub().take_forwarded_requests(slot)
 }
 
 /// Response data from timer callback to HTTP thread (internal)
@@ -333,11 +485,6 @@ impl DebugResponseData {
                 };
                 write_shot_to_dir(&data.data);
                 let data = ResponseData::Screenshot(data);
-                if let Ok(json) = serde_json::to_string(&data) {
-                    if let Ok(mut last) = LAST_RESPONSE.lock() {
-                        *last = Some(json);
-                    }
-                }
                 Self::Ok {
                     window_state: None,
                     data: Some(data),
@@ -4940,33 +5087,46 @@ pub struct Modifiers {
 }
 
 // ==================== Global State ====================
+//
+// The PROCESS'S debug log and the switches that open it. Process-wide on purpose: the `log_*!` macros
+// (700+ call sites in the shells, none with a context) feed one log, the debug HTTP thread drains it,
+// and `AZ_DEBUG` / `AZ_E2E` / `AZ_RECORD` are read once from the environment at start-up. What the
+// WINDOWS of the debug server share lives in a [`DebugHub`], and what one window remembers in its
+// `E2eSession` / `E2eScratch`.
 
+// The log queue the debug server drains: `AZ_DEBUG` / `AZ_E2E` / `AZ_RECORD` create it once.
 #[cfg(feature = "std")]
 static LOG_QUEUE: OnceLock<Mutex<Vec<LogMessage>>> = OnceLock::new();
 
-#[cfg(feature = "std")]
-static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
-
+// The origin of the log's timestamps: the first moment the log is used.
 #[cfg(feature = "std")]
 static SERVER_START_TIME: OnceLock<std::time::Instant> = OnceLock::new();
 
+// Whether anything collects the log: set once at start-up from `AZ_DEBUG` / `AZ_RECORD`, read by the
+// context-free `log_*!` gate.
 #[cfg(feature = "std")]
 static DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
 
 /// File handle for AZ_RECORD file-based logging.
 /// When `AZ_RECORD=<filepath>` is set, all log messages are written to this file.
+// Process configuration read once from the environment (`AZ_RECORD`).
 #[cfg(feature = "std")]
 static RECORD_FILE: OnceLock<Mutex<std::fs::File>> = OnceLock::new();
 
 /// Whether E2E test runner mode is active (independent of debug server).
+// Set once at start-up from `AZ_E2E` (`queue_e2e_tests`); read by the context-free log gate and by
+// every window at its creation (`scripted_run_owns_the_clock`).
 #[cfg(feature = "std")]
 static E2E_ACTIVE: AtomicBool = AtomicBool::new(false);
 
+// The port `AZ_DEBUG` asked for and the server bound: process configuration, set once.
 #[cfg(feature = "std")]
 static DEBUG_PORT: OnceLock<u16> = OnceLock::new();
 
 /// Global debug server handle (singleton — one per application).
 /// Started in `AppInternal::create()` when `AZ_DEBUG=<port>` is set.
+// One server per application, started and stopped from any window (`CallbackInfo::start_http_server`
+// / `stop_http_server`) and stopped at process exit: nothing that does has a handle to it.
 #[cfg(feature = "std")]
 #[cfg(feature = "e2e-server")]
 static DEBUG_SERVER: std::sync::Mutex<Option<Arc<DebugServerHandle>>> = std::sync::Mutex::new(None);
@@ -4999,6 +5159,9 @@ pub struct E2eSession {
     /// answered by the debug timer once the window has settled
     /// ([`serve_settle_waiters`]).
     settle_waiters: Vec<(DebugRequest, std::time::Instant)>,
+    /// The data the last op that answered with any answered with, as JSON: what `print_response`
+    /// shows. The window's own, like the rest of its session.
+    last_response: Option<String>,
 }
 
 #[cfg(feature = "std")]
@@ -5008,6 +5171,7 @@ impl core::fmt::Debug for E2eSession {
             .field("pending", &self.pending.is_some())
             .field("running", &self.running)
             .field("settle_waiters", &self.settle_waiters.len())
+            .field("last_response", &self.last_response.is_some())
             .finish()
     }
 }
@@ -5021,6 +5185,7 @@ impl E2eSession {
             pending: None,
             running: false,
             settle_waiters: Vec::new(),
+            last_response: None,
         }
     }
 
@@ -5127,6 +5292,9 @@ pub struct E2eScratch {
     /// ([`take_debug_request_wake_for`]).
     #[cfg(feature = "std")]
     debug_wake: DebugWakeSeen,
+    /// The window's native screenshots by the frame they were taken at (`take_native_screenshot`):
+    /// while the window presented no frame since, the answer is the one it gave.
+    native_screenshots: ScreenshotCache,
 }
 
 /// Lock this window's E2E scratch. A poisoned lock is recovered rather than
@@ -6069,7 +6237,7 @@ pub fn queue_e2e_tests(tests: Vec<E2eTest>) -> std::sync::mpsc::Receiver<DebugRe
     }
 
     let (tx, rx) = mpsc::channel();
-    let request_id = NEXT_REQUEST_ID.fetch_add(1, Ordering::SeqCst);
+    let request_id = process_debug_hub().mint_request_id();
 
     let request = DebugRequest {
         request_id,
@@ -6081,6 +6249,7 @@ pub fn queue_e2e_tests(tests: Vec<E2eTest>) -> std::sync::mpsc::Receiver<DebugRe
         wait_for_render: false,
         dom_id: None,
         response_tx: tx,
+        answered: std::sync::Mutex::new(None),
     };
 
     if let Some(handle) = get_debug_server() {
@@ -6275,6 +6444,7 @@ const MAX_LOG_MESSAGES: usize = 20_000;
 ///
 /// Counted rather than dropped silently: a truncated log that does not say it
 /// is truncated makes the reader believe an event did not happen.
+// Counts the process's one log queue ([`LOG_QUEUE`]).
 static LOGS_DROPPED: AtomicU64 = AtomicU64::new(0);
 
 /// How many log messages have been evicted by the cap. Non-zero means the
@@ -6786,12 +6956,8 @@ pub fn take_logs() -> Vec<LogMessage> {
 
 /// Send a successful response to a debug request
 #[cfg(feature = "std")]
-/// The most recent op response, so `print_response` can show it.
-///
-/// A `Mutex<Option<String>>` rather than a channel: it is written once per op
-/// on the app thread and read by the very next op on the same thread.
-pub(crate) static LAST_RESPONSE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
-
+/// The data an op answers with is kept on its request ([`DebugRequest::answered`]) and by the
+/// window's session after it ([`E2eSession::last_response`]), so `print_response` can show it.
 pub fn send_ok(
     request: &DebugRequest,
     window_state: Option<WindowStateSnapshot>,
@@ -6799,8 +6965,8 @@ pub fn send_ok(
 ) {
     if let Some(d) = data.as_ref() {
         if let Ok(json) = serde_json::to_string(d) {
-            if let Ok(mut g) = LAST_RESPONSE.lock() {
-                *g = Some(json);
+            if let Ok(mut answered) = request.answered.lock() {
+                *answered = Some(json);
             }
         }
     }
@@ -6911,7 +7077,7 @@ pub fn handle_event_request(
         Ok(req) => {
             // Create request and channel
             let (tx, rx) = mpsc::channel();
-            let request_id = NEXT_REQUEST_ID.fetch_add(1, Ordering::SeqCst);
+            let request_id = process_debug_hub().mint_request_id();
 
             let request = DebugRequest {
                 request_id,
@@ -6920,6 +7086,7 @@ pub fn handle_event_request(
                 wait_for_render: req.wait_for_render,
                 dom_id: req.dom_id,
                 response_tx: tx,
+                answered: std::sync::Mutex::new(None),
             };
 
             // Send via spmc channel, then wake the UI loop that serves it
@@ -8563,6 +8730,7 @@ fn eval_assert_scroll(
 /// "record whatever azul does today and call it expected".
 #[cfg(feature = "std")]
 fn e2e_record_mode() -> bool {
+    // `AZ_E2E_RECORD`, read once from the environment.
     static RECORD: OnceLock<bool> = OnceLock::new();
     *RECORD.get_or_init(|| {
         std::env::var("AZ_E2E_RECORD")
@@ -14401,12 +14569,13 @@ fn resume_e2e_continuation_inner(
                     {
                         let (tx, _rx) = mpsc::channel();
                         let req = DebugRequest {
-                            request_id: NEXT_REQUEST_ID.fetch_add(1, Ordering::SeqCst),
+                            request_id: process_debug_hub().mint_request_id(),
                             event: ev,
                             window_id: cont.window_id.clone(),
                             wait_for_render: false,
                             dom_id: None,
                             response_tx: tx,
+                            answered: std::sync::Mutex::new(None),
                         };
                         let _ = process_debug_event(
                             &req,
@@ -14873,12 +15042,13 @@ fn resume_e2e_continuation_inner(
                         }
                         let (step_tx, step_rx) = mpsc::channel();
                         let step_request = DebugRequest {
-                            request_id: NEXT_REQUEST_ID.fetch_add(1, Ordering::SeqCst),
+                            request_id: process_debug_hub().mint_request_id(),
                             event: debug_event,
                             window_id: cont.window_id.clone(),
                             wait_for_render: false,
                             dom_id: step_dom_id,
                             response_tx: step_tx,
+                            answered: std::sync::Mutex::new(None),
                         };
                         let step_needs_update = process_debug_event(
                             &step_request,
@@ -15046,6 +15216,11 @@ fn resume_e2e_continuation_inner(
                                 });
                             }
                             Ok(DebugResponseData::Ok { data, .. }) => {
+                                // A screenshot's PNG is encoded just now, after the op
+                                // returned, so what `print_response` shows next is set here.
+                                if let Some(shot @ ResponseData::Screenshot(_)) = data.as_ref() {
+                                    session.last_response = serde_json::to_string(shot).ok();
+                                }
                                 cont.current_step_results.push(E2eStepResult {
                                     step_index,
                                     op: op.to_string(),
@@ -17119,6 +17294,27 @@ pub fn process_debug_event(
     // process-global continuation.
     session: &mut E2eSession,
 ) -> bool {
+    let needs_update = serve_debug_event(request, callback_info, app_data, component_map, session);
+    // What the op answered with is what `print_response` shows next, in THIS window's session.
+    if let Some(answered) = request
+        .answered
+        .lock()
+        .ok()
+        .and_then(|mut answered| answered.take())
+    {
+        session.last_response = Some(answered);
+    }
+    needs_update
+}
+
+/// The op dispatcher behind [`process_debug_event`]: answers `request` through its channel.
+fn serve_debug_event(
+    request: &DebugRequest,
+    callback_info: &mut azul_layout::callbacks::CallbackInfo,
+    app_data: &mut azul_core::refany::RefAny,
+    component_map: &Arc<Mutex<azul_core::xml::ComponentMap>>,
+    session: &mut E2eSession,
+) -> bool {
     use azul_core::geom::{LogicalPosition, LogicalSize};
 
     let mut needs_update = false;
@@ -18845,12 +19041,11 @@ pub fn process_debug_event(
         }
 
         DebugEvent::PrintResponse => {
-            // The runner records each step's response; the executor prints the
-            // most recent one (see `LAST_RESPONSE`).
-            let last = LAST_RESPONSE
-                .lock()
-                .ok()
-                .and_then(|g| g.clone())
+            // The executor records each op's answer in the window's session
+            // (`process_debug_event`); this prints the most recent one.
+            let last = session
+                .last_response
+                .clone()
                 .unwrap_or_else(|| "<no previous response>".to_string());
             std::eprintln!("[e2e] response: {last}");
             send_ok(request, None, None);
@@ -18879,14 +19074,14 @@ pub fn process_debug_event(
                 .get_layout_window()
                 .presented_frame_generation();
             let shot = {
-                static CACHE: Mutex<ScreenshotCache> = Mutex::new(ScreenshotCache::new());
-                let mut capture = || {
+                // The window's own cache: taken out of its scratch for the capture, which needs
+                // the whole `callback_info`, and put back after.
+                let mut cache = core::mem::take(&mut scratch(callback_info).native_screenshots);
+                let shot = cache.get_or_capture(key, generation, || {
                     crate::e2e::hooks::take_native_screenshot_base64(callback_info, *render_shadow)
-                };
-                match CACHE.lock() {
-                    Ok(mut cache) => cache.get_or_capture(key, generation, capture),
-                    Err(_) => capture(),
-                }
+                });
+                scratch(callback_info).native_screenshots = cache;
+                shot
             };
             match shot {
                 Ok(data_uri) => {
@@ -24096,47 +24291,21 @@ impl DebugPollPace {
     }
 }
 
-/// Set by [`announce_debug_request`], cleared by [`take_debug_request_wake`].
-#[cfg(feature = "std")]
-static DEBUG_REQUEST_WAKE: core::sync::atomic::AtomicBool =
-    core::sync::atomic::AtomicBool::new(false);
-
-/// Every loop that wants to hear about a queued debug request: the desktop
-/// run loops' `loop_waker::wake` (registered by the dll at debug-server
-/// setup), a headless window's condvar.
-#[cfg(feature = "std")]
-static DEBUG_REQUEST_WAKERS: Mutex<Vec<Arc<dyn Fn() + Send + Sync>>> = Mutex::new(Vec::new());
-
 /// Register a way to wake a UI loop when the debug server thread queues a
-/// request. Callable from any thread; wakers are kept for the process.
-///
-/// Why: the requests arrive on the server thread and the debug timer drains
-/// them on the UI thread. Without a wake, the UI loop had to LOOK - a poll
-/// timer that stayed at 250 ms in an idle app (IDLE_CPU, 2026-09-30). Now
-/// the server wakes the loop, the loop re-arms the poll at the busy rate
-/// (`PlatformWindow::serve_debug_request_wake` in the dll), and the idle
-/// poll ([`DEBUG_POLL_IDLE_MS`]) is only a safety net.
+/// request ([`DebugHub::add_waker`], on the process's hub). Callable from any
+/// thread; wakers are kept for the process.
 #[cfg(feature = "std")]
 pub fn add_debug_request_waker(waker: Arc<dyn Fn() + Send + Sync>) {
-    if let Ok(mut wakers) = DEBUG_REQUEST_WAKERS.lock() {
-        wakers.push(waker);
-    }
+    process_debug_hub().add_waker(waker);
 }
 
 /// The server thread queued a request: flag it and wake every registered
-/// loop. Call it AFTER the request is in the channel - a loop takes the
-/// requests after it saw the wake, never before.
+/// loop ([`DebugHub::announce_request`], on the process's hub). Call it AFTER
+/// the request is in the channel - a loop takes the requests after it saw the
+/// wake, never before.
 #[cfg(feature = "std")]
 pub fn announce_debug_request() {
-    DEBUG_REQUEST_WAKE.store(true, core::sync::atomic::Ordering::Release);
-    DEBUG_REQUEST_WAKE_GENERATION.fetch_add(1, core::sync::atomic::Ordering::AcqRel);
-    let wakers: Vec<Arc<dyn Fn() + Send + Sync>> = DEBUG_REQUEST_WAKERS
-        .lock()
-        .map(|w| w.clone())
-        .unwrap_or_default();
-    for wake in wakers {
-        wake();
-    }
+    process_debug_hub().announce_request();
 }
 
 /// Has a request been announced since the last call? Clears the flag
@@ -24144,7 +24313,7 @@ pub fn announce_debug_request() {
 #[cfg(feature = "std")]
 #[must_use]
 pub fn take_debug_request_wake() -> bool {
-    DEBUG_REQUEST_WAKE.swap(false, core::sync::atomic::Ordering::AcqRel)
+    process_debug_hub().take_wake()
 }
 
 /// What still moves in this window on its own clock, or `None` once it has
@@ -24520,18 +24689,11 @@ fn assertion_step_result(
     )
 }
 
-/// Counts [`announce_debug_request`]s, so that EVERY window sees each one
-/// ([`take_debug_request_wake_for`]) - the flag above is taken by whichever
-/// loop looks first.
-#[cfg(feature = "std")]
-static DEBUG_REQUEST_WAKE_GENERATION: core::sync::atomic::AtomicU64 =
-    core::sync::atomic::AtomicU64::new(0);
-
 /// How many debug requests were announced so far in this process.
 #[cfg(feature = "std")]
 #[must_use]
 pub fn debug_request_wake_generation() -> u64 {
-    DEBUG_REQUEST_WAKE_GENERATION.load(core::sync::atomic::Ordering::Acquire)
+    process_debug_hub().wake_generation()
 }
 
 /// One window's view of the debug-request announcements: which one it last
@@ -24569,13 +24731,7 @@ impl DebugWakeSeen {
 #[cfg(feature = "std")]
 #[must_use]
 pub fn take_debug_request_wake_for(layout_window: &azul_layout::window::LayoutWindow) -> bool {
-    let generation = debug_request_wake_generation();
-    layout_window
-        .e2e_scratch
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .debug_wake
-        .take_at(generation)
+    process_debug_hub().take_wake_for(layout_window)
 }
 
 #[cfg(all(test, feature = "std"))]
@@ -24584,29 +24740,32 @@ mod debug_request_wake_tests {
 
     use super::*;
 
-    static WOKEN: AtomicUsize = AtomicUsize::new(0);
-
     /// IDLE_CPU (2026-09-30) left the debug poll at 250 ms when idle: the
     /// server thread could not wake the UI loop, so the loop had to look. A
     /// request now wakes it (the run loops' `loop_waker`, the headless
     /// condvar) and the loop re-arms the poll at the busy rate on the spot.
+    ///
+    /// The hub is the test's own: the process's one is announced to by every other
+    /// test that queues a request, and a flag one of them takes is not this test's.
     #[test]
     fn a_debug_request_wakes_the_ui_loop_at_once_instead_of_waiting_for_the_poll() {
-        add_debug_request_waker(Arc::new(|| {
-            WOKEN.fetch_add(1, Ordering::SeqCst);
+        let hub = DebugHub::new();
+        let woken = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&woken);
+        hub.add_waker(Arc::new(move || {
+            counted.fetch_add(1, Ordering::SeqCst);
         }));
-        let _ = take_debug_request_wake();
-        let before = WOKEN.load(Ordering::SeqCst);
-        announce_debug_request();
-        assert!(
-            WOKEN.load(Ordering::SeqCst) > before,
+        hub.announce_request();
+        assert_eq!(
+            woken.load(Ordering::SeqCst),
+            1,
             "a queued request must wake the UI loop"
         );
         assert!(
-            take_debug_request_wake(),
+            hub.take_wake(),
             "the woken loop sees that a request is waiting"
         );
-        assert!(!take_debug_request_wake(), "and serves it once");
+        assert!(!hub.take_wake(), "and serves it once");
     }
 
     /// With requests waking the loop, the idle poll is only a safety net and
@@ -24663,9 +24822,10 @@ mod debug_request_wake_tests {
 
     #[test]
     fn an_announced_request_moves_the_wake_generation() {
-        let before = debug_request_wake_generation();
-        announce_debug_request();
-        assert!(debug_request_wake_generation() > before);
+        let hub = DebugHub::new();
+        let before = hub.wake_generation();
+        hub.announce_request();
+        assert_eq!(hub.wake_generation(), before + 1);
     }
 }
 
@@ -25325,6 +25485,8 @@ fn write_shot_to_dir(data_uri: &str) {
     };
     let dir = std::path::PathBuf::from(dir);
     let _ = std::fs::create_dir_all(&dir);
+    // Numbers the files ONE process writes into the one `AZ_E2E_SHOT_DIR` (process configuration), in
+    // the order the scenario asked for them, whichever window took them.
     static SHOT_N: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
     let n = SHOT_N.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     let raw = data_uri.rsplit(',').next().unwrap_or("");
@@ -25462,6 +25624,7 @@ mod dom_id_envelope_tests {
             wait_for_render: false,
             dom_id,
             response_tx: tx,
+            answered: std::sync::Mutex::new(None),
         }
     }
 
@@ -25736,8 +25899,9 @@ mod debug_routing_tests {
 
     #[test]
     fn forwarded_requests_wait_for_their_window_in_order() {
-        // Slots far from any a live timer would get in this test process.
-        let (a, b) = (900_001, 900_002);
+        // The hub is the test's own, so no other window of the process has these slots.
+        let hub = DebugHub::new();
+        let (a, b) = (1, 2);
         let request = |id: u64| {
             let (tx, _rx) = mpsc::channel();
             DebugRequest {
@@ -25747,18 +25911,20 @@ mod debug_routing_tests {
                 wait_for_render: false,
                 dom_id: None,
                 response_tx: tx,
+                answered: std::sync::Mutex::new(None),
             }
         };
-        forward_debug_request(a, request(1));
-        forward_debug_request(b, request(2));
-        forward_debug_request(a, request(3));
-        let got: Vec<u64> = take_forwarded_debug_requests(a)
+        hub.forward_request(a, request(1));
+        hub.forward_request(b, request(2));
+        hub.forward_request(a, request(3));
+        let got: Vec<u64> = hub
+            .take_forwarded_requests(a)
             .iter()
             .map(|r| r.request_id)
             .collect();
         assert_eq!(got, vec![1, 3]);
-        assert!(take_forwarded_debug_requests(a).is_empty(), "taken once");
-        assert_eq!(take_forwarded_debug_requests(b).len(), 1);
+        assert!(hub.take_forwarded_requests(a).is_empty(), "taken once");
+        assert_eq!(hub.take_forwarded_requests(b).len(), 1);
     }
 
     /// HEADLESS6: a script learns the ids of the windows it can address -

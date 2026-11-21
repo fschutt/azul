@@ -1989,7 +1989,9 @@ extern "C" fn render_material_callback(mut data: RefAny, info: RenderImageCallba
             .shared
             .render_deferred(surface, material, [size.width, size.height], dpr, &params, &scene)
             .unwrap_or_else(|| {
-                crate::callbacks::mark_frame_deferred();
+                if let Some(extras) = extras {
+                    extras.mark_frame_deferred();
+                }
                 transparent_pixel()
             });
     }

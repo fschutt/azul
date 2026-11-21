@@ -1166,12 +1166,14 @@ mod tests {
         let first = complete(RefAny::new(1u8), cb.clone(), 10u32);
         let second = complete(RefAny::new(2u8), cb.clone(), 20u32);
 
-        static POLLS: AtomicUsize = AtomicUsize::new(0);
+        // The test's own count of how often its request was polled.
+        let polls = std::sync::Arc::new(AtomicUsize::new(0));
+        let polled = std::sync::Arc::clone(&polls);
         let deferred = defer(
             RefAny::new(3u8),
             cb,
-            Box::new(|| {
-                if POLLS.fetch_add(1, Ordering::SeqCst) == 0 {
+            Box::new(move || {
+                if polled.fetch_add(1, Ordering::SeqCst) == 0 {
                     None
                 } else {
                     Some(RefAny::new(30u32))

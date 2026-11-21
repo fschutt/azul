@@ -20,7 +20,6 @@ use azul_layout::{
 };
 use rust_fontconfig::FcFontCache;
 
-use crate::a_one_box_slide_does_not_re_lay_out_the_page::restore_ambient_recording;
 
 const ITEMS: usize = 20;
 
@@ -87,7 +86,6 @@ fn relayout(lw: &mut LayoutWindow) {
 
 #[test]
 fn a_height_tween_frame_copies_the_items_of_what_its_box_holds() {
-    let _serialised = crate::probe_lock();
     if !Probe::enabled() {
         eprintln!("the probe is compiled out: nothing to count");
         return;
@@ -109,11 +107,11 @@ fn a_height_tween_frame_copies_the_items_of_what_its_box_holds() {
             lw.take_transition_relayout(),
             "frame {frame}: harness - a height step owes a relayout"
         );
-        Probe::set_recording(true);
+        let recording = Probe::record_on_this_thread(true);
         let _ = Probe::drain();
         relayout(&mut lw);
         let events = Probe::drain();
-        restore_ambient_recording();
+        drop(recording);
         let count = |name: &str| events.iter().filter(|e| e.name == name).count();
         assert!(
             lw.frame_report.last_dl_build_patched,

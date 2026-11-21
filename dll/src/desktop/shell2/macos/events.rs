@@ -864,7 +864,7 @@ impl MacOSWindow {
         // an app where Ctrl + wheel means something else. The scroll is still
         // delivered (with Ctrl among its modifiers), as on Windows.
         let ctrl_held = unsafe { event.modifierFlags() }.contains(NSEventModifierFlags::Control);
-        if ctrl_held && azul_layout::window::synthesize_pinch_from_ctrl_wheel() {
+        if ctrl_held && self.common.app.synthesize_pinch_from_ctrl_wheel() {
             self.ctrl_scroll_pinch(
                 ns_phase,
                 ns_momentum_phase,

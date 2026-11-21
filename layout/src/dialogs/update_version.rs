@@ -83,7 +83,7 @@ pub fn open(info: &mut CallbackInfo) {
         phase: UpdatePhase::Checking,
     });
     let task = CheckTask {
-        env: crate::appenv::app_env(),
+        env: info.get_app_env(),
     };
     info.add_thread(
         ThreadId::unique(),
@@ -231,7 +231,7 @@ extern "C" fn on_install_now(mut state: RefAny, mut info: CallbackInfo) -> Updat
         let UpdatePhase::Available { release, .. } = s.phase.clone() else {
             return Update::DoNothing;
         };
-        let env = crate::appenv::app_env();
+        let env = info.get_app_env();
         // No way to prove the update, no install: the dialog says why (fail closed).
         let policy = match env.update_policy() {
             Ok(policy) => policy,
@@ -314,7 +314,7 @@ extern "C" fn on_remind_later(mut _state: RefAny, mut info: CallbackInfo) -> Upd
     // "Remind me later" = a 7-day suspension in the updater's state file;
     // checks report UpToDate until it passes.
     // With no folder of the user's own the suspension is not kept (the next check asks again).
-    if let Ok(dir) = private_state_dir(&crate::appenv::app_env().app_name) {
+    if let Ok(dir) = private_state_dir(&info.get_app_env().app_name) {
         let mut state = UpdateState::load(&dir);
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

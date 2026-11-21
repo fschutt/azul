@@ -437,9 +437,6 @@ impl MprisRoot {
 /// The served objects hold clones of the app's `queues` (the keys and seeks) and `raise`
 /// (the window raise requests), where the D-Bus methods park what they receive.
 pub fn start(window_id: u64, queues: &MediaKeyQueues, raise: &RaiseRequests) {
-    if !azul_layout::window::expose_system_media_controls() {
-        return;
-    }
     // Recorded before the OnceLock guard, so a second window calling this does
     // not silently leave `Raise` pointing at a window that has since closed.
     RAISE_TARGET.store(window_id, std::sync::atomic::Ordering::Relaxed);

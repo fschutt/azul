@@ -4954,6 +4954,7 @@ fn run_e2e_tests_in_one_window(
         wait_for_render: false,
         dom_id: None,
         response_tx: tx,
+        answered: Mutex::new(None),
     };
     let mut app_data = match app {
         Some((data, config)) => {
@@ -5532,6 +5533,7 @@ mod tests {
                 wait_for_render: false,
                 dom_id: None,
                 response_tx: tx,
+                answered: Mutex::new(None),
             };
             let needs_update = runner.with_callback_info(&changes, |ci| {
                 process_debug_event(&request, ci, &mut app_data, &component_map, &mut session)
@@ -5604,6 +5606,7 @@ mod tests {
                 wait_for_render: false,
                 dom_id: None,
                 response_tx: tx,
+                answered: Mutex::new(None),
             };
             let needs_update = runner.with_callback_info(&changes, |ci| {
                 process_debug_event(&request, ci, &mut app_data, &component_map, &mut session)
@@ -5710,6 +5713,7 @@ mod tests {
                 wait_for_render: false,
                 dom_id: None,
                 response_tx: tx,
+                answered: Mutex::new(None),
             };
             let needs_update = runner.with_callback_info(&changes, |ci| {
                 process_debug_event(&request, ci, &mut app_data, &component_map, &mut session)

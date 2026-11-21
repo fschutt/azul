@@ -907,14 +907,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // of the diff-first pipeline). Spent by this pass whatever becomes of it,
     // and good only for a list built at the epoch it starts from and a DOM
     // that stands at the epoch it ends at.
-    let cascaded_named: Option<Vec<NodeId>> = cache
-        .cascaded_since_list
-        .take()
-        .filter(|since| {
-            since.from_epoch == cache.last_cascade_epoch
-                && since.to_epoch == new_dom.get_css_property_cache().cascade_epoch
-        })
-        .map(|since| since.nodes);
+    let cascaded_since = cache.cascaded_since_list.take().filter(|since| {
+        since.from_epoch == cache.last_cascade_epoch
+            && since.to_epoch == new_dom.get_css_property_cache().cascade_epoch
+    });
+    // Whether the producer's window allows the list across a tree that changed its node
+    // count (the step `tlist`).
+    let cascade_across_trees = cascaded_since.as_ref().is_some_and(|since| since.across_trees);
+    let cascaded_named: Option<Vec<NodeId>> = cascaded_since.map(|since| since.nodes);
     // OVERRIDES-ONLY SKIP: the frame of a layout-property tween changed no
     // node - only the user override the tween walks (`tick_animations` arms
     // the latch, stamped with the DOM it describes). The reconcile reads node
@@ -2414,7 +2414,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             && !cache.last_reconcile_was_skipped
             && !cache.last_reconcile_structure_preserved
             && context_unchanged
-            && crate::window::diff_first_step(crate::window::DiffFirstStep::TreeList)
+            && cascade_across_trees
         {
             match (
                 cascaded_named.as_deref(),

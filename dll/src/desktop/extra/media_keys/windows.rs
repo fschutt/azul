@@ -73,9 +73,6 @@ static CONTROLS: std::sync::OnceLock<Agile<SystemMediaTransportControls>> =
 ///
 /// The event handlers hold a clone of the app's `queues` and park the keys and seeks there.
 pub fn start(hwnd: isize, queues: &MediaKeyQueues) {
-    if !azul_layout::window::expose_system_media_controls() {
-        return;
-    }
     if hwnd == 0 {
         return;
     }

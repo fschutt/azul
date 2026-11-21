@@ -904,6 +904,11 @@ pub struct CascadedSince {
     /// Every node (of the DOM as it is now) whose cascade may answer anything
     /// else at `to_epoch` than its node answered at `from_epoch`: a superset.
     pub nodes: Vec<NodeId>,
+    /// Whether the pass may patch the list ACROSS a tree that changed its node
+    /// count (the step `tlist` of the diff-first pipeline): the producer's
+    /// window says so, from its own switches, because the pass has no window
+    /// to ask. Where it is `false` a changed tree emits the whole list.
+    pub across_trees: bool,
 }
 
 /// How the layout passes of one document build their display list.

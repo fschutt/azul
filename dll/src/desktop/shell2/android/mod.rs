@@ -203,11 +203,13 @@ impl AndroidWindow {
         mut config: AppConfig,
         app_data: RefAny,
         undo_manager: event::SharedUndoManager,
+        app_shared: Arc<crate::desktop::shell2::common::app_shared::AppShared>,
         font_registry: Option<Arc<FcFontRegistry>>,
     ) -> Result<Self, WindowError> {
         crate::desktop::shell2::common::resolve_initial_background_color(
             &mut options,
             &config.system_style,
+            app_shared.mode(),
         );
         // `WindowCreateOptions::window_state` is already a `FullWindowState`,
         // mirroring how `HeadlessWindow::new` consumes it. No constructor call.
@@ -222,9 +224,7 @@ impl AndroidWindow {
             .map_err(|e| WindowError::PlatformError(format!("Layout init failed: {:?}", e)))?;
         layout_window.current_window_state = full_window_state.clone();
         layout_window.routes = config.routes.clone();
-        layout_window.set_app_localization(&config);
-        layout_window.set_app_e2e(&config);
-        layout_window.set_app_node_identity(&config);
+        app_shared.seed_window(&mut layout_window, &config);
         // The faces the app ships (`AppConfig::add_font`): this shell has no app-level font
         // manager to take them from, so the window registers them itself.
         layout_window
@@ -261,6 +261,7 @@ impl AndroidWindow {
             Arc::new(config.system_style.clone()),
             Arc::new(RefCell::new(app_data)),
             undo_manager,
+            app_shared,
         );
         common.set_layout_window(layout_window);
         common.cpu_hit_tester = Some(azul_layout::headless::CpuHitTester::new());
@@ -739,7 +740,7 @@ pub fn android_main(app: AndroidApp) {
     inject_env_from_property();
 
     // Retrieve initial options stashed by `run()`
-    let (app_data, undo_manager, config, fc_cache, font_registry, root_window) = unsafe {
+    let (app_data, undo_manager, app_shared, config, fc_cache, font_registry, root_window) = unsafe {
         match crate::desktop::shell2::run::ANDROID_INITIAL_OPTIONS.take() {
             Some(opts) => opts,
             None => {
@@ -759,6 +760,7 @@ pub fn android_main(app: AndroidApp) {
         config,
         app_data,
         undo_manager,
+        app_shared,
         font_registry,
     ) {
         Ok(w) => w,

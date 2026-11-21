@@ -3660,19 +3660,21 @@ fn private_state_dir_in(data_home: Option<PathBuf>, app_name: &str) -> Result<Pa
 }
 
 /// Runs one full check (+ optional staging) as an azul [`Thread`], reading
-/// the manifest URL / current version / mode from the published
-/// [`crate::appenv::AppEnv`]. The `data` `RefAny` is handed back VERBATIM to
-/// `callback` on the main thread. `CallbackInfo::check_for_updates` is the
-/// thin wrapper that also registers the thread with the event loop.
+/// the manifest URL / current version / mode from `env`, the
+/// [`crate::appenv::AppEnv`] of the window that asks. The `data` `RefAny` is
+/// handed back VERBATIM to `callback` on the main thread.
+/// `CallbackInfo::check_for_updates` is the thin wrapper that also registers
+/// the thread with the event loop.
 #[must_use]
 pub fn spawn_update_check(
+    env: crate::appenv::AppEnv,
     data: RefAny,
     callback: UpdateCheckCallback,
     options: UpdateOptions,
 ) -> (ThreadId, Thread) {
     let task = CheckTask {
         options,
-        env: crate::appenv::app_env(),
+        env,
         callback,
     };
     let worker: ThreadCallbackType = update_check_worker;

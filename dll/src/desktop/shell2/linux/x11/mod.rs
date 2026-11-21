@@ -3490,9 +3490,9 @@ impl X11Window {
         layout_window.current_window_state = self.common.current_window_state().clone();
         layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
         layout_window.routes = self.resources.config.routes.clone();
-        layout_window.set_app_localization(&self.resources.config);
-        layout_window.set_app_e2e(&self.resources.config);
-        layout_window.set_app_node_identity(&self.resources.config);
+        self.resources
+            .app_shared
+            .seed_window(&mut layout_window, &self.resources.config);
         layout_window.webviews.set_platform(super::webview::platform());
         if let Ok(mut guard) = layout_window.monitors.lock() {
             *guard = crate::desktop::display::get_monitors();
@@ -3580,6 +3580,7 @@ impl X11Window {
         crate::desktop::shell2::common::resolve_initial_background_color(
             &mut options,
             &resources.system_style,
+            resources.app_shared.mode(),
         );
 
         // Extract create_callback before consuming options
@@ -4356,6 +4357,7 @@ impl X11Window {
             resources.system_style.clone(),
             resources.app_data.clone(),
             resources.undo_manager.clone(),
+            resources.app_shared.clone(),
         );
         common.renderer = renderer;
         common.render_api = render_api;

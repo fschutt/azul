@@ -116,20 +116,15 @@ fn a_virtual_view_leaves_its_hosts_font_chains_in_place() {
     // A relayout of the unchanged host resolves no host fonts: only the view,
     // whose child DOM every pass builds anew, resolves its own (one
     // `font_load_missing` per resolution).
-    let _serialised = crate::probe_lock();
     if !Probe::enabled() {
         eprintln!("[font chains] the probe is compiled out: nothing to count");
         return;
     }
-    Probe::set_recording(true);
+    let recording = Probe::record_on_this_thread(true);
     let _ = Probe::drain();
     relayout(&mut lw);
     let events = Probe::drain();
-    let ambient = azul_core::profile::cpu_enabled()
-        || azul_core::profile::memory_enabled()
-        || azul_core::profile::heap_enabled();
-    Probe::set_recording(ambient);
-    let _ = Probe::drain();
+    drop(recording);
 
     let resolutions = count(&events, "font_load_missing");
     assert!(

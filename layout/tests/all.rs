@@ -80,37 +80,11 @@
 //!    <test name>`. libtest names are now module-qualified, so the bare name matched nothing, the
 //!    child ran zero tests and exited 0, and the control read that as "the defect did not
 //!    reproduce" — a gate passing vacuously.
-//! 3. `probe_gate` flips the probe recording flag, another process global. See [`PROBE_LOCK`].
+//! 3. `probe_gate` flipped the probe's recording flag, a process-wide switch, while `frame_perf` and the
+//!    layout-cost tests drained spans beside it. Recording is now each thread's own choice
+//!    (`Probe::record_on_this_thread`), so no test touches another's and nothing needs a lock.
 //!
 //! Each is fixed and documented at its site.
-
-use std::sync::{Mutex, MutexGuard, PoisonError};
-
-/// Serialises the tests that touch `azul_layout::probe`'s PROCESS-GLOBAL
-/// recording flag.
-///
-/// `Probe::set_recording` writes a `static RECORDING: AtomicU8`
-/// (`layout/src/probe.rs`); the event buffer it gates is thread-local. While
-/// `probe_gate.rs` was its own binary that global had exactly one writer per
-/// process — which is precisely what its module docs relied on. In this shared
-/// binary, `probe_gate` flipping the flag races `frame_perf` and
-/// `pagination_perf`, which drain spans and attribute self-time: they would
-/// report a truncated or a phantom profile depending on interleaving, and every
-/// *other* test in the binary would start buffering events nobody drains — the
-/// unbounded thread-local growth `probe_gate` exists to pin.
-///
-/// All three take this lock. With the `probe` feature off (the default) the
-/// whole probe API is a `const fn` no-op and the lock is free; under
-/// `--features probe` it is the thing that keeps them honest.
-pub static PROBE_LOCK: Mutex<()> = Mutex::new(());
-
-/// Take [`PROBE_LOCK`], ignoring poisoning.
-///
-/// A panicking test elsewhere under the lock must not cascade into "this test
-/// failed too"; every holder sets the recording flag it wants before reading.
-pub fn probe_lock() -> MutexGuard<'static, ()> {
-    PROBE_LOCK.lock().unwrap_or_else(PoisonError::into_inner)
-}
 
 /// The deterministic synthetic-font builder in `tests/common/fakefont.rs`,
 /// declared ONCE.

@@ -11,11 +11,11 @@ use azul_layout::probe::Probe;
 use super::*;
 
 fn hit_tester_rebuilds(run: impl FnOnce()) -> usize {
-    Probe::set_recording(true);
+    let recording = Probe::record_on_this_thread(true);
     let _ = Probe::drain();
     run();
     let events = Probe::drain();
-    Probe::set_recording(false);
+    drop(recording);
     events
         .iter()
         .filter(|e| e.name == "cpu_hit_tester_rebuild")

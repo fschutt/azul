@@ -88,22 +88,17 @@ fn a_virtual_views_child_dom_lays_out_warm() {
         "harness: the view's child DOM was laid out"
     );
 
-    let _serialised = crate::probe_lock();
     if !Probe::enabled() {
         eprintln!("[child dom warm] the probe is compiled out: nothing to count");
         return;
     }
-    Probe::set_recording(true);
+    let recording = Probe::record_on_this_thread(true);
     let _ = Probe::drain();
     let renders_before = RENDERS.load(core::sync::atomic::Ordering::SeqCst);
     lay_out_new_generation(&mut lw);
     let events = Probe::drain();
     let rendered = RENDERS.load(core::sync::atomic::Ordering::SeqCst) > renders_before;
-    let ambient = azul_core::profile::cpu_enabled()
-        || azul_core::profile::memory_enabled()
-        || azul_core::profile::heap_enabled();
-    Probe::set_recording(ambient);
-    let _ = Probe::drain();
+    drop(recording);
 
     assert!(
         rendered,

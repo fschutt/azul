@@ -963,7 +963,7 @@ pub fn regenerate_layout(
         layout_window.last_dom_fingerprints.as_ref(),
     ) {
         (Some((fp, _)), Some(prev))
-            if azul_layout::window::diff_first_step(azul_layout::window::DiffFirstStep::Text)
+            if layout_window.switches.diff_first_step(azul_layout::window::DiffFirstStep::Text)
                 && !theme_rebuild
                 && !csd_changed_precheck
                 && fp.style_root == prev.style_root =>
@@ -1110,13 +1110,13 @@ pub fn regenerate_layout(
         layout_window.last_dom_fingerprints.as_ref(),
     ) {
         (Some((fp, _)), Some(prev))
-            if azul_layout::window::diff_first_step(azul_layout::window::DiffFirstStep::Nodes)
+            if layout_window.switches.diff_first_step(azul_layout::window::DiffFirstStep::Nodes)
                 && !theme_rebuild
                 && !csd_changed_precheck
                 && !theme_changed_precheck
                 && !window_size_changed_precheck
                 // With the step `text` off, a rebuild of texts alone takes the full path.
-                && (azul_layout::window::diff_first_step(
+                && (layout_window.switches.diff_first_step(
                     azul_layout::window::DiffFirstStep::Text,
                 ) || azul_core::diff::texts_alone_changed(prev, fp).is_none()) =>
         {
@@ -1196,7 +1196,7 @@ pub fn regenerate_layout(
             n.styled_node_state.dragging || n.styled_node_state.drag_over
         });
         let reuse_styles =
-            azul_layout::window::diff_first_step(azul_layout::window::DiffFirstStep::Style)
+            layout_window.switches.diff_first_step(azul_layout::window::DiffFirstStep::Style)
                 && !states_changed
                 && !drag_state_raised;
         let (reached, over_the_nodes) = layout_window.restyle_rebuilt_nodes(
@@ -1219,10 +1219,13 @@ pub fn regenerate_layout(
         // the tree kept its shape, instead of emitting the whole list because the cascade
         // epoch moved). Under the conditions of the flags above, and only where the cascade
         // ran for the reached nodes alone; anything a pass that never ran left is void.
+        let across_trees = layout_window
+            .switches
+            .diff_first_step(azul_layout::window::DiffFirstStep::TreeList);
         layout_window.layout_cache.cascaded_since_list = (over_the_nodes
             && !states_changed
             && !written_since_its_pass
-            && azul_layout::window::diff_first_step(
+            && layout_window.switches.diff_first_step(
                 azul_layout::window::DiffFirstStep::WindowList,
             ))
         .then(|| azul_layout::solver3::cache::CascadedSince {
@@ -1234,6 +1237,7 @@ pub fn regenerate_layout(
                 .filter(|(_, reached)| **reached)
                 .map(|(index, _)| azul_core::id::NodeId::new(index))
                 .collect(),
+            across_trees,
         });
         layout_window.last_dom_fingerprints = Some(fp);
 
@@ -1299,7 +1303,7 @@ pub fn regenerate_layout(
     // context), and the tree is then styled in full and reconciled as below. Not for a
     // theme or rice rebuild (another sheet over the same nodes), nor where decorations are
     // injected into the styled tree. `AZ_DIFF_FIRST` without `tree` turns it off.
-    let reconciles_first = azul_layout::window::diff_first_step(
+    let reconciles_first = layout_window.switches.diff_first_step(
         azul_layout::window::DiffFirstStep::Tree,
     ) && precascade.is_some()
         && prev_dom_fingerprints.is_some()
@@ -1978,7 +1982,9 @@ pub fn regenerate_layout(
         // them, across the changed tree where a node came or went.
         if let (Some(from_epoch), true) = (
             epoch_before_reconciled,
-            azul_layout::window::diff_first_step(azul_layout::window::DiffFirstStep::TreeList),
+            layout_window
+                .switches
+                .diff_first_step(azul_layout::window::DiffFirstStep::TreeList),
         ) {
             layout_window.layout_cache.cascaded_since_list =
                 Some(azul_layout::solver3::cache::CascadedSince {
@@ -1990,6 +1996,8 @@ pub fn regenerate_layout(
                         .filter(|(_, clean)| !**clean)
                         .map(|(index, _)| azul_core::id::NodeId::new(index))
                         .collect(),
+                    // The step that got us here is the one that lets the pass patch across.
+                    across_trees: true,
                 });
         }
         layout_window.layout_cache.dom_diff_clean = Some(clean);

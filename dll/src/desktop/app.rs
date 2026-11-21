@@ -192,33 +192,18 @@ impl App {
 
         // Apply the AppConfig system-animation overrides ON TOP of discovery:
         // the user's scroll physics (momentum / overscroll / wheel-vs-trackpad
-        // curves) must survive the discovery overwrite above, and the tween
-        // configuration becomes the app-global default LayoutWindows read.
+        // curves) must survive the discovery overwrite above.
+        //
+        // Nothing else of the config is published anywhere: every window takes the tween
+        // configuration and the natural-scroll mode from the config it is built with
+        // (`LayoutWindow::set_app_settings`), and the app's MODE, its language, the platform's
+        // natural-scrolling preference and the two platform flags from the app's `AppShared`
+        // (made in `AppInternal::create`, handed to every window the run loop builds).
         if let azul_css::props::style::scrollbar::OptionScrollPhysics::Some(p) =
             app_config.system_animations.scroll_physics
         {
             app_config.system_style.scroll_physics = p;
         }
-        azul_layout::window::set_global_system_animations(app_config.system_animations.clone());
-        azul_layout::window::set_global_synthesize_pinch_from_ctrl_wheel(
-            app_config.synthesize_pinch_from_ctrl_wheel,
-        );
-        // Natural scrolling (9b-ii-b-i-a): the mode every ScrollManager reads,
-        // and - for `System` - the platform's preference, read once here
-        // (Wayland keeps it current from the compositor's own events).
-        azul_layout::window::set_global_natural_scroll(app_config.natural_scroll);
-        if app_config.natural_scroll == azul_core::resources::NaturalScroll::System {
-            azul_layout::window::set_global_system_natural_scroll(
-                crate::desktop::extra::natural_scroll::read_system_preference(),
-            );
-        }
-        azul_layout::window::set_global_expose_system_media_controls(
-            app_config.expose_system_media_controls,
-        );
-        // The app's MODE (follow the desktop, or pin light / dark): every
-        // window built from now on starts in it, and `CallbackInfo::set_mode`
-        // switches it for all of them.
-        azul_layout::window::set_app_mode(app_config.mode);
         // The app THEME (`@theme(<name>)`): every window built from now on
         // builds and styles for it; `CallbackInfo::set_theme` switches it
         // (a DOM rebuild of every window).
@@ -403,6 +388,7 @@ impl App {
             if let Err(e) = crate::desktop::shell2::run_tray_only(
                 data,
                 undo_manager,
+                self.ptr.app_shared.clone(),
                 config,
                 fc_cache,
                 font_registry,
@@ -457,11 +443,6 @@ impl App {
             config.notification_handler.clone(),
         );
 
-        // Publish the AppConfig snapshot the engine services read outside
-        // callbacks: the updater (manifest URL, version, mode) and the
-        // system dialogs (support mailbox, changelog URL).
-        azul_layout::appenv::set_app_env(azul_layout::appenv::AppEnv::from_config(&config));
-
         // Arm the ACTION JOURNAL for apps that declared a problem-report
         // mailbox: the breadcrumb trail has to be recorded BEFORE the
         // problem, and an app that never collects reports pays nothing.
@@ -471,34 +452,6 @@ impl App {
         ) {
             azul_layout::journal::set_enabled(true);
         }
-
-        // Hand the CPU dialogs the driver-provisioning entry points. They
-        // live in the dll (`video_codec::provision`) and the dialogs live
-        // BELOW it in azul-layout, so the dll publishes fn pointers rather
-        // than the type. `check` is inspection only; `remediate` is the
-        // consent-gated, pkexec-elevated repair.
-        azul_layout::appenv::set_gpu_provision_hooks(azul_layout::appenv::GpuProvisionHooks {
-            check: || {
-                let c = crate::unified::video_codec::provision::VideoStartupCheck::run();
-                azul_layout::appenv::GpuProvisionReport {
-                    hw_decode_ready: c.hw_decode_ready,
-                    boot_safe: c.boot_safe,
-                    can_remediate: c.can_remediate,
-                    needs_reboot: c.needs_reboot,
-                    summary: c.summary.as_str().to_string(),
-                    detail: c.detail.as_str().to_string(),
-                }
-            },
-            remediate: |on_step| {
-                let o = crate::unified::video_codec::provision::VideoStartupCheck::
-                    remediate_with_progress(on_step);
-                azul_layout::appenv::GpuProvisionOutcome {
-                    ok: o.ok,
-                    reboot_required: o.reboot_required,
-                    message: o.message.as_str().to_string(),
-                }
-            },
-        });
 
         // ENGINE TELEMETRY (dll feature "telemetry"): initialised for every
         // app, but the TIER stays OFF unless AZ_TELEMETRY / the config files
@@ -567,6 +520,7 @@ impl App {
             let err = crate::desktop::shell2::run(
                 data,
                 undo_manager,
+                self.ptr.app_shared.clone(),
                 config,
                 fc_cache,
                 font_registry,
@@ -597,6 +551,7 @@ impl App {
         let err = crate::desktop::shell2::run(
             data,
             undo_manager,
+            self.ptr.app_shared.clone(),
             config,
             fc_cache,
             font_registry,
@@ -691,6 +646,12 @@ pub struct AppInternal {
     /// to every window so a callback's `undo_app_state` / `redo_app_state` /
     /// `commit_undo_snapshot` operates on one shared history.
     pub undo_manager: crate::desktop::shell2::common::event::SharedUndoManager,
+    /// What the app chose and configured that every window of it reads - its light / dark mode
+    /// (`CallbackInfo::set_mode`), its language (`set_locale`), the platform's natural-scrolling
+    /// preference, the two platform flags, the GPU provisioning hooks - owned by the App and
+    /// handed to every window the run loop builds, like the undo manager. A window opened after
+    /// a switch starts in what the app chose; two apps (or two tests) never share a choice.
+    pub app_shared: Arc<crate::desktop::shell2::common::app_shared::AppShared>,
     /// App-global global-hotkey manager (`Arc<Mutex<..>>`), the undo
     /// manager's twin: owned by the App, shared with every window, the run
     /// loop and the tray-only stub. `run()` makes it the loop thread's
@@ -839,6 +800,12 @@ impl AppInternal {
         // hotkey manager the App exposes is the one its windows join.
         let undo_manager = crate::desktop::shell2::common::event::SharedUndoManager::new();
         let global_hotkeys = undo_manager.services().hotkeys.clone();
+        // The app's mode, its language and the platform's natural-scrolling preference (read once
+        // here, for `NaturalScroll::System`), from the config before it moves into the app.
+        let app_shared = Arc::new(crate::desktop::shell2::common::app_shared::AppShared::for_app(
+            &app_config,
+        ));
+
         Self {
             windows: WindowCreateOptionsVec::from_const_slice(&[]),
             data: initial_data,
@@ -857,6 +824,7 @@ impl AppInternal {
             fc_cache: Box::new(fc_cache),
             font_registry,
             undo_manager,
+            app_shared,
             global_hotkeys,
         }
     }

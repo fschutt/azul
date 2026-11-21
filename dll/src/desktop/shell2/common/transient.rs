@@ -1796,7 +1796,12 @@ mod tests {
             popup_create_options(0xABCD, &parent, &w, Dom::create_div(), None, false, None, &[]);
         as_dialog_window(&mut opts.window_state, "Save changes?");
         assert_eq!(opts.mode, OptionDarkLightMode::Some(DarkLightMode::Dark));
-        super::super::resolve_initial_background_color(&mut opts, &light_desktop);
+        // The app does not pin a mode: the dialog follows its parent's.
+        super::super::resolve_initial_background_color(
+            &mut opts,
+            &light_desktop,
+            OptionDarkLightMode::None,
+        );
         let dark = super::super::mode_background(
             DarkLightMode::Dark,
             &light_desktop,

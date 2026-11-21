@@ -152,9 +152,6 @@ unsafe fn info_key(symbol: &[u8]) -> Option<*mut objc2::runtime::AnyObject> {
 ///
 /// The command handlers hold a clone of the app's `queues` and park the keys and seeks there.
 pub fn start(queues: &MediaKeyQueues) {
-    if !azul_layout::window::expose_system_media_controls() {
-        return;
-    }
     static STARTED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
     if STARTED.set(()).is_err() {
         return;

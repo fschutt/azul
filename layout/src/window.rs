@@ -99,7 +99,10 @@ use crate::{
 };
 use azul_css::system::DarkLightMode;
 
-// Global atomic counters for generating unique IDs
+// The ids of the documents and namespaces the windows of the process hold. Process-wide on purpose:
+// they have to stay unique among EVERY window the process holds - they key the process's GL
+// texture storage (`azul_core::gl`) and the renderer's resource namespaces - and a window is
+// built without an owner to ask (the shells and every test build their own).
 static DOCUMENT_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 static ID_NAMESPACE_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
@@ -279,160 +282,6 @@ pub extern "C" fn cursor_blink_timer_callback(
 // Caret / Selection Tween Timer Callback
 // ============================================================================
 
-/// App-global system-animation configuration, set ONCE by `App::create` from
-/// `AppConfig.system_animations`. `LayoutWindow`s read it lazily (defaults
-/// when no App exists, e.g. unit tests / e2e harness); a per-window
-/// `system_animations_override` field wins over the global so tests can
-/// configure tweens without racing this process-wide slot.
-static SYSTEM_ANIMATIONS: std::sync::OnceLock<azul_core::resources::SystemAnimations> =
-    std::sync::OnceLock::new();
-
-/// Install the app-global system-animation configuration (first caller wins;
-/// intended to be `App::create`, exactly once per process).
-pub fn set_global_system_animations(sa: azul_core::resources::SystemAnimations) {
-    // Set-once by contract; a second call losing the race is not an error.
-    drop(SYSTEM_ANIMATIONS.set(sa));
-}
-
-fn global_system_animations() -> &'static azul_core::resources::SystemAnimations {
-    SYSTEM_ANIMATIONS.get_or_init(Default::default)
-}
-
-/// App-global `AppConfig::synthesize_pinch_from_ctrl_wheel`, published by
-/// `App::create` for the same reason the animations above are: the Win32
-/// wheel handler needs it deep inside a window procedure, where there is no
-/// path back to the `AppConfig` the app was built with.
-///
-/// `true` when no App exists (unit tests, the e2e harness), matching the
-/// field's own default.
-static SYNTHESIZE_PINCH_FROM_CTRL_WHEEL: core::sync::atomic::AtomicBool =
-    core::sync::atomic::AtomicBool::new(true);
-
-/// Install the app-global Ctrl+wheel pinch setting.
-pub fn set_global_synthesize_pinch_from_ctrl_wheel(enabled: bool) {
-    SYNTHESIZE_PINCH_FROM_CTRL_WHEEL.store(enabled, Ordering::Relaxed);
-}
-
-/// Whether Ctrl+wheel should be synthesized into a pinch. Read by the Win32
-/// wheel handler; ignored on every other platform, which reports real pinch.
-#[must_use]
-pub fn synthesize_pinch_from_ctrl_wheel() -> bool {
-    SYNTHESIZE_PINCH_FROM_CTRL_WHEEL.load(Ordering::Relaxed)
-}
-
-/// App-global `AppConfig::natural_scroll` (9b-ii-b-i-a), published by
-/// `App::create` like the settings above: every `ScrollManager` is built
-/// from it. `0` Disabled, `1` Enabled, `2` System.
-static NATURAL_SCROLL_MODE: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
-/// The PLATFORM's natural-scrolling preference, where a backend reports one:
-/// `0` unknown, `1` off, `2` on. macOS reads its preference at startup, the
-/// Windows precision touchpad its registry key, Wayland the compositor's
-/// `axis_relative_direction` as it arrives; X11 reports nothing.
-static SYSTEM_NATURAL_SCROLL: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
-
-/// Install the app-global natural-scroll mode.
-pub fn set_global_natural_scroll(mode: azul_core::resources::NaturalScroll) {
-    use azul_core::resources::NaturalScroll;
-    let v = match mode {
-        NaturalScroll::Disabled => 0,
-        NaturalScroll::Enabled => 1,
-        NaturalScroll::System => 2,
-    };
-    NATURAL_SCROLL_MODE.store(v, Ordering::Relaxed);
-}
-
-/// The app-global natural-scroll mode.
-#[must_use]
-pub fn natural_scroll_mode() -> azul_core::resources::NaturalScroll {
-    use azul_core::resources::NaturalScroll;
-    match NATURAL_SCROLL_MODE.load(Ordering::Relaxed) {
-        1 => NaturalScroll::Enabled,
-        2 => NaturalScroll::System,
-        _ => NaturalScroll::Disabled,
-    }
-}
-
-/// A backend reports the platform's natural-scrolling preference.
-pub fn set_global_system_natural_scroll(natural: Option<bool>) {
-    let v = match natural {
-        None => 0,
-        Some(false) => 1,
-        Some(true) => 2,
-    };
-    SYSTEM_NATURAL_SCROLL.store(v, Ordering::Relaxed);
-}
-
-/// The platform's natural-scrolling preference, if a backend reported one.
-#[must_use]
-pub fn system_natural_scroll() -> Option<bool> {
-    match SYSTEM_NATURAL_SCROLL.load(Ordering::Relaxed) {
-        1 => Some(false),
-        2 => Some(true),
-        _ => None,
-    }
-}
-
-/// App-global `AppConfig::mode`: the APP's light / dark MODE, which every
-/// window of the app shares. `App::create` publishes the startup value;
-/// `CallbackInfo::set_mode` switches it at runtime. `0` follows the desktop
-/// ("system"), `1` pins light, `2` pins dark.
-///
-/// Global, like the settings above, because the choice belongs to no window:
-/// a window opened AFTER a switch has to start in it, and window creation has
-/// no path back to the window whose callback switched. Each `LayoutWindow`
-/// mirrors it in [`LayoutWindow::mode`] - seeded from here when it is built,
-/// updated when the app switches - and the cascade reads the mirror, so a
-/// test (which never publishes anything here) can pin one window without
-/// touching the others running beside it.
-static APP_MODE: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
-
-/// Publish the app's mode choice (`None` follows the desktop).
-pub fn set_app_mode(mode: azul_core::window::OptionDarkLightMode) {
-    use azul_core::window::{OptionDarkLightMode, DarkLightMode};
-    let v = match mode {
-        OptionDarkLightMode::None => 0,
-        OptionDarkLightMode::Some(DarkLightMode::Light) => 1,
-        OptionDarkLightMode::Some(DarkLightMode::Dark) => 2,
-    };
-    APP_MODE.store(v, Ordering::Relaxed);
-}
-
-/// App-global language choice (`CallbackInfo::set_locale`; `None` follows the system's
-/// language), global like [`APP_MODE`] and for the same reason: a window built after a switch
-/// - a dialog - has to start in it ([`LayoutWindow::set_app_localization`] adopts it).
-static APP_LOCALE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
-
-/// Publish the app's language choice (`None`, or an empty tag: the system's language).
-pub fn set_app_locale(locale: Option<&str>) {
-    let chosen = locale
-        .map(str::trim)
-        .filter(|tag| !tag.is_empty())
-        .map(str::to_string);
-    *APP_LOCALE
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner) = chosen;
-}
-
-/// The app's language choice; `None` follows the system's language.
-#[must_use]
-pub fn app_locale() -> Option<String> {
-    APP_LOCALE
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .clone()
-}
-
-/// The app's mode choice: `None` follows the desktop.
-#[must_use]
-pub fn app_mode() -> azul_core::window::OptionDarkLightMode {
-    use azul_core::window::{OptionDarkLightMode, DarkLightMode};
-    match APP_MODE.load(Ordering::Relaxed) {
-        1 => OptionDarkLightMode::Some(DarkLightMode::Light),
-        2 => OptionDarkLightMode::Some(DarkLightMode::Dark),
-        _ => OptionDarkLightMode::None,
-    }
-}
-
 /// THE mode decision (theme-chain invariant I1): the light / dark a window
 /// shows, given the app's mode and the window's OWN light / dark.
 ///
@@ -481,23 +330,6 @@ pub const fn resolve_window_mode_with(
         OptionDarkLightMode::Some(pinned) => pinned,
         OptionDarkLightMode::None => window,
     }
-}
-
-/// App-global `AppConfig::expose_system_media_controls`, published the same way
-/// and for the same reason: the Linux media-key backend starts from a place
-/// with no path back to the `AppConfig` the app was built with.
-static EXPOSE_SYSTEM_MEDIA_CONTROLS: core::sync::atomic::AtomicBool =
-    core::sync::atomic::AtomicBool::new(false);
-
-/// Install the app-global MPRIS setting.
-pub fn set_global_expose_system_media_controls(enabled: bool) {
-    EXPOSE_SYSTEM_MEDIA_CONTROLS.store(enabled, Ordering::Relaxed);
-}
-
-/// Whether to publish an MPRIS player. Read by the Linux media-key backend.
-#[must_use]
-pub fn expose_system_media_controls() -> bool {
-    EXPOSE_SYSTEM_MEDIA_CONTROLS.load(Ordering::Relaxed)
 }
 
 /// Data for the tween timer: the shared "in flight" flag published by
@@ -1923,16 +1755,29 @@ const fn atomic_item_node(item: &InlineContent) -> Option<NodeId> {
     }
 }
 
-/// The next window's key for the a11y lints (`LayoutWindow::dom_lint_scope`);
-/// 0 is a lint run outside any window.
-static NEXT_DOM_LINT_SCOPE: core::sync::atomic::AtomicU64 =
-    core::sync::atomic::AtomicU64::new(1);
-
-/// Bytes held by `layout_results`, published by the walk at the insert site so
-/// the `accounted / rss` line can say what it is missing. Cross-frame by
-/// necessity: the two are measured at different points in the frame.
-static LAST_LAYOUT_RESULTS_BYTES: core::sync::atomic::AtomicU64 =
-    core::sync::atomic::AtomicU64::new(0);
+/// What the `AZ_PROFILE=memory` report of one window remembers from one layout pass to the
+/// next. The report is a diagnostic of the passes of ONE window, so the window owns it
+/// ([`LayoutWindow::memory_report`]) - it was four process-wide counters that two windows
+/// (or two tests) moved for each other.
+///
+/// A plain field, not an atomic: the report runs inside the pass, which holds the window
+/// exclusively, and a lock would only add a way for the instrumentation to deadlock the thing
+/// it measures.
+#[derive(Debug, Default)]
+pub(crate) struct MemoryReportState {
+    /// Passes reported so far: the number of the next one.
+    frame: u64,
+    /// What the object walk reached in the last reported pass, KiB.
+    prev_walked_kib: u64,
+    /// The process's RSS in the last reported pass, KiB.
+    prev_rss_kib: u64,
+    /// How many reported passes in a row grew RSS by more than the leak threshold.
+    growth_run: u64,
+    /// Bytes held by `layout_results`, published by the walk at the insert site so the
+    /// `accounted / rss` line can say what it is missing. Cross-frame by necessity: the two
+    /// are measured at different points in the frame.
+    layout_results_bytes: u64,
+}
 
 /// COMPILE-TIME COVERAGE GUARD for the `AZ_PROFILE=memory` walk.
 ///
@@ -2143,7 +1988,10 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         dom_lint_runs: _,
         // One small entry per laid-out DOM.
         dom_lint_stamps: _,
-        dom_lint_scope: _,
+        work: _,
+        switches: _,
+        memory_report: _,
+        next_changeset_id: _,
         a11y_tree_updates: _,
         timers: _,
         threads: _,
@@ -2180,6 +2028,9 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         last_laid_out_frame: _,
         last_laid_out_mode: _,
         system_animations_override: _,
+        system_animations_default: _,
+        app_env: _,
+        gpu_provision: _,
         monitors: _,
         // Two numbers.
         screen_mapping: _,
@@ -2373,10 +2224,6 @@ pub enum TextEditNotify {
     QueueInput,
 }
 
-/// One monotonic id for every recorded text edit (typing, deletion,
-/// multi-cursor paste). Replaces the three formerly hand-picked per-site id
-/// bands, which existed only so the sites could not collide.
-static CHANGESET_COUNTER: AtomicUsize = AtomicUsize::new(0);
 /// How many nodes a scan of an editable's subtree will visit - looking for
 /// the box that owns its inline layout ([`LayoutWindow::ifc_candidate_children`]).
 /// Editable subtrees are small; the bound only stops a malformed hierarchy
@@ -2558,9 +2405,12 @@ pub struct LayoutWindow {
     /// follows the desktop ("system"), `Some` pins light / dark
     /// (`AppConfig::mode`, `CallbackInfo::set_mode`).
     ///
-    /// A mirror of the app-global [`app_mode`], seeded from it when the
-    /// window is built and updated when the app switches; the cascade reads
-    /// THIS through [`Self::window_mode_for`], never the global. See
+    /// The window's copy of the app's choice: the shell that builds the
+    /// window seeds it from the app (`AppConfig::mode`, or the choice the app
+    /// made since, which every window of the app shares) and keeps it current
+    /// when the app switches; the cascade reads THIS through
+    /// [`Self::window_mode_for`]. It is the window's own, so a test pins one
+    /// window without touching the others running beside it. See
     /// [`resolve_window_mode`] for where it sits in the precedence.
     pub mode: azul_core::window::OptionDarkLightMode,
     /// The APP THEME this window's DOM is built under (`"flat"`, `"flora"`,
@@ -3175,10 +3025,24 @@ pub struct LayoutWindow {
     /// restyle that keeps every view, so nothing else would render them
     /// again and the map stays light in a dark window.
     pub last_laid_out_mode: DarkLightMode,
-    /// Per-window override of the app-global system-animation configuration
-    /// (`set_global_system_animations`). `None` = use the global. Mostly for
-    /// tests, which must not race the process-wide slot.
+    /// The system-animation configuration this window runs with
+    /// (`AppConfig::system_animations`, which the shell hands every window it
+    /// builds: [`Self::set_app_settings`]). `None` = the defaults. A test sets
+    /// the tweens it wants on its own window.
     pub system_animations_override: Option<azul_core::resources::SystemAnimations>,
+    /// The defaults [`Self::effective_system_animations`] answers while
+    /// `system_animations_override` is `None`, built on first use.
+    system_animations_default: std::sync::OnceLock<azul_core::resources::SystemAnimations>,
+    /// The app-level configuration engine services (the updater, the system
+    /// dialogs) need: the app's name and version, where the update manifest
+    /// lives, the changelog URL, the support mailbox. Seeded from
+    /// `AppConfig` when the shell builds the window ([`Self::set_app_settings`]);
+    /// the dialogs read it through `CallbackInfo::app_env`.
+    pub app_env: crate::appenv::AppEnv,
+    /// What the dll can do about the machine's video drivers, for the
+    /// graphics-check dialog (`CallbackInfo::gpu_provision_hooks`). `None`
+    /// until a shell hands the window the dll's hooks.
+    pub gpu_provision: Option<crate::appenv::GpuProvisionHooks>,
     /// Shared monitor list — initialized once at app start, updated by the platform
     /// layer on monitor topology changes. Arc<Mutex> allows zero-cost sharing
     /// across all `CallbackInfoRefData` without cloning the Vec each time.
@@ -3212,9 +3076,20 @@ pub struct LayoutWindow {
     /// again; a new generation, a re-rendered `VirtualView` child or any
     /// other arena is.
     dom_lint_stamps: BTreeMap<DomId, (usize, usize)>,
-    /// The window's own key for the a11y lints: they say each problem once
-    /// per window, not once per node or per pass ([`NEXT_DOM_LINT_SCOPE`]).
-    dom_lint_scope: u64,
+    /// What this window's passes did, counted ([`WindowWork`]): what a test reads to say how
+    /// much work a frame was.
+    pub work: WindowWork,
+    /// The choices this window makes for the switches the environment sets for the whole
+    /// process ([`WindowSwitches`]).
+    pub switches: WindowSwitches,
+    /// What the `AZ_PROFILE=memory` report remembers from one of this window's passes to the
+    /// next ([`MemoryReportState`]).
+    memory_report: MemoryReportState,
+    /// The id of the next text edit this window records: one monotonic number for every
+    /// recorded text edit (typing, deletion, multi-cursor paste), which replaced the three
+    /// hand-picked per-site id bands that existed only so the sites could not collide. The
+    /// window's own, because the history that keeps the ids is ([`Self::undo_redo_manager`]).
+    next_changeset_id: usize,
     /// How many accessibility passes ran (`update_a11y_tree`, which every
     /// layout pass ends with) - so a shell can tell whether the tree is
     /// already current after a regeneration (A11YPATCH8).
@@ -3574,59 +3449,180 @@ fn state_colored_nodes(
     colored
 }
 
-/// How many state colours `LayoutWindow::patch_restyled_decorations` showed by writing the
-/// VALUE of a colour key on this thread (audit A4-23): what a test reads to say that a
-/// pointer swept over labels writes a value per enter and leave and changes no list.
-#[cfg(test)]
-thread_local! {
-    pub(crate) static STATE_COLOR_WRITES: core::cell::Cell<usize> =
-        const { core::cell::Cell::new(0) };
+/// How much work the passes of ONE window did, counted so that a test can say a frame looked at
+/// none of what it should not have looked at: a node of the document, a box of the view, an item
+/// of a list that did not change. The window that did the work counts it ([`LayoutWindow::work`])
+/// and a test reads the counters of ITS window, so windows and tests that run side by side never
+/// move each other's. (They were thread-locals of the test build; the CSS diff, which runs
+/// without a window, is handed the counters of its caller.)
+///
+/// Relaxed counters: the walks that report into them run behind `&self`, and the count of a
+/// pass is not something the pass waits for.
+#[derive(Debug, Default)]
+pub struct WindowWork {
+    state_color_writes: AtomicUsize,
+    moved_boxes: AtomicUsize,
+    background_item_scan: AtomicUsize,
+    font_resolutions: AtomicUsize,
+    callback_image_scan: AtomicUsize,
+    css_diff_steps: AtomicUsize,
+    css_diff_types: AtomicUsize,
+    scrollbar_fade_work: AtomicUsize,
+    layout_node_lookups: AtomicUsize,
+    kept_dom_rebuilds: AtomicUsize,
+    tree_rebuilds_that_kept_rows: AtomicUsize,
 }
 
-#[cfg(test)]
-fn state_color_writes(values: usize) {
-    STATE_COLOR_WRITES.with(|written| written.set(written.get() + values));
+impl WindowWork {
+    /// Zeroes every counter.
+    pub fn reset(&self) {
+        for counter in [
+            &self.state_color_writes,
+            &self.moved_boxes,
+            &self.background_item_scan,
+            &self.font_resolutions,
+            &self.callback_image_scan,
+            &self.css_diff_steps,
+            &self.css_diff_types,
+            &self.scrollbar_fade_work,
+            &self.layout_node_lookups,
+            &self.kept_dom_rebuilds,
+            &self.tree_rebuilds_that_kept_rows,
+        ] {
+            counter.store(0, Ordering::Relaxed);
+        }
+    }
+
+    /// How many state colours `LayoutWindow::patch_restyled_decorations` showed by writing the
+    /// VALUE of a colour key (audit A4-23): what a test reads to say that a pointer swept over
+    /// labels writes a value per enter and leave and changes no list.
+    #[must_use]
+    pub fn state_color_writes(&self) -> usize {
+        self.state_color_writes.load(Ordering::Relaxed)
+    }
+
+    fn note_state_color_writes(&self, values: usize) {
+        self.state_color_writes.fetch_add(values, Ordering::Relaxed);
+    }
+
+    /// How many layout boxes a move of a node where it lies looked at
+    /// (`LayoutWindow::move_node_in_place`): what a test reads to say that a move looks at the
+    /// boxes of the moved node and not at those of its document.
+    #[must_use]
+    pub fn moved_boxes(&self) -> usize {
+        self.moved_boxes.load(Ordering::Relaxed)
+    }
+
+    fn note_moved_boxes(&self, steps: usize) {
+        self.moved_boxes.fetch_add(steps, Ordering::Relaxed);
+    }
+
+    /// How many display-list items the search for callback backgrounds looked at to find the
+    /// `Image` items of a list (`LayoutWindow::invoke_background_image_callbacks_into_overlay`):
+    /// what a test reads to say a frame over the lists of the frame before looks at none.
+    #[must_use]
+    pub fn background_item_scan(&self) -> usize {
+        self.background_item_scan.load(Ordering::Relaxed)
+    }
+
+    fn note_background_item_scan(&self, steps: usize) {
+        self.background_item_scan.fetch_add(steps, Ordering::Relaxed);
+    }
+
+    /// How often the fonts of a DOM were resolved (the cold branch of the font block of
+    /// `layout_dom_recursive_impl`): what a test reads to say a pass over the same font stacks
+    /// and characters resolves nothing.
+    #[must_use]
+    pub fn font_resolutions(&self) -> usize {
+        self.font_resolutions.load(Ordering::Relaxed)
+    }
+
+    fn note_font_resolution(&self) {
+        self.font_resolutions.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// How many layout nodes the search for callback images looked at
+    /// (`LayoutWindow::invoke_image_callbacks_into_overlay`): what a test reads to say a frame
+    /// of an unchanged DOM looks at none.
+    #[must_use]
+    pub fn callback_image_scan(&self) -> usize {
+        self.callback_image_scan.load(Ordering::Relaxed)
+    }
+
+    fn note_callback_image_scan(&self, steps: usize) {
+        self.callback_image_scan.fetch_add(steps, Ordering::Relaxed);
+    }
+
+    /// The work of the CSS diff of two cascades ([`css_diff_between`], the restyle diff of
+    /// `begin_reconciliation`), as `(steps, property types)`: a step is a node looked at or an
+    /// inherited value read from a store, a property type is one resolved on both sides for a
+    /// matched pair. What a test reads to say the diff of a view that rendered again grows with
+    /// its nodes, not with nodes times values, and compares for a label that moved the
+    /// declarations that moved.
+    #[must_use]
+    pub fn css_diff_work(&self) -> (usize, usize) {
+        (
+            self.css_diff_steps.load(Ordering::Relaxed),
+            self.css_diff_types.load(Ordering::Relaxed),
+        )
+    }
+
+    fn note_css_diff_steps(&self, steps: usize) {
+        self.css_diff_steps.fetch_add(steps, Ordering::Relaxed);
+    }
+
+    fn note_css_diff_types(&self, compared: usize) {
+        self.css_diff_types.fetch_add(compared, Ordering::Relaxed);
+    }
+
+    /// How many boxes `LayoutWindow::synchronize_scrollbar_opacity` computed a fade for (its
+    /// node, its fade timing, its opacities, its keys): what a test reads to say a frame of a
+    /// DOM without scrollbars does that for no box.
+    #[must_use]
+    pub fn scrollbar_fade_work(&self) -> usize {
+        self.scrollbar_fade_work.load(Ordering::Relaxed)
+    }
+
+    fn note_scrollbar_fade_work(&self, boxes: usize) {
+        self.scrollbar_fade_work.fetch_add(boxes, Ordering::Relaxed);
+    }
+
+    /// How many steps `LayoutWindow::get_node_layout_rect` took to find a node's box (one per
+    /// call now): what a test reads to say the lookup does not walk the tree.
+    #[must_use]
+    pub fn layout_node_lookups(&self) -> usize {
+        self.layout_node_lookups.load(Ordering::Relaxed)
+    }
+
+    fn note_layout_node_lookup(&self, steps: usize) {
+        self.layout_node_lookups.fetch_add(steps, Ordering::Relaxed);
+    }
+
+    /// How many rebuilds of this window kept the styled DOM and styled the nodes the rebuild
+    /// changed (`LayoutWindow::restyle_rebuilt_nodes`): what a test reads to say which path a
+    /// rebuild took.
+    #[must_use]
+    pub fn kept_dom_rebuilds(&self) -> usize {
+        self.kept_dom_rebuilds.load(Ordering::Relaxed)
+    }
+
+    fn note_kept_dom_rebuild(&self) {
+        self.kept_dom_rebuilds.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// How many rebuilds of this window changed the tree of a DOM and still kept the rows of
+    /// the nodes that were what they were (`LayoutWindow::style_reconciled_dom`, the step
+    /// `tree`; a view's re-render under the step `view`): what a test reads to say which path
+    /// a rebuild took.
+    #[must_use]
+    pub fn tree_rebuilds_that_kept_rows(&self) -> usize {
+        self.tree_rebuilds_that_kept_rows.load(Ordering::Relaxed)
+    }
+
+    fn note_tree_rebuild_that_kept_rows(&self) {
+        self.tree_rebuilds_that_kept_rows.fetch_add(1, Ordering::Relaxed);
+    }
 }
-
-#[cfg(not(test))]
-#[inline(always)]
-const fn state_color_writes(_values: usize) {}
-
-/// How many layout boxes a move of a node where it lies looked at on this thread
-/// (`LayoutWindow::move_node_in_place`): what a test reads to say that a move looks at the
-/// boxes of the moved node and not at those of its document.
-#[cfg(test)]
-thread_local! {
-    pub(crate) static MOVED_BOXES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
-}
-
-#[cfg(test)]
-fn moved_boxes(steps: usize) {
-    MOVED_BOXES.with(|visited| visited.set(visited.get() + steps));
-}
-
-#[cfg(not(test))]
-#[inline(always)]
-const fn moved_boxes(_steps: usize) {}
-
-/// How many display-list items the search for callback backgrounds looked at on this thread
-/// to find the `Image` items of a list
-/// (`LayoutWindow::invoke_background_image_callbacks_into_overlay`): what a test reads to say
-/// a frame over the lists of the frame before looks at none.
-#[cfg(test)]
-thread_local! {
-    pub(crate) static BACKGROUND_ITEM_SCAN: core::cell::Cell<usize> =
-        const { core::cell::Cell::new(0) };
-}
-
-#[cfg(test)]
-fn background_item_scan(steps: usize) {
-    BACKGROUND_ITEM_SCAN.with(|scanned| scanned.set(scanned.get() + steps));
-}
-
-#[cfg(not(test))]
-#[inline(always)]
-const fn background_item_scan(_steps: usize) {}
 
 /// A set of characters: a bit per code point of the Basic Multilingual Plane, the few others
 /// in a set. What a DOM's text uses is collected into one per layout pass (a step per
@@ -3762,91 +3758,6 @@ impl FontResolutions {
     }
 }
 
-/// How often the fonts of a DOM were resolved on this thread (the cold branch of the font
-/// block of `layout_dom_recursive_impl`): what a test reads to say a pass over the same font
-/// stacks and characters resolves nothing.
-#[cfg(test)]
-thread_local! {
-    pub(crate) static FONT_RESOLUTIONS: core::cell::Cell<usize> =
-        const { core::cell::Cell::new(0) };
-}
-
-#[cfg(test)]
-fn font_resolution_ran() {
-    FONT_RESOLUTIONS.with(|ran| ran.set(ran.get() + 1));
-}
-
-#[cfg(not(test))]
-#[inline(always)]
-const fn font_resolution_ran() {}
-
-/// How many layout nodes the search for callback images looked at on this thread
-/// (`LayoutWindow::invoke_image_callbacks_into_overlay`): what a test reads to say a frame of
-/// an unchanged DOM looks at none.
-#[cfg(test)]
-thread_local! {
-    pub(crate) static CALLBACK_IMAGE_SCAN: core::cell::Cell<usize> =
-        const { core::cell::Cell::new(0) };
-}
-
-#[cfg(test)]
-fn callback_image_scan(steps: usize) {
-    CALLBACK_IMAGE_SCAN.with(|scanned| scanned.set(scanned.get() + steps));
-}
-
-#[cfg(not(test))]
-#[inline(always)]
-const fn callback_image_scan(_steps: usize) {}
-
-/// The work of the CSS diff of two cascades on this thread ([`css_diff_between`], the
-/// restyle diff of `begin_reconciliation`), as `(steps, property types)`: a step is a node
-/// looked at or an inherited value read from a store, a property type is one resolved on
-/// both sides for a matched pair. What a test reads to say the diff of a view that rendered
-/// again grows with its nodes, not with nodes times values, and compares for a label that
-/// moved the declarations that moved.
-#[cfg(test)]
-thread_local! {
-    pub(crate) static CSS_DIFF_WORK: core::cell::Cell<(usize, usize)> =
-        const { core::cell::Cell::new((0, 0)) };
-}
-
-#[cfg(test)]
-fn css_diff_work(steps: usize) {
-    CSS_DIFF_WORK.with(|work| {
-        let (so_far, types) = work.get();
-        work.set((so_far + steps, types));
-    });
-}
-
-#[cfg(not(test))]
-#[inline(always)]
-const fn css_diff_work(_steps: usize) {}
-
-/// How many boxes `LayoutWindow::synchronize_scrollbar_opacity` computed a fade for on this
-/// thread (its node, its fade timing, its opacities, its keys): what a test reads to say a
-/// frame of a DOM without scrollbars does that for no box.
-#[cfg(test)]
-thread_local! {
-    pub(crate) static SCROLLBAR_FADE_WORK: core::cell::Cell<usize> =
-        const { core::cell::Cell::new(0) };
-}
-
-#[cfg(test)]
-fn scrollbar_fade_work(boxes: usize) {
-    SCROLLBAR_FADE_WORK.with(|work| work.set(work.get() + boxes));
-}
-
-#[cfg(not(test))]
-#[inline(always)]
-const fn scrollbar_fade_work(_boxes: usize) {}
-
-std::thread_local! {
-    /// The choice of [`set_diff_first_on_this_thread`] / [`set_diff_first_steps_on_this_thread`]
-    /// for the calling thread: one bit per [`DiffFirstStep`].
-    static DIFF_FIRST_ON_THIS_THREAD: core::cell::Cell<Option<u16>> =
-        const { core::cell::Cell::new(None) };
-}
-
 /// One step of the diff-first pipeline of a rebuild (`audit/diff-first.md`), switchable on its
 /// own by its [`Self::name`] in the environment variable `AZ_DIFF_FIRST`: unset (or any value
 /// that names no step, as `1`) is every step, `0` is none - the full path for every rebuild
@@ -3962,12 +3873,10 @@ pub fn diff_first_steps_of(value: &str) -> u16 {
     }
 }
 
-/// The steps that are on for the calling thread: its own choice, else the environment's.
-fn diff_first_steps() -> u16 {
+/// The steps `AZ_DIFF_FIRST` switches on, read from the environment ONCE: the switch is process
+/// configuration, and [`WindowSwitches`] is where a window chooses otherwise.
+fn diff_first_steps_from_environment() -> u16 {
     static FROM_ENVIRONMENT: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
-    if let Some(steps) = DIFF_FIRST_ON_THIS_THREAD.with(core::cell::Cell::get) {
-        return steps;
-    }
     *FROM_ENVIRONMENT.get_or_init(|| {
         std::env::var_os("AZ_DIFF_FIRST").map_or(DiffFirstStep::EVERY_BIT, |value| {
             diff_first_steps_of(&value.to_string_lossy())
@@ -3975,165 +3884,117 @@ fn diff_first_steps() -> u16 {
     })
 }
 
-/// Whether a rebuild of a DOM is diffed against the build before it BEFORE it is styled, and
-/// styled, reconciled and laid out only for what that diff names (`audit/diff-first.md`): any
-/// step of it. Off with `AZ_DIFF_FIRST=0`: then every rebuild whose fingerprints moved takes
-/// the full path (the cascade, the reconciliation, the equivalence check), which is the path
-/// the diff-first one must agree with.
-#[must_use]
-pub fn diff_first_enabled() -> bool {
-    diff_first_steps() != 0
-}
-
-/// Whether `step` of the diff-first pipeline is on ([`DiffFirstStep`]).
-#[must_use]
-pub fn diff_first_step(step: DiffFirstStep) -> bool {
-    diff_first_steps() & step.bit() != 0
-}
-
-/// Chooses the path of [`diff_first_enabled`] for the calling thread, whatever the environment
-/// says: every step or none (`None`: the environment's again). For a test that runs one
-/// rebuild down both paths and compares what they leave: the tests of a process share its
-/// environment and run side by side, one per thread.
-pub fn set_diff_first_on_this_thread(on: Option<bool>) {
-    DIFF_FIRST_ON_THIS_THREAD
-        .with(|choice| choice.set(on.map(|on| if on { DiffFirstStep::EVERY_BIT } else { 0 })));
-}
-
-std::thread_local! {
-    /// Rebuilds on this thread that kept the styled DOM and styled nodes of it again
-    /// ([`kept_dom_rebuilds_on_this_thread`]).
-    static KEPT_DOM_REBUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
-}
-
-/// How many rebuilds on the calling thread kept their styled DOM and styled the nodes the
-/// rebuild changed (`LayoutWindow::restyle_rebuilt_nodes`): what a test reads to say which
-/// path a rebuild took.
-#[must_use]
-pub fn kept_dom_rebuilds_on_this_thread() -> usize {
-    KEPT_DOM_REBUILDS.with(core::cell::Cell::get)
-}
-
-std::thread_local! {
-    /// Rebuilds on this thread that were reconciled before they were styled and kept rows
-    /// of the tree before ([`tree_rebuilds_that_kept_rows_on_this_thread`]).
-    static TREE_REBUILDS_THAT_KEPT_ROWS: core::cell::Cell<usize> =
-        const { core::cell::Cell::new(0) };
-}
-
-/// How many rebuilds on the calling thread changed the tree of a DOM and still kept the rows
-/// of the nodes that were what they were (`LayoutWindow::style_reconciled_dom`, the step
-/// `tree`; a view's re-render under the step `view`): what a test reads to say which path a
-/// rebuild took.
-#[must_use]
-pub fn tree_rebuilds_that_kept_rows_on_this_thread() -> usize {
-    TREE_REBUILDS_THAT_KEPT_ROWS.with(core::cell::Cell::get)
-}
-
-/// [`set_diff_first_on_this_thread`] step by step: exactly `steps` are on for the calling
-/// thread (`None`: the environment's again).
-pub fn set_diff_first_steps_on_this_thread(steps: Option<&[DiffFirstStep]>) {
-    DIFF_FIRST_ON_THIS_THREAD.with(|choice| {
-        choice.set(steps.map(|steps| steps.iter().fold(0_u16, |bits, step| bits | step.bit())));
-    });
-}
-
-std::thread_local! {
-    /// The choice of [`set_state_colors_from_the_build_on_this_thread`] for the calling thread.
-    static STATE_COLORS_FROM_THE_BUILD_ON_THIS_THREAD: core::cell::Cell<Option<bool>> =
-        const { core::cell::Cell::new(None) };
-}
-
-/// Whether a build of a display list binds the background of every node that has a
-/// `:hover` / `:active` / `:focus` background to a colour key from the start (audit A4-23,
-/// the eager binding: [`LayoutWindow::bind_state_colors`]), so that the FIRST enter of such
-/// a node is a value already. On unless the environment says `AZ_EAGER_STATE_COLORS=0`:
-/// then a node is bound when a state first paints it (one patched list per node and list
-/// build), as before.
-#[must_use]
-pub fn state_colors_from_the_build() -> bool {
+/// `AZ_EAGER_STATE_COLORS`, read from the environment once.
+fn state_colors_from_the_build_from_environment() -> bool {
     static FROM_ENVIRONMENT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    if let Some(on) = STATE_COLORS_FROM_THE_BUILD_ON_THIS_THREAD.with(core::cell::Cell::get) {
-        return on;
-    }
     *FROM_ENVIRONMENT.get_or_init(|| {
         std::env::var_os("AZ_EAGER_STATE_COLORS").is_none_or(|value| value != "0")
     })
 }
 
-std::thread_local! {
-    /// The choice of [`set_move_in_place_on_this_thread`] for the calling thread.
-    static MOVE_IN_PLACE_ON_THIS_THREAD: core::cell::Cell<Option<bool>> =
-        const { core::cell::Cell::new(None) };
-}
-
-/// Whether a write of `left` / `top` alone moves the node's boxes and items WHERE THEY LIE
-/// (`LayoutWindow::move_node_in_place`, A3-window-49) instead of laying its document out.
-/// ON unless the environment says `AZ_MOVE_IN_PLACE=0`.
-///
-/// The move writes `old + delta`, which is not, in the last bit of an `f32`, the position
-/// a solve from the new insets gives nor the item a paint from that position gives. That
-/// is accepted for a drag, and only here: (1) the drift is bounded by the gesture - a few
-/// units in the last place per move, thousandths of a pixel after hundreds of moves;
-/// (2) it corrects itself - every move drops the box's `AbsPlacement` and the solver's
-/// kept list, so the first pass of the document solves the box from the insets as written
-/// and paints every item from the solved positions; (3) every kept structure is moved by
-/// the same delta, so positions, items and the hit tester's boxes agree with each other;
-/// (4) nothing is carried from one gesture to the next. (A run COPIED by a patched pass
-/// has none of that - it would drift pass after pass with nothing to reset it - which is
-/// why that copy is exact and this move need not be.) The exact move is designed in
-/// `audit/A3-window.md`, row 49.
-#[must_use]
-pub fn move_in_place_enabled() -> bool {
+/// `AZ_MOVE_IN_PLACE`, read from the environment once.
+fn move_in_place_from_environment() -> bool {
     static FROM_ENVIRONMENT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    if let Some(on) = MOVE_IN_PLACE_ON_THIS_THREAD.with(core::cell::Cell::get) {
-        return on;
-    }
     *FROM_ENVIRONMENT
         .get_or_init(|| std::env::var_os("AZ_MOVE_IN_PLACE").is_none_or(|value| value != "0"))
 }
 
-/// Chooses the answer of [`move_in_place_enabled`] for the calling thread, whatever the
-/// environment says (`None`: the environment's again). For the tests of the move.
-pub fn set_move_in_place_on_this_thread(on: Option<bool>) {
-    MOVE_IN_PLACE_ON_THIS_THREAD.with(|choice| choice.set(on));
+/// What one window chooses for the switches the environment sets for the whole process
+/// (`AZ_DIFF_FIRST`, `AZ_EAGER_STATE_COLORS`, `AZ_MOVE_IN_PLACE`): `None` is the environment's
+/// answer. For a test that runs one rebuild down both paths of a switch and compares what they
+/// leave - the tests of a process share its environment and run side by side, so the choice
+/// cannot be the environment's, and it must not be another test's either: it belongs to the
+/// window under test ([`LayoutWindow::switches`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct WindowSwitches {
+    /// One bit per [`DiffFirstStep`].
+    diff_first: Option<u16>,
+    state_colors_from_the_build: Option<bool>,
+    move_in_place: Option<bool>,
 }
 
-/// Chooses the answer of [`state_colors_from_the_build`] for the calling thread, whatever
-/// the environment says (`None`: the environment's again). For a test of one of the two
-/// bindings: the tests of a process share its environment and run side by side.
-pub fn set_state_colors_from_the_build_on_this_thread(on: Option<bool>) {
-    STATE_COLORS_FROM_THE_BUILD_ON_THIS_THREAD.with(|choice| choice.set(on));
+impl WindowSwitches {
+    /// The steps that are on for this window: its own choice, else the environment's.
+    fn diff_first_steps(self) -> u16 {
+        self.diff_first
+            .unwrap_or_else(diff_first_steps_from_environment)
+    }
+
+    /// Whether a rebuild of a DOM is diffed against the build before it BEFORE it is styled, and
+    /// styled, reconciled and laid out only for what that diff names (`audit/diff-first.md`): any
+    /// step of it. Off with `AZ_DIFF_FIRST=0`: then every rebuild whose fingerprints moved takes
+    /// the full path (the cascade, the reconciliation, the equivalence check), which is the path
+    /// the diff-first one must agree with.
+    #[must_use]
+    pub fn diff_first_enabled(&self) -> bool {
+        self.diff_first_steps() != 0
+    }
+
+    /// Whether `step` of the diff-first pipeline is on ([`DiffFirstStep`]).
+    #[must_use]
+    pub fn diff_first_step(&self, step: DiffFirstStep) -> bool {
+        self.diff_first_steps() & step.bit() != 0
+    }
+
+    /// Chooses the path of [`Self::diff_first_enabled`] for this window, whatever the
+    /// environment says: every step or none (`None`: the environment's again).
+    pub fn set_diff_first(&mut self, on: Option<bool>) {
+        self.diff_first = on.map(|on| if on { DiffFirstStep::EVERY_BIT } else { 0 });
+    }
+
+    /// [`Self::set_diff_first`] step by step: exactly `steps` are on for this window (`None`:
+    /// the environment's again).
+    pub fn set_diff_first_steps(&mut self, steps: Option<&[DiffFirstStep]>) {
+        self.diff_first =
+            steps.map(|steps| steps.iter().fold(0_u16, |bits, step| bits | step.bit()));
+    }
+
+    /// Whether a build of a display list binds the background of every node that has a
+    /// `:hover` / `:active` / `:focus` background to a colour key from the start (audit A4-23,
+    /// the eager binding: [`LayoutWindow::bind_state_colors`]), so that the FIRST enter of such
+    /// a node is a value already. On unless the environment says `AZ_EAGER_STATE_COLORS=0`:
+    /// then a node is bound when a state first paints it (one patched list per node and list
+    /// build), as before.
+    #[must_use]
+    pub fn state_colors_from_the_build(&self) -> bool {
+        self.state_colors_from_the_build
+            .unwrap_or_else(state_colors_from_the_build_from_environment)
+    }
+
+    /// Chooses the answer of [`Self::state_colors_from_the_build`] for this window, whatever
+    /// the environment says (`None`: the environment's again). For a test of one of the two
+    /// bindings.
+    pub const fn set_state_colors_from_the_build(&mut self, on: Option<bool>) {
+        self.state_colors_from_the_build = on;
+    }
+
+    /// Whether a write of `left` / `top` alone moves the node's boxes and items WHERE THEY LIE
+    /// (`LayoutWindow::move_node_in_place`, A3-window-49) instead of laying its document out.
+    /// ON unless the environment says `AZ_MOVE_IN_PLACE=0`.
+    ///
+    /// The move writes `old + delta`, which is not, in the last bit of an `f32`, the position
+    /// a solve from the new insets gives nor the item a paint from that position gives. That
+    /// is accepted for a drag, and only here: (1) the drift is bounded by the gesture - a few
+    /// units in the last place per move, thousandths of a pixel after hundreds of moves;
+    /// (2) it corrects itself - every move drops the box's `AbsPlacement` and the solver's
+    /// kept list, so the first pass of the document solves the box from the insets as written
+    /// and paints every item from the solved positions; (3) every kept structure is moved by
+    /// the same delta, so positions, items and the hit tester's boxes agree with each other;
+    /// (4) nothing is carried from one gesture to the next. (A run COPIED by a patched pass
+    /// has none of that - it would drift pass after pass with nothing to reset it - which is
+    /// why that copy is exact and this move need not be.) The exact move is designed in
+    /// `audit/A3-window.md`, row 49.
+    #[must_use]
+    pub fn move_in_place_enabled(&self) -> bool {
+        self.move_in_place.unwrap_or_else(move_in_place_from_environment)
+    }
+
+    /// Chooses the answer of [`Self::move_in_place_enabled`] for this window, whatever the
+    /// environment says (`None`: the environment's again). For the tests of the move.
+    pub const fn set_move_in_place(&mut self, on: Option<bool>) {
+        self.move_in_place = on;
+    }
 }
-
-/// How many steps `LayoutWindow::get_node_layout_rect` took on this thread to find a node's
-/// box (one per call now): what a test reads to say the lookup does not walk the tree.
-#[cfg(test)]
-thread_local! {
-    pub(crate) static LAYOUT_NODE_LOOKUPS: core::cell::Cell<usize> =
-        const { core::cell::Cell::new(0) };
-}
-
-#[cfg(test)]
-fn layout_node_lookup(steps: usize) {
-    LAYOUT_NODE_LOOKUPS.with(|work| work.set(work.get() + steps));
-}
-
-#[cfg(not(test))]
-#[inline(always)]
-const fn layout_node_lookup(_steps: usize) {}
-
-#[cfg(test)]
-fn css_diff_types(compared: usize) {
-    CSS_DIFF_WORK.with(|work| {
-        let (steps, so_far) = work.get();
-        work.set((steps, so_far + compared));
-    });
-}
-
-#[cfg(not(test))]
-#[inline(always)]
-const fn css_diff_types(_compared: usize) {}
 
 /// One DOM's part of a focus move (`LayoutWindow::focus_change_per_dom`):
 /// the nodes `:focus` moves between, and the nodes `:focus-within` follows.
@@ -4564,6 +4425,13 @@ impl LayoutWindow {
         self.frame_clock.timings()
     }
 
+    /// The key the a11y lints (`dom_lint`) report this window under: they say each problem once
+    /// per window, not once per node or per pass. The window's document id, which no other
+    /// window of the process has, plus one - `0` is a lint run outside any window.
+    fn dom_lint_scope(&self) -> u64 {
+        1 + ((u64::from(self.document_id.namespace_id.0) << 32) | u64::from(self.document_id.id))
+    }
+
     /// Moves whenever this window presents a frame, on every backend: the
     /// recorded frames ([`Self::record_frame`]) plus the noted ones
     /// ([`Self::note_frame_presented`]). While it stands still, what the
@@ -4628,9 +4496,9 @@ impl LayoutWindow {
             depends_on_text_direction: false,
             locale_override: None,
             known_languages: azul_css::system::SystemLanguageVec::from_const_slice(&[]),
-            // The app's choice as it stands NOW: a window opened after a
-            // runtime switch starts in it.
-            mode: app_mode(),
+            // The shell seeds the app's choice (`AppConfig::mode`, or what the app chose
+            // since): a window nobody seeded follows the desktop.
+            mode: azul_core::window::OptionDarkLightMode::None,
             // The app's theme as it stands NOW: a window opened after a
             // runtime switch builds for it from its first layout.
             app_theme: azul_core::app_theme::app_theme(),
@@ -4769,6 +4637,9 @@ impl LayoutWindow {
             timers: BTreeMap::new(),
             unarmed_blink_timer: None,
             system_animations_override: None,
+            system_animations_default: std::sync::OnceLock::new(),
+            app_env: crate::appenv::AppEnv::default(),
+            gpu_provision: None,
             threads: BTreeMap::new(),
             thread_owners: crate::managers::thread_owner::ThreadOwnerManager::default(),
             renderer_resources: RendererResources::default(),
@@ -4813,8 +4684,10 @@ impl LayoutWindow {
             seat_preedit_shaped: BTreeMap::new(),
             dom_lint_runs: 0,
             dom_lint_stamps: BTreeMap::new(),
-            dom_lint_scope: NEXT_DOM_LINT_SCOPE
-                .fetch_add(1, Ordering::Relaxed),
+            work: WindowWork::default(),
+            switches: WindowSwitches::default(),
+            memory_report: MemoryReportState::default(),
+            next_changeset_id: 0,
             a11y_tree_updates: 0,
             input_interpreter: azul_core::events::InputInterpreterCallback::default(),
             post_filter: azul_core::events::PostFilterCallback::default(),
@@ -5498,9 +5371,9 @@ impl LayoutWindow {
                 crate::dom_lint::warn_div_used_as_text_container(&lr.styled_dom);
                 crate::dom_lint::warn_interactive_without_accessibility_in(
                     &lr.styled_dom,
-                    self.dom_lint_scope,
+                    self.dom_lint_scope(),
                 );
-                crate::dom_lint::warn_a11y_shape_in(&lr.styled_dom, self.dom_lint_scope);
+                crate::dom_lint::warn_a11y_shape_in(&lr.styled_dom, self.dom_lint_scope());
                 crate::dom_lint::warn_composite_navigation(&lr.styled_dom);
             }
             self.dom_lint_stamps
@@ -6268,7 +6141,8 @@ impl LayoutWindow {
         seat_id: u64,
     ) -> usize {
         use crate::managers::changeset::TextChangeset;
-        let changeset_id = CHANGESET_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let changeset_id = self.next_changeset_id;
+        self.next_changeset_id += 1;
         let timestamp = {
             #[cfg(feature = "std")]
             {
@@ -9985,16 +9859,19 @@ impl LayoutWindow {
         // It is NOT `AZ_MEM_BREAKDOWN=1`, which is what this comment used
         // to say — that variable has never existed, and setting it prints
         // nothing at all.
+        // KEEP: an environment flag, read once (a fact of the process, not state of a window).
         static MEM_BREAKDOWN_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         // Optional AZ_PROFILE=cpu dump: per-phase wall-clock timings from
         // `Probe::span` spans (layout, style, cascade, paint, text-shape,
         // callbacks, …). Drains the thread-local buffer once per pass so
         // the printout reflects ONE layout/relayout frame — which makes it
         // easy to see which phase spiked during a stuttering frame.
+        // KEEP: an environment flag, read once.
         static CPU_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         // Optional AZ_PROFILE=cascade dump: top-N CSS properties by
         // cascade-walk count per layout pass. Narrow diagnostic for
         // prop-cache triage — not a general CPU profile.
+        // KEEP: an environment flag, read once.
         static CASCADE_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
         let dom_id = if styled_dom.dom_id.inner == 0 {
@@ -10223,7 +10100,7 @@ impl LayoutWindow {
                 // `FontContext::load_fonts_for_chains` and the CPU
                 // rasterizer's preview pre-fill — one implementation,
                 // three callers.
-                font_resolution_ran();
+                self.work.note_font_resolution();
                 // While the stacks are the ones resolved before, the new chains also cover
                 // what the old ones covered: a character that left the text and comes back
                 // (a counter's digits, a label panned out and in) is then still covered,
@@ -10524,7 +10401,7 @@ impl LayoutWindow {
         }
         // The colour keys the list of this pass binds (audit A4-23). None where the build
         // binds no value at all (`skip_gpu_sync`: it gets an empty cache).
-        let state_colored = if state_colors_from_the_build() && !self.skip_gpu_sync {
+        let state_colored = if self.switches.state_colors_from_the_build() && !self.skip_gpu_sync {
             state_colored_nodes(&styled_dom)
         } else {
             Vec::new()
@@ -10755,17 +10632,12 @@ impl LayoutWindow {
             // frame is the signal a leak or an unbounded cache produces, and a
             // one-shot report cannot show it at all.
             //
-            // A plain static is right here: the report is already
+            // A plain field is right here (`MemoryReportState`): the report is
             // single-threaded (it runs inside layout) and a mutex would only
             // add a way for the instrumentation to deadlock the thing it
             // measures.
-            static MEM_FRAME: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
-            static PREV_WALKED_KIB: core::sync::atomic::AtomicU64 =
-                core::sync::atomic::AtomicU64::new(0);
-            static PREV_RSS_KIB: core::sync::atomic::AtomicU64 =
-                core::sync::atomic::AtomicU64::new(0);
-            use core::sync::atomic::Ordering::Relaxed;
-            let mem_frame = MEM_FRAME.fetch_add(1, Relaxed);
+            let mem_frame = self.memory_report.frame;
+            self.memory_report.frame += 1;
             eprintln!("[MEM] ================ frame {mem_frame} ================");
 
             let sr = styled_dom.memory_report();
@@ -11174,8 +11046,8 @@ impl LayoutWindow {
 
                 // DELTA vs the previous frame. Frame 0 has nothing to compare
                 // against and says so rather than printing a fake +N.
-                let prev_walk = PREV_WALKED_KIB.swap(walked_kib, Relaxed);
-                let prev_rss = PREV_RSS_KIB.swap(m.total_kib, Relaxed);
+                let prev_walk = core::mem::replace(&mut self.memory_report.prev_walked_kib, walked_kib);
+                let prev_rss = core::mem::replace(&mut self.memory_report.prev_rss_kib, m.total_kib);
                 if mem_frame == 0 {
                     eprintln!("[MEM] delta: (first frame — nothing to compare against yet)");
                 } else {
@@ -11202,12 +11074,11 @@ impl LayoutWindow {
                     // does not do (it grows, then flattens).
                     const GROWTH_KIB: u64 = 256;
                     const RUN_TO_WARN: u64 = 8;
-                    static GROWTH_RUN: core::sync::atomic::AtomicU64 =
-                        core::sync::atomic::AtomicU64::new(0);
                     let run = if m.total_kib > prev_rss + GROWTH_KIB {
-                        GROWTH_RUN.fetch_add(1, Relaxed) + 1
+                        self.memory_report.growth_run += 1;
+                        self.memory_report.growth_run
                     } else {
-                        GROWTH_RUN.store(0, Relaxed);
+                        self.memory_report.growth_run = 0;
                         0
                     };
                     if run >= RUN_TO_WARN {
@@ -11243,7 +11114,7 @@ impl LayoutWindow {
                 // bare ratio would repeat the exact error this pair of numbers
                 // exists to expose: an "accounted" line that silently omits a
                 // known owner reads as coverage it does not have.
-                let lr = LAST_LAYOUT_RESULTS_BYTES.load(Relaxed);
+                let lr = self.memory_report.layout_results_bytes;
                 eprintln!(
                     "[MEM] accounted / rss = {:.1}% (layout_cache walk only) — the gap is \
                      allocator overhead + unreturned transient pages + fonts/images + misc",
@@ -11601,6 +11472,7 @@ impl LayoutWindow {
         // window where the main [MEM] block runs is one where the map is empty
         // BY CONSTRUCTION. Measuring it there printed a confident 0 DOMs that
         // said nothing about the map and everything about the placement.
+        // KEEP: an environment flag, read once.
         static MEM_LR_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         if *MEM_LR_ENABLED.get_or_init(azul_core::profile::memory_enabled) {
             let mut lr_styled = 0usize;
@@ -11616,7 +11488,7 @@ impl LayoutWindow {
                 lr_styled / 1024,
                 lr_tree / 1024,
             );
-            LAST_LAYOUT_RESULTS_BYTES.store((lr_styled + lr_tree) as u64, Ordering::Relaxed);
+            self.memory_report.layout_results_bytes = (lr_styled + lr_tree) as u64;
         }
 
         // RETURN THE PAGES A RELAYOUT BORROWED.
@@ -11632,9 +11504,11 @@ impl LayoutWindow {
         // a relayout, and the pages are likely to be wanted again on the next
         // one. Whether the trade is worth it is a measurement, not a default,
         // and the env gate is what makes the A/B possible at all.
+        // KEEP: an environment flag (`AZ_MALLOC_TRIM`), read once.
         static MEM_TRIM: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         if *MEM_TRIM.get_or_init(|| std::env::var("AZ_MALLOC_TRIM").as_deref() == Ok("1")) {
             let released = crate::probe::malloc_trim();
+            // KEEP: an environment flag, read once.
             static MEM_TRIM_LOG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
             if *MEM_TRIM_LOG.get_or_init(azul_core::profile::memory_enabled) {
                 // rss_census(), not current_rss_bytes(): the latter is behind
@@ -12473,7 +12347,7 @@ impl LayoutWindow {
         }
         // The switch of the move (`move_in_place_enabled`): off, the pass of the general
         // path places the box.
-        if moves && !move_in_place_enabled() {
+        if moves && !self.switches.move_in_place_enabled() {
             return None;
         }
         // No pass is owed to this DOM: its boxes are where its styles put them.
@@ -12634,7 +12508,7 @@ impl LayoutWindow {
                         return None;
                     }
                     let below = subtree[next];
-                    moved_boxes(1);
+                    self.work.note_moved_boxes(1);
                     let id = LayoutNodeId::new(below);
                     let warm = tree.warm(id)?;
                     if warm.flow.is_some() {
@@ -14131,8 +14005,9 @@ impl LayoutWindow {
             };
             let node_data_container = lr.styled_dom.node_data.as_container();
             let mut boxes: Vec<(usize, NodeId)> = Vec::new();
+            self.work
+                .note_callback_image_scan(lr.layout_tree.nodes.len());
             for (index, node) in lr.layout_tree.nodes.iter().enumerate() {
-                callback_image_scan(1);
                 let Some(node_dom_id) = node.dom_node_id else {
                     continue;
                 };
@@ -14388,7 +14263,8 @@ impl LayoutWindow {
             {
                 continue;
             }
-            background_item_scan(lr.display_list.items.len());
+            self.work
+                .note_background_item_scan(lr.display_list.items.len());
             let images: Vec<usize> = lr
                 .display_list
                 .items
@@ -14554,6 +14430,7 @@ impl LayoutWindow {
                     .as_ref()
                     .map_or(core::ptr::null(), core::ptr::from_ref),
                 may_defer,
+                deferred: core::cell::Cell::new(false),
             };
             let domnode_id = DomNodeId {
                 dom: ask.slot.dom,
@@ -14575,11 +14452,10 @@ impl LayoutWindow {
             unsafe { info.set_extras(core::ptr::from_ref(&extras)) };
             let cb = crate::callbacks::RenderImageCallback::from_core(&core_callback.callback);
             let refany = core_callback.refany.clone();
-            let _ = crate::callbacks::take_frame_deferred();
             let produced =
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| cb.invoke(refany, info)))
                     .ok();
-            let deferred = crate::callbacks::take_frame_deferred();
+            let deferred = extras.frame_was_deferred();
             // A callback answering with another callback would be asked
             // forever: only a drawable frame is kept (a panic is asked again).
             if let Some(frame) = produced.filter(|frame| !frame.is_callback()) {
@@ -15536,7 +15412,7 @@ impl LayoutWindow {
                 // another text). The document is not flattened, paired or remapped again:
                 // the changed nodes are written onto it and styled where they stand
                 // (`restyle_kept_child`).
-                let kept_document = if diff_first_step(DiffFirstStep::View) {
+                let kept_document = if self.switches.diff_first_step(DiffFirstStep::View) {
                     self.restyle_kept_child(
                         child,
                         &dom,
@@ -15560,7 +15436,7 @@ impl LayoutWindow {
                     .child_dom_fingerprints
                     .get(&child)
                     .is_some_and(|before| before.style_root != fingerprints.style_root);
-                if diff_first_step(DiffFirstStep::View) {
+                if self.switches.diff_first_step(DiffFirstStep::View) {
                     cascade = ChildCascade::Owed(self.child_dom_fingerprints.get(&child).map(
                         |before| {
                             (
@@ -15720,7 +15596,7 @@ impl LayoutWindow {
             // Only where the cascade ran for named nodes (not the whole cascade in place,
             // which made every row again).
             cache.cascaded_since_list = match epoch_before_render {
-                Some(from_epoch) if cascade_named && diff_first_step(DiffFirstStep::List) => {
+                Some(from_epoch) if cascade_named && self.switches.diff_first_step(DiffFirstStep::List) => {
                     Some(solver3::cache::CascadedSince {
                         from_epoch,
                         to_epoch: child_styled_dom.get_css_property_cache().cascade_epoch,
@@ -15730,6 +15606,7 @@ impl LayoutWindow {
                             .filter(|(_, clean)| !**clean)
                             .map(|(index, _)| NodeId::new(index))
                             .collect(),
+                        across_trees: self.switches.diff_first_step(DiffFirstStep::TreeList),
                     })
                 }
                 _ => None,
@@ -15933,7 +15810,7 @@ impl LayoutWindow {
         // layout their names only then).
         let named = retained.restyle_changed_nodes_moving(&reached, moved_in_place);
         if named {
-            TREE_REBUILDS_THAT_KEPT_ROWS.with(|count| count.set(count.get() + 1));
+            self.work.note_tree_rebuild_that_kept_rows();
         } else {
             // The whole cascade in place, pruned as a created DOM is
             // (`restyle_rebuilt_nodes` says why the prune).
@@ -15952,6 +15829,7 @@ impl LayoutWindow {
             &replaced,
             &states,
             (0..node_count).filter(|index| touched(*index)),
+            &self.work,
         );
         let clean: Vec<bool> = (0..node_count).map(|index| !touched(index)).collect();
         Some((retained, dirt, clean, named))
@@ -16955,14 +16833,14 @@ impl LayoutWindow {
         }
     }
 
-    /// The system-animation configuration this window runs with: the
-    /// per-window override if set (tests), else the app-global one
-    /// installed by `App::create`.
+    /// The system-animation configuration this window runs with: the one it
+    /// was given (the app's, or a test's), else the defaults.
     #[must_use]
     pub fn effective_system_animations(&self) -> &azul_core::resources::SystemAnimations {
-        self.system_animations_override
-            .as_ref()
-            .unwrap_or_else(|| global_system_animations())
+        self.system_animations_override.as_ref().unwrap_or_else(|| {
+            self.system_animations_default
+                .get_or_init(azul_core::resources::SystemAnimations::default)
+        })
     }
 
     /// Caret / selection tween post-pass over a freshly built display list.
@@ -20166,6 +20044,7 @@ impl LayoutWindow {
             ref layout_results,
             ref scroll_manager,
             ref mut gpu_state_manager,
+            ref work,
             ..
         } = *self;
         // The thumbs and the sticky boxes, from the boxes the layout pass
@@ -20178,7 +20057,7 @@ impl LayoutWindow {
                 .is_empty();
         }
         for (dom_id, layout_result) in layout_results {
-            moved |= !Self::synchronize_scrollbar_opacity(
+            moved |= !Self::synchronize_scrollbar_opacity_counting(
                 gpu_state_manager,
                 scroll_manager,
                 *dom_id,
@@ -20187,6 +20066,7 @@ impl LayoutWindow {
                 &system_callbacks,
                 fade_delay,
                 fade_duration,
+                work,
             )
             .is_empty();
         }
@@ -20273,7 +20153,7 @@ impl LayoutWindow {
         states_before: &[azul_core::styled_dom::StyledNodeState],
         reuse_styles: bool,
     ) -> (Vec<bool>, bool) {
-        KEPT_DOM_REBUILDS.with(|count| count.set(count.get() + 1));
+        self.work.note_kept_dom_rebuild();
         let changed: Vec<usize> = replaced.iter().map(|(index, _)| *index).collect();
         let reached = retained.nodes_reached_by_changes(&changed);
         let span_restyle = crate::probe::Probe::span("regen_restyle_changed_nodes");
@@ -20303,7 +20183,14 @@ impl LayoutWindow {
             .enumerate()
             .filter(|(_, reached)| **reached)
             .map(|(index, _)| index);
-        let dirt = css_diff_of_kept_dom(&old_cache, retained, replaced, states_before, candidates);
+        let dirt = css_diff_of_kept_dom(
+            &old_cache,
+            retained,
+            replaced,
+            states_before,
+            candidates,
+            &self.work,
+        );
         drop(span_diff);
         self.pending_css_dirty = Some((DomId::ROOT_ID, dirt));
         (reached, over_the_nodes)
@@ -20500,6 +20387,7 @@ impl LayoutWindow {
                 new_cache,
                 old_node_data.len(),
                 styled_dom.node_data.as_ref().len(),
+                &self.work,
             );
             let unchanged = unchanged_cascades(
                 old_cache,
@@ -21219,7 +21107,7 @@ impl LayoutWindow {
             styled_dom.cascade_at_rest();
             styled_dom.let_raised_states_in();
         } else {
-            TREE_REBUILDS_THAT_KEPT_ROWS.with(|count| count.set(count.get() + 1));
+            self.work.note_tree_rebuild_that_kept_rows();
         }
         drop(span_style);
 
@@ -21243,6 +21131,7 @@ impl LayoutWindow {
                     styled_dom,
                     &pending.node_moves,
                     kept.as_deref(),
+                    &self.work,
                 )
             })
             // No diff of two cascades under two contexts: every matched node is laid out.
@@ -21355,7 +21244,7 @@ impl LayoutWindow {
         let new_data = styled_dom.node_data.as_ref();
         let old_states = old_result.styled_dom.styled_nodes.as_ref();
         let new_states = styled_dom.styled_nodes.as_ref();
-        let inherited = InheritedIds::between(old_cache, new_cache, old_data.len(), new_data.len());
+        let inherited = InheritedIds::between(old_cache, new_cache, old_data.len(), new_data.len(), &self.work);
         for m in node_moves {
             if unchanged.is_some_and(|unchanged| {
                 unchanged.get(m.new_node_id.index()).copied().unwrap_or(false)
@@ -23065,8 +22954,6 @@ impl LayoutWindow {
     /// `styled_dom` (the DOM of `dom_id`) fades by its own
     /// ([`Self::scrollbar_fade_of`]).
     #[allow(clippy::too_many_arguments)] // the managers, the DOM, its tree and style, the clock, the fade
-    #[allow(clippy::too_many_lines)] // one cohesive fade state machine per scrollbar; no natural
-                                     // split
     pub fn synchronize_scrollbar_opacity(
         gpu_state_manager: &mut GpuStateManager,
         scroll_manager: &ScrollManager,
@@ -23076,6 +22963,35 @@ impl LayoutWindow {
         system_callbacks: &ExternalSystemCallbacks,
         fade_delay: Duration,
         fade_duration: Duration,
+    ) -> Vec<GpuScrollbarOpacityEvent> {
+        Self::synchronize_scrollbar_opacity_counting(
+            gpu_state_manager,
+            scroll_manager,
+            dom_id,
+            layout_tree,
+            styled_dom,
+            system_callbacks,
+            fade_delay,
+            fade_duration,
+            &WindowWork::default(),
+        )
+    }
+
+    /// [`Self::synchronize_scrollbar_opacity`], counting the boxes it computed a fade for into
+    /// the `work` of the window it runs for ([`WindowWork::scrollbar_fade_work`]).
+    #[allow(clippy::too_many_arguments)] // the managers, the DOM, its tree and style, the clock, the fade, the count
+    #[allow(clippy::too_many_lines)] // one cohesive fade state machine per scrollbar; no natural
+                                     // split
+    pub(crate) fn synchronize_scrollbar_opacity_counting(
+        gpu_state_manager: &mut GpuStateManager,
+        scroll_manager: &ScrollManager,
+        dom_id: DomId,
+        layout_tree: &LayoutTree,
+        styled_dom: &StyledDom,
+        system_callbacks: &ExternalSystemCallbacks,
+        fade_delay: Duration,
+        fade_duration: Duration,
+        work: &WindowWork,
     ) -> Vec<GpuScrollbarOpacityEvent> {
         let mut events = Vec::new();
         let mut any_opacity_nonzero = false;
@@ -23120,7 +23036,7 @@ impl LayoutWindow {
             if !keys_exist && !has_vertical_bar && !has_horizontal_bar {
                 continue;
             }
-            scrollbar_fade_work(1);
+            work.note_scrollbar_fade_work(1);
 
             let Some(node_id) = node.dom_node_id else {
                 continue; // Skip anonymous boxes
@@ -23517,7 +23433,7 @@ impl LayoutWindow {
         // 12,470 compares for a label of a map view, and nodes x nodes for an app that asks
         // for each of its nodes. No node (`None`) is no box - the scan answered the first
         // ANONYMOUS box for it, a rect that belongs to no node.
-        layout_node_lookup(1);
+        self.work.note_layout_node_lookup(1);
         let Some(layout_idx) = target_node_id
             .and_then(|node| layout_tree.dom_to_layout.get(&node))
             .and_then(|boxes| boxes.iter().map(|b| b.index()).min())
@@ -26428,11 +26344,17 @@ impl LayoutWindow {
             self.fluent_localizer =
                 FluentLocalizerHandle::from_locale_sources(config.fluent_locales.as_ref());
         }
-        // The app's language choice as it stands now ([`set_app_locale`]): a window built
-        // after a switch starts in it.
-        if let Some(locale) = app_locale() {
-            let _ = self.set_locale(&locale);
-        }
+    }
+
+    /// Take the settings of the app that every window of it shares from its config: the
+    /// system-animation configuration, the natural-scroll mode, and the snapshot the engine
+    /// services (the updater, the system dialogs) read ([`Self::app_env`]). Every shell calls
+    /// this beside [`Self::set_app_localization`]; the settings were published once into
+    /// process-wide slots by `App::create`, and are now each window's own.
+    pub fn set_app_settings(&mut self, config: &azul_core::resources::AppConfig) {
+        self.system_animations_override = Some(config.system_animations.clone());
+        self.scroll_manager.adopt_app_natural_scroll(config.natural_scroll);
+        self.app_env = crate::appenv::AppEnv::from_config(config);
     }
 
     /// Take the app's E2E hooks from its config: its commands and its
@@ -26928,14 +26850,66 @@ mod tests {
         assert_eq!(lw.active_language().id, system);
         assert_eq!(change.locale_changed, system.as_str() != "de-DE");
 
-        set_app_locale(Some("de-DE"));
-        assert_eq!(app_locale().as_deref(), Some("de-DE"));
+        // A window the shell starts in the app's choice (`set_locale` with it, where the
+        // shell opened the window from one that holds it) speaks it, and no other window
+        // of the process does: the choice is each window's own.
         let mut later = LayoutWindow::new(FcFontCache::default()).expect("a window");
         later.set_app_localization(&azul_core::resources::AppConfig::default());
-        let adopted = later.active_language().id;
-        set_app_locale(None);
-        assert_eq!(adopted.as_str(), "de-DE");
-        assert_eq!(app_locale(), None);
+        let _ = later.set_locale("de-DE");
+        assert_eq!(later.active_language().id.as_str(), "de-DE");
+        assert_eq!(
+            lw.active_language().id,
+            system,
+            "the window that gave up its choice is not moved by another window's"
+        );
+    }
+
+    /// Two windows count their work apart: what one of them did is read from ITS `work` and from
+    /// no other window's (the counters were thread-wide, so every test that ran on the same
+    /// thread moved every other test's), and `reset` clears one window's alone.
+    #[test]
+    fn two_windows_count_their_work_apart() {
+        let (a, b) = (
+            LayoutWindow::new(FcFontCache::default()).expect("a window"),
+            LayoutWindow::new(FcFontCache::default()).expect("a window"),
+        );
+        a.work.note_moved_boxes(7);
+        a.work.note_kept_dom_rebuild();
+        assert_eq!((a.work.moved_boxes(), a.work.kept_dom_rebuilds()), (7, 1));
+        assert_eq!(
+            (b.work.moved_boxes(), b.work.kept_dom_rebuilds()),
+            (0, 0),
+            "the other window counted nothing"
+        );
+        b.work.note_moved_boxes(2);
+        a.work.reset();
+        assert_eq!(a.work.moved_boxes(), 0, "the reset cleared this window's count");
+        assert_eq!(b.work.moved_boxes(), 2, "and left the other window's alone");
+    }
+
+    /// A window's switches are its own: choosing a path for one window moves no other window
+    /// (the choice was thread-wide, so a test that chose it changed every window the thread
+    /// built), and a window that chose nothing keeps the environment's answer.
+    #[test]
+    fn a_window_chooses_its_own_switches() {
+        let (mut a, b) = (
+            LayoutWindow::new(FcFontCache::default()).expect("a window"),
+            LayoutWindow::new(FcFontCache::default()).expect("a window"),
+        );
+        let environment = b.switches.diff_first_enabled();
+        a.switches.set_diff_first(Some(!environment));
+        assert_eq!(a.switches.diff_first_enabled(), !environment, "the window's own choice");
+        assert_eq!(b.switches.diff_first_enabled(), environment, "the other window's switch");
+        a.switches.set_diff_first(None);
+        assert_eq!(a.switches.diff_first_enabled(), environment, "None: the environment's again");
+
+        a.switches.set_move_in_place(Some(false));
+        assert!(!a.switches.move_in_place_enabled());
+        assert_eq!(
+            b.switches.move_in_place_enabled(),
+            WindowSwitches::default().move_in_place_enabled(),
+            "another switch of the other window is the environment's too"
+        );
     }
 
     /// The channel sampler is piecewise WITH per-segment easing and clamps
@@ -31207,7 +31181,7 @@ impl LayoutWindow {
                     let _ = cache.set_color_value(*node, *color);
                 }
             }
-            state_color_writes(by_value.len());
+            self.work.note_state_color_writes(by_value.len());
             self.serve_paint_dirt(dom_id);
             return true;
         }
@@ -31369,7 +31343,7 @@ impl LayoutWindow {
             for (node, color) in &by_value {
                 let _ = cache.set_color_value(*node, *color);
             }
-            state_color_writes(by_value.len());
+            self.work.note_state_color_writes(by_value.len());
         }
         if cache_holds_it == Some(true) {
             if let Some(cached) = solver_cache
@@ -31434,7 +31408,7 @@ impl LayoutWindow {
         // keystroke's list after a presented reflow does not blit by it.
         // The colour keys this list binds (audit A4-23).
         let state_colored = match self.layout_results.get(&dom_id) {
-            Some(result) if state_colors_from_the_build() && !self.skip_gpu_sync => {
+            Some(result) if self.switches.state_colors_from_the_build() && !self.skip_gpu_sync => {
                 state_colored_nodes(&result.styled_dom)
             }
             _ => Vec::new(),
@@ -32198,7 +32172,8 @@ impl LayoutWindow {
     ) -> BTreeMap<DomNodeId, (Vec<azul_core::events::EventFilter>, bool)> {
         // No-op when accessibility is disabled. Reaching here means a REAL
         // screen-reader action arrived and was accepted-then-discarded — for
-        // the a11y user the app simply doesn't react. Say so once.
+        // the a11y user the app simply doesn't react. Say so once. Once per PROCESS: it is a notice
+        // about how this binary was compiled, the same for every window.
         static ANNOUNCE: std::sync::Once = std::sync::Once::new();
         ANNOUNCE.call_once(|| {
             eprintln!(
@@ -34489,7 +34464,7 @@ impl LayoutWindow {
                     }
                 }
                 if unchanged.is_some() {
-                    TREE_REBUILDS_THAT_KEPT_ROWS.with(|count| count.set(count.get() + 1));
+                    self.work.note_tree_rebuild_that_kept_rows();
                 } else {
                     new_styled_dom.cascade_at_rest();
                 }
@@ -34509,6 +34484,7 @@ impl LayoutWindow {
                         new_styled_dom,
                         &diff.node_moves,
                         unchanged.as_deref(),
+                        &self.work,
                     )
                 })
             } else {
@@ -34834,6 +34810,9 @@ impl LayoutWindow {
             drawn_titlebar: _,
             // App-level animation CONFIG (durations + fn pointers), no node ids.
             system_animations_override: _,
+            system_animations_default: _,
+            app_env: _,
+            gpu_provision: _,
             // NODE-KEYED through `thread_owners`, like `threads`: a timer one
             // of a node's lifecycle callbacks started stops when the node
             // unmounts (handled below).
@@ -34867,11 +34846,14 @@ impl LayoutWindow {
             font_stacks_hash: _,
             preedit_shaped_node: _,
             seat_preedit_shaped: _,
-            // A counter, DOM-keyed arena stamps and the window's lint key, no
-            // node ids.
+            // A counter and DOM-keyed arena stamps, no node ids.
             dom_lint_runs: _,
             dom_lint_stamps: _,
-            dom_lint_scope: _,
+            // Counters, switches and ids of the window itself, keyed by no node.
+            work: _,
+            switches: _,
+            memory_report: _,
+            next_changeset_id: _,
             // A counter.
             a11y_tree_updates: _,
             input_interpreter: _,
@@ -35328,8 +35310,9 @@ mod autotest_generated {
 
     // ---- thread writeback drain ------------------------------------------
 
-    /// Counts the writebacks that actually reached the main thread.
-    static DRAIN_DELIVERED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    /// Counts the writebacks that actually reached the main thread: the test's own count,
+    /// carried as the writeback data of the thread it starts.
+    struct DrainDelivered(Arc<std::sync::atomic::AtomicUsize>);
 
     struct DrainStep(usize);
 
@@ -35350,12 +35333,14 @@ mod autotest_generated {
     }
 
     extern "C" fn drain_writeback(
-        mut _state: RefAny,
+        mut state: RefAny,
         mut msg: RefAny,
         _info: crate::callbacks::CallbackInfo,
     ) -> Update {
         if msg.downcast_ref::<DrainStep>().is_some() {
-            DRAIN_DELIVERED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if let Some(delivered) = state.downcast_ref::<DrainDelivered>() {
+                delivered.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
         }
         Update::DoNothing
     }
@@ -35372,7 +35357,7 @@ mod autotest_generated {
     fn every_writeback_a_worker_sends_reaches_the_main_thread() {
         use azul_core::window::RawWindowHandle;
 
-        DRAIN_DELIVERED.store(0, std::sync::atomic::Ordering::SeqCst);
+        let delivered = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
         let mut win = fresh_window();
         let thread_id = ThreadId::unique();
@@ -35380,7 +35365,7 @@ mod autotest_generated {
             thread_id,
             crate::thread::Thread::create(
                 RefAny::new(()),
-                RefAny::new(()),
+                RefAny::new(DrainDelivered(Arc::clone(&delivered))),
                 multi_writeback_worker as crate::thread::ThreadCallbackType,
             ),
         );
@@ -35424,7 +35409,7 @@ mod autotest_generated {
 
         assert!(retired, "the finished worker must eventually be retired");
         assert_eq!(
-            DRAIN_DELIVERED.load(std::sync::atomic::Ordering::SeqCst),
+            delivered.load(std::sync::atomic::Ordering::SeqCst),
             3,
             "all three writebacks must be delivered — a progress-reporting worker must not lose \
              messages to thread retirement"
@@ -39150,6 +39135,7 @@ pub struct PendingReconciliation {
 /// Whether `AZ_VV_TRACE` asks for a line per `VirtualView` render, read once.
 #[cfg(feature = "std")]
 fn virtual_view_trace() -> bool {
+    // KEEP: an environment flag, read once.
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var_os("AZ_VV_TRACE").is_some())
 }
@@ -39363,7 +39349,7 @@ fn unchanged_cascades(
     // its computed inherited values. A container whose background changed
     // does, so its subtree is not compared for it. Asked once per parent.
     let mut hands_down_the_same: Vec<Option<bool>> = vec![None; new_data.len()];
-    css_diff_work(new_data.len());
+    inherited.work.note_css_diff_steps(new_data.len());
     for ni in 0..new_data.len() {
         let Some(old_id) = old_of_new[ni] else {
             continue;
@@ -39506,6 +39492,9 @@ struct InheritedIds<'c> {
     old_nodes: usize,
     new_nodes: usize,
     tables: core::cell::OnceCell<InheritedIdTables>,
+    /// Where the diff counts its steps (`WindowWork::css_diff_work`): the counters of whoever
+    /// asked for the diff.
+    work: &'c WindowWork,
 }
 
 /// What [`InheritedIds`] builds on first use.
@@ -39539,6 +39528,7 @@ impl NodeIdLists {
         store: &azul_core::prop_cache::InheritedValues,
         bucket_ids: &[u32],
         node_count: usize,
+        work: &WindowWork,
     ) -> Self {
         let mut start = vec![0_u32; node_count + 1];
         let mut steps = 0_usize;
@@ -39551,7 +39541,7 @@ impl NodeIdLists {
                 }
             }
         }
-        css_diff_work(steps);
+        work.note_css_diff_steps(steps);
         for i in 1..start.len() {
             start[i] += start[i - 1];
         }
@@ -39583,6 +39573,7 @@ impl InheritedIdTables {
         new: &azul_core::prop_cache::InheritedValues,
         old_nodes: usize,
         new_nodes: usize,
+        work: &WindowWork,
     ) -> Self {
         use core::hash::{Hash, Hasher};
 
@@ -39614,8 +39605,8 @@ impl InheritedIdTables {
         let [old_ids, new_ids] = ids_of_buckets;
         Self {
             types,
-            old: NodeIdLists::build(old, &old_ids, old_nodes),
-            new: NodeIdLists::build(new, &new_ids, new_nodes),
+            old: NodeIdLists::build(old, &old_ids, old_nodes, work),
+            new: NodeIdLists::build(new, &new_ids, new_nodes, work),
         }
     }
 }
@@ -39627,6 +39618,7 @@ impl<'c> InheritedIds<'c> {
         new_cache: &'c azul_core::prop_cache::CssPropertyCache,
         old_nodes: usize,
         new_nodes: usize,
+        work: &'c WindowWork,
     ) -> Self {
         Self {
             old: &old_cache.computed_values,
@@ -39634,12 +39626,19 @@ impl<'c> InheritedIds<'c> {
             old_nodes,
             new_nodes,
             tables: core::cell::OnceCell::new(),
+            work,
         }
     }
 
     fn tables(&self) -> &InheritedIdTables {
         self.tables.get_or_init(|| {
-            InheritedIdTables::between(self.old, self.new, self.old_nodes, self.new_nodes)
+            InheritedIdTables::between(
+                self.old,
+                self.new,
+                self.old_nodes,
+                self.new_nodes,
+                self.work,
+            )
         })
     }
 
@@ -39648,7 +39647,7 @@ impl<'c> InheritedIds<'c> {
     fn same(&self, old: usize, new: usize) -> bool {
         let tables = self.tables();
         let (before, after) = (tables.old.of(old), tables.new.of(new));
-        css_diff_work(before.len() + after.len());
+        self.work.note_css_diff_steps(before.len() + after.len());
         before == after
     }
 
@@ -39663,7 +39662,7 @@ impl<'c> InheritedIds<'c> {
     ) {
         let tables = self.tables();
         let (before, after) = (tables.old.of(old), tables.new.of(new));
-        css_diff_work(before.len() + after.len());
+        self.work.note_css_diff_steps(before.len() + after.len());
         let (mut i, mut j) = (0_usize, 0_usize);
         loop {
             let only = match (before.get(i), after.get(j)) {
@@ -39798,7 +39797,7 @@ fn changed_styles<'c>(
         inherited,
     );
     let compared = types.len();
-    css_diff_types(compared);
+    inherited.work.note_css_diff_types(compared);
     let changed = types
         .into_iter()
         .filter_map(|ty| {
@@ -39871,8 +39870,9 @@ pub(crate) fn css_diff_between(
     old: &StyledDom,
     new: &StyledDom,
     node_moves: &[azul_core::diff::NodeMove],
+    work: &WindowWork,
 ) -> Option<Vec<(NodeId, azul_css::props::property::RelayoutScope)>> {
-    css_diff_between_knowing(old, new, node_moves, None)
+    css_diff_between_knowing(old, new, node_moves, None, work)
 }
 
 /// [`css_diff_between`] for a new DOM whose cascade kept the rows of the old one where it
@@ -39883,6 +39883,7 @@ pub(crate) fn css_diff_between_knowing(
     new: &StyledDom,
     node_moves: &[azul_core::diff::NodeMove],
     known_unchanged: Option<&[bool]>,
+    work: &WindowWork,
 ) -> Option<Vec<(NodeId, azul_css::props::property::RelayoutScope)>> {
     let old_cache = &old.css_property_cache.ptr;
     let new_cache = &new.css_property_cache.ptr;
@@ -39891,7 +39892,7 @@ pub(crate) fn css_diff_between_knowing(
     }
     let (old_data, new_data) = (old.node_data.as_ref(), new.node_data.as_ref());
     let (old_states, new_states) = (old.styled_nodes.as_ref(), new.styled_nodes.as_ref());
-    let inherited = InheritedIds::between(old_cache, new_cache, old_data.len(), new_data.len());
+    let inherited = InheritedIds::between(old_cache, new_cache, old_data.len(), new_data.len(), work);
     let unchanged = unchanged_cascades(
         old_cache,
         new_cache,
@@ -40033,10 +40034,11 @@ pub(crate) fn css_diff_of_kept_dom(
     replaced: &[(usize, azul_core::dom::NodeData)],
     states: &[azul_core::styled_dom::StyledNodeState],
     candidates: impl Iterator<Item = usize>,
+    work: &WindowWork,
 ) -> Vec<(NodeId, azul_css::props::property::RelayoutScope)> {
     let new_cache = &new.css_property_cache.ptr;
     let new_data = new.node_data.as_ref();
-    let inherited = InheritedIds::between(old_cache, new_cache, new_data.len(), new_data.len());
+    let inherited = InheritedIds::between(old_cache, new_cache, new_data.len(), new_data.len(), work);
     let same_context = old_cache.dynamic_context == new_cache.dynamic_context;
     let mut out = Vec::new();
     for index in candidates {
@@ -41596,29 +41598,63 @@ mod tween_clock_unit_tests {
         window_state::FullWindowState,
     };
 
-    std::thread_local! {
-        /// Every `t` the engine handed an interpolator during the last
-        /// `apply_text_tweens` call.
-        static RECORDED_T: std::cell::RefCell<Vec<f32>> =
-            const { std::cell::RefCell::new(Vec::new()) };
+    /// Every `t` the engine handed an interpolator during the last `apply_text_tweens` call. The
+    /// window under test keeps its own, as the data its interpolators are handed
+    /// (`SystemAnimations::caret_tween_data`), so tests that run side by side record apart.
+    #[derive(Clone, Default)]
+    struct TweenRecorder(Arc<std::sync::Mutex<Vec<f32>>>);
+
+    impl TweenRecorder {
+        fn push(data: &mut RefAny, t: f32) {
+            if let Some(recorder) = data.downcast_ref::<Self>() {
+                recorder.0.lock().expect("the recorder").push(t);
+            }
+        }
+    }
+
+    /// What `win`'s interpolators recorded since [`forget_recorded_t`].
+    fn recorded_t(win: &LayoutWindow) -> Vec<f32> {
+        let mut data = win
+            .system_animations_override
+            .as_ref()
+            .expect("a recording window")
+            .caret_tween_data
+            .clone();
+        data.downcast_ref::<TweenRecorder>()
+            .map(|recorder| recorder.0.lock().expect("the recorder").clone())
+            .expect("the window's interpolators carry a recorder")
+    }
+
+    /// Forgets what `win`'s interpolators recorded.
+    fn forget_recorded_t(win: &LayoutWindow) {
+        let mut data = win
+            .system_animations_override
+            .as_ref()
+            .expect("a recording window")
+            .caret_tween_data
+            .clone();
+        let recorder = data.downcast_ref::<TweenRecorder>();
+        if let Some(recorder) = &recorder {
+            recorder.0.lock().expect("the recorder").clear();
+        }
     }
 
     /// Stands in for the user's caret interpolator (which the focus-ring glide
     /// also runs through) and records the progress value the ENGINE computed,
     /// which is the thing under test. Returns `past` so the patched geometry
     /// stays deterministic.
-    extern "C" fn recording_caret_tween(_data: RefAny, info: CaretTweenInfo) -> LogicalRect {
-        RECORDED_T.with(|slot| slot.borrow_mut().push(info.t));
+    extern "C" fn recording_caret_tween(mut data: RefAny, info: CaretTweenInfo) -> LogicalRect {
+        TweenRecorder::push(&mut data, info.t);
         info.past
     }
 
     /// The same, for the selection band. Returns `current` so the rect count
     /// always satisfies the interpolator contract.
     extern "C" fn recording_selection_tween(
-        _data: RefAny,
+        mut data: RefAny,
         info: SelectionTweenInfo,
     ) -> LogicalRectVec {
-        RECORDED_T.with(|slot| slot.borrow_mut().push(info.t));
+        TweenRecorder::push(&mut data, info.t);
         info.current
     }
 
@@ -41634,6 +41670,9 @@ mod tween_clock_unit_tests {
         };
         anim.caret_tween.cb = recording_caret_tween;
         anim.selection_tween.cb = recording_selection_tween;
+        let recorder = TweenRecorder::default();
+        anim.caret_tween_data = RefAny::new(recorder.clone());
+        anim.selection_tween_data = RefAny::new(recorder);
         anim
     }
 
@@ -41800,19 +41839,17 @@ mod tween_clock_unit_tests {
     /// Run the pass at `now` and return the single `t` it computed.
     fn progress_at(win: &mut LayoutWindow, now: Instant) -> f32 {
         let mut dl = stored_list(win);
-        RECORDED_T.with(|slot| slot.borrow_mut().clear());
+        forget_recorded_t(win);
         win.apply_text_tweens(DomId::ROOT_ID, &mut dl, now);
-        RECORDED_T.with(|slot| {
-            let recorded = slot.borrow();
-            assert_eq!(
-                recorded.len(),
-                1,
-                "the pass must evaluate the interpolator exactly once, got {recorded:?} — an \
-                 empty list means the tween retired or never armed, and the assertion that \
-                 follows would be vacuous"
-            );
-            recorded[0]
-        })
+        let recorded = recorded_t(win);
+        assert_eq!(
+            recorded.len(),
+            1,
+            "the pass must evaluate the interpolator exactly once, got {recorded:?} — an \
+             empty list means the tween retired or never armed, and the assertion that \
+             follows would be vacuous"
+        );
+        recorded[0]
     }
 
     fn after_nanos(start: &Instant, nanos: u64) -> Instant {
@@ -41884,9 +41921,9 @@ mod tween_clock_unit_tests {
         arm_caret(&mut win, target, start.clone());
 
         let mut dl = stored_list(&win);
-        RECORDED_T.with(|slot| slot.borrow_mut().clear());
+        forget_recorded_t(&win);
         win.apply_text_tweens(DomId::ROOT_ID, &mut dl, after_nanos(&start, 5_000_000));
-        RECORDED_T.with(|slot| assert!(slot.borrow().is_empty(), "t >= 1 must not interpolate"));
+        assert!(recorded_t(&win).is_empty(), "t >= 1 must not interpolate");
         assert!(
             win.text_edit_manager.tween.caret.is_none(),
             "a tween past its duration retires"
