@@ -1121,3 +1121,102 @@ fn a_view_rendered_again_under_another_window_context_is_laid_out_without_a_diff
         "the labels are laid out where the new render puts them"
     );
 }
+
+// -- A3-solver-41, this area's half: what the CSS diff leaves to the node's fingerprint -------
+
+/// A page of boxes of class `t` under a body that carries `sheet`; box `i` has `own[i]` as
+/// its own declarations. Nodes: the body 0, box `i` at `1 + i`.
+fn boxes_page(sheet: &str, own: &[Vec<azul_css::props::property::CssProperty>]) -> StyledDom {
+    use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
+
+    let mut dom = Dom::create_body().with_css(sheet);
+    for declarations in own {
+        dom = dom.with_child(
+            Dom::create_div()
+                .with_class("t".into())
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(
+                    declarations
+                        .iter()
+                        .cloned()
+                        .map(CssPropertyWithConditions::simple)
+                        .collect(),
+                )),
+        );
+    }
+    StyledDom::create(&mut dom, azul_css::css::Css::empty())
+}
+
+/// Every node of a page of `boxes` boxes is the node that stood at its place.
+fn boxes_in_place(boxes: usize) -> Vec<azul_core::diff::NodeMove> {
+    (0..=boxes)
+        .map(|i| azul_core::diff::NodeMove {
+            old_node_id: NodeId::new(i),
+            new_node_id: NodeId::new(i),
+        })
+        .collect()
+}
+
+fn own_left(px: f32) -> azul_css::props::property::CssProperty {
+    use azul_css::props::{basic::PixelValue, layout::position::LayoutLeft};
+    azul_css::props::property::CssProperty::left(LayoutLeft {
+        inner: PixelValue::px(px),
+    })
+}
+
+fn own_width(px: f32) -> azul_css::props::property::CssProperty {
+    use azul_css::props::{basic::PixelValue, layout::dimensions::LayoutWidth};
+    azul_css::props::property::CssProperty::width(LayoutWidth::Px(PixelValue::px(px)))
+}
+
+const BOXES_SHEET: &str = ".t { position: absolute; top: 0px; width: 20px; height: 10px; }";
+
+/// A box whose own `left` moved, and nothing else of its cascade, is not named in the CSS
+/// diff: its fingerprint says `INLINE_STYLE_INSETS`, and the layout keeps the box and places
+/// it. Named (scope `Full`: `left`), every label of a map that only moved was built fresh.
+#[test]
+fn a_box_whose_own_insets_moved_is_left_to_its_fingerprint() {
+    let old = boxes_page(BOXES_SHEET, &[vec![own_left(10.0)], vec![own_left(20.0)], vec![own_left(30.0)]]);
+    let new = boxes_page(BOXES_SHEET, &[vec![own_left(15.0)], vec![own_left(25.0)], vec![own_left(35.0)]]);
+    let diff = crate::window::css_diff_between(&old, &new, &boxes_in_place(3))
+        .expect("the two pages have the same context");
+    assert!(diff.is_empty(), "no box is named: {diff:?}");
+}
+
+/// What the fingerprint calls a layout change is still named: the second box's own `width`
+/// moved with its `left`.
+#[test]
+fn a_box_whose_own_width_moved_with_its_insets_is_named_in_the_css_diff() {
+    let old = boxes_page(
+        BOXES_SHEET,
+        &[vec![own_left(10.0)], vec![own_left(20.0), own_width(20.0)], vec![own_left(30.0)]],
+    );
+    let new = boxes_page(
+        BOXES_SHEET,
+        &[vec![own_left(15.0)], vec![own_left(25.0), own_width(30.0)], vec![own_left(35.0)]],
+    );
+    let diff = crate::window::css_diff_between(&old, &new, &boxes_in_place(3))
+        .expect("the two pages have the same context");
+    let named: Vec<NodeId> = diff.iter().map(|(node, _)| *node).collect();
+    assert_eq!(named, vec![NodeId::new(2)], "the box whose width moved, and no other");
+    assert!(
+        diff[0].1 > azul_css::props::property::RelayoutScope::None,
+        "a width is laid out again"
+    );
+}
+
+/// An inset a STYLESHEET moved shows in no node's own data: the fingerprints are equal, so
+/// the diff has to name the boxes or the layout serves their old places.
+#[test]
+fn an_inset_a_stylesheet_moved_is_named_in_the_css_diff() {
+    let own = [vec![], vec![], vec![]];
+    let old = boxes_page(".t { position: absolute; left: 5px; width: 20px; height: 10px; }", &own);
+    let new = boxes_page(".t { position: absolute; left: 9px; width: 20px; height: 10px; }", &own);
+    let diff = crate::window::css_diff_between(&old, &new, &boxes_in_place(3))
+        .expect("the two pages have the same context");
+    let named: Vec<NodeId> = diff.iter().map(|(node, _)| *node).collect();
+    assert_eq!(
+        named,
+        vec![NodeId::new(1), NodeId::new(2), NodeId::new(3)],
+        "every box the rule places"
+    );
+}

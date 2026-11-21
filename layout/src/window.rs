@@ -17521,6 +17521,7 @@ impl LayoutWindow {
                 &diff.node_moves,
                 &inherited,
             );
+            let same_context = old_cache.dynamic_context == new_cache.dynamic_context;
             for m in &diff.node_moves {
                 let (Some(old_nd), Some(new_nd)) = (
                     old_node_data.get(m.old_node_id.index()),
@@ -17586,6 +17587,21 @@ impl LayoutWindow {
                 );
                 compared_properties += compared_here;
                 let changed_any = !changed.is_empty();
+                // A node whose own insets or transform / opacity values moved, and nothing
+                // else of its cascade, is not named: its fingerprint tells the layout
+                // (`restyle_is_left_to_the_fingerprint`). Not one that declares an
+                // animation: a tween of the change is driven through this diff.
+                let left_to_the_fingerprint = changed_any
+                    && old_anims.is_none()
+                    && restyle_is_left_to_the_fingerprint(
+                        old_cache,
+                        new_cache,
+                        (old_nd, m.old_node_id.index()),
+                        (new_nd, m.new_node_id.index()),
+                        same_context && old_state.styled_node_state == new_node_state,
+                        &inherited,
+                        changed.iter().map(|(ty, ..)| *ty),
+                    );
                 for (ty, before, after) in changed {
                     // IFC membership is not known here, so the conservative
                     // reading is that the node is in one: a text property
@@ -17642,7 +17658,7 @@ impl LayoutWindow {
                 // Paint-only changes (worst == None) are recorded too: they
                 // must bust the structural-identity DL cache (repaint) even
                 // though they charge no layout work.
-                if changed_any {
+                if changed_any && !left_to_the_fingerprint {
                     restyled.push((m.new_node_id, worst));
                 }
             }
@@ -35574,6 +35590,49 @@ fn changed_styles<'c>(
     (compared, changed)
 }
 
+/// Whether the styles of a matched pair moved only in a way the node's OWN data shows and
+/// its fingerprint does not call a layout of its interior
+/// (`azul_core::diff::inline_style_moved_in_place`: the values of its insets, of an exact
+/// `transform` / `opacity`), with nothing else of its cascade moved: the same state and
+/// context, the same rules, cascaded and inherited values and overrides, no `var()`
+/// resolved to another value. `changed` are the property types whose resolved value moved.
+///
+/// Such a node is left to the reconcile of the layout tree, which reads the fingerprint: it
+/// keeps the box and places it again (`NodeChangeSet::INLINE_STYLE_INSETS`), or keeps it and
+/// lets the list take the value (`INLINE_STYLE_PAINT`). Named in the CSS diff it is built
+/// fresh whatever the fingerprint says - `top` / `left` answer `RelayoutScope::Full` - and
+/// any entry, of scope `None` too, turns the patch of the display list off: every label of
+/// a map that only moved was laid out again, and the view's whole list built. The diff is
+/// for what no node's own data shows (a sheet, an inherited value): an inset a STYLESHEET
+/// moved, with the same inline style, is still named.
+fn restyle_is_left_to_the_fingerprint(
+    old_cache: &azul_core::prop_cache::CssPropertyCache,
+    new_cache: &azul_core::prop_cache::CssPropertyCache,
+    (old_nd, oi): (&azul_core::dom::NodeData, usize),
+    (new_nd, ni): (&azul_core::dom::NodeData, usize),
+    same_state_and_context: bool,
+    inherited: &InheritedIds<'_>,
+    mut changed: impl Iterator<Item = azul_css::props::property::CssPropertyType>,
+) -> bool {
+    use azul_css::props::property::CssPropertyType as Ty;
+    same_state_and_context
+        && changed.all(|ty| {
+            matches!(
+                ty,
+                Ty::Top | Ty::Right | Ty::Bottom | Ty::Left | Ty::Transform | Ty::Opacity
+            )
+        })
+        && old_cache.css_wide_values.is_empty()
+        && new_cache.css_wide_values.is_empty()
+        && old_cache.css_props.get_slice(oi) == new_cache.css_props.get_slice(ni)
+        && old_cache.cascaded_props.get_slice(oi) == new_cache.cascaded_props.get_slice(ni)
+        && overrides_of(old_cache, oi) == overrides_of(new_cache, ni)
+        && old_cache.resolved_inline.get(&oi) == new_cache.resolved_inline.get(&ni)
+        && old_cache.global_css_props == new_cache.global_css_props
+        && inherited.same(oi, ni)
+        && azul_core::diff::inline_style_moved_in_place(old_nd, new_nd)
+}
+
 /// The CSS diff of a view that rendered again: for every node of the new DOM the reconcile
 /// matched to one of the old DOM (`node_moves`), the widest `RelayoutScope` of the properties
 /// whose resolved value moved - the nodes whose cascade did not move left out
@@ -35633,6 +35692,18 @@ pub(crate) fn css_diff_between(
             &inherited,
         );
         if changed.is_empty() {
+            continue;
+        }
+        // The contexts are the same here (checked above).
+        if restyle_is_left_to_the_fingerprint(
+            old_cache,
+            new_cache,
+            (old_nd, m.old_node_id.index()),
+            (new_nd, m.new_node_id.index()),
+            old_state.styled_node_state == new_node_state,
+            &inherited,
+            changed.iter().map(|(ty, ..)| *ty),
+        ) {
             continue;
         }
         let worst = changed.iter().fold(

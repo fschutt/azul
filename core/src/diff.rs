@@ -345,6 +345,22 @@ fn hash_inline_style_by_reach(style: &azul_css::css::Css) -> (u64, u64, u64) {
     (rest.finish(), insets.finish(), gpu_values.finish())
 }
 
+/// Whether the own (inline) styles of two matched nodes differ ONLY in what
+/// [`NodeDataFingerprint::diff`] does not call a layout of the node's interior: the values
+/// of its insets ([`NodeChangeSet::INLINE_STYLE_INSETS`]) and / or of an exact `transform`
+/// / `opacity` ([`NodeChangeSet::INLINE_STYLE_PAINT`]). `false` for equal styles and for any
+/// other difference (a declaration that comes or goes, another property, a condition).
+///
+/// The three hashes the fingerprint holds, compared the way it compares them: a caller that
+/// leaves such a node to the fingerprint - the CSS diff of a rebuild, which would otherwise
+/// name it as restyled and have its box built fresh - agrees with it by construction.
+#[must_use]
+pub fn inline_style_moved_in_place(old: &NodeData, new: &NodeData) -> bool {
+    let (old_rest, old_insets, old_gpu_values) = hash_inline_style_by_reach(&old.style);
+    let (new_rest, new_insets, new_gpu_values) = hash_inline_style_by_reach(&new.style);
+    old_rest == new_rest && (old_insets != new_insets || old_gpu_values != new_gpu_values)
+}
+
 /// Compare two matched `NodeData` instances field-by-field and return
 /// a `NodeChangeSet` describing what changed.
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
