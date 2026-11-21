@@ -1407,4 +1407,95 @@ mod a_views_zoom_frame {
         ZOOM_FRAMES.with(|on| on.set(None));
         assert!(off.gpu_state_manager.zoom_frames.is_empty(), "AZ_WR_ZOOM_TILES=0");
     }
+
+    /// A4-29, the gesture. The renderer keeps the tiles below the zoom frame
+    /// (and draws no glyph again) only while it has been told that the frame
+    /// is being zoomed. The first step that changes the SCALE says so, once;
+    /// the steps after it say nothing more; a step that only shifts says
+    /// nothing at all. While the zoom runs the window owes frames (the
+    /// platform loop comes back), and a pass in between that changed nothing
+    /// sends nothing. When the scale has stood still for the settle time the
+    /// renderer is told the zoom is over - a reason for a frame, in which it
+    /// draws the tiles at the scale reached - and the window owes nothing. A
+    /// new list for the view ends a running zoom too.
+    /// Mutations: `!zoom.zooming` dropped says "zooming" on every step;
+    /// `scale.to_bits() != zoom.scale.to_bits()` replaced by `true` says it
+    /// for a shift; the settle branch dropped leaves the window owing frames
+    /// for ever; `>= ZOOM_SETTLE_US` -> `> ZOOM_SETTLE_US` fails the settle at
+    /// the settle time; the `false` of `note_zoom_frames` dropped fails the
+    /// last block.
+    #[test]
+    fn a4_29_the_renderer_is_told_when_a_zoom_begins_and_when_it_has_come_to_rest() {
+        use crate::desktop::wr_translate2::{follow_zoom_gestures, ZOOM_SETTLE_US};
+
+        ZOOM_FRAMES.with(|on| on.set(Some(true)));
+        let mut lw = window();
+        let view = view_of(&lw);
+        let mut txn = WrTransaction::new();
+        build_full_transaction(&mut txn, &mut lw, &OptionGlContextPtr::None)
+            .expect("the full transaction");
+        let zoom = zoom_of(&lw).expect("premise: the view's root frame is its zoom frame");
+        assert!(carried(txn, zoom.key).zooming.is_empty(), "a new list says nothing of a zoom");
+        assert!(!lw.gpu_state_manager.frames_owed());
+
+        // A shift alone (a pan carried by the transform): a value, no gesture.
+        write_zoom(&mut lw, zoom.node, scaled(1.0, 30.0, 0.0));
+        let (changed, sent) = step(&mut lw, zoom.key);
+        assert!(changed && sent.value.is_some());
+        assert!(sent.zooming.is_empty(), "a shift is the compositor's: nothing to tell");
+        assert!(!lw.gpu_state_manager.frames_owed());
+
+        // Three steps of a zoom: "zooming" with the first, nothing after.
+        let mut said = Vec::new();
+        for scale in [1.1, 1.21, 1.331] {
+            write_zoom(&mut lw, zoom.node, scaled(scale, 30.0, 0.0));
+            let (changed, sent) = step(&mut lw, zoom.key);
+            assert!(changed);
+            assert_eq!(sent.list_of, None, "scale {scale}: a step sends no list");
+            said.extend(sent.zooming);
+            assert!(lw.gpu_state_manager.frames_owed(), "scale {scale}: the zoom runs");
+        }
+        assert_eq!(said, [true], "told once that the frame is being zoomed");
+        let running = zoom_of(&lw).expect("the frame");
+        assert!(running.zooming);
+        assert_eq!(running.scale, 1.331);
+
+        // A pass while the zoom rests but has not settled: nothing to send.
+        let (changed, sent) = step(&mut lw, zoom.key);
+        assert!(!changed, "nothing moved: the shell drops this transaction");
+        assert!(sent.zooming.is_empty());
+        assert!(lw.gpu_state_manager.frames_owed());
+
+        // The clock: one microsecond before the settle time nothing is said,
+        // at the settle time the renderer is told, once.
+        let last_change = zoom_of(&lw).expect("the frame").changed_at_us;
+        let mut txn = WrTransaction::new();
+        assert!(!follow_zoom_gestures(&mut txn, &mut lw, last_change + ZOOM_SETTLE_US - 1));
+        assert!(carried(txn, zoom.key).zooming.is_empty());
+        let mut txn = WrTransaction::new();
+        assert!(
+            follow_zoom_gestures(&mut txn, &mut lw, last_change + ZOOM_SETTLE_US),
+            "the zoom came to rest: a reason for a frame"
+        );
+        assert_eq!(carried(txn, zoom.key).zooming, [false]);
+        assert!(!lw.gpu_state_manager.frames_owed(), "nothing is owed for the zoom any more");
+        let mut txn = WrTransaction::new();
+        assert!(!follow_zoom_gestures(&mut txn, &mut lw, last_change + 10 * ZOOM_SETTLE_US));
+        assert!(carried(txn, zoom.key).zooming.is_empty(), "told once");
+
+        // A zoom that is running when the view's list goes again (the app's
+        // own settle render): the mark is taken back with the new list.
+        write_zoom(&mut lw, zoom.node, scaled(2.0, 0.0, 0.0));
+        let (_, sent) = step(&mut lw, zoom.key);
+        assert_eq!(sent.zooming, [true]);
+        let _ = lw.gpu_state_manager.stale_display_lists.insert(view);
+        let (changed, sent) = step(&mut lw, zoom.key);
+        ZOOM_FRAMES.with(|on| on.set(None));
+        assert!(changed);
+        assert_eq!(sent.list_of, Some(view.inner as u32), "premise: the view's list went again");
+        assert_eq!(sent.zooming, [false], "the frame of the list before is not being zoomed");
+        let again = zoom_of(&lw).expect("the new list declares the frame again");
+        assert!(!again.zooming && again.scale == 2.0);
+        assert!(!lw.gpu_state_manager.frames_owed());
+    }
 }

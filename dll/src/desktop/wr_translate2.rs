@@ -2639,6 +2639,8 @@ pub fn generate_frame(
 
     // Synchronize GPU values (transforms, opacities, etc.)
     let _ = synchronize_gpu_values(layout_window, txn);
+    // A view's zoom that began or came to rest (audit A4-29).
+    let _ = follow_zoom_gestures(txn, layout_window, zoom_clock_us());
 
     log_debug!(
         LogCategory::Rendering,
@@ -3640,14 +3642,81 @@ fn zoom_frame_now(
     key: usize,
     node: azul_core::dom::NodeId,
 ) -> Option<f32> {
-    let (frame_key, matrix) = layout_window
-        .gpu_state_manager
-        .get_cache(dom_id)?
-        .reference_frame_of(node)?;
+    zoom_scale_now(&layout_window.gpu_state_manager.caches, dom_id, key, node)
+}
+
+/// [`zoom_frame_now`] over the window's value caches.
+fn zoom_scale_now(
+    caches: &BTreeMap<DomId, azul_core::gpu::GpuValueCache>,
+    dom_id: DomId,
+    key: usize,
+    node: azul_core::dom::NodeId,
+) -> Option<f32> {
+    let (frame_key, matrix) = caches.get(&dom_id)?.reference_frame_of(node)?;
     if frame_key.id != key {
         return None;
     }
     crate::desktop::compositor2::uniform_scale_translation(&matrix)
+}
+
+/// How long the scale of a zoom frame has to stand still before the renderer
+/// is told that the zoom has come to rest and draws the tiles below it at the
+/// scale they are shown at. Longer than an app's own settle (the map editor
+/// renders its view again 140 ms after the last step): the new list then
+/// arrives first, and the tiles are drawn once, not twice.
+pub(crate) const ZOOM_SETTLE_US: u64 = 300_000;
+
+/// THE GESTURE of a zoom frame, followed after a transaction's values are in
+/// it. The renderer keeps the tiles below a frame at the scale they were
+/// drawn at - and scales them in the compositor - only while it has been told
+/// that the frame is being zoomed (`SetIsTransformAsyncZooming`; without it
+/// every new scale is a new raster scale: every tile and, since the glyphs of
+/// a slice are rasterised at its scale, every glyph drawn again per step).
+/// So: the first transaction that carries another SCALE of a view's zoom frame
+/// tells the renderer "zooming" (a shift alone needs nothing: the compositor
+/// moves the tiles); `GpuStateManager::zoom_gesture_running` then keeps the
+/// platform loop coming back (`frames_owed`; a pass that changed nothing sends
+/// nothing); and the pass that finds the scale unchanged for
+/// [`ZOOM_SETTLE_US`] tells it "not zooming" - returned as `true`, a reason
+/// for a frame: that frame draws the tiles once, sharp, at the scale reached.
+/// A new list for the view ends the gesture too ([`note_zoom_frames`]).
+pub(crate) fn follow_zoom_gestures(
+    txn: &mut WrTransaction,
+    layout_window: &mut LayoutWindow,
+    now_us: u64,
+) -> bool {
+    let azul_layout::managers::gpu_state::GpuStateManager {
+        ref caches,
+        ref mut zoom_frames,
+        ref mut zoom_gesture_running,
+        ..
+    } = layout_window.gpu_state_manager;
+    if zoom_frames.is_empty() {
+        return false;
+    }
+    let mut settled = false;
+    for (dom, zoom) in zoom_frames.iter_mut() {
+        // A frame whose promise is broken has no scale: `keep_zoom_promises`
+        // has its list sent again, and that takes the mark back.
+        let Some(scale) = zoom_scale_now(caches, *dom, zoom.key, zoom.node) else {
+            continue;
+        };
+        let id = webrender::api::PropertyBindingId::new(zoom.key as u64);
+        if scale.to_bits() != zoom.scale.to_bits() {
+            if !zoom.zooming {
+                txn.set_is_transform_async_zooming(true, id);
+                zoom.zooming = true;
+            }
+            zoom.scale = scale;
+            zoom.changed_at_us = now_us;
+        } else if zoom.zooming && now_us.saturating_sub(zoom.changed_at_us) >= ZOOM_SETTLE_US {
+            txn.set_is_transform_async_zooming(false, id);
+            zoom.zooming = false;
+            settled = true;
+        }
+    }
+    *zoom_gesture_running = zoom_frames.values().any(|zoom| zoom.zooming);
+    settled
 }
 
 /// The zoom frame the list of `dom_id` is translated with, as the index of its
@@ -3916,6 +3985,8 @@ fn build_webrender_transaction_tail(
         "[build_atomic_txn] Step 6: Synchronizing GPU values"
     );
     let _ = synchronize_gpu_values(layout_window, txn);
+    // A view's zoom that began or came to rest (audit A4-29).
+    let _ = follow_zoom_gestures(txn, layout_window, zoom_clock_us());
 
     // Step 7: Generate frame
     log_debug!(
@@ -4094,6 +4165,10 @@ pub(crate) fn build_lightweight_transaction(
 
     // Step 4: Synchronize GPU values (opacity/transform animations)
     let gpu_values_changed = synchronize_gpu_values(layout_window, txn);
+    // Step 4.5: a view's zoom that began with these values, or came to rest:
+    // the renderer is told (audit A4-29). Coming to rest is a reason for a
+    // frame - the tiles are drawn at the scale the zoom reached.
+    let zoom_settled = follow_zoom_gestures(txn, layout_window, zoom_clock_us());
 
     // Step 5: Generate a frame ONLY if this transaction actually changes what
     // is on screen.
@@ -4114,7 +4189,8 @@ pub(crate) fn build_lightweight_transaction(
         || scroll_changed
         || gpu_values_changed
         || lists_sent
-        || scan_registered_images;
+        || scan_registered_images
+        || zoom_settled;
     if changed {
         txn.generate_frame(0, webrender::api::RenderReasons::empty());
         gpu_frame_requested();
