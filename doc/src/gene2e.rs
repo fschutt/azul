@@ -4217,7 +4217,12 @@ mod tests {
         let mount = s.known_op("mount").unwrap();
         assert_eq!(
             mount.params,
-            vec![("html".into(), true), ("css".into(), false)]
+            vec![
+                ("html".into(), true),
+                ("css".into(), false),
+                ("collapse_whitespace".into(), false),
+                ("virtual_views".into(), false),
+            ]
         );
     }
 
@@ -6290,9 +6295,12 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
             "virtual_views[0] ('.nothing'): the selector must match exactly one element",
         );
         refused(&s, &scenario(&view(".list", "0", row)), "rows is 0");
+        // A syntax error of the tokenizer (an attribute value without its quotes). An element that is
+        // not closed is no longer one: the tree construction both loaders share closes it, so
+        // `<div>` lands as a row (the layout test of apply_views uses the same input as this).
         refused(
             &s,
-            &scenario(&view(".list", "5000", r##"["<div>"]"##)),
+            &scenario(&view(".list", "5000", r##"["<div class=row>Row {n}</div>"]"##)),
             "`row_html` is not valid markup",
         );
         // A field the view does not have is the engine's refusal, by name.
