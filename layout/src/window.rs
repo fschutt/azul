@@ -17005,7 +17005,7 @@ impl LayoutWindow {
     #[cfg(feature = "std")]
     pub fn refresh_scrollbar_gpu_cache_for_cpu_frame(&mut self) -> bool {
         let system_callbacks = ExternalSystemCallbacks::rust_internal();
-        let mut moved = self.refresh_scrollbar_transforms();
+        let mut moved = false;
         let fade_delay = self.gpu_state_manager.fade_delay;
         let fade_duration = self.gpu_state_manager.fade_duration;
         let Self {
@@ -17014,6 +17014,15 @@ impl LayoutWindow {
             ref mut gpu_state_manager,
             ..
         } = *self;
+        // The thumbs and the sticky boxes, from the boxes the layout pass
+        // listed (A2-gpu-14): a frame looks at those, not at every box of
+        // every tree (`refresh_scrollbar_transforms` is the walk, for a tree
+        // that was just made or written to).
+        for (dom_id, layout_result) in layout_results {
+            moved |= !gpu_state_manager
+                .refresh_scroll_driven_transforms(*dom_id, scroll_manager, &layout_result.layout_tree)
+                .is_empty();
+        }
         for (dom_id, layout_result) in layout_results {
             moved |= !Self::synchronize_scrollbar_opacity(
                 gpu_state_manager,

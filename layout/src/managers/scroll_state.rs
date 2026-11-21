@@ -1640,6 +1640,23 @@ impl ScrollManager {
             .any(|s| s.current_offset.x != 0.0 || s.current_offset.y != 0.0)
     }
 
+    /// The nodes of `dom_id` that registration gave a scrollbar on either
+    /// axis ([`AnimatedScrollState::bar`]), in node order, without a copy of
+    /// the states. `GpuStateManager::refresh_scroll_driven_transforms` holds
+    /// its list of scroll-driven boxes against it once per frame: a bar
+    /// raised after the layout pass (a text edit, a `VirtualView`'s extent)
+    /// is registered here, so a node named here and not there says the list
+    /// is out of date.
+    pub fn nodes_with_a_bar(&self, dom_id: DomId) -> impl Iterator<Item = NodeId> + '_ {
+        self.states
+            .range((dom_id, NodeId::ZERO)..)
+            .take_while(move |((dom, _), _)| *dom == dom_id)
+            .filter(|(_, state)| {
+                state.horizontal_bar.is_present() || state.vertical_bar.is_present()
+            })
+            .map(|((_, node), _)| *node)
+    }
+
     /// Returns all scroll positions for nodes in a specific DOM
     ///
     /// # `ScrollPosition` coordinate convention (MIXED — read before consuming)
