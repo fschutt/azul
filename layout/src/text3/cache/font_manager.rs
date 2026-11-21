@@ -802,7 +802,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// registry gave it. Called with the bundled faces, so a new manager
     /// and a replaced font cache ([`Self::replace_fc_cache`]) have them; a
     /// window's chain resolution adds them on its own
-    /// ([`RegisteredFonts::with_runtime_faces`]).
+    /// (`RegisteredFonts::with_runtime_faces`).
     pub fn register_runtime_fonts(&mut self) {
         for (norm, face) in self.registered_fonts.ensure_in(&self.fc_cache) {
             let faces = self.memory_families.entry(norm).or_default();
