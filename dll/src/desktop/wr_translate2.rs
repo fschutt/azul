@@ -3311,6 +3311,14 @@ pub fn build_image_only_transaction(
             .display_lists_unsubmitted(&layout_window.layout_results);
     let lists_sent = overlay.new_slot || textures.new_slot || lists_rebuilt || lists_unsubmitted;
     if lists_sent {
+        // The lists go at a new epoch, and the texture cache frees a GL
+        // texture two epochs after the last list that drew it was SENT
+        // (`gl_texture_cache::remove_old_epochs`, after every render). The
+        // full transaction renews the stamps while it registers the images;
+        // this one registers nothing, so a GL image of a list lost its
+        // texture at the first list patched in place (a caret's blink, a
+        // colour fade) and was drawn from texture 0, black (audit A4-22).
+        renew_gl_textures_of_the_lists(layout_window);
         set_display_lists(txn, layout_window, overlay.new_slot || textures.new_slot)?;
         layout_window.epoch.increment();
     } else {
@@ -3401,6 +3409,23 @@ pub fn build_image_only_transaction(
     );
 
     Ok(LightweightFrame { changed })
+}
+
+/// Every GL texture a display list of the window draws is stamped with the
+/// epoch the lists are about to be sent at: it lives while a list that draws
+/// it is sent (see `collect_image_resource_updates`, which does the same for
+/// a full transaction).
+fn renew_gl_textures_of_the_lists(layout_window: &LayoutWindow) {
+    for image in layout_window
+        .images_in_display_lists()
+        .filter(|image| image.is_gl_texture())
+    {
+        let _ = crate::desktop::gl_texture_cache::keep_alive(
+            &layout_window.document_id,
+            &azul_core::resources::image_ref_hash_to_external_image_id(image.get_hash()),
+            layout_window.epoch,
+        );
+    }
 }
 
 /// The frame's content on the GL path: every render callback whose inputs
@@ -4046,6 +4071,36 @@ mod gl_texture_lifetime_tests {
                 gl_texture_cache::get_texture(&id).is_some(),
                 "frame {frame}: the display list draws the image, but its texture left the cache \
                  (WebRender would draw it black)"
+            );
+        }
+    }
+
+    /// A4-22. A list patched in place (a caret's blink, a colour fade) is sent
+    /// by the lightweight transaction, at a new epoch, without the image
+    /// registration of a full one. The GL image the list draws keeps its
+    /// texture over any number of such sends. Mutation: without
+    /// `renew_gl_textures_of_the_lists` the texture is gone after the first.
+    #[test]
+    fn a_gl_image_keeps_its_texture_while_its_list_is_only_sent_again() {
+        let image = gl_image();
+        let id = image_ref_hash_to_external_image_id(image.get_hash());
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        lay_out(
+            &mut lw,
+            Dom::create_body().with_child(Dom::create_image(image).with_css("width: 8px; height: 8px;")),
+        );
+        send_frame(&mut lw);
+        assert!(gl_texture_cache::get_texture(&id).is_some(), "drawn, so kept");
+        // What `build_image_only_transaction` does when a list is sent again:
+        // the stamps, the lists at this epoch, the next epoch; then the render
+        // and the cache's clean-up.
+        for send in 0..6 {
+            super::renew_gl_textures_of_the_lists(&lw);
+            lw.epoch.increment();
+            gl_texture_integration::remove_old_gl_textures(&lw.document_id, lw.epoch);
+            assert!(
+                gl_texture_cache::get_texture(&id).is_some(),
+                "send {send}: the list still draws the image, but its texture left the cache"
             );
         }
     }
