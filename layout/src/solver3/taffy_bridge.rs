@@ -696,6 +696,11 @@ struct TaffyBridge<'a, 'b, T: ParsedFontTrait> {
     /// Flex ROWS whose width alone is being measured, innermost last (see
     /// `compute_child_layout`): their items' heights are not laid out.
     width_only_rows: Vec<usize>,
+    /// The nodes whose width-only answers (`NodeCache::taffy_width_only`)
+    /// THIS bridge started while their taffy cache was empty: everything
+    /// kept for such a node was answered by this bridge, after whatever
+    /// emptied the cache. See [`Self::width_only_answer_kept`].
+    width_only_fresh: std::collections::HashSet<usize>,
 }
 
 /// What a layout pass keeps for its taffy bridges (`solver3::PassMemo::taffy`):
@@ -770,6 +775,14 @@ thread_local! {
     pub(crate) static STYLE_CELL_BYTES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
+/// How many width-only runs of a flex row were computed on this thread
+/// (`TaffyBridge::compute_child_layout`: the row algorithm run over the row's
+/// items to answer how wide the row is; an answer found again is not a run).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static WIDTH_ONLY_ROW_RUNS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
 /// How many DOM node styles were converted for taffy on this thread
 /// (`TaffyBridge::translate_style_to_taffy`), and how many cells of the style
 /// memos were made (`audit_tests::a3_solver`: once per node and pass, however
@@ -809,6 +822,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             text_cache,
             default_style: Style::DEFAULT,
             width_only_rows: Vec::new(),
+            width_only_fresh: std::collections::HashSet::new(),
         }
     }
 
@@ -2193,6 +2207,8 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
                 return LayoutOutput::from_outer_size(Size { width, height: 0.0 });
             }
             drop(crate::probe::Probe::span("taffy_width_only_row"));
+            #[cfg(test)]
+            WIDTH_ONLY_ROW_RUNS.with(|n| n.set(n.get() + 1));
             self.width_only_rows.push(node_idx);
             let output = compute_flexbox_layout(self, node_id, inputs);
             self.width_only_rows.pop();
@@ -2477,14 +2493,27 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
     /// The width `node_idx` (a flex row) answered to this width-only question
     /// before, while its taffy cache still holds what it measured since -
     /// see [`TaffyWidthOnlyAnswers`].
+    ///
+    /// An EMPTY taffy cache says the subtree changed since anything kept was
+    /// answered, with one exception: answers this bridge started itself
+    /// ([`Self::width_only_fresh`]) were all given after that change. A
+    /// width-only run of a row never stores into the row's taffy cache, and
+    /// inside a width-only run of its parent the row is asked for nothing
+    /// else - so on a cold pass (and under every dirty subtree) a row asked
+    /// its width again, by the next run of its parent, ran again, and each of
+    /// its runs asked its own rows twice or three times (basis, min-content,
+    /// content contribution): 2 to 3 runs per run of the parent, to the power
+    /// of the nesting.
     fn width_only_answer_kept(&mut self, node_idx: usize, inputs: &LayoutInput) -> Option<f32> {
-        if !self.width_only_answers_keep()
-            || self
-                .tree
-                .warm(LayoutNodeId::new(node_idx))?
-                .taffy_cache
-                .is_empty()
-        {
+        if !self.width_only_answers_keep() {
+            return None;
+        }
+        let primary_empty = self
+            .tree
+            .warm(LayoutNodeId::new(node_idx))?
+            .taffy_cache
+            .is_empty();
+        if primary_empty && !self.width_only_fresh.contains(&node_idx) {
             return None;
         }
         let free_of_height = self.answers_its_width_alike_at_every_given_height(node_idx);
@@ -2499,7 +2528,9 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
 
     /// Keep the width `node_idx` answered to a width-only question. An empty
     /// taffy cache means the subtree changed since anything kept was
-    /// answered: that goes first.
+    /// answered: that goes first - once per bridge. The first answer of this
+    /// bridge drops what was kept and marks the node
+    /// ([`Self::width_only_fresh`]); its later answers join the first.
     fn keep_width_only_answer(&mut self, node_idx: usize, inputs: &LayoutInput, width: f32) {
         if !self.width_only_answers_keep() {
             return;
@@ -2509,16 +2540,20 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
             .warm(LayoutNodeId::new(node_idx))
             .is_none_or(|w| w.taffy_cache.is_empty());
         let free_of_height = self.answers_its_width_alike_at_every_given_height(node_idx);
+        let starts_anew = primary_empty && !self.width_only_fresh.contains(&node_idx);
         let Some(cache) = self.ctx.cache_map.entries.get_mut(node_idx) else {
             return;
         };
-        if primary_empty {
+        if starts_anew {
             cache.taffy_width_only = None;
         }
         cache
             .taffy_width_only
             .get_or_insert_with(Box::default)
             .store(inputs, width, free_of_height);
+        if starts_anew {
+            self.width_only_fresh.insert(node_idx);
+        }
     }
 
     /// Whether width-only answers are kept at all: not in a document that
@@ -3499,15 +3534,21 @@ impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
             primary_was_empty = warm.taffy_cache.is_empty();
             warm.taffy_cache.store(input, layout_output);
         }
+        let width_only_fresh = self.width_only_fresh.contains(&node_idx);
         let Some(cache) = self.ctx.cache_map.entries.get_mut(node_idx) else {
             return;
         };
         // The first store after the primary was emptied: whatever the second
-        // way and the width-only answers hold was measured before that clear.
+        // way and the width-only answers hold was measured before that clear
+        // - but for the width-only answers this bridge started while the
+        // primary was empty (`width_only_fresh`), which were all given after
+        // it: they stay, and the row's parent finds them at its next run.
         if primary_was_empty {
             cache.taffy_measure_spill = None;
             cache.taffy_slots_stored = 0;
-            cache.taffy_width_only = None;
+            if !width_only_fresh {
+                cache.taffy_width_only = None;
+            }
         }
         if input.run_mode != RunMode::ComputeSize {
             return;
@@ -3532,6 +3573,8 @@ impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
             warm.taffy_cache.clear();
             warm.measured_content_sizes = (None, None);
         }
+        // What this bridge kept for the node was answered before this clear.
+        self.width_only_fresh.remove(&node_idx);
     }
 }
 
@@ -5742,6 +5785,178 @@ mod audit_a3_solver_tests {
         assert!(
             bridge.get_taffy_style(root).margin == Rect::zero(),
             "the root box hands taffy a margin"
+        );
+    }
+
+    /// A parent's width-only question to a flex row: how wide at this
+    /// available width, nothing known, a max-content height.
+    fn width_question(width: AvailableSpace) -> LayoutInput {
+        LayoutInput {
+            run_mode: RunMode::ComputeSize,
+            sizing_mode: taffy::SizingMode::ContentSize,
+            axis: taffy::RequestedAxis::Horizontal,
+            known_dimensions: Size {
+                width: None,
+                height: None,
+            },
+            parent_size: Size {
+                width: None,
+                height: None,
+            },
+            available_space: Size {
+                width,
+                height: AvailableSpace::MaxContent,
+            },
+            vertical_margins_are_collapsible: Line {
+                start: false,
+                end: false,
+            },
+        }
+    }
+
+    /// The row's first measure on both axes: how tall at 60 px wide.
+    fn height_question() -> LayoutInput {
+        LayoutInput {
+            axis: taffy::RequestedAxis::Vertical,
+            known_dimensions: Size {
+                width: Some(60.0),
+                height: None,
+            },
+            ..width_question(AvailableSpace::MaxContent)
+        }
+    }
+
+    /// `body > row > row > item`.
+    fn rows() -> Env {
+        Env::of(
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_css("display: flex; flex-direction: row;")
+                    .with_child(
+                        Dom::create_div()
+                            .with_css("display: flex; flex-direction: row;")
+                            .with_child(Dom::create_div().with_css("width: 30px; height: 10px;")),
+                    ),
+            ),
+        )
+    }
+
+    /// A3-solver-17. While a row's taffy cache is empty - a first layout, a
+    /// dirty subtree - the widths it answered were not found again: the
+    /// answers a `NodeCache` keeps may be older than the clear, and nothing
+    /// told the ones just given apart. A bridge now finds the answers it gave
+    /// itself, and they stay when the row's first measure fills its cache.
+    ///
+    /// Mutation: `width_only_answer_kept` refusing every node whose taffy
+    /// cache is empty finds nothing after the two answers; `cache_store`
+    /// dropping the answers at the first store finds nothing after it.
+    #[test]
+    fn a_bridge_finds_the_width_only_answers_it_gave_a_row_with_an_empty_taffy_cache() {
+        let mut env = rows();
+        let mut ctx = env.ctx();
+        let mut tree = generate_layout_tree(&mut ctx).expect("the dom builds");
+        ctx.cache_map.resize_to_tree(tree.nodes.len());
+        let row = tree.children(tree.root)[0];
+        let max = width_question(AvailableSpace::MaxContent);
+        let min = width_question(AvailableSpace::MinContent);
+        {
+            let mut bridge = TaffyBridge::new(&mut ctx, &mut tree, core::ptr::null_mut());
+            assert_eq!(
+                bridge.width_only_answer_kept(row, &max),
+                None,
+                "harness: nothing is kept for a row nobody asked"
+            );
+            bridge.keep_width_only_answer(row, &max, 60.0);
+            bridge.keep_width_only_answer(row, &min, 50.0);
+            assert_eq!(
+                (
+                    bridge.width_only_answer_kept(row, &max),
+                    bridge.width_only_answer_kept(row, &min)
+                ),
+                (Some(60.0), Some(50.0)),
+                "the bridge does not find the two widths it just kept for the row"
+            );
+            bridge.cache_store(
+                row.into(),
+                &height_question(),
+                LayoutOutput::from_outer_size(Size {
+                    width: 60.0,
+                    height: 10.0,
+                }),
+            );
+            assert_eq!(
+                (
+                    bridge.width_only_answer_kept(row, &max),
+                    bridge.width_only_answer_kept(row, &min)
+                ),
+                (Some(60.0), Some(50.0)),
+                "the row's first measure dropped the widths the bridge had kept for it"
+            );
+        }
+        // The next bridge finds them as it always did: the taffy cache holds
+        // a measurement.
+        let mut bridge = TaffyBridge::new(&mut ctx, &mut tree, core::ptr::null_mut());
+        assert_eq!(bridge.width_only_answer_kept(row, &max), Some(60.0));
+    }
+
+    /// A3-solver-17, what must not change: an answer kept for a row whose
+    /// taffy cache is empty is served by the bridge that gave it only. For
+    /// every other bridge it may be older than whatever emptied the cache (a
+    /// dirty subtree, a restyle): it is not served, the bridge's first
+    /// answer drops it, and so does the first store into the taffy cache.
+    ///
+    /// Mutation: `width_only_answer_kept` serving what is kept whatever the
+    /// taffy cache holds answers 70 in the second bridge; `cache_store`
+    /// keeping the answers at the first store whoever gave them answers 40
+    /// in the third.
+    #[test]
+    fn a_width_only_answer_from_before_a_bridge_is_not_served_while_the_taffy_cache_is_empty() {
+        let mut env = rows();
+        let mut ctx = env.ctx();
+        let mut tree = generate_layout_tree(&mut ctx).expect("the dom builds");
+        ctx.cache_map.resize_to_tree(tree.nodes.len());
+        let row = tree.children(tree.root)[0];
+        let max = width_question(AvailableSpace::MaxContent);
+        let min = width_question(AvailableSpace::MinContent);
+        {
+            let mut bridge = TaffyBridge::new(&mut ctx, &mut tree, core::ptr::null_mut());
+            bridge.keep_width_only_answer(row, &max, 70.0);
+            assert_eq!(
+                bridge.width_only_answer_kept(row, &max),
+                Some(70.0),
+                "harness: the first bridge finds its own answer"
+            );
+        }
+        {
+            let mut bridge = TaffyBridge::new(&mut ctx, &mut tree, core::ptr::null_mut());
+            assert_eq!(
+                bridge.width_only_answer_kept(row, &max),
+                None,
+                "a bridge served an answer it did not give, the row's taffy cache being empty"
+            );
+            bridge.keep_width_only_answer(row, &min, 40.0);
+            assert_eq!(
+                (
+                    bridge.width_only_answer_kept(row, &max),
+                    bridge.width_only_answer_kept(row, &min)
+                ),
+                (None, Some(40.0)),
+                "the bridge's first answer keeps company with one from before it"
+            );
+        }
+        let mut bridge = TaffyBridge::new(&mut ctx, &mut tree, core::ptr::null_mut());
+        bridge.cache_store(
+            row.into(),
+            &height_question(),
+            LayoutOutput::from_outer_size(Size {
+                width: 60.0,
+                height: 10.0,
+            }),
+        );
+        assert_eq!(
+            bridge.width_only_answer_kept(row, &min),
+            None,
+            "the first store into an empty taffy cache kept an answer from before the bridge"
         );
     }
 }
