@@ -750,6 +750,14 @@ pub struct TaffyPassMemo {
     /// asked for its style - a pass whose root is no flex or grid container
     /// never makes them.
     root_styles: std::cell::OnceCell<Vec<std::cell::OnceCell<Box<Style>>>>,
+    /// The measurement this pass last stored into a slot class of a node's
+    /// taffy cache, by (layout node, slot class), for the nodes that keep no
+    /// second way yet (`NodeCache::taffy_measure_spill`): what that class of
+    /// the cache holds until the next store into it. That store evicts it and
+    /// makes the node's second way, which takes the evicted measurement in
+    /// from here ([`TaffyBridge::cache_store`]) - the second way keeps every
+    /// measurement stored from then on, and this was the one it missed.
+    last_measures: HashMap<(usize, usize), SpilledMeasure>,
 }
 
 impl core::fmt::Debug for TaffyPassMemo {
@@ -3248,7 +3256,8 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
 /// any class, matched by taffy's own rule; a pass that asks a node no more
 /// keys than that hits every one of them from the second pass on. It lives
 /// in the node's `NodeCache` (which follows the node across passes) and is
-/// allocated at the node's first eviction. It is part of the taffy cache for
+/// allocated at the node's first eviction, beginning with the measurement
+/// that was evicted and the one that evicted it. It is part of the taffy cache for
 /// validity: never read while that cache is empty, dropped by the first
 /// store after it was emptied (a dirty subtree, a restyle, a clone that
 /// could not keep it all empty it).
@@ -3314,12 +3323,7 @@ impl TaffyMeasureSpill {
 
     /// Record a measurement: the same key again is refreshed where it is, a
     /// new one overwrites the oldest.
-    fn store(&mut self, input: &LayoutInput, size: Size<f32>) {
-        let new = SpilledMeasure {
-            known_dimensions: input.known_dimensions,
-            available_space: input.available_space,
-            size,
-        };
+    fn keep(&mut self, new: SpilledMeasure) {
         if let Some(same) = self.entries.iter_mut().flatten().find(|m| m.same_key(&new)) {
             *same = new;
             return;
@@ -3556,14 +3560,48 @@ impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
         // A store is only ever made after a miss, so a second store into a
         // slot class is an eviction: from then on this node keeps a second
         // way for every measurement it stores.
-        let bit = 1u16 << measure_slot(input.known_dimensions, input.available_space);
-        if cache.taffy_slots_stored & bit != 0 && cache.taffy_measure_spill.is_none() {
-            cache.taffy_measure_spill = Some(Box::default());
-        }
+        let slot = measure_slot(input.known_dimensions, input.available_space);
+        let bit = 1u16 << slot;
+        let evicts = cache.taffy_slots_stored & bit != 0 && cache.taffy_measure_spill.is_none();
+        let has_second_way = cache.taffy_measure_spill.is_some();
         cache.taffy_slots_stored |= bit;
-        if let Some(spill) = cache.taffy_measure_spill.as_deref_mut() {
-            spill.store(input, layout_output.size);
+        let measured = SpilledMeasure {
+            known_dimensions: input.known_dimensions,
+            available_space: input.available_space,
+            size: layout_output.size,
+        };
+        if !evicts && !has_second_way {
+            // The class holds this measurement until its next store: the
+            // pass remembers it for the second way that store makes.
+            self.ctx
+                .pass_memo
+                .taffy
+                .last_measures
+                .insert((node_idx, slot), measured);
+            return;
         }
+        // The measurement an eviction evicts goes into the second way it
+        // makes, where this pass stored it itself (`last_measures`: it was in
+        // the primary until the store above). The second way began with the
+        // evicting measurement alone: the first key of the class was in
+        // neither cache, and its next ask computed it a second time.
+        let evicted = if evicts {
+            self.ctx
+                .pass_memo
+                .taffy
+                .last_measures
+                .remove(&(node_idx, slot))
+        } else {
+            None
+        };
+        let Some(cache) = self.ctx.cache_map.entries.get_mut(node_idx) else {
+            return;
+        };
+        let spill = cache.taffy_measure_spill.get_or_insert_with(Box::default);
+        if let Some(evicted) = evicted {
+            spill.keep(evicted);
+        }
+        spill.keep(measured);
     }
 
     fn cache_clear(&mut self, node_id: taffy::NodeId) {
@@ -5957,6 +5995,70 @@ mod audit_a3_solver_tests {
             bridge.width_only_answer_kept(row, &min),
             None,
             "the first store into an empty taffy cache kept an answer from before the bridge"
+        );
+    }
+
+    /// A3-solver-17b. taffy's cache keeps one measurement per slot class, and
+    /// a node's second way (`TaffyMeasureSpill`) was made by the second store
+    /// into a class - after that store had overwritten the first measurement
+    /// of the class, and holding the second alone. The first key was in
+    /// neither cache: its next ask (a flex item measured for its container's
+    /// max-content run, its min-content run, and again at the first width)
+    /// computed it once more. The second way now begins with both.
+    ///
+    /// Mutation: the second way made without the evicted measurement
+    /// (`cache_store` not taking it from `TaffyPassMemo::last_measures`) does
+    /// not find the first width again.
+    #[test]
+    fn the_measurement_a_second_store_evicts_is_found_in_the_second_way() {
+        let mut env = rows();
+        let mut ctx = env.ctx();
+        let mut tree = generate_layout_tree(&mut ctx).expect("the dom builds");
+        ctx.cache_map.resize_to_tree(tree.nodes.len());
+        let item = tree.children(tree.root)[0];
+        // Two keys of one slot class: how tall at 100 px wide, how tall at 200.
+        let how_tall_at = |width: f32| LayoutInput {
+            axis: taffy::RequestedAxis::Vertical,
+            known_dimensions: Size {
+                width: Some(width),
+                height: None,
+            },
+            ..width_question(AvailableSpace::MaxContent)
+        };
+        let answer = |width: f32, height: f32| LayoutOutput::from_outer_size(Size { width, height });
+        let mut bridge = TaffyBridge::new(&mut ctx, &mut tree, core::ptr::null_mut());
+
+        bridge.cache_store(item.into(), &how_tall_at(100.0), answer(100.0, 30.0));
+        assert_eq!(
+            bridge
+                .cache_get(item.into(), &how_tall_at(100.0))
+                .map(|o| o.size),
+            Some(Size {
+                width: 100.0,
+                height: 30.0
+            }),
+            "harness: taffy's cache holds the first measurement"
+        );
+        bridge.cache_store(item.into(), &how_tall_at(200.0), answer(200.0, 20.0));
+        assert_eq!(
+            bridge
+                .cache_get(item.into(), &how_tall_at(200.0))
+                .map(|o| o.size),
+            Some(Size {
+                width: 200.0,
+                height: 20.0
+            }),
+            "harness: taffy's cache holds the second measurement"
+        );
+        assert_eq!(
+            bridge
+                .cache_get(item.into(), &how_tall_at(100.0))
+                .map(|o| o.size),
+            Some(Size {
+                width: 100.0,
+                height: 30.0
+            }),
+            "the first measurement of the class is in neither cache once the second evicted it"
         );
     }
 }
