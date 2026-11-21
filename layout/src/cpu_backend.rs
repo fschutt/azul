@@ -308,6 +308,23 @@ pub struct CpuBackend {
     /// or scaled reference frame whose content did not change is composited again instead of
     /// painted again. Handed to every incremental frame's render state.
     pub retained_frames: Arc<crate::cpurender::RetainedFrames>,
+    /// (A10-06) The shell composites layers and asks for the layer present
+    /// (`cpurender::present_layer`): the picture of one reference frame of the window (the
+    /// largest whose picture can be kept, a map view's) is not painted into the window's
+    /// frame but reported as `last_present_layer`, for the shell to show over the frame.
+    /// `false` (the default, and every shell but one that was asked to): nothing of it
+    /// runs, and every frame is painted and reported as before.
+    pub promote_for_present: bool,
+    /// (A10-06) The layer the frame on screen is shown with, `None` when no frame is
+    /// promoted: the window's frame alone is the picture then. A call that paints nothing
+    /// because nothing changed leaves it as it is.
+    pub last_present_layer: Option<crate::cpurender::present_layer::PresentLayer>,
+    /// (A10-06) The plan `last_present_layer` was painted with: what the next frame is
+    /// compared with (does the promotion start, stop, or go on), and the key of the surface.
+    pub promoted: Option<crate::cpurender::present_layer::LayerPlan>,
+    /// (A10-06) Frames to pass before a frame is promoted again, after a promoted frame's
+    /// surface was not complete when its frame was painted.
+    pub present_layer_backoff: u32,
 }
 
 
@@ -374,6 +391,10 @@ impl CpuBackend {
             previous_gpu_values_generation: None,
             previous_zombie_rects: Vec::new(),
             retained_frames: Arc::new(crate::cpurender::RetainedFrames::new()),
+            promote_for_present: false,
+            last_present_layer: None,
+            promoted: None,
+            present_layer_backoff: 0,
         }
     }
 
@@ -388,6 +409,27 @@ impl CpuBackend {
         self.retained_frames.clear();
         crate::cpurender::release_cpu_halos();
         self.compositor = None;
+        // (A10-06) A promoted frame's picture was in the kept surface alone: not in the
+        // window's frame. The next frame is painted in full (and is never skipped as idle),
+        // and promotes again; until then there is no layer.
+        if self.promoted.take().is_some() {
+            self.last_present_layer = None;
+            self.force_full_repaint = true;
+        }
+    }
+
+    /// (A10-06) The surface `last_present_layer` shows (RGBA8 premultiplied, top row first,
+    /// tight rows, `surface_size` px), handed to `read`. `None` without a layer. The surface
+    /// is the renderer's: `read` copies what it keeps, and nothing of it is held after the
+    /// call (a surface held elsewhere is replaced, not completed, by the next part painted).
+    pub fn with_present_layer_surface<R>(
+        &self,
+        read: impl FnOnce(&crate::cpurender::AzulPixmap) -> R,
+    ) -> Option<R> {
+        self.last_present_layer.as_ref()?;
+        let plan = self.promoted.as_ref()?;
+        let (surface, _) = self.retained_frames.kept(&plan.key)?;
+        Some(read(&surface))
     }
 
     /// Read the window's transparency / shape flags off the window state
@@ -656,6 +698,34 @@ impl CpuBackend {
             });
             Some(values)
         };
+        // (A10-06) The promoted frame's own matrix is no value of the window's frame: its
+        // picture is not in the frame's pixels, and a change of the matrix moves the shell's
+        // layer (`present_layer::plan` reads the new value below). The value of the frame
+        // before is made this frame's before the two are compared, so that the change
+        // damages nothing (`window_value_damage`) and places nothing differently in the
+        // list diffs. A frame that stops promoting repaints the layer's clip whole.
+        // Such a frame is not idle, though it may paint no pixel: the layer it reports is
+        // another one (`promoted_frame_moved`, read where the frame is asked whether
+        // anything changed).
+        let mut promoted_frame_moved = false;
+        if let (Some(key), Some(fresh)) = (
+            self.promoted
+                .as_ref()
+                .filter(|_| self.promote_for_present)
+                .map(|plan| plan.transform_key),
+            fresh_gpu_values.as_ref(),
+        ) {
+            let now = fresh.transforms.get(&key).copied();
+            promoted_frame_moved = now != self.previous_gpu_values.transforms.get(&key).copied();
+            match now {
+                Some(value) => {
+                    self.previous_gpu_values.transforms.insert(key, value);
+                }
+                None => {
+                    self.previous_gpu_values.transforms.remove(&key);
+                }
+            }
+        }
         let gpu_values: &cpurender::WindowGpuValues =
             fresh_gpu_values.as_ref().unwrap_or(&self.previous_gpu_values);
         // Which frames scroll by whole device pixels this frame, and the offsets an incremental
@@ -1028,7 +1098,8 @@ impl CpuBackend {
             resize_damage: !resize_damage.is_empty(),
             scrolled: has_scroll,
             view_content: has_vview_damage,
-            gpu_values: has_gpu_damage,
+            // (A10-06) A move of the promoted frame alone is a frame: the layer moves.
+            gpu_values: has_gpu_damage || promoted_frame_moved,
             zombies: !zombie_damage.is_empty(),
             layout_move: patch_moved_union.is_some(),
         }
@@ -1110,6 +1181,95 @@ impl CpuBackend {
                 is_incremental,
                 all_damage.len(),
             );
+        }
+
+        // (A10-06) The layer present: which frame of the window, if any, is shown by the
+        // shell as a layer this frame (`cpurender::present_layer`), and what that changes of
+        // the damage. Nothing of this runs unless the shell asked (`promote_for_present`).
+        let old_plan = self.promoted.take();
+        let mut layer_plan: Option<cpurender::present_layer::LayerPlan> = None;
+        if self.promote_for_present {
+            if self.present_layer_backoff > 0 {
+                self.present_layer_backoff -= 1;
+            } else if !self.transparent
+                // A resize and a change of the scale factor go through the window's frame
+                // alone (the first frame of a window is no resize).
+                && !(needs_resize && old_pw > 0 && old_ph > 0)
+                && !dpi_changed
+                // The layered compositor paints its own way.
+                && !cpurender::full_repaint_needs_layers(display_list)
+                && !self
+                    .previous_display_list
+                    .as_deref()
+                    .is_some_and(cpurender::full_repaint_needs_layers)
+                && !std::env::var("AZ_CPU_FULL").is_ok_and(|v| v == "layers")
+            {
+                // The state the frame is painted with (the offsets, the values, the lists),
+                // for the plan and for the repair of kept surfaces whose list was replaced:
+                // the plan asks what is kept for the lists of THIS frame.
+                let offsets = if is_incremental {
+                    &next_scroll_baseline
+                } else {
+                    &scroll_offsets
+                };
+                let probe = cpurender::CpuRenderState::new(offsets.clone())
+                    .with_gpu_values(core::mem::take(&mut self.previous_gpu_values))
+                    .with_system_style(layout_window.system_style.clone())
+                    .with_virtual_view_display_lists(vview_dls.clone())
+                    .with_retained_frames(Arc::clone(&self.retained_frames))
+                    .with_root_display_list(Arc::clone(display_list));
+                if let Err(e) = cpurender::refresh_retained_surfaces(
+                    &probe,
+                    renderer_resources,
+                    &layout_window.font_manager,
+                    &mut self.glyph_cache,
+                    dpi_factor,
+                ) {
+                    eprintln!("[CpuBackend] refresh_retained_surfaces error: {e}");
+                }
+                layer_plan = cpurender::present_layer::plan(
+                    &probe,
+                    (pixel_w, pixel_h),
+                    dpi_factor,
+                    &self.glyph_cache,
+                    &layout_window.font_manager,
+                );
+                let cpurender::CpuRenderState {
+                    transforms,
+                    opacities,
+                    colors,
+                    ..
+                } = probe;
+                self.previous_gpu_values = cpurender::WindowGpuValues {
+                    transforms,
+                    opacities,
+                    colors,
+                };
+            }
+        }
+        if is_incremental {
+            let same_layer = |a: &cpurender::present_layer::LayerPlan,
+                              b: &cpurender::present_layer::LayerPlan| {
+                a.transform_key == b.transform_key && a.clip == b.clip
+            };
+            if let Some(plan) = layer_plan.as_ref() {
+                // What shows of the layer's surface and is not painted: its passes paint it.
+                all_damage.extend(cpurender::present_layer::damage_of_plan(
+                    plan,
+                    self.retained_frames.missing(&plan.key, plan.needed),
+                    dpi_factor,
+                ));
+                // The promotion starts: the window's frame holds the picture under the clip.
+                if !old_plan.as_ref().is_some_and(|old| same_layer(old, plan)) {
+                    all_damage.push(plan.clip_rect(dpi_factor));
+                }
+            }
+            if let Some(old) = old_plan.as_ref() {
+                // The promotion stops: the window's frame holds nothing of the picture there.
+                if !layer_plan.as_ref().is_some_and(|plan| same_layer(old, plan)) {
+                    all_damage.push(old.clip_rect(dpi_factor));
+                }
+            }
         }
 
         // A VirtualView child DOM changed (async content) — damage its on-screen
@@ -1260,6 +1420,16 @@ impl CpuBackend {
             // A view whose content scrolled moves the same way: its pixels, the
             // strip that came into view, what is painted over it.
             for shift in &view_shifts {
+                // (A10-06) The view that shows the promoted frame: its picture is not in
+                // `output`, there is nothing of it to move. A view that shows the frame
+                // alone moves no pixel (the pan is the layer's matrix); one that shows
+                // more is repainted in its box.
+                if let Some(plan) = layer_plan.as_ref().filter(|plan| plan.view == Some(shift.index)) {
+                    if !plan.alone {
+                        all_damage.push(shift.clip);
+                    }
+                    continue;
+                }
                 let out = cpurender::execute_virtual_view_shift_with(
                     &mut output,
                     display_list,
@@ -1426,13 +1596,18 @@ impl CpuBackend {
         // Their write generation goes with them: until they are back the backend holds no
         // values it could use again.
         let painted_generation = self.previous_gpu_values_generation.take();
-        let render_state = cpurender::CpuRenderState::new(render_offsets.clone())
+        let mut render_state = cpurender::CpuRenderState::new(render_offsets.clone())
             .with_gpu_values(core::mem::take(&mut self.previous_gpu_values))
             .with_system_style(layout_window.system_style.clone())
             .with_clear_color(clear_color)
             .with_virtual_view_display_lists(vview_dls)
             .with_retained_frames(Arc::clone(&self.retained_frames))
             .with_root_display_list(Arc::clone(display_list));
+        // (A10-06) The promoted frame is painted into its surface and not composited.
+        render_state.promote = layer_plan.as_ref().map(|plan| cpurender::PromoteFrame {
+            transform_key: plan.transform_key,
+            composite: false,
+        });
         // The kept group surfaces of lists this frame does not paint any more (a view that
         // rendered again, a list that was patched) are dropped, and those lists let go of.
         let painted_lists: Vec<usize> = core::iter::once(Arc::as_ptr(display_list) as usize)
@@ -1564,6 +1739,55 @@ impl CpuBackend {
         // What this frame's passes painted of a group that may only be moved next frame is
         // kept from here on (`cpurender::retained`).
         self.retained_frames.commit();
+
+        // (A10-06) The layer of this frame: the promoted frame's surface, if what shows of
+        // it is painted now. If it is not (a part no pass could paint: not expected), the
+        // frame is completed the old way - the layer's clip is painted again with the
+        // surface composited - nothing is promoted for a while, and the next frame is
+        // painted in full, in place.
+        self.last_present_layer = None;
+        if let Some(plan) = layer_plan {
+            let complete = self
+                .retained_frames
+                .missing(&plan.key, plan.shown)
+                .is_some_and(|missing| missing.is_empty());
+            let stamp = if complete {
+                self.retained_frames.kept(&plan.key).map(|(_, stamp)| stamp)
+            } else {
+                None
+            };
+            if let Some(stamp) = stamp {
+                self.last_present_layer = Some(plan.layer(stamp));
+                self.promoted = Some(plan);
+            } else {
+                eprintln!(
+                    "[CpuBackend] layer present: the surface of the promoted frame is not complete \
+                     after its frame; this frame is presented without a layer"
+                );
+                render_state.promote = Some(cpurender::PromoteFrame {
+                    transform_key: plan.transform_key,
+                    composite: true,
+                });
+                let clip = plan.clip_rect(dpi_factor);
+                if cpurender::render_display_list_damaged(
+                    display_list,
+                    &mut output,
+                    dpi_factor,
+                    renderer_resources,
+                    &layout_window.font_manager,
+                    &mut self.glyph_cache,
+                    &render_state,
+                    &[clip],
+                )
+                .is_ok()
+                {
+                    all_damage.push(clip);
+                }
+                self.retained_frames.commit();
+                self.present_layer_backoff = 60;
+                self.force_full_repaint = true;
+            }
+        }
 
         // AZ_DUMP_DL_DIR=/tmp/dls dumps the first display lists as JSON —
         // splits "the DL's clip is collapsed" (layout/reconcile bug) from
