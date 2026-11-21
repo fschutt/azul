@@ -726,6 +726,10 @@ struct TaffyBridge<'a, 'b, T: ParsedFontTrait> {
     width_only_rows: Vec<usize>,
 }
 
+/// What a layout pass keeps for its taffy bridges (`solver3::PassMemo::taffy`).
+#[derive(Debug, Default)]
+pub struct TaffyPassMemo {}
+
 /// How many bridges were made on this thread, and how many bytes one cell of
 /// their style memos takes (`audit_tests::a3_solver`: a bridge costs a pointer
 /// per node of the document, not a `Style` per node).
@@ -5206,6 +5210,7 @@ mod autotest_generated {
                     style_cache: Default::default(),
                     virtual_view_sizes: None,
                     scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+                    pass_memo: Default::default(),
                     styled_dom: &self.styled_dom,
                     font_manager: &self.font_manager,
                     text_selections: &self.text_selections,

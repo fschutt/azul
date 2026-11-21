@@ -26952,6 +26952,7 @@ impl LayoutWindow {
             style_cache: Default::default(),
             virtual_view_sizes: None,
             scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+            pass_memo: Default::default(),
             styled_dom,
             font_manager: &self.font_manager,
             text_selections: &text_selections_map,

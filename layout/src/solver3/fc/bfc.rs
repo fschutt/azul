@@ -180,6 +180,10 @@ pub(super) fn centers_blocks_the_legacy_way(styled_dom: &StyledDom, dom_id: Node
     false
 }
 
+/// What a layout pass keeps for [`layout_bfc`] (`solver3::PassMemo::bfc`).
+#[derive(Debug, Default)]
+pub struct BfcPassMemo {}
+
 pub(super) fn layout_bfc<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,

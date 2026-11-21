@@ -207,6 +207,24 @@ use crate::{
     },
 };
 
+/// What one layout pass keeps for itself: memos and scratch buffers that are
+/// valid for exactly one [`LayoutContext`] - one styled DOM, one layout tree,
+/// one viewport - and are dropped with it.
+///
+/// THE place for per-pass state. A new slot is a field here (a struct with
+/// `Default`, defined next to the code that uses it); the context's struct
+/// literals (twelve, in six files) write `pass_memo: Default::default()` and
+/// never change again. Not for anything that must outlive the pass (that is
+/// `cache::LayoutCache`) or that another pass could read by mistake: a slot is
+/// empty at the start of every pass by construction.
+#[derive(Debug, Default)]
+pub struct PassMemo {
+    /// `fc::layout_bfc`'s slot.
+    pub bfc: fc::BfcPassMemo,
+    /// The taffy bridge's slot.
+    pub taffy: taffy_bridge::TaffyPassMemo,
+}
+
 /// Central context for a single layout pass.
 #[derive(Debug)]
 pub struct LayoutContext<'a, T: ParsedFontTrait> {
@@ -324,6 +342,8 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     pub virtual_view_sizes: Option<&'a BTreeMap<(DomId, NodeId), LogicalSize>>,
     pub scrollbar_style_cache:
         core::cell::RefCell<HashMap<NodeId, getters::ComputedScrollbarStyle>>,
+    /// What this pass keeps for itself ([`PassMemo`]).
+    pub pass_memo: PassMemo,
 }
 
 impl<T: ParsedFontTrait> LayoutContext<'_, T> {
@@ -702,6 +722,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         style_cache: Default::default(),
         virtual_view_sizes: Some(virtual_view_sizes),
         scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+        pass_memo: Default::default(),
         styled_dom: new_dom,
         font_manager,
         text_selections,
@@ -1258,6 +1279,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // view was ever sized by what it returned - it stayed 300x150.
         virtual_view_sizes: Some(virtual_view_sizes),
         scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+        pass_memo: Default::default(),
         styled_dom: new_dom,
         font_manager,
         text_selections,
@@ -3330,6 +3352,7 @@ mod autotest_generated {
                     style_cache: Default::default(),
                     virtual_view_sizes: None,
                     scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+                    pass_memo: Default::default(),
                     styled_dom: &self.styled_dom,
                     font_manager: &self.font_manager,
                     text_selections: &self.text_selections,
