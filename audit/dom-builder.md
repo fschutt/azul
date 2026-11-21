@@ -2,17 +2,19 @@
 
 Task of the 2026-11-21 audit (RULES.md 8.8; `audit/diff-first.md`, block diff-first-09). Blind: nothing here was
 compiled or run. Branch `audit/dom-builder`, cut from the tip of `audit/diff-first` (`cfc4d6d72`), `audit/integration`
-merged at the start (`a03aed60c`). `layout.rs` = `dll/src/desktop/shell2/common/layout.rs`, `builder` =
+merged at the start (`a03aed60c`) and again (`b8258caa9`), `audit/diff-first` merged at `205bf0d6d` (`5c9c9c322`,
+repaired by `633f7baf7`). `layout.rs` = `dll/src/desktop/shell2/common/layout.rs`, `builder` =
 `core/src/dom_builder.rs` (the module `azul_core::dom::builder`, declared at the end of `core/src/dom.rs`).
 
 **State in one paragraph.** `DomBuilder` exists (core, api.json), builds a UI tree into shared arenas with nothing
 allocated per node, makes each node's two fingerprint tiers as the node is closed, and hands the result back as a
 `Dom` that carries the tree flat. Everything that needs a tree gets one (`Dom::expand_flat`, called by every builder
 method that takes children and by every way to a `StyledDom`); `fingerprint_built_dom` reads the fingerprints of
-either form; `StyledDom` styles a flat `Dom` from its arenas. A VIEW's rebuild reads the flat form today (a view that
-built what it built before is kept without its DOM ever becoming a tree). The WINDOW's rebuild expands it first and
-gains nothing until two lines of `regenerate_layout` change (`## For area diff-first`: that function is claimed by
-area diff-first). One widget (the waveform) builds through it under `AZ_FLAT_WIDGETS=1`.
+either form; `StyledDom` styles a flat `Dom` from its arenas. The WINDOW's rebuild and a VIEW's re-render read the flat
+form: a rebuild that built what the build before built takes its fingerprints from the builder's tiers and never turns
+the flat tree into `Dom`s (counted: `flat_expansions_on_this_thread`, 0); a rebuild that changed anything expands it
+once and takes the exits a tree-made DOM takes. One widget (the waveform) builds through it under
+`AZ_FLAT_WIDGETS=1`.
 
 ## Claims
 
@@ -26,18 +28,26 @@ Functions and types this task wrote or restructured:
   declaration and re-exports at the end.
 - `core/src/layout_inputs.rs`: row `NodeField::Flat` (derived; hashes, carries and compares nothing).
 - `core/src/styled_dom.rs`: `StyledDom::create_from_fast_dom` is a wrapper of the new
-  `create_from_fast_dom_inheriting`; the first lines of `create_from_dom_inheriting` (a flat `Dom` goes to the arenas).
+  `create_from_fast_dom_inheriting`, which is the new `unstyled_from_fast_dom_inheriting` + `cascade_at_rest` (the two
+  halves of diff-first-04a); the first lines of `unstyled_from_dom_inheriting` (a flat `Dom` goes to the arenas).
 - `core/src/diff.rs`: one word (`hash_inline_style` is `pub(crate)`). `fingerprint_dom` is NOT touched (diff-first's).
-- `layout/src/window.rs`: first lines of `style_user_dom_inheriting` and `resolve_form_controls`; new
-  `resolve_form_controls_keeping_flat`; one call in the view's render (`fingerprint_built_dom`).
+- `layout/src/window.rs`: the first statement of `flatten_user_dom_inheriting` (where diff-first moved the body of
+  `style_user_dom_inheriting`) and of `resolve_form_controls`; new `resolve_form_controls_keeping_flat`; one call in the
+  view's render (`fingerprint_built_dom_against`).
+- `layout.rs`, `regenerate_layout`: two calls (step 1.35 and the early diff), applied on the coordinator's instruction
+  after area diff-first checked them against its tip (`audit/diff-first.md`, "For area dom-builder").
 - `dll/src/desktop/shell2/common/transient.rs`: `looks_different` (one line).
 - `layout/src/widgets/waveform.rs`: `build` (now `build_tree` / `build_flat`).
 - `api.json`: class `dom.DomBuilder`.
 - Tests: `core/src/dom_builder_test.rs` (new), one test in `layout/src/widgets/waveform.rs`, one list entry in
-  `dll/src/desktop/shell2/headless/tests/every_holder_of_a_nodes_data_is_repointed.rs`.
+  `dll/src/desktop/shell2/headless/tests/every_holder_of_a_nodes_data_is_repointed.rs`, and in
+  `dll/src/desktop/shell2/headless/mod.rs` `mod tests`, directly below diff-first's
+  `an_identical_rebuild_and_a_changed_text_style_no_node`: `dfb_layout` and
+  `a_builder_made_window_dom_rebuilt_unchanged_is_never_expanded`.
 
-Not touched (diff-first's): `regenerate_layout`, `fingerprint_dom`, `same_tree_changes`,
-`changed_nodes_are_adoptable`, `adopt_changed_nodes`, `begin_reconciliation`, `reconcile_dom`, the cascade.
+Not touched (diff-first's): `fingerprint_dom`, `nodes_at`, `same_tree_changes`, `changed_nodes_are_adoptable`,
+`adopt_changed_nodes`, `begin_reconciliation`, `reconcile_dom`, the cascade, and `regenerate_layout` but for the two
+calls above.
 
 ## The measurement: what building one node costs (by reading)
 
@@ -167,8 +177,11 @@ costs in a `Dom`; the nodes around it stay compact.
 - **Where a tree is needed**: `Dom::expand_flat` (drains the arenas into `Dom`s: each node moved, not cloned). Called
   by `add_child` (both sides), `set_children` (the children; the carried ones are the ones replaced), `collect`,
   `fixup_children_estimated` (so `StyledDom::create*`, `convert_dom_into_compact_dom`, at every node), and in layout
-  by `style_user_dom_inheriting` and `resolve_form_controls`.
-- **Where the flat form is read**: `fingerprint_built_dom(&Dom)`; `Dom::into_fast_dom` +
+  by `flatten_user_dom_inheriting` (the body of `style_user_dom_inheriting` since diff-first-04b; exit 1.47 and the
+  view's step call it directly) and `resolve_form_controls`.
+- **Where the flat form is read**: `fingerprint_built_dom(&Dom)` and `fingerprint_built_dom_against(&mut Dom, prev)`
+  (the window's rebuild, `layout.rs` step 1.4; a view's re-render, `layout/src/window.rs`; a transient window's
+  content, `transient.rs` `looks_different`); `Dom::into_fast_dom` +
   `StyledDom::create_from_fast_dom_inheriting` (sheets in `take_css_from_dom`'s order: sorted by where the owner's
   subtree ends, inner first); `Dom::flat_node_data_at(i)` (one node copied out: for the changed nodes of a rebuild);
   `Dom::flat_holds_node_type`.
@@ -212,14 +225,26 @@ costs in a `Dom`; the nodes around it stay compact.
 - severity: low
 - status: fixed dea65c348
 
-### dom-builder-05 the window's rebuild does not read the flat form yet
-- file:line: `layout.rs` `regenerate_layout` `:667`, `:691`
-- class: waste: a builder-made window DOM is expanded to a tree before the early diff (correct, and slower than a
-  `Dom` by the expansion) until the two calls change
+### dom-builder-05 the window's rebuild did not read the flat form
+- file:line: `layout.rs` `regenerate_layout` (step 1.35, the early diff)
+- class: waste: a builder-made window DOM was expanded to a tree before the early diff on every rebuild
+- fix: `resolve_form_controls_keeping_flat` and `fingerprint_built_dom_against(&mut user_dom,
+  last_dom_fingerprints)`; counter `azul_core::dom::flat_expansions_on_this_thread`.
+- test: dll `a_builder_made_window_dom_rebuilt_unchanged_is_never_expanded` (an identical rebuild: `LayoutUnchanged`,
+  0 expansions, 0 nodes styled; a changed text, a changed class, an added row: the dumps of a tree-made window)
 - severity: high
-- status: open: two lines in a function area diff-first claims; the exact change is under `## For area diff-first` (1)
+- status: fixed bff367635
 
-### dom-builder-06 a changed rebuild of a flat DOM expands the whole tree
+### dom-builder-06 a view's re-render left a changed flat DOM flat
+- file:line: `layout/src/window.rs`, the view's render (the call before `reclaim_unchanged_child`)
+- class: wrong-output once diff-first-11b's `restyle_kept_child` reads the fresh DOM's nodes (a root-only change would
+  copy the whole flat tree onto node 0 of the kept arena; any other change would never take the kept exits)
+- fix: `fingerprint_built_dom_against(&mut dom, child_dom_fingerprints.get(&child))`.
+- test: none of its own here (11b is not merged into this branch): see the hand-over
+- severity: medium
+- status: fixed 617fd509c
+
+### dom-builder-07 a changed rebuild of a flat DOM expands the whole tree
 - file:line: `core/src/dom_builder.rs` `fingerprint_built_dom_against`; `core/src/diff.rs` `nodes_at` and the four
   functions on it
 - class: waste: when anything differs from the build before, the flat `Dom` becomes its tree (n nodes materialized,
@@ -228,11 +253,11 @@ costs in a `Dom`; the nodes around it stay compact.
 - fix (designed, not made: the functions are A3-window's / diff-first's): `nodes_at` answers `Vec<Cow<NodeData>>`
   (or the callers take `Dom::flat_node_data_at(i)` for a flat `Dom`): `fresh_texts_are_adoptable`,
   `adopt_fresh_texts`, `changed_nodes_are_adoptable`, `adopt_changed_nodes` then read k nodes; the full path alone
-  expands (`style_user_dom_inheriting`), or styles from the arenas once its passes (form controls, webview fallback,
+  expands (`flatten_user_dom_inheriting`), or styles from the arenas once its passes (form controls, webview fallback,
   translation, theme spin, icons) have a flat form or say "nothing to do" from a scan of the kinds
   (`flat_holds_node_type` is that scan).
 - severity: medium
-- status: open: needs `nodes_at` and its four users changed (diff-first's and A3-window's functions); the accessor `Dom::flat_node_data_at` they need exists and is tested
+- status: open: needs `nodes_at` and its four users changed (diff-first's and A3-window's functions) to read k nodes of a flat `Dom`; the accessor `Dom::flat_node_data_at` they need exists and is tested
 
 ### Checked: fine
 - `NodeField::ALL` has 20 rows now; the new row hashes nothing, so every existing fingerprint is the number it was.
@@ -276,51 +301,72 @@ One ADDITION, nothing changed or removed: module `dom`, class `DomBuilder`
   the waveform). Default OFF because code and tests outside the engine walk a widget's `dom.children`
   (`theme_checks::nodes`), which a flat `Dom` does not have before `expand_flat`. A test picks per thread:
   `azul_core::dom::set_flat_widgets_on_this_thread(Some(bool))`.
+- Counter: `azul_core::dom::flat_expansions_on_this_thread()` (flat trees that became trees of `Dom`s): what the dll
+  test reads to say an identical rebuild read the DOM as it was handed over.
 - No switch for the builder itself: an app opts in by calling it. A `Dom` built the old way takes the old path
   unchanged (one pointer test per `add_child` / per node of `fixup_children_estimated`).
 
 ## For area diff-first
 
-1. **The two lines that make the window's rebuild read the flat form** (`layout.rs`, `regenerate_layout`):
-   ```
-   -    let _ = layout_window.resolve_form_controls(&mut user_dom);
-   +    let _ = layout_window.resolve_form_controls_keeping_flat(&mut user_dom);
-   ...
-   -        Some(azul_core::diff::fingerprint_dom(&user_dom))
-   +        Some(azul_core::dom::fingerprint_built_dom_against(
-   +            &mut user_dom,
-   +            layout_window.last_dom_fingerprints.as_ref(),
-   +        ))
-   ```
-   Why nothing else in the function has to change: `fingerprint_built_dom_against` leaves the `Dom` flat only when
-   its fingerprints EQUAL the build before's (the whole struct, so also the fold compare of exit A). Then
-   `texts_alone_changed` and `same_tree_changes` answer `None`, no `nodes_at` runs, and the only later reader of
-   `user_dom` is `style_user_dom_for` (when a gate of exit A fails: theme, CSD, node count), which expands it. In
-   every other case the `Dom` is a tree before the function returns, and the code below reads it as today.
-   `resolve_form_controls_keeping_flat` keeps the DOM flat unless a node's type is one the resolver's first walk looks
-   for (`form`, `button`, `input`, `select`, `textarea`, `datalist`). On Linux `inject_software_menubar` reads
-   `user_dom.root` (the real root) and wraps the DOM with `with_children`, which expands it: correct, not fast.
-   Count test to add with it (dll, beside `an_identical_rebuild_and_a_changed_text_style_no_node`): a window whose
-   layout callback builds through `DomBuilder`; an identical rebuild: `kept` exit, 0 nodes styled, and
-   `azul_core::dom::builder::NODES_HASHED_AT_FINGERPRINT` (test builds of core only; expose a counter if the dll
-   test needs one) = 1.
-2. **Changed nodes without the tree** (dom-builder-06): `nodes_at(fresh, changed)` for a flat `Dom` =
-   `changed.iter().filter_map(|i| fresh.flat_node_data_at(*i))` (owned nodes; the root is index 0), in
-   `fresh_texts_are_adoptable`, `adopt_fresh_texts`, `changed_nodes_are_adoptable`, `adopt_changed_nodes`; then
-   `fingerprint_built_dom` (the `&Dom` one, no expansion) replaces `.._against` at the call above and the full path
-   alone expands.
+1. **DONE (`bff367635`), as your note confirmed**: the two calls in `regenerate_layout`
+   (`resolve_form_controls_keeping_flat`, `fingerprint_built_dom_against(&mut user_dom,
+   last_dom_fingerprints.as_ref())`), and `dom.expand_flat()` as the first statement of
+   `flatten_user_dom_inheriting`. Why nothing else in the function had to change: the `Dom` stays flat only when
+   its fingerprints EQUAL the build before's (the whole struct, so also the fold compare of exit A); then
+   `texts_alone_changed` and `same_tree_changes` answer `None`, no `nodes_at` runs, and the only later readers of
+   `user_dom` are `style_user_dom_for` / `flatten_user_dom_for` (a gate of exit A failed), which expand it.
+2. **Your view path at `253a3f51b` (diff-first-11b), read against the flat form** (not merged here; one merge of your
+   branch happens at the end):
+   - `restyle_kept_child(child, &dom, &fingerprints, ..)` reads the fresh DOM's NODES
+     (`changed_nodes_are_adoptable(kept, fresh, &changed, ..)`, `adopt_changed_nodes(retained, fresh, &changed)`:
+     both `nodes_at`, a tree walk). It needs a TREE whenever `same_tree_changes` answers `Some`. This branch's view
+     site provides that (`617fd509c`): `fingerprint_built_dom_against(&mut dom, self.child_dom_fingerprints.get(&child))`
+     expands the `Dom` unless its fingerprints equal the entry `reclaim_unchanged_child` compares. The merge of the
+     two branches is textual there: this branch changed the comment and the call above the `reclaim_unchanged_child`
+     block, 11b adds below it. After it, the site must read:
+     ```
+     let mut dom = dom;
+     let (fingerprints, transfers) = azul_core::dom::fingerprint_built_dom_against(
+         &mut dom,
+         self.child_dom_fingerprints.get(&child),
+     );
+     if self.reclaim_unchanged_child(child, &fingerprints, &transfers) { .. return Some(child); }
+     let kept_document = if diff_first_step(DiffFirstStep::View) {
+         self.restyle_kept_child(child, &dom, &fingerprints, &transfers, &inherited_from_host)
+     ..
+     ```
+     Do NOT let the plain `fingerprint_built_dom(&dom)` (or `fingerprint_dom(&dom)`) stand before
+     `restyle_kept_child`: with a flat `Dom`, `nodes_at` finds the root alone. A re-render that changed any other
+     node then answers "not adoptable" (correct, never kept); one that changed ONLY the root adopts `root.clone()`,
+     which copies the whole flat tree onto node 0 of the kept arena (`NodeData::clone` copies `extra.flat`).
+   - `reclaim_unchanged_child` and the `ChildCascade::Owed` pair read `structure.len()` and `sheets` of the builder's
+     fingerprints: equal to `fingerprint_dom`'s by `a_ui_built_both_ways_is_the_same_tree_with_the_same_fingerprints`.
+   - `flatten_user_dom_inheriting` (both arms below) expands first: nothing to do.
+   - The test to add once both are merged (dll, beside the `dfv_*` tests): a view whose callback builds its labels
+     through `DomBuilder`; a pan (every label moves): `kept == 1` as for the tree-made view, and
+     `flat_expansions_on_this_thread` delta 1 (the changed re-render expands once); the same view rendered again
+     unchanged: delta 0 and the view reclaimed.
+   - The follow-up that makes a CHANGED re-render cheap too (dom-builder-07): `nodes_at(fresh, changed)` for a flat
+     `Dom` = `changed.iter().filter_map(|i| fresh.flat_node_data_at(*i))` (owned nodes; index 0 is the root without
+     its carried tree), in `fresh_texts_are_adoptable`, `adopt_fresh_texts`, `changed_nodes_are_adoptable`,
+     `adopt_changed_nodes`; then both sites can call `fingerprint_built_dom` (the `&Dom` one, no expansion) and the
+     full path alone expands. For the map's settle (12.5k labels moved: every span changed) that is 6k nodes copied
+     out instead of 12.5k `Dom`s built: a gain of about half, not of an order.
 3. **`fingerprint_dom` itself**: a first line `if dom.is_flat() { return crate::dom::fingerprint_built_dom(dom); }`
    and, in `walk`, the same test for a child (append the child's tiers at the current offset: `subtree_len` and the
    `(index, hash)` lists shifted by it) close the hole of a carrying `Dom` written straight into a `children` field,
    and make every caller of `fingerprint_dom` flat-aware at once. The builder's per-node functions
    (`full_structure_hash`, `full_text_shape_hash`, `full_style_hash`, `hash_sheets` in `builder`) are copies of
    `fingerprint_dom`'s nested ones: if those move to module level, the builder should call them
-   (`a_ui_built_both_ways_is_the_same_tree_with_the_same_fingerprints` fails on any drift until then).
+   (`a_ui_built_both_ways_is_the_same_tree_with_the_same_fingerprints` fails on any drift until then). A tier ADDED
+   to `DomFingerprints` (your design's `own`, `subtree_hash`) has to be made in `builder` too: `FlatDom::default`
+   names every field, so the compiler says so.
 4. **The hasher** (see "what is still above", 1): `crate::hash::FastHasher` for both tiers, in `fingerprint_dom` and
-   in `builder` (five `DefaultHasher::new()` there) in ONE commit.
-5. **A view's changed rebuild** (`reconcile_rematerialized_child`, your "Next (1)"): the view's site already calls
-   `fingerprint_built_dom(&dom)`; the flat `Dom` is expanded by `style_user_dom_inheriting`. The three exits there can
-   read `dom.flat_node_data_at(i)` as in (2).
+   in `builder` (the `DefaultHasher::new()` calls there) in ONE commit.
+5. **The unstyled half from the arenas**: `StyledDom::unstyled_from_fast_dom_inheriting` exists (the merge's
+   resolution). `flatten_user_dom_inheriting` could call it for a flat `Dom` instead of expanding, once its passes
+   (form controls, webview fallback, translation, theme spin, icons) answer "nothing to do" from a scan of the node
+   kinds (`Dom::flat_holds_node_type`) or have a flat form: then a changed rebuild builds no `Dom` at all.
 
 ## For area A7-editor (m4p)
 
@@ -372,6 +418,29 @@ VirtualViewReturn::with_dom(b.finish(), whole, whole)
 - The test `a_render_allocates_a_bounded_number_of_times_per_label_piece` (at most 16 per piece) can tighten to
   the app's own: at most 5 per piece (handle 2, text clone 1, class clone 1, transform 1).
 
+**What the editor must not do with it:**
+1. Not a `Dom` per label handed to `b.add_dom(..)`: `add_dom` keeps every node whole (all of the `Dom`'s
+   allocations stay and the node is hashed as a `NodeData`). `add_dom` is for the few nodes the setters cannot say
+   (the selected piece's marker, an image tile built elsewhere).
+2. Not a setter after the node's first child: `b.add_text(..)` LAST. A setter that comes late is refused (a
+   `debug_assert` in debug builds, ignored in release): the class or handler would silently be missing.
+3. Not `b.finish()` written into a `children` field or a `DomVec` by hand
+   (`Dom { children: vec![flat].into(), .. }`, `dom.children = ..`): hand it to `with_child` / `add_child` /
+   `with_children` / `collect`, or return it. Written by hand it is styled correctly but the early diff reads it as
+   ONE node (`## The design as built`, "the hole that is left").
+4. Not a walk of the returned `Dom`'s `children` (the tests `place_all`, `a_label_list_keeps_..`, anything that
+   counts nodes by walking): the children are in the flat payload. A test calls `dom.expand_flat()` first (or
+   compares `dom.node_count()`, which is right for both forms).
+5. Not one builder per label or per layer joined later: ONE builder for the picture, in document order (root,
+   then every child). Two builders can only be joined through `add_dom`, which is (1).
+6. Not `b.close()` forgotten for a span: the next span would become its child. `finish` closes what is open, so a
+   missing `close` does not fail, it nests. (`b.node_count()` against the expected count is a cheap assert.)
+7. Not the root's own values after `finish` through anything but the returned `Dom`'s root: `dom.root` /
+   `dom.css` of the returned `Dom` ARE the root (a marker set on it with `dom.set_marker(..)` works; the root's
+   fingerprint is made from them when the engine asks).
+8. Not the view's version contract dropped: `with_virtual_view_version` on the view's node stays as it is. The
+   builder makes a re-render that changed nothing cheap; the version keeps it from happening.
+
 ## What to look at on the real window
 
 Nothing changes for an app that does not call `DomBuilder` (the editor today). With `AZ_FLAT_WIDGETS=1`: a
@@ -399,6 +468,13 @@ waveform (media controls) looks and seeks as without it.
 - `367346140` dom-builder-02: `node_without_flat`, `fingerprint_built_dom_against`.
 - `61011e00d` dom-builder-03: api.json `dom.DomBuilder`.
 - `dea65c348` dom-builder-04: `flat_widgets_enabled` (`AZ_FLAT_WIDGETS`), the waveform's `build_flat`, its test.
+- `b8258caa9` merge of `audit/integration` (clean).
+- `5c9c9c322` merge of `audit/diff-first` at `205bf0d6d` (one conflict, `core/src/styled_dom.rs`: the flat shortcut
+  moved into `unstyled_from_dom_inheriting`, new `unstyled_from_fast_dom_inheriting`); `633f7baf7` repairs that merge
+  commit (its `headless/mod.rs` had been written from diff-first's later tip `253a3f51b`): from `633f7baf7` on the
+  tree is `git merge-tree --write-tree b8258caa9 205bf0d6d` plus the resolution.
+- `bff367635` dom-builder-05: the two calls in `regenerate_layout`, `flat_expansions_on_this_thread`, the dll test.
+- `617fd509c` dom-builder-06: the view's site calls `fingerprint_built_dom_against`.
 
 **Tests to run** (core first; each names what it guards in its doc comment):
 - `cargo test -p azul-core --lib audit_dom_builder_tests` (six tests; this test binary now has a counting
@@ -407,8 +483,14 @@ waveform (media controls) looks and seeks as without it.
 - `cargo test -p azul-core --lib every_field_of_a_node_is_a_row_of_the_table` (the new field `flat` has its row).
 - `cargo test -p azul-layout --lib a_waveform_built_flat_is_the_waveform_built_as_a_tree` and the three older
   `waveform_widget_tests` (default path unchanged).
-- dll: `every_holder_of_a_nodes_data_is_reached_by_the_repointing_walk` (the new file is listed as `BEING_BUILT`).
+- dll: `a_builder_made_window_dom_rebuilt_unchanged_is_never_expanded` (with the features the `df_*` tests run
+  under) and `every_holder_of_a_nodes_data_is_reached_by_the_repointing_walk` (the new file is listed as
+  `BEING_BUILT`).
 - `cargo test -p azul-core --doc DomBuilder` (the example on the type).
+- Everything diff-first's (`df_*`, `dfv_*`, core `audit_diff_first_tests`): this branch changed two calls of
+  `regenerate_layout` and one of the view's render; for a tree-made DOM both new functions do what the old calls did
+  (`resolve_form_controls_keeping_flat` -> `resolve_form_controls`; `fingerprint_built_dom_against` ->
+  `fingerprint_dom`, no expansion to make).
 
 **Where a compile error is most likely** (read these first when the verifier reports one):
 1. `builder::FlatDom::hash_node`: three arms that borrow `self.nodes` mutably and then call `&self` methods (NLL
@@ -422,6 +504,19 @@ waveform (media controls) looks and seeks as without it.
    `props::layout::position::{LayoutLeft, LayoutTop}`), `AttributeType::Data` / `Hidden` / `Title`.
 5. api.json: `DomBuilder` was written after `SharedBytes` / `CssPropertyCachePtr` / `Dom`; the generators were not
    read. `set_css` compiles only with core's `css_parser` feature (as `Dom::set_css`).
+6. `fingerprint_built_dom_against(&mut user_dom, layout_window.last_dom_fingerprints.as_ref())` in
+   `regenerate_layout`: `layout_window` is borrowed shared for the argument while `user_dom` is borrowed mutably
+   (two different locals: fine); in the view's render the same with `self.child_dom_fingerprints.get(&child)`.
+
+**If a test fails rather than the compiler**:
+- fingerprints differ between the two forms (`a_ui_built_both_ways..`): the message names the tier. `structure`:
+  compare `builder::compact_shape_hash` row by row with `NodeField::hash_shape` (`core/src/layout_inputs.rs`);
+  `style`: `compact_style_hash` with `diff::hash_inline_style`; `sheets`: `hash_sheets` with `fingerprint_dom`'s
+  `node_sheets_hash`. A whole node (`open_node`) uses the copies `full_*_hash`.
+- the styled DOMs differ (`a_ui_built_both_ways_is_the_same_styled_dom`): the order of `FastDom::css`
+  (`FlatDom::into_fast_dom`: sorted by where the owner's subtree ends) against `take_css_from_dom`.
+- the allocation count is over its bound: `allocations()` counts every `alloc` / `realloc` of the thread; the bound
+  (120 for 1,000 and for 4,000 labels) is the arenas' doublings (about 60-70 by count) with room.
 
 **Generator steps** (for whoever runs codegen): the api.json addition is one class in module `dom`
 (`## api.json`). Run the normal api.json -> dll / bindings generation; nothing existing changed, so no binding
@@ -431,11 +526,15 @@ widgets, not from an app that uses `azul::...` (the editor).
 **In flight**: nothing uncommitted.
 
 **Left, with its design**:
-- dom-builder-05 (two lines in `regenerate_layout`, diff-first's): `## For area diff-first` (1). Until then a
-  builder-made WINDOW DOM is correct and not faster; a builder-made VIEW DOM is faster already.
-- dom-builder-06 (changed nodes without the tree): `## For area diff-first` (2).
+- ONE more merge of `audit/diff-first` (at its end; its tip was `253a3f51b` when this was written): expect no
+  conflict in the view's render (`## For area diff-first` (2) says what the site must read after it) and none in
+  `regenerate_layout` unless that branch touched step 1.35 or the early diff's call again. `core/src/styled_dom.rs`:
+  11b changed 11 lines there; if `unstyled_from_dom_inheriting` conflicts, keep its body and this branch's first
+  statement (the `match dom.into_fast_dom()` that sends a flat `Dom` to `unstyled_from_fast_dom_inheriting`).
+  Then add the view test of (2).
+- dom-builder-07 (changed nodes without the tree): `## For area diff-first` (2), last bullet.
 - The hasher and the carried values: "what is still above the user's 1-2 ms" (1), (2).
-- The editor's label loop: `## For area A7-editor (m4p)` (exact code), after codegen and the pin.
+- The editor's label loop: `## For area A7-editor (m4p)` (exact code and what not to do), after codegen and the pin.
 - `Refstr` variants of `add_text` / `add_class` / `add_id` in api.json (`## api.json`, last bullet).
 - More widgets behind `AZ_FLAT_WIDGETS` (the list view's rows, the node graph's node list once A3-solver's
   branch is merged): mirror `waveform::build_flat` (root whole, children through the setters, a test that compares
