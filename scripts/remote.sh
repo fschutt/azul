@@ -57,7 +57,7 @@ case "$cmd" in
       s="$(gh run view "$1" --repo "$REPO" --json status,conclusion --jq 'if .status == "completed" then .conclusion else .status end')"
       case "$s" in
         success) echo success; exit 0;;
-        queued|in_progress|waiting|pending|requested) sleep 20;;
+        queued|in_progress|waiting|pending|requested) sleep 60;;   # 20 s polls of ten agents drained the 5000/h REST quota
         *) echo "$s"; exit 1;;
       esac
     done
