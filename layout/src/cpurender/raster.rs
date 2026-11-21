@@ -3284,10 +3284,28 @@ fn paint_turned_text_frame(
     }
     let grow = det.abs().sqrt();
     let items = &list.items[frame.push + 1..frame.end];
+    let shadow_px = |v: &azul_css::props::basic::pixel::PixelValue| {
+        v.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
+    };
+    // A shadow's blur radius and spread, device px before the matrix.
+    let halo_of = |sh: &StyleBoxShadow| {
+        (
+            shadow_blur_radius(shadow_px(&sh.blur_radius.inner).max(0.0), dpi_factor),
+            shadow_spread_px(shadow_px(&sh.spread_radius.inner), dpi_factor),
+        )
+    };
     // Everything in the frame can be drawn this way, or the frame is a group.
+    // The reach of the halos open at the item, for the size of a run's pictures.
+    let mut open_reaches: Vec<f64> = Vec::new();
     for it in items {
         match it {
-            DisplayListItem::Text { font_hash, font_size_px, clip_rect, .. } => {
+            DisplayListItem::PushTextShadow { shadow } => {
+                open_reaches.push(turned_halo(Some(halo_of(shadow)), grow).2);
+            }
+            DisplayListItem::PopTextShadow => {
+                open_reaches.pop();
+            }
+            DisplayListItem::Text { glyphs, font_hash, font_size_px, clip_rect, .. } => {
                 if font_manager.resolve_font_by_hash(font_hash.font_hash).is_none()
                     || glyph_ink_reach(font_size_px * dpi_factor * grow as f32).is_none()
                 {
@@ -3300,6 +3318,16 @@ fn paint_turned_text_frame(
                         || ink.origin.x + ink.size.width > c.origin.x + c.size.width + 0.5
                         || ink.origin.y + ink.size.height > c.origin.y + c.size.height + 0.5
                     {
+                        return false;
+                    }
+                    // A run no picture can be made of (a 1,200 px line under `scale(8)` is
+                    // 9,600 px of turned ink) makes the frame a group, which paints the part
+                    // that lands. Decided here, before anything is drawn: the paint loop
+                    // used to skip such a run after the frame was committed to this path,
+                    // and the text was not painted at all (A2-cpu-R06).
+                    let run = TurnedRun { glyphs, font_hash: *font_hash, font_size_px: *font_size_px, ink };
+                    let reach = open_reaches.iter().copied().fold(turned_halo(None, grow).2, f64::max);
+                    if !glyphs.is_empty() && turned_picture_box(&run, &map, reach, dpi_factor).is_none() {
                         return false;
                     }
                 }
@@ -3321,9 +3349,6 @@ fn paint_turned_text_frame(
             f64::from((x - scroll_offset.0) * dpi_factor),
             f64::from((y - scroll_offset.1) * dpi_factor),
         )
-    };
-    let shadow_px = |v: &azul_css::props::basic::pixel::PixelValue| {
-        v.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
     };
     let mut shadows: Vec<StyleBoxShadow> = Vec::new();
     for (at, it) in items.iter().enumerate() {
@@ -3369,12 +3394,7 @@ fn paint_turned_text_frame(
                     .iter()
                     .filter(|sh| sh.color.a > 0)
                     .map(|sh| {
-                        let blur = shadow_px(&sh.blur_radius.inner).max(0.0);
-                        let halo = (
-                            shadow_blur_radius(blur, dpi_factor),
-                            shadow_spread_px(shadow_px(&sh.spread_radius.inner), dpi_factor),
-                        );
-                        ((shadow_px(&sh.offset_x.inner), shadow_px(&sh.offset_y.inner)), Some(halo), sh.color)
+                        ((shadow_px(&sh.offset_x.inner), shadow_px(&sh.offset_y.inner)), Some(halo_of(sh)), sh.color)
                     })
                     .chain(core::iter::once(((0.0, 0.0), None, *color)));
                 for (shift, halo, tint) in pictures {
@@ -3389,6 +3409,23 @@ fn paint_turned_text_frame(
                         continue;
                     }
                     let anchor = (ax.round() as i32, ay.round() as i32);
+                    // Culled by the clip BEFORE its picture is built: a picture is rasterised
+                    // whole and kept under the matrix's linear part, so a zoom step of a
+                    // text-only frame of 2,000 lines built 2,000 pictures at the new scale,
+                    // on screen or not (A2-cpu-R06).
+                    let Some((bx0, by0, w, h)) =
+                        turned_picture_box(&run, &map, turned_halo(halo, grow).2, dpi_factor)
+                    else {
+                        continue;
+                    };
+                    let corner = (anchor.0 + bx0, anchor.1 + by0);
+                    if corner.0 >= clip_box.2
+                        || corner.1 >= clip_box.3
+                        || corner.0 + w <= clip_box.0
+                        || corner.1 + h <= clip_box.1
+                    {
+                        continue;
+                    }
                     let Some(picture) =
                         turned_run_picture(&run, &map, grow, halo, dpi_factor, font_manager, glyph_cache)
                     else {
@@ -3421,6 +3458,50 @@ fn paint_turned_text_frame(
 }
 
 /// One text run of a turned frame.
+/// A turned halo's blur radius and spread in the picture's pixels, and how far the picture
+/// reaches past the turned ink for it (2 px for the ink alone). `halo` is the blur's radius
+/// and the spread in device px before the matrix's scale `grow`.
+fn turned_halo(halo: Option<(u32, f32)>, grow: f64) -> (u32, f32, f64) {
+    let (radius, spread) = halo.map_or((0, 0.0), |(r, s)| {
+        (((f64::from(r) * grow).round() as u32).min(254), s * grow as f32)
+    });
+    (radius, spread, f64::from(radius) + f64::from(spread).ceil() + 2.0)
+}
+
+/// The box of the picture of `run` through the linear part of `map`, `reach` px around the
+/// turned ink: its corner from the run's anchor (the first pen through the matrix) and its
+/// size, device px. `None` when no picture can be made of it: a corner is not finite or a
+/// million pixels away, or a side is over 8192 px. The one place that decides it, asked
+/// before a frame is drawn directly (such a run makes the frame a group, which paints the
+/// part that lands), before a picture is built (to cull it by the clip) and when it is built.
+fn turned_picture_box(run: &TurnedRun<'_>, map: &TurnedMap, reach: f64, dpi_factor: f32) -> Option<(i32, i32, i32, i32)> {
+    let first = run.glyphs.first()?;
+    let rel = |x: f32, y: f32| {
+        (
+            f64::from((x - first.point.x) * dpi_factor),
+            f64::from((y - first.point.y) * dpi_factor),
+        )
+    };
+    let through = |x: f64, y: f64| (map.a * x + map.b * y, map.c * x + map.d * y);
+    let (ix1, iy1) = (run.ink.origin.x + run.ink.size.width, run.ink.origin.y + run.ink.size.height);
+    let (mut x0, mut y0) = (f64::INFINITY, f64::INFINITY);
+    let (mut x1, mut y1) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+    for (cx, cy) in [(run.ink.origin.x, run.ink.origin.y), (ix1, run.ink.origin.y), (ix1, iy1), (run.ink.origin.x, iy1)] {
+        let (rx, ry) = rel(cx, cy);
+        let (x, y) = through(rx, ry);
+        x0 = x0.min(x);
+        y0 = y0.min(y);
+        x1 = x1.max(x);
+        y1 = y1.max(y);
+    }
+    if ![x0, y0, x1, y1].iter().all(|v| v.is_finite() && v.abs() < 1.0e6) {
+        return None;
+    }
+    let (bx0, by0) = ((x0 - reach).floor() as i32, (y0 - reach).floor() as i32);
+    let (w, h) = (((x1 + reach).ceil() as i32 - bx0).max(1), ((y1 + reach).ceil() as i32 - by0).max(1));
+    (w <= 8192 && h <= 8192).then_some((bx0, by0, w, h))
+}
+
 struct TurnedRun<'a> {
     glyphs: &'a [GlyphInstance],
     font_hash: FontHash,
@@ -3461,9 +3542,7 @@ fn turned_run_picture(
             f64::from((y - first.point.y) * dpi_factor),
         )
     };
-    let (radius, spread) = halo.map_or((0, 0.0), |(r, s)| {
-        (((f64::from(r) * grow).round() as u32).min(254), s * grow as f32)
-    });
+    let (radius, spread, reach) = turned_halo(halo, grow);
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     0xD1_u8.hash(&mut hasher);
     halo.is_some().hash(&mut hasher);
@@ -3491,27 +3570,7 @@ fn turned_run_picture(
     }
 
     // The box the turned ink can reach, from the anchor: the ink's corners through the matrix.
-    let through = |x: f64, y: f64| (map.a * x + map.b * y, map.c * x + map.d * y);
-    let (ix1, iy1) = (run.ink.origin.x + run.ink.size.width, run.ink.origin.y + run.ink.size.height);
-    let (mut x0, mut y0) = (f64::INFINITY, f64::INFINITY);
-    let (mut x1, mut y1) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
-    for (cx, cy) in [(run.ink.origin.x, run.ink.origin.y), (ix1, run.ink.origin.y), (ix1, iy1), (run.ink.origin.x, iy1)] {
-        let (rx, ry) = rel(cx, cy);
-        let (x, y) = through(rx, ry);
-        x0 = x0.min(x);
-        y0 = y0.min(y);
-        x1 = x1.max(x);
-        y1 = y1.max(y);
-    }
-    let reach = f64::from(radius) + f64::from(spread).ceil() + 2.0;
-    if ![x0, y0, x1, y1].iter().all(|v| v.is_finite() && v.abs() < 1.0e6) {
-        return None;
-    }
-    let (bx0, by0) = ((x0 - reach).floor() as i32, (y0 - reach).floor() as i32);
-    let (w, h) = (((x1 + reach).ceil() as i32 - bx0).max(1), ((y1 + reach).ceil() as i32 - by0).max(1));
-    if w > 8192 || h > 8192 {
-        return None;
-    }
+    let (bx0, by0, w, h) = turned_picture_box(run, map, reach, dpi_factor)?;
     let mut buffer = AzulPixmap::new_transparent(w as u32, h as u32)?;
 
     let font_ref = font_manager.resolve_font_by_hash(run.font_hash.font_hash)?;
@@ -18285,5 +18344,87 @@ mod audit_a1_tests {
         let mut fresh = white();
         let _ = paint(&edited, None, &mut fresh);
         assert_eq!(differing_pixels(&pm, &fresh), 0, "the caption in the repaired box is the caption painted afresh");
+    }
+
+    /// A view of 400 x 300 whose child is one text-only frame (key 21, the matrix `m`) around
+    /// `inner`, on no ground.
+    fn text_frame_view(m: [[f32; 4]; 4], frame_box: (f32, f32, f32, f32), inner: Vec<DisplayListItem>) -> (DisplayList, CpuRenderState) {
+        let mut child = vec![DisplayListItem::PushReferenceFrame {
+            transform_key: azul_core::resources::TransformKey { id: 21 },
+            initial_transform: azul_core::transform::ComputedTransform3D { m },
+            bounds: wrect(frame_box.0, frame_box.1, frame_box.2, frame_box.3),
+        }];
+        child.extend(inner);
+        child.push(DisplayListItem::PopReferenceFrame);
+        let host = list(vec![DisplayListItem::VirtualView {
+            child_dom_id: azul_core::dom::DomId { inner: 1 },
+            bounds: wrect(0.0, 0.0, 400.0, 300.0),
+            clip_rect: wrect(0.0, 0.0, 400.0, 300.0),
+            content_offset: LogicalPosition { x: 0.0, y: 0.0 },
+        }]);
+        let state = CpuRenderState::new(ScrollOffsetMap::new()).with_virtual_view_display_lists(
+            [(azul_core::dom::DomId { inner: 1 }, Arc::new(list(child)))].into_iter().collect(),
+        );
+        (host, state)
+    }
+
+    /// A2-cpu-R06: a run no picture can be made of makes its frame a group, and is painted.
+    /// A text-only frame scaled by 8 around a line of 120 letters at 20 px (its ink over
+    /// 1,100 px wide: more than 8,192 px through the matrix). Drawn directly the run was
+    /// skipped after the frame had been committed to that path - no text at all; as a group
+    /// the part that lands in the view is painted: letters 160 px high, black on white.
+    /// Mutation: `turned_picture_box` not asked in the pre-check loop of
+    /// `paint_turned_text_frame` leaves the view white.
+    #[test]
+    fn a_turned_run_too_large_for_a_picture_is_painted_as_a_group() {
+        let Some(font) = test_font() else {
+            return;
+        };
+        let (rr, fm, font_hash) = resources(Some(&font));
+        let line = "m".repeat(120);
+        let run = label(font_hash.map(|hash| (&font, hash)), &line, 20.0, 16.0, 32.0);
+        let ink = run[0].visual_bounds().expect("the line's ink box");
+        assert!(ink.size.width * 8.0 > 8192.0, "harness: the line is too wide for a picture: {ink:?}");
+        let (host, state) = text_frame_view(turn_scale_move(0.0, 8.0, 0.0, 0.0), (10.0, 10.0, 2400.0, 30.0), run);
+        let mut pm = AzulPixmap::new(400, 300).unwrap();
+        pm.fill(255, 255, 255, 255);
+        let mut gc = GlyphCache::new();
+        crate::cpu_counters::reset();
+        render_display_list_with_state(&host, &mut pm, 1.0, &rr, &fm, &mut gc, &state).unwrap();
+        let counted = crate::cpu_counters::take();
+        let dark = (0..300u32).flat_map(|y| (0..400u32).map(move |x| (x, y))).filter(|&(x, y)| px(&pm, x, y)[0] < 64).count();
+        assert!(dark > 2000, "the letters that land in the view are painted: {dark} dark px, {counted:?}");
+        assert_eq!(counted.groups_opened, 1, "as a group: {counted:?}");
+    }
+
+    /// A2-cpu-R06: a turned run that misses the clip gets no picture. A text-only frame turned
+    /// by 7.25 degrees around 40 haloed runs, 40 px apart from y = 20 to 1,580, each another
+    /// text (so each another picture): the view is 300 px high, the runs from the ninth on are
+    /// below it. Halo pictures are built for the runs that can land (their boxes, 2 px of
+    /// halo around the ink, placed at the anchor) and for no other.
+    /// Mutation: the picture built before its box is tested against the clip builds 40.
+    #[test]
+    fn a_turned_run_outside_the_clip_gets_no_picture() {
+        let Some(font) = test_font() else {
+            return;
+        };
+        let (rr, fm, font_hash) = resources(Some(&font));
+        let mut inner = Vec::new();
+        for i in 0..40u32 {
+            let text = format!("Weg {i:02} R06");
+            inner.extend(haloed(
+                halo(0.0, 2.0, [255, 255, 255]),
+                label(font_hash.map(|hash| (&font, hash)), &text, 18.0, 30.0, 20.0 + 40.0 * i as f32),
+            ));
+        }
+        let (host, state) = text_frame_view(turn_scale_move(7.25, 1.0, 0.0, 0.0), (0.0, 0.0, 400.0, 1600.0), inner);
+        let mut pm = AzulPixmap::new(400, 300).unwrap();
+        pm.fill(255, 255, 255, 255);
+        let mut gc = GlyphCache::new();
+        crate::cpu_counters::reset();
+        render_display_list_with_state(&host, &mut pm, 1.0, &rr, &fm, &mut gc, &state).unwrap();
+        let counted = crate::cpu_counters::take();
+        assert_eq!(counted.groups_opened, 0, "drawn directly: {counted:?}");
+        assert!((4..=12).contains(&counted.halos_drawn), "halo pictures for the runs in the view alone: {counted:?}");
     }
 }
