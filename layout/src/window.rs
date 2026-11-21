@@ -1078,10 +1078,63 @@ impl FrameReport {
             (_, FrameDamage::None) | (FrameDamage::Full, _) => {}
             (_, FrameDamage::Full) => *acc = FrameDamage::Full,
             (FrameDamage::None, FrameDamage::Rects(r)) => *acc = FrameDamage::Rects(r.clone()),
-            (FrameDamage::Rects(a), FrameDamage::Rects(b)) => a.extend(b.iter().copied()),
+            (FrameDamage::Rects(a), FrameDamage::Rects(b)) => {
+                a.extend(b.iter().copied());
+                if a.len() > MAX_ACCUMULATED_DAMAGE_RECTS {
+                    Self::compact_accumulated(a);
+                }
+            }
         }
     }
+
+    /// A9-01: keeps an accumulated rect list bounded. Nothing resets it outside the E2E
+    /// harness, and a frame that is never `Full` (the macOS GPU path records WebRender's
+    /// dirty rects every frame) appended to it for the life of the window. First every
+    /// rect one of the last few kept ones covers is dropped (the union is unchanged: the
+    /// same rect every frame collapses to one); if that leaves more than half the bound,
+    /// the list becomes its bounding box (a superset of the union).
+    fn compact_accumulated(rects: &mut Vec<LogicalRect>) {
+        const RECENT: usize = 16;
+        let covers = |k: &LogicalRect, r: &LogicalRect| {
+            k.origin.x <= r.origin.x
+                && k.origin.y <= r.origin.y
+                && r.origin.x + r.size.width <= k.origin.x + k.size.width
+                && r.origin.y + r.size.height <= k.origin.y + k.size.height
+        };
+        let mut kept: Vec<LogicalRect> = Vec::with_capacity(rects.len());
+        for r in rects.iter() {
+            if !kept.iter().rev().take(RECENT).any(|k| covers(k, r)) {
+                kept.push(*r);
+            }
+        }
+        if kept.len() > MAX_ACCUMULATED_DAMAGE_RECTS / 2 {
+            let (mut x0, mut y0) = (f32::INFINITY, f32::INFINITY);
+            let (mut x1, mut y1) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
+            for r in &kept {
+                x0 = x0.min(r.origin.x);
+                y0 = y0.min(r.origin.y);
+                x1 = x1.max(r.origin.x + r.size.width);
+                y1 = y1.max(r.origin.y + r.size.height);
+            }
+            kept.clear();
+            if x0 <= x1 && y0 <= y1 {
+                kept.push(LogicalRect::new(
+                    LogicalPosition { x: x0, y: y0 },
+                    LogicalSize {
+                        width: x1 - x0,
+                        height: y1 - y0,
+                    },
+                ));
+            }
+        }
+        *rects = kept;
+    }
 }
+
+/// A9-01: more accumulated damage rects than this are compacted
+/// (`FrameReport::compact_accumulated`). An E2E step between two counter resets stays far
+/// below it, so what the damage assertions read is unchanged.
+pub const MAX_ACCUMULATED_DAMAGE_RECTS: usize = 4096;
 
 /// Result of a layout pass for a single DOM, before display list generation
 #[derive(Debug)]
@@ -30383,6 +30436,11 @@ impl LayoutWindow {
             self.gpu_state_manager.scrollbar_fade_left_ms.remove(&child);
             self.gpu_state_manager.scrollbar_fade_ends.remove(&child);
             self.gl_texture_cache.solved_textures.remove(&child);
+            // A9-04: and what is kept per child DOM: a remounted view gets a new nested
+            // `DomId`, so nothing reads these again (a 12.5k-node child: 200 KB of
+            // fingerprints and its whole layout cache, per unmount).
+            self.child_dom_fingerprints.remove(&child);
+            self.child_layout_caches.remove(&child);
         }
     }
 }
