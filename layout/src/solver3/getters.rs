@@ -126,7 +126,26 @@ fn memoised_font_size(
     dom_id: NodeId,
     node_state: &StyledNodeState,
 ) -> Option<f32> {
-    if !node_state.is_normal() {
+    // The memo holds every node's size resolved in the state the node IS in
+    // (`compute_all_font_sizes_px` reads each node's own `styled_node_state`,
+    // and takes the cascade's path for one that is not normal, as the walk
+    // does): it answers for the normal state and for a node asked about in
+    // its own state. Only another state - a caller trying one out - walks.
+    //
+    // The normal state alone was answered: the root and every ancestor of a
+    // focused node are `:focus-within`, a box under the pointer and its
+    // ancestors `:hover`, so `get_root_font_size` (asked for every node, for
+    // its rem lengths) and `get_parent_font_size` of every child of such a
+    // box walked to the root and allocated the chain on each call - for each
+    // of the 12,000 labels of a map under the pointer, several times a pass.
+    if !node_state.is_normal()
+        && styled_dom
+            .styled_nodes
+            .as_container()
+            .get(dom_id)
+            .map(|styled| &styled.styled_node_state)
+            != Some(node_state)
+    {
         return None;
     }
     let cache = &styled_dom.css_property_cache.ptr;
@@ -587,6 +606,14 @@ fn resolve_font_size_slow(
     resolve_font_size_slow_in_viewport(styled_dom, dom_id, node_state, PhysicalSize::new(0.0, 0.0))
 }
 
+/// How often a font size was resolved by the walk up the ancestor chain on
+/// this thread ([`resolve_font_size_slow_in_viewport`]), which the memo is
+/// there to spare (`audit_tests::a3_solver`).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static FONT_SIZE_WALKS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
 /// [`resolve_font_size_slow`] with viewport units resolved against `viewport`.
 fn resolve_font_size_slow_in_viewport(
     styled_dom: &StyledDom,
@@ -594,6 +621,8 @@ fn resolve_font_size_slow_in_viewport(
     node_state: &StyledNodeState,
     viewport: PhysicalSize,
 ) -> f32 {
+    #[cfg(test)]
+    FONT_SIZE_WALKS.with(|n| n.set(n.get() + 1));
     // ITERATIVE resolution (was unbounded self-recursion up the parent chain, which
     // stack-overflowed on deeply nested DOMs and was O(N*depth)). We walk `parent_id`
     // in a loop to collect the ancestor chain, then resolve top-down so each node's

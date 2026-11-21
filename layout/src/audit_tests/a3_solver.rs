@@ -469,3 +469,81 @@ fn the_reconcile_hands_the_builder_the_fingerprint_it_computed() {
          the reconcile had fingerprinted"
     );
 }
+
+/// [`lay_out`] for a styled DOM (one whose node states were set before the layout).
+fn lay_out_styled(lw: &mut LayoutWindow, styled: StyledDom) {
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(640.0, 480.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+}
+
+/// A3-solver-12. The font-size memo answered for the normal state only. A window raises
+/// `:focus-within` on the focused node and all its ancestors (and `:hover` on what is under the
+/// pointer) before a layout, so the root's font size - asked for every node's rem lengths -
+/// and the font size of such a box, asked by each of its children as their parent's, were
+/// resolved by a walk to the root on every call. The memo answers for a node in its own state.
+///
+/// Mutation: `if !node_state.is_normal() { return None; }` in `getters::memoised_font_size`
+/// walks at least twice per label of the focused page.
+#[test]
+fn the_font_sizes_of_a_focused_page_are_answered_by_the_memo() {
+    use crate::solver3::getters::FONT_SIZE_WALKS;
+    let walks = |focused: bool| {
+        let mut styled = StyledDom::create_from_dom(layer_of_absolute_spans(300));
+        if focused {
+            // The first label: it, the layer and the body are `:focus-within`.
+            styled.raise_focus_within(NodeId::new(2));
+        }
+        let mut lw = window();
+        FONT_SIZE_WALKS.with(|n| n.set(0));
+        lay_out_styled(&mut lw, styled);
+        FONT_SIZE_WALKS.with(std::cell::Cell::get)
+    };
+    let (at_rest, focused) = (walks(false), walks(true));
+    assert!(
+        focused <= at_rest + 30,
+        "a page of 300 labels walked the ancestors for a font size {focused} times with a \
+         focused label, {at_rest} times at rest"
+    );
+}
+
+/// A3-solver-12, the result: em and rem insets of a box under a focused root resolve against
+/// the box's own and the root's font size, as at rest.
+#[test]
+fn em_and_rem_insets_resolve_alike_at_rest_and_under_a_focused_root() {
+    // body(0) > layer(1) > label(2) > text(3).
+    let page = || {
+        Dom::create_body().with_css("margin: 0px; font-size: 32px;").with_child(
+            Dom::create_div()
+                .with_css("position: relative; width: 600px; height: 400px; font-size: 20px;")
+                .with_child(
+                    Dom::create_div_with_text("label")
+                        .with_css("position: absolute; left: 2em; top: 1rem; font-size: 10px;"),
+                ),
+        )
+    };
+    for focused in [false, true] {
+        let mut styled = StyledDom::create_from_dom(page());
+        if focused {
+            styled.raise_focus_within(NodeId::new(2));
+        }
+        let mut lw = window();
+        lay_out_styled(&mut lw, styled);
+        let p = position_of(&lw, 2);
+        assert!(
+            (p.x - 20.0).abs() < 0.01 && (p.y - 32.0).abs() < 0.01,
+            "focused = {focused}: `left: 2em` of a 10px box and `top: 1rem` under a 32px root \
+             put it at ({}, {}), not (20, 32)",
+            p.x,
+            p.y
+        );
+    }
+}
