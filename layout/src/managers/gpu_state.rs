@@ -109,6 +109,23 @@ pub struct GpuValueSource {
     )>,
 }
 
+/// Whether the renderer host gave back the pictures a window's display lists
+/// paint text halos from, because nobody sees the window (audit A5-20:
+/// `cpurender::text_halo`, the host's `release_text_halo_images`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HaloRelease {
+    /// The pictures are kept and registered: the lists paint from them.
+    #[default]
+    Kept,
+    /// Given back, and the window is not shown: a scan draws no halo and looks
+    /// none up, and a list that is sent is translated to the renderer's own
+    /// shadows, so no list names an image that was deleted.
+    Hidden,
+    /// Given back, and the window is shown again: the next scan draws them - a
+    /// small picture for every label in that one scan - and they are `Kept`.
+    Returning,
+}
+
 #[derive(Debug, Clone)]
 pub struct GpuStateManager {
     /// GPU value caches indexed by DOM ID
@@ -136,6 +153,10 @@ pub struct GpuStateManager {
     /// undrawn ([`Self::halos_owed`]); the chain ends at a limit the host sets, for
     /// the lists that name more halos than can be kept.
     pub halo_follow_ups: u32,
+    /// Whether the window's halo pictures were given back while nobody saw it
+    /// ([`HaloRelease`]). Set by the renderer host's release, moved on by
+    /// [`Self::halos_return`] and by the host's next scan.
+    pub halo_release: HaloRelease,
     /// How much longer each DOM's overlay scrollbars are still on screen, in
     /// whole milliseconds rounded up: the longest of its painted, unheld bars
     /// has `hold + fade - time since its box last scrolled` left. A DOM with no
@@ -462,6 +483,19 @@ impl GpuStateManager {
         self.scrollbar_fade_active || self.halos_owed
     }
 
+    /// The window whose halo pictures were given back is shown again: a frame is
+    /// owed, and its scan draws them ([`HaloRelease::Returning`]). Returns whether
+    /// that was so; a window whose pictures are kept, or that already returns, is
+    /// left as it is.
+    pub fn halos_return(&mut self) -> bool {
+        if self.halo_release != HaloRelease::Hidden {
+            return false;
+        }
+        self.halo_release = HaloRelease::Returning;
+        self.halos_owed = true;
+        true
+    }
+
     /// Creates a new GPU state manager with specified fade timing.
     #[must_use]
     pub fn new(fade_delay: Duration, fade_duration: Duration) -> Self {
@@ -472,6 +506,7 @@ impl GpuStateManager {
             scrollbar_fade_active: false,
             halos_owed: false,
             halo_follow_ups: 0,
+            halo_release: HaloRelease::Kept,
             scrollbar_fade_left_ms: BTreeMap::new(),
             scrollbar_fade_ends: BTreeMap::new(),
             last_gpu_value_digest: None,
