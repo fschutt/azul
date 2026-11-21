@@ -37,6 +37,7 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
+use core::hash::{Hash, Hasher};
 
 use azul_css::{
     css::{
@@ -1524,8 +1525,12 @@ fn function_text(
             host.and_then(|h| h.get_attribute(attribute))
                 .map_or_else(String::new, |v| v.as_str().to_string())
         }
-        "counter" => format_counter(counters.value(counter_name), style_at(1)),
+        "counter" => {
+            warn_if_a_page_counter(name, counter_name, counters);
+            format_counter(counters.value(counter_name), style_at(1))
+        }
         "counters" => {
+            warn_if_a_page_counter(name, counter_name, counters);
             let separator = args.get(1).map_or_else(String::new, |s| unquote(s));
             let style = style_at(2);
             let values = counters.values(counter_name);
@@ -1538,6 +1543,31 @@ fn function_text(
         }
         _ => String::new(),
     }
+}
+
+/// Says, once per process, that `function(counter_name)` reads a page counter
+/// the document does not have: `counter(page)` and `counter(pages)` are the
+/// page counters of paged media, which are not counters of the document, so
+/// they render 0 (on every page: a generated text is one string, not one per
+/// page). A counter the document made itself under such a name is its own, and
+/// nothing is missing.
+fn warn_if_a_page_counter(function: &str, counter_name: &str, counters: &Counters) {
+    if !matches!(counter_name, "page" | "pages") || counters.innermost(counter_name).is_some() {
+        return;
+    }
+    // The finding, not the element that holds it.
+    let mut hasher = crate::hash::DefaultHasher::default();
+    function.hash(&mut hasher);
+    counter_name.hash(&mut hasher);
+    crate::diagnostics::emit_once(hasher.finish(), || {
+        alloc::format!(
+            "[azul][content] {function}({counter_name}) in `content` renders 0: the page \
+             counters of paged media are not counters of the document, and a generated text is \
+             one string, not one per page. Page numbers are set in the page setup of the layout \
+             (`FakePageConfig`); margin boxes (`@page {{ @bottom-center {{ content: \
+             counter(page) }} }}`) are not implemented."
+        )
+    });
 }
 
 /// A function argument that is a CSS string, without its quotes and escapes;
@@ -1771,3 +1801,7 @@ mod tests {
         assert_eq!(counters.values("c"), [5]);
     }
 }
+
+#[cfg(test)]
+#[path = "generated_content_test.rs"]
+mod generated_content_test;
