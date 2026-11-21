@@ -147,3 +147,89 @@ fn an_absolutely_positioned_child_adds_nothing_to_its_parents_intrinsic_width() 
          {padded}px (the child in flow is 100px wide)"
     );
 }
+
+/// `body > div > n x [span > text]`: a paragraph of `n` inline boxes in flow, a word each.
+fn paragraph_of_spans(n: usize) -> Dom {
+    let mut paragraph = Dom::create_div().with_css("width: 600px;");
+    for i in 0..n {
+        paragraph = paragraph.with_child(Dom::create_span_with_text(format!("w{i} ")));
+    }
+    Dom::create_body().with_css("margin: 0px;").with_child(paragraph)
+}
+
+/// A3-solver-08. The collection of an inline box (`fc::collect_inline_span_recursive`) looked
+/// its own layout box up among the layout children of the box it sits in with a scan from the
+/// first one (`parent_children.iter().find(..)`) - the box its caller had just found - and
+/// each of its element children among its own layout children with another: the i-th inline
+/// box of a paragraph after i steps, s * s / 2 for a paragraph of s. The caller hands the box
+/// over, and the element children are found in a list sorted by DOM node (`fc::BoxesByDom`).
+///
+/// One collection of the paragraph: n layout children listed once and a bisection per inline
+/// box by the root's loop (A3-solver-07), nothing more by the boxes.
+///
+/// Mutation: the scan for its own box in `collect_inline_span_recursive` (counting each layout
+/// child it passes) grows 16x.
+#[test]
+fn a_paragraph_of_inline_boxes_finds_the_box_of_each_without_a_scan() {
+    use crate::solver3::fc::{IFC_CHILD_PROBES, IFC_CHILD_PROBES_MOST};
+    let probes = |n: usize| {
+        let mut lw = window();
+        IFC_CHILD_PROBES.with(|c| c.set(0));
+        IFC_CHILD_PROBES_MOST.with(|c| c.set(0));
+        lay_out(&mut lw, paragraph_of_spans(n));
+        IFC_CHILD_PROBES_MOST.with(std::cell::Cell::get)
+    };
+    let (small, large) = (probes(500), probes(2_000));
+    assert!(
+        small >= 500,
+        "harness: one collection of the paragraph looked for the boxes of its 500 spans ({small})"
+    );
+    assert!(
+        large < small * 6,
+        "one collection of four times the inline boxes took {large} steps for {small}: more \
+         than n log n"
+    );
+}
+
+/// A3-solver-08, the result: the atomic inlines inside an inline box and inside an inline box
+/// nested in it are each laid out as the box of their own DOM node, at the size their own CSS
+/// gives them - whichever way their layout boxes were found.
+#[test]
+fn atomic_inlines_inside_nested_inline_boxes_keep_their_own_boxes() {
+    let inline_block = |width: u32| {
+        Dom::create_div().with_css(&format!(
+            "display: inline-block; width: {width}px; height: 10px;"
+        ))
+    };
+    // body(0) > div(1) > span(2) > [inline-block(3), span(4) > [inline-block(5)], inline-block(6)].
+    let mut lw = window();
+    lay_out(
+        &mut lw,
+        Dom::create_body().with_css("margin: 0px;").with_child(
+            Dom::create_div().with_css("width: 600px;").with_child(
+                Dom::create_span()
+                    .with_child(inline_block(30))
+                    .with_child(Dom::create_span().with_child(inline_block(40)))
+                    .with_child(inline_block(50)),
+            ),
+        ),
+    );
+    let lr = &lw.layout_results[&DomId::ROOT_ID];
+    for (node, width) in [(3_usize, 30.0_f32), (5, 40.0), (6, 50.0)] {
+        let index = *lr
+            .layout_tree
+            .dom_to_layout
+            .get(&NodeId::new(node))
+            .and_then(|v| v.first())
+            .expect("the inline-block has a box");
+        let size = lr
+            .layout_tree
+            .get(index)
+            .and_then(|n| n.used_size)
+            .expect("the inline-block is laid out");
+        assert!(
+            (size.width - width).abs() < 0.5 && (size.height - 10.0).abs() < 0.5,
+            "the inline-block of DOM node {node} is {width} x 10 by its CSS, laid out {size:?}"
+        );
+    }
+}
