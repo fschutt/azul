@@ -635,7 +635,7 @@ pub(crate) fn footnote_boxes(
     }
     // The lines of each paragraph with footnotes, listed once for all of them.
     let mut places = crate::solver3::fc::TreeStaticPlaces::default();
-    for (&dom_id, indices) in &tree.dom_to_layout {
+    for (dom_id, indices) in &tree.dom_to_layout {
         if !is_footnote(styled_dom, dom_id) {
             continue;
         }

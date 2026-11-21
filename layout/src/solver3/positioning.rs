@@ -2779,7 +2779,7 @@ mod autotest_generated {
             warm: vec![LayoutNodeWarm::default(); n],
             cold: vec![LayoutNodeCold::default(); n],
             root: 0,
-            dom_to_layout: BTreeMap::new(),
+            dom_to_layout: Default::default(),
             children_arena,
             children_offsets,
             subtree_needs_intrinsic: Vec::new(),
