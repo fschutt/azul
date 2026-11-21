@@ -2675,6 +2675,24 @@ fn turned_label_window(count: usize, left: f32, top: f32, degrees: f32) -> (Layo
 /// The span of label 2 of [`turned_label_page`].
 const DRAGGED: usize = 5;
 
+/// While this lives, a write of `left` / `top` alone on this thread moves the box where it
+/// lies (`window::move_in_place_enabled`, off by default: the move is `old + delta`, an ulp
+/// away from what a layout gives). For the tests of that move.
+struct MovedWhereItLies;
+
+impl MovedWhereItLies {
+    fn on_this_thread() -> Self {
+        crate::window::set_move_in_place_on_this_thread(Some(true));
+        Self
+    }
+}
+
+impl Drop for MovedWhereItLies {
+    fn drop(&mut self) {
+        crate::window::set_move_in_place_on_this_thread(None);
+    }
+}
+
 /// The app writes label 2's style: another place, another angle.
 fn write_label(
     lw: &mut LayoutWindow,
@@ -2701,6 +2719,7 @@ fn a_move_of_a_drag(
 
     use crate::{solver3::display_list::node_patch::MOVE_ITEM_VISITS, window::MOVED_BOXES};
 
+    let _moves = MovedWhereItLies::on_this_thread();
     let (mut lw, child) = turned_label_window(count, 150.0, 10.0, 12.0);
     let id = DomNodeId {
         dom: child,
@@ -2811,6 +2830,7 @@ fn same_lists(got: &DisplayList, want: &DisplayList) -> Result<(), String> {
 /// test build, the last assertion fails without it).
 #[test]
 fn a_label_moved_where_it_lies_stands_as_a_fresh_layout_puts_it() {
+    let _moves = MovedWhereItLies::on_this_thread();
     let (mut lw, child) = turned_label_window(40, 150.0, 10.0, 12.0);
     drop(write_label(&mut lw, child, 175.0, 31.0, 12.0));
     drop(write_label(&mut lw, child, 178.0, 33.0, 12.0));
@@ -2884,6 +2904,199 @@ fn a_label_moved_where_it_lies_stands_as_a_fresh_layout_puts_it() {
         near(stands.x, should.x) && near(stands.y, should.y),
         "after a pass the label stands at {stands:?}, a fresh layout puts it at {should:?}"
     );
+}
+
+// -- Bit for bit: what a pass or a write leaves is what a fresh layout of the same DOM gives ----
+
+/// Whether two documents stand and are painted alike BIT FOR BIT: every box at the same
+/// position (the bits of the two `f32`s), and the lists the same items for the same nodes and
+/// paint calls (an `f32` prints as the shortest text that reads back to its bits).
+fn same_bits(got: &LayoutWindow, dom: DomId, want: &LayoutWindow, want_dom: DomId) -> Result<(), String> {
+    let (got, want) = (&got.layout_results[&dom], &want.layout_results[&want_dom]);
+    if got.calculated_positions.len() != want.calculated_positions.len() {
+        return Err("another number of boxes".to_string());
+    }
+    for (i, (a, b)) in got
+        .calculated_positions
+        .iter()
+        .zip(&want.calculated_positions)
+        .enumerate()
+    {
+        if (a.x.to_bits(), a.y.to_bits()) != (b.x.to_bits(), b.y.to_bits()) {
+            return Err(format!("box {i} stands at {a:?}, a fresh layout puts it at {b:?}"));
+        }
+    }
+    // The items: kind, node and paint call, then every coordinate by its bits (not the
+    // items' `Debug` text: a frame prints its key, which is another one in another window).
+    let bits = |r: LogicalRect| {
+        [
+            r.origin.x.to_bits(),
+            r.origin.y.to_bits(),
+            r.size.width.to_bits(),
+            r.size.height.to_bits(),
+        ]
+    };
+    let (got, want) = (&got.display_list, &want.display_list);
+    if got.items.len() != want.items.len() {
+        return Err(format!("{} items against {}", got.items.len(), want.items.len()));
+    }
+    for (i, (a, b)) in got.items.iter().zip(&want.items).enumerate() {
+        if core::mem::discriminant(a) != core::mem::discriminant(b)
+            || got.node_mapping.get(i) != want.node_mapping.get(i)
+            || got.layout_node_mapping.get(i) != want.layout_node_mapping.get(i)
+        {
+            return Err(format!("item {i}: {a:?} against {b:?}"));
+        }
+        if a.bounds().map(bits) != b.bounds().map(bits) {
+            return Err(format!(
+                "item {i}: bounds {:?}, a fresh layout: {:?}",
+                a.bounds(),
+                b.bounds()
+            ));
+        }
+        if let (
+            DisplayListItem::Text { glyphs: x, .. },
+            DisplayListItem::Text { glyphs: y, .. },
+        ) = (a, b)
+        {
+            let same = x.len() == y.len()
+                && x.iter().zip(y).all(|(p, q)| {
+                    p.index == q.index
+                        && (p.point.x.to_bits(), p.point.y.to_bits())
+                            == (q.point.x.to_bits(), q.point.y.to_bits())
+                });
+            if !same {
+                return Err(format!("item {i}: other glyphs"));
+            }
+        }
+        let proof = |list: &DisplayList| {
+            list.uniform_text_bgs
+                .get(i)
+                .copied()
+                .flatten()
+                .map(|(colour, rect)| (colour, bits(rect.0)))
+        };
+        if proof(got) != proof(want) {
+            return Err(format!("item {i}: another proven background"));
+        }
+    }
+    Ok(())
+}
+
+/// The data of the view of [`rows_page`]: how high the box above the rows is.
+struct RowsPage(f32);
+
+/// A box and forty rows below it in the flow, each with its background in its content box
+/// (a rect at `position + padding`: a sum the painter makes). Child DOM: div 0, the box 1,
+/// the rows 2 ..= 41.
+extern "C" fn rows_page(mut data: RefAny, _info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+    let above = data
+        .downcast_ref::<RowsPage>()
+        .map(|page| page.0)
+        .expect("the view's data");
+    let mut page = Dom::create_div()
+        .with_child(Dom::create_div().with_css(&format!("width: 100px; height: {above}px;")));
+    for _ in 0..40 {
+        page = page.with_child(Dom::create_div().with_css(
+            "width: 90.3px; height: 13.3px; padding: 2.3px; background: #336699; \
+             background-clip: content-box;",
+        ));
+    }
+    let window = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(600.0, 900.0));
+    VirtualViewReturn::with_dom(page, window, window)
+}
+
+/// A window whose view holds [`rows_page`], laid out; the view's document.
+fn rows_window(above: f32) -> (LayoutWindow, DomId) {
+    let mut dom = Dom::create_body().with_css("margin: 0px;").with_child(
+        Dom::create_virtual_view(RefAny::new(RowsPage(above)), VirtualViewCallback::create(rows_page))
+            .with_css("position: absolute; left: 0px; top: 0px; width: 600px; height: 900px;"),
+    );
+    let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(600.0, 900.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    let child = *lw
+        .layout_results
+        .keys()
+        .find(|dom| **dom != DomId::ROOT_ID)
+        .expect("the view's document");
+    (lw, child)
+}
+
+/// The list of a PATCHED pass is the list a build gives, bit for bit. The box above forty
+/// rows gets another height: the rows move down by 27.2 px and nothing else of them changes.
+/// The pass copied their runs with every coordinate shifted by the row's move, and
+/// `(old + 2.3) + move` is not `new + 2.3` in the last bit for about a quarter of such sums
+/// (two roundings against one): the patched list and a built one differed by an ulp in a
+/// row's rect, which is what the equality walks of the diff-first pipeline found. A row that
+/// moved is painted again now.
+/// Mutation: the test of the box's move removed from `try_copy_cached_run` (the rows are
+/// copied and shifted: `same_bits` names the first row whose rect is an ulp off, and the
+/// counter stays 0).
+#[test]
+fn a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it() {
+    use azul_css::props::{
+        basic::PixelValue, layout::dimensions::LayoutHeight, property::CssProperty,
+    };
+
+    use crate::{
+        overlay::{ContentChange, ContentDirtyTier},
+        solver3::display_list::PATCH_RUNS_PAINTED_FOR_A_MOVE,
+    };
+
+    let (mut lw, child) = rows_window(10.7);
+    PATCH_RUNS_PAINTED_FOR_A_MOVE.with(|painted| painted.set(0));
+    let tier = lw
+        .apply_content_change(ContentChange::NodeCss {
+            dom_id: child,
+            node_id: NodeId::new(1),
+            props: vec![CssProperty::height(LayoutHeight::Px(PixelValue::px(37.9)))],
+            override_only: false,
+        })
+        .tier;
+    assert_eq!(tier, ContentDirtyTier::Relayout, "premise: a height is a pass");
+    assert!(
+        PATCH_RUNS_PAINTED_FOR_A_MOVE.with(core::cell::Cell::get) >= 40,
+        "premise: the pass patched the list it had, and painted the rows that moved again"
+    );
+    let (fresh, fresh_child) = rows_window(37.9);
+    if let Err(difference) = same_bits(&lw, child, &fresh, fresh_child) {
+        panic!("after the pass: {difference}");
+    }
+}
+
+/// A label dragged by its `left` / `top` (the default path: each write is a pass of its
+/// document) stands and is painted BIT FOR BIT as a fresh layout of the moved DOM, at
+/// places whose sums do not come out even in an `f32` (59.8, 255.8, 61.8: the positions of
+/// the verifier's report). A tolerance would hide what the next pass then sees: a box
+/// "moved" by an ulp.
+/// Mutations: `move_in_place_enabled` answering `true` (the move writes `old + delta`: the
+/// premise names the tier `Paint`; without the premise `same_bits` names the label's box or
+/// item an ulp off); the test of the box's move removed from `try_copy_cached_run`.
+#[test]
+fn a_label_written_to_places_that_do_not_add_exactly_stands_bit_for_bit() {
+    let (mut lw, child) = turned_label_window(40, 150.0, 10.0, 12.0);
+    for (left, top) in [(59.8, 255.8), (61.8, 255.9), (63.7, 257.3)] {
+        assert_eq!(
+            write_label(&mut lw, child, left, top, 12.0),
+            crate::overlay::ContentDirtyTier::Relayout,
+            "premise: a write of an inset is a pass of the label's document"
+        );
+        let (fresh, fresh_child) = turned_label_window(40, left, top, 12.0);
+        if let Err(difference) = same_bits(&lw, child, &fresh, fresh_child) {
+            panic!("the label written to ({left}, {top}): {difference}");
+        }
+    }
 }
 
 /// The data of the view of [`float_box_page`]: where the dragged box stands, and how wide the
@@ -3004,6 +3217,7 @@ fn a_dragged_box_that_holds_a_float_stands_as_a_fresh_layout_puts_it() {
         .tier
     };
 
+    let _moves = MovedWhereItLies::on_this_thread();
     let (mut lw, child) = float_box_window(150.0, 40.0, 60.0);
     drop(write(&mut lw, child, 175.0, 61.0));
     drop(write(&mut lw, child, 178.0, 63.0));

@@ -3928,6 +3928,39 @@ pub fn state_colors_from_the_build() -> bool {
     })
 }
 
+std::thread_local! {
+    /// The choice of [`set_move_in_place_on_this_thread`] for the calling thread.
+    static MOVE_IN_PLACE_ON_THIS_THREAD: core::cell::Cell<Option<bool>> =
+        const { core::cell::Cell::new(None) };
+}
+
+/// Whether a write of `left` / `top` alone moves the node's boxes and items WHERE THEY LIE
+/// (`LayoutWindow::move_node_in_place`, A3-window-49) instead of laying its document out.
+/// OFF unless the environment says `AZ_MOVE_IN_PLACE=1`: the move writes `old + delta`, and
+/// that is not, in the last bit of an `f32`, the position a solve from the new insets gives
+/// nor the item a paint from that position gives. What a write leaves must be bit for bit
+/// what a fresh layout gives (the next pass would see the box "moved" by an ulp, and two
+/// windows that reached one DOM by two paths would not hold the same list), so until the
+/// move computes both the solver's and the painter's way (the design is in
+/// `audit/A3-window.md`, row 49) a write of an inset takes the pass of
+/// `relayout_child_dom_in_place`, which does. A `transform` value alone is exact (it moves
+/// no box and no item) and is not switched.
+#[must_use]
+pub fn move_in_place_enabled() -> bool {
+    static FROM_ENVIRONMENT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if let Some(on) = MOVE_IN_PLACE_ON_THIS_THREAD.with(core::cell::Cell::get) {
+        return on;
+    }
+    *FROM_ENVIRONMENT
+        .get_or_init(|| std::env::var_os("AZ_MOVE_IN_PLACE").is_some_and(|value| value == "1"))
+}
+
+/// Chooses the answer of [`move_in_place_enabled`] for the calling thread, whatever the
+/// environment says (`None`: the environment's again). For the tests of the move.
+pub fn set_move_in_place_on_this_thread(on: Option<bool>) {
+    MOVE_IN_PLACE_ON_THIS_THREAD.with(|choice| choice.set(on));
+}
+
 /// Chooses the answer of [`state_colors_from_the_build`] for the calling thread, whatever
 /// the environment says (`None`: the environment's again). For a test of one of the two
 /// bindings: the tests of a process share its environment and run side by side.
@@ -12192,6 +12225,11 @@ impl LayoutWindow {
         let moves = moves_x || moves_y;
         let turns = changed.contains(&Some(Ty::Transform));
         if !dl_patching_enabled() || self.text_edit_manager.tween.is_active() {
+            return None;
+        }
+        // A box is not moved where it lies while that is not bit for bit what a layout
+        // gives (`move_in_place_enabled`): the pass of the general path places it.
+        if moves && !move_in_place_enabled() {
             return None;
         }
         // No pass is owed to this DOM: its boxes are where its styles put them.
