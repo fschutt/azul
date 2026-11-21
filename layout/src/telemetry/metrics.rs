@@ -172,6 +172,11 @@ impl MetricLabels {
 /// multiplies potential cardinality.
 pub const MAX_LABELS_PER_METRIC: usize = 6;
 
+/// The key under which the too-many-labels warning is deduplicated
+/// (`azul_core::diagnostics::emit_once`): one line per run, whichever metric
+/// overflowed first.
+const TOO_MANY_LABELS_WARNING_KEY: u64 = 0x7465_6c65_6d65_7472;
+
 /// Longest admitted label value; longer values are truncated. Bounds the
 /// wire size and stops "the whole document title as a label value".
 pub const MAX_LABEL_VALUE_LEN: usize = 64;
@@ -245,14 +250,13 @@ impl InstrumentKey {
         }
         dims.sort_by(|a, b| a.0.cmp(&b.0));
         if dims.len() > MAX_LABELS_PER_METRIC {
-            use std::sync::atomic::{AtomicBool, Ordering};
-            static WARNED: AtomicBool = AtomicBool::new(false);
-            if !WARNED.swap(true, Ordering::Relaxed) {
-                eprintln!(
+            // Once per run, through the dedup every diagnostic shares.
+            azul_core::diagnostics::emit_once(TOO_MANY_LABELS_WARNING_KEY, || {
+                format!(
                     "[azul telemetry] metric {name:?}: more than {MAX_LABELS_PER_METRIC} labels; \
                      extra labels are DROPPED (this warning prints once)"
-                );
-            }
+                )
+            });
             dims.truncate(MAX_LABELS_PER_METRIC);
         }
         Self {

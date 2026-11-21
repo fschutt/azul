@@ -36,6 +36,16 @@
 //! background thread, or drive [`flush`] from an azul `Thread` when the app
 //! already owns one.
 //!
+//! # Process state
+//!
+//! The client is ONE per process: the consent tier, the metric registry, the log
+//! buffer, the uploader thread and the crash hook (`std::panic::set_hook` is the
+//! process's) are statics of this module, and recording is a free function so a
+//! frame loop, a worker or a user callback can count something without a handle.
+//! The state is kept apart from the per-app queues of `managers::app_services`
+//! on purpose: turning it into an instance owned by the app changes this
+//! module's whole public surface.
+//!
 //! # Example
 //!
 //! ```no_run
@@ -931,7 +941,6 @@ pub fn request_deletion() -> bool {
 
 static UPLOADER_STARTED: AtomicBool = AtomicBool::new(false);
 static UPLOADER_STOP: AtomicBool = AtomicBool::new(false);
-static UPLOADER_FLUSHES: AtomicU64 = AtomicU64::new(0);
 
 /// Starts the background uploader thread, if one is not already running.
 ///
@@ -968,7 +977,6 @@ pub fn spawn_uploader() -> bool {
                     break;
                 }
                 drop(flush());
-                UPLOADER_FLUSHES.fetch_add(1, Ordering::Relaxed);
             }
         })
         .is_ok();
@@ -977,12 +985,6 @@ pub fn spawn_uploader() -> bool {
         UPLOADER_STARTED.store(false, Ordering::SeqCst);
     }
     spawned
-}
-
-/// How many interval flushes the uploader thread has completed.
-#[must_use]
-pub fn uploader_flush_count() -> u64 {
-    UPLOADER_FLUSHES.load(Ordering::Relaxed)
 }
 
 /// Stops the uploader thread and performs one final flush.
@@ -1003,8 +1005,18 @@ pub fn shutdown() -> FlushOutcome {
 pub const CRASH_DUMP_ENV: &str = "AZ_CRASH_DUMP";
 
 /// Whether the app registered a crash CONTACT (a mailbox) — the marker that
-/// the reinvoke-reporter flow is wanted at all.
-static CRASH_CONTACT_SET: AtomicBool = AtomicBool::new(false);
+/// the reinvoke-reporter flow is wanted at all. Read off the contact itself
+/// (`crash_mail::set_crash_contact`), so there is no second flag to keep in step.
+fn crash_contact_registered() -> bool {
+    #[cfg(feature = "crash-mail")]
+    {
+        crash_mail::crash_contact().is_some()
+    }
+    #[cfg(not(feature = "crash-mail"))]
+    {
+        false
+    }
+}
 
 /// Does telemetry own crash reporting for this process?
 ///
@@ -1069,22 +1081,13 @@ pub fn respawn_reporter_for_pending_crash() -> bool {
     if std::env::var_os(CRASH_DUMP_ENV).is_some() || std::env::var_os("AZ_E2E").is_some() {
         return false;
     }
-    if !tier().allows_crashes() || !CRASH_CONTACT_SET.load(Ordering::Relaxed) {
+    if !tier().allows_crashes() || !crash_contact_registered() {
         return false;
     }
     if config_snapshot().signal_url("logs").is_some() {
         return false;
     }
     pending_crash_dump_path().is_some_and(|p| spawn_reporter_for(&p))
-}
-
-/// Records whether a crash-mail contact is registered (set by
-/// `crash_mail::set_crash_contact`). The reporter dialog opens on every
-/// crash-tier panic without an endpoint regardless; the contact decides
-/// whether its Send has a transport, and whether a dump still queued on a
-/// later launch re-opens the reporter (`respawn_reporter_for_pending_crash`).
-pub(crate) fn mark_crash_contact(set: bool) {
-    CRASH_CONTACT_SET.store(set, Ordering::Relaxed);
 }
 
 /// A parsed crash dump, for the reporter process.

@@ -115,8 +115,11 @@ pub fn config_from_report_address(address: &str) -> Option<CrashMailConfig> {
 /// (`AzApp::run` checks the env var first) shows the dump and offers to
 /// mail it. With an endpoint configured nothing respawns — the automatic
 /// pipeline already owns the crash.
+///
+/// The reporter dialog opens on every crash-tier panic without an endpoint regardless; the
+/// contact decides whether its Send has a transport, and whether a dump still queued on a later
+/// launch re-opens the reporter (`respawn_reporter_for_pending_crash`).
 pub fn set_crash_contact(config: CrashMailConfig) {
-    super::mark_crash_contact(true);
     drop(CRASH_CONTACT.set(config));
 }
 
