@@ -18,7 +18,7 @@ use azul_css::{
     *,
 };
 
-const BORDER_COLOR: ColorU = ColorU {
+static BORDER_COLOR: ColorU = ColorU {
     r: 221,
     g: 221,
     b: 221,
@@ -26,10 +26,10 @@ const BORDER_COLOR: ColorU = ColorU {
 };
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("system:ui");
-const STYLE_FONT_FAMILY_8122988506401935406_ITEMS: &[StyleFontFamily] =
+static STYLE_FONT_FAMILY_8122988506401935406_ITEMS: &[StyleFontFamily] =
     &[StyleFontFamily::System(STRING_16146701490593874959)];
 
-const CSS_MATCH_15775557796860201720_PROPERTIES: &[CssPropertyWithConditions] = &[
+static CSS_MATCH_15775557796860201720_PROPERTIES: &[CssPropertyWithConditions] = &[
     // A flex container: `flex-direction` / `justify-content` / `align-items`
     // below do nothing without it (this rule had none, so the box laid out as
     // a block and its children stacked vertically).
@@ -95,7 +95,7 @@ const CSS_MATCH_15775557796860201720_PROPERTIES: &[CssPropertyWithConditions] = 
 const CSS_MATCH_15775557796860201720: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_15775557796860201720_PROPERTIES);
 
-const CSS_MATCH_16739370686243728873_PROPERTIES: &[CssPropertyWithConditions] = &[
+static CSS_MATCH_16739370686243728873_PROPERTIES: &[CssPropertyWithConditions] = &[
     // A flex container: `flex-direction` / `justify-content` / `align-items`
     // below do nothing without it (this rule had none, so the box laid out as
     // a block and its children stacked vertically).
@@ -122,7 +122,7 @@ const CSS_MATCH_16739370686243728873_PROPERTIES: &[CssPropertyWithConditions] = 
 const CSS_MATCH_16739370686243728873: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_16739370686243728873_PROPERTIES);
 
-const CSS_MATCH_4236783900531286611_PROPERTIES: &[CssPropertyWithConditions] = &[
+static CSS_MATCH_4236783900531286611_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul-native-frame .__azul-native-frame-header p
     CssPropertyWithConditions::simple(CssProperty::TextAlign(StyleTextAlignValue::Exact(
         StyleTextAlign::Center,
@@ -152,7 +152,7 @@ const CSS_MATCH_4236783900531286611_PROPERTIES: &[CssPropertyWithConditions] = &
 const CSS_MATCH_4236783900531286611: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_4236783900531286611_PROPERTIES);
 
-const CSS_MATCH_8602559445190067154_PROPERTIES: &[CssPropertyWithConditions] = &[
+static CSS_MATCH_8602559445190067154_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul-native-frame
     CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
         LayoutPaddingRight {
@@ -179,7 +179,7 @@ const CSS_MATCH_8602559445190067154_PROPERTIES: &[CssPropertyWithConditions] = &
 const CSS_MATCH_8602559445190067154: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_8602559445190067154_PROPERTIES);
 
-const CSS_MATCH_9156589477016488419_PROPERTIES: &[CssPropertyWithConditions] = &[
+static CSS_MATCH_9156589477016488419_PROPERTIES: &[CssPropertyWithConditions] = &[
     // A flex container: `flex-direction` / `justify-content` / `align-items`
     // below do nothing without it (this rule had none, so the box laid out as
     // a block and its children stacked vertically).
@@ -241,7 +241,7 @@ const CSS_MATCH_9156589477016488419_PROPERTIES: &[CssPropertyWithConditions] = &
 const CSS_MATCH_9156589477016488419: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_9156589477016488419_PROPERTIES);
 
-const CSS_MATCH_CONTENT_AREA_PROPERTIES: &[CssPropertyWithConditions] = &[
+static CSS_MATCH_CONTENT_AREA_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul-native-frame .__azul-native-frame-content (static properties)
     CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
         LayoutPaddingRight {
@@ -373,22 +373,22 @@ pub(crate) struct FrameLook {
 }
 
 /// The established (flat) style of each part, for the theme modules.
-pub(crate) const FRAME_ROOT_STYLE: &[CssPropertyWithConditions] =
+pub(crate) static FRAME_ROOT_STYLE: &[CssPropertyWithConditions] =
     CSS_MATCH_8602559445190067154_PROPERTIES;
 /// See [`FRAME_ROOT_STYLE`].
-pub(crate) const FRAME_HEADER_STYLE: &[CssPropertyWithConditions] =
+pub(crate) static FRAME_HEADER_STYLE: &[CssPropertyWithConditions] =
     CSS_MATCH_16739370686243728873_PROPERTIES;
 /// See [`FRAME_ROOT_STYLE`].
-pub(crate) const FRAME_BEFORE_STYLE: &[CssPropertyWithConditions] =
+pub(crate) static FRAME_BEFORE_STYLE: &[CssPropertyWithConditions] =
     CSS_MATCH_15775557796860201720_PROPERTIES;
 /// See [`FRAME_ROOT_STYLE`].
-pub(crate) const FRAME_TITLE_STYLE: &[CssPropertyWithConditions] =
+pub(crate) static FRAME_TITLE_STYLE: &[CssPropertyWithConditions] =
     CSS_MATCH_4236783900531286611_PROPERTIES;
 /// See [`FRAME_ROOT_STYLE`].
-pub(crate) const FRAME_AFTER_STYLE: &[CssPropertyWithConditions] =
+pub(crate) static FRAME_AFTER_STYLE: &[CssPropertyWithConditions] =
     CSS_MATCH_9156589477016488419_PROPERTIES;
 /// See [`FRAME_ROOT_STYLE`].
-pub(crate) const FRAME_CONTENT_STYLE: &[CssPropertyWithConditions] =
+pub(crate) static FRAME_CONTENT_STYLE: &[CssPropertyWithConditions] =
     CSS_MATCH_CONTENT_AREA_PROPERTIES;
 
 impl Frame {

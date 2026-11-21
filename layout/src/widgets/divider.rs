@@ -55,19 +55,19 @@ pub(crate) static DIVIDER_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-divider"))];
 
 /// Default rule colour (#dddddd), matching the frame widget's border colour.
-const DIVIDER_COLOR: ColorU = ColorU {
+static DIVIDER_COLOR: ColorU = ColorU {
     r: 221,
     g: 221,
     b: 221,
     a: 255,
 };
-const DIVIDER_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(DIVIDER_COLOR)];
+static DIVIDER_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(DIVIDER_COLOR)];
 const DIVIDER_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(DIVIDER_BG_ITEMS);
 
 /// The rule in the dark theme: the desktop's separator colour, the same slot
 /// every other widget draws its dividers and outlines with.
-const DIVIDER_DARK_BG_ITEMS: &[StyleBackgroundContent] =
+static DIVIDER_DARK_BG_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::SystemColor(SystemColorRef::Separator)];
 const DIVIDER_DARK_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(DIVIDER_DARK_BG_ITEMS);

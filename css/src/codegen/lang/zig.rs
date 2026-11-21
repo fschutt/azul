@@ -60,7 +60,7 @@ use crate::codegen::{
 #[derive(Debug, Copy, Clone, Default)]
 pub struct Zig;
 
-const KEYWORDS: &[&str] = &[
+static KEYWORDS: &[&str] = &[
     "addrspace", "align", "allowzero", "and", "anyframe", "anytype", "asm", "async", "await",
     "break", "callconv", "catch", "comptime", "const", "continue", "defer", "else", "enum",
     "errdefer", "error", "export", "extern", "fn", "for", "if", "inline", "linksection",
@@ -78,7 +78,7 @@ fn field(name: &str) -> String {
 }
 
 /// Zig's primitive type and value names (a parameter may not shadow one).
-const PRIMITIVES: &[&str] = &[
+static PRIMITIVES: &[&str] = &[
     "anyerror", "anyopaque", "bool", "c_char", "c_int", "c_long", "c_longdouble", "c_longlong",
     "c_short", "c_uint", "c_ulong", "c_ulonglong", "c_ushort", "comptime_float", "comptime_int",
     "f16", "f32", "f64", "f80", "f128", "false", "isize", "noreturn", "null", "true", "type",

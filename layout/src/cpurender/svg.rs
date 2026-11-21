@@ -388,7 +388,7 @@ pub struct SvgPaintContext {
 }
 
 /// SVG's initial paint: opaque black.
-const SVG_BLACK: Rgba8 = Rgba8 {
+static SVG_BLACK: Rgba8 = Rgba8 {
     r: 0,
     g: 0,
     b: 0,

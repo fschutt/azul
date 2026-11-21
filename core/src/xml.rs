@@ -4206,7 +4206,7 @@ pub fn data_model_with_attributes<'a>(
 /// fields are read by the element's own path - `img` `width`/`height`, the
 /// form controls, `td` `colspan` - or not yet at all; see
 /// `scripts/MAILVIEW_2026_09_30.md`).
-const BUILTIN_ARGUMENT_ELEMENTS: &[&str] =
+static BUILTIN_ARGUMENT_ELEMENTS: &[&str] =
     &["a", "area", "link", "base", "img", "ol", "li", "webview"];
 
 /// The render side of a builtin element's ARGUMENTS (its component's
@@ -4333,7 +4333,7 @@ fn argument_bool(args: &ComponentDataModel, name: &str) -> bool {
 }
 
 /// The elements that have presentational hints ([`builtin_presentational_hints`]).
-const PRESENTATIONAL_ELEMENTS: &[&str] = &[
+static PRESENTATIONAL_ELEMENTS: &[&str] = &[
     "ol", "ul", "li", "img", "image", "font", "center", "div", "p", "h1", "h2", "h3", "h4", "h5",
     "h6", "body",
 ];
@@ -4881,47 +4881,47 @@ const fn el(
 
 /// The look of a container's preview: a dashed box, so an empty-looking
 /// block still reads as one.
-const PREVIEW_BOX: &[(&str, &str)] = &[(
+static PREVIEW_BOX: &[(&str, &str)] = &[(
     "style",
     "border: 1px dashed #9ca3af; padding: 4px 6px; color: #4b5563",
 )];
-const LIST_ITEMS: &[PreviewNode] = &[
+static LIST_ITEMS: &[PreviewNode] = &[
     PreviewNode::text("li", "First item"),
     PreviewNode::text("li", "Second item"),
 ];
-const TERM_AND_DESCRIPTION: &[PreviewNode] = &[
+static TERM_AND_DESCRIPTION: &[PreviewNode] = &[
     PreviewNode::text("dt", "Term"),
     PreviewNode::text("dd", "Description"),
 ];
-const HEAD_CELLS: &[PreviewNode] = &[
+static HEAD_CELLS: &[PreviewNode] = &[
     PreviewNode::text("th", "Name"),
     PreviewNode::text("th", "Value"),
 ];
-const BODY_CELLS: &[PreviewNode] = &[
+static BODY_CELLS: &[PreviewNode] = &[
     PreviewNode::text("td", "Width"),
     PreviewNode::text("td", "42"),
 ];
-const HEAD_ROW: PreviewNode = PreviewNode::holding("tr", HEAD_CELLS);
-const BODY_ROW: PreviewNode = PreviewNode::holding("tr", BODY_CELLS);
-const HEAD_ROWS: &[PreviewNode] = &[HEAD_ROW];
-const BODY_ROWS: &[PreviewNode] = &[BODY_ROW];
-const TABLE_ROWS: &[PreviewNode] = &[HEAD_ROW, BODY_ROW];
-const FIGURE_CAPTION: &[PreviewNode] = &[PreviewNode::text("figcaption", "Figure caption")];
-const DETAILS_SUMMARY: &[PreviewNode] = &[PreviewNode::text("summary", "Details")];
-const RUBY_TEXT: &[PreviewNode] = &[PreviewNode::text("rt", "annotation")];
-const FORM_FIELDS: &[PreviewNode] = &[
+static HEAD_ROW: PreviewNode = PreviewNode::holding("tr", HEAD_CELLS);
+static BODY_ROW: PreviewNode = PreviewNode::holding("tr", BODY_CELLS);
+static HEAD_ROWS: &[PreviewNode] = &[HEAD_ROW];
+static BODY_ROWS: &[PreviewNode] = &[BODY_ROW];
+static TABLE_ROWS: &[PreviewNode] = &[HEAD_ROW, BODY_ROW];
+static FIGURE_CAPTION: &[PreviewNode] = &[PreviewNode::text("figcaption", "Figure caption")];
+static DETAILS_SUMMARY: &[PreviewNode] = &[PreviewNode::text("summary", "Details")];
+static RUBY_TEXT: &[PreviewNode] = &[PreviewNode::text("rt", "annotation")];
+static FORM_FIELDS: &[PreviewNode] = &[
     PreviewNode::text("label", "Name"),
     PreviewNode::with("input", &[("placeholder", "Your name")]),
 ];
-const FIELDSET_FIELDS: &[PreviewNode] = &[
+static FIELDSET_FIELDS: &[PreviewNode] = &[
     PreviewNode::text("legend", "Legend"),
     PreviewNode::text("label", "Field"),
 ];
-const SELECT_OPTIONS: &[PreviewNode] = &[
+static SELECT_OPTIONS: &[PreviewNode] = &[
     PreviewNode::text("option", "Option 1"),
     PreviewNode::text("option", "Option 2"),
 ];
-const SVG_SHAPES: &[PreviewNode] = &[
+static SVG_SHAPES: &[PreviewNode] = &[
     PreviewNode::with(
         "circle",
         &[("cx", "12"), ("cy", "12"), ("r", "10"), ("fill", "#3b82f6")],

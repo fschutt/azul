@@ -122,46 +122,46 @@ pub struct SegmentedState {
 
 // ---- colours ----
 /// Segment border colour (#ced4da).
-const SEG_BORDER_COLOR: ColorU = ColorU {
+static SEG_BORDER_COLOR: ColorU = ColorU {
     r: 206,
     g: 212,
     b: 218,
     a: 255,
 };
 /// Selected-segment background (#0d6efd, accent blue).
-const SEG_SELECTED_BG_COLOR: ColorU = ColorU {
+static SEG_SELECTED_BG_COLOR: ColorU = ColorU {
     r: 13,
     g: 110,
     b: 253,
     a: 255,
 };
 /// Unselected-segment background (white).
-const SEG_UNSELECTED_BG_COLOR: ColorU = ColorU {
+static SEG_UNSELECTED_BG_COLOR: ColorU = ColorU {
     r: 255,
     g: 255,
     b: 255,
     a: 255,
 };
 /// Selected-segment text colour (white).
-const SEG_SELECTED_TEXT: ColorU = ColorU {
+static SEG_SELECTED_TEXT: ColorU = ColorU {
     r: 255,
     g: 255,
     b: 255,
     a: 255,
 };
 /// Unselected-segment text colour (#212529, dark).
-const SEG_UNSELECTED_TEXT: ColorU = ColorU {
+static SEG_UNSELECTED_TEXT: ColorU = ColorU {
     r: 33,
     g: 37,
     b: 41,
     a: 255,
 };
 
-const SEG_SELECTED_BG_ITEMS: &[StyleBackgroundContent] =
+static SEG_SELECTED_BG_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::Color(SEG_SELECTED_BG_COLOR)];
 const SEG_SELECTED_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(SEG_SELECTED_BG_ITEMS);
-const SEG_UNSELECTED_BG_ITEMS: &[StyleBackgroundContent] =
+static SEG_UNSELECTED_BG_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::Color(SEG_UNSELECTED_BG_COLOR)];
 const SEG_UNSELECTED_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(SEG_UNSELECTED_BG_ITEMS);

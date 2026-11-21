@@ -44,7 +44,7 @@ use crate::codegen::{
 #[derive(Debug, Copy, Clone, Default)]
 pub struct D;
 
-const KEYWORDS: &[&str] = &[
+static KEYWORDS: &[&str] = &[
     "abstract", "alias", "align", "asm", "assert", "auto", "bool", "break", "byte", "case",
     "cast", "catch", "cdouble", "cent", "cfloat", "char", "class", "const", "continue", "creal",
     "dchar", "debug", "default", "delegate", "deprecated", "do", "double", "else", "enum",
@@ -59,7 +59,7 @@ const KEYWORDS: &[&str] = &[
 ];
 
 /// Members every D aggregate already has (the wrappers suffix them too).
-const RESERVED_MEMBERS: &[&str] = &[
+static RESERVED_MEMBERS: &[&str] = &[
     "init", "tag", "dup", "sizeof", "alignof", "mangleof", "stringof", "offsetof",
 ];
 

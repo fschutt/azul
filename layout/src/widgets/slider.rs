@@ -151,24 +151,24 @@ const THUMB_RADIUS: isize = 8;
 
 // ---- colours ----
 /// Rail colour (#cccccc).
-const RAIL_COLOR: ColorU = ColorU {
+static RAIL_COLOR: ColorU = ColorU {
     r: 204,
     g: 204,
     b: 204,
     a: 255,
 };
 /// Thumb colour (#0d6efd, accent blue).
-const THUMB_COLOR: ColorU = ColorU {
+static THUMB_COLOR: ColorU = ColorU {
     r: 13,
     g: 110,
     b: 253,
     a: 255,
 };
 
-const RAIL_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(RAIL_COLOR)];
+static RAIL_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(RAIL_COLOR)];
 const RAIL_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(RAIL_BG_ITEMS);
-const THUMB_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(THUMB_COLOR)];
+static THUMB_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(THUMB_COLOR)];
 const THUMB_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(THUMB_BG_ITEMS);
 

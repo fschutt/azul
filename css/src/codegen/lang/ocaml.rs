@@ -236,7 +236,7 @@ fn item_fn(item: &Item) -> String {
 
 /// OCaml keywords (`is_ocaml_reserved` in `lang_ocaml/mod.rs`): the
 /// bindings give a function spelled like one a `_`; so does a parameter.
-const KEYWORDS: &[&str] = &[
+static KEYWORDS: &[&str] = &[
     "and", "as", "assert", "asr", "begin", "class", "constraint", "do", "done", "downto", "else",
     "end", "exception", "external", "false", "for", "fun", "function", "functor", "if", "in",
     "include", "inherit", "initializer", "land", "lazy", "let", "lor", "lsl", "lsr", "lxor",

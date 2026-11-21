@@ -2834,7 +2834,7 @@ pub mod defaults {
     // --- Custom Scrollbar Style Constants for Nostalgia ---
 
     /// A scrollbar style mimicking the classic Windows 95/98/2000/XP look.
-    pub const SCROLLBAR_WINDOWS_CLASSIC: ScrollbarInfo = ScrollbarInfo {
+    pub static SCROLLBAR_WINDOWS_CLASSIC: ScrollbarInfo = ScrollbarInfo {
         width: LayoutWidth::Px(PixelValue::const_px(17)),
         padding_left: LayoutPaddingLeft {
             inner: PixelValue::const_px(0),
@@ -2875,7 +2875,7 @@ pub mod defaults {
     };
 
     /// A scrollbar style mimicking the macOS "Aqua" theme from the early 2000s.
-    pub const SCROLLBAR_MACOS_AQUA: ScrollbarInfo = ScrollbarInfo {
+    pub static SCROLLBAR_MACOS_AQUA: ScrollbarInfo = ScrollbarInfo {
         width: LayoutWidth::Px(PixelValue::const_px(15)),
         padding_left: LayoutPaddingLeft {
             inner: PixelValue::const_px(0),
@@ -2911,7 +2911,7 @@ pub mod defaults {
     };
 
     /// A scrollbar style mimicking the KDE Oxygen theme.
-    pub const SCROLLBAR_KDE_OXYGEN: ScrollbarInfo = ScrollbarInfo {
+    pub static SCROLLBAR_KDE_OXYGEN: ScrollbarInfo = ScrollbarInfo {
         width: LayoutWidth::Px(PixelValue::const_px(14)),
         padding_left: LayoutPaddingLeft {
             inner: PixelValue::const_px(2),

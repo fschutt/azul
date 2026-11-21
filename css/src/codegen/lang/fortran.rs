@@ -53,7 +53,7 @@ pub struct Fortran;
 const MAX_IDENT_LEN: usize = 63;
 
 /// `is_fortran_reserved` of `lang_fortran/mod.rs`.
-const RESERVED: &[&str] = &[
+static RESERVED: &[&str] = &[
     "if", "then", "else", "elseif", "endif", "do", "enddo", "end", "function", "subroutine",
     "module", "program", "type", "interface", "use", "implicit", "real", "integer", "logical",
     "character", "complex", "double", "precision", "kind", "len", "where", "elsewhere",

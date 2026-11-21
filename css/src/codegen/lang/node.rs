@@ -138,7 +138,7 @@ impl ExprSyntax for Node {
 /// JS reserved words (the list of `lang_node`'s `sanitize_js_identifier`),
 /// the names strict mode forbids as parameters, and the names a parameter
 /// must not shadow (`azul` is the bindings' module, `lib` its raw layer).
-const RESERVED: &[&str] = &[
+static RESERVED: &[&str] = &[
     "break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do",
     "else", "enum", "export", "extends", "false", "finally", "for", "function", "if", "import",
     "in", "instanceof", "new", "null", "return", "super", "switch", "this", "throw", "true",

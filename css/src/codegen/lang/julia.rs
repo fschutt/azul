@@ -49,7 +49,7 @@ use crate::codegen::{
 pub struct Julia;
 
 /// Julia's reserved words (a parameter named like one gets a `_`).
-const KEYWORDS: &[&str] = &[
+static KEYWORDS: &[&str] = &[
     "baremodule", "begin", "break", "catch", "const", "continue", "do", "else", "elseif", "end",
     "export", "false", "finally", "for", "function", "global", "if", "import", "let", "local",
     "macro", "module", "quote", "return", "struct", "true", "try", "using", "while", "abstract",

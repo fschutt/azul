@@ -336,7 +336,7 @@ pub static INPUT_TYPE_WIDGETS: &[(&str, FormWidget)] = &[
 ];
 
 /// The text state: a missing or unknown `type`.
-const TEXT_STATE: FormWidget = FormWidget::TextInput(TextInputKind::Text);
+static TEXT_STATE: FormWidget = FormWidget::TextInput(TextInputKind::Text);
 
 // ── Memory: the user's values across the app's rebuilds ─────────────────────
 
@@ -1516,7 +1516,7 @@ fn form_for(raw: &Dom, label: Option<String>) -> Dom {
 
 // ── Building the widget ─────────────────────────────────────────────────────
 
-const BLACK: ColorU = ColorU {
+static BLACK: ColorU = ColorU {
     r: 0,
     g: 0,
     b: 0,

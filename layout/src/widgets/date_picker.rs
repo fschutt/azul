@@ -89,7 +89,7 @@ use crate::{
 };
 
 const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
-const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
+static SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
 const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
 
@@ -627,52 +627,52 @@ const MONTH_ABBREVIATIONS: [&str; 12] = [
 ];
 
 // ---- colours ----
-const BORDER_COLOR: ColorU = ColorU {
+static BORDER_COLOR: ColorU = ColorU {
     r: 206,
     g: 212,
     b: 218,
     a: 255,
 };
-const TEXT_COLOR: ColorU = ColorU {
+static TEXT_COLOR: ColorU = ColorU {
     r: 33,
     g: 37,
     b: 41,
     a: 255,
 };
-const MUTED_COLOR: ColorU = ColorU {
+static MUTED_COLOR: ColorU = ColorU {
     r: 108,
     g: 117,
     b: 125,
     a: 255,
 };
-const ACCENT_BG: ColorU = ColorU {
+static ACCENT_BG: ColorU = ColorU {
     r: 13,
     g: 110,
     b: 253,
     a: 255,
 };
-const WHITE: ColorU = ColorU {
+static WHITE: ColorU = ColorU {
     r: 255,
     g: 255,
     b: 255,
     a: 255,
 };
-const TRANSPARENT: ColorU = ColorU {
+static TRANSPARENT: ColorU = ColorU {
     r: 0,
     g: 0,
     b: 0,
     a: 0,
 };
 
-const DAY_SELECTED_BG_ITEMS: &[StyleBackgroundContent] =
+static DAY_SELECTED_BG_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::Color(ACCENT_BG)];
 const DAY_SELECTED_BG_VEC: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(DAY_SELECTED_BG_ITEMS);
-const TRANSPARENT_BG_ITEMS: &[StyleBackgroundContent] =
+static TRANSPARENT_BG_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::Color(TRANSPARENT)];
 const TRANSPARENT_BG_VEC: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(TRANSPARENT_BG_ITEMS);
-const WHITE_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(WHITE)];
+static WHITE_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(WHITE)];
 const WHITE_BG_VEC: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(WHITE_BG_ITEMS);
 

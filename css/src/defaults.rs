@@ -14,7 +14,7 @@ use crate::props::{
 /// Default font size (`16px`) used when no explicit size is specified.
 ///
 /// The numeric value matches [`crate::props::basic::pixel::DEFAULT_FONT_SIZE`].
-pub const DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize {
+pub static DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize {
     inner: PixelValue::const_px(16),
 };
 
@@ -22,7 +22,7 @@ pub const DEFAULT_FONT_SIZE: StyleFontSize = StyleFontSize {
 pub const DEFAULT_FONT_ID: &str = "serif";
 
 /// Default text color (opaque black).
-pub const DEFAULT_TEXT_COLOR: StyleTextColor = StyleTextColor {
+pub static DEFAULT_TEXT_COLOR: StyleTextColor = StyleTextColor {
     inner: ColorU {
         r: 0,
         g: 0,

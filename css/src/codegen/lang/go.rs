@@ -134,7 +134,7 @@ impl ExprSyntax for Go {
 
 /// Go keywords, and the names a parameter must not shadow (`azul` is the
 /// bindings' package, `string` the parameter type).
-const RESERVED: &[&str] = &[
+static RESERVED: &[&str] = &[
     "break", "case", "chan", "const", "continue", "default", "defer", "else", "fallthrough",
     "for", "func", "go", "goto", "if", "import", "interface", "map", "package", "range",
     "return", "select", "struct", "switch", "type", "var", "azul", "string",

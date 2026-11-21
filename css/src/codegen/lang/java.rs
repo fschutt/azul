@@ -43,7 +43,7 @@ use crate::codegen::{
 #[derive(Debug, Copy, Clone, Default)]
 pub struct Java;
 
-const KEYWORDS: &[&str] = &[
+static KEYWORDS: &[&str] = &[
     "abstract", "assert", "boolean", "break", "byte", "case", "catch", "char", "class", "const",
     "continue", "default", "do", "double", "else", "enum", "extends", "final", "finally",
     "float", "for", "goto", "if", "implements", "import", "instanceof", "int", "interface",

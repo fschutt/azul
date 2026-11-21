@@ -148,21 +148,21 @@ pub struct BreadcrumbState {
 
 // ---- colours ----
 /// Crumb-link colour (#0d6efd, Bootstrap link blue).
-const LINK_COLOR: ColorU = ColorU {
+static LINK_COLOR: ColorU = ColorU {
     r: 13,
     g: 110,
     b: 253,
     a: 255,
 };
 /// Current-crumb colour (#495057, muted dark grey).
-const CURRENT_COLOR: ColorU = ColorU {
+static CURRENT_COLOR: ColorU = ColorU {
     r: 73,
     g: 80,
     b: 87,
     a: 255,
 };
 /// Separator colour (#6c757d, grey).
-const SEPARATOR_COLOR: ColorU = ColorU {
+static SEPARATOR_COLOR: ColorU = ColorU {
     r: 108,
     g: 117,
     b: 125,

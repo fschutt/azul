@@ -60,7 +60,7 @@ use super::NodeIdMap;
 
 /// How long an orphaned worker may take to acknowledge `TerminateThread`
 /// before it is detached instead of joined.
-pub const ORPHAN_GRACE: core::time::Duration = core::time::Duration::from_secs(2);
+pub static ORPHAN_GRACE: core::time::Duration = core::time::Duration::from_secs(2);
 
 /// Does a thread added by a callback answering `filter` belong to the
 /// callback's node? Only for the callbacks a node's own life drives - mount,

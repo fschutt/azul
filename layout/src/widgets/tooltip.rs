@@ -57,21 +57,21 @@ const TIP_RADIUS: isize = 4;
 
 // ---- colours ----
 /// Tip background (#333333, dark).
-const TIP_BG_COLOR: ColorU = ColorU {
+static TIP_BG_COLOR: ColorU = ColorU {
     r: 51,
     g: 51,
     b: 51,
     a: 240,
 };
 /// Tip text colour (white).
-const TIP_TEXT_COLOR: ColorU = ColorU {
+static TIP_TEXT_COLOR: ColorU = ColorU {
     r: 255,
     g: 255,
     b: 255,
     a: 255,
 };
 
-const TIP_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(TIP_BG_COLOR)];
+static TIP_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(TIP_BG_COLOR)];
 const TIP_BG: StyleBackgroundContentVec = StyleBackgroundContentVec::from_const_slice(TIP_BG_ITEMS);
 
 /// Wrapper around the anchor: an inline-block positioning context so the

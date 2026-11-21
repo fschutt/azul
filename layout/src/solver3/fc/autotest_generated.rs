@@ -127,8 +127,8 @@
         )
     }
 
-    const TEXT_NODE: NodeId = NodeId::new(2);
-    const DIV_NODE: NodeId = NodeId::new(1);
+    static TEXT_NODE: NodeId = NodeId::new(2);
+    static DIV_NODE: NodeId = NodeId::new(1);
 
     fn plain_style() -> Arc<StyleProperties> {
         Arc::new(StyleProperties::default())

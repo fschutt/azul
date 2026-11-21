@@ -44,7 +44,7 @@ use crate::codegen::{
 #[derive(Debug, Copy, Clone, Default)]
 pub struct Lua;
 
-const KEYWORDS: &[&str] = &[
+static KEYWORDS: &[&str] = &[
     "and", "break", "do", "else", "elseif", "end", "false", "for", "function", "goto", "if",
     "in", "local", "nil", "not", "or", "repeat", "return", "then", "true", "until", "while",
 ];

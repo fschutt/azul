@@ -66,54 +66,54 @@ use super::{
 // -- Font --
 
 const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
-const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
+static SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
 const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
 
 // -- the Office-2013-era look palette (seeds QuickAccessTheme::office_2013) --
 
-const WHITE: ColorU = ColorU {
+static WHITE: ColorU = ColorU {
     r: 255,
     g: 255,
     b: 255,
     a: 255,
 };
-const TRANSPARENT: ColorU = ColorU {
+static TRANSPARENT: ColorU = ColorU {
     r: 0,
     g: 0,
     b: 0,
     a: 0,
 };
 /// Title text gray (#5D5D5D).
-const W13_TITLE_TEXT: ColorU = ColorU {
+static W13_TITLE_TEXT: ColorU = ColorU {
     r: 93,
     g: 93,
     b: 93,
     a: 255,
 };
 /// Action glyph gray (#6A6A6A).
-const W13_ICON_GRAY: ColorU = ColorU {
+static W13_ICON_GRAY: ColorU = ColorU {
     r: 106,
     g: 106,
     b: 106,
     a: 255,
 };
 /// Hover fill on band controls (#E5E5E5).
-const W13_HOVER_BG: ColorU = ColorU {
+static W13_HOVER_BG: ColorU = ColorU {
     r: 229,
     g: 229,
     b: 229,
     a: 255,
 };
 /// Pressed fill (#CCCCCC).
-const W13_PRESSED_BG: ColorU = ColorU {
+static W13_PRESSED_BG: ColorU = ColorU {
     r: 204,
     g: 204,
     b: 204,
     a: 255,
 };
 /// Close button hover fill (#E81123, the Windows caption red).
-const W13_CLOSE_HOVER: ColorU = ColorU {
+static W13_CLOSE_HOVER: ColorU = ColorU {
     r: 232,
     g: 17,
     b: 35,

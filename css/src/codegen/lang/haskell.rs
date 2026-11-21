@@ -169,7 +169,7 @@ fn item_fn(item: &Item) -> String {
 /// Haskell's reserved words (`is_haskell_reserved` in `lang_haskell/mod.rs`):
 /// the bindings prime a function spelled like one (`default'`); so does a
 /// parameter.
-const KEYWORDS: &[&str] = &[
+static KEYWORDS: &[&str] = &[
     "case", "class", "data", "default", "deriving", "do", "else", "foreign", "if", "import", "in",
     "infix", "infixl", "infixr", "instance", "let", "module", "newtype", "of", "then", "type",
     "where", "_",

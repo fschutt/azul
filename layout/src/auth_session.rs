@@ -628,7 +628,7 @@ pub mod loopback {
     const MAX_HEAD: usize = 16 * 1024;
 
     /// How often the listener looks for a connection.
-    const POLL: Duration = Duration::from_millis(25);
+    static POLL: Duration = Duration::from_millis(25);
 
     /// The page of the redirect the app waited for (whatever the provider answered: the app
     /// says what happened).

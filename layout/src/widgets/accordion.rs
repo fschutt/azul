@@ -88,7 +88,7 @@ static ACCORDION_CHEVRON_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str(ACCORDION_CHEVRON_CLASS_NAME))];
 
 const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
-const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
+static SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
 const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
 
@@ -117,26 +117,26 @@ azul_core::impl_managed_callback! {
 }
 
 // ---- colours ----
-const BORDER_COLOR: ColorU = ColorU {
+static BORDER_COLOR: ColorU = ColorU {
     r: 222,
     g: 226,
     b: 230,
     a: 255,
 }; // #dee2e6
-const HEADER_BG: ColorU = ColorU {
+static HEADER_BG: ColorU = ColorU {
     r: 248,
     g: 249,
     b: 250,
     a: 255,
 }; // #f8f9fa
-const TEXT_COLOR: ColorU = ColorU {
+static TEXT_COLOR: ColorU = ColorU {
     r: 33,
     g: 37,
     b: 41,
     a: 255,
 }; // #212529
 
-const HEADER_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(HEADER_BG)];
+static HEADER_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(HEADER_BG)];
 const HEADER_BG_VEC: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(HEADER_BG_ITEMS);
 

@@ -52,7 +52,7 @@ use crate::codegen::{
 pub struct Racket;
 
 /// `sanitize_racket_ident` of `lang_racket/mod.rs`.
-const RESERVED: &[&str] = &[
+static RESERVED: &[&str] = &[
     "define", "lambda", "let", "let*", "letrec", "if", "cond", "case", "when", "unless", "begin",
     "set!", "quote", "quasiquote", "require", "provide", "struct", "and", "or", "do", "for",
     "map", "list", "car", "cdr", "else",

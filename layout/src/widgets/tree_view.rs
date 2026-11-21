@@ -130,9 +130,9 @@ const TREE_ROW_CLASS_NAME: &str = "__azul-native-tree-view-row";
 const TREE_TOGGLE_CLASS_NAME: &str = "__azul-native-tree-view-toggle";
 /// The class of a node's badge (the count after its label).
 const TREE_BADGE_CLASS_NAME: &str = "__azul-native-tree-view-badge";
-const TREE_TOGGLE_CLASS: &[IdOrClass] =
+static TREE_TOGGLE_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str(TREE_TOGGLE_CLASS_NAME))];
-const TREE_ROW_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(TREE_ROW_CLASS_NAME))];
+static TREE_ROW_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(TREE_ROW_CLASS_NAME))];
 
 // ---- R5: the parts' BASE - the structure every theme's tree shares ----
 //

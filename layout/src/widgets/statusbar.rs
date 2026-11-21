@@ -92,54 +92,54 @@ azul_core::impl_managed_callback! {
 // -- Font --
 
 const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
-const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
+static SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
 const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
 
 // -- the Office-2013-era look palette (seeds StatusBarTheme::office_2013) --
 
-const WHITE: ColorU = ColorU {
+static WHITE: ColorU = ColorU {
     r: 255,
     g: 255,
     b: 255,
     a: 255,
 };
-const TRANSPARENT: ColorU = ColorU {
+static TRANSPARENT: ColorU = ColorU {
     r: 0,
     g: 0,
     b: 0,
     a: 0,
 };
 /// Office 2013 accent blue (#2B579A): the bar fill.
-const W13_BLUE: ColorU = ColorU {
+static W13_BLUE: ColorU = ColorU {
     r: 43,
     g: 87,
     b: 154,
     a: 255,
 };
 /// Hover fill on bar controls (lighter blue, #3E6DB5).
-const W13_BAR_HOVER: ColorU = ColorU {
+static W13_BAR_HOVER: ColorU = ColorU {
     r: 62,
     g: 109,
     b: 181,
     a: 255,
 };
 /// Pressed / active-view fill (darker blue, #1E3E6F).
-const W13_BAR_PRESSED: ColorU = ColorU {
+static W13_BAR_PRESSED: ColorU = ColorU {
     r: 30,
     g: 62,
     b: 111,
     a: 255,
 };
 /// Zoom slider rail (semi-light blue-gray, #A5BDDE).
-const W13_RAIL: ColorU = ColorU {
+static W13_RAIL: ColorU = ColorU {
     r: 165,
     g: 189,
     b: 222,
     a: 255,
 };
 /// Zoom slider thumb border (#8E9BB3).
-const W13_THUMB_BORDER: ColorU = ColorU {
+static W13_THUMB_BORDER: ColorU = ColorU {
     r: 142,
     g: 155,
     b: 179,
@@ -155,49 +155,49 @@ const W13_THUMB_BORDER: ColorU = ColorU {
 
 /// The bar (#DDE2E8): the palette value of the strip, which is drawn as a
 /// face from [`O10_BAR_TOP`] to [`O10_BAR_BOTTOM`].
-const O10_BAR: ColorU = ColorU {
+static O10_BAR: ColorU = ColorU {
     r: 221,
     g: 226,
     b: 232,
     a: 255,
 };
 /// The top of the bar's face (#E9EDF1).
-const O10_BAR_TOP: ColorU = ColorU {
+static O10_BAR_TOP: ColorU = ColorU {
     r: 233,
     g: 237,
     b: 241,
     a: 255,
 };
 /// The foot of the bar's face (#CDD3DA).
-const O10_BAR_BOTTOM: ColorU = ColorU {
+static O10_BAR_BOTTOM: ColorU = ColorU {
     r: 205,
     g: 211,
     b: 218,
     a: 255,
 };
 /// The bar's text (#3C4048).
-const O10_TEXT: ColorU = ColorU {
+static O10_TEXT: ColorU = ColorU {
     r: 60,
     g: 64,
     b: 72,
     a: 255,
 };
 /// The zoom rail on the silver bar (#9AA3AF).
-const O10_RAIL: ColorU = ColorU {
+static O10_RAIL: ColorU = ColorU {
     r: 154,
     g: 163,
     b: 175,
     a: 255,
 };
 /// A sync error's glyph on the silver bar (#C42B1C).
-const O10_SYNC_ERROR: ColorU = ColorU {
+static O10_SYNC_ERROR: ColorU = ColorU {
     r: 196,
     g: 43,
     b: 28,
     a: 255,
 };
 /// A sync error's glyph on the dark bar (#FF8A80).
-const O10_SYNC_ERROR_DARK: ColorU = ColorU {
+static O10_SYNC_ERROR_DARK: ColorU = ColorU {
     r: 255,
     g: 138,
     b: 128,
@@ -316,7 +316,7 @@ impl_option!(
 
 /// The Office bar's glyph for a sync error: a warm red that reads on the
 /// accent blue (the white glyphs around it are the bar's text).
-const W13_SYNC_ERROR: ColorU = ColorU {
+static W13_SYNC_ERROR: ColorU = ColorU {
     r: 255,
     g: 180,
     b: 169,

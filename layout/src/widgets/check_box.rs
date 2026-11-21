@@ -94,24 +94,24 @@ pub struct CheckBoxState {
     pub checked: bool,
 }
 
-const BACKGROUND_COLOR: ColorU = ColorU {
+static BACKGROUND_COLOR: ColorU = ColorU {
     r: 255,
     g: 255,
     b: 255,
     a: 255,
 }; // white
-const BACKGROUND_THEME_LIGHT: &[StyleBackgroundContent] =
+static BACKGROUND_THEME_LIGHT: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::Color(BACKGROUND_COLOR)];
 const BACKGROUND_COLOR_LIGHT: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(BACKGROUND_THEME_LIGHT);
-const COLOR_9B9B9B: ColorU = ColorU {
+static COLOR_9B9B9B: ColorU = ColorU {
     r: 155,
     g: 155,
     b: 155,
     a: 255,
 }; // #9b9b9b
 
-const FILL_THEME: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(COLOR_9B9B9B)];
+static FILL_THEME: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(COLOR_9B9B9B)];
 const FILL_COLOR_BACKGROUND: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(FILL_THEME);
 

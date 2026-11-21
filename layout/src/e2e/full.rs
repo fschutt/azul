@@ -8919,15 +8919,15 @@ fn window_logical_area(callback_info: &azul_layout::callbacks::CallbackInfo) -> 
 
 /// Which damage a damage op reads (`which`): the rects re-rasterised (`paint`,
 /// the default) or what changed on screen (`present`).
-pub const DAMAGE_WHICH_VALUES: &[&str] = &["paint", "present"];
+pub static DAMAGE_WHICH_VALUES: &[&str] = &["paint", "present"];
 /// Which frames a damage op reads (`frame`): everything since the last
 /// `reset_frame_counters` (`accumulated`, the default) or the most recent
 /// frame only (`last`).
-pub const DAMAGE_FRAME_VALUES: &[&str] = &["accumulated", "last"];
+pub static DAMAGE_FRAME_VALUES: &[&str] = &["accumulated", "last"];
 /// Where `scroll_into_view` aligns the node (`block` / `inline`).
-pub const SCROLL_ALIGN_VALUES: &[&str] = &["nearest", "start", "center", "end"];
+pub static SCROLL_ALIGN_VALUES: &[&str] = &["nearest", "start", "center", "end"];
 /// How `scroll_into_view` gets there (`behavior`).
-pub const SCROLL_BEHAVIOR_VALUES: &[&str] = &["auto", "instant", "smooth"];
+pub static SCROLL_BEHAVIOR_VALUES: &[&str] = &["auto", "instant", "smooth"];
 
 /// The CLOSED set of values the string param `param` takes, when it is one.
 ///
@@ -8953,7 +8953,7 @@ pub fn closed_param_values(param: &str) -> Option<&'static [&'static str]> {
 /// Every string param that takes a closed set of values, with the set - the
 /// table [`closed_param_values`] reads, for a caller that has to walk it (the
 /// `gen-e2e` gate points a value at the param it belongs to).
-pub const CLOSED_STRING_PARAMS: &[(&str, &[&str])] = &[
+pub static CLOSED_STRING_PARAMS: &[(&str, &[&str])] = &[
     ("which", DAMAGE_WHICH_VALUES),
     ("frame", DAMAGE_FRAME_VALUES),
     ("block", SCROLL_ALIGN_VALUES),
@@ -11345,7 +11345,7 @@ const KNOWN_MANAGERS: &[&str] = &[
     "webview",
 ];
 
-const UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
+static UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
     (
         "a11y_snapshot",
         "pure projection — `A11ySnapshot::build()` is called on demand from \

@@ -458,7 +458,7 @@ impl CodegenBackend for Cobol {
 }
 
 /// `is_cobol_reserved` of `lang_cobol/mod.rs`.
-const RESERVED: &[&str] = &[
+static RESERVED: &[&str] = &[
     "ACCEPT", "ADD", "ALTER", "CALL", "CANCEL", "CLOSE", "COMPUTE", "CONTINUE", "DELETE",
     "DISPLAY", "DIVIDE", "ELSE", "END", "EVALUATE", "EXIT", "GOBACK", "GO", "IF", "INITIALIZE",
     "INSPECT", "INVOKE", "MERGE", "MOVE", "MULTIPLY", "OPEN", "PERFORM", "READ", "RELEASE",

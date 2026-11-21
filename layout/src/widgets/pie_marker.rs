@@ -110,7 +110,7 @@ const UNIT: f32 = PIE_SIZE / 12.0;
 /// The disc's ground reaches the middle of its ring.
 const DISC_R: f32 = 5.6 * UNIT;
 /// The ring's inner and outer edge (its outer half lies at the box's edge).
-const RING: (f32, f32) = ((5.6 - 0.4) * UNIT, 6.0 * UNIT);
+static RING: (f32, f32) = ((5.6 - 0.4) * UNIT, 6.0 * UNIT);
 /// The wedge's radius.
 const WEDGE_R: f32 = 6.0 * UNIT;
 /// Straight runs a whole circle is drawn in: at 11px a fiftieth of a px
@@ -118,15 +118,15 @@ const WEDGE_R: f32 = 6.0 * UNIT;
 const CIRCLE_STEPS: usize = 72;
 
 /// The disc's ground, by day and by night (`--pie-bg`).
-const GROUND: (ColorU, ColorU) = (ColorU::rgb(0xE2, 0xDF, 0xD8), ColorU::rgb(0x3A, 0x3A, 0x3A));
+static GROUND: (ColorU, ColorU) = (ColorU::rgb(0xE2, 0xDF, 0xD8), ColorU::rgb(0x3A, 0x3A, 0x3A));
 /// The faint ring on its edge (`--pie-ring`).
-const RING_INK: (ColorU, ColorU) = (ColorU::new(60, 50, 30, 56), ColorU::new(0, 0, 0, 128));
+static RING_INK: (ColorU, ColorU) = (ColorU::new(60, 50, 30, 56), ColorU::new(0, 0, 0, 128));
 /// Done.
-const GOOD: ColorU = ColorU::rgb(0x4E, 0x9A, 0x5B);
+static GOOD: ColorU = ColorU::rgb(0x4E, 0x9A, 0x5B);
 /// Waiting, near a limit.
-const WARNING: ColorU = ColorU::rgb(0xC9, 0x96, 0x2E);
+static WARNING: ColorU = ColorU::rgb(0xC9, 0x96, 0x2E);
 /// Needs the user.
-const DANGER: ColorU = ColorU::rgb(0xC2, 0x48, 0x3A);
+static DANGER: ColorU = ColorU::rgb(0xC2, 0x48, 0x3A);
 
 /// The breath's track.
 const BREATH_TRACK: &str = "__azul-pie-breathe";
@@ -316,7 +316,7 @@ impl PieMarker {
 }
 
 /// Only where the reader has not asked for less motion.
-const NO_REDUCED_MOTION: &[DynamicSelector] =
+static NO_REDUCED_MOTION: &[DynamicSelector] =
     &[DynamicSelector::PrefersReducedMotion(BoolCondition::False)];
 
 /// One full-size layer of the disc: painted in `ink` (with its night

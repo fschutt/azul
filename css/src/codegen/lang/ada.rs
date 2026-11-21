@@ -53,7 +53,7 @@ use crate::codegen::{
 pub struct Ada;
 
 /// `is_ada_reserved` of `lang_ada/mod.rs` (Ada 2012 reserved words).
-const RESERVED: &[&str] = &[
+static RESERVED: &[&str] = &[
     "abort", "abs", "abstract", "accept", "access", "aliased", "all", "and", "array", "at",
     "begin", "body", "case", "constant", "declare", "delay", "delta", "digits", "do", "else",
     "elsif", "end", "entry", "exception", "exit", "for", "function", "generic", "goto", "if",
@@ -65,7 +65,7 @@ const RESERVED: &[&str] = &[
 ];
 
 /// `is_ada_shadow` of `lang_ada/mod.rs`.
-const SHADOWS: &[&str] = &[
+static SHADOWS: &[&str] = &[
     "system", "interfaces", "address", "string", "ada", "convention", "import", "export",
 ];
 
@@ -73,7 +73,7 @@ const SHADOWS: &[&str] = &[
 /// of the same name (a type is not overloadable), so such a literal must be
 /// written as the expanded name `Azul.<Literal>` (e.g. `CssPropertyType`'s
 /// `Float`).
-const STANDARD_NAMES: &[&str] = &[
+static STANDARD_NAMES: &[&str] = &[
     "boolean", "character", "duration", "float", "integer", "long_float", "long_integer",
     "long_long_integer", "natural", "positive", "short_float", "short_integer",
     "wide_character", "wide_string", "wide_wide_character", "wide_wide_string",

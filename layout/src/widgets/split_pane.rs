@@ -233,20 +233,20 @@ const DIVIDER_NAME: &str = "Resize panes";
 
 // ---- colours ----
 /// Divider colour (#adb5bd, mid grey).
-const DIVIDER_COLOR: ColorU = ColorU {
+static DIVIDER_COLOR: ColorU = ColorU {
     r: 173,
     g: 181,
     b: 189,
     a: 255,
 };
 
-const DIVIDER_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(DIVIDER_COLOR)];
+static DIVIDER_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(DIVIDER_COLOR)];
 const DIVIDER_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(DIVIDER_BG_ITEMS);
 
 /// The divider in the dark theme: the desktop's separator colour, the slot
 /// every other widget draws its dividers with.
-const DIVIDER_DARK_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::SystemColor(
+static DIVIDER_DARK_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::SystemColor(
     azul_css::props::basic::color::SystemColorRef::Separator,
 )];
 const DIVIDER_DARK_BG: StyleBackgroundContentVec =

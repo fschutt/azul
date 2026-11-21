@@ -32,7 +32,7 @@ use crate::codegen::{
 };
 
 /// C++ keywords beyond C's a parameter name must not be.
-const CPP_KEYWORDS: &[&str] = &[
+static CPP_KEYWORDS: &[&str] = &[
     "alignas", "alignof", "and", "asm", "catch", "class", "concept", "constexpr", "consteval",
     "constinit", "decltype", "delete", "explicit", "export", "friend", "mutable", "namespace",
     "new", "noexcept", "not", "nullptr", "operator", "or", "private", "protected", "public",

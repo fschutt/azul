@@ -84,7 +84,7 @@ pub const MAX_RICE_FILES_PER_DIR: usize = 256;
 
 /// Theme names that are the COLOUR SCHEME, never a theme (pitfall 5): a
 /// directory or `theme:` of this name is refused.
-pub const RESERVED_THEME_NAMES: &[&str] = &["light", "dark"];
+pub static RESERVED_THEME_NAMES: &[&str] = &["light", "dark"];
 
 /// The line every rice report ends with: the support policy and the
 /// self-check (pitfall 12, gap 5).

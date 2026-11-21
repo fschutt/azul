@@ -1118,7 +1118,7 @@ pub(crate) fn state_fade(props: &[&'static str], ms: u32) -> [CssPropertyWithCon
 /// flat's Button and its toolbar keys (the fill and the four border colours;
 /// flora's commands name their shadows too - `flora::FLORA_FACE`,
 /// `flora::LIT_FACE`).
-pub(crate) const BUTTON_FACE: &[&str] = &[
+pub(crate) static BUTTON_FACE: &[&str] = &[
     "background",
     "border-top-color",
     "border-right-color",

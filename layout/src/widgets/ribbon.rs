@@ -156,110 +156,110 @@ azul_core::impl_managed_callback! {
 // -- Font --
 
 const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
-const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
+static SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
 const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
 
 // -- the Office-2013-era look palette (seeds RibbonTheme::office_2013) --
 
-const WHITE: ColorU = ColorU {
+static WHITE: ColorU = ColorU {
     r: 255,
     g: 255,
     b: 255,
     a: 255,
 };
-const TRANSPARENT: ColorU = ColorU {
+static TRANSPARENT: ColorU = ColorU {
     r: 0,
     g: 0,
     b: 0,
     a: 0,
 };
 /// Office 2013 accent blue (#2B579A): FILE tab, active tab text.
-const W13_BLUE: ColorU = ColorU {
+static W13_BLUE: ColorU = ColorU {
     r: 43,
     g: 87,
     b: 154,
     a: 255,
 };
 /// FILE tab hover fill (darker blue).
-const W13_BLUE_HOVER: ColorU = ColorU {
+static W13_BLUE_HOVER: ColorU = ColorU {
     r: 30,
     g: 62,
     b: 111,
     a: 255,
 };
 /// Regular control text (#444444).
-const W13_TEXT: ColorU = ColorU {
+static W13_TEXT: ColorU = ColorU {
     r: 68,
     g: 68,
     b: 68,
     a: 255,
 };
 /// Group caption + secondary glyph gray (#676767).
-const W13_LABEL_GRAY: ColorU = ColorU {
+static W13_LABEL_GRAY: ColorU = ColorU {
     r: 103,
     g: 103,
     b: 103,
     a: 255,
 };
 /// Monochrome icon gray.
-const W13_ICON_GRAY: ColorU = ColorU {
+static W13_ICON_GRAY: ColorU = ColorU {
     r: 80,
     g: 80,
     b: 80,
     a: 255,
 };
 /// Chrome border gray (#D4D4D4): tab underline, ribbon bottom border.
-const W13_BORDER: ColorU = ColorU {
+static W13_BORDER: ColorU = ColorU {
     r: 212,
     g: 212,
     b: 212,
     a: 255,
 };
 /// Group/segment separator gray (#E1E1E1).
-const W13_SEP: ColorU = ColorU {
+static W13_SEP: ColorU = ColorU {
     r: 225,
     g: 225,
     b: 225,
     a: 255,
 };
 /// Hover fill (#CDE6F7).
-const W13_HOVER_BG: ColorU = ColorU {
+static W13_HOVER_BG: ColorU = ColorU {
     r: 205,
     g: 230,
     b: 247,
     a: 255,
 };
 /// Hover/checked border (#92C0E0).
-const W13_HOVER_BORDER: ColorU = ColorU {
+static W13_HOVER_BORDER: ColorU = ColorU {
     r: 146,
     g: 192,
     b: 224,
     a: 255,
 };
 /// Pressed fill (#B0D0EC).
-const W13_PRESSED_BG: ColorU = ColorU {
+static W13_PRESSED_BG: ColorU = ColorU {
     r: 176,
     g: 208,
     b: 236,
     a: 255,
 };
 /// Toggled-on fill (#C6DDF0).
-const W13_CHECKED_BG: ColorU = ColorU {
+static W13_CHECKED_BG: ColorU = ColorU {
     r: 198,
     g: 221,
     b: 240,
     a: 255,
 };
 /// Selected gallery cell fill (#EAF3FC).
-const W13_SELECTED_BG: ColorU = ColorU {
+static W13_SELECTED_BG: ColorU = ColorU {
     r: 234,
     g: 243,
     b: 252,
     a: 255,
 };
 /// Flat editable-field border gray (#ABABAB).
-const W13_FIELD_BORDER: ColorU = ColorU {
+static W13_FIELD_BORDER: ColorU = ColorU {
     r: 171,
     g: 171,
     b: 171,
@@ -273,7 +273,7 @@ const W13_FIELD_BORDER: ColorU = ColorU {
 
 /// The ribbon's foot and the tab strip's rule (#BAC0C9): a shade darker than
 /// the panes' hairline, as the band's edge against the window.
-const O10_BORDER: ColorU = ColorU {
+static O10_BORDER: ColorU = ColorU {
     r: 186,
     g: 192,
     b: 201,

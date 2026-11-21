@@ -49,9 +49,9 @@ pub const DOCUMENT: &str = "document.json";
 const COMPONENTS: &str = "components";
 const STYLES: &str = "styles";
 /// The folders a new project starts with.
-const SKELETON: &[&str] = &["components", "styles", "tests", "snapshots"];
+static SKELETON: &[&str] = &["components", "styles", "tests", "snapshots"];
 /// Never listed, zipped or walked into.
-const SKIP: &[&str] = &[".git", "target", "node_modules", ".DS_Store"];
+static SKIP: &[&str] = &[".git", "target", "node_modules", ".DS_Store"];
 
 const MANIFEST_FORMAT: &str = "azul-project";
 const COMPONENT_FORMAT: &str = "azul-component";

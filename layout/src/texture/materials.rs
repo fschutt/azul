@@ -75,9 +75,9 @@ pub use distance::ShapeField;
 
 // -- The tiles -------------------------------------------------------------------------------
 
-const LEATHER: &[u8] = include_bytes!("../../assets/textures/leather.azm");
-const BLUEJEANS: &[u8] = include_bytes!("../../assets/textures/bluejeans.azm");
-const ALUMINIUM: &[u8] = include_bytes!("../../assets/textures/aluminium.azm");
+static LEATHER: &[u8] = include_bytes!("../../assets/textures/leather.azm");
+static BLUEJEANS: &[u8] = include_bytes!("../../assets/textures/bluejeans.azm");
+static ALUMINIUM: &[u8] = include_bytes!("../../assets/textures/aluminium.azm");
 
 /// The packed (brotli) tile of `material`; empty for the vellum, whose tile
 /// is the built-in vellum's ink.

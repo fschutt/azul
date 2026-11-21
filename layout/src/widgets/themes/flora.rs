@@ -25,73 +25,73 @@ use crate::widgets::button::{Button, ButtonOnClick, OptionButtonOnClick};
 
 // Colors extracted from flora.css
 // Light mode colors
-pub const LIGHT_PG: ColorU = ColorU {
+pub static LIGHT_PG: ColorU = ColorU {
     r: 230,
     g: 228,
     b: 223,
     a: 255,
 };
-pub const LIGHT_SUR: ColorU = ColorU {
+pub static LIGHT_SUR: ColorU = ColorU {
     r: 242,
     g: 241,
     b: 237,
     a: 255,
 };
-pub const LIGHT_DESK: ColorU = ColorU {
+pub static LIGHT_DESK: ColorU = ColorU {
     r: 221,
     g: 219,
     b: 213,
     a: 255,
 };
-pub const LIGHT_STRIP: ColorU = ColorU {
+pub static LIGHT_STRIP: ColorU = ColorU {
     r: 233,
     g: 231,
     b: 226,
     a: 255,
 };
-pub const LIGHT_TRACK: ColorU = ColorU {
+pub static LIGHT_TRACK: ColorU = ColorU {
     r: 231,
     g: 229,
     b: 224,
     a: 255,
 };
-pub const LIGHT_BD: ColorU = ColorU {
+pub static LIGHT_BD: ColorU = ColorU {
     r: 198,
     g: 195,
     b: 187,
     a: 255,
 };
-pub const LIGHT_BD2: ColorU = ColorU {
+pub static LIGHT_BD2: ColorU = ColorU {
     r: 180,
     g: 177,
     b: 169,
     a: 255,
 };
-pub const LIGHT_BD3: ColorU = ColorU {
+pub static LIGHT_BD3: ColorU = ColorU {
     r: 156,
     g: 152,
     b: 144,
     a: 255,
 };
-pub const LIGHT_BD4: ColorU = ColorU {
+pub static LIGHT_BD4: ColorU = ColorU {
     r: 210,
     g: 207,
     b: 200,
     a: 255,
 };
-pub const LIGHT_BD5: ColorU = ColorU {
+pub static LIGHT_BD5: ColorU = ColorU {
     r: 165,
     g: 161,
     b: 153,
     a: 255,
 };
-pub const LIGHT_SEP: ColorU = ColorU {
+pub static LIGHT_SEP: ColorU = ColorU {
     r: 216,
     g: 213,
     b: 206,
     a: 255,
 };
-pub const LIGHT_SEP2: ColorU = ColorU {
+pub static LIGHT_SEP2: ColorU = ColorU {
     r: 224,
     g: 221,
     b: 215,
@@ -103,31 +103,31 @@ pub const LIGHT_INK: ColorU = ColorU {
     b: 33,
     a: 255,
 };
-pub const LIGHT_INK2: ColorU = ColorU {
+pub static LIGHT_INK2: ColorU = ColorU {
     r: 46,
     g: 44,
     b: 38,
     a: 255,
 };
-pub const LIGHT_INTRO: ColorU = ColorU {
+pub static LIGHT_INTRO: ColorU = ColorU {
     r: 78,
     g: 76,
     b: 69,
     a: 255,
 };
-pub const LIGHT_SOFT1: ColorU = ColorU {
+pub static LIGHT_SOFT1: ColorU = ColorU {
     r: 102,
     g: 100,
     b: 92,
     a: 255,
 };
-pub const LIGHT_SOFT2: ColorU = ColorU {
+pub static LIGHT_SOFT2: ColorU = ColorU {
     r: 130,
     g: 127,
     b: 118,
     a: 255,
 };
-pub const LIGHT_SOFT3: ColorU = ColorU {
+pub static LIGHT_SOFT3: ColorU = ColorU {
     r: 116,
     g: 113,
     b: 106,
@@ -139,37 +139,37 @@ pub const LIGHT_ICON: ColorU = ColorU {
     b: 76,
     a: 255,
 };
-pub const LIGHT_RT: ColorU = ColorU {
+pub static LIGHT_RT: ColorU = ColorU {
     r: 250,
     g: 249,
     b: 245,
     a: 255,
 };
-pub const LIGHT_RB: ColorU = ColorU {
+pub static LIGHT_RB: ColorU = ColorU {
     r: 236,
     g: 234,
     b: 228,
     a: 255,
 };
-pub const LIGHT_HT: ColorU = ColorU {
+pub static LIGHT_HT: ColorU = ColorU {
     r: 254,
     g: 253,
     b: 250,
     a: 255,
 };
-pub const LIGHT_HB: ColorU = ColorU {
+pub static LIGHT_HB: ColorU = ColorU {
     r: 241,
     g: 239,
     b: 233,
     a: 255,
 };
-pub const LIGHT_PT: ColorU = ColorU {
+pub static LIGHT_PT: ColorU = ColorU {
     r: 228,
     g: 225,
     b: 218,
     a: 255,
 };
-pub const LIGHT_PB: ColorU = ColorU {
+pub static LIGHT_PB: ColorU = ColorU {
     r: 238,
     g: 236,
     b: 230,
@@ -181,61 +181,61 @@ pub const LIGHT_FLD: ColorU = ColorU {
     b: 246,
     a: 255,
 };
-pub const LIGHT_FLD2: ColorU = ColorU {
+pub static LIGHT_FLD2: ColorU = ColorU {
     r: 239,
     g: 237,
     b: 231,
     a: 255,
 };
-pub const LIGHT_DISBG: ColorU = ColorU {
+pub static LIGHT_DISBG: ColorU = ColorU {
     r: 235,
     g: 233,
     b: 227,
     a: 255,
 };
-pub const LIGHT_DISTX: ColorU = ColorU {
+pub static LIGHT_DISTX: ColorU = ColorU {
     r: 163,
     g: 160,
     b: 153,
     a: 255,
 };
-pub const LIGHT_QT: ColorU = ColorU {
+pub static LIGHT_QT: ColorU = ColorU {
     r: 110,
     g: 99,
     b: 73,
     a: 255,
 };
-pub const LIGHT_QT2: ColorU = ColorU {
+pub static LIGHT_QT2: ColorU = ColorU {
     r: 79,
     g: 70,
     b: 51,
     a: 255,
 };
-pub const LIGHT_ACC: ColorU = ColorU {
+pub static LIGHT_ACC: ColorU = ColorU {
     r: 47,
     g: 74,
     b: 133,
     a: 255,
 };
-pub const LIGHT_DEEP: ColorU = ColorU {
+pub static LIGHT_DEEP: ColorU = ColorU {
     r: 30,
     g: 50,
     b: 96,
     a: 255,
 };
-pub const LIGHT_SOFT: ColorU = ColorU {
+pub static LIGHT_SOFT: ColorU = ColorU {
     r: 224,
     g: 228,
     b: 238,
     a: 255,
 };
-pub const LIGHT_GLOW: ColorU = ColorU {
+pub static LIGHT_GLOW: ColorU = ColorU {
     r: 122,
     g: 147,
     b: 198,
     a: 255,
 };
-pub const LIGHT_ON_ACC: ColorU = ColorU {
+pub static LIGHT_ON_ACC: ColorU = ColorU {
     r: 244,
     g: 242,
     b: 234,
@@ -243,31 +243,31 @@ pub const LIGHT_ON_ACC: ColorU = ColorU {
 };
 
 // Dark mode colors
-pub const DARK_PG: ColorU = ColorU {
+pub static DARK_PG: ColorU = ColorU {
     r: 26,
     g: 26,
     b: 26,
     a: 255,
 };
-pub const DARK_SUR: ColorU = ColorU {
+pub static DARK_SUR: ColorU = ColorU {
     r: 35,
     g: 35,
     b: 35,
     a: 255,
 };
-pub const DARK_DESK: ColorU = ColorU {
+pub static DARK_DESK: ColorU = ColorU {
     r: 18,
     g: 18,
     b: 18,
     a: 255,
 };
-pub const DARK_STRIP: ColorU = ColorU {
+pub static DARK_STRIP: ColorU = ColorU {
     r: 31,
     g: 31,
     b: 31,
     a: 255,
 };
-pub const DARK_TRACK: ColorU = ColorU {
+pub static DARK_TRACK: ColorU = ColorU {
     r: 21,
     g: 21,
     b: 21,
@@ -279,115 +279,115 @@ pub const DARK_BD: ColorU = ColorU {
     b: 63,
     a: 255,
 };
-pub const DARK_BD2: ColorU = ColorU {
+pub static DARK_BD2: ColorU = ColorU {
     r: 74,
     g: 74,
     b: 74,
     a: 255,
 };
-pub const DARK_BD3: ColorU = ColorU {
+pub static DARK_BD3: ColorU = ColorU {
     r: 97,
     g: 97,
     b: 97,
     a: 255,
 };
-pub const DARK_BD4: ColorU = ColorU {
+pub static DARK_BD4: ColorU = ColorU {
     r: 52,
     g: 52,
     b: 52,
     a: 255,
 };
-pub const DARK_BD5: ColorU = ColorU {
+pub static DARK_BD5: ColorU = ColorU {
     r: 16,
     g: 16,
     b: 16,
     a: 255,
 };
-pub const DARK_SEP: ColorU = ColorU {
+pub static DARK_SEP: ColorU = ColorU {
     r: 56,
     g: 56,
     b: 56,
     a: 255,
 };
-pub const DARK_SEP2: ColorU = ColorU {
+pub static DARK_SEP2: ColorU = ColorU {
     r: 46,
     g: 46,
     b: 46,
     a: 255,
 };
-pub const DARK_INK: ColorU = ColorU {
+pub static DARK_INK: ColorU = ColorU {
     r: 231,
     g: 231,
     b: 231,
     a: 255,
 };
-pub const DARK_INK2: ColorU = ColorU {
+pub static DARK_INK2: ColorU = ColorU {
     r: 220,
     g: 220,
     b: 220,
     a: 255,
 };
-pub const DARK_INTRO: ColorU = ColorU {
+pub static DARK_INTRO: ColorU = ColorU {
     r: 188,
     g: 188,
     b: 188,
     a: 255,
 };
-pub const DARK_SOFT1: ColorU = ColorU {
+pub static DARK_SOFT1: ColorU = ColorU {
     r: 168,
     g: 168,
     b: 168,
     a: 255,
 };
-pub const DARK_SOFT2: ColorU = ColorU {
+pub static DARK_SOFT2: ColorU = ColorU {
     r: 140,
     g: 140,
     b: 140,
     a: 255,
 };
-pub const DARK_SOFT3: ColorU = ColorU {
+pub static DARK_SOFT3: ColorU = ColorU {
     r: 154,
     g: 154,
     b: 154,
     a: 255,
 };
-pub const DARK_ICON: ColorU = ColorU {
+pub static DARK_ICON: ColorU = ColorU {
     r: 190,
     g: 190,
     b: 190,
     a: 255,
 };
-pub const DARK_RT: ColorU = ColorU {
+pub static DARK_RT: ColorU = ColorU {
     r: 51,
     g: 51,
     b: 51,
     a: 255,
 };
-pub const DARK_RB: ColorU = ColorU {
+pub static DARK_RB: ColorU = ColorU {
     r: 41,
     g: 41,
     b: 41,
     a: 255,
 };
-pub const DARK_HT: ColorU = ColorU {
+pub static DARK_HT: ColorU = ColorU {
     r: 63,
     g: 63,
     b: 63,
     a: 255,
 };
-pub const DARK_HB: ColorU = ColorU {
+pub static DARK_HB: ColorU = ColorU {
     r: 51,
     g: 51,
     b: 51,
     a: 255,
 };
-pub const DARK_PT: ColorU = ColorU {
+pub static DARK_PT: ColorU = ColorU {
     r: 31,
     g: 31,
     b: 31,
     a: 255,
 };
-pub const DARK_PB: ColorU = ColorU {
+pub static DARK_PB: ColorU = ColorU {
     r: 38,
     g: 38,
     b: 38,
@@ -399,61 +399,61 @@ pub const DARK_FLD: ColorU = ColorU {
     b: 29,
     a: 255,
 };
-pub const DARK_FLD2: ColorU = ColorU {
+pub static DARK_FLD2: ColorU = ColorU {
     r: 36,
     g: 36,
     b: 36,
     a: 255,
 };
-pub const DARK_DISBG: ColorU = ColorU {
+pub static DARK_DISBG: ColorU = ColorU {
     r: 36,
     g: 36,
     b: 36,
     a: 255,
 };
-pub const DARK_DISTX: ColorU = ColorU {
+pub static DARK_DISTX: ColorU = ColorU {
     r: 102,
     g: 102,
     b: 102,
     a: 255,
 };
-pub const DARK_QT: ColorU = ColorU {
+pub static DARK_QT: ColorU = ColorU {
     r: 196,
     g: 181,
     b: 142,
     a: 255,
 };
-pub const DARK_QT2: ColorU = ColorU {
+pub static DARK_QT2: ColorU = ColorU {
     r: 222,
     g: 211,
     b: 180,
     a: 255,
 };
-pub const DARK_ACC: ColorU = ColorU {
+pub static DARK_ACC: ColorU = ColorU {
     r: 47,
     g: 74,
     b: 133,
     a: 255,
 };
-pub const DARK_DEEP: ColorU = ColorU {
+pub static DARK_DEEP: ColorU = ColorU {
     r: 30,
     g: 50,
     b: 96,
     a: 255,
 };
-pub const DARK_SOFT: ColorU = ColorU {
+pub static DARK_SOFT: ColorU = ColorU {
     r: 224,
     g: 228,
     b: 238,
     a: 255,
 };
-pub const DARK_GLOW: ColorU = ColorU {
+pub static DARK_GLOW: ColorU = ColorU {
     r: 122,
     g: 147,
     b: 198,
     a: 255,
 };
-pub const DARK_ON_ACC: ColorU = ColorU {
+pub static DARK_ON_ACC: ColorU = ColorU {
     r: 244,
     g: 242,
     b: 234,
@@ -495,7 +495,7 @@ pub const DARK_ON_ACC: ColorU = ColorU {
 
 /// The CSS default direction: `linear-gradient(a, b)` with no angle runs top to
 /// bottom.
-const TO_BOTTOM: Direction = Direction::FromTo(DirectionCorners {
+static TO_BOTTOM: Direction = Direction::FromTo(DirectionCorners {
     dir_from: DirectionCorner::Top,
     dir_to: DirectionCorner::Bottom,
 });
@@ -517,7 +517,7 @@ fn layers(list: Vec<StyleBackgroundContent>) -> CssProperty {
 
 // -- the raised face --------------------------------------------------------
 
-const RAISED_FACE_LIGHT_STOPS: &[NormalizedLinearColorStop] =
+static RAISED_FACE_LIGHT_STOPS: &[NormalizedLinearColorStop] =
     &[stop(0, LIGHT_RT), stop(100, LIGHT_RB)];
 
 /// `.btn-secondary`: raised paper, the standard command at rest.
@@ -532,7 +532,7 @@ pub const RAISED_FACE_LIGHT: StyleBackgroundContent =
         stops: NormalizedLinearColorStopVec::from_const_slice(RAISED_FACE_LIGHT_STOPS),
     });
 
-const RAISED_FACE_DARK_STOPS: &[NormalizedLinearColorStop] =
+static RAISED_FACE_DARK_STOPS: &[NormalizedLinearColorStop] =
     &[stop(0, DARK_RT), stop(100, DARK_RB)];
 
 /// [`RAISED_FACE_LIGHT`] under `:root[data-theme="dark"]`, where the tokens
@@ -547,7 +547,7 @@ pub const RAISED_FACE_DARK: StyleBackgroundContent =
 
 // -- the hovered face -------------------------------------------------------
 
-const HOVER_FACE_LIGHT_STOPS: &[NormalizedLinearColorStop] =
+static HOVER_FACE_LIGHT_STOPS: &[NormalizedLinearColorStop] =
     &[stop(0, LIGHT_HT), stop(100, LIGHT_HB)];
 
 /// `.btn-secondary:hover`: the raised face lifted toward the light.
@@ -562,7 +562,7 @@ pub const HOVER_FACE_LIGHT: StyleBackgroundContent =
         stops: NormalizedLinearColorStopVec::from_const_slice(HOVER_FACE_LIGHT_STOPS),
     });
 
-const HOVER_FACE_DARK_STOPS: &[NormalizedLinearColorStop] = &[stop(0, DARK_HT), stop(100, DARK_HB)];
+static HOVER_FACE_DARK_STOPS: &[NormalizedLinearColorStop] = &[stop(0, DARK_HT), stop(100, DARK_HB)];
 
 /// [`HOVER_FACE_LIGHT`] in dark mode. [`DARK_HT`] over [`DARK_HB`].
 pub const HOVER_FACE_DARK: StyleBackgroundContent =
@@ -574,7 +574,7 @@ pub const HOVER_FACE_DARK: StyleBackgroundContent =
 
 // -- the pressed face -------------------------------------------------------
 
-const PRESSED_FACE_LIGHT_STOPS: &[NormalizedLinearColorStop] =
+static PRESSED_FACE_LIGHT_STOPS: &[NormalizedLinearColorStop] =
     &[stop(0, LIGHT_PT), stop(100, LIGHT_PB)];
 
 /// `.btn-secondary:active`: the face pushed in.
@@ -589,7 +589,7 @@ pub const PRESSED_FACE_LIGHT: StyleBackgroundContent =
         stops: NormalizedLinearColorStopVec::from_const_slice(PRESSED_FACE_LIGHT_STOPS),
     });
 
-const PRESSED_FACE_DARK_STOPS: &[NormalizedLinearColorStop] =
+static PRESSED_FACE_DARK_STOPS: &[NormalizedLinearColorStop] =
     &[stop(0, DARK_PT), stop(100, DARK_PB)];
 
 /// [`PRESSED_FACE_LIGHT`] in dark mode. [`DARK_PT`] over [`DARK_PB`].
@@ -611,7 +611,7 @@ pub const PRESSED_FACE_DARK: StyleBackgroundContent =
 // (0.85 at rest, 1 on hover) is not a background property and is not
 // reproduced; the stops are the CSS's own.
 
-const STONE_RIG_TOP_STOPS: &[NormalizedLinearColorStop] = &[
+static STONE_RIG_TOP_STOPS: &[NormalizedLinearColorStop] = &[
     stop(0, ColorU::new(12, 10, 4, 87)),
     stop(32, ColorU::new(12, 10, 4, 0)),
 ];
@@ -627,7 +627,7 @@ pub const STONE_RIG_TOP: StyleBackgroundContent =
         stops: NormalizedLinearColorStopVec::from_const_slice(STONE_RIG_TOP_STOPS),
     });
 
-const STONE_RIG_LEFT_STOPS: &[NormalizedLinearColorStop] = &[
+static STONE_RIG_LEFT_STOPS: &[NormalizedLinearColorStop] = &[
     stop(0, ColorU::new(12, 10, 4, 56)),
     stop(15, ColorU::new(12, 10, 4, 0)),
 ];
@@ -642,7 +642,7 @@ pub const STONE_RIG_LEFT: StyleBackgroundContent =
         stops: NormalizedLinearColorStopVec::from_const_slice(STONE_RIG_LEFT_STOPS),
     });
 
-const STONE_STREAK_STOPS: &[NormalizedLinearColorStop] = &[
+static STONE_STREAK_STOPS: &[NormalizedLinearColorStop] = &[
     stop(6, ColorU::new(255, 248, 215, 0)),
     stop(15, ColorU::new(255, 248, 215, 51)),
     stop(22, ColorU::new(255, 248, 215, 15)),
@@ -660,7 +660,7 @@ pub const STONE_STREAK: StyleBackgroundContent =
         stops: NormalizedLinearColorStopVec::from_const_slice(STONE_STREAK_STOPS),
     });
 
-const STONE_STREAK_HOVER_STOPS: &[NormalizedLinearColorStop] = &[
+static STONE_STREAK_HOVER_STOPS: &[NormalizedLinearColorStop] = &[
     stop(4, ColorU::new(255, 248, 215, 0)),
     stop(14, ColorU::new(255, 248, 215, 87)),
     stop(23, ColorU::new(255, 248, 215, 26)),
@@ -685,7 +685,7 @@ pub const STONE_STREAK_HOVER: StyleBackgroundContent =
 // bottom lifts. That inversion is the whole difference between pressed and
 // raised" — so it is what a coloured command shows while it is held down.
 
-const SUNKEN_RIG_TOP_STOPS: &[NormalizedLinearColorStop] = &[
+static SUNKEN_RIG_TOP_STOPS: &[NormalizedLinearColorStop] = &[
     stop(0, ColorU::new(8, 6, 2, 122)),
     stop(42, ColorU::new(8, 6, 2, 0)),
 ];
@@ -701,7 +701,7 @@ pub const SUNKEN_RIG_TOP: StyleBackgroundContent =
         stops: NormalizedLinearColorStopVec::from_const_slice(SUNKEN_RIG_TOP_STOPS),
     });
 
-const SUNKEN_RIG_LEFT_STOPS: &[NormalizedLinearColorStop] = &[
+static SUNKEN_RIG_LEFT_STOPS: &[NormalizedLinearColorStop] = &[
     stop(0, ColorU::new(8, 6, 2, 77)),
     stop(18, ColorU::new(8, 6, 2, 0)),
 ];
@@ -717,7 +717,7 @@ pub const SUNKEN_RIG_LEFT: StyleBackgroundContent =
         stops: NormalizedLinearColorStopVec::from_const_slice(SUNKEN_RIG_LEFT_STOPS),
     });
 
-const SUNKEN_RIG_BOTTOM_STOPS: &[NormalizedLinearColorStop] = &[
+static SUNKEN_RIG_BOTTOM_STOPS: &[NormalizedLinearColorStop] = &[
     stop(0, ColorU::new(255, 253, 238, 26)),
     stop(14, ColorU::new(255, 253, 238, 0)),
 ];
@@ -760,7 +760,7 @@ fn sunken_stone_face(color: ColorU) -> Vec<StyleBackgroundContent> {
 
 // -- the orb's gloss --------------------------------------------------------
 
-const ORB_GLOSS_STOPS: &[NormalizedLinearColorStop] = &[
+static ORB_GLOSS_STOPS: &[NormalizedLinearColorStop] = &[
     stop(0, ColorU::new(255, 255, 255, 158)),
     stop(52, ColorU::new(255, 255, 255, 56)),
     stop(100, ColorU::new(255, 255, 255, 8)),
@@ -834,7 +834,7 @@ pub const FL_DUR_MS: u32 = 420;
 pub const FL_DUR_FAST_MS: u32 = 140;
 
 /// `--fl-ease`: `cubic-bezier(0.25, 0.46, 0.45, 0.94)`, in permille.
-pub const FL_EASE: AnimationTiming =
+pub static FL_EASE: AnimationTiming =
     AnimationTiming::CubicBezier(
         AnimationTimingBezier {
             x1: 250,
@@ -849,7 +849,7 @@ pub const FL_EASE: AnimationTiming =
 /// them passes through the values in between: a face tweens layer by layer
 /// (or cross-fades into a face of another shape), a shadow tweens its
 /// lengths and its colour, and comes or goes as a fade.
-pub(crate) const FLORA_FACE: &[&str] = &[
+pub(crate) static FLORA_FACE: &[&str] = &[
     "background",
     "border-top-color",
     "border-right-color",
@@ -871,7 +871,7 @@ type FadeCurve = AnimationTiming;
 /// shadows (the lip, the gold rim, the bloom, the well) on `ease`. The ink is
 /// not on the list (it is not on flora.css's either): a stone's ink is the
 /// same in every state.
-pub(crate) const LIT_FACE: &[(&str, FadeCurve)] = &[
+pub(crate) static LIT_FACE: &[(&str, FadeCurve)] = &[
     ("background", FL_EASE),
     ("border-top-color", FadeCurve::Ease),
     ("border-right-color", FadeCurve::Ease),
@@ -1008,9 +1008,9 @@ pub(crate) fn double_ring(gap: isize) -> Vec<CssPropertyWithConditions> {
 }
 
 /// `0 0 0 1px rgba(214, 197, 140, 0.55)`: the gold rim.
-const GOLD_RIM: ColorU = ColorU::new(214, 197, 140, 140);
+static GOLD_RIM: ColorU = ColorU::new(214, 197, 140, 140);
 /// `0 0 14px rgba(214, 197, 140, 0.32)`: the gold bloom.
-const GOLD_BLOOM: ColorU = ColorU::new(214, 197, 140, 82);
+static GOLD_BLOOM: ColorU = ColorU::new(214, 197, 140, 82);
 
 /// "The metal edge comes up as the face turns toward the light": on hover a
 /// stone or a leafed command takes the gold rim (Left) and the gold bloom
@@ -1078,28 +1078,28 @@ pub(crate) fn leaf_edge() -> Vec<CssPropertyWithConditions> {
 // frosted recessed panels too. Round buttons never take the gold.
 
 /// The plain face on leather, top and bottom (`--lf-t`, `--lf-b`).
-const LEATHER_FACE_LIGHT: (ColorU, ColorU) =
+static LEATHER_FACE_LIGHT: (ColorU, ColorU) =
     (ColorU::new(250, 249, 245, 219), ColorU::new(236, 234, 228, 219));
-const LEATHER_FACE_DARK: (ColorU, ColorU) =
+static LEATHER_FACE_DARK: (ColorU, ColorU) =
     (ColorU::new(51, 51, 51, 219), ColorU::new(41, 41, 41, 219));
 /// The plain face on leather under the pointer (`--lf-ht`, `--lf-hb`, 90%).
-const LEATHER_HOVER_LIGHT: (ColorU, ColorU) =
+static LEATHER_HOVER_LIGHT: (ColorU, ColorU) =
     (ColorU::new(253, 252, 249, 230), ColorU::new(242, 240, 235, 230));
-const LEATHER_HOVER_DARK: (ColorU, ColorU) =
+static LEATHER_HOVER_DARK: (ColorU, ColorU) =
     (ColorU::new(58, 58, 58, 230), ColorU::new(47, 47, 47, 230));
 /// The plain face on leather pressed in (`--lf-pt`, `--lf-pb`).
-const LEATHER_PRESSED_LIGHT: (ColorU, ColorU) =
+static LEATHER_PRESSED_LIGHT: (ColorU, ColorU) =
     (ColorU::new(226, 223, 215, 230), ColorU::new(236, 234, 228, 230));
-const LEATHER_PRESSED_DARK: (ColorU, ColorU) =
+static LEATHER_PRESSED_DARK: (ColorU, ColorU) =
     (ColorU::new(30, 30, 30, 230), ColorU::new(38, 38, 38, 230));
 /// A disabled command's face on leather (`--lf-qt`, `--lf-qb`, 80%).
-const QUIET_FACE_LIGHT: (ColorU, ColorU) =
+static QUIET_FACE_LIGHT: (ColorU, ColorU) =
     (ColorU::new(248, 247, 243, 204), ColorU::new(234, 232, 226, 204));
-const QUIET_FACE_DARK: (ColorU, ColorU) =
+static QUIET_FACE_DARK: (ColorU, ColorU) =
     (ColorU::new(46, 46, 46, 204), ColorU::new(37, 37, 37, 204));
 /// A disabled command's neutral edge (`--quiet-bd`).
-const QUIET_EDGE_LIGHT: ColorU = ColorU::new(150, 144, 130, 115);
-const QUIET_EDGE_DARK: ColorU = ColorU::new(90, 90, 90, 179);
+static QUIET_EDGE_LIGHT: ColorU = ColorU::new(150, 144, 130, 115);
+static QUIET_EDGE_DARK: ColorU = ColorU::new(90, 90, 90, 179);
 
 /// The gold edge of an enabled command: top, right, bottom, left
 /// (`--gold-edge`), lighter on top where the light falls.
@@ -1130,24 +1130,24 @@ const GOLD_EDGE_HOVER_DARK: [ColorU; 4] = [
 ];
 
 /// A frosted panel's face, top and bottom (`--frost-t`, `--frost-b`, 90%).
-const FROST_LIGHT: (ColorU, ColorU) =
+static FROST_LIGHT: (ColorU, ColorU) =
     (ColorU::new(251, 250, 247, 230), ColorU::new(243, 241, 236, 230));
-const FROST_DARK: (ColorU, ColorU) = (ColorU::new(40, 40, 40, 230), ColorU::new(34, 34, 34, 230));
+static FROST_DARK: (ColorU, ColorU) = (ColorU::new(40, 40, 40, 230), ColorU::new(34, 34, 34, 230));
 /// A frosted panel's rim (`--frost-bd`).
-const FROST_EDGE_LIGHT: ColorU = ColorU::new(120, 108, 80, 71);
-const FROST_EDGE_DARK: ColorU = ColorU::new(0, 0, 0, 115);
+static FROST_EDGE_LIGHT: ColorU = ColorU::new(120, 108, 80, 71);
+static FROST_EDGE_DARK: ColorU = ColorU::new(0, 0, 0, 115);
 /// The shadow along a frosted panel's top (`--frost-well`).
-const FROST_WELL_LIGHT: ColorU = ColorU::new(48, 40, 25, 41);
-const FROST_WELL_DARK: ColorU = ColorU::new(0, 0, 0, 128);
+static FROST_WELL_LIGHT: ColorU = ColorU::new(48, 40, 25, 41);
+static FROST_WELL_DARK: ColorU = ColorU::new(0, 0, 0, 128);
 /// A toggled command's frost in the accent's tint (`--frost-on-t`,
 /// `--frost-on-b`, 92%).
-const FROST_ON_LIGHT: (ColorU, ColorU) =
+static FROST_ON_LIGHT: (ColorU, ColorU) =
     (ColorU::new(226, 230, 240, 235), ColorU::new(216, 222, 234, 235));
-const FROST_ON_DARK: (ColorU, ColorU) =
+static FROST_ON_DARK: (ColorU, ColorU) =
     (ColorU::new(46, 60, 88, 235), ColorU::new(38, 50, 76, 235));
 /// The shadow a toggled command is recessed by (`inset 0 1px 3px`).
-const FROST_ON_WELL_LIGHT: ColorU = ColorU::new(30, 40, 70, 56);
-const FROST_ON_WELL_DARK: ColorU = ColorU::new(0, 0, 0, 140);
+static FROST_ON_WELL_LIGHT: ColorU = ColorU::new(30, 40, 70, 56);
+static FROST_ON_WELL_DARK: ColorU = ColorU::new(0, 0, 0, 140);
 
 /// A face as one gradient layer, top to bottom.
 fn face_layer((top, bottom): (ColorU, ColorU)) -> Vec<StyleBackgroundContent> {
@@ -1458,7 +1458,7 @@ pub(crate) fn ribbon_leather_style(
 const EB_GARAMOND_STR: AzString = AzString::from_const_str("EB Garamond");
 const GEORGIA_STR: AzString = AzString::from_const_str("Georgia");
 const SERIF_STR: AzString = AzString::from_const_str("serif");
-const CAPS_FAMILIES: &[StyleFontFamily] = &[
+static CAPS_FAMILIES: &[StyleFontFamily] = &[
     StyleFontFamily::System(EB_GARAMOND_STR),
     StyleFontFamily::System(GEORGIA_STR),
     StyleFontFamily::System(AzString::from_const_str("Times New Roman")),
@@ -1500,15 +1500,15 @@ pub(crate) fn font_caps_for(app_font: Option<&str>) -> StyleFontFamilyVec {
 
 /// A command's capitals: the specimen's 13.5px bold small capitals tracked
 /// .06em, as 11px capitals.
-pub(crate) const CAPS_COMMAND: (isize, f32) = (11, 0.07);
+pub(crate) static CAPS_COMMAND: (isize, f32) = (11, 0.07);
 /// A group or section title (`.fl-label`, the specimen's `h3`): .12em.
-pub(crate) const CAPS_TITLE: (isize, f32) = (11, 0.12);
+pub(crate) static CAPS_TITLE: (isize, f32) = (11, 0.12);
 /// A field's label over it (the specimen's 11.5px small capitals): .1em.
-pub(crate) const CAPS_LABEL: (isize, f32) = (10, 0.1);
+pub(crate) static CAPS_LABEL: (isize, f32) = (10, 0.1);
 
 /// A tab button's capitals (the selected tab and its neighbours in a
 /// `TabStyle::Pills` row): 11.5px, tracked .08em.
-pub(crate) const TAB_BUTTON_CAPS: (f32, f32) = (11.5, 0.08);
+pub(crate) static TAB_BUTTON_CAPS: (f32, f32) = (11.5, 0.08);
 
 /// A tab button's label: [`TAB_BUTTON_CAPS`] in the UI hand, bold,
 /// uppercase, on a 1.25 line.
@@ -1563,7 +1563,7 @@ pub(crate) fn in_caps(
 
 // -- the stone's rig: the two radial passes the transcription above lacked --
 
-const STONE_BLOOM_STOPS: &[NormalizedLinearColorStop] = &[
+static STONE_BLOOM_STOPS: &[NormalizedLinearColorStop] = &[
     stop(0, ColorU::new(255, 253, 238, 82)),
     stop(45, ColorU::new(255, 253, 238, 0)),
 ];
@@ -1584,7 +1584,7 @@ pub const STONE_BLOOM: StyleBackgroundContent =
         stops: NormalizedLinearColorStopVec::from_const_slice(STONE_BLOOM_STOPS),
     });
 
-const STONE_FAR_CORNER_STOPS: &[NormalizedLinearColorStop] = &[
+static STONE_FAR_CORNER_STOPS: &[NormalizedLinearColorStop] = &[
     stop(0, ColorU::new(12, 10, 4, 102)),
     stop(45, ColorU::new(12, 10, 4, 0)),
 ];
@@ -1604,7 +1604,7 @@ pub const STONE_FAR_CORNER: StyleBackgroundContent =
         stops: NormalizedLinearColorStopVec::from_const_slice(STONE_FAR_CORNER_STOPS),
     });
 
-const SUNKEN_BLOOM_STOPS: &[NormalizedLinearColorStop] = &[
+static SUNKEN_BLOOM_STOPS: &[NormalizedLinearColorStop] = &[
     stop(0, ColorU::new(255, 253, 238, 66)),
     stop(42, ColorU::new(255, 253, 238, 0)),
 ];
@@ -2253,7 +2253,7 @@ fn check_mark_skin() -> Vec<CssPropertyWithConditions> {
     v
 }
 
-const CHECK_TICK_ROTATION: &[StyleTransform] =
+static CHECK_TICK_ROTATION: &[StyleTransform] =
     &[StyleTransform::Rotate(AngleValue::const_deg(45))];
 
 /// The tick in a checked box: two strokes of the paper ink (`--fl-on-acc`), an
@@ -2992,7 +2992,7 @@ fn slider_band(edge: ColorU, trough: ColorU, foot: ColorU) -> StyleBackgroundCon
 
 /// The gold that leads a filled track (the design system's leading edge,
 /// `linear-gradient(#fedb37, #9f7928)`, here the leaf's own gold).
-const LEADING_GOLD: ColorU = ColorU::rgb(0xD2, 0xB0, 0x52);
+static LEADING_GOLD: ColorU = ColorU::rgb(0xD2, 0xB0, 0x52);
 
 /// `inset -3px 0 0 <gold>`: a 3px gold band along a fill's right edge.
 fn leading_edge() -> CssPropertyWithConditions {
@@ -3050,7 +3050,7 @@ fn slider_fill() -> Dom {
     Dom::create_div().with_css_props(CssPropertyWithConditionsVec::from_vec(v))
 }
 
-const DIAMOND_ROTATION: &[StyleTransform] = &[StyleTransform::Rotate(AngleValue::const_deg(45))];
+static DIAMOND_ROTATION: &[StyleTransform] = &[StyleTransform::Rotate(AngleValue::const_deg(45))];
 
 /// The flora slider's thumb: a diamond of paper - a 14px square turned 45
 /// degrees, `linear-gradient(135deg, #FDFAF1, #D8CDB6)` in a `--fl-soft2`
@@ -3369,7 +3369,7 @@ pub fn text_area(mut ta: crate::widgets::text_area::TextArea) -> Dom {
         )
 }
 const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
-const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
+static SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
 const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
 
@@ -3393,7 +3393,7 @@ pub(crate) fn flora_dropdown_wrapper_style() -> Vec<CssPropertyWithConditions> {
 }
 
 /// Flora's label skin, after `drop_down::DROPDOWN_LABEL_BASE` (R5).
-const FLORA_DROPDOWN_LABEL_STYLE: &[CssPropertyWithConditions] = &[
+static FLORA_DROPDOWN_LABEL_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(10),
     )),
@@ -3407,7 +3407,7 @@ const FLORA_DROPDOWN_LABEL_STYLE: &[CssPropertyWithConditions] = &[
 
 /// Flora's arrow skin, after `drop_down::DROPDOWN_ARROW_BASE` (R5): the small
 /// drop mark in the quiet ink (`--fl-soft2`).
-const FLORA_DROPDOWN_ARROW_STYLE: &[CssPropertyWithConditions] = &[
+static FLORA_DROPDOWN_ARROW_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(16))),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: LIGHT_SOFT2,
@@ -4088,11 +4088,11 @@ mod gradient_tests {
 
 /// The wool by day (between `--fl-sbA` #D4D1C9 and `--fl-sbB` #ADAAA1) and
 /// at night (between #3F3F3F and #333333).
-pub(crate) const SCROLLBAR_WOOL: (ColorU, ColorU) =
+pub(crate) static SCROLLBAR_WOOL: (ColorU, ColorU) =
     (ColorU::rgb(0xC0, 0xBD, 0xB5), ColorU::rgb(0x39, 0x39, 0x39));
 
 /// The parchment track: `--fl-track` by day and at night.
-pub(crate) const SCROLLBAR_PARCHMENT: (ColorU, ColorU) = (LIGHT_TRACK, DARK_TRACK);
+pub(crate) static SCROLLBAR_PARCHMENT: (ColorU, ColorU) = (LIGHT_TRACK, DARK_TRACK);
 
 /// The sheet that gives every scroll box under it flora's scrollbars: `* {
 /// scrollbar-color: wool parchment }`, its night twin under the dark mode.
@@ -4152,23 +4152,23 @@ pub(crate) fn scrollbar_sheet() -> azul_css::css::Css {
 // a quiet action in brass ink ([`popover_skin`]).
 
 /// `.nav-overlay`: the warm dim behind a modal dialog, in both modes.
-pub const DIALOG_BACKDROP: ColorU = ColorU::new(20, 19, 16, 115);
+pub static DIALOG_BACKDROP: ColorU = ColorU::new(20, 19, 16, 115);
 /// The leaf's cast shadow by day (`0 8px 22px`): rgba(48, 45, 38, 0.20).
-const DIALOG_SHADOW_LIGHT: ColorU = ColorU::new(48, 45, 38, 51);
+static DIALOG_SHADOW_LIGHT: ColorU = ColorU::new(48, 45, 38, 51);
 /// The same at night: rgba(0, 0, 0, 0.55).
-const DIALOG_SHADOW_DARK: ColorU = ColorU::new(0, 0, 0, 140);
+static DIALOG_SHADOW_DARK: ColorU = ColorU::new(0, 0, 0, 140);
 /// `--fl-shadow-2`'s first layer by day: rgba(48, 45, 38, 0.16).
-const POPOVER_SHADOW_LIGHT: ColorU = ColorU::new(48, 45, 38, 41);
+static POPOVER_SHADOW_LIGHT: ColorU = ColorU::new(48, 45, 38, 41);
 /// `--fl-shadow-2`'s first layer by night: rgba(0, 0, 0, 0.5).
-const POPOVER_SHADOW_DARK: ColorU = ColorU::new(0, 0, 0, 128);
+static POPOVER_SHADOW_DARK: ColorU = ColorU::new(0, 0, 0, 128);
 /// `.btn-quiet:hover`'s wash by day: rgba(180, 135, 44, 0.08).
-const DIALOG_QUIET_WASH_LIGHT: ColorU = ColorU::new(180, 135, 44, 20);
+static DIALOG_QUIET_WASH_LIGHT: ColorU = ColorU::new(180, 135, 44, 20);
 /// The same wash by night, in the night brass: rgba(196, 181, 142, 0.10).
-const DIALOG_QUIET_WASH_DARK: ColorU = ColorU::new(196, 181, 142, 26);
+static DIALOG_QUIET_WASH_DARK: ColorU = ColorU::new(196, 181, 142, 26);
 /// The light wash on the band under the pointer: rgba(255, 252, 240, 0.15).
-const DIALOG_BAND_WASH: ColorU = ColorU::new(255, 252, 240, 38);
+static DIALOG_BAND_WASH: ColorU = ColorU::new(255, 252, 240, 38);
 /// The rule that closes the band, by day (the chrome's foot, darker).
-const DIALOG_BAND_RULE_LIGHT: ColorU = ColorU::rgb(0x55, 0x52, 0x4A);
+static DIALOG_BAND_RULE_LIGHT: ColorU = ColorU::rgb(0x55, 0x52, 0x4A);
 
 /// The header band's height, the rule included.
 const DIALOG_BAND_PX: isize = 30;
@@ -4375,9 +4375,9 @@ pub fn popover(p: crate::widgets::popover::Popover) -> Dom {
 // `text_input`'s states, so it is the one that wins.
 
 /// `--fl-well` by day: inset 0 1px 2px rgba(48, 45, 38, 0.10).
-const NUMBER_INPUT_WELL_LIGHT: ColorU = ColorU::new(48, 45, 38, 26);
+static NUMBER_INPUT_WELL_LIGHT: ColorU = ColorU::new(48, 45, 38, 26);
 /// `--fl-well` by night: inset 0 1px 2px rgba(0, 0, 0, 0.45).
-const NUMBER_INPUT_WELL_DARK: ColorU = ColorU::new(0, 0, 0, 115);
+static NUMBER_INPUT_WELL_DARK: ColorU = ColorU::new(0, 0, 0, 115);
 
 /// Renders a [`crate::widgets::number_input::NumberInput`] in the flora theme.
 #[must_use]
@@ -4440,7 +4440,7 @@ pub fn number_input(mut n: crate::widgets::number_input::NumberInput) -> Dom {
 // The selected stone is shared by the W3b widgets below (segmented, radio,
 // stepper), which is why it is not named after the pager.
 
-const SELECTED_STONE_STOPS: &[NormalizedLinearColorStop] =
+static SELECTED_STONE_STOPS: &[NormalizedLinearColorStop] =
     &[stop(0, LIGHT_DEEP), stop(96, LIGHT_ACC)];
 
 /// `--fl-gem-sunken`: `linear-gradient(175deg, var(--fl-deep) 0%,
@@ -4561,9 +4561,9 @@ pub fn pagination(p: crate::widgets::pagination::Pagination) -> Dom {
 // The indicator keeps the widget's fixed geometry (16px, never shrinks).
 
 /// `--fl-hov` by day: rgba(253, 252, 248, 0.6).
-const RADIO_GROUP_HOVER_LIGHT: ColorU = ColorU::new(253, 252, 248, 153);
+static RADIO_GROUP_HOVER_LIGHT: ColorU = ColorU::new(253, 252, 248, 153);
 /// `--fl-hov` by night: rgba(58, 58, 58, 0.7).
-const RADIO_GROUP_HOVER_DARK: ColorU = ColorU::new(58, 58, 58, 179);
+static RADIO_GROUP_HOVER_DARK: ColorU = ColorU::new(58, 58, 58, 179);
 
 /// Flora's radio-group skin for a group laid out `horizontal`ly or not.
 #[must_use]
@@ -5137,16 +5137,16 @@ pub fn toast(t: crate::widgets::toast::Toast) -> Dom {
 // handlers work unchanged.
 
 /// Dark oak, by day / by night.
-pub(crate) const TOOLTIP_OAK: (ColorU, ColorU) =
+pub(crate) static TOOLTIP_OAK: (ColorU, ColorU) =
     (ColorU::rgb(0x3B, 0x33, 0x27), ColorU::rgb(0x3B, 0x33, 0x27));
 /// The pale ink on the oak, by day / by night.
-pub(crate) const TOOLTIP_OAK_INK: (ColorU, ColorU) =
+pub(crate) static TOOLTIP_OAK_INK: (ColorU, ColorU) =
     (ColorU::rgb(0xEF, 0xE7, 0xD7), ColorU::rgb(0xEF, 0xE7, 0xD7));
 /// The oak's rule: `--fl-soft1` by day, the oak's own shade by night.
-pub(crate) const TOOLTIP_OAK_RULE: (ColorU, ColorU) =
+pub(crate) static TOOLTIP_OAK_RULE: (ColorU, ColorU) =
     (ColorU::rgb(0x66, 0x64, 0x5C), ColorU::rgb(0x55, 0x4A, 0x3A));
 /// The oak's shadow: rgba(60, 48, 30, 0.3) by day, rgba(0, 0, 0, 0.55) by night.
-const TOOLTIP_SHADOW: (ColorU, ColorU) = (ColorU::new(60, 48, 30, 77), ColorU::new(0, 0, 0, 140));
+static TOOLTIP_SHADOW: (ColorU, ColorU) = (ColorU::new(60, 48, 30, 77), ColorU::new(0, 0, 0, 140));
 
 /// Flora's tooltip skin.
 #[must_use]
@@ -5520,7 +5520,7 @@ pub struct FloraStone {
 }
 
 /// The accent stone (`--fl-acc` / `--fl-deep` / `--fl-soft` / `--fl-glow`).
-pub const STONE_ACCENT: FloraStone = FloraStone {
+pub static STONE_ACCENT: FloraStone = FloraStone {
     stone: LIGHT_ACC,
     deep: LIGHT_DEEP,
     soft: LIGHT_SOFT,
@@ -5528,7 +5528,7 @@ pub const STONE_ACCENT: FloraStone = FloraStone {
 };
 
 /// Leaf: flora.css's green alternate (#44684F / #2F4C39 / #E1E6E1 / #7FA98C).
-pub const STONE_LEAF: FloraStone = FloraStone {
+pub static STONE_LEAF: FloraStone = FloraStone {
     stone: ColorU::rgb(0x44, 0x68, 0x4F),
     deep: ColorU::rgb(0x2F, 0x4C, 0x39),
     soft: ColorU::rgb(0xE1, 0xE6, 0xE1),
@@ -5536,7 +5536,7 @@ pub const STONE_LEAF: FloraStone = FloraStone {
 };
 
 /// Clay: flora.css's red alternate (#7E4A42 / #5E332D / #EAE0DD / #B3837A).
-pub const STONE_CLAY: FloraStone = FloraStone {
+pub static STONE_CLAY: FloraStone = FloraStone {
     stone: ColorU::rgb(0x7E, 0x4A, 0x42),
     deep: ColorU::rgb(0x5E, 0x33, 0x2D),
     soft: ColorU::rgb(0xEA, 0xE0, 0xDD),
@@ -5545,7 +5545,7 @@ pub const STONE_CLAY: FloraStone = FloraStone {
 
 /// Slate: flora.css's blue-grey alternate (#4A5C6B / #354551 / #DEE3E7 /
 /// #8AA0B0).
-pub const STONE_SLATE: FloraStone = FloraStone {
+pub static STONE_SLATE: FloraStone = FloraStone {
     stone: ColorU::rgb(0x4A, 0x5C, 0x6B),
     deep: ColorU::rgb(0x35, 0x45, 0x51),
     soft: ColorU::rgb(0xDE, 0xE3, 0xE7),
@@ -5554,7 +5554,7 @@ pub const STONE_SLATE: FloraStone = FloraStone {
 
 /// Amber: the warning stone, cut to the same depth as the others so
 /// --fl-on-acc reads on it at better than 5:1.
-pub const STONE_AMBER: FloraStone = FloraStone {
+pub static STONE_AMBER: FloraStone = FloraStone {
     stone: ColorU::rgb(0x8A, 0x5A, 0x1E),
     deep: ColorU::rgb(0x6B, 0x44, 0x15),
     soft: ColorU::rgb(0xF1, 0xE6, 0xD6),
@@ -5854,8 +5854,8 @@ const fn alert_stone(kind: crate::widgets::alert::AlertKind) -> FloraStone {
 
 /// `--fl-shadow-1`: `0 1px 2px rgba(48, 45, 38, 0.14)`, and its night value
 /// `rgba(0, 0, 0, 0.55)`.
-const LEAF_SHADOW_LIGHT: ColorU = ColorU::new(48, 45, 38, 36);
-const LEAF_SHADOW_DARK: ColorU = ColorU::new(0, 0, 0, 140);
+static LEAF_SHADOW_LIGHT: ColorU = ColorU::new(48, 45, 38, 36);
+static LEAF_SHADOW_DARK: ColorU = ColorU::new(0, 0, 0, 140);
 
 /// The flora banner for one alert kind.
 fn flora_alert_container(
@@ -5935,8 +5935,8 @@ pub fn alert(a: crate::widgets::alert::Alert) -> Dom {
 
 /// The near half of `--fl-shadow-2`: `0 2px 5px rgba(48, 45, 38, 0.16)`; at
 /// night `rgba(0, 0, 0, 0.5)`.
-const CARD_LEAF_SHADOW_LIGHT: ColorU = ColorU::new(48, 45, 38, 41);
-const CARD_LEAF_SHADOW_DARK: ColorU = ColorU::new(0, 0, 0, 128);
+static CARD_LEAF_SHADOW_LIGHT: ColorU = ColorU::new(48, 45, 38, 41);
+static CARD_LEAF_SHADOW_DARK: ColorU = ColorU::new(0, 0, 0, 128);
 
 /// The flora card's box, after the card's own flex-grow and its base (the
 /// column, `card::CARD_BASE`).
@@ -7198,18 +7198,18 @@ pub(crate) fn tree_view_look() -> crate::widgets::tree_view::TreeViewLook {
 /// `--fl-metal-turn` (#C6B279): the value flora's ribbon has where the rule
 /// that closes a tab strip turns and climbs the selected tab - the one metal
 /// the rule and the tab's surround are cut from.
-pub const TAB_METAL: ColorU = ColorU::rgb(0xC6, 0xB2, 0x79);
+pub static TAB_METAL: ColorU = ColorU::rgb(0xC6, 0xB2, 0x79);
 /// The rolled metal at its lit head (`--fl-rolled-tab`'s #FFFDF3).
-pub const METAL_LIT: ColorU = ColorU::rgb(0xFF, 0xFD, 0xF3);
+pub static METAL_LIT: ColorU = ColorU::rgb(0xFF, 0xFD, 0xF3);
 /// The rolled metal a fifth of the way down (`--fl-rolled-tab`'s #E4DCB8).
-pub const METAL_ROLL: ColorU = ColorU::rgb(0xE4, 0xDC, 0xB8);
+pub static METAL_ROLL: ColorU = ColorU::rgb(0xE4, 0xDC, 0xB8);
 /// The rule's glint, at a third and two thirds of the strip
 /// (`--fl-rule-metal-bg`'s `rgba(239, 235, 211, 1)`).
-pub const METAL_GLINT: ColorU = ColorU::rgb(239, 235, 211);
+pub static METAL_GLINT: ColorU = ColorU::rgb(239, 235, 211);
 /// The rule's darker roll between its glints (`rgba(162, 146, 95, .9)`).
-pub const METAL_DIM: ColorU = ColorU::rgb(162, 146, 95);
+pub static METAL_DIM: ColorU = ColorU::rgb(162, 146, 95);
 /// The rule's brass at both ends of the strip (`rgba(122, 112, 82, .5)`).
-pub const METAL_SHADE: ColorU = ColorU::rgb(122, 112, 82);
+pub static METAL_SHADE: ColorU = ColorU::rgb(122, 112, 82);
 
 /// `--fl-cove-o`: `--fl-cove` (12px) + `--fl-metal` (2px), how far above the
 /// foot the rolled bead has arrived at the turn colour.
@@ -7222,7 +7222,7 @@ const fn at_alpha(c: ColorU, a: u8) -> ColorU {
     ColorU::new(c.r, c.g, c.b, a)
 }
 
-const RULE_METAL_STOPS: &[NormalizedLinearColorStop] = &[
+static RULE_METAL_STOPS: &[NormalizedLinearColorStop] = &[
     stop(0, at_alpha(METAL_SHADE, 128)),
     stop(16, at_alpha(TAB_METAL, 242)),
     stop(32, METAL_GLINT),
@@ -7247,7 +7247,7 @@ pub const RULE_METAL: StyleBackgroundContent =
         stops: NormalizedLinearColorStopVec::from_const_slice(RULE_METAL_STOPS),
     });
 
-const RULE_SHIMMER_STOPS: &[NormalizedLinearColorStop] = &[
+static RULE_SHIMMER_STOPS: &[NormalizedLinearColorStop] = &[
     stop(0, at_alpha(METAL_SHADE, 40)),
     stop(16, at_alpha(TAB_METAL, 96)),
     stop(32, at_alpha(METAL_GLINT, 150)),
@@ -7267,7 +7267,7 @@ pub const RULE_SHIMMER: StyleBackgroundContent =
         stops: NormalizedLinearColorStopVec::from_const_slice(RULE_SHIMMER_STOPS),
     });
 
-const ROLLED_TAB_STOPS: &[NormalizedLinearColorStop] = &[
+static ROLLED_TAB_STOPS: &[NormalizedLinearColorStop] = &[
     stop(0, METAL_LIT),
     stop(22, METAL_ROLL),
     // `calc(100% - var(--fl-cove-o))`: the tangent where the bead meets the
@@ -7297,7 +7297,7 @@ pub const ROLLED_TAB: StyleBackgroundContent =
 /// `--fl-metal-turn-0` to `--fl-metal-turn`: spelled out rather than from
 /// `transparent`, so a renderer that interpolates straight RGBA cannot fringe
 /// the run-out.
-const RUNOUT_STOPS: &[NormalizedLinearColorStop] =
+static RUNOUT_STOPS: &[NormalizedLinearColorStop] =
     &[stop(0, at_alpha(TAB_METAL, 0)), stop(100, TAB_METAL)];
 
 /// `.fl-tab-runout-l`: the rule easing into the turn colour beside the left
@@ -7357,7 +7357,7 @@ fn tab_rule_foot(v: &mut Vec<CssPropertyWithConditions>) {
 }
 
 /// `.nav-links a:active`'s well: `inset 0 1px 3px rgba(48, 45, 38, 0.2)`.
-const TAB_PRESS_SHADOW: ColorU = ColorU::new(48, 45, 38, 51);
+static TAB_PRESS_SHADOW: ColorU = ColorU::new(48, 45, 38, 51);
 
 /// `--fl-dur-ray`: light falling into a sunken stone - the shafts brighten
 /// and drift across it over 1.8s, ease-in-out (flora.css's MOTION: "a shaft
@@ -7441,7 +7441,7 @@ pub(crate) struct TabSpacing {
 /// A row whose tabs hang S curves (Aurora, the ribbon's row): every S lies
 /// in a gap of its own width, which the two tabs beside it share as
 /// Firefox's tabs overlap, and keeps 8px off the labels on both sides.
-pub(crate) const CURVED_TABS: TabSpacing = TabSpacing {
+pub(crate) static CURVED_TABS: TabSpacing = TabSpacing {
     side: 8,
     gap: TAB_CURVE,
     lead: TAB_CURVE,
@@ -7450,7 +7450,7 @@ const _: () = assert!(CURVED_TABS.gap >= TAB_CURVE && CURVED_TABS.lead >= TAB_CU
 
 /// A row of square tabs: nothing hangs past a tab, so the tabs stand close
 /// and the first one at the strip's edge.
-pub(crate) const SQUARE_TABS: TabSpacing = TabSpacing {
+pub(crate) static SQUARE_TABS: TabSpacing = TabSpacing {
     side: 12,
     gap: 2,
     lead: 0,
@@ -7481,7 +7481,7 @@ const fn stop_after(offset: isize, px: isize, color: ColorU) -> NormalizedLinear
     }
 }
 
-const TAB_STREAK_STOPS: &[NormalizedLinearColorStop] = &[
+static TAB_STREAK_STOPS: &[NormalizedLinearColorStop] = &[
     stop_after(6, TAB_STREAK_START, ColorU::new(255, 248, 215, 0)),
     stop_after(15, TAB_STREAK_START, ColorU::new(255, 248, 215, 51)),
     stop_after(22, TAB_STREAK_START, ColorU::new(255, 248, 215, 15)),
@@ -7502,7 +7502,7 @@ pub const TAB_STREAK: StyleBackgroundContent =
         stops: NormalizedLinearColorStopVec::from_const_slice(TAB_STREAK_STOPS),
     });
 
-const TAB_STREAK_HOVER_STOPS: &[NormalizedLinearColorStop] = &[
+static TAB_STREAK_HOVER_STOPS: &[NormalizedLinearColorStop] = &[
     stop_after(4, TAB_STREAK_START, ColorU::new(255, 248, 215, 0)),
     stop_after(14, TAB_STREAK_START, ColorU::new(255, 248, 215, 87)),
     stop_after(23, TAB_STREAK_START, ColorU::new(255, 248, 215, 26)),
@@ -7606,7 +7606,7 @@ fn australis_tab_box(
     }
 }
 
-const TAB_FACE_STOPS: &[NormalizedLinearColorStop] = &[stop(0, LIGHT_DEEP), stop(96, LIGHT_ACC)];
+static TAB_FACE_STOPS: &[NormalizedLinearColorStop] = &[stop(0, LIGHT_DEEP), stop(96, LIGHT_ACC)];
 
 /// The selected tab's stone: `--fl-gem-sunken` (`linear-gradient(175deg,
 /// var(--fl-deep) 0%, var(--fl-acc) 96%)`) stood upright. The tab is three
@@ -8114,21 +8114,21 @@ pub(crate) fn tab_content_look() -> crate::widgets::tabs::TabContentLook {
 // the native look's; flora draws its own chrome.
 
 /// `--fl-ct`: the top of flora's window chrome by day (#837F74).
-pub const LIGHT_CT: ColorU = ColorU::rgb(0x83, 0x7F, 0x74);
+pub static LIGHT_CT: ColorU = ColorU::rgb(0x83, 0x7F, 0x74);
 /// `--fl-cb`: the foot of flora's window chrome by day (#67635A).
-pub const LIGHT_CB: ColorU = ColorU::rgb(0x67, 0x63, 0x5A);
+pub static LIGHT_CB: ColorU = ColorU::rgb(0x67, 0x63, 0x5A);
 /// `--fl-ct` by night (#383838).
-pub const DARK_CT: ColorU = ColorU::rgb(0x38, 0x38, 0x38);
+pub static DARK_CT: ColorU = ColorU::rgb(0x38, 0x38, 0x38);
 /// `--fl-cb` by night (#262626).
-pub const DARK_CB: ColorU = ColorU::rgb(0x26, 0x26, 0x26);
+pub static DARK_CB: ColorU = ColorU::rgb(0x26, 0x26, 0x26);
 /// The ink written on flora's window chrome, by day and by night
 /// (`.azul-titlebar`'s #F2F2F2): the band is dark in both modes.
-pub const CHROME_INK: ColorU = ColorU::rgb(0xF2, 0xF2, 0xF2);
+pub static CHROME_INK: ColorU = ColorU::rgb(0xF2, 0xF2, 0xF2);
 /// The chrome's ink while the window is unfocused (`:backdrop`): the title
 /// steps back, as every desktop's does.
-pub const CHROME_INK_DIM: ColorU = ColorU::rgb(0xB9, 0xB5, 0xAB);
+pub static CHROME_INK_DIM: ColorU = ColorU::rgb(0xB9, 0xB5, 0xAB);
 /// A window control under the pointer: the chrome's ink as a 15% wash.
-pub const CHROME_HOVER: ColorU = ColorU::new(0xF2, 0xF2, 0xF2, 38);
+pub static CHROME_HOVER: ColorU = ColorU::new(0xF2, 0xF2, 0xF2, 38);
 
 /// Flora's titlebar look: flora's window chrome on the bar's own metrics.
 #[must_use]
@@ -8513,7 +8513,7 @@ pub fn accordion_groups(a: crate::widgets::accordion::Accordion) -> Dom {
 // value.
 
 /// The ember the bar turns when the volume is nearly full.
-const TILE_ALARM: ColorU = ColorU::new(180, 60, 44, 255);
+static TILE_ALARM: ColorU = ColorU::new(180, 60, 44, 255);
 
 /// One solid layer, as a bar's fill or track.
 fn solid_layer(color: ColorU) -> StyleBackgroundContentVec {
@@ -9102,11 +9102,11 @@ const fn shell_border_top() -> [CssPropertyWithConditions; 2] {
 
 /// The backdrop tint under the command palette: a warm dusk by day, night
 /// at night.
-const SHELL_BACKDROP_LIGHT: ColorU = ColorU::new(40, 34, 24, 100);
-const SHELL_BACKDROP_DARK: ColorU = ColorU::new(0, 0, 0, 160);
+static SHELL_BACKDROP_LIGHT: ColorU = ColorU::new(40, 34, 24, 100);
+static SHELL_BACKDROP_DARK: ColorU = ColorU::new(0, 0, 0, 160);
 /// The palette panel's shadow: warm by day, near-black at night.
-const SHELL_SHADOW_LIGHT: ColorU = ColorU::new(60, 50, 30, 70);
-const SHELL_SHADOW_DARK: ColorU = ColorU::new(0, 0, 0, 170);
+static SHELL_SHADOW_LIGHT: ColorU = ColorU::new(60, 50, 30, 70);
+static SHELL_SHADOW_DARK: ColorU = ColorU::new(0, 0, 0, 170);
 
 /// Flora's shell look.
 #[must_use]
@@ -9797,9 +9797,9 @@ pub fn wizard_layout(w: crate::widgets::wizard_layout::WizardLayout) -> Dom {
 // question in the accent), the button row a toolbar strip over a hairline.
 
 /// The search match's wash, light and dark.
-const KIT_MARK_LIGHT: ColorU = ColorU::new(246, 222, 150, 255);
-const KIT_MARK_DARK: ColorU = ColorU::new(96, 78, 30, 255);
-const KIT_MARK_INK_DARK: ColorU = ColorU::new(255, 236, 179, 255);
+static KIT_MARK_LIGHT: ColorU = ColorU::new(246, 222, 150, 255);
+static KIT_MARK_DARK: ColorU = ColorU::new(96, 78, 30, 255);
+static KIT_MARK_INK_DARK: ColorU = ColorU::new(255, 236, 179, 255);
 
 /// Flora's dialog-kit look.
 #[must_use]
@@ -9978,18 +9978,18 @@ pub(crate) fn dialog_kit_look() -> crate::widgets::dialog_kit::DialogKitLook {
 // selected clip ringed in brass, the playhead a clay line; focus is the
 // accent halo inside the lanes (the glow at night).
 
-const TIMELINE_VIDEO_LIGHT: ColorU = ColorU::rgb(0x5A, 0x72, 0xA3);
-const TIMELINE_VIDEO_DARK: ColorU = ColorU::rgb(0x45, 0x5B, 0x85);
-const TIMELINE_AUDIO_LIGHT: ColorU = ColorU::rgb(0x5E, 0x85, 0x50);
-const TIMELINE_AUDIO_DARK: ColorU = ColorU::rgb(0x4A, 0x6A, 0x3F);
-const TIMELINE_TITLE_LIGHT: ColorU = ColorU::rgb(0x96, 0x68, 0x8A);
-const TIMELINE_TITLE_DARK: ColorU = ColorU::rgb(0x77, 0x50, 0x6D);
-const TIMELINE_MUTED_LIGHT: ColorU = ColorU::rgb(0x84, 0x7F, 0x74);
-const TIMELINE_MUTED_DARK: ColorU = ColorU::rgb(0x5A, 0x56, 0x4F);
-const TIMELINE_CLIP_INK: ColorU = ColorU::rgb(0xFB, 0xF8, 0xF0);
-const TIMELINE_PLAYHEAD_LIGHT: ColorU = ColorU::rgb(0xB4, 0x3C, 0x2C);
-const TIMELINE_PLAYHEAD_DARK: ColorU = ColorU::rgb(0xE0, 0x6A, 0x55);
-const TIMELINE_SELECTED_RING: ColorU = ColorU::rgb(0xE0, 0xB3, 0x41);
+static TIMELINE_VIDEO_LIGHT: ColorU = ColorU::rgb(0x5A, 0x72, 0xA3);
+static TIMELINE_VIDEO_DARK: ColorU = ColorU::rgb(0x45, 0x5B, 0x85);
+static TIMELINE_AUDIO_LIGHT: ColorU = ColorU::rgb(0x5E, 0x85, 0x50);
+static TIMELINE_AUDIO_DARK: ColorU = ColorU::rgb(0x4A, 0x6A, 0x3F);
+static TIMELINE_TITLE_LIGHT: ColorU = ColorU::rgb(0x96, 0x68, 0x8A);
+static TIMELINE_TITLE_DARK: ColorU = ColorU::rgb(0x77, 0x50, 0x6D);
+static TIMELINE_MUTED_LIGHT: ColorU = ColorU::rgb(0x84, 0x7F, 0x74);
+static TIMELINE_MUTED_DARK: ColorU = ColorU::rgb(0x5A, 0x56, 0x4F);
+static TIMELINE_CLIP_INK: ColorU = ColorU::rgb(0xFB, 0xF8, 0xF0);
+static TIMELINE_PLAYHEAD_LIGHT: ColorU = ColorU::rgb(0xB4, 0x3C, 0x2C);
+static TIMELINE_PLAYHEAD_DARK: ColorU = ColorU::rgb(0xE0, 0x6A, 0x55);
+static TIMELINE_SELECTED_RING: ColorU = ColorU::rgb(0xE0, 0xB3, 0x41);
 
 /// A line `px` wide (a tick, the playhead).
 fn flora_timeline_line(px: isize, light: ColorU, dark: ColorU) -> Vec<CssPropertyWithConditions> {
@@ -10109,10 +10109,10 @@ pub fn timeline(t: crate::widgets::timeline::Timeline) -> Dom {
 // halo inside the canvas. At night the accent lifts to its glow and the
 // handles take the night page.
 
-const ADORNER_GUIDE_LIGHT: ColorU = ColorU::new(0xB4, 0x5A, 0x3C, 255);
-const ADORNER_GUIDE_DARK: ColorU = ColorU::new(0xE0, 0x9A, 0x7A, 255);
-const ADORNER_MARQUEE_LIGHT: ColorU = ColorU::new(0x2F, 0x4A, 0x85, 28);
-const ADORNER_MARQUEE_DARK: ColorU = ColorU::new(0x7A, 0x93, 0xC6, 40);
+static ADORNER_GUIDE_LIGHT: ColorU = ColorU::new(0xB4, 0x5A, 0x3C, 255);
+static ADORNER_GUIDE_DARK: ColorU = ColorU::new(0xE0, 0x9A, 0x7A, 255);
+static ADORNER_MARQUEE_LIGHT: ColorU = ColorU::new(0x2F, 0x4A, 0x85, 28);
+static ADORNER_MARQUEE_DARK: ColorU = ColorU::new(0x7A, 0x93, 0xC6, 40);
 
 /// Flora's selection-adorner look.
 #[must_use]
@@ -10561,12 +10561,12 @@ pub(crate) fn data_table(t: crate::widgets::data_table::DataTableResolved) -> Do
 /// A row under the pointer: the accent's soft wash at 60 % by day (flora's
 /// `--fl-hov` strength), the accent at 35 % by night - translucent over the
 /// paper or a stripe, and recut by a spin, which keeps the alpha.
-const LIST_ROW_HOVER_LIGHT: ColorU = ColorU {
+static LIST_ROW_HOVER_LIGHT: ColorU = ColorU {
     a: 153,
     ..LIGHT_SOFT
 };
 /// See [`LIST_ROW_HOVER_LIGHT`].
-const LIST_ROW_HOVER_DARK: ColorU = ColorU { a: 90, ..DARK_ACC };
+static LIST_ROW_HOVER_DARK: ColorU = ColorU { a: 90, ..DARK_ACC };
 
 /// Flora's list-view look (`list_view::ListViewLook`): the skin of every
 /// part, laid over the list's base.
@@ -11036,12 +11036,12 @@ pub(crate) const fn terminal_palette() -> crate::widgets::terminal_view::Termina
 // red past -6 dB - flora's earth tones, saturated enough to read at a
 // glance. At night the trough is the dark track and the colours lift.
 
-const LEVEL_OK_LIGHT: ColorU = ColorU::new(0x4F, 0x8A, 0x45, 255);
-const LEVEL_OK_DARK: ColorU = ColorU::new(0x7F, 0xB8, 0x6F, 255);
-const LEVEL_WARM_LIGHT: ColorU = ColorU::new(0xC2, 0x8A, 0x1E, 255);
-const LEVEL_WARM_DARK: ColorU = ColorU::new(0xE0, 0xB0, 0x50, 255);
-const LEVEL_HOT_LIGHT: ColorU = ColorU::new(0xB0, 0x40, 0x32, 255);
-const LEVEL_HOT_DARK: ColorU = ColorU::new(0xD9, 0x70, 0x5F, 255);
+static LEVEL_OK_LIGHT: ColorU = ColorU::new(0x4F, 0x8A, 0x45, 255);
+static LEVEL_OK_DARK: ColorU = ColorU::new(0x7F, 0xB8, 0x6F, 255);
+static LEVEL_WARM_LIGHT: ColorU = ColorU::new(0xC2, 0x8A, 0x1E, 255);
+static LEVEL_WARM_DARK: ColorU = ColorU::new(0xE0, 0xB0, 0x50, 255);
+static LEVEL_HOT_LIGHT: ColorU = ColorU::new(0xB0, 0x40, 0x32, 255);
+static LEVEL_HOT_DARK: ColorU = ColorU::new(0xD9, 0x70, 0x5F, 255);
 
 /// Flora's level-meter look.
 #[must_use]
@@ -11175,15 +11175,15 @@ pub fn waveform(w: crate::widgets::waveform::Waveform) -> Dom {
 // panel (keywords rust, strings olive, comments stone, types moss).
 
 /// `--fl-code-bg` by day / by night.
-const CODE_VIEW_BG: (ColorU, ColorU) = (ColorU::new(33, 31, 27, 255), ColorU::new(20, 20, 20, 255));
+static CODE_VIEW_BG: (ColorU, ColorU) = (ColorU::new(33, 31, 27, 255), ColorU::new(20, 20, 20, 255));
 /// `--fl-code-fg` by day / by night.
-const CODE_VIEW_FG: (ColorU, ColorU) =
+static CODE_VIEW_FG: (ColorU, ColorU) =
     (ColorU::new(228, 225, 214, 255), ColorU::new(226, 226, 226, 255));
 /// `--fl-code-bd` by day / by night.
-const CODE_VIEW_BD: (ColorU, ColorU) = (ColorU::new(68, 63, 53, 255), ColorU::new(54, 54, 54, 255));
+static CODE_VIEW_BD: (ColorU, ColorU) = (ColorU::new(68, 63, 53, 255), ColorU::new(54, 54, 54, 255));
 /// The panel's dim ink (line numbers, comments) by day / by night:
 /// `--fl-code-dim`, #928D80 / #858585.
-const CODE_VIEW_DIM: (ColorU, ColorU) =
+static CODE_VIEW_DIM: (ColorU, ColorU) =
     (ColorU::new(146, 141, 128, 255), ColorU::new(133, 133, 133, 255));
 
 /// One flora.css Prism ink, the same by day and by night (the code panel is

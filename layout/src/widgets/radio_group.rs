@@ -153,21 +153,21 @@ pub(crate) const LABEL_GAP: isize = 8;
 
 // ---- colours ----
 /// Indicator ring colour (#9b9b9b).
-const CIRCLE_BORDER_COLOR: ColorU = ColorU {
+static CIRCLE_BORDER_COLOR: ColorU = ColorU {
     r: 155,
     g: 155,
     b: 155,
     a: 255,
 };
 /// Selected dot fill (#0d6efd, accent blue).
-const DOT_COLOR: ColorU = ColorU {
+static DOT_COLOR: ColorU = ColorU {
     r: 13,
     g: 110,
     b: 253,
     a: 255,
 };
 
-const DOT_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(DOT_COLOR)];
+static DOT_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(DOT_COLOR)];
 const DOT_BG: StyleBackgroundContentVec = StyleBackgroundContentVec::from_const_slice(DOT_BG_ITEMS);
 
 /// Never shrink: the indicator is a fixed-size shape, not a share of its row.

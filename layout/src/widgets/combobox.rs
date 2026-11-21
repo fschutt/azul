@@ -137,7 +137,7 @@ fn quiet_line(px: isize) -> Vec<CssPropertyWithConditions> {
 }
 
 const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
-const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
+static SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
 const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
 
@@ -151,26 +151,26 @@ const RADIUS: isize = 4;
 const ARROW_FONT_SIZE_PX: isize = 18;
 
 // ---- colours ----
-const WHITE: ColorU = ColorU {
+static WHITE: ColorU = ColorU {
     r: 255,
     g: 255,
     b: 255,
     a: 255,
 };
-const BORDER_COLOR: ColorU = ColorU {
+static BORDER_COLOR: ColorU = ColorU {
     r: 172,
     g: 172,
     b: 172,
     a: 255,
 }; // #acacac
-const TEXT_COLOR: ColorU = ColorU {
+static TEXT_COLOR: ColorU = ColorU {
     r: 51,
     g: 51,
     b: 51,
     a: 255,
 }; // #333333
 
-const WHITE_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(WHITE)];
+static WHITE_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(WHITE)];
 const WHITE_BG_VEC: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(WHITE_BG_ITEMS);
 

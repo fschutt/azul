@@ -132,7 +132,7 @@ impl ExprSyntax for Ruby {
 /// Ruby's keywords, as the generator lists them (`RUBY_RESERVED` in
 /// `lang_ruby/wrappers.rs`): a method or parameter named like one gets a
 /// trailing `_` there, and a parameter here.
-const RESERVED: &[&str] = &[
+static RESERVED: &[&str] = &[
     "alias", "and", "begin", "break", "case", "class", "def", "defined", "do", "else", "elsif",
     "end", "ensure", "false", "for", "if", "in", "module", "next", "nil", "not", "or", "redo",
     "rescue", "retry", "return", "self", "super", "then", "true", "undef", "unless", "until",

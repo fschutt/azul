@@ -529,7 +529,7 @@ pub fn variant_ctor_method(variant: &str) -> String {
     }
 }
 
-const RESERVED_VARIANT_CTORS: &[&str] = &[
+static RESERVED_VARIANT_CTORS: &[&str] = &[
     "default",
     "delete",
     "clone",

@@ -563,7 +563,7 @@ mod australis_tests {
 }
 
 const STRING_16146701490593874959: AzString = AzString::from_const_str("system:ui");
-const STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS: &[StyleBackgroundContent] =
+static STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
         direction: Direction::FromTo(DirectionCorners {
             dir_from: DirectionCorner::Top,
@@ -575,16 +575,16 @@ const STYLE_BACKGROUND_CONTENT_8560341490937422656_ITEMS: &[StyleBackgroundConte
         ),
     })];
 
-const STYLE_BACKGROUND_CONTENT_16746671892555275291_ITEMS: &[StyleBackgroundContent] =
+static STYLE_BACKGROUND_CONTENT_16746671892555275291_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::Color(ColorU {
         r: 255,
         g: 255,
         b: 255,
         a: 255,
     })];
-const STYLE_FONT_FAMILY_8122988506401935406_ITEMS: &[StyleFontFamily] =
+static STYLE_FONT_FAMILY_8122988506401935406_ITEMS: &[StyleFontFamily] =
     &[StyleFontFamily::System(STRING_16146701490593874959)];
-const LINEAR_COLOR_STOP_1400070954008106244_ITEMS: &[NormalizedLinearColorStop] = &[
+static LINEAR_COLOR_STOP_1400070954008106244_ITEMS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(0),
@@ -607,7 +607,7 @@ const LINEAR_COLOR_STOP_1400070954008106244_ITEMS: &[NormalizedLinearColorStop] 
     },
 ];
 
-const CSS_MATCH_13824480602841492081_PROPERTIES: &[CssPropertyWithConditions] = &[
+static CSS_MATCH_13824480602841492081_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul-native-tabs-header p.__azul-native-tabs-tab-noleftborder
     CssPropertyWithConditions::simple(CssProperty::BorderLeftWidth(
         LayoutBorderLeftWidthValue::None,
@@ -785,7 +785,7 @@ const CSS_MATCH_13824480602841492081_PROPERTIES: &[CssPropertyWithConditions] = 
 pub(crate) const CSS_MATCH_13824480602841492081: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_13824480602841492081_PROPERTIES);
 
-const CSS_MATCH_14575853790110873394_PROPERTIES: &[CssPropertyWithConditions] = &[
+static CSS_MATCH_14575853790110873394_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul-native-tabs-header p.__azul-native-tabs-tab-active
     CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
         LayoutPaddingRight {
@@ -938,7 +938,7 @@ const CSS_MATCH_14575853790110873394_PROPERTIES: &[CssPropertyWithConditions] = 
 pub(crate) const CSS_MATCH_14575853790110873394: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_14575853790110873394_PROPERTIES);
 
-const CSS_MATCH_17290739305197504468_PROPERTIES: &[CssPropertyWithConditions] = &[
+static CSS_MATCH_17290739305197504468_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul-native-tabs-header .__azul-native-tabs-before-tabs
     CssPropertyWithConditions::simple(CssProperty::Width(LayoutWidthValue::Exact(
         LayoutWidth::Px(PixelValue::const_px(2)),
@@ -973,7 +973,7 @@ const CSS_MATCH_17290739305197504468_PROPERTIES: &[CssPropertyWithConditions] = 
 pub(crate) const CSS_MATCH_17290739305197504468: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_17290739305197504468_PROPERTIES);
 
-const CSS_MATCH_18014909903571752977_PROPERTIES: &[CssPropertyWithConditions] = &[
+static CSS_MATCH_18014909903571752977_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul-native-tabs-content
     CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
         LayoutPaddingRight {
@@ -1073,7 +1073,7 @@ const CSS_MATCH_18014909903571752977_PROPERTIES: &[CssPropertyWithConditions] = 
 pub(crate) const CSS_MATCH_18014909903571752977: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_18014909903571752977_PROPERTIES);
 
-const CSS_MATCH_3088386549906605418_PROPERTIES: &[CssPropertyWithConditions] = &[
+static CSS_MATCH_3088386549906605418_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul-native-tabs-header .__azul-native-tabs-after-tabs
     CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
@@ -1100,7 +1100,7 @@ const CSS_MATCH_3088386549906605418_PROPERTIES: &[CssPropertyWithConditions] = &
 pub(crate) const CSS_MATCH_3088386549906605418: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_3088386549906605418_PROPERTIES);
 
-const CSS_MATCH_4415083954137121609_PROPERTIES: &[CssPropertyWithConditions] = &[
+static CSS_MATCH_4415083954137121609_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul-native-tabs-header p.__azul-native-tabs-tab-norightborder
     CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
         LayoutBorderRightWidthValue::None,
@@ -1278,7 +1278,7 @@ const CSS_MATCH_4415083954137121609_PROPERTIES: &[CssPropertyWithConditions] = &
 pub(crate) const CSS_MATCH_4415083954137121609: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_4415083954137121609_PROPERTIES);
 
-const CSS_MATCH_4738503469417034630_PROPERTIES: &[CssPropertyWithConditions] = &[
+static CSS_MATCH_4738503469417034630_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul-native-tabs-container
     CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
         LayoutPaddingRight {
@@ -1309,7 +1309,7 @@ const CSS_MATCH_4738503469417034630_PROPERTIES: &[CssPropertyWithConditions] = &
 const CSS_MATCH_4738503469417034630: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_4738503469417034630_PROPERTIES);
 
-const CSS_MATCH_9988039989460234263_PROPERTIES: &[CssPropertyWithConditions] = &[
+static CSS_MATCH_9988039989460234263_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul-native-tabs-header - flat's skin; the flex row (`display`,
     // `flex-direction`) is `HEADER_BASE`.
     CssPropertyWithConditions::simple(CssProperty::FontSize(StyleFontSizeValue::Exact(
@@ -1339,7 +1339,7 @@ pub(crate) const CSS_MATCH_18014909903571752977_NO_PADDING: CssPropertyWithCondi
         CSS_MATCH_18014909903571752977_PROPERTIES_NO_PADDING,
     );
 
-const CSS_MATCH_4738503469417034630_PROPERTIES_NO_PADDING: &[CssPropertyWithConditions] = &[
+static CSS_MATCH_4738503469417034630_PROPERTIES_NO_PADDING: &[CssPropertyWithConditions] = &[
     // .__azul-native-tabs-container
     CssPropertyWithConditions::simple(CssProperty::FlexGrow(LayoutFlexGrowValue::Exact(
         LayoutFlexGrow {
@@ -1354,7 +1354,7 @@ const CSS_MATCH_4738503469417034630_NO_PADDING: CssPropertyWithConditionsVec =
 
 // -- REGULAR_INACTIVE_TAB
 
-const CSS_MATCH_11510695043643111367_PROPERTIES: &[CssPropertyWithConditions] = &[
+static CSS_MATCH_11510695043643111367_PROPERTIES: &[CssPropertyWithConditions] = &[
     // .__azul-native-tabs-header p.__azul-native-tabs-tab-not-active
     CssPropertyWithConditions::simple(CssProperty::PaddingRight(LayoutPaddingRightValue::Exact(
         LayoutPaddingRight {

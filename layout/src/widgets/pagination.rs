@@ -135,53 +135,53 @@ pub struct PaginationState {
 
 // ---- colours (mirroring segmented's palette) ----
 /// Page border colour (#ced4da).
-const PAGE_BORDER_COLOR: ColorU = ColorU {
+static PAGE_BORDER_COLOR: ColorU = ColorU {
     r: 206,
     g: 212,
     b: 218,
     a: 255,
 };
 /// Active-page background (#0d6efd, accent blue).
-const ACCENT_BG_COLOR: ColorU = ColorU {
+static ACCENT_BG_COLOR: ColorU = ColorU {
     r: 13,
     g: 110,
     b: 253,
     a: 255,
 };
 /// Neutral (inactive) background (white).
-const NEUTRAL_BG_COLOR: ColorU = ColorU {
+static NEUTRAL_BG_COLOR: ColorU = ColorU {
     r: 255,
     g: 255,
     b: 255,
     a: 255,
 };
 /// Active-page text colour (white).
-const ACTIVE_TEXT: ColorU = ColorU {
+static ACTIVE_TEXT: ColorU = ColorU {
     r: 255,
     g: 255,
     b: 255,
     a: 255,
 };
 /// Neutral text colour (#212529, dark).
-const NEUTRAL_TEXT: ColorU = ColorU {
+static NEUTRAL_TEXT: ColorU = ColorU {
     r: 33,
     g: 37,
     b: 41,
     a: 255,
 };
 /// Disabled (Prev/Next at a bound) text colour (#adb5bd, muted grey).
-const DISABLED_TEXT: ColorU = ColorU {
+static DISABLED_TEXT: ColorU = ColorU {
     r: 173,
     g: 181,
     b: 189,
     a: 255,
 };
 
-const ACCENT_BG_ITEMS: &[StyleBackgroundContent] =
+static ACCENT_BG_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::Color(ACCENT_BG_COLOR)];
 const ACCENT_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(ACCENT_BG_ITEMS);
-const NEUTRAL_BG_ITEMS: &[StyleBackgroundContent] =
+static NEUTRAL_BG_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::Color(NEUTRAL_BG_COLOR)];
 const NEUTRAL_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(NEUTRAL_BG_ITEMS);
