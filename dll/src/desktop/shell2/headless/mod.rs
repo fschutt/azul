@@ -14969,13 +14969,30 @@ mod tests {
             });
             state
         };
-        let (patched, _, copied, painted) = df_list_against_full(
+        let (patched, across, copied, painted) = df_list_against_full(
             page,
             |page: &mut DfPage| page.rows[20].id = 2,
             &DF_BEFORE_WLIST,
             "a box recoloured by its row's id",
         );
-        assert_eq!(patched, 1, "premise: the window's list is patched");
+        // Measured (the verifier's run, 2026-11-21): (patched, across) = (0, 1), 235 runs
+        // copied, 10 painted; the patch gate (`AZ_PATCH_DEBUG`) reads `preserved=false`,
+        // `fresh={122}` of 242 boxes. On this page every row holds an anonymous box (its
+        // inline cell beside the block `div.df-extra`), and the layout reconcile carries an
+        // anonymous box without counting it as reused or fresh: `reused + fresh == nodes`
+        // does not hold, so no pass of this page is a same-shaped tree's and the pass is not
+        // the named cascade's arm (the step `wlist`): the arm of a changed tree (`tlist`)
+        // takes it, with the same names. (A row that takes the class of a descendant rule
+        // instead of the id gives the same (0, 1): it is the page, not the id.) The mutant
+        // of THAT arm is its `boxes_painted_for(&new_tree, named)` left out of the re-emit
+        // set. Either arm patches the list; one of them must. The named arm's own re-emit
+        // set has this test through a view (`a_node_the_cascade_reached_is_painted_though_its_box_is_clean`),
+        // and the window's hand-over to it has `one_changed_class_paints_its_row_and_copies_the_windows_list`.
+        assert_eq!(
+            patched + across,
+            1,
+            "premise: the window's list is patched, by one of the two arms ({patched}, {across})"
+        );
         assert!(copied >= 39, "premise: the other rows are copied ({copied} runs)");
         assert!(painted >= 1, "the box is painted ({painted} paint calls)");
     }
