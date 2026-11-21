@@ -1822,30 +1822,125 @@ pub fn adjust_relative_positions_of<T: ParsedFontTrait>(
     // LayoutError>` return forced the `?` at the call site to read an Ok-niche discriminant, which
     // the remill→wasm lift mis-lowers (per-build, ASLR-dependent) → a FALSE Err that aborted the
     // whole layout in the web backend (rect=0). Matches sibling reposition_* fns that return ().
-    // Iterate through all nodes. We need the index to modify the position map.
-    for node_index in 0..tree.nodes.len() {
-        // A position kept from the pass before has its shift in it.
-        if placed_now.is_some_and(|placed| !placed.get(node_index).copied().unwrap_or(false)) {
-            continue;
-        }
-        shift_if_relatively_positioned(ctx, tree, calculated_positions, viewport, node_index);
-    }
+    // Every box of the tree in ascending index, but (a position kept from
+    // the pass before has its shift in it) the ones this pass did not place.
+    let mut shifted = Vec::new();
+    let mut walk = Vec::new();
+    shift_relatively_positioned(
+        ctx,
+        tree,
+        calculated_positions,
+        viewport,
+        (0..tree.nodes.len()).filter(|&node_index| {
+            !placed_now.is_some_and(|placed| !placed.get(node_index).copied().unwrap_or(false))
+        }),
+        &mut shifted,
+        &mut walk,
+    );
 }
 
-/// One step of [`adjust_relative_positions_of`]: if the box at `node_index`
-/// is relatively positioned, its position and that of everything below it
-/// move by its offset.
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
-                                 // (one branch per case)
-fn shift_if_relatively_positioned<T: ParsedFontTrait>(
+/// How many positions the relative step wrote on this thread - a shifted
+/// box's own and those of the boxes below it: what the size sweep of
+/// `audit_tests::a3_solver` reads (A3-solver-27).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static RELATIVE_SHIFT_VISITS: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
+}
+
+/// A relatively positioned box that is shifted: its layout index, its
+/// offset, and whether a walk has moved its subtree by it
+/// ([`shift_relatively_positioned`]).
+type ShiftedBox = (usize, LogicalPosition, bool);
+
+/// The relative step for the boxes `candidates` (in ascending layout index):
+/// each of them that is relatively positioned with an offset moves by it,
+/// with everything below it (CSS 2.2 9.4.3: the box is shifted as a unit;
+/// positions are absolute).
+///
+/// ONE walk per outermost shifted box. A box below several shifted boxes
+/// takes their offsets one after the other on the way down, outermost
+/// first - the additions the step always made, in the order it made them
+/// (bit for bit: `(p + d1) + d2`, never `p + (d1 + d2)`) - where each
+/// shifted box used to walk its whole subtree again: a box nested k
+/// shifted boxes deep was visited k times, a chain of n of them n * n / 2
+/// times. What is left per box is one addition per shifted box around it.
+///
+/// `shifted` and `walk` are scratch.
+fn shift_relatively_positioned<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
     calculated_positions: &mut super::PositionVec,
     viewport: LogicalRect,
-    node_index: usize,
+    candidates: impl Iterator<Item = usize>,
+    shifted: &mut Vec<ShiftedBox>,
+    walk: &mut Vec<(usize, usize)>,
 ) {
+    // The offsets depend on the boxes' styles and on their parents' sizes,
+    // not on any position: all of them first.
+    shifted.clear();
+    for node_index in candidates {
+        if let Some(offset) = relative_offset_of(ctx, tree, viewport, node_index) {
+            // (A box without a slot moved nothing, and nothing below it.)
+            if node_index < calculated_positions.len() {
+                shifted.push((node_index, offset, false));
+            }
+        }
+    }
+    if shifted.is_empty() {
+        return;
+    }
+    // The offsets of the shifted boxes around the box the walk stands on,
+    // outermost first.
+    let mut around: Vec<LogicalPosition> = Vec::new();
+    for at in 0..shifted.len() {
+        if shifted[at].2 {
+            // Inside a shifted box before it: that box's walk moved it.
+            continue;
+        }
+        around.clear();
+        walk.clear();
+        walk.push((shifted[at].0, 0));
+        // An entry: a box, and how many offsets its parent stands under.
+        while let Some((node_index, outer)) = walk.pop() {
+            around.truncate(outer);
+            // Its own offset, unless a walk of its own applied it already
+            // (a shifted box that comes before the one around it).
+            if let Ok(found) = shifted.binary_search_by_key(&node_index, |entry| entry.0) {
+                if !shifted[found].2 {
+                    shifted[found].2 = true;
+                    around.push(shifted[found].1);
+                }
+            }
+            #[cfg(test)]
+            RELATIVE_SHIFT_VISITS.with(|n| n.set(n.get() + 1));
+            if let Some(position) = calculated_positions.get_mut(node_index) {
+                for offset in &around {
+                    position.x += offset.x;
+                    position.y += offset.y;
+                }
+            }
+            if !around.is_empty() {
+                let inner = around.len();
+                walk.extend(tree.children(node_index).iter().map(|&child| (child, inner)));
+            }
+        }
+    }
+}
+
+/// The offset the box at `node_index` is shifted by if it is relatively
+/// positioned (`None`: it is not, or it is a table part `position` does not
+/// apply to, or its offset is zero).
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
+fn relative_offset_of<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    viewport: LogicalRect,
+    node_index: usize,
+) -> Option<LogicalPosition> {
     use azul_css::props::style::StyleDirection;
-    let node = &tree.nodes[node_index];
+    let node = tree.nodes.get(node_index)?;
     let position_type = get_position_type(ctx.styled_dom, node.dom_node_id);
 
     // +spec:block-formatting-context:faa1cf - static boxes: top/right/bottom/left do not apply
@@ -1855,7 +1950,7 @@ fn shift_if_relatively_positioned<T: ParsedFontTrait>(
     // put it inside them it stays. Shifted here too, a folder head with `top: 20px` under
     // a 20px column header sat 20px low in an unscrolled list.
     if position_type != LayoutPosition::Relative {
-        return;
+        return None;
     }
 
     // +spec:table-layout:6cb73b - position:relative effect on table elements is undefined; skip
@@ -1877,7 +1972,7 @@ fn shift_if_relatively_positioned<T: ParsedFontTrait>(
                     | LayoutDisplay::TableCell
                     | LayoutDisplay::TableCaption
             ) {
-                return;
+                return None;
             }
         }
     }
@@ -1911,13 +2006,6 @@ fn shift_if_relatively_positioned<T: ParsedFontTrait>(
         viewport.size,
     );
 
-    // Get a mutable reference to the position and apply the offsets.
-    let Some(current_pos) = calculated_positions.get_mut(node_index) else {
-        return;
-    };
-
-    let initial_pos = *current_pos;
-
     // +spec:positioning:1732e8 - left/right for relatively positioned elements determined by
     // 9.4.3 rules Spec: "If the 'direction' property of the containing block is 'ltr',
     // the value of 'left' wins" Get the direction of the containing block (parent), not
@@ -1945,40 +2033,25 @@ fn shift_if_relatively_positioned<T: ParsedFontTrait>(
 
     // +spec:overflow:f1e1ce - relative positioning may cause overflow:auto/scroll boxes to need
     // scrollbars Only apply the shift if there is a non-zero delta.
-    if delta_x != 0.0 || delta_y != 0.0 {
-        current_pos.x += delta_x;
-        current_pos.y += delta_y;
-
-        debug_log!(
-            ctx,
-            "Adjusted relative element #{} from {:?} to {:?} (delta: {}, {})",
-            node_index,
-            initial_pos,
-            *current_pos,
-            delta_x,
-            delta_y
-        );
-
-        // The box is shifted AS A UNIT (CSS 2.2 9.4.3): its contents go with it.
-        // Positions are absolute, so every descendant takes the same delta (a
-        // nested relative box adds its own shift when the walk reaches it).
-        // +spec:table-layout:ec2600 - for table-row-group, table-header-group,
-        // table-footer-group, or table-row, the relative shift affects all contents
-        // of the box including table cells.
-        // Only table rows used to drag their subtree: a relatively positioned block
-        // moved and left its content behind (E2E-C, AzReader's page 2 repeated the
-        // chapter's start: the column under `position: relative; top: -502px` stayed).
-        {
-            let mut stack = tree.children(node_index).to_vec();
-            while let Some(child_idx) = stack.pop() {
-                if let Some(child_pos) = calculated_positions.get_mut(child_idx) {
-                    child_pos.x += delta_x;
-                    child_pos.y += delta_y;
-                }
-                stack.extend_from_slice(tree.children(child_idx));
-            }
-        }
+    if delta_x == 0.0 && delta_y == 0.0 {
+        return None;
     }
+    debug_log!(
+        ctx,
+        "Relative element #{} is shifted by ({}, {})",
+        node_index,
+        delta_x,
+        delta_y
+    );
+    // The box is shifted AS A UNIT (CSS 2.2 9.4.3): its contents go with it
+    // (`shift_relatively_positioned`).
+    // +spec:table-layout:ec2600 - for table-row-group, table-header-group,
+    // table-footer-group, or table-row, the relative shift affects all contents
+    // of the box including table cells.
+    // Only table rows used to drag their subtree: a relatively positioned block
+    // moved and left its content behind (E2E-C, AzReader's page 2 repeated the
+    // chapter's start: the column under `position: relative; top: -502px` stayed).
+    Some(LogicalPosition::new(delta_x, delta_y))
 }
 
 /// The relative shifts of the boxes below the absolutely positioned box
@@ -2005,9 +2078,17 @@ fn shift_relative_descendants<T: ParsedFontTrait>(
         boxes.extend_from_slice(tree.children(index));
     }
     boxes.sort_unstable();
-    for &index in boxes.iter() {
-        shift_if_relatively_positioned(ctx, tree, calculated_positions, viewport, index);
-    }
+    let mut shifted = Vec::new();
+    let mut walk = Vec::new();
+    shift_relatively_positioned(
+        ctx,
+        tree,
+        calculated_positions,
+        viewport,
+        boxes.iter().copied(),
+        &mut shifted,
+        &mut walk,
+    );
 }
 
 // +spec:overflow:bac4e5 - sticky view rectangle from inset properties relative to nearest
@@ -2413,7 +2494,7 @@ fn shift_if_sticky<T: ParsedFontTrait>(
     let stands_at = *current_pos;
 
     // The box is shifted AS A UNIT: what is inside it goes with it, as with
-    // a relative shift (`shift_if_relatively_positioned`). Positions are
+    // a relative shift (`shift_relatively_positioned`). Positions are
     // absolute, so every box below takes the distance the box moved in this
     // step: the whole shift for a box the pass has just placed (the boxes
     // below it stand where the flow put them), and for a box it did not

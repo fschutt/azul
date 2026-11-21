@@ -1310,6 +1310,118 @@ fn a_relatively_positioned_box_inside_an_absolute_one_is_shifted_once_per_pass()
     );
 }
 
+/// `body(0) > r(1) > r(2) > .. > r(k) > leaf(k + 1)`: `k` relatively positioned boxes inside
+/// each other, each shifted by (1, 2), around a 5 x 5 block.
+fn nested_shifted_boxes(k: usize) -> Dom {
+    let mut inner = Dom::create_div().with_css("width: 5px; height: 5px;");
+    for _ in 0..k {
+        inner = Dom::create_div()
+            .with_css("position: relative; left: 1px; top: 2px;")
+            .with_child(inner);
+    }
+    Dom::create_body().with_css("margin: 0px;").with_child(inner)
+}
+
+/// A3-solver-27. Every relatively positioned box with an offset moved its whole subtree by a
+/// walk of its own: a box inside k shifted boxes was visited k times, a chain of k shifted
+/// boxes k * (k + 3) / 2 times (44 for 8, 560 for 32). One walk from the outermost shifted
+/// box now carries the offsets down: k + 1 visits (9 and 33).
+///
+/// Hand-computed: every box of the chain is at the flow's (0, 0); the leaf inside k boxes
+/// shifted by (1, 2) each stands at (k, 2 k) - whole numbers, exact in f32.
+///
+/// Mutation: a walk per shifted box (`walk.push` for an entry `shifted[at].2` says is done)
+/// visits 44 and 560 boxes, 12.7 times as many for 4 times the boxes.
+#[test]
+fn nested_shifted_boxes_are_moved_by_one_walk() {
+    use crate::solver3::positioning::RELATIVE_SHIFT_VISITS;
+    let visits = |k: usize| {
+        let mut lw = window();
+        RELATIVE_SHIFT_VISITS.with(|n| n.set(0));
+        lay_out(&mut lw, nested_shifted_boxes(k));
+        (
+            RELATIVE_SHIFT_VISITS.with(std::cell::Cell::get),
+            position_of(&lw, k + 1),
+            position_of(&lw, 1),
+        )
+    };
+    let ((small, leaf_small, outer_small), (large, leaf_large, _)) = (visits(8), visits(32));
+    assert!(
+        small >= 9,
+        "harness: the 8 shifted boxes and the leaf were moved ({small} positions written)"
+    );
+    assert!(
+        large < small * 6,
+        "four times the nested boxes took {large} position writes for {small}: more than linear"
+    );
+    assert_eq!(
+        (outer_small.x, outer_small.y),
+        (1.0, 2.0),
+        "the outermost box is shifted by its own offset"
+    );
+    assert_eq!(
+        (leaf_small.x, leaf_small.y),
+        (8.0, 16.0),
+        "the leaf inside 8 boxes shifted by (1, 2) each"
+    );
+    assert_eq!(
+        (leaf_large.x, leaf_large.y),
+        (32.0, 64.0),
+        "the leaf inside 32 boxes shifted by (1, 2) each"
+    );
+}
+
+/// A3-solver-27, the result to the last bit: a box inside several shifted boxes takes their
+/// offsets one after the other, outermost first - `((p + d1) + d2) + d3`, the additions the
+/// step always made - and not their sum (`p + ((d1 + d2) + d3)`), which is another f32 for
+/// offsets that are no binary fractions.
+///
+/// `body(0) > a(1) > b(2) > c(3)`: `left` 0.1, 0.3 and 0.2 px, `c` with `margin-left: 0.7px`.
+/// From the flow's x = 0.7: 0.8, 1.1, 1.3000000715 one after the other; 0.7 + 0.6000000238 =
+/// 1.2999999523 summed first.
+///
+/// Mutation: adding the sum of the offsets around a box (one addition per box) gives the
+/// other value.
+#[test]
+fn nested_shifts_are_added_one_after_the_other_outermost_first() {
+    let page = |left: [&str; 3]| {
+        let relative = |left: &str, more: &str| {
+            if left.is_empty() {
+                format!("position: relative; {more}")
+            } else {
+                format!("position: relative; left: {left}; {more}")
+            }
+        };
+        Dom::create_body().with_css("margin: 0px;").with_child(
+            Dom::create_div().with_css(&relative(left[0], "")).with_child(
+                Dom::create_div().with_css(&relative(left[1], "")).with_child(
+                    Dom::create_div()
+                        .with_css(&relative(left[2], "margin-left: 0.7px; width: 5px; height: 5px;")),
+                ),
+            ),
+        )
+    };
+    let mut unshifted = window();
+    lay_out(&mut unshifted, page(["", "", ""]));
+    let flow = position_of(&unshifted, 3).x;
+    let mut lw = window();
+    lay_out(&mut lw, page(["0.1px", "0.3px", "0.2px"]));
+    let stands = position_of(&lw, 3).x;
+    let one_after_the_other = ((flow + 0.1_f32) + 0.3_f32) + 0.2_f32;
+    let summed_first = flow + ((0.1_f32 + 0.3_f32) + 0.2_f32);
+    assert_ne!(
+        one_after_the_other.to_bits(),
+        summed_first.to_bits(),
+        "harness: from the flow's x = {flow} the two orders give different numbers"
+    );
+    assert_eq!(
+        stands.to_bits(),
+        one_after_the_other.to_bits(),
+        "the innermost box stands at x = {stands}; the offsets added one after the other give \
+         {one_after_the_other}, their sum added once {summed_first}"
+    );
+}
+
 /// `body(0) > .a(1) > .s(2) > .k(3)`: an absolutely positioned box at (30, 100) whose child is
 /// sticky with `top: 150px` - the unscrolled window (the box's scrollport: nothing between
 /// scrolls) holds it 150 below its top edge, 50 below where the flow puts it - with a block
