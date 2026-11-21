@@ -406,9 +406,10 @@ pub struct GpuValueCache {
     /// reads this struct's source and fails otherwise). Only equality is
     /// compared.
     pub value_generation: u64,
-    /// How many CSS matrices this cache has built (`css_transform_of`): the cascade lookups and
-    /// the matrix products of one node's `transform`. What a test reads to say a pass builds
-    /// each matrix once; no renderer reads it.
+    /// How many CSS matrices this cache has built (`css_transform_of`).
+    ///
+    /// The cascade lookups and the matrix products of one node's `transform`. What a test reads
+    /// to say a pass builds each matrix once; no renderer reads it.
     pub css_matrices_built: WorkCount,
 }
 

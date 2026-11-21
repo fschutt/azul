@@ -1,5 +1,6 @@
-//! OpenGL context wrappers, texture cache management, shader compilation,
+//! OpenGL context wrappers, textures, shader compilation,
 //! vertex buffer abstractions, and FFI-safe GL type aliases for the C/Python API.
+//! (The cache of the textures a window shows lives in azul-dll's `gl_texture_cache`.)
 
 #![allow(unused_variables)]
 #[cfg(not(feature = "std"))]

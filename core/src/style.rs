@@ -59,12 +59,12 @@ impl CascadeInfoVec {
     }
 }
 
-/// How much matching a cascade did: the selector matches it tried and the earlier siblings its
-/// general sibling combinators (`~`) looked at. A restyle's cost is the first, so tests read it
-/// to see which rules a node is tried against; the cache that cascades keeps one
-/// (`CssPropertyCache::match_work`).
+/// How much matching a cascade did.
 ///
-/// It is no part of what the cache is: two caches that differ in nothing else are equal.
+/// The selector matches it tried, and the earlier siblings its general sibling combinators (`~`)
+/// looked at. A restyle's cost is the first, so tests read it to see which rules a node is tried
+/// against; the cache that cascades keeps one (`CssPropertyCache::match_work`). It is no part of
+/// what the cache is: two caches that differ in nothing else are equal.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct MatchWork {
     /// How often [`matches_html_element_metered`] ran.

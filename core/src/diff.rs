@@ -648,11 +648,11 @@ impl NodeIdentityConfig {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ReconcileWork {
     /// The reconciliation keys: a sibling visited, a node placed.
-    pub keys: usize,
+    pub(crate) keys: usize,
     /// The shallow tiers of `reconcile_dom` (B2, B3): an old node indexed, a queue entry popped.
-    pub shallow: usize,
+    pub(crate) shallow: usize,
     /// The subtree pass of `reconcile_dom` (A2): an old node indexed, a queue entry popped.
-    pub subtree: usize,
+    pub(crate) subtree: usize,
 }
 
 /// What the shallow tiers of [`reconcile_dom`] (B2, B3) ask of an old node's PARENT before a new
@@ -1925,10 +1925,11 @@ pub fn transfer_states(
     )
 }
 
-/// [`transfer_states`], noting the image nodes that went back to a placeholder in `churn`: the
-/// [`ImageChurn`] of the DOM being rebuilt, which the window that rebuilds it keeps from one
-/// rebuild to the next (a throwaway one, as [`transfer_states`] makes, never sees a node twice,
-/// so it never says anything).
+/// [`transfer_states`], noting the image nodes that went back to a placeholder in `churn`.
+///
+/// `churn` is the [`ImageChurn`] of the DOM being rebuilt, which the window that rebuilds it keeps
+/// from one rebuild to the next (a throwaway one, as [`transfer_states`] makes, never sees a node
+/// twice, so it never says anything).
 pub fn transfer_states_tracking(
     old_node_data: &mut [NodeData],
     new_node_data: &mut [NodeData],

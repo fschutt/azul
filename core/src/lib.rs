@@ -381,7 +381,7 @@ pub mod geom;
 /// lives in `azul_layout::managers::global_hotkey`, the OS backends in
 /// `azul-dll` (`desktop/global_hotkey`).
 pub mod global_hotkey;
-/// OpenGL context wrappers, shader compilation, and texture cache.
+/// OpenGL context wrappers, shader compilation, and textures.
 ///
 pub mod gl;
 /// FXAA (Fast Approximate Anti-Aliasing) shader.

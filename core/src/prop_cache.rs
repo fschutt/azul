@@ -142,12 +142,12 @@ use crate::{
 #[cfg(test)]
 use crate::id::NodeDataContainer;
 
-/// How often each property type was looked up through [`CssPropertyCache::get_property`] (a
-/// cascade walk), counted only under `AZ_PROFILE=cascade`: the narrow diagnostic that says which
-/// properties drove the cascade walks of a layout pass.
+/// How often each property type was looked up through [`CssPropertyCache::get_property`].
 ///
-/// It is no part of what the cache is: two caches that differ in nothing else are equal. Its
-/// entries are the cache's own: [`CssPropertyCache::drain_css_prop_counts`] hands them out.
+/// A cascade walk is counted only under `AZ_PROFILE=cascade`: the narrow diagnostic that says which
+/// properties drove the cascade walks of a layout pass. It is no part of what the cache is: two
+/// caches that differ in nothing else are equal. [`CssPropertyCache::drain_css_prop_counts`] hands
+/// the counts out.
 #[derive(Debug, Default)]
 pub struct PropWalks {
     #[cfg(feature = "std")]

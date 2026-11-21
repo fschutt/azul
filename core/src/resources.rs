@@ -3213,7 +3213,7 @@ macro_rules! unique_id {
 }
 
 // NOTE: the property key is unique across transform, color and opacity properties.
-// Process-wide: the keys are made at some seventy sites of azul-layout and azul-dll with no shared
+// Process-wide: the keys are made at dozens of sites of azul-layout and azul-dll with no shared
 // owner in reach, and a WebRender property binding is unique per document, not per DOM.
 static PROPERTY_KEY_COUNTER: AtomicUsize = AtomicUsize::new(0);
 unique_id!(TransformKey, PROPERTY_KEY_COUNTER);

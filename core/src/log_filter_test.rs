@@ -107,7 +107,7 @@ mod tests {
     /// and the level the `log` facade's own logger takes (`level_from_env`).
     #[test]
     fn the_settings_of_the_real_environment_name_the_level_the_facade_takes() {
-        let settings = LogSettings::from_environment(&|name| std::env::var_os(name));
+        let settings = LogSettings::from_environment(&environment_var);
         assert_eq!(settings.level, level_from_env());
     }
 

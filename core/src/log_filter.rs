@@ -463,11 +463,17 @@ pub const fn level_for(asked: bool, parsed: Option<Level>) -> Option<Level> {
     }
 }
 
+/// The variable `name` of the process's environment: what the settings are read from.
+#[cfg(feature = "std")]
+fn environment_var(name: &str) -> Option<std::ffi::OsString> {
+    std::env::var_os(name)
+}
+
 /// Whether the environment asks for logs: one of [`LOG_REQUEST_VARS`] is set.
 #[cfg(feature = "std")]
 #[must_use]
 pub fn asked_for_logs() -> bool {
-    asked_for_logs_in(&|name| std::env::var_os(name))
+    asked_for_logs_in(&environment_var)
 }
 
 /// [`asked_for_logs`] of the environment `var` describes (a variable's value, `None` where it
@@ -501,7 +507,7 @@ pub fn init_from_env() {
         return;
     }
     #[cfg(feature = "std")]
-    PROCESS.apply(&LogSettings::from_environment(&|name| std::env::var_os(name)));
+    PROCESS.apply(&LogSettings::from_environment(&environment_var));
     #[cfg(not(feature = "std"))]
     PROCESS.apply(&LogSettings::without_environment());
 }
