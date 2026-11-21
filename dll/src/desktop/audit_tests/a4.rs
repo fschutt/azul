@@ -632,3 +632,124 @@ fn a4_09_a_tile_that_arrives_is_new_pixels_under_the_key_its_place_has() {
     let idle = follow_up(&mut view);
     assert!(!idle.frame && idle.deleted.is_empty());
 }
+
+// ==== A colour that is a value (audit A4-23, the GPU side) ====
+
+/// How many rects of the window's list a translation made now binds to the
+/// colour key `id`.
+fn rects_bound_to(view: &Recorder, id: webrender::api::PropertyBindingId) -> usize {
+    use webrender::api::PropertyBinding;
+
+    let list = view.window.layout_results[&DomId::ROOT_ID].display_list.clone();
+    let (_, built) = translate_displaylist_to_wr(
+        &list,
+        PipelineId(0, 0),
+        DeviceIntSize::new(2000, 2000),
+        &view.window.renderer_resources,
+        DpiScaleFactor::new(view.dpi),
+        Vec::new(),
+        &BTreeMap::new(),
+        0,
+    )
+    .expect("the list translates");
+    let mut bound = 0;
+    let mut items = built.iter();
+    while let Some(item) = items.next() {
+        if let DisplayItem::Rectangle(rect) = item.item() {
+            if matches!(&rect.color, PropertyBinding::Binding(key, _) if key.id == id) {
+                bound += 1;
+            }
+        }
+    }
+    bound
+}
+
+/// A4-23, what the GPU path does with a background whose colour is bound to a
+/// key (`GpuValueCache::color_keys`, `DisplayList::color_bindings`: a fade binds
+/// one today; a `:hover` background is to be one, see `audit/A4.md`). The
+/// translation paints the rect in the key's value, and a colour that changes is
+/// then a value sent with the frame: no display list is translated, no image
+/// touched, and the same colour sent again is no frame at all. This is all the
+/// renderer's side needs for a hover that costs no list.
+///
+/// Mutation: `gpu_cache.for_each_bound_color(..)` dropped from the first walk of
+/// `synchronize_gpu_values` makes the changed colour "the set last sent" (no
+/// frame); `display_list.color_binding(item_index)` -> `None` in `compositor2`
+/// paints the rect in the colour the list was built with (no rect is bound).
+#[test]
+fn a4_23_a_bound_background_colour_changes_as_a_value_and_no_list() {
+    use azul_core::resources::ColorKey;
+    use azul_css::props::basic::ColorU;
+    use webrender::api::{ColorF, PropertyBindingKey};
+
+    let mut view = Recorder::new(1.0);
+    publish_gpu_frame(&view.window, 0, 0, 0);
+    view.lay_out(
+        Dom::create_body()
+            .with_css("margin: 0px;")
+            .with_child(Dom::create_div().with_css("width: 40px; height: 20px; background: #3366cc;")),
+    );
+    // The box's background gets a colour key, the way the first frame of a fade
+    // gives it one: the key and its value in the cache, the rect bound in the list.
+    let (node, key) = (NodeId::new(1), ColorKey::unique());
+    let shown = ColorU::new(0x33, 0x66, 0xcc, 255);
+    {
+        let cache = view.window.gpu_state_manager.get_or_create_cache(DomId::ROOT_ID);
+        cache.color_keys.insert(node, key);
+        cache.current_color_values.insert(node, shown);
+    }
+    let bound = {
+        let result = view
+            .window
+            .layout_results
+            .get_mut(&DomId::ROOT_ID)
+            .expect("the root DOM is laid out");
+        Arc::make_mut(&mut result.display_list).bind_background_color(node, shown, key)
+    };
+    assert!(bound >= 1, "premise: the box paints a background rect in that colour");
+
+    let first = full(&mut view);
+    assert_eq!(first.lists, 1);
+    let id = PropertyBindingKey::<ColorF>::new(key.id as u64).id;
+    assert_eq!(rects_bound_to(&view, id), bound, "the list paints the rect in the key's value");
+
+    // The colour changes (a hover): a value.
+    view.window
+        .gpu_state_manager
+        .get_or_create_cache(DomId::ROOT_ID)
+        .current_color_values
+        .insert(node, ColorU::new(0xff, 0xee, 0x00, 255));
+    let mut txn = WrTransaction::new();
+    let frame = build_lightweight_transaction(&mut txn, &mut view.window, &OptionGlContextPtr::None)
+        .expect("the lightweight transaction");
+    assert!(frame.changed, "a colour that changed is a frame");
+    count_transaction(&txn);
+    publish_gpu_frame(&view.window, 0, 0, 0);
+    let counted = view.window.frame_clock.gpu_last();
+    assert_eq!(
+        (counted.lists_translated, counted.items_translated),
+        (0, 0),
+        "and no display list"
+    );
+    assert!(txn.resource_updates.is_empty(), "and no image");
+    let colours: Vec<_> = txn
+        .get_frame_ops()
+        .into_iter()
+        .filter_map(|op| match op {
+            FrameMsg::AppendDynamicProperties(properties) => Some(properties.colors),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    assert_eq!(colours.len(), 1, "the one bound colour");
+    assert_eq!(colours[0].key.id, id);
+    assert_eq!(
+        colours[0].value,
+        ColorF::new(1.0, f32::from(0xee_u8) / 255.0, 0.0, 1.0)
+    );
+
+    // The colour stands: nothing is sent, no frame is asked for.
+    let idle = follow_up(&mut view);
+    assert!(!idle.frame);
+    assert_eq!(idle.lists, 0);
+}
