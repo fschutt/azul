@@ -6417,6 +6417,12 @@ pub(crate) struct PatchState<'a> {
     /// and copied as they lay. The built list's
     /// [`DisplayList::translated_since_painted`].
     translated: std::collections::BTreeSet<usize>,
+    /// Only when `prev` is the list of ANOTHER tree ([`Self::build_across_trees`]): where
+    /// the reconcile carried each box of that tree, by its layout index there
+    /// (`usize::MAX`: the box went). The one thing an item of a copied run holds that is an
+    /// index of the tree it was built for is a text's `source_node_index`: the copy carries
+    /// it here (`try_copy_cached_run`). `None`: `prev` is this tree's own list.
+    carried: Option<Vec<usize>>,
 }
 
 /// Presentation summary of a patched pass: which single translation moved
@@ -6888,6 +6894,7 @@ impl<'a> PatchState<'a> {
             reemit,
             translate_moved,
             translated: std::collections::BTreeSet::new(),
+            carried: None,
         })
     }
 
@@ -6916,9 +6923,15 @@ impl<'a> PatchState<'a> {
         }
         let new_len = new_positions.len().max(new_sizes.len());
         let mut old_of_new: Vec<Option<usize>> = vec![None; new_len];
+        // The same map by OLD index, for what an item of `prev` names by one (a text's
+        // `source_node_index`).
+        let mut carried = vec![usize::MAX; prev_positions.len().max(prev_sizes.len())];
         for (old, new) in new_of_old {
             if let Some(slot) = old_of_new.get_mut(*new) {
                 *slot = Some(*old);
+            }
+            if let Some(slot) = carried.get_mut(*old) {
+                *slot = *new;
             }
         }
 
@@ -6988,6 +7001,7 @@ impl<'a> PatchState<'a> {
             reemit,
             translate_moved: false,
             translated: std::collections::BTreeSet::new(),
+            carried: Some(carried),
         })
     }
 }
@@ -7428,10 +7442,34 @@ where
                 }
             }
         }
+        // A list of ANOTHER tree (the step `tlist`): a text of the run names the box it
+        // came from by its layout index in the tree before. It is copied under the index
+        // that box has now; a run with a text whose box was not carried is painted (the
+        // run above is spent).
+        if let Some(carried) = patch.carried.as_ref() {
+            let uncarried = patch.prev.items[run.0..run.1].iter().any(|item| match item {
+                DisplayListItem::Text {
+                    source_node_index: Some(old),
+                    ..
+                } => carried.get(*old).map_or(true, |new| *new == usize::MAX),
+                _ => false,
+            });
+            if uncarried {
+                RUNS_PAINTED_BY_PATCHED_BUILDS.with(|n| n.set(n.get() + 1));
+                return false;
+            }
+        }
         CACHED_RUNS_COPIED.with(|n| n.set(n.get() + 1));
         // The previous list outlives the patch borrow, which ends here: the
-        // copy below reads the generator again.
+        // copy below reads the generator again. The map is taken out for the
+        // copy and put back after it for the same reason.
         let prev = patch.prev;
+        let carried = patch.carried.take();
+        // The index a text's box has in THIS tree (checked above: every one is carried).
+        let source_now = |source: usize| match carried.as_deref() {
+            Some(carried) => carried.get(source).copied().unwrap_or(source),
+            None => source,
+        };
         drop(crate::probe::Probe::span("dl_patch_copy"));
         // DOM attribution is PER ITEM, not per run: a content run can switch
         // attribution mid-run (e.g. an IFC root's items ending with a text
@@ -7464,7 +7502,7 @@ where
                         ..
                     },
                     Some(Some(_)),
-                ) => self.compute_uniform_text_bg(*source),
+                ) => self.compute_uniform_text_bg(source_now(*source)),
                 _ => None,
             };
             builder.next_text_selection_colors =
@@ -7473,10 +7511,20 @@ where
             // the translation below leaves it true.
             builder.next_text_ink = prev.text_ink.get(i).copied().flatten();
             builder.next_color_binding = binding;
-            let item = translate_item(prev.items[i].clone(), delta);
+            let mut item = translate_item(prev.items[i].clone(), delta);
+            if let DisplayListItem::Text {
+                source_node_index: Some(source),
+                ..
+            } = &mut item
+            {
+                *source = source_now(*source);
+            }
             builder.push_item(item);
         }
         builder.set_current_layout(None);
+        if let Some(patch) = self.patch.as_mut() {
+            patch.carried = carried;
+        }
         // The builder is left attributing to the run's LAST item's node, as a
         // fresh paint leaves it: items this node emits outside its cached runs
         // (its scrollbars, a placeholder prompt) take their owner from here.

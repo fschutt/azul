@@ -14822,12 +14822,51 @@ mod tests {
             .collect()
     }
 
+    /// What a display list holds beside its items, one line per item and one per list
+    /// table: everything a copied run brings along that the item's own line in
+    /// [`a3w_dump`] does not print. Per item: the DOM node it is attributed to
+    /// (`node_mapping`), the layout box and phase that emitted it (`layout_node_mapping`: an
+    /// index of the tree the list was built for), a hit area's tag (the DOM node's index +
+    /// 1), a text's proven background, its ink and its selection colours, whether a rect is
+    /// bound to a colour key. Per list: the carets, the ranges of fixed boxes, the forced
+    /// breaks, the boxes a tween frame translated. (A text's `source_node_index`, the other
+    /// index of the tree, is in the item's line.)
+    fn df_list_tables(list: &azul_layout::solver3::display_list::DisplayList) -> Vec<String> {
+        let mut lines: Vec<String> = list
+            .items
+            .iter()
+            .enumerate()
+            .map(|(i, item)| {
+                let tag = match item {
+                    DisplayListItem::HitTestArea { tag, .. } => Some(*tag),
+                    _ => None,
+                };
+                format!(
+                    "tables {i}: node {:?} box {:?} tag {tag:?} background {:?} ink {:?} \
+                     selection {:?} bound {}",
+                    list.node_mapping.get(i).copied().flatten(),
+                    list.layout_node_mapping.get(i).copied().flatten(),
+                    list.uniform_text_bgs.get(i).copied().flatten(),
+                    list.text_ink.get(i).copied().flatten(),
+                    list.text_selection_colors.get(i).copied().flatten(),
+                    list.color_binding(i).is_some(),
+                )
+            })
+            .collect();
+        lines.push(format!("carets: {:?}", list.carets));
+        lines.push(format!("fixed ranges: {:?}", list.fixed_position_item_ranges));
+        lines.push(format!("forced breaks: {:?}", list.forced_page_breaks));
+        lines.push(format!("translated: {:?}", list.translated_since_painted));
+        lines
+    }
+
     /// Two windows of the page `page` makes, rebuilt after the same `change`: one with every
     /// step, one with the steps `reference` (every step but the one under test: the state
     /// before it, the list emitted in full). Answers the costs of the first
     /// ([`df_list_cost`]) after asserting that both windows hold the same nodes, styles,
     /// boxes and display list, line for line ([`df_dump`], the ids of the windows' own keys
-    /// masked: [`df_mask_key_ids`]).
+    /// masked: [`df_mask_key_ids`]), and the same tables beside the list's items
+    /// ([`df_list_tables`]).
     fn df_list_against_full(
         page: impl Fn() -> Arc<RefCell<RefAny>>,
         change: impl Fn(&mut DfPage),
@@ -14849,10 +14888,15 @@ mod tests {
             (0, 0),
             "{what}: premise: without the step no list is patched for the cascade's names"
         );
-        let (left, right) = (
-            df_mask_key_ids(df_dump(&with_list)),
-            df_mask_key_ids(df_dump(&in_full)),
-        );
+        let dump = |window: &HeadlessWindow| {
+            let mut lines = df_mask_key_ids(df_dump(window));
+            let lw = window.common.layout_window.as_ref().expect("a layout window");
+            lines.extend(df_list_tables(
+                &lw.layout_results[&azul_core::dom::DomId::ROOT_ID].display_list,
+            ));
+            lines
+        };
+        let (left, right) = (dump(&with_list), dump(&in_full));
         let differs = left
             .iter()
             .zip(right.iter())
@@ -15041,6 +15085,67 @@ mod tests {
             "a row became a list item",
         );
         assert_eq!(across, 1);
+
+        // Rows that come in the MIDDLE: the rows before them keep their node ids and their
+        // boxes' indices and are copied; every row after them is another DOM node id (and
+        // another index) and is painted. The comparison holds every item and every table
+        // beside the items ([`df_list_tables`]): nothing of the tree before is left in a
+        // copied run.
+        let (_, across, copied, _) = df_list_against_full(
+            || df_state_with(60, false),
+            |page: &mut DfPage| {
+                for i in 0..5 {
+                    page.rows.insert(
+                        30,
+                        DfRow {
+                            text: format!("between {i}"),
+                            kind: i % 4,
+                            place: 0,
+                            id: 0,
+                            extra: 0,
+                        },
+                    );
+                }
+            },
+            &DF_BEFORE_TLIST,
+            "5 rows came in the middle",
+        );
+        assert_eq!(across, 1, "premise: the list is patched across the changed tree");
+        assert!(copied >= 30, "the rows before the new ones are copied ({copied} runs)");
+
+        // The same on a page whose rows each hold an anonymous box (the inline cell beside a
+        // block `div.df-extra`): a box without a DOM node, whose run holds the cell's text
+        // under the text's DOM node id. After the new rows every such id is another one.
+        let with_boxes = || {
+            let state = df_state_with(60, false);
+            df_change(&state, |page| {
+                for row in &mut page.rows {
+                    row.extra = 1;
+                }
+            });
+            state
+        };
+        let (_, across, copied, _) = df_list_against_full(
+            with_boxes,
+            |page: &mut DfPage| {
+                for i in 0..5 {
+                    page.rows.insert(
+                        30,
+                        DfRow {
+                            text: format!("between {i}"),
+                            kind: i % 4,
+                            place: 0,
+                            id: 0,
+                            extra: 1,
+                        },
+                    );
+                }
+            },
+            &DF_BEFORE_TLIST,
+            "5 rows came in the middle of rows with anonymous boxes",
+        );
+        assert_eq!(across, 1, "premise: the list is patched across the changed tree");
+        assert!(copied >= 30, "the rows before the new ones are copied ({copied} runs)");
     }
 
     /// The two cheapest rebuilds, counted: an identical one styles no node, runs no layout
@@ -15946,7 +16051,15 @@ mod tests {
             (0, 0),
             "{what}: premise: without the step no list is patched for the cascade's names"
         );
-        let (left, right) = (dfv_dump(&with_list), dfv_dump(&in_full));
+        let dump = |window: &HeadlessWindow| {
+            let mut lines = dfv_dump(window);
+            if let Some(child) = dfv_child(window) {
+                let lw = window.common.layout_window.as_ref().expect("a layout window");
+                lines.extend(df_list_tables(&lw.layout_results[&child].display_list));
+            }
+            lines
+        };
+        let (left, right) = (dump(&with_list), dump(&in_full));
         let differs = left
             .iter()
             .zip(right.iter())
