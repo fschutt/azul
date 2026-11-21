@@ -1982,6 +1982,13 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     reemit.extend(recon_result.fresh_indices.iter().copied());
                     reemit.extend(recon_result.retargeted.iter().copied());
                     reemit.extend(css_dirty_reemit.iter().copied());
+                    // ...and a box the reconcile kept although its own data
+                    // moved what it paints with (an inline colour, a
+                    // transform value) or where it stands (its insets): its
+                    // old items are not what it paints now. A css diff names
+                    // such a box and turns the patch off altogether; a pass
+                    // without one spliced its old items.
+                    reemit.extend(recon_result.paint_dirty.iter().copied());
                     display_list::PatchState::build(
                         prev_dl,
                         &cache.calculated_positions, // last pass's positions (replaced later)
@@ -2021,6 +2028,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             let mut changed: std::collections::BTreeSet<usize> = ctx.reflowed_ifcs.clone();
             changed.extend(recon_result.fresh_indices.iter().copied());
             changed.extend(css_dirty_reemit.iter().copied());
+            changed.extend(recon_result.paint_dirty.iter().copied());
             for (idx, node) in new_tree.nodes.iter().enumerate() {
                 let old_pos = pos_get(&cache.calculated_positions, idx);
                 let new_pos = pos_get(&calculated_positions, idx);
@@ -2069,6 +2077,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             let mut reemit_full = ctx.reflowed_ifcs.clone();
             reemit_full.extend(recon_result.fresh_indices.iter().copied());
             reemit_full.extend(css_dirty_reemit.iter().copied());
+            reemit_full.extend(recon_result.paint_dirty.iter().copied());
             // A view's document rides its box: a view whose own items are not
             // re-emitted moves its content with its box (a new size alone).
             let node_data = ctx.styled_dom.node_data.as_container();

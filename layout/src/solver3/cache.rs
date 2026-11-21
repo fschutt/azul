@@ -3021,6 +3021,13 @@ struct ReconciledNode {
     new_child_hashes: Vec<u64>,
 }
 
+/// How many boxes [`reconcile_node`] kept on this thread because the values of
+/// their insets were all that moved (`audit_tests::a3_solver`).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static INSET_MOVES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
 /// [`reconcile_recursive`] for the node itself, before its children: its
 /// fingerprint against the old tree's and what is dirty, the node built fresh or
 /// cloned from the old tree (and its `::marker`), and the children the layout
@@ -3125,7 +3132,39 @@ fn reconcile_node(
         },
         |old_c| {
             let change_set = old_c.node_data_fingerprint.diff(&new_fingerprint);
-            if change_set.needs_layout() {
+            // The VALUES of the node's insets are all that moved (`left` /
+            // `top` / `right` / `bottom`; which of them it declares did not
+            // change), and the box is absolutely positioned or fixed, as it
+            // was: its insets say where it stands in its containing block and
+            // nothing about what is in it. It keeps its box - intrinsic sizes,
+            // inline layout, measurements - and is PLACED again:
+            // `positioning::position_out_of_flow_elements` solves every such
+            // box from the insets the cascade holds now, on every pass that is
+            // not clean (its size too, where `left` and `right` or `top` and
+            // `bottom` stretch it, and then its interior at that size), and a
+            // child of a positioned flex or grid container is placed by its
+            // container, which is laid out again because this child's subtree
+            // hash moved. A box in flow whose insets moved (`relative`,
+            // `sticky`) is built fresh as before.
+            let insets_alone = (change_set.bits & azul_core::diff::NodeChangeSet::AFFECTS_LAYOUT)
+                == azul_core::diff::NodeChangeSet::INLINE_STYLE_INSETS;
+            if insets_alone
+                && super::layout_tree::is_out_of_flow_positioned(styled_dom, new_dom_id)
+                && old_tree
+                    .zip(old_tree_idx)
+                    .and_then(|(t, i)| t.warm(LayoutNodeId::new(i)))
+                    .is_some_and(|w| {
+                        matches!(
+                            w.computed_style.position,
+                            LayoutPosition::Absolute | LayoutPosition::Fixed
+                        )
+                    })
+            {
+                drop(crate::probe::Probe::span("fp_insets_moved"));
+                #[cfg(test)]
+                INSET_MOVES.with(|n| n.set(n.get() + 1));
+                DirtyFlag::Paint
+            } else if change_set.needs_layout() {
                 drop(crate::probe::Probe::span("fp_needs_layout"));
                 let enabled =
                     *FP_DUMP_ENABLED.get_or_init(|| std::env::var_os("AZ_FP_DUMP").is_some());

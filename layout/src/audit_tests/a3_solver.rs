@@ -877,6 +877,84 @@ fn the_layout_takes_over_the_styles_the_reconcile_resolved() {
     );
 }
 
+/// `body(0) > div(1) > k x [span(2 + 2 i) > text]`: a map's label layer with every label
+/// absolutely positioned at `(10 * (i % 50) + dx, 9 * (i / 50) + dy)` and turned by
+/// `turn + i % 7` degrees - the same labels, moved and turned, for every `(dx, dy, turn)`.
+fn labels_moved(k: usize, dx: usize, dy: usize, turn: usize) -> Dom {
+    let mut layer = Dom::create_div().with_css("position: relative; width: 600px; height: 400px;");
+    for i in 0..k {
+        layer = layer.with_child(Dom::create_span_with_text(format!("label {i}")).with_css(
+            &format!(
+                "position: absolute; left: {}px; top: {}px; transform: rotate({}deg);",
+                (i % 50) * 10 + dx,
+                (i / 50) * 9 + dy,
+                turn + i % 7
+            ),
+        ));
+    }
+    Dom::create_body().with_css("margin: 0px;").with_child(layer)
+}
+
+/// A3-solver-41 (the solver's half of A3-window-08). A view rendered again in which only the
+/// labels' positions and rotations changed: every label keeps its box (no box is built fresh,
+/// no intrinsic size is measured again but the layer's and its ancestors'), and stands where a
+/// fresh layout of the moved page puts it. Before, the changed inline style made every label a
+/// fresh box: its text measured twice and laid out again.
+///
+/// Mutation: without the inset arm in `cache::reconcile_node` every label is fresh
+/// (`last_reconcile_fresh` = 200) and `INSET_MOVES` stays 0.
+#[test]
+fn labels_that_only_moved_and_turned_keep_their_boxes_and_stand_as_in_a_fresh_layout() {
+    use crate::solver3::cache::INSET_MOVES;
+    let k = 200;
+    let mut lw = window();
+    lay_out(&mut lw, labels_moved(k, 0, 0, 5));
+    INSET_MOVES.with(|n| n.set(0));
+    lay_out(&mut lw, labels_moved(k, 7, 3, 25));
+    let moved = INSET_MOVES.with(std::cell::Cell::get);
+    assert!(moved >= k, "harness: the {k} labels were seen as moved ({moved})");
+    assert_eq!(
+        lw.layout_cache.last_reconcile_fresh, 0,
+        "a label whose insets and rotation alone changed was built fresh"
+    );
+    assert!(
+        lw.layout_cache.last_intrinsic_dirty <= 4,
+        "{} boxes were sized anew for labels that only moved: more than the layer and its \
+         ancestors",
+        lw.layout_cache.last_intrinsic_dirty
+    );
+    let mut fresh = window();
+    lay_out(&mut fresh, labels_moved(k, 7, 3, 25));
+    // Labels (2 + 2 i) and their texts (3 + 2 i): the first, two in the middle, the last.
+    assert_as_in_a_fresh_layout(&lw, &fresh, &[2, 3, 100, 101, 102, 2 * k, 2 * k + 1]);
+}
+
+/// A3-solver-41, the product path: the shell hands a rebuilt page to
+/// `LayoutWindow::begin_reconciliation` first, whose CSS diff reports the moved insets as css
+/// dirt of scope `Full` (`CssPropertyType::relayout_scope`), and a node the css diff names is
+/// built fresh whatever its fingerprint says (`ReconciliationResult::css_relayout`). The
+/// solver cannot tell "only the insets moved" from that entry; until the css diff says so (see
+/// the notes: For area A3-window), the labels are fresh boxes on this path.
+#[test]
+#[ignore = "needs A3-window: begin_reconciliation must not stage css dirt of scope Full for an \
+            out-of-flow box whose inset values alone moved"]
+fn labels_that_only_moved_keep_their_boxes_when_the_shell_rebuilds_the_page() {
+    let k = 200;
+    let mut lw = window();
+    lay_out_styled(&mut lw, StyledDom::create_from_dom(labels_moved(k, 0, 0, 5)));
+    let mut next = StyledDom::create_from_dom(labels_moved(k, 7, 3, 25));
+    let _pending =
+        lw.begin_reconciliation(DomId::ROOT_ID, &mut next, azul_core::task::Instant::now());
+    lay_out_styled(&mut lw, next);
+    assert_eq!(
+        lw.layout_cache.last_reconcile_fresh, 0,
+        "a label whose insets and rotation alone changed was built fresh"
+    );
+    let mut fresh = window();
+    lay_out(&mut fresh, labels_moved(k, 7, 3, 25));
+    assert_as_in_a_fresh_layout(&lw, &fresh, &[2, 3, 100, 101, 102, 2 * k, 2 * k + 1]);
+}
+
 // The guards of the second round, one file per part of the solver (`a3_solver/*.rs`).
 mod ifc;
 mod sizing;
