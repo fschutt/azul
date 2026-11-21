@@ -419,3 +419,31 @@ fn absolute_spans_of_an_inline_root_stand_at_their_insets() {
         );
     }
 }
+
+/// A3-solver-09. The intrinsic size of a block (and of a flex container) is folded from its
+/// children's, which the recursion hands over as `(child, sizes)` pairs in child order; each
+/// child's pair was looked up with a scan of the pairs from the first one
+/// (`child_intrinsics.iter().find(..)` in `sizing::calculate_block_intrinsic_sizes`):
+/// n * n / 2 comparisons for a block of n children. Each pair is taken where the one before
+/// it ended.
+///
+/// Mutation: the scan from the first pair for every child grows 16x.
+#[test]
+fn a_block_folds_its_childrens_intrinsic_sizes_in_one_walk() {
+    use crate::solver3::sizing::INTRINSIC_CHILD_PROBES;
+    let probes = |k: usize| {
+        let mut lw = window();
+        INTRINSIC_CHILD_PROBES.with(|n| n.set(0));
+        lay_out(&mut lw, layer_of_absolute_blocks(k));
+        INTRINSIC_CHILD_PROBES.with(std::cell::Cell::get)
+    };
+    let (small, large) = (probes(500), probes(2_000));
+    assert!(
+        small >= 500,
+        "harness: the layer asked for the intrinsic sizes of its 500 children ({small})"
+    );
+    assert!(
+        large < small * 6,
+        "four times the children took {large} comparisons for {small}: more than linear"
+    );
+}

@@ -237,6 +237,49 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     Ok(())
 }
 
+/// How many entries [`intrinsic_of_child`] compared on this thread
+/// (`audit_tests::a3_solver`: one per child of a box, not one per child per
+/// child).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static INTRINSIC_CHILD_PROBES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// The intrinsic sizes of the child `child_index` among `child_intrinsics`,
+/// the `(child, sizes)` pairs the recursion collected for a box's children in
+/// child order (a child the tree does not hold has none).
+///
+/// A box that asks for its children in that order - every caller's loop over
+/// `tree.children(..)` - finds each entry where the one before it ended:
+/// `next_entry` is that place. It was found by a scan of the pairs from the
+/// first one for every child (`child_intrinsics.iter().find(..)`), n * n / 2
+/// comparisons for a box of n children: 72 million for a block of 12,000
+/// absolutely positioned labels, on every pass that sizes one of them anew.
+/// An entry that is not at its place (a child without one came before) is
+/// still found by that scan, so the answer is the scan's: the first pair of
+/// the child (a child is listed once among its parent's children).
+fn intrinsic_of_child<'a>(
+    child_intrinsics: &'a [(usize, IntrinsicSizes)],
+    next_entry: &mut usize,
+    child_index: usize,
+) -> Option<&'a IntrinsicSizes> {
+    #[cfg(test)]
+    INTRINSIC_CHILD_PROBES.with(|n| n.set(n.get() + 1));
+    if let Some((child, sizes)) = child_intrinsics.get(*next_entry) {
+        if *child == child_index {
+            *next_entry += 1;
+            return Some(sizes);
+        }
+    }
+    let found = child_intrinsics.iter().position(|(child, _)| {
+        #[cfg(test)]
+        INTRINSIC_CHILD_PROBES.with(|n| n.set(n.get() + 1));
+        *child == child_index
+    })?;
+    *next_entry = found + 1;
+    Some(&child_intrinsics[found].1)
+}
+
 pub(crate) fn compute_dirty_ancestor_closure(
     tree: &LayoutTree,
     dirty_nodes: &BTreeSet<usize>,
@@ -1144,11 +1187,12 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         let mut is_first_child = true;
         let mut marker_main_size = 0.0f32;
 
+        // Where the next child's entry is expected in `child_intrinsics`
+        // (`intrinsic_of_child`).
+        let mut next_entry = 0usize;
         for &child_index in tree.children(node_index) {
-            if let Some(child_intrinsic) = child_intrinsics
-                .iter()
-                .find(|(k, _)| k == &child_index)
-                .map(|(_, v)| v)
+            if let Some(child_intrinsic) =
+                intrinsic_of_child(child_intrinsics, &mut next_entry, child_index)
             {
                 // +spec:intrinsic-sizing:ed72bb - intrinsic contributions based on outer size, auto
                 // margins as zero
@@ -1282,11 +1326,12 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         let mut max_cross_min: f32 = 0.0;
         let mut max_cross_max: f32 = 0.0;
 
+        // Where the next child's entry is expected in `child_intrinsics`
+        // (`intrinsic_of_child`).
+        let mut next_entry = 0usize;
         for &child_index in tree.children(node_index) {
-            if let Some(child_intrinsic) = child_intrinsics
-                .iter()
-                .find(|(k, _)| k == &child_index)
-                .map(|(_, v)| v)
+            if let Some(child_intrinsic) =
+                intrinsic_of_child(child_intrinsics, &mut next_entry, child_index)
             {
                 // A flex item contributes its OUTER size (CSS Flexbox 9.9.1,
                 // the min / max-content contributions): its content plus its
