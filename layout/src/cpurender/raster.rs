@@ -2818,6 +2818,20 @@ fn values_inside(
     Some(hasher.finish())
 }
 
+/// Where `extent` (already moved by the walk's offset) begins within its first device pixel,
+/// in 1/1024 px per axis: the fraction `GroupGeometry::of` floors away to find the surface's
+/// origin. Extents that differ by whole device pixels have the same phase. Example at a scale
+/// factor of 1: an extent at x = 37.25 has phase 256; panned by 12 px, at 25.25, the same; at
+/// 25.75, 768.
+#[allow(clippy::cast_possible_truncation)] // a fraction of a pixel times 1024
+fn surface_phase(extent: &LogicalRect, dpi_factor: f32) -> (i32, i32) {
+    let phase = |v: f32| {
+        let device = v * dpi_factor;
+        ((device - device.floor()) * 1024.0).round() as i32
+    };
+    (phase(extent.origin.x), phase(extent.origin.y))
+}
+
 /// What every text run and system colour of a picture is painted with, hashed: the
 /// anti-aliasing settings, how many fonts are loaded (a face that arrives paints runs that
 /// were skipped), the system style.
@@ -2845,7 +2859,7 @@ fn paint_settings(
 /// list around it, large enough to be worth a lookup and small enough for the cache, in a list
 /// the render state holds shared, and without a view inside.
 ///
-/// The key's offset is the walk's offset at the push, bit for bit (see `retained`, rule 4).
+/// The key's phase is that of the frame's extent on the surface below (`retained`, rule 4).
 /// `needed` is `group_part_within` with a margin of 2 px: the composite samples destination
 /// pixel centres mapped back, `s = inv(matrix)(d + 0.5) - 0.5`, and reads the texels
 /// `floor(s)` and `floor(s) + 1`, at most one texel outside the clip mapped back.
@@ -2914,7 +2928,7 @@ fn retained_candidate(
             push: frame.push,
             size,
             dpi_bits: dpi_factor.to_bits(),
-            offset: (scroll_offset.0.to_bits(), scroll_offset.1.to_bits()),
+            phase: surface_phase(&on_surface(&frame.extent), dpi_factor),
             values,
             settings: paint_settings(glyph_cache, font_manager, render_state),
         },
@@ -16486,12 +16500,14 @@ mod audit_a1_tests {
     /// step that keeps the picture:
     /// - rule 5, a value inside the frame: the turned label's own matrix is written (15 -> 40
     ///   degrees). The picture is painted again, and the surface kept for it replaces the old.
-    /// - rule 4, the walk's offset: the view pans by 12 px (`content_offset` (-12, 0)). Painted.
+    /// - rule 4, the phase: the view pans by whole pixels in eight directions: composited, the
+    ///   picture where it lands now; by half a pixel: painted.
     /// - rule 1, the list: a cell changes colour (a tile arrives, a label is edited). The old
     ///   list's surface is dropped at the start of the frame and the old list let go of.
     /// - the control: the same frame again is composited.
-    /// Mutations: `values` left out of the key shows the label at 15 degrees; the offset left
-    /// out shows the picture 12 px off; a key without the list (or an entry that does not hold
+    /// Mutations: `values` left out of the key shows the label at 15 degrees; the phase left
+    /// out composites the picture of whole pixels at half a pixel; a hit composited with the
+    /// geometry it was painted under shows the picture where it was before the pan; a key without the list (or an entry that does not hold
     /// it) shows the old cell.
     #[test]
     fn a_kept_picture_is_painted_again_when_what_it_shows_changed() {
@@ -16525,14 +16541,24 @@ mod audit_a1_tests {
         assert!(differing_pixels(&fresh, &fresh_frame(&scene, zoom, 15.0, (&rr, &fm))) > 500, "harness: the turn shows");
         assert_eq!(retained.len(), 1);
 
-        // Rule 4: the walk's offset.
+        // Rule 4: the phase. A pan by whole device pixels, in the eight directions of a shift,
+        // keeps the picture: composited where it lands now, nothing of the view's list painted
+        // (a pan during a zoom). A pan by half a pixel is another picture.
+        for by in [(12.0_f32, 0.0_f32), (-12.0, 0.0), (0.0, 7.0), (0.0, -7.0), (5.0, 3.0), (-5.0, 3.0), (5.0, -3.0), (-5.0, -3.0)] {
+            let (scene, retained, mut pm) = kept_scene();
+            let panned = Scene { host: zoom_scene(font, by, false).host, child: Arc::clone(&scene.child) };
+            let pan = zoom_frame(&panned, &zoom_state(&panned, zoom, 15.0, Some(&retained), 1), &mut pm, (&rr, &fm));
+            assert_eq!((pan.retained_hits, pan.retained_misses), (1, 0), "panned by {by:?}: {pan:?}");
+            assert!(pan.items_painted <= 2, "panned by {by:?}: nothing of the view's list is painted: {pan:?}");
+            let fresh = fresh_frame(&panned, zoom, 15.0, (&rr, &fm));
+            assert_eq!(differing_pixels(&pm, &fresh), 0, "panned by {by:?}: the picture where it lands now");
+            assert!(differing_pixels(&fresh, &fresh_frame(&scene, zoom, 15.0, (&rr, &fm))) > 500, "harness: the pan shows");
+        }
         let (scene, retained, mut pm) = kept_scene();
-        let panned = Scene { host: zoom_scene(font, (-12.0, 0.0), false).host, child: Arc::clone(&scene.child) };
+        let panned = Scene { host: zoom_scene(font, (-12.5, 0.0), false).host, child: Arc::clone(&scene.child) };
         let pan = zoom_frame(&panned, &zoom_state(&panned, zoom, 15.0, Some(&retained), 1), &mut pm, (&rr, &fm));
-        assert_eq!((pan.retained_hits, pan.retained_misses), (0, 1), "the view panned: {pan:?}");
-        let fresh = fresh_frame(&panned, zoom, 15.0, (&rr, &fm));
-        assert_eq!(differing_pixels(&pm, &fresh), 0, "the picture 12 px to the left");
-        assert!(differing_pixels(&fresh, &fresh_frame(&scene, zoom, 15.0, (&rr, &fm))) > 500, "harness: the pan shows");
+        assert_eq!((pan.retained_hits, pan.retained_misses), (0, 1), "half a pixel: another phase: {pan:?}");
+        assert_eq!(differing_pixels(&pm, &fresh_frame(&panned, zoom, 15.0, (&rr, &fm))), 0);
 
         // Rule 1: the list.
         let (scene, retained, mut pm) = kept_scene();

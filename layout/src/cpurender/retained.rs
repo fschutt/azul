@@ -17,12 +17,14 @@
 //!    one; the entry is dropped at the next frame ([`RetainedFrames::begin_frame`]);
 //! 2. the frame: the index of its push in that list;
 //! 3. the surface's size in device pixels, and the scale factor;
-//! 4. the walk's offset at the frame's push (the scroll frames and the view offset around it),
-//!    bit for bit: the content is painted at `pos - offset`, and at another offset - also one
-//!    that differs by whole device pixels - every position is another subtraction, which may
-//!    round another way. A pan of a scaled view therefore paints its strip (a small part of
-//!    the surface) and is kept as that; it is not composited from the picture of the offset
-//!    before;
+//! 4. the sub-pixel PHASE of the surface: where the frame's extent begins within its first
+//!    device pixel (in 1/1024 px). The content is painted at `(pos - offset) dpi - origin`,
+//!    with `origin = floor((extent - offset) dpi)`: at an offset that differs by whole device
+//!    pixels both terms move by the same whole number and the picture is the same one, landing
+//!    that many pixels away (the composite places it with the live geometry). This is the
+//!    claim the pixel shift of a scroll or a pan already makes (pixels painted at the old
+//!    offset are moved next to a strip painted at the new one), no more: a pan of a scaled
+//!    view composites the kept picture. At another phase the picture is another one;
 //! 5. the live values bound INSIDE the frame (the matrices of the frames in it, the opacities
 //!    of its groups, bound colours, scrollbar thumbs, the offsets of its scroll frames): a
 //!    value written inside the frame changes the picture without changing the list;
@@ -80,8 +82,9 @@ pub(crate) struct SurfaceKey {
     pub(crate) size: (u32, u32),
     /// The scale factor's bits.
     pub(crate) dpi_bits: u32,
-    /// The walk's offset at the frame's push (logical px), bit for bit.
-    pub(crate) offset: (u32, u32),
+    /// Where the frame's extent begins within its first device pixel, in 1/1024 px (0 ..=
+    /// 1024, not wrapped: a phase just under a whole pixel is another origin than one just over).
+    pub(crate) phase: (i32, i32),
     /// A hash of the live values bound inside the frame.
     pub(crate) values: u64,
     /// A hash of the text settings, the loaded fonts and the system colours.
@@ -284,8 +287,8 @@ impl RetainedFrames {
 
     /// The end of a frame: what its passes painted becomes what the next frame may composite.
     /// The parts of one surface painted by several bands are put together; a surface whose key
-    /// changed (a value inside the frame, its size, the walk's offset) replaces the one kept
-    /// for the same frame; the surfaces used longest ago make room.
+    /// changed (a value inside the frame, its size, its phase) replaces the one kept for the
+    /// same frame; the surfaces used longest ago make room.
     pub fn commit(&self) {
         let Ok(mut inner) = self.inner.lock() else {
             return;
@@ -368,7 +371,7 @@ mod tests {
             push,
             size: (40, 30),
             dpi_bits: 1.0_f32.to_bits(),
-            offset: (0, 0),
+            phase: (0, 0),
             values,
             settings: 7,
         }
@@ -436,7 +439,7 @@ mod tests {
             SurfaceKey { push: 4, ..k },
             SurfaceKey { size: (40, 31), ..k },
             SurfaceKey { dpi_bits: 2.0_f32.to_bits(), ..k },
-            SurfaceKey { offset: (12.0_f32.to_bits(), 0), ..k },
+            SurfaceKey { phase: (512, 0), ..k },
             SurfaceKey { settings: 8, ..k },
             SurfaceKey { list: k.list + 8, ..k },
         ] {
