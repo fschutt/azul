@@ -619,13 +619,16 @@ fn inline_state_variants(
 
 /// Design: "with no fallback: the property's initial value, and a warning
 /// once". Once per name per process, through the framework diagnostics
-/// channel; `AZ_SUPPRESS=var_fallback` silences it.
+/// channel (its once-only findings, which are bounded: a theme full of typos is
+/// one bug, not a thousand lines); `AZ_SUPPRESS=var_fallback` silences it.
 #[cfg(feature = "std")]
 fn warn_undefined_without_fallback(names: &BTreeSet<String>) {
-    use std::sync::{Mutex, OnceLock};
+    use core::hash::{Hash, Hasher};
+    use std::sync::OnceLock;
 
+    // The environment's `AZ_SUPPRESS`, read once: it is configuration of the process, as it is
+    // for every lint.
     static SUPPRESSED: OnceLock<bool> = OnceLock::new();
-    static WARNED: OnceLock<Mutex<BTreeSet<String>>> = OnceLock::new();
 
     if names.is_empty() {
         return;
@@ -641,19 +644,18 @@ fn warn_undefined_without_fallback(names: &BTreeSet<String>) {
     }) {
         return;
     }
-    let Ok(mut warned) = WARNED.get_or_init(|| Mutex::new(BTreeSet::new())).lock() else {
-        return; // a poisoned lint set must never take the app down
-    };
     for name in names {
-        // Bounded: a theme full of typos is one bug, not a thousand lines.
-        if warned.len() >= 64 || !warned.insert(name.clone()) {
-            continue;
-        }
-        crate::diagnostics::emit(alloc::format!(
-            "[azul][var-fallback] var(--{name}) is undefined here and declares no fallback, so \
-             the property takes its initial value. Write var(--{name}, <fallback>). (suppress \
-             with AZ_SUPPRESS={VAR_FALLBACK_SUPPRESS_TAG})"
-        ));
+        // The finding is the name: the same name read at another node says nothing new.
+        let mut hasher = crate::hash::DefaultHasher::default();
+        VAR_FALLBACK_SUPPRESS_TAG.hash(&mut hasher);
+        name.hash(&mut hasher);
+        crate::diagnostics::emit_once(hasher.finish(), || {
+            alloc::format!(
+                "[azul][var-fallback] var(--{name}) is undefined here and declares no fallback, \
+                 so the property takes its initial value. Write var(--{name}, <fallback>). \
+                 (suppress with AZ_SUPPRESS={VAR_FALLBACK_SUPPRESS_TAG})"
+            )
+        });
     }
 }
 

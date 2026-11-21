@@ -20,22 +20,27 @@
 //! The ring is capped. A lint that fires every frame must not turn into an
 //! unbounded allocation in a long-running app — the point is to catch churn,
 //! not to become it.
+//!
+//! # The recorder is a value
+//!
+//! What holds the ring, the sink, the scenario tag and the findings said once is a
+//! [`Diagnostics`]; a test of the recorder itself makes one of its own. The free functions of
+//! this module ask the process's: its emitters are lints and warnings at some thirty places of
+//! azul-core and azul-layout that carry no window and no app (a lint that runs on a DOM, a
+//! warning of a getter), and the e2e harness reads what they said through
+//! [`recorded`]. Giving the ring to a window would take a `&Diagnostics` (or the findings as
+//! data, emitted at the shell's edge) through each of those emitters; until then the tests
+//! that read the process's ring share [`test_lock`].
 
 #[cfg(feature = "std")]
 use std::{
-    collections::VecDeque,
-    sync::{Mutex, OnceLock},
+    collections::{BTreeSet, VecDeque},
+    sync::Mutex,
 };
 
 /// Most diagnostics retained. Older ones are dropped.
 #[cfg(feature = "std")]
 const CAPACITY: usize = 256;
-
-#[cfg(feature = "std")]
-fn ring() -> &'static Mutex<VecDeque<String>> {
-    static RING: OnceLock<Mutex<VecDeque<String>>> = OnceLock::new();
-    RING.get_or_init(|| Mutex::new(VecDeque::with_capacity(CAPACITY)))
-}
 
 /// Where diagnostics go, besides the ring.
 ///
@@ -81,11 +86,210 @@ fn default_sink(message: &str) {
     write_diagnostic(std::io::stderr().lock(), message);
 }
 
+/// Distinct [`Diagnostics::emit_once`] keys remembered. Past this the tap is closed: one
+/// notice, then no new once-only finding is printed (a DOM that is wrong in a
+/// thousand ways has a handful of bugs, and the log must stay readable).
 #[cfg(feature = "std")]
-fn sink() -> &'static Mutex<DiagnosticSink> {
-    static SINK: OnceLock<Mutex<DiagnosticSink>> = OnceLock::new();
-    SINK.get_or_init(|| Mutex::new(default_sink))
+const MAX_ONCE_KEYS: usize = 1024;
+
+/// The [`Diagnostics::emit_once`] keys emitted so far, and whether the cap was reached.
+#[cfg(feature = "std")]
+#[derive(Debug, Default)]
+struct OnceKeys {
+    keys: BTreeSet<u64>,
+    capped: bool,
 }
+
+/// The recorder of framework diagnostics: the bounded ring of what was said, the sink it is
+/// sent to, the scenario it is tagged with, and the findings that are said once.
+///
+/// The process has one (the free functions of this module); a test of the recorder makes its
+/// own with [`Diagnostics::new`].
+#[cfg(feature = "std")]
+#[derive(Debug)]
+pub struct Diagnostics {
+    /// The last [`CAPACITY`] diagnostics, oldest first.
+    ring: Mutex<VecDeque<String>>,
+    /// Where a diagnostic goes besides the ring.
+    sink: Mutex<DiagnosticSink>,
+    /// The scenario currently running, attached to every diagnostic emitted while it is set.
+    ///
+    /// This is the label that makes a Grafana view legible. Without it the ring and the log
+    /// stream are one flat sequence and a failure cannot be attributed to the test that
+    /// provoked it; with it, filtering by `test="scroll_momentum"` gives that scenario's whole
+    /// story — the lints it tripped, in order, and the assertion that finally failed.
+    ///
+    /// Deliberately ONE string, not a stack: e2e scenarios run serially precisely so their
+    /// output can be read in order, and a nested notion of "current test" would be a
+    /// cardinality problem in the metric store for no benefit.
+    scope: Mutex<Option<String>>,
+    /// The findings said once ([`Self::emit_once`]).
+    once: Mutex<OnceKeys>,
+    /// What the tests that share this recorder take ([`Self::test_lock`]).
+    test_lock: Mutex<()>,
+}
+
+#[cfg(feature = "std")]
+impl Default for Diagnostics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "std")]
+impl Diagnostics {
+    /// A recorder with an empty ring, the default sink (stderr), no scenario and nothing said.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            ring: Mutex::new(VecDeque::new()),
+            sink: Mutex::new(default_sink),
+            scope: Mutex::new(None),
+            once: Mutex::new(OnceKeys {
+                keys: BTreeSet::new(),
+                capped: false,
+            }),
+            test_lock: Mutex::new(()),
+        }
+    }
+
+    /// Route diagnostics somewhere other than stderr.
+    ///
+    /// Passing a sink that does nothing silences them entirely while STILL recording to the
+    /// ring, so tests keep working when an app has muted its output.
+    pub fn set_sink(&self, new_sink: DiagnosticSink) {
+        if let Ok(mut s) = self.sink.lock() {
+            *s = new_sink;
+        }
+    }
+
+    /// Name the scenario now running. Pass `None` when it ends.
+    pub fn set_scope(&self, name: Option<String>) {
+        if let Ok(mut sc) = self.scope.lock() {
+            *sc = name;
+        }
+    }
+
+    /// The scenario now running, if any.
+    #[must_use]
+    pub fn current_scope(&self) -> Option<String> {
+        self.scope.lock().ok().and_then(|sc| sc.clone())
+    }
+
+    /// Emit a framework diagnostic: send it to the sink AND record it.
+    ///
+    /// Callers pass the fully-formatted message, tag included, exactly as it should
+    /// appear in a log.
+    pub fn emit(&self, message: String) {
+        // Tag with the running scenario so a Grafana query can follow ONE test.
+        let tagged = match self.current_scope() {
+            Some(test) => format!("[test={test}] {message}"),
+            None => message,
+        };
+        let f = self.sink.lock().map(|s| *s).unwrap_or(default_sink);
+        f(&tagged);
+        self.record(tagged);
+    }
+
+    /// [`Self::emit`] a diagnostic ONCE per `key`: a key already emitted prints nothing.
+    ///
+    /// `key` names the FINDING (the problem, not the pass that saw it - a lint keys
+    /// it by what the node is and how it is selected). A lint that runs after
+    /// layout passes otherwise repeats its lines for as long as the app shows the
+    /// shape. `message` is built only when it is printed. [`Self::clear`] forgets the
+    /// keys with the ring, so a test or an e2e step that clears sees a finding
+    /// again. Returns whether the diagnostic was emitted.
+    pub fn emit_once(&self, key: u64, message: impl FnOnce() -> String) -> bool {
+        let newly_capped = {
+            let Ok(mut once) = self.once.lock() else {
+                return false; // a poisoned set must never take the app down
+            };
+            if once.capped || once.keys.contains(&key) {
+                return false;
+            }
+            if once.keys.len() >= MAX_ONCE_KEYS {
+                once.capped = true;
+                true
+            } else {
+                once.keys.insert(key);
+                false
+            }
+        };
+        if newly_capped {
+            self.emit(format!(
+                "[azul][diagnostics] {MAX_ONCE_KEYS} distinct findings reported - further \
+                 findings are not printed"
+            ));
+            return false;
+        }
+        self.emit(message());
+        true
+    }
+
+    /// Record without printing — for the rare diagnostic that has already been
+    /// printed by other means but should still be assertable.
+    pub fn record(&self, message: String) {
+        let Ok(mut r) = self.ring.lock() else {
+            return; // a poisoned diagnostics ring must never take the app down
+        };
+        if r.len() == CAPACITY {
+            r.pop_front();
+        }
+        r.push_back(message);
+    }
+
+    /// Every diagnostic recorded so far, oldest first.
+    #[must_use]
+    pub fn recorded(&self) -> Vec<String> {
+        self.ring
+            .lock()
+            .map(|r| r.iter().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// Does any recorded diagnostic contain `needle`?
+    #[must_use]
+    pub fn any_contains(&self, needle: &str) -> bool {
+        self.ring
+            .lock()
+            .map(|r| r.iter().any(|m| m.contains(needle)))
+            .unwrap_or(false)
+    }
+
+    /// Drop everything recorded so far.
+    ///
+    /// An e2e scenario clears before the step it means to observe, so a warning
+    /// emitted during startup cannot satisfy — or spoil — a later assertion.
+    pub fn clear(&self) {
+        if let Ok(mut r) = self.ring.lock() {
+            r.clear();
+        }
+        // The once-only findings with it: a step that clears to observe a lint
+        // must see it fire again (`emit_once`).
+        if let Ok(mut once) = self.once.lock() {
+            once.keys.clear();
+            once.capped = false;
+        }
+    }
+
+    /// One lock for the tests that share this recorder.
+    ///
+    /// A shared ring needs tests that touch it not to run concurrently, and two modules each
+    /// having their own private lock does NOT achieve that — it was tried, and `dom_lint`'s tests
+    /// and the e2e `assert_stderr` tests promptly raced, passing alone and failing together. A
+    /// test that makes a recorder of its own needs none.
+    #[must_use]
+    pub const fn test_lock(&self) -> &Mutex<()> {
+        &self.test_lock
+    }
+}
+
+// The recorder of the process: the one the free functions below ask. Process-wide because its
+// emitters (lints and warnings of azul-core and azul-layout) carry no window or app to ask, and
+// the e2e harness reads what they said through `recorded`; see the module docs for what it would
+// take to give it an owner.
+#[cfg(feature = "std")]
+static PROCESS: Diagnostics = Diagnostics::new();
 
 /// Route framework diagnostics somewhere other than stderr.
 ///
@@ -94,42 +298,20 @@ fn sink() -> &'static Mutex<DiagnosticSink> {
 /// app has muted its output.
 #[cfg(feature = "std")]
 pub fn set_sink(new_sink: DiagnosticSink) {
-    if let Ok(mut s) = sink().lock() {
-        *s = new_sink;
-    }
-}
-
-/// The scenario currently running, attached to every diagnostic emitted while
-/// it is set.
-///
-/// This is the label that makes a Grafana view legible. Without it the ring and
-/// the log stream are one flat sequence and a failure cannot be attributed to
-/// the test that provoked it; with it, filtering by `test="scroll_momentum"`
-/// gives that scenario's whole story — the lints it tripped, in order, and the
-/// assertion that finally failed.
-///
-/// Deliberately ONE string, not a stack: e2e scenarios run serially precisely
-/// so their output can be read in order, and a nested notion of "current test"
-/// would be a cardinality problem in the metric store for no benefit.
-#[cfg(feature = "std")]
-fn scope() -> &'static Mutex<Option<String>> {
-    static SCOPE: OnceLock<Mutex<Option<String>>> = OnceLock::new();
-    SCOPE.get_or_init(|| Mutex::new(None))
+    PROCESS.set_sink(new_sink);
 }
 
 /// Name the scenario now running. Pass `None` when it ends.
 #[cfg(feature = "std")]
 pub fn set_scope(name: Option<String>) {
-    if let Ok(mut sc) = scope().lock() {
-        *sc = name;
-    }
+    PROCESS.set_scope(name);
 }
 
 /// The scenario now running, if any.
 #[cfg(feature = "std")]
 #[must_use]
 pub fn current_scope() -> Option<String> {
-    scope().lock().ok().and_then(|sc| sc.clone())
+    PROCESS.current_scope()
 }
 
 /// Emit a framework diagnostic: send it to the sink AND record it.
@@ -138,27 +320,7 @@ pub fn current_scope() -> Option<String> {
 /// appear in a log.
 #[cfg(feature = "std")]
 pub fn emit(message: String) {
-    // Tag with the running scenario so a Grafana query can follow ONE test.
-    let tagged = match current_scope() {
-        Some(test) => format!("[test={test}] {message}"),
-        None => message,
-    };
-    let f = sink().lock().map(|s| *s).unwrap_or(default_sink);
-    f(&tagged);
-    record(tagged);
-}
-
-/// Distinct [`emit_once`] keys remembered. Past this the tap is closed: one
-/// notice, then no new once-only finding is printed (a DOM that is wrong in a
-/// thousand ways has a handful of bugs, and the log must stay readable).
-#[cfg(feature = "std")]
-const MAX_ONCE_KEYS: usize = 1024;
-
-/// The [`emit_once`] keys emitted so far, and whether the cap was reached.
-#[cfg(feature = "std")]
-fn once_keys() -> &'static Mutex<(std::collections::BTreeSet<u64>, bool)> {
-    static ONCE: OnceLock<Mutex<(std::collections::BTreeSet<u64>, bool)>> = OnceLock::new();
-    ONCE.get_or_init(|| Mutex::new((std::collections::BTreeSet::new(), false)))
+    PROCESS.emit(message);
 }
 
 /// [`emit`] a diagnostic ONCE per `key`: a key already emitted prints nothing.
@@ -171,64 +333,28 @@ fn once_keys() -> &'static Mutex<(std::collections::BTreeSet<u64>, bool)> {
 /// again. Returns whether the diagnostic was emitted.
 #[cfg(feature = "std")]
 pub fn emit_once(key: u64, message: impl FnOnce() -> String) -> bool {
-    let newly_capped = {
-        let Ok(mut once) = once_keys().lock() else {
-            return false; // a poisoned set must never take the app down
-        };
-        let (keys, capped) = &mut *once;
-        if *capped || keys.contains(&key) {
-            return false;
-        }
-        if keys.len() >= MAX_ONCE_KEYS {
-            *capped = true;
-            true
-        } else {
-            keys.insert(key);
-            false
-        }
-    };
-    if newly_capped {
-        emit(format!(
-            "[azul][diagnostics] {MAX_ONCE_KEYS} distinct findings reported - further findings \
-             are not printed"
-        ));
-        return false;
-    }
-    emit(message());
-    true
+    PROCESS.emit_once(key, message)
 }
 
 /// Record without printing — for the rare diagnostic that has already been
 /// printed by other means but should still be assertable.
 #[cfg(feature = "std")]
 pub fn record(message: String) {
-    let Ok(mut r) = ring().lock() else {
-        return; // a poisoned diagnostics ring must never take the app down
-    };
-    if r.len() == CAPACITY {
-        r.pop_front();
-    }
-    r.push_back(message);
+    PROCESS.record(message);
 }
 
 /// Every diagnostic recorded so far, oldest first.
 #[cfg(feature = "std")]
 #[must_use]
 pub fn recorded() -> Vec<String> {
-    ring()
-        .lock()
-        .map(|r| r.iter().cloned().collect())
-        .unwrap_or_default()
+    PROCESS.recorded()
 }
 
 /// Does any recorded diagnostic contain `needle`?
 #[cfg(feature = "std")]
 #[must_use]
 pub fn any_contains(needle: &str) -> bool {
-    ring()
-        .lock()
-        .map(|r| r.iter().any(|m| m.contains(needle)))
-        .unwrap_or(false)
+    PROCESS.any_contains(needle)
 }
 
 /// One lock for the one shared ring, for tests ANYWHERE in the workspace.
@@ -238,11 +364,12 @@ pub fn any_contains(needle: &str) -> bool {
 /// tried, and `dom_lint`'s tests and the e2e `assert_stderr` tests promptly
 /// raced, passing alone and failing together. A shared resource needs a shared
 /// lock, and the honest place for it is beside the resource.
+///
+/// A test of the recorder itself makes a [`Diagnostics`] and needs none.
 #[cfg(feature = "std")]
 #[must_use]
 pub fn test_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+    PROCESS.test_lock()
 }
 
 /// Drop everything recorded so far.
@@ -251,15 +378,7 @@ pub fn test_lock() -> &'static Mutex<()> {
 /// emitted during startup cannot satisfy — or spoil — a later assertion.
 #[cfg(feature = "std")]
 pub fn clear() {
-    if let Ok(mut r) = ring().lock() {
-        r.clear();
-    }
-    // The once-only findings with it: a step that clears to observe a lint
-    // must see it fire again (`emit_once`).
-    if let Ok(mut once) = once_keys().lock() {
-        once.0.clear();
-        once.1 = false;
-    }
+    PROCESS.clear();
 }
 
 #[cfg(not(feature = "std"))]
