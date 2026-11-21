@@ -235,3 +235,32 @@ mod macos_cursor {
         assert!(MACOS_RS.contains("\"AZ_CURSOR_SET_ALWAYS\""));
     }
 }
+
+/// A6-17: no hit test is answered by WebRender; macOS does not request its hit tester.
+mod one_hit_tester {
+    const EVENT_RS: &str = include_str!("../shell2/common/event.rs");
+    const MACOS_RS: &str = include_str!("../shell2/macos/mod.rs");
+
+    /// Guards on the source: the shared hit test asks the layout-based tester and never
+    /// resolves WebRender's, and the macOS window is created without the blocking request
+    /// (behind `AZ_WR_HIT_TESTER`).
+    /// Mutation: a `hit_tester.resolve()` or `.hit_test(` on WebRender's tester in
+    /// `perform_hit_test`, or the unconditional request back in the macOS shell, fails this.
+    #[test]
+    fn no_hit_test_is_answered_by_webrender() {
+        let from = EVENT_RS.find("pub fn perform_hit_test(").expect("perform_hit_test");
+        let body = &EVENT_RS[from..];
+        let to = body.find("macro_rules! impl_platform_window_getters").expect("the end");
+        let body = &body[..to];
+        assert!(body.contains("cpu_ht.hit_test_scrolled_stamped("));
+        assert!(!body.contains("self.hit_tester"), "WebRender's tester is not asked");
+        assert!(!EVENT_RS.contains("hit_tester.resolve()"));
+        assert!(!EVENT_RS.contains(".hit_tester.as_mut()"));
+
+        let request = MACOS_RS.find(".request_hit_tester(").expect("the request is kept");
+        let before = &MACOS_RS[..request];
+        let switch = before.rfind("AZ_WR_HIT_TESTER").expect("behind the switch");
+        assert!(request - switch < 400, "the request follows its switch");
+        assert_eq!(MACOS_RS.matches(".request_hit_tester(").count(), 1);
+    }
+}

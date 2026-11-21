@@ -6635,9 +6635,19 @@ impl MacOSWindow {
 
             let document_id = translate_document_id_wr(render_api.add_document(framebuffer_size));
             let id_namespace = translate_id_namespace_wr(render_api.get_namespace_id());
-            let hit_tester = render_api
-                .request_hit_tester(wr_translate_document_id(document_id))
-                .resolve();
+            // WebRender's hit tester is asked by nobody: every hit test is
+            // answered by the layout-based tester
+            // (`CommonWindowState::perform_hit_test`). It is not requested
+            // any more - `resolve()` was a blocking round trip to the render
+            // backend at every window creation. `AZ_WR_HIT_TESTER=1` requests
+            // it as before (audit A6-17).
+            let hit_tester = std::env::var_os("AZ_WR_HIT_TESTER").is_some().then(|| {
+                AsyncHitTester::Resolved(
+                    render_api
+                        .request_hit_tester(wr_translate_document_id(document_id))
+                        .resolve(),
+                )
+            });
             let gl_ctx_inner = gl_context
                 .as_ref()
                 .map(|_| GlContextPtr::new(RendererType::Hardware, gl_funcs.clone()));
@@ -6655,7 +6665,7 @@ impl MacOSWindow {
                     Some(render_api),
                     Some(document_id),
                     Some(id_namespace),
-                    Some(AsyncHitTester::Resolved(hit_tester)),
+                    hit_tester,
                     gl_ctx_inner.into(),
                     RendererType::Hardware,
                 )
