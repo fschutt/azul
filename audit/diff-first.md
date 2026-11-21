@@ -364,8 +364,39 @@ compact entries and all ~200 properties per node in three states equal a DOM sty
   and previous sizes through that map, with every fresh node in `reemit`; (3) the three gates accepting "mapped"
   beside "structure preserved". A reused node keeps its DOM id (06b), so the ids inside its spliced items stand.
   It does not help renumbered nodes until 06b exists.
+- as built (`dd0ef31d4`, step `tlist`): the map existed (`ReconciliationResult::carried_indices`, what the
+  cache map is remapped with); `PatchState::build_across_trees` keys runs, deltas and sizes through it; the
+  gate's fourth arm takes it when a producer named its cascaded nodes (`CascadedSince`: a changed tree is
+  always a cascade that ran); exit 1.47 hands the names. The list is recorded as a FULL emission (the patch
+  damage and the move summary pair boxes by one index; the renderers' item diff covers a changed tree as
+  before). Read for it: `PatchState`, `build`, `try_copy_cached_run` and the copy loop, the gate and its
+  bookkeeping, `reconcile_node`'s clone arm, `try_reuse_anon_wrapper`, `generate_tag_ids` (a tag is
+  `node index + 1`). Why the ids inside a copied run stand: a carried box has the DOM id it had (a
+  renumbered node is fresh), a box carried under another DOM node (paired by position) is re-emitted, and
+  the inline root of a fresh member is re-emitted.
+- tests: dll `rows_that_come_are_painted_and_the_rows_before_are_copied`,
+  `a_box_that_got_another_layout_index_is_copied_from_the_run_it_had`,
+  `labels_that_enter_a_view_are_painted_and_the_others_copied`; the walks with every step.
+- what is left of it is 06b: every node after the first that came or went is renumbered, built fresh and
+  painted.
 - severity: high
-- status: blocked (a): the old-to-new layout index map through `PatchState::build` and the walk that consumes the runs (display_list.rs, 20k lines, A3-core's; not read in full by any session); the design is this block
+- status: fixed dd0ef31d4
+
+### diff-first-20 a rebuild that kept the window's DOM emitted the window's whole list
+- file:line: `dll/src/desktop/shell2/common/layout.rs` exit 1.46 (`restyle_rebuilt_nodes`), exit 1.47
+  (`style_reconciled_dom`); `layout/src/solver3/mod.rs` the patch gate
+- class: wasted-work (the predecessor's table: "nodes changed where they stand: exit 1.46: list emitted in
+  full"): the cascade over the reached nodes moves the epoch, the gate takes a reconciled tree only with no
+  css dirt and an unmoved epoch. Est. 1.0-2.0 ms per 1,000 nodes of the window's DOM per rebuild.
+- fix: the hand-over of diff-first-18 part 1 from the shell (`554d8ccd2`, step `wlist`): epoch before, epoch
+  after, the reached nodes, under the conditions of the clean flags and only where the cascade ran for the
+  reached nodes alone (`restyle_rebuilt_nodes` answers that too). Exit 1.47 hands its names under `tlist`
+  (`dd0ef31d4`). Every rebuild voids what an earlier one named and no pass took.
+- what it does not save: a change that moves the boxes after it (a taller row) paints them (diff-first-15).
+- tests: dll `one_changed_class_paints_its_row_and_copies_the_windows_list`,
+  `a_box_the_windows_cascade_reached_is_painted_though_it_is_clean`; the walks with every step.
+- severity: high
+- status: fixed 554d8ccd2
 
 ### diff-first-08 what is still O(n) on the kept-DOM exit for changed nodes
 - file:line: `layout/src/window.rs` `restyle_rebuilt_nodes`, `rebuild_can_keep_the_styled_dom`;
@@ -822,7 +853,11 @@ compact entries and all ~200 properties per node in three states equal a DOM sty
   places its labels today (see "For area A7-editor (m4p)": every label gets new insets at every settle). It
   gains on a re-render that keeps the tree and most insets: a selection, a label moved or cut by hand, a key's
   message, the hover (`refresh_view`): est. 12-25 ms of list emission down to 1.5-3 ms of copies.
-- status: open: part 1 is built (aa929c920); part 2 (the tree changed: a label came or went) needs diff-first-07 and diff-first-06b
+- part 2 (the tree changed): the list is patched across the trees since `dd0ef31d4` (diff-first-07): the
+  labels BEFORE the first one that came or went keep their node ids and are copied
+  (`labels_that_enter_a_view_are_painted_and_the_others_copied`). The labels after it are renumbered, built
+  fresh by the solver and painted: that is diff-first-06b, and nothing else of this row is open.
+- status: fixed dd0ef31d4
 
 ### diff-first-17 the first half's core tests took `Dom::with_css` for a node's own style (seven red tests)
 - file:line: `core/src/diff_test.rs` `audit_diff_first_tests` (`page`, the nested tree); `core/src/styled_dom_test.rs`
@@ -913,6 +948,12 @@ compact entries and all ~200 properties per node in three states equal a DOM sty
     (`solver3::cache::CascadedSince`) and the pass patches the view's display list where the tree kept its
     shape (diff-first-18 part 1). Off: the view's whole list is emitted whenever its cascade epoch moved.
     `AZ_DIFF_FIRST=text,nodes,style,tree,view` = the state before it.
+  - `wlist`: the same for the window's own list on exit 1.46 (diff-first-20): the shell hands the pass the
+    nodes the changes reach. Off: exit 1.46 emits the window's whole list.
+  - `tlist`: the list across a changed tree (diff-first-07): the pass copies the runs of the boxes its
+    reconcile carried over (`PatchState::build_across_trees`), for the window and for a view; and exit 1.47
+    hands the pass the nodes it cascaded. Off: a pass whose tree changed its node count emits its whole
+    list, and exit 1.47 names no node.
   Examples: `AZ_DIFF_FIRST=text,nodes,style` = the state before the second half; `AZ_DIFF_FIRST=tree` = every
   changed rebuild of the window's DOM down exit 1.47; `AZ_DIFF_FIRST=text,nodes,style,tree` = everything but views.
 A test picks its steps per thread: `window::set_diff_first_steps_on_this_thread(Some(&[..]))`,
@@ -922,8 +963,8 @@ were kept), `styled_dom::nodes_cascaded_on_this_thread()`, `styled_dom::compact_
 (whole cascades). The pre-cascade exit for an identical rebuild is older than the switch and not under it.
 For the step `list`: `solver3::display_list::lists_patched_after_a_named_cascade_on_this_thread()` (the passes
 that took its arm), `runs_painted_by_patched_builds_on_this_thread()` and `cached_runs_copied_on_this_thread()`
-(what a patched build painted and what it copied). The switch's bits are a `u16` since `list`
-(`diff_first_steps_of` answers one).
+(what a patched build painted and what it copied), `lists_patched_across_trees_on_this_thread()` (the arm of
+`tlist`). The switch's bits are a `u16` since `list` (`diff_first_steps_of` answers one); eight steps.
 
 `AZ_DL_TRANSLATE_MOVED_RUNS` (read once per process, at the first patched build that copies a run;
 `layout/src/solver3/display_list.rs` `moved_run_policy`, `MovedRunPolicy`; diff-first-15):
@@ -1208,6 +1249,8 @@ ARENA after the flatten, never `nodes_at`.
 | diff-first-19 (a state that hands a value down no longer costs the DOM its inherited UA values) | 8e9ead705 | core `audit_diff_first_tests::a_state_that_hands_a_colour_down_costs_no_other_node_what_it_inherits`, the whole core suite (hover / focus restyles); dll the three `*_under_the_pointer_*` walks, `a_full_rebuild_keeps_the_hover_colour_the_hovered_row_hands_its_text` |
 | diff-first-19, second part (what a node hands down from a state beats its children's copy of the resting value; both stores agree) | 3afb0f554 | core `audit_diff_first_tests::a_state_that_hands_a_colour_down_costs_no_other_node_what_it_inherits`, `a_state_hands_down_a_property_whose_copy_survives_the_prune`, the whole core lib and `--tests` (`css_inheritance.rs` calls the pass directly); dll the three `*_under_the_pointer_*` walks; layout `a3_window::a_hover_colour_patched_into_the_list_is_the_list_a_build_gives` |
 | diff-first-18 part 1, step `list` (a view's re-render hands the pass the nodes it cascaded; the list is patched) | aa929c920 | dll `one_changed_label_of_a_view_paints_that_label_and_copies_the_rest`, `a_view_that_restyled_5_percent_of_its_labels_paints_5_percent`, `a_view_whose_labels_all_moved_paints_every_label`, `a_node_the_cascade_reached_is_painted_though_its_box_is_clean`, `a_view_rendered_again_leaves_what_the_full_path_leaves`, `the_steps_of_the_switch_are_named_one_by_one`; the layout lib (views, damage: nothing of it was read for a pinned full emission) |
+| diff-first-20, step `wlist` (exit 1.46 hands the pass its cascaded nodes) | 554d8ccd2 | dll `one_changed_class_paints_its_row_and_copies_the_windows_list`, `a_box_the_windows_cascade_reached_is_painted_though_it_is_clean`, the `df` walks (`a_rebuild_that_styled_its_changed_nodes_*`, under the pointer too) |
+| diff-first-07, step `tlist` (the list patched across a changed tree; exit 1.47 hands its names) | dd0ef31d4 | dll `rows_that_come_are_painted_and_the_rows_before_are_copied`, `a_box_that_got_another_layout_index_is_copied_from_the_run_it_had`, `labels_that_enter_a_view_are_painted_and_the_others_copied`, every `df` / `dfv` walk and count test (the helpers and both fixtures changed), `the_steps_of_the_switch_are_named_one_by_one` |
 | diff-first-17 (the core fixtures: a node's own style, not `Dom::with_css`) | 8420ec290 (`diff_test.rs`), 8e7a62d2c (`styled_dom_test.rs`) | core `diff::diff_test::audit_diff_first_tests` (all), `styled_dom::...::audit_diff_first_tests::the_cascade_over_changed_nodes_*` (three walks) and the rest of that module |
 
 **The verifier's first run of the dll suite (integration `57a46db75`, first half): the seven of this area.**
@@ -1244,22 +1287,30 @@ the slider and the plain walks green, the tests of the steps `tree` and `view` g
 expected on `8447aa202`: fixed by bf43a5e96) and the three walks under the pointer (diff-first-19).
 
 **In flight (third successor, 2026-11-21):** nothing uncommitted. The branch holds `audit/integration` up to
-`a10556742` (merged twice at the start). Done by this agent so far: diff-first-19 second part (`3afb0f554`),
-diff-first-18 part 1 = step `list` (`aa929c920`), the answer for the editor ("For area A7-editor (m4p)").
-Next, in this order: the window's own rebuilds (exit 1.46 hands the pass its cascaded nodes: step `wlist`),
-diff-first-07, diff-first-06b, then the window area's vacuous test, the rows agent's 2-4, diff-first-05, -08, -12.
+`a10556742` (merged twice at the start). Done by this agent: diff-first-19 second part (`3afb0f554`),
+diff-first-18 part 1 = step `list` (`aa929c920`), the answer for the editor ("For area A7-editor (m4p)"),
+diff-first-20 = step `wlist` (`554d8ccd2`), diff-first-07 = step `tlist` (`dd0ef31d4`).
 
-**Left, in the order of the coordinator's priorities, each with its design in the block named:**
-1. (done: eba4d13e4) Views, the kept exits. (done: aa929c920) Their list, where the tree kept its shape.
-2. The window's own list on exit 1.46 (the same hand-over, from the shell).
-3. The display list across a changed tree: diff-first-07.
-4. The solver across renumbering: diff-first-06b (A3-solver's and A8's files). It is what a pan that brings
-   labels in the middle of the list still pays in layout.
-5. Gates: the table above (`animation` is narrowed: diff-first-14). Open with a design and no code: `+` / `~` on
-   exit 1.46 (the later siblings only), the drag state (rows agent 2).
-6. The rows agent's changes 2-4 (above).
-7. diff-first-05 (the hashes and maps of `reconcile_dom`), diff-first-08 (tags, the cache clone of exit 1.46,
+**By reading, not settled (the verifier's run decides; each is a premise assertion in its test):**
+- whether the epochs of a `CascadedSince` survive from the hand-over to `layout_document` in the common case
+  (`patched == 1` / `across == 1`); if not, look for what moves the DOM's `cascade_epoch` in between, or for a
+  list that was not built at the old DOM's epoch;
+- the run counts (`copied >= ..`, `painted in ..`): estimates of how many paint calls a row or a label makes;
+- `a_box_that_got_another_layout_index_is_copied_from_the_run_it_had`: that a `display: list-item` row keeps
+  its height (premise "the rows after the list item did not move");
+- whether a layout or dll test pins a view's re-render or a window rebuild as a FULL emission
+  (`last_build_was_patched == false`, a damage list): such a rebuild is a patched build now.
+
+**Left, each with its design in the block named:**
+1. The solver across renumbering: diff-first-06b (A3-solver's and A8's files): what is left of every case
+   where a node comes or goes before others.
+2. Gates: the table above. Open with a design and no code: `+` / `~` on exit 1.46 (the later siblings only),
+   the drag state (rows agent 2).
+3. The rows agent's changes 2-4 (above).
+4. diff-first-05 (the hashes and maps of `reconcile_dom`), diff-first-08 (tags, the cache clone of exit 1.46,
    the animation lookup), diff-first-12.
+5. The window area's test `a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it` (its shifts add
+   exactly in floating point: it passes with and without the copied-run fix).
 
 ## Not read
 
