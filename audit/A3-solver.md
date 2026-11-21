@@ -110,9 +110,9 @@ frequency for the editor's loads). One row per finding id; the text blocks below
 | A3-solver-14 | waste | `positioning.rs` `position_out_of_flow_elements`, `cache.rs` `calculate_layout_for_subtree_fragment` | high | fixed 93cf4a98a | `a_pass_for_a_paragraph_lays_out_no_interior_of_the_labels_beside_it` and three more |
 | A3-solver-14b | waste | `positioning.rs` the solve of every absolute box in every pass | medium | fixed f8e1e7c73 | `a_pass_for_a_paragraph_solves_none_of_the_labels_beside_it`, `labels_that_moved_are_solved_again` |
 | A3-solver-15 | quadratic | `fc/bfc.rs` Pass 1 position vector | low | fixed 4eabd302a | `the_first_pass_of_a_block_borrows_its_position_vector_from_the_pass` |
-| A3-solver-15b | quadratic | `fc/table_rows.rs`, `fc/table_columns.rs`, `fc/table.rs` temp position vectors | low | open: `fc/table_rows.rs:256`, `fc/table_columns.rs:394`, `fc/table.rs:909` each make a `PositionVec` per call; lend it from `ctx.pass_memo.bfc` (`BfcPassMemo::lend` / `take_back`, as `layout_bfc` Pass 1 does: `fc/bfc.rs`) - `take_back` needs the list of the boxes that were sized with it | - |
+| A3-solver-15b | quadratic | `fc/table_rows.rs`, `fc/table_columns.rs`, `fc/table.rs`, `fc/bfc.rs` (fragmented child) temp position vectors | low | fixed 3f4e06488 | `the_cells_of_a_table_borrow_their_position_vectors_from_the_pass` |
 | A3-solver-16 | quadratic | `fc/ifc.rs` `static_positions_of` | low | fixed 640fefd1b | `the_static_places_of_many_boxes_in_one_paragraph_are_read_off_one_listing_of_its_items` |
-| A3-solver-16b | quadratic | `fc/ifc.rs` `inline_static_place_in_tree` (footnotes, columns) | low | open: `fc::inline_static_place_in_tree` (callers `footnotes.rs:655`, `columns.rs:431`) expands the layout and scans it once per footnote / column anchor; build `StaticPlaces` (640fefd1b, `fc/ifc.rs`) once per inline formatting context and ask it per anchor; paged media only | - |
+| A3-solver-16b | quadratic | `fc/ifc.rs` `inline_static_place_in_tree` (footnotes, columns) | low | fixed bd29ecca4 | `a3_solver::ifc::the_anchor_lines_of_many_boxes_of_a_paragraph_list_its_items_once` |
 | A3-solver-17 | waste | `taffy_bridge.rs` width-only answers | high | fixed b27f65a88 | `a_nested_flex_row_answers_each_width_question_of_a_first_layout_once` |
 | A3-solver-17b | waste | `taffy_bridge.rs` measure spill | medium | fixed 9d4637c90 | `the_measurement_a_second_store_evicts_is_found_in_the_second_way` |
 | A3-solver-17c | waste | `taffy_bridge.rs` `set_final_layout_current(node, false)` on every measure | medium | blocked (a): a measure in the taffy bridge writes the tree's final state (sizes, offsets, inline layout, per-node caches); keeping the final layout current across a computed measure needs side-effect-free measures; design below | - |
@@ -125,20 +125,21 @@ frequency for the editor's loads). One row per finding id; the text blocks below
 | A3-solver-22 | waste | `layout_tree.rs` paint runs of measures | medium | fixed 318d1a97d | `a_measure_of_a_table_cell_builds_no_paint_runs` |
 | A3-solver-23 | waste | `fc/white_space.rs` plain text | low | fixed 16395bc3e | `white_space.rs` tests of the helper (see the commit) |
 | A3-solver-24 | waste | `layout_tree.rs` / `cache.rs` a kept node cloned twice | medium | fixed 7b39826e2 | `ifc.rs` count test (with 1ee264920: revert both) |
-| A3-solver-25 | waste | `layout_tree.rs` `dom_to_layout: BTreeMap<NodeId, Vec<..>>` | low | open: step 1 (in `layout_tree.rs` alone): the builder's map holds `Vec<LayoutNodeId>` from the start, so `build` moves it instead of rebuilding the `BTreeMap` (5 push sites, 3 read sites, 3 test assertions; `LayoutNodeId` is `repr(transparent)` over `usize`). Step 2 (one heap `Vec` per DOM node) changes the public type of `LayoutTree::dom_to_layout`, read at about 150 sites in 40 files of four areas: to do after the merge, as `enum One/Many` with `Deref<Target = [LayoutNodeId]>` and `From<Vec<LayoutNodeId>>` | - |
+| A3-solver-25 | waste | `layout_tree.rs` `build` makes the DOM-to-box map a second time | low | fixed 99d7efff1 | `layout_tree::audit_a3_solver_tests::build_hands_the_dom_map_over_as_it_is` |
+| A3-solver-25b | waste | `layout_tree.rs` `dom_to_layout: BTreeMap<NodeId, Vec<..>>`: one heap list per DOM node | low | blocked (a): the public type of `LayoutTree::dom_to_layout` (215 uses in 74 files of every area) becomes a dense table; design below | - |
 | A3-solver-26 | waste | `sizing.rs` dirty closure as a hash set | low | fixed 4909c9d07 | `sizing.rs` tests of the helper (see the commit) |
-| A3-solver-27 | quadratic | `positioning.rs` nested shifted relative boxes | low | open: `positioning::shift_if_relatively_positioned` shifts the whole subtree of each shifted box, so a box under k shifted ancestors is moved k times; one walk that carries the sum of the shifts adds them in another order (p + (d1 + d2) instead of (p + d1) + d2), which is not bit-identical: decide the order (sum first is the simpler statement of CSS 2.2 9.4.3) and accept the golden dumps moving in the last digit, or keep it | - |
+| A3-solver-27 | quadratic | `positioning.rs` nested shifted relative boxes | low | fixed 8abfe10f9 | `nested_shifted_boxes_are_moved_by_one_walk`, `nested_shifts_are_added_one_after_the_other_outermost_first` |
 | A3-solver-28 | n x depth | several (list below) | low | checked: fine | - |
 | A3-solver-29 | wrong-output | `cache.rs` `reposition_block_flow_siblings` | medium | fixed b66f75aca | `a_clean_sibling_keeps_its_place_in_a_bordered_box_when_its_neighbour_is_laid_out_again` and two more |
 | A3-solver-30 | waste | `cache.rs` `lift_to_slot_container` | medium | fixed 949321484 | `a_restyled_label_is_laid_out_without_its_layer` |
 | A3-solver-31 | waste | `fc/bfc.rs` `centers_blocks_the_legacy_way` | low | checked: fine | - |
 | A3-solver-32 | wrong-output | `sizing.rs` out-of-flow child in its parent's intrinsic sizes | medium | fixed 1e8fd3a32 | `[reveals]` d9e4f6da1 + two more in `a3_solver/sizing.rs` |
 | A3-solver-33 | wrong-output | `getters.rs` font-stack memo by hash alone | low | fixed dc3e29f49 | `getters::audit_a3_solver_tests` |
-| A3-solver-34 | waste | `widgets/color_input.rs` the panel of a closed picker | medium | blocked (a): the panel built when the popup opens needs a content callback on `TransientWindowConfig` (core API, shell, reconcile); design below | - |
+| A3-solver-34 | waste | `widgets/color_input.rs` the panel of a closed picker | medium | blocked (a): the popup is opened by the engine without a rebuild (`set_transient_window_open`), so only the engine can ask for the panel when it opens: a content callback on `TransientWindowConfig` (core, shell, reconcile); decided again after the merge, design and reasons below | - |
 | A3-solver-34a | waste | `widgets/color_input.rs` checkerboards | medium | fixed 0b94f3fdd | `a_checkerboard_is_one_node_where_it_was_a_div_per_cell` |
 | A3-solver-34b | wrong-output | `widgets/color_input.rs` swatch click | medium | fixed a250251a5 | `clicking_toggles_the_picker_through_the_engine_and_never_touches_the_color` |
 | A3-solver-35a | waste | `widgets/node_graph.rs` rebuild on every pan release | high | fixed 350ce0f23 | `the_end_of_a_pan_rebuilds_a_culled_graph_once` |
-| A3-solver-35b | waste | `widgets/node_graph.rs` pan as one transform per container | medium | blocked (a): needs nested reference frames to count at their transformed place (`reference_frame_extent`, A1's code); design below | - |
+| A3-solver-35b | waste | `widgets/node_graph.rs` pan as one transform per container | medium | blocked (a): a reference frame nested in another still counts at its untransformed place (`GroupBounds::step` at `audit/A1`: no arm for `PushReferenceFrame`), so the containers' surfaces would not hold their nodes; decided again after the merge, design below | - |
 | A3-solver-35c | waste | `widgets/node_graph.rs` drag writes width / height | high | fixed 429f0d444 | `a_step_of_a_node_drag_writes_no_layout_property_on_a_connection` |
 | A3-solver-35d | wrong-output | `widgets/node_graph.rs` pan loop that does not advance | medium | fixed 516fce10f | `a_pan_passes_over_the_boxes_it_cannot_place_and_writes_the_rest` |
 | A3-solver-35e | waste | `widgets/node_graph.rs` graph cloned per render | medium | fixed 2607ce45e | `a_render_moves_the_graph_into_its_dataset_and_copies_none_of_it` |
@@ -158,7 +159,9 @@ frequency for the editor's loads). One row per finding id; the text blocks below
 | A3-solver-50 | waste | `sizing.rs` / `fc/ifc.rs` / `text3/cache/shaping_cache.rs` an IFC shaped twice per pass (A8-06 hand-over) | medium | fixed 011b0043c | `the_layout_of_a_label_takes_what_its_measure_shaped` |
 | A3-solver-51 | wrong-output | `fc/table_rows.rs` overflow of a shifted cell | low | fixed b805defbd | `a3_solver::ifc::a_cell_moved_down_in_its_row_keeps_the_bounds_of_its_lines` |
 | A3-solver-52 | wrong-output | `mod.rs` root loop / `cache.rs` `process_out_of_flow_children` (static position of a layout root's out-of-flow children) | medium | fixed d14e782a9 | `a_box_at_its_static_position_follows_the_flow_of_a_parent_laid_out_again` ([reveals] 5a31c9af8) |
-| A3-solver-53 | wrong-output | `positioning.rs` a sticky box inside an absolutely positioned box | low | open: the positioning pass derives the positions below an absolute box from the flow again and the sticky shift goes with them (as 45 for relative); needs the sticky step for those boxes after the box is placed | - |
+| A3-solver-53 | wrong-output | `positioning.rs` a sticky box inside an absolutely positioned box | low | fixed 9019db74d | `a_sticky_box_inside_an_absolute_one_stands_at_its_shift_and_keeps_its_place` ([reveals] 6f54a959e) |
+| A3-solver-54 | wrong-output | `positioning.rs` the boxes inside a sticky box do not move with its baked shift | medium | fixed 6f402e476 | `the_boxes_inside_a_sticky_box_go_with_it` and two more ([reveals] in the commit before) |
+| A3-solver-55 | wrong-output | `widgets/node_graph.rs` the transforms a drag or pan writes outlive the gesture (`migrate_user_overrides_from`) | medium | open: the widget must clear its overrides when the gesture ends, and a clear costs a rebuild of the cascade tables of the whole DOM per box today; needs the fast path in `apply_node_css_change` written out under "For area A3-window (4)" | - |
 
 ### Fixed (details in the commit messages)
 
@@ -841,3 +844,152 @@ Blocked (a), designs above: 34 (lazy picker panel), 35b (pan as one transform pe
     items with inside markers (48), positions of relatively positioned boxes inside absolutely positioned ones
     (45).
 
+
+## After the merge (the successor's rounds; merge commit b38dee0e0)
+
+The branch contains `audit/integration` (be978485e) since `b38dee0e0`; what the merge kept from each side and
+what it adjusted is in that commit's message (diff.rs = integration's; `StyleInputs` for `PxSlot`; the second
+`LayoutContext` literal; `DisplayListGenerator::loaded_fonts` reads the pass's memo; the shell-path test is not
+ignored any more).
+
+- **53** `6f54a959e` [reveals] / `9019db74d`: `shift_if_sticky` (the body of `adjust_sticky_positions_of`,
+  moved) runs for the boxes below every absolute box the positioning pass places
+  (`shift_sticky_descendants`, after `shift_relative_descendants`); the constraints come back through
+  `position_out_of_flow_elements_with_sticky` and replace the earlier ones in `warm.sticky`. Asked for only in a
+  document with a sticky box. (The mutation line of that commit says "keeps flow y 0" for `placed_now = false`;
+  by the code it keeps -50: the test fails either way.)
+- **54** (new, found while doing 53) [reveals] + `6f402e476`: the sticky step moved the box alone; the boxes
+  below it take the distance it moved (the whole shift when the pass placed it, the change since the pass before
+  when it did not). Golden values: boxes inside a sticky box with a non-zero baked shift move by it.
+- **27** `8abfe10f9`: one walk per outermost shifted box carries the offsets down and adds them one after the
+  other, outermost first - the same additions in the same order (bit for bit; a test pins `(p + d1) + d2`
+  against `p + (d1 + d2)`). Per box one addition per shifted box around it stays; the visits are linear.
+- **16b** `bd29ecca4`: `fc::TreeStaticPlaces` (expanded layout + `StaticPlaceTables` per context root, made at
+  the first ask) for `footnotes::footnote_boxes` and `fc::columns::anchored_notes`.
+- **15b** `3f4e06488`: the three table sites and the three fragmentainer sites of `fc/bfc.rs` lend from
+  `PassMemo::bfc`; new test counter `solver3::POSITION_FILLS`.
+- **25** `99d7efff1`: step 1. **25b** (step 2), blocked (a), design:
+  1. `pub struct DomBoxes` in `layout_tree.rs`: `slots: Vec<Slot>` indexed by DOM node index, `enum Slot { None,
+     One(LayoutNodeId), Many(u32 /* into `lists` */) }`, `lists: Vec<Vec<LayoutNodeId>>` (a node with several
+     boxes: a `::marker`, a split preview, an inline box broken over lines), `len: usize` (nodes with a box).
+  2. Its API is the one the 215 uses call today on the `BTreeMap`: `get(&NodeId) -> Option<&[LayoutNodeId]>`
+     (covers the 90 `get(..).and_then(|v| v.first())` / `?.iter()` / `?.get(i)` sites unchanged),
+     `contains_key`, `len`, `is_empty`, `keys()`, `values()` (slices), `iter()` and `IntoIterator for &DomBoxes`
+     with `Item = (NodeId, &[LayoutNodeId])` (the six `for (&dom_id, indices) in &tree.dom_to_layout` loops lose
+     the `&` in the pattern), `Index<&NodeId, Output = [LayoutNodeId]>`, `last_key_value`, `insert(NodeId,
+     Vec<LayoutNodeId>)` (tests), `push(NodeId, LayoutNodeId)` for the builder's five `entry(..).or_default()
+     .push(..)`, `PartialEq`, `Debug`, `Default`, `Clone`.
+  3. Mechanical edits outside `layout_tree.rs`: 49 test literals `dom_to_layout: BTreeMap::new()` ->
+     `Default::default()`; the sites that name `Vec` (`.map(Vec::as_slice)` x3, `v.capacity()` in the memory
+     report, `assert_eq!(map[&k], vec![..])` x2 -> slices).
+  4. Gain, by reading: per reconciling pass one allocation and one B-tree insert less per DOM node, and the frees
+     of the tree before: about 5 ms per pass at 25,000 nodes.
+  5. Test: allocation count of `LayoutTreeBuilder::build` for n and 4 n boxes (no allocation per DOM node).
+
+## For area A1
+
+- **wrong-output, medium: a CSS conic gradient is drawn over half a turn and mirrored on the CPU renderer.**
+  `cpurender/raster.rs` `render_conic_gradient` (line 451 at `audit/A1`) fills with agg's `GradientConic`, whose
+  parameter is `|atan2(y, x)| * d / pi` (`agg-rust-azul-1.1.4/src/span_gradient.rs:139`): 0 on the local +x
+  axis, d at 180 degrees on EITHER side. The transform is right (rotation by `angle - 90deg`, then the centre:
+  local +x is 12 o'clock for `from 0deg`, and the angle grows clockwise on screen), so the direction and the
+  start are CSS's; the range is not: CSS runs the stops over the full turn, t = theta / 360.
+  Hand-computed, `conic-gradient(red, blue)` on a 100 x 100 box, centre (50, 50):
+  pixel (90, 50), 3 o'clock, theta = 90: CSS t = 0.25 -> rgb(191, 0, 64); drawn t = 0.5 -> rgb(128, 0, 128).
+  pixel (50, 90), 6 o'clock, theta = 180: CSS t = 0.5 -> rgb(128, 0, 128); drawn t = 1.0 -> rgb(0, 0, 255).
+  pixel (10, 50), 9 o'clock, theta = 270: CSS t = 0.75 -> rgb(64, 0, 191); drawn t = 0.5 -> rgb(128, 0, 128)
+  (the mirror image of 3 o'clock).
+  Proposed change, in `raster.rs` only (agg's trait `span_gradient::GradientFunction` is public and
+  `pixmap::agg_fill_gradient_clipped` is generic over it):
+  `struct ConicTurn; impl GradientFunction for ConicTurn { fn calculate(&self, x: i32, y: i32, d: i32) -> i32 {
+  let mut a = f64::from(y).atan2(f64::from(x)); if a < 0.0 { a += core::f64::consts::TAU; }
+  (a * f64::from(d) / core::f64::consts::TAU + 0.5) as i32 } }` and `ConicTurn` in place of `GradientConic` in
+  the call. Test: the three pixels above (tolerance 2 per channel: the LUT has 256 steps).
+  Replaces the unchecked note under "For area A2-cpu" above.
+
+## Part 3 after the merge: the three `blocked (a)` rows, decided again
+
+- **34 stays blocked (a).** Not a widget change, for one reason: the open state is the ENGINE's. A click calls
+  `info.set_transient_window_open(popup, open)` and returns `Update::DoNothing`
+  (`on_color_input_clicked`); the engine holds the popup open across rebuilds and takes its content from the
+  transient node's subtree. `build` runs in the app's layout callback and cannot know that its picker is open:
+  the flag lives in the old DOM's dataset, which the diff merges in after the callback returned
+  (`merge_picker_data`), and `ColorInput` has no such field. So a panel that exists only while open has to be
+  ASKED FOR by the engine when it opens the popup: the content callback of the design above
+  (`TransientWindowConfig::with_content`: core + shell + `transfer_states`), three areas' files and an
+  api.json addition. The widget-only variant - the click returns `RefreshDom` and `build` reads "open" from a
+  registry keyed by the input's callback - was read and dropped: the popup would be opened on the panel-less
+  subtree first, and whether an open transient window takes content and size again from a rebuilt subtree is
+  shell code no test here covers; a wrong answer is a colour picker that opens empty. Tests that pin the
+  panel in a freshly built closed input, counted again by their markers: at least 11 tests / 39 assertions in
+  the main test module (`dom_is_a_div_with_the_native_class_and_a_closed_popup_child` 11,
+  `the_rendered_dom_flattens_with_exactly_one_transient_window` 3,
+  `clicking_toggles_the_picker_through_the_engine_and_never_touches_the_color` 5,
+  `dismissal_closes_the_picker_state` 3, the seven key tests through `picker_control` 17), plus the five
+  `theme_tests`, `app_theme_tests::a_color_input_declares_its_structure_once_for_every_theme` and
+  `dll/tests/transient_window_layout.rs` (the predecessor's count: 21 tests, about 72 assertions).
+- **35b stays blocked (a).** Checked at `audit/A1`'s tip (`layout/src/solver3/display_list.rs`,
+  `GroupBounds::step`, the walk behind `reference_frame_extent` / `FrameIndex`): `PushReferenceFrame` /
+  `PopReferenceFrame` have no arm, the items of a nested frame are unioned at their own, untransformed bounds.
+  With the offset on the two containers every node box is laid out at the container's origin and moved by its
+  own `translate(position)`: the containers' extents would be one node big at the origin, and the CPU
+  renderer's surface for a frame is its extent - the nodes would be cut. Step 1 of the design (a nested frame
+  counts moved by its matrix, with a pixel test on both paths) is A1's renderer core: extents, surfaces, damage
+  and group culling all read that number. Edges and culling hold by reading (the wires get the same container
+  transform; `ViewWindow` reads the graph, not the DOM); hit-testing under two nested transforms is A6-01's
+  case; painting does not hold, so the change is not made. Also weighed: laying the nodes out by `left` / `top`
+  with the pan on the container makes a node DRAG a layout write per move (35c) and one surface of up to four
+  window areas of the container.
+- **17c stays blocked (a)**: a measure that leaves the tree as it found it is the bridge's ownership model
+  (every computation writes sizes, offsets, inline layouts and per-node caches of the subtree). The design above
+  is complete; two points added: (i) the journal is a STACK - a measure of a row computes measures of its items
+  - opened and closed by the same `compute_child_layout` call, restored innermost first; (ii) no journal when
+  the measure runs at the constraints of the final layout the flag stands for (same known dimensions and
+  available space): then the measure leaves what the final left, and the flag may simply stay.
+
+## For area A3-window (4): the node graph's gesture transforms (A3-solver-55), Part 4 of the hand-over
+
+Decided by reading, not fixed: no minimal patch is right, and no rule on values can be.
+- What happens: `set_css_property(node, transform)` is `ContentChange::NodeCss { override_only: false }`:
+  `apply_node_css_change` upserts the node's INLINE style, pins the value as a user override
+  (`write_bound_gpu_properties` -> `set_user_property_override_fast`) and publishes it under the node's key.
+  `begin_reconciliation` -> `StyledDom::migrate_user_overrides_from` copies every override to the matched
+  node of every rebuild, and an override outranks the rebuilt inline style. The node graph writes one per node
+  box and wire per mouse move of a drag or pan (`nodegraph_drag_graph_or_nodes`) and never clears one: after a
+  gesture, a rebuild from a model that says otherwise (undo of a move, a programmatic move, a zoom of the
+  model) shows the gesture's transform. 35g's keys make it the right node, not the right value.
+- Why `migrate_user_overrides_from` cannot decide: the write keeps the old node's inline style equal to the
+  override, so "the rebuilt inline value differs from the old one" IS "it differs from the override" - the case
+  in which a toggle must persist (the ribbon's band, an open panel, a tooltip's opacity: the reason overrides
+  migrate at all). `widgets/accordion.rs` documents the contract: the widget that hands a state to the host
+  clears its override (`CssProperty::initial(ty)` through the override channel).
+- So the node graph must clear its transforms when the gesture ends (the inline styles are in sync, so the
+  picture stays, and the next rebuild is the host's). Cost today: a clear is a non-GPU write ->
+  `restyle_user_properties` -> `recompute_inheritance_and_compact_cache` of the whole DOM, per box: 1 + its
+  wires for a node drag, every box with DOM for a pan (about 26 nodes and their wires in the editor: the
+  rebuild 35a removed, several times over).
+- The exact change, engine half (`window.rs` `apply_node_css_change`, before the GPU path): when
+  `override_only` and every property is `CssProperty::initial(ty)` of a GPU-only type (`is_gpu_only_property`)
+  and the node's inline style declares for `ty` exactly the value the override holds, remove the entries with
+  `set_user_property_override_fast` and return `ContentDirtyTier::Unchanged` - nothing any reader resolves
+  changes (the cascade answers the inline value, the compact cache holds it, the published value stands), so
+  no table is rebuilt and no list. (Or A3-window-15: one `restyle_user_properties` per dispatch for all its
+  writes.)
+- Widget half (`widgets/node_graph.rs`, this area, to do with it): a flag "a node was dragged" beside
+  `graph_dragged`; in `nodegraph_unset_active_node` (and in the no-button branch of
+  `nodegraph_drag_graph_or_nodes`, for a release outside the box) `info.override_css_property(box,
+  CssProperty::initial(CssPropertyType::Transform))` for the dragged node's box and its wires, or for every
+  node box and wire after a pan (the walks of the drag callback). Test: the changes of a mouse-up after a drag
+  are one `OverrideNodeCssProperties { initial transform }` per written box and nothing else.
+- With 35b the pan's part is two boxes.
+
+## Hand-over (second; the context of the successor ran long too)
+
+- Open: **55** (above; waits for the engine half), **25b** (design above; a decision whether a low row may
+  change a field 74 files read), and the three `blocked (a)` rows 34, 35b, 17c.
+- Not compiled, as everything: the commits since `b38dee0e0` in the order of risk are in the final message; the
+  ones most likely to need a compiler's word are `8abfe10f9` (27: a generic iterator parameter, two scratch
+  vectors), `9019db74d` (53: an `Option<(&BTreeMap, &mut Vec)>` parameter taken with `as_mut()`), `bd29ecca4`
+  (16b: `or_insert_with` with `?` in the closure).
+- Golden values expected to move since the merge: boxes inside a sticky box with a baked shift (54), sticky
+  boxes inside absolutely positioned boxes (53). Nothing else places a box differently.
