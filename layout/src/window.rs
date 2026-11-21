@@ -9969,6 +9969,7 @@ impl LayoutWindow {
                                         gpu_cache
                                             .current_transform_values
                                             .insert(*nid, info.thumb_initial_transform);
+                                        gpu_cache.note_value_write();
                                     }
                                 }
                                 ScrollbarHitId::HorizontalThumb(_, nid) => {
@@ -9977,6 +9978,7 @@ impl LayoutWindow {
                                         gpu_cache
                                             .h_current_transform_values
                                             .insert(*nid, info.thumb_initial_transform);
+                                        gpu_cache.note_value_write();
                                     }
                                 }
                                 _ => {}
@@ -10026,6 +10028,7 @@ impl LayoutWindow {
                                         gpu_cache
                                             .scrollbar_v_opacity_values
                                             .insert(key, initial_opacity);
+                                        gpu_cache.note_value_write();
                                     }
                                 }
                                 ScrollbarHitId::HorizontalThumb(_, nid) => {
@@ -10037,6 +10040,7 @@ impl LayoutWindow {
                                         gpu_cache
                                             .scrollbar_h_opacity_values
                                             .insert(key, initial_opacity);
+                                        gpu_cache.note_value_write();
                                     }
                                 }
                                 _ => {}
@@ -10469,6 +10473,7 @@ impl LayoutWindow {
             if let Some(cache) = self.gpu_state_manager.caches.get_mut(&old_dom) {
                 cache.anim_transform_keys.remove(&old);
                 cache.anim_current_transform_values.remove(&old);
+                cache.note_value_write();
             }
         }
         let cache = self.gpu_state_manager.get_or_create_cache(dom_id);
@@ -10482,6 +10487,7 @@ impl LayoutWindow {
             node,
             azul_core::transform::ComputedTransform3D::new_translation(x, y, 0.0),
         );
+        cache.note_value_write();
         if keyed && previous.is_some() {
             ProcessEventResult::ShouldReRenderCurrentWindow
         } else {
@@ -10502,6 +10508,7 @@ impl LayoutWindow {
         if let Some(cache) = self.gpu_state_manager.caches.get_mut(&dom) {
             cache.anim_transform_keys.remove(&node);
             cache.anim_current_transform_values.remove(&node);
+            cache.note_value_write();
         }
         true
     }
@@ -12467,6 +12474,7 @@ impl LayoutWindow {
                     .entry(*node)
                     .or_insert_with(OpacityKey::unique);
             }
+            cache.note_value_write();
             changed.push(dom);
         }
         changed
@@ -12484,11 +12492,18 @@ impl LayoutWindow {
                 continue;
             }
             let cursor = surface.cursor_in_surface();
-            cache.sheen_current_transform_values.insert(
-                node,
-                azul_core::transform::ComputedTransform3D::new_translation(cursor.x, cursor.y, 0.0),
-            );
-            cache.sheen_current_opacity_values.insert(node, surface.amount);
+            let place =
+                azul_core::transform::ComputedTransform3D::new_translation(cursor.x, cursor.y, 0.0);
+            // A sheen at rest publishes the values it had: only a value that moved counts
+            // as a write (`GpuValueCache::value_generation`).
+            let moved = cache.sheen_current_transform_values.insert(node, place) != Some(place);
+            let faded = cache
+                .sheen_current_opacity_values
+                .insert(node, surface.amount)
+                != Some(surface.amount);
+            if moved || faded {
+                cache.note_value_write();
+            }
         }
     }
 
@@ -19133,6 +19148,7 @@ impl LayoutWindow {
             cache
                 .anim_current_opacity_values
                 .insert(node_id, anim.current_opacity());
+            cache.note_value_write();
         }
 
         // Keyframed tracks advance their CLOCKS here — one engine clock —
@@ -19164,6 +19180,7 @@ impl LayoutWindow {
             cache.anim_transform_keys.remove(&node_id);
             cache.anim_current_opacity_values.remove(&node_id);
             cache.anim_opacity_keys.remove(&node_id);
+            cache.note_value_write();
         }
 
         // Diff-triggered `animation` transitions: walk each override
@@ -19404,6 +19421,7 @@ impl LayoutWindow {
                         });
                         if let Some(key) = bound_key {
                             cache.current_color_values.insert(tr.node, to_c);
+                            cache.note_value_write();
                             gpu_values_moved = true;
                             // The last frame releases the key once the list
                             // already shows the final colour (renderers fall
@@ -19437,6 +19455,7 @@ impl LayoutWindow {
                                 .entry(tr.node)
                                 .or_insert_with(azul_core::resources::ColorKey::unique);
                             cache.current_color_values.insert(tr.node, to_c);
+                            cache.note_value_write();
                             bind_jobs.push((tr.node, to_c, key));
                         }
                     }
@@ -19677,6 +19696,7 @@ impl LayoutWindow {
                 cache.anim_transform_keys.remove(&node_id);
                 cache.anim_current_opacity_values.remove(&node_id);
                 cache.anim_opacity_keys.remove(&node_id);
+                cache.note_value_write();
             }
         }
         // The views' live tracks: clock only, like the root's above, and a finished
@@ -19699,6 +19719,7 @@ impl LayoutWindow {
                 view_cache.anim_transform_keys.remove(&node);
                 view_cache.anim_current_opacity_values.remove(&node);
                 view_cache.anim_opacity_keys.remove(&node);
+                view_cache.note_value_write();
             }
         }
         self.view_tracks.retain(|_, tracks| !tracks.is_empty());
@@ -19731,10 +19752,14 @@ impl LayoutWindow {
             }))
             .map(|tr| tr.node)
             .collect();
+        let held = cache.color_keys.len() + cache.current_color_values.len();
         cache.color_keys.retain(|node, _| running.contains(node));
         cache
             .current_color_values
             .retain(|node, _| running.contains(node));
+        if cache.color_keys.len() + cache.current_color_values.len() != held {
+            cache.note_value_write();
+        }
     }
 
     /// Releases every ANIMATION-channel value (transform and opacity, key
@@ -19775,6 +19800,10 @@ impl LayoutWindow {
             .chain(dragged)
             .collect();
         if let Some(cache) = self.gpu_state_manager.caches.get_mut(&DomId::ROOT_ID) {
+            let held = cache.anim_transform_keys.len()
+                + cache.anim_current_transform_values.len()
+                + cache.anim_opacity_keys.len()
+                + cache.anim_current_opacity_values.len();
             cache
                 .anim_transform_keys
                 .retain(|node, _| driven.contains(node));
@@ -19787,6 +19816,14 @@ impl LayoutWindow {
             cache
                 .anim_current_opacity_values
                 .retain(|node, _| driven.contains(node));
+            if cache.anim_transform_keys.len()
+                + cache.anim_current_transform_values.len()
+                + cache.anim_opacity_keys.len()
+                + cache.anim_current_opacity_values.len()
+                != held
+            {
+                cache.note_value_write();
+            }
         }
     }
 
@@ -19952,6 +19989,7 @@ impl LayoutWindow {
                         gpu_cache
                             .scrollbar_v_opacity_values
                             .insert(key, vertical_opacity);
+                        gpu_cache.note_value_write();
                         events.push(GpuScrollbarOpacityEvent::VerticalAdded(
                             dom_id,
                             node_id,
@@ -19964,6 +20002,7 @@ impl LayoutWindow {
                         gpu_cache
                             .scrollbar_v_opacity_values
                             .insert(key, vertical_opacity);
+                        gpu_cache.note_value_write();
                         events.push(GpuScrollbarOpacityEvent::VerticalChanged(
                             dom_id,
                             node_id,
@@ -19978,6 +20017,7 @@ impl LayoutWindow {
                 // Remove if scrollbar no longer needed
                 if let Some(opacity_key) = gpu_cache.scrollbar_v_opacity_keys.remove(&key) {
                     gpu_cache.scrollbar_v_opacity_values.remove(&key);
+                    gpu_cache.note_value_write();
                     events.push(GpuScrollbarOpacityEvent::VerticalRemoved(
                         dom_id,
                         node_id,
@@ -19998,6 +20038,7 @@ impl LayoutWindow {
                         gpu_cache
                             .scrollbar_h_opacity_values
                             .insert(key, horizontal_opacity);
+                        gpu_cache.note_value_write();
                         events.push(GpuScrollbarOpacityEvent::HorizontalAdded(
                             dom_id,
                             node_id,
@@ -20010,6 +20051,7 @@ impl LayoutWindow {
                         gpu_cache
                             .scrollbar_h_opacity_values
                             .insert(key, horizontal_opacity);
+                        gpu_cache.note_value_write();
                         events.push(GpuScrollbarOpacityEvent::HorizontalChanged(
                             dom_id,
                             node_id,
@@ -20024,6 +20066,7 @@ impl LayoutWindow {
                 // Remove if scrollbar no longer needed
                 if let Some(opacity_key) = gpu_cache.scrollbar_h_opacity_keys.remove(&key) {
                     gpu_cache.scrollbar_h_opacity_values.remove(&key);
+                    gpu_cache.note_value_write();
                     events.push(GpuScrollbarOpacityEvent::HorizontalRemoved(
                         dom_id,
                         node_id,

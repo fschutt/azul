@@ -1471,3 +1471,63 @@ fn a_nodes_layout_rect_is_found_without_a_walk_of_the_layout_tree() {
         );
     }
 }
+
+// -- A3-window-37: the writers of the GPU value maps say so (A3-core-08) -----------------------
+
+/// A bar that comes on screen writes its opacity and moves the cache's value generation; a
+/// frame in which it rests (inside its hold) writes nothing and leaves it. A reader that
+/// skips work on an unchanged generation needs both.
+#[test]
+fn a_bar_that_shows_moves_the_value_generation_and_a_resting_one_does_not() {
+    use azul_core::task::Instant;
+
+    let mut dom = Dom::create_body().with_child(
+        Dom::create_div()
+            .with_class("box".into())
+            .with_css("width: 300px; height: 100px; overflow-y: scroll;")
+            .with_child(Dom::create_div().with_css("height: 400px; width: 280px;")),
+    );
+    let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    let scroller = {
+        let nodes = lw.layout_results[&DomId::ROOT_ID].styled_dom.node_data.as_container();
+        (0..nodes.len())
+            .map(NodeId::new)
+            .find(|n| nodes[*n].has_class("box"))
+            .expect("the box")
+    };
+    let generation = |lw: &LayoutWindow| {
+        lw.gpu_state_manager
+            .caches
+            .get(&DomId::ROOT_ID)
+            .map_or(0, azul_core::gpu::GpuValueCache::value_generation)
+    };
+    // A frame before the scroll: the bar's key and its resting opacity are there.
+    let _ = lw.refresh_scrollbar_gpu_cache_for_cpu_frame();
+    let hidden = generation(&lw);
+
+    lw.scroll_manager.set_scroll_position(
+        DomId::ROOT_ID,
+        scroller,
+        LogicalPosition::new(0.0, 60.0),
+        Instant::now(),
+    );
+    let _ = lw.refresh_scrollbar_gpu_cache_for_cpu_frame();
+    let shown = generation(&lw);
+    assert_ne!(shown, hidden, "the bar's opacity was written: 0 -> 1");
+
+    // Inside the hold of 500 ms the bar stays at 1.
+    let _ = lw.refresh_scrollbar_gpu_cache_for_cpu_frame();
+    assert_eq!(generation(&lw), shown, "nothing was written");
+}
