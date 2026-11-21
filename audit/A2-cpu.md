@@ -731,10 +731,12 @@ at 11848; `cpu_backend.rs` 425-450, 583-640, 880-1110, 1240-1500. Not read: A1's
   corner at or behind the eye. The same in `stale_boxes`.
 - test: a column with a card whose matrix has `m03 = -0.001`: `extent_with` reaches x = 666.7 (mutation: the affine
   sums give 400).
+- status: open: A1 (found in review; not patched by A2-cpu, the coordinator routes it)
 
 #### A2-cpu-R02 a frame that blits a layout move AND shifts a scroll frame or a view reports moves that do not rebuild it
-- severity: low (needs a layout patch with its translate hint and a scroll or a pan in ONE frame; the hint is off
-  while any scroll offset is non-zero, so: a scroll back to exactly 0, or a view's pan)
+- severity: low
+- reach: needs a layout patch with its translate hint and a scroll or a pan in ONE frame; the hint is off while any
+  scroll offset is non-zero, so: a scroll back to exactly 0, or a view's pan
 - where: `layout/src/cpu_backend.rs:1046-1075` (the blit, first), `1076-1109` (the reported moves), `1483-1490`
 - algebra: the invariant is "previous frame, the moves in order, then `last_present_damage_after_moves` copied =
   the new frame". The translate blit moves pixels BEFORE the reported moves and is not one of them; its boxes
@@ -752,10 +754,12 @@ at 11848; `cpu_backend.rs` 425-450, 583-640, 880-1110, 1240-1500. Not read: A1's
   move of its own in front of the others; the first is three lines.)
 - test: the invariant test of `4e8d84f40` with a blit before the shift (mutation: the moves reported as today).
 - note: no consumer on macOS today (A10-06 is `blocked (a)`); A10-24 is the X11 / Win32 consumer.
+- status: open: A1 (found in review; not patched by A2-cpu, the coordinator routes it)
 
 #### A2-cpu-R03 a kept surface repaired for a replaced list is not checked for the frame's extent: a frame whose extent moved by whole pixels is composited displaced
-- severity: medium (wrong pixels that stay until the key changes; needs content OUTSIDE the frame's box to change at
-  both ends, or to move by whole pixels with the same size)
+- severity: medium
+- reach: wrong pixels that stay until the key changes; needs content OUTSIDE the frame's box to change at both ends,
+  or to move by whole pixels with the same size
 - where: `layout/src/cpurender/raster.rs:3519-3526` (`stale_boxes`), used by `refresh_retained_surfaces` 3654-3712
 - algebra: the picture in a surface is `(p - acc) dpi - g` with `g = floor((extent - acc) dpi)`, and a hit
   composites with the LIVE `g`. Within one list the extent is fixed (given `values`), so only `acc` moves `g`, and
@@ -773,6 +777,7 @@ at 11848; `cpu_backend.rs` 425-450, 583-640, 880-1110, 1240-1500. Not read: A1's
   `if ext(&old_index, &old.items, old_frame.extent) != ext(&index, &new.items, frame.extent) { return None; }`
 - test: the example: after the frame, the retained render equals the fresh one (mutation: without the test C is 150
   px to the right).
+- status: open: A1 (found in review; not patched by A2-cpu, the coordinator routes it)
 
 #### A2-cpu-R04 the repair of a kept surface of the window's own list walks it as a view's list
 - severity: low
@@ -787,10 +792,12 @@ at 11848; `cpu_backend.rs` 425-450, 583-640, 880-1110, 1240-1500. Not read: A1's
 - change: `if entry.placement.slot == usize::MAX { WalkCull::InGroups } else { WalkCull::ActiveClip }` (with the
   isolated entry on the mask stack `in_group` is true, so `InGroups` culls by the clip as the root's walk does).
 - test: `a_kept_picture_is_painted_again_...` (rule 1) on a root-list frame with a turned caption: retained == fresh.
+- status: open: A1 (found in review; not patched by A2-cpu, the coordinator routes it)
 
 #### A2-cpu-R05 the extent of a frame counts a run's ink without the reach of the text shadows it is under
-- severity: medium (stale or cut halo pixels; hidden while the reach is under the padding of `visual_bounds`: 1 em
-  left, `1 em - the last advance` right, about 0.5 em above and below)
+- severity: medium
+- reach: stale or cut halo pixels; hidden while the reach is under the padding of `visual_bounds`: 1 em left, `1 em -
+  the last advance` right, about 0.5 em above and below
 - where: `layout/src/solver3/display_list.rs:3575-3602` (`GroupBounds::step`); consumers: `GroupGeometry::of` (the
   surface), `gpu_value_damage` 2939-2942, the paired diff's frame arm 5273-5279, `windowed_structural_damage`
   (A2-cpu-28), `node_groups_on_screen`
@@ -813,10 +820,11 @@ at 11848; `cpu_backend.rs` 425-450, 583-640, 880-1110, 1240-1500. Not read: A1's
   stays); `GroupGeometry::of` of the frame at `scale(2)` covers x up to 142.
 - note: the per-ITEM damage of a changed run under an unchanged shadow has the same gap; that one is mine
   (A2-cpu-29, fixed on `audit/A2-cpu`).
+- status: open: A1 (found in review; not patched by A2-cpu, the coordinator routes it)
 
 #### A2-cpu-R06 directly drawn turned text builds the picture of every run of the frame, and skips a run it cannot build
-- severity: medium for a text-only frame with many runs under a scale (a zoomed page of text in a view); none for
-  one label
+- severity: medium
+- reach: for a text-only frame with many runs under a scale (a zoomed page of text in a view); none for one label
 - where: `layout/src/cpurender/raster.rs:3266-3321` (the loop), `3294-3302` (`continue`), `3413-3420`
 - algebra: the frame is drawn when ANY part of its surface may land (`frame_paints_nothing`); then every `Text` item
   gets `turned_run_picture` (rasterised whole and kept under a key that holds the matrix's linear part) before its
@@ -831,18 +839,22 @@ at 11848; `cpu_backend.rs` 425-450, 583-640, 880-1110, 1240-1500. Not read: A1's
   misses.
 - test: a `scale(8)` text-only frame with a 1,200 px line in a view: painted == `AZ_CPU_TURNED_TEXT=group` within
   the anchor's tolerance (mutation: empty); 100 runs of which 3 meet the clip: 3 pictures built.
+- status: open: A1 (found in review; not patched by A2-cpu, the coordinator routes it)
 
 #### A2-cpu-R07 which kept surface makes room depends on the order in which band threads looked up
-- severity: low (no pixel; `retained_hits` / `retained_misses` of later frames, and with them e2e counters)
+- severity: low
+- reach: no pixel; `retained_hits` / `retained_misses` of later frames, and with them e2e counters
 - where: `layout/src/cpurender/retained.rs:271-277` (`lookup` advances the clock and stamps the entry)
 - algebra: two entries both used by a frame get their `last_used` from whichever band's lookup came last; `commit`
   evicts `min_by_key(last_used)`. The module says "what a band hits does not depend on thread timing": true for the
   frame, not for which surface the next frame still has.
 - change: advance `clock` in `begin_frame` only and stamp `last_used = clock` in `lookup` (a frame number); ties
   fall to the first entry, whose order `commit` already fixes.
+- status: open: A1 (found in review; not patched by A2-cpu, the coordinator routes it)
 
 #### A2-cpu-R08 a list with `filter: blur()` is blurred by the full repaint and not by a damaged one
-- severity: medium (a sharp patch in a blurred element after any repaint of part of it; before A1-21 too)
+- severity: medium
+- reach: a sharp patch in a blurred element after any repaint of part of it; before A1-21 too
 - where: `layout/src/cpu_backend.rs:583-589` (`can_reuse_previous_frame`), `1348` (`full_repaint_needs_layers`);
   `raster.rs:5367-5375` (the walk's `PushFilter` arm isolates `flood` / `composite` only)
 - algebra: full frame of such a list: layers, `apply_layer_filters` blurs the promoted layer. Damage rect: the flat
@@ -856,10 +868,12 @@ at 11848; `cpu_backend.rs` 425-450, 583-640, 880-1110, 1240-1500. Not read: A1's
   of the walk (surface = bounds ⊕ radius, part = clip ⊕ radius, painted, blurred, composited under the clip), after
   which no list needs layers.
 - test: `a2_cpu_the_damaged_render_is_the_full_render...` with a blurred box in the scene (mutation: today's gate).
+- status: open: A1 (found in review; not patched by A2-cpu, the coordinator routes it)
 
 #### A2-cpu-R10 an isolating filter group takes its whole box in every pass, whatever the pass's clip
-- severity: low (wrong pixels only for a filter chain that leaves colour where the group painted nothing: a bare
-  translucent `flood()`, `composite(out)`; otherwise work per pass)
+- severity: low
+- reach: wrong pixels only for a filter chain that leaves colour where the group painted nothing: a bare translucent
+  `flood()`, `composite(out)`; otherwise work per pass
 - where: `layout/src/cpurender/raster.rs:5367-5375` (the `PushFilter` arm), `1688-1737` (`FilterGroup`); not A1's
   new code, found while checking item 1 ("a pass writes no pixel outside its rect")
 - algebra: `FilterGroup::begin` snapshots and clears `bounds - acc` as it is; the push is a state item, so every pass
@@ -876,6 +890,7 @@ at 11848; `cpu_backend.rs` 425-450, 583-640, 880-1110, 1240-1500. Not read: A1's
   that is empty.
 - test: a full paint, then `render_display_list_damaged` with a rect beside the box: the box's pixels are unchanged
   (mutation: today's arm darkens them).
+- status: open: A1 (found in review; not patched by A2-cpu, the coordinator routes it)
 
 ## Review of A10
 
@@ -981,8 +996,9 @@ A2-cpu-03 is fixed by it. Per item:
    distance from the corner: 0.1 px at 1000 px).
 
 #### A2-cpu-R09 a reference frame whose key has no live value is hit as the identity; the rasteriser paints it with the list's own matrix
-- severity: low (the builder opens a frame only for a node with a key AND a value, so it needs a list that outlives
-  its value: the frame after an animation's key is removed, until the list is rebuilt; or a hand-made list)
+- severity: low
+- reach: the builder opens a frame only for a node with a key AND a value, so it needs a list that outlives its value:
+  the frame after an animation's key is removed, until the list is rebuilt; or a hand-made list
 - where: `layout/src/headless.rs:1018-1023` and `1039-1044` (`None => Some(p)`)
 - algebra: `raster.rs`, the `PushReferenceFrame` arm: `render_state.transforms.get(key).map_or(&initial_transform.m,
   ..)`: without a value the frame is painted with the matrix the list was built with (the rule of A2-cpu-01). The
@@ -993,6 +1009,7 @@ A2-cpu-03 is fixed by it. Per item:
   read in `resolve_virtual_view_placements`, and resolve a link with `resolve_transform(d, n).or(baked)`.
 - note: the forward `rect_to_screen` (1255-1261) takes the corner from `calculated_positions`, the tester from the
   list's `bounds`: the same point except for a box broken across regions, where the list holds the part's rect.
+- status: open: A6 (found in review; not patched by A2-cpu, the coordinator routes it)
 
 ## What to look at on the real window
 
