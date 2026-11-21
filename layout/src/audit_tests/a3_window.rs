@@ -1281,3 +1281,31 @@ fn a_fading_bar_of_the_window_asks_for_frames_with_a_view_in_the_window() {
         "the window's bar is fading: the platform loop has to keep drawing frames"
     );
 }
+
+// -- A3-window-28: the per-frame scrollbar fade pass --------------------------------------------
+
+/// The budget of A3-window-28: a frame of a window without a scrollbar computes a fade for no
+/// box - not for each of its view's labels (every laid-out box carries scrollbar info, with
+/// no bar in it).
+#[test]
+fn a_frame_computes_a_scrollbar_fade_for_no_box_of_a_page_without_bars() {
+    for labels in [40, 160] {
+        let (mut lw, _child) = label_window(labels);
+        crate::window::SCROLLBAR_FADE_WORK.with(|work| work.set(0));
+        let _ = lw.refresh_scrollbar_gpu_cache_for_cpu_frame();
+        let _ = lw.refresh_scrollbar_gpu_cache_for_cpu_frame();
+        assert_eq!(
+            crate::window::SCROLLBAR_FADE_WORK.with(core::cell::Cell::get),
+            0,
+            "{labels} labels, no bar: no box's fade is computed"
+        );
+        assert!(
+            lw.gpu_state_manager
+                .caches
+                .values()
+                .all(|cache| cache.scrollbar_v_opacity_keys.is_empty()
+                    && cache.scrollbar_h_opacity_keys.is_empty()),
+            "and no fade key is made"
+        );
+    }
+}

@@ -2687,6 +2687,24 @@ fn css_diff_work(steps: usize) {
 #[inline(always)]
 const fn css_diff_work(_steps: usize) {}
 
+/// How many boxes `LayoutWindow::synchronize_scrollbar_opacity` computed a fade for on this
+/// thread (its node, its fade timing, its opacities, its keys): what a test reads to say a
+/// frame of a DOM without scrollbars does that for no box.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static SCROLLBAR_FADE_WORK: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn scrollbar_fade_work(boxes: usize) {
+    SCROLLBAR_FADE_WORK.with(|work| work.set(work.get() + boxes));
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+const fn scrollbar_fade_work(_boxes: usize) {}
+
 #[cfg(test)]
 fn css_diff_types(compared: usize) {
     CSS_DIFF_WORK.with(|work| {
@@ -19507,6 +19525,11 @@ impl LayoutWindow {
         // Get current time from system callbacks
         let now = (system_callbacks.get_system_time_fn.cb)();
 
+        // Whether this DOM holds a fade key: one from before this pass, or one this pass
+        // made. Only then has a box without a bar a key to give back.
+        let mut keys_exist = !gpu_cache.scrollbar_v_opacity_keys.is_empty()
+            || !gpu_cache.scrollbar_h_opacity_keys.is_empty();
+
         // Iterate over all nodes with scrollbar info
         for (node_idx, node) in layout_tree.nodes.iter().enumerate() {
             // Check if node needs scrollbars
@@ -19515,15 +19538,6 @@ impl LayoutWindow {
                 continue;
             };
 
-            let Some(node_id) = node.dom_node_id else {
-                continue; // Skip anonymous boxes
-            };
-
-            // Calculate current opacity from ScrollManager. A bar whose thumb
-            // the user is holding is pinned fully visible: its activity stamp
-            // only moves with the scroll position, and a thumb held still
-            // produces none, so the fade would otherwise take the bar away
-            // under the pointer.
             use azul_core::dom::ScrollbarOrientation;
             // Only a bar that is PAINTED fades: `presence`, not "the axis
             // scrolls" - a `scrollbar-width: none` box scrolls with nothing
@@ -19534,6 +19548,26 @@ impl LayoutWindow {
             let has_horizontal_bar = scrollbar_info
                 .presence(ScrollbarOrientation::Horizontal)
                 .is_present();
+            // A box without a painted bar has nothing to fade, and while its DOM holds no
+            // fade key nothing to give back: it is left here, before its node, its style
+            // and the two key maps are read. The layout writes scrollbar info for EVERY
+            // box it sizes, so the rest of this body ran for each of a map view's 12,470
+            // boxes on every frame, to compute two opacities of 0 and remove two keys that
+            // were never there.
+            if !keys_exist && !has_vertical_bar && !has_horizontal_bar {
+                continue;
+            }
+            scrollbar_fade_work(1);
+
+            let Some(node_id) = node.dom_node_id else {
+                continue; // Skip anonymous boxes
+            };
+
+            // Calculate current opacity from ScrollManager. A bar whose thumb
+            // the user is holding is pinned fully visible: its activity stamp
+            // only moves with the scroll position, and a thumb held still
+            // produces none, so the fade would otherwise take the bar away
+            // under the pointer.
             // This box's fade: its own CSS where it declares one, the window's otherwise.
             let (node_delay, node_duration) =
                 Self::scrollbar_fade_of(styled_dom, node_id, fade_delay, fade_duration);
@@ -19617,6 +19651,7 @@ impl LayoutWindow {
 
                 match existing {
                     None => {
+                        keys_exist = true;
                         let opacity_key = OpacityKey::unique();
                         gpu_cache.scrollbar_v_opacity_keys.insert(key, opacity_key);
                         gpu_cache
@@ -19662,6 +19697,7 @@ impl LayoutWindow {
 
                 match existing {
                     None => {
+                        keys_exist = true;
                         let opacity_key = OpacityKey::unique();
                         gpu_cache.scrollbar_h_opacity_keys.insert(key, opacity_key);
                         gpu_cache
