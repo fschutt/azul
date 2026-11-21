@@ -356,7 +356,7 @@ mod view_handlers {
         let loc = unsafe { event.locationInWindow() };
         crate::log_debug!(
             LogCategory::Input,
-            "[mouseDown] LEFT at ({:.1}, {:.1})",
+            "[mouseDown] LEFT at AppKit ({:.1}, {:.1}) (y from the window's bottom edge)",
             loc.x,
             loc.y
         );
@@ -422,7 +422,7 @@ mod view_handlers {
         let loc = unsafe { event.locationInWindow() };
         crate::log_debug!(
             LogCategory::Input,
-            "[mouseUp] LEFT at ({:.1}, {:.1})",
+            "[mouseUp] LEFT at AppKit ({:.1}, {:.1}) (y from the window's bottom edge)",
             loc.x,
             loc.y
         );
