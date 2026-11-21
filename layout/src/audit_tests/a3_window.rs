@@ -1391,3 +1391,42 @@ fn the_font_collector_does_not_run_while_a_views_document_is_set_aside() {
     lw.retired_child_results.clear();
     assert!(lw.font_keep_set_is_the_windows(DomId::ROOT_ID), "a window without a view");
 }
+
+// -- A3-window-33: CSS dirt of a DOM whose turn the one slot is not ----------------------------
+
+/// Dirt held for the window's DOM while the slot is a view's is one entry per node (the
+/// widest scope), is taken by the window's next layout pass, and leaves the view's alone.
+#[test]
+fn css_dirt_held_beside_the_slot_is_taken_by_its_own_doms_pass() {
+    use azul_css::props::property::RelayoutScope;
+
+    let (mut lw, child) = label_window(4);
+    lw.pending_css_dirty = Some((child, vec![(NodeId::new(1), RelayoutScope::Full)]));
+    lw.hold_css_dirt(DomId::ROOT_ID, vec![(NodeId::new(0), RelayoutScope::None)]);
+    lw.hold_css_dirt(
+        DomId::ROOT_ID,
+        vec![(NodeId::new(0), RelayoutScope::Full), (NodeId::new(1), RelayoutScope::None)],
+    );
+    assert_eq!(
+        lw.css_dirty_waiting.get(&DomId::ROOT_ID),
+        Some(&vec![(NodeId::new(0), RelayoutScope::Full), (NodeId::new(1), RelayoutScope::None)]),
+        "per node the widest scope"
+    );
+    assert!(!lw.animation_tick_is_values_only(), "a layout is owed");
+
+    // The window is laid out again (its DOM as it is).
+    let ws = lw.current_window_state.clone();
+    let root = lw.layout_results[&DomId::ROOT_ID].styled_dom.clone();
+    lw.layout_and_generate_display_list(
+        root,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    assert!(
+        !lw.css_dirty_waiting.contains_key(&DomId::ROOT_ID),
+        "the window's pass took what waited for it"
+    );
+}

@@ -1537,6 +1537,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         node_identity: _,
         // Transient CSS-diff staging — plain data, no Drop obligations.
         pending_css_dirty: _,
+        css_dirty_waiting: _,
         reconciled_dom: _,
         host_lays_out: _,
         // One rect per NodeResized subscriber (a handful of widgets), not
@@ -2034,6 +2035,14 @@ pub struct LayoutWindow {
         DomId,
         Vec<(NodeId, azul_css::props::property::RelayoutScope)>,
     )>,
+    /// CSS dirt that asks for layout and could not be staged because the one slot above
+    /// held ANOTHER DOM's: kept per DOM for that DOM's next layout pass, which takes it with
+    /// whatever the slot holds for it ([`Self::hold_css_dirt`]). One event pass can restyle
+    /// two DOMs - the pointer leaves a node of the window and enters one of a view, the focus
+    /// moves from a ribbon button into a page - and the second staging used to drop the
+    /// first DOM's dirt while the pass still asked for a relayout: that DOM was laid out
+    /// again with no node named, and kept the boxes of the styles it no longer had.
+    pub css_dirty_waiting: BTreeMap<DomId, Vec<(NodeId, azul_css::props::property::RelayoutScope)>>,
     /// The DOM [`Self::begin_reconciliation`] reconciled for the layout pass
     /// that follows it; taken by that pass. A new DOM the funnel receives
     /// without one is reconciled by the funnel itself
@@ -3308,6 +3317,7 @@ impl LayoutWindow {
     pub fn from_font_manager(font_manager: FontManager<FontRef>) -> Self {
         Self {
             pending_css_dirty: None,
+            css_dirty_waiting: BTreeMap::new(),
             reconciled_dom: None,
             host_lays_out: false,
             e2e_mount: E2eMountOverride::default(),
@@ -3896,6 +3906,8 @@ impl LayoutWindow {
         // that comes back gets a new value from the clock.
         self.dom_generations.forget_all_but(&self.layout_results);
         self.font_resolutions.forget_all_but(&self.layout_results);
+        let live = &self.layout_results;
+        self.css_dirty_waiting.retain(|dom_id, _| live.contains_key(dom_id));
         // A kept view this pass never reached (its host laid out no box for
         // it any more - hidden by a restyle) keeps nothing: its child result
         // goes, as the clear above took it before views were kept, and the
@@ -9184,6 +9196,10 @@ impl LayoutWindow {
                     .unwrap_or_default(),
                 _ => Vec::new(),
             };
+        // And what waited for this DOM's pass while the slot was another DOM's.
+        if let Some(held) = self.css_dirty_waiting.remove(&dom_id) {
+            css_dirty_for_this_pass.extend(held);
+        }
 
         // A NEW WINDOW ENVIRONMENT: lay out again the boxes that read it.
         //
@@ -13569,6 +13585,7 @@ impl LayoutWindow {
         if !host_moved && !mode_moved && !content_moved {
             let restyled_since = context_restyles
                 || self.pending_css_dirty.as_ref().is_some_and(|(d, _)| *d == child)
+                || self.css_dirty_waiting.contains_key(&child)
                 || self
                     .child_layout_caches
                     .get(&child)
@@ -18613,6 +18630,7 @@ impl LayoutWindow {
     #[must_use]
     pub fn animation_tick_is_values_only(&self) -> bool {
         self.pending_css_dirty.is_none()
+            && self.css_dirty_waiting.is_empty()
             && !self.zombies.iter().any(|z| !z.tracks.is_empty())
             && self.root_display_list_gpu_fingerprint.is_some()
             && self.root_display_list_gpu_fingerprint
@@ -19582,7 +19600,11 @@ impl LayoutWindow {
                 // restyle may need the reconcile). The stamp is taken AFTER the
                 // frame's own cascade refresh; any later change of the DOM's
                 // nodes, epoch or interaction states voids it.
-                if tree_shape_kept && !paint_restyled && self.pending_css_dirty.is_none() {
+                if tree_shape_kept
+                    && !paint_restyled
+                    && self.pending_css_dirty.is_none()
+                    && self.css_dirty_waiting.is_empty()
+                {
                     self.layout_cache.overrides_only_hint = self
                         .layout_results
                         .get(&DomId::ROOT_ID)
@@ -19594,9 +19616,10 @@ impl LayoutWindow {
                 match &mut self.pending_css_dirty {
                     Some((dom, list)) if *dom == DomId::ROOT_ID => list.extend(dirty),
                     None => self.pending_css_dirty = Some((DomId::ROOT_ID, dirty)),
-                    // A pending diff for another DOM is not merged into — the
-                    // transition driver only runs the ROOT dom today.
-                    Some(_) => {}
+                    // The slot is another DOM's: this frame's dirt waits beside it for
+                    // the root's pass (it was dropped here, and the tween's node kept
+                    // the box of the frame before).
+                    Some(_) => self.hold_css_dirt(DomId::ROOT_ID, dirty),
                 }
             }
             // The rebuild-free frame is only sound when NOTHING ELSE needs
@@ -19607,6 +19630,7 @@ impl LayoutWindow {
                 || gpu_values_moved)
                 && dirty_empty
                 && self.pending_css_dirty.is_none()
+                && self.css_dirty_waiting.is_empty()
             {
                 self.transition_patched = true;
             }
@@ -27453,6 +27477,22 @@ impl LayoutWindow {
         Some(true)
     }
 
+    /// Keeps `dirt` for the next layout pass of `dom_id` while the slot
+    /// ([`Self::pending_css_dirty`]) is another DOM's: see [`Self::css_dirty_waiting`]. One
+    /// entry per node, with the widest scope asked for it, so the list cannot outgrow the
+    /// DOM however often it is added to before the pass comes.
+    pub fn hold_css_dirt(
+        &mut self,
+        dom_id: DomId,
+        dirt: Vec<(NodeId, azul_css::props::property::RelayoutScope)>,
+    ) {
+        let held = self.css_dirty_waiting.entry(dom_id).or_default();
+        held.extend(dirt);
+        // By node, the widest scope first: the first of each node stays.
+        held.sort_unstable_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)));
+        held.dedup_by_key(|(node, _)| *node);
+    }
+
     /// The PAINT dirt staged for `dom_id` ([`Self::pending_css_dirty`]: every entry of scope
     /// `None`) is served by a frame that shows what it describes: a display list built from the
     /// styles as they are, or the new values of a transform / opacity / colour published under
@@ -30924,6 +30964,9 @@ impl LayoutWindow {
             // same reconciliation that produces the remap — it is consumed by
             // the very next layout pass and never survives a second remap.
             pending_css_dirty: _,
+            // Names nodes of the arena before the rebuild: dropped for the rebuilt DOM
+            // (below), as the slot's diff is replaced by the rebuild's own.
+            css_dirty_waiting,
             reconciled_dom: _,
             // A bool about the current change batch, no NodeId.
             host_lays_out: _,
@@ -31179,6 +31222,7 @@ impl LayoutWindow {
         content_overlay.remap_node_ids(dom, map);
         image_callback_inputs.retain(|(d, _), _| *d != dom);
         dom_generations.callback_images.remove(&dom);
+        css_dirty_waiting.remove(&dom);
         crate::managers::remap_background_slots(background_callback_inputs, dom, map);
         crate::managers::remap_background_slot_set(background_callbacks_waiting, dom, map);
         crate::managers::remap_dom_keys(&mut material_sheen.surfaces, dom, map);

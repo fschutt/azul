@@ -973,6 +973,19 @@ fn stage_css_dirty(
         }
         layout_window.pending_css_dirty = Some((dom_id, merged.into_iter().collect()));
     } else {
+        // The slot holds ONE DOM's dirt, and it is another DOM's. Dirt that asks for layout
+        // is not dropped for the newcomer: it waits beside the slot for its DOM's pass
+        // (`LayoutWindow::hold_css_dirt`). A pass that restyles two DOMs - the pointer
+        // leaves a node of the window and enters one of a view - returned "relayout" for
+        // the first and then lost what to lay out. Paint-only dirt was served by the
+        // restyle that staged it (a list patched or built) and goes, as before.
+        let (other_dom, other_dirt) = current;
+        if other_dirt
+            .iter()
+            .any(|(_, scope)| *scope > azul_css::props::property::RelayoutScope::None)
+        {
+            layout_window.hold_css_dirt(other_dom, other_dirt);
+        }
         layout_window.pending_css_dirty = Some((dom_id, dirty));
     }
 }
@@ -17521,5 +17534,55 @@ mod paint_restyle_tests {
         let tier = apply_focus_restyle(&mut page.lw, None, Some(label));
         assert_a_repaint_of_the_views_list_alone(&page, tier, before, "focus");
         assert_eq!(painted(&page, page.child), 1, "the focused label is painted in its colour");
+    }
+
+    /// A3-window-33: one pass restyles a node of the window and a node of a view, both in
+    /// a way that asks for layout. The slot of the staged CSS diff holds one DOM's dirt; the
+    /// window's used to be dropped when the view's was staged, and the relayout the pass
+    /// asked for found no node of the window to lay out again.
+    #[test]
+    fn the_layout_dirt_of_one_dom_waits_while_another_doms_is_staged() {
+        use azul_core::styled_dom::{ChangedCssProperty, RestyleResult, StyledNodeState};
+        use azul_css::props::{
+            basic::PixelValue,
+            layout::dimensions::LayoutWidth,
+            property::{CssProperty, RelayoutScope},
+        };
+
+        use super::stage_css_dirty;
+
+        let width = |px: f32| CssProperty::width(LayoutWidth::Px(PixelValue::px(px)));
+        let restyle_of = |node: usize, from: f32, to: f32| {
+            let mut result = RestyleResult::default();
+            result.changed_nodes.insert(
+                NodeId::new(node),
+                vec![ChangedCssProperty {
+                    previous_state: StyledNodeState::default(),
+                    previous_prop: width(from),
+                    current_state: StyledNodeState::default(),
+                    current_prop: width(to),
+                }],
+            );
+            result
+        };
+
+        let mut page = page();
+        stage_css_dirty(&mut page.lw, DomId::ROOT_ID, &restyle_of(1, 100.0, 120.0));
+        stage_css_dirty(&mut page.lw, DomId::ROOT_ID, &restyle_of(1, 120.0, 100.0));
+        stage_css_dirty(&mut page.lw, page.child, &restyle_of(HOVER_LABEL, 50.0, 60.0));
+
+        assert_eq!(
+            page.lw.pending_css_dirty.as_ref().map(|(dom, _)| *dom),
+            Some(page.child),
+            "the slot holds the view's dirt"
+        );
+        let held = page
+            .lw
+            .css_dirty_waiting
+            .get(&DomId::ROOT_ID)
+            .expect("the window's dirt waits for the window's pass");
+        assert_eq!(held.len(), 1, "one entry for the node, however often it was restyled");
+        assert_eq!(held[0].0, NodeId::new(1));
+        assert!(held[0].1 > RelayoutScope::None, "a width is laid out again");
     }
 }
