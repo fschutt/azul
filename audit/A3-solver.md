@@ -344,3 +344,86 @@ whole test binary down in the verification pass.
   was searched for scan patterns only. `cache.rs` 651-1160 (the cache struct), 2136-2330 (table children).
 - `widgets/` other than `node_graph.rs` (reader) and the head of `color_input.rs`.
 - All `#[cfg(test)]` modules. `text3/` (A8).
+
+## Second round (after the coordinator's answers)
+
+New commits since the first report, and what stays open with the reason. Helpers worked in the same worktree on
+disjoint files (widgets; taffy; sizing + inline content; IFC + layout tree + white space); their commits carry the
+finding ids below.
+
+### Scaffolding
+
+- `509295796` `LayoutContext::pass_memo: PassMemo` (`solver3/mod.rs`): ONE field for per-pass state, added to the
+  twelve struct literals once. Slots are fields of `PassMemo` whose types live next to their users:
+  `bfc: fc::BfcPassMemo` (item 15), `taffy: taffy_bridge::TaffyPassMemo` (item 18).
+- `b4c8dc33c` test submodules `audit_tests/a3_solver/{ifc,sizing,taffy,widgets}.rs`.
+
+### Fixed in the second round (mine)
+
+- **29** fixed `b66f75aca`. Not a `[reveals]`: the defect is certain by reading (an existing unit test pinned the
+  missing border in so many words). `reposition_block_flow_siblings` now shifts what follows a layout root by the
+  root's growth (`sizes_before` from `layout_document`) and touches nothing else; a root of unknown former size
+  keeps the old stacking for what follows it, from the real content box. Tests: three window tests (incremental
+  pass == fresh layout: bordered box, padded box with collapsing margins, three siblings with a grown middle one)
+  and three unit tests in `cache.rs`. Left as it was and NOT covered: a root whose first child's margin escapes
+  through it changes the root's own place in its parent's flow, and the root is laid out in place (a limit of
+  "laid out where it stood", not of the sibling pass).
+- **15** fixed `4eabd302a`. `BfcPassMemo` lends the first pass's position vector and takes it back after unsetting
+  the subtrees of the sized children (the only boxes `calculate_layout_for_subtree` writes positions for: the five
+  `pos_set` sites of `cache.rs`). A test-only counter of entries left set is asserted 0 on a page mixing in-flow
+  blocks, absolute boxes with and without insets, a flex row and an inline-block. Not changed: the table passes'
+  vectors (`fc/table_rows.rs:256`, `fc/table_columns.rs:394`, `fc/table.rs:909`).
+- **20** fixed `75df5be39` (the part that is exact): the layout's context takes over the reconcile context's
+  `StyleCache`. Open rest: the memo is per pass, and equal labels build equal styles one by one (a value-keyed
+  front memo needs the complete list of what `get_style_properties_for_state` reads as its key: about 25
+  getters; a missed one serves a wrong font, and no test would show which).
+- **33** fixed `dc3e29f49`: a font-stack memo entry carries its inputs and answers only for them.
+
+### Open after the second round, with the reason
+
+- **14** (every absolute box's interior is laid out by its parent's Phase 7 and again by the positioning pass).
+  Not fixable as "the same result" by reading, in either direction:
+  - The two runs are DIFFERENT layouts by construction, so no exact-key memo ever hits:
+    (a) `process_out_of_flow_children` -> `calculate_layout_for_subtree`: containing block = the parent's content
+    box, available height = that block's height or indefinite, `text_align` from the box's style;
+    (b) `position_out_of_flow_elements` -> `layout_formatting_context`: containing block = the box's OWN solved
+    inner box, available size definite on both axes, `text_align: Start`, writing mode horizontal.
+  - Dropping (a) loses what only (a) writes: the static positions of the box's own absolutely positioned children
+    (`layout_bfc`'s `output.static_positions` are ignored by (b)), `warm.scrollbar_info` and
+    `overflow_content_size` of the box (read by the display list for scroll frames), the per-node cache entries,
+    and the scrollbar reflow signal.
+  - Skipping (b) for a clean box needs `b(b(S)) == b(S)` (laying the interior out again changes nothing), which
+    does not hold in general: `bfc_prepare` reserves a scrollbar gutter from the PREVIOUS run's
+    `scrollbar_info.needs_vertical`, i.e. a second run is how an `overflow: auto` box converges.
+  - What reading does show: on a warm pass (a) is skipped for every child whose position is already in the cloned
+    position vector (`pos_contains`), so only the COLD pass (and the settle render, where every label is fresh)
+    runs both; and for a label the widths of (a) and (b) agree (`blockify_node_display` makes an absolute span a
+    block, both shrink to the max-content width), so (b) takes `layout_ifc`'s reuse exit, which item 21 makes
+    cheap. A run has to show: `overflow_content_size`, `scrollbar_info`, `inline_layout_result` and the children's
+    relative positions of every absolute box with (a) skipped vs. not, on the reftests.
+- **30** (`lift_to_slot_container` lifts a block that holds only inline content like an inline box). Changing
+  the test to "sits in an inline formatting context" (`parent_fc == Inline`) is plausible but not provable: the
+  own-context arm is what lifts a dirty absolutely positioned label to its layer today, and without it the label
+  becomes its own root, whose size change makes `root_for_resized` climb the auto-height chain to the tree root
+  (an out-of-flow box does not grow its ancestors, but that function does not know) - more layout, not less. It
+  depends on 14: as long as (b) runs for every absolute box on every pass, the lift costs one collection of the
+  layer (n log n after 07) on top.
+- **27** (nested shifted `position: relative` boxes shift their descendants once per level): every linear
+  variant adds the deltas in another order ((p + d1) + d2 vs p + (d1 + d2)), which is not bit-identical in f32;
+  the number of additions per box IS the cost. Needs a decision on a tolerance, i.e. a run against the reftests.
+- **34** (closed colour picker carries 142 nodes): STOP rule. 21 tests with about 72 assertions in
+  `widgets/color_input.rs` take the panel from a freshly built closed input (list in the helper's report, kept
+  below), `dll/tests/transient_window_layout.rs` clicks the swatch and expects the popup to measure and hold the
+  plane and hue from the existing DOM, and two links are missing whatever the tests say: `build` cannot know
+  the open state (the old `ColorPickerData` is merged in by the DOM diff AFTER the app's layout callback
+  returned, `core/src/diff.rs:1723/1885`, and `ColorInput` has no open field in the public API), and opening
+  must not rebuild (`clicking_toggles_the_picker_through_the_engine_and_never_touches_the_color` asserts
+  `Update::DoNothing`). Tests that pin the closed panel: `dom_is_a_div_with_the_native_class_and_a_closed_popup_child`,
+  `the_rendered_dom_flattens_with_exactly_one_transient_window`, six `on_plane_*` / `on_hue_*` tests, seven key
+  tests through `picker_control(class)`, five `theme_tests`, `app_theme_tests::a_color_input_declares_its_structure_once_for_every_theme`.
+- **35b** (the graph's offset as one transform on the two containers): not provable by reading. Every reference
+  frame gets a raster surface sized by `reference_frame_extent`, which unions nested items at their untransformed
+  bounds; the nodes are laid out at the container's origin and moved by their own transforms, so the container's
+  surface would be one node big while its nodes paint thousands of px away. Whether nested frames are clipped to
+  the parent surface is A1's code under edit. Plus: three hit-test / compositor implementations must agree on a
+  scale about a node's centre under an outer translate, and one large layer may be slower than N small ones.
