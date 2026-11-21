@@ -13,9 +13,7 @@ use azul_core::{
 };
 use azul_layout::{
     callbacks::ExternalSystemCallbacks, solver3::display_list::DisplayListItem,
-    texture::materials::{renders_on_this_thread, wait_for_deferred_renders},
-    window::LayoutWindow,
-    window_state::FullWindowState,
+    window::LayoutWindow, window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
 
@@ -69,12 +67,12 @@ fn a_material_at_rest_is_not_drawn_again_frame_after_frame() {
     let mut lw = window(LEATHER);
     let (drawn, _) = material_frame(&lw);
     assert!(!drawn.is_callback(), "harness: the first frame drew the leather");
-    let before = renders_on_this_thread();
+    let before = lw.material_renderer.renders();
     for _ in 0..10 {
         lw.prepare_frame_content();
     }
     assert_eq!(
-        renders_on_this_thread() - before,
+        lw.material_renderer.renders() - before,
         0,
         "ten frames at rest drew the leather again"
     );
@@ -85,7 +83,7 @@ fn a_material_at_rest_is_not_drawn_again_frame_after_frame() {
 fn the_cursor_moving_over_a_material_does_not_draw_it_again() {
     let mut lw = window(LEATHER);
     let (drawn, _) = material_frame(&lw);
-    let before = renders_on_this_thread();
+    let before = lw.material_renderer.renders();
     // The cursor crosses the leather in 7 px steps, a frame each: the sheen
     // eases in and follows it.
     for i in 0..24 {
@@ -97,7 +95,7 @@ fn the_cursor_moving_over_a_material_does_not_draw_it_again() {
         lw.prepare_frame_content();
     }
     assert_eq!(
-        renders_on_this_thread() - before,
+        lw.material_renderer.renders() - before,
         0,
         "the cursor crossed the leather in 24 frames, and each new cursor drew the whole surface \
          again"
@@ -114,14 +112,14 @@ fn a_resized_material_is_drawn_once_for_its_new_size() {
     let half = "width: 50%; height: 60px; background: builtin(leather);";
     let mut lw = window(half);
     assert_eq!(material_frame(&lw).1, 200.0, "harness: half of 400");
-    let before = renders_on_this_thread();
+    let before = lw.material_renderer.renders();
     // The window grows: the box with it, so the leather is drawn again for
     // its new size - once, however many frames follow.
     lay_out(&mut lw, half, LogicalSize::new(480.0, 300.0));
     for _ in 0..3 {
         lw.prepare_frame_content();
     }
-    assert_eq!(renders_on_this_thread() - before, 1, "one resize, one new frame");
+    assert_eq!(lw.material_renderer.renders() - before, 1, "one resize, one new frame");
     let (frame, width) = material_frame(&lw);
     assert_eq!(width, 240.0);
     assert_eq!(
@@ -141,7 +139,7 @@ fn a_large_material_in_a_cpu_window_is_drawn_off_the_ui_thread() {
     let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
     lw.renderer_type = Some(azul_core::window::RendererType::Software);
     lay_out(&mut lw, css, LogicalSize::new(400.0, 300.0));
-    let before = renders_on_this_thread();
+    let before = lw.material_renderer.renders();
     lw.prepare_frame_content();
     let (stand_in, _) = material_frame(&lw);
     assert!(
@@ -153,7 +151,7 @@ fn a_large_material_in_a_cpu_window_is_drawn_off_the_ui_thread() {
     assert!(lw.needs_animation_frame(), "the window waits for the frame");
 
     // The worker puts the leather into the render cache, where the window's next frame finds it.
-    wait_for_deferred_renders();
+    lw.material_renderer.wait_for_deferred_renders();
     lw.prepare_frame_content();
     let (frame, _) = material_frame(&lw);
     assert_eq!(
@@ -162,5 +160,5 @@ fn a_large_material_in_a_cpu_window_is_drawn_off_the_ui_thread() {
         "the leather arrives"
     );
     assert!(!lw.needs_animation_frame(), "and the window goes idle");
-    assert_eq!(renders_on_this_thread() - before, 1, "drawn once");
+    assert_eq!(lw.material_renderer.renders() - before, 1, "drawn once");
 }

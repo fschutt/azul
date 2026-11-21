@@ -2052,6 +2052,9 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         #[cfg(feature = "pdf")]
             fragmentation_context: _,
         image_cache: _,
+        // NOT WALKED: bounded - at most 64 MiB of frames and about 60 MB of
+        // grain tiles, both keyed by what they are drawn from.
+        material_renderer: _,
         content_overlay: _,
         image_callback_inputs: _,
         // A counter per DOM and the few callback-image boxes found per DOM.
@@ -2712,6 +2715,12 @@ pub struct LayoutWindow {
     /// the shell keeps no copy; mutations go through
     /// [`Self::apply_content_change`] (`ContentChange::ImageById`).
     pub image_cache: ImageCache,
+    /// What draws this window's built-in materials and remembers what it
+    /// drew: its render cache, its grain tiles, its worker thread, the state
+    /// of its GL context, the wallpapers its metals reflect and the count of
+    /// surfaces drawn. Each of the window's material images carries a handle
+    /// to it; no other window shares it.
+    pub material_renderer: crate::texture::MaterialRenderer,
     /// The content overlay: quickly-mutable content (swapped node images,
     /// produced callback frames) layered over the immutable DOM. Readers go
     /// overlay→DOM via [`crate::overlay::ResolvedContent`]; the ONLY writer is
@@ -4532,6 +4541,7 @@ impl LayoutWindow {
     /// last-resort "tofu" face for text and icons.
     #[must_use]
     pub fn from_font_manager(font_manager: FontManager<FontRef>) -> Self {
+        let material_renderer = crate::texture::MaterialRenderer::new();
         Self {
             pending_css_dirty: None,
             css_dirty_waiting: BTreeMap::new(),
@@ -4628,7 +4638,8 @@ impl LayoutWindow {
             text_cache: TextLayoutCache::new(),
             font_manager,
             // The built-in textures under their CSS names, in every window.
-            image_cache: crate::texture::image_cache_with_builtin_textures(),
+            image_cache: crate::texture::image_cache_with_builtin_textures(&material_renderer),
+            material_renderer,
             content_overlay: crate::overlay::ContentOverlay::default(),
             image_callback_inputs: BTreeMap::new(),
             dom_generations: DomGenerations::default(),
@@ -14273,13 +14284,10 @@ impl LayoutWindow {
         let screen = self.window_screen_rect();
         let highlight = self.system_highlight_colour();
         // A new wallpaper is a new reflection for every metal.
-        #[cfg(feature = "materials")]
-        let environment_generation = crate::texture::environment::desktop_generation();
-        #[cfg(not(feature = "materials"))]
-        let environment_generation = 0_u64;
+        let environment_generation = self.material_renderer.desktop_generation();
         // Where the window sits matters to a point light and to the
         // wallpaper a metal reflects.
-        let desktop_bits = if light.depends_on_position() || Self::reflects_the_desktop() {
+        let desktop_bits = if light.depends_on_position() || self.reflects_the_desktop() {
             [window_origin.x.to_bits(), window_origin.y.to_bits()]
         } else {
             [0, 0]
@@ -14706,20 +14714,13 @@ impl LayoutWindow {
     /// that sees the window move redraws it then.
     #[must_use]
     pub fn materials_follow_window_position(&self) -> bool {
-        self.effective_light().depends_on_position() || Self::reflects_the_desktop()
+        self.effective_light().depends_on_position() || self.reflects_the_desktop()
     }
 
     /// Whether a material here reflects the desktop (the wallpapers are
     /// known): a window that moves then renders its metals again.
-    fn reflects_the_desktop() -> bool {
-        #[cfg(feature = "materials")]
-        {
-            crate::texture::environment::desktop_generation() > 0
-        }
-        #[cfg(not(feature = "materials"))]
-        {
-            false
-        }
+    fn reflects_the_desktop(&self) -> bool {
+        self.material_renderer.desktop_generation() > 0
     }
 
     /// The system's text highlight colour (macOS's pale blue by default):
@@ -34703,6 +34704,8 @@ impl LayoutWindow {
             text_cache: _,
             font_manager: _,
             image_cache: _,
+            // Keyed by what a surface is drawn from, never by NodeId.
+            material_renderer: _,
             renderer_resources: _,
             // Derived per frame from the CURRENT StyledDom (a11y tree is rebuilt
             // from scratch in `A11yManager::build_tree_update`), so it cannot go stale:

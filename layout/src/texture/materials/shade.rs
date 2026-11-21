@@ -29,7 +29,7 @@
 
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{Arc, Mutex, OnceLock},
+    sync::{Arc, Mutex},
 };
 
 use super::{
@@ -181,29 +181,37 @@ impl SurfaceSpec<'_> {
 const GRAIN_TILES_KEPT: usize = 2400;
 
 /// The grain tiles computed so far, and the order they came in (the oldest
-/// go first when the cache is full).
+/// go first when the cache is full). A renderer owns one: the surfaces it
+/// draws share their grain, so a new light or a growing height relights
+/// without computing it again, and no other renderer's tiles are in it.
 #[derive(Default)]
-struct GrainCache {
+pub(crate) struct GrainCache {
+    kept: Mutex<GrainKept>,
+}
+
+/// What a [`GrainCache`] holds.
+#[derive(Default)]
+struct GrainKept {
     tiles: HashMap<GrainKey, Arc<Vec<Grain>>>,
     order: VecDeque<GrainKey>,
 }
 
-fn grain_cache() -> &'static Mutex<GrainCache> {
-    static CACHE: OnceLock<Mutex<GrainCache>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(GrainCache::default()))
-}
-
 /// The grain tiles `tx.0..tx.1` x `ty.0..ty.1` (tile units in window
-/// device px), from the cache or computed now (on several cores when many
-/// are missing), row by row.
-pub(crate) fn grain_tiles(spec: &SurfaceSpec<'_>, tx: (i32, i32), ty: (i32, i32)) -> Vec<Arc<Vec<Grain>>> {
+/// device px), from `cache` or computed now (on several cores when many are
+/// missing), row by row.
+pub(crate) fn grain_tiles(
+    cache: &GrainCache,
+    spec: &SurfaceSpec<'_>,
+    tx: (i32, i32),
+    ty: (i32, i32),
+) -> Vec<Arc<Vec<Grain>>> {
     let wanted: Vec<(i32, i32)> = (ty.0..ty.1)
         .flat_map(|y| (tx.0..tx.1).map(move |x| (x, y)))
         .collect();
     let mut found: Vec<Option<Arc<Vec<Grain>>>> = vec![None; wanted.len()];
-    if let Ok(cache) = grain_cache().lock() {
+    if let Ok(kept) = cache.kept.lock() {
         for (i, &(x, y)) in wanted.iter().enumerate() {
-            found[i] = cache.tiles.get(&spec.key(x, y)).cloned();
+            found[i] = kept.tiles.get(&spec.key(x, y)).cloned();
         }
     }
     let missing: Vec<usize> = (0..wanted.len()).filter(|i| found[*i].is_none()).collect();
@@ -238,16 +246,16 @@ pub(crate) fn grain_tiles(spec: &SurfaceSpec<'_>, tx: (i32, i32), ty: (i32, i32)
                     .collect()
             })
         };
-        if let Ok(mut cache) = grain_cache().lock() {
+        if let Ok(mut kept) = cache.kept.lock() {
             for (i, tile) in &made {
                 let key = spec.key(wanted[*i].0, wanted[*i].1);
-                if cache.tiles.insert(key, tile.clone()).is_none() {
-                    cache.order.push_back(key);
+                if kept.tiles.insert(key, tile.clone()).is_none() {
+                    kept.order.push_back(key);
                 }
             }
-            while cache.order.len() > GRAIN_TILES_KEPT {
-                if let Some(old) = cache.order.pop_front() {
-                    cache.tiles.remove(&old);
+            while kept.order.len() > GRAIN_TILES_KEPT {
+                if let Some(old) = kept.order.pop_front() {
+                    kept.tiles.remove(&old);
                 }
             }
         }
@@ -362,6 +370,8 @@ pub(crate) fn smin(a: f32, b: f32, k: f32) -> f32 {
 /// reads (its uniforms).
 pub(crate) struct Shader<'a> {
     pub(crate) spec: SurfaceSpec<'a>,
+    /// Where the grain tiles of the frame are looked up and kept.
+    pub(crate) grain: &'a GrainCache,
     /// The frame, device px.
     pub(crate) size: [usize; 2],
     /// The surface's top-left in the window, device px (rounded: the grain
@@ -606,7 +616,7 @@ impl Shader<'_> {
         let tiles = if smooth {
             Vec::new()
         } else {
-            grain_tiles(&self.spec, tx, ty)
+            grain_tiles(self.grain, &self.spec, tx, ty)
         };
         let columns = (tx.1 - tx.0) as usize;
         let grain_at = |x: usize, y: usize| -> Grain {

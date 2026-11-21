@@ -39,6 +39,33 @@ pub mod environment;
 // The cursor's sheen on the materials: its easing and the areas it follows.
 pub mod sheen;
 
+// What draws a window's materials and remembers what it drew.
+#[cfg(feature = "materials")]
+pub use materials::MaterialRenderer;
+
+/// What draws a window's materials. Without the cargo feature `materials`
+/// there is nothing to draw them with, and this holds nothing: it is here so
+/// that a window has the same fields with or without the feature.
+#[cfg(not(feature = "materials"))]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MaterialRenderer;
+
+#[cfg(not(feature = "materials"))]
+impl MaterialRenderer {
+    /// A renderer; without the feature it holds nothing.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self
+    }
+
+    /// How many times the desktop's wallpapers changed: without the feature
+    /// no material reflects them, so never.
+    #[must_use]
+    pub const fn desktop_generation(self) -> u64 {
+        0
+    }
+}
+
 /// A texture compiled into the library.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -143,17 +170,22 @@ pub fn builtin_texture(texture: BuiltinTexture) -> ImageRef {
 
 /// A window's image cache with every built-in texture under its CSS name -
 /// and, with the `materials` feature, every [`Material`] as the callback
-/// image that renders it for the rect it fills.
+/// image that `renderer`, the window's own, renders for the rect it fills.
 #[must_use]
-pub fn image_cache_with_builtin_textures() -> ImageCache {
+pub fn image_cache_with_builtin_textures(renderer: &MaterialRenderer) -> ImageCache {
     let mut cache = ImageCache::default();
     for texture in BuiltinTexture::ALL {
         cache.add_css_image_id(texture.css_name().as_str().into(), builtin_texture(texture));
     }
     #[cfg(feature = "materials")]
     for material in Material::ALL {
-        cache.add_css_image_id(material.css_name().as_str().into(), material_image(material));
+        cache.add_css_image_id(
+            material.css_name().as_str().into(),
+            material_image(renderer, material),
+        );
     }
+    #[cfg(not(feature = "materials"))]
+    let _ = renderer;
     cache
 }
 
@@ -257,16 +289,17 @@ pub fn accent_glow(accent: ColorU) -> ColorU {
 
 /// The material as an image for `Dom::create_image` or a CSS id of the app's
 /// own: a render callback that lights the material for the size it is drawn
-/// at. Without the `materials` feature a transparent pixel.
+/// at, drawn by `renderer` - the renderer of the window the image is used
+/// in. Without the `materials` feature a transparent pixel.
 #[must_use]
-pub fn material_image(material: Material) -> ImageRef {
+pub fn material_image(renderer: &MaterialRenderer, material: Material) -> ImageRef {
     #[cfg(feature = "materials")]
     {
-        materials::material_callback_image(material)
+        renderer.callback_image(material)
     }
     #[cfg(not(feature = "materials"))]
     {
-        let _ = material;
+        let _ = (renderer, material);
         transparent_pixel()
     }
 }
@@ -449,7 +482,7 @@ mod tests {
         // With the feature every window has each material as the callback
         // image that renders it for the rect it fills; without it the names
         // name nothing (transparent).
-        let cache = image_cache_with_builtin_textures();
+        let cache = image_cache_with_builtin_textures(&MaterialRenderer::new());
         for material in Material::ALL {
             let image = cache.get_css_image_id(&material.css_name().as_str().into());
             #[cfg(feature = "materials")]
@@ -461,7 +494,7 @@ mod tests {
 
     #[test]
     fn every_window_knows_the_textures_by_their_css_names() {
-        let cache = image_cache_with_builtin_textures();
+        let cache = image_cache_with_builtin_textures(&MaterialRenderer::new());
         for texture in BuiltinTexture::ALL {
             assert!(
                 cache.get_css_image_id(&texture.css_name().as_str().into()).is_some(),
