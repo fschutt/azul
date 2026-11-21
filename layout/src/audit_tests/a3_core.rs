@@ -706,6 +706,40 @@ fn an_unchanged_dom_is_put_back_into_the_accessibility_tree_unread() {
     );
 }
 
+/// A3-core-10a, wired: the window hands the pass the generation of each DOM
+/// (`LayoutWindow::dom_generation`). A pass over a window whose DOM is the one the last pass
+/// walked reads none of its nodes; a pass after another layout of the DOM reads them again.
+#[cfg(feature = "a11y")]
+#[test]
+fn a_pass_over_a_dom_of_the_same_generation_reads_none_of_its_nodes() {
+    let mut lw = laid_out(label_layer(50, 0));
+    let first = lw.a11y_manager.last_pass;
+    let nodes = first.nodes - 1;
+    assert!(nodes > 50, "harness: the labels are in the tree ({nodes} nodes)");
+    assert_eq!(first.walked + first.replayed, nodes, "every node, once: {first:?}");
+    let generation = lw.dom_generation(DomId::ROOT_ID);
+    assert_ne!(generation, 0, "harness: the laid-out DOM has a generation");
+
+    // A pass with nothing laid out in between (what the scroll timer or a focus move asks for).
+    lw.update_a11y_tree();
+    let second = lw.a11y_manager.last_pass;
+    assert_eq!(lw.dom_generation(DomId::ROOT_ID), generation, "harness: the same DOM");
+    assert_eq!(
+        (second.walked, second.replayed),
+        (0, nodes),
+        "the DOM is the one the last pass walked: {second:?}"
+    );
+    assert!(!second.published, "and nothing changed");
+
+    // Another layout: another generation, the nodes are read again by the pass that follows it.
+    let passes = lw.a11y_tree_updates;
+    lay_out_in(&mut lw, label_layer(50, 0));
+    assert_ne!(lw.dom_generation(DomId::ROOT_ID), generation, "harness: a layout moves it");
+    assert_eq!(lw.a11y_tree_updates, passes + 1, "harness: one pass per layout");
+    let third = lw.a11y_manager.last_pass;
+    assert_eq!((third.walked, third.replayed), (nodes, 0), "{third:?}");
+}
+
 /// A3-core-13 (A3-solver 36c): the used colour of a node asks every ancestor for a runtime
 /// override of `color` (a colour transition writes one on a container) as soon as the DOM has
 /// ANY override, and the table of overrides is never shrunk: a view whose transform is bound

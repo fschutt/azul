@@ -20975,6 +20975,16 @@ impl LayoutWindow {
                 nested_dom_hosts.insert(nested, (host_dom, host_node));
             }
         }
+        // The generation of each DOM ([`DomGenerations`]): a DOM that is
+        // still the one the last pass walked is put back into the tree
+        // without a node of it being read (A3-core-10a). A DOM without a
+        // generation (0) is not in the map and is walked.
+        let generations: BTreeMap<DomId, u64> = self
+            .layout_results
+            .keys()
+            .map(|dom_id| (*dom_id, self.dom_generation(*dom_id)))
+            .filter(|(_, generation)| *generation != 0)
+            .collect();
         let inputs = crate::managers::a11y::A11yTreeInputs {
             layout_results: &self.layout_results,
             scroll_manager: &self.scroll_manager,
@@ -20994,14 +21004,7 @@ impl LayoutWindow {
             language_is_rtl: language.is_rtl,
             translate: has_translations
                 .then_some(crate::managers::a11y::A11yTranslate(&translate_key)),
-            // The generation of each DOM is A3-window's
-            // `LayoutWindow::dom_generation` (its commit d305eaae7, not on
-            // this branch). Where the branches meet this becomes
-            // `Some(&generations)` with `generations: BTreeMap<DomId, u64>`
-            // collected from `self.layout_results.keys()` and
-            // `self.dom_generation(..)` before `inputs`; until then every
-            // DOM is walked in every pass, as it always was.
-            dom_generations: None,
+            dom_generations: Some(&generations),
         };
         // A refused update keeps the last good state parked/delivered and the
         // next pass resends the whole tree; `last_rejection` records why (the
