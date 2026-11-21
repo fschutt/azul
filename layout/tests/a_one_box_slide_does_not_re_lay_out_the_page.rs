@@ -336,9 +336,9 @@ fn knob_frame_cost(cards: usize) -> FrameCost {
     let knob = with_class(&lw, "knob");
     let before = rect(&lw, knob);
 
-    // Spans buffer only while recording is on; drain whatever an earlier
-    // test on this thread left behind.
-    Probe::set_recording(true);
+    // Spans buffer only while recording is on; this thread records for the frame
+    // and no longer, and drains whatever an earlier test on this thread left behind.
+    let recording = Probe::record_on_this_thread(true);
     let _ = Probe::drain();
     restyle(
         &mut lw,
@@ -346,7 +346,7 @@ fn knob_frame_cost(cards: usize) -> FrameCost {
         CssProperty::const_margin_left(LayoutMarginLeft::const_px(8)),
     );
     let events = Probe::drain();
-    Probe::set_recording(false);
+    drop(recording);
 
     let after = rect(&lw, knob);
     assert!(
@@ -365,17 +365,6 @@ fn knob_frame_cost(cards: usize) -> FrameCost {
     }
 }
 
-/// Put the recording flag back the way `AZ_PROFILE` asked for it (the same
-/// derivation `probe_gate` uses), so `frame_perf` and `pagination_perf` in
-/// this binary keep their profile.
-pub(crate) fn restore_ambient_recording() {
-    let ambient = azul_core::profile::cpu_enabled()
-        || azul_core::profile::memory_enabled()
-        || azul_core::profile::heap_enabled();
-    Probe::set_recording(ambient);
-    let _ = Probe::drain();
-}
-
 // ---- the tests ----
 
 /// A knob frame costs what the knob's ancestors cost, however long the page.
@@ -387,14 +376,12 @@ pub(crate) fn restore_ambient_recording() {
 /// re-flowed - AzWidgets: 2853 re-flows per frame).
 #[test]
 fn a_knob_frame_costs_the_same_on_a_page_twice_as_long() {
-    let _serialised = crate::probe_lock();
     if !Probe::enabled() {
         eprintln!("[a_one_box_slide] the probe is compiled out: nothing to count");
         return;
     }
     let short = knob_frame_cost(40);
     let long = knob_frame_cost(80);
-    restore_ambient_recording();
     eprintln!("[a_one_box_slide] 40 cards: {short:?}");
     eprintln!("[a_one_box_slide] 80 cards: {long:?}");
 

@@ -16,7 +16,7 @@ use azul_layout::{probe::Probe, window::LayoutWindow};
 
 use crate::{
     a_one_box_slide_does_not_re_lay_out_the_page::{
-        card, count, relayout, restore_ambient_recording, window, FrameCost,
+        card, count, relayout, window, FrameCost,
     },
     accordion_animation::{click, node_with_class},
 };
@@ -78,13 +78,13 @@ fn mid_tween_frame_cost(cards: usize) -> (FrameCost, usize, Duration) {
         "harness: the section is still opening, the next frame is mid-tween"
     );
 
-    Probe::set_recording(true);
+    let recording = Probe::record_on_this_thread(true);
     let _ = Probe::drain();
     let started = crate::thread_cpu_clock::CpuInstant::now();
     step(&mut lw);
     let took = started.elapsed();
     let events = Probe::drain();
-    Probe::set_recording(false);
+    drop(recording);
 
     let cost = FrameCost {
         layout_passes: count(&events, "root_layout_pass"),
@@ -104,14 +104,12 @@ fn mid_tween_frame_cost(cards: usize) -> (FrameCost, usize, Duration) {
 /// more on the long page than on the short one.
 #[test]
 fn an_accordion_frame_costs_the_same_on_a_page_twice_as_long() {
-    let _serialised = crate::probe_lock();
     if !Probe::enabled() {
         eprintln!("[an_accordion_frame] the probe is compiled out: nothing to count");
         return;
     }
     let (short, _, _) = mid_tween_frame_cost(40);
     let (long, _, _) = mid_tween_frame_cost(80);
-    restore_ambient_recording();
     eprintln!("[an_accordion_frame] 40 cards: {short:?}");
     eprintln!("[an_accordion_frame] 80 cards: {long:?}");
 
@@ -145,13 +143,11 @@ fn an_accordion_frame_costs_the_same_on_a_page_twice_as_long() {
 /// fingerprinted and reconciled again.
 #[test]
 fn an_accordion_frame_does_not_reconcile_the_unchanged_dom() {
-    let _serialised = crate::probe_lock();
     if !Probe::enabled() {
         eprintln!("[an_accordion_frame] the probe is compiled out: nothing to count");
         return;
     }
     let (_, reconciles, _) = mid_tween_frame_cost(80);
-    restore_ambient_recording();
     assert_eq!(
         reconciles, 0,
         "a mid-tween frame reconciled the whole DOM again"
@@ -165,7 +161,6 @@ fn an_accordion_frame_fits_its_time_budget() {
         eprintln!("[an_accordion_frame] debug build: the time budget is for release builds");
         return;
     }
-    let _serialised = crate::probe_lock();
     // The best of three, in CPU time on a performance core: a frame is
     // measured, not the machine's other work or the core it was given.
     let took = crate::thread_cpu_clock::on_a_performance_core(|| {
@@ -174,7 +169,6 @@ fn an_accordion_frame_fits_its_time_budget() {
             .min()
             .expect("three runs")
     });
-    restore_ambient_recording();
     eprintln!("[an_accordion_frame] mid-tween frame on 80 cards: {took:?}");
     // A budget in time needs the machine to itself: beside the whole suite
     // the cores clock down and share their caches, and even the thread's own

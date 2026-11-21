@@ -9,14 +9,13 @@
 //!
 //! ## Isolation
 //!
-//! `Probe::set_recording` writes a PROCESS-GLOBAL `AtomicU8`; only the event
-//! buffer it gates is thread-local. This file used to be its own integration
-//! binary for exactly that reason — a separate process meant a single writer.
-//! It is now a module of `tests/all.rs`, so the isolation is explicit instead:
-//! every test that touches the flag takes [`crate::probe_lock`], which
-//! serialises this file against `frame_perf` and `pagination_perf` (the two
-//! readers that drain and attribute spans). Adding a fourth test that calls
-//! `Probe::set_recording`, `drain` or `peek_len` means taking that lock too.
+//! `Probe::set_recording` writes a PROCESS-wide switch; what the gate is
+//! about is what a thread does with its own spans, and a thread can choose
+//! that for itself (`Probe::record_on_this_thread`), until its guard drops.
+//! This file chooses for its own test thread only, so it shares the binary
+//! with every other test that records spans (`frame_perf`, the layout-cost
+//! tests) without a lock around the profiler and without leaving the process
+//! switch in the state it found.
 //!
 //! The initial `drain` below covers the other half: with `--test-threads=1`
 //! libtest runs every test on the SAME thread, so the thread-local buffer is
@@ -26,13 +25,11 @@ use azul_layout::probe::Probe;
 
 #[test]
 fn spans_are_inert_until_recording_is_switched_on() {
-    let _serialised = crate::probe_lock();
-
     // Fresh buffer, recording off. (Under --test-threads=1 the thread-local
     // is shared with every other test in this binary, so drain rather than
     // assume; and if the environment exports AZ_PROFILE, force the same
     // starting state instead of failing spuriously.)
-    Probe::set_recording(false);
+    let off = Probe::record_on_this_thread(false);
     let _ = Probe::drain();
 
     {
@@ -44,11 +41,12 @@ fn spans_are_inert_until_recording_is_switched_on() {
         0,
         "recording is off — a span/sample must not buffer events"
     );
+    drop(off);
 
     // Flip ON: the exact same calls must now record — proving the zero
     // above came from the gate, not from a probe that cannot see at all
     // ("a zero is not a measurement" rule).
-    Probe::set_recording(true);
+    let on = Probe::record_on_this_thread(true);
     {
         let _g = Probe::span("gate_on_span");
         Probe::sample_rss("gate_on_rss", 456);
@@ -62,9 +60,10 @@ fn spans_are_inert_until_recording_is_switched_on() {
         // Stub imp (feature off): nothing records regardless of the toggle.
         assert!(events.is_empty(), "stub imp must never buffer");
     }
+    drop(on);
 
     // Flip OFF again: the gate must close, not latch.
-    Probe::set_recording(false);
+    let off_again = Probe::record_on_this_thread(false);
     {
         let _g = Probe::span("gate_off_again");
     }
@@ -73,16 +72,6 @@ fn spans_are_inert_until_recording_is_switched_on() {
         0,
         "recording off again — buffer stays empty"
     );
-
-    // Put the AMBIENT gate back before releasing the lock. In its own process
-    // this did not matter — the process ended. Here, `frame_perf` and
-    // `pagination_perf` share the binary and expect the state `AZ_PROFILE`
-    // asked for; leaving the flag forced OFF would silently reduce them to
-    // "no probe events". There is no public getter for the recording flag, so
-    // re-derive it exactly the way `probe::imp`'s lazy gate does.
-    let ambient = azul_core::profile::cpu_enabled()
-        || azul_core::profile::memory_enabled()
-        || azul_core::profile::heap_enabled();
-    Probe::set_recording(ambient);
+    drop(off_again);
     let _ = Probe::drain();
 }

@@ -19,7 +19,7 @@ use azul_layout::{
 };
 
 use crate::a_one_box_slide_does_not_re_lay_out_the_page::{
-    count, relayout, restore_ambient_recording, window,
+    count, relayout, window,
 };
 
 /// The band's height while the ribbon is closed, and once it is open.
@@ -316,11 +316,11 @@ fn frame(lw: &mut LayoutWindow) -> Vec<Event> {
         lw.take_transition_relayout(),
         "harness: a step of the band's height owes a relayout"
     );
-    Probe::set_recording(true);
+    let recording = Probe::record_on_this_thread(true);
     let _ = Probe::drain();
     relayout(lw);
     let events = Probe::drain();
-    restore_ambient_recording();
+    drop(recording);
     assert!(
         lw.layout_cache.last_reconcile_was_skipped,
         "harness: a frame of the tween lays out the retained tree"
@@ -383,7 +383,6 @@ fn frames_of(page: Dom) -> Vec<FrameWork> {
 /// it is taller each frame, but its width does not follow its height.
 #[test]
 fn a_ribbon_frame_asks_no_row_its_width_again() {
-    let _serialised = crate::probe_lock();
     if !Probe::enabled() {
         eprintln!("[a_growing_ribbon] the probe is compiled out: nothing to count");
         return;
@@ -415,7 +414,6 @@ fn a_ribbon_frame_asks_no_row_its_width_again() {
 /// lays out four more boxes per frame.
 #[test]
 fn a_ribbon_frame_lays_out_each_group_once() {
-    let _serialised = crate::probe_lock();
     if !Probe::enabled() {
         eprintln!("[a_growing_ribbon] the probe is compiled out: nothing to count");
         return;
@@ -448,7 +446,6 @@ fn a_ribbon_frame_lays_out_each_group_once() {
 /// out as a window opened with the band at that height.
 #[test]
 fn every_frame_of_an_opening_with_a_wrapping_group_lays_out_as_a_fresh_window() {
-    let _serialised = crate::probe_lock();
     let wrapping_width = |band_px: isize| {
         let lw = window(wrapping_ribbon_page(band_px as f32));
         let wrapping = node_with_class(&lw, "wrapping");
@@ -488,7 +485,6 @@ fn every_frame_of_an_opening_with_a_wrapping_group_lays_out_as_a_fresh_window() 
 /// frame costs the same on a pane with twice the places.
 #[test]
 fn a_pane_under_a_growing_ribbon_lays_out_none_of_its_places() {
-    let _serialised = crate::probe_lock();
     if !Probe::enabled() {
         eprintln!("[a_growing_ribbon] the probe is compiled out: nothing to count");
         return;
@@ -517,7 +513,6 @@ fn a_pane_under_a_growing_ribbon_lays_out_none_of_its_places() {
 /// A frame costs the same on a list twice as long.
 #[test]
 fn a_list_under_a_growing_ribbon_keeps_the_layout_of_its_rows() {
-    let _serialised = crate::probe_lock();
     if !Probe::enabled() {
         eprintln!("[a_growing_ribbon] the probe is compiled out: nothing to count");
         return;
@@ -546,7 +541,6 @@ fn a_list_under_a_growing_ribbon_keeps_the_layout_of_its_rows() {
 /// tween ends on is laid out exactly as a window opened with the band open.
 #[test]
 fn an_azdrive_frame_lays_out_only_what_the_ribbon_resizes() {
-    let _serialised = crate::probe_lock();
     if !Probe::enabled() {
         eprintln!("[a_growing_ribbon] the probe is compiled out: nothing to count");
         return;
@@ -633,7 +627,6 @@ fn an_azdrive_frame_lays_out_only_what_the_ribbon_resizes() {
 /// it, while everything that only moved keeps its layout.
 #[test]
 fn every_frame_of_the_opening_lays_out_as_a_fresh_window() {
-    let _serialised = crate::probe_lock();
     let (groups, places, rows) = (4, 12, 12);
     let sized_by_the_list = "height: 6%;";
     let mut lw = opening(page_with(
@@ -667,7 +660,6 @@ fn every_frame_of_the_opening_lays_out_as_a_fresh_window() {
 /// at that height.
 #[test]
 fn every_frame_of_an_opening_that_makes_the_list_scroll_lays_out_as_a_fresh_window() {
-    let _serialised = crate::probe_lock();
     let (groups, places, rows) = (1, 4, 19);
     let fixed_rows = "height: 20px;";
     let overflows = |band_px: isize| {
@@ -710,7 +702,6 @@ fn every_frame_of_an_opening_that_makes_the_list_scroll_lays_out_as_a_fresh_wind
 /// frame lays out as a window opened with the band at that height.
 #[test]
 fn a_row_as_wide_as_a_list_that_starts_scrolling_lays_out_as_a_fresh_window() {
-    let _serialised = crate::probe_lock();
     let rows = 19;
     let overflows = |band_px: isize| {
         let lw = window(shrink_wrapped_list_page(rows, band_px as f32));

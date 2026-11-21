@@ -6098,7 +6098,7 @@ mod a_split_panes_paragraphs_are_laid_out_a_bounded_number_of_times_tests {
         ws.size.dimensions = LogicalSize::new(1000.0, 700.0);
         lw.current_window_state = ws.clone();
 
-        Probe::set_recording(true);
+        let recording = Probe::record_on_this_thread(true);
         let _ = Probe::drain();
         lw.layout_and_generate_display_list(
             styled,
@@ -6109,7 +6109,7 @@ mod a_split_panes_paragraphs_are_laid_out_a_bounded_number_of_times_tests {
         )
         .expect("the page lays out");
         let events = Probe::drain();
-        Probe::set_recording(false);
+        drop(recording);
 
         assert!(lw.layout_results.contains_key(&DomId::ROOT_ID));
         let paragraphs = 2 * PARAGRAPHS;

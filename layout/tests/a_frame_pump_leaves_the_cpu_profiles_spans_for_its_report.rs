@@ -41,27 +41,21 @@ fn left_after_a_frame_pump(cpu_report: bool) -> Vec<Event> {
 }
 
 fn left_after_a_frame_pump_with(cpu_report: bool, recording: Recording) -> Vec<Event> {
-    match recording {
-        Recording::AsProfile => Probe::record_as_profile(true),
-        Recording::ByACallerThatDrains => Probe::set_recording(true),
-    }
+    // This thread's own choice: the tests beside it keep theirs, and it ends with the guard.
+    let _recording = match recording {
+        Recording::AsProfile => Probe::record_as_profile_on_this_thread(),
+        Recording::ByACallerThatDrains => Probe::record_on_this_thread(true),
+    };
     let _ = Probe::drain();
     {
         let _span = Probe::span(SPAN);
     }
     let _ = telemetry::drain_probe_events_for(cpu_report);
-    let left = Probe::drain();
-    // Put the recording flag back the way `AZ_PROFILE` asked for it.
-    let ambient = azul_core::profile::cpu_enabled()
-        || azul_core::profile::memory_enabled()
-        || azul_core::profile::heap_enabled();
-    Probe::set_recording(ambient);
-    left
+    Probe::drain()
 }
 
 #[test]
 fn a_frame_pump_leaves_the_spans_to_the_cpu_report() {
-    let _serialised = crate::probe_lock();
     if !Probe::enabled() {
         eprintln!("[a_frame_pump] the probe is compiled out: nothing to record");
         return;
@@ -75,7 +69,6 @@ fn a_frame_pump_leaves_the_spans_to_the_cpu_report() {
 
 #[test]
 fn with_no_report_reading_them_a_frame_pump_still_drops_the_spans() {
-    let _serialised = crate::probe_lock();
     if !Probe::enabled() {
         eprintln!("[a_frame_pump] the probe is compiled out: nothing to record");
         return;
@@ -91,7 +84,6 @@ fn with_no_report_reading_them_a_frame_pump_still_drops_the_spans() {
 
 #[test]
 fn a_frame_pump_leaves_the_spans_to_a_caller_that_drains_them_itself() {
-    let _serialised = crate::probe_lock();
     if !Probe::enabled() {
         eprintln!("[a_frame_pump] the probe is compiled out: nothing to record");
         return;
