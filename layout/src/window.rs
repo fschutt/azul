@@ -19705,7 +19705,17 @@ impl LayoutWindow {
         // Signal to the platform render loop that more frames are needed
         // to complete the scrollbar fade animation. The caller should
         // schedule a redraw while this flag is true.
-        gpu_state_manager.scrollbar_fade_active = any_opacity_nonzero;
+        // ONE flag for the window, one pass per DOM. Every caller walks the DOMs in order,
+        // the window's own (`DomId::ROOT_ID`) first: that pass starts the answer and the
+        // passes of the other DOMs add to it. Each pass used to overwrite the flag, so the
+        // LAST DOM decided: in a window with a view - a child DOM without bars - a bar of
+        // the window's own DOM in mid-fade read as "nothing fades", the platform loop asked
+        // for no frames (`GpuStateManager::frames_owed`) and the fade stood still.
+        if dom_id == DomId::ROOT_ID {
+            gpu_state_manager.scrollbar_fade_active = any_opacity_nonzero;
+        } else {
+            gpu_state_manager.scrollbar_fade_active |= any_opacity_nonzero;
+        }
         let fade_left_ms = u64::try_from(fade_left_ns.div_ceil(1_000_000)).unwrap_or(u64::MAX);
         if fade_left_ms == 0 {
             gpu_state_manager.scrollbar_fade_left_ms.remove(&dom_id);

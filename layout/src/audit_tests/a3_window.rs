@@ -1220,3 +1220,64 @@ fn an_inset_a_stylesheet_moved_is_named_in_the_css_diff() {
         "every box the rule places"
     );
 }
+
+// -- A3-window-41: the fade flag of a window that holds a view ---------------------------------
+
+/// A scrollbar of the window's own DOM in mid-fade asks for frames, also when the window
+/// holds a view: the view's DOM has no bar, its pass came last and its "nothing fades here"
+/// used to be the window's answer.
+#[test]
+fn a_fading_bar_of_the_window_asks_for_frames_with_a_view_in_the_window() {
+    use azul_core::task::{Duration, Instant};
+
+    let mut dom = Dom::create_body()
+        .with_css("margin: 0px;")
+        .with_child(
+            Dom::create_div()
+                .with_class("box".into())
+                .with_css("width: 300px; height: 100px; overflow-y: scroll;")
+                .with_child(Dom::create_div().with_css("height: 400px; width: 280px;")),
+        )
+        .with_child(
+            Dom::create_virtual_view(RefAny::new(Labels(4)), VirtualViewCallback::create(label_page))
+                .with_css("width: 300px; height: 100px;"),
+        );
+    let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    assert!(lw.layout_results.len() > 1, "the window holds a view's document");
+    let scroller = {
+        let nodes = lw.layout_results[&DomId::ROOT_ID].styled_dom.node_data.as_container();
+        (0..nodes.len())
+            .map(NodeId::new)
+            .find(|n| nodes[*n].has_class("box"))
+            .expect("the box")
+    };
+
+    // A hold of 10 ms and a fade of a minute: 40 ms after the scroll the bar is in mid-fade
+    // (opacity 0.9995) and stays there for the length of the test.
+    lw.gpu_state_manager.fade_delay = Duration::from_millis(10);
+    lw.gpu_state_manager.fade_duration = Duration::from_millis(60_000);
+    lw.scroll_manager.set_scroll_position(
+        DomId::ROOT_ID,
+        scroller,
+        LogicalPosition::new(0.0, 60.0),
+        Instant::now(),
+    );
+    std::thread::sleep(std::time::Duration::from_millis(40));
+    let _ = lw.refresh_scrollbar_gpu_cache_for_cpu_frame();
+    assert!(
+        lw.gpu_state_manager.scrollbar_fade_active,
+        "the window's bar is fading: the platform loop has to keep drawing frames"
+    );
+}
