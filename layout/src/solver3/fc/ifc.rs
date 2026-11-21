@@ -1368,6 +1368,12 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
             .and_then(|n| n.inline_measure_layouts.as_deref())
             .and_then(|m| m.get(constraints.available_width_type))
             .or_else(|| warm.and_then(|n| n.inline_layout_result.as_deref()));
+        // A3-solver-17c: the lines a journaled measure flowed at a definite
+        // width (`InlineMeasureLayouts::definite`), for a visit at that
+        // width that finds the final layout at another.
+        let kept_definite = warm
+            .and_then(|n| n.inline_measure_layouts.as_deref())
+            .and_then(|m| m.definite.as_ref());
 
         // Only reuse the cached inline layout when the available WIDTH is unchanged.
         // This fast path was built for text edits (content changes, width constant); on a
@@ -1380,6 +1386,24 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
             .bfc_state
             .as_ref()
             .is_some_and(|s| !s.floats.floats.is_empty());
+        // The kept lines answer where the final layout does not: at their
+        // width, of this content. They then become the final layout (below),
+        // as a store of them would have made them.
+        let answers = |c: &CachedInlineLayout| {
+            c.is_valid_for(constraints.available_width_type, resize_has_floats)
+                && c.inline_content_hash == current_content_hash
+                && c.constraints.is_some()
+        };
+        let from_kept_definite = matches!(
+            constraints.available_width_type,
+            Text3AvailableSpace::Definite(_)
+        ) && kept_definite.is_some_and(answers)
+            && !cached_ifc.is_some_and(answers);
+        let cached_ifc = if from_kept_definite {
+            kept_definite
+        } else {
+            cached_ifc
+        };
         // #11 fix: cache validity is keyed on WIDTH only, so a same-width
         // RefreshDom whose text CHANGED would otherwise reuse the stale shaped
         // layout. Require the inline content hash to match too.
@@ -1501,6 +1525,26 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
                 };
                 if let Some(warm_node) = tree.warm_mut(LayoutNodeId::new(node_index)) {
                     warm_node.baseline = output.baseline;
+                    if from_kept_definite {
+                        // The lines a journaled measure kept at this width
+                        // are the node's layout now: what is painted and
+                        // hit-tested is read off `inline_layout_result`.
+                        if let Some(lines) = warm_node
+                            .inline_measure_layouts
+                            .as_deref_mut()
+                            .and_then(|kept| kept.definite.take())
+                        {
+                            warm_node.inline_layout_result = Some(Box::new(lines));
+                            ctx.reflowed_ifcs.insert(node_index);
+                        }
+                        if warm_node
+                            .inline_measure_layouts
+                            .as_deref()
+                            .is_some_and(InlineMeasureLayouts::is_empty)
+                        {
+                            warm_node.inline_measure_layouts = None;
+                        }
+                    }
                 }
                 return Ok(output);
             }
@@ -1764,9 +1808,14 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
                 (true, false) => (Some(cil), None),
                 (false, _) => (None, Some(cil)),
             };
-            // The measures of other content are stale with this layout in.
+            // The measures of other content are stale with this layout in,
+            // and so are the lines a journaled measure kept at a definite
+            // width once a layout at a definite width is the final one.
             if let Some(measures) = warm_node.inline_measure_layouts.as_deref_mut() {
                 measures.retain_content(current_content_hash);
+                if for_final.is_some() && !is_measure {
+                    measures.definite = None;
+                }
             }
             if let Some(measure) = for_measures {
                 warm_node
