@@ -1461,6 +1461,17 @@ mod a_views_zoom_frame {
         assert_eq!(running.scale, 1.331);
 
         // A pass while the zoom rests but has not settled: nothing to send.
+        // (The builders read the process' clock. The last change is stamped
+        // in the far future here, so that no machine is slow enough for this
+        // pass to find the zoom settled.)
+        let stamp = |lw: &mut LayoutWindow, at: u64| {
+            lw.gpu_state_manager
+                .zoom_frames
+                .get_mut(&view)
+                .expect("the frame")
+                .changed_at_us = at;
+        };
+        stamp(&mut lw, u64::MAX);
         let (changed, sent) = step(&mut lw, zoom.key);
         assert!(!changed, "nothing moved: the shell drops this transaction");
         assert!(sent.zooming.is_empty());
@@ -1468,7 +1479,8 @@ mod a_views_zoom_frame {
 
         // The clock: one microsecond before the settle time nothing is said,
         // at the settle time the renderer is told, once.
-        let last_change = zoom_of(&lw).expect("the frame").changed_at_us;
+        let last_change = 5_000_000;
+        stamp(&mut lw, last_change);
         let mut txn = WrTransaction::new();
         assert!(!follow_zoom_gestures(&mut txn, &mut lw, last_change + ZOOM_SETTLE_US - 1));
         assert!(carried(txn, zoom.key).zooming.is_empty());
