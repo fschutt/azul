@@ -842,11 +842,14 @@ fn font_key_from_hash(font_hash: u64) -> FontKey {
 /// Text halos a frame draws however long they take (see
 /// [`collect_image_resource_updates`]): a frame always makes progress.
 const HALOS_DRAWN_ANYWAY: usize = 2;
-/// How long a frame goes on drawing text halos after those.
+/// How long a frame goes on drawing text halos after those (the time it spends
+/// drawing them, `cpurender::within_halo_budget`).
 const HALO_FRAME_BUDGET: std::time::Duration = std::time::Duration::from_millis(12);
 /// The most frames in a row that are made only to draw the text halos the scan
 /// before them left (a quarter of a minute at 60 frames a second, and every one
-/// draws at least [`HALOS_DRAWN_ANYWAY`]).
+/// draws at least [`HALOS_DRAWN_ANYWAY`]). A backstop: a scan drops no halo it
+/// uses (audit A5-01), so each follow-up leaves fewer than the one before and the
+/// chain ends by itself; a halo that cannot be kept is not left, and owes no frame.
 const HALO_FOLLOW_UPS_MAX: u32 = 900;
 
 #[cfg(test)]
@@ -871,6 +874,13 @@ fn halo_budget() -> (usize, std::time::Duration) {
 #[cfg(test)]
 pub(crate) fn draw_every_halo_in_this_thread() {
     TEST_HALO_BUDGET.with(|b| b.set(Some((usize::MAX, std::time::Duration::from_secs(3600)))));
+}
+
+/// For a test of the frames that follow a frame that left halos: every frame of
+/// this thread draws `free` new halos and no more, however fast the machine is.
+#[cfg(test)]
+pub(crate) fn draw_this_many_halos_a_frame_in_this_thread(free: usize) {
+    TEST_HALO_BUDGET.with(|b| b.set(Some((free, std::time::Duration::ZERO))));
 }
 
 /// Collects all ImageRefs from display lists and creates AddImage ResourceUpdates
@@ -931,8 +941,11 @@ fn collect_image_resource_updates_and_halos_left(
     // 5.0 s drawing them on the UI thread before anything else could run: a
     // frame draws HALOS_DRAWN_ANYWAY of them however long they take and then
     // only while HALO_FRAME_BUDGET lasts; a shadow whose halo is left for a
-    // later frame is drawn by WebRender's own blur until then - the frames the
-    // platform loop goes on making (`GpuStateManager::halos_owed`) draw the rest.
+    // later frame is painted with a stand-in (a spread shadow: `TextHalo::stand_in`,
+    // an image of this list like the halo itself) or by WebRender's own blur
+    // until then - the frames the platform loop goes on making
+    // (`GpuStateManager::halos_owed`) draw the rest. The scan uses every picture
+    // the translation of these lists will find, so each is in the live set below.
     let dpi = layout_window.current_window_state.size.get_hidpi_factor().inner.get();
     let (free, time) = halo_budget();
     let ((), halos_left) = azul_layout::cpurender::within_halo_budget(
@@ -1516,9 +1529,10 @@ pub(crate) fn register_frame_resources(
 /// the ones it does not hold and delete the ones no list names any more.
 /// Records in `GpuStateManager::halos_owed` whether this scan left halos for a
 /// later frame. A scan that starts while halos are owed is a follow-up, and the
-/// chain of them ends after [`HALO_FOLLOW_UPS_MAX`]: for lists that name more
-/// halos than the kept ones can hold each scan would draw the ones the last one
-/// evicted, and the window would never go idle.
+/// chain of them ends after [`HALO_FOLLOW_UPS_MAX`] at the latest. (Lists that
+/// name more halos than can be kept do not keep the window awake: a scan drops
+/// none of the halos it uses, and one it has no room for is not left for a
+/// later frame.)
 fn register_image_resources(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) {
     let follow_up = layout_window.gpu_state_manager.halos_owed;
     // --- Images ---

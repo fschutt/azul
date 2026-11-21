@@ -353,7 +353,9 @@ pub fn translate_displaylist_to_wr(
 
     // The text shadows drawn as kept pictures (`text_halos`; their images
     // were drawn and registered with the frame's resources), by the index of
-    // their PushTextShadow. Every other shadow goes to WebRender's own.
+    // their PushTextShadow: a shadow's own picture, or for a spread shadow whose
+    // picture a later frame draws the one that stands in for it. Every other
+    // shadow goes to WebRender's own.
     let halos: BTreeMap<usize, TextHalo> = text_halos(&display_list.items, dpi_scale, None)
         .into_iter()
         .map(|halo| (halo.push, halo))
@@ -2286,7 +2288,10 @@ pub fn translate_displaylist_to_wr(
                     let offset = current_offset!();
                     let rect = LayoutRect::from_origin_and_size(
                         LayoutPoint::new(halo.origin.0 - offset.0, halo.origin.1 - offset.1),
-                        LayoutSize::new(halo.width as f32, halo.height as f32),
+                        // The picture's own size, texel for pixel - or, for one
+                        // that stands in for a halo not drawn yet, the size
+                        // that halo will have (`TextHalo::stand_in`).
+                        LayoutSize::new(halo.size.0, halo.size.1),
                     );
                     let info = CommonItemProperties {
                         clip_rect: rect,
