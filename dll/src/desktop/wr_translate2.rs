@@ -844,10 +844,21 @@ pub fn publish_gpu_frame(
     frame.texture_upload_px = wr.texture_upload_px;
     frame.scene_build_us = wr.scene_build_ns / 1_000;
     frame.frame_build_us = wr.frame_build_ns / 1_000;
+    frame.tiles_drawn = wr.tiles_drawn;
     frame.blocked_us = blocked_us;
     frame.render_us = render_us;
     frame.draw_calls = draw_calls;
     layout_window.frame_clock.note_gpu(&frame);
+}
+
+/// The transaction a pass just sent is not drawn by that pass: its frame is
+/// drawn when the renderer has built it, by a later pass (audit A4-31,
+/// `shell2::common::frame_schedule`). What this thread counted for it stays
+/// counted and is published with the frame that shows it
+/// ([`publish_gpu_frame`]); until then the builders of the passes in between
+/// do not publish it as a frame of its own ([`publish_stale_gpu_frame`]).
+pub fn gpu_frame_is_drawn_later() {
+    GPU_FRAME_OPEN.with(|open| open.set(false));
 }
 
 /// Publish the counters of a frame whose shell did not ([`publish_gpu_frame`])
@@ -2172,8 +2183,21 @@ where
                     // of the window to find that out - for each of the pictures
                     // a frame replaces (2,200 keys x 40 pictures a frame on a
                     // municipal map).
-                    rr.currently_registered_images.remove(&old);
-                    rr.image_last_seen_epoch.remove(&old);
+                    // Unless the picture is painted from another slot by now and
+                    // that slot was planned before this one (two windows on one
+                    // thread share the kept pictures: the other's scan put a new
+                    // picture into this slot and the old one got a new slot at
+                    // its next use): its registration is then that slot's, and
+                    // removing it left the label that paints it without a halo
+                    // for good (audit A5-15).
+                    if rr
+                        .currently_registered_images
+                        .get(&old)
+                        .is_some_and(|resolved| resolved.key == key)
+                    {
+                        rr.currently_registered_images.remove(&old);
+                        rr.image_last_seen_epoch.remove(&old);
+                    }
                 } else {
                     rr.release_frame(key, old);
                 }

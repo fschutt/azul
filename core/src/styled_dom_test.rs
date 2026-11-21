@@ -3106,3 +3106,377 @@ mod audit_a3_core_tests {
         assert!(!composed.needs_recompute_after_append());
     }
 }
+
+// -- diff first, step `style`: the cascade over the nodes a rebuild changed ------------------------
+#[cfg(test)]
+mod audit_diff_first_tests {
+    use azul_css::props::property::CssPropertyType;
+
+    use super::*;
+    use crate::{
+        diff::{adopt_changed_nodes, fingerprint_dom, same_tree_changes},
+        dom::{Dom, NodeType},
+        id::NodeId,
+    };
+
+    /// One section of [`page`]: which `k<kind>` class its heading and its box wear, which of
+    /// [`PLACES`] is the box's inline style, the text of its paragraph, and whether the
+    /// paragraph holds a link.
+    #[derive(Clone, PartialEq, Debug)]
+    struct Section {
+        kind: usize,
+        place: usize,
+        text: usize,
+        link: bool,
+    }
+
+    const PLACES: [&str; 5] = [
+        "",
+        "position: relative; left: 4px;",
+        "width: 50%; margin-left: 2em;",
+        "color: #0000aa; font-size: 20px;",
+        "line-height: 1.5em; cursor: pointer;",
+    ];
+    const WORDS: [&str; 4] = ["one", "two words", "", "Tuebingen"];
+
+    /// `body > div.list[.dense] > section*`, a section being
+    /// `div.box.k<n>[style] > (h1.k<n> > text), (p > text [, a > text])`: elements with UA
+    /// defaults (the headings' `2em`, the link's colour, the paragraphs' margins) under a
+    /// sheet with a `*` rule, class rules with inherited and font-relative values, a
+    /// descendant and a child rule, a hover rule with an inherited value and - with `siblings`
+    /// - two sibling rules.
+    fn page(sections: &[Section], dense: bool, siblings: bool) -> Dom {
+        let text = |value: &str| {
+            Dom::create_text_do_not_use_without_block_level_wrapper(value.to_string())
+        };
+        let mut list = Dom::create_div().with_class("list".into());
+        if dense {
+            list = list.with_class("dense".into());
+        }
+        for section in sections {
+            let class = format!("k{}", section.kind);
+            let mut block = Dom::create_div()
+                .with_class("box".into())
+                .with_class(class.clone().into());
+            if !PLACES[section.place].is_empty() {
+                block = block.with_css(PLACES[section.place]);
+            }
+            let mut paragraph = Dom::create_node(NodeType::P).with_child(text(WORDS[section.text]));
+            if section.link {
+                paragraph = paragraph.with_child(
+                    Dom::create_node(NodeType::A)
+                        .with_class("link".into())
+                        .with_child(text("link")),
+                );
+            }
+            list = list.with_child(
+                block
+                    .with_child(
+                        Dom::create_node(NodeType::H1)
+                            .with_class(class.into())
+                            .with_child(text("heading")),
+                    )
+                    .with_child(paragraph),
+            );
+        }
+        let mut sheet = String::from(
+            "* { box-sizing: border-box; } .list { padding: 2px; color: #222222; } \
+             .box { padding: 4px; background: #eeeeee; } .dense .box { padding: 1px; } \
+             .k1 { background: #ddddff; width: 200px; } \
+             .k2 { color: #aa0000; font-size: 1.5em; line-height: 1.2em; } \
+             .k3 { margin-top: 3px; text-align: center; } .box > .k3 { margin-left: 2em; } \
+             .box:hover { background: #ffff00; color: #00aa00; } .link { cursor: help; }",
+        );
+        if siblings {
+            sheet.push_str(" .k1 + .box { margin-left: 6px; } .k2 ~ .box { border-left-width: 2px; }");
+        }
+        Dom::create_body()
+            .with_component_css(azul_css::css::Css::from_string(sheet.into()))
+            .with_child(list)
+    }
+
+    fn sections(count: usize) -> Vec<Section> {
+        (0..count)
+            .map(|i| Section {
+                kind: i % 4,
+                place: 0,
+                text: i % 4,
+                link: i % 3 == 0,
+            })
+            .collect()
+    }
+
+    /// The step `kind` of the random walk applied to the page: a section's class (0, 1), its
+    /// inline style (2, 3), its text (4), the list's class (5), three at once (6).
+    fn mutate(sections: &mut [Section], dense: &mut bool, kind: usize, picks: [usize; 6]) {
+        let n = sections.len();
+        match kind {
+            0 | 1 => sections[picks[0] % n].kind = picks[3] % 4,
+            2 | 3 => sections[picks[0] % n].place = picks[3] % 5,
+            4 => sections[picks[0] % n].text = picks[3] % 4,
+            5 => *dense = !*dense,
+            _ => {
+                sections[picks[0] % n].kind = picks[3] % 4;
+                sections[picks[1] % n].place = picks[4] % 5;
+                sections[picks[2] % n].text = picks[5] % 4;
+            }
+        }
+    }
+
+    /// Every difference between what the cascades of `kept` and `full` answer, as lines: per
+    /// node its matched and inherited rows, its computed inherited values, its compact
+    /// entries and every property in the state it is in, at rest and hovered; then the
+    /// tables beside the rows.
+    fn differences(kept: &StyledDom, full: &StyledDom) -> Vec<String> {
+        let (a, b) = (kept.get_css_property_cache(), full.get_css_property_cache());
+        let mut out = Vec::new();
+        if kept.node_data.as_ref() != full.node_data.as_ref() {
+            out.push("the node data differs".to_string());
+            return out;
+        }
+        let (ca, cb) = (
+            a.compact_cache.as_ref().expect("a compact cache"),
+            b.compact_cache.as_ref().expect("a compact cache"),
+        );
+        let hovered = StyledNodeState {
+            hover: true,
+            ..StyledNodeState::default()
+        };
+        for (index, node) in kept.node_data.as_ref().iter().enumerate() {
+            let id = NodeId::new(index);
+            if a.css_props.get_slice(index) != b.css_props.get_slice(index) {
+                out.push(format!("node {index}: matched rules"));
+            }
+            if a.cascaded_props.get_slice(index) != b.cascaded_props.get_slice(index) {
+                out.push(format!(
+                    "node {index}: inherited row {:?} / {:?}",
+                    a.cascaded_props.get_slice(index),
+                    b.cascaded_props.get_slice(index)
+                ));
+            }
+            if a.computed_values.values_for(index) != b.computed_values.values_for(index) {
+                out.push(format!("node {index}: computed inherited values"));
+            }
+            if (
+                ca.tier1_enums[index],
+                ca.tier2_dims[index],
+                ca.tier2_cold[index],
+                ca.tier2b_text[index],
+            ) != (
+                cb.tier1_enums[index],
+                cb.tier2_dims[index],
+                cb.tier2_cold[index],
+                cb.tier2b_text[index],
+            ) {
+                out.push(format!("node {index}: compact entries"));
+            }
+            let own = kept.styled_nodes.as_ref()[index].styled_node_state;
+            for state in [own, StyledNodeState::default(), hovered] {
+                for ty in CssPropertyType::ALL {
+                    let (x, y) = (
+                        a.get_property(node, &id, &state, ty),
+                        b.get_property(node, &id, &state, ty),
+                    );
+                    if x != y {
+                        out.push(format!("node {index}: {ty:?} is {x:?}, a new cascade says {y:?}"));
+                    }
+                }
+            }
+        }
+        if ca.px_overflow != cb.px_overflow {
+            out.push("the lengths beside the px slots".to_string());
+        }
+        if a.css_wide_values != b.css_wide_values {
+            out.push("the css-wide values".to_string());
+        }
+        if a.inline_overruled != b.inline_overruled {
+            out.push("the overruled inline declarations".to_string());
+        }
+        if a.global_css_props != b.global_css_props {
+            out.push("the `*` bucket".to_string());
+        }
+        if kept.tag_ids_to_node_ids != full.tag_ids_to_node_ids {
+            out.push("the hit-test tags".to_string());
+        }
+        if kept.styled_nodes != full.styled_nodes {
+            out.push("the node states".to_string());
+        }
+        out
+    }
+
+    /// Writes the nodes `fresh` changed onto `kept` and styles them again as the window does:
+    /// the cascade over the nodes the changes reach, and the whole cascade (with the prune a
+    /// created DOM has) where that says no. Answers how many nodes the changes reach and
+    /// whether the cascade over them ran; `None` when the two builds are alike.
+    fn rebuild_onto(kept: &mut StyledDom, old: &Dom, fresh: &Dom) -> Option<(usize, bool)> {
+        let changed = same_tree_changes(&fingerprint_dom(old).0, &fingerprint_dom(fresh).0)?;
+        let _ = adopt_changed_nodes(kept.node_data.as_mut(), fresh, &changed);
+        let reached = kept.nodes_reached_by_changes(&changed);
+        let over_the_nodes = kept.restyle_changed_nodes(&reached);
+        if !over_the_nodes {
+            let css = kept.get_css_property_cache().retained_author_css.clone();
+            kept.restyle(css);
+            kept.get_css_property_cache_mut().prune_compact_normal_props();
+        }
+        Some((reached.iter().filter(|r| **r).count(), over_the_nodes))
+    }
+
+    /// A random walk of changes to one page: after each, the kept DOM with the changed nodes
+    /// styled again answers what a DOM styled from scratch answers, row by row and property
+    /// by property. With `hover`, section 1's box is hovered in both (its hover rule hands
+    /// its children a colour); with `siblings` the sheet has sibling rules, so a changed box
+    /// reaches every section and most steps take the whole cascade. Answers how many steps
+    /// the cascade over the changed nodes ran for.
+    fn walk(hover: bool, siblings: bool) -> usize {
+        let mut over_the_nodes = 0;
+        for seed in [1u64, 7, 20261121] {
+            let mut spec = sections(9);
+            let mut dense = false;
+            let mut old = page(&spec, dense, siblings);
+            let mut kept = StyledDom::create_from_dom(page(&spec, dense, siblings));
+            // Pre-order: body 0, the list 1, section 0 (a box, its heading and text, its
+            // paragraph and text, its link and text) 2..=8, section 1's box 9.
+            let hover_node = NodeId::new(9);
+            let raise = |dom: &mut StyledDom| {
+                if hover {
+                    dom.styled_nodes.as_container_mut()[hover_node]
+                        .styled_node_state
+                        .hover = true;
+                    let css = dom.get_css_property_cache().retained_author_css.clone();
+                    dom.restyle(css);
+                    dom.get_css_property_cache_mut().prune_compact_normal_props();
+                }
+            };
+            raise(&mut kept);
+            let mut random = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+            let mut next = |below: u64| {
+                random = random
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                ((random >> 33) % below) as usize
+            };
+            for step in 0..40 {
+                let kind = next(7);
+                let picks = [next(64), next(64), next(64), next(64), next(64), next(64)];
+                mutate(&mut spec, &mut dense, kind, picks);
+                let fresh = page(&spec, dense, siblings);
+                if rebuild_onto(&mut kept, &old, &fresh).is_some_and(|(_, ran)| ran) {
+                    over_the_nodes += 1;
+                }
+                let mut full = StyledDom::create_from_dom(page(&spec, dense, siblings));
+                raise(&mut full);
+                let found = differences(&kept, &full);
+                assert!(
+                    found.is_empty(),
+                    "seed {seed}, step {step} (kind {kind}, picks {picks:?}, hover {hover}, \
+                     siblings {siblings}): {} differences, the first: {:?}",
+                    found.len(),
+                    found.first()
+                );
+                old = fresh;
+            }
+        }
+        over_the_nodes
+    }
+
+    /// How to read a failure: the message names the seed, the step and its kind ([`mutate`])
+    /// and the first difference - which row or which property of which node.
+    #[test]
+    fn the_cascade_over_changed_nodes_answers_what_a_new_cascade_answers() {
+        let ran = walk(false, false);
+        assert!(ran >= 40, "premise: many of the 120 steps style their own nodes ({ran} did)");
+    }
+
+    #[test]
+    fn the_cascade_over_changed_nodes_answers_what_a_new_cascade_answers_under_a_hover() {
+        let ran = walk(true, false);
+        assert!(ran >= 40, "premise: many of the 120 steps style their own nodes ({ran} did)");
+    }
+
+    /// Under a sheet with sibling rules: a changed box reaches the sections beside it, a
+    /// changed text only its paragraph.
+    #[test]
+    fn the_cascade_over_changed_nodes_answers_what_a_new_cascade_answers_beside_sibling_rules() {
+        let ran = walk(false, true);
+        assert!(ran >= 1, "premise: a changed text styles its own nodes");
+    }
+
+    /// The cascade runs for the nodes a change reaches and for no other: one section's class
+    /// is its box and what is below it - a heading and a paragraph with their texts, 5 nodes
+    /// - in a page of 8 sections and in one of 32.
+    #[test]
+    fn one_changed_class_styles_the_subtree_of_its_node() {
+        let cost = |count: usize, siblings: bool| {
+            let mut spec = sections(count);
+            for section in &mut spec {
+                section.kind = 0;
+                section.link = false;
+            }
+            let old = page(&spec, false, siblings);
+            let mut kept = StyledDom::create_from_dom(page(&spec, false, siblings));
+            spec[count / 2].kind = 3;
+            let fresh = page(&spec, false, siblings);
+            let before = nodes_cascaded_on_this_thread();
+            let (reached, ran) = rebuild_onto(&mut kept, &old, &fresh).expect("a class changed");
+            (reached, ran, nodes_cascaded_on_this_thread() - before)
+        };
+        assert_eq!(cost(8, false), (5, true, 5), "8 sections: the section's five nodes");
+        assert_eq!(cost(32, false), (5, true, 5), "32 sections: the same five nodes");
+        // With a sibling rule in the sheet the sections after the changed one can match
+        // another rule: the change names the subtree of the list, which is more than half of
+        // the page, and the whole cascade runs (every node of the page: 2 + 5 per section).
+        assert_eq!(cost(8, true), (1 + 8 * 5, false, 2 + 8 * 5));
+    }
+
+    /// Without a sibling rule in the sheet a changed node reaches itself and its descendants.
+    #[test]
+    fn a_change_reaches_the_node_and_what_is_below_it() {
+        let dom = |class: &'static str| {
+            Dom::create_body()
+                .with_component_css(azul_css::css::Css::from_string(
+                    ".a { color: red; } .b { color: blue; }".into(),
+                ))
+                .with_child(Dom::create_div().with_child(Dom::create_div()))
+                .with_child(
+                    Dom::create_div()
+                        .with_class(class.into())
+                        .with_child(Dom::create_div().with_child(Dom::create_div())),
+                )
+                .with_child(Dom::create_div())
+        };
+        // Pre-order: body 0, div 1, div 2, div.{class} 3, div 4, div 5, div 6.
+        let mut kept = StyledDom::create_from_dom(dom("a"));
+        let before = nodes_cascaded_on_this_thread();
+        let reached = rebuild_onto(&mut kept, &dom("a"), &dom("b"));
+        assert_eq!(reached, Some((3, true)), "the node and the two below it");
+        assert_eq!(nodes_cascaded_on_this_thread() - before, 3);
+        assert_eq!(
+            kept.nodes_reached_by_changes(&[3]),
+            vec![false, false, false, true, true, true, false]
+        );
+        let found = differences(&kept, &StyledDom::create_from_dom(dom("b")));
+        assert!(found.is_empty(), "{found:?}");
+    }
+
+    /// A custom property anywhere is the whole cascade's: the cascade over changed nodes
+    /// says no and changes nothing.
+    #[test]
+    fn a_dom_with_a_custom_property_is_left_to_the_whole_cascade() {
+        let dom = |class: &'static str| {
+            Dom::create_body()
+                .with_component_css(azul_css::css::Css::from_string(
+                    "body { --ink: red; } .a { color: var(--ink); } .b { color: blue; }".into(),
+                ))
+                .with_child(Dom::create_div().with_class(class.into()))
+        };
+        let mut kept = StyledDom::create_from_dom(dom("a"));
+        let changed =
+            same_tree_changes(&fingerprint_dom(&dom("a")).0, &fingerprint_dom(&dom("b")).0)
+                .expect("the class changed");
+        let _ = adopt_changed_nodes(kept.node_data.as_mut(), &dom("b"), &changed);
+        let reached = kept.nodes_reached_by_changes(&changed);
+        let epoch = kept.get_css_property_cache().cascade_epoch;
+        assert!(!kept.restyle_changed_nodes(&reached));
+        assert_eq!(kept.get_css_property_cache().cascade_epoch, epoch, "nothing was cascaded");
+    }
+}

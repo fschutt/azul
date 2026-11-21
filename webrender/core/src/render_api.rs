@@ -221,6 +221,43 @@ impl Transaction {
         self.use_scene_builder_thread = true;
     }
 
+    /// (azul, audit A4-31) The pipeline and epoch of the first display list
+    /// this transaction carries; `None` when it carries none. A transaction
+    /// with a display list has the scene built again
+    /// (`SceneBuilderThread::process_transaction`), and the frame that shows
+    /// it is the first one whose `Renderer::current_epoch` of that pipeline
+    /// is this epoch.
+    pub fn first_display_list(&self) -> Option<(PipelineId, Epoch)> {
+        self.scene_ops.iter().find_map(|op| match op {
+            SceneMsg::SetDisplayList {
+                pipeline_id, epoch, ..
+            } => Some((*pipeline_id, *epoch)),
+            _ => None,
+        })
+    }
+
+    /// (azul, audit A4-31) Whether `RenderApi::send_transaction` hands this
+    /// transaction to the scene builder's queue (`true`) or straight to the
+    /// render backend (`false`): the rule of `ApiResources::update` for a
+    /// transaction without blob images - one that was not marked
+    /// [`Self::skip_scene_builder`], or that has a scene operation, or that
+    /// deletes a font or an image, takes the queue. Two transactions that take
+    /// the same queue arrive in the order they were sent; one that goes
+    /// straight can overtake one in the queue.
+    pub fn takes_scene_builder_queue(&self) -> bool {
+        self.use_scene_builder_thread
+            || !self.scene_ops.is_empty()
+            || self.resource_updates.iter().any(|update| {
+                matches!(
+                    update,
+                    ResourceUpdate::DeleteImage(..)
+                        | ResourceUpdate::DeleteBlobImage(..)
+                        | ResourceUpdate::DeleteFont(..)
+                        | ResourceUpdate::DeleteFontInstance(..)
+                )
+            })
+    }
+
     /// Returns true if the transaction has no effect.
     pub fn is_empty(&self) -> bool {
         !self.generate_frame.as_bool()
@@ -1465,4 +1502,53 @@ pub struct MemoryReport {
     pub swap_chain: usize,
     pub render_texture_hosts: usize,
     pub upload_staging_textures: usize,
+}
+
+#[cfg(test)]
+mod audit_a4_tests {
+    //! A4-31: what a host reads off a transaction to decide whether it may be
+    //! sent without waiting for it.
+    use api::{BuiltDisplayList, Epoch, IdNamespace, ImageKey, PipelineId};
+
+    use super::Transaction;
+
+    /// The first display list is the one named, whatever else the transaction
+    /// carries. Mutation: `find_map` over `frame_ops` (or returning `None`)
+    /// fails the second assertion.
+    #[test]
+    fn a_transaction_names_the_first_display_list_it_carries() {
+        let mut txn = Transaction::new();
+        txn.set_root_pipeline(PipelineId(0, 7));
+        txn.generate_frame(0, api::RenderReasons::empty());
+        assert_eq!(txn.first_display_list(), None, "a root pipeline is no display list");
+
+        txn.set_display_list(Epoch(41), (PipelineId(1, 7), BuiltDisplayList::default()));
+        txn.set_display_list(Epoch(41), (PipelineId(0, 7), BuiltDisplayList::default()));
+        assert_eq!(txn.first_display_list(), Some((PipelineId(1, 7), Epoch(41))));
+    }
+
+    /// The queue a transaction takes, by the rule `send_transaction` applies.
+    /// Mutation: answering `self.use_scene_builder_thread` alone says "straight
+    /// to the render backend" for the skipped transaction with a scene
+    /// operation and for the one that deletes an image.
+    #[test]
+    fn only_a_skipped_transaction_without_scene_operations_or_deletes_goes_straight() {
+        let mut values = Transaction::new();
+        values.reset_dynamic_properties();
+        assert!(values.takes_scene_builder_queue(), "the default is the queue");
+        values.skip_scene_builder();
+        assert!(!values.takes_scene_builder_queue());
+        values.use_scene_builder_thread();
+        assert!(values.takes_scene_builder_queue(), "the host can put it back");
+
+        let mut scene = Transaction::new();
+        scene.skip_scene_builder();
+        scene.set_root_pipeline(PipelineId(0, 7));
+        assert!(scene.takes_scene_builder_queue(), "a scene operation takes the queue");
+
+        let mut delete = Transaction::new();
+        delete.skip_scene_builder();
+        delete.delete_image(ImageKey(IdNamespace(1), 3));
+        assert!(delete.takes_scene_builder_queue(), "so does a delete");
+    }
 }

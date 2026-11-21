@@ -956,17 +956,48 @@ fn the_layout_takes_over_the_styles_the_reconcile_resolved() {
 /// `body(0) > div(1) > k x [span(2 + 2 i) > text]`: a map's label layer with every label
 /// absolutely positioned at `(10 * (i % 50) + dx, 9 * (i / 50) + dy)` and turned by
 /// `turn + i % 7` degrees - the same labels, moved and turned, for every `(dx, dy, turn)`.
+///
+/// The insets and the turn are each label's OWN style (`with_css_props`, the node's typed
+/// declarations: how the editor places its labels, `mapedit3/src/ui/main/map.rs`), which is
+/// what the fingerprint's inset / value hashes read. `Dom::with_css("left: ..")` - what this
+/// helper used first - is a scoped SHEET on the label's subtree: no field of the node's own
+/// data shows it, the CSS diff names the node, and its box is built fresh (by design:
+/// `restyle_is_left_to_the_fingerprint`).
 fn labels_moved(k: usize, dx: usize, dy: usize, turn: usize) -> Dom {
-    let mut layer = Dom::create_div().with_css("position: relative; width: 600px; height: 400px;");
+    use azul_css::{
+        dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+        props::{
+            basic::{angle::AngleValue, PixelValue},
+            layout::position::{LayoutLeft, LayoutTop},
+            property::CssProperty,
+            style::transform::StyleTransform,
+        },
+    };
+    let mut layer = Dom::create_div().with_css(
+        "position: relative; width: 600px; height: 400px; .l { position: absolute; }",
+    );
     for i in 0..k {
-        layer = layer.with_child(Dom::create_span_with_text(format!("label {i}")).with_css(
-            &format!(
-                "position: absolute; left: {}px; top: {}px; transform: rotate({}deg);",
-                (i % 50) * 10 + dx,
-                (i / 50) * 9 + dy,
-                turn + i % 7
-            ),
-        ));
+        #[allow(clippy::cast_precision_loss)] // small pixel counts and angles
+        let (left, top, degrees) = (
+            ((i % 50) * 10 + dx) as f32,
+            ((i / 50) * 9 + dy) as f32,
+            (turn + i % 7) as f32,
+        );
+        layer = layer.with_child(
+            Dom::create_span_with_text(format!("label {i}"))
+                .with_class("l".into())
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+                    CssPropertyWithConditions::simple(CssProperty::left(LayoutLeft {
+                        inner: PixelValue::px(left),
+                    })),
+                    CssPropertyWithConditions::simple(CssProperty::top(LayoutTop {
+                        inner: PixelValue::px(top),
+                    })),
+                    CssPropertyWithConditions::simple(CssProperty::transform(
+                        vec![StyleTransform::Rotate(AngleValue::deg(degrees))].into(),
+                    )),
+                ])),
+        );
     }
     Dom::create_body().with_css("margin: 0px;").with_child(layer)
 }

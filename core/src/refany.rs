@@ -1744,6 +1744,18 @@ impl RefAnyHolder for OptionRefAny {
 #[derive(Debug, Default, Clone)]
 pub struct Repointing {
     replaced: Vec<(RefAny, RefAny)>,
+    /// Where in `replaced` the allocation at an address is (A3-window-42): `dropped_at` was
+    /// a search of `replaced` per ask - once per `RefAny` of the arena and of every outside
+    /// holder (`kept_for`), and once per merge to see whether it was known (`replace`): m
+    /// merging nodes x every `RefAny` looked at, and m x m to collect the merges.
+    by_address: alloc::collections::BTreeMap<usize, usize>,
+}
+
+/// How many entries of a [`Repointing`] its lookups looked at on this thread: what a test
+/// reads to say that a lookup does not search the merges.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static REPOINT_PROBES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
 impl Repointing {
@@ -1754,6 +1766,7 @@ impl Repointing {
         if at == kept.sharing_info.ptr || self.dropped_at(at).is_some() {
             return;
         }
+        self.by_address.insert(at as usize, self.replaced.len());
         self.replaced.push((dropped.clone(), kept.clone()));
     }
 
@@ -1785,10 +1798,10 @@ impl Repointing {
 
     /// What replaced the dropped allocation at `at`, if one was.
     fn dropped_at(&self, at: *const RefCountInner) -> Option<&RefAny> {
-        self.replaced
-            .iter()
-            .find(|(dropped, _)| dropped.sharing_info.ptr == at)
-            .map(|(_, kept)| kept)
+        #[cfg(test)]
+        REPOINT_PROBES.with(|probes| probes.set(probes.get() + 1));
+        let index = *self.by_address.get(&(at as usize))?;
+        self.replaced.get(index).map(|(_, kept)| kept)
     }
 
     /// What finally replaced the allocation at `at`: a dataset a later merge

@@ -5615,6 +5615,9 @@ impl PicturePrimitive {
                                     .insert(tile.tile_offset, TileDebugInfo::Valid);
                             }
                         } else {
+                            // azul (audit A4-29): a visible tile of a picture
+                            // cache whose content is drawn again by this frame.
+                            crate::azul_counters::tile_drawn();
                             // Add this dirty rect to the dirty region tracker. This must be done
                             // outside the if statement below,
                             // so that we include in the dirty region tiles that are handled by a
@@ -7987,7 +7990,7 @@ impl CompositeState {
     }
 }
 
-fn get_relative_scale_offset(
+pub(crate) fn get_relative_scale_offset(
     child_spatial_node_index: SpatialNodeIndex,
     parent_spatial_node_index: SpatialNodeIndex,
     spatial_tree: &SpatialTree,
@@ -7997,8 +8000,22 @@ fn get_relative_scale_offset(
     let mut scale_offset = match transform {
         CoordinateSpaceMapping::Local => ScaleOffset::identity(),
         CoordinateSpaceMapping::ScaleOffset(scale_offset) => scale_offset,
-        CoordinateSpaceMapping::Transform(m) => ScaleOffset::from_transform(&m)
-            .expect("bug: pictures caches don't support complex transforms"),
+        // azul (audit A4-29): upstream panics here ("pictures caches don't
+        // support complex transforms"). A picture cache hangs below a frame
+        // its host DECLARED a 2D scale / translation
+        // (`SceneSpatialTree::find_scroll_root` trusts the declaration); a
+        // host that then gives the frame another value has broken its promise
+        // (azul sends the list again, undeclared, in the transaction that
+        // carries such a value), and what that costs is one frame with this
+        // cache drawn untransformed - not the render backend, with the host's
+        // UI thread waiting on it. Counted, so that it does not go unseen.
+        CoordinateSpaceMapping::Transform(m) => match ScaleOffset::from_transform(&m) {
+            Some(scale_offset) => scale_offset,
+            None => {
+                crate::azul_counters::tile_cache_transform_was_complex();
+                ScaleOffset::identity()
+            }
+        },
     };
 
     // Compositors expect things to be aligned on device pixels. Logic at a higher level ensures

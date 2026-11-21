@@ -532,10 +532,85 @@ impl CssPropertyCache {
         prev_font_hashes: &[u64],
         debug_messages: &mut Option<Vec<azul_css::LayoutDebugMessage>>,
     ) -> CompactLayoutCache {
-        crate::styled_dom::count_compact_cache_rebuild();
+        self.build_compact_rows(
+            node_data,
+            node_hierarchy,
+            node_states,
+            prev_font_hashes,
+            debug_messages,
+            None,
+        )
+    }
+
+    /// The compact cache of this DOM with the entries of the nodes `only` names
+    /// (`only[node]`) built again and every other node's entries as the cache holds them:
+    /// what a cascade over a few nodes of a DOM ends with
+    /// ([`CssPropertyCache::recascade_nodes`]). A node's entries are a function of its own
+    /// rows and of its parent's entries, so a node that is not named and has no named
+    /// ancestor keeps them; the caller names a changed node with its whole subtree.
+    ///
+    /// What the builder gathers DOM-wide while it walks the nodes (the declared-property
+    /// flags, the viewport thresholds of conditional declarations, the font-family table) is
+    /// kept and added to: it may still hold what a named node no longer contributes, which
+    /// every reader takes as "ask the cascade" or "check on a resize" - never as a value.
+    /// The whole cache is built when this DOM has none of this size.
+    #[must_use]
+    pub fn rebuild_compact_rows(
+        &self,
+        node_data: &[NodeData],
+        node_hierarchy: &[crate::styled_dom::NodeHierarchyItem],
+        node_states: &[StyledNodeState],
+        prev_font_hashes: &[u64],
+        only: &[bool],
+    ) -> CompactLayoutCache {
+        self.build_compact_rows(
+            node_data,
+            node_hierarchy,
+            node_states,
+            prev_font_hashes,
+            &mut None,
+            Some(only),
+        )
+    }
+
+    /// [`Self::build_compact_cache_with_inheritance_debug`], for every node (`only` is
+    /// `None`) or for the named ones over the cache this DOM holds
+    /// ([`Self::rebuild_compact_rows`]).
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive:
+                                                                   // single-purpose
+                                                                   // parser/builder/dispatch (one
+                                                                   // branch per input variant)
+    fn build_compact_rows(
+        &self,
+        node_data: &[NodeData],
+        node_hierarchy: &[crate::styled_dom::NodeHierarchyItem],
+        node_states: &[StyledNodeState],
+        prev_font_hashes: &[u64],
+        debug_messages: &mut Option<Vec<azul_css::LayoutDebugMessage>>,
+        only: Option<&[bool]>,
+    ) -> CompactLayoutCache {
         let node_count = self.node_count;
         let default_state = StyledNodeState::default();
-        let mut result = CompactLayoutCache::with_capacity(node_count);
+        // The named nodes over the kept cache, when there is one for this arena.
+        let kept = only.and_then(|only| {
+            self.compact_cache
+                .as_ref()
+                .filter(|kept| kept.node_count() == node_count && only.len() == node_count)
+        });
+        let only = if kept.is_some() { only } else { None };
+        if only.is_none() {
+            crate::styled_dom::count_compact_cache_rebuild();
+        }
+        let mut result = match (kept, only) {
+            (Some(kept), Some(only)) => {
+                let mut kept = kept.clone();
+                // What a named node's slots could not hold is noted again below.
+                kept.px_overflow
+                    .retain(|(node, _), _| !only.get(*node as usize).copied().unwrap_or(true));
+                kept
+            }
+            _ => CompactLayoutCache::with_capacity(node_count),
+        };
 
         // A HOSTED DOM's root inherits from its host (`inherited_from_host`,
         // a VirtualView's host): its values, encoded once, are the slots the
@@ -784,6 +859,16 @@ impl CssPropertyCache {
         };
 
         for i in 0..node_count {
+            if let Some(only) = only {
+                if !only[i] {
+                    continue;
+                }
+                // A named node starts from the slots a new cache has.
+                result.tier1_enums[i] = 0;
+                result.tier2_dims[i] = CompactNodeProps::default();
+                result.tier2_cold[i] = CompactNodePropsCold::default();
+                result.tier2b_text[i] = CompactTextProps::default();
+            }
             let node_id = NodeId::new(i);
             let nd = &node_data[i];
             // This node's own winning `line-height`, re-encoded once its font
