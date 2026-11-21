@@ -2,3 +2,59 @@
 
 #[allow(unused_imports)]
 use super::*;
+
+/// [`layer_of_absolute_blocks`] set in the built-in mock font (`text3::mock_fonts`: registered
+/// in every font manager, reachable by its family name), the same tree: a positioned block of
+/// `k` absolutely positioned blocks with a text. Every label is a line of real glyphs, so its
+/// lines are stored (`fc::layout_ifc` stores no layout that placed nothing) and a later visit
+/// at the same width reuses them.
+fn layer_of_mock_font_labels(k: usize) -> Dom {
+    let mut layer = Dom::create_div().with_css("position: relative; width: 600px; height: 400px;");
+    for i in 0..k {
+        layer = layer.with_child(Dom::create_div_with_text(format!("label {i}")).with_css(
+            &format!(
+                "position: absolute; left: {}px; top: {}px;",
+                (i % 50) * 10,
+                (i / 50) * 9
+            ),
+        ));
+    }
+    Dom::create_body()
+        .with_css("margin: 0px; font-family: \"Azul Mock Mono\"; font-size: 20px;")
+        .with_child(layer)
+}
+
+/// A3-solver-21. An absolutely positioned block with a text is laid out with its parent's flow
+/// (`cache::process_out_of_flow_children`) and again by the positioning pass
+/// (`positioning::position_out_of_flow_elements`), at the same shrink-to-fit width: the second
+/// visit finds its lines stored and reuses them (`fc::layout_ifc`, Phase 2d). Stored lines of
+/// plain text are kept as their dense view alone, and the reuse exit expanded that view into
+/// one item per cluster (`CachedInlineLayout::materialized`) to read the lines' extent and
+/// last baseline off the items: once per label per pass. It reads them from the measures kept
+/// when the lines were stored.
+///
+/// Mutation: `let kept = None;` at the reuse exit (every reuse expands, as before) expands
+/// once per label.
+#[test]
+fn a_reused_label_reports_its_lines_without_expanding_them() {
+    use crate::solver3::fc::{IFC_REUSE_EXITS, IFC_REUSE_EXPANSIONS};
+    if crate::solver3::layout_tree::dense_text_mode() != 1 {
+        // `AZ_DENSE_TEXT=0` and `verify` keep the items: there is nothing to expand.
+        return;
+    }
+    let k = 200;
+    let mut lw = window();
+    IFC_REUSE_EXITS.with(|n| n.set(0));
+    IFC_REUSE_EXPANSIONS.with(|n| n.set(0));
+    lay_out(&mut lw, layer_of_mock_font_labels(k));
+    let reuses = IFC_REUSE_EXITS.with(std::cell::Cell::get);
+    let expansions = IFC_REUSE_EXPANSIONS.with(std::cell::Cell::get);
+    assert!(
+        reuses >= k,
+        "harness: each of the {k} labels was laid out twice and reused its lines ({reuses} reuses)"
+    );
+    assert!(
+        expansions <= 4,
+        "{reuses} reuses of stored lines expanded their dense view {expansions} times"
+    );
+}

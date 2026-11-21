@@ -285,12 +285,25 @@ pub(super) fn editing_host_strut_height<T: ParsedFontTrait>(
 /// of the two, so a path that leaves `unclipped_bounds` at its default still
 /// gets the fragment's own bounds.
 pub(super) fn ifc_extent(main_frag: &text3::cache::UnifiedLayout) -> LogicalSize {
-    let frag_bounds = main_frag.bounds();
-    let unclipped = main_frag.overflow.unclipped_bounds;
+    extent_of(main_frag.bounds(), main_frag.overflow.unclipped_bounds)
+}
+
+/// [`ifc_extent`] from a layout's `bounds()` and the unclipped bounds of its
+/// overflow info: the one place the two are combined.
+fn extent_of(frag_bounds: text3::cache::Rect, unclipped: text3::cache::Rect) -> LogicalSize {
     LogicalSize::new(
         frag_bounds.width.max(unclipped.width),
         frag_bounds.height.max(unclipped.height),
     )
+}
+
+/// How often `layout_ifc` left through its reuse exit on this thread, and how
+/// often that exit expanded a retired layout's dense view into items again
+/// (`audit_tests::a3_solver::ifc`: a reused label is not expanded).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static IFC_REUSE_EXITS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    pub(crate) static IFC_REUSE_EXPANSIONS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
 /// Lays an inline formatting context out from the paragraph its shaped
@@ -373,6 +386,31 @@ pub(crate) fn finish_inline_layout(
             }
         }
     }
+    output
+}
+
+/// [`finish_inline_layout`] for a RETIRED layout - one stored as its dense
+/// view alone - from the measures kept when it was stored
+/// (`CachedInlineLayout::retired_metrics`: the `bounds()` and the
+/// `last_baseline()` of the layout the dense view expands to) and its
+/// overflow info, without expanding it.
+///
+/// A retired layout holds clusters and nothing else, and at least one
+/// (`CachedInlineLayout::retire_sparse`): it has items for `text-box-trim`,
+/// and no atomic inline whose position it would report.
+fn finish_retired_inline_layout(
+    kept: &crate::solver3::layout_tree::RetiredLayoutMetrics,
+    overflow: &text3::cache::OverflowInfo,
+    constraints: &UnifiedConstraints,
+    styled_dom: &StyledDom,
+    ifc_root_dom_id: NodeId,
+) -> LayoutOutput {
+    let mut output = LayoutOutput {
+        overflow_size: extent_of(kept.bounds, overflow.unclipped_bounds),
+        baseline: kept.last_baseline,
+        ..LayoutOutput::default()
+    };
+    apply_text_box_trim(styled_dom, ifc_root_dom_id, constraints, true, &mut output);
     output
 }
 
@@ -532,8 +570,27 @@ pub(super) fn out_of_flow_static_positions(
     items: &[text3::cache::PositionedItem],
     child_map: &HashMap<ContentIndex, usize>,
 ) -> BTreeMap<usize, LogicalPosition> {
+    static_positions_of(
+        styled_dom,
+        tree,
+        &out_of_flow_inline_descendants(styled_dom, tree, node_index),
+        items,
+        child_map,
+    )
+}
+
+/// [`out_of_flow_static_positions`] for the boxes `out_of_flow`, the
+/// [`out_of_flow_inline_descendants`] of the context: none for none of them,
+/// whatever `items` holds.
+fn static_positions_of(
+    styled_dom: &StyledDom,
+    tree: &LayoutTree,
+    out_of_flow: &[usize],
+    items: &[text3::cache::PositionedItem],
+    child_map: &HashMap<ContentIndex, usize>,
+) -> BTreeMap<usize, LogicalPosition> {
     let mut out = BTreeMap::new();
-    for child_index in out_of_flow_inline_descendants(styled_dom, tree, node_index) {
+    for &child_index in out_of_flow {
         let Some(child) = tree
             .get(LayoutNodeId::new(child_index))
             .and_then(|n| n.dom_node_id)
@@ -1136,11 +1193,21 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
                 // The content and the width are unchanged: the cached layout
                 // is this pass's.
                 debug_info!(ctx, "[layout_ifc] Phase 2d: reusing the cached layout");
-                // (d6h) Materialized: the stored layout may be the
-                // retirement sentinel; measuring it raw zeroed the
-                // reuse path's overflow_size (scrollbars vanished on
-                // every reuse).
-                let main_frag = cached.materialized();
+                #[cfg(test)]
+                IFC_REUSE_EXITS.with(|n| n.set(n.get() + 1));
+                // The boxes taken out of this context: their static
+                // positions are read off the laid-out items.
+                let out_of_flow =
+                    out_of_flow_inline_descendants(ctx.styled_dom, tree, node_index);
+                // A retired layout (its items live in the dense view alone)
+                // kept what this exit reads off its lines when it was
+                // stored: with no box taken out of the context, nothing
+                // else needs its items, and they are not expanded again.
+                let kept = if out_of_flow.is_empty() {
+                    cached.retired_metrics
+                } else {
+                    None
+                };
                 // This exit REPLAYS what the full path writes, from the
                 // one `finish_inline_layout`: the extent with
                 // its text-box-trim, the baseline the box's sizing and
@@ -1154,20 +1221,44 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
                 // `atomic_inline_children_are_laid_out` says the atomic
                 // children it places have sizes (carried by their own
                 // clones), and a re-collection lays them out.
-                let mut output = finish_inline_layout(
-                    &main_frag,
-                    &text3_constraints,
-                    ctx.styled_dom,
-                    ifc_root_dom_id,
-                    &child_map,
-                );
-                output.static_positions = out_of_flow_static_positions(
-                    ctx.styled_dom,
-                    tree,
-                    node_index,
-                    &main_frag.items,
-                    &child_map,
-                );
+                let output = if let Some(kept) = kept {
+                    finish_retired_inline_layout(
+                        &kept,
+                        &cached.overflow,
+                        &text3_constraints,
+                        ctx.styled_dom,
+                        ifc_root_dom_id,
+                    )
+                } else {
+                    // (d6h) Materialized: the stored layout may be the
+                    // retirement sentinel; measuring it raw zeroed the
+                    // reuse path's overflow_size (scrollbars vanished on
+                    // every reuse).
+                    let main_frag = cached.materialized();
+                    #[cfg(test)]
+                    {
+                        // `materialized` hands back the stored `Arc` unless
+                        // it expanded the dense view.
+                        if !Arc::ptr_eq(&main_frag, &cached.layout) {
+                            IFC_REUSE_EXPANSIONS.with(|n| n.set(n.get() + 1));
+                        }
+                    }
+                    let mut output = finish_inline_layout(
+                        &main_frag,
+                        &text3_constraints,
+                        ctx.styled_dom,
+                        ifc_root_dom_id,
+                        &child_map,
+                    );
+                    output.static_positions = static_positions_of(
+                        ctx.styled_dom,
+                        tree,
+                        &out_of_flow,
+                        &main_frag.items,
+                        &child_map,
+                    );
+                    output
+                };
                 if let Some(warm_node) = tree.warm_mut(LayoutNodeId::new(node_index)) {
                     warm_node.baseline = output.baseline;
                 }

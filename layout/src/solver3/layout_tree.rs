@@ -295,6 +295,54 @@ pub struct CachedInlineLayout {
     /// `RefreshDom` whose text CHANGED would reuse the stale shaped layout
     /// (#11 stale display list). 0 = unknown ⇒ never fast-path-reuse.
     pub inline_content_hash: u64,
+    /// What the lines measure, kept for a RETIRED layout (`layout` is the
+    /// empty sentinel) from the layout it was stored from: what the reuse
+    /// exit of `layout_ifc` reads off the lines, so that it need not expand
+    /// the dense view again on every reuse ([`Self::materialized`]). `None`
+    /// for a layout that is not retired, and for a retired one whose
+    /// expansion could measure differently (`Self::retired_metrics_of`).
+    pub retired_metrics: Option<RetiredLayoutMetrics>,
+}
+
+/// The measures of a retired inline layout's lines
+/// ([`CachedInlineLayout::retired_metrics`]): what `UnifiedLayout::bounds`
+/// and `UnifiedLayout::last_baseline` say of the layout its dense view
+/// expands to.
+#[derive(Debug, Clone, Copy)]
+pub struct RetiredLayoutMetrics {
+    /// `UnifiedLayout::bounds()`.
+    pub bounds: crate::text3::cache::Rect,
+    /// `UnifiedLayout::last_baseline()`.
+    pub last_baseline: Option<f32>,
+}
+
+/// Whether two faces' metrics are the same to the bit. Not `==`: `0.0` and
+/// `-0.0` are equal and compute different line metrics.
+fn same_font_metrics_bits(
+    a: &crate::text3::cache::LayoutFontMetrics,
+    b: &crate::text3::cache::LayoutFontMetrics,
+) -> bool {
+    let bits = |m: &crate::text3::cache::LayoutFontMetrics| {
+        let crate::text3::cache::LayoutFontMetrics {
+            ascent,
+            descent,
+            line_gap,
+            units_per_em,
+            x_height,
+            cap_height,
+            browser_ascent_boost,
+        } = *m;
+        (
+            ascent.to_bits(),
+            descent.to_bits(),
+            line_gap.to_bits(),
+            units_per_em,
+            x_height.map(f32::to_bits),
+            cap_height.map(f32::to_bits),
+            browser_ascent_boost,
+        )
+    };
+    bits(a) == bits(b)
 }
 
 /// §3.2 step (d5): the display list's `TextLayout` payload when the dense
@@ -457,6 +505,7 @@ impl CachedInlineLayout {
     ) -> Self {
         let (runs, dense) = compute_glyph_runs(&layout);
         let glyph_runs = Arc::new(compact_glyph_runs(runs));
+        let retired_metrics = Self::retired_metrics_of(&layout, dense.as_deref());
         let (layout, overflow) = Self::retire_sparse(layout, dense.as_deref());
         // Payload built from the STORED form — under the retirement the
         // sparse half is the sentinel and consumers expand from dense.
@@ -471,6 +520,7 @@ impl CachedInlineLayout {
             glyph_runs,
             dense,
             inline_content_hash: 0,
+            retired_metrics,
         }
     }
 
@@ -484,6 +534,7 @@ impl CachedInlineLayout {
     ) -> Self {
         let (runs, dense) = compute_glyph_runs(&layout);
         let glyph_runs = Arc::new(compact_glyph_runs(runs));
+        let retired_metrics = Self::retired_metrics_of(&layout, dense.as_deref());
         let (layout, overflow) = Self::retire_sparse(layout, dense.as_deref());
         // Payload built from the STORED form — under the retirement the
         // sparse half is the sentinel and consumers expand from dense.
@@ -498,7 +549,68 @@ impl CachedInlineLayout {
             glyph_runs,
             dense,
             inline_content_hash: 0,
+            retired_metrics,
         }
+    }
+
+    /// The measures of `layout`'s lines ([`RetiredLayoutMetrics`]) when
+    /// `layout` is about to be retired into `dense` ([`Self::retire_sparse`],
+    /// under the same condition) AND the layout `dense` expands to
+    /// (`DenseText::to_unified_items`, what [`Self::materialized`] returns
+    /// for a retired layout) measures as `layout` does, to the bit.
+    ///
+    /// `UnifiedLayout::bounds` and `last_baseline` read, of every item: its
+    /// position, and for a cluster its advance, whether it has glyphs, its
+    /// glyphs' font metrics and its style's font size and line height. The
+    /// expansion gives item `i` the `i`-th cluster's `x` and advance (copies
+    /// of the item's), the style of its run (the item's own `Arc`: a run is
+    /// split where the `Arc` changes), as many glyphs as the item has, and
+    /// two things of its RUN: its `y` (the run is split only where it moves
+    /// by more than 0.001) and, for every glyph, the font metrics of the
+    /// run's first glyph. Those two are compared here; where they differ the
+    /// measures are not kept and a reuse expands as before.
+    fn retired_metrics_of(
+        layout: &UnifiedLayout,
+        dense: Option<&crate::text3::dense::DenseText>,
+    ) -> Option<RetiredLayoutMetrics> {
+        use crate::text3::cache::ShapedItem;
+        let dense = dense?;
+        if dense_text_mode() != 1
+            || layout.items.is_empty()
+            || dense.clusters.len() != layout.items.len()
+        {
+            return None;
+        }
+        // The runs list the clusters in order, and with as many clusters as
+        // items every item is a cluster: the `i`-th cluster is item `i`'s.
+        let mut next = 0usize;
+        for run in &dense.runs {
+            for ci in run.clusters.clone() {
+                if ci as usize != next {
+                    return None;
+                }
+                let item = layout.items.get(next)?;
+                let ShapedItem::Cluster(cluster) = &item.item else {
+                    return None;
+                };
+                if item.position.y.to_bits() != run.y.to_bits()
+                    || cluster
+                        .glyphs
+                        .iter()
+                        .any(|g| !same_font_metrics_bits(&g.font_metrics, &run.font_metrics))
+                {
+                    return None;
+                }
+                next += 1;
+            }
+        }
+        if next != layout.items.len() {
+            return None;
+        }
+        Some(RetiredLayoutMetrics {
+            bounds: layout.bounds(),
+            last_baseline: layout.last_baseline(),
+        })
     }
 
     /// (d6h) The stored layout, MATERIALIZED if it is the retirement
@@ -8933,5 +9045,183 @@ mod audit_a3_solver_tests {
         assert!(builder.nodes.capacity() >= 1_000);
         assert!(builder.nodes.is_empty());
         assert!(builder.dom_to_layout.is_empty());
+    }
+
+    /// One positioned cluster: the ASCII letter at byte `start_byte` of `text`, one glyph 10px
+    /// wide of a face 800 up and 200 down in 1000 units, at `(x, y)` on line `line`. Clusters
+    /// that share `style` and `text` and stand at one `y` make ONE run of the dense view
+    /// (`DenseText::from_unified`).
+    fn letter_at(
+        style: &Arc<crate::text3::cache::StyleProperties>,
+        text: &Arc<str>,
+        start_byte: u32,
+        x: f32,
+        y: f32,
+        line: usize,
+    ) -> crate::text3::cache::PositionedItem {
+        use crate::text3::{
+            cache::{
+                BidiDirection, BidiLevel, ClusterFlags, ContentIndex, GlyphKind,
+                GraphemeClusterId, LayoutFontMetrics, Point, PositionedItem, ShapedCluster,
+                ShapedGlyph, ShapedItem,
+            },
+            script::Script,
+        };
+        let glyph = ShapedGlyph {
+            kind: GlyphKind::Character,
+            glyph_id: 7,
+            cluster_offset: 0,
+            advance: 10.0,
+            kerning: 0.0,
+            offset: Point { x: 0.0, y: 0.0 },
+            vertical_advance: 0.0,
+            vertical_offset: Point { x: 0.0, y: 0.0 },
+            script: Script::Latin,
+            font_hash: 0xF0F0,
+            font_metrics: LayoutFontMetrics {
+                ascent: 800.0,
+                descent: -200.0,
+                line_gap: 0.0,
+                units_per_em: 1000,
+                x_height: None,
+                cap_height: None,
+                browser_ascent_boost: false,
+            },
+        };
+        PositionedItem {
+            item: ShapedItem::Cluster(ShapedCluster {
+                flags: ClusterFlags::classify("a"),
+                source_text: Arc::clone(text),
+                source_byte_len: 1,
+                source_cluster_id: GraphemeClusterId {
+                    source_run: 0,
+                    start_byte_in_run: start_byte,
+                },
+                source_content_index: ContentIndex {
+                    run_index: 0,
+                    item_index: start_byte,
+                },
+                source_node_id: None,
+                glyphs: core::iter::once(glyph).collect(),
+                advance: 10.0,
+                direction: BidiDirection::Ltr,
+                bidi_level: BidiLevel::paragraph(BidiDirection::Ltr),
+                style: Arc::clone(style),
+                marker_position_outside: None,
+                is_first_fragment: true,
+                is_last_fragment: true,
+            }),
+            position: Point { x, y },
+            line_index: line,
+        }
+    }
+
+    fn style_20px() -> Arc<crate::text3::cache::StyleProperties> {
+        Arc::new(crate::text3::cache::StyleProperties {
+            font_size_px: 20.0,
+            ..crate::text3::cache::StyleProperties::default()
+        })
+    }
+
+    fn stored(items: Vec<crate::text3::cache::PositionedItem>) -> CachedInlineLayout {
+        CachedInlineLayout::new(
+            Arc::new(UnifiedLayout {
+                items,
+                overflow: crate::text3::cache::OverflowInfo::default(),
+            }),
+            AvailableSpace::Definite(100.0),
+            false,
+        )
+    }
+
+    /// A3-solver-21: a layout stored as its dense view alone keeps the `bounds()` and the
+    /// `last_baseline()` of the layout it was stored from, and they are, to the bit, those of
+    /// the layout the dense view expands to - what the reuse exit of `layout_ifc` used to
+    /// expand it for on every reuse.
+    ///
+    /// Mutation: `last_baseline: layout.first_baseline()` in
+    /// `CachedInlineLayout::retired_metrics_of` keeps the first line's baseline, 24px above the
+    /// expansion's last.
+    #[test]
+    fn a_retired_layout_keeps_the_measures_its_expansion_has() {
+        if dense_text_mode() != 1 {
+            // `AZ_DENSE_TEXT=0` and `verify` keep the sparse layout: nothing is retired.
+            return;
+        }
+        let (style, text) = (style_20px(), Arc::<str>::from("abcd"));
+        // Two lines of two letters, the second line 24px below the first.
+        let cached = stored(vec![
+            letter_at(&style, &text, 0, 3.0, 4.0, 0),
+            letter_at(&style, &text, 1, 13.0, 4.0, 0),
+            letter_at(&style, &text, 2, 3.0, 28.0, 1),
+            letter_at(&style, &text, 3, 13.0, 28.0, 1),
+        ]);
+        assert!(
+            cached.layout.items.is_empty(),
+            "harness: four clusters retire into the dense view"
+        );
+        let expanded = cached.materialized();
+        assert_eq!(expanded.items.len(), 4, "harness: the dense view expands to four clusters");
+        let kept = cached
+            .retired_metrics
+            .expect("a retired layout whose runs stand at one y each keeps its measures");
+        let (b, e) = (kept.bounds, expanded.bounds());
+        assert_eq!(
+            [b.x.to_bits(), b.y.to_bits(), b.width.to_bits(), b.height.to_bits()],
+            [e.x.to_bits(), e.y.to_bits(), e.width.to_bits(), e.height.to_bits()],
+            "the kept bounds {b:?} are not the expansion's {e:?}"
+        );
+        assert_eq!(
+            kept.last_baseline.map(f32::to_bits),
+            expanded.last_baseline().map(f32::to_bits),
+            "the kept last baseline is not the expansion's"
+        );
+        assert!(
+            b.width > 0.0 && kept.last_baseline.is_some(),
+            "harness: the lines measure something ({b:?}, {:?})",
+            kept.last_baseline
+        );
+    }
+
+    /// A3-solver-21: the expansion gives every cluster of a run the run's `y` and every glyph
+    /// the font metrics of the run's first glyph. A layout in which either differs within a run
+    /// expands to one that measures differently, so it keeps no measures and a reuse expands
+    /// it as before.
+    ///
+    /// Mutation: dropping the `y` comparison (or the font metrics comparison) in
+    /// `CachedInlineLayout::retired_metrics_of` keeps measures for the first (the second) layout.
+    #[test]
+    fn a_retired_layout_whose_expansion_could_measure_differently_keeps_no_measures() {
+        if dense_text_mode() != 1 {
+            return;
+        }
+        let (style, text) = (style_20px(), Arc::<str>::from("ab"));
+        // The second letter half a thousandth of a pixel lower: the dense view splits a run
+        // only where `y` moves by more than a thousandth.
+        let drifting = stored(vec![
+            letter_at(&style, &text, 0, 0.0, 4.0, 0),
+            letter_at(&style, &text, 1, 10.0, 4.0005, 0),
+        ]);
+        // The second letter's glyph from a face of another ascent under the same font hash.
+        let mut taller = letter_at(&style, &text, 1, 10.0, 4.0, 0);
+        if let crate::text3::cache::ShapedItem::Cluster(c) = &mut taller.item {
+            c.glyphs[0].font_metrics.ascent = 900.0;
+        }
+        let mixed = stored(vec![letter_at(&style, &text, 0, 0.0, 4.0, 0), taller]);
+        for (what, cached) in [("y", &drifting), ("font metrics", &mixed)] {
+            assert!(
+                cached.layout.items.is_empty(),
+                "harness ({what}): two clusters retire into the dense view"
+            );
+            assert_eq!(
+                cached.dense.as_deref().map(|d| d.runs.len()),
+                Some(1),
+                "harness ({what}): the two letters share a run"
+            );
+            assert!(
+                cached.retired_metrics.is_none(),
+                "the {what} of a run's second letter is not the run's, and the measures were kept"
+            );
+        }
     }
 }
