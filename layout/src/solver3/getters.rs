@@ -7305,8 +7305,9 @@ fn resolve_collected_stacks_covering<T: ParsedFontTrait>(
 ) -> ResolvedFontChains {
     // The faces the app registered while it runs match by family like the
     // manager's own (`text3::fontreg`), put into this cache first.
-    let memory_families =
-        crate::text3::fontreg::with_runtime_faces(&font_manager.memory_families, fc_cache);
+    let memory_families = font_manager
+        .registered_fonts
+        .with_runtime_faces(&font_manager.memory_families, fc_cache);
 
     // Fast path (rust-fontconfig 4.2): when a registry is attached
     // we can resolve each stack by cmap-probing candidate files
@@ -7323,7 +7324,7 @@ fn resolve_collected_stacks_covering<T: ParsedFontTrait>(
         let used_chars = all_chars();
         if !used_chars.is_empty() {
             // The registry's cache loads what the probe resolves.
-            drop(crate::text3::fontreg::ensure_in(&registry.shared_cache()));
+            drop(font_manager.registered_fonts.ensure_in(&registry.shared_cache()));
             let mut fast =
                 resolve_font_chains_fast(collected, registry, &used_chars, &memory_families);
             extend_chains_to_cover(&mut fast, &used_chars, fc_cache, Some(registry));
@@ -7741,10 +7742,9 @@ where
         // Get font bytes from fc_cache as a shared mmap. Faces backed
         // by the same .ttc all observe the same `Arc<FontBytes>` via
         // rust_fontconfig's `shared_bytes` dedup. A face registered at
-        // runtime shares the registry's bytes (the cache's would be copied).
-        let runtime = crate::text3::fontreg::shared_bytes(font_id);
-        let is_runtime = runtime.is_some();
-        let Some(font_bytes) = runtime.or_else(|| fc_cache.get_font_bytes(font_id)) else {
+        // runtime is in the cache under its id (`RegisteredFonts::ensure_in`), which hands out
+        // the registry's own allocation of its bytes (rust-fontconfig 5.1).
+        let Some(font_bytes) = fc_cache.get_font_bytes(font_id) else {
             failed.push((
                 *font_id,
                 format!("Could not get font bytes for {font_id:?}"),
@@ -7753,17 +7753,13 @@ where
         };
 
         // Get font index (for font collections like .ttc files); a runtime
-        // face is index 0 (`fontreg::ensure_in`).
-        let font_index = if is_runtime {
-            0
-        } else {
-            fc_cache
-                .get_font_by_id(font_id)
-                .map_or(0, |source| match source {
-                    rust_fontconfig::OwnedFontSource::Disk(path) => path.font_index,
-                    rust_fontconfig::OwnedFontSource::Memory(font) => font.font_index,
-                })
-        };
+        // face is index 0 (`RegisteredFonts::ensure_in`).
+        let font_index = fc_cache
+            .get_font_by_id(font_id)
+            .map_or(0, |source| match source {
+                rust_fontconfig::OwnedFontSource::Disk(path) => path.font_index,
+                rust_fontconfig::OwnedFontSource::Memory(font) => font.font_index,
+            });
 
         // Load the font using the provided function
         match load_fn(font_bytes, font_index) {

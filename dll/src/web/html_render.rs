@@ -694,6 +694,8 @@ fn call_layout(
         image_cache: &image_cache,
         gl_context: &gl_context,
         system_fonts: fc_cache.as_ref(),
+        // The web target has no app-level font manager to hand over.
+        registered_fonts: None,
         system_style,
         active_route,
         // Web target: no OS monitor enumeration.

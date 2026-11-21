@@ -415,6 +415,12 @@ fn write(mailbox: &RefAny, f: impl FnOnce(&mut TransientWindowData)) -> bool {
 /// top. The size is the engine's measurement, so there is no
 /// `size_to_content` 1×1-then-resize dance — the Wayland positioner needs a
 /// real size up front.
+///
+/// `screens` are the screens of the machine in the parent's logical px
+/// ([`screens_seen_from`]; none where the backend cannot tell): the popup stays on
+/// the work area of the one its anchor is on. They are an argument, not asked
+/// of the operating system in here, so what a popup does at a screen's edge is
+/// the same on every machine the tests run on.
 #[must_use]
 pub fn popup_create_options(
     parent_window_id: u64,
@@ -424,13 +430,14 @@ pub fn popup_create_options(
     cursor: Option<LogicalPosition>,
     focus_visible: bool,
     window: Option<WindowToScreen>,
+    screens: &[ScreenRects],
 ) -> (WindowCreateOptions, RefAny) {
     let size = open.content_size;
     let floating = open.placement.floating(cursor);
     let origin = open.placement.resolve_within(
         size,
         cursor,
-        placement_bounds(window, parent.size.dimensions, floating.anchor),
+        popup_bounds(screens, parent.size.dimensions, floating.anchor),
     );
     let screen_scale = window.map_or(1.0, |w| w.scale);
 
@@ -585,18 +592,6 @@ pub fn toplevel_create_options(
         background_color_dark: azul_css::props::basic::OptionColorU::None,
     };
     (options, mailbox)
-}
-
-/// Where a popup anchored at `anchor` (parent coordinates) may go, for a parent
-/// of `parent_size` that `window` maps onto the screen: the work area of the
-/// screen the anchor is on (a popup is its own window and may hang out of a
-/// short parent, but not off the screen). See [`popup_bounds`].
-fn placement_bounds(
-    window: Option<WindowToScreen>,
-    parent_size: LogicalSize,
-    anchor: LogicalRect,
-) -> LogicalRect {
-    popup_bounds(&screens_seen_from(window), parent_size, anchor)
 }
 
 /// Where a popup anchored at `anchor` may go, given every screen in the
@@ -924,6 +919,8 @@ pub fn sync_parent(
         .get(&DomId::ROOT_ID)
         .map(|r| r.styled_dom.clone());
     let open: Vec<OpenTransientWindow> = lw.transient_windows.open_windows().to_vec();
+    // The screens are asked of the operating system when a popup first needs them, not on every pass.
+    let mut screens: Option<Vec<ScreenRects>> = None;
     for w in open {
         if w.is_inline() {
             // Inline content of its parent / zone: laid out by the parent's
@@ -972,6 +969,7 @@ pub fn sync_parent(
                         cursor,
                         focus_visible,
                         window,
+                        screens.get_or_insert_with(|| screens_seen_from(window)),
                     )
                 };
                 options.window_state.title = title.as_str().into();
@@ -1040,8 +1038,8 @@ pub fn sync_parent(
                         Some(w.placement.resolve_within(
                             w.content_size,
                             cursor,
-                            placement_bounds(
-                                window,
+                            popup_bounds(
+                                screens.get_or_insert_with(|| screens_seen_from(window)),
                                 parent_state.size.dimensions,
                                 floating.anchor,
                             ),
@@ -1790,7 +1788,7 @@ mod tests {
         light_desktop.mode = azul_css::system::DarkLightMode::Light;
         let w = open_window(0);
         let (mut opts, _mailbox) =
-            popup_create_options(0xABCD, &parent, &w, Dom::create_div(), None, false, None);
+            popup_create_options(0xABCD, &parent, &w, Dom::create_div(), None, false, None, &[]);
         as_dialog_window(&mut opts.window_state, "Save changes?");
         assert_eq!(opts.mode, OptionDarkLightMode::Some(DarkLightMode::Dark));
         super::super::resolve_initial_background_color(&mut opts, &light_desktop);
@@ -1878,7 +1876,7 @@ mod tests {
         let parent = FullWindowState::default();
         let w = open_window(0);
         let (opts, mailbox) =
-            popup_create_options(0xABCD, &parent, &w, Dom::create_div(), None, false, None);
+            popup_create_options(0xABCD, &parent, &w, Dom::create_div(), None, false, None, &[]);
         assert_eq!(opts.parent_window_id, 0xABCD);
         assert!(
             !opts.size_to_content,
@@ -1956,6 +1954,7 @@ mod tests {
                 None,
                 false,
                 None,
+                &[],
             );
             opts.window_state
         };
@@ -2111,8 +2110,21 @@ mod tests {
         let parent = FullWindowState::default();
         let w = open_window(0);
         let window = WindowToScreen::new(ScreenPoint::new(500.0, 300.0), 2.0);
-        let (opts, _) =
-            popup_create_options(0xABCD, &parent, &w, Dom::create_div(), None, false, Some(window));
+        // One 1920 x 1080 screen at the screen origin, in the parent's logical px (the window sits at
+        // (500, 300) at twice the scale): what a popup does must not depend on the monitors of the
+        // machine the test runs on (a CI runner's virtual display is small, and it moved the popup).
+        let screen = LogicalRect::new(LogicalPosition::new(-250.0, -150.0), LogicalSize::new(960.0, 540.0));
+        let screens = [ScreenRects { bounds: screen, work_area: screen }];
+        let (opts, _) = popup_create_options(
+            0xABCD,
+            &parent,
+            &w,
+            Dom::create_div(),
+            None,
+            false,
+            Some(window),
+            &screens,
+        );
         assert_eq!(
             opts.window_state.position,
             WindowPosition::RelativeToParentWindow(PhysicalPosition::new(96, 144))
@@ -2187,6 +2199,7 @@ mod tests {
             None,
             false,
             None,
+            &[],
         );
         assert_eq!(poll_popup(&opts.window_state), PopupAction::Nothing);
         assert!(post_dismissed(&opts.window_state));
