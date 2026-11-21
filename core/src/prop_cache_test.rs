@@ -2413,6 +2413,45 @@ mod audit_a3_core_tests {
         assert!(cache.css_props.get_slice(0).is_empty(), "the root has no class");
     }
 
+    /// `nodes` nodes in `sets` rule sets of three entries, the nodes of a
+    /// set one after the other, flattened; and how many recorded runs the
+    /// nodes' runs were compared with.
+    fn flattened_sets(nodes: usize, sets: usize) -> (crate::prop_cache::FlatVecVec<(i32, i32)>, u64) {
+        let mut f = crate::prop_cache::FlatVecVec::<(i32, i32)>::new(nodes);
+        let per_set = nodes / sets;
+        for node in 0..nodes {
+            let set = (node / per_set) as i32;
+            for key in [2, 0, 1] {
+                f.push_to(node, (key, set * 10 + key));
+            }
+        }
+        crate::prop_cache::RUN_COMPARES.with(|c| c.set(0));
+        f.sort_each_and_flatten(|entry| entry.0);
+        (f, crate::prop_cache::RUN_COMPARES.with(core::cell::Cell::get))
+    }
+
+    /// A3-core-07: collapsing equal runs compared every node's run with the
+    /// recorded runs from the first on: nodes x distinct rule sets. The run
+    /// the last node matched is tried first.
+    #[test]
+    fn nodes_of_one_rule_set_do_not_each_read_the_table_of_runs() {
+        let nodes = 8_000;
+        let (_, few) = flattened_sets(nodes, 20);
+        let (f, many) = flattened_sets(nodes, 80);
+        assert!(few >= nodes as u64 - 20, "harness: the runs were compared ({few})");
+        assert!(
+            many <= few * 2,
+            "four times the rule sets took {many} run compares for {few}: every node read the \
+             table"
+        );
+        // Every node still reads its own set, sorted by key.
+        for node in 0..nodes {
+            let set = (node / 100) as i32;
+            let expected = [(0, set * 10), (1, set * 10 + 1), (2, set * 10 + 2)];
+            assert_eq!(f.get_slice(node), &expected[..], "node {node}");
+        }
+    }
+
     /// `labels` labels (a span of class `c{i % classes}` around its text)
     /// under one root whose sheet gives every class a colour and a letter
     /// spacing of its own - two inherited values per class, as the text

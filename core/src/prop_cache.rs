@@ -660,12 +660,21 @@ impl<T> FlatVecVec<T> {
             }
             let s = start as usize;
             let run = &self.data[s..s + len as usize];
-            let existing = runs
-                .iter()
-                .copied()
-                .find(|&(rs, rl)| rl == len && new_data[rs as usize..(rs + rl) as usize] == *run);
-            if let Some((rs, rl)) = existing {
+            let existing = runs.iter().position(|&(rs, rl)| {
+                #[cfg(all(test, feature = "std"))]
+                RUN_COMPARES.with(|c| c.set(c.get() + 1));
+                rl == len && new_data[rs as usize..(rs + rl) as usize] == *run
+            });
+            if let Some(at) = existing {
+                let (rs, rl) = runs[at];
                 new_offsets.push((rs, rl));
+                // The run found is tried first for the next node: nodes of
+                // one rule set come one after the other (the labels of a
+                // text style), and each used to read the table up to its
+                // run. The order of the table is not part of the result - a
+                // run is recorded once, so the one that equals is the same
+                // whichever is tried first.
+                runs.swap(0, at);
                 continue;
             }
             let ns = u32::try_from(new_data.len()).unwrap_or(u32::MAX);
@@ -891,6 +900,14 @@ impl<'a, T> Iterator for FlatVecVecIter<'a, T> {
 }
 
 impl<T> ExactSizeIterator for FlatVecVecIter<'_, T> {}
+
+#[cfg(all(test, feature = "std"))]
+std::thread_local! {
+    /// How many recorded runs `FlatVecVec::dedup_runs` compared a node's run
+    /// with on this thread: what the size sweep of the tests reads to say
+    /// nodes of one rule set do not each read the table of runs.
+    pub(crate) static RUN_COMPARES: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+}
 
 #[cfg(all(test, feature = "std"))]
 std::thread_local! {
