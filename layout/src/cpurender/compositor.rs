@@ -81,6 +81,19 @@ pub fn is_identity_2d(m: &[[f32; 4]; 4]) -> bool {
         && (m[1][1] - 1.0).abs() < IDENTITY_EPSILON
         && m[3][0].abs() < IDENTITY_EPSILON
         && m[3][1].abs() < IDENTITY_EPSILON
+        && has_no_perspective(m)
+}
+
+/// Is `w` of `m` over its z = 0 plane 1 everywhere (no perspective)? EXACTLY, not to an
+/// epsilon: `w = m33 + m03 x + m13 y`, so a term of 5e-5 is `w = 1.1` at x = 2000 px, and a
+/// point drawn at 1818 instead of 2000. The test [`affine_rect_about`] and `FrameStack::map`
+/// make before they call the image of a rect a rect; a matrix built from translations,
+/// scales, rotations and skews has exact zeros there. Without it a frame whose 2-D part is the
+/// identity (or a translation) was painted in place, untilted, while its damage was "cannot be
+/// placed".
+#[allow(clippy::float_cmp)] // exact on purpose, see above
+fn has_no_perspective(m: &[[f32; 4]; 4]) -> bool {
+    m[0][3] == 0.0 && m[1][3] == 0.0 && (m[3][3] - 1.0).abs() < f32::EPSILON
 }
 
 /// The `(x, y)` offset of a matrix that only MOVES its content - a 2-D
@@ -91,9 +104,7 @@ pub fn translation_2d(m: &[[f32; 4]; 4]) -> Option<(f32, f32)> {
         && m[0][1].abs() < IDENTITY_EPSILON
         && m[1][0].abs() < IDENTITY_EPSILON
         && (m[1][1] - 1.0).abs() < IDENTITY_EPSILON
-        && m[0][3].abs() < IDENTITY_EPSILON
-        && m[1][3].abs() < IDENTITY_EPSILON
-        && (m[3][3] - 1.0).abs() < IDENTITY_EPSILON;
+        && has_no_perspective(m);
     moves_only.then_some((m[3][0], m[3][1]))
 }
 

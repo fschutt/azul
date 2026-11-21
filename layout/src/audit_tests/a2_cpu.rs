@@ -1383,3 +1383,84 @@ fn a2_cpu_07_a_pan_between_offsets_off_the_pixel_grid_is_a_fresh_renders_frame()
         out.damage
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// A matrix with a perspective term (A2-cpu-25)
+// ---------------------------------------------------------------------------------------------
+
+/// A2-cpu-25. A matrix whose 2-D part is the identity (or a translation) and whose perspective
+/// column is not is neither: it tilts what it paints.
+///
+/// Hand-computed: `m[0][3] = 0.002`, everything else the identity: `w = 1 + 0.002 x`. A red box
+/// x 180 .. 220, y 20 .. 60 in a frame at the window's corner is drawn at `x / w`:
+/// `180 / 1.36 = 132.4 .. 220 / 1.44 = 152.8`, and its rows at x = 200 at `y / 1.4`: 14.3 .. 42.9.
+/// `is_identity_2d` looked at the four linear terms and the translation only, so the frame was
+/// painted in place (x 180 .. 220) and its damage was "cannot be placed". Expected: pixel
+/// (143, 30) red, pixel (205, 30) the page. And 5e-5, under the old epsilon of `translation_2d`,
+/// is `w = 1.1` at x = 2000: a point drawn at 1818.
+///
+/// mutation: `&& has_no_perspective(m)` removed from `is_identity_2d` fails here.
+#[test]
+fn a2_cpu_25_a_matrix_with_a_perspective_term_is_neither_the_identity_nor_a_translation() {
+    use crate::cpurender::{is_identity_2d, translation_2d};
+
+    let identity = translation(0.0, 0.0).m;
+    assert!(is_identity_2d(&identity), "harness: the identity");
+    assert_eq!(
+        translation_2d(&translation(12.0, -3.0).m),
+        Some((12.0, -3.0)),
+        "harness: a translation"
+    );
+    let mut faint = identity;
+    faint[0][3] = 5.0e-5;
+    assert!(!is_identity_2d(&faint), "w = 1 + 5e-5 x is 1.1 at x = 2000");
+    assert_eq!(translation_2d(&faint), None, "w = 1 + 5e-5 x is no translation");
+    let mut down = translation(12.0, -3.0).m;
+    down[1][3] = -5.0e-5;
+    assert_eq!(translation_2d(&down), None, "w = 1 - 5e-5 y is no translation");
+    let mut scaled = identity;
+    scaled[3][3] = 1.001;
+    assert!(!is_identity_2d(&scaled), "w = 1.001 everywhere shrinks the picture");
+
+    // What the raster does with it: the frame is tilted, not painted in place.
+    let mut tilt = identity;
+    tilt[0][3] = 0.002;
+    let page = list(vec![
+        rect(0.0, 0.0, 400.0, 100.0, [255, 255, 255]),
+        DisplayListItem::PushReferenceFrame {
+            transform_key: azul_core::resources::TransformKey { id: 4 },
+            initial_transform: azul_core::transform::ComputedTransform3D { m: tilt },
+            bounds: wlr(0.0, 0.0, 400.0, 100.0),
+        },
+        rect(180.0, 20.0, 40.0, 40.0, [220, 0, 0]),
+        DisplayListItem::PopReferenceFrame,
+    ]);
+    let mut frame = AzulPixmap::new(400, 100).expect("a pixmap");
+    frame.fill(255, 255, 255, 255);
+    let mut glyphs = GlyphCache::new();
+    render_display_list_damaged(
+        &page,
+        &mut frame,
+        1.0,
+        &RendererResources::default(),
+        &font_manager(),
+        &mut glyphs,
+        &CpuRenderState::new(ScrollOffsetMap::new()),
+        &[lr(0.0, 0.0, 400.0, 100.0)],
+    )
+    .expect("the damage repaints");
+    let red = |x: u32, y: u32| {
+        let [r, g, b] = px(&frame, x, y);
+        r > 150 && g < 80 && b < 80
+    };
+    assert!(
+        red(143, 30),
+        "the box is drawn where the perspective puts it, x 132 .. 153: (143, 30) is {:?}",
+        px(&frame, 143, 30)
+    );
+    assert!(
+        !red(205, 30),
+        "and not in place, x 180 .. 220: (205, 30) is {:?}",
+        px(&frame, 205, 30)
+    );
+}
