@@ -203,17 +203,20 @@ fn graph_box_of(lw: &LayoutWindow) -> NodeId {
     found[0]
 }
 
-/// The parent of `node`; the wrapper of the graph, for the graph box.
-fn parent_of(lw: &LayoutWindow, node: NodeId) -> NodeId {
+/// The parent of `node`, if it has one.
+fn parent_id_of(lw: &LayoutWindow, node: NodeId) -> Option<NodeId> {
     let hierarchy = lw
         .get_layout_result(&DomId::ROOT_ID)
         .expect("laid out")
         .styled_dom
         .node_hierarchy
         .as_container();
-    hierarchy[node]
-        .parent_id()
-        .unwrap_or_else(|| panic!("harness: {node:?} has no parent"))
+    hierarchy[node].parent_id()
+}
+
+/// The parent of `node`; the wrapper of the graph, for the graph box.
+fn parent_of(lw: &LayoutWindow, node: NodeId) -> NodeId {
+    parent_id_of(lw, node).unwrap_or_else(|| panic!("harness: {node:?} has no parent"))
 }
 
 fn dom_node(node: NodeId) -> DomNodeId {
@@ -469,6 +472,207 @@ fn the_nodes_of_the_graph_are_painted_into_the_window() {
             differ > 1000,
             "({how}): the graph with its three nodes is painted as the graph without them: only \
              {differ} px of the frames differ"
+        );
+    }
+}
+
+// ---- the inside of a node ----
+
+/// Nodes of three kinds of port: `(inputs, outputs, x, y)`, the kinds of the first, the second and
+/// the third node. The third has the most rows (three), the second the most inputs (two).
+static PORTS: [(usize, usize, f32, f32); 3] = [
+    (1, 1, 20.0, 30.0),
+    (2, 1, 320.0, 60.0),
+    (0, 3, 120.0, 260.0),
+];
+
+/// A graph with a node of its own kind at each of `nodes` (`(inputs, outputs, x, y)`, ids from 1):
+/// that many ports of one port type, and no field.
+fn ports_graph(nodes: &[(usize, usize, f32, f32)]) -> NodeGraph {
+    let port = InputOutputTypeId { inner: 10 };
+    let mut g = NodeGraph {
+        input_output_types: vec![InputOutputTypeIdInfoMap {
+            io_type_id: port,
+            io_info: InputOutputInfo {
+                data_type: AzString::from_const_str("port"),
+                color: ColorU {
+                    r: 1,
+                    g: 2,
+                    b: 3,
+                    a: 255,
+                },
+            },
+        }]
+        .into(),
+        ..NodeGraph::default()
+    };
+    for (id, (inputs, outputs, x, y)) in (1_u64..).zip(nodes.iter()) {
+        let kind = NodeTypeId { inner: id };
+        g.node_types.push(NodeTypeIdInfoMap {
+            node_type_id: kind,
+            node_type_info: NodeTypeInfo {
+                is_root: true,
+                node_type_name: AzString::from_const_str("kind"),
+                inputs: vec![port; *inputs].into(),
+                outputs: vec![port; *outputs].into(),
+            },
+        });
+        g.nodes.push(NodeIdNodeMap {
+            node_id: NodeGraphNodeId { inner: id },
+            node: NodeGraphNode {
+                node_type: kind,
+                position: NodeGraphNodePosition { x: *x, y: *y },
+                fields: NodeTypeFieldVec::new(),
+                connect_in: InputConnectionVec::new(),
+                connect_out: OutputConnectionVec::new(),
+            },
+        });
+    }
+    g
+}
+
+/// The nodes with the class `class` below `ancestor`, in document order.
+fn below(lw: &LayoutWindow, ancestor: NodeId, class: &str) -> Vec<NodeId> {
+    nodes_with_class(lw, class)
+        .into_iter()
+        .filter(|n| {
+            let mut up = parent_id_of(lw, *n);
+            while let Some(p) = up {
+                if p == ancestor {
+                    return true;
+                }
+                up = parent_id_of(lw, p);
+            }
+            false
+        })
+        .collect()
+}
+
+/// The one node with the class `class` below `ancestor`.
+fn only_below(lw: &LayoutWindow, ancestor: NodeId, class: &str) -> NodeId {
+    let found = below(lw, ancestor, class);
+    assert_eq!(found.len(), 1, "harness: one .{class} in a node box");
+    found[0]
+}
+
+/// The x of the middle of `r`.
+fn center_x(r: &LogicalRect) -> f32 {
+    r.origin.x + r.size.width / 2.0
+}
+
+/// The inside of a node: the rows of its ports stand inside its box, the inputs at its left edge and
+/// the outputs at its right edge, and the close button is in the title bar, above the body.
+///
+/// A node box is a title (the close button at its right) over the body: a row of the inputs' column
+/// (0 px wide, at the body's left edge), the fields (the room between) and the outputs' column (0 px
+/// wide, at the body's right edge). The dots stand in the two columns, `DIST_BETWEEN_NODES` plus a
+/// dot apart, straddling the box's edges, and the body is as tall as its rows. With the body a block
+/// (no `display: flex`) its three children are stacked: the outputs' column stands under the
+/// inputs', at the same edge, and the body has no height of its own - the dots hang below the box.
+///
+/// Mutation: the body without `display: flex` - every output is at the left edge, and the rows of
+/// every node hang below its box.
+#[test]
+fn the_ports_of_a_node_stand_in_rows_inside_its_box_inputs_left_outputs_right() {
+    let row = DIST_BETWEEN_NODES + CONNECTION_DOT_HEIGHT;
+    for how in BUILDS {
+        let lw = window_of(ports_graph(&PORTS), how);
+        let node_boxes = nodes_with_class(&lw, "node_graph_node");
+        assert_eq!(
+            node_boxes.len(),
+            PORTS.len(),
+            "harness ({how}): a box for each node; {}",
+            boxes(&lw)
+        );
+        let mut problems: Vec<String> = Vec::new();
+        for (i, (node_box, (inputs, outputs, _, _))) in
+            node_boxes.into_iter().zip(PORTS.iter()).enumerate()
+        {
+            let b = rect_of(&lw, node_box);
+            let in_dots = below(&lw, node_box, "node_input");
+            let out_dots = below(&lw, node_box, "node_output");
+            assert_eq!(
+                (in_dots.len(), out_dots.len()),
+                (*inputs, *outputs),
+                "harness ({how}): node {i} has a dot for each of its ports"
+            );
+
+            // The two columns are at the two edges of the body.
+            let body = rect_of(&lw, only_below(&lw, node_box, "node_body"));
+            let in_col = rect_of(&lw, only_below(&lw, node_box, "inputs"));
+            let out_col = rect_of(&lw, only_below(&lw, node_box, "outputs"));
+            if !(within(in_col.origin.x, body.origin.x, 1.0)
+                && within(out_col.origin.x, body.origin.x + body.size.width, 1.0))
+            {
+                problems.push(format!(
+                    "node {i}: the inputs' column {in_col:?} and the outputs' column {out_col:?} \
+                     are not at the left and the right edge of the body {body:?}"
+                ));
+            }
+
+            // The dots: inputs at the left edge of the box, outputs at its right edge, each in
+            // a row that lies inside the box, a row below the one before.
+            for (side, dots, edge) in [
+                ("input", &in_dots, b.origin.x),
+                ("output", &out_dots, b.origin.x + b.size.width),
+            ] {
+                let mut before: Option<LogicalRect> = None;
+                for (k, dot) in dots.iter().enumerate() {
+                    let d = rect_of(&lw, *dot);
+                    if !within(center_x(&d), edge, 12.0) {
+                        problems.push(format!(
+                            "node {i}: the {side} {k}, {d:?}, is not at the {} edge of its box {b:?}",
+                            if side == "input" { "left" } else { "right" }
+                        ));
+                    }
+                    if d.origin.y < b.origin.y - 0.5
+                        || d.origin.y + d.size.height > b.origin.y + b.size.height + 0.5
+                    {
+                        problems.push(format!(
+                            "node {i}: the {side} {k}, {d:?}, is not inside its box {b:?}"
+                        ));
+                    }
+                    if let Some(above) = before {
+                        if !within(d.origin.y - above.origin.y, row, 1.0) {
+                            problems.push(format!(
+                                "node {i}: the {side} {k}, {d:?}, is not {row} px below the one \
+                                 before, {above:?}"
+                            ));
+                        }
+                    }
+                    before = Some(d);
+                }
+            }
+
+            // The close button is in the title bar: its middle is in the right half of the box and
+            // above the body. A `transform` moves it from where the layout puts it, so the places
+            // read are the ones it is shown at, the box's and the button's, relative to each other.
+            let close = only_below(&lw, node_box, "node_close_button");
+            match (on_screen(&lw, close), on_screen(&lw, node_box)) {
+                (Some(c), Some(shown_box)) => {
+                    let x = center_x(&c) - shown_box.origin.x;
+                    let y = c.origin.y + c.size.height / 2.0 - shown_box.origin.y;
+                    let body_top = body.origin.y - b.origin.y;
+                    if !(x > shown_box.size.width / 2.0
+                        && x < shown_box.size.width
+                        && y > 0.0
+                        && y < body_top)
+                    {
+                        problems.push(format!(
+                            "node {i}: the middle of the close button, {c:?}, is not in the title \
+                             bar (the right half of the box {shown_box:?}, above the body at {body_top} px)"
+                        ));
+                    }
+                }
+                _ => problems.push(format!(
+                    "node {i}: the close button or the box is shown nowhere (no hit-test area)"
+                )),
+            }
+        }
+        assert!(
+            problems.is_empty(),
+            "({how}): the inside of the nodes is wrong:\n{}",
+            problems.join("\n")
         );
     }
 }
