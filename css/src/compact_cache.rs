@@ -1338,6 +1338,48 @@ pub fn decode_px_slot(slot: PxSlot) -> Option<f32> {
     px_slot_length(slot).map(|length| length.number.get())
 }
 
+/// A length as a reader of a slot that is still tenths of a pixel in an
+/// `i16` (the border radii, the border spacing, the tab size) gets it: a px
+/// length within the slot's range in tenths of a pixel, exactly the number
+/// `decode` of [`encode_resolved_px_i16`] gives; any other length (another
+/// unit, beyond the range) as it is.
+///
+/// The resting state reads such a property from its slot and every other
+/// state (hover) from the cascade; the cascade's answer goes through this,
+/// so a length is one number whatever state its node is in.
+#[inline]
+#[must_use]
+pub fn px_as_a_tenths_slot_reads_it(value: PixelValue) -> PixelValue {
+    if value.metric != SizeMetric::Px {
+        return value;
+    }
+    match decode_resolved_px_i16(encode_resolved_px_i16(value.number.get())) {
+        Some(px) => PixelValue::px(px),
+        None => value,
+    }
+}
+
+/// A border radius for its `i16` slot: a px radius within the slot's range
+/// in tenths of a pixel; `I16_AUTO` for a declared radius the slot cannot
+/// hold (a percentage, an `em`, a radius beyond 3276 px such as the
+/// `9999px` of a pill): the readers ask the cascade for it. `I16_SENTINEL`
+/// stays what it was, "no radius declared", which the readers answer with 0.
+///
+/// Such a radius used to be left out of the slot, and the slot then said
+/// "none declared": `border-radius: 50%` was square at rest and round only
+/// in another state (hover), where the cascade is asked.
+#[inline]
+#[must_use]
+pub fn encode_radius_i16(radius: PixelValue) -> i16 {
+    if radius.metric == SizeMetric::Px {
+        let slot = encode_resolved_px_i16(radius.number.get());
+        if slot != I16_SENTINEL {
+            return slot;
+        }
+    }
+    I16_AUTO
+}
+
 /// Decode an i16 back to resolved px. Returns None for sentinel values.
 #[inline]
 #[must_use]
@@ -1526,7 +1568,9 @@ pub struct CompactNodePropsCold {
     pub border_bottom_color: u32,
     pub border_left_color: u32,
 
-    // --- Border radii (i16 px × 10, I16_SENTINEL = unset/default = 0) ---
+    // --- Border radii (i16 px × 10; I16_SENTINEL = unset/default = 0;
+    //     I16_AUTO = declared, but not a px radius the slot can hold: read the
+    //     cascade, `encode_radius_i16`) ---
     pub border_top_left_radius: i16,
     pub border_top_right_radius: i16,
     pub border_bottom_left_radius: i16,

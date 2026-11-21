@@ -2131,35 +2131,27 @@ fn apply_css_property_to_compact(
             text.text_indent = encode_css_pixel_as_i16(v);
         }
 
-        // Border radii (cold): encode px × 10 into i16; sentinel stays = unset/0
+        // Border radii (cold): px x 10 in an i16; a radius the slot cannot hold
+        // (a percentage, an em, beyond its range) as "read the cascade"
+        // (`encode_radius_i16`); the sentinel stays = unset/0
         CssProperty::BorderTopLeftRadius(v) => {
             if let Some(exact) = v.get_property() {
-                if exact.inner.metric == SizeMetric::Px {
-                    cold.border_top_left_radius = encode_resolved_px_i16(exact.inner.number.get());
-                }
+                cold.border_top_left_radius = encode_radius_i16(exact.inner);
             }
         }
         CssProperty::BorderTopRightRadius(v) => {
             if let Some(exact) = v.get_property() {
-                if exact.inner.metric == SizeMetric::Px {
-                    cold.border_top_right_radius = encode_resolved_px_i16(exact.inner.number.get());
-                }
+                cold.border_top_right_radius = encode_radius_i16(exact.inner);
             }
         }
         CssProperty::BorderBottomLeftRadius(v) => {
             if let Some(exact) = v.get_property() {
-                if exact.inner.metric == SizeMetric::Px {
-                    cold.border_bottom_left_radius =
-                        encode_resolved_px_i16(exact.inner.number.get());
-                }
+                cold.border_bottom_left_radius = encode_radius_i16(exact.inner);
             }
         }
         CssProperty::BorderBottomRightRadius(v) => {
             if let Some(exact) = v.get_property() {
-                if exact.inner.metric == SizeMetric::Px {
-                    cold.border_bottom_right_radius =
-                        encode_resolved_px_i16(exact.inner.number.get());
-                }
+                cold.border_bottom_right_radius = encode_radius_i16(exact.inner);
             }
         }
 

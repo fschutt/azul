@@ -2360,12 +2360,23 @@ pub fn get_style_border_radius(
                     PixelValue::px(f32::from(raw) / 10.0 * zoom)
                 }
             };
-            return StyleBorderRadius {
-                top_left: decode(cc.get_border_top_left_radius_raw(idx)),
-                top_right: decode(cc.get_border_top_right_radius_raw(idx)),
-                bottom_right: decode(cc.get_border_bottom_right_radius_raw(idx)),
-                bottom_left: decode(cc.get_border_bottom_left_radius_raw(idx)),
-            };
+            let raw = [
+                cc.get_border_top_left_radius_raw(idx),
+                cc.get_border_top_right_radius_raw(idx),
+                cc.get_border_bottom_right_radius_raw(idx),
+                cc.get_border_bottom_left_radius_raw(idx),
+            ];
+            // A corner the slot cannot hold (`50%`, `1em`, `9999px`:
+            // `I16_AUTO`, `encode_radius_i16`) is asked of the cascade
+            // below; read as "unset" it was no radius at all at rest.
+            if !raw.contains(&azul_css::compact_cache::I16_AUTO) {
+                return StyleBorderRadius {
+                    top_left: decode(raw[0]),
+                    top_right: decode(raw[1]),
+                    bottom_right: decode(raw[2]),
+                    bottom_left: decode(raw[3]),
+                };
+            }
         }
     }
     let node_data = &styled_dom.node_data.as_container()[node_id];
@@ -2375,7 +2386,7 @@ pub fn get_style_border_radius(
         .ptr
         .get_border_top_left_radius(node_data, &node_id, node_state)
         .and_then(|br| br.get_property_or_default())
-        .map(|v| v.inner)
+        .map(|v| azul_css::compact_cache::px_as_a_tenths_slot_reads_it(v.inner))
         .unwrap_or_default();
 
     let top_right = styled_dom
@@ -2383,7 +2394,7 @@ pub fn get_style_border_radius(
         .ptr
         .get_border_top_right_radius(node_data, &node_id, node_state)
         .and_then(|br| br.get_property_or_default())
-        .map(|v| v.inner)
+        .map(|v| azul_css::compact_cache::px_as_a_tenths_slot_reads_it(v.inner))
         .unwrap_or_default();
 
     let bottom_right = styled_dom
@@ -2391,7 +2402,7 @@ pub fn get_style_border_radius(
         .ptr
         .get_border_bottom_right_radius(node_data, &node_id, node_state)
         .and_then(|br| br.get_property_or_default())
-        .map(|v| v.inner)
+        .map(|v| azul_css::compact_cache::px_as_a_tenths_slot_reads_it(v.inner))
         .unwrap_or_default();
 
     let bottom_left = styled_dom
@@ -2399,7 +2410,7 @@ pub fn get_style_border_radius(
         .ptr
         .get_border_bottom_left_radius(node_data, &node_id, node_state)
         .and_then(|br| br.get_property_or_default())
-        .map(|v| v.inner)
+        .map(|v| azul_css::compact_cache::px_as_a_tenths_slot_reads_it(v.inner))
         .unwrap_or_default();
 
     let radius = StyleBorderRadius {
@@ -2451,12 +2462,16 @@ pub fn get_border_radius(
                     f32::from(raw) / 10.0 * zoom
                 }
             };
-            return BorderRadius {
-                top_left: decode(tl),
-                top_right: decode(tr),
-                bottom_right: decode(br),
-                bottom_left: decode(bl),
-            };
+            // A corner the slot cannot hold (`I16_AUTO`: a percentage, an
+            // em, beyond its range) is resolved from the cascade below.
+            if ![tl, tr, br, bl].contains(&azul_css::compact_cache::I16_AUTO) {
+                return BorderRadius {
+                    top_left: decode(tl),
+                    top_right: decode(tr),
+                    bottom_right: decode(br),
+                    bottom_left: decode(bl),
+                };
+            }
         }
     }
 
@@ -2515,7 +2530,10 @@ pub fn get_border_radius(
 
     // CSS `zoom`: an absolute radius scales by the effective zoom, an em or a
     // percentage already follows the zoomed font size / box (`zoomed_length`).
+    // (A px radius as its slot gives it at rest, tenths of a pixel: one
+    // number in every state.)
     let resolve = |v: PixelValue| -> f32 {
+        let v = azul_css::compact_cache::px_as_a_tenths_slot_reads_it(v);
         zoomed_length(
             styled_dom,
             node_id,

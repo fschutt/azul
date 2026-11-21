@@ -1021,3 +1021,66 @@ fn a_text_without_an_inline_box_around_it_is_entered_into_no_map() {
     });
     assert!(yellow, "the span's background is painted");
 }
+
+/// A3-core-23: a border radius is read from a compact slot at rest (tenths of a pixel in an
+/// `i16`, px only) and from the cascade in any other state. A radius the slot cannot hold - a
+/// percentage, an `em`, anything beyond 3276 px such as the `9999px` of a pill - was left out of
+/// the slot, and the slot then said "no radius": `border-radius: 50%` was square at rest and
+/// round only while hovered. Such a radius is asked of the cascade at rest too; and a px radius
+/// is the slot's number (tenths) in every state.
+#[test]
+fn a_radius_the_slot_cannot_hold_is_a_radius_at_rest_too() {
+    use azul_core::styled_dom::StyledNodeState;
+    use azul_css::props::basic::pixel::PixelValue;
+
+    use crate::solver3::{
+        display_list::PhysicalSizeImport,
+        getters::{get_border_radius, get_style_border_radius},
+    };
+
+    // 0 body, then the boxes 1..=5.
+    let boxed = |css: &str| Dom::create_div().with_css(&format!("width: 40px; height: 40px; {css}"));
+    let styled = StyledDom::create_from_dom(
+        Dom::create_body()
+            .with_child(boxed("border-radius: 50%;"))
+            .with_child(boxed("border-radius: 9999px;"))
+            .with_child(boxed("border-radius: 12.34px;"))
+            .with_child(boxed("border-radius: 12px;"))
+            .with_child(boxed("")),
+    );
+    let rest = StyledNodeState::new();
+    let mut hovered = StyledNodeState::new();
+    hovered.hover = true;
+    let element = PhysicalSizeImport { width: 40.0, height: 40.0 };
+    let viewport = LogicalSize::new(640.0, 480.0);
+    let corner = |node: usize, state: &StyledNodeState| {
+        let radius = get_border_radius(&styled, NodeId::new(node), state, element, viewport);
+        assert!(
+            (radius.top_left - radius.bottom_right).abs() < 1e-3
+                && (radius.top_right - radius.bottom_left).abs() < 1e-3,
+            "harness: the shorthand sets four equal corners: {radius:?}"
+        );
+        radius.top_left
+    };
+    // (node, the radius in px, what it was at rest before)
+    for (node, expected, declared) in [
+        (1, 20.0, "50% of 40 px (was 0 at rest)"),
+        (2, 9999.0, "9999px (was 0 at rest)"),
+        (3, 12.3, "12.34px, tenths in the slot (was 12.34 hovered)"),
+        (4, 12.0, "12px"),
+        (5, 0.0, "none declared"),
+    ] {
+        let at_rest = corner(node, &rest);
+        let while_hovered = corner(node, &hovered);
+        assert!((at_rest - expected).abs() < 1e-3, "{declared}: {at_rest} at rest");
+        assert!((while_hovered - expected).abs() < 1e-3, "{declared}: {while_hovered} hovered");
+    }
+    // The declared values, for the painter that resolves them itself.
+    let declared = |node: usize, state: &StyledNodeState| {
+        get_style_border_radius(&styled, NodeId::new(node), state).top_left
+    };
+    assert_eq!(declared(1, &rest), PixelValue::percent(50.0), "50% at rest");
+    assert_eq!(declared(1, &hovered), PixelValue::percent(50.0));
+    assert_eq!(declared(3, &rest), declared(3, &hovered), "12.34px: one number in both states");
+    assert_eq!(declared(5, &rest), PixelValue::px(0.0));
+}
