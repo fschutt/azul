@@ -159,3 +159,60 @@ fn a_block_of_many_inline_runs_lists_the_wrappers_of_its_old_box_once() {
         "four times the runs looked at {large} old children for {small}: more than linear"
     );
 }
+
+/// `body > div > j x [abs div > text] + m x [div > text]`: a block that starts with `j`
+/// absolutely positioned blocks (overlays written before the content) followed by `m` blocks in
+/// flow, every one with a line of text.
+fn overlays_then_blocks(j: usize, m: usize) -> Dom {
+    let mut layer = Dom::create_div().with_css("position: relative; width: 600px;");
+    for i in 0..j {
+        layer = layer.with_child(Dom::create_div_with_text(format!("over {i}")).with_css(
+            &format!("position: absolute; left: {}px; top: {}px;", (i % 50) * 10, (i / 50) * 9),
+        ));
+    }
+    for i in 0..m {
+        layer = layer.with_child(Dom::create_div_with_text(format!("line {i}")));
+    }
+    Dom::create_body().with_css("margin: 0px;").with_child(layer)
+}
+
+/// A3-solver-03. Every box with a line of text asks whether it starts its parent's first line
+/// (`fc::is_first_in_flow_child`). The answer looked at the parent's children from the first
+/// one: each of `m` in-flow blocks behind `j` out-of-flow ones passed those `j` again. It
+/// looks from the box backwards to the nearest in-flow sibling.
+///
+/// Mutation: scanning forwards from the parent's first child again (the loop before) grows 16x.
+#[test]
+fn blocks_behind_out_of_flow_siblings_look_back_to_the_nearest_in_flow_one() {
+    use crate::solver3::fc::IN_FLOW_CHECKS;
+    let checks = |n: usize| {
+        let mut lw = window();
+        IN_FLOW_CHECKS.with(|c| c.set(0));
+        lay_out(&mut lw, overlays_then_blocks(n, n));
+        IN_FLOW_CHECKS.with(std::cell::Cell::get)
+    };
+    let (small, large) = (checks(150), checks(600));
+    assert!(
+        small >= 150,
+        "harness: the blocks were asked whether they are in flow ({small})"
+    );
+    assert!(
+        large < small * 6,
+        "four times the blocks took {large} in-flow checks for {small}: more than linear"
+    );
+}
+
+/// A3-solver-03, the result: the blocks in flow are stacked from the top of the layer in
+/// document order, the overlays before them take no room.
+#[test]
+fn blocks_behind_out_of_flow_siblings_are_stacked_from_the_top() {
+    let mut lw = window();
+    // body(0) > layer(1) > 3 x [abs div, text] (2..=7) + 4 x [div, text] (8, 10, 12, 14).
+    lay_out(&mut lw, overlays_then_blocks(3, 4));
+    let ys: Vec<f32> = [8_usize, 10, 12, 14].iter().map(|&n| position_of(&lw, n).y).collect();
+    assert!(ys[0].abs() < 0.01, "the first block in flow starts the layer: {ys:?}");
+    assert!(
+        ys.windows(2).all(|w| w[1] >= w[0]),
+        "the blocks in flow follow each other downwards: {ys:?}"
+    );
+}
