@@ -2893,6 +2893,8 @@ pub(crate) fn walk_range(
     let mut frames: Option<std::sync::Arc<crate::solver3::display_list::FrameIndex>> = None;
     // The frames this walk is painting whose surface is kept when they close (`retained`).
     let mut keeping: Vec<(usize, RetainedCandidate)> = Vec::new();
+    // The opacity groups this walk is painting whose picture is kept when they close.
+    let mut keeping_fades: Vec<(usize, FadeCandidate)> = Vec::new();
     let mut next = range.start;
     let end = range.end.min(list.items.len());
     while next < end {
@@ -2934,6 +2936,16 @@ pub(crate) fn walk_range(
                     }
                 }
                 continue;
+            }
+        }
+        // The pop of an opacity group whose picture is kept: the pixels the group painted on
+        // transparent, before the pop (handled below like any other) blends them into what
+        // was set aside, go to the cache.
+        if keeping_fades.last().is_some_and(|(end, _)| *end == item_idx) {
+            if let Some((_, candidate)) = keeping_fades.pop() {
+                if let (Some(retained), true) = (render_state.retained.as_deref(), surfaces.is_empty()) {
+                    candidate.keep(retained, pixmap);
+                }
             }
         }
         // Inside a turned or scaled frame the clip the items paint under is the frame's
@@ -3013,7 +3025,7 @@ pub(crate) fn walk_range(
                     item,
                     &frame,
                     frames.as_ref().and_then(|index| index.inner_of(item_idx)),
-                    in_group || !surfaces.is_empty(),
+                    in_group || !surfaces.is_empty() || !keeping_fades.is_empty(),
                     below,
                     dpi_factor,
                     clip_stack.last().copied().flatten(),
@@ -3033,6 +3045,43 @@ pub(crate) fn walk_range(
                     }
                     crate::cpu_counters::count(crate::cpu_counters::Counter::RetainedMisses, 1);
                     keeping.push((frame.end, candidate));
+                }
+            }
+        }
+        // An opacity group whose picture is kept from an earlier frame is blended again, at
+        // its live opacity, not painted: a fade writes one value (`fade_candidate`).
+        if let (DisplayListItem::PushOpacity { .. }, Some(retained), true) =
+            (item, render_state.retained.as_deref(), surfaces.is_empty())
+        {
+            let index = std::sync::Arc::clone(frames.get_or_insert_with(|| list.frame_index()));
+            if let Some(scope) = index.opacity_scope_at(item_idx) {
+                let fade = fade_candidate(
+                    list,
+                    item,
+                    item_idx,
+                    scope,
+                    index.opacity_extent_with(&list.items, item_idx, &render_state.transforms),
+                    (pixmap.width, pixmap.height),
+                    dpi_factor,
+                    clip_stack.last().copied().flatten(),
+                    *scroll_offset_stack.last().unwrap_or(&(0.0, 0.0)),
+                    mask_stack,
+                    text_shadow_stack,
+                    glyph_cache,
+                    font_manager,
+                    render_state,
+                    retained,
+                );
+                if let Some((candidate, opacity, blend)) = fade {
+                    if let Some(kept) = retained.lookup(&candidate.key, candidate.part()) {
+                        crate::cpu_counters::count(crate::cpu_counters::Counter::RetainedHits, 1);
+                        candidate.blend(&kept, pixmap, opacity, blend);
+                        skipped += 1;
+                        next = scope.end + 1;
+                        continue;
+                    }
+                    crate::cpu_counters::count(crate::cpu_counters::Counter::RetainedMisses, 1);
+                    keeping_fades.push((scope.end, candidate));
                 }
             }
         }
@@ -3383,6 +3432,244 @@ fn retained_candidate(
             slot,
         },
     })
+}
+
+/// An opacity group the walk is about to open whose picture can be kept (`retained`,
+/// "Opacity groups"): the key of the picture, where the group's whole device box lies in the
+/// target, and the part of it this walk blends.
+struct FadeCandidate {
+    key: super::retained::SurfaceKey,
+    /// The device pixel of the target that the kept surface's pixel (0, 0) is: the corner of
+    /// the group's whole box.
+    origin: (i32, i32),
+    /// Target px, half-open: the group's box inside the clip and inside the target - what the
+    /// group's push sets aside and its pop blends, of the pixels that exist.
+    region: [i32; 4],
+    list: std::sync::Arc<DisplayList>,
+    placement: super::retained::Placement,
+}
+
+impl FadeCandidate {
+    /// `region` in the kept surface's own pixels: what a hit reads and what a miss keeps.
+    fn part(&self) -> [i32; 4] {
+        let ([x0, y0, x1, y1], (ox, oy)) = (self.region, self.origin);
+        [x0 - ox, y0 - oy, x1 - ox, y1 - oy]
+    }
+
+    /// A hit: the kept picture's part blended onto `pixmap` as the group's pop blends what
+    /// the group painted ([`blend_group_pixels`], the pop's own loop).
+    #[allow(clippy::cast_sign_loss)] // the region lies inside the box: `part` is not negative
+    fn blend(
+        &self,
+        kept: &AzulPixmap,
+        pixmap: &mut AzulPixmap,
+        opacity: f32,
+        blend: azul_css::props::style::effects::StyleMixBlendMode,
+    ) {
+        let [x0, y0, x1, y1] = self.region;
+        let part = self.part();
+        blend_group_pixels(
+            pixmap,
+            kept.data(),
+            kept.width,
+            (part[0] as u32, part[1] as u32),
+            (x0, y0, (x1 - x0) as u32, (y1 - y0) as u32),
+            opacity,
+            blend,
+        );
+    }
+
+    /// A miss, when the walk reaches the group's pop: the pixels of `region` - what the group
+    /// painted on the transparent pixels its push left there - are offered to the cache, in a
+    /// surface of the group's whole box (zeroed by the allocator: only the part costs memory).
+    #[allow(clippy::cast_sign_loss)] // a region with x1 > x0, y1 > y0
+    fn keep(self, retained: &RetainedFrames, pixmap: &AzulPixmap) {
+        let [x0, y0, x1, y1] = self.region;
+        let (w, h) = ((x1 - x0) as u32, (y1 - y0) as u32);
+        let Some(mut surface) = AzulPixmap::new_transparent(self.key.size.0, self.key.size.1) else {
+            return;
+        };
+        let part = self.part();
+        let painted = snapshot_region(pixmap, x0, y0, w, h);
+        write_region(&mut surface, &painted, w, h, part[0], part[1]);
+        retained.offer_fade(self.key, self.list, surface, part, self.placement);
+    }
+}
+
+/// The opacity group pushed by `item` (at `push` of `list`, `scope` from the list's
+/// `FrameIndex`) as one whose picture can be kept, with the opacity and the blend mode its pop
+/// blends with; or `None`.
+///
+/// The picture is what the group paints on the transparent pixels of its region. It may be
+/// kept when it depends on nothing but the list, the values bound inside the group, the phase
+/// of the group's box and the paint settings (the [`super::retained::SurfaceKey`]):
+///
+/// - the group is BLENDED (an opacity under 1, or a blend mode): its text is then grayscale
+///   whatever lies under it and wherever a clip cuts it (`inside_blended_group`). At an
+///   opacity of exactly 1 a run may be painted in LCD stripes, chosen by the pixels under the
+///   part of it the clip leaves: another picture, and one that depends on the clip;
+/// - no text shadow of the list around it is open (the runs inside would paint a halo the
+///   group's extent does not hold), and no group, mask or filter is open around it (the one
+///   around it decides how text inside is painted; a turned frame's surface is the one worth
+///   keeping). A rounded clip, and a frame that is the identity or a move, may be open;
+/// - it holds no view (`values_inside`), and its box is large enough to be worth a lookup and
+///   small enough for the cache.
+///
+/// `extent` is what the group paints when that is more than its box (`opacity_extent_with`),
+/// `target` the size of the pixmap the walk paints into, `clip` the walk's innermost clip.
+/// The box is `device_region` of the extent at the walk's offset - what the `PushOpacity` arm
+/// of `render_single_item` sets aside under no clip - and the region the same under `clip`,
+/// cut to the target.
+///
+/// Example (scale factor 2, offset (0, 0)): a group with the extent (10.25, 20) 300 x 200
+/// has the box x 20 .. 621 (20.5 floored, 620.5 ceiled), y 40 .. 440: a surface of 601 x 400
+/// px with the phase (512, 0). Under a band's clip (0, 100) 2000 x 200 px its region is
+/// [20, 100, 621, 300], the part [0, 60, 601, 260] of the surface.
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_possible_wrap)] // a box of whole pixels
+fn fade_candidate(
+    list: &DisplayList,
+    item: &DisplayListItem,
+    push: usize,
+    scope: &crate::solver3::display_list::OpacityScope,
+    extent: Option<LogicalRect>,
+    target: (u32, u32),
+    dpi_factor: f32,
+    clip: Option<AzRect>,
+    scroll_offset: (f32, f32),
+    mask_stack: &[MaskEntry],
+    text_shadow_stack: &[StyleBoxShadow],
+    glyph_cache: &GlyphCache,
+    font_manager: &FontManager<FontRef>,
+    render_state: &CpuRenderState,
+    retained: &RetainedFrames,
+) -> Option<(FadeCandidate, f32, azul_css::props::style::effects::StyleMixBlendMode)> {
+    use azul_css::props::style::effects::StyleMixBlendMode;
+    let DisplayListItem::PushOpacity {
+        bounds,
+        opacity,
+        opacity_key,
+        mix_blend_mode,
+    } = item
+    else {
+        return None;
+    };
+    // The live value, as the `PushOpacity` arm reads it.
+    let opacity = opacity_key
+        .and_then(|k| render_state.opacities.get(&k.id).copied())
+        .unwrap_or(*opacity);
+    let blended = opacity < 1.0 || !matches!(mix_blend_mode, StyleMixBlendMode::Normal);
+    if !blended || !text_shadow_stack.is_empty() {
+        return None;
+    }
+    let only_moves_around = mask_stack.iter().all(|entry| {
+        matches!(
+            entry,
+            MaskEntry::RoundedClip { .. }
+                | MaskEntry::Transform(ReferenceFrameGroup::Identity | ReferenceFrameGroup::Translated)
+        )
+    });
+    if !only_moves_around {
+        return None;
+    }
+    let extent = extent.unwrap_or_else(|| *bounds.inner());
+    let on_surface = LogicalRect {
+        origin: LogicalPosition {
+            x: extent.origin.x - scroll_offset.0,
+            y: extent.origin.y - scroll_offset.1,
+        },
+        size: extent.size,
+    };
+    let boxed = logical_rect_to_az_rect(&on_surface, dpi_factor);
+    let whole = device_region(boxed, None)?;
+    let inside_clip = device_region(boxed, clip)?;
+    let (ox, oy) = (whole.x as i32, whole.y as i32);
+    let (width, height) = (whole.width as i32, whole.height as i32);
+    if width <= 0 || height <= 0 || width > MAX_TRANSFORM_GROUP_SIDE || height > MAX_TRANSFORM_GROUP_SIDE {
+        return None;
+    }
+    let px = u64::from(width as u32) * u64::from(height as u32);
+    if px < super::retained::MIN_SURFACE_PX || !retained.can_keep_fade((px as usize).saturating_mul(4)) {
+        return None;
+    }
+    let region = [
+        (inside_clip.x as i32).max(0),
+        (inside_clip.y as i32).max(0),
+        ((inside_clip.x + inside_clip.width) as i32).min(target.0 as i32),
+        ((inside_clip.y + inside_clip.height) as i32).min(target.1 as i32),
+    ];
+    if region[2] <= region[0] || region[3] <= region[1] {
+        return None;
+    }
+    let (shared, slot) = shared_list(list, render_state)?;
+    let values = values_inside(Some(&scope.inner), render_state)?;
+    Some((
+        FadeCandidate {
+            key: super::retained::SurfaceKey {
+                list: std::sync::Arc::as_ptr(&shared) as usize,
+                push,
+                size: (width as u32, height as u32),
+                dpi_bits: dpi_factor.to_bits(),
+                phase: surface_phase(&on_surface, dpi_factor),
+                values,
+                settings: paint_settings(glyph_cache, font_manager, render_state),
+            },
+            origin: (ox, oy),
+            region,
+            list: shared,
+            placement: super::retained::Placement {
+                offset: (
+                    scroll_offset.0 + ox as f32 / dpi_factor,
+                    scroll_offset.1 + oy as f32 / dpi_factor,
+                ),
+                slot,
+            },
+        },
+        opacity,
+        *mix_blend_mode,
+    ))
+}
+
+/// What the pop of an opacity group does with the pixels the group painted: the `w` x `h`
+/// pixels at `(sx, sy)` of `src` (RGBA rows of `src_w` px) are put onto the pixels at
+/// `(x, y)` of `pixmap` at `opacity`, with `blend` (`Blender`: `blend_pixel`'s levels). The
+/// pop's own loop, and what a kept picture is blended with (`FadeCandidate::blend`): one
+/// arithmetic for both, so a kept group is the group painted.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_possible_wrap)] // bounded pixel coords
+fn blend_group_pixels(
+    pixmap: &mut AzulPixmap,
+    src: &[u8],
+    src_w: u32,
+    (sx, sy): (u32, u32),
+    (x, y, w, h): (i32, i32, u32, u32),
+    opacity: f32,
+    blend: azul_css::props::style::effects::StyleMixBlendMode,
+) {
+    let pw = pixmap.width as i32;
+    let ph = pixmap.height as i32;
+    let op = (opacity * 255.0).clamp(0.0, 255.0) as u32;
+    // `blend_pixel`'s levels, without its work where the group
+    // painted nothing or painted opaque.
+    let blender = super::blend::Blender::new(op, blend);
+    for py in 0..h as i32 {
+        let dy = y + py;
+        if dy < 0 || dy >= ph {
+            continue;
+        }
+        for px in 0..w as i32 {
+            let dx = x + px;
+            if dx < 0 || dx >= pw {
+                continue;
+            }
+            let pi = (dy as usize * pixmap.width as usize + dx as usize) * 4;
+            let si = ((sy as usize + py as usize) * src_w as usize + sx as usize + px as usize) * 4;
+            if pi + 3 >= pixmap.data.len() || si + 3 >= src.len() {
+                continue;
+            }
+            let from = [src[si], src[si + 1], src[si + 2], src[si + 3]];
+            blender.blend(&mut pixmap.data[pi..pi + 4], from);
+        }
+    }
 }
 
 thread_local! {
@@ -4041,6 +4328,11 @@ pub fn refresh_retained_surfaces(
         .collect();
     for mut entry in retained.take_stale(&current) {
         let repaired = (|| -> Option<Result<(), String>> {
+            // The picture of an opacity group is not repaired box by box: dropped, and the
+            // group is painted (and kept) by the next walk that reaches it.
+            if entry.fade {
+                return None;
+            }
             let new = list_in_slot(entry.placement.slot, render_state)?;
             if entry.key.dpi_bits != dpi_factor.to_bits()
                 || entry.key.settings != paint_settings(glyph_cache, font_manager, render_state)
@@ -5766,35 +6058,11 @@ pub fn render_single_item(
                 let y = rect.y as i32;
                 let w = rect.width as u32;
                 let h = rect.height as u32;
-                let pw = pixmap.width as i32;
-                let ph = pixmap.height as i32;
                 // What the group painted into its cleared region, then the
                 // backdrop back, then the one over the other at its opacity.
                 let painted = snapshot_region(pixmap, x, y, w, h);
                 write_region(pixmap, &snapshot, w, h, x, y);
-                let op = (opacity * 255.0).clamp(0.0, 255.0) as u32;
-                // `blend_pixel`'s levels, without its work where the group
-                // painted nothing or painted opaque.
-                let blender = super::blend::Blender::new(op, blend);
-                for py in 0..h as i32 {
-                    let dy = y + py;
-                    if dy < 0 || dy >= ph {
-                        continue;
-                    }
-                    for px in 0..w as i32 {
-                        let dx = x + px;
-                        if dx < 0 || dx >= pw {
-                            continue;
-                        }
-                        let pi = ((dy as u32 * pixmap.width + dx as u32) * 4) as usize;
-                        let si = ((py as u32 * w + px as u32) * 4) as usize;
-                        if pi + 3 >= pixmap.data.len() || si + 3 >= painted.len() {
-                            continue;
-                        }
-                        let src = [painted[si], painted[si + 1], painted[si + 2], painted[si + 3]];
-                        blender.blend(&mut pixmap.data[pi..pi + 4], src);
-                    }
-                }
+                blend_group_pixels(pixmap, &painted, w, (0, 0), (x, y, w, h), opacity, blend);
             }
         }
 
@@ -20440,5 +20708,280 @@ mod audit_a1_tests {
         // The coverage of a pixel across a dash's end: half in, half out.
         assert!((dash_coverage(12.0, 12.0, 4.0) - 0.5).abs() < 1e-9);
         assert!((dash_coverage(5.5, 12.0, 4.0) - 1.0).abs() < 1e-9 && dash_coverage(14.0, 12.0, 4.0).abs() < 1e-9);
+    }
+
+    // ---- A1-26: kept opacity groups ---------------------------------------------------------
+
+    /// A window (900 x 700) with a group that fades: a ground, 48 cells, then the group (key
+    /// 7, box (100, 80) 500 x 400) around a panel, 30 cells, a label with a halo (when there is
+    /// a font) and a card in a frame of its own (key 8, moved by the render state), then a bar
+    /// painted over the group's lower edge. `edit` 1 recolours a cell OUTSIDE the group (a tile
+    /// that arrived), `edit` 2 the panel inside it (a label that was edited).
+    fn fade_scene(font: Option<(&ParsedFont, FontHash)>, edit: u8) -> Arc<DisplayList> {
+        let mut items = vec![fill(0.0, 0.0, 900.0, 700.0, [236, 233, 225])];
+        for i in 0..8u8 {
+            for j in 0..6u8 {
+                let rgb = if edit == 1 && i == 7 && j == 5 { [255, 0, 255] } else { [i * 30, j * 40, 120] };
+                items.push(fill(f32::from(i) * 110.0 + 10.0, f32::from(j) * 115.0 + 8.0, 90.0, 95.0, rgb));
+            }
+        }
+        items.push(DisplayListItem::PushOpacity {
+            bounds: wrect(100.0, 80.0, 500.0, 400.0),
+            opacity: 1.0,
+            opacity_key: Some(azul_core::resources::OpacityKey { id: 7 }),
+            mix_blend_mode: Default::default(),
+        });
+        items.push(fill(100.0, 80.0, 500.0, 400.0, if edit == 2 { [90, 200, 90] } else { [250, 250, 250] }));
+        for i in 0..6u8 {
+            for j in 0..5u8 {
+                items.push(fill(120.0 + f32::from(i) * 78.0, 150.0 + f32::from(j) * 60.0, 60.0, 44.0, [200 - i * 20, 60 + j * 30, 40]));
+            }
+        }
+        items.extend(haloed(halo(0.0, 2.0, [255, 255, 255]), label(font, "Hirschauer Steige", 22.0, 130.0, 120.0)));
+        items.push(DisplayListItem::PushReferenceFrame {
+            transform_key: azul_core::resources::TransformKey { id: 8 },
+            initial_transform: azul_core::transform::ComputedTransform3D { m: IDENTITY },
+            bounds: wrect(420.0, 400.0, 120.0, 60.0),
+        });
+        items.push(fill(420.0, 400.0, 120.0, 60.0, [30, 30, 160]));
+        items.push(DisplayListItem::PopReferenceFrame);
+        items.push(DisplayListItem::PopOpacity);
+        items.push(fill(80.0, 460.0, 300.0, 30.0, [20, 20, 20]));
+        Arc::new(list(items))
+    }
+
+    /// The render state of a frame of `scene`: the group at `opacity`, its card moved by
+    /// `card` px to the right, kept surfaces in `retained` (if any).
+    fn fade_state(scene: &Arc<DisplayList>, opacity: f32, card: f32, retained: Option<&Arc<RetainedFrames>>, threads: usize) -> CpuRenderState {
+        let mut state = CpuRenderState::new(ScrollOffsetMap::new())
+            .with_root_display_list(Arc::clone(scene))
+            .with_paint_threads(threads);
+        if let Some(retained) = retained {
+            state = state.with_retained_frames(Arc::clone(retained));
+        }
+        state.opacities.insert(7, opacity);
+        state.transforms.insert(8, azul_core::transform::ComputedTransform3D { m: turn_scale_move(0.0, 1.0, card, 0.0) });
+        state
+    }
+
+    /// One frame of `scene` as the backend paints it (the whole window repainted), and what
+    /// was counted.
+    fn fade_frame(
+        scene: &Arc<DisplayList>,
+        state: &CpuRenderState,
+        pm: &mut AzulPixmap,
+        (rr, fm): (&RendererResources, &FontManager<FontRef>),
+    ) -> crate::cpu_counters::CpuFrameCounters {
+        let mut gc = GlyphCache::new();
+        let whole = [rect(0.0, 0.0, 900.0, 700.0)];
+        crate::cpu_counters::reset();
+        if let Some(retained) = &state.retained {
+            refresh_retained_surfaces(state, rr, fm, &mut gc, 1.0).unwrap();
+            retained.begin_frame(&[Arc::as_ptr(scene) as usize]);
+        }
+        render_display_list_damaged(scene, pm, 1.0, rr, fm, &mut gc, state, &whole).unwrap();
+        if let Some(retained) = &state.retained {
+            retained.commit();
+        }
+        crate::cpu_counters::take()
+    }
+
+    /// The same frame painted afresh: nothing kept, one pass, a new target.
+    fn fresh_fade_frame(scene: &Arc<DisplayList>, opacity: f32, card: f32, resources: (&RendererResources, &FontManager<FontRef>)) -> AzulPixmap {
+        let mut pm = AzulPixmap::new(900, 700).unwrap();
+        pm.fill(255, 255, 255, 255);
+        let _ = fade_frame(scene, &fade_state(scene, opacity, card, None, 1), &mut pm, resources);
+        pm
+    }
+
+    /// A1-26: a fade blends the picture it kept. The group of `fade_scene` fades out and in:
+    /// opacity 1.0, 0.8, 0.6, 0.4, 0.2, 0.5, 1.0. Every frame is, pixel for pixel, the frame
+    /// painted afresh; on one thread and in bands (900 x 700 on 4 threads: 3 bands of 234 rows,
+    /// and the group's rows 80 .. 480 reach all three).
+    ///
+    /// - 1.0: the group is not blended (its text may be LCD): painted, nothing looked up.
+    /// - 0.8: painted and kept (a miss per pass).
+    /// - 0.6, 0.4, 0.2, 0.5: blended from the kept picture (a hit per pass); nothing of the
+    ///   group is painted: on one thread the walk paints exactly the items outside the group.
+    /// - 1.0: painted again, nothing looked up.
+    ///
+    /// The kept surface is the group's box, 500 x 400 px = 800,000 bytes.
+    /// Mutations: the group's own opacity key counted among the values inside the group
+    /// (`bind_inside` before the push) makes every step a miss; a hit that blends with the
+    /// opacity the picture was kept under shows 0.8 at 0.6; a hit that does not step past the
+    /// pop paints the group's items over the blended picture.
+    #[test]
+    fn a_fade_blends_the_picture_it_kept_and_it_is_the_frame_painted_afresh() {
+        let font = test_font();
+        let (rr, fm, font_hash) = resources(font.as_ref());
+        let scene = fade_scene(font.as_ref().zip(font_hash), 0);
+        let push = scene.items.iter().position(|i| matches!(i, DisplayListItem::PushOpacity { .. })).unwrap();
+        let pop = scene.items.iter().position(|i| matches!(i, DisplayListItem::PopOpacity)).unwrap();
+        let outside = (scene.items.len() - (pop - push + 1)) as u64;
+        for threads in [1usize, 4] {
+            let passes = if threads == 1 { 1 } else { 3 };
+            let retained = Arc::new(RetainedFrames::with_max_bytes(64 << 20));
+            let mut pm = AzulPixmap::new(900, 700).unwrap();
+            pm.fill(255, 255, 255, 255);
+            let steps: [(f32, (u64, u64)); 7] = [
+                (1.0, (0, 0)),
+                (0.8, (0, passes)),
+                (0.6, (passes, 0)),
+                (0.4, (passes, 0)),
+                (0.2, (passes, 0)),
+                (0.5, (passes, 0)),
+                (1.0, (0, 0)),
+            ];
+            for (step, (opacity, hits_misses)) in steps.into_iter().enumerate() {
+                let state = fade_state(&scene, opacity, 0.0, Some(&retained), threads);
+                let counted = fade_frame(&scene, &state, &mut pm, (&rr, &fm));
+                let what = format!("{threads} thread(s), step {} (opacity {opacity})", step + 1);
+                assert_eq!((counted.retained_hits, counted.retained_misses), hits_misses, "{what}: {counted:?}");
+                if hits_misses.0 > 0 && threads == 1 {
+                    assert_eq!(counted.items_painted, outside, "{what}: nothing of the group is painted: {counted:?}");
+                    assert_eq!(counted.text_runs, 0, "{what}: no text of the group: {counted:?}");
+                }
+                if hits_misses.1 > 0 && threads == 1 {
+                    assert_eq!(counted.items_painted, scene.items.len() as u64, "{what}: the group is painted: {counted:?}");
+                }
+                let fresh = fresh_fade_frame(&scene, opacity, 0.0, (&rr, &fm));
+                assert_eq!(differing_pixels(&pm, &fresh), 0, "{what}: the frame is the one painted afresh");
+            }
+            assert_eq!((retained.len(), retained.bytes()), (1, 500 * 400 * 4), "{threads} thread(s): the group's box");
+        }
+        // Harness: the fade shows (the panel at 0.2 is not the panel at 0.8), and so does the group.
+        let (strong, weak) = (fresh_fade_frame(&scene, 0.8, 0.0, (&rr, &fm)), fresh_fade_frame(&scene, 0.2, 0.0, (&rr, &fm)));
+        assert!(differing_pixels(&strong, &weak) > 100_000);
+        // The bar painted after the group lies over it: (200, 470) is the bar's colour.
+        assert_eq!(px(&weak, 200, 470), [20, 20, 20, 255]);
+    }
+
+    /// A1-26, the invalidation rules of a kept group, each against the frame painted afresh.
+    /// After a frame at 0.8 that keeps the group's picture:
+    /// - the control: a frame at 0.6 blends it (a hit);
+    /// - rule 5, a value inside the group: the card's matrix is written (moved by 30 px): the
+    ///   group is painted again and the picture kept for it replaces the old one;
+    /// - rule 1, the list: a cell OUTSIDE the group changes colour (a tile arrives during the
+    ///   fade) or the panel INSIDE it does (an edit): the picture is dropped with its list (it
+    ///   is not repaired), the group is painted and kept again, and the next step blends it;
+    /// - no cache (`AZ_CPU_RETAINED_MB=0`): painted, nothing kept.
+    /// Mutations: `values` without the keys inside the group shows the card where it was; an
+    /// entry that outlives its list shows the old panel.
+    #[test]
+    fn a_kept_group_is_painted_again_when_what_it_shows_changed() {
+        let font = test_font();
+        let (rr, fm, font_hash) = resources(font.as_ref());
+        let font = font.as_ref().zip(font_hash);
+        let kept_scene = || {
+            let scene = fade_scene(font, 0);
+            let retained = Arc::new(RetainedFrames::with_max_bytes(64 << 20));
+            let mut pm = AzulPixmap::new(900, 700).unwrap();
+            pm.fill(255, 255, 255, 255);
+            let first = fade_frame(&scene, &fade_state(&scene, 0.8, 0.0, Some(&retained), 1), &mut pm, (&rr, &fm));
+            assert_eq!((first.retained_hits, first.retained_misses, retained.len()), (0, 1, 1));
+            (scene, retained, pm)
+        };
+
+        // The control.
+        let (scene, retained, mut pm) = kept_scene();
+        let next = fade_frame(&scene, &fade_state(&scene, 0.6, 0.0, Some(&retained), 1), &mut pm, (&rr, &fm));
+        assert_eq!((next.retained_hits, next.retained_misses), (1, 0), "{next:?}");
+        assert_eq!(differing_pixels(&pm, &fresh_fade_frame(&scene, 0.6, 0.0, (&rr, &fm))), 0);
+
+        // Rule 5: a value inside the group.
+        let (scene, retained, mut pm) = kept_scene();
+        let moved = fade_frame(&scene, &fade_state(&scene, 0.6, 30.0, Some(&retained), 1), &mut pm, (&rr, &fm));
+        assert_eq!((moved.retained_hits, moved.retained_misses), (0, 1), "the card moved: {moved:?}");
+        assert_eq!(moved.retained_invalidations, 1, "the picture of the card's old place is replaced: {moved:?}");
+        let fresh = fresh_fade_frame(&scene, 0.6, 30.0, (&rr, &fm));
+        assert_eq!(differing_pixels(&pm, &fresh), 0, "the card 30 px to the right");
+        assert!(differing_pixels(&fresh, &fresh_fade_frame(&scene, 0.6, 0.0, (&rr, &fm))) > 500, "harness: the move shows");
+        assert_eq!(retained.len(), 1);
+        let after = fade_frame(&scene, &fade_state(&scene, 0.4, 30.0, Some(&retained), 1), &mut pm, (&rr, &fm));
+        assert_eq!((after.retained_hits, after.retained_misses), (1, 0), "{after:?}");
+        assert_eq!(differing_pixels(&pm, &fresh_fade_frame(&scene, 0.4, 30.0, (&rr, &fm))), 0);
+
+        // Rule 1: the list, changed outside the group and inside it.
+        for edit in [1u8, 2] {
+            let (scene, retained, mut pm) = kept_scene();
+            assert_eq!(Arc::strong_count(&scene), 2, "the kept picture holds its list");
+            let edited = fade_scene(font, edit);
+            let frame = fade_frame(&edited, &fade_state(&edited, 0.6, 0.0, Some(&retained), 1), &mut pm, (&rr, &fm));
+            assert_eq!((frame.retained_patched, frame.retained_invalidations), (0, 1), "edit {edit}: dropped: {frame:?}");
+            assert_eq!((frame.retained_hits, frame.retained_misses), (0, 1), "edit {edit}: painted: {frame:?}");
+            assert_eq!(Arc::strong_count(&scene), 1, "edit {edit}: the old list is let go of");
+            let fresh = fresh_fade_frame(&edited, 0.6, 0.0, (&rr, &fm));
+            assert_eq!(differing_pixels(&pm, &fresh), 0, "edit {edit}: the edited list");
+            assert!(differing_pixels(&fresh, &fresh_fade_frame(&scene, 0.6, 0.0, (&rr, &fm))) > 500, "harness: edit {edit} shows");
+            let next = fade_frame(&edited, &fade_state(&edited, 0.4, 0.0, Some(&retained), 1), &mut pm, (&rr, &fm));
+            assert_eq!((next.retained_hits, next.retained_misses), (1, 0), "edit {edit}: kept again: {next:?}");
+            assert_eq!(differing_pixels(&pm, &fresh_fade_frame(&edited, 0.4, 0.0, (&rr, &fm))), 0);
+        }
+
+        // A cache that keeps nothing: the group is no candidate at all.
+        let scene = fade_scene(font, 0);
+        let none = Arc::new(RetainedFrames::with_max_bytes(0));
+        let mut pm = AzulPixmap::new(900, 700).unwrap();
+        pm.fill(255, 255, 255, 255);
+        for opacity in [0.8_f32, 0.6] {
+            let frame = fade_frame(&scene, &fade_state(&scene, opacity, 0.0, Some(&none), 1), &mut pm, (&rr, &fm));
+            assert_eq!((frame.retained_hits, frame.retained_misses, none.len()), (0, 0, 0), "{frame:?}");
+            assert_eq!(differing_pixels(&pm, &fresh_fade_frame(&scene, opacity, 0.0, (&rr, &fm))), 0);
+        }
+    }
+
+    /// A1-26: which opacity groups a walk may step over (`FrameIndex::opacity_scope_at`), and
+    /// what their pictures depend on. In one list:
+    /// - a group around a fill, an inner group (key 5), a frame (key 6) and a bound colour:
+    ///   it ends at its pop and depends on the keys 5 and 6 and the colour key 9 - not on its
+    ///   own key 4;
+    /// - the inner group: ends at its own pop, depends on nothing;
+    /// - a group whose pop comes after the pop of a clip that was opened inside it: none;
+    /// - a group opened inside a frame and popped after the frame's pop: none.
+    /// Mutations: `pop_closed_its_own` not asked for gives the third group a scope (a walk
+    /// that steps over it leaves the clip stack one short); `frames_before` not compared gives
+    /// the fourth one (a walk that steps over it never pops the frame).
+    #[test]
+    fn an_opacity_group_is_stepped_over_only_when_it_closes_what_it_opened() {
+        let group = |key: usize| DisplayListItem::PushOpacity {
+            bounds: wrect(0.0, 0.0, 300.0, 300.0),
+            opacity: 0.5,
+            opacity_key: Some(azul_core::resources::OpacityKey { id: key }),
+            mix_blend_mode: Default::default(),
+        };
+        let mut items = vec![group(4), fill(0.0, 0.0, 10.0, 10.0, [1, 2, 3]), group(5), fill(0.0, 0.0, 5.0, 5.0, [1, 2, 3]), DisplayListItem::PopOpacity];
+        items.extend(frame(6, IDENTITY, (20.0, 20.0), vec![fill(0.0, 0.0, 20.0, 20.0, [9, 9, 9])]));
+        items.push(DisplayListItem::PopOpacity);
+        let first_end = items.len() - 1;
+        // 3: a clip opened inside the group and closed after it.
+        let third = items.len();
+        items.push(group(10));
+        items.push(DisplayListItem::PushClip { bounds: wrect(0.0, 0.0, 50.0, 50.0), border_radius: BorderRadius::default() });
+        items.push(DisplayListItem::PopOpacity);
+        items.push(DisplayListItem::PopClip);
+        // 4: a group opened inside a frame, popped after the frame.
+        let frame_push = items.len();
+        items.push(DisplayListItem::PushReferenceFrame {
+            transform_key: azul_core::resources::TransformKey { id: 12 },
+            initial_transform: azul_core::transform::ComputedTransform3D { m: IDENTITY },
+            bounds: wrect(0.0, 0.0, 40.0, 40.0),
+        });
+        let fourth = items.len();
+        items.push(group(11));
+        items.push(DisplayListItem::PopReferenceFrame);
+        items.push(DisplayListItem::PopOpacity);
+        let mut dl = list(items);
+        dl.color_bindings = vec![None; dl.items.len()];
+        dl.color_bindings[1] = Some(azul_core::resources::ColorKey { id: 9 });
+        let index = dl.frame_index();
+        let first = index.opacity_scope_at(0).expect("the first group closes what it opened");
+        assert_eq!(first.end, first_end);
+        assert_eq!((first.inner.opacity_keys.clone(), first.inner.transform_keys.clone(), first.inner.color_keys.clone()), (vec![5], vec![6], vec![9]));
+        assert!(first.inner.scroll_ids.is_empty() && !first.inner.has_view);
+        let inner = index.opacity_scope_at(2).expect("the group inside it");
+        assert_eq!((inner.end, inner.inner.clone()), (4, crate::solver3::display_list::FrameInner::default()));
+        assert!(index.opacity_scope_at(third).is_none(), "its pop closes a clip's scope");
+        assert!(index.opacity_scope_at(fourth).is_none(), "the frame around its push ends inside it");
+        assert!(index.opacity_scope_at(1).is_none() && index.opacity_scope_at(frame_push).is_none(), "no group is pushed there");
     }
 }
