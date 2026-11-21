@@ -5278,16 +5278,26 @@ mod audit_diff_first_tests {
         refany::OptionRefAny,
     };
 
+    /// `span.{class}` with `style` as the node's OWN style (none for an empty string):
+    /// `NodeData::set_css`. Not `Dom::with_css`, which hangs a scoped SHEET on the node: the
+    /// fingerprints list that under `sheets`, and a rebuild that changed one is no change of
+    /// nodes where they stand (`same_tree_changes` answers `None` for it, the window then
+    /// reconciles the rebuild or takes the full path). The first fixture built its "inline
+    /// style" with `Dom::with_css` and so asked the wrong question in four tests.
+    fn span(class: &'static str, style: &'static str) -> Dom {
+        let mut node = NodeData::create_node(NodeType::Span);
+        if !style.is_empty() {
+            node.set_css(style);
+        }
+        Dom::create_from_data(node).with_class(class.into())
+    }
+
     /// `body > div.{class} > [span.{cell} > text]*`, each span with the inline style `styles[i]`
-    /// (none for an empty string).
+    /// of its own ([`span`]; none for an empty string).
     fn page(class: &'static str, cells: &[(&'static str, &'static str, &'static str)]) -> Dom {
         let mut row = Dom::create_div().with_class(class.into());
         for (cell, style, text) in cells {
-            let mut span = Dom::create_span().with_class((*cell).into());
-            if !style.is_empty() {
-                span = span.with_css(style);
-            }
-            row = row.with_child(span.with_child(
+            row = row.with_child(span(*cell, *style).with_child(
                 Dom::create_text_do_not_use_without_block_level_wrapper(*text),
             ));
         }
@@ -5350,22 +5360,21 @@ mod audit_diff_first_tests {
             Dom::create_div()
                 .with_class("row".into())
                 .with_child(
-                    Dom::create_span()
-                        .with_class("a".into())
+                    span("a", "")
                         .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("one")),
                 )
                 .with_child(
-                    Dom::create_span()
-                        .with_class("b".into())
-                        .with_css("left: 4px;")
+                    span("b", "left: 4px;")
                         .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("two"))
                         .with_child(
-                            Dom::create_span().with_class("c".into()).with_child(
+                            span("c", "").with_child(
                                 Dom::create_text_do_not_use_without_block_level_wrapper("three"),
                             ),
                         ),
                 ),
         );
+        // No sheet in either (the premise of this case: the TREE is what differs).
+        assert!(fingerprint_dom(&nested).0.sheets.is_empty(), "premise: no sheet is attached");
         assert_eq!(changes(&old, &nested), None, "another tree of as many nodes");
 
         let sheet = |rule: &str| {
@@ -5376,6 +5385,18 @@ mod audit_diff_first_tests {
         assert_eq!(changes(&red, &blue), None, "a sheet changed");
         assert_eq!(changes(&old, &red), None, "a sheet came");
         assert_eq!(changes(&red, &sheet(".a { color: red; }")), None, "the same sheet: alike");
+
+        // `Dom::with_css` hangs such a sheet on its node (scoped to it): it is listed, and a
+        // rebuild that changed it is not named either. It is not lost: the fingerprints
+        // differ (`style` and `sheets`), so the rebuild is no identical one and no change of
+        // texts alone, and the window styles it with the new sheet (dll: the equality walks
+        // change a row's `with_css`).
+        let hung = |style: &str| Dom::create_body().with_child(Dom::create_div().with_css(style));
+        let (four, nine) = (fingerprint_dom(&hung("left: 4px;")).0, fingerprint_dom(&hung("left: 9px;")).0);
+        assert_eq!(four.sheets.len(), 1, "`Dom::with_css` is a sheet on the node");
+        assert_ne!(four, nine, "a changed `with_css` is a changed build");
+        assert_eq!(same_tree_changes(&four, &nine), None, "a `with_css` sheet changed");
+        assert_eq!(texts_alone_changed(&four, &nine), None, "and it is no change of texts");
     }
 
     /// The changed nodes are written onto the kept arena whole; every other node stays the

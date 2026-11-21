@@ -624,6 +624,49 @@ compact entries and all ~200 properties per node in three states equal a DOM sty
 - severity: medium
 - status: blocked (a): the number type of the solver's output, of every display-list rect and of the rects callbacks read (`LogicalRect`): A3-solver's, A3-core's, both renderers' files, api.json and every golden
 
+### diff-first-17 the first half's core tests took `Dom::with_css` for a node's own style (seven red tests)
+- file:line: `core/src/diff_test.rs` `audit_diff_first_tests` (`page`, the nested tree); `core/src/styled_dom_test.rs`
+  `audit_diff_first_tests` (`page`, `rebuild_onto`, `walk`)
+- class: a defect of the FIXTURES, not of the pipeline (the verifier's seven failures of azul-core on integration
+  `a23a72fde`); the code is right in all seven and is not changed
+- the four of `diff_test.rs`: the fixture gave a span its "inline style" with `Dom::with_css`, which hangs a
+  scoped SHEET on the node (`Dom::set_css`: `add_component_css(Css::parse_scoped(..))`); the node's own style is
+  `NodeData::set_css` / `with_css_props`. So `sheets` was not empty (`the_subtree_sizes_are_the_tree`), a changed
+  "inline style" was a changed sheet and `same_tree_changes` answered `None` as documented
+  (`a_rebuild_that_kept_the_tree_names_the_nodes_it_changed`, `the_changed_nodes_are_written_onto_the_kept_arena`),
+  and the page with a component sheet listed two sheets (`a_rebuild_that_changed_the_tree_or_a_sheet_is_not_named`).
+  Fixture corrected: the spans carry their OWN style (`span()`); each test still fails on its mutant (the `style`
+  tier not compared: "the second span's style"; `subtree_len` not compared: the nested tree, which now holds no
+  sheet, so only the tree differs; `sheets` not compared: the red and the blue sheet).
+- should the code NAME a node whose scoped sheet changed? No, and it is no hole. Naming a node hands the rebuild
+  to exit 1.46, which writes the node onto the kept arena and cascades it against the sheets the kept DOM was
+  created with: it has no way to exchange a sheet (the sheets left the `Dom` at creation, `take_css_from_dom`).
+  `None` from `same_tree_changes` does not mean "nothing changed", it means "not this exit": a changed `with_css`
+  changes the node's `style` hash and the `sheets` list, so the fingerprints differ (no identical exit),
+  `texts_alone_changed` wants equal `style` (no exit 1.45), `same_tree_changes` wants equal `sheets` (no exit
+  1.46), and the rebuild goes on to exit 1.47 - where `cascade_reusing` compares each node's sheet hash of the
+  two builds and cascades the node and everything below it again
+  (`a_node_whose_own_sheet_changed_is_cascaded_again`) - or to the full path. Pinned now in
+  `a_rebuild_that_changed_the_tree_or_a_sheet_is_not_named` (a `with_css` that changed: listed, unequal
+  fingerprints, `None` from both diffs); the dll equality walks change a row's `with_css` on every other step
+  (`DF_PLACES`) and compare with the full path.
+- the three walks of `styled_dom_test.rs`, seed 1, step 0 by hand: kind 6, picks [38, 37, 33, 42, 47, 6], nine
+  sections: section 2's kind becomes 42 % 4 = 2 (it was 2), section 6's text 6 % 4 = 2 (it was 2), section 1's
+  place 47 % 5 = 2 (it was 0). So the step's only change is `PLACES[2]` on section 1's box, node 9 - through
+  `Dom::with_css`, a sheet. `rebuild_onto` asked `same_tree_changes`, got `None` (a sheet came) and returned
+  through its `?` WITHOUT touching the kept DOM; the walk took `None` for "alike" and compared the untouched
+  DOM with a new one: node 9's matched rules, rows and `width` / `margin-left` differ (the 9 differences). The
+  window does not do that (see above). Fixture corrected: the walks build `page_own` (the place is the box's
+  own style, which IS a change where the node stands, and what the walk's doc says it changes), and the walk
+  now stops with "harness" when a step changed the page and was not rebuilt. `page` keeps hanging sheets: the
+  walks of the step `tree` stand on that.
+- what this does NOT prove: with the corrected fixture the three walks style a changed OWN style through
+  `recascade_nodes` for the first time in any run (the inline declarations of the node, inherited ones for what
+  is below it, `inline_overruled`). If they are still red after this, that is a real defect of exit 1.46's
+  cascade, and the message names the node and the property.
+- severity: medium (seven red tests; no wrong output)
+- status: fixed (the two commits after diff-first-15; hashes in the hand-over table)
+
 ### A3-window-32 (styled_dom part) the preparation walks of a `Dom` before it is styled
 - file:line: `core/src/styled_dom.rs` `create_from_dom_inheriting`, `create_from_prepared_dom`
 - what the row said: "the four preparation walks run twice; every attached sheet is cloned". Both are gone on the
@@ -884,7 +927,8 @@ ARENA after the flatten, never `nodes_at`.
 
 | diff-first-13 (a written DOM gets no clean flags; the slider) | 6c43652f1 | dll `dragging_the_slider_leaves_no_thumb_behind`, `a_style_a_callback_wrote_is_laid_out_by_the_rebuild_it_asked_for` |
 | diff-first-14 (the gate `animation`, per reached node) | 6e4391abc | dll `an_animated_node_elsewhere_does_not_send_a_rebuild_down_the_full_path`, `an_identical_rebuild_and_a_changed_text_style_no_node` |
-| diff-first-15 (a moved box is painted anew by a patched pass; `AZ_DL_TRANSLATE_MOVED_RUNS`) | the commit that adds this row (`git log --grep diff-first-15`) | layout `audit_tests::diff_first::*` (three), `audit_tests::a3_window::a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it`; dll the five walks `a_rebuild_down_the_diff_first_path_leaves_what_the_full_path_leaves`, `a_rebuild_that_changed_the_tree_*`, `a_view_rendered_again_leaves_what_the_full_path_leaves` |
+| diff-first-15 (a moved box is painted anew by a patched pass; `AZ_DL_TRANSLATE_MOVED_RUNS`) | 8447aa202 | layout `audit_tests::diff_first::*` (three), `audit_tests::a3_window::a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it`; dll the five walks `a_rebuild_down_the_diff_first_path_leaves_what_the_full_path_leaves`, `a_rebuild_that_changed_the_tree_*`, `a_view_rendered_again_leaves_what_the_full_path_leaves` |
+| diff-first-17 (the core fixtures: a node's own style, not `Dom::with_css`) | `git log --grep diff-first-17` (two commits: `diff_test.rs`, then `styled_dom_test.rs`) | core `diff::diff_test::audit_diff_first_tests` (all), `styled_dom::...::audit_diff_first_tests::the_cascade_over_changed_nodes_*` (three walks) and the rest of that module |
 
 **The verifier's first run of the dll suite (integration `57a46db75`, first half): the seven of this area.**
 1. `dragging_the_slider_leaves_no_thumb_behind`: a real defect of the kept exits: fixed 6c43652f1 (diff-first-13).
@@ -913,10 +957,10 @@ moves boxes anchored right / bottom and behind a percentage margin, and their pr
 turn `a_height_tween_re_emits_its_box_not_what_it_holds` red (`re_emitted <= 8`). Neither file is edited. The
 three ways out are in the block of diff-first-15.
 
-**In flight:** the seven azul-core lib failures the verifier reported on integration `a23a72fde` (four in
-`diff_test::audit_diff_first_tests`, three walks in `styled_dom_test::audit_diff_first_tests`): next commit(s).
-Reading so far: the fixtures use `Dom::with_css` (a scoped SHEET) where they mean the node's own style, and
-`same_tree_changes` answers `None` for a changed sheet by design (such a rebuild is exit 1.47's).
+**In flight:** diff-first-15's second part, by the coordinator's decision (way 3): an overrides-only (tween)
+frame translates a moved box's run and records the box; the first pass that is not one, and the tween's last
+frame, paint the recorded boxes anew. Not started in code; `8447aa202` (every moved box painted anew) is what
+the branch does until then, and the two ribbon guards are red on it.
 
 **Left, in the order of the coordinator's priorities, each with its design in the block named:**
 1. (done: eba4d13e4) Views, the kept exits.
