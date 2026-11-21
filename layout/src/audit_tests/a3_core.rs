@@ -731,13 +731,15 @@ fn a_pass_over_a_dom_of_the_same_generation_reads_none_of_its_nodes() {
     );
     assert!(!second.published, "and nothing changed");
 
-    // Another layout: another generation, the nodes are read again by the pass that follows it.
+    // Another DOM laid out (one label more): another generation, and the pass that follows
+    // the layout reads its nodes.
     let passes = lw.a11y_tree_updates;
-    lay_out_in(&mut lw, label_layer(50, 0));
+    lay_out_in(&mut lw, label_layer(51, 0));
     assert_ne!(lw.dom_generation(DomId::ROOT_ID), generation, "harness: a layout moves it");
     assert_eq!(lw.a11y_tree_updates, passes + 1, "harness: one pass per layout");
     let third = lw.a11y_manager.last_pass;
-    assert_eq!((third.walked, third.replayed), (nodes, 0), "{third:?}");
+    assert_eq!(third.nodes - 1, nodes + 2, "harness: a span and its text more");
+    assert_eq!((third.walked, third.replayed), (nodes + 2, 0), "{third:?}");
 }
 
 /// A3-core-13 (A3-solver 36c): the used colour of a node asks every ancestor for a runtime
