@@ -79,6 +79,9 @@ use crate::{
     },
 };
 
+// One node's background and border painted again into a list that is kept (a `:hover` colour).
+pub(crate) mod node_patch;
+
 /// Fill the unknown grid lines of a table: linear interpolation between
 /// the known ones, the nearest known one past either end (0 without any).
 #[allow(clippy::cast_precision_loss)] // grid line indices are small

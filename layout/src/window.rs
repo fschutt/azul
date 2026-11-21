@@ -933,6 +933,10 @@ pub struct FrameReport {
     /// those into damage). Cached-DL hits inside `layout_document` do not
     /// count: serving the cache is not building.
     pub dl_rebuilds: u32,
+    /// Number of restyles shown by painting the restyled nodes' background-and-border runs
+    /// into the list that is kept ([`LayoutWindow::patch_restyled_decorations`]) since the
+    /// last counter reset: a `:hover` colour that built no list.
+    pub dl_node_patches: u32,
     /// Whether the LAST display-list build went through the per-IFC patch
     /// (splice unchanged nodes from the previous DL, re-emit only reflowed
     /// IFCs / size-changed nodes) rather than a full emission. A text edit
@@ -1036,6 +1040,7 @@ impl FrameReport {
         self.dom_regenerations = 0;
         self.layout_passes = 0;
         self.dl_rebuilds = 0;
+        self.dl_node_patches = 0;
         self.font_shape_deficit = 0;
         self.virtual_view_size_passes = 0;
         self.hit_depth_cap = false;
@@ -26865,6 +26870,195 @@ impl LayoutWindow {
         ) {
             self.pending_css_dirty = None;
         }
+    }
+
+    /// A restyle that changed nothing but the DECORATIONS of a few nodes of `dom_id` - their
+    /// background, border colours, shadows (a `:hover { background }` on one label of a map) -
+    /// shown without building the DOM's display list again: each node's background-and-border
+    /// run is painted alone, by the build's own function, and put into the list that is kept
+    /// (`solver3::display_list::node_patch`). Returns `true` when the list now shows the
+    /// styles as they are; `false`, and nothing changed, when it cannot be done this way (a
+    /// property that is no decoration, a node the patch cannot place, a caret or selection
+    /// tween in flight): the caller builds the list ([`Self::regenerate_display_list_for_dom`]).
+    ///
+    /// `regenerate_display_list_for_dom` walks every node of the DOM and emits every item
+    /// again: 12,470 nodes and 17,495 items for a map view, on every enter and every leave of
+    /// the pointer over a label. The patch paints one run and moves the items behind it.
+    pub fn patch_restyled_decorations(
+        &mut self,
+        dom_id: DomId,
+        changed: &azul_core::events::RestyleNodes,
+    ) -> bool {
+        use azul_css::props::property::CssPropertyType as Ty;
+
+        use crate::solver3::{
+            display_list::{dl_patching_enabled, node_patch},
+            LayoutContext,
+        };
+
+        /// A restyle of more nodes than this builds the list.
+        const MAX_NODES: usize = 8;
+
+        if changed.is_empty() || changed.len() > MAX_NODES || !dl_patching_enabled() {
+            return false;
+        }
+        // What the background-and-border run of a node is painted from, and nothing else is.
+        let decoration = |ty: Ty| {
+            matches!(
+                ty,
+                Ty::BackgroundContent
+                    | Ty::BackgroundColor
+                    | Ty::BackgroundPosition
+                    | Ty::BackgroundSize
+                    | Ty::BackgroundRepeat
+                    | Ty::BorderTopColor
+                    | Ty::BorderRightColor
+                    | Ty::BorderBottomColor
+                    | Ty::BorderLeftColor
+                    | Ty::BoxShadowTop
+                    | Ty::BoxShadowRight
+                    | Ty::BoxShadowBottom
+                    | Ty::BoxShadowLeft
+            )
+        };
+        let only_decorations = changed.values().all(|changes| {
+            !changes.is_empty()
+                && changes.iter().all(|change| {
+                    decoration(change.current_prop.get_type())
+                        && decoration(change.previous_prop.get_type())
+                })
+        });
+        // A caret or selection tween builds its frames from a list built anew.
+        if !only_decorations || self.text_edit_manager.tween.is_active() {
+            return false;
+        }
+        let nodes: Vec<NodeId> = changed.keys().copied().collect();
+
+        // The light and the colour keys a build of this list runs under.
+        let _light = azul_core::light::LightScope::enter(
+            self.effective_light(),
+            [self.window_desktop_origin().x, self.window_desktop_origin().y],
+        );
+        if dom_id == DomId::ROOT_ID {
+            self.retain_running_color_keys();
+        }
+
+        // 1. The runs, painted from the inputs `regenerate_display_list_for_dom` builds with.
+        let patches = {
+            let Some(layout_result) = self.layout_results.get(&dom_id) else {
+                return false;
+            };
+            let styled_dom = &layout_result.styled_dom;
+            let viewport = layout_result.viewport;
+            let scroll_offsets = self.scroll_manager.get_scroll_states_for_dom(dom_id);
+            let empty_gpu_cache = GpuValueCache::default();
+            let gpu_cache = gpu_cache_for_pass(&self.gpu_state_manager, dom_id, false)
+                .unwrap_or(&empty_gpu_cache);
+            let cursor_is_visible = self.cursor_is_visible_now();
+            let cursor_locations = self.text_edit_manager.build_cursor_locations();
+            let text_selections_map = self.text_edit_manager.build_text_selections_map();
+            let seat_focus_rings = self.seat_focus_rings();
+            let mut counter_values = HashMap::new();
+            let mut debug_messages: Option<Vec<LayoutDebugMessage>> = None;
+            let cache_map = std::mem::take(&mut self.layout_cache.cache_map);
+            let mut ctx = LayoutContext {
+                reflowed_ifcs: BTreeSet::new(),
+                style_cache: Default::default(),
+                virtual_view_sizes: None,
+                scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+                styled_dom,
+                font_manager: &self.font_manager,
+                text_selections: &text_selections_map,
+                debug_messages: &mut debug_messages,
+                counters: &mut counter_values,
+                viewport_size: viewport.size,
+                canvas_rect: Self::canvas_rect_for(
+                    dom_id == DomId::ROOT_ID,
+                    viewport,
+                    &self.current_window_state,
+                ),
+                fragmentation_context: None,
+                cursor_is_visible,
+                cursor_locations,
+                owner_colors: self.text_edit_manager.owner_colors.clone(),
+                seat_focus_rings,
+                paint_selection_handles: self.text_edit_manager.selection_handles,
+                preedit_text: self.text_edit_manager.preedit_text.clone(),
+                cache_map,
+                image_cache: &self.image_cache,
+                content_overlay: Some(&self.content_overlay),
+                system_style: self.system_style.clone(),
+                get_system_time_fn: azul_core::task::GetSystemTimeCallback {
+                    cb: azul_core::task::get_system_time_libstd,
+                },
+            };
+            let patches = node_patch::plan(
+                &mut ctx,
+                &layout_result.layout_tree,
+                &layout_result.calculated_positions,
+                &scroll_offsets,
+                &layout_result.scroll_ids,
+                Some(gpu_cache),
+                &self.renderer_resources,
+                self.id_namespace,
+                dom_id,
+                &nodes,
+            );
+            self.layout_cache.cache_map = std::mem::take(&mut ctx.cache_map);
+            patches
+        };
+        let Some(patches) = patches else {
+            return false;
+        };
+
+        // 2. Their places in the list as it is; nothing is written before all are known.
+        let Some(layout_result) = self.layout_results.get_mut(&dom_id) else {
+            return false;
+        };
+        let Some(placements) = node_patch::locate(&layout_result.display_list, &patches) else {
+            return false;
+        };
+
+        // 3. Into the list. The solver's structural-identity cache may hold this very list
+        // (ROOT only: the cache is the root DOM's): it lets go of it for the patch and takes
+        // the patched one back, so a list nobody else holds is patched in place (see
+        // `patch_display_list`). A cache that holds a list of its own is emptied: the next
+        // pass builds the list instead of serving the decorations from before.
+        let cache_holds_it = if dom_id == DomId::ROOT_ID {
+            self.layout_cache
+                .cached_display_list
+                .as_ref()
+                .map(|cached| Arc::ptr_eq(&cached.5, &layout_result.display_list))
+        } else {
+            None
+        };
+        match cache_holds_it {
+            Some(true) => {
+                if let Some(cached) = self.layout_cache.cached_display_list.as_mut() {
+                    drop(core::mem::take(&mut cached.5));
+                }
+            }
+            Some(false) => self.layout_cache.cached_display_list = None,
+            None => {}
+        }
+        node_patch::commit(
+            Arc::make_mut(&mut layout_result.display_list),
+            &patches,
+            &placements,
+        );
+        if cache_holds_it == Some(true) {
+            if let Some(cached) = self.layout_cache.cached_display_list.as_mut() {
+                cached.5 = layout_result.display_list.clone();
+            }
+        }
+
+        // The list changed outside a layout pass, as a rebuild of it does: the patch
+        // bookkeeping of the last pass no longer describes it. And the paint dirt the
+        // restyle staged for this DOM is served: the list shows the styles it describes.
+        self.layout_cache.record_full_emission();
+        self.serve_paint_dirt(dom_id);
+        self.frame_report.dl_node_patches = self.frame_report.dl_node_patches.saturating_add(1);
+        true
     }
 
     /// Regenerate the display list for a specific DOM from the current layout tree.

@@ -304,3 +304,201 @@ fn a_kept_view_laid_out_for_another_box_copies_no_layout_tree() {
         "no pass copied a layout tree the window still held"
     );
 }
+
+// -- A3-window-07: a hover colour is painted into the list the view has (Z3) -------------------
+
+use azul_core::styled_dom::HoverChange;
+
+use crate::solver3::display_list::{DisplayList, DisplayListItem};
+
+/// The data of the view of [`label_page`]: how many labels it draws.
+struct Labels(usize);
+
+/// A map's label layer: `count` absolutely placed spans with a text, each with a hover colour.
+/// Every third label has a background of its own, every third is turned (a reference frame).
+/// Child DOM: div 0, then span `1 + 2 i` and its text `2 + 2 i` for label `i`.
+extern "C" fn label_page(mut data: RefAny, _info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+    let count = data
+        .downcast_ref::<Labels>()
+        .map(|labels| labels.0)
+        .expect("the view's data");
+    let mut layer = Dom::create_div();
+    for i in 0..count {
+        let own = match i % 3 {
+            1 => "background: #ffee99;",
+            2 => "transform-origin: 0px 9px; transform: rotate(12deg);",
+            _ => "",
+        };
+        layer = layer.with_child(Dom::create_span_with_text(format!("Label {i}")).with_css(&format!(
+            "position: absolute; left: {}px; top: {}px; width: 60px; height: 12px; font-size: \
+             12px; line-height: 1; white-space: pre; cursor: pointer; {own} :hover {{ \
+             background: rgba(66, 134, 244, 0.35); }}",
+            10 + (i % 8) * 70,
+            10 + (i / 8) * 16,
+        )));
+    }
+    let window = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(600.0, 400.0));
+    VirtualViewReturn::with_dom(layer, window, window)
+}
+
+/// A window whose view holds `count` labels, laid out; the view's document.
+fn label_window(count: usize) -> (LayoutWindow, DomId) {
+    let mut dom = Dom::create_body().with_css("margin: 0px;").with_child(
+        Dom::create_virtual_view(RefAny::new(Labels(count)), VirtualViewCallback::create(label_page))
+            .with_css("position: absolute; left: 0px; top: 0px; width: 600px; height: 400px;"),
+    );
+    let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(600.0, 400.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    let child = *lw
+        .layout_results
+        .keys()
+        .find(|dom| **dom != DomId::ROOT_ID)
+        .expect("the view's document");
+    (lw, child)
+}
+
+/// The span of label `i` and its text, as the hover manager enters and leaves them.
+fn label_nodes(i: usize) -> Vec<NodeId> {
+    vec![NodeId::new(2 + 2 * i), NodeId::new(1 + 2 * i)]
+}
+
+/// A list as text, one line per item with the node and the paint call it belongs to.
+fn lines(list: &DisplayList) -> Vec<String> {
+    list.items
+        .iter()
+        .enumerate()
+        .map(|(i, item)| {
+            format!(
+                "{item:?} | node {:?} | call {:?}",
+                list.node_mapping.get(i),
+                list.layout_node_mapping.get(i)
+            )
+        })
+        .collect()
+}
+
+/// The pointer enters (or leaves) label `i`: the restyle, shown by the decoration patch.
+/// Returns the view's list as the patch left it.
+fn hover(lw: &mut LayoutWindow, child: DomId, i: usize, enters: bool) -> Vec<String> {
+    let (entered_nodes, left_nodes) = if enters {
+        (label_nodes(i), Vec::new())
+    } else {
+        (Vec::new(), label_nodes(i))
+    };
+    let restyle = lw
+        .layout_results
+        .get_mut(&child)
+        .expect("the view's document")
+        .styled_dom
+        .restyle_on_state_change(
+            None,
+            Some(HoverChange {
+                left_nodes,
+                entered_nodes,
+            }),
+            None,
+        );
+    assert!(
+        restyle.changed_nodes.contains_key(&NodeId::new(1 + 2 * i)),
+        "harness: the span of label {i} restyled: {:?}",
+        restyle.changed_nodes.keys().collect::<Vec<_>>()
+    );
+    assert!(
+        lw.patch_restyled_decorations(child, &restyle.changed_nodes),
+        "the hover of label {i} (enters: {enters}) is shown by a patch"
+    );
+    lines(&lw.layout_results[&child].display_list)
+}
+
+/// What the patch leaves is what a build of the list gives: for a label without a background
+/// (the hover colour is an item the list did not hold: the insert), for one with a background
+/// of its own (its item takes the hover colour) and for a turned one (inside its reference
+/// frame); entering and leaving.
+#[test]
+fn a_hover_colour_patched_into_the_list_is_the_list_a_build_gives() {
+    let (mut lw, child) = label_window(12);
+    for label in [0_usize, 1, 2, 9, 10, 11] {
+        for enters in [true, false] {
+            let patched = hover(&mut lw, child, label, enters);
+            lw.regenerate_display_list_for_dom(child);
+            let built = lines(&lw.layout_results[&child].display_list);
+            assert_eq!(
+                patched.len(),
+                built.len(),
+                "label {label}, enters {enters}: the item count of a build"
+            );
+            for (index, (p, b)) in patched.iter().zip(&built).enumerate() {
+                assert_eq!(p, b, "label {label}, enters {enters}: item {index}");
+            }
+        }
+    }
+}
+
+/// The count budget of a hover: no list is built, and the list after it is the list before
+/// it with the ONE item of the label's background put in (and taken out again on the leave) -
+/// every other item is the item it was, in its place. 400 labels: a build emits them all.
+#[test]
+fn a_hover_over_one_label_of_many_touches_that_labels_items_alone() {
+    let (mut lw, child) = label_window(400);
+    let before = lines(&lw.layout_results[&child].display_list);
+    assert!(before.len() >= 400, "harness: the view's list holds the labels ({})", before.len());
+    lw.frame_report.reset_counters();
+
+    // Label 201 (201 % 3 == 0: no background of its own).
+    let hovered = hover(&mut lw, child, 201, true);
+    assert_eq!(lw.frame_report.dl_rebuilds, 0, "no list was built");
+    assert_eq!(lw.frame_report.dl_node_patches, 1, "one patch");
+    assert_eq!(hovered.len(), before.len() + 1, "one item more: the hover colour");
+    let at = hovered
+        .iter()
+        .zip(&before)
+        .position(|(h, b)| h != b)
+        .unwrap_or(before.len());
+    assert!(
+        matches!(
+            lw.layout_results[&child].display_list.items[at],
+            DisplayListItem::Rect { .. }
+        ),
+        "the item put in is the label's background: {}",
+        hovered[at]
+    );
+    assert_eq!(&hovered[..at], &before[..at], "the items before it are untouched");
+    assert_eq!(&hovered[at + 1..], &before[at..], "the items behind it moved by one, unchanged");
+
+    let left = hover(&mut lw, child, 201, false);
+    assert_eq!(lw.frame_report.dl_rebuilds, 0, "no list was built for the leave either");
+    assert_eq!(left, before, "the list is the one it was before the hover");
+}
+
+/// A restyle the patch cannot show is refused whole and leaves the list as it is: a property
+/// that is no decoration (the caller builds the list then).
+#[test]
+fn a_restyle_that_is_no_decoration_is_not_patched() {
+    use azul_css::props::{
+        basic::PixelValue, layout::dimensions::LayoutWidth, property::CssProperty,
+    };
+
+    let (mut lw, child) = label_window(12);
+    let before = lines(&lw.layout_results[&child].display_list);
+    let node = NodeId::new(1);
+    let restyle = lw
+        .layout_results
+        .get_mut(&child)
+        .expect("the view's document")
+        .styled_dom
+        .restyle_user_properties(&[(node, CssProperty::width(LayoutWidth::Px(PixelValue::px(90.0))))]);
+    assert!(!restyle.is_empty(), "harness: the width changed");
+    assert!(!lw.patch_restyled_decorations(child, &restyle), "a width is no decoration");
+    assert_eq!(lines(&lw.layout_results[&child].display_list), before, "the list is untouched");
+}

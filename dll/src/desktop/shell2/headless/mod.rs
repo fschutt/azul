@@ -6523,12 +6523,16 @@ mod tests {
         );
         assert!(
             !std::ptr::eq(child_after.as_ptr(), child_before.as_ptr()),
-            "the view's list is what holds the label: it was rebuilt"
+            "the view's list is what holds the label: it is another list now"
         );
+        // A3-window-07: a label's hover background is painted into the list the view has
+        // (`LayoutWindow::patch_restyled_decorations`), which builds no list; a restyle the
+        // patch cannot show still builds it. Either way a move costs one of the two at most.
         assert!(
-            (1..=moves).contains(&(report.dl_rebuilds as usize)),
-            "one rebuild of the view's list a move at most, got {}",
-            report.dl_rebuilds
+            (1..=moves).contains(&((report.dl_rebuilds + report.dl_node_patches) as usize)),
+            "one rebuild or one patch of the view's list a move at most, got {} + {}",
+            report.dl_rebuilds,
+            report.dl_node_patches
         );
     }
 

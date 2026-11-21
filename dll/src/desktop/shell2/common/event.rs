@@ -702,6 +702,23 @@ fn repaint_restyled_dom(layout_window: &mut LayoutWindow, dom_id: DomId) -> Proc
     ProcessEventResult::ShouldReRenderCurrentWindow
 }
 
+/// [`repaint_restyled_dom`] for a restyle whose changed nodes are at hand (a `:hover`, an
+/// `:active`): when all that changed are DECORATIONS of a few nodes - a background, a border
+/// colour, a shadow - their runs are painted into the list the DOM has
+/// (`LayoutWindow::patch_restyled_decorations`) and no list is built. A map's label under the
+/// pointer built the view's whole list again - every label - on every enter and every leave.
+/// Anything the patch cannot show builds the list as before.
+fn repaint_restyled_nodes(
+    layout_window: &mut LayoutWindow,
+    dom_id: DomId,
+    restyle_result: &azul_core::styled_dom::RestyleResult,
+) -> ProcessEventResult {
+    if layout_window.patch_restyled_decorations(dom_id, &restyle_result.changed_nodes) {
+        return ProcessEventResult::ShouldReRenderCurrentWindow;
+    }
+    repaint_restyled_dom(layout_window, dom_id)
+}
+
 /// `:seat-focus` restyle for a NON-primary seat (9b-ii-a-i-d-iii-a): the node
 /// that lost this seat's focus drops the pseudo-class unless another seat
 /// still focuses it; the node that gained it takes it. Same classification
@@ -1059,7 +1076,7 @@ fn apply_active_restyle(
             if accumulator.needs_layout() {
                 ProcessEventResult::ShouldIncrementalRelayout
             } else if accumulator.needs_paint_only() {
-                repaint_restyled_dom(layout_window, dom_id)
+                repaint_restyled_nodes(layout_window, dom_id, &restyle_result)
             } else {
                 // Nothing to lay out and nothing to paint (a pointer shape alone): the diff
                 // the restyle staged owes no pass, and no list is rebuilt.
@@ -1127,7 +1144,7 @@ pub(crate) fn apply_hover_restyle(
             if accumulator.needs_layout() {
                 ProcessEventResult::ShouldIncrementalRelayout
             } else if accumulator.needs_paint_only() {
-                repaint_restyled_dom(layout_window, dom_id)
+                repaint_restyled_nodes(layout_window, dom_id, &restyle_result)
             } else {
                 // Nothing to lay out and nothing to paint (a pointer shape alone): the diff
                 // the restyle staged owes no pass, and no list is rebuilt.
@@ -17355,6 +17372,21 @@ mod paint_restyle_tests {
         (root_before, child_before): (*const DisplayList, *const DisplayList),
         what: &str,
     ) {
+        assert_a_repaint_of_the_views_list(page, tier, (root_before, child_before), what, 1);
+    }
+
+    /// As above, for a state whose restyle is shown by `rebuilds` builds of the view's list:
+    /// 1 where the list is built again (`:focus`, `:seat-focus`: the caret and the rings are
+    /// built from the focus), 0 where the label's own run is painted into the list the view
+    /// has (`:hover`, `:active`: `LayoutWindow::patch_restyled_decorations`). The callers
+    /// check the list's content either way (the label is painted in the state's colour).
+    fn assert_a_repaint_of_the_views_list(
+        page: &Page,
+        tier: ProcessEventResult,
+        (root_before, child_before): (*const DisplayList, *const DisplayList),
+        what: &str,
+        rebuilds: u32,
+    ) {
         assert_eq!(
             tier,
             ProcessEventResult::ShouldReRenderCurrentWindow,
@@ -17366,12 +17398,24 @@ mod paint_restyle_tests {
             root_before,
             "{what}: the window's list of thousands of items was not touched"
         );
-        assert_ne!(
-            list_of(page, page.child),
-            child_before,
-            "{what}: the list that holds the label was rebuilt"
+        if rebuilds > 0 {
+            assert_ne!(
+                list_of(page, page.child),
+                child_before,
+                "{what}: the list that holds the label was rebuilt"
+            );
+        } else {
+            // Patched where it lies: a list nobody else holds keeps its place, so its
+            // pointer says nothing; the patch is counted instead.
+            assert_eq!(
+                page.lw.frame_report.dl_node_patches, 1,
+                "{what}: the label's run was painted into the list"
+            );
+        }
+        assert_eq!(
+            page.lw.frame_report.dl_rebuilds, rebuilds,
+            "{what}: {rebuilds} list(s) rebuilt"
         );
-        assert_eq!(page.lw.frame_report.dl_rebuilds, 1, "{what}: one list rebuilt");
         assert_eq!(page.lw.frame_report.layout_passes, 0, "{what}: no layout");
         assert!(
             page.lw.pending_css_dirty.is_none(),
@@ -17381,7 +17425,7 @@ mod paint_restyle_tests {
     }
 
     #[test]
-    fn a_hover_over_a_label_rebuilds_the_views_list_and_asks_for_a_repaint() {
+    fn a_hover_over_a_label_paints_its_run_into_the_views_list_and_asks_for_a_repaint() {
         let mut page = page();
         let before = (
             list_of(&page, DomId::ROOT_ID),
@@ -17398,7 +17442,7 @@ mod paint_restyle_tests {
             },
         )]);
         let tier = apply_hover_restyle(&mut page.lw, enter);
-        assert_a_repaint_of_the_views_list_alone(&page, tier, before, "enter");
+        assert_a_repaint_of_the_views_list(&page, tier, before, "enter", 0);
         assert_eq!(painted(&page, page.child), 1, "the label is painted in its hover colour");
 
         // And leaves it.
@@ -17415,12 +17459,12 @@ mod paint_restyle_tests {
             },
         )]);
         let tier = apply_hover_restyle(&mut page.lw, leave);
-        assert_a_repaint_of_the_views_list_alone(&page, tier, before, "leave");
+        assert_a_repaint_of_the_views_list(&page, tier, before, "leave", 0);
         assert_eq!(painted(&page, page.child), 0, "and loses it");
     }
 
     #[test]
-    fn a_press_on_a_label_rebuilds_the_views_list_and_asks_for_a_repaint() {
+    fn a_press_on_a_label_paints_its_run_into_the_views_list_and_asks_for_a_repaint() {
         let mut page = page();
         let before = (
             list_of(&page, DomId::ROOT_ID),
@@ -17429,7 +17473,7 @@ mod paint_restyle_tests {
         // The press lands on the deepest node, the text; its span is active with it.
         let press = BTreeMap::from([(page.child, vec![NodeId::new(ACTIVE_TEXT)])]);
         let tier = apply_active_restyle(&mut page.lw, press, false);
-        assert_a_repaint_of_the_views_list_alone(&page, tier, before, "press");
+        assert_a_repaint_of_the_views_list(&page, tier, before, "press", 0);
         assert_eq!(painted(&page, page.child), 1, "the pressed label is painted active");
 
         let before = (
@@ -17438,7 +17482,7 @@ mod paint_restyle_tests {
         );
         page.lw.frame_report.reset_counters();
         let tier = apply_active_restyle(&mut page.lw, BTreeMap::new(), true);
-        assert_a_repaint_of_the_views_list_alone(&page, tier, before, "release");
+        assert_a_repaint_of_the_views_list(&page, tier, before, "release", 0);
         assert_eq!(painted(&page, page.child), 0, "and is not after the release");
     }
 
