@@ -1106,6 +1106,14 @@ impl NodeGraph {
         ];
 
         let nodegraph_wrapper_props = vec![
+            // A flex container: the `.nodegraph` box inside it declares `flex-grow: 1` and no size,
+            // and every node and wire in it is absolutely placed. In a block wrapper the box is as
+            // tall as its content, 0 px, and its `overflow: hidden` clips every node and wire. In a
+            // flex container it fills the wrapper: `flex-grow` along the row, the default stretch
+            // across it.
+            CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
+                LayoutDisplay::Flex,
+            ))),
             CssPropertyWithConditions::simple(CssProperty::overflow_x(LayoutOverflow::Hidden)),
             CssPropertyWithConditions::simple(CssProperty::overflow_y(LayoutOverflow::Hidden)),
             CssPropertyWithConditions::simple(CssProperty::flex_grow(LayoutFlexGrow::const_new(1))),
