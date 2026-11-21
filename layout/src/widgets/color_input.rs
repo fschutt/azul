@@ -1292,7 +1292,9 @@ extern "C" fn on_color_input_clicked(mut data: RefAny, mut info: CallbackInfo) -
         return Update::DoNothing;
     };
     let swatch = info.get_hit_node();
-    let Some(transient) = info.get_first_child(swatch) else {
+    // The popup is the swatch's LAST child: a translucent colour has its
+    // checkerboard and the colour over it in front of it (`build`).
+    let Some(transient) = info.get_last_child(swatch) else {
         return Update::DoNothing;
     };
     picker.open = !picker.open;
@@ -3057,7 +3059,7 @@ mod autotest_generated {
         for c in SAMPLE_COLORS {
             let (styled, state) = laid_out(ColorInput::create(c));
             // Open: the only thing a click does is ask the engine to hold the
-            // popup (the swatch's first child) open.
+            // popup (the swatch's last child) open.
             let (update, changes) = click(styled.clone(), &state, node(0));
             assert_eq!(
                 update,
@@ -3069,13 +3071,23 @@ mod autotest_generated {
                 1,
                 "{c:?}: a click must push exactly one change"
             );
-            let popup_node = node(1);
+            // The popup: node 1 of an opaque swatch; behind the checkerboard
+            // and the colour over it for a translucent one (A3-solver-34b:
+            // the click named node 1 - the checkerboard - for those too).
+            let popup_node = node(
+                styled
+                    .node_data
+                    .as_ref()
+                    .iter()
+                    .position(|n| matches!(n.get_node_type(), NodeType::TransientWindow(_)))
+                    .expect("the swatch has a popup"),
+            );
             assert!(
                 matches!(
                     &changes[0],
                     CallbackChange::SetTransientWindowOpen { node: n, open: true } if *n == popup_node
                 ),
-                "{c:?}: expected SetTransientWindowOpen(node 1, true), got {:?}",
+                "{c:?}: expected SetTransientWindowOpen(the popup, true), got {:?}",
                 changes[0]
             );
             assert_eq!(
