@@ -219,3 +219,75 @@ fn the_static_places_of_many_boxes_in_one_paragraph_are_read_off_one_listing_of_
         "four times the words and boxes looked at {large} items for {small}: more than linear"
     );
 }
+
+/// The bounds of the lines the cell of DOM node `node` keeps (`OverflowInfo::unclipped_bounds`
+/// of its stored inline layout), as (width, height).
+fn kept_line_bounds(lw: &LayoutWindow, node: usize) -> (f32, f32) {
+    let lr = &lw.layout_results[&DomId::ROOT_ID];
+    let index = *lr
+        .layout_tree
+        .dom_to_layout
+        .get(&NodeId::new(node))
+        .and_then(|v| v.first())
+        .expect("the node is laid out");
+    let kept = lr
+        .layout_tree
+        .warm(index)
+        .and_then(|w| w.inline_layout_result.as_ref())
+        .expect("the cell stores its lines");
+    (
+        kept.overflow.unclipped_bounds.width,
+        kept.overflow.unclipped_bounds.height,
+    )
+}
+
+/// A3-solver-51. A table cell that `vertical-align` moves down in its row has its stored lines
+/// rebuilt at the new place (`fc::table_rows`), and the rebuilt layout took its overflow info
+/// from `layout.overflow` - for a retired layout the empty sentinel's default. The moved cell
+/// lost the bounds of its lines (and its `line-clamp` mark); a cell that is not moved keeps
+/// them.
+///
+/// `body(0) > table(1) > row(2) > [cell(3) > text(4), cell(5) > text(6), cell(7)]`: both text
+/// cells hold the same three letters of the mock font; the first is `vertical-align: bottom`
+/// in a row the third cell makes 100 px high, the second stays at the top.
+///
+/// Mutation: `cached_layout.layout.overflow` for `cached_layout.overflow` in the rebuilt layout
+/// gives the moved cell bounds of 0 x 0.
+#[test]
+fn a_cell_moved_down_in_its_row_keeps_the_bounds_of_its_lines() {
+    let cell = |css: &str| Dom::create_div_with_text("low").with_css(css);
+    let dom = Dom::create_body()
+        .with_css("margin: 0px; font-family: \"Azul Mock Mono\"; font-size: 10px;")
+        .with_child(
+            Dom::create_div().with_css("display: table;").with_child(
+                Dom::create_div()
+                    .with_css("display: table-row;")
+                    .with_child(cell("display: table-cell; vertical-align: bottom;"))
+                    .with_child(cell("display: table-cell; vertical-align: top;"))
+                    .with_child(
+                        Dom::create_div()
+                            .with_css("display: table-cell; width: 10px; height: 100px;"),
+                    ),
+            ),
+        );
+    let mut lw = window();
+    lay_out(&mut lw, dom);
+    let unmoved = kept_line_bounds(&lw, 5);
+    assert!(
+        unmoved.0 > 0.0 && unmoved.1 > 0.0,
+        "harness: the cell at the top keeps the bounds of its line ({} x {})",
+        unmoved.0,
+        unmoved.1
+    );
+    let low = kept_line_bounds(&lw, 3);
+    assert!(
+        (low.0 - unmoved.0).abs() < 0.01 && (low.1 - unmoved.1).abs() < 0.01,
+        "the cell moved down in its row keeps line bounds of {} x {}, the same text at the top \
+         of the row {} x {}",
+        low.0,
+        low.1,
+        unmoved.0,
+        unmoved.1
+    );
+}
+

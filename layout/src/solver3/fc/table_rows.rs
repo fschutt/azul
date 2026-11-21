@@ -1065,9 +1065,15 @@ pub(super) fn position_table_cells<T: ParsedFontTrait>(
                         })
                         .collect();
 
+                    // The overflow info of the lines as they were laid out
+                    // (`CachedInlineLayout::overflow`, captured when the
+                    // layout was stored), not `layout.overflow`: a retired
+                    // layout's `layout` is the empty sentinel, whose overflow
+                    // info is the default - the moved cell lost the bounds of
+                    // its lines and its `line-clamp` mark.
                     let adjusted_layout = UnifiedLayout {
                         items: adjusted_items,
-                        overflow: cached_layout.layout.overflow.clone(),
+                        overflow: cached_layout.overflow.clone(),
                     };
 
                     // Keep the same constraint type from the cached layout

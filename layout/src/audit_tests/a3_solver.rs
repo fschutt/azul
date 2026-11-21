@@ -1206,7 +1206,24 @@ fn the_layout_of_a_label_takes_what_its_measure_shaped() {
     let mut lw = window();
     MEASURED_PARAGRAPHS_KEPT.with(|n| n.set(0));
     MEASURED_PARAGRAPHS_TAKEN.with(|n| n.set(0));
-    lay_out(&mut lw, layer_of_absolute_blocks(k));
+    // In the built-in mock font (`text3::mock_fonts`, registered in every font manager): the
+    // labels are shaped into glyphs.
+    let mut layer = Dom::create_div().with_css("position: relative; width: 600px; height: 400px;");
+    for i in 0..k {
+        layer = layer.with_child(Dom::create_div_with_text(format!("label {i}")).with_css(
+            &format!(
+                "position: absolute; left: {}px; top: {}px;",
+                (i % 50) * 10,
+                (i / 50) * 9
+            ),
+        ));
+    }
+    lay_out(
+        &mut lw,
+        Dom::create_body()
+            .with_css("margin: 0px; font-family: \"Azul Mock Mono\"; font-size: 20px;")
+            .with_child(layer),
+    );
     let kept = MEASURED_PARAGRAPHS_KEPT.with(std::cell::Cell::get);
     let taken = MEASURED_PARAGRAPHS_TAKEN.with(std::cell::Cell::get);
     assert!(kept >= k, "harness: the measure of the {k} labels kept what it shaped ({kept})");
