@@ -258,14 +258,26 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
 ### A3-window-12 transfer_states: repoint_orphaned_refanys walks ALL nodes after every merge
 - file:line: `core/src/diff.rs` `transfer_states`, `repoint_orphaned_refanys`
 - class: quadratic (m merging nodes x n nodes; root DOM; 1,000 stateful rows = 1 M node visits per rebuild)
+- fix: `RefAnyHolders`: the first merge that drops an allocation walks the arena, the second builds an index from
+  allocation to the nodes holding a `RefAny` of it, later merges visit the listed nodes and move them to the kept
+  allocation's list. Same writes in the same order.
+- test: `a_merge_sees_what_the_merges_before_it_repointed`,
+  `the_clones_of_a_kept_dataset_are_made_in_the_order_of_the_arena`,
+  `an_image_a_merge_carried_over_follows_that_merge_when_the_index_is_read`,
+  `the_merges_of_a_rebuild_take_a_step_per_node` (`core/src/diff_test.rs`).
+- still open in this function's neighbourhood: see A3-window-42.
 - severity: medium
-- status: open: fix in work (an index by allocation before the loop)
+- status: fixed fd02b5dd2
 
 ### A3-window-13 reconcile_dom pass A2: queue.iter().position(..) over the queue of one subtree hash
 - file:line: `core/src/diff.rs` pass A2
 - class: quadratic (k equal subtrees in another order or behind consumed entries: k^2 / 2)
+- fix: one queue per (subtree hash, container), a claim pops the front. Same node chosen.
+- test: `the_subtree_pass_takes_a_moved_node_from_its_own_container_in_any_order`,
+  `the_subtree_pass_takes_no_node_the_key_pass_consumed`,
+  `the_subtree_pass_takes_a_step_per_node_when_the_rows_come_in_another_order`.
 - severity: low
-- status: open: fix in work
+- status: fixed fd02b5dd2
 
 ### A3-window-14 begin_reconciliation: arena deep copy, four BTreeSets of n ids, first_rects for every matched node
 - file:line: `window.rs` `begin_reconciliation`
@@ -343,10 +355,13 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
 ### A3-window-22 font resolution runs cold on every pass of a child DOM
 - file:line: `window.rs` `layout_dom_recursive_with_viewport` (the child branch empties `font_chain_cache` and
   `last_resolved_font_stacks_sig` before the pass), guard `font_requirements_unchanged` in `layout_dom_recursive_impl`
-- class: waste, per view render (settle): `collect_font_stacks` O(n) + used codepoints O(T log U) + the registry
-  probes per chain + `load_missing_for_chains` + the chain map rebuilt.
+- class: waste, per view render (settle) and per frame of a resize: `collect_font_stacks` O(n) + used codepoints
+  O(T log U) + the registry probes per chain + `load_missing_for_chains` + the chain map rebuilt.
+- fix: `FontResolutions::of_children`: a child's pass starts from the chains and the signature its last pass ended
+  with. What stays per pass: one walk over the DOM's characters (`CharSet::of_dom`, a bit per character).
+- test: `a_view_rendered_again_with_the_stacks_and_characters_it_had_resolves_no_font` (`FONT_RESOLUTIONS`).
 - severity: medium
-- status: open: fix in work (the child's chains and what they cover are kept per child DOM)
+- status: fixed f064384e8
 
 ### A3-window-23 the font collector runs while child DOMs are retired
 - file:line: `window.rs` `layout_dom_recursive_impl`, `single_dom`
@@ -354,22 +369,30 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
   or kept); `layout_results.keys().all(|d| *d == dom_id)` is then true for the root although child DOMs exist, the
   collector runs on the root's keep-set and evicts the faces only a child uses. A child taken back unchanged
   (`reclaim_unchanged_child`) gets no pass that would load them again.
+- fix: `font_keep_set_is_the_windows` also asks that no child is set aside. Consequence to know (A9): in a window
+  that holds a view the collector does not run; its fonts are bounded by what the app shows.
+- test: `the_font_collector_does_not_run_while_a_views_document_is_set_aside`.
 - severity: medium
-- status: open: fix in work
+- status: fixed f064384e8
 
 ### A3-window-24 the skip of font resolution compares font stacks only, not the characters
 - file:line: `window.rs` `font_requirements_unchanged`
 - class: wrong-output: the chains are resolved for the codepoints the DOM uses (`collect_used_codepoints_all`,
   `extend_chains_to_cover`); a rebuilt DOM with the same stacks and text in a script it did not have before skips
   the resolver and shapes that text with chains that have no face for it.
+- fix: `FontResolutions::covered` (per DOM the characters its chains cover); the skip asks that they cover the
+  DOM's text; a resolution under unchanged stacks also covers what was covered before
+  (`solver3::getters::collect_and_resolve_font_chains_covering`, a new entry in A3-solver's file; the old one
+  forwards to it).
+- test: `a_rebuilt_page_resolves_its_fonts_again_for_a_character_it_did_not_have`.
 - severity: medium
-- status: open: fix in work (with 22: the skip also asks that the used codepoints are covered)
+- status: fixed f064384e8
 
 ### A3-window-25 a root pass that resolves fonts again replaces the chain cache, the children's chains go
 - file:line: `window.rs` `set_font_chain_cache_with_sig` call in `layout_dom_recursive_impl`
 - class: wrong-output (text edited inside a view finds no chain for a stack only the view uses)
 - severity: low
-- status: open: fix in work (with 22: the children's chains are merged back)
+- status: fixed f064384e8
 
 ### A3-window-26 `AZ_MAP_DEBUG` is read from the environment per pass and per placeholder
 - file:line: `window.rs` 9735, 9779
@@ -387,9 +410,14 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
 ### A3-window-28 per frame, O(all layout nodes of all DOMs): `synchronize_scrollbar_opacity`
 - file:line: `window.rs` `synchronize_scrollbar_opacity` (19430-19665 at round 2); callers `wr_translate2.rs:2744`,
   `2975`, `3124` (every WebRender frame), `common/layout.rs:69`, `window.rs:17286` (every CPU frame)
-- class: waste, per frame: 12.5k iterations for the label DOM, which has no scrollbar; a clock read per call.
+- class: waste, per frame: the layout writes `scrollbar_info` for EVERY box, so the whole body (the node, its fade
+  timing from its style, two opacities, two key removals) ran for each of the label DOM's 12.5k boxes.
+- fix: a box without a painted bar is left at once while its DOM holds no fade key. What stays: one read of
+  `scrollbar_info` per box per call (est. 25-50 us at 12.5k boxes); a list of the boxes that have a bar would need
+  the solver's tree to keep it (every writer of `warm.scrollbar_info`), see "For area A3-solver".
+- test: `a_frame_computes_a_scrollbar_fade_for_no_box_of_a_page_without_bars` (`SCROLLBAR_FADE_WORK`).
 - severity: medium
-- status: open: not started (the scrollbar nodes per DOM, kept for the DOM's generation)
+- status: fixed 867d9c402
 
 ### A3-window-29 `compute_scroll_ids` on every clean pass of a DOM without scrollers; `reconcile_webviews` walks every node of every DOM at the tail of every pass
 - file:line: `window.rs` `compute_scroll_ids` (called from `solver3/mod.rs:1302` under `cache.scroll_ids.is_empty()`),
@@ -409,9 +437,18 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
   `core/src/prop_cache.rs` `InheritedValues::values_for`
 - class: quadratic-like (N x B: changed nodes x buckets of distinct inherited values of the whole DOM; T x k per
   node; 204 types x 2 lookups per node when the selector context differs), per view re-render whose
-  `style_root` fingerprint moved (one label with another inline `left`).
+  `style_root` fingerprint moved (one label with another inline `left`): every settle of a map.
+- fix: `InheritedIds` (the two stores read once per diff into id lists both sides share); `types_to_compare`
+  leaves out a layer that reads the same on both sides; `css_diff_between` returns `None` under different
+  selector contexts (the view lays out cold). `InheritedValues::buckets()` is a new accessor in A3-core's file.
+- test: `the_css_diff_of_a_view_whose_labels_moved_takes_a_step_per_label`,
+  `a_label_that_moved_compares_its_own_declarations_only`,
+  `a_view_rendered_again_under_another_window_context_is_laid_out_without_a_diff` (`CSS_DIFF_WORK`).
+- not changed: the restyle diff of the window's DOM under another context still resolves all 204 types per node
+  (it needs the changed properties to start transitions; a window DOM of 300 nodes: about 120k lookups once per
+  context change).
 - severity: high
-- status: open: being read (next)
+- status: fixed 71fdd0aec
 
 ### A3-window-32 styling a view's DOM walks the `Dom` tree about ten times beside the cascade
 - file:line: `window.rs` `style_user_dom_inheriting` (`resolve_form_controls_in_dom`, `dom_has_webview`,
@@ -430,15 +467,25 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
 
 ### A3-window-34 a view's reinvoke check after an override-delivered render compares against stale state
 - file:line: `managers/virtual_view.rs` `check_reinvoke`, `scroll_demand`
-- class: wrong-output (suspected: stale container, exact float compare against the first render's offset)
+- class: wrong-output (confirmed by reading the caller: `process_virtual_view_updates` records neither)
+- fix: the staged path records the box and keeps the offset aside; `update_virtual_view_info` makes it the resting
+  offset when the callback answered with another window. Not covered: a reason the unstaged path hands to a
+  caller that invokes at once records the box but not the offset.
+- test: `a_jump_back_to_the_first_offset_after_a_delivered_render_asks_for_its_rows`,
+  `a_delivered_render_records_the_box_it_was_shown`,
+  `an_edge_answered_with_the_same_window_is_asked_again_at_the_same_offset` (`virtual_view.rs`, at the end).
 - severity: medium
-- status: open: being verified
+- status: fixed 2348534fa
 
 ### A3-window-35 the view manager: `nested_doms_dropped_by` (V^2), `host_of_nested_dom` (linear per hop), `nested_dom_hosts` (every item of every list per Tab)
 - file:line: `managers/virtual_view.rs`
 - class: quadratic in views / waste per focus resolution
+- fix: a range seek per dropped DOM; `host_by_nested` index; `nested_dom_host_map()` for A6's Tab order
+  (`nested_dom_hosts` itself still walks the lists: its caller is A6's, see "For area A6").
+- test: `dropping_a_chain_of_views_looks_at_each_view_once`,
+  `the_host_index_agrees_with_the_scan_after_every_writer_of_the_states`, three behaviour tests.
 - severity: low
-- status: open: fix in work
+- status: fixed 2348534fa
 
 ### A3-window-36 `collect_embedded_fonts` scans every item of every DOM after each view re-render
 - file:line: `window.rs` `collect_embedded_fonts` (when the font pool is over its keep limit)
@@ -471,6 +518,33 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
 - `unchanged_cascades`: `(None, None) => true` does not compare what a hosted root inherits from its host.
 - severity: low
 - status: open: not started
+
+### A3-window-40 the CSS diff named a node whose own insets or transform values moved (A3-solver-41, the shell's half)
+- file:line: `window.rs` `css_diff_between`, `begin_reconciliation` -> `restyle_is_left_to_the_fingerprint`;
+  `core/src/diff.rs` `inline_style_moved_in_place`
+- class: waste, per rebuild / per view re-render: a label that only moved was a fresh box (`left` / `top` answer
+  `RelayoutScope::Full`, and the reconcile builds a named node fresh whatever its fingerprint says), and any entry
+  turned the patch of the display list off.
+- fix: a pair whose resolved insets / transform / opacity alone moved, by its OWN style and classified INSETS or
+  PAINT by the fingerprint's three hashes, with nothing else of its cascade moved, is not named. An inset moved
+  by a stylesheet is named as before.
+- test: `a_box_whose_own_insets_moved_is_left_to_its_fingerprint`,
+  `a_box_whose_own_width_moved_with_its_insets_is_named_in_the_css_diff`,
+  `an_inset_a_stylesheet_moved_is_named_in_the_css_diff`. A3-solver's end-to-end test
+  `audit_tests::a3_solver::labels_that_only_moved_keep_their_boxes_when_the_shell_rebuilds_the_page` is
+  `#[ignore]`d on its branch until this is merged: remove the attribute at integration.
+- severity: high
+- status: fixed 072419824
+
+### A3-window-41 the scrollbar fade flag was the last DOM's answer
+- file:line: `window.rs` `synchronize_scrollbar_opacity` (`scrollbar_fade_active`)
+- class: wrong-output: each DOM's pass overwrote the window's flag; with a view in the window (a child DOM without
+  bars, walked last) a bar of the window's own DOM in mid-fade read "nothing fades", `frames_owed()` was false and
+  the fade stood still until something else drew a frame (the editor: the sidebar's bar beside the map).
+- fix: the pass of `DomId::ROOT_ID` starts the answer, the other DOMs' passes add to it.
+- test: `a_fading_bar_of_the_window_asks_for_frames_with_a_view_in_the_window`.
+- severity: medium
+- status: fixed 7cbefeb45
 
 ### Checked: fine
 - `scan_used_fonts`, `scan_used_images`: no caller outside tests.
