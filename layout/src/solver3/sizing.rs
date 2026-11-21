@@ -1294,6 +1294,28 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // `shape_min_widths` for the min-content measurement below.
         let mut inline_content: Vec<InlineContent> = Vec::new();
         let mut shape_min_widths: Vec<(usize, f32)> = Vec::new();
+        // The `::marker` of every list item whose first line this context
+        // holds opens its content, as in the layout's own collection
+        // (`fc::collect_and_measure_inline_content`): an INSIDE marker is an
+        // inline box at the start of the line and takes its width, an
+        // outside one hangs in the gutter (the measure gives it no width,
+        // `is_hanging_marker`). The measure never held a marker, so a
+        // shrink-to-fit list item with `list-style-position: inside` was as
+        // wide as its text alone and the line broke, or ran out of the box.
+        // Not for a marker box measured as a context of its own: it keeps
+        // the sizes it had (none).
+        if !crate::solver3::fc::is_marker_box(tree, node_index) {
+            for marker in
+                crate::solver3::fc::markers_on_first_line(tree, self.ctx.styled_dom, node_index)
+            {
+                crate::solver3::fc::push_marker_content(
+                    self.ctx,
+                    tree,
+                    marker,
+                    &mut inline_content,
+                );
+            }
+        }
         let collect_result = {
             let _p = crate::probe::Probe::span("intrinsic_collect_inline");
             collect_inline_content_for_sizing(
@@ -2433,6 +2455,13 @@ fn sole_inline_content_child<T: ParsedFontTrait>(
     let &[child_index] = tree.children(node_index) else {
         return None;
     };
+    // A marker on this context's first line is content the child's does not
+    // hold (`calculate_ifc_root_intrinsic_sizes`).
+    if !crate::solver3::fc::is_marker_box(tree, node_index)
+        && !crate::solver3::fc::markers_on_first_line(tree, ctx.styled_dom, node_index).is_empty()
+    {
+        return None;
+    }
     let node_data = ctx.styled_dom.node_data.as_container();
     if let Some(dom_id) = node.dom_node_id {
         if matches!(node_data[dom_id].get_node_type(), NodeType::Text(_)) {

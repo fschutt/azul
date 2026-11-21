@@ -431,3 +431,56 @@ fn the_layout_notes_the_boxes_whose_box_props_it_resolved_anew() {
          as changed"
     );
 }
+
+/// The used width of the box of DOM node `node`.
+fn used_width_of(lw: &LayoutWindow, node: usize) -> f32 {
+    let lr = &lw.layout_results[&DomId::ROOT_ID];
+    let index = *lr
+        .layout_tree
+        .dom_to_layout
+        .get(&NodeId::new(node))
+        .and_then(|v| v.first())
+        .expect("the node is laid out");
+    lr.layout_tree
+        .get(index)
+        .and_then(|n| n.used_size)
+        .expect("the box has a size")
+        .width
+}
+
+/// A3-solver-48. The intrinsic measure of a list item's inline formatting context held the
+/// item's text and never its `::marker`, which only the layout's collection generates. An
+/// inside marker is an inline box at the start of the first line: a shrink-to-fit item (a
+/// float here) was as wide as its text alone, and the line with the marker in it did not fit.
+///
+/// The same floated list item (`body > div`, DOM node 1, in the built-in mock font) once with
+/// `list-style-type: decimal; list-style-position: inside` and once with `list-style-type:
+/// none`: the first is wider, by its marker.
+///
+/// Mutation: without the markers in `calculate_ifc_root_intrinsic_sizes` both are equally wide.
+#[test]
+fn a_shrink_to_fit_list_item_is_as_wide_as_its_inside_marker_and_its_text() {
+    let item = |list_style: &str| {
+        Dom::create_body()
+            .with_css("margin: 0px; font-family: \"Azul Mock Mono\"; font-size: 20px;")
+            .with_child(
+                Dom::create_div_with_text("item")
+                    .with_css(&format!("display: list-item; float: left; {list_style}")),
+            )
+    };
+    let mut with_marker = window();
+    lay_out(
+        &mut with_marker,
+        item("list-style-type: decimal; list-style-position: inside;"),
+    );
+    let mut without = window();
+    lay_out(&mut without, item("list-style-type: none;"));
+    let (marked, plain) = (used_width_of(&with_marker, 1), used_width_of(&without, 1));
+    assert!(plain > 1.0, "harness: the item without a marker is as wide as its text ({plain})");
+    assert!(
+        marked > plain + 1.0,
+        "a floated list item with an inside marker is {marked} wide, the same item without a \
+         marker {plain}: the marker is not in its width"
+    );
+}
+
