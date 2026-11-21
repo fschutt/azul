@@ -456,9 +456,23 @@ fn a_hover_over_one_label_of_many_touches_that_labels_items_alone() {
     lw.frame_report.reset_counters();
 
     // Label 201 (201 % 3 == 0: no background of its own).
+    let list = Arc::as_ptr(&lw.layout_results[&child].display_list);
     let hovered = hover(&mut lw, child, 201, true);
     assert_eq!(lw.frame_report.dl_rebuilds, 0, "no list was built");
     assert_eq!(lw.frame_report.dl_node_patches, 1, "one patch");
+    // A3-window-38: patched where it lies. The view's own solver cache holds the list too,
+    // and lets go of it for the patch; it was copied whole the first time after every pass.
+    assert!(
+        core::ptr::eq(list, Arc::as_ptr(&lw.layout_results[&child].display_list)),
+        "the view's list is the allocation it was"
+    );
+    assert!(
+        lw.child_layout_caches[&child]
+            .cached_display_list
+            .as_ref()
+            .is_none_or(|cached| Arc::ptr_eq(&cached.5, &lw.layout_results[&child].display_list)),
+        "and the view's solver cache holds the patched list, not the one before the patch"
+    );
     assert_eq!(hovered.len(), before.len() + 1, "one item more: the hover colour");
     let at = hovered
         .iter()

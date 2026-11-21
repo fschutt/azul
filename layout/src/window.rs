@@ -29686,22 +29686,29 @@ impl LayoutWindow {
         // the patched one back, so a list nobody else holds is patched in place (see
         // `patch_display_list`). A cache that holds a list of its own is emptied: the next
         // pass builds the list instead of serving the decorations from before.
-        let cache_holds_it = if dom_id == DomId::ROOT_ID {
-            self.layout_cache
-                .cached_display_list
-                .as_ref()
-                .map(|cached| Arc::ptr_eq(&cached.5, &layout_result.display_list))
+        // (A view's document has a solver cache of its own, `child_layout_caches`, which
+        // holds its list the same way: the patch of a label's hover copied the view's whole
+        // list - 17,495 items - the first time after every pass of the view, and left the
+        // cache with the list from before the patch.)
+        let mut solver_cache = if dom_id == DomId::ROOT_ID {
+            Some(&mut self.layout_cache)
         } else {
-            None
+            self.child_layout_caches.get_mut(&dom_id)
         };
-        match cache_holds_it {
-            Some(true) => {
-                if let Some(cached) = self.layout_cache.cached_display_list.as_mut() {
-                    drop(core::mem::take(&mut cached.5));
+        let cache_holds_it = solver_cache
+            .as_ref()
+            .and_then(|cache| cache.cached_display_list.as_ref())
+            .map(|cached| Arc::ptr_eq(&cached.5, &layout_result.display_list));
+        if let Some(cache) = solver_cache.as_mut() {
+            match cache_holds_it {
+                Some(true) => {
+                    if let Some(cached) = cache.cached_display_list.as_mut() {
+                        drop(core::mem::take(&mut cached.5));
+                    }
                 }
+                Some(false) => cache.cached_display_list = None,
+                None => {}
             }
-            Some(false) => self.layout_cache.cached_display_list = None,
-            None => {}
         }
         // The runs are spliced in: the items behind them move.
         self.dom_generations.bump_list(dom_id);
@@ -29742,7 +29749,10 @@ impl LayoutWindow {
             }
         }
         if cache_holds_it == Some(true) {
-            if let Some(cached) = self.layout_cache.cached_display_list.as_mut() {
+            if let Some(cached) = solver_cache
+                .as_mut()
+                .and_then(|cache| cache.cached_display_list.as_mut())
+            {
                 cached.5 = layout_result.display_list.clone();
             }
         }
