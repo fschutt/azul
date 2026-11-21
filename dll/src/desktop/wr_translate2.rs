@@ -1786,9 +1786,19 @@ fn reserve_image_places(layout_window: &mut LayoutWindow, txn: &mut WrTransactio
             if !image.is_null_image() {
                 continue;
             }
-            if let Some(node) = list.node_mapping.get(index).copied().flatten() {
-                shown.insert((*dom_id, node));
+            let Some(node) = list.node_mapping.get(index).copied().flatten() else {
+                continue;
+            };
+            // A node that has its picture already (the list is the one from
+            // before it arrived: a layout is pending) keeps the slot it has.
+            if layout_window
+                .content_overlay
+                .image_for_node(*dom_id, node)
+                .is_some()
+            {
+                continue;
             }
+            shown.insert((*dom_id, node));
         }
     }
 
@@ -2017,7 +2027,17 @@ where
                 });
         if let Some(old) = rr.image_key_map.get(&key).copied() {
             if old != hash {
-                rr.release_frame(key, old);
+                if matches!(slot, azul_core::resources::ImageSlot::TextHalo(_)) {
+                    // A halo's picture is one slot's (`TextHalo::slot`): no other
+                    // key shows it, and `release_frame` would look at every key
+                    // of the window to find that out - for each of the pictures
+                    // a frame replaces (2,200 keys x 40 pictures a frame on a
+                    // municipal map).
+                    rr.currently_registered_images.remove(&old);
+                    rr.image_last_seen_epoch.remove(&old);
+                } else {
+                    rr.release_frame(key, old);
+                }
             }
         }
         rr.image_key_map.insert(key, hash);
@@ -3860,6 +3880,7 @@ fn register_overlay_textures(
     // mutates it. With each texture: whether it is sent again while the key
     // holds it already (a node's canvas, see above).
     let mut to_register: Vec<(
+        azul_core::resources::ImageSlot,
         azul_core::resources::ExternalImageId,
         azul_core::resources::ImageRefHash,
         azul_core::gl::Texture,
@@ -3868,19 +3889,32 @@ fn register_overlay_textures(
     for ((dom_id, node_id), image_ref) in layout_window.content_overlay.iter_images() {
         if let DecodedImage::Gl(texture) = image_ref.get_data() {
             let id = gl_texture_cache::TextureSlotKey::new(*dom_id, *node_id).to_external_image_id();
-            to_register.push((id, image_ref.get_hash(), texture.clone(), true));
+            to_register.push((
+                azul_core::resources::ImageSlot::Node(*dom_id, *node_id),
+                id,
+                image_ref.get_hash(),
+                texture.clone(),
+                true,
+            ));
         }
     }
     for (slot, image_ref) in layout_window.content_overlay.iter_backgrounds() {
         if let DecodedImage::Gl(texture) = image_ref.get_data() {
             let id = gl_texture_cache::background_texture_id(slot);
-            to_register.push((id, image_ref.get_hash(), texture.clone(), false));
+            to_register.push((
+                azul_core::resources::ImageSlot::Background(*slot),
+                id,
+                image_ref.get_hash(),
+                texture.clone(),
+                false,
+            ));
         }
     }
 
+    let namespace = layout_window.id_namespace;
     let mut result = OverlayUploads::default();
     let mut digest = FrameDigest::new();
-    for (external_image_id, produced_hash, texture, sent_again) in to_register {
+    for (slot, external_image_id, produced_hash, texture, sent_again) in to_register {
         digest.push_u64(external_image_id.inner);
         digest.push_u64(produced_hash.inner);
 
@@ -3891,11 +3925,23 @@ fn register_overlay_textures(
             texture.clone(),
         );
 
-        let image_key = ImageKey {
-            namespace: layout_window.id_namespace,
-            key: external_image_id.inner,
-        };
         let rr = &mut layout_window.renderer_resources;
+        // The slot's image key is its own, minted from the counter the images
+        // take their keys from (`RendererResources::image_slots`, as for the
+        // frames in memory, which may share the slot: a node shows one or the
+        // other). It was the slot's external image id - the DOM in the high
+        // and the node in the low 32 bits, or a hash - and the renderer takes
+        // the low 32 bits of a key: the texture of node 7 had the key of the
+        // seventh image ever made, and of node 7 of every other DOM (audit
+        // A4-11). The external image id stays what it was: the texture cache's.
+        let image_key = match rr.image_slots.get(&slot) {
+            Some(&key) if rr.image_key_map.contains_key(&key) => key,
+            _ => {
+                let key = ImageKey::unique_image_slot(namespace);
+                rr.image_slots.insert(slot, key);
+                key
+            }
+        };
         let shown = rr.image_key_map.get(&image_key).copied();
         let new_frame = shown != Some(produced_hash);
         if !new_frame && !sent_again {
@@ -4476,6 +4522,98 @@ mod gl_texture_lifetime_tests {
                 "send {send}: the list still draws the image, but its texture left the cache"
             );
         }
+    }
+
+    /// A4-11. The image key of a canvas' slot is its own. It was the slot's
+    /// external image id - the DOM in the high and the node in the low 32 bits -
+    /// and the renderer's key is the low 32 bits: the canvas at node n of the
+    /// window's DOM had key n, which is the key of the image with id n (an
+    /// image's key is its id, a counter from 1). Here the canvas IS the node
+    /// whose index is the id of a picture the same window shows: one renderer
+    /// image for two pictures, and whichever was added last was drawn for both.
+    ///
+    /// Mutation: `key: external_image_id.inner` back in
+    /// `register_overlay_textures` gives both the picture's key (when the
+    /// picture's id is small enough to make a DOM of: under 4,096).
+    #[test]
+    fn a_canvas_slot_has_an_image_key_no_image_has() {
+        use azul_core::{
+            dom::{DomId, NodeId},
+            resources::{ImageSlot, RawImage, RawImageData},
+        };
+        use azul_layout::overlay::ContentChange;
+
+        let picture = |fill: u8| {
+            ImageRef::new_rawimage(RawImage {
+                pixels: RawImageData::U8(vec![fill; 8 * 8 * 4].into()),
+                width: 8,
+                height: 8,
+                premultiplied_alpha: true,
+                data_format: RawImageFormat::RGBA8,
+                tag: Vec::new().into(),
+            })
+            .expect("a picture in memory")
+        };
+        let shown = picture(9);
+        // The body is node 0, its children 1, 2, ..: the canvas is child
+        // number `id` (as far as a DOM of that many nodes is worth making).
+        let id = usize::try_from(shown.get_hash().inner).expect("an id");
+        let fillers = id.saturating_sub(1).min(4096);
+        let canvas = NodeId::new(fillers + 1);
+        let mut body = Dom::create_body();
+        for _ in 0..fillers {
+            body = body.with_child(Dom::create_div());
+        }
+        body = body
+            .with_child(Dom::create_image(picture(1)).with_css("width: 8px; height: 8px;"))
+            .with_child(Dom::create_image(shown.clone()).with_css("width: 8px; height: 8px;"));
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        lay_out(&mut lw, body);
+
+        // The canvas draws its first frame.
+        let frame = gl_image();
+        let _ = lw.apply_content_change(ContentChange::Image {
+            dom_id: DomId::ROOT_ID,
+            node_id: canvas,
+            image: frame.clone(),
+            dirty_rect: None,
+        });
+        let dpi = lw.current_window_state.size.get_hidpi_factor();
+        let mut txn = WrTransaction::new();
+        let textures = super::register_overlay_textures(&mut lw, &mut txn);
+        assert!(textures.new_slot, "the slot's first frame: a new key");
+        register_frame_resources(&mut lw, &mut txn, dpi);
+
+        let rr = &lw.renderer_resources;
+        let canvas_key = rr.currently_registered_images[&frame.get_hash()].key;
+        let picture_key = rr.currently_registered_images[&shown.get_hash()].key;
+        assert_eq!(
+            rr.image_slots.get(&ImageSlot::Node(DomId::ROOT_ID, canvas)),
+            Some(&canvas_key),
+            "the slot keeps its key"
+        );
+        assert_ne!(
+            super::translate_image_key(canvas_key),
+            super::translate_image_key(picture_key),
+            "the canvas at node {} and the picture with id {id} are two renderer images",
+            canvas.index()
+        );
+
+        // The next frame of the canvas is new pixels under that key.
+        let next = gl_image();
+        let _ = lw.apply_content_change(ContentChange::Image {
+            dom_id: DomId::ROOT_ID,
+            node_id: canvas,
+            image: next.clone(),
+            dirty_rect: None,
+        });
+        let mut txn = WrTransaction::new();
+        let textures = super::register_overlay_textures(&mut lw, &mut txn);
+        assert!(!textures.new_slot && textures.changed);
+        assert_eq!(
+            lw.renderer_resources.currently_registered_images[&next.get_hash()].key,
+            canvas_key
+        );
     }
 
     #[test]
