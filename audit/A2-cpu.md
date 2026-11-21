@@ -412,6 +412,26 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
 - severity: low
 - status: fixed `3659e7e92`
 
+### A2-cpu-29 a run that changed under a text shadow that did not was damaged by its ink alone
+- file:line `compositor.rs` `compute_display_list_damage_impl` (the tail: `fringe`, `inflate`; the hint's `inside`),
+  `windowed_structural_damage` (`collect_window`) - class: wrong-output (missed damage: stale and cut shadow pixels)
+- evidence (found while reading A1's `shadow_reach`): a run under a shadow paints the shadow `text_shadow_reach` past its
+  ink (`render_text_shadow`). Both diffs damaged a changed run by `visual_bounds()` + 1 px; only a CHANGED shadow widened
+  it (A2-cpu-05), and the structural diff only refused a push INSIDE a window, not a run under a push of the equal
+  prefix. Hidden for small halos by the padding of `visual_bounds` (1 em left, 1 em past the last pen, 0.75 em under
+  the baseline); a drop shadow, a glow, or a halo behind a wide last glyph shows it. 12 px run, pens 100, 110, 120 on the
+  baseline 50: bounds (88, 32) 44 x 27; shadow offset (8, 8), blur 4 (reach 12): the shadow ends at x 142 / y 62, the
+  damage of the run losing a glyph ended at x 133 / y 60.
+- fix: the paired diff keeps the reach of every open shadow and inflates a changed run by the largest plus
+  `TEXT_SHADOW_DAMAGE_SLACK` ((73, 17) 74 x 57 in the example; without a shadow (87, 31) 46 x 29 as before); the hint
+  counts a run as moved only with its halo inside the region; the structural diff follows the shadows open at the prefix
+  boundary and widens the same way ((73, 17) 74 x 77 for the run broken in two).
+- test: `a2_cpu_29_a_run_that_changed_under_an_unchanged_shadow_is_damaged_with_its_halo` (rects, both diffs),
+  `a2_cpu_29_a_label_that_gets_shorter_under_a_drop_shadow_leaves_none_of_the_shadow` (pixels, with a system font)
+- the same gap for a FRAME's extent (a moved frame, a group's surface) is A1's: A2-cpu-R05.
+- severity: medium
+- status: fixed `0580852f7`
+
 ### checked: fine
 - A2-cpu-08 `GroupGeometry::of` (`T(o) . Lm . T((x, y) - o)`) against `affine_rect_about` / `FrameStack::map` (`o + M (p - o)`)
   and the layer path (`place . layer_h . from_pivot`): one mapping; the perspective row is divided by dpi and the
@@ -429,7 +449,7 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
   the old extent of a value inside a view is lifted with the NEW content offset, which is where the view's shift has
   moved the old pixels to: right.
 - `compute_display_list_damage_impl`: the offset stack (old and new), `map_through_frames`, the symmetric differences
-  (`rect_minus`), the 1 px text fringe: right. `coalesce_damage_rects`, `disjoint_damage`, `box_minus`: only ever
+  (`rect_minus`), the 1 px text fringe: right (what a run under a text shadow needs on top of it: A2-cpu-29). `coalesce_damage_rects`, `disjoint_damage`, `box_minus`: only ever
   replace rects by a cover of them.
 - `snap_out` (floor / ceil, clamped before any unsigned cast), `fill_rect`, `backdrop_under`, `blit_*` loops: no negative
   value reaches an unsigned cast unclamped.
@@ -946,6 +966,24 @@ A2-cpu-03 is fixed by it. Per item:
   read in `resolve_virtual_view_placements`, and resolve a link with `resolve_transform(d, n).or(baked)`.
 - note: the forward `rect_to_screen` (1255-1261) takes the corner from `calculated_positions`, the tester from the
   list's `bounds`: the same point except for a box broken across regions, where the list holds the part's rect.
+
+## What to look at on the real window
+
+Nothing of A2-cpu's is behind a switch: every change is a rect, a sign or a rounding with a headless test. What a
+Retina window (2940 x 1912 px, factor 2) shows of them, with the CPU backend (`AZ_BACKEND=cpu`):
+
+- A2-cpu-13 / -07: a pan of the map at rest (scale 1) moves pixels and paints strips. With `AZ_BLIT_DEBUG=1` no line
+  `[viewshift] ... is no whole device pixel` may appear during a drag (offsets are multiples of 0.5 pt); a line per
+  frame means the offset is off the frame's grid and every pan step repaints the view.
+- A2-cpu-29 / -05 / -18: edit a label with a halo (shorter text, another halo colour) and drag one: no remains of the
+  old halo around the old place, no halo cut along a straight edge at the new one.
+- A2-cpu-26: a translucent box during a fade (a selection overlay, a tooltip fading in): its edges do not step by a
+  pixel between the last translucent frame and the opaque one.
+- A2-cpu-14 / -06: a scaled or turned box at the window's level (a dialog scaling in): no one-pixel jump between the
+  first full frame and the damaged frames after it, and no one-column gap at a clip that lies between pixels.
+- From the review (A1's code, `## Review of A1`): during a SLOW zoom the turned labels are placed on whole device
+  pixels (item 8, remark a): compare with `AZ_CPU_TURNED_TEXT=group`; a label whose halo passes its box when it is
+  dragged (R05); a box with `filter: blur()` under a blinking caret (R08).
 
 ## api.json
 
