@@ -1964,8 +1964,14 @@ fn render_node(
     const CSS_MATCH_2639191696846875011: CssPropertyWithConditionsVec =
         CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_2639191696846875011_PROPERTIES);
 
+    // `.node_body`: a flex ROW of the inputs' column (0 px wide, its dots straddle the node's left
+    // edge), the fields (all the room between) and the outputs' column (0 px wide, its dots straddle
+    // the right edge). Without `display: flex` the three are stacked blocks: the outputs stand at
+    // the inputs' side. The per-node `min-height` is added where the body is built.
     const CSS_MATCH_3354247437065914166_PROPERTIES: &[CssPropertyWithConditions] = &[
-        // .node_body
+        CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
+            LayoutDisplay::Flex,
+        ))),
         CssPropertyWithConditions::simple(CssProperty::FlexDirection(
             LayoutFlexDirectionValue::Exact(LayoutFlexDirection::Row),
         )),
@@ -1973,8 +1979,6 @@ fn render_node(
             LayoutPosition::Relative,
         ))),
     ];
-    const CSS_MATCH_3354247437065914166: CssPropertyWithConditionsVec =
-        CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_3354247437065914166_PROPERTIES);
 
     const CSS_MATCH_4700400755767504372_PROPERTIES: &[CssPropertyWithConditions] = &[
         // .node_input_connection_label_wrapper
@@ -2602,6 +2606,20 @@ fn render_node(
         })
         .collect::<Vec<_>>();
 
+    // The body of the node: its constant properties and the room of its port rows. The dots stand
+    // in absolutely placed wrappers, which give the body no height of their own: without this the
+    // rows of the dots hang below the node's box (a row is `DIST_BETWEEN_NODES` of margin and a dot).
+    let node_body_props = {
+        let rows = inputs.len().max(outputs.len()) as isize;
+        let row_px = (DIST_BETWEEN_NODES + CONNECTION_DOT_HEIGHT) as isize;
+        let mut props = Vec::with_capacity(CSS_MATCH_3354247437065914166_PROPERTIES.len() + 1);
+        props.extend_from_slice(CSS_MATCH_3354247437065914166_PROPERTIES);
+        props.push(CssPropertyWithConditions::simple(CssProperty::const_min_height(
+            LayoutMinHeight::const_px(rows * row_px),
+        )));
+        CssPropertyWithConditionsVec::from_vec(props)
+    };
+
     let node_id = node_local_dataset.node_id;
     let node_local_dataset = RefAny::new(node_local_dataset);
 
@@ -2669,7 +2687,7 @@ fn render_node(
                    IdOrClassVec::from_const_slice(IDS_AND_CLASSES_15777790571346582635)
                }),
            Dom::create_div()
-               .with_css_props(CSS_MATCH_3354247437065914166)
+               .with_css_props(node_body_props)
                .with_ids_and_classes({
                    const IDS_AND_CLASSES_5590500152394859708: &[IdOrClass] =
                        &[Class(AzString::from_const_str("node_body"))];
