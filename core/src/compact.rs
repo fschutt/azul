@@ -417,19 +417,19 @@ impl CssPropertyCache {
                 }
             }
 
-            // Letter-spacing (PixelValue wrapper → i16 × 10 resolved px)
+            // Letter-spacing (PixelValue wrapper → `PxSlot`, thousandths of a px)
             if let Some(val) = self.get_letter_spacing(nd, &node_id, &default_state) {
-                result.tier2b_text[i].letter_spacing = encode_css_pixel_as_i16(val);
+                result.tier2b_text[i].letter_spacing = encode_css_pixel_as_px_slot(val);
             }
 
-            // Word-spacing (PixelValue wrapper → i16 × 10 resolved px)
+            // Word-spacing (PixelValue wrapper → `PxSlot`)
             if let Some(val) = self.get_word_spacing(nd, &node_id, &default_state) {
-                result.tier2b_text[i].word_spacing = encode_css_pixel_as_i16(val);
+                result.tier2b_text[i].word_spacing = encode_css_pixel_as_px_slot(val);
             }
 
-            // Text-indent (PixelValue wrapper → i16 × 10 resolved px)
+            // Text-indent (PixelValue wrapper → `PxSlot`)
             if let Some(val) = self.get_text_indent(nd, &node_id, &default_state) {
-                result.tier2b_text[i].text_indent = encode_css_pixel_as_i16(val);
+                result.tier2b_text[i].text_indent = encode_css_pixel_as_px_slot(val);
             }
         }
 
@@ -2114,13 +2114,13 @@ fn apply_css_property_to_compact(
             }
         }
         CssProperty::LetterSpacing(v) => {
-            text.letter_spacing = encode_css_pixel_as_i16(v);
+            text.letter_spacing = encode_css_pixel_as_px_slot(v);
         }
         CssProperty::WordSpacing(v) => {
-            text.word_spacing = encode_css_pixel_as_i16(v);
+            text.word_spacing = encode_css_pixel_as_px_slot(v);
         }
         CssProperty::TextIndent(v) => {
-            text.text_indent = encode_css_pixel_as_i16(v);
+            text.text_indent = encode_css_pixel_as_px_slot(v);
         }
 
         // Border radii (cold): px x 10 in an i16; a radius the slot cannot hold

@@ -838,6 +838,36 @@ mod autotest_generated {
         assert_eq!(nan.dims.flex_shrink, 0);
     }
 
+    /// A3-core-18: letter spacing, word spacing and text indent are kept in
+    /// thousandths of a pixel (`PxSlot`), the declared number: as tenths a
+    /// `letter-spacing: 0.25px` was 0.3 px at rest and 0.25 px in any other
+    /// state.
+    #[test]
+    fn a_letter_spacing_is_kept_to_the_thousandth() {
+        use azul_css::props::style::text::{StyleLetterSpacing, StyleWordSpacing};
+
+        let mut s = Sink::new();
+        s.apply(&CssProperty::LetterSpacing(CssPropertyValue::Exact(StyleLetterSpacing {
+            inner: PixelValue::px(0.25),
+        })));
+        s.apply(&CssProperty::WordSpacing(CssPropertyValue::Exact(StyleWordSpacing {
+            inner: PixelValue::px(-1.137),
+        })));
+        assert_eq!(s.text.letter_spacing, 250, "0.25 px (was 3 tenths = 0.3 px)");
+        assert_eq!(s.text.word_spacing, -1_137);
+        assert_eq!(decode_px_slot(s.text.letter_spacing), Some(0.25));
+
+        // Another unit needs the font size: the cascade is asked.
+        let mut em = Sink::new();
+        em.apply(&CssProperty::LetterSpacing(CssPropertyValue::Exact(StyleLetterSpacing {
+            inner: PixelValue::em(0.1),
+        })));
+        assert_eq!(em.text.letter_spacing, PX_SLOT_SENTINEL);
+        assert_eq!(decode_px_slot(em.text.letter_spacing), None);
+        // Nothing declared: no spacing.
+        assert_eq!(decode_px_slot(Sink::new().text.letter_spacing), Some(0.0));
+    }
+
     /// A3-core-24: `tab-size: 4` is kept by the parser as `4em`; encoded as a
     /// px length it was the sentinel, which the reader takes for the default
     /// 8. And a `border-spacing` in another unit than px left its slot at

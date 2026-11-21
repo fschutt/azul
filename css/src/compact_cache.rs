@@ -5,7 +5,7 @@
 //! - **Tier 1**: `Vec<u64>` — ALL 21 enum properties bitpacked (8 B/node)
 //! - **Tier 2 hot**: `Vec<CompactNodeProps>` — layout-critical numeric dimensions (108 B/node)
 //! - **Tier 2 cold**: `Vec<CompactNodePropsCold>` — paint-only properties (28 B/node)
-//! - **Tier 2b**: `Vec<CompactTextProps>` — text/IFC properties (24 B/node)
+//! - **Tier 2b**: `Vec<CompactTextProps>` — text/IFC properties (32 B/node)
 //!
 //! Non-compact properties (background, box-shadow, transform, etc.) are
 //! resolved via the slow cascade path in `CssPropertyCache::get_property_slow()`.
@@ -1781,7 +1781,7 @@ impl Default for CompactNodePropsCold {
 // Tier 2b: CompactTextProps — IFC/text properties (24 bytes/node)
 // =============================================================================
 
-/// Compact text/IFC properties for a single node (24 bytes).
+/// Compact text/IFC properties for a single node (32 bytes).
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct CompactTextProps {
@@ -1795,9 +1795,14 @@ pub struct CompactTextProps {
     /// `I16_SENTINEL` = unset ("normal"), `I16_AUTO` = not encodable here
     /// (viewport units, out of range): read the cascade.
     pub line_height: i16,
-    pub letter_spacing: i16, // px × 10
-    pub word_spacing: i16,   // px × 10
-    pub text_indent: i16,    // px × 10
+    /// The three spacings are px lengths in thousandths ([`PxSlot`]), the
+    /// number a declared length has. As tenths in an `i16` a
+    /// `letter-spacing: 0.25px` was set at 0.3 px at rest - 0.05 px off per
+    /// letter, a pixel over a 20-letter label - and at 0.25 px in any other
+    /// state, where the cascade is asked.
+    pub letter_spacing: PxSlot,
+    pub word_spacing: PxSlot,
+    pub text_indent: PxSlot,
 }
 
 impl Default for CompactTextProps {
@@ -1856,7 +1861,7 @@ pub struct CompactLayoutCache {
     pub tier2_dims: Vec<CompactNodeProps>,
     /// Tier 2 cold: Paint-only properties per node (28 B/node)
     pub tier2_cold: Vec<CompactNodePropsCold>,
-    /// Tier 2b: Text/IFC properties per node (24 B/node)
+    /// Tier 2b: Text/IFC properties per node (32 B/node)
     pub tier2b_text: Vec<CompactTextProps>,
     /// Indices of nodes whose `font_family_hash` changed since the last frame.
     ///
@@ -2645,19 +2650,19 @@ impl CompactLayoutCache {
     #[inline]
     #[must_use]
     pub fn get_letter_spacing(&self, node_idx: usize) -> Option<f32> {
-        decode_resolved_px_i16(self.tier2b_text[node_idx].letter_spacing)
+        decode_px_slot(self.tier2b_text[node_idx].letter_spacing)
     }
 
     #[inline]
     #[must_use]
     pub fn get_word_spacing(&self, node_idx: usize) -> Option<f32> {
-        decode_resolved_px_i16(self.tier2b_text[node_idx].word_spacing)
+        decode_px_slot(self.tier2b_text[node_idx].word_spacing)
     }
 
     #[inline]
     #[must_use]
     pub fn get_text_indent(&self, node_idx: usize) -> Option<f32> {
-        decode_resolved_px_i16(self.tier2b_text[node_idx].text_indent)
+        decode_px_slot(self.tier2b_text[node_idx].text_indent)
     }
 }
 
@@ -2865,7 +2870,7 @@ mod tests {
 
     #[test]
     fn test_compact_text_props_size() {
-        assert_eq!(size_of::<CompactTextProps>(), 24);
+        assert_eq!(size_of::<CompactTextProps>(), 32);
     }
 
     // ========================================================================
@@ -5195,7 +5200,7 @@ mod autotest_generated {
         // silently doubles the per-node memory cost.
         assert_eq!(size_of::<CompactNodeProps>(), 108);
         assert_eq!(size_of::<CompactNodePropsCold>(), 48);
-        assert_eq!(size_of::<CompactTextProps>(), 24);
+        assert_eq!(size_of::<CompactTextProps>(), 32);
         // Tier 1 is exactly one u64 per node.
         assert_eq!(size_of::<u64>(), 8);
         // No padding surprises from #[repr(C)] reordering.
