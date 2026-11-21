@@ -108,6 +108,10 @@ Pre-existing tests whose expectation an area changed on purpose (the area's note
   of 188 differed, only in the key id (4702.. against 5008..); with the id blanked 0 of 188 lines differ. That one
   comparison now blanks `TransformKey { id: .. }` on both sides (`without_transform_key_ids`); nothing else of
   the test changed (the coordinator's word).
+- (second verifier, `13545f86c`) golden `tests/golden/widgets.txt`, document "list view" only: 461 -> 464 lines,
+  exactly three `Rect` lines more (`0,25`, `0,59`, `0,93`, each 640x17): A3-window-55 `621a98aaa` binds a
+  see-through rect for every node with a state background and none of its own: three of the six rows (the rows
+  at y = 42, 76, 110 paint a background already). With the item index blanked nothing else differs.
 
 Audit tests with a wrong premise (blind):
 - `34fc04d1f` `unified_layout.rs` test helper: E0597 (compile).
@@ -367,3 +371,8 @@ What is left for the checkpoint, in order:
   `a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it` passes WITHOUT diff-first's fix: after the
   diff-first merge run it once with `AZ_DL_TRANSLATE_MOVED_RUNS=1` and tell the coordinator whether it fails
   (a real guard) or still passes (its fixture is then corrected in the second round).
+- layout `tests/all`, whole suite, same tree (log `54-layout-all`): **3059 passed, 1 failed, 5 ignored**. FIXED:
+  `a_hovered_label_flows_its_text_once_however_often_it_is_measured` (A3-solver-17d `79a700d1f`), its neighbour
+  `every_label_is_laid_out_as_in_a_fresh_window_after_mixed_measures` passes; `dl_patch_golden` 3 of 3. Failing:
+  the golden `the_widget_doms_lay_out_as_their_golden_dump`: taken (`13545f86c`, "Tests changed"), golden suite
+  6 of 6 after it.
