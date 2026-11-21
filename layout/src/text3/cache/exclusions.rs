@@ -280,9 +280,15 @@ fn ring_spans_in_band(
             }
         }
     }
+    // Every reading lies within the band: only the edges that reach into it
+    // can be crossed, so they are picked out once (in ring order, which keeps
+    // the order of equal crossings) and each reading walks those alone. Each
+    // reading walked every edge of the shape, and a band reads twice per
+    // vertex in it: O(vertices^2) over a shape's lines (A8-36).
+    let edges = band_edges(rings, top, bottom);
     let mut readings = heights
         .iter()
-        .map(|&y| scanline_spans(rings, y, fill_rule));
+        .map(|&y| scanline_spans_of_edges(&edges, y, fill_rule));
     let Some(first) = readings.next() else {
         return Vec::new();
     };
@@ -296,24 +302,41 @@ fn ring_spans_in_band(
 /// one is the rounding of two edges that meet, not an area.
 const MIN_SPAN_WIDTH: f32 = 1.0e-3;
 
-/// Where a horizontal line at `y` is inside the shape the `rings` fill
-/// under `fill_rule`, left to right.
+/// The edges `(from, to)` of the `rings` - in ring order, rings of fewer than
+/// three points left out, as [`scanline_spans_of_edges`] reads them - that a
+/// horizontal line between `top` and `bottom` can cross: those whose upper end
+/// lies at or above `bottom` and whose lower end lies below `top`. An edge
+/// from `from.y` to `to.y` is crossed at `y` only where `min <= y < max`.
+fn band_edges(rings: &[Vec<Point>], top: f32, bottom: f32) -> Vec<(Point, Point)> {
+    let mut edges = Vec::new();
+    for ring in rings.iter().filter(|ring| ring.len() >= 3) {
+        for (index, &from) in ring.iter().enumerate() {
+            let to = ring[(index + 1) % ring.len()];
+            if from.y.min(to.y) <= bottom && from.y.max(to.y) > top {
+                edges.push((from, to));
+            }
+        }
+    }
+    edges
+}
+
+/// Where a horizontal line at `y` is inside the shape the `edges` (of its
+/// rings, [`band_edges`]) fill under `fill_rule`, left to right.
 ///
 /// An edge counts from its upper end up to (and not including) its lower
 /// one, so a line through a vertex crosses the two edges meeting there once
 /// between them. A ring of fewer than three points encloses nothing.
-fn scanline_spans(rings: &[Vec<Point>], y: f32, fill_rule: FillRule) -> Vec<(f32, f32)> {
+fn scanline_spans_of_edges(edges: &[(Point, Point)], y: f32, fill_rule: FillRule) -> Vec<(f32, f32)> {
     let mut crossings: Vec<(f32, i32)> = Vec::new();
-    for ring in rings.iter().filter(|ring| ring.len() >= 3) {
-        for (index, &from) in ring.iter().enumerate() {
-            let to = ring[(index + 1) % ring.len()];
-            let downward = from.y <= y && y < to.y;
-            let upward = to.y <= y && y < from.y;
-            if downward || upward {
-                let along = (y - from.y) / (to.y - from.y);
-                let x = along.mul_add(to.x - from.x, from.x);
-                crossings.push((x, if downward { 1 } else { -1 }));
-            }
+    #[cfg(test)]
+    audit_a8_tests::EDGES_READ.with(|n| n.set(n.get() + edges.len() as u64));
+    for &(from, to) in edges {
+        let downward = from.y <= y && y < to.y;
+        let upward = to.y <= y && y < from.y;
+        if downward || upward {
+            let along = (y - from.y) / (to.y - from.y);
+            let x = along.mul_add(to.x - from.x, from.x);
+            crossings.push((x, if downward { 1 } else { -1 }));
         }
     }
     crossings.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(Ordering::Equal));
@@ -643,3 +666,156 @@ fn grown_spans(shape: &ShapeBoundary, top: f32, bottom: f32, margin: f32) -> Vec
     }
 }
 
+/// Guards of the 2026-11-21 audit, area A8 (`audit/A8.md`).
+#[cfg(test)]
+mod audit_a8_tests {
+    use super::*;
+
+    std::thread_local! {
+        /// Edges `scanline_spans_of_edges` walked on this thread.
+        pub(super) static EDGES_READ: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+    }
+
+    /// The scanline before A8-36 (every edge of every ring), the reference.
+    fn old_scanline_spans(rings: &[Vec<Point>], y: f32, fill_rule: FillRule) -> Vec<(f32, f32)> {
+        let mut crossings: Vec<(f32, i32)> = Vec::new();
+        for ring in rings.iter().filter(|ring| ring.len() >= 3) {
+            for (index, &from) in ring.iter().enumerate() {
+                let to = ring[(index + 1) % ring.len()];
+                let downward = from.y <= y && y < to.y;
+                let upward = to.y <= y && y < from.y;
+                if downward || upward {
+                    let along = (y - from.y) / (to.y - from.y);
+                    let x = along.mul_add(to.x - from.x, from.x);
+                    crossings.push((x, if downward { 1 } else { -1 }));
+                }
+            }
+        }
+        crossings.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(Ordering::Equal));
+        let mut spans = Vec::new();
+        match fill_rule {
+            FillRule::EvenOdd => {
+                for pair in crossings.chunks_exact(2) {
+                    if pair[1].0 - pair[0].0 > MIN_SPAN_WIDTH {
+                        spans.push((pair[0].0, pair[1].0));
+                    }
+                }
+            }
+            FillRule::NonZero => {
+                let mut winding = 0;
+                let mut start = 0.0;
+                for (x, direction) in crossings {
+                    let was_outside = winding == 0;
+                    winding += direction;
+                    if was_outside && winding != 0 {
+                        start = x;
+                    } else if !was_outside && winding == 0 && x - start > MIN_SPAN_WIDTH {
+                        spans.push((start, x));
+                    }
+                }
+            }
+        }
+        spans
+    }
+
+    /// `ring_spans_in_band` before A8-36, the reference.
+    fn old_ring_spans_in_band(
+        rings: &[Vec<Point>],
+        fill_rule: FillRule,
+        top: f32,
+        bottom: f32,
+        cover: BandCover,
+    ) -> Vec<(f32, f32)> {
+        let inset = BAND_SAMPLE_INSET.min((bottom - top) / 4.0);
+        let mut heights = Vec::new();
+        if inset <= 0.0 {
+            heights.push(top);
+        } else {
+            heights.push(top + inset);
+            heights.push(bottom - inset);
+            for vertex in rings.iter().flatten() {
+                if vertex.y > top && vertex.y < bottom {
+                    heights.push((vertex.y - inset).max(top + inset));
+                    heights.push((vertex.y + inset).min(bottom - inset));
+                }
+            }
+        }
+        let mut readings = heights.iter().map(|&y| old_scanline_spans(rings, y, fill_rule));
+        let Some(first) = readings.next() else {
+            return Vec::new();
+        };
+        readings.fold(first, |acc, spans| match cover {
+            BandCover::Whole => intersect_spans(&acc, &spans),
+            BandCover::Any => union_spans(acc, spans),
+        })
+    }
+
+    /// A zigzag polygon of `teeth` teeth (`4 * teeth` vertices) `height`
+    /// high, and a two-point ring that encloses nothing.
+    #[allow(clippy::cast_precision_loss)] // small counts
+    fn comb(teeth: usize, height: f32) -> Vec<Vec<Point>> {
+        let mut ring = Vec::new();
+        for t in 0..teeth {
+            let y = t as f32 * height / teeth as f32;
+            let step = height / teeth as f32;
+            ring.push(Point { x: 0.0, y });
+            ring.push(Point { x: 40.0, y: y + step * 0.25 });
+            ring.push(Point { x: 40.0, y: y + step * 0.5 });
+            ring.push(Point { x: 0.0, y: y + step * 0.75 });
+        }
+        ring.push(Point { x: -10.0, y: height });
+        ring.push(Point { x: -10.0, y: 0.0 });
+        vec![ring, vec![Point { x: 5.0, y: 5.0 }, Point { x: 6.0, y: 50.0 }]]
+    }
+
+    /// A8-36: a band's spans are the ones the walk over every edge gave, for
+    /// zigzags, a triangle, crossing and nested rings, both fill rules, both
+    /// covers, bands at and between vertices, of zero height and past the
+    /// shape; and the edges read over all the lines of a shape grow with the
+    /// shape (four times as tall, four times the vertices, four times the
+    /// lines: about four times the edges; the walk over every edge read
+    /// sixteen times as many).
+    /// Mutation: `>` -> `>=` in `band_edges`' test of the lower end fails
+    /// nothing (an edge ending at the band's top is not crossed in it); its
+    /// `<=` -> `<` of the upper end fails a band whose bottom is a vertex.
+    #[test]
+    #[allow(clippy::cast_precision_loss)] // small counts
+    fn a_bands_spans_are_the_spans_of_the_walk_over_every_edge() {
+        let triangle = vec![vec![
+            Point { x: 0.0, y: 0.0 },
+            Point { x: 50.0, y: 100.0 },
+            Point { x: -50.0, y: 100.0 },
+        ]];
+        let nested = vec![
+            vec![Point { x: 0.0, y: 0.0 }, Point { x: 100.0, y: 0.0 }, Point { x: 100.0, y: 100.0 }, Point { x: 0.0, y: 100.0 }],
+            vec![Point { x: 25.0, y: 25.0 }, Point { x: 25.0, y: 75.0 }, Point { x: 75.0, y: 75.0 }, Point { x: 75.0, y: 25.0 }],
+            vec![Point { x: 50.0, y: -20.0 }, Point { x: 150.0, y: 60.0 }, Point { x: -30.0, y: 60.0 }],
+        ];
+        let shapes = [comb(1, 100.0), comb(7, 100.0), triangle, nested];
+        for rings in &shapes {
+            for fill_rule in [FillRule::NonZero, FillRule::EvenOdd] {
+                for cover in [BandCover::Any, BandCover::Whole] {
+                    for (top, height) in [(-30.0_f32, 20.0_f32), (0.0, 10.0), (12.5, 0.0), (25.0, 25.0), (33.3, 7.1), (60.0, 40.0), (99.0, 5.0), (140.0, 10.0)] {
+                        assert_eq!(
+                            ring_spans_in_band(rings, fill_rule, top, top + height, cover),
+                            old_ring_spans_in_band(rings, fill_rule, top, top + height, cover),
+                            "{fill_rule:?} {cover:?} band {top} + {height}"
+                        );
+                    }
+                }
+            }
+        }
+        // 16 px lines down the whole of a comb 112 px tall per 16 teeth
+        let read = |k: usize| {
+            let rings = comb(16 * k, 112.0 * k as f32);
+            let before = EDGES_READ.with(core::cell::Cell::get);
+            for line in 0..7 * k {
+                let top = line as f32 * 16.0;
+                let _ = ring_spans_in_band(&rings, FillRule::NonZero, top, top + 16.0, BandCover::Any);
+            }
+            EDGES_READ.with(core::cell::Cell::get) - before
+        };
+        let (small, large) = (read(1), read(4));
+        assert!(large < 6 * small, "{large} edges read for 4x the vertices, {small} before");
+    }
+}
