@@ -65,3 +65,32 @@ fn a_label_holds_the_intrinsic_sizes_of_its_text() {
         );
     }
 }
+
+/// A3-solver-26. The intrinsic pass asks for every node it visits whether the node is dirty or
+/// above a dirty one. It asked a `HashSet<usize>` it built for itself on every pass
+/// (`sizing::compute_dirty_ancestor_closure`: a SipHash per member to build, one per visited
+/// node to ask); it asks one flag per node (`sizing::DirtyAncestors`). The hashed set is still
+/// built once per layout, by `layout_document`, which walks it to clear the taffy caches.
+///
+/// Mutation: `calculate_intrinsic_sizes` building `compute_dirty_ancestor_closure` again
+/// builds one more per pass: more builds than passes.
+#[test]
+fn the_intrinsic_pass_builds_no_hash_set_of_the_dirty_nodes() {
+    use crate::solver3::sizing::{DIRTY_CLOSURE_HASH_BUILDS, IFC_MEASURES_PER_PASS};
+    let mut lw = window();
+    DIRTY_CLOSURE_HASH_BUILDS.with(|n| n.set(0));
+    IFC_MEASURES_PER_PASS.with(|passes| passes.borrow_mut().clear());
+    lay_out(&mut lw, layer_of_absolute_spans(100));
+    let builds = DIRTY_CLOSURE_HASH_BUILDS.with(std::cell::Cell::get);
+    let passes = IFC_MEASURES_PER_PASS.with(|passes| passes.borrow().len());
+    assert!(
+        builds >= 1 && passes >= 1,
+        "harness: the layout built the dirty closure ({builds}) and ran an intrinsic pass \
+         ({passes})"
+    );
+    assert!(
+        builds <= passes,
+        "{passes} intrinsic passes of one layout came with {builds} hash sets of the dirty \
+         nodes: the pass builds one of its own"
+    );
+}

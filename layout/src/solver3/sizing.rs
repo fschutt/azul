@@ -194,7 +194,10 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     // Before this, `calculate_intrinsic_recursive` walked the full
     // tree from root regardless, costing ~2 ms per warm render on
     // excel.html even when only 3 nodes were actually dirty.
-    let dirty_closure = compute_dirty_ancestor_closure(tree, dirty_nodes);
+    // As one flag per node (`DirtyAncestors`), not the hash set of
+    // `compute_dirty_ancestor_closure`: the walk asks for every node it
+    // visits.
+    let dirty_closure = DirtyAncestors::of(tree, dirty_nodes);
     // [az-diag g59 REVERT] 0x407B4 = nodes.len AFTER compute_dirty_ancestor_closure (its HashSet
     // sret).
     unsafe {
@@ -315,10 +318,20 @@ impl IfcMeasureKey {
     }
 }
 
+/// How many times [`compute_dirty_ancestor_closure`] built its hash set for
+/// a dirty set that was not empty, on this thread (`audit_tests::a3_solver`:
+/// the intrinsic pass builds none, it asks [`DirtyAncestors`]).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static DIRTY_CLOSURE_HASH_BUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
 pub(crate) fn compute_dirty_ancestor_closure(
     tree: &LayoutTree,
     dirty_nodes: &BTreeSet<usize>,
 ) -> std::collections::HashSet<usize> {
+    #[cfg(test)]
+    DIRTY_CLOSURE_HASH_BUILDS.with(|n| n.set(n.get() + usize::from(!dirty_nodes.is_empty())));
     let mut closure: std::collections::HashSet<usize> = std::collections::HashSet::new();
     for &dirty in dirty_nodes {
         let mut cur = Some(dirty);
@@ -330,6 +343,69 @@ pub(crate) fn compute_dirty_ancestor_closure(
         }
     }
     closure
+}
+
+/// The set [`compute_dirty_ancestor_closure`] returns - every dirty node and
+/// each of its ancestors - as one flag per layout node.
+///
+/// The intrinsic pass asks for every node it visits whether it is in the
+/// set, and the set was a `HashSet<usize>`: a SipHash per member to build it
+/// and one per visited node to ask it, on every pass. A flag is an index.
+/// The members are the same: [`Self::walk`] is that function's walk, and
+/// [`Self::insert`] answers as `HashSet::insert` does.
+#[derive(Default)]
+struct DirtyAncestors {
+    /// `in_tree[i]`: the layout node `i` is dirty or has a dirty descendant.
+    in_tree: Vec<bool>,
+    /// The members that are no node of the tree (a stale dirty index, a
+    /// parent link out of range): the hash set holds those too.
+    beyond: BTreeSet<usize>,
+}
+
+impl DirtyAncestors {
+    fn of(tree: &LayoutTree, dirty_nodes: &BTreeSet<usize>) -> Self {
+        Self::walk(tree.nodes.len(), dirty_nodes, |idx| {
+            tree.get(LayoutNodeId::new(idx)).and_then(|n| n.parent)
+        })
+    }
+
+    /// From every dirty node up its parents (`parent_of`) until a member is
+    /// met, in a tree of `node_count` nodes.
+    fn walk(
+        node_count: usize,
+        dirty_nodes: &BTreeSet<usize>,
+        parent_of: impl Fn(usize) -> Option<usize>,
+    ) -> Self {
+        let mut closure = Self {
+            in_tree: vec![false; node_count],
+            beyond: BTreeSet::new(),
+        };
+        for &dirty in dirty_nodes {
+            let mut cur = Some(dirty);
+            while let Some(idx) = cur {
+                if !closure.insert(idx) {
+                    break;
+                }
+                cur = parent_of(idx);
+            }
+        }
+        closure
+    }
+
+    /// Adds `idx`; `false` when it was a member already.
+    fn insert(&mut self, idx: usize) -> bool {
+        match self.in_tree.get_mut(idx) {
+            Some(member) => !core::mem::replace(member, true),
+            None => self.beyond.insert(idx),
+        }
+    }
+
+    fn contains(&self, idx: usize) -> bool {
+        match self.in_tree.get(idx) {
+            Some(member) => *member,
+            None => self.beyond.contains(&idx),
+        }
+    }
 }
 
 struct IntrinsicSizeCalculator<'a, 'b, 'c, T: ParsedFontTrait> {
@@ -346,7 +422,7 @@ struct IntrinsicSizeCalculator<'a, 'b, 'c, T: ParsedFontTrait> {
     /// dirty nodes) need recomputation. A clean node whose
     /// `warm.intrinsic_sizes` is already populated reuses the
     /// cached value and skips its entire subtree descent.
-    dirty_closure: Option<std::collections::HashSet<usize>>,
+    dirty_closure: Option<DirtyAncestors>,
     /// The inline formatting context measured last
     /// (`calculate_ifc_root_intrinsic_sizes`): its root, what the root's
     /// style put into the measure, the loaded faces it was shaped with, and
@@ -394,7 +470,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // computation in `calculate_intrinsic_sizes` — anything not
         // in that set is guaranteed clean through every descendant.
         if let Some(closure) = self.dirty_closure.as_ref() {
-            if !closure.contains(&node_index) {
+            if !closure.contains(node_index) {
                 if let Some(cached) = tree
                     .warm(LayoutNodeId::new(node_index))
                     .and_then(|w| w.intrinsic_sizes)
@@ -4703,7 +4779,7 @@ mod autotest_generated {
         let mut calc = IntrinsicSizeCalculator::new(&mut ctx, &mut text_cache);
         // An empty closure means "nothing is dirty" — the cached value wins
         // and the descent is skipped entirely.
-        calc.dirty_closure = Some(HashSet::new());
+        calc.dirty_closure = Some(DirtyAncestors::default());
 
         let sizes = calc
             .calculate_intrinsic_recursive(&mut tree, 0, false)
@@ -5950,5 +6026,75 @@ mod anonymous_ifc_intrinsic_tests {
         );
         let w = width_of_the_container(&lw);
         assert!(w >= 19.5, "one unbreakable line of both inline-blocks: {w}");
+    }
+}
+
+#[cfg(test)]
+mod audit_a3_solver_tests {
+    use super::*;
+
+    /// `compute_dirty_ancestor_closure`'s walk over a table of parents: what
+    /// [`DirtyAncestors`] must hold.
+    fn hashed_closure(
+        parents: &[Option<usize>],
+        dirty: &BTreeSet<usize>,
+    ) -> std::collections::HashSet<usize> {
+        let mut closure = std::collections::HashSet::new();
+        for &node in dirty {
+            let mut cur = Some(node);
+            while let Some(idx) = cur {
+                if !closure.insert(idx) {
+                    break;
+                }
+                cur = parents.get(idx).copied().flatten();
+            }
+        }
+        closure
+    }
+
+    /// A3-solver-26. The intrinsic pass asks a flag per node where it asked
+    /// a hash set: the flags hold the hash set's members, in a tree, for
+    /// dirty indices that are no node, for a parent link out of range and on
+    /// a cycle of parents.
+    ///
+    /// Mutation: `DirtyAncestors::contains` without its `beyond` (`None =>
+    /// false`) loses the members that are no node; `walk` without the step
+    /// to the parent loses the ancestors.
+    #[test]
+    fn the_dirty_flags_hold_the_members_of_the_hashed_closure() {
+        let cases: Vec<(Vec<Option<usize>>, Vec<usize>)> = vec![
+            // 0 <- 1 <- 2, the leaf dirty.
+            (vec![None, Some(0), Some(1)], vec![2]),
+            // 0 <- {1, 2}, 1 <- 3, 2 <- 4: two leaves, then nothing.
+            (vec![None, Some(0), Some(0), Some(1), Some(2)], vec![3, 4]),
+            (vec![None, Some(0), Some(0), Some(1), Some(2)], vec![]),
+            // Dirty indices that are no node.
+            (vec![None, Some(0), Some(1)], vec![2, 999, usize::MAX]),
+            // A parent link out of range, a cycle of two, a node its own parent.
+            (vec![Some(7), Some(0)], vec![1]),
+            (vec![Some(1), Some(0)], vec![0]),
+            (vec![Some(0)], vec![0]),
+        ];
+        for (parents, dirty) in cases {
+            let dirty: BTreeSet<usize> = dirty.into_iter().collect();
+            let hashed = hashed_closure(&parents, &dirty);
+            let flags = DirtyAncestors::walk(parents.len(), &dirty, |idx| {
+                parents.get(idx).copied().flatten()
+            });
+            for node in (0..parents.len() + 9).chain([999, usize::MAX]) {
+                assert_eq!(
+                    flags.contains(node),
+                    hashed.contains(&node),
+                    "node {node} of {parents:?} with {dirty:?} dirty"
+                );
+            }
+        }
+        // And by hand: the leaf of a chain makes every node of it a member.
+        let dirty: BTreeSet<usize> = [2, 999].into_iter().collect();
+        let chain: [Option<usize>; 4] = [None, Some(0), Some(1), Some(2)];
+        let flags =
+            DirtyAncestors::walk(chain.len(), &dirty, |idx| chain.get(idx).copied().flatten());
+        assert!(flags.contains(0) && flags.contains(1) && flags.contains(2));
+        assert!(!flags.contains(3) && flags.contains(999) && !flags.contains(998));
     }
 }
