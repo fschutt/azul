@@ -148,6 +148,19 @@ pub struct CpuBackend {
     /// REGION_PLAN): small paint region, larger present region. Equals the paint
     /// damage when nothing was pixel-shifted.
     pub last_present_damage: FrameDamage,
+    /// The pixels the most recent `render_frame` MOVED inside the frame instead of painting
+    /// them (a scroll, a pan of a view), in the order it moved them
+    /// (`cpurender::PresentMove`, device pixels). A presenter that can move the pixels it
+    /// already shows applies these and then presents `last_present_damage_after_moves`; one
+    /// that cannot ignores both and presents `last_present_damage`, which covers the moved
+    /// boxes whole. Empty for a full repaint and for a frame that moved nothing.
+    pub last_present_moves: Vec<crate::cpurender::PresentMove>,
+    /// What a presenter that applied `last_present_moves` still has to present: the paint
+    /// damage (the strips that came into view, what is painted over the moved content, every
+    /// other change of the frame) and the boxes of moves that are not reported as moves (the
+    /// layout translation blit). A pan of a 2510 x 1402 view by 12 px is 18,226 px here and
+    /// 3.5 M px in `last_present_damage`.
+    pub last_present_damage_after_moves: FrameDamage,
     /// Arc ptr of the display list the round-3 patch SHIFT was last applied
     /// for. A buffers-held retry re-runs render_frame with the SAME list —
     /// re-applying the memmove would double-shift the retained pixels, so
@@ -272,6 +285,8 @@ impl CpuBackend {
             last_consumed_build_seq: 0,
             last_frame_damage: FrameDamage::None,
             last_present_damage: FrameDamage::None,
+            last_present_moves: Vec::new(),
+            last_present_damage_after_moves: FrameDamage::None,
             last_patch_shift_dl: 0,
             presented_layout_seq: None,
             native_target: None,
@@ -359,6 +374,8 @@ impl CpuBackend {
             None => {
                 self.last_frame_damage = FrameDamage::None;
                 self.last_present_damage = FrameDamage::None;
+                self.last_present_moves.clear();
+                self.last_present_damage_after_moves = FrameDamage::None;
                 return Vec::new();
             }
         };
@@ -369,6 +386,8 @@ impl CpuBackend {
         if pixel_w == 0 || pixel_h == 0 {
             self.last_frame_damage = FrameDamage::None;
             self.last_present_damage = FrameDamage::None;
+            self.last_present_moves.clear();
+            self.last_present_damage_after_moves = FrameDamage::None;
             return Vec::new();
         }
 
@@ -885,6 +904,8 @@ impl CpuBackend {
                 self.previous_scroll_offsets = next_scroll_baseline;
                 self.last_frame_damage = FrameDamage::None;
                 self.last_present_damage = FrameDamage::None;
+                self.last_present_moves.clear();
+                self.last_present_damage_after_moves = FrameDamage::None;
                 // IDLE FRAME — the one safe place to do cache GC.
                 //
                 // `GlyphCache::gc()` frees the previous generation, which is
@@ -996,6 +1017,8 @@ impl CpuBackend {
                         // that produced no frame must not leave stale damage.
                         self.last_frame_damage = FrameDamage::None;
                         self.last_present_damage = FrameDamage::None;
+                        self.last_present_moves.clear();
+                        self.last_present_damage_after_moves = FrameDamage::None;
                         return Vec::new();
                     }
                 },
@@ -1016,6 +1039,10 @@ impl CpuBackend {
         // Regions that were pixel-SHIFTED: painted as a thin strip but the whole
         // clip changed on screen, so they belong to PRESENT damage (not paint).
         let mut present_extra: Vec<azul_core::geom::LogicalRect> = Vec::new();
+        // The same as moves, for a presenter that can move its own pixels, and the boxes
+        // that were moved without a move being reported (they stay present damage for it).
+        let mut present_moves: Vec<cpurender::PresentMove> = Vec::new();
+        let mut present_unmoved: Vec<azul_core::geom::LogicalRect> = Vec::new();
         // ROUND 3: the layout-translation blit. The translated diff classified
         // the dominant movers as MOVES (no damage) — shift their pixels here
         // and repaint only the exceptions + exposed strips. Sign map: the
@@ -1048,6 +1075,7 @@ impl CpuBackend {
                     dpi_factor,
                 );
                 all_damage.extend(blit.damage);
+                present_unmoved.extend(blit.present_extra.iter().copied());
                 present_extra.extend(blit.present_extra);
             }
             for (scroll_id, clip, delta, offset) in &scroll_shifts {
@@ -1067,6 +1095,7 @@ impl CpuBackend {
                 );
                 all_damage.extend(out.damage);
                 present_extra.extend(out.present_extra);
+                present_moves.extend(out.moves);
             }
             // A view whose content scrolled moves the same way: its pixels, the
             // strip that came into view, what is painted over it.
@@ -1081,6 +1110,7 @@ impl CpuBackend {
                 );
                 all_damage.extend(out.damage);
                 present_extra.extend(out.present_extra);
+                present_moves.extend(out.moves);
             }
 
             // #32 pool-order target (a native ARGB8888 slot the commit swizzle
@@ -1404,6 +1434,14 @@ impl CpuBackend {
         };
         // Present damage = paint damage ∪ the full clips that were pixel-shifted
         // (their content moved on screen even though only a strip was repainted).
+        self.last_present_damage_after_moves = if is_incremental {
+            let mut present = all_damage.clone();
+            present.extend(present_unmoved);
+            FrameDamage::Rects(present)
+        } else {
+            FrameDamage::Full
+        };
+        self.last_present_moves = if is_incremental { present_moves } else { Vec::new() };
         self.last_present_damage = if is_incremental {
             let mut present = all_damage.clone();
             present.extend(present_extra);

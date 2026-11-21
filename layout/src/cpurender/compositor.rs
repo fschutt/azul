@@ -2003,7 +2003,50 @@ pub fn scroll_shift_region(
         new_offset,
         dpi_factor,
         false,
+        &mut None,
     )
+}
+
+/// Pixels a frame moved inside its target instead of painting them again (a scroll, a pan of
+/// a view): the box `[x0, x1) x [y0, y1)` in device pixels of the frame, y down, and how far
+/// its content moved. Every pixel `(x, y)` of the box now shows what `(x - dx, y - dy)` showed
+/// in the frame before, wherever that pixel is in the box too; the rest of the box (the strip
+/// that came into view) and whatever is painted over the moved content is in the frame's paint
+/// damage. A presenter that can move the pixels it already shows applies the frame's moves in
+/// order and then presents the paint damage alone (`CpuBackend::last_present_moves`); one that
+/// cannot presents `present_extra`, the whole box.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PresentMove {
+    pub x0: i32,
+    pub y0: i32,
+    pub x1: i32,
+    pub y1: i32,
+    /// Device pixels the content moved to the right (negative: to the left).
+    pub dx: i32,
+    /// Device pixels the content moved down (negative: up).
+    pub dy: i32,
+}
+
+/// [`scroll_shift_region`], and the move it made (`None` when nothing was moved: a delta of no
+/// device pixel, an empty clip, or a move larger than the clip, whose strips are the clip).
+pub fn scroll_shift_region_moved(
+    pixmap: &mut AzulPixmap,
+    clip_bounds: &LogicalRect,
+    delta: (f32, f32),
+    new_offset: (f32, f32),
+    dpi_factor: f32,
+) -> (Vec<LogicalRect>, Option<PresentMove>) {
+    let mut moved = None;
+    let strips = scroll_shift_region_impl(
+        pixmap,
+        clip_bounds,
+        delta,
+        new_offset,
+        dpi_factor,
+        false,
+        &mut moved,
+    );
+    (strips, moved)
 }
 
 /// [`scroll_shift_region`] with EXACT strips (no 1-px over-cover). The
@@ -2026,6 +2069,7 @@ pub fn scroll_shift_region_exact(
         new_offset,
         dpi_factor,
         true,
+        &mut None,
     )
 }
 
@@ -2037,6 +2081,8 @@ fn scroll_shift_region_impl(
     new_offset: (f32, f32),
     dpi_factor: f32,
     exact_strips: bool,
+    // Set to the move that was made, for the frame's present information.
+    moved: &mut Option<PresentMove>,
 ) -> Vec<LogicalRect> {
     // The "just move the pixels" cost of a scroll frame, made visible as a
     // phase: this memmove inside OUR pixmap (plus the strip raster the
@@ -2086,6 +2132,15 @@ fn scroll_shift_region_impl(
     // 1-D pass; diagonal pan gets a SINGLE-pass 2-D move (each row copied once
     // from its diagonally-offset source) instead of two sequential full passes —
     // half the memory traffic. (no-op is already handled by the early return.)
+    // The movers shift content up / left for a positive delta: the content moved by its negative.
+    *moved = Some(PresentMove {
+        x0: cx0,
+        y0: cy0,
+        x1: cx1,
+        y1: cy1,
+        dx: -px_dx,
+        dy: -px_dy,
+    });
     let stride_px = pw;
     let data = pixmap.data_mut();
     match (px_dx != 0, px_dy != 0) {
@@ -3350,6 +3405,9 @@ pub struct ScrollShiftOutcome {
     /// Rects to present even though they were not re-rastered (the whole
     /// moved clip on the fast path).
     pub present_extra: Vec<LogicalRect>,
+    /// The same as moves: what a presenter that can move its own pixels does instead of
+    /// presenting `present_extra` ([`PresentMove`]).
+    pub moves: Vec<PresentMove>,
 }
 
 /// In-place R<->B swap over `rects` (x, y, w, h in BUFFER pixels) of a
@@ -3463,6 +3521,7 @@ pub fn execute_scroll_shift(
 ) -> ScrollShiftOutcome {
     let mut damage = Vec::new();
     let mut present_extra = Vec::new();
+    let mut moves = Vec::new();
     let prev_offset = (offset.0 - delta.0, offset.1 - delta.1);
     if scroll_fast_path_eligible_in(
         display_list,
@@ -3473,7 +3532,8 @@ pub fn execute_scroll_shift(
         scroll_offsets,
         transforms,
     ) {
-        let strips = scroll_shift_region(pixmap, clip, delta, offset, dpi_factor);
+        let (strips, moved) = scroll_shift_region_moved(pixmap, clip, delta, offset, dpi_factor);
+        moves.extend(moved);
         // Empty strips = the delta rounded to ZERO physical pixels: no
         // memmove ran, so nothing moved. The clip must then stay OUT of
         // present_extra - on the in-place
@@ -3508,6 +3568,7 @@ pub fn execute_scroll_shift(
     ScrollShiftOutcome {
         damage,
         present_extra,
+        moves,
     }
 }
 
@@ -3652,6 +3713,7 @@ pub fn execute_virtual_view_shift(
     let whole = ScrollShiftOutcome {
         damage: vec![shift.clip],
         present_extra: Vec::new(),
+        moves: Vec::new(),
     };
     let device = |v: f32| v * dpi_factor;
     let integral = |v: f32| (device(v) - device(v).round()).abs() < 1e-3;
@@ -3722,12 +3784,14 @@ pub fn execute_virtual_view_shift(
     if !backdrop_ok {
         return whole;
     }
-    let strips = scroll_shift_region(pixmap, &shift.clip, shift.delta, shift.offset, dpi_factor);
+    let (strips, moved) =
+        scroll_shift_region_moved(pixmap, &shift.clip, shift.delta, shift.offset, dpi_factor);
     if strips.is_empty() {
         // The delta rounded to no device pixel: nothing moved.
         return ScrollShiftOutcome {
             damage: Vec::new(),
             present_extra: Vec::new(),
+            moves: Vec::new(),
         };
     }
     let mut damage = strips;
@@ -3766,6 +3830,7 @@ pub fn execute_virtual_view_shift(
     ScrollShiftOutcome {
         damage,
         present_extra: vec![shift.clip],
+        moves: moved.into_iter().collect(),
     }
 }
 
@@ -11716,5 +11781,84 @@ mod lane_az_1_a_group_inside_a_turned_frame {
                  differ along the edges only, not by {n} pixels"
             );
         }
+    }
+}
+
+/// Guards of the 2026-11-21 audit, area A1 (`audit/A1.md`): the ones that need this file's
+/// private items.
+#[cfg(test)]
+mod audit_a1_tests {
+    use super::*;
+
+    /// A 100 x 80 frame whose pixel (x, y) holds (x, y, 7, 255).
+    fn numbered() -> AzulPixmap {
+        let mut pm = AzulPixmap::new(100, 80).expect("a pixmap");
+        for y in 0..80u32 {
+            for x in 0..100u32 {
+                let i = ((y * 100 + x) * 4) as usize;
+                pm.data_mut()[i..i + 4].copy_from_slice(&[x as u8, y as u8, 7, 255]);
+            }
+        }
+        pm
+    }
+
+    fn at(pm: &AzulPixmap, x: i32, y: i32) -> (u8, u8) {
+        let i = ((y * 100 + x) * 4) as usize;
+        (pm.data()[i], pm.data()[i + 1])
+    }
+
+    /// A1-09 (f): the move a shift reports is the move it made. A clip (10, 10) 60 x 40 scrolled
+    /// by (12, 0): the content moves 12 px to the left, so pixel (20, 15) shows what (32, 15)
+    /// showed; the move is the box [10, 70) x [10, 50) with dx = -12, dy = 0, and the strip
+    /// that came into view is the 13 columns x 57 .. 70 (12 and the one over-covered). The same
+    /// for the other seven directions: every pixel of the box whose source is in the box too
+    /// holds its source.
+    /// Mutations: `dx: px_dx` (the sign) or a box of the unclamped clip fails every direction.
+    #[test]
+    fn the_move_a_shift_reports_is_the_move_it_made() {
+        let clip = LogicalRect {
+            origin: LogicalPosition { x: 10.0, y: 10.0 },
+            size: LogicalSize { width: 60.0, height: 40.0 },
+        };
+        for delta in [(12.0_f32, 0.0_f32), (-12.0, 0.0), (0.0, 7.0), (0.0, -7.0), (5.0, 3.0), (-5.0, 3.0), (5.0, -3.0), (-5.0, -3.0)] {
+            let mut pm = numbered();
+            let (strips, moved) = scroll_shift_region_moved(&mut pm, &clip, delta, delta, 1.0);
+            let moved = moved.expect("pixels were moved");
+            assert_eq!(
+                moved,
+                PresentMove { x0: 10, y0: 10, x1: 70, y1: 50, dx: -(delta.0 as i32), dy: -(delta.1 as i32) },
+                "delta {delta:?}"
+            );
+            assert!(!strips.is_empty(), "delta {delta:?}: a strip came into view");
+            let mut carried = 0;
+            for y in moved.y0..moved.y1 {
+                for x in moved.x0..moved.x1 {
+                    let (sx, sy) = (x - moved.dx, y - moved.dy);
+                    if sx >= moved.x0 && sx < moved.x1 && sy >= moved.y0 && sy < moved.y1 {
+                        assert_eq!(at(&pm, x, y), (sx as u8, sy as u8), "delta {delta:?}: ({x}, {y}) shows ({sx}, {sy})");
+                        carried += 1;
+                    }
+                }
+            }
+            assert!(carried > 1500, "delta {delta:?}: most of the box was carried ({carried} px)");
+            // Outside the box nothing moved.
+            assert_eq!(at(&pm, 9, 15), (9, 15));
+            assert_eq!(at(&pm, 70, 15), (70, 15));
+            assert_eq!(at(&pm, 20, 9), (20, 9));
+            assert_eq!(at(&pm, 20, 50), (20, 50));
+        }
+        let mut pm = numbered();
+        let (strips, moved) = scroll_shift_region_moved(&mut pm, &clip, (12.0, 0.0), (12.0, 0.0), 1.0);
+        assert_eq!(at(&pm, 20, 15), (32, 15), "the hand-computed pixel");
+        assert_eq!(moved.map(|m| (m.dx, m.dy)), Some((-12, 0)));
+        assert_eq!(strips.len(), 1);
+        assert_eq!((strips[0].origin.x, strips[0].size.width), (57.0, 13.0));
+        // Nothing moved: no move.
+        let mut still = numbered();
+        assert_eq!(scroll_shift_region_moved(&mut still, &clip, (0.2, 0.0), (0.2, 0.0), 1.0).1, None);
+        // A move larger than the clip: its strips are the clip, nothing was moved.
+        let (whole, none) = scroll_shift_region_moved(&mut still, &clip, (80.0, 0.0), (80.0, 0.0), 1.0);
+        assert_eq!((whole.len(), none), (1, None));
+        assert_eq!(at(&still, 20, 15), (20, 15));
     }
 }
