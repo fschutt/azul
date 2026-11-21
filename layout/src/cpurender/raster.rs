@@ -4242,7 +4242,8 @@ pub fn render_display_list_damaged(
     }
 
     // What a rect is cleared to before it is repainted (the same for every rect of the frame).
-    let clear = if std::env::var_os("AZ_DEBUG_FILL").is_some() {
+    static DEBUG_FILL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let clear = if *DEBUG_FILL.get_or_init(|| std::env::var_os("AZ_DEBUG_FILL").is_some()) {
         damage_clear_color()
     } else {
         // Explicit destructure, NOT `.into()`: the array→tuple conversion
@@ -5178,7 +5179,7 @@ pub fn render_single_item(
                 .get(child_dom_id)
                 .cloned();
             #[cfg(feature = "std")]
-            if std::env::var("AZ_MAP_DEBUG").is_ok() {
+            if super::compositor::map_debug() {
                 eprintln!(
                     "[cpu-vview] VirtualView item: child_dom_id={} found={} items={} bounds={:?} \
                      avail_ids={:?}",
@@ -5247,7 +5248,7 @@ pub fn render_single_item(
         DisplayListItem::VirtualViewPlaceholder { .. } =>
         {
             #[cfg(feature = "std")]
-            if std::env::var("AZ_MAP_DEBUG").is_ok() {
+            if super::compositor::map_debug() {
                 eprintln!(
                     "[cpu-vview] VirtualViewPlaceholder hit (NOT swapped to a VirtualView item — \
                      nothing composites)"

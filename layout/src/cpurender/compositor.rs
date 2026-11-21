@@ -1095,7 +1095,7 @@ impl CompositorState {
             .collect();
 
         #[cfg(feature = "std")]
-        if std::env::var("AZ_MAP_DEBUG").is_ok() {
+        if map_debug() {
             for (id, range, bounds, scroll_id, child_ranges) in &layer_ranges {
                 std::eprintln!(
                     "[cpu-layer] render id={:?} range={:?} bounds={:?} scroll={:?} skip={:?} \
@@ -3366,6 +3366,11 @@ pub fn collect_scroll_shifts(
         ((delta.0 * dpi_factor).abs() > 0.5 || (delta.1 * dpi_factor).abs() > 0.5).then_some(delta)
     };
     let mut out: Vec<(LocalScrollId, LogicalRect, (f32, f32), (f32, f32))> = Vec::new();
+    // A frame is shifted only if its own offset moved: with no offset moved (every frame
+    // that is not a scroll step) there is nothing to find in the list.
+    if !scroll_offsets.iter().any(|(id, offset)| moved(id, offset).is_some()) {
+        return out;
+    }
     let mut stack = ScrollStack::with_transforms(scroll_offsets, transforms);
     for item in &display_list.items {
         if let DisplayListItem::PushScrollFrame {
@@ -3663,10 +3668,18 @@ pub fn collect_virtual_view_shifts(
     if old.items.len() != new.items.len() {
         return out;
     }
+    // One list against itself has no view whose offset differs, and nothing after the new
+    // list's last view is a view: the walk stops there (or does not start).
+    let Some(&last_view) = new.frame_index().views().last() else {
+        return out;
+    };
+    if core::ptr::eq(old, new) {
+        return out;
+    }
     let mut old_stack = ScrollStack::new(old_offsets);
     let mut new_stack = ScrollStack::new(new_offsets);
     let mut frames = 0usize;
-    for (index, (o, n)) in old.items.iter().zip(&new.items).enumerate() {
+    for (index, (o, n)) in old.items.iter().zip(&new.items).enumerate().take(last_view + 1) {
         let (old_at, new_at) = (old_stack.scrolled(), new_stack.scrolled());
         let visible = new_stack.visible();
         old_stack.step(o);
@@ -3787,7 +3800,7 @@ pub fn execute_virtual_view_shift_with(
         .iter()
         .all(|v| integral(*v));
     if !integral(shift.delta.0) || !integral(shift.delta.1) || !on_the_grid {
-        if std::env::var_os("AZ_BLIT_DEBUG").is_some() {
+        if blit_debug() {
             eprintln!(
                 "[viewshift] delta {:?} or offset {:?} is no whole device pixel",
                 shift.delta, shift.offset
@@ -3853,7 +3866,7 @@ pub fn execute_virtual_view_shift_with(
         covered_at(shift.offset) && covered_at(prev)
     });
     let backdrop_ok = covered || backdrop_drags_invisibly(&backdrop, &shift.clip);
-    if std::env::var_os("AZ_BLIT_DEBUG").is_some() {
+    if blit_debug() {
         eprintln!(
             "[viewshift] clip={:?} delta={:?} covered={covered} backdrop_ok={backdrop_ok}",
             shift.clip, shift.delta
@@ -4413,6 +4426,32 @@ fn render_display_list_range(
 /// remains as the kill-switch.
 static DL_DIFF_REFINEMENTS: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
 
+/// Is the trace switch `AZ_BLIT_DEBUG` set? Asked of the environment once per process: a read
+/// takes the process's lock on the environment and scans every variable, and the list diff
+/// asked once per mismatched pair of items (17,495 times for a map whose every item moved).
+#[doc(hidden)]
+#[must_use]
+pub fn blit_debug() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("AZ_BLIT_DEBUG").is_some())
+}
+
+/// Is the trace switch `AZ_PATCH_DEBUG` set? Asked once per process, like [`blit_debug`].
+#[doc(hidden)]
+#[must_use]
+pub fn patch_debug() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("AZ_PATCH_DEBUG").is_some())
+}
+
+/// Is the trace switch `AZ_MAP_DEBUG` set? Asked once per process, like [`blit_debug`].
+#[doc(hidden)]
+#[must_use]
+pub fn map_debug() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("AZ_MAP_DEBUG").is_ok())
+}
+
 #[must_use]
 pub fn dl_diff_refinements_enabled() -> bool {
     use core::sync::atomic::Ordering;
@@ -4628,7 +4667,7 @@ pub fn execute_translate_blit(
         .map(|m| moved_by(*m, (-d.0, -d.1)))
         .chain(rider_rects.iter().copied())
         .collect();
-    if std::env::var_os("AZ_BLIT_DEBUG").is_some() {
+    if blit_debug() {
         eprintln!(
             "[blit] delta={:?} movers={} exceptions={}",
             d,
@@ -4741,7 +4780,7 @@ pub fn execute_translate_blit(
         res.present_extra.push(clip);
     }
     res.damage.extend(exceptions.iter().copied());
-    if std::env::var_os("AZ_BLIT_DEBUG").is_some() {
+    if blit_debug() {
         eprintln!("[blit]   damage {:?}", res.damage);
     }
     res
@@ -5795,7 +5834,7 @@ fn compute_display_list_damage_impl(
                     }
                 }
             }
-            if std::env::var_os("AZ_BLIT_DEBUG").is_some() {
+            if blit_debug() {
                 eprintln!(
                     "[dldiff] mismatch {:?} old_bounds={:?}",
                     std::mem::discriminant(new_item),
@@ -6079,12 +6118,18 @@ fn view_damage_in_list(
     depth: usize,
 ) -> Vec<LogicalRect> {
     let mut damage = Vec::new();
+    // Nothing after the list's last view can add damage here, and a list with no view
+    // (a map's own list of 17,495 items, asked every frame for the views inside it) none
+    // at all: the walk below only keeps the frames around the views.
+    let Some(&last_view) = list.frame_index().views().last() else {
+        return damage;
+    };
     // The frames around the current item, this frame's: a view is painted through them.
     let mut stack = match values.new {
         Some(live) => ScrollStack::with_transforms(new_offsets, live),
         None => ScrollStack::new(new_offsets),
     };
-    for item in &list.items {
+    for item in list.items.iter().take(last_view + 1) {
         if let DisplayListItem::VirtualView {
             child_dom_id,
             bounds,
@@ -6170,6 +6215,59 @@ fn view_damage_in_list(
     damage
 }
 
+/// More damage rects than this are first gathered into a coarse grid
+/// ([`gather_damage_into_grid`]). Up to here [`coalesce_damage_rects`] is exactly its merge
+/// rule; past it the rule's pair tests are the cost (2,000 scattered rects: 2 million tests
+/// per pass and 2,000 rects left, each a pass of the painter over the list), and where every
+/// label of a map changed the precision is worth nothing.
+const MAX_COALESCE_RECTS: usize = 256;
+
+/// The grid of [`gather_damage_into_grid`]: this many cells each way over the box around
+/// all the rects.
+const COALESCE_GRID: usize = 8;
+
+/// `rects` reduced to at most `MAX_COALESCE_RECTS + COALESCE_GRID^2`, every rect still
+/// covered: the box around all of them is cut into `COALESCE_GRID` x `COALESCE_GRID` cells,
+/// and the rects smaller than a cell both ways become one rect per cell, the box around
+/// those whose centre is in it. The larger ones stay as they are - unless there are more than
+/// `MAX_COALESCE_RECTS` of those too, which then cover the box between them: the box itself.
+fn gather_damage_into_grid(rects: &mut Vec<LogicalRect>) {
+    let Some(first) = rects.first().copied() else {
+        return;
+    };
+    let bound = rects.iter().skip(1).fold(first, |a, r| union_rect(&a, r));
+    let (cell_w, cell_h) = (
+        bound.size.width / COALESCE_GRID as f32,
+        bound.size.height / COALESCE_GRID as f32,
+    );
+    if !(cell_w > 0.0 && cell_h > 0.0) {
+        *rects = vec![bound];
+        return;
+    }
+    let mut cells: Vec<Option<LogicalRect>> = vec![None; COALESCE_GRID * COALESCE_GRID];
+    let mut large: Vec<LogicalRect> = Vec::new();
+    for r in rects.drain(..) {
+        if r.size.width > cell_w || r.size.height > cell_h {
+            large.push(r);
+            continue;
+        }
+        // The cell of the rect's centre (a NaN or a centre past the box lands in an edge
+        // cell: `as usize` saturates).
+        let column = (((r.origin.x + r.size.width * 0.5 - bound.origin.x) / cell_w) as usize)
+            .min(COALESCE_GRID - 1);
+        let row = (((r.origin.y + r.size.height * 0.5 - bound.origin.y) / cell_h) as usize)
+            .min(COALESCE_GRID - 1);
+        let cell = &mut cells[row * COALESCE_GRID + column];
+        *cell = Some(cell.map_or(r, |c| union_rect(&c, &r)));
+    }
+    if large.len() > MAX_COALESCE_RECTS {
+        rects.push(bound);
+        return;
+    }
+    rects.extend(large);
+    rects.extend(cells.into_iter().flatten());
+}
+
 /// Merge overlapping or adjacent damage rects to reduce overdraw.
 ///
 /// Two rects within 8 logical px of each other merge when their bounding box
@@ -6185,6 +6283,11 @@ fn view_damage_in_list(
 pub fn coalesce_damage_rects(rects: &mut Vec<LogicalRect>) {
     if rects.len() <= 1 {
         return;
+    }
+    // The merge below tests every pair, again after every pass that merged something, and
+    // every rect it leaves is one more pass of the painter over the list.
+    if rects.len() > MAX_COALESCE_RECTS {
+        gather_damage_into_grid(rects);
     }
     let area = |r: &LogicalRect| (r.size.width.max(0.0) * r.size.height.max(0.0)).max(0.0);
     let mut changed = true;
@@ -12071,5 +12174,123 @@ mod audit_a1_tests {
         assert!(rect_covered_by(&target, &[lr(0.0, 0.0, 123.0, 300.0), lr(125.0, 0.0, 280.0, 300.0)]));
         assert!(!rect_covered_by(&target, &[lr(0.0, 0.0, 400.0, 90.0)]), "rows 90 .. 110 are bare");
         assert!(!rect_covered_by(&target, &[]));
+    }
+
+    fn view_at(child: usize, r: LogicalRect, offset: (f32, f32)) -> DisplayListItem {
+        DisplayListItem::VirtualView {
+            child_dom_id: azul_core::dom::DomId { inner: child },
+            bounds: r.into(),
+            clip_rect: r.into(),
+            content_offset: LogicalPosition { x: offset.0, y: offset.1 },
+        }
+    }
+
+    fn listed(items: Vec<DisplayListItem>) -> DisplayList {
+        DisplayList { items, ..Default::default() }
+    }
+
+    /// A1-31: the walks that look for views stop at the list's last view - and still reach
+    /// it. A host of [fill, view, fill, fill]: the view is item 1 of 4.
+    /// - Its child changed (a 10 x 10 fill at (5, 5) turned from red to blue): the damage is
+    ///   that fill where the view shows it, (20 + 5, 10 + 5) 10 x 10.
+    /// - Its content scrolled by 12 px: one shift, of item 1, by 12.
+    /// - A host with no view at all: no damage, no shift.
+    /// Mutation: `.take(last_view)` in place of `.take(last_view + 1)` in either walk stops
+    /// before the view and finds nothing.
+    #[test]
+    fn the_walks_for_views_stop_at_the_last_view_and_reach_it() {
+        use std::sync::Arc;
+
+        use azul_core::dom::DomId;
+        let view = lr(20.0, 10.0, 200.0, 100.0);
+        let host = |offset: (f32, f32)| {
+            listed(vec![
+                opaque(0.0, 0.0, 300.0, 200.0, [9, 9, 9]),
+                view_at(1, view, offset),
+                opaque(250.0, 0.0, 10.0, 10.0, [1, 1, 1]),
+                opaque(250.0, 20.0, 10.0, 10.0, [2, 2, 2]),
+            ])
+        };
+        let child = |rgb: [u8; 3]| -> std::collections::BTreeMap<DomId, Arc<DisplayList>> {
+            [(DomId { inner: 1 }, Arc::new(listed(vec![opaque(5.0, 5.0, 10.0, 10.0, rgb)])))].into_iter().collect()
+        };
+        let none = ScrollOffsetMap::new();
+        let damage = compute_virtual_view_damage(&host((0.0, 0.0)), &child([0, 0, 255]), &child([255, 0, 0]), &none);
+        assert!(!damage.is_empty(), "the view is the list's last view, and is looked at");
+        let around = damage.iter().skip(1).fold(damage[0], |a, r| union_rect(&a, r));
+        assert!(
+            around.origin.x <= 25.0 && around.origin.y <= 15.0 && around.origin.x + around.size.width >= 35.0 && around.origin.y + around.size.height >= 25.0,
+            "the changed fill, where the view shows it: {damage:?}"
+        );
+        assert!(around.size.width < 40.0 && around.size.height < 40.0, "and not the view: {damage:?}");
+
+        let shifts = collect_virtual_view_shifts(&host((0.0, 0.0)), &host((-12.0, 0.0)), &none, &none);
+        assert_eq!(shifts.len(), 1);
+        assert_eq!((shifts[0].index, shifts[0].delta), (1, (12.0, 0.0)));
+        // One list against itself, and lists with no view: nothing.
+        let same = host((-12.0, 0.0));
+        assert!(collect_virtual_view_shifts(&same, &same, &none, &none).is_empty());
+        let plain = || listed(vec![opaque(0.0, 0.0, 300.0, 200.0, [9, 9, 9])]);
+        assert!(collect_virtual_view_shifts(&plain(), &plain(), &none, &none).is_empty());
+        assert!(compute_virtual_view_damage(&plain(), &child([0, 0, 255]), &child([255, 0, 0]), &none).is_empty());
+    }
+
+    /// A1-31: no scroll frame is shifted in a frame in which no offset moved, and the one
+    /// whose offset moved still is. A scroll frame (id 4) with the clip (10, 10) 100 x 50:
+    /// offsets (0, 0) -> (0, 0) give nothing; (0, 0) -> (0, 12) give that frame, by 12.
+    /// Mutation: the early return taken whenever ANY offset is in the map (`any(|_| true)`
+    /// negated) loses the shift.
+    #[test]
+    fn a_scroll_frame_is_shifted_only_in_a_frame_in_which_an_offset_moved() {
+        let id: LocalScrollId = 4;
+        let clip = lr(10.0, 10.0, 100.0, 50.0);
+        let host = listed(vec![
+            DisplayListItem::PushScrollFrame {
+                clip_bounds: clip.into(),
+                content_size: LogicalSize { width: 100.0, height: 500.0 },
+                scroll_id: id,
+            },
+            opaque(10.0, 10.0, 100.0, 500.0, [9, 9, 9]),
+            DisplayListItem::PopScrollFrame,
+        ]);
+        let at = |y: f32| -> ScrollOffsetMap { [(id, (0.0, y))].into_iter().collect() };
+        let no_transforms = HashMap::new();
+        assert!(collect_scroll_shifts(&host, &at(0.0), &at(0.0), &no_transforms, 1.0).is_empty());
+        let moved = collect_scroll_shifts(&host, &at(12.0), &at(0.0), &no_transforms, 1.0);
+        assert_eq!(moved.len(), 1);
+        assert_eq!((moved[0].0, moved[0].2), (id, (0.0, 12.0)));
+    }
+
+    /// A1-34: more damage rects than the merge can pair are gathered into a grid first. 2,000
+    /// rects of 4 x 4 on a lattice of 40 px, 50 columns by 40 rows: none is within 8 px of
+    /// another, so the pair rule alone merges nothing (two million tests a pass for 2,000
+    /// rects out, each a pass of the painter). The box around them is 1964 x 1564, a cell of
+    /// the 8 x 8 grid 245.5 x 195.5; every cell holds rects, whose boxes are 36 px or more
+    /// apart (the lattice's gap), so 64 rects come out, and every rect put in lies inside one.
+    /// 200 rects of the same lattice are under the bound and come out as they went in.
+    /// Mutation: `MAX_COALESCE_RECTS` at `usize::MAX` leaves 2,000 rects.
+    #[test]
+    fn many_scattered_damage_rects_are_gathered_into_a_grid() {
+        let lattice = |columns: usize, rows: usize| -> Vec<LogicalRect> {
+            (0..rows).flat_map(|j| (0..columns).map(move |i| lr(40.0 * i as f32, 40.0 * j as f32, 4.0, 4.0))).collect()
+        };
+        let put_in = lattice(50, 40);
+        let mut rects = put_in.clone();
+        coalesce_damage_rects(&mut rects);
+        assert_eq!(rects.len(), 64, "one rect per cell of the grid");
+        for r in &put_in {
+            assert!(
+                rects.iter().any(|g| g.origin.x <= r.origin.x
+                    && g.origin.y <= r.origin.y
+                    && g.origin.x + g.size.width >= r.origin.x + r.size.width
+                    && g.origin.y + g.size.height >= r.origin.y + r.size.height),
+                "{r:?} is still damaged"
+            );
+        }
+        let total: f32 = rects.iter().map(|g| g.size.width * g.size.height).sum();
+        assert!(total < 1964.0 * 1564.0, "the cells' boxes, not the box around everything");
+        let mut few = lattice(20, 10);
+        coalesce_damage_rects(&mut few);
+        assert_eq!(few, lattice(20, 10), "200 rects are under the bound: the pair rule alone");
     }
 }

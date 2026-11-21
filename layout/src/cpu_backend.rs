@@ -775,7 +775,7 @@ impl CpuBackend {
         let diff_path_ran = self.previous_display_list.is_some()
             && can_reuse_previous_frame
             && !gpu_damage.needs_full;
-        if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
+        if cpurender::patch_debug() {
             eprintln!(
                 "[HLDMG-HINT] move_summary={:?} hint={:?} scroll_nonzero={} moved={:?}",
                 layout_window
@@ -848,7 +848,7 @@ impl CpuBackend {
         } else {
             dl_damage
         };
-        if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
+        if cpurender::patch_debug() {
             eprintln!(
                 "[HLDMG] dl_damage={:?} can_reuse={} patched={} patch_damage={:?} resize={:?}",
                 dl_damage,
@@ -960,7 +960,7 @@ impl CpuBackend {
             }
         }
 
-        if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
+        if cpurender::patch_debug() {
             eprintln!(
                 "[HLDMG-PATH] incremental={} all_damage={}",
                 is_incremental,
@@ -1157,7 +1157,7 @@ impl CpuBackend {
         // paint/present damage (and the pixel-count metric built on it) must
         // not double-count the same region.
         if is_incremental {
-            if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
+            if cpurender::patch_debug() {
                 eprintln!("[HLDMG-FINAL] before merge {all_damage:?}");
             }
             cpurender::coalesce_damage_rects(&mut all_damage);
@@ -1185,7 +1185,7 @@ impl CpuBackend {
         // MapWidget's tile grid) was built earlier for the child-DOM damage diff;
         // it's handed to the renderer here so the CPU `VirtualView` arm can
         // composite them. Without this the CPU backend only drew a placeholder.
-        if std::env::var("AZ_MAP_DEBUG").is_ok() {
+        if cpurender::map_debug() {
             let summary: Vec<(usize, usize)> = vview_dls
                 .iter()
                 .map(|(id, dl)| (id.inner, dl.items.len()))
@@ -1418,7 +1418,8 @@ impl CpuBackend {
         // AZ_DUMP_DL_DIR=/tmp/dls dumps the first display lists as JSON —
         // splits "the DL's clip is collapsed" (layout/reconcile bug) from
         // "the DL is fine, the renderer clips wrong" (cpurender bug).
-        if let Ok(dir) = std::env::var("AZ_DUMP_DL_DIR") {
+        static DUMP_DL_DIR: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+        if let Some(dir) = DUMP_DL_DIR.get_or_init(|| std::env::var("AZ_DUMP_DL_DIR").ok()) {
             use std::sync::atomic::{AtomicUsize, Ordering};
             static DL_N: AtomicUsize = AtomicUsize::new(0);
             let n = DL_N.fetch_add(1, Ordering::Relaxed);
@@ -1433,7 +1434,8 @@ impl CpuBackend {
         // AZ_DUMP_FRAME_DIR=/tmp/frames dumps every rendered CPU frame as a
         // numbered PNG — splits "rendered wrong" from "presented wrong" when a
         // backend shows pixels that contradict the display list.
-        if let Ok(dir) = std::env::var("AZ_DUMP_FRAME_DIR") {
+        static DUMP_FRAME_DIR: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+        if let Some(dir) = DUMP_FRAME_DIR.get_or_init(|| std::env::var("AZ_DUMP_FRAME_DIR").ok()) {
             use std::sync::atomic::{AtomicUsize, Ordering};
             static FRAME_N: AtomicUsize = AtomicUsize::new(0);
             let n = FRAME_N.fetch_add(1, Ordering::Relaxed);
