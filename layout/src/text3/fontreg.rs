@@ -64,10 +64,29 @@ static GENERATION: AtomicU64 = AtomicU64::new(0);
 /// Registers the face `bytes` under `family` for the process. Returns
 /// `false` for bytes that are no font (nothing registered). Registering the
 /// same bytes under the same family again changes nothing.
+///
+/// The registry keeps its own copy of `bytes` (one, when the face is new).
+/// A caller that holds the face as an `Arc<[u8]>` hands it to
+/// [`register_font_shared`] instead, which keeps that allocation.
 #[must_use]
 pub fn register_font(family: &str, bytes: &[u8]) -> bool {
+    register_with(family, bytes, || Arc::from(bytes))
+}
+
+/// [`register_font`] for a face the caller holds as an `Arc<[u8]>`: the
+/// registry keeps `bytes` itself - the font caches and every face loaded
+/// from it share that allocation - and copies nothing (a web font, WOFF or
+/// WOFF2, is unpacked into a plain font of its own, as by `register_font`).
+#[must_use]
+pub fn register_font_shared(family: &str, bytes: Arc<[u8]>) -> bool {
+    register_with(family, &bytes, || Arc::clone(&bytes))
+}
+
+/// Registers the face `bytes`; `kept` makes the registry's allocation of
+/// them, called only when the face is new and is a plain font.
+fn register_with(family: &str, bytes: &[u8], kept: impl FnOnce() -> Arc<[u8]>) -> bool {
     // A web font (WOFF, WOFF2) is unpacked once into the plain font every reader takes.
-    let unpacked = sfnt_of(bytes);
+    let unpacked: Option<Arc<[u8]>> = sfnt_of(bytes).map(Arc::from);
     let bytes = unpacked.as_deref().unwrap_or(bytes);
     let ranges = cmap_coverage(bytes);
     if ranges.is_empty() {
@@ -86,11 +105,17 @@ pub fn register_font(family: &str, bytes: &[u8]) -> bool {
     if known(&faces) {
         return true;
     }
+    #[cfg(test)]
+    audit_a8_tests::BYTES_KEPT.with(|n| n.set(n.get() + 1));
+    let bytes = match unpacked {
+        Some(unpacked) => unpacked,
+        None => kept(),
+    };
     faces.push(RuntimeFace {
         family: family.to_string(),
         norm,
         id: FontId::new(),
-        bytes: Arc::from(bytes),
+        bytes,
         ranges,
         style,
     });
@@ -354,6 +379,11 @@ mod tests {
 mod audit_a8_tests {
     use super::*;
 
+    std::thread_local! {
+        /// Faces whose bytes the registry kept (new faces) on this thread.
+        pub(super) static BYTES_KEPT: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    }
+
     /// A8-08: a runtime face's style is parsed once, when it is registered,
     /// however often it is put into font caches. `CallbackInfo::register_font`
     /// calls `ensure_in` after each registration, and every window's chain
@@ -409,5 +439,33 @@ mod audit_a8_tests {
         };
         assert!(Arc::ptr_eq(a, b), "the loaded face shares the registry's bytes");
         assert_eq!(&a[..], &fonts[0].bytes[..]);
+    }
+
+    /// A8-26: a face handed over as an `Arc<[u8]>` is kept as that allocation:
+    /// the registry, and the bytes every loader is handed, are the caller's
+    /// (no copy); registering it again keeps nothing more.
+    /// Mutation: `|| Arc::clone(&bytes)` -> `|| Arc::from(&bytes[..])` in
+    /// `register_font_shared` fails the `ptr_eq`.
+    #[test]
+    fn a_face_handed_over_shared_is_kept_without_a_copy() {
+        let fonts = crate::text3::ui_fonts::bundled_ui_fonts();
+        let family = "Azul A8 Handed Over Face";
+        let bytes: Arc<[u8]> = Arc::from(&fonts[1 % fonts.len()].bytes[..]);
+        let kept = || BYTES_KEPT.with(core::cell::Cell::get);
+        let before = kept();
+        assert!(register_font_shared(family, Arc::clone(&bytes)));
+        assert!(register_font_shared(family, Arc::clone(&bytes)), "again: known");
+        assert_eq!(kept() - before, 1, "one face kept");
+        let norm = rust_fontconfig::utils::normalize_family_name(family);
+        let id = ensure_in(&FcFontCache::default())
+            .into_iter()
+            .find(|(n, _)| *n == norm)
+            .map(|(_, face)| face.font_match.id)
+            .expect("the face is registered");
+        let shared = shared_bytes(&id).expect("a runtime face");
+        let rust_fontconfig::FontBytes::Owned(held) = &*shared else {
+            panic!("a runtime face's bytes are owned");
+        };
+        assert!(Arc::ptr_eq(held, &bytes), "the registry holds the caller's allocation");
     }
 }
