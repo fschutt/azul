@@ -1,11 +1,10 @@
 //! This device's side of a synced folder: the scan, the racy files, the shared config without
 //! its endpoints, the checks before a download overwrites or a delete removes a file.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fs,
-    path::Path,
-};
+use std::{collections::BTreeMap, fs, path::Path};
+// the two tests that count with it are unix-only (like `held_bytes` below)
+#[cfg(unix)]
+use std::collections::BTreeSet;
 
 use azul_storage::testing::TempDir;
 use serde_json::Value;
@@ -841,6 +840,7 @@ fn a_folder_with_more_sibling_folders_than_the_fd_limit_allows_is_scanned_whole(
 }
 
 /// The bytes a scan holds in its keys and sentences: what a tree with long names costs in memory.
+#[cfg(unix)]
 fn held_bytes(scan: &local::Scan) -> usize {
     let text = |s: &String| s.len();
     scan.files.keys().map(text).sum::<usize>()
