@@ -964,8 +964,9 @@ pub fn content_rect_to_screen(
 /// Where the renderers paint `rect` of `layout_idx`'s box
 /// ([`Inclusivity::AncestorsOnly`]: a scroll container's own offset moves its
 /// content, never its own border box) or of its content
-/// ([`Inclusivity::SelfAndAncestors`]): through the reference frames and the
-/// scroll frames around it, each applied where it nests
+/// ([`Inclusivity::SelfAndAncestors`]): through the reference frames - its
+/// own included, in both cases - and the scroll frames around it, each
+/// applied where it nests
 /// ([`chain_rect_to_screen`]) - a frame's matrix about its box's corner, a
 /// scroll frame's offset inside the frames around it - as the bounding box of
 /// the four corners. `rect` itself when no frame is around it, or when a
@@ -991,10 +992,14 @@ fn rect_to_screen(
         .collect();
     // (how far up the path, the frame of a box before its scroll frame, link)
     let mut links: Vec<(usize, u8, HitChainLink)> = Vec::new();
-    // The transformed layout ancestors (and the node itself, for its
-    // content): the boxes the display list opens a reference frame for.
-    let first = usize::from(!inclusivity.includes_self());
-    for (up, idx) in path.iter().enumerate().skip(first) {
+    // The transformed layout ancestors AND the node itself: the boxes the
+    // display list opens a reference frame for. A node's own frame is
+    // pushed before its own items (`generate_for_stacking_context`,
+    // `paint_in_flow_child`), so it moves the node's BOX as well as its
+    // content - unlike its own scroll frame (`inclusivity`, below), which
+    // moves its content only. The hit tester's chains say the same
+    // (`compute_node_chains`).
+    for (up, idx) in path.iter().enumerate() {
         let Some(node) = nodes.get(*idx) else {
             break;
         };
@@ -5341,6 +5346,51 @@ mod audit_a6_tests {
         );
         // (100, 100) + 2 ((110, 120) - (100, 100)) - (0, 30) = (120, 110), 20 x 20.
         assert_eq!(on_screen, r(120.0, 110.0, 20.0, 20.0));
+    }
+
+    /// A6-06: a node's own reference frame moves its own box. A box at
+    /// (100, 100), 50 x 50, `scale(2)` about its corner is painted at
+    /// (100, 100), 100 x 100 - which is where the hit tester has it - and
+    /// `node_rect_to_screen` answered its layout box (100, 100) 50 x 50
+    /// (it took the frames of the node's ancestors only): the accessibility
+    /// bounds, a menu's anchor and a scripted click aimed at the node's
+    /// bounds disagreed with the pixels.
+    /// Mutation: the frames loop skipping the node itself for a box
+    /// (`.skip(1)`) answers 50 x 50.
+    #[test]
+    fn a_nodes_own_frame_moves_its_own_box() {
+        let lr = layout(
+            styled(1),
+            vec![hot(0, (600.0, 600.0), None), hot(1, (50.0, 50.0), Some(0))],
+            vec![p(0.0, 0.0), p(100.0, 100.0)],
+            Vec::new(),
+        );
+        let frame = scaled(2.0, 10.0, 0.0);
+        let own = |_: DomId, n: NodeId| (n == NodeId::new(1)).then_some(frame);
+        let on_screen =
+            node_rect_to_screen(&lr, dom(0), 1, r(100.0, 100.0, 50.0, 50.0), &|_, _| None, &own);
+        // (100, 100) + 2 x ((100, 100) - (100, 100)) + (10, 0) = (110, 100), 100 x 100.
+        assert_eq!(on_screen, r(110.0, 100.0, 100.0, 100.0));
+        // The content's rect goes through the same frame.
+        let content = content_rect_to_screen(
+            &lr,
+            dom(0),
+            1,
+            r(110.0, 120.0, 10.0, 10.0),
+            &|_, _| None,
+            &own,
+        );
+        assert_eq!(content, r(130.0, 140.0, 20.0, 20.0));
+
+        // And the tester hits the box there: the two agree.
+        let mut results = BTreeMap::new();
+        results.insert(dom(0), lr);
+        let mut gpu = GpuStateManager::default();
+        set_frame(&mut gpu, dom(0), 1, frame);
+        let mut tester = CpuHitTester::new();
+        tester.rebuild_from_layout_with_gpu(&results, Some(&gpu));
+        assert!(hits_node(&nodes_at(&tester, &gpu, &|_, _| None, 205.0, 195.0), dom(0), 1));
+        assert!(!hits_node(&nodes_at(&tester, &gpu, &|_, _| None, 105.0, 150.0), dom(0), 1));
     }
 
     // A6-03: a view that moved its content without a layout.
