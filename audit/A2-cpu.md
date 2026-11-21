@@ -196,7 +196,7 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
   `(300, 200) + (6, 62) = (306, 262)`. The chain maps the screen point (306, 262) back with `M^-1` about (0, 0):
   `(250, -294)`, outside the box `[300, 400) x [200, 212)`: the press misses. Expected `o + M^-1 (s - o) = (350, 206)`.
 - severity: high
-- status: open: A6 owns `resolve_chain`; its commits "a box is hit where it is drawn" are reviewed under `## Review of A6`
+- status: fixed `1f910ffbc` (by A6, on `audit/A6`: frames about their own corner, links in nesting order; read under `## Review of A6`)
 
 ### A2-cpu-04 `reference_frame_extent` leaves out what the frames INSIDE a frame move
 - file:line `layout/src/solver3/display_list.rs:3536-3607` (`GroupBounds`), `:3683-3767` (`FrameIndex::of`); consumers
@@ -210,7 +210,7 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
   In the editor the picture root's extent is the ground rect (256 px around the view), so turned labels are inside it.
 - test: `a2_cpu_04_the_damage_of_a_moved_frame_covers_what_a_frame_inside_it_moved` (`#[ignore]`)
 - severity: medium
-- status: open: A1 owns `FrameIndex` (asked for its second round; the change is under `## For area A1`, the test is `a2_cpu_04_...`, ignored)
+- status: fixed `66af92a36` (by A1, on `audit/A1`: `FrameIndex::extent_with`; `a2_cpu_04_...` is un-ignored there; read under `## Review of A1`, item 3; the perspective rest is A2-cpu-R01)
 
 ### A2-cpu-05 a changed `PushTextShadow` damaged nothing in the paired diff
 - file:line `compositor.rs:5607-5624` (base), `display_list.rs:3461` - class: wrong-output (missed damage) - severity: medium
@@ -252,7 +252,7 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
   `strips.is_empty()` returns NO damage for content that moved a pixel.
 - test: `a2_cpu_07_a_pan_between_offsets_off_the_pixel_grid_is_a_fresh_renders_frame` (`#[ignore]`)
 - severity: low
-- status: fixed `ed81fdcf3` (by A1, with the gate on both offsets; `a2_cpu_07_...` is un-ignored there)
+- status: fixed `7865fb887` (by A1, on `audit/A1` after its rebase, with the gate on both offsets; `a2_cpu_07_...` is un-ignored there)
 
 ### A2-cpu-12 a blur wider than 64 device px is cut at the painted part of a group
 - file:line `raster.rs` `GROUP_VISIBLE_MARGIN` / `group_part_within` - class: wrong-output - severity: very low
@@ -311,7 +311,7 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
   2 every term is exact. The tests of this area therefore stand on multiples of 4 px and allow two levels at 1.25 / 1.5.
 - fix: carry the view's offset in whole device pixels (an integer) through the raster and add it AFTER the scale.
 - severity: low
-- status: open: A1 (asked for its second round: the view's offset as whole device pixels through the walk; kept surfaces are keyed on the phase since `689ca37dc`)
+- status: open: A1 holds it as `blocked (a)` (the view's offset as whole device pixels outside `acc` changes the coordinate input of every paint function); kept surfaces are keyed on the phase since `451b684d8`, which meets the pan during a zoom
 
 ### A2-cpu-17 a solid border thinner than one device pixel painted nothing (or two rows, one outside the box)
 - file:line `raster.rs` `render_border`, `let swi = sw as i32` - class: rounding - severity: low (hairline borders). Lead from A2-gpu.
@@ -352,7 +352,7 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
   w = 30 inside. Flat walk: `[round(25), round(62.5)) = [25, 63)`. Layer: local `[round(12.5), round(50)) = [13, 50)`, plus
   13: `[26, 63)`. Column 25 differs between a full repaint and a damage repaint of the same list.
 - severity: low
-- status: open: A1 (asked for its second round): the flat walk snaps a scroll frame's origin as its layer is placed, or full repaints stop using layers for plain scroll frames
+- status: fixed `93c22709b` (by A1, on `audit/A1`, A1-21: a full repaint is the damage walk over the whole frame; layers only for a list with a blur, which is A2-cpu-R08)
 
 ### A2-cpu-22 `node_groups_on_screen` subtracts the whole scroll AFTER the frames
 - file:line `compositor.rs:3199-3208` - class: sign/offset - severity: very low (a culler that errs to "visible" otherwise)
@@ -381,7 +381,7 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
   `scale(0.9999999)` is 0.999; `translate(-0.0007px)` is 0; `get_hidpi_factor()` at dpi 128 is 1.333.
 - fix: `(v * 1000.0).round() as isize` in `FloatValue::new` (and the same in `PixelValue` if it has its own).
 - severity: low
-- status: open: A3-core (owner of `css/`) is making `FloatValue::new` round
+- status: fixed `fb8751e41` (by A3-core, on `audit/A3-core`, A3-core-14: `FloatValue::new` rounds to the nearest thousandth)
 
 ### A2-cpu-25 `is_identity_2d` does not look at the perspective terms
 - file:line `compositor.rs:77-84` - class: wrong-output - severity: very low (`matrix3d()` only)
@@ -412,6 +412,26 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
 - severity: low
 - status: fixed `3659e7e92`
 
+### A2-cpu-29 a run that changed under a text shadow that did not was damaged by its ink alone
+- file:line `compositor.rs` `compute_display_list_damage_impl` (the tail: `fringe`, `inflate`; the hint's `inside`),
+  `windowed_structural_damage` (`collect_window`) - class: wrong-output (missed damage: stale and cut shadow pixels)
+- evidence (found while reading A1's `shadow_reach`): a run under a shadow paints the shadow `text_shadow_reach` past its
+  ink (`render_text_shadow`). Both diffs damaged a changed run by `visual_bounds()` + 1 px; only a CHANGED shadow widened
+  it (A2-cpu-05), and the structural diff only refused a push INSIDE a window, not a run under a push of the equal
+  prefix. Hidden for small halos by the padding of `visual_bounds` (1 em left, 1 em past the last pen, 0.75 em under
+  the baseline); a drop shadow, a glow, or a halo behind a wide last glyph shows it. 12 px run, pens 100, 110, 120 on the
+  baseline 50: bounds (88, 32) 44 x 27; shadow offset (8, 8), blur 4 (reach 12): the shadow ends at x 142 / y 62, the
+  damage of the run losing a glyph ended at x 133 / y 60.
+- fix: the paired diff keeps the reach of every open shadow and inflates a changed run by the largest plus
+  `TEXT_SHADOW_DAMAGE_SLACK` ((73, 17) 74 x 57 in the example; without a shadow (87, 31) 46 x 29 as before); the hint
+  counts a run as moved only with its halo inside the region; the structural diff follows the shadows open at the prefix
+  boundary and widens the same way ((73, 17) 74 x 77 for the run broken in two).
+- test: `a2_cpu_29_a_run_that_changed_under_an_unchanged_shadow_is_damaged_with_its_halo` (rects, both diffs),
+  `a2_cpu_29_a_label_that_gets_shorter_under_a_drop_shadow_leaves_none_of_the_shadow` (pixels, with a system font)
+- the same gap for a FRAME's extent (a moved frame, a group's surface) is A1's: A2-cpu-R05.
+- severity: medium
+- status: fixed `0580852f7`
+
 ### checked: fine
 - A2-cpu-08 `GroupGeometry::of` (`T(o) . Lm . T((x, y) - o)`) against `affine_rect_about` / `FrameStack::map` (`o + M (p - o)`)
   and the layer path (`place . layer_h . from_pivot`): one mapping; the perspective row is divided by dpi and the
@@ -429,7 +449,7 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
   the old extent of a value inside a view is lifted with the NEW content offset, which is where the view's shift has
   moved the old pixels to: right.
 - `compute_display_list_damage_impl`: the offset stack (old and new), `map_through_frames`, the symmetric differences
-  (`rect_minus`), the 1 px text fringe: right. `coalesce_damage_rects`, `disjoint_damage`, `box_minus`: only ever
+  (`rect_minus`), the 1 px text fringe: right (what a run under a text shadow needs on top of it: A2-cpu-29). `coalesce_damage_rects`, `disjoint_damage`, `box_minus`: only ever
   replace rects by a cover of them.
 - `snap_out` (floor / ceil, clamped before any unsigned cast), `fill_rect`, `backdrop_under`, `blit_*` loops: no negative
   value reaches an unsigned cast unclamped.
@@ -444,6 +464,10 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
   bound: `picture_covers` gives up near 0.7-0.83 for real view sizes, so bilinear minification below 0.5 is not reached).
 
 ## For area A1
+
+State at `audit/A1` `d17af4dc9`: item 1 (A2-cpu-04), item 3 (A2-cpu-07), A2-cpu-21 and the constraints of items 6
+and 7 are done there (read under `## Review of A1`). Still A1's: item 2 (the five clip sites of A2-cpu-06), item 4
+(A2-cpu-16, which A1 holds as `blocked (a)`), A2-cpu-19, -20, -27, and the review's findings A2-cpu-R01 to -R08.
 
 1. **A2-cpu-04, frame extent.** `FrameIndex` keeps, per frame, its extent WITHOUT its inner frames (`own`) and the list
    of its direct inner frames; `reference_frame_extent(list, idx, transforms)` = `own` united with
@@ -497,6 +521,9 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
    where the composite writes and `group_part_within` is computed per band.
 
 ## For area A6
+
+State at `audit/A6` `12460bb7a`: done as asked (`1f910ffbc`, `da6be4605`, `31884b79c`; read under `## Review of A6`).
+Still A6's: A2-cpu-R09.
 
 **A2-cpu-03.** `resolve_chain` must apply the links in order, each frame about its own origin, instead of one summed
 scroll and one composed matrix. With the chain outermost first:
@@ -576,6 +603,431 @@ the pointer stays where it is ON SCREEN, measured with what the engine holds.
 - `WindowSize::get_hidpi_factor()` is cut to three decimals (A2-cpu-24): do not size or place a frame with it.
 - `pixel_w = ceil(width x dpi)`: at a fractional product the frame is a fraction of a pixel larger than the window; the
   last row / column holds whatever the root items' own rounding puts there.
+
+## Review of A1
+
+Branch `audit/A1` at `d17af4dc9` (it was rebased onto `3e63f996a`: the hashes below are those of that tip; the ones in
+the coordinator's request are the same commits before the rebase). By algebra, one numeric example per item. Names of
+spaces as in `## Spaces`.
+
+Read: `cpurender/bands.rs` and `cpurender/retained.rs` whole; `raster.rs` 1130-1560 (groups), 2500-3130 (the walk, kept
+surfaces), 3132-3490 (turned text), 3490-3845 (repair, stepping), 3894-4332 (damage rects, the whole repaint), 4395-4470
+and 5039-5160 (frame and view arms); `solver3/display_list.rs` 3520-4170 (`GroupBounds`, `FrameIndex`); `compositor.rs`
+2003-2160 (moves), 2840-3210 (value damage), 3700-3865 (view shift), 5196-5770 (paired diff, unchanged by A1), the test
+at 11848; `cpu_backend.rs` 425-450, 583-640, 880-1110, 1240-1500. Not read: A1's changes in `text_halo.rs`,
+`glyph_cache.rs`, `image_memo.rs`, `cpu_counters.rs`, `blit_scale.rs` (threads only), the bodies of the new tests.
+
+### Per item
+
+1. **Bands** (`8ff97ea4f`; `bands.rs` 145-168 `plan_bands`, 233-278 `paint_band`): read, agree. The bands of
+   `[x0, y0, x1, y1]` are `[x0, y, x1, min(y + rows, y1)]` from `y = y0`: half-open, adjacent, their union is the rect
+   (no row twice, none left out), the last one shorter. `[25, 19, 2535, 1421]` on 4 threads: `wanted = min(8, 17, 29)`
+   = 8, `rows = ceil(1402 / 8) = 176`, bands at y = 19, 195, ..., 1251, the last 1251..1421 (170 rows). A band's pass
+   gets `SnappedRect::from_physical(x0, y0, x1, y1)`, the clip `[x0, x1) x [y0, y1)` in D and positions in the FRAME's
+   coordinates (its pixmap has the frame's size), so every `(p - acc) dpi` is the single pass's value bit for bit; only
+   `[x0, x1)` of its rows is copied back. What a pass reads of the target outside its clip rows: nothing (LCD text
+   reads horizontal neighbours, and the band holds its rows in full width; the isolating filter groups snapshot their
+   whole box, but rows outside the band are the band's private zeros and are not copied back; `flood` / `composite`
+   are per pixel; what such a group writes OUTSIDE the pass's rect is R10). The exception A1 documents (a run's path chosen by the pixels under the clipped run) is A1-23 /
+   A1-24.
+2. **Frame stepping** (`8ff97ea4f`; `raster.rs` 3746-3843 `frame_paints_nothing`, `display_list.rs` 3794-4042
+   `FrameIndex::of`): read, agree. Identity / translation leaf: `painted_box = extent - acc + t`, widened by the reach
+   of the shadows in and around the frame, tested against the clip (in a group or a view) or the damage rect, with the
+   same "overlap or adjacent" as the item culls; a frame that is not a leaf is always walked. A1's example checked:
+   extent (100, 40) 60 x 20, `t = (30, 0)`, `acc = (10, 0)`, reach 3: x 117..183, y 37..63; under damage x < 110
+   nothing, under x < 120 it may. Isolated frame: `GroupGeometry::of` on the same `bounds - acc`, `extent - acc` and
+   clip that `begin` gets, and `group_visible_part`: the test `begin` makes. `self_contained` (scopes opened inside are
+   closed inside, innermost first) is what makes the jump `next = frame.end + 1` leave the stacks as a walk through
+   the frame does. Findings: R05 (the extent has no shadow reach).
+3. **A2-cpu-04 by A1** (`66af92a36`; `display_list.rs` 4102-4153 `extent_with`): read, agree. `extent = own ∪
+   bbox(o_i + M_i (extent_with(child_i) - o_i))` with `o_i` the child's `bounds.origin`, in the frame's own space, by
+   the live value of each child (else its push's matrix): the walk's rule. A1's example checked: column (0, 0) 200 x
+   400, card (0, 0) 200 x 80 with `translate(-100, 0)`: card at x -100..100, extent (-100, 0) 300 x 400. A child frame
+   inside a scroll frame of the frame is united unscrolled and unclipped (a superset: its content is cut by the scroll
+   frame's clip, which `own` holds). The walk (2645-2659), `gpu_value_damage` (2939-2942, old values for the old
+   place, new for the new) use it; `status` of A2-cpu-04 above. Finding: R01 (perspective).
+4. **Kept surfaces** (`f5359cff4`, `451b684d8`, `ef0c9e4f7`; `retained.rs`; `raster.rs` 2896-2937 `values_inside`,
+   2947-2953 `surface_phase`, 2987-3091 `retained_candidate`, 2606-2639 and 2711-2738 in the walk, 3511-3727 repair):
+   read. Agree with the key and with a hit; three findings (R03, R04, R07).
+   - Surface to group to device: the content of list position `p` is at surface px `(p - acc) dpi - g`, `g =
+     floor((extent - acc) dpi)`; surface px `s` lands at `o_d + L (s + g - o_d) + t dpi` (`GroupGeometry::of`), `o_d =
+     (bounds.origin - acc) dpi`. The candidate computes `g`, the size, the matrix and the clip with the expressions
+     `begin` uses (`on_surface` = `scroll_rect`), so a miss opens exactly the surface the key describes; the hit
+     composites with `TransformGroup { matrix, outer_clip }` of the LIVE geometry.
+   - The key. In it: the list's allocation (held by the entry, so the address cannot be reused), the push index, the
+     size, the factor's bits, the phase `round(frac((extent - acc) dpi) x 1024)`, a hash of the live values bound
+     INSIDE (inner frames' matrices, opacities, bound colours, thumbs, scroll offsets; a frame's own key is not in its
+     own `FrameInner`: `FrameIndex::of` records the keys before it opens the frame, 3885-3924 against 3992), a hash of
+     the text settings. Not in it: the frame's own matrix, the clip. Never kept: nested, under a text shadow, with a
+     view inside, perspective. Checked against everything the walk reads inside a frame: complete, with the one hole
+     of R03 (the list is replaced and the extent moves by whole pixels).
+   - Rule 4 (the phase): at an offset that differs by `n` whole device px, `(p - acc) dpi` and `g` both move by `n`:
+     the same picture. dpi 2, extent.x 37.25, item at 40.1: `acc = 0`: `g = floor(74.5) = 74`, phase 512, item at 80.2
+     - 74 = 6.2; `acc = 6` (12 px): `g = floor(62.5) = 62`, phase 512, item at 68.2 - 62 = 6.2. Remark, no finding:
+     equal keys mean equal pictures up to 1/2048 px (the quantum) plus the 1e-5 px of A2-cpu-16; an edge that
+     `round_edge` puts within that of a half pixel can sit one pixel apart in the kept and in a fresh picture. Exact
+     once offsets are whole device pixels outside `acc` (A2-cpu-16); a view's offset is on the grid (A2-cpu-13), so
+     the editor's pans have the same phase to 1e-5.
+   - Painted so far against read: `needed = group_part_within(.., 2)`. The composite samples `s = inv(M)(d + 0.5) -
+     0.5` for destination pixels `d` of the clip box and reads texels `floor(s)`, `floor(s) + 1` (`blit_scale` 38-52
+     and `blit_pixmap_affine_general` 302-336: two taps a axis, no wider filter when minifying). `inv(M)` of the clip
+     box lies in the bbox `[x0, x1]` of its corners, so the texels read are `floor(x0) - 1 ..= floor(x1) + 1`, inside
+     `[floor(x0 - 2), ceil(x1 + 2))`: the margin of 2 covers them (1.5 would). `valid` = the union of the parts
+     painted (each `group_visible_part`, margin 64, clipped as the walk's clip): a pixel painted under a clip is the
+     pixel of an unclipped paint (items are culled by what they paint, shadows and halos come from buffers of their
+     own, text in a group is grayscale by the stack, not by the pixels), so the whole part is valid. `covers` =
+     `needed` minus every valid box is empty. A hit therefore reads only texels a fresh paint of this frame would
+     have painted with the same values: identical to a fresh paint, with A1-24 as A1's own open exception (the
+     pre-blended path is chosen under the CLIPPED run: it also decides pixels of a kept part and of a repaired box).
+   - Bands: every band offers its part of the same key; `commit` merges them in a fixed order into one surface.
+5. **Present moves** (`1330635f1`, `4e8d84f40`; `compositor.rs` 2022-2030, 2141-2151; test 11848): read, agree with
+   the move itself. A scroll delta `px_dx` moves the content by `-px_dx`: `dx = -px_dx`, `dst = [cx0, cx1) ∩ ([cx0,
+   cx1) + dx)`, `new[p] = old[p - (dx, dy)]`: the Shift table above with the sign named for the presenter. Clip (10,
+   10) 60 x 40, delta (12, 0): `dx = -12`, `dst = (10, 10, 48, 40)`, pixel (20, 15) shows old (32, 15), the strip
+   57..70 (12 + 1 over-covered) overlaps the last column of `dst` and is presented after the move: as A10's contract
+   asks. Finding: R02 (a frame that also blits a layout move).
+6. **The shift gate** (`7865fb887`; `compositor.rs` 3734-3758): read, agree. Both offsets and the delta on the device
+   grid (1e-3); then `round(new dpi) - round(prev dpi)` IS the delta. 10.4999 -> 13.5004: not on the grid, the clip
+   is repainted. `prev = offset - delta` is the old offset negated, as `ViewShift` defines the two.
+7. **A1-15** (`9326d2e51`; `raster.rs` 5138-5155, `compositor.rs` 3115-3207): read, agree. A view's list is walked
+   with `bind_colors = true`; `color_value_damage` of the child list lands at `r + bounds.origin + content_offset`,
+   cut to the view's box, through the frames around the view's item (`ScrollStack::on_screen`): the placement of the
+   `VirtualView` arm.
+8. **A1-20, turned text drawn directly** (`1815e987a`; `raster.rs` 3135-3327, 3349-3488): read, agree with the map.
+   `TurnedMap::at(q) = o + L (q - o) + t dpi`, `L = [m00 m10; m01 m11]`, `o = (bounds.origin - acc) dpi`: the group's
+   matrix without the group. A shadow's offset is added to the pen BEFORE the matrix (it turns with the label, as in
+   a group). The glyph transform `scale . translate(rel pen) . L . translate(-box)` uses agg's `(sx, shy, shx, sy) =
+   (a, c, b, d)`: `x' = a x + b y`. Example: `rotate(90deg)` (m00 = 0, m01 = 1, m10 = -1, m11 = 0), `o = (300, 200)`,
+   pen (350, 206) at dpi 1: `q - o = (50, 6)`, `L (q - o) = (-6, 50)`: (294, 250), plus `t dpi` = (12, 12) for a pivot at (0, 12): (306, 262),
+   the point of the example under `## Review of A6`. The clip is
+   `AzRect::pixel_box` (the one rule). Remarks: (a) the anchor is `round()`ed to a whole device pixel per run (the
+   only text on the CPU path placed on whole pixels; upright text is on a quarter-pixel grid): within 0.5 px of the
+   group path, by design; during a slow zoom labels step by whole pixels against the geometry under them (see `What
+   to look at on the real window`); (b) a pan by whole device px moves every anchor by that number except where
+   `frac` is within 1e-5 of 0.5 (A2-cpu-16 again). Findings: R05 (the halo passes the extent), R06 (runs outside the
+   clip, runs too large).
+9. **A1-21, the full repaint by the walk** (`93c22709b`; `raster.rs` 4231-4272, `cpu_backend.rs` 1336-1390): read,
+   agree: a full frame is the damage pass over `[0, 0, w, h]`, so "damaged == full" holds by construction for every
+   list the walk paints; A2-cpu-21 and the fractional part of A2-cpu-15 are gone with it. Finding: R08 (a list with a
+   blur keeps two paths).
+
+### Findings
+
+#### A2-cpu-R01 a perspective inside a frame: `extent_with` tests it with another tolerance than the rasteriser and gives the laid-out extent
+- severity: low
+- where: `layout/src/solver3/display_list.rs:4121-4123` (and the same test at `raster.rs:3583`, `3169-3171`)
+- algebra: the rasteriser treats a matrix as affine when `m03 == 0 && m13 == 0 && |m33 - 1| < EPSILON`
+  (`has_no_perspective`, A2-cpu-25) and composites a group projectively when `|m03 / dpi| >= 1e-12`
+  (`mat3_is_affine`); `extent_with` maps a child affinely while `|m03| <= 1e-6` and returns `None` above it, and the
+  walk then keeps the laid-out extent as the surface. A point `q` of a child about `o` lands at `o + (L q + t) / w`,
+  `w = m03 qx + m13 qy + m33`.
+- example: child box (0, 0) 400 x 100 about `o = (0, 0)`, identity but `m03 = -0.001` (a tilt): the corner (400, 0)
+  has `w = 0.6` and lands at x = 666.7; the laid-out extent ends at 400: the outer frame's surface cuts 267 px of the
+  child. With `m03 = -5e-7` and a 2000 px child: `w = 0.999`, the corner lands at 2002.0, the extent says 2000.
+- change: in the corner loop, `let w = qx * m[0][3] + qy * m[1][3] + m[3][3]; if !(w > 1e-6) { return None; }` and
+  divide both sums by `w`; delete the early `return None` on the perspective terms. For an affine matrix `w` is 1.0
+  exactly and the result is today's bit for bit. (Four corners with `w > 0` bound the image: `w` is linear, so it is
+  positive on the whole box, and the image of the box is the convex quad of the mapped corners.) `None` stays for a
+  corner at or behind the eye. The same in `stale_boxes`.
+- test: a column with a card whose matrix has `m03 = -0.001`: `extent_with` reaches x = 666.7 (mutation: the affine
+  sums give 400).
+- status: open: A1 (found in review; not patched by A2-cpu, the coordinator routes it)
+
+#### A2-cpu-R02 a frame that blits a layout move AND shifts a scroll frame or a view reports moves that do not rebuild it
+- severity: low
+- reach: needs a layout patch with its translate hint and a scroll or a pan in ONE frame; the hint is off while any
+  scroll offset is non-zero, so: a scroll back to exactly 0, or a view's pan
+- where: `layout/src/cpu_backend.rs:1046-1075` (the blit, first), `1076-1109` (the reported moves), `1483-1490`
+- algebra: the invariant is "previous frame, the moves in order, then `last_present_damage_after_moves` copied =
+  the new frame". The translate blit moves pixels BEFORE the reported moves and is not one of them; its boxes
+  (`present_extra` of the blit, in the positions BEFORE the scroll) are in `present_unmoved`. A reported move then
+  carries blitted pixels: for `p` in a move's `dst` with `p - d` inside a blit box and `p` outside every box of
+  `present_unmoved`, the frame holds the blitted pixel and the presenter shows `old[p - d]`, the pixel from before
+  the blit.
+- example (dpi 1, frame 100 x 80): a panel (10, 10) 30 x 20 moves down 5 by the layout blit (box rows 15..35); the
+  page scrolls from 8 to 0 in the same frame: move `dst = (0, 8, 100, 72)`, `dy = +8`, which carries the blitted
+  panel to rows 23..43. The presenter moves ITS pixels (panel at rows 10..30) to 18..38 and copies the strip and
+  (10, 15) 30 x 20 from the frame: rows 35..43 of columns 10..40 show old rows 27..35 (the panel's last 3 rows, then
+  background) where the frame has the panel's rows 12..20: 240 px wrong.
+- change: when the blit ran (`present_unmoved` is not empty), report no moves: `last_present_moves = Vec::new()`
+  and `last_present_damage_after_moves = ` what `last_present_damage` is. (Or report each mover of the blit as a
+  move of its own in front of the others; the first is three lines.)
+- test: the invariant test of `4e8d84f40` with a blit before the shift (mutation: the moves reported as today).
+- note: no consumer on macOS today (A10-06 is `blocked (a)`); A10-24 is the X11 / Win32 consumer.
+- status: open: A1 (found in review; not patched by A2-cpu, the coordinator routes it)
+
+#### A2-cpu-R03 a kept surface repaired for a replaced list is not checked for the frame's extent: a frame whose extent moved by whole pixels is composited displaced
+- severity: medium
+- reach: wrong pixels that stay until the key changes; needs content OUTSIDE the frame's box to change at both ends,
+  or to move by whole pixels with the same size
+- where: `layout/src/cpurender/raster.rs:3519-3526` (`stale_boxes`), used by `refresh_retained_surfaces` 3654-3712
+- algebra: the picture in a surface is `(p - acc) dpi - g` with `g = floor((extent - acc) dpi)`, and a hit
+  composites with the LIVE `g`. Within one list the extent is fixed (given `values`), so only `acc` moves `g`, and
+  the phase tells whole steps apart from the rest. The repair moves the entry to ANOTHER list and keeps `size` and
+  `phase`; when the new list's frame has an extent with the same size and phase but another origin, the key matches
+  and the live `g` differs from the `g` the picture was painted with by the number of whole pixels the extent moved.
+- example (dpi 1, `acc` 0, frame `scale(1.5)`, box (100, 0) 800 x 300): old list: A (0, 0) 100 x 300 (overflows to
+  the left), C (100, 0) 800 x 300: extent (0, 0) 900 x 300, `g = 0`, C at surface x 100..900. New list, same item
+  count: A's slot holds B (900, 0) 100 x 300: extent (100, 0) 900 x 300. `stale_boxes`: A's box [0, 0, 102, 300] and
+  B's [898, 0, 900, 300] (clamped), 31,200 px of 270,000: repaired (the first box cleared, B is outside the old
+  surface), entry re-keyed. The walk: `g = 100`, size (900, 300), phase (0, 0): a hit; surface x 100..900 lands as
+  list x 200..1000: C is drawn 100 px (150 device px) to the right, list x 100..200 is transparent, B is missing.
+- change: in `stale_boxes` after the `end` test: the extents the walk would use must be equal:
+  `let ext = |i: &FrameIndex, items, laid_out| i.extent_with(items, key.push, &render_state.transforms).unwrap_or(laid_out);`
+  `if ext(&old_index, &old.items, old_frame.extent) != ext(&index, &new.items, frame.extent) { return None; }`
+- test: the example: after the frame, the retained render equals the fresh one (mutation: without the test C is 150
+  px to the right).
+- status: open: A1 (found in review; not patched by A2-cpu, the coordinator routes it)
+
+#### A2-cpu-R04 the repair of a kept surface of the window's own list walks it as a view's list
+- severity: low
+- where: `layout/src/cpurender/raster.rs:3691` (`WalkCull::ActiveClip` for every slot)
+- algebra: inside a group every walk culls by the clip; the modes differ in one thing there: `paint_turned_text_frame`
+  is taken only under `WalkCull::ActiveClip` (2686-2687). A frame of the root list is painted under `Damage(..)`:
+  its turned text frames are nested groups (ink resampled, halo cut at the extent). The repair paints the same
+  frames directly (anchor rounded, outlines turned): the repaired boxes are another picture than a fresh paint.
+- example: a kept `scale(1.5)` panel of the window's list with a `rotate(90deg)` caption inside; another item of the
+  panel changes under the caption: the box is repainted with the caption drawn directly, up to 0.5 px from, and
+  sharper than, the rest of the caption outside the box.
+- change: `if entry.placement.slot == usize::MAX { WalkCull::InGroups } else { WalkCull::ActiveClip }` (with the
+  isolated entry on the mask stack `in_group` is true, so `InGroups` culls by the clip as the root's walk does).
+- test: `a_kept_picture_is_painted_again_...` (rule 1) on a root-list frame with a turned caption: retained == fresh.
+- status: open: A1 (found in review; not patched by A2-cpu, the coordinator routes it)
+
+#### A2-cpu-R05 the extent of a frame counts a run's ink without the reach of the text shadows it is under
+- severity: medium
+- reach: stale or cut halo pixels; hidden while the reach is under the padding of `visual_bounds`: 1 em left, `1 em -
+  the last advance` right, about 0.5 em above and below
+- where: `layout/src/solver3/display_list.rs:3575-3602` (`GroupBounds::step`); consumers: `GroupGeometry::of` (the
+  surface), `gpu_value_damage` 2939-2942, the paired diff's frame arm 5273-5279, `windowed_structural_damage`
+  (A2-cpu-28), `node_groups_on_screen`
+- algebra: under shadows `S` a run paints `ink ⊕ text_shadow_reach(S)` (upright: `render_text_shadow`, source = ink,
+  halo `reach` past it, cut by the active clip; directly drawn turned text: the same through the matrix, "a halo is
+  no longer cut at the frame's box"). `FrameEntry::extent` unites `visual_bounds()`, the ink alone. So: (a) a moved
+  identity / translation frame and a directly drawn turned frame are damaged by `extent` and leave the ring `reach`
+  past it stale at the old place and cut at the new; (b) an isolated group's surface IS the extent: the halo is cut
+  there; (c) `frame_paints_nothing` and `stale_boxes` widen by `shadow_reach` themselves: they are right.
+- example: font 12 px, "mmm" with pens at x = 100, 110, 120 (advance 10), baseline 50, a wide clip: `visual_bounds`
+  = x 88..132, y 32..59. `text-shadow: 8px 8px 4px` (reach 12): the shadow paints to x = 130 + 12 = 142 and y = 50 +
+  12 = 62. A frame of this label moved by its matrix damages x <= 132, y <= 59: columns 132..142 and rows 59..62 of
+  the old shadow stay; as a group the surface cuts them.
+- change: `GroupBounds` gets `shadows: Vec<f32>`; in `step`, after the scroll-frame arms: `PushTextShadow { shadow }
+  => self.shadows.push(text_shadow_reach(shadow))`, `PopTextShadow => { self.shadows.pop(); }`, and a `Text` item's
+  `visual` is widened by the largest entry before `add(clip, b)`. Every open frame steps over the same items, so
+  each extent (and `own`) gets it; `shadow_reach` at its two users becomes a harmless second margin. Group surfaces
+  grow by the reach (halos are no longer cut in groups either).
+- test: a translated frame with the example's label, moved by its matrix: damaged == full (mutation: the ring
+  stays); `GroupGeometry::of` of the frame at `scale(2)` covers x up to 142.
+- note: the per-ITEM damage of a changed run under an unchanged shadow has the same gap; that one is mine
+  (A2-cpu-29, fixed on `audit/A2-cpu`).
+- status: open: A1 (found in review; not patched by A2-cpu, the coordinator routes it)
+
+#### A2-cpu-R06 directly drawn turned text builds the picture of every run of the frame, and skips a run it cannot build
+- severity: medium
+- reach: for a text-only frame with many runs under a scale (a zoomed page of text in a view); none for one label
+- where: `layout/src/cpurender/raster.rs:3266-3321` (the loop), `3294-3302` (`continue`), `3413-3420`
+- algebra: the frame is drawn when ANY part of its surface may land (`frame_paints_nothing`); then every `Text` item
+  gets `turned_run_picture` (rasterised whole and kept under a key that holds the matrix's linear part) before its
+  box is cut by the clip: a zoom step of a text-only leaf frame of 2,000 lines rasterises 2,000 pictures at the new
+  scale, on screen or not. And a picture wider or higher than 8192 px, or an anchor beyond 1e6, is `continue`d after
+  the frame was committed to direct drawing: the run is not painted at all, where the group path paints the part
+  that lands.
+- example: `scale(8)` on a frame holding a 1,200 px line: the turned ink is 9,600 px: no picture, no text.
+- change: (1) in the pre-check loop (3194-3216) compute each run's turned box (the corner loop of 3400-3417, as a
+  helper) and `return false` (the frame is a group) when it is not finite or exceeds 8192; (2) in the paint loop
+  test that box, placed at the anchor, against `clip_box` BEFORE `turned_run_picture`, and skip the run when it
+  misses.
+- test: a `scale(8)` text-only frame with a 1,200 px line in a view: painted == `AZ_CPU_TURNED_TEXT=group` within
+  the anchor's tolerance (mutation: empty); 100 runs of which 3 meet the clip: 3 pictures built.
+- status: open: A1 (found in review; not patched by A2-cpu, the coordinator routes it)
+
+#### A2-cpu-R07 which kept surface makes room depends on the order in which band threads looked up
+- severity: low
+- reach: no pixel; `retained_hits` / `retained_misses` of later frames, and with them e2e counters
+- where: `layout/src/cpurender/retained.rs:271-277` (`lookup` advances the clock and stamps the entry)
+- algebra: two entries both used by a frame get their `last_used` from whichever band's lookup came last; `commit`
+  evicts `min_by_key(last_used)`. The module says "what a band hits does not depend on thread timing": true for the
+  frame, not for which surface the next frame still has.
+- change: advance `clock` in `begin_frame` only and stamp `last_used = clock` in `lookup` (a frame number); ties
+  fall to the first entry, whose order `commit` already fixes.
+- status: open: A1 (found in review; not patched by A2-cpu, the coordinator routes it)
+
+#### A2-cpu-R08 a list with `filter: blur()` is blurred by the full repaint and not by a damaged one
+- severity: medium
+- reach: a sharp patch in a blurred element after any repaint of part of it; before A1-21 too
+- where: `layout/src/cpu_backend.rs:583-589` (`can_reuse_previous_frame`), `1348` (`full_repaint_needs_layers`);
+  `raster.rs:5367-5375` (the walk's `PushFilter` arm isolates `flood` / `composite` only)
+- algebra: full frame of such a list: layers, `apply_layer_filters` blurs the promoted layer. Damage rect: the flat
+  walk, where a blur pushes `MaskEntry::Filter(None)` and nothing is filtered. "Damaged == full" does not hold for
+  the one kind of list that still has two paths.
+- example: a 200 x 100 box with `filter: blur(4px)` and a caret blinking over it: the caret's damage rect (2 x 18)
+  is repainted unblurred inside the blurred box.
+- change (now): `let can_reuse_previous_frame = frame_may_reuse_previous_pixels(..) && !needs_layers(display_list)
+  && !previous_list_needed_layers;` (`full_repaint_needs_layers` of both lists; one bit kept in the list's
+  `FrameIndex` saves the two scans): such a window repaints whole. Design for the rest: a blur as an isolated group
+  of the walk (surface = bounds ⊕ radius, part = clip ⊕ radius, painted, blurred, composited under the clip), after
+  which no list needs layers.
+- test: `a2_cpu_the_damaged_render_is_the_full_render...` with a blurred box in the scene (mutation: today's gate).
+- status: open: A1 (found in review; not patched by A2-cpu, the coordinator routes it)
+
+#### A2-cpu-R10 an isolating filter group takes its whole box in every pass, whatever the pass's clip
+- severity: low
+- reach: wrong pixels only for a filter chain that leaves colour where the group painted nothing: a bare translucent
+  `flood()`, `composite(out)`; otherwise work per pass
+- where: `layout/src/cpurender/raster.rs:5367-5375` (the `PushFilter` arm), `1688-1737` (`FilterGroup`); not A1's
+  new code, found while checking item 1 ("a pass writes no pixel outside its rect")
+- algebra: `FilterGroup::begin` snapshots and clears `bounds - acc` as it is; the push is a state item, so every pass
+  (every damage rect, every band) does it for every such group of the list, then filters the box and writes "filtered
+  over backdrop" back. Outside the pass's clip the group painted nothing (its items are clipped): the box there is the
+  filter of nothing over the pixels of the frame before. For `flood() composite(in)` (the icon tint) that is the
+  backdrop again: no change, four sweeps of the box per pass. For a chain that is not transparent there, it is blended
+  onto pixels that already hold it, outside the rect the pass was given (in a band's own pixmap the rows outside the
+  band are not copied back, the columns outside `[x0, x1)` neither: bands and one pass differ there).
+- example: a 24 x 24 box at (10, 10) with `filter: flood(rgba(0, 0, 0, 0.5))`; a caret blinks at (300, 200): the pass
+  of the caret's rect (2 x 18) clears the box and writes half black over what it showed: darker with every blink.
+- change: the region of the group is its box INSIDE the clip, as an opacity group's is (`opacity_group_region`):
+  `intersect_clips(clip_stack.last().copied().flatten(), logical_rect_to_az_rect(..))`, and no group (`None`) when
+  that is empty.
+- test: a full paint, then `render_display_list_damaged` with a rect beside the box: the box's pixels are unchanged
+  (mutation: today's arm darkens them).
+- status: open: A1 (found in review; not patched by A2-cpu, the coordinator routes it)
+
+## Review of A10
+
+Branch `audit/A10` at `5cabb06a2`, macOS only (the other shells' arms were not read). Read: `layout/src/window.rs`
+676-1057 (`FrameDamage::to_rects_physical`, `present_geometry`, `LayoutWindow::frame_scale`), `macos/mod.rs`
+2126-2211 (the pure rect functions), 2277-2323, 3246-3420 (`drawRect:` to the draw from the framebuffer), 4262-4330
+(`update_framebuffer`), 4417-4507 (spans, invalidation), 8250-8360 and 9564-9660 (the DPI writes), 10646-10790 (the CPU
+arm of `render_and_present_in_draw_rect`), `audit/A10.md` Spaces, A10-01..04, A10-17, the contract of `present_moves`,
+the space mapping. Not read: the bitmap path below 3417, `draw_framebuffer_span*`, `resize_framebuffer`, the layer plan.
+
+No finding. Per item:
+
+1. **Present rect, flipped and in points** (`present_rect_in_view_points`, 2180-2194; `flip_rect_y`, window.rs
+   920-923): read, agree. `(x, y, w, h)` in D (top-left, y down) of a frame `H` px high becomes `(x / s, (H - (y + h))
+   / s, w / s, h / s)` in the view's points (bottom-left, y up; the view is not flipped). On the user's display (frame
+   2940 x 1912, `s = 2`), a pan strip (2914, 40, 26, 1800): `y' = 1912 - 1840 = 72`: points (1457, 36, 13, 900).
+2. **Rows copied** (`dirty_rows_to_copy` = `rows_of_bottom_left_rect`, window.rs 935-952): read, agree: the inverse
+   of the flip, outward: `y0 = floor(H - (y + h))`, `y1 = ceil(H - y)`, `x0 = floor(x)`, `x1 = ceil(x + w)`, clamped.
+   The dirty rect AppKit hands back, in backing px (2914, 72, 26, 1800): rows 40..1840, columns 2914..2940: the rows
+   and columns invalidated. The inward twin (`rows_inside_backing_rect`, ceil / floor) is only used to decide that a
+   rect is ALREADY being drawn, where inward is the safe side.
+3. **Source and destination rects** (`bitmap_source_rect`, 2200-2211; 3377-3392): read, agree. Rows `y0..y1` of a
+   top-row-first buffer are `(x0, H - y1, x1 - x0, y1 - y0)` in the bitmap's bottom-left space: (2914, 72, 26, 1800);
+   the destination is that through `convertRectFromBacking:`: (1457, 36, 13, 900) points: what was invalidated.
+4. **D rects from damage** (`to_rects_physical`, window.rs 724-759): read, agree: floor / ceil outward, clamped: the
+   rule of "damage rect -> cleared / repainted box" in my P -> D table and of the memmove region. A painted rect comes
+   back from the renderer as `x0 / dpi` and is multiplied again here; in `f32` that can floor one pixel lower or ceil
+   one higher at a fractional factor: a superset by one pixel, never less (exact at 1 and 2).
+5. **Frame size** (`frame_size_px`, window.rs 862-867; `cpu_view_framebuffer_size`, 2162-2169): read, agree:
+   `ceil(logical x factor)` in `f32`, the expression of `CpuBackend::render_frame` (`cpu_backend.rs:390-391` on
+   `audit/A1`), on `bounds as f32` (what the state holds). 1470 x 956 pt at 2: 2940 x 1912.
+6. **`frame_scale()` against my `frame_dpi_factor()`**: the same number wherever mine is used.
+   `LayoutWindow::frame_scale()` = the shell's exact factor if one was set, else `present_geometry::frame_dpi_factor(
+   size.dpi)` = `dpi / 96`, 1.0 for a DPI of 0: the body of mine. `set_frame_scale` is called in `wayland/mod.rs`
+   only (6013, 7964, 10369); macOS writes `size.dpi = (scale x 96) as u32` (8353, 9640: 96, 192, 288, exact) and
+   renders at `layout_window.frame_scale()` (10659). My one user outside tests is `virtual_view_content_offset` (the
+   snap grid of a view's offset), which must be the factor the frame is rendered with: that is what `frame_scale()`
+   is. So the merge (`frame_dpi_factor()`'s body becomes `self.frame_scale()`) changes nothing on macOS, X11, Win32
+   and the headless shell, and on Wayland's fractional path it makes the grid the frame's (today mine would snap on
+   `dpi / 96` = 1.104 where the frame is rendered at 1.1: every pan step off the grid, the view repainted whole).
+   `a2_cpu_13_...` sets `size.dpi` and renders at `dpi / 96` with no override: unchanged.
+   For the integration (not a finding): `dll/.../headless/mod.rs` 1759, 5569, 11017, 12432 still compute
+   `ws.size.dpi as f32 / 96.0` inline: equal to `frame_scale()` for every DPI above 0, and 0.0 where `frame_scale()`
+   says 1.0 for a DPI of 0 (no frame either way); one call would make it one source.
+7. **The space mapping** (`audit/A10.md`, "Space names"): agree with every row: A10's logical px = P of the root
+   list, buffer px = D, its factor = `dpi_factor`; L of a child list, G and Y never reach a shell.
+8. **The contract of `present_moves`**: agree; item 7's example is the Shift table's row for a content move to the
+   left (`px_dx = +12`: `dst = (48, 40, 292, 200)`, `dx = -12`, the strip (339, 40, 13, 200) presented after it).
+   Point 2 of the contract (the invariant) does not hold for a frame with a layout blit: A2-cpu-R02, on the
+   producer's side.
+
+Remark for the real window: `drawRect:` takes the scale as `backing.width / bounds.width` (3257-3261). It is 1 or 2
+exactly as long as `convertRectToBacking:` does not round a fractional width; `self.window().backingScaleFactor()` is
+the number itself. Only bounds that are not whole points could show a difference (A10-02's log line would say so).
+
+## Review of A6
+
+Branch `audit/A6` at `12460bb7a`; the commit is `1f910ffbc` ("A6-01, A6-02, A6-03: a box is hit where it is drawn"),
+with `da6be4605` (A6-06) and `31884b79c` (A6-07) for the forward direction. Read: `layout/src/headless.rs` 690-1145
+(links, `frame_to_screen`, `frame_to_local`, the chain maps), 1220-1301 (`rect_to_screen`), 1390-1512
+(`compute_node_chains`), 1529-1542 and 1733-1899 (placements, the host chain), 2150-2223 (`map_point_through_chain`,
+`sync_view_placements`), 2395-2462 (the frame corners); `core/src/gpu.rs` 257-332 (`reference_frame_of`,
+`painted_transform_of`); the builder's three `push_reference_frame` sites (`display_list.rs` 7028-7053, 7690-7707,
+8614). Not read: the index and the grids (A6-04, A6-05), the tests' bodies.
+
+A2-cpu-03 is fixed by it. Per item:
+
+1. **The inverse mapping**: read, agree. A frame's plane map is `[a b c; d e f; g h i] = [m00 m10 m30; m01 m11 m31;
+   m03 m13 m33]` (910-923), the nine numbers of the rasteriser's `layer_h` in logical px; forward `o + ((a qx + b qy
+   + c) / w, (d qx + e qy + f) / w)`, `w = g qx + h qy + i`, `q = p - o` (947-966): `o + M (p - o)`. The inverse is
+   the adjugate applied to `(qx, qy, 1)` and divided by its third coordinate (974-1004); I checked the nine cofactors
+   against the matrix and the determinant. Example (the one of `## For area A6`): box (300, 200) 100 x 12,
+   `rotate(90deg)` about (0, 12): `a = 0, b = -1, c = 12, d = 1, e = 0, f = 12, g = h = 0, i = 1`, det = 1. Window
+   point (306, 262): `q = (6, 62)`; `x = 0 x 6 + (0 + 1) x 62 + (-12 - 0) = 50`, `y = (0 - 1) x 6 + 0 + (12 - 0) =
+   6`, `w = 1`: list point (350, 206); forward: `x' = 0 x 50 - 1 x 6 + 12 = 6`, `y' = 50 + 0 + 12 = 62`: (306, 262).
+2. **The order of the links**: read, agree. A chain is outermost first (`sort_by` depth, then the reference frame of
+   a box before its scroll frame, 1499); the inverse walks it in that order (`chain_to_local`, 1063-1073), the
+   forward map in reverse (1050-1060). The builder pushes a node's frame before its own items and its scroll frame
+   around its children, so a box is inside its own frame and outside its own scroll frame: the chain of a box holds
+   its own `Transform` (`with_own`) and the scroll frames of its STRICT ancestors. A2's example for the order: a
+   scroller scrolled (0, 30) around a box (100, 100) 50 x 50 with `scale(2)`: painted (100, 70) 100 x 100; window
+   (190, 160): scroll first, `(190, 190)`, then the frame, `100 + (90, 90) / 2 = (145, 145)`: inside. (The frames are
+   the node's transformed LAYOUT ancestors: right, because a transform makes its box the containing block and the
+   stacking context of everything under it, so the list nests them the same way.)
+3. **Content and scroll offsets**: read, agree. A child's static space is `L + bounds.origin + host placement +
+   content_offset at build` (1830-1836); the `View` link adds `content_offset now - at build` (1014-1017, 2199-2222),
+   read off the view's item, i.e. the snapped offset the walk paints with (A2-cpu-13). The child's own frames keep
+   their corners in static space, which is right: `(o + shift) + M ((q + shift) - (o + shift)) = o + M (q - o) +
+   shift`. The view's box is a clip in the HOST's chain without the `View` step (1849-1857): the content moves
+   through the box. Scroll: `q - s` forward with `ScrollManager::get_current_offset`; an incremental frame paints at
+   the baseline offsets (A2-cpu-20), which differ from the current ones by less than one device pixel: nothing a hit
+   test can see.
+4. **Which matrix**: read, agree. `GpuStateManager::painted_transform_of` = `GpuValueCache::reference_frame_of`: the
+   CSS channel, else the animation channel, else the sticky one: the value the CPU frame reads through the frame's
+   key (the live value, of every dom), and the rule by which the builder opens a frame at all. A frame's corner is
+   taken from the list's own `PushReferenceFrame::bounds` (2423-2444), so it is the corner the rasteriser turns
+   about (of a box broken across regions: the corner of its first part). One finding (R09, the value of a key that has none).
+5. **Frames that cannot be inverted**: read, agree. `|det| < 1e-12` or a non-finite result: no point inside the
+   frame, nothing in it is hit (985-987, 996-998); a point whose forward `w` is not above 1e-9 is behind the eye and
+   not hit (1000-1002). The rasteriser draws nothing in both cases (the composite of a singular matrix returns, a
+   destination pixel with `w <= 0` is skipped). A matrix that is a translation exactly takes the path without a
+   division; one within the rasteriser's 1e-4 of a translation is inverted as it is (the two differ by 1e-4 x the
+   distance from the corner: 0.1 px at 1000 px).
+
+#### A2-cpu-R09 a reference frame whose key has no live value is hit as the identity; the rasteriser paints it with the list's own matrix
+- severity: low
+- reach: the builder opens a frame only for a node with a key AND a value, so it needs a list that outlives its value:
+  the frame after an animation's key is removed, until the list is rebuilt; or a hand-made list
+- where: `layout/src/headless.rs:1018-1023` and `1039-1044` (`None => Some(p)`)
+- algebra: `raster.rs`, the `PushReferenceFrame` arm: `render_state.transforms.get(key).map_or(&initial_transform.m,
+  ..)`: without a value the frame is painted with the matrix the list was built with (the rule of A2-cpu-01). The
+  links map such a frame with the identity.
+- example: a card slid by the animation channel, `translate(40, 0)` baked at the last build, its key dropped by the
+  finished animation, the list not rebuilt yet: painted at +40 (by a repaint in that state), hit at +0.
+- change: keep, next to `frame_corners` (2423), the `initial_transform` of each owner's frame and of each host frame
+  read in `resolve_virtual_view_placements`, and resolve a link with `resolve_transform(d, n).or(baked)`.
+- note: the forward `rect_to_screen` (1255-1261) takes the corner from `calculated_positions`, the tester from the
+  list's `bounds`: the same point except for a box broken across regions, where the list holds the part's rect.
+- status: open: A6 (found in review; not patched by A2-cpu, the coordinator routes it)
+
+## What to look at on the real window
+
+Nothing of A2-cpu's is behind a switch: every change is a rect, a sign or a rounding with a headless test. What a
+Retina window (2940 x 1912 px, factor 2) shows of them, with the CPU backend (`AZ_BACKEND=cpu`):
+
+- A2-cpu-13 / -07: a pan of the map at rest (scale 1) moves pixels and paints strips. With `AZ_BLIT_DEBUG=1` no line
+  `[viewshift] ... is no whole device pixel` may appear during a drag (offsets are multiples of 0.5 pt); a line per
+  frame means the offset is off the frame's grid and every pan step repaints the view.
+- A2-cpu-29 / -05 / -18: edit a label with a halo (shorter text, another halo colour) and drag one: no remains of the
+  old halo around the old place, no halo cut along a straight edge at the new one.
+- A2-cpu-26: a translucent box during a fade (a selection overlay, a tooltip fading in): its edges do not step by a
+  pixel between the last translucent frame and the opaque one.
+- A2-cpu-14 / -06: a scaled or turned box at the window's level (a dialog scaling in): no one-pixel jump between the
+  first full frame and the damaged frames after it, and no one-column gap at a clip that lies between pixels.
+- From the review (A1's code, `## Review of A1`): during a SLOW zoom the turned labels are placed on whole device
+  pixels (item 8, remark a): compare with `AZ_CPU_TURNED_TEXT=group`; a label whose halo passes its box when it is
+  dragged (R05); a box with `filter: blur()` under a blinking caret (R08).
 
 ## api.json
 

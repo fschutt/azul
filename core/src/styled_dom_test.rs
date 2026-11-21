@@ -2944,3 +2944,165 @@ mod part_of_parent_tests {
         );
     }
 }
+
+/// Guards of the 2026-11-21 audit, area A3-core (`audit/A3-core.md`).
+#[cfg(all(test, feature = "css_parser"))]
+mod audit_a3_core_tests {
+    use super::*;
+
+    /// A3-core-09: the sheets nodes carry are moved out of the tree, not
+    /// copied and then dropped: in the order the copy listed them, and no
+    /// node keeps one.
+    #[test]
+    fn take_css_from_dom_moves_what_collect_listed_and_strips_the_tree() {
+        let tree = || {
+            Dom::create_body()
+                .with_css("color: red")
+                .with_css("margin: 1px")
+                .with_children(
+                    vec![
+                        Dom::create_div().with_css("width: 5px").with_children(
+                            vec![Dom::create_div().with_css("height: 5px")].into(),
+                        ),
+                        Dom::create_div(),
+                        Dom::create_div().with_css("width: 7px"),
+                    ]
+                    .into(),
+                )
+        };
+        let mut listed = Vec::new();
+        collect_css_from_dom(&tree(), &mut listed);
+        assert_eq!(listed.len(), 5, "harness: five sheets");
+
+        let mut dom = tree();
+        let mut taken = Vec::new();
+        take_css_from_dom(&mut dom, &mut taken);
+        assert_eq!(taken, listed, "the same sheets in the same order");
+
+        let mut left = Vec::new();
+        collect_css_from_dom(&dom, &mut left);
+        assert!(left.is_empty(), "no node keeps a sheet");
+
+        // An `out` that holds sheets is appended to.
+        let mut more = vec![Css::empty()];
+        take_css_from_dom(&mut tree(), &mut more);
+        assert_eq!(more.len(), 6);
+    }
+
+    /// A3-core-11b: `create_from_dom` prepared its `Dom` (exact node counts,
+    /// each node's sheet scoped to its subtree, the sheets taken out), then
+    /// handed it to the constructor that takes a `Dom` with a sheet, which
+    /// prepared it again: every walk of the tree twice. Each node is visited
+    /// once per walk now, and the DOM is styled as before.
+    #[test]
+    fn a_dom_is_prepared_for_styling_once() {
+        let steps_for = |labels: usize| {
+            let mut root = Dom::create_body().with_css("color: red;");
+            for i in 0..labels {
+                root = root.with_child(
+                    Dom::create_span_with_text("label").with_css(&format!("width: {}px;", 10 + i % 7)),
+                );
+            }
+            DOM_PREPARE_STEPS.with(|c| c.set(0));
+            let styled = StyledDom::create_from_dom(root);
+            (styled, DOM_PREPARE_STEPS.with(core::cell::Cell::get))
+        };
+        let (styled, few) = steps_for(100);
+        let (_, many) = steps_for(400);
+        // body + 100 x (span + text) = 201 nodes, two walks (scope, take).
+        assert_eq!(few, 2 * 201, "each node once per walk");
+        assert_eq!(many, 2 * 801);
+        // A label's own sheet still reaches its node and no other.
+        let width = |node: usize| {
+            let node_id = NodeId::new(node);
+            styled
+                .get_css_property_cache()
+                .get_width(
+                    &styled.node_data.as_container()[node_id],
+                    &node_id,
+                    &StyledNodeState::new(),
+                )
+                .cloned()
+        };
+        assert!(width(1).is_some(), "the first label has its width");
+        assert_ne!(width(1), width(3), "10px and 11px");
+        assert!(width(0).is_none(), "the body has none");
+    }
+
+    /// A3-core-11a: styling a DOM generated the hit-test tag ids at the end
+    /// of the cascade, dropped them, and generated them again once the
+    /// compact cache existed: two walks of every node. Once now, and the ids
+    /// are the ones the second walk made.
+    #[test]
+    fn styling_a_dom_generates_its_tag_ids_once() {
+        let page = || {
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_css("overflow: scroll; width: 50px; height: 50px;")
+                    .with_child(Dom::create_span_with_text("a label")),
+            )
+        };
+        crate::prop_cache::TAG_ID_PASSES.with(|c| c.set(0));
+        let mut styled = StyledDom::create_from_dom(page());
+        assert_eq!(
+            crate::prop_cache::TAG_ID_PASSES.with(core::cell::Cell::get),
+            1,
+            "one walk for the tag ids of a new DOM"
+        );
+        let ids = styled.tag_ids_to_node_ids.clone();
+        assert!(!ids.as_ref().is_empty(), "harness: the page has nodes with a tag");
+        // The ids are what a pass over the finished DOM gives.
+        let again = styled
+            .get_css_property_cache()
+            .generate_tag_ids(&styled.node_data.as_container(), &styled.node_hierarchy);
+        assert_eq!(ids.as_ref(), &again[..]);
+
+        crate::prop_cache::TAG_ID_PASSES.with(|c| c.set(0));
+        styled.restyle(Css::empty());
+        assert_eq!(
+            crate::prop_cache::TAG_ID_PASSES.with(core::cell::Cell::get),
+            1,
+            "one walk for the tag ids of a restyle"
+        );
+    }
+
+    /// A3-core-20 (A3-window-18): a styled DOM says whether the pass that
+    /// makes a COMPOSED tree's inheritance and compact cache right is owed.
+    /// One that came out of a cascade owes none; `append_child` owes one;
+    /// the pass pays it. And the pass on a DOM that owes none builds the
+    /// tables it had: skipping it there changes nothing a reader sees.
+    #[test]
+    fn a_styled_dom_owes_the_recompute_only_after_an_append() {
+        let page = || {
+            Dom::create_body()
+                .with_css("color: red; font-size: 20px;")
+                .with_child(Dom::create_div().with_css("width: 5px; padding: 3px;"))
+        };
+        let mut fresh = StyledDom::create_from_dom(page());
+        assert!(!fresh.needs_recompute_after_append(), "one cascade: nothing owed");
+
+        // The pass on such a DOM builds the compact cache it already has.
+        let before = fresh
+            .get_css_property_cache()
+            .compact_cache
+            .as_ref()
+            .map(|c| (c.tier1_enums.clone(), c.tier2_dims.clone(), c.tier2_cold.clone(), c.tier2b_text.clone()))
+            .expect("the cascade builds the compact cache");
+        fresh.recompute_inheritance_and_compact_cache();
+        let after = fresh
+            .get_css_property_cache()
+            .compact_cache
+            .as_ref()
+            .map(|c| (c.tier1_enums.clone(), c.tier2_dims.clone(), c.tier2_cold.clone(), c.tier2b_text.clone()))
+            .expect("still there");
+        assert!(before == after, "the pass on an uncomposed DOM changes no compact entry");
+        assert!(!fresh.needs_recompute_after_append());
+
+        // Composition owes the pass, and the pass pays it.
+        let mut composed = StyledDom::create_from_dom(page());
+        composed.append_child(StyledDom::create_from_dom(Dom::create_div().with_css("height: 9px;")));
+        assert!(composed.needs_recompute_after_append(), "an appended subtree is not inherited into yet");
+        composed.recompute_inheritance_and_compact_cache();
+        assert!(!composed.needs_recompute_after_append());
+    }
+}

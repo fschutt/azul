@@ -1367,7 +1367,7 @@ mod autotest_generated {
         system::{SafeAreaInsets, SystemMetrics, TitlebarMetrics},
     };
 
-    /// `FloatValue` stores `f32 * 1000` truncated into an `isize`, so every value
+    /// `FloatValue` stores `f32 * 1000` rounded into an `isize`, so every value
     /// is quantized to 1/1000 and every `get()` is finite by construction.
     const MULT: f32 = 1000.0;
 
@@ -1644,9 +1644,11 @@ mod autotest_generated {
         assert_eq!(parse_pixel_value("-0").unwrap(), PixelValue::px(0.0));
         assert_eq!(parse_pixel_value("-0").unwrap(), PixelValue::zero());
 
-        // Anything under 1/1000 of a unit quantizes away to exactly zero.
+        // Anything under half of 1/1000 of a unit quantizes away to exactly
+        // zero (A2-cpu-24: rounded, so "-0.0009px" is -0.001px now).
         assert_eq!(parse_pixel_value("0.0004px").unwrap(), PixelValue::px(0.0));
-        assert_eq!(parse_pixel_value("-0.0009px").unwrap(), PixelValue::px(0.0));
+        assert_eq!(parse_pixel_value("-0.0004px").unwrap(), PixelValue::px(0.0));
+        assert_eq!(parse_pixel_value("-0.0009px").unwrap(), PixelValue::px(-0.001));
         assert_eq!(parse_pixel_value("1e-40px").unwrap(), PixelValue::px(0.0));
 
         // Values far past f32/isize range saturate; `get()` stays finite.
@@ -2010,11 +2012,14 @@ mod autotest_generated {
 
     #[test]
     fn float_constructors_quantize_to_one_thousandth() {
-        // Sub-milli magnitudes vanish entirely...
+        // Magnitudes under half a thousandth vanish entirely...
         assert_eq!(PixelValue::px(0.0004).number.get(), 0.0);
-        assert_eq!(PixelValue::px(-0.0009).number.get(), 0.0);
-        // ...and the excess precision above 1/1000 is dropped, not rounded up.
+        assert_eq!(PixelValue::px(-0.0004).number.get(), 0.0);
+        // ...and the excess precision above 1/1000 rounds to the nearest
+        // thousandth (A2-cpu-24; 1.0005_f32 is 1.00049996: it rounds down).
         assert_eq!(PixelValue::px(1.0005).number.get(), 1.0);
+        assert_eq!(PixelValue::px(1.0006).number.get(), 1.001);
+        assert_eq!(PixelValue::px(-0.0009).number.get(), -0.001);
 
         // Signed zero normalizes, which keeps Eq/Hash total (PixelValue is Eq +
         // Hash despite wrapping a float).

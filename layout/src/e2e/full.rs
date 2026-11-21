@@ -703,6 +703,9 @@ pub struct FrameReportResponse {
     /// Full display-list builds since the last reset — 0 across a paint-only
     /// transition tick proves the DL was PATCHED, not rebuilt.
     pub dl_rebuilds: u32,
+    /// Restyles shown by painting the restyled nodes' runs into the kept list since the
+    /// last reset (`FrameReport::dl_node_patches`): a `:hover` colour that built no list.
+    pub dl_node_patches: u32,
     /// Whether the last display-list build was the per-IFC PATCH (splice +
     /// re-emit) — true after a text edit, false after a structural change.
     pub last_dl_build_patched: bool,
@@ -733,11 +736,62 @@ pub struct FrameReportResponse {
     pub terminal_result: u8,
     /// Injectable test-clock offset in ms (advanced by `tick_ms`).
     pub test_clock_offset_ms: u64,
+    /// What the GPU backend's scans did with the text halos it keeps as pictures: the last
+    /// scan's numbers (drawn, dropped, left for a later frame, painted with a stand-in), the
+    /// thread's sums and what is kept (`azul_layout::cpurender::TextHaloStats`; audit A5).
+    pub text_halos: TextHalosJson,
     /// What the last CPU frame did (pixels cleared / blitted, items walked / painted, text runs,
     /// glyphs, halos drawn, isolated groups and their pixels, retained surfaces used, items of
     /// the whole-list scans), and the sum since `reset_frame_counters`.
     pub cpu_last: CpuCountersJson,
     pub cpu_since_reset: CpuCountersJson,
+    /// A9-07: the process's resident memory when this report was built, bytes
+    /// (`phys_footprint` on macOS, `VmRSS` on Linux, the working set on Windows:
+    /// `probe::current_rss_bytes`). 0 without the `probe` feature.
+    pub rss_bytes: u64,
+    /// The most the process has had resident, bytes (`getrusage` `ru_maxrss`, the peak
+    /// working set on Windows: `probe::peak_rss_bytes_pub`). 0 without the `probe` feature.
+    pub peak_rss_bytes: u64,
+}
+
+/// [`azul_layout::cpurender::TextHaloStats`] for the E2E API.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct TextHalosJson {
+    pub scans: u64,
+    pub created_total: u64,
+    pub evicted_total: u64,
+    pub created: u64,
+    pub evicted: u64,
+    pub pending: u64,
+    pub unkept: u64,
+    pub stand_ins: u64,
+    pub previews: u64,
+    pub frame_halos: u64,
+    pub frame_box_bytes: u64,
+    pub kept: u64,
+    pub kept_bytes: u64,
+}
+
+#[cfg(feature = "std")]
+impl From<&azul_layout::cpurender::TextHaloStats> for TextHalosJson {
+    fn from(h: &azul_layout::cpurender::TextHaloStats) -> Self {
+        Self {
+            scans: h.scans,
+            created_total: h.created_total,
+            evicted_total: h.evicted_total,
+            created: h.created,
+            evicted: h.evicted,
+            pending: h.pending,
+            unkept: h.unkept,
+            stand_ins: h.stand_ins,
+            previews: h.previews,
+            frame_halos: h.frame_halos,
+            frame_box_bytes: h.frame_box_bytes,
+            kept: h.kept,
+            kept_bytes: h.kept_bytes,
+        }
+    }
 }
 
 /// [`azul_layout::cpu_counters::CpuFrameCounters`] for the E2E API.
@@ -755,8 +809,23 @@ pub struct CpuCountersJson {
     pub group_px: u64,
     pub retained_hits: u64,
     pub scan_items: u64,
+    pub bands: u64,
+    pub band_threads: u64,
+    pub groups_empty: u64,
+    pub group_px_painted: u64,
+    pub retained_misses: u64,
+    pub retained_invalidations: u64,
+    pub retained_patched: u64,
+    pub cells_built: u64,
 }
 
+// A new counter of a CPU frame: its `Counter` variant, `COUNTERS`, its `CpuFrameCounters` field,
+// `add` and `take` (`cpu_counters.rs`), then a field of `CpuCountersJson` above and its line here,
+// of the same name (the guard `a11_every_cpu_frame_counter_is_in_the_frame_report_json` compares
+// the two). A scenario asserts it as `cpu_since_reset.<name>` / `cpu_last.<name>` after a
+// `get_frame_report`. A value of the window that is not a CPU frame counter (a GPU-side count, the
+// resident memory) is a field of `FrameReportResponse` instead, filled in
+// `build_frame_report_response`.
 #[cfg(feature = "std")]
 impl From<&azul_layout::cpu_counters::CpuFrameCounters> for CpuCountersJson {
     fn from(c: &azul_layout::cpu_counters::CpuFrameCounters) -> Self {
@@ -772,6 +841,14 @@ impl From<&azul_layout::cpu_counters::CpuFrameCounters> for CpuCountersJson {
             group_px: c.group_px,
             retained_hits: c.retained_hits,
             scan_items: c.scan_items,
+            bands: c.bands,
+            band_threads: c.band_threads,
+            groups_empty: c.groups_empty,
+            group_px_painted: c.group_px_painted,
+            retained_misses: c.retained_misses,
+            retained_invalidations: c.retained_invalidations,
+            retained_patched: c.retained_patched,
+            cells_built: c.cells_built,
         }
     }
 }
@@ -3401,7 +3478,8 @@ pub enum DebugEvent {
         name: String,
     },
     /// Store the current font/image/resource counters under `as`, for a later
-    /// `assert_resource_counts`.
+    /// `assert_resource_counts`, and the process's resident memory, for a later
+    /// `assert_memory_growth`.
     SnapshotResources {
         #[serde(rename = "as")]
         name: String,
@@ -4993,6 +5071,9 @@ pub struct E2eScratch {
     frame_snapshots: BTreeMap<String, Vec<u8>>,
     /// Named resource-counter snapshots taken by the `snapshot_resources` op.
     resource_snapshots: BTreeMap<String, BTreeMap<String, u64>>,
+    /// The process's resident memory (bytes) when each `snapshot_resources` was taken, under the
+    /// same name: the baseline of `assert_memory_growth`.
+    memory_snapshots: BTreeMap<String, u64>,
     /// Named per-manager state snapshots taken by the `snapshot_managers` op and
     /// diffed by `assert_only_managers_changed` — the NON-INTERFERENCE primitive.
     /// See [`manager_fingerprints`].
@@ -7113,6 +7194,7 @@ impl AssertionResult {
 /// | `assert_damage_sound`| `vs`, `which?`, `max_overpaint_ratio?`, `forbid_full?`, `pixel_identity?` |
 /// | `assert_notification`| `id?`, `title?`, `body?`, `action?`, `payload?`, `withdrawn?`, `count?`, `scheduled?`, `deliver_at?` |
 /// | `assert_global_hotkeys` | `expect` (`[{accelerator, status?, owner?}]`), `count?` |
+/// | `assert_memory_growth` | `vs` (a `snapshot_resources` name), `max_bytes` |
 #[cfg(feature = "std")]
 pub fn evaluate_assertion(
     op: &str,
@@ -7146,6 +7228,7 @@ pub fn evaluate_assertion(
         "assert_idle_stable" => eval_assert_idle_stable(params, callback_info),
         "assert_work_bounded" => eval_assert_work_bounded(params, callback_info),
         "assert_resource_counts" => eval_assert_resource_counts(params, callback_info),
+        "assert_memory_growth" => eval_assert_memory_growth(params, callback_info),
         // Manager / composition / damage-soundness (E2E_PLAN §(c)/(g1)/(g2)/(g3))
         "assert_state_machines_idle" => eval_assert_state_machines_idle(params, callback_info),
         "assert_manager_invariants" => eval_assert_manager_invariants(params, callback_info),
@@ -8721,9 +8804,18 @@ fn build_frame_report_response(
             })
             .collect::<Vec<_>>()
     };
+    // A9-07: sampled when the report is read, so a frame pays nothing for it.
+    #[cfg(all(feature = "probe", not(feature = "web_lift")))]
+    let (rss_bytes, peak_rss_bytes) = (
+        azul_layout::probe::current_rss_bytes().0,
+        azul_layout::probe::peak_rss_bytes_pub(),
+    );
+    #[cfg(not(all(feature = "probe", not(feature = "web_lift"))))]
+    let (rss_bytes, peak_rss_bytes) = (0_u64, 0_u64);
     FrameReportResponse {
         frame_index: report.frame_index,
         dl_rebuilds: report.dl_rebuilds,
+        dl_node_patches: report.dl_node_patches,
         last_dl_build_patched: report.last_dl_build_patched,
         paint_damage_kind: damage_kind_str(&report.paint_damage).to_string(),
         paint_damage_rects: to_json(&report.paint_damage),
@@ -8744,8 +8836,37 @@ fn build_frame_report_response(
         hit_depth_cap: report.hit_depth_cap,
         terminal_result: report.terminal_result,
         test_clock_offset_ms: azul_core::task::test_clock_offset_ms(),
+        text_halos: (&report.text_halos).into(),
         cpu_last: (&report.cpu_last).into(),
         cpu_since_reset: (&report.cpu_since_reset).into(),
+        rss_bytes,
+        peak_rss_bytes,
+    }
+}
+
+/// A9-07: the frame report says how much memory the process holds.
+#[cfg(all(test, feature = "std"))]
+mod audit_a9_report_tests {
+    use super::*;
+
+    #[test]
+    fn a9_07_frame_report_carries_resident_memory() {
+        let report = azul_layout::window::FrameReport::default();
+        let response = build_frame_report_response(&report, 100.0);
+        #[cfg(all(
+            feature = "probe",
+            not(feature = "web_lift"),
+            any(target_os = "macos", target_os = "linux", target_os = "windows")
+        ))]
+        {
+            assert!(response.rss_bytes > 0, "a running process holds memory");
+            assert!(response.peak_rss_bytes > 0);
+        }
+        #[cfg(not(feature = "probe"))]
+        assert_eq!((response.rss_bytes, response.peak_rss_bytes), (0, 0));
+        // It is in the JSON the runner hands out.
+        let json = serde_json::to_value(&response).expect("serialisable");
+        assert!(json.get("rss_bytes").is_some() && json.get("peak_rss_bytes").is_some());
     }
 }
 
@@ -10356,6 +10477,74 @@ fn eval_assert_work_bounded(
          layout pass(es), {vv_size_passes} VirtualView size pass(es) over {} frame(s), depth cap \
          not hit",
         report.frames_since_reset
+    ))
+}
+
+/// The process's resident memory now, bytes (`probe::current_rss_bytes`: the physical footprint on
+/// macOS, `VmRSS` on Linux, the working set on Windows); 0 where the build has no reader.
+#[cfg(feature = "std")]
+fn resident_bytes_now() -> u64 {
+    #[cfg(all(feature = "probe", not(feature = "web_lift")))]
+    {
+        azul_layout::probe::current_rss_bytes().0
+    }
+    #[cfg(not(all(feature = "probe", not(feature = "web_lift"))))]
+    {
+        0
+    }
+}
+
+/// `assert_memory_growth` — a leak guard by bytes: the process's resident memory now is at most
+/// `max_bytes` more than when the `snapshot_resources` named `vs` was taken. Taken after a warm-up
+/// repetition and asserted after N more, it bounds what N repetitions of a gesture leave behind
+/// (the caches a gesture fills are bounded and full after the first; a leak grows with N).
+/// Shrinking passes. A build without a resident-memory reader (no `probe` feature) FAILS: it would
+/// pass while measuring nothing.
+#[cfg(feature = "std")]
+fn eval_assert_memory_growth(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
+    if let Some(bad) = reject_unknown_params("assert_memory_growth", params, &["vs", "max_bytes"]) {
+        return bad;
+    }
+    let Some(name) = params.get("vs").and_then(|v| v.as_str()) else {
+        return AssertionResult::fail("assert_memory_growth: missing 'vs' (a snapshot_resources name)");
+    };
+    let Some(max_bytes) = params.get("max_bytes").and_then(serde_json::Value::as_u64) else {
+        return AssertionResult::fail("assert_memory_growth: missing or invalid 'max_bytes' (a number of bytes)");
+    };
+    let Some(before) = scratch(callback_info).memory_snapshots.get(name).copied() else {
+        return AssertionResult::fail(format!(
+            "assert_memory_growth: no snapshot named '{name}' (use snapshot_resources first)"
+        ));
+    };
+    let now = resident_bytes_now();
+    if now == 0 || before == 0 {
+        return AssertionResult::fail(
+            "assert_memory_growth: this build reads no resident memory (the probe feature is off):              refusing to pass while measuring nothing",
+        );
+    }
+    let growth = now.saturating_sub(before);
+    let mib = |b: u64| b as f64 / 1_048_576.0;
+    if growth > max_bytes {
+        return AssertionResult::fail_with(
+            format!(
+                "assert_memory_growth: the resident memory grew {:.1} MiB since '{name}' ({:.1} -> {:.1} MiB)",
+                mib(growth),
+                mib(before),
+                mib(now)
+            ),
+            format!("at most {max_bytes} bytes ({:.1} MiB)", mib(max_bytes)),
+            growth.to_string(),
+        );
+    }
+    AssertionResult::pass(format!(
+        "assert_memory_growth: {:.1} MiB since '{name}' ({:.1} -> {:.1} MiB), at most {:.1}",
+        mib(growth),
+        mib(before),
+        mib(now),
+        mib(max_bytes)
     ))
 }
 
@@ -13474,11 +13663,51 @@ pub fn e2e_set_presented_frame(
     layout_window: &azul_layout::window::LayoutWindow,
     pixmap: &azul_layout::cpurender::AzulPixmap,
 ) {
-    layout_window
+    let mut scratch = layout_window
         .e2e_scratch
         .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .presented_frame = Some((pixmap.width(), pixmap.height(), pixmap.data().to_vec()));
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // A9-02: the kept buffer is refilled, not allocated anew: a frame is 14.7 MB at
+    // 2560x1440 (59 MB at DPI 2) and every presented frame published one.
+    let mut kept = scratch
+        .presented_frame
+        .take()
+        .map(|(_, _, data)| data)
+        .unwrap_or_default();
+    kept.clear();
+    kept.extend_from_slice(pixmap.data());
+    scratch.presented_frame = Some((pixmap.width(), pixmap.height(), kept));
+}
+
+/// A9-02: publishing the presented frame refills the kept buffer.
+#[cfg(all(test, feature = "std", feature = "cpurender"))]
+mod audit_a9_tests {
+    use super::*;
+
+    #[test]
+    fn a9_02_presented_frame_reuses_its_buffer() {
+        let lw = azul_layout::window::LayoutWindow::new(rust_fontconfig::FcFontCache::default())
+            .expect("a layout window");
+        let mut frame = azul_layout::cpurender::AzulPixmap::new(64, 32).expect("a pixmap");
+        e2e_set_presented_frame(&lw, &frame);
+        let kept_ptr = |lw: &azul_layout::window::LayoutWindow| {
+            let scratch = lw.e2e_scratch.lock().unwrap();
+            let (w, h, data) = scratch.presented_frame.as_ref().expect("published");
+            (*w, *h, data.as_ptr() as usize, data.len())
+        };
+        let (w, h, first, len) = kept_ptr(&lw);
+        assert_eq!((w, h, len), (64, 32, 64 * 32 * 4));
+        for shade in [10u8, 20, 30] {
+            frame.fill(shade, shade, shade, 255);
+            e2e_set_presented_frame(&lw, &frame);
+            let (_, _, ptr, len) = kept_ptr(&lw);
+            assert_eq!(ptr, first, "the same buffer is refilled (mutant: `to_vec()` per frame)");
+            assert_eq!(len, 64 * 32 * 4);
+        }
+        // And it holds the last frame's pixels.
+        let (_, _, rgba) = e2e_presented_frame(&lw).expect("published");
+        assert_eq!(&rgba[..4], &[30, 30, 30, 255]);
+    }
 }
 
 /// The framebuffer [`e2e_set_presented_frame`] last published on this window
@@ -17710,9 +17939,11 @@ pub fn process_debug_event(
 
         DebugEvent::SnapshotResources { name } => {
             let counts = collect_resource_counts(callback_info.get_layout_window());
-            scratch(callback_info)
-                .resource_snapshots
-                .insert(name.clone(), counts);
+            let resident = resident_bytes_now();
+            let mut scratch = scratch(callback_info);
+            scratch.resource_snapshots.insert(name.clone(), counts);
+            scratch.memory_snapshots.insert(name.clone(), resident);
+            drop(scratch);
             send_ok(request, None, None);
         }
 

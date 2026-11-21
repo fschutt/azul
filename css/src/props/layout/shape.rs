@@ -1451,32 +1451,34 @@ mod autotest_generated {
                 .get(),
             0.001
         );
-        // 0.0005 does NOT round up to 0.001 — it truncates to 0.
+        // A2-cpu-24: the nearest thousandth. 0.0005 is a half and rounds
+        // away from zero, 0.0004 rounds to 0 (both read 0 while the fourth
+        // decimal was cut off).
         assert_eq!(
             parse_shape_margin("0.0005px")
                 .expect("0.0005")
                 .inner
                 .number
                 .get(),
-            0.0
+            0.001
         );
         assert_eq!(
-            parse_shape_margin("0.0009px")
-                .expect("0.0009")
+            parse_shape_margin("0.0004px")
+                .expect("0.0004")
                 .inner
                 .number
                 .get(),
             0.0
         );
 
-        let truncated = parse_shape_margin("1.9999px")
+        let rounded = parse_shape_margin("1.9999px")
             .expect("1.9999")
             .inner
             .number
             .get();
         assert!(
-            (truncated - 1.999).abs() < 1.0e-6,
-            "expected truncation to 1.999, got {truncated}"
+            (rounded - 2.0).abs() < 1.0e-6,
+            "expected 1.9999 to round to 2, got {rounded}"
         );
     }
 
@@ -1627,19 +1629,20 @@ mod autotest_generated {
             0.001
         );
         assert_eq!(
-            parse_shape_image_threshold("0.0005")
-                .expect("0.0005")
+            parse_shape_image_threshold("0.0004")
+                .expect("0.0004")
                 .inner
                 .get(),
             0.0
         );
-        let truncated = parse_shape_image_threshold("0.9999")
+        // A2-cpu-24: the nearest thousandth (it read 0.999 while cut off).
+        let rounded = parse_shape_image_threshold("0.9999")
             .expect("0.9999")
             .inner
             .get();
         assert!(
-            (truncated - 0.999).abs() < 1.0e-6,
-            "expected truncation to 0.999, got {truncated}"
+            (rounded - 1.0).abs() < 1.0e-6,
+            "expected 0.9999 to round to 1, got {rounded}"
         );
     }
 

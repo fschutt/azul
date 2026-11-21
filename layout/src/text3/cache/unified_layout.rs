@@ -397,44 +397,39 @@ impl UnifiedLayout {
             }
         };
 
-        // Helper to get the visual bounding box of all content on a specific line index.
-        let get_line_bounds = |line_index: usize| -> Option<LogicalRect> {
-            let items_on_line = self.items.iter().filter(|i| i.line_index == line_index);
-
-            let mut min_x: Option<f32> = None;
-            let mut max_x: Option<f32> = None;
-            let mut min_y: Option<f32> = None;
-            let mut max_y: Option<f32> = None;
-
-            for item in items_on_line {
-                // Skip items that don't take up space (like hard breaks)
-                let item_bounds = item.item.bounds();
-                if item_bounds.width <= 0.0 && item_bounds.height <= 0.0 {
-                    continue;
-                }
-
-                let item_x_end = item.position.x + item_bounds.width;
-                let item_y_end = item.position.y + item_bounds.height;
-
-                min_x = Some(min_x.map_or(item.position.x, |mx| mx.min(item.position.x)));
-                max_x = Some(max_x.map_or(item_x_end, |mx| mx.max(item_x_end)));
-                min_y = Some(min_y.map_or(item.position.y, |my| my.min(item.position.y)));
-                max_y = Some(max_y.map_or(item_y_end, |my| my.max(item_y_end)));
+        // The visual bounding box of all content on each line, found in ONE
+        // pass over the items: a selection over many lines asked for every
+        // line's box, and each ask walked all the items (O(lines x items)).
+        // Each line folds its items in the same order as that walk did.
+        let mut boxes: std::collections::BTreeMap<usize, (f32, f32, f32, f32)> =
+            std::collections::BTreeMap::new();
+        for item in &self.items {
+            // Skip items that don't take up space (like hard breaks)
+            let item_bounds = item.item.bounds();
+            if item_bounds.width <= 0.0 && item_bounds.height <= 0.0 {
+                continue;
             }
-
-            if let (Some(min_x), Some(max_x), Some(min_y), Some(max_y)) =
-                (min_x, max_x, min_y, max_y)
-            {
-                Some(LogicalRect {
-                    origin: LogicalPosition { x: min_x, y: min_y },
-                    size: LogicalSize {
-                        width: max_x - min_x,
-                        height: max_y - min_y,
-                    },
+            let item_x_end = item.position.x + item_bounds.width;
+            let item_y_end = item.position.y + item_bounds.height;
+            boxes
+                .entry(item.line_index)
+                .and_modify(|(min_x, max_x, min_y, max_y)| {
+                    *min_x = min_x.min(item.position.x);
+                    *max_x = max_x.max(item_x_end);
+                    *min_y = min_y.min(item.position.y);
+                    *max_y = max_y.max(item_y_end);
                 })
-            } else {
-                None
-            }
+                .or_insert((item.position.x, item_x_end, item.position.y, item_y_end));
+        }
+        let get_line_bounds = |line_index: usize| -> Option<LogicalRect> {
+            let &(min_x, max_x, min_y, max_y) = boxes.get(&line_index)?;
+            Some(LogicalRect {
+                origin: LogicalPosition { x: min_x, y: min_y },
+                size: LogicalSize {
+                    width: max_x - min_x,
+                    height: max_y - min_y,
+                },
+            })
         };
 
         // 4. Handle single-line selection.
@@ -763,11 +758,17 @@ impl UnifiedLayout {
             return false;
         };
         // Probe with a dummy base letter: if `x` + first collapses to a single
-        // grapheme, `first` extends the preceding grapheme.
-        let mut probe = String::with_capacity(1 + first.len_utf8());
-        probe.push('x');
-        probe.push(first);
-        probe.graphemes(true).count() == 1
+        // grapheme, `first` extends the preceding grapheme. On the stack (it was
+        // a `String` per cluster per caret move, A8-32), and not for ASCII, which
+        // extends nothing ("x" + any ASCII character is two graphemes, UAX #29),
+        // as `ClusterFlags::classify` probes it.
+        if first.is_ascii() {
+            return false;
+        }
+        let mut buf = [0u8; 5];
+        buf[0] = b'x';
+        let len = 1 + first.encode_utf8(&mut buf[1..]).len();
+        core::str::from_utf8(&buf[..len]).is_ok_and(|probe| probe.graphemes(true).count() == 1)
     }
 
     /// Caret offset of `cursor` within `stops` (0..=len): the index of its
@@ -1557,3 +1558,123 @@ pub(crate) fn distance_outside(v: f32, start: f32, length: f32) -> f32 {
     }
 }
 
+
+/// Guards of the 2026-11-21 audit, area A8 (`audit/A8.md`).
+#[cfg(test)]
+mod audit_a8_tests {
+    use azul_css::props::basic::FontRef;
+
+    use super::*;
+
+    /// `words` words of the mock font in a 100 px column: two to a line.
+    fn column(words: usize) -> Arc<UnifiedLayout> {
+        let fm: FontManager<FontRef> =
+            FontManager::new(FcFontCache::default()).expect("a font manager");
+        let selectors = vec![FontSelector {
+            family: "Azul Mock Mono".to_string(),
+            ..FontSelector::default()
+        }];
+        let key = FontChainKey::from_selectors(&selectors);
+        let chain = resolve_chain_on_miss(&key, &fm.fc_cache);
+        let mut chains = HashMap::new();
+        chains.insert(key.clone(), chain.clone());
+        let mut resolved = crate::solver3::getters::ResolvedFontChains::default();
+        resolved.chains.insert(FontChainKeyOrRef::Chain(key), chain);
+        let loader = crate::text3::default::PathLoader::new();
+        let failed = fm.load_missing_for_chains(&resolved, |bytes, index| {
+            loader.load_font_shared(bytes, index)
+        });
+        assert!(failed.is_empty(), "premise: the mock face loads: {failed:?}");
+        let text = "word ".repeat(words);
+        let content = vec![InlineContent::Text(StyledRun {
+            text: Arc::from(text.as_str()),
+            style: Arc::new(StyleProperties {
+                font_stack: FontStack::Stack(selectors),
+                font_size_px: 20.0,
+                ..StyleProperties::default()
+            }),
+            logical_start_byte: 0,
+            source_node_id: None,
+        })];
+        let fragments = vec![LayoutFragment {
+            id: "main".to_string(),
+            constraints: UnifiedConstraints {
+                available_width: AvailableSpace::Definite(100.0),
+                ..UnifiedConstraints::default()
+            },
+        }];
+        let flow = TextShapingCache::new()
+            .layout_flow(&content, &[], &fragments, &chains, &fm.fc_cache, &fm.get_loaded_fonts(), &mut None)
+            .expect("the column lays out");
+        flow.fragment_layouts.values().next().expect("a fragment").clone()
+    }
+
+    /// The item bounds measured to select everything from the first cluster
+    /// to the last, and the number of lines and rects.
+    fn select_all(layout: &UnifiedLayout) -> (u64, usize, usize) {
+        let clusters: Vec<&ShapedCluster> = layout.items.iter().filter_map(|i| i.item.as_cluster()).collect();
+        let range = SelectionRange {
+            start: TextCursor {
+                cluster_id: clusters.first().expect("clusters").source_cluster_id,
+                affinity: CursorAffinity::Leading,
+            },
+            end: TextCursor {
+                cluster_id: clusters.last().expect("clusters").source_cluster_id,
+                affinity: CursorAffinity::Trailing,
+            },
+        };
+        let calls = || super::super::shaped_items::ITEM_BOUNDS_CALLS.with(core::cell::Cell::get);
+        let before = calls();
+        let rects = layout.get_selection_rects(&range);
+        let lines = layout.items.iter().map(|i| i.line_index).max().map_or(0, |l| l + 1);
+        (calls() - before, lines, rects.len())
+    }
+
+    /// A8-23: selecting across a column measures each item's bounds a bounded
+    /// number of times, not once per line asked for. 40 and 160 words (20 and
+    /// 80 lines): the measurements grow with the items (x4), where the walk
+    /// per line grew with lines x items (x16).
+    /// Mutation: the per-line walk again fails the ratio.
+    #[test]
+    fn selecting_across_many_lines_measures_each_item_a_bounded_number_of_times() {
+        let (small, small_lines, small_rects) = select_all(&column(40));
+        let (large, large_lines, large_rects) = select_all(&column(160));
+        assert!(small_lines >= 10 && large_lines >= 4 * small_lines - 4, "{small_lines} {large_lines}");
+        assert!(small_rects >= small_lines && large_rects >= large_lines);
+        assert!(large < 6 * small, "{large} bounds for 160 words vs {small} for 40");
+    }
+
+    /// A8-32: a cluster's text is a grapheme continuation exactly when the
+    /// `String` probe said so (the old body, kept as the reference), for every
+    /// code point of the BMP and a set of supplementary marks, modifiers and
+    /// tag characters, alone and followed by more text.
+    /// Mutation: skipping the probe below U+0370 fails it on U+0300..U+036F.
+    #[test]
+    fn a_cluster_is_a_grapheme_continuation_as_the_string_probe_said() {
+        use unicode_segmentation::UnicodeSegmentation;
+        let old = |text: &str| {
+            let Some(first) = text.chars().next() else {
+                return false;
+            };
+            let mut probe = String::with_capacity(1 + first.len_utf8());
+            probe.push('x');
+            probe.push(first);
+            probe.graphemes(true).count() == 1
+        };
+        let extra = [0x1_F3FB_u32, 0x1_F3FF, 0xE_0020, 0xE_007F, 0x1_D165, 0x1_1000, 0xE_0100];
+        for cp in (0..=0xFFFF_u32).chain(extra) {
+            let Some(ch) = char::from_u32(cp) else {
+                continue;
+            };
+            for tail in ["", "a-"] {
+                let text = format!("{ch}{tail}");
+                assert_eq!(
+                    UnifiedLayout::cluster_is_grapheme_continuation(&text),
+                    old(&text),
+                    "U+{cp:04X}{tail}"
+                );
+            }
+        }
+        assert!(!UnifiedLayout::cluster_is_grapheme_continuation(""));
+    }
+}

@@ -52,9 +52,13 @@ pub enum Counter {
     /// Retained surfaces kept through a change of their list: only the boxes of the items
     /// that differ were painted again.
     RetainedPatched,
+    /// Glyph cell sets built (`GlyphCache::cells_built`): a glyph, size and sub-pixel step
+    /// rasterised because no cache the painting thread could ask held it - the window's, or in
+    /// a band the window's and the band's own. A repaint of text drawn before counts none.
+    CellsBuilt,
 }
 
-const COUNTERS: usize = 18;
+const COUNTERS: usize = 19;
 
 thread_local! {
     static COUNTS: [Cell<u64>; COUNTERS] = const { [const { Cell::new(0) }; COUNTERS] };
@@ -99,6 +103,8 @@ pub struct CpuFrameCounters {
     pub retained_invalidations: u64,
     /// See [`Counter::RetainedPatched`].
     pub retained_patched: u64,
+    /// See [`Counter::CellsBuilt`].
+    pub cells_built: u64,
 }
 
 impl CpuFrameCounters {
@@ -122,6 +128,7 @@ impl CpuFrameCounters {
         self.retained_misses += other.retained_misses;
         self.retained_invalidations += other.retained_invalidations;
         self.retained_patched += other.retained_patched;
+        self.cells_built += other.cells_built;
     }
 }
 
@@ -163,6 +170,7 @@ pub fn take() -> CpuFrameCounters {
             retained_misses: get(Counter::RetainedMisses),
             retained_invalidations: get(Counter::RetainedInvalidations),
             retained_patched: get(Counter::RetainedPatched),
+            cells_built: get(Counter::CellsBuilt),
         }
     })
 }
@@ -189,6 +197,7 @@ pub fn merge(counted: &CpuFrameCounters) {
     count(Counter::RetainedMisses, counted.retained_misses);
     count(Counter::RetainedInvalidations, counted.retained_invalidations);
     count(Counter::RetainedPatched, counted.retained_patched);
+    count(Counter::CellsBuilt, counted.cells_built);
 }
 
 /// What a window keeps of its CPU frames: the last frame's counters and their sum since the
@@ -265,6 +274,7 @@ mod tests {
             Counter::RetainedMisses,
             Counter::RetainedInvalidations,
             Counter::RetainedPatched,
+            Counter::CellsBuilt,
         ];
         assert_eq!(all.len(), COUNTERS, "harness: every counter is listed");
         let band = std::thread::spawn(move || {
@@ -281,6 +291,7 @@ mod tests {
         let merged = take();
         assert_eq!(merged, expected);
         assert_eq!(merged.items_painted, 5 + 13, "this thread's 5 and the band's 10 + 3");
-        assert_eq!(merged.retained_invalidations, 26, "the last counter, 10 + 16");
+        assert_eq!(merged.retained_invalidations, 26, "the seventeenth counter, 10 + 16");
+        assert_eq!(merged.cells_built, 28, "the last counter, 10 + 18");
     }
 }

@@ -13,14 +13,15 @@
 //! renderer's halo.
 //!
 //! What is kept, and for how long ([`HaloCache`]): a frame's scan of the display
-//! lists ([`within_halo_budget`]) never drops a picture it has used itself, so the
-//! kept pictures follow what the frame shows, however many labels that is. A cache
-//! of a fixed size smaller than one frame's labels dropped, for each halo it drew,
-//! one the same frame showed, which the next frame drew again: the labels of a map
-//! lost and regained their halos a few per frame, in turn, for as long as frames
-//! were made (audit A5-01). Pictures of earlier frames go, the one used longest ago
-//! first, when the bytes are needed; when the frame's own pictures fill the budget
-//! the halos beyond it are not drawn at all (and no frame is owed for them).
+//! lists ([`within_halo_budget`]) never drops a picture that it or the scan before
+//! it has used, so the kept pictures follow what the frames show, however many
+//! labels that is. A cache of a fixed size smaller than one frame's labels dropped,
+//! for each halo it drew, one the same frame showed, which the next frame drew
+//! again: the labels of a map lost and regained their halos a few per frame, in
+//! turn, for as long as frames were made (audit A5-01). Pictures of earlier frames
+//! go, the one used longest ago first, when the bytes are needed; when the pictures
+//! in use fill the budget the halos beyond it are not drawn at all (they keep their
+//! stand-ins, and no frame is owed for them).
 //!
 //! What a halo looks like while its picture is not drawn yet (a frame draws a
 //! bounded number of new ones): the newest picture of the same text in the same
@@ -291,7 +292,7 @@ const PREVIEW_TIME: Duration = Duration::from_millis(6);
 /// draws the rest as the map settles.
 ///
 /// A call is one SCAN of the kept halos ([`HaloCache::begin_scan`]): the pictures
-/// it uses are not dropped before the next call, whatever else it draws.
+/// it uses are not dropped by it or by the next call, whatever else they draw.
 pub fn within_halo_budget<R>(free: usize, time: Duration, f: impl FnOnce() -> R) -> (R, usize) {
     HALOS.with(|halos| halos.borrow_mut().begin_scan());
     let outer = BUDGET.with(|b| {

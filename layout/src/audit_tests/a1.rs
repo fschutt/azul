@@ -131,27 +131,34 @@ fn a_frame_knows_whether_a_walk_may_step_over_it() {
     assert!(!f6.self_contained, "never popped");
 }
 
-/// A1-06 (a): the glyph caches of the band threads are taken out with the window's text
-/// settings, kept for the next frame, and fewer threads keep fewer.
-/// Mutation: `take_band_caches` without the settings paints a band's text with the default
-/// anti-aliasing next to the window's.
+/// A1-06 (a), wired to A8-38: what the window's glyph cache takes back from a band's cache
+/// (`GlyphCache::absorb`) is found there by the next repaint's bands
+/// (`GlyphCache::cached_cells`), with the offsets the builder hands out, and counts as built
+/// by neither cache's own counter again. The band threads keep no cache between frames
+/// (`cpurender::bands::paint_bands`); the pixels of a banded repaint with such caches are held
+/// by `the_bands_read_the_windows_glyph_cache_and_hand_back_what_they_built` in `raster.rs`.
+/// Mutation: `absorb` left out of `paint_bands` is the first assert failing in that test; a
+/// probe keyed otherwise than the builder fails here.
 #[cfg(feature = "cpurender")]
 #[test]
-fn the_band_threads_glyph_caches_are_kept_with_the_windows_settings() {
-    use crate::{cpurender::TextAaSettings, glyph_cache::GlyphCache};
-    let mut cache = GlyphCache::new();
-    let grayscale = TextAaSettings::grayscale();
-    let _ = cache.set_text_aa(grayscale);
-    let bands = cache.take_band_caches(3);
-    assert_eq!(bands.len(), 3);
-    assert_eq!(cache.band_caches_len(), 0, "taken out while the bands run");
-    assert!(bands.iter().all(|band| band.text_aa() == grayscale));
-    cache.put_band_caches(bands);
-    assert_eq!(cache.band_caches_len(), 3);
-    let bands = cache.take_band_caches(1);
-    assert_eq!(bands.len(), 1, "one more thread, one cache");
-    cache.put_band_caches(bands);
-    assert_eq!(cache.band_caches_len(), 1);
-    cache.gc();
-    assert_eq!(cache.band_caches_len(), 1, "an idle frame frees their old generation, not them");
+fn what_a_band_built_is_found_in_the_windows_cache_by_the_next_band() {
+    use crate::glyph_cache::GlyphCache;
+    let mut window = GlyphCache::new();
+    let mut band = GlyphCache::new();
+    // No path is cached, so the builder keeps "no cells" for the key: what a probe must find.
+    let built = band.get_or_build_cells(7, 3, 0, 10.25, 20.0, 0.01, false, 1.0).is_none();
+    assert!(built, "no path, no cells");
+    assert_eq!(band.cells_built(), 1);
+    assert!(window.cached_cells(7, 3, 0, 10.25, 20.0, 0.01, false, 1.0, 0.0).is_none(), "not held yet");
+    window.absorb(band);
+    assert_eq!(window.cells_len(), 1);
+    assert_eq!(window.cells_built(), 0, "taken over, not built");
+    assert!(
+        matches!(window.cached_cells(7, 3, 0, 10.25, 20.0, 0.01, false, 1.0, 0.0), Some(None)),
+        "held, as the builder kept it"
+    );
+    assert!(
+        window.cached_cells(7, 3, 0, 10.5, 20.0, 0.01, false, 1.0, 0.0).is_none(),
+        "another quarter pixel is another cell set"
+    );
 }
