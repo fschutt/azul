@@ -157,6 +157,8 @@ Audit tests with a wrong premise (blind):
   (`Unchanged`).
 
 Second round (fourth verifier; each on the coordinator's decision, the measurement in the commit and in the test):
+- `c03056ab1` dll `a_builder_made_window_dom_rebuilt_unchanged_is_never_expanded` (dom-builder-05): its six
+  two-window comparisons go through `df_mask_key_ids`, as `df_list_against_full` does since `dbddfa99f`.
 - `b57add4e7` dll `shell2/macos/headless_gpu.rs` (test harness, A4's): `RendererTurn`: the tests that draw with the
   real renderer run one after the other (`webrender::azul_counters` counts for the process); the tile test that
   was red in every parallel run of 2b's binary is green 3 of 3; no assertion changed.
@@ -354,8 +356,34 @@ editor's pin moves once, after the last green merge of the round, on its word):
   deleted here: the three `libazul_layout` rlibs + rmeta and `libazul.rlib` of `azul-target`, and the e2e-feature
   units of the pin in the shared editor target, 806 MB, today 13:05-13:14; the coordinator also deleted the azul
   units of the pin `19e207928` there: THE NEXT EDITOR BUILD COMPILES azul AGAIN, about 0.8 GB per feature set.)
-- 2d `audit/dom-builder` at `234ec3de2` (a second `api.json` addition: the Rust outputs once more; a dry
-  `merge-tree` against `ff653f3f4` shows no conflict): NOT merged yet.
+- **2d `audit/dom-builder` at `234ec3de2`: MERGED as `ccf08de39`, GREEN at `c03056ab1`** (no textual conflict).
+  Two compile errors where both this branch and A3-solver-34 had extended the same thing, fixed in `dcc9b1be6`:
+  `node_without_flat` names every field of `NodeDataExt` (E0063: `transient_content` missing), `NodeField::ALL`
+  is 21 rows (E0308: 20). The counting `#[global_allocator]` of `core/src/dom_builder_test.rs` is test-only
+  (`#[cfg(test)] mod dom_builder_test`, inside it `cfg(all(test, feature = "std"))`): core's lib suite takes
+  22.7 s with it, 23.1 s before. `target/codegen` made AGAIN from the `api.json` of `ccf08de39` (+337 lines:
+  `dom.DomBuilder`; azul-doc dev build 58 s, generator 213 s to `[14/35]`): `dll_api_internal.rs` 25,013,735,
+  `dll_api_external.rs` 10,160,391, `reexports.rs` 384,586, `azul.rs` 9,902,513, `python_api.rs` 17,648,762,
+  `php_api.rs` 196,369, `memtest.rs` 26,995,444, `api.json.br` 325,702 (by hand), `material_icons.ttf.br` copied.
+  THE GATE on `dcc9b1be6` (`gate4.sh`, logs `580`..`584`): core lib 3,153 / 0; core `--tests` 0 failed; `cargo
+  test -p azul-core --doc DomBuilder` 1 / 0 (`586`); layout lib 10,922 / 0 / 1 ignored, `tests/all` 3,060 / 0 /
+  5; `headless_lifecycle` 8 / 0; dll lib 3,883 / 1: the branch's own
+  `a_builder_made_window_dom_rebuilt_unchanged_is_never_expanded` compared two windows' dumps with their
+  scrollbar key ids (the cause (A) of 2a): `c03056ab1` masks them in its six comparisons; after it dll lib 3,884
+  / 0 / 9 ignored (`585`). The hand-over's three places (the view's render, `regenerate_layout` step 1.35 / the
+  early diff, `unstyled_from_dom_inheriting`) merged without conflict and every diff-first test is green on the
+  merged tree. LEFT by that area, not done here (rows): the view test of its "For area diff-first (2)",
+  dom-builder-07 (changed nodes without the tree), the `Refstr` variants in `api.json`, more widgets behind
+  `AZ_FLAT_WIDGETS`, the editor's label loop on the builder (needs the pin and the bindings).
+- THE ROUND'S FOUR MERGES ARE IN. To do, in this order: (1) `cargo check -p azul-dll --target
+  x86_64-unknown-linux-gnu` and `--target x86_64-pc-windows-gnu` (delete `<target>/<triple>` after each);
+  (2) on the coordinator's word the editor's pin to the pushed tip: `api.json` CHANGED twice, so the editor's
+  bindings are copied from `<azul worktree>/target/codegen` into `mapedit3/target/azul-codegen` (+ `.rev`), the
+  four `rev` lines and three comment lines of `mapedit3/Cargo.toml`, `cargo update -p azul-dll` through `prun`;
+  the azul units of the old pin were deleted from the shared target: both feature sets compile azul again (about
+  0.8 GB each: `df` before each, delete the plain set's units after the binary is copied if the e2e build needs
+  the room); release build, binary + sha256, `scripts/e2e.sh` whole, `cargo test --release --bin mapedit3`, the
+  final plain build; (3) one `AZ_PATCH_DEBUG=1` e2e run for row 6.
 - DISK RULE (the coordinator's, from 14:50): before EVERY build `df -h /`; under 9.0 GB delete first; under 8.7 GB
   do not start and tell the coordinator; delete the previous step's test binaries BEFORE a build, not after.
 - At the end of the round: the Linux / Windows `cargo check`; then, on the coordinator's word, the editor's pin
