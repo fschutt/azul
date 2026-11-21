@@ -4618,6 +4618,49 @@ mod audit_a3_window_tests {
         assert_eq!(once.len(), taken.len(), "no old node is two new nodes");
     }
 
+    /// The animation keys of a rebuild's matched nodes (`anim_keys_for_moves`, every rebuild of
+    /// the root): the keys the per-node function gives, in a number of steps linear in the
+    /// children of one parent. One per-node walk per move counts every earlier sibling: k^2 / 2.
+    #[test]
+    fn the_animation_keys_of_a_rebuild_take_a_step_per_node() {
+        let run = |k: usize| {
+            let spec = Spec(div(), (0..k).map(|_| Spec(div(), Vec::new())).collect());
+            let (nodes, items) = arenas(&spec);
+            let moves: Vec<NodeMove> = (0..nodes.len())
+                .map(|i| NodeMove {
+                    old_node_id: NodeId::new(i),
+                    new_node_id: NodeId::new(i),
+                })
+                .collect();
+            KEY_WORK.with(|w| w.set(0));
+            let keys = crate::animation::anim_keys_for_moves(
+                &moves,
+                &nodes,
+                &items,
+                NodeIdentityConfig::default(),
+            );
+            let work = KEY_WORK.with(std::cell::Cell::get);
+            (keys, nodes, items, work)
+        };
+        let (keys, nodes, items, small) = run(500);
+        assert_eq!(keys.len(), 501);
+        for (key, node) in &keys {
+            let one = calculate_reconciliation_key(
+                &nodes,
+                &items,
+                *node,
+                NodeIdentityConfig::default(),
+            );
+            assert_eq!(key.0, one, "the key of node {node:?}");
+        }
+        let (_, _, _, large) = run(2_000);
+        assert!(small >= 500, "harness: the steps were counted ({small})");
+        assert!(
+            large <= small * 5,
+            "four times the children took {large} steps for {small}: more than linear"
+        );
+    }
+
     /// A view that grows: `k` labels under one parent become `2k`, while `k` labels under a
     /// second parent go. The `k` new labels without a positional twin (2k nodes with their texts)
     /// reach the shallow tiers; the old labels of the second parent (2k nodes) are what is left
