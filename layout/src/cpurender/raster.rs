@@ -1401,8 +1401,9 @@ impl ReferenceFrameGroup {
         below: (u32, u32),
         // (A10-06) The frame the shell shows as a layer (`CpuRenderState::promote`): an
         // isolated group whatever its matrix is, so that its picture is a surface.
-        isolate: bool,
+        promoted: Option<PromoteFrame>,
     ) -> Self {
+        let isolate = promoted.is_some();
         // As the layer builder places the frame: the identity paints where it
         // is laid out, a translation paints moved into the pixels below (the
         // compositor paints it in its parent layer, too), and any other
@@ -1433,7 +1434,13 @@ impl ReferenceFrameGroup {
         // Of the group's box, only the part that can land in the pixels below is painted: the
         // clip around the push, mapped back through the matrix (and the walk culls the items
         // outside it). Where the matrix cannot be inverted, or has a perspective part, all of it.
-        let part = group_visible_part(&matrix, outer_clip, below, (width, height));
+        // (A10-06) For the frame shown as a layer, as far around that part as the frame's
+        // render state says (`PromoteFrame::paint_margin`; `retained_candidate` offers the
+        // same box).
+        let part = match promoted.and_then(|p| p.paint_margin) {
+            Some(margin) => group_part_within(&matrix, outer_clip, below, (width, height), margin),
+            None => group_visible_part(&matrix, outer_clip, below, (width, height)),
+        };
         let lands = width > 0
             && height > 0
             && part.is_none_or(|(x0, y0, x1, y1)| x1 > x0 && y1 > y0);
@@ -2461,6 +2468,11 @@ pub struct PromoteFrame {
     pub transform_key: usize,
     /// Whether the walk composites the frame's surface into the pixels below.
     pub composite: bool,
+    /// How far around the part of the surface that lands a pass paints, surface px; `None`:
+    /// as for every group (64 px). A frame that completes a surface strip by strip (a pan
+    /// of a layer) paints further ahead: every strip is one more copy of the surface handed
+    /// to the window system.
+    pub paint_margin: Option<i32>,
 }
 
 impl CpuRenderState {
@@ -3338,7 +3350,11 @@ fn retained_candidate(
         return None;
     }
     let size = (g.width, g.height);
-    let (x0, y0, x1, y1) = group_visible_part(&g.matrix, g.outer_clip, below, size)?;
+    // (A10-06) What `ReferenceFrameGroup::begin` paints of this frame: the same box.
+    let (x0, y0, x1, y1) = match promoted.and_then(|p| p.paint_margin) {
+        Some(margin) => group_part_within(&g.matrix, g.outer_clip, below, size, margin)?,
+        None => group_visible_part(&g.matrix, g.outer_clip, below, size)?,
+    };
     let (nx0, ny0, nx1, ny1) = group_part_within(&g.matrix, g.outer_clip, below, size, 2)?;
     let (shared, slot) = shared_list(list, render_state)?;
     let list_at = std::sync::Arc::as_ptr(&shared) as usize;
@@ -4936,7 +4952,7 @@ pub fn render_single_item(
                 real_clip_stack,
                 scroll_offset_stack,
                 below,
-                render_state.promote.is_some_and(|p| p.transform_key == transform_key.id),
+                render_state.promote.filter(|p| p.transform_key == transform_key.id),
             );
             mask_stack.push(MaskEntry::Transform(group));
             return Ok(());

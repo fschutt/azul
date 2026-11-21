@@ -80,8 +80,12 @@ pub const PAIR_MAX_BYTES: usize = 48 * 1024 * 1024;
 /// it is looked up, and there are a thousand of them.
 pub(crate) const MIN_SURFACE_PX: u64 = 256 * 256;
 
-/// The most painted boxes remembered for one surface.
-const MAX_VALID_BOXES: usize = 32;
+/// The most painted boxes remembered for one surface. (A10-06: 96, was 32. A surface shown as
+/// a layer is completed strip by strip while its view pans, one or two boxes a strip on top
+/// of one per band of its first frame; with 32 the oldest box - a band of the first frame,
+/// still shown - was forgotten in a long diagonal pan and painted again, forgetting the
+/// next.)
+const MAX_VALID_BOXES: usize = 96;
 
 /// What the picture in a kept surface depends on, besides the items of the list it holds: see
 /// the module (rules 1 to 6).

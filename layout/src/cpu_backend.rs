@@ -1247,6 +1247,14 @@ impl CpuBackend {
                 };
             }
         }
+        // What the layer needs of its surface and is not painted (`None`: no surface is kept
+        // for it), and how far ahead this frame's passes paint the surface.
+        let layer_missing = layer_plan
+            .as_ref()
+            .and_then(|plan| self.retained_frames.missing(&plan.key, plan.needed));
+        let layer_paint_margin = layer_plan.as_ref().and_then(|plan| {
+            cpurender::present_layer::paint_margin_for(layer_missing.as_deref(), plan.needed)
+        });
         if is_incremental {
             let same_layer = |a: &cpurender::present_layer::LayerPlan,
                               b: &cpurender::present_layer::LayerPlan| {
@@ -1256,7 +1264,7 @@ impl CpuBackend {
                 // What shows of the layer's surface and is not painted: its passes paint it.
                 all_damage.extend(cpurender::present_layer::damage_of_plan(
                     plan,
-                    self.retained_frames.missing(&plan.key, plan.needed),
+                    layer_missing,
                     dpi_factor,
                 ));
                 // The promotion starts: the window's frame holds the picture under the clip.
@@ -1607,6 +1615,7 @@ impl CpuBackend {
         render_state.promote = layer_plan.as_ref().map(|plan| cpurender::PromoteFrame {
             transform_key: plan.transform_key,
             composite: false,
+            paint_margin: layer_paint_margin,
         });
         // The kept group surfaces of lists this frame does not paint any more (a view that
         // rendered again, a list that was patched) are dropped, and those lists let go of.
@@ -1767,6 +1776,7 @@ impl CpuBackend {
                 render_state.promote = Some(cpurender::PromoteFrame {
                     transform_key: plan.transform_key,
                     composite: true,
+                    paint_margin: None,
                 });
                 let clip = plan.clip_rect(dpi_factor);
                 if cpurender::render_display_list_damaged(
