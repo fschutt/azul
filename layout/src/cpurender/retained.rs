@@ -39,11 +39,19 @@
 //!
 //! # Bounds
 //!
-//! At most [`MAX_ENTRIES`] surfaces holding at most [`DEFAULT_MAX_BYTES`] together
-//! (`AZ_CPU_RETAINED_MB`; `0` keeps nothing), counted by their full size although a page of a
-//! surface costs memory only once it is painted. A surface that alone is larger than the bound
-//! is not kept: its frame is painted on every step, as before. The surface of a 2560 x 1440
-//! map view with its overscan is 23 MB at a scale factor of 1 and 92.5 MB at 2.
+//! ONE surface of up to [`DEFAULT_MAX_BYTES`] (`AZ_CPU_RETAINED_MB`; `0` keeps nothing) is
+//! always kept: the picture of the view being zoomed. A second one ([`MAX_ENTRIES`]) is kept
+//! only where the two together are cheap, at most [`PAIR_MAX_BYTES`]. Sizes are the surfaces'
+//! full sizes, although a page of a surface costs memory only once it is painted.
+//!
+//! The arithmetic: a map view of the whole window with the editor's 256 px of overscan on each
+//! side is (w + 512) x (h + 512) logical px. At 2560 x 1440 and a scale factor of 1:
+//! 3072 x 1952 px = 24.0 MB, two fit the pair bound. On a 1470 x 956 pt Retina panel (2940 x
+//! 1912 px): 3964 x 2936 px = 46.6 MB: one is kept, a second would make 93 MB and is not. A
+//! 4K panel at a scale factor of 2 (7680 x 4320 px): 8704 x 5344 px = 186 MB: one is kept.
+//! A surface over the bound for one is not kept, its frame is painted on every step as before,
+//! and the first time that happens it is said on stderr (a bound under a view's surface would
+//! otherwise switch the feature off without a trace).
 //!
 //! # Threads
 //!
@@ -60,8 +68,13 @@ use crate::solver3::display_list::DisplayList;
 /// The most surfaces kept at once.
 pub const MAX_ENTRIES: usize = 2;
 
-/// The most bytes the kept surfaces hold together unless `AZ_CPU_RETAINED_MB` says otherwise.
-pub const DEFAULT_MAX_BYTES: usize = 96 * 1024 * 1024;
+/// The most bytes ONE kept surface may hold unless `AZ_CPU_RETAINED_MB` says otherwise.
+pub const DEFAULT_MAX_BYTES: usize = 192 * 1024 * 1024;
+
+/// The most bytes two kept surfaces may hold together: a second surface is kept only when it
+/// is cheap (two views of a 2560 x 1440 window at a scale factor of 1; not two on a Retina
+/// panel).
+pub const PAIR_MAX_BYTES: usize = 48 * 1024 * 1024;
 
 /// The fewest pixels a surface must have to be kept: a label's surface is painted faster than
 /// it is looked up, and there are a thousand of them.
@@ -280,9 +293,19 @@ impl RetainedFrames {
 
     /// Whether a surface of `bytes` bytes can be kept at all.
     pub(crate) fn can_keep(&self, bytes: usize) -> bool {
-        self.inner
-            .lock()
-            .is_ok_and(|inner| bytes > 0 && bytes <= inner.max_bytes)
+        let max_bytes = self.inner.lock().map_or(0, |inner| inner.max_bytes);
+        if bytes > max_bytes && max_bytes > 0 {
+            static SAID: std::sync::Once = std::sync::Once::new();
+            SAID.call_once(|| {
+                eprintln!(
+                    "[cpurender] a group surface of {} MB is over the bound of {} MB \
+                     (AZ_CPU_RETAINED_MB): it is not kept and its frame is painted on every step",
+                    bytes >> 20,
+                    max_bytes >> 20,
+                );
+            });
+        }
+        bytes > 0 && bytes <= max_bytes
     }
 
     /// A pass painted the box `part` of the surface of `key` (the whole `surface` otherwise
@@ -367,10 +390,14 @@ impl RetainedFrames {
             if bytes == 0 || bytes > inner.max_bytes {
                 continue;
             }
-            // Room: the surfaces used longest ago go.
+            // Room: one surface is always kept; another stays beside it only while the two
+            // are cheap together. The surfaces used longest ago go.
+            let pair_max = PAIR_MAX_BYTES.min(inner.max_bytes);
             loop {
                 let held: usize = inner.entries.iter().map(Entry::bytes).sum();
-                if inner.entries.len() < MAX_ENTRIES && held + bytes <= inner.max_bytes {
+                if inner.entries.is_empty()
+                    || (inner.entries.len() < MAX_ENTRIES && held + bytes <= pair_max)
+                {
                     break;
                 }
                 let Some(oldest) = inner
@@ -540,5 +567,39 @@ mod tests {
         assert_eq!(parse_megabytes(Some("0")), Some(0), "AZ_CPU_RETAINED_MB=0 keeps nothing");
         assert_eq!(parse_megabytes(Some("64")), Some(64 << 20));
         assert_eq!(parse_megabytes(None), None);
+    }
+
+    /// A1-28 (A9): the bound at the user's display. A view of the whole 1470 x 956 pt Retina
+    /// window with 256 px of overscan on each side is 3964 x 2936 px = 46.6 MB: it is kept,
+    /// and a second one replaces it (93 MB together is not cheap). Two views of a 2560 x 1440
+    /// window at a scale factor of 1 (3072 x 1952 px = 24.0 MB each) are both kept.
+    /// Mutation: a bound of twice the frame's bytes (2 x 22.5 MB) keeps no view of the window.
+    #[test]
+    fn one_view_of_the_users_display_is_always_kept_and_a_second_only_where_it_is_cheap() {
+        let list = Arc::new(DisplayList::default());
+        let keyed = |push: usize, size: (u32, u32)| SurfaceKey { size, ..key(&list, push, 1) };
+        let offer = |cache: &RetainedFrames, push: usize, size: (u32, u32)| {
+            let surface = AzulPixmap::new_transparent(size.0, size.1).expect("a surface");
+            assert!(cache.can_keep(surface.data().len()), "{size:?} is under the bound for one");
+            cache.offer(keyed(push, size), Arc::clone(&list), surface, [0, 0, 1, 1], PLACED);
+            cache.commit();
+        };
+        let retina = ((1470 + 512) * 2, (956 + 512) * 2);
+        assert_eq!(retina, (3964, 2936));
+        let cache = RetainedFrames::with_max_bytes(DEFAULT_MAX_BYTES);
+        offer(&cache, 1, retina);
+        assert_eq!((cache.len(), cache.bytes()), (1, 3964 * 2936 * 4));
+        offer(&cache, 2, retina);
+        assert_eq!(cache.len(), 1, "two would be 93 MB");
+        assert!(cache.lookup(&keyed(2, retina), [0, 0, 1, 1]).is_some(), "the newer one is kept");
+        let desktop = (2560 + 512, 1440 + 512);
+        let cache = RetainedFrames::with_max_bytes(DEFAULT_MAX_BYTES);
+        offer(&cache, 1, desktop);
+        offer(&cache, 2, desktop);
+        assert_eq!((cache.len(), cache.bytes()), (2, 2 * 3072 * 1952 * 4), "48 MB: both");
+        assert!(cache.bytes() <= PAIR_MAX_BYTES);
+        // 4K at a scale factor of 2: one fits; a surface over the bound for one does not.
+        assert!(cache.can_keep((7680 + 1024) * (4320 + 1024) * 4));
+        assert!(!cache.can_keep(DEFAULT_MAX_BYTES + 1));
     }
 }

@@ -270,10 +270,11 @@ impl GlyphCache {
     }
 
     /// The most entries (paths, cells and tiles, both generations) a band thread's cache may
-    /// hold and still be kept for the next frame: a seventh of what the window's own cache may
-    /// hold ((4,096 paths + 8,192 cells) x 2 generations + 4,096 tiles = 28,672), so the three
-    /// band caches of a repaint on four threads together stay under half of it.
-    pub const MAX_BAND_CACHE_ENTRIES: usize = 4096;
+    /// hold and still be kept for the next frame. The band caches hold copies of what the
+    /// window's own cache holds (the same glyphs, rasterised again per thread), so they are
+    /// kept small: 1,024 entries each, three of them on four threads, where the window's own
+    /// cache may hold 28,672. A band that needs more starts with an empty cache next time.
+    pub const MAX_BAND_CACHE_ENTRIES: usize = 1024;
 
     /// How many band caches are kept (for memory probes and tests).
     #[must_use]
