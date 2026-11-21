@@ -21,6 +21,10 @@ pub mod paged_layout;
 pub mod pagination;
 pub mod positioning;
 pub mod regions;
+/// The text of a page's header, footer and page numbers: the font it is set in
+/// and how it is drawn.
+#[cfg(feature = "text_layout")]
+pub(crate) mod running_text;
 pub mod scroll_chain;
 pub mod scrollbar;
 pub mod sizing;

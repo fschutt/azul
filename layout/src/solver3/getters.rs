@@ -5595,12 +5595,38 @@ fn font_stack_memo_answer(
 /// the style of a run ([`get_style_properties`]) and the font-stack collector
 /// ([`collect_font_stacks_from_styled_dom`]) both go through it, so the key a
 /// run shapes with is the key the collector resolved.
-fn at_optical_size(mut stack: Vec<FontSelector>, font_size_px: f32) -> Vec<FontSelector> {
+pub(crate) fn at_optical_size(
+    mut stack: Vec<FontSelector>,
+    font_size_px: f32,
+) -> Vec<FontSelector> {
     let optical_size = crate::text3::cache::optical_size_for(font_size_px);
     for selector in &mut stack {
         selector.optical_size = optical_size;
     }
     stack
+}
+
+/// The font selector stack of the CSS `font-family` list `families` for
+/// regular text of `font_size_px` in the document `styled_dom`: the stack
+/// [`get_style_properties`] builds for a node of that family (the document's
+/// theme, the generic families appended, the optical size of the size), so a
+/// run set in it asks the font manager for the chain the same family has in
+/// the document's own text.
+pub(crate) fn font_stack_for_families(
+    styled_dom: &StyledDom,
+    families: &StyleFontFamilyVec,
+    font_size_px: f32,
+) -> Vec<FontSelector> {
+    at_optical_size(
+        build_font_selector_stack_memo_themed(
+            families,
+            None,
+            structural_theme_of(styled_dom),
+            FcWeight::Normal,
+            FontStyle::Normal,
+        ),
+        font_size_px,
+    )
 }
 
 /// Whether `family` is an Apple name of the system UI font on `platform`:
@@ -6365,33 +6391,43 @@ pub fn prune_chain_to_used_chars(
 /// resolved chain and therefore into the eager-load step.
 #[must_use]
 pub fn scripts_present_in_styled_dom(styled_dom: &StyledDom) -> Vec<UnicodeRange> {
+    let node_data = styled_dom.node_data.as_container();
+    scripts_present_in_chars(
+        node_data
+            .internal
+            .iter()
+            .filter_map(|node| match &node.node_type {
+                NodeType::Text(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .flat_map(str::chars),
+    )
+}
+
+/// The subset of [`rust_fontconfig::DEFAULT_UNICODE_FALLBACK_SCRIPTS`] whose
+/// code-point ranges `chars` come from (see [`scripts_present_in_styled_dom`],
+/// which this is the scan of): it stops reading once all seven are seen.
+fn scripts_present_in_chars(chars: impl Iterator<Item = char>) -> Vec<UnicodeRange> {
     let scripts = DEFAULT_UNICODE_FALLBACK_SCRIPTS;
     let mut seen = vec![false; scripts.len()];
     let mut hits = 0usize;
-    let node_data = styled_dom.node_data.as_container();
-    'outer: for node in node_data.internal {
-        let text: &str = match &node.node_type {
-            NodeType::Text(s) => s.as_str(),
-            _ => continue,
-        };
-        for c in text.chars() {
-            let cp = c as u32;
-            // Cheap reject: everything below the first fallback-script
-            // range (Cyrillic starts at U+0400) is covered by the CSS
-            // fallbacks' own glyphs — no reason to probe.
-            if cp < 0x0400 {
-                continue;
+    for c in chars {
+        let cp = c as u32;
+        // Cheap reject: everything below the first fallback-script
+        // range (Cyrillic starts at U+0400) is covered by the CSS
+        // fallbacks' own glyphs — no reason to probe.
+        if cp < 0x0400 {
+            continue;
+        }
+        for (idx, r) in scripts.iter().enumerate() {
+            if !seen[idx] && cp >= r.start && cp <= r.end {
+                seen[idx] = true;
+                hits += 1;
+                break;
             }
-            for (idx, r) in scripts.iter().enumerate() {
-                if !seen[idx] && cp >= r.start && cp <= r.end {
-                    seen[idx] = true;
-                    hits += 1;
-                    if hits == scripts.len() {
-                        break 'outer;
-                    }
-                    break;
-                }
-            }
+        }
+        if hits == scripts.len() {
+            break;
         }
     }
     scripts
@@ -7201,6 +7237,72 @@ pub fn collect_and_resolve_font_chains_covering<T: ParsedFontTrait>(
     for font_ref in collected.font_refs.values() {
         font_manager.register_embedded_font(font_ref);
     }
+    resolve_collected_stacks_covering(
+        &collected,
+        fc_cache,
+        font_manager,
+        || {
+            let mut used_chars = collect_used_codepoints_all(styled_dom);
+            used_chars.extend(also.iter().copied());
+            used_chars
+        },
+        || scripts_present_in_styled_dom(styled_dom),
+        || {
+            let mut used_chars = collect_used_codepoints(styled_dom);
+            used_chars.extend(also.iter().map(|c| u32::from(*c)));
+            used_chars
+        },
+    )
+}
+
+/// The font chains of `stacks` for text that holds `chars`, resolved exactly as
+/// [`collect_and_resolve_font_chains_covering`] resolves the stacks of a DOM's
+/// text: a stack that the text of the page furniture (the header, the footer,
+/// the page numbers) names gets the chain the same stack has in the document.
+#[must_use]
+pub(crate) fn resolve_font_stacks_covering<T: ParsedFontTrait>(
+    stacks: Vec<Vec<FontSelector>>,
+    chars: &std::collections::BTreeSet<char>,
+    fc_cache: &FcFontCache,
+    font_manager: &crate::text3::cache::FontManager<T>,
+) -> ResolvedFontChains {
+    let collected = CollectedFontStacks {
+        font_stacks: stacks,
+        hash_to_index: HashMap::new(),
+        font_refs: HashMap::new(),
+    };
+    resolve_collected_stacks_covering(
+        &collected,
+        fc_cache,
+        font_manager,
+        || chars.clone(),
+        || scripts_present_in_chars(chars.iter().copied()),
+        || {
+            chars
+                .iter()
+                .map(|c| u32::from(*c))
+                .filter(|cp| *cp >= 0x80)
+                .collect()
+        },
+    )
+}
+
+/// The chain resolution both [`collect_and_resolve_font_chains_covering`] (the
+/// stacks of a DOM) and [`resolve_font_stacks_covering`] (given stacks) end in.
+///
+/// What the text holds is asked for by closure, each only on the path that
+/// reads it: `all_chars` every character (what the registry's cmap probe asks
+/// the candidate faces for), `scripts` the fallback scripts it is set in and
+/// `prune_chars` the characters from U+0080 on (and those the caller keeps
+/// covered) the pattern-map resolver trims its chains to.
+fn resolve_collected_stacks_covering<T: ParsedFontTrait>(
+    collected: &CollectedFontStacks,
+    fc_cache: &FcFontCache,
+    font_manager: &crate::text3::cache::FontManager<T>,
+    all_chars: impl FnOnce() -> std::collections::BTreeSet<char>,
+    scripts: impl FnOnce() -> Vec<UnicodeRange>,
+    prune_chars: impl FnOnce() -> std::collections::BTreeSet<u32>,
+) -> ResolvedFontChains {
     // The faces the app registered while it runs match by family like the
     // manager's own (`text3::fontreg`), put into this cache first.
     let memory_families = font_manager
@@ -7219,13 +7321,12 @@ pub fn collect_and_resolve_font_chains_covering<T: ParsedFontTrait>(
     //   - the DOM has no text codepoints (no shaping to be done, so cmap-probing has nothing to
     //     check and partial-cover entries would be surprising)
     if let Some(registry) = font_manager.registry.as_deref() {
-        let mut used_chars = collect_used_codepoints_all(styled_dom);
-        used_chars.extend(also.iter().copied());
+        let used_chars = all_chars();
         if !used_chars.is_empty() {
             // The registry's cache loads what the probe resolves.
             drop(font_manager.registered_fonts.ensure_in(&registry.shared_cache()));
             let mut fast =
-                resolve_font_chains_fast(&collected, registry, &used_chars, &memory_families);
+                resolve_font_chains_fast(collected, registry, &used_chars, &memory_families);
             extend_chains_to_cover(&mut fast, &used_chars, fc_cache, Some(registry));
             return fast;
         }
@@ -7234,17 +7335,16 @@ pub fn collect_and_resolve_font_chains_covering<T: ParsedFontTrait>(
     // Legacy path: pattern-map resolver. Only reached when the
     // caller passes an `FcFontCache` without a live registry
     // (ad-hoc tests, the PDF writer, etc.).
-    let scripts = scripts_present_in_styled_dom(styled_dom);
+    let scripts = scripts();
     let mut resolved = resolve_font_chains_with_registry(
-        &collected,
+        collected,
         fc_cache,
         font_manager.registry.as_deref(),
         Some(&scripts),
         &memory_families,
     );
 
-    let mut used_chars = collect_used_codepoints(styled_dom);
-    used_chars.extend(also.iter().map(|c| u32::from(*c)));
+    let used_chars = prune_chars();
     for chain in resolved.chains.values_mut() {
         prune_chain_to_used_chars(chain, &used_chars);
     }

@@ -1486,6 +1486,16 @@ impl CpuBackend {
         // paint/present damage (and the pixel-count metric built on it) must
         // not double-count the same region.
         if is_incremental {
+            // The damage names pixels of the frame, and only those: a shrink damages the old
+            // bounds of the boxes it narrowed, which lie past the new edge. The rasteriser
+            // clamps such a rect to its buffer, so the PRESENT damage below (what it wrote)
+            // never held it; the PAINT damage (what was asked for) must not either, or the
+            // frame reports pixels painted that are no pixels of it (`present ⊇ paint`).
+            cpurender::clip_damage_to_frame(
+                &mut all_damage,
+                pixel_w as f32 / dpi_factor,
+                pixel_h as f32 / dpi_factor,
+            );
             if cpurender::patch_debug() {
                 eprintln!("[HLDMG-FINAL] before merge {all_damage:?}");
             }
@@ -2043,3 +2053,7 @@ mod audit_a1_tests {
         assert!(!frame_may_repaint_its_damage_alone(false, &plain, Some(&plain)));
     }
 }
+
+#[cfg(test)]
+#[path = "cpu_backend_test.rs"]
+mod cpu_backend_test;

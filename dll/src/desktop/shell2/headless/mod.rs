@@ -10390,8 +10390,12 @@ mod tests {
         let mut window = make_window_with(&state, harness_layout_grid);
         window.regenerate_layout().expect("initial layout");
 
-        // Recolor exactly ONE box (index 15) in a 30-box grid.
-        set_highlight(&state, Some(15));
+        // Recolor exactly ONE box in a 30-box grid. The window is 300 px tall and the boxes 20 px:
+        // it shows the first 15, so the box is index 7 (y 140..160). Box 15, the middle of the grid,
+        // starts at y = 300, below the frame: the damage of a CPU frame lies inside the frame, so a
+        // change there is no damage at all (the test used to pass on the unclipped rect of a box
+        // nobody could see).
+        set_highlight(&state, Some(7));
         window.regenerate_layout().expect("highlight one box");
         let damage = window.cpu_backend.last_frame_damage.clone();
         println!(
@@ -16910,6 +16914,7 @@ mod child_window_tests {
             None,
             false,
             None,
+            &[],
         )
     }
 

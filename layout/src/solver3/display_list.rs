@@ -15311,6 +15311,10 @@ impl SlicerConfig {
 ///
 /// **Key insight**: Items are NEVER shifted. Instead, page boundaries are adjusted
 /// to honor break properties.
+///
+/// The text of the pages' headers and footers (`config.header_footer`) is
+/// drawn with a font registered in `renderer_resources`; a paged layout
+/// (`layout_document_paged_v2`) draws it with the document's font manager.
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 /// # Errors
 ///
@@ -15338,7 +15342,8 @@ pub fn paginate_display_list_with_slicer_and_breaks(
 ///
 /// The sibling of [`paginate_display_list_with_slicer_and_breaks`], which
 /// computes the breaks itself and delegates here. Lets embedders analyze
-/// pagination once and materialize pages separately.
+/// pagination once and materialize pages separately. The text of headers and
+/// footers is drawn as there: with a font registered in `renderer_resources`.
 /// # Errors
 ///
 /// Returns a `LayoutError` if paginating the display list fails.
@@ -15353,7 +15358,7 @@ pub fn paginate_display_list_with_breaks(
         full_display_list,
         config,
         breaks,
-        renderer_resources,
+        &mut RegisteredFontText(renderer_resources),
         None,
         |page| {
             pages.push(page);
@@ -15384,7 +15389,28 @@ pub fn paginate_display_list_with_breaks_streaming(
         full_display_list,
         config,
         breaks,
-        renderer_resources,
+        &mut RegisteredFontText(renderer_resources),
+        None,
+        on_page,
+    )
+}
+
+/// [`paginate_display_list_with_breaks_streaming`] with the text of the pages'
+/// headers and footers set by `running_text` instead of drawn from the fonts
+/// registered in `RendererResources`: what a paged layout calls, with the
+/// font manager the document's own text was shaped with.
+pub(crate) fn paginate_streaming_with_running_text(
+    full_display_list: DisplayList,
+    config: &SlicerConfig,
+    breaks: &[page_breaks::PageBreakPosition],
+    running_text: &mut dyn RunningTextSetter,
+    on_page: impl FnMut(DisplayList) -> Result<()>,
+) -> Result<()> {
+    paginate_pages_impl(
+        full_display_list,
+        config,
+        breaks,
+        running_text,
         None,
         on_page,
     )
@@ -15395,7 +15421,8 @@ pub fn paginate_display_list_with_breaks_streaming(
 /// A document editor computes breaks once (`compute_page_breaks*`), then
 /// materializes only the visible pages. Headers/footers still show the
 /// correct "page N of TOTAL" because the total comes from `breaks`, not from
-/// how many pages were materialized.
+/// how many pages were materialized. The text of headers and footers is drawn
+/// with a font registered in `renderer_resources`.
 ///
 /// Returns an empty display list when `page_index` is out of range.
 /// # Errors
@@ -15413,7 +15440,7 @@ pub fn paginate_single_page(
         full_display_list,
         config,
         breaks,
-        renderer_resources,
+        &mut RegisteredFontText(renderer_resources),
         Some(page_index),
         |p| {
             page = p;
@@ -15429,7 +15456,7 @@ fn paginate_pages_impl(
     full_display_list: DisplayList,
     config: &SlicerConfig,
     breaks: &[page_breaks::PageBreakPosition],
-    renderer_resources: &RendererResources,
+    running_text: &mut dyn RunningTextSetter,
     only_page: Option<usize>,
     mut on_page: impl FnMut(DisplayList) -> Result<()>,
 ) -> Result<()> {
@@ -15558,7 +15585,7 @@ fn paginate_pages_impl(
         if hf.show_header && !skip_this_page {
             let header_text = hf.header_text(page_info);
             if !header_text.is_empty() {
-                let header_items = generate_text_display_items(
+                let header_items = running_text.set_text(
                     &header_text,
                     LogicalRect {
                         origin: LogicalPosition { x: 0.0, y: 0.0 },
@@ -15567,10 +15594,8 @@ fn paginate_pages_impl(
                             height: hf.header_height,
                         },
                     },
-                    hf.font_size,
-                    hf.text_color,
+                    hf,
                     TextAlignment::Center,
-                    renderer_resources,
                 );
                 for item in header_items {
                     page_items.push(item);
@@ -15937,7 +15962,7 @@ fn paginate_pages_impl(
                         s.setup_for_page(page_idx).content_height()
                     });
                 let footer_y = page_h - hf.footer_height;
-                let footer_items = generate_text_display_items(
+                let footer_items = running_text.set_text(
                     &footer_text,
                     LogicalRect {
                         origin: LogicalPosition {
@@ -15949,10 +15974,8 @@ fn paginate_pages_impl(
                             height: hf.footer_height,
                         },
                     },
-                    hf.font_size,
-                    hf.text_color,
+                    hf,
                     TextAlignment::Center,
-                    renderer_resources,
                 );
                 for item in footer_items {
                     page_items.push(item);
@@ -16028,10 +16051,99 @@ fn calculate_page_break_positions(
 
 /// Text alignment for generated header/footer text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TextAlignment {
+pub(crate) enum TextAlignment {
     Left,
     Center,
     Right,
+}
+
+/// Sets the text of a page's header or footer.
+///
+/// The slicer knows what each page says and where it goes (the band, the
+/// page-numbering text, the alignment); which font the words are set in, and
+/// how, is the setter's. A paged layout sets them with the font manager the
+/// document's own text was shaped with (`solver3::running_text`); the slicing
+/// entry points that have none draw them from the fonts registered in
+/// `RendererResources` ([`RegisteredFontText`]).
+pub(crate) trait RunningTextSetter {
+    /// The display list items of `text` set in `band` (page coordinates) the
+    /// way `style` asks for (font family, size, color), `alignment` along the
+    /// band. Empty when nothing can be drawn: the setter says why where it
+    /// reports. Blank text and a size that is no size ([`is_drawable_size`])
+    /// are nothing to draw, and nothing to say.
+    fn set_text(
+        &mut self,
+        text: &str,
+        band: LogicalRect,
+        style: &HeaderFooterConfig,
+        alignment: TextAlignment,
+    ) -> Vec<DisplayListItem>;
+}
+
+/// Whether text can be set at `font_size`: a positive, finite size in px.
+/// Zero and a negative size set nothing, and NaN or infinity would make every
+/// coordinate of the text NaN.
+pub(crate) const fn is_drawable_size(font_size: f32) -> bool {
+    font_size.is_finite() && font_size > 0.0
+}
+
+/// Report a finding of the page furniture once per process through
+/// `azul_core::diagnostics::emit_once`, keyed by `tag`. The tag names the KIND
+/// of finding (not the page that saw it: a document of a thousand pages has
+/// one finding; and not the family, the face or the text it was about: the
+/// table of once-only keys is bounded, and a key made of what a caller passes
+/// in lets the callers fill it). `message` is built only when it is printed.
+/// Returns whether it was.
+pub(crate) fn report_once(tag: &str, message: impl FnOnce() -> String) -> bool {
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    tag.hash(&mut hasher);
+    azul_core::diagnostics::emit_once(hasher.finish(), message)
+}
+
+/// The [`RunningTextSetter`] of the slicing entry points that take no font
+/// manager (`paginate_display_list_with_breaks` and its siblings): the text is
+/// drawn from the font registered in the `RendererResources` they are given
+/// ([`generate_text_display_items`]), which is the font the renderer that
+/// reads those resources resolves the items' hashes against.
+///
+/// It says so when the text cannot be drawn for want of a registered font,
+/// where a paged layout (`layout_document_paged_v2` and its siblings) draws it
+/// from the document's font manager and needs no registration.
+struct RegisteredFontText<'a>(&'a RendererResources);
+
+impl RunningTextSetter for RegisteredFontText<'_> {
+    fn set_text(
+        &mut self,
+        text: &str,
+        band: LogicalRect,
+        style: &HeaderFooterConfig,
+        alignment: TextAlignment,
+    ) -> Vec<DisplayListItem> {
+        // Nothing to draw, and nothing to say: blank text, or a size that is no size.
+        if text.trim().is_empty() || !is_drawable_size(style.font_size) {
+            return Vec::new();
+        }
+        let items = generate_text_display_items(
+            text,
+            band,
+            style.font_size,
+            style.text_color,
+            alignment,
+            self.0,
+        );
+        if items.is_empty() {
+            report_once("paginate: page text without a registered font", || {
+                "[azul][paginate] a page's header or footer text was not drawn: this slicing \
+                 entry point draws it with a font registered in `RendererResources` and none \
+                 is. `layout_document_paged_v2` and its siblings draw it with the document's \
+                 own font manager and need no registration."
+                    .to_string()
+            });
+        }
+        items
+    }
 }
 
 /// Helper to offset all Y coordinates of a display item.
@@ -16361,7 +16473,8 @@ pub(crate) fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> Di
     }
 }
 
-/// Generate display list items for simple text (paginated headers/footers).
+/// Generate display list items for simple text (the header and footer of the
+/// slicing entry points that have no font manager, [`RegisteredFontText`]).
 ///
 /// Shapes `text` against a registered font (chosen from `renderer_resources`)
 /// and emits a single [`DisplayListItem::Text`] whose glyph indices are the
@@ -16370,9 +16483,9 @@ pub(crate) fn offset_display_item_y(item: &DisplayListItem, y_offset: f32) -> Di
 ///
 /// This is a deliberately simple shaper for short, single-line running
 /// headers/footers (e.g. "Page 1 of 3"): per-character cmap lookup + horizontal
-/// advance, no complex shaping / kerning / bidi. The full text pipeline is not
-/// used because the pagination call site does not carry a styled run — only the
-/// header/footer string and a font size/color.
+/// advance, no complex shaping / kerning / bidi. A paged layout does not come
+/// here: it has the document's font manager and sets the text through the text
+/// layout (`solver3::running_text`).
 ///
 /// History: a previous stub fabricated glyphs whose `index` was the Unicode
 /// *codepoint* and whose `font_hash` was `0`, which matched no registered font
@@ -17500,33 +17613,6 @@ mod pagination_text_tests {
             }
             other => panic!("expected DisplayListItem::Text, got {other:?}"),
         }
-    }
-
-    /// With no registered fonts there is nothing to shape against -> empty.
-    #[test]
-    fn generate_text_display_items_empty_without_font() {
-        let rr = RendererResources::default();
-        let bounds = LogicalRect {
-            origin: LogicalPosition { x: 0.0, y: 0.0 },
-            size: LogicalSize {
-                width: 400.0,
-                height: 30.0,
-            },
-        };
-        let items = generate_text_display_items(
-            "Header",
-            bounds,
-            14.0,
-            ColorU {
-                r: 0,
-                g: 0,
-                b: 0,
-                a: 255,
-            },
-            TextAlignment::Center,
-            &rr,
-        );
-        assert!(items.is_empty());
     }
 }
 
@@ -21887,3 +21973,7 @@ mod audit_a1_hull_tests {
         assert!(hull[..4].iter().all(|p| p.2 == 0.0));
     }
 }
+
+#[cfg(all(test, feature = "text_layout"))]
+#[path = "display_list_test.rs"]
+mod display_list_test;

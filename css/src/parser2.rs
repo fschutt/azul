@@ -1910,10 +1910,29 @@ fn new_from_str_inner<'a>(
                 Token::BlockStart => {
                     block_nesting += 1;
                     cap.depth += 1;
-                    let footnote = cap.pending.take().is_some_and(|n| n.eq_ignore_ascii_case("footnote"));
+                    let nested = cap.pending.take();
+                    let footnote = nested.is_some_and(|n| n.eq_ignore_ascii_case("footnote"));
                     if cap.depth == 1 && footnote && !cap.ignored {
                         cap.in_footnote = true;
                         cap.declarations.clear();
+                    } else if cap.depth == 1
+                        && !cap.ignored
+                        && nested.is_some_and(is_margin_box_rule)
+                    {
+                        // A margin box is skipped, and its author is told (a
+                        // rule skipped whole has said so for all it holds).
+                        warnings.push(CssParseWarnMsg {
+                            warning: CssParseWarnMsgInner::MalformedStructure {
+                                message: "@page margin boxes (@top-center, @bottom-center, ...) \
+                                          are not supported, the rule is skipped: a header, a \
+                                          footer and page numbers are set in the page setup of \
+                                          the layout",
+                            },
+                            location: ErrorLocationRange {
+                                start: last_error_location,
+                                end: get_error_location(tokenizer),
+                            },
+                        });
                     }
                 }
                 Token::Declaration(key, val) => {
@@ -3000,6 +3019,17 @@ fn check_if_value_is_css_var(
         parse_css_variable_brace_contents(brace_contents)
             .ok_or_else(|| DynamicCssParseError::InvalidBraceContents(brace_contents).into()),
     )
+}
+
+/// Whether the at-keyword `name` (without its `@`) names a page margin box
+/// (CSS Paged Media 3, "Page-Margin Boxes": `@top-left-corner` to
+/// `@right-bottom`, sixteen of them): each starts with the side of the page it
+/// sits on.
+fn is_margin_box_rule(name: &str) -> bool {
+    ["top-", "bottom-", "left-", "right-"].iter().any(|side| {
+        name.get(..side.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(side))
+    })
 }
 
 /// Parses the brace contents of a css var, i.e.:
@@ -5189,7 +5219,15 @@ mod autotest_generated {
              max-height: 100px; } @top-center { content: \"x\"; } } \
              div { height: 2px; }",
         );
-        assert!(warnings.is_empty(), "{warnings:?}");
+        // The margin box is skipped, and says so (nothing else does).
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(
+            matches!(
+                &warnings[0].warning,
+                CssParseWarnMsgInner::MalformedStructure { message } if message.contains("margin boxes")
+            ),
+            "{warnings:?}"
+        );
         // The two ordinary rules, and the footnote area's.
         assert_eq!(css.rules.len(), 3);
         let area: Vec<_> = css.footnote_area_declarations().collect();
@@ -5971,3 +6009,7 @@ mod key_map_work_tests {
         assert_eq!(builds() - before, 0, "the property-name maps were built again by a parse");
     }
 }
+
+#[cfg(test)]
+#[path = "parser2_test.rs"]
+mod parser2_test;

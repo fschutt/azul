@@ -1,7 +1,7 @@
 {
     "0.2.0": {
         "apiversion": 1,
-        "git": "3afe88d03",
+        "git": "438401aad",
         "date": "2026-11-21",
         "installation": {
             "tabOrder": [
@@ -25844,6 +25844,9 @@
                             "A file that passed its checks, as the C API hands it over: where it is, the SHA-256 of the bytes that passed and the version the release said."
                         ],
                         "external": "azul_layout::updater::StagedUpdate",
+                        "custom_impls": [
+                            "From"
+                        ],
                         "derive": [
                             "Debug",
                             "Clone",
@@ -29543,9 +29546,11 @@
                         "is_boxed_object": true,
                         "custom_impls": [
                             "Clone",
-                            "Debug",
                             "Default",
                             "Drop"
+                        ],
+                        "derive": [
+                            "Debug"
                         ],
                         "struct_fields": [
                             {
@@ -61289,6 +61294,182 @@
                                 "WrapThrough"
                             ]
                         }
+                    },
+                    "SharedBytes": {
+                        "doc": [
+                            "An immutable byte buffer shared without copying: a reference-counted",
+                            "allocation (an `Arc<[u8]>`) behind its data pointer and length. Cloning",
+                            "it shares the bytes; they are freed with the last handle. Hand the bytes",
+                            "of a font the app also keeps to `CallbackInfo::register_font_shared`:",
+                            "azul then holds the app's allocation instead of a copy."
+                        ],
+                        "external": "azul_css::shared_bytes::SharedBytes",
+                        "is_boxed_object": true,
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Default",
+                            "Drop",
+                            "Eq",
+                            "From",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "The bytes of `bytes`, copied once into the shared allocation (a",
+                                    "`U8Vec`'s buffer cannot become one without a copy); every clone",
+                                    "afterwards shares it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "bytes": "U8Vec"
+                                    }
+                                ],
+                                "fn_body": "azul_css::shared_bytes::SharedBytes::create(bytes)"
+                            }
+                        },
+                        "functions": {
+                            "len": {
+                                "doc": [
+                                    "The number of bytes"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.len()"
+                            },
+                            "get_bytes": {
+                                "doc": [
+                                    "The bytes, borrowed (valid while this handle lives)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "U8VecRef"
+                                },
+                                "fn_body": "azul_core::gl::U8VecRef::from(object.as_slice())"
+                            },
+                            "copy_to_vec": {
+                                "doc": [
+                                    "A copy of the bytes"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "U8Vec"
+                                },
+                                "fn_body": "object.copy_to_vec()"
+                            },
+                            "shares_with": {
+                                "doc": [
+                                    "Whether `other` is a handle of the same allocation (not merely equal bytes)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "other": "SharedBytes"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.shares_with(&other)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "TextAntialiasMode": {
+                        "doc": [
+                            "How glyph coverage becomes pixels (see `TextAntialiasing`)."
+                        ],
+                        "external": "azul_core::resources::TextAntialiasMode",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "PlatformDefault": {},
+                                "Lcd": {},
+                                "LcdLegacy": {},
+                                "Grayscale": {},
+                                "Aliased": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TextAntialiasing": {
+                        "doc": [
+                            "How the CPU renderer anti-aliases text: `AppConfig::text_antialiasing`."
+                        ],
+                        "external": "azul_core::resources::TextAntialiasing",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "mode": {
+                                    "type": "TextAntialiasMode"
+                                },
+                                "lcd_contrast": {
+                                    "type": "u8"
+                                },
+                                "lcd_chroma_limit": {
+                                    "type": "u8"
+                                },
+                                "lcd_coverage_gamma": {
+                                    "type": "u8"
+                                },
+                                "lcd_pretile": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -131432,121 +131613,6 @@
                             }
                         ],
                         "repr": "C"
-                    },
-                    "SharedBytes": {
-                        "doc": [
-                            "An immutable byte buffer shared without copying: a reference-counted",
-                            "allocation (an `Arc<[u8]>`) behind its data pointer and length. Cloning",
-                            "it shares the bytes; they are freed with the last handle. Hand the bytes",
-                            "of a font the app also keeps to `CallbackInfo::register_font_shared`:",
-                            "azul then holds the app's allocation instead of a copy."
-                        ],
-                        "external": "azul_css::shared_bytes::SharedBytes",
-                        "is_boxed_object": true,
-                        "custom_impls": [
-                            "Clone",
-                            "Debug",
-                            "Drop",
-                            "Eq",
-                            "Hash",
-                            "Ord",
-                            "PartialEq",
-                            "PartialOrd"
-                        ],
-                        "struct_fields": [
-                            {
-                                "ptr": {
-                                    "type": "u8",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "The data pointer of the shared allocation (null: no bytes)"
-                                    ]
-                                },
-                                "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of bytes"
-                                    ]
-                                }
-                            }
-                        ],
-                        "constructors": {
-                            "create": {
-                                "doc": [
-                                    "The bytes of `bytes`, copied once into the shared allocation (a",
-                                    "`U8Vec`'s buffer cannot become one without a copy); every clone",
-                                    "afterwards shares it."
-                                ],
-                                "fn_args": [
-                                    {
-                                        "bytes": "U8Vec"
-                                    }
-                                ],
-                                "fn_body": "azul_css::shared_bytes::SharedBytes::create(bytes)"
-                            }
-                        },
-                        "functions": {
-                            "len": {
-                                "doc": [
-                                    "The number of bytes"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "usize"
-                                },
-                                "fn_body": "object.len()"
-                            },
-                            "get_bytes": {
-                                "doc": [
-                                    "The bytes, borrowed (valid while this handle lives)"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "U8VecRef"
-                                },
-                                "fn_body": "azul_core::gl::U8VecRef::from(object.as_slice())"
-                            },
-                            "copy_to_vec": {
-                                "doc": [
-                                    "A copy of the bytes"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "U8Vec"
-                                },
-                                "fn_body": "object.copy_to_vec()"
-                            },
-                            "shares_with": {
-                                "doc": [
-                                    "Whether `other` is a handle of the same allocation (not merely equal bytes)"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "other": "SharedBytes"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "object.shares_with(&other)"
-                            }
-                        },
-                        "repr": "C"
                     }
                 }
             },
@@ -193740,71 +193806,6 @@
                         ],
                         "repr": "C"
                     },
-                    "TextAntialiasMode": {
-                        "doc": [
-                            "How glyph coverage becomes pixels (see `TextAntialiasing`)."
-                        ],
-                        "external": "azul_core::resources::TextAntialiasMode",
-                        "derive": [
-                            "Debug",
-                            "Copy",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash"
-                        ],
-                        "enum_fields": [
-                            {
-                                "PlatformDefault": {},
-                                "Lcd": {},
-                                "LcdLegacy": {},
-                                "Grayscale": {},
-                                "Aliased": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "TextAntialiasing": {
-                        "doc": [
-                            "How the CPU renderer anti-aliases text: `AppConfig::text_antialiasing`."
-                        ],
-                        "external": "azul_core::resources::TextAntialiasing",
-                        "custom_impls": [
-                            "Default"
-                        ],
-                        "derive": [
-                            "Debug",
-                            "Copy",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash"
-                        ],
-                        "struct_fields": [
-                            {
-                                "mode": {
-                                    "type": "TextAntialiasMode"
-                                },
-                                "lcd_contrast": {
-                                    "type": "u8"
-                                },
-                                "lcd_chroma_limit": {
-                                    "type": "u8"
-                                },
-                                "lcd_coverage_gamma": {
-                                    "type": "u8"
-                                },
-                                "lcd_pretile": {
-                                    "type": "bool"
-                                }
-                            }
-                        ],
-                        "repr": "C"
-                    },
                     "RendererType": {
                         "priority": 28.0,
                         "external": "azul_core::window::RendererType",
@@ -200255,6 +200256,9 @@
                                 "footer_text": {
                                     "type": "OptionString"
                                 },
+                                "font_family": {
+                                    "type": "OptionString"
+                                },
                                 "header_height": {
                                     "type": "f32"
                                 },
@@ -200315,6 +200319,9 @@
                                 },
                                 "footer_content": {
                                     "type": "MarginBoxContent"
+                                },
+                                "font_family": {
+                                    "type": "OptionString"
                                 },
                                 "header_height": {
                                     "type": "f32"

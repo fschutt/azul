@@ -1252,7 +1252,18 @@ pub fn break_one_line<T: ParsedFontTrait>(
             if unit_len == 0 {
                 break;
             }
-            if unit_len == 1
+            if cursor.upcoming().take(unit_len).all(is_hanging_marker) {
+                // An outside list marker opens the line and takes no room on it
+                // (`is_hanging_marker`): the line's own content starts after it, so the white
+                // space that follows it is at the START of the line and is removed like any
+                // other. The intrinsic scan (`measure_intrinsic_widths`) reads it so - a line has
+                // no content there until an item that is neither a hanging marker nor a
+                // collapsible space - and sizes a shrink-to-fit box without that space. Kept
+                // here, it made `<li><p>\n  xx</p></li>` in such a box one space too wide for its
+                // line: the text wrapped under its marker, which stood alone on the first line.
+                line_items.extend(cursor.upcoming().take(unit_len).cloned());
+                cursor.consume(unit_len);
+            } else if unit_len == 1
                 && cursor
                     .upcoming()
                     .next()
