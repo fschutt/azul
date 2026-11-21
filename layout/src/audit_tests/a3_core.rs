@@ -11,7 +11,10 @@ use rust_fontconfig::FcFontCache;
 
 use crate::{
     callbacks::ExternalSystemCallbacks,
-    solver3::display_list::{DisplayListItem, TAG_LIST_READS},
+    solver3::{
+        display_list::{DisplayListItem, INLINE_LAYOUT_COPIES, TAG_LIST_READS},
+        layout_tree::LayoutNodeId,
+    },
     window::LayoutWindow,
     window_state::FullWindowState,
 };
@@ -48,7 +51,12 @@ fn label_layer(k: usize, group: usize) -> Dom {
 
 /// `dom` laid out in a window, its display list built.
 fn laid_out(dom: Dom) -> LayoutWindow {
-    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    laid_out_with(dom, FcFontCache::default())
+}
+
+/// [`laid_out`] with the fonts of `fonts` (the system's, for a test that needs its text set).
+fn laid_out_with(dom: Dom, fonts: FcFontCache) -> LayoutWindow {
+    let mut lw = LayoutWindow::new(fonts).expect("a layout window");
     let mut ws = FullWindowState::default();
     ws.size.dimensions = LogicalSize::new(640.0, 480.0);
     lw.current_window_state = ws.clone();
@@ -114,4 +122,27 @@ fn every_hit_test_area_carries_the_tag_of_its_node() {
         areas += 1;
     }
     assert!(areas >= k, "{areas} hit-test areas for {k} labels");
+}
+
+/// A3-core-03: the selection and caret painters asked for a copy of every text block's lines
+/// (made up from the dense text: one allocation and a walk of the block's clusters) before
+/// looking whether a selection or a caret is in the block. A page without either copies none.
+#[test]
+fn a_block_without_a_selection_or_a_caret_copies_no_lines() {
+    let k = 200;
+    let dom = label_layer(k, 64);
+    INLINE_LAYOUT_COPIES.with(|n| n.set(0));
+    let lw = laid_out_with(dom, FcFontCache::build());
+    let copies = INLINE_LAYOUT_COPIES.with(std::cell::Cell::get);
+    // The labels are text blocks: each has lines the painters could have asked for.
+    let result = lw.layout_results.get(&DomId::ROOT_ID).expect("the root's layout");
+    let tree = &result.layout_tree;
+    let blocks = (0..tree.nodes.len())
+        .filter(|i| {
+            tree.warm(LayoutNodeId::new(*i))
+                .is_some_and(|w| w.inline_layout_result.is_some())
+        })
+        .count();
+    assert!(blocks >= k, "harness: {blocks} text blocks for {k} labels");
+    assert_eq!(copies, 0, "{copies} copies of a text block's lines for no selection and no caret");
 }

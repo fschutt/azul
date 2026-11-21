@@ -5997,17 +5997,19 @@ where
         // anonymous block's container's (it has no style of its own).
         let dom_id = block.container();
 
-        // Get inline layout using the unified helper that handles IFC membership
-        // This is critical: text nodes don't have their own inline_layout_result,
-        // but they have ifc_membership pointing to their IFC root
-        // (d6h) Materialized: sentinel-safe caret/selection geometry.
-        let Some(layout) = self
-            .positioned_tree
-            .tree
-            .materialized_inline_layout_for_node(node_index)
-        else {
+        // The block's lines are read (and, kept dense, made up into a copy:
+        // `materialized_inline_layout_for_node`) only once a selection asks
+        // for its rects below. Every text block of a display list comes
+        // through here; the copy made up front cost each of them its
+        // clusters, for the one block (or none) a selection is in. A block
+        // without an inline layout paints nothing, as before.
+        if tree
+            .warm(LayoutNodeId::new(node_index))
+            .and_then(|w| w.inline_layout_result.as_ref())
+            .is_none()
+        {
             return Ok(());
-        };
+        }
 
         // Get the absolute position of this node (border-box position)
         let node_pos = self
@@ -6047,6 +6049,15 @@ where
                 .map(|ranges| ranges.iter().collect())
                 .unwrap_or_default();
             if local_ranges.is_some() || !remote_ranges.is_empty() {
+                // Get inline layout using the unified helper that handles IFC membership
+                // This is critical: text nodes don't have their own inline_layout_result,
+                // but they have ifc_membership pointing to their IFC root
+                // (d6h) Materialized: sentinel-safe caret/selection geometry.
+                #[cfg(test)]
+                INLINE_LAYOUT_COPIES.with(|n| n.set(n.get() + 1));
+                let Some(layout) = tree.materialized_inline_layout_for_node(node_index) else {
+                    return Ok(());
+                };
                 let style = get_selection_style(
                     self.ctx.styled_dom,
                     Some(dom_id),
@@ -6260,8 +6271,24 @@ where
         let dom_id = block.container();
         let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
 
+        // A block no caret stands in paints none: the loop below skips the
+        // carets of every other block. Said here, before the block's lines
+        // are made up into a copy for the caret's geometry - with a caret
+        // anywhere in the window, every text block of every display list
+        // paid that copy.
+        if !self
+            .ctx
+            .cursor_locations
+            .iter()
+            .any(|location| location.block == block)
+        {
+            return Ok(());
+        }
+
         // Get inline layout
         // (d6h) Materialized: sentinel-safe caret/selection geometry.
+        #[cfg(test)]
+        INLINE_LAYOUT_COPIES.with(|n| n.set(n.get() + 1));
         let Some(layout) = self
             .positioned_tree
             .tree
@@ -12217,6 +12244,14 @@ fn get_scroll_content_size(node: &LayoutNodeHot, warm: Option<&LayoutNodeWarm>) 
     }
 
     content_size
+}
+
+/// How often the selection and caret painters of this thread asked for a
+/// text block's lines as a copy (`materialized_inline_layout_for_node`): what
+/// the tests read to say a block without a selection or a caret costs none.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static INLINE_LAYOUT_COPIES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
 /// How many entries of a DOM's tag list the tag lookups of this thread read
