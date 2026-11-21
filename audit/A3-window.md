@@ -233,14 +233,17 @@ exist once that row names its commit):
 6A-8A `regen_precascade_exit`* (inside it `regen_runtime_states`*); 10 `regen_style_user_dom`*; 11 `regen_csd`*;
 12 `regen_begin_reconciliation`* (inside: `reconcile_arena_copy`*, `reconcile_dom`*, `reconcile_css_diff`*,
 `reconcile_transfer_states`*, `reconcile_remap_node_ids`*); 13 `regen_lifecycle_queue`*; 14 `regen_runtime_states`*;
-15 `regen_layout_equivalent`*; 16 `regen_dom_diff_clean`*; 17 `font_requirements`*, `font_chain_resolve`,
-`font_load_missing`; 18 `sync_css_gpu_values`*; 19-21 `solver3_layout_document` (inside: `doc_setup_to_reconcile`,
+15 `regen_layout_equivalent`*; 17 `font_requirements`*, `font_chain_resolve`, `font_load_missing`; 18
+`sync_css_gpu_values`*; 19-21 `solver3_layout_document` (inside: `doc_setup_to_reconcile`,
 `reconcile_skipped_unchanged` or the solver's reconcile spans, `display_list_cache_hit`, `calc_intrinsic_sizes`,
 `root_layout_pass`, `position_out_of_flow`, `generate_display_list`, `dl_patched_pass`, `dl_generate`,
-`cache_writeback`); 22 `layout_pass_tail`*, `a11y_update_tree`; 23 `regen_finish_reconciliation`*; 24
-`register_scroll_nodes`, `regen_capability_walks`*; 26 `damage_dl_diff`; 27 A4's counters (`xlate`, `list MB`).
-Without a span: 9 (the drop of the `Dom` is inside `regen_precascade_exit` / `regen_style_user_dom`), 25 (A6's), the
-steps inside `create_from_dom_inheriting` (azul-core has no `Probe`: the cascade is one span, `regen_style_user_dom`).
+`cache_writeback`); 22 `a11y_update_tree`; 23 `regen_finish_reconciliation`*; 24 `register_scroll_nodes`,
+`regen_capability_walks`*; 26 `damage_dl_diff`; 27 A4's counters (`xlate`, `list MB`).
+Without a span: 9 (the drop of the `Dom` is inside `regen_precascade_exit` / `regen_style_user_dom`), 16 (two
+compares per node), the rest of 22 (it runs after the pass has drained its spans), 25 (A6's), the steps inside
+`create_from_dom_inheriting` (azul-core has no `Probe`: the cascade is one span, `regen_style_user_dom`).
+Read the print with this in mind: a pass drains the spans closed BEFORE its own end, so 23 and 24 show with the
+next pass, and exit A (no layout pass) shows with the next pass that lays out.
 
 ## Findings
 
@@ -425,8 +428,15 @@ steps inside `create_from_dom_inheriting` (azul-core has no `Probe`: the cascade
 ### A3-window-14 begin_reconciliation: arena deep copy, four BTreeSets of n ids, first_rects for every matched node
 - file:line: `window.rs` `begin_reconciliation`
 - class: waste (linear, large constant, per root rebuild)
+- fix: a first rect only for a node that declares a move (captured after the CSS diff found the declared moves);
+  a flag per node instead of the four sets. The deep copy of the old arena stays: `transfer_states` writes it, the
+  unmount and lost-focus handlers are read from it, and the old result must stay whole for the equivalence exit
+  (see "The diff-first pipeline", step 5).
+- test: `a_rebuild_keeps_no_first_rect_for_a_page_without_a_declared_move`,
+  `a_rebuild_keeps_the_first_rect_of_the_node_that_declares_a_move`,
+  `a_subtree_that_comes_or_goes_is_mounted_or_unmounted_at_its_root`.
 - severity: low
-- status: open: not started (the four sets and `first_rects` for nodes without `animation: move`)
+- status: fixed 5975553a4
 
 ### A3-window-15 apply_node_css_change, non-GPU path: cascade tables rebuilt, list rebuilt per written property set
 - file:line: `window.rs` `apply_node_css_change`
@@ -771,9 +781,11 @@ steps inside `create_from_dom_inheriting` (azul-core has no `Probe`: the cascade
   `finish_reconciliation`, `layout_dom_recursive_impl`
 - class: waste (unmeasurable: the cascade, the reconciliation and the shell's walks of a rebuild are in no span, so
   `AZ_PROFILE=cpu` shows the solver and the callback and nothing between them)
-- fix: the spans of "Why a full DOM rebuild is slow", part 5. No test (a span has no behaviour).
+- fix: the spans of "Why a full DOM rebuild is slow", part 5. No test (a span has no behaviour). The spans that
+  close after the pass's own drain (`regen_finish_reconciliation`, `regen_capability_walks`) are printed with the
+  NEXT pass; an exit without a layout pass (exit A) leaves its spans in the buffer until the next drain.
 - severity: medium
-- status: open: not committed yet
+- status: fixed b6fa7a027
 
 ### A3-window-46 an identical rebuild runs the whole cascade when the pointer is over a node with a hover rule left of a subject
 - file:line: `dll/.../common/layout.rs` 777-790 (exit A of `regenerate_layout`) -> `apply_runtime_states_before_layout`
@@ -785,8 +797,12 @@ steps inside `create_from_dom_inheriting` (azul-core has no `Probe`: the cascade
   != 0`: a sheet with `.btn:hover .ink` and the pointer over any node. The states did not move, so the cascade
   computes what the DOM already holds. (On the full path the same call is a SECOND cascade over the fresh DOM:
   stage 14; that one is owed there, the first cascade ran at rest.)
+- fix: `raise_runtime_states` (the flags) apart from the cascade; exit A cascades only when a state changed in
+  this call or a drag state is raised (those two are written without a restyle in `event.rs`).
+- test (dll, `headless/mod.rs`): `an_identical_rebuild_under_a_hovered_node_runs_no_cascade` (0 compact-cache
+  rebuilds), `a_hover_that_comes_with_an_identical_rebuild_is_cascaded`.
 - severity: high
-- status: open: not committed yet
+- status: fixed 69c05bebe
 
 ### A3-window-47 a rebuild that changed only texts runs the whole pipeline (diff-first, step 1)
 - file:line: `dll/.../common/layout.rs` `regenerate_layout` (the exit decision at 731); `core/src/diff.rs`
