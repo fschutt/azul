@@ -3039,23 +3039,19 @@ fn rows_window(above: f32) -> (LayoutWindow, DomId) {
 /// `(old + 2.3) + move` is not `new + 2.3` in the last bit for about a quarter of such sums
 /// (two roundings against one): the patched list and a built one differed by an ulp in a
 /// row's rect, which is what the equality walks of the diff-first pipeline found. A row that
-/// moved is painted again now.
-/// Mutation: the test of the box's move removed from `try_copy_cached_run` (the rows are
-/// copied and shifted: `same_bits` names the first row whose rect is an ulp off, and the
-/// counter stays 0).
+/// moved is painted again (the fix is the diff-first owner's, in `try_copy_cached_run`:
+/// a run is copied only where it lies; this test needs it and fails without it).
+/// Mutation: a moved node's run copied and shifted again (`AZ_DL_TRANSLATE_MOVED_RUNS=1`):
+/// `same_bits` names the first row whose rect is an ulp off.
 #[test]
 fn a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it() {
     use azul_css::props::{
         basic::PixelValue, layout::dimensions::LayoutHeight, property::CssProperty,
     };
 
-    use crate::{
-        overlay::{ContentChange, ContentDirtyTier},
-        solver3::display_list::PATCH_RUNS_PAINTED_FOR_A_MOVE,
-    };
+    use crate::overlay::{ContentChange, ContentDirtyTier};
 
     let (mut lw, child) = rows_window(10.7);
-    PATCH_RUNS_PAINTED_FOR_A_MOVE.with(|painted| painted.set(0));
     let tier = lw
         .apply_content_change(ContentChange::NodeCss {
             dom_id: child,
@@ -3065,10 +3061,6 @@ fn a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it() {
         })
         .tier;
     assert_eq!(tier, ContentDirtyTier::Relayout, "premise: a height is a pass");
-    assert!(
-        PATCH_RUNS_PAINTED_FOR_A_MOVE.with(core::cell::Cell::get) >= 40,
-        "premise: the pass patched the list it had, and painted the rows that moved again"
-    );
     let (fresh, fresh_child) = rows_window(37.9);
     if let Err(difference) = same_bits(&lw, child, &fresh, fresh_child) {
         panic!("after the pass: {difference}");
@@ -3082,7 +3074,7 @@ fn a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it() {
 /// "moved" by an ulp.
 /// Mutations: `move_in_place_enabled` answering `true` (the move writes `old + delta`: the
 /// premise names the tier `Paint`; without the premise `same_bits` names the label's box or
-/// item an ulp off); the test of the box's move removed from `try_copy_cached_run`.
+/// item an ulp off).
 #[test]
 fn a_label_written_to_places_that_do_not_add_exactly_stands_bit_for_bit() {
     let (mut lw, child) = turned_label_window(40, 150.0, 10.0, 12.0);
