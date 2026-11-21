@@ -32,7 +32,7 @@ fn mock_cache() -> FcFontCache {
             ..Default::default()
         },
         FcFont {
-            bytes: azul_layout::text3::mock_fonts::MOCK_MONO_TTF.to_vec(),
+            bytes: azul_layout::text3::mock_fonts::MOCK_MONO_TTF.into(),
             font_index: 0,
             id: "text-raster-mock-mono".to_string(),
         },

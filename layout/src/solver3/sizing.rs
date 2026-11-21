@@ -174,6 +174,8 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     unsafe {
         crate::az_mark(0x607B0_u32, (tree.nodes.len() as u32));
     }
+    #[cfg(test)]
+    INTRINSIC_PASS_CALLS.with(|n| n.set(n.get() + 1));
     // The borders tables and their boxes are laid out with (no border on
     // rows, row groups and columns; in the collapsing model half of each
     // collapsed grid edge and no table padding, CSS 2.2 17.6) - before
@@ -183,6 +185,8 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     if dirty_nodes.is_empty() {
         return Ok(());
     }
+    #[cfg(test)]
+    IFC_MEASURES_PER_PASS.with(|passes| passes.borrow_mut().push(0));
 
     debug_log!(ctx, "Starting intrinsic size calculation");
     // Pre-compute the "ancestor closure" of dirty_nodes: every dirty
@@ -192,7 +196,10 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     // Before this, `calculate_intrinsic_recursive` walked the full
     // tree from root regardless, costing ~2 ms per warm render on
     // excel.html even when only 3 nodes were actually dirty.
-    let dirty_closure = compute_dirty_ancestor_closure(tree, dirty_nodes);
+    // As one flag per node (`DirtyAncestors`), not the hash set of
+    // `compute_dirty_ancestor_closure`: the walk asks for every node it
+    // visits.
+    let dirty_closure = DirtyAncestors::of(tree, dirty_nodes);
     // [az-diag g59 REVERT] 0x407B4 = nodes.len AFTER compute_dirty_ancestor_closure (its HashSet
     // sret).
     unsafe {
@@ -237,10 +244,96 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     Ok(())
 }
 
+/// How many entries [`intrinsic_of_child`] compared on this thread
+/// (`audit_tests::a3_solver`: one per child of a box, not one per child per
+/// child).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static INTRINSIC_CHILD_PROBES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// The intrinsic sizes of the child `child_index` among `child_intrinsics`,
+/// the `(child, sizes)` pairs the recursion collected for a box's children in
+/// child order (a child the tree does not hold has none).
+///
+/// A box that asks for its children in that order - every caller's loop over
+/// `tree.children(..)` - finds each entry where the one before it ended:
+/// `next_entry` is that place. It was found by a scan of the pairs from the
+/// first one for every child (`child_intrinsics.iter().find(..)`), n * n / 2
+/// comparisons for a box of n children: 72 million for a block of 12,000
+/// absolutely positioned labels, on every pass that sizes one of them anew.
+/// An entry that is not at its place (a child without one came before) is
+/// still found by that scan, so the answer is the scan's: the first pair of
+/// the child (a child is listed once among its parent's children).
+fn intrinsic_of_child<'a>(
+    child_intrinsics: &'a [(usize, IntrinsicSizes)],
+    next_entry: &mut usize,
+    child_index: usize,
+) -> Option<&'a IntrinsicSizes> {
+    #[cfg(test)]
+    INTRINSIC_CHILD_PROBES.with(|n| n.set(n.get() + 1));
+    if let Some((child, sizes)) = child_intrinsics.get(*next_entry) {
+        if *child == child_index {
+            *next_entry += 1;
+            return Some(sizes);
+        }
+    }
+    let found = child_intrinsics.iter().position(|(child, _)| {
+        #[cfg(test)]
+        INTRINSIC_CHILD_PROBES.with(|n| n.set(n.get() + 1));
+        *child == child_index
+    })?;
+    *next_entry = found + 1;
+    Some(&child_intrinsics[found].1)
+}
+
+/// How many inline formatting contexts each intrinsic pass on this thread
+/// collected and measured, one entry per [`calculate_intrinsic_sizes`] that
+/// had something dirty (`audit_tests::a3_solver`: one per label of a layer
+/// of labels, not one for the label's text and one more for the label).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static IFC_MEASURES_PER_PASS: core::cell::RefCell<Vec<usize>> = const { core::cell::RefCell::new(Vec::new()) };
+}
+
+/// What the ROOT of an inline formatting context puts into the measure of
+/// its intrinsic sizes beside the content: the fields
+/// [`ifc_measure_constraints`] sets from the root's style, compared bit for
+/// bit (`UnifiedConstraints`' own `==` rounds its lengths). Two roots with
+/// the same content and the same key are measured alike.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct IfcMeasureKey {
+    white_space_mode: crate::text3::cache::WhiteSpaceMode,
+    text_indent_bits: u32,
+    text_indent_each_line: bool,
+    text_indent_hanging: bool,
+}
+
+impl IfcMeasureKey {
+    fn of(constraints: &UnifiedConstraints) -> Self {
+        Self {
+            white_space_mode: constraints.white_space_mode,
+            text_indent_bits: constraints.text_indent.to_bits(),
+            text_indent_each_line: constraints.text_indent_each_line,
+            text_indent_hanging: constraints.text_indent_hanging,
+        }
+    }
+}
+
+/// How many times [`compute_dirty_ancestor_closure`] built its hash set for
+/// a dirty set that was not empty, on this thread (`audit_tests::a3_solver`:
+/// the intrinsic pass builds none, it asks [`DirtyAncestors`]).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static DIRTY_CLOSURE_HASH_BUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
 pub(crate) fn compute_dirty_ancestor_closure(
     tree: &LayoutTree,
     dirty_nodes: &BTreeSet<usize>,
 ) -> std::collections::HashSet<usize> {
+    #[cfg(test)]
+    DIRTY_CLOSURE_HASH_BUILDS.with(|n| n.set(n.get() + usize::from(!dirty_nodes.is_empty())));
     let mut closure: std::collections::HashSet<usize> = std::collections::HashSet::new();
     for &dirty in dirty_nodes {
         let mut cur = Some(dirty);
@@ -252,6 +345,169 @@ pub(crate) fn compute_dirty_ancestor_closure(
         }
     }
     closure
+}
+
+/// The set [`compute_dirty_ancestor_closure`] returns - every dirty node and
+/// each of its ancestors - as one flag per layout node.
+///
+/// The intrinsic pass asks for every node it visits whether it is in the
+/// set, and the set was a `HashSet<usize>`: a SipHash per member to build it
+/// and one per visited node to ask it, on every pass. A flag is an index.
+/// The members are the same: [`Self::walk`] is that function's walk, and
+/// [`Self::insert`] answers as `HashSet::insert` does.
+#[derive(Default)]
+struct DirtyAncestors {
+    /// `in_tree[i]`: the layout node `i` is dirty or has a dirty descendant.
+    in_tree: Vec<bool>,
+    /// The members that are no node of the tree (a stale dirty index, a
+    /// parent link out of range): the hash set holds those too.
+    beyond: BTreeSet<usize>,
+}
+
+impl DirtyAncestors {
+    fn of(tree: &LayoutTree, dirty_nodes: &BTreeSet<usize>) -> Self {
+        Self::walk(tree.nodes.len(), dirty_nodes, |idx| {
+            tree.get(LayoutNodeId::new(idx)).and_then(|n| n.parent)
+        })
+    }
+
+    /// From every dirty node up its parents (`parent_of`) until a member is
+    /// met, in a tree of `node_count` nodes.
+    fn walk(
+        node_count: usize,
+        dirty_nodes: &BTreeSet<usize>,
+        parent_of: impl Fn(usize) -> Option<usize>,
+    ) -> Self {
+        let mut closure = Self {
+            in_tree: vec![false; node_count],
+            beyond: BTreeSet::new(),
+        };
+        for &dirty in dirty_nodes {
+            let mut cur = Some(dirty);
+            while let Some(idx) = cur {
+                if !closure.insert(idx) {
+                    break;
+                }
+                cur = parent_of(idx);
+            }
+        }
+        closure
+    }
+
+    /// Adds `idx`; `false` when it was a member already.
+    fn insert(&mut self, idx: usize) -> bool {
+        match self.in_tree.get_mut(idx) {
+            Some(member) => !core::mem::replace(member, true),
+            None => self.beyond.insert(idx),
+        }
+    }
+
+    fn contains(&self, idx: usize) -> bool {
+        match self.in_tree.get(idx) {
+            Some(member) => *member,
+            None => self.beyond.contains(&idx),
+        }
+    }
+}
+
+/// How often [`calculate_intrinsic_sizes`] was called on this thread, the
+/// calls with nothing dirty included (`audit_tests::a3_solver`: the turns of
+/// `layout_document`'s loop).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static INTRINSIC_PASS_CALLS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// The dirty set for the intrinsic pass of a LATER turn of
+/// `layout_document`'s loop: of the nodes the first turn measured
+/// (`dirty_nodes` and their ancestors), the ones whose sizes can differ now.
+///
+/// A node's intrinsic sizes are a function of the cascade and the DOM, the
+/// tree's structure, the pass's fonts, images and viewport - none of which a
+/// turn changes - and of the BOX PROPS of the node and of boxes below it:
+/// its children's in the folds, its atomic inline descendants' in an inline
+/// formatting context, its cells' in a table. The layout of a turn changes
+/// those (`fc::layout_bfc` resolves its children's percentages against the
+/// containing block it found) and notes each box it changed: `changed`.
+///
+/// So a node with no changed box in its subtree would be measured to the
+/// sizes it holds, and so would everything below it: the walk can take it
+/// from the node (`calculate_intrinsic_recursive`'s fast path). What is
+/// left: for every changed box the nearest node at or above it that the
+/// first turn measured, and that node's ancestors (which the pass adds). The
+/// loop measured the whole of `dirty_nodes` again in every turn.
+///
+/// The tables' border model, applied at the start of every pass
+/// (`fc::apply_table_border_model`), sets a box's border from the cascade
+/// alone: it changes a box only where the layout changed it first, and that
+/// box is in `changed`.
+pub(crate) fn dirty_nodes_to_measure_again(
+    tree: &LayoutTree,
+    dirty_nodes: &BTreeSet<usize>,
+    changed: &[usize],
+) -> BTreeSet<usize> {
+    measure_again_by(tree.nodes.len(), dirty_nodes, changed, |idx| {
+        tree.get(LayoutNodeId::new(idx)).and_then(|n| n.parent)
+    })
+}
+
+/// [`dirty_nodes_to_measure_again`] over a tree of `node_count` nodes given
+/// by its parent links.
+fn measure_again_by(
+    node_count: usize,
+    dirty_nodes: &BTreeSet<usize>,
+    changed: &[usize],
+    parent_of: impl Fn(usize) -> Option<usize>,
+) -> BTreeSet<usize> {
+    let mut again = BTreeSet::new();
+    if changed.is_empty() || dirty_nodes.is_empty() {
+        return again;
+    }
+    let measured = DirtyAncestors::walk(node_count, dirty_nodes, &parent_of);
+    for &node in changed {
+        // Up from the changed box to the nearest measured node. A chain of
+        // parents is at most as long as the tree: the bound keeps a cyclic
+        // one from hanging the pass.
+        let mut cur = Some(node);
+        for _ in 0..=node_count {
+            let Some(idx) = cur else {
+                break;
+            };
+            if measured.contains(idx) {
+                again.insert(idx);
+                break;
+            }
+            cur = parent_of(idx);
+        }
+    }
+    again
+}
+
+/// Whether the box `node_index` (of the DOM node `dom_node_id`, if it has
+/// one) adds NOTHING to the intrinsic sizes of the box it is a child of: it
+/// is out of the flow (`position: absolute` / `fixed`: CSS 2.2 10.3.5 and
+/// 10.3.7 measure a shrink-to-fit width from the content in flow,
+/// css-sizing-3 5.1), or it is a list item's `::marker` riding the item's
+/// first line, laid out with that line and not as a block of the item
+/// (`fc::is_marker_on_a_line`).
+///
+/// The one test of the walk (`calculate_intrinsic_recursive`: such a box
+/// keeps its own sizes and its parent is handed zeros for it) and of the
+/// parent's folds (`calculate_block_intrinsic_sizes`,
+/// `calculate_flex_intrinsic_sizes`), which pass the box by. The zeros alone
+/// did not: the folds added the box's own margin, border and padding to
+/// them, and in a block the box took a place in the chain of collapsing
+/// margins (the "first child", the margin between its neighbours).
+fn adds_nothing_to_its_parent(
+    styled_dom: &StyledDom,
+    tree: &LayoutTree,
+    node_index: usize,
+    dom_node_id: Option<NodeId>,
+) -> bool {
+    matches!(
+        get_position_type(styled_dom, dom_node_id),
+        LayoutPosition::Absolute | LayoutPosition::Fixed
+    ) || crate::solver3::fc::is_marker_on_a_line(tree, styled_dom, node_index)
 }
 
 struct IntrinsicSizeCalculator<'a, 'b, 'c, T: ParsedFontTrait> {
@@ -268,7 +524,20 @@ struct IntrinsicSizeCalculator<'a, 'b, 'c, T: ParsedFontTrait> {
     /// dirty nodes) need recomputation. A clean node whose
     /// `warm.intrinsic_sizes` is already populated reuses the
     /// cached value and skips its entire subtree descent.
-    dirty_closure: Option<std::collections::HashSet<usize>>,
+    dirty_closure: Option<DirtyAncestors>,
+    /// The inline formatting context measured last
+    /// (`calculate_ifc_root_intrinsic_sizes`): its root, what the root's
+    /// style put into the measure, the loaded faces it was shaped with, and
+    /// the sizes the measure gave, before the root's own `width` /
+    /// `min-width` / `max-width` were applied. Forgotten when the walk
+    /// enters another node, so it is there only for the box right around
+    /// that root (`reuse_last_ifc_measure`).
+    last_ifc_measure: Option<(
+        usize,
+        IfcMeasureKey,
+        Arc<crate::text3::cache::LoadedFonts<T>>,
+        IntrinsicSizes,
+    )>,
 }
 
 impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
@@ -277,6 +546,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             ctx,
             text_cache,
             dirty_closure: None,
+            last_ifc_measure: None,
         }
     }
 
@@ -293,13 +563,16 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         unsafe {
             crate::az_mark(0x60720_u32, (node_index as u32));
         }
+        // A measure kept for the box around its root is of use to the box
+        // this walk comes back to right after it, and to no other.
+        self.last_ifc_measure = None;
         // Fast path: if this subtree has no dirty nodes AND we
         // already have a cached intrinsic, return the cached value
         // and skip the whole descent. Caller is the ancestor-closure
         // computation in `calculate_intrinsic_sizes` — anything not
         // in that set is guaranteed clean through every descendant.
         if let Some(closure) = self.dirty_closure.as_ref() {
-            if !closure.contains(&node_index) {
+            if !closure.contains(node_index) {
                 if let Some(cached) = tree
                     .warm(LayoutNodeId::new(node_index))
                     .and_then(|w| w.intrinsic_sizes)
@@ -357,10 +630,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // out with that line, not as a block of the item: it adds nothing
         // either (`fc::is_marker_on_a_line`).
         let is_out_of_flow =
-            matches!(
-                get_position_type(self.ctx.styled_dom, dom_node_id),
-                LayoutPosition::Absolute | LayoutPosition::Fixed
-            ) || crate::solver3::fc::is_marker_on_a_line(tree, self.ctx.styled_dom, node_index);
+            adds_nothing_to_its_parent(self.ctx.styled_dom, tree, node_index, dom_node_id);
 
         // Copy child indices before recursive calls (which need &mut tree).
         // Stack buffer for the common case (≤32 children); heap only for huge nodes.
@@ -987,6 +1257,19 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             crate::az_mark(0x6075C_u32, (node_index as u32));
         }
         let _p_ifc = crate::probe::Probe::span("intrinsic_ifc_root");
+        // The content of a box around ONE inline box (a label around its
+        // text, a block around one span) is that box's content, which was
+        // measured a moment ago: under the same constraints the measure is
+        // the same, so it is not made again.
+        if let Some(sizes) = self.reuse_last_ifc_measure(tree, node_index) {
+            return Ok(sizes);
+        }
+        #[cfg(test)]
+        IFC_MEASURES_PER_PASS.with(|passes| {
+            if let Some(measured) = passes.borrow_mut().last_mut() {
+                *measured += 1;
+            }
+        });
         // Collect all inline content from this IFC root and its inline descendants
         // [g76] EXPLICIT match (was `?`): the g75 markers showed collect_inline_content reaching
         // its completion marker B8 (Ok at the source level) yet the IFC sizer never
@@ -1011,6 +1294,28 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // `shape_min_widths` for the min-content measurement below.
         let mut inline_content: Vec<InlineContent> = Vec::new();
         let mut shape_min_widths: Vec<(usize, f32)> = Vec::new();
+        // The `::marker` of every list item whose first line this context
+        // holds opens its content, as in the layout's own collection
+        // (`fc::collect_and_measure_inline_content`): an INSIDE marker is an
+        // inline box at the start of the line and takes its width, an
+        // outside one hangs in the gutter (the measure gives it no width,
+        // `is_hanging_marker`). The measure never held a marker, so a
+        // shrink-to-fit list item with `list-style-position: inside` was as
+        // wide as its text alone and the line broke, or ran out of the box.
+        // Not for a marker box measured as a context of its own: it keeps
+        // the sizes it had (none).
+        if !crate::solver3::fc::is_marker_box(tree, node_index) {
+            for marker in
+                crate::solver3::fc::markers_on_first_line(tree, self.ctx.styled_dom, node_index)
+            {
+                crate::solver3::fc::push_marker_content(
+                    self.ctx,
+                    tree,
+                    marker,
+                    &mut inline_content,
+                );
+            }
+        }
         let collect_result = {
             let _p = crate::probe::Probe::span("intrinsic_collect_inline");
             collect_inline_content_for_sizing(
@@ -1039,7 +1344,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         }
 
         // Get pre-loaded fonts from font manager
-        let loaded_fonts = self.ctx.font_manager.get_loaded_fonts();
+        let loaded_fonts = self.ctx.loaded_fonts();
 
         // +spec:intrinsic-sizing:ae8beb - min-content = zero-width CB, max-content = infinite-width
         // CB +spec:intrinsic-sizing:8c94e2 - min-content/max-content intrinsic size
@@ -1092,7 +1397,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             // contained EMPTY_GROUP → systemic fix found.
             let _ = (cl, loaded_fonts.len());
         }
-        Ok(measure_ifc_intrinsic_sizes(
+        let (sizes, shaped) = measure_ifc_intrinsic_sizes_keeping(
             self.text_cache,
             &inline_content,
             &shape_min_widths,
@@ -1101,7 +1406,78 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             &self.ctx.font_manager.fc_cache,
             &loaded_fonts,
             self.ctx.debug_messages,
-        ))
+        );
+        // For the layout of this root, later in the pass
+        // ([`MeasuredParagraphs`]). Not with debug messages on: shaping
+        // writes them, and the layout's would be missing.
+        match shaped {
+            Some(shaped) if self.ctx.debug_messages.is_none() => {
+                self.ctx
+                    .pass_memo
+                    .measured
+                    .keep(node_index, inline_content, &constraints, shaped);
+            }
+            _ => {
+                self.ctx.pass_memo.measured.forget(node_index);
+            }
+        }
+        self.last_ifc_measure = Some((
+            node_index,
+            IfcMeasureKey::of(&constraints),
+            loaded_fonts,
+            sizes,
+        ));
+        Ok(sizes)
+    }
+
+    /// The intrinsic sizes of the inline formatting context rooted at
+    /// `node_index`, when they are the ones measured last: the root's inline
+    /// content is that of its one layout child and nothing else
+    /// ([`sole_inline_content_child`]), that child's context was the last one
+    /// measured (`last_ifc_measure`, so nothing the collection reads has
+    /// changed since), this root's style puts the same constraints into the
+    /// measure ([`IfcMeasureKey`]) and the loaded faces are the ones it was
+    /// shaped with. `measure_ifc_intrinsic_sizes` takes the content, the
+    /// constraints and the fonts and nothing of the root, so it would return
+    /// these sizes again.
+    ///
+    /// A text has a layout node of its own and so has the box around it; in
+    /// a shrink-to-fit subtree both were collected, split into runs and
+    /// measured - every label of a layer of absolutely positioned labels
+    /// twice per pass, a `<div><span>text</span></div>` three times.
+    ///
+    /// Not with debug messages on: collecting writes one per node.
+    fn reuse_last_ifc_measure(
+        &mut self,
+        tree: &LayoutTree,
+        node_index: usize,
+    ) -> Option<IntrinsicSizes> {
+        // Taken: a measure that does not serve this root serves no later one
+        // (the root measures itself, and the box around it asks for ITS).
+        let (measured_root, key, fonts, sizes) = self.last_ifc_measure.take()?;
+        if self.ctx.debug_messages.is_some() {
+            return None;
+        }
+        if sole_inline_content_child(&*self.ctx, tree, node_index) != Some(measured_root) {
+            return None;
+        }
+        let constraints = ifc_measure_constraints(
+            self.ctx.styled_dom,
+            tree,
+            node_index,
+            self.ctx.viewport_size,
+        );
+        if IfcMeasureKey::of(&constraints) != key {
+            return None;
+        }
+        if !Arc::ptr_eq(&fonts, &self.ctx.loaded_fonts()) {
+            return None;
+        }
+        // The box around this one may hold nothing else either.
+        self.last_ifc_measure = Some((node_index, key, fonts, sizes));
+        // What the measure shaped is this root's now: its layout shapes it.
+        self.ctx.pass_memo.measured.hand_up(measured_root, node_index);
+        Some(sizes)
     }
 
     // +spec:containing-block:bb0658 - percentage block-sizes behave as auto during intrinsic
@@ -1144,15 +1520,28 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         let mut is_first_child = true;
         let mut marker_main_size = 0.0f32;
 
+        // Where the next child's entry is expected in `child_intrinsics`
+        // (`intrinsic_of_child`).
+        let mut next_entry = 0usize;
         for &child_index in tree.children(node_index) {
-            if let Some(child_intrinsic) = child_intrinsics
-                .iter()
-                .find(|(k, _)| k == &child_index)
-                .map(|(_, v)| v)
+            if let Some(child_intrinsic) =
+                intrinsic_of_child(child_intrinsics, &mut next_entry, child_index)
             {
                 // +spec:intrinsic-sizing:ed72bb - intrinsic contributions based on outer size, auto
                 // margins as zero
                 let child_node = tree.get(LayoutNodeId::new(child_index));
+                // A child out of the flow adds nothing: not its margin,
+                // border and padding around the zero sizes the walk handed
+                // over for it, and no place among the collapsing margins of
+                // the children in flow (`adds_nothing_to_its_parent`).
+                if adds_nothing_to_its_parent(
+                    self.ctx.styled_dom,
+                    tree,
+                    child_index,
+                    child_node.and_then(|n| n.dom_node_id),
+                ) {
+                    continue;
+                }
                 let (cross_extras, main_border_padding, main_margin_start, main_margin_end) =
                     child_node.map_or((0.0, 0.0, 0.0, 0.0), |cn| {
                         let bp = cn.box_props.unpack();
@@ -1282,12 +1671,25 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         let mut max_cross_min: f32 = 0.0;
         let mut max_cross_max: f32 = 0.0;
 
+        // Where the next child's entry is expected in `child_intrinsics`
+        // (`intrinsic_of_child`).
+        let mut next_entry = 0usize;
         for &child_index in tree.children(node_index) {
-            if let Some(child_intrinsic) = child_intrinsics
-                .iter()
-                .find(|(k, _)| k == &child_index)
-                .map(|(_, v)| v)
+            if let Some(child_intrinsic) =
+                intrinsic_of_child(child_intrinsics, &mut next_entry, child_index)
             {
+                // An absolutely positioned child of a flex container is no
+                // flex item (CSS Flexbox 4.1): it adds nothing, its margin,
+                // border and padding included (`adds_nothing_to_its_parent`).
+                if adds_nothing_to_its_parent(
+                    self.ctx.styled_dom,
+                    tree,
+                    child_index,
+                    tree.get(LayoutNodeId::new(child_index))
+                        .and_then(|n| n.dom_node_id),
+                ) {
+                    continue;
+                }
                 // A flex item contributes its OUTER size (CSS Flexbox 9.9.1,
                 // the min / max-content contributions): its content plus its
                 // padding, border and margins - as the block aggregation
@@ -2031,6 +2433,61 @@ fn process_layout_children<T: ParsedFontTrait>(
     Ok(())
 }
 
+/// The layout child of `node_index` whose inline content is ALL the inline
+/// content [`collect_inline_content_recursive`] collects for `node_index` -
+/// the same items in the same order, the same `min_widths` - or `None` when
+/// that cannot be told without collecting.
+///
+/// It can be told when the node adds nothing of its own (it is no text node,
+/// and none of its DOM children without a layout node is one: the two things
+/// that function adds before it walks the layout children) and
+/// [`process_layout_children`] does one thing with the node's one layout
+/// child: recurse into it (the box of a DOM node, no `<br>`, in flow, an
+/// inline box by its `display`). Each test here is a test made there.
+fn sole_inline_content_child<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    node_index: usize,
+) -> Option<usize> {
+    let node = tree.get(LayoutNodeId::new(node_index))?;
+    let &[child_index] = tree.children(node_index) else {
+        return None;
+    };
+    // A marker on this context's first line is content the child's does not
+    // hold (`calculate_ifc_root_intrinsic_sizes`).
+    if !crate::solver3::fc::is_marker_box(tree, node_index)
+        && !crate::solver3::fc::markers_on_first_line(tree, ctx.styled_dom, node_index).is_empty()
+    {
+        return None;
+    }
+    let node_data = ctx.styled_dom.node_data.as_container();
+    if let Some(dom_id) = node.dom_node_id {
+        if matches!(node_data[dom_id].get_node_type(), NodeType::Text(_)) {
+            return None;
+        }
+        let node_hierarchy = ctx.styled_dom.node_hierarchy.as_container();
+        for child_id in dom_id.az_children(&node_hierarchy) {
+            if !tree.dom_to_layout.contains_key(&child_id)
+                && matches!(node_data[child_id].get_node_type(), NodeType::Text(_))
+            {
+                return None;
+            }
+        }
+    }
+    let child_dom_id = tree.get(LayoutNodeId::new(child_index))?.dom_node_id?;
+    if matches!(node_data[child_dom_id].get_node_type(), NodeType::Br) {
+        return None;
+    }
+    if matches!(
+        get_position_type(ctx.styled_dom, Some(child_dom_id)),
+        LayoutPosition::Absolute | LayoutPosition::Fixed
+    ) {
+        return None;
+    }
+    let display = get_display_property(ctx.styled_dom, Some(child_dom_id));
+    super::getters::is_inline_box_display(display.unwrap_or_default()).then_some(child_index)
+}
+
 // Keep old name as an alias for backward compatibility
 /// # Errors
 ///
@@ -2333,8 +2790,47 @@ pub(crate) fn measure_ifc_intrinsic_sizes<T: ParsedFontTrait>(
     loaded_fonts: &crate::text3::cache::LoadedFonts<T>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
 ) -> IntrinsicSizes {
+    measure_ifc_intrinsic_sizes_keeping(
+        text_cache,
+        inline_content,
+        shape_min_widths,
+        constraints,
+        font_chain_cache,
+        fc_cache,
+        loaded_fonts,
+        debug_messages,
+    )
+    .0
+}
+
+/// The logical and the shaped items of a paragraph, as
+/// `TextShapingCache::shape_content` hands them out.
+pub(crate) type ShapedParagraph = (
+    Arc<Vec<crate::text3::cache::LogicalItem>>,
+    Arc<Vec<crate::text3::cache::ShapedItem>>,
+);
+
+/// [`measure_ifc_intrinsic_sizes`], and what it shaped `inline_content`
+/// into (none when the shaping failed): the measure is the shaping
+/// (`shape_content`) and a scan of the shaped items
+/// (`intrinsic_widths_of_shaped`), which is all
+/// `TextShapingCache::measure_intrinsic_widths` is.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn measure_ifc_intrinsic_sizes_keeping<T: ParsedFontTrait>(
+    text_cache: &mut LayoutCache,
+    inline_content: &[InlineContent],
+    shape_min_widths: &[(usize, f32)],
+    constraints: &UnifiedConstraints,
+    font_chain_cache: &std::collections::HashMap<
+        crate::text3::cache::FontChainKey,
+        rust_fontconfig::FontFallbackChain,
+    >,
+    fc_cache: &FcFontCache,
+    loaded_fonts: &crate::text3::cache::LoadedFonts<T>,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+) -> (IntrinsicSizes, Option<ShapedParagraph>) {
     let _p_measure = crate::probe::Probe::span("intrinsic_measure_widths");
-    let Ok(intrinsic_text) = text_cache.measure_intrinsic_widths(
+    let Ok(shaped) = text_cache.shape_content(
         inline_content,
         &[],
         constraints,
@@ -2343,16 +2839,21 @@ pub(crate) fn measure_ifc_intrinsic_sizes<T: ParsedFontTrait>(
         loaded_fonts,
         debug_messages,
     ) else {
-        return IntrinsicSizes {
-            min_content_width: FALLBACK_MIN_CONTENT_WIDTH,
-            max_content_width: FALLBACK_MAX_CONTENT_WIDTH,
-            preferred_width: None,
-            min_content_height: FALLBACK_MIN_CONTENT_HEIGHT,
-            max_content_height: FALLBACK_MAX_CONTENT_HEIGHT,
-            preferred_height: None,
-            preferred_aspect_ratio: None,
-        };
+        return (
+            IntrinsicSizes {
+                min_content_width: FALLBACK_MIN_CONTENT_WIDTH,
+                max_content_width: FALLBACK_MAX_CONTENT_WIDTH,
+                preferred_width: None,
+                min_content_height: FALLBACK_MIN_CONTENT_HEIGHT,
+                max_content_height: FALLBACK_MAX_CONTENT_HEIGHT,
+                preferred_height: None,
+                preferred_aspect_ratio: None,
+            },
+            None,
+        );
     };
+    let intrinsic_text =
+        LayoutCache::intrinsic_widths_of_shaped(shaped.1.clone(), constraints, loaded_fonts);
 
     let mut min_width = intrinsic_text.min_content_width;
     let max_width = intrinsic_text.max_content_width;
@@ -2397,14 +2898,147 @@ pub(crate) fn measure_ifc_intrinsic_sizes<T: ParsedFontTrait>(
     // the physical axis. In vertical writing modes the "inline" axis is vertical,
     // so these are swapped by calculate_block_intrinsic_sizes when computing
     // the parent's intrinsic sizes. The physical naming is intentional here.
-    IntrinsicSizes {
-        min_content_width: min_width,
-        max_content_width: max_width,
-        preferred_width: None,
-        min_content_height: max_content_height,
-        max_content_height,
-        preferred_height: None,
-        preferred_aspect_ratio: None,
+    (
+        IntrinsicSizes {
+            min_content_width: min_width,
+            max_content_width: max_width,
+            preferred_width: None,
+            min_content_height: max_content_height,
+            max_content_height,
+            preferred_height: None,
+            preferred_aspect_ratio: None,
+        },
+        Some(shaped),
+    )
+}
+
+/// How many shaped paragraphs the layout took from the intrinsic measure of
+/// the same pass ([`MeasuredParagraphs::take`]) on this thread, and how many
+/// the measure kept for it: what the tests count (`audit_tests::a3_solver`).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static MEASURED_PARAGRAPHS_KEPT: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    pub(crate) static MEASURED_PARAGRAPHS_TAKEN: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// The most shaped items [`MeasuredParagraphs`] holds at a time. A kept
+/// paragraph is one more reference to items the layout builds anyway, but it
+/// is held from the intrinsic pass to the paragraph's layout - on a first
+/// pass every paragraph of the document at once. Past this bound a measure
+/// keeps nothing and the layout shapes again (cache hits), as before.
+pub(crate) const MEASURED_ITEMS_KEPT_AT_MOST: usize = 65_536;
+
+/// One paragraph the intrinsic pass shaped: its content, what of the
+/// constraints the shaping read, and the result.
+struct MeasuredParagraph {
+    /// The inline content that was shaped.
+    content: Vec<InlineContent>,
+    /// `UnifiedConstraints::direction` and `unicode_bidi` of the measure: all
+    /// `shape_content` reads of its constraints (`paragraph_bidi`).
+    direction: Option<crate::text3::cache::BidiDirection>,
+    unicode_bidi: crate::text3::cache::UnicodeBidi,
+    /// `text3::fontreg::generation()` at the shaping: a face registered
+    /// since changes what a family resolves to.
+    fonts_generation: u64,
+    shaped: ShapedParagraph,
+}
+
+/// The intrinsic pass's slot of the pass (`PassMemo::measured`): the
+/// paragraphs it shaped, by the layout node of their inline formatting
+/// context, for the layout of the same paragraphs later in the pass.
+///
+/// The intrinsic measure of an inline formatting context and its layout
+/// each shaped its content (`TextShapingCache::shape_content`): the second
+/// time a hit in every cache, which still hashes the content, looks its
+/// stages up, expands every cached cluster into a new vector and stamps it.
+/// The layout of a root takes what the measure of that root made when it
+/// would be handed the same: the same content (compared, not hashed), the
+/// same paragraph direction, the same registered faces - within one pass,
+/// so the same loaded fonts and font chains (`LayoutContext::loaded_fonts`).
+#[derive(Default)]
+pub struct MeasuredParagraphs {
+    by_root: std::collections::HashMap<usize, MeasuredParagraph>,
+    items_kept: usize,
+}
+
+impl core::fmt::Debug for MeasuredParagraphs {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("MeasuredParagraphs")
+            .field("paragraphs", &self.by_root.len())
+            .field("items_kept", &self.items_kept)
+            .finish()
+    }
+}
+
+impl MeasuredParagraphs {
+    /// Keeps what the measure of the inline formatting context `root` shaped
+    /// `content` into under `constraints`, while there is room
+    /// ([`MEASURED_ITEMS_KEPT_AT_MOST`]).
+    fn keep(
+        &mut self,
+        root: usize,
+        content: Vec<InlineContent>,
+        constraints: &UnifiedConstraints,
+        shaped: ShapedParagraph,
+    ) {
+        self.forget(root);
+        let items = shaped.1.len();
+        if self.items_kept + items > MEASURED_ITEMS_KEPT_AT_MOST {
+            return;
+        }
+        self.items_kept += items;
+        #[cfg(test)]
+        MEASURED_PARAGRAPHS_KEPT.with(|n| n.set(n.get() + 1));
+        self.by_root.insert(
+            root,
+            MeasuredParagraph {
+                content,
+                direction: constraints.direction,
+                unicode_bidi: constraints.unicode_bidi,
+                fonts_generation: crate::text3::fontreg::generation(),
+                shaped,
+            },
+        );
+    }
+
+    /// Drops what is kept for `root`.
+    fn forget(&mut self, root: usize) -> Option<MeasuredParagraph> {
+        let kept = self.by_root.remove(&root)?;
+        self.items_kept = self.items_kept.saturating_sub(kept.shaped.1.len());
+        Some(kept)
+    }
+
+    /// The measure of `child` served for `root` too (the box around one
+    /// inline box, `reuse_last_ifc_measure`): what is kept for the child is
+    /// the root's, whose layout is the one that shapes this content.
+    fn hand_up(&mut self, child: usize, root: usize) {
+        if let Some(kept) = self.by_root.remove(&child) {
+            if let Some(replaced) = self.by_root.insert(root, kept) {
+                self.items_kept = self.items_kept.saturating_sub(replaced.shaped.1.len());
+            }
+        }
+    }
+
+    /// What the measure of `root` shaped, if `shape_content` would hand the
+    /// layout the same for `content` under `constraints`. Whatever is kept
+    /// for the root is dropped: its layout is the one use.
+    pub(crate) fn take(
+        &mut self,
+        root: usize,
+        content: &[InlineContent],
+        constraints: &UnifiedConstraints,
+    ) -> Option<ShapedParagraph> {
+        let kept = self.forget(root)?;
+        let same = kept.direction == constraints.direction
+            && kept.unicode_bidi == constraints.unicode_bidi
+            && kept.fonts_generation == crate::text3::fontreg::generation()
+            && kept.content.as_slice() == content;
+        if !same {
+            return None;
+        }
+        #[cfg(test)]
+        MEASURED_PARAGRAPHS_TAKEN.with(|n| n.set(n.get() + 1));
+        Some(kept.shaped)
     }
 }
 
@@ -3926,6 +4560,7 @@ mod autotest_generated {
                 style_cache: Default::default(),
                 virtual_view_sizes: None,
                 scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+                pass_memo: Default::default(),
                 styled_dom: &self.styled_dom,
                 font_manager: &self.font_manager,
                 text_selections: &self.text_selections,
@@ -4487,7 +5122,7 @@ mod autotest_generated {
         let mut calc = IntrinsicSizeCalculator::new(&mut ctx, &mut text_cache);
         // An empty closure means "nothing is dirty" — the cached value wins
         // and the descent is skipped entirely.
-        calc.dirty_closure = Some(HashSet::new());
+        calc.dirty_closure = Some(DirtyAncestors::default());
 
         let sizes = calc
             .calculate_intrinsic_recursive(&mut tree, 0, false)
@@ -5734,5 +6369,158 @@ mod anonymous_ifc_intrinsic_tests {
         );
         let w = width_of_the_container(&lw);
         assert!(w >= 19.5, "one unbreakable line of both inline-blocks: {w}");
+    }
+}
+
+#[cfg(test)]
+mod audit_a3_solver_tests {
+    use super::*;
+
+    /// `compute_dirty_ancestor_closure`'s walk over a table of parents: what
+    /// [`DirtyAncestors`] must hold.
+    fn hashed_closure(
+        parents: &[Option<usize>],
+        dirty: &BTreeSet<usize>,
+    ) -> std::collections::HashSet<usize> {
+        let mut closure = std::collections::HashSet::new();
+        for &node in dirty {
+            let mut cur = Some(node);
+            while let Some(idx) = cur {
+                if !closure.insert(idx) {
+                    break;
+                }
+                cur = parents.get(idx).copied().flatten();
+            }
+        }
+        closure
+    }
+
+    /// A3-solver-26. The intrinsic pass asks a flag per node where it asked
+    /// a hash set: the flags hold the hash set's members, in a tree, for
+    /// dirty indices that are no node, for a parent link out of range and on
+    /// a cycle of parents.
+    ///
+    /// Mutation: `DirtyAncestors::contains` without its `beyond` (`None =>
+    /// false`) loses the members that are no node; `walk` without the step
+    /// to the parent loses the ancestors.
+    #[test]
+    fn the_dirty_flags_hold_the_members_of_the_hashed_closure() {
+        let cases: Vec<(Vec<Option<usize>>, Vec<usize>)> = vec![
+            // 0 <- 1 <- 2, the leaf dirty.
+            (vec![None, Some(0), Some(1)], vec![2]),
+            // 0 <- {1, 2}, 1 <- 3, 2 <- 4: two leaves, then nothing.
+            (vec![None, Some(0), Some(0), Some(1), Some(2)], vec![3, 4]),
+            (vec![None, Some(0), Some(0), Some(1), Some(2)], vec![]),
+            // Dirty indices that are no node.
+            (vec![None, Some(0), Some(1)], vec![2, 999, usize::MAX]),
+            // A parent link out of range, a cycle of two, a node its own parent.
+            (vec![Some(7), Some(0)], vec![1]),
+            (vec![Some(1), Some(0)], vec![0]),
+            (vec![Some(0)], vec![0]),
+        ];
+        for (parents, dirty) in cases {
+            let dirty: BTreeSet<usize> = dirty.into_iter().collect();
+            let hashed = hashed_closure(&parents, &dirty);
+            let flags = DirtyAncestors::walk(parents.len(), &dirty, |idx| {
+                parents.get(idx).copied().flatten()
+            });
+            for node in (0..parents.len() + 9).chain([999, usize::MAX]) {
+                assert_eq!(
+                    flags.contains(node),
+                    hashed.contains(&node),
+                    "node {node} of {parents:?} with {dirty:?} dirty"
+                );
+            }
+        }
+        // And by hand: the leaf of a chain makes every node of it a member.
+        let dirty: BTreeSet<usize> = [2, 999].into_iter().collect();
+        let chain: [Option<usize>; 4] = [None, Some(0), Some(1), Some(2)];
+        let flags =
+            DirtyAncestors::walk(chain.len(), &dirty, |idx| chain.get(idx).copied().flatten());
+        assert!(flags.contains(0) && flags.contains(1) && flags.contains(2));
+        assert!(!flags.contains(3) && flags.contains(999) && !flags.contains(998));
+    }
+
+    /// A3-solver-19, the loop. A later turn of `layout_document`'s loop
+    /// measures again, of the nodes the first turn measured, the nearest one
+    /// at or above each box whose box props the layout changed (the pass
+    /// adds its ancestors) - and nothing where nothing changed.
+    ///
+    /// `0 <- {1, 4}`, `1 <- 2 <- 3`, `4 <- 5`; node 2 is dirty, so the first
+    /// turn measured 2, 1 and 0.
+    ///
+    /// Mutation: `measure_again_by` returning the empty set for every input
+    /// (a later turn measures nothing) fails the cases with a changed box.
+    #[test]
+    fn a_later_turn_measures_again_the_measured_nodes_above_a_changed_box() {
+        let parents: [Option<usize>; 6] = [None, Some(0), Some(1), Some(2), Some(0), Some(4)];
+        let dirty: BTreeSet<usize> = [2].into_iter().collect();
+        let again = |changed: &[usize]| -> Vec<usize> {
+            measure_again_by(parents.len(), &dirty, changed, |idx| {
+                parents.get(idx).copied().flatten()
+            })
+            .into_iter()
+            .collect()
+        };
+        assert!(again(&[]).is_empty(), "nothing changed: nothing is measured again");
+        assert_eq!(again(&[2]), vec![2], "the dirty node itself");
+        assert_eq!(again(&[1]), vec![1], "a measured ancestor of it");
+        assert_eq!(again(&[3]), vec![2], "a clean box below it: the node above is measured again");
+        assert_eq!(
+            again(&[5]),
+            vec![0],
+            "a clean box in another branch: the first measured node above it is the root"
+        );
+        assert_eq!(again(&[3, 5, 3]), vec![0, 2], "each once");
+        assert_eq!(again(&[999]), Vec::<usize>::new(), "an index that is no node");
+        // Nothing dirty: nothing was measured, nothing is measured again.
+        let nothing = BTreeSet::new();
+        let none = measure_again_by(parents.len(), &nothing, &[3], |idx| {
+            parents.get(idx).copied().flatten()
+        });
+        assert!(none.is_empty());
+    }
+    /// A3-solver-50. What a measure shaped is handed to the layout of the same
+    /// root once, and only for the content and the paragraph direction it was
+    /// shaped with; `hand_up` moves it to the box around the measured one.
+    ///
+    /// Mutations: `take` without the comparison of the content (the first
+    /// assertion fails) or of the direction (the third), `take` leaving the
+    /// entry in place (the second), `hand_up` as a no-op (the last two).
+    #[test]
+    fn a_measured_paragraph_is_taken_once_for_the_content_it_was_shaped_from() {
+        let text = |t: &str| {
+            InlineContent::Text(crate::text3::cache::StyledRun {
+                text: Arc::from(t),
+                style: Arc::new(StyleProperties::default()),
+                logical_start_byte: 0,
+                source_node_id: None,
+            })
+        };
+        let shaped = || -> ShapedParagraph { (Arc::new(Vec::new()), Arc::new(Vec::new())) };
+        let constraints = UnifiedConstraints::default();
+        let mut memo = MeasuredParagraphs::default();
+
+        memo.keep(7, vec![text("label")], &constraints, shaped());
+        assert!(memo.take(7, &[text("other")], &constraints).is_none(), "other content");
+        assert!(memo.take(7, &[text("label")], &constraints).is_none(), "gone after one try");
+
+        memo.keep(7, vec![text("label")], &constraints, shaped());
+        let turned = UnifiedConstraints {
+            direction: Some(match constraints.direction {
+                Some(crate::text3::cache::BidiDirection::Rtl) => {
+                    crate::text3::cache::BidiDirection::Ltr
+                }
+                _ => crate::text3::cache::BidiDirection::Rtl,
+            }),
+            ..UnifiedConstraints::default()
+        };
+        assert!(memo.take(7, &[text("label")], &turned).is_none(), "another direction");
+
+        memo.keep(7, vec![text("label")], &constraints, shaped());
+        memo.hand_up(7, 3);
+        assert!(memo.take(7, &[text("label")], &constraints).is_none(), "handed up");
+        assert!(memo.take(3, &[text("label")], &constraints).is_some(), "to the box around");
+        assert_eq!(memo.items_kept, 0);
     }
 }

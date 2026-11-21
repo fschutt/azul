@@ -34,7 +34,7 @@ fn mono_and_arabic() -> FcFontCache {
                 ..Default::default()
             },
             FcFont {
-                bytes,
+                bytes: bytes.into(),
                 font_index: 0,
                 id: id.to_string(),
             },

@@ -95,6 +95,8 @@ pub mod compact_cache;
 pub mod hash;
 /// FFI-safe core type aliases (`AzString`, `AzVec`, `OptionT`, etc.).
 pub mod corety;
+/// `SharedBytes`: one immutable byte allocation shared across the C API.
+pub mod shared_bytes;
 /// Which characters of the text that comes into azul stay and which are replaced.
 ///
 pub mod input_chars;

@@ -90,7 +90,7 @@ fn web_flexbox_simple_reference() {
             ..Default::default()
         },
         rust_fontconfig::FcFont {
-            bytes: AZ_WEB_FALLBACK_FONT.to_vec(),
+            bytes: AZ_WEB_FALLBACK_FONT.into(),
             font_index: 0,
             id: "az_web_fallback".to_string(),
         },

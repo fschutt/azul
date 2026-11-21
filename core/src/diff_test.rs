@@ -5177,4 +5177,94 @@ mod audit_a3_window_tests {
             "four times the rows took {large} node visits for {small}: more than linear"
         );
     }
+
+    // -- A3-window-47: the fingerprints of two builds name the texts that changed --------------
+
+    /// `body > div.{class} > [span > text]*`, the text `i` having the handler-free text `texts[i]`.
+    fn texts_page(class: &'static str, texts: &[&'static str]) -> crate::dom::Dom {
+        use crate::dom::Dom;
+        let mut row = Dom::create_div().with_class(class.into());
+        for text in texts {
+            row = row.with_child(Dom::create_span_with_text(*text));
+        }
+        Dom::create_body().with_child(row)
+    }
+
+    fn changed_texts(old: &crate::dom::Dom, new: &crate::dom::Dom) -> Option<Vec<usize>> {
+        texts_alone_changed(&fingerprint_dom(old).0, &fingerprint_dom(new).0)
+    }
+
+    /// Pre-order: body 0, div 1, then per text a span (2, 4, 6) and its text (3, 5, 7).
+    #[test]
+    fn a_rebuild_that_changed_texts_names_those_texts() {
+        let old = texts_page("row", &["one", "two", "three"]);
+        assert_eq!(changed_texts(&old, &texts_page("row", &["one", "two", "three"])), None, "alike");
+        assert_eq!(
+            changed_texts(&old, &texts_page("row", &["one", "2", "three"])),
+            Some(vec![5]),
+            "the second text"
+        );
+        assert_eq!(
+            changed_texts(&old, &texts_page("row", &["1", "two", "3"])),
+            Some(vec![3, 7]),
+            "the first and the third, ascending"
+        );
+    }
+
+    /// Anything beside a text's characters is not this function's to answer: a class, a node
+    /// more, a text that became empty (a rule may ask `:empty`).
+    #[test]
+    fn a_rebuild_that_changed_more_than_texts_is_not_a_change_of_texts() {
+        let old = texts_page("row", &["one", "two", "three"]);
+        assert_eq!(changed_texts(&old, &texts_page("wide", &["one", "two", "three"])), None);
+        assert_eq!(changed_texts(&old, &texts_page("wide", &["one", "2", "three"])), None);
+        assert_eq!(changed_texts(&old, &texts_page("row", &["one", "two", "three", "4"])), None);
+        assert_eq!(changed_texts(&old, &texts_page("row", &["one", "", "three"])), None);
+        // An inline style on a node, with a text changed beside it.
+        let styled = {
+            use crate::dom::Dom;
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_class("row".into())
+                    .with_css("width: 10px;")
+                    .with_child(Dom::create_span_with_text("1"))
+                    .with_child(Dom::create_span_with_text("two"))
+                    .with_child(Dom::create_span_with_text("three")),
+            )
+        };
+        assert_eq!(changed_texts(&old, &styled), None, "a style moved too");
+    }
+
+    /// The texts are written onto the kept arena by the same numbering, and only where both
+    /// builds hold a text without a handler.
+    #[test]
+    fn the_changed_texts_are_written_onto_the_kept_arena() {
+        let text = |value: &'static str| {
+            NodeData::create_text_do_not_use_without_block_level_wrapper(value)
+        };
+        let fresh = texts_page("row", &["one", "2", "3"]);
+        let changed = [5usize, 7];
+        assert_eq!(nodes_at(&fresh, &changed).len(), 2);
+        assert_eq!(nodes_at(&fresh, &[5, 99]).len(), 1, "an index past the tree names no node");
+
+        // The kept arena in the fingerprint's order: body, div, (span, text) x 3.
+        let mut kept = vec![
+            NodeData::create_body(),
+            NodeData::create_div(),
+            NodeData::create_div(),
+            text("one"),
+            NodeData::create_div(),
+            text("two"),
+            NodeData::create_div(),
+            text("three"),
+        ];
+        assert!(fresh_texts_are_adoptable(&kept, &fresh, &changed));
+        adopt_fresh_texts(&mut kept, &fresh, &changed);
+        assert_eq!(kept[3], text("one"), "a text the rebuild did not name");
+        assert_eq!(kept[5], text("2"));
+        assert_eq!(kept[7], text("3"));
+
+        // Index 4 holds no text in either build: nothing is written for it.
+        assert!(!fresh_texts_are_adoptable(&kept, &fresh, &[4]));
+    }
 }

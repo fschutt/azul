@@ -3331,6 +3331,13 @@ pub struct DomFingerprints {
     pub structure_root: u64,
     /// Order-sensitive fold of `style`.
     pub style_root: u64,
+    /// For every TEXT node, in pre-order: its index and its structure hash with the CONTENT
+    /// of the text left out (that it is a text, whether it is empty, whether it is
+    /// localizable, and every other field and the child count as in `structure`). Two builds
+    /// whose `style` and `text_shapes` are equal and whose `structure` differs only at text
+    /// nodes differ in the characters of those texts and in nothing else
+    /// ([`texts_alone_changed`]): the same tree, the same nodes, the same styles.
+    pub text_shapes: Vec<(usize, u64)>,
 }
 
 /// The payloads of a fresh build the pre-cascade skip carries onto the DOM it
@@ -3414,11 +3421,42 @@ pub fn fingerprint_dom(dom: &crate::dom::Dom) -> (DomFingerprints, PreCascadeTra
         h.finish()
     }
 
+    /// [`node_structure_hash`] of a text node without the characters of its text.
+    fn text_shape_hash(node: &NodeData, text: &str, localizable: bool, child_count: usize) -> u64 {
+        use core::hash::{Hash, Hasher};
+
+        let mut h = crate::hash::DefaultHasher::new();
+        for field in crate::layout_inputs::NodeField::ALL {
+            if field == crate::layout_inputs::NodeField::NodeType {
+                // A text: a rule can ask whether a node is empty (`:empty`) and the
+                // translation pass replaces a localizable text, so both stay in the shape.
+                0x7E87_5A9E_u32.hash(&mut h);
+                text.is_empty().hash(&mut h);
+                localizable.hash(&mut h);
+            } else {
+                field.hash_shape(node, &mut h);
+            }
+        }
+        child_count.hash(&mut h);
+        h.finish()
+    }
+
     fn walk(dom: &crate::dom::Dom, fp: &mut DomFingerprints, transfers: &mut PreCascadeTransfers) {
         let idx = fp.structure.len();
         fp.structure
             .push(node_structure_hash(&dom.root, dom.children.as_ref().len()));
         fp.style.push(node_style_hash(dom));
+        if let NodeType::Text(text) = dom.root.get_node_type() {
+            fp.text_shapes.push((
+                idx,
+                text_shape_hash(
+                    &dom.root,
+                    text.as_ref().as_str(),
+                    text.as_ref().is_localizable(),
+                    dom.children.as_ref().len(),
+                ),
+            ));
+        }
 
         // What the table says is carried: the values every build makes anew.
         if let Some(values) = crate::layout_inputs::NodeField::values_to_carry(&dom.root) {
@@ -3435,6 +3473,7 @@ pub fn fingerprint_dom(dom: &crate::dom::Dom) -> (DomFingerprints, PreCascadeTra
         style: Vec::new(),
         structure_root: 0,
         style_root: 0,
+        text_shapes: Vec::new(),
     };
     let mut transfers = PreCascadeTransfers::default();
     walk(dom, &mut fp, &mut transfers);
@@ -3452,6 +3491,119 @@ pub fn fingerprint_dom(dom: &crate::dom::Dom) -> (DomFingerprints, PreCascadeTra
     fp.style_root = hy.finish();
 
     (fp, transfers)
+}
+
+/// The nodes whose TEXT a rebuild changed, when texts are all it changed: the pre-order
+/// indices at which `next` differs from `prev`, ascending. `None` when the two builds are
+/// alike, and when anything else differs - a node added or removed, a class, a handler's
+/// event, any style, a text that came or went or became empty.
+///
+/// The proof is in the three tiers. Equal `style`: every node's own style and attached
+/// sheets are what they were. Equal `text_shapes`: the same nodes are texts, and each is what
+/// it was but for its characters. A `structure` hash that differs at a node that is no text
+/// is a change this function does not answer for (`None`). What is left - a differing
+/// `structure` at a text whose shape did not move - is a change of its characters. Every
+/// node's child count is in its `structure` hash and in its text shape, and the nodes are in
+/// pre-order, so the tree is the same tree and index `i` names the same node in both builds.
+#[must_use]
+pub fn texts_alone_changed(prev: &DomFingerprints, next: &DomFingerprints) -> Option<Vec<usize>> {
+    if prev.structure.len() != next.structure.len()
+        || prev.style != next.style
+        || prev.text_shapes != next.text_shapes
+    {
+        return None;
+    }
+    let mut changed = Vec::new();
+    // `text_shapes` is in pre-order, as the walk that fills it: one cursor follows it.
+    let mut texts = next.text_shapes.iter().map(|(index, _)| *index).peekable();
+    for (index, (old, new)) in prev.structure.iter().zip(next.structure.iter()).enumerate() {
+        while texts.next_if(|text| *text < index).is_some() {}
+        if old == new {
+            continue;
+        }
+        if texts.peek() != Some(&index) {
+            return None;
+        }
+        changed.push(index);
+    }
+    (!changed.is_empty()).then_some(changed)
+}
+
+/// The nodes of `dom` at the pre-order indices `indices` (ascending), numbered as
+/// [`fingerprint_dom`] numbers them. An index past the last node yields nothing.
+#[must_use]
+pub fn nodes_at<'a>(dom: &'a crate::dom::Dom, indices: &[usize]) -> Vec<&'a NodeData> {
+    fn walk<'a>(
+        dom: &'a crate::dom::Dom,
+        next_index: &mut usize,
+        wanted: &mut core::iter::Peekable<core::slice::Iter<'_, usize>>,
+        found: &mut Vec<&'a NodeData>,
+    ) {
+        if wanted.peek().is_none() {
+            return;
+        }
+        let index = *next_index;
+        *next_index += 1;
+        if wanted.next_if(|wanted_index| **wanted_index == index).is_some() {
+            found.push(&dom.root);
+        }
+        for child in dom.children.as_ref() {
+            walk(child, next_index, wanted, found);
+        }
+    }
+
+    let mut found = Vec::with_capacity(indices.len());
+    let mut next_index = 0;
+    let mut wanted = indices.iter().peekable();
+    walk(dom, &mut next_index, &mut wanted, &mut found);
+    found
+}
+
+/// Whether [`adopt_fresh_texts`] can write the texts of `fresh` at `changed` onto `retained`
+/// so that the arena reads as a full rebuild would leave it: each of the nodes is a text in
+/// both, none of them is localizable (the translation pass, which the retained arena went
+/// through and this write does not, replaces such a text), and none has a handler (the
+/// reconciliation of a full rebuild tells a node's `Update` handler that its content moved).
+#[must_use]
+pub fn fresh_texts_are_adoptable(
+    retained: &[NodeData],
+    fresh: &crate::dom::Dom,
+    changed: &[usize],
+) -> bool {
+    let nodes = nodes_at(fresh, changed);
+    nodes.len() == changed.len()
+        && changed.iter().zip(nodes.iter()).all(|(index, new)| {
+            let Some(old) = retained.get(*index) else {
+                return false;
+            };
+            let (NodeType::Text(new_text), NodeType::Text(old_text)) =
+                (new.get_node_type(), old.get_node_type())
+            else {
+                return false;
+            };
+            !new_text.as_ref().is_localizable()
+                && !old_text.as_ref().is_localizable()
+                && old.get_localization_key().is_none()
+                && new.get_callbacks().as_ref().is_empty()
+                && old.get_callbacks().as_ref().is_empty()
+        })
+}
+
+/// Writes the texts a rebuild changed onto the arena the window keeps: the node at each
+/// index of `changed` gets the text of the node `fresh` has there. The caller has asked
+/// [`fresh_texts_are_adoptable`]; a node that is no text in either is left as it is.
+pub fn adopt_fresh_texts(retained: &mut [NodeData], fresh: &crate::dom::Dom, changed: &[usize]) {
+    for (index, new) in changed.iter().zip(nodes_at(fresh, changed)) {
+        let Some(old) = retained.get_mut(*index) else {
+            continue;
+        };
+        if matches!(
+            (new.get_node_type(), old.get_node_type()),
+            (NodeType::Text(_), NodeType::Text(_))
+        ) {
+            old.set_node_type(new.get_node_type().clone());
+        }
+    }
 }
 
 #[cfg(test)]

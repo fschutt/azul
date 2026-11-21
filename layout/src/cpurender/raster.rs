@@ -9426,34 +9426,59 @@ fn source_row_to_rgba(src: &crate::image_scale::SrcImage<'_>, y: u32, out: &mut 
 /// Composite one straight-RGBA destination row into the pixmap. Split out of
 /// the sampling loops so the float work above is a flat, branch-free pass that
 /// vectorizes, and the branchy alpha decision reads bytes.
+///
+/// The row's pixels in the pixmap are taken as ONE slice, cut where the buffer ends (a pixel
+/// that does not fit whole is not written, as before): the loop used to check the buffer's
+/// length for every pixel and index it four to eight times, each index a check of its own.
+/// Eight pixels that are all opaque - a map tile, a photo, a video frame - are a copy of 32
+/// bytes; anything else goes pixel by pixel ([`composite_rgba_pixel`]). The same bytes.
 fn composite_rgba_row(pixmap: &mut AzulPixmap, di_base: usize, stage: &[u8]) {
-    for (i, q) in stage.chunks_exact(4).enumerate() {
-        let di = di_base + i * 4;
-        if di + 3 >= pixmap.data.len() {
-            break;
+    let data: &mut [u8] = &mut pixmap.data;
+    let Some(room) = data.len().checked_sub(di_base) else {
+        return;
+    };
+    let n = (room / 4).min(stage.len() / 4);
+    let dst = &mut data[di_base..di_base + n * 4];
+    let src = &stage[..n * 4];
+    let mut dst_chunks = dst.chunks_exact_mut(32);
+    let mut src_chunks = src.chunks_exact(32);
+    for (d, q) in (&mut dst_chunks).zip(&mut src_chunks) {
+        if q.iter().skip(3).step_by(4).all(|alpha| *alpha == 255) {
+            d.copy_from_slice(q);
+        } else {
+            for (d, q) in d.chunks_exact_mut(4).zip(q.chunks_exact(4)) {
+                composite_rgba_pixel(d, q);
+            }
         }
-        let sa = u32::from(q[3]);
-        if sa == 255 {
-            pixmap.data[di] = q[0];
-            pixmap.data[di + 1] = q[1];
-            pixmap.data[di + 2] = q[2];
-            pixmap.data[di + 3] = 255;
-        } else if sa > 0 {
-            // The source is PREMULTIPLIED: an `ImageRef` stores its pixels
-            // premultiplied (`RawImage` load premultiplies straight input,
-            // the GPU's convention), and the samples keep that. So
-            // dst = src + dst * (255 - sa) / 255 - the straight-alpha formula
-            // (src * sa) multiplied by alpha a second time and painted every
-            // translucent image too dark (white at 85% over white: 222).
-            let da = 255 - sa;
-            pixmap.data[di] =
-                (u32::from(q[0]) + u32::from(pixmap.data[di]) * da / 255).min(255) as u8;
-            pixmap.data[di + 1] =
-                (u32::from(q[1]) + u32::from(pixmap.data[di + 1]) * da / 255).min(255) as u8;
-            pixmap.data[di + 2] =
-                (u32::from(q[2]) + u32::from(pixmap.data[di + 2]) * da / 255).min(255) as u8;
-            pixmap.data[di + 3] = ((sa + u32::from(pixmap.data[di + 3]) * da / 255).min(255)) as u8;
-        }
+    }
+    for (d, q) in dst_chunks
+        .into_remainder()
+        .chunks_exact_mut(4)
+        .zip(src_chunks.remainder().chunks_exact(4))
+    {
+        composite_rgba_pixel(d, q);
+    }
+}
+
+/// One premultiplied RGBA pixel `q` over the pixel `d`.
+#[inline]
+#[allow(clippy::cast_possible_truncation)] // every result is clamped to 255
+fn composite_rgba_pixel(d: &mut [u8], q: &[u8]) {
+    let sa = u32::from(q[3]);
+    if sa == 255 {
+        d.copy_from_slice(q);
+    } else if sa > 0 {
+        // The source is PREMULTIPLIED: an `ImageRef` stores its pixels
+        // premultiplied (`RawImage` load premultiplies straight input,
+        // the GPU's convention), and the samples keep that. So
+        // dst = src + dst * (255 - sa) / 255 - the straight-alpha formula
+        // (src * sa) multiplied by alpha a second time and painted every
+        // translucent image too dark (white at 85% over white: 222).
+        let da = 255 - sa;
+        d[0] = (u32::from(q[0]) + u32::from(d[0]) * da / 255).min(255) as u8;
+        d[1] = (u32::from(q[1]) + u32::from(d[1]) * da / 255).min(255) as u8;
+        d[2] = (u32::from(q[2]) + u32::from(d[2]) * da / 255).min(255) as u8;
+        d[3] = (sa + u32::from(d[3]) * da / 255).min(255) as u8;
     }
 }
 
@@ -9529,6 +9554,24 @@ fn blit_sampled_image(
         // is converted once and composited as it is: no lerp, and no read of
         // the row below. This is the steady state of a video tile whose
         // frames are resampled early.
+        if matches!(src.format, azul_core::resources::RawImageFormat::RGBA8) {
+            // The source row IS the row to composite (`source_row_to_rgba` copies an RGBA8
+            // row as it is): composited from the image's own bytes, without the copy of the
+            // whole row - the columns outside the window included - and without a buffer.
+            // `is_sampleable` (above) holds `bytes.len() >= width * height * 4`, and the
+            // window lies inside the image (`dst` is its size here).
+            for py in py_lo..py_hi {
+                conversions.0 += 1; // a row read, as before
+                let ty_px = (dst_y + py as i32) as u32;
+                let tx_px = (dst_x + px_lo as i32) as u32;
+                let row = py as usize * src_w * 4;
+                let Some(visible) = src.bytes.get(row + px_lo as usize * 4..row + px_hi as usize * 4) else {
+                    return;
+                };
+                composite_rgba_row(pixmap, ((ty_px * pw + tx_px) * 4) as usize, visible);
+            }
+            return;
+        }
         let mut rgba = RgbaRow::new(src_w);
         for py in py_lo..py_hi {
             source_row_to_rgba(src, py, &mut rgba.bytes);
@@ -16088,7 +16131,7 @@ mod autotest_generated {
                 ..Default::default()
             },
             FcFont {
-                bytes,
+                bytes: bytes.into(),
                 font_index: 0,
                 id: "autotest-sans".to_string(),
             },
@@ -19614,5 +19657,105 @@ mod audit_a1_tests {
         assert_eq!((cut.x, cut.width), (10.0, 23.0));
         assert!(device_region(boxed, AzRect::from_xywh(40.0, 0.0, 10.0, 100.0)).is_none(), "outside the clip");
         assert!(device_region(None, None).is_none());
+    }
+
+    // ---- read-through, round 4 --------------------------------------------------------------
+
+    /// A1-50: a row composited through one slice, eight opaque pixels at a time, is the row
+    /// composited pixel by pixel with a check of the buffer each (the loop before): rows of 0
+    /// to 70 pixels, all opaque, all empty, mixed, and opaque with one translucent pixel, at
+    /// four places of a 100 px buffer, the last ones running past its end.
+    /// Mutation: `all` -> `any` in the test of a run copies translucent pixels; a run of 31
+    /// bytes for 32 leaves the eighth pixel of each run unwritten.
+    #[test]
+    fn a_row_composited_in_runs_is_the_row_composited_pixel_by_pixel() {
+        fn reference(data: &mut [u8], di_base: usize, stage: &[u8]) {
+            for (i, q) in stage.chunks_exact(4).enumerate() {
+                let di = di_base + i * 4;
+                if di + 3 >= data.len() {
+                    break;
+                }
+                let sa = u32::from(q[3]);
+                if sa == 255 {
+                    data[di..di + 4].copy_from_slice(&[q[0], q[1], q[2], 255]);
+                } else if sa > 0 {
+                    let da = 255 - sa;
+                    for c in 0..3 {
+                        data[di + c] = (u32::from(q[c]) + u32::from(data[di + c]) * da / 255).min(255) as u8;
+                    }
+                    data[di + 3] = (sa + u32::from(data[di + 3]) * da / 255).min(255) as u8;
+                }
+            }
+        }
+        let mut seed = 0x2545_F491_4F6C_DD1D_u64;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        for len in [0_usize, 1, 7, 8, 9, 15, 16, 17, 31, 32, 33, 64, 70] {
+            for kind in 0..4 {
+                let mut stage = Vec::with_capacity(len * 4);
+                for i in 0..len {
+                    let r = next();
+                    let a: u8 = match kind {
+                        0 => 255,
+                        1 => 0,
+                        2 => [255, 0, (r >> 8) as u8][(r % 3) as usize],
+                        _ if i == len / 2 => 128,
+                        _ => 255,
+                    };
+                    let premultiplied = |v: u64| ((v & 0xff) as u32 * u32::from(a) / 255) as u8;
+                    stage.extend_from_slice(&[premultiplied(r >> 16), premultiplied(r >> 24), premultiplied(r >> 32), a]);
+                }
+                for at in [0_usize, 3, 90, 96] {
+                    let mut pm = AzulPixmap::new(25, 4).unwrap();
+                    for (i, b) in pm.data_mut().iter_mut().enumerate() {
+                        *b = (i * 37 % 251) as u8;
+                    }
+                    let mut expected = pm.data().to_vec();
+                    reference(&mut expected, at * 4, &stage);
+                    composite_rgba_row(&mut pm, at * 4, &stage);
+                    assert!(pm.data() == expected.as_slice(), "{len} px, kind {kind}, at pixel {at}");
+                }
+            }
+        }
+        let mut pm = AzulPixmap::new(2, 1).unwrap();
+        composite_rgba_row(&mut pm, 12, &[1, 2, 3, 255]);
+        assert_eq!(pm.data(), &[255_u8; 8][..], "a row that starts past the buffer writes nothing");
+    }
+
+    /// A1-50: an RGBA8 image at its own size is composited from its own rows, without a copy
+    /// of each row: a window of it paints the pixels the same picture stored as BGRA8 paints
+    /// (which goes through a converted row), and nothing outside the window.
+    /// Mutation: `row + px_lo * 4` without the `row` paints every row with the first.
+    #[test]
+    fn an_rgba_image_at_its_own_size_is_composited_from_its_own_rows() {
+        use azul_core::resources::RawImageFormat as F;
+        let (w, h) = (37_u32, 9_u32);
+        let mut rgba = Vec::new();
+        for i in 0..w * h {
+            let a = [255_u8, 255, 0, 96][(i % 4) as usize];
+            let premultiplied = |v: u32| (v % 256 * u32::from(a) / 255) as u8;
+            rgba.extend_from_slice(&[premultiplied(i * 7), premultiplied(i * 13), premultiplied(i * 29), a]);
+        }
+        let bgra: Vec<u8> = rgba.chunks_exact(4).flat_map(|p| [p[2], p[1], p[0], p[3]]).collect();
+        let paint = |bytes: &[u8], format: F| {
+            let src = crate::image_scale::SrcImage { bytes, format, width: w, height: h };
+            let mut pm = AzulPixmap::new(w + 6, h + 4).unwrap();
+            pm.fill(10, 200, 30, 255);
+            let mut rows = RowConversions::new();
+            blit_sampled_image(&mut pm, &src, 3, 2, w, h, (5, 1, 30, 8), None, &mut rows);
+            (pm, rows.0)
+        };
+        let (direct, rows) = paint(&rgba, F::RGBA8);
+        let (converted, rows_converted) = paint(&bgra, F::BGRA8);
+        assert!(direct.data() == converted.data(), "the same picture, the same pixels");
+        assert_eq!((rows, rows_converted), (7, 7), "the window's seven rows, each read once");
+        assert_eq!(px(&direct, 3 + 4, 2 + 3), [10, 200, 30, 255], "left of the window: not painted");
+        assert_eq!(px(&direct, 3 + 6, 2 + 8), [10, 200, 30, 255], "below the window: not painted");
+        let opaque = (5..30).filter(|x| px(&direct, 3 + x, 2 + 4) != [10, 200, 30, 255]).count();
+        assert!(opaque > 10, "and the window is painted ({opaque} px of its fourth row differ from the ground)");
     }
 }
