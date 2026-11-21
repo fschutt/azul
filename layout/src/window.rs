@@ -2719,7 +2719,9 @@ pub struct LayoutWindow {
     /// drew: its render cache, its grain tiles, its worker thread, the state
     /// of its GL context, the wallpapers its metals reflect and the count of
     /// surfaces drawn. Each of the window's material images carries a handle
-    /// to it; no other window shares it.
+    /// to it. A window has its own; a popup whose image map was seeded from
+    /// its parent's (`Self::seed_image_id_map`) reads its parent's, since the
+    /// material images it was seeded with draw with that one.
     pub material_renderer: crate::texture::MaterialRenderer,
     /// The content overlay: quickly-mutable content (swapped node images,
     /// produced callback frames) layered over the immutable DOM. Readers go
