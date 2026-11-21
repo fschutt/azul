@@ -2501,22 +2501,35 @@ pub fn scroll_fast_path_eligible_in(
     // A turned item inside it covers no part of the clip for certain. Only the opaque fills
     // are kept (the one thing read from the content below), and the walk ends with the
     // frame's last pop.
-    let mut content: Vec<(LogicalRect, (f32, f32))> = Vec::new();
+    //
+    // Each fill is kept as the part of it that SHOWS, on screen at this map's offsets: cut by
+    // the clips and scroll frames opened INSIDE this frame (those move with the content; the
+    // frame's own clip and the ones around it do not, and are not applied here). A fill
+    // inside a nested clip used to count with its full bounds: a 400 px ground inside a
+    // 100 px clip "covered" a 300 px frame, and the move dragged the backdrop that shows
+    // around the clip (A1-48).
+    let mut content: Vec<LogicalRect> = Vec::new();
     let mut stack = ScrollStack::with_transforms(scroll_offsets, transforms);
     let last_pop = pushes.iter().map(|&(_, e)| e).max().unwrap_or(0);
+    // How many frames and clips were open just inside this frame's push.
+    let mut inside_from = (0usize, 0usize);
     for (i, it) in items.iter().enumerate().take(last_pop + 1) {
         if pushes.iter().any(|&(s, e)| i > s && i < e) {
             if let (Some(r), Some(at)) = (opaque_fill_rect(it), stack.placement()) {
-                content.push((
-                    r,
-                    (
-                        at.0 - around.0 - own_in_map.0,
-                        at.1 - around.1 - own_in_map.1,
-                    ),
-                ));
+                let shown = stack.open[inside_from.0.min(stack.open.len())..]
+                    .iter()
+                    .map(|(_, _, clip)| *clip)
+                    .chain(stack.clips[inside_from.1.min(stack.clips.len())..].iter().copied())
+                    .fold(moved_by(r, at), intersect_logical_rects);
+                if shown.size.width > 0.0 && shown.size.height > 0.0 {
+                    content.push(shown);
+                }
             }
         }
         stack.step(it);
+        if pushes.iter().any(|&(s, _)| s == i) {
+            inside_from = (stack.open.len(), stack.clips.len());
+        }
     }
 
     // NOTE on overlays: anything painted AFTER the frame that overlaps the
@@ -2534,17 +2547,11 @@ pub fn scroll_fast_path_eligible_in(
     // The fills where they are painted at the new offset. At the previous one each was
     // `scroll_offset - prev_offset` further right and down, so they covered the clip then if
     // these cover the clip moved that far left and up: one list for both questions.
+    // (`content` is on screen at the map's offset for this frame, `own_in_map`; at
+    // `scroll_offset` every fill is `scroll_offset - own_in_map` further up and left.)
     let fills: Vec<LogicalRect> = content
         .iter()
-        .map(|&(r, inner)| {
-            moved_by(
-                r,
-                (
-                    around.0 + scroll_offset.0 + inner.0,
-                    around.1 + scroll_offset.1 + inner.1,
-                ),
-            )
-        })
+        .map(|&shown| moved_by(shown, (scroll_offset.0 - own_in_map.0, scroll_offset.1 - own_in_map.1)))
         .collect();
     let since = (scroll_offset.0 - prev_offset.0, scroll_offset.1 - prev_offset.1);
     if rect_covered_by(clip_bounds, &fills) && rect_covered_by(&moved_by(*clip_bounds, since), &fills) {
@@ -12535,5 +12542,46 @@ mod audit_a1_tests {
         assert_eq!(shifts.len(), 1, "the inner frame alone shifts: {shifts:?}");
         assert_eq!((shifts[0].0, shifts[0].2), (2, (0.0, 12.0)));
         assert_eq!((shifts[0].1.origin.x, shifts[0].1.origin.y), (10.0, 50.0), "where its pixels are");
+    }
+
+    /// A1-48: a fill inside a clip nested in the scrolling frame covers what the clip lets
+    /// show, not its whole bounds. A scroll frame (id 4) with the clip (0, 0) 100 x 300 over a
+    /// two-coloured backdrop; its content is one opaque ground, 100 x 2000. Scrolled from 0 to
+    /// 12:
+    /// - the ground directly in the frame covers the clip at both offsets: the pixels move;
+    /// - the same ground inside a clip (0, 0) 100 x 100 of the content shows in the rows
+    ///   -12 .. 88 only; below it the backdrop shows, and moving the clip's pixels would drag
+    ///   it: not eligible.
+    /// Mutation: the fill counted with its full bounds makes the clipped one eligible.
+    #[test]
+    fn a_fill_inside_a_nested_clip_covers_only_what_the_clip_shows() {
+        let clip = lr(0.0, 0.0, 100.0, 300.0);
+        let page = |nested: bool| {
+            let mut items = vec![
+                opaque(0.0, 0.0, 50.0, 300.0, [200, 0, 0]),
+                opaque(50.0, 0.0, 50.0, 300.0, [0, 0, 200]),
+                DisplayListItem::PushScrollFrame {
+                    clip_bounds: clip.into(),
+                    content_size: LogicalSize { width: 100.0, height: 2000.0 },
+                    scroll_id: 4,
+                },
+            ];
+            if nested {
+                items.push(DisplayListItem::PushClip {
+                    bounds: lr(0.0, 0.0, 100.0, 100.0).into(),
+                    border_radius: crate::solver3::display_list::BorderRadius::default(),
+                });
+            }
+            items.push(opaque(0.0, 0.0, 100.0, 2000.0, [240, 240, 230]));
+            if nested {
+                items.push(DisplayListItem::PopClip);
+            }
+            items.push(DisplayListItem::PopScrollFrame);
+            listed(items)
+        };
+        let now: ScrollOffsetMap = [(4, (0.0, 12.0))].into_iter().collect();
+        let eligible = |list: &DisplayList| scroll_fast_path_eligible_in(list, 4, &clip, (0.0, 12.0), (0.0, 0.0), &now, &HashMap::new());
+        assert!(eligible(&page(false)), "the ground covers the frame at both offsets");
+        assert!(!eligible(&page(true)), "inside a 100 px clip it covers a third of it");
     }
 }
