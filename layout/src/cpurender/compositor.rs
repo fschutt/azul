@@ -5002,16 +5002,40 @@ impl FrameStack {
     /// around them: a box around a box around a turned rect grows with every
     /// frame (a spinner turned inside a turned frame damaged 58 px for its
     /// 32 px).
+    ///
+    /// A frame that is not the identity or a move is COMPOSITED: painted into a surface
+    /// and resampled where it lands (`pixmap::blit_pixmap_affine_clipped`). A destination
+    /// pixel takes a share of a surface pixel when its centre maps to within half a
+    /// surface pixel of it, and the surface pixels that hold `r` are those of its device
+    /// box (up to a pixel past `r`): what is painted reaches up to 1.5 device px past `r`
+    /// in the frame's own space, mapped out with it. So before `r`'s corners go through
+    /// such a frame they are moved out by [`COMPOSITE_REACH`] in the frame's space (every
+    /// corner in all four diagonal directions: the hull of those is `r` grown, also when
+    /// `r` came out of an inner frame as a slanted quad), and the box that comes out at
+    /// the end is grown by [`DIRECT_REACH`], for the turned frames a view draws without a
+    /// surface (an edge's anti-aliasing and a run's anchor, rounded to a whole pixel, are
+    /// device pixels whatever the matrix's scale).
+    ///
+    /// The geometric image alone left that ring out of the damage: a box turned by 30
+    /// degrees whose left tip is at x = 65.0 has a faint column 64; turned elsewhere by a
+    /// value, its old place was repainted from x = 65 and the pixel (64, 138) stayed
+    /// (`a2_cpu_the_damaged_render_is_the_full_render_over_random_pans_zooms_fades_and_
+    /// edits`, seed 1, step 19).
+    ///
+    /// Example: `r` = (10, 10) 20 x 10 through `scale(3)` about (0, 0): the corners
+    /// (10 - 2, 10 - 2) .. (30 + 2, 20 + 2) land at (24, 24) .. (96, 66), grown by 1:
+    /// (23, 23) 74 x 44, where the image alone is (30, 30) 60 x 30.
     fn map(&self, r: LogicalRect) -> Option<LogicalRect> {
         if self.frames.is_empty() {
             return Some(r);
         }
-        let mut corners = [
+        let mut corners = vec![
             (r.origin.x, r.origin.y),
             (r.origin.x + r.size.width, r.origin.y),
             (r.origin.x, r.origin.y + r.size.height),
             (r.origin.x + r.size.width, r.origin.y + r.size.height),
         ];
+        let mut composited = false;
         for (origin, m) in self.frames.iter().rev() {
             let mm = &m.m;
             let affine = mm[0][2] == 0.0
@@ -5021,6 +5045,27 @@ impl FrameStack {
                 && (mm[3][3] - 1.0).abs() < f32::EPSILON;
             if !affine {
                 return None;
+            }
+            if translation_2d(mm).is_none() {
+                composited = true;
+                // (At most a few such frames are nested; past 256 points the box of the
+                // points stands in for them.)
+                if corners.len() > 256 {
+                    let (x0, x1) = corners.iter().fold((f32::MAX, f32::MIN), |(a, b), c| (a.min(c.0), b.max(c.0)));
+                    let (y0, y1) = corners.iter().fold((f32::MAX, f32::MIN), |(a, b), c| (a.min(c.1), b.max(c.1)));
+                    corners = vec![(x0, y0), (x1, y0), (x0, y1), (x1, y1)];
+                }
+                corners = corners
+                    .iter()
+                    .flat_map(|(x, y)| {
+                        [
+                            (x - COMPOSITE_REACH, y - COMPOSITE_REACH),
+                            (x + COMPOSITE_REACH, y - COMPOSITE_REACH),
+                            (x - COMPOSITE_REACH, y + COMPOSITE_REACH),
+                            (x + COMPOSITE_REACH, y + COMPOSITE_REACH),
+                        ]
+                    })
+                    .collect();
             }
             for c in &mut corners {
                 let (px, py) = (c.0 - origin.x, c.1 - origin.y);
@@ -5032,12 +5077,23 @@ impl FrameStack {
         }
         let (x0, x1) = corners.iter().fold((f32::MAX, f32::MIN), |(a, b), c| (a.min(c.0), b.max(c.0)));
         let (y0, y1) = corners.iter().fold((f32::MAX, f32::MIN), |(a, b), c| (a.min(c.1), b.max(c.1)));
+        let out = if composited { DIRECT_REACH } else { 0.0 };
         Some(LogicalRect::new(
-            LogicalPosition::new(x0, y0),
-            LogicalSize::new(x1 - x0, y1 - y0),
+            LogicalPosition::new(x0 - out, y0 - out),
+            LogicalSize::new(x1 - x0 + 2.0 * out, y1 - y0 + 2.0 * out),
         ))
     }
 }
+
+/// How far past a rect what is painted of it reaches when the frame it is in is composited
+/// (`FrameStack::map`), logical px in the frame's own space: 1.5 device px (a pixel of the
+/// surface's device box past the rect, and half a surface pixel of the resampling), which
+/// 2 logical px hold at every scale factor from 0.75 up.
+const COMPOSITE_REACH: f32 = 2.0;
+
+/// How far past the image of a rect a turned frame that is drawn without a surface can
+/// paint, logical px where it lands (`FrameStack::map`).
+const DIRECT_REACH: f32 = 1.0;
 
 /// The live matrices of the animated reference frames (`TransformKey.id ->
 /// matrix`, as `extract_gpu_values` reads them) in the frame before (`old`)
@@ -12804,5 +12860,57 @@ mod audit_a1_tests {
         assert_eq!((read_small, read_large), (2, 2), "the two boxes after the frame, however long the page");
         assert_eq!(small, vec![lr(80.0, 20.0, 20.0, 30.0)], "the box over the clip, cut to it");
         assert_eq!(small, large);
+    }
+}
+
+#[cfg(test)]
+mod audit_a1_composite_reach_tests {
+    use super::*;
+
+    fn matrix(m: [[f32; 4]; 4]) -> azul_core::transform::ComputedTransform3D {
+        azul_core::transform::ComputedTransform3D { m }
+    }
+
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+        LogicalRect::new(LogicalPosition::new(x, y), LogicalSize::new(w, h))
+    }
+
+    /// A1-64: where a rect inside a frame is painted. Through a move: its image. Through a
+    /// frame that is composited (a scale, a turn): its image grown by what the resampling
+    /// reaches, 2 px in the frame's own space on every side, and a pixel where it lands.
+    /// Hand-computed for (10, 10) 20 x 10 about the origin (0, 0):
+    /// - `translate(5, 7)`: (15, 17) 20 x 10;
+    /// - `scale(3)`: the corners (8, 8) .. (32, 22) land at (24, 24) .. (96, 66), a pixel
+    ///   more: (23, 23) 74 x 44 (the image alone: (30, 30) 60 x 30);
+    /// - `translate(5, 7)` inside `scale(3)`: (13, 15) .. (37, 29) land at (39, 45) ..
+    ///   (111, 87): (38, 44) 74 x 44;
+    /// - a quarter turn (x' = -y, y' = x): x 8 .. 32, y 8 .. 22 land at x -22 .. -8,
+    ///   y 8 .. 32: (-23, 7) 16 x 26.
+    /// Mutation: the image alone (as it was) leaves the ring a composite paints out of the
+    /// damage: a box turned by 30 degrees whose tip is at x = 65.0 keeps a faint column 64
+    /// when a value turns it elsewhere (`a2_cpu_the_damaged_render_is_the_full_render_over_
+    /// random_pans_zooms_fades_and_edits`, seed 1, step 19: the pixel (64, 138)).
+    #[test]
+    fn what_a_composited_frame_paints_reaches_past_the_image_of_its_content() {
+        let r = rect(10.0, 10.0, 20.0, 10.0);
+        let origin = LogicalPosition::new(0.0, 0.0);
+        let by = |tx: f32, ty: f32, k: f32| {
+            matrix([[k, 0.0, 0.0, 0.0], [0.0, k, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [tx, ty, 0.0, 1.0]])
+        };
+        assert_eq!(FrameStack::default().map(r), Some(r), "no frame: the rect");
+        let mut moved = FrameStack::default();
+        moved.push(origin, by(5.0, 7.0, 1.0));
+        assert_eq!(moved.map(r), Some(rect(15.0, 17.0, 20.0, 10.0)), "a move paints the image");
+        let mut scaled = FrameStack::default();
+        scaled.push(origin, by(0.0, 0.0, 3.0));
+        assert_eq!(scaled.map(r), Some(rect(23.0, 23.0, 74.0, 44.0)), "a scaled frame is composited");
+        scaled.push(origin, by(5.0, 7.0, 1.0));
+        assert_eq!(scaled.map(r), Some(rect(38.0, 44.0, 74.0, 44.0)), "a move inside it");
+        let mut turned = FrameStack::default();
+        turned.push(
+            origin,
+            matrix([[0.0, 1.0, 0.0, 0.0], [-1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]]),
+        );
+        assert_eq!(turned.map(r), Some(rect(-23.0, 7.0, 16.0, 26.0)), "a quarter turn");
     }
 }
