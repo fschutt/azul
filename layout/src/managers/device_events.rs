@@ -66,20 +66,23 @@ pub struct DeviceEventManager {
     /// The session change delivered last, which
     /// `CallbackInfo::get_session_change` answers.
     last_session: Option<SessionChange>,
-    /// How far into the process's session log this window has read
+    /// How far into the app's session log this window has read
     /// ([`Self::read_session_log`]).
     session_seen: u64,
 }
 
 impl DeviceEventManager {
-    /// A window's manager; it hears the session changes from now on, not
-    /// the ones before it was made.
+    /// A window's manager; it reads its own session log from the start until
+    /// [`Self::use_session_log`] points it at its app's.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            session_seen: session_log_position(),
-            ..Self::default()
-        }
+        Self::default()
+    }
+
+    /// The window joined the app whose session changes `log` holds: it hears
+    /// the changes from now on, not the ones before it joined.
+    pub fn use_session_log(&mut self, log: &SessionLog) {
+        self.session_seen = log.position();
     }
 
     /// Record that an input device arrived or left.
@@ -157,8 +160,8 @@ impl DeviceEventManager {
         core::mem::take(&mut self.pending)
     }
 
-    /// Record that the session changed (the platform backends push into
-    /// [`push_session_change`]; the pass moves those here).
+    /// Record that the session changed (the platform backends push into the
+    /// app's [`SessionLog`]; the pass moves those here).
     pub fn note_session(&mut self, change: SessionChange) {
         self.pending_session.push(change);
         self.last_session = Some(change);
@@ -175,11 +178,11 @@ impl DeviceEventManager {
         core::mem::take(&mut self.pending_session)
     }
 
-    /// Take the session changes logged since this window last read the log
-    /// ([`push_session_change`]), for this pass's events. Every window reads
-    /// the log for itself: a lock is the application's, not one window's.
-    pub fn read_session_log(&mut self) {
-        let (changes, position) = session_changes_after(self.session_seen);
+    /// Take the session changes `log` (the app's) holds since this window
+    /// last read it, for this pass's events. Every window reads the log for
+    /// itself: a lock is the application's, not one window's.
+    pub fn read_session_log(&mut self, log: &SessionLog) {
+        let (changes, position) = log.changes_after(self.session_seen);
         self.session_seen = position;
         for change in changes {
             self.note_session(change);
@@ -191,44 +194,56 @@ impl DeviceEventManager {
 /// them yet; a window misses only changes older than its last pass by more.
 const SESSION_LOG_LEN: usize = 32;
 
-/// The process's session changes, as the platform's observers report them
+/// The session changes of one app, as the platform's observers report them
 /// from their own threads (a workspace notification, a D-Bus signal, a
 /// window message): the position of the next one, and the last few with
-/// their positions.
-static SESSION_LOG: std::sync::Mutex<(u64, Vec<(u64, SessionChange)>)> =
-    std::sync::Mutex::new((0, Vec::new()));
+/// their positions. Every window of the app reads it for itself
+/// ([`DeviceEventManager::read_session_log`]); a clone is another handle on
+/// the SAME log.
+#[derive(Debug, Clone, Default)]
+pub struct SessionLog {
+    entries: alloc::sync::Arc<std::sync::Mutex<(u64, Vec<(u64, SessionChange)>)>>,
+}
 
-/// Log one session change for every window's next pass.
-pub fn push_session_change(change: SessionChange) {
-    if let Ok(mut log) = SESSION_LOG.lock() {
-        let position = log.0;
-        log.0 += 1;
-        log.1.push((position, change));
-        if log.1.len() > SESSION_LOG_LEN {
-            log.1.remove(0);
+impl SessionLog {
+    /// A new, empty log of its own, shared with nobody.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Log one session change for every window's next pass.
+    pub fn push(&self, change: SessionChange) {
+        if let Ok(mut log) = self.entries.lock() {
+            let position = log.0;
+            log.0 += 1;
+            log.1.push((position, change));
+            if log.1.len() > SESSION_LOG_LEN {
+                log.1.remove(0);
+            }
         }
     }
-}
 
-/// The position the next session change will take.
-#[must_use]
-pub fn session_log_position() -> u64 {
-    SESSION_LOG.lock().map_or(0, |log| log.0)
-}
+    /// The position the next session change will take.
+    #[must_use]
+    pub fn position(&self) -> u64 {
+        self.entries.lock().map_or(0, |log| log.0)
+    }
 
-/// The session changes at or after `seen`, oldest first, and the position
-/// after the last.
-#[must_use]
-pub fn session_changes_after(seen: u64) -> (Vec<SessionChange>, u64) {
-    SESSION_LOG.lock().map_or((Vec::new(), seen), |log| {
-        let changes = log
-            .1
-            .iter()
-            .filter(|(position, _)| *position >= seen)
-            .map(|(_, change)| *change)
-            .collect();
-        (changes, log.0)
-    })
+    /// The session changes at or after `seen`, oldest first, and the position
+    /// after the last.
+    #[must_use]
+    pub fn changes_after(&self, seen: u64) -> (Vec<SessionChange>, u64) {
+        self.entries.lock().map_or((Vec::new(), seen), |log| {
+            let changes = log
+                .1
+                .iter()
+                .filter(|(position, _)| *position >= seen)
+                .map(|(_, change)| *change)
+                .collect();
+            (changes, log.0)
+        })
+    }
 }
 
 impl EventProvider for DeviceEventManager {
@@ -360,27 +375,41 @@ mod session_tests {
         assert_eq!(m.last_session(), Some(SessionChange::WillSleep), "still readable");
     }
 
-    /// The log is the process's: two windows each hear a change once, in
+    /// The log is the app's: two windows each hear a change once, in
     /// arrival order, and a window made later hears only what came after.
     #[test]
     fn every_window_hears_each_session_change_once() {
+        let log = super::SessionLog::new();
         let mut first = DeviceEventManager::new();
         let mut second = DeviceEventManager::new();
-        super::push_session_change(SessionChange::Locked);
-        super::push_session_change(SessionChange::Unlocked);
+        first.use_session_log(&log);
+        second.use_session_log(&log);
+        log.push(SessionChange::Locked);
+        log.push(SessionChange::Unlocked);
         for m in [&mut first, &mut second] {
-            m.read_session_log();
+            m.read_session_log(&log);
             let seen = m.take_pending_session();
-            assert!(
-                seen.ends_with(&[SessionChange::Locked, SessionChange::Unlocked]),
-                "{seen:?}"
-            );
-            m.read_session_log();
+            assert_eq!(seen, vec![SessionChange::Locked, SessionChange::Unlocked]);
+            m.read_session_log(&log);
             assert!(m.take_pending_session().is_empty(), "heard once");
         }
         let mut late = DeviceEventManager::new();
-        late.read_session_log();
+        late.use_session_log(&log);
+        late.read_session_log(&log);
         assert!(late.take_pending_session().is_empty(), "nothing from before");
+    }
+
+    /// Another app's windows never hear this app's session changes.
+    #[test]
+    fn a_log_is_one_apps_own() {
+        let ours = super::SessionLog::new();
+        let theirs = super::SessionLog::new();
+        let mut window = DeviceEventManager::new();
+        window.use_session_log(&theirs);
+        ours.push(SessionChange::WillSleep);
+        window.read_session_log(&theirs);
+        assert!(window.take_pending_session().is_empty());
+        assert_eq!(ours.clone().position(), 1, "a clone is the same log");
     }
 }
 

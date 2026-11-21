@@ -260,16 +260,16 @@ impl EventProvider for GeolocationManager {
 // arbitrary thread with no handle to the live `GeolocationManager` (it
 // lives inside the window's `LayoutWindow`). The backend parks each fix
 // here; the layout pass drains it once per frame via
-// [`drain_location_fixes`] and applies the latest through
+// [`GeolocationChannel::drain_fixes`] and applies the latest through
 // [`GeolocationManager::set_latest_fix`]. Pure Rust — no platform
 // dependency (SUPER_PLAN_2 §0.5). Mirrors the permission manager's
 // async-result channel.
 
 /// The channel, as a VALUE: a fixes queue and an errors queue.
 ///
-/// Mirrors `hid::HidChannel` / `sensors::SensorChannel` — a struct so the
-/// process-wide instance (`CHANNEL`) is an instance, and a test can own its
-/// own instead of sharing a global with every other test in the binary.
+/// Mirrors `hid::HidChannel` / `sensors::SensorChannel`. The app owns one
+/// (`AppServices::geolocation`, an `Arc` its windows and the backends share); a test
+/// owns its own instead of sharing one with every other test in the binary.
 #[derive(Debug, Default)]
 pub struct GeolocationChannel {
     pending_fixes: std::sync::Mutex<Vec<LocationFix>>,
@@ -279,11 +279,8 @@ pub struct GeolocationChannel {
     pending_errors: std::sync::Mutex<Vec<LocationError>>,
 }
 
-/// The process-wide channel the dll backends push into and the engine drains.
-static CHANNEL: GeolocationChannel = GeolocationChannel::new();
-
 impl GeolocationChannel {
-    /// An empty channel. `const` so the process-wide one can be a `static`.
+    /// An empty channel.
     #[must_use]
     pub const fn new() -> Self {
         Self {
@@ -330,31 +327,6 @@ impl GeolocationChannel {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         core::mem::take(&mut *q)
     }
-}
-
-/// Park a location fix delivered by a platform backend (in the dll).
-/// Thread-safe; recovers from a poisoned lock so one panicking applier
-/// can't wedge delivery forever.
-pub fn push_location_fix(fix: LocationFix) {
-    CHANNEL.push_fix(fix);
-}
-
-/// Drain every fix parked by [`push_location_fix`], in arrival order.
-/// Called once per layout pass; the caller applies them through
-/// [`GeolocationManager::set_latest_fix`] (the last one wins).
-pub fn drain_location_fixes() -> Vec<LocationFix> {
-    CHANNEL.drain_fixes()
-}
-
-/// Park a geolocation error delivered by a platform backend (in the dll).
-/// Thread-safe; poison-recovering.
-pub fn push_location_error(error: LocationError) {
-    CHANNEL.push_error(error);
-}
-
-/// Drain every error parked by [`push_location_error`], in arrival order.
-pub fn drain_location_errors() -> Vec<LocationError> {
-    CHANNEL.drain_errors()
 }
 
 #[cfg(test)]
@@ -541,7 +513,7 @@ mod tests {
         assert_eq!(got.latitude_deg, 48.8566, "the last applied fix wins");
 
         // A second drain is empty — the queue was taken, not copied.
-        assert!(drain_location_fixes().is_empty());
+        assert!(ch.drain_fixes().is_empty());
     }
 }
 

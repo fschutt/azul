@@ -4,10 +4,10 @@
 //! Continuous + push-driven, like geolocation:
 //!
 //! - The **platform backend** (`dll/src/desktop/extra/sensors/<plat>.rs`) subscribes to
-//!   `CoreMotion` (`CMMotionManager`) / Android `SensorManager` and calls [`push_sensor_reading`]
-//!   on every sample (arbitrary thread).
-//! - The dll **layout pass** drains the channel via [`drain_sensor_readings`] and folds each into
-//!   the manager through [`SensorManager::set_reading`].
+//!   `CoreMotion` (`CMMotionManager`) / Android `SensorManager` and calls
+//!   [`SensorChannel::push_reading`] on every sample (arbitrary thread).
+//! - The dll **layout pass** drains the channel via [`SensorChannel::drain_readings`] and folds
+//!   each into the manager through [`SensorManager::set_reading`].
 //! - **Callbacks** read `reading(kind)` synchronously (via `CallbackInfo::get_sensor_reading`) to
 //!   drive tilt / shake / compass UI.
 //!
@@ -149,9 +149,9 @@ fn reading_bitwise_eq(a: &SensorReading, b: &SensorReading) -> bool {
 
 /// The channel, as a VALUE: a readings queue and a latest-wins proximity slot.
 ///
-/// Mirrors `hid::HidChannel` — a struct so the process-wide instance
-/// (`CHANNEL`) is an instance, and a test can own its own instead of sharing
-/// a global with every other test in the binary.
+/// Mirrors `hid::HidChannel`. The app owns one (`AppServices::sensors`, an `Arc` its windows and
+/// the backends share); a test owns its own instead of sharing one with every other test in the
+/// binary.
 #[derive(Debug, Default)]
 pub struct SensorChannel {
     pending_readings: std::sync::Mutex<Vec<SensorReading>>,
@@ -161,11 +161,8 @@ pub struct SensorChannel {
     pending_proximity: std::sync::Mutex<Option<azul_core::sensors::Proximity>>,
 }
 
-/// The process-wide channel the dll backends push into and the engine drains.
-static CHANNEL: SensorChannel = SensorChannel::new();
-
 impl SensorChannel {
-    /// An empty channel. `const` so the process-wide one can be a `static`.
+    /// An empty channel.
     #[must_use]
     pub const fn new() -> Self {
         Self {
@@ -208,29 +205,6 @@ impl SensorChannel {
             .ok()
             .and_then(|mut slot| slot.take())
     }
-}
-
-/// Park a sensor reading delivered by a platform backend (in the dll).
-/// Thread-safe; poison-recovering.
-pub fn push_sensor_reading(reading: SensorReading) {
-    CHANNEL.push_reading(reading);
-}
-
-/// Drain every reading parked by [`push_sensor_reading`], in arrival order.
-/// Called once per layout pass; the caller applies them through
-/// [`SensorManager::set_reading`] (the last per kind wins).
-pub fn drain_sensor_readings() -> Vec<SensorReading> {
-    CHANNEL.drain_readings()
-}
-
-/// Backend side: publish the current proximity answer.
-pub fn push_proximity(proximity: azul_core::sensors::Proximity) {
-    CHANNEL.push_proximity(proximity);
-}
-
-/// Engine side: take the latest published answer, if any.
-pub fn take_proximity() -> Option<azul_core::sensors::Proximity> {
-    CHANNEL.take_proximity()
 }
 
 #[cfg(test)]
@@ -292,8 +266,8 @@ mod tests {
 
     #[test]
     fn readings_round_trip_through_manager() {
-        // Own the channel rather than sharing the process-wide one with every
-        // other test in the binary (the HID mirror of this test raced).
+        // Own the channel rather than sharing one with every other test in the
+        // binary (the HID mirror of this test raced).
         let ch = SensorChannel::new();
         ch.push_reading(r(SensorKind::Accelerometer, 1.0, 2.0, 3.0));
         ch.push_reading(r(SensorKind::Accelerometer, 4.0, 5.0, 6.0)); // last wins per kind
@@ -315,7 +289,7 @@ mod tests {
             Some(40.0)
         );
 
-        assert!(drain_sensor_readings().is_empty());
+        assert!(ch.drain_readings().is_empty());
     }
 }
 
@@ -338,12 +312,8 @@ mod autotest_generated {
     // ─────────────────────────── helpers ────────────────────────────
     //
     // NOTE — a test that needs a channel constructs its own `SensorChannel`
-    // (see `tests::readings_round_trip_through_manager`). The process-wide
-    // `CHANNEL` behind `push_sensor_reading` / `drain_sensor_readings` is
-    // shared with every other test in this binary on the parallel runner,
-    // so pushing into or draining it from a test is how one test's readings
-    // end up in another's exact-count assertion. That used to be the reason
-    // this section avoided the channel entirely; owning one is the fix.
+    // (see `tests::readings_round_trip_through_manager`): the channel belongs
+    // to the app (`AppServices::sensors`), so no test shares one with another.
 
     const KINDS: [SensorKind; 3] = [
         SensorKind::Accelerometer,

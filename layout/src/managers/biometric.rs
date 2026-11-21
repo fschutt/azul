@@ -10,18 +10,20 @@
 //! - The **platform backend** (`dll/src/desktop/extra/biometric/<plat>.rs`) shows the prompt (iOS /
 //!   macOS `LAContext.evaluatePolicy`, Android `BiometricPrompt.authenticate`, Windows
 //!   `UserConsentVerifier`, Linux polkit / PAM) and, when the user responds, parks the outcome in
-//!   the async result channel [`push_biometric_result`]. It also writes the sync availability probe
-//!   via [`BiometricManager::set_availability`].
+//!   the result queue of the [`BiometricChannels`] the pump handed it with the request. It also
+//!   writes the sync availability probe via [`BiometricManager::set_availability`].
 //!
-//! - The dll **layout pass** drains the channel once per frame via [`drain_biometric_results`] and
-//!   applies the latest through [`BiometricManager::set_last_result`]; callbacks then read it with
+//! - The dll **layout pass** drains the results once per frame and applies the latest through
+//!   [`BiometricManager::set_last_result`]; callbacks then read it with
 //!   `CallbackInfo::get_biometric_result()` and the device capability via the sync availability
 //!   accessor.
 //!
-//! No platform deps (`SUPER_PLAN_2` §0.5); the async-result channel is
-//! copied verbatim from `geolocation.rs`.
+//! No platform deps (`SUPER_PLAN_2` §0.5). The two queues are [`BiometricChannels`], owned by the
+//! app (`AppServices`) and shared by its windows, not by the process.
 
 use alloc::vec::Vec;
+
+use super::shared_queue::SharedQueue;
 
 // `BiometricKind` / `BiometricResult` / `BiometricPrompt` live in
 // `azul-core` so the request config can cross the FFI without a cyclic
@@ -166,84 +168,38 @@ impl EventProvider for BiometricManager {
     }
 }
 
-// ────────── Async result channel (platform backend → manager) ─────────
-//
-// The OS prompt's reply block / `AuthenticationCallback` fires on an
-// arbitrary thread with no handle to the live `BiometricManager` (it
-// lives inside the window's `LayoutWindow`). The backend parks each
-// result here; the layout pass drains it once per frame via
-// [`drain_biometric_results`] and applies the latest through
-// [`BiometricManager::set_last_result`]. Pure Rust — no platform
-// dependency (SUPER_PLAN_2 §0.5). Mirrors the geolocation manager's
-// async-fix channel.
+// ────────── The channels (callback → platform backend → manager) ──────
 
-static PENDING_RESULTS: std::sync::Mutex<Vec<BiometricResult>> = std::sync::Mutex::new(Vec::new());
-
-/// Park a biometric result delivered by a platform backend (in the dll).
-/// Thread-safe; recovers from a poisoned lock so one panicking applier
-/// can't wedge delivery forever.
-pub fn push_biometric_result(result: BiometricResult) {
-    let mut q = PENDING_RESULTS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    q.push(result);
-}
-
-/// Drain every result parked by [`push_biometric_result`], in arrival
-/// order. Called once per layout pass; the caller applies them through
-/// [`BiometricManager::set_last_result`] (the last one wins).
-pub fn drain_biometric_results() -> Vec<BiometricResult> {
-    let mut q = PENDING_RESULTS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    core::mem::take(&mut *q)
-}
-
-// ────────── Request channel (callback → platform backend) ─────────────
-//
-// The reverse direction: a callback (e.g. an unlock button's `on_click`)
-// calls `CallbackInfo::request_biometric_auth(prompt)`, which parks the
-// prompt here. The dll layout pass drains it via
-// [`drain_biometric_requests`] and dispatches each to the native backend
-// (`dll::desktop::extra::biometric::request`), which shows the OS prompt
-// and later parks the outcome back through [`push_biometric_result`].
-// Decoupling via a channel keeps the request callable from any callback
-// without threading the window's backend handle through `CallbackInfo`,
-// and keeps `azul-layout` platform-free (SUPER_PLAN_2 §0.5).
-
-static PENDING_REQUESTS: std::sync::Mutex<Vec<BiometricPrompt>> = std::sync::Mutex::new(Vec::new());
-
-/// Queue a biometric-auth request from a callback. Picked up by the dll
-/// layout pass and dispatched to the native prompt. Thread-safe;
-/// poison-recovering.
-pub fn push_biometric_request(prompt: BiometricPrompt) {
-    let mut q = PENDING_REQUESTS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    q.push(prompt);
-}
-
-/// Drain every request queued by [`push_biometric_request`], in arrival
-/// order. Called once per layout pass; the dll dispatches each to the
-/// platform backend.
-pub fn drain_biometric_requests() -> Vec<BiometricPrompt> {
-    let mut q = PENDING_REQUESTS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    core::mem::take(&mut *q)
-}
-
-/// MWA-C-biometric: true while requests are parked in the channel but not
-/// yet dispatched.
+/// The two queues between a window's callbacks and the platform's biometric prompt.
 ///
-/// The capability pump's arming check must count these —
-/// `has_pending_async` only sees `in_flight` (post-dispatch), so a prompt
-/// queued MID-pass (after the top-of-pass pump already ran) would otherwise
-/// wait for an unrelated event before ever being shown.
-pub fn has_queued_requests() -> bool {
-    PENDING_REQUESTS
-        .lock()
-        .map_or_else(|e| !e.into_inner().is_empty(), |q| !q.is_empty())
+/// The OS prompt's reply block / `AuthenticationCallback` fires on an arbitrary thread with no
+/// handle to the live `BiometricManager` (it lives inside the window's `LayoutWindow`): the
+/// backend is handed a clone of these queues with each request and parks the outcome in
+/// `results`; the layout pass drains them once per frame and applies the latest through
+/// [`BiometricManager::set_last_result`]. A callback (e.g. an unlock button's `on_click`) parks
+/// its prompt in `requests` through `CallbackInfo::request_biometric_auth`; decoupling via a
+/// queue keeps the request callable from any callback without threading the window's backend
+/// handle through `CallbackInfo`, and keeps `azul-layout` platform-free. Every window of an app
+/// holds clones of the app's pair (`LayoutWindow::join_app`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BiometricChannels {
+    /// Prompts a callback queued, waiting for the dll's layout pass to hand them to the native
+    /// prompt (`dll::desktop::extra::biometric::request`).
+    pub requests: SharedQueue<BiometricPrompt>,
+    /// Outcomes the platform backend parked, in arrival order; the last one applied wins.
+    pub results: SharedQueue<BiometricResult>,
+}
+
+impl BiometricChannels {
+    /// MWA-C-biometric: true while requests are parked in the queue but not yet dispatched.
+    ///
+    /// The capability pump's arming check must count these - `has_pending_async` only sees
+    /// `in_flight` (post-dispatch), so a prompt queued MID-pass (after the top-of-pass pump
+    /// already ran) would otherwise wait for an unrelated event before ever being shown.
+    #[must_use]
+    pub fn has_queued_requests(&self) -> bool {
+        !self.requests.is_empty()
+    }
 }
 
 #[cfg(test)]
@@ -303,14 +259,11 @@ mod tests {
 
     #[test]
     fn async_results_round_trip_through_manager() {
-        // The channel is process-global; serialize against every other
-        // channel test, then clear any residue.
-        let _guard = autotest_generated::lock_channels();
-        drop(drain_biometric_results());
+        let owner = BiometricChannels::default();
 
-        push_biometric_result(BiometricResult::Failed);
-        push_biometric_result(BiometricResult::Authenticated); // last wins
-        let drained = drain_biometric_results();
+        owner.results.push(BiometricResult::Failed);
+        owner.results.push(BiometricResult::Authenticated); // last wins
+        let drained = owner.results.drain();
         assert_eq!(drained.len(), 2, "both parked results drain in order");
         assert_eq!(drained[0], BiometricResult::Failed);
         assert_eq!(drained[1], BiometricResult::Authenticated);
@@ -328,25 +281,22 @@ mod tests {
         assert!(mgr.last_was_success());
 
         // A second drain is empty — the queue was taken, not copied.
-        assert!(drain_biometric_results().is_empty());
+        assert!(owner.results.drain().is_empty());
     }
 
     #[test]
     fn requests_round_trip_through_channel() {
-        // Process-global; serialize against every other channel test, then
-        // clear residue.
-        let _guard = autotest_generated::lock_channels();
-        drop(drain_biometric_requests());
+        let owner = BiometricChannels::default();
 
-        push_biometric_request(BiometricPrompt::new("Unlock A".into()));
-        push_biometric_request(BiometricPrompt::new("Unlock B".into()));
-        let drained = drain_biometric_requests();
+        owner.requests.push(BiometricPrompt::new("Unlock A".into()));
+        owner.requests.push(BiometricPrompt::new("Unlock B".into()));
+        let drained = owner.requests.drain();
         assert_eq!(drained.len(), 2, "both queued requests drain in order");
         assert_eq!(drained[0].reason.as_str(), "Unlock A");
         assert_eq!(drained[1].reason.as_str(), "Unlock B");
 
         // A second drain is empty — the queue was taken, not copied.
-        assert!(drain_biometric_requests().is_empty());
+        assert!(owner.requests.drain().is_empty());
     }
 
     #[test]
@@ -408,22 +358,10 @@ mod pump_provider_tests {
 #[cfg(test)]
 mod autotest_generated {
     use alloc::string::{String, ToString};
-    use std::sync::{Mutex, PoisonError};
 
     use azul_core::task::SystemTick;
 
     use super::*;
-
-    /// The result/request channels are process-global statics and `cargo
-    /// test` runs tests in parallel threads, so EVERY test that pushes to
-    /// or drains a channel must hold this lock — otherwise one test's
-    /// pushes land inside another's drain window. Shared with the
-    /// hand-written `tests` module above.
-    static CHANNEL_LOCK: Mutex<()> = Mutex::new(());
-
-    pub(super) fn lock_channels() -> std::sync::MutexGuard<'static, ()> {
-        CHANNEL_LOCK.lock().unwrap_or_else(PoisonError::into_inner)
-    }
 
     fn ts() -> Instant {
         Instant::Tick(SystemTick::new(0))
@@ -833,13 +771,12 @@ mod autotest_generated {
 
     #[test]
     fn results_channel_round_trips_every_variant_in_arrival_order() {
-        let _guard = lock_channels();
-        drop(drain_biometric_results());
+        let owner = BiometricChannels::default();
 
         for result in ALL_RESULTS {
-            push_biometric_result(result);
+            owner.results.push(result);
         }
-        let drained = drain_biometric_results();
+        let drained = owner.results.drain();
         assert_eq!(drained.len(), ALL_RESULTS.len(), "no result is dropped");
         assert_eq!(
             drained.as_slice(),
@@ -847,17 +784,16 @@ mod autotest_generated {
             "the channel is FIFO — the layout pass relies on last-one-wins"
         );
         assert!(
-            drain_biometric_results().is_empty(),
+            owner.results.drain().is_empty(),
             "draining takes the queue, it does not copy it"
         );
     }
 
     #[test]
     fn draining_an_empty_results_channel_repeatedly_is_safe() {
-        let _guard = lock_channels();
-        drop(drain_biometric_results());
+        let owner = BiometricChannels::default();
         for _ in 0..3 {
-            assert!(drain_biometric_results().is_empty());
+            assert!(owner.results.drain().is_empty());
         }
     }
 
@@ -865,13 +801,12 @@ mod autotest_generated {
     fn duplicate_results_are_all_preserved_in_the_channel() {
         // Dedup is the manager's job (via the change flag), not the
         // channel's — every parked outcome answers its own prompt.
-        let _guard = lock_channels();
-        drop(drain_biometric_results());
+        let owner = BiometricChannels::default();
 
         for _ in 0..64 {
-            push_biometric_result(BiometricResult::Failed);
+            owner.results.push(BiometricResult::Failed);
         }
-        let drained = drain_biometric_results();
+        let drained = owner.results.drain();
         assert_eq!(drained.len(), 64);
         assert!(drained.iter().all(|r| *r == BiometricResult::Failed));
 
@@ -888,14 +823,14 @@ mod autotest_generated {
 
     #[test]
     fn results_pushed_from_many_threads_are_all_delivered() {
-        let _guard = lock_channels();
-        drop(drain_biometric_results());
+        let owner = BiometricChannels::default();
 
         let threads: Vec<_> = (0..4)
             .map(|_| {
-                std::thread::spawn(|| {
+                let sink = owner.results.clone();
+                std::thread::spawn(move || {
                     for _ in 0..25 {
-                        push_biometric_result(BiometricResult::Authenticated);
+                        sink.push(BiometricResult::Authenticated);
                     }
                 })
             })
@@ -905,47 +840,45 @@ mod autotest_generated {
                 .expect("a backend thread panicked while parking a result");
         }
 
-        let drained = drain_biometric_results();
+        let drained = owner.results.drain();
         assert_eq!(
             drained.len(),
             100,
             "no result lost across 4 backend threads"
         );
         assert!(drained.iter().all(|r| r.is_success()));
-        assert!(drain_biometric_results().is_empty());
+        assert!(owner.results.drain().is_empty());
     }
 
     // ── request channel ────────────────────────────────────────────────
 
     #[test]
     fn has_queued_requests_tracks_the_queue_exactly() {
-        let _guard = lock_channels();
-        drop(drain_biometric_requests());
+        let owner = BiometricChannels::default();
         assert!(
-            !has_queued_requests(),
+            !owner.has_queued_requests(),
             "known-false: nothing parked after a drain"
         );
 
-        push_biometric_request(BiometricPrompt::new("Unlock".into()));
-        assert!(has_queued_requests(), "known-true: one prompt parked");
+        owner.requests.push(BiometricPrompt::new("Unlock".into()));
+        assert!(owner.has_queued_requests(), "known-true: one prompt parked");
         // Reading the flag must not consume the queue.
-        assert!(has_queued_requests());
+        assert!(owner.has_queued_requests());
 
-        push_biometric_request(BiometricPrompt::default());
-        assert!(has_queued_requests());
+        owner.requests.push(BiometricPrompt::default());
+        assert!(owner.has_queued_requests());
 
-        let drained = drain_biometric_requests();
+        let drained = owner.requests.drain();
         assert_eq!(drained.len(), 2);
         assert!(
-            !has_queued_requests(),
+            !owner.has_queued_requests(),
             "the pump's arming check must go quiet once the prompts are dispatched"
         );
     }
 
     #[test]
     fn request_channel_round_trips_hostile_prompt_strings_byte_for_byte() {
-        let _guard = lock_channels();
-        drop(drain_biometric_requests());
+        let owner = BiometricChannels::default();
 
         let hostile: Vec<String> = alloc::vec![
             String::new(),                           // empty → platform default
@@ -959,14 +892,14 @@ mod autotest_generated {
         ];
 
         for reason in &hostile {
-            push_biometric_request(BiometricPrompt {
+            owner.requests.push(BiometricPrompt {
                 reason: reason.clone().into(),
                 cancel_label: reason.clone().into(),
                 allow_device_credential: true,
             });
         }
 
-        let drained = drain_biometric_requests();
+        let drained = owner.requests.drain();
         assert_eq!(drained.len(), hostile.len(), "no prompt is dropped");
         for (prompt, expected) in drained.iter().zip(hostile.iter()) {
             assert_eq!(
@@ -982,21 +915,19 @@ mod autotest_generated {
             64 * 1024,
             "a 64 KiB reason is not truncated"
         );
-        assert!(!has_queued_requests());
+        assert!(!owner.has_queued_requests());
     }
 
     #[test]
     fn requests_pushed_from_many_threads_are_all_delivered() {
-        let _guard = lock_channels();
-        drop(drain_biometric_requests());
+        let owner = BiometricChannels::default();
 
         let threads: Vec<_> = (0..4)
             .map(|i| {
+                let sink = owner.requests.clone();
                 std::thread::spawn(move || {
                     for j in 0..25 {
-                        push_biometric_request(BiometricPrompt::new(
-                            alloc::format!("t{i}-{j}").into(),
-                        ));
+                        sink.push(BiometricPrompt::new(alloc::format!("t{i}-{j}").into()));
                     }
                 })
             })
@@ -1006,7 +937,7 @@ mod autotest_generated {
                 .expect("a callback thread panicked while queueing a prompt");
         }
 
-        let drained = drain_biometric_requests();
+        let drained = owner.requests.drain();
         assert_eq!(
             drained.len(),
             100,
@@ -1023,44 +954,42 @@ mod autotest_generated {
                 assert_eq!(p.reason.as_str(), alloc::format!("t{i}-{j}"));
             }
         }
-        assert!(!has_queued_requests());
+        assert!(!owner.has_queued_requests());
     }
 
     // ── full request → dispatch → result loop ──────────────────────────
 
     #[test]
     fn full_request_dispatch_result_loop_leaves_the_pump_disarmed() {
-        let _guard = lock_channels();
-        drop(drain_biometric_requests());
-        drop(drain_biometric_results());
+        let owner = BiometricChannels::default();
 
         let mut mgr = BiometricManager::new();
         mgr.set_availability(BiometricKind::Fingerprint);
 
         // 1. Two callbacks each queue a prompt.
-        push_biometric_request(BiometricPrompt::new("Unlock A".into()));
-        push_biometric_request(BiometricPrompt::new("Unlock B".into()));
+        owner.requests.push(BiometricPrompt::new("Unlock A".into()));
+        owner.requests.push(BiometricPrompt::new("Unlock B".into()));
         assert!(
-            has_queued_requests(),
+            owner.has_queued_requests(),
             "queued-but-undispatched prompts must arm the pump on their own — has_pending_async() \
              cannot see them yet"
         );
         assert!(!mgr.has_pending_async());
 
         // 2. The layout pass drains and dispatches them.
-        let requests = drain_biometric_requests();
+        let requests = owner.requests.drain();
         assert_eq!(requests.len(), 2);
         mgr.mark_requests_dispatched(u32::try_from(requests.len()).unwrap());
-        assert!(!has_queued_requests());
+        assert!(!owner.has_queued_requests());
         assert!(
             mgr.has_pending_async(),
             "now the in-flight count arms the pump"
         );
 
         // 3. The backend parks both outcomes; the next pass folds them back.
-        push_biometric_result(BiometricResult::Failed);
-        push_biometric_result(BiometricResult::FellBackToPasscode);
-        for r in drain_biometric_results() {
+        owner.results.push(BiometricResult::Failed);
+        owner.results.push(BiometricResult::FellBackToPasscode);
+        for r in owner.results.drain() {
             mgr.set_last_result(r);
         }
 

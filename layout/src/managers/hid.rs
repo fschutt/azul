@@ -1,9 +1,9 @@
 //! Generic-HID plumbing: the channel a platform backend parks reports in.
 //!
 //! - The **platform backend** (`dll/src/desktop/extra/hid/<plat>.rs`) opens the raw HID devices and
-//!   calls [`push_hid_report`] / [`set_hid_devices`].
-//! - The dll **capability pump** drains both via [`drain_hid_reports`] and [`take_hid_devices`] and
-//!   folds them into `HidManager`.
+//!   calls [`HidChannel::push_report`] / [`HidChannel::set_devices`] on the app's channel.
+//! - The dll **capability pump** drains both via [`HidChannel::drain_reports`] and
+//!   [`HidChannel::take_devices`] and folds them into `HidManager`.
 //! - **Callbacks** read them through `CallbackInfo::get_hid_reports()` / `get_hid_devices()`.
 //!
 //! `HidManager` itself lives in azul-core and is pure data; this is only the
@@ -22,22 +22,14 @@ use azul_core::hid::{HidDevice, HidReport};
 
 /// The channel: a bounded report queue and a devices snapshot, as a VALUE.
 ///
-/// A struct rather than two statics so that the process-wide instance the
-/// platform backends and the capability pump share (`CHANNEL`) is an
-/// instance — and a test can own its own instead of racing its siblings on a
-/// global. The free functions below are that instance's methods; callers do
-/// not change.
+/// The app owns one (`AppServices::hid`, an `Arc` shared by the platform backends - OS
+/// callbacks that hold no handle to any window - and the capability pump on the main thread);
+/// a test owns its own instead of racing its siblings on a shared one.
 #[derive(Debug, Default)]
 pub struct HidChannel {
     pending_reports: std::sync::Mutex<Vec<HidReport>>,
     devices: std::sync::Mutex<Option<Vec<HidDevice>>>,
 }
-
-/// The process-wide channel. A global by DESIGN, not by accident: the
-/// producers are OS callbacks (`IOHIDManager` on macOS, raw input on Windows,
-/// hidraw reader threads on Linux) that hold no handle to any window, and the
-/// one consumer is the capability pump on the main thread.
-static CHANNEL: HidChannel = HidChannel::new();
 
 /// Cap on the parked queue.
 ///
@@ -49,7 +41,7 @@ static CHANNEL: HidChannel = HidChannel::new();
 const MAX_PENDING_REPORTS: usize = 4096;
 
 impl HidChannel {
-    /// An empty channel. `const` so the process-wide one can be a `static`.
+    /// An empty channel.
     #[must_use]
     pub const fn new() -> Self {
         Self {
@@ -109,27 +101,6 @@ impl HidChannel {
     }
 }
 
-/// Park a report delivered by a platform backend (on the process-wide channel).
-pub fn push_hid_report(report: HidReport) {
-    CHANNEL.push_report(report);
-}
-
-/// Drain every parked report, in arrival order.
-pub fn drain_hid_reports() -> Vec<HidReport> {
-    CHANNEL.drain_reports()
-}
-
-/// Publish the enumerated device list, replacing any previous one.
-pub fn set_hid_devices(devices: Vec<HidDevice>) {
-    CHANNEL.set_devices(devices);
-}
-
-/// Take the device list if a backend published a new one (see
-/// [`HidChannel::take_devices`] for why `None` means unchanged).
-pub fn take_hid_devices() -> Option<Vec<HidDevice>> {
-    CHANNEL.take_devices()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -152,9 +123,9 @@ mod tests {
 
     #[test]
     fn reports_drain_in_arrival_order() {
-        // Each test owns its channel. On the parallel runner, tests sharing
-        // the process-wide one landed their pushes in each other's drains
-        // (27 reports where 2 were queued).
+        // Each test owns its channel (the app's, in a run): tests that shared one
+        // landed their pushes in each other's drains (27 reports where 2 were
+        // queued).
         let ch = HidChannel::new();
         ch.push_report(report(1));
         ch.push_report(report(2));
@@ -200,10 +171,11 @@ mod tests {
 
     #[test]
     fn an_empty_device_list_is_distinguishable_from_unchanged() {
-        let _ = take_hid_devices();
-        set_hid_devices(Vec::new());
+        let ch = HidChannel::new();
+        assert!(ch.take_devices().is_none());
+        ch.set_devices(Vec::new());
         assert_eq!(
-            take_hid_devices().map(|d| d.len()),
+            ch.take_devices().map(|d| d.len()),
             Some(0),
             "publishing zero devices must be observable"
         );

@@ -11,8 +11,8 @@
 //! ```
 //!
 //! * **The request queue.** `CallbackInfo::post_notification` / `withdraw_notification` cannot
-//!   reach an OS API - `azul-layout` has none - so they park a [`NotificationRequest`] here, the
-//!   keyring's shape. The dll drains it on the main thread (its capability pump, and the run-loop
+//!   reach an OS API - `azul-layout` has none - so they park a [`NotificationRequest`] in the
+//!   app's [`NotificationChannels`], the keyring's shape. The dll drains it on the main thread (its capability pump, and the run-loop
 //!   pump next to the tray's) and hands each request to the backend.
 //! * **The event mailbox.** The OS reports a click on whatever thread it likes: a GCD queue for the
 //!   `UNUserNotificationCenter` delegate, a D-Bus dispatch for `ActionInvoked`, the window
@@ -26,21 +26,23 @@
 //!   and remembers the id as ENDED, which is what stops the `NotificationClosed` a freedesktop
 //!   server sends after `ActionInvoked` from arriving as a second event.
 //! * **The app-level handler** (`AppConfig::notification_handler`, installed here with
-//!   [`set_app_notification_handler`]) receives what no notification callback owns: an event for
+//!   [`NotificationChannels::set_app_notification_handler`]) receives what no notification callback owns: an event for
 //!   an id this process never posted (a tap that cold-launched the app, a relaunch from
 //!   Notification Center) and the events of a notification posted without a callback. The
 //!   notification's `payload` rides along into the event, from the platform where it carries it
 //!   back and from the registry otherwise.
 //! * **Deliveries that cannot run yet.** A delivery needs a window to run against; a loop with
-//!   none parks it in [`queue_notification_delivery`] until one exists. A post the request queue
-//!   has no room for is not dropped either: [`reject_notification`] turns it into a `Failed`
-//!   delivery the same way.
+//!   none parks it in [`NotificationChannels::queue_notification_delivery`] until one exists. A
+//!   post the request queue has no room for is not dropped either:
+//!   [`NotificationChannels::reject_notification`] turns it into a `Failed` delivery the same way.
 //! * **The permission request.** `CallbackInfo::request_notification_permission` sets a flag the
-//!   dll's dispatch reads ([`take_notification_permission_request`]); the answer comes back
+//!   dll's dispatch reads ([`NotificationChannels::take_notification_permission_request`]); the
+//!   answer comes back
 //!   through the permission manager as `Capability::Notifications`.
 //! * **The current event.** A callback learns which event it runs for from
 //!   `CallbackInfo::get_notification_event`, which reads the slot
-//!   [`with_current_notification_event`] fills for the duration of one delivery. Any other
+//!   [`NotificationChannels::with_current_notification_event`] fills for the duration of one
+//!   delivery. Any other
 //!   callback reads `None`.
 //! * **The headless recorder.** `AZ_BACKEND=headless` has no notification server; its backend
 //!   RECORDS what was posted and withdrawn instead, so a test or an AZ_E2E scenario
@@ -49,14 +51,16 @@
 //!   action identifiers, balloon messages) translated to the one event type here, where every host
 //!   compiles and tests it, rather than inside `#[cfg(target_os)]` code only that OS builds.
 
-use alloc::{collections::BTreeMap, string::String, vec::Vec};
-use core::cell::RefCell;
+use alloc::{collections::BTreeMap, string::String, sync::Arc, vec::Vec};
+use core::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use azul_core::notification::{
     Notification, NotificationCallback, NotificationEvent, OptionNotificationCallback,
 };
 use azul_css::AzString;
-use core::sync::atomic::{AtomicBool, Ordering};
+
+use super::shared_queue::SharedQueue;
 
 // ────────── Request queue (callback → platform backend) ────────────────
 
@@ -86,194 +90,236 @@ pub const MAX_QUEUED_REQUESTS: usize = 256;
 /// See [`MAX_QUEUED_REQUESTS`]; the tray's mailbox uses the same bound.
 pub const MAX_QUEUED_EVENTS: usize = 256;
 
-static PENDING_REQUESTS: std::sync::Mutex<Vec<NotificationRequest>> =
-    std::sync::Mutex::new(Vec::new());
-
-/// Queue a request from a callback. Returns `false` when the queue is full
-/// and the request was dropped. Poison-recovering.
-#[must_use]
-pub fn push_notification_request(request: NotificationRequest) -> bool {
-    try_push_notification_request(request).is_ok()
+/// The queues and slots between the app's windows, its run loop and the platform's notification
+/// service: the request queue, the permission request, the app-level handler, the event
+/// mailbox, the waiting deliveries, the event whose delivery runs now and the headless
+/// recorder. Every window of an app holds a clone (`LayoutWindow::join_app`), and the platform
+/// backends are handed one when they start. A clone is another handle on the SAME queues.
+#[derive(Debug, Clone)]
+pub struct NotificationChannels {
+    requests: SharedQueue<NotificationRequest>,
+    permission_requested: Arc<AtomicBool>,
+    app_handler: Arc<Mutex<OptionNotificationCallback>>,
+    events: SharedQueue<NotificationEvent>,
+    deliveries: SharedQueue<NotificationDelivery>,
+    current_event: Arc<Mutex<Option<NotificationEvent>>>,
+    recorded: Arc<Mutex<NotificationRecorder>>,
 }
 
-/// [`push_notification_request`], handing the request BACK when the queue is
-/// full - so a post that did not fit can still be reported
-/// ([`reject_notification`]) instead of vanishing.
-// The `Err` hands the caller's own request back unchanged on the queue-full
-// path; boxing it would allocate only to return what was passed by value.
-#[allow(clippy::result_large_err)]
-pub fn try_push_notification_request(
-    request: NotificationRequest,
-) -> Result<(), NotificationRequest> {
-    let bound = match &request {
-        NotificationRequest::Post(_) => MAX_QUEUED_REQUESTS,
-        // See `MAX_QUEUED_REQUESTS`: the headroom posts cannot take.
-        NotificationRequest::Withdraw(_) => 2 * MAX_QUEUED_REQUESTS,
-    };
-    let mut q = PENDING_REQUESTS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if q.len() >= bound {
-        return Err(request);
+impl Default for NotificationChannels {
+    fn default() -> Self {
+        Self {
+            requests: SharedQueue::new(),
+            permission_requested: Arc::new(AtomicBool::new(false)),
+            app_handler: Arc::new(Mutex::new(OptionNotificationCallback::None)),
+            events: SharedQueue::new(),
+            deliveries: SharedQueue::new(),
+            current_event: Arc::new(Mutex::new(None)),
+            recorded: Arc::new(Mutex::new(NotificationRecorder::new())),
+        }
     }
-    q.push(request);
-    drop(q);
-    Ok(())
 }
 
-/// Take every queued request, in the order the app made them.
-pub fn drain_notification_requests() -> Vec<NotificationRequest> {
-    let mut q = PENDING_REQUESTS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    core::mem::take(&mut *q)
+fn lock_slot<T>(slot: &Mutex<T>) -> MutexGuard<'_, T> {
+    slot.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Is a request waiting - a post, a withdraw or a permission request? The
-/// dll's capability pump arms its wake-up timer on this, so a request queued
-/// by a callback that returned `DoNothing` does not wait for an unrelated
-/// event to be dispatched.
-pub fn has_queued_requests() -> bool {
-    PERMISSION_REQUESTED.load(Ordering::Acquire)
-        || PENDING_REQUESTS
-            .lock()
-            .map_or_else(|e| !e.into_inner().is_empty(), |q| !q.is_empty())
-}
-
-// ────────── The permission request (callback → platform backend) ───────
-
-static PERMISSION_REQUESTED: AtomicBool = AtomicBool::new(false);
-
-/// Ask for the notification permission
-/// (`CallbackInfo::request_notification_permission`). Several requests before
-/// the dll dispatches them are one prompt.
-pub fn request_notification_permission() {
-    PERMISSION_REQUESTED.store(true, Ordering::Release);
-}
-
-/// Take the pending permission request, if any. The dll's dispatch calls this
-/// on the main thread and asks the OS; the answer arrives through the
-/// permission manager's async channel as `Capability::Notifications`.
-pub fn take_notification_permission_request() -> bool {
-    PERMISSION_REQUESTED.swap(false, Ordering::AcqRel)
-}
-
-// ────────── The app-level handler ──────────────────────────────────────
-
-static APP_HANDLER: std::sync::Mutex<OptionNotificationCallback> =
-    std::sync::Mutex::new(OptionNotificationCallback::None);
-
-/// Install the app-level handler (`AppConfig::notification_handler`). The dll
-/// calls this from `App::run`, before any event can arrive; process-wide,
-/// because on Android `App::run` and the event loop are different threads.
-pub fn set_app_notification_handler(handler: OptionNotificationCallback) {
-    *APP_HANDLER
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner) = handler;
-}
-
-/// The installed app-level handler, if any.
-#[must_use]
-pub fn app_notification_handler() -> OptionNotificationCallback {
-    APP_HANDLER
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .clone()
-}
-
-// ────────── Event mailbox (platform → run loop) ────────────────────────
-
-static PENDING_EVENTS: std::sync::Mutex<Vec<NotificationEvent>> =
-    std::sync::Mutex::new(Vec::new());
-
-/// Post an event from a platform callback, on any thread. Never blocks for
-/// long and never panics - it runs inside an Objective-C block, a D-Bus
-/// filter or a window procedure, where unwinding would abort the process.
-/// Returns `false` when the mailbox is full and the event was dropped.
-pub fn queue_notification_event(event: NotificationEvent) -> bool {
-    let mut q = PENDING_EVENTS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if q.len() >= MAX_QUEUED_EVENTS {
-        return false;
+impl NotificationChannels {
+    /// A new set of queues of its own, shared with nobody.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
     }
-    q.push(event);
-    true
-}
 
-/// Take every queued event, in arrival order. Called by the run loop.
-pub fn drain_notification_events() -> Vec<NotificationEvent> {
-    let mut q = PENDING_EVENTS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    core::mem::take(&mut *q)
-}
+    // ────────── Request queue (callback → platform backend) ────────────────
 
-/// Is an event waiting to be routed?
-pub fn has_queued_events() -> bool {
-    PENDING_EVENTS
-        .lock()
-        .map_or_else(|e| !e.into_inner().is_empty(), |q| !q.is_empty())
-}
-
-// ────────── Deliveries that wait (for a window, or never got a post) ───
-
-static PENDING_DELIVERIES: std::sync::Mutex<Vec<NotificationDelivery>> =
-    std::sync::Mutex::new(Vec::new());
-
-/// Park a routed delivery until a run loop has a window to run it against,
-/// or queue one that never went through routing (a rejected post). Returns
-/// `false` when the queue is full and the delivery was dropped - bounded like
-/// the mailbox, so a windowless app cannot grow it without limit.
-pub fn queue_notification_delivery(delivery: NotificationDelivery) -> bool {
-    let mut q = PENDING_DELIVERIES
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if q.len() >= MAX_QUEUED_EVENTS {
-        return false;
+    /// Queue a request from a callback. Returns `false` when the queue is full
+    /// and the request was dropped. Poison-recovering.
+    #[must_use]
+    pub fn push_notification_request(&self, request: NotificationRequest) -> bool {
+        self.try_push_notification_request(request).is_ok()
     }
-    q.push(delivery);
-    true
-}
 
-/// Take every waiting delivery, oldest first.
-pub fn drain_notification_deliveries() -> Vec<NotificationDelivery> {
-    let mut q = PENDING_DELIVERIES
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    core::mem::take(&mut *q)
-}
+    /// [`Self::push_notification_request`], handing the request BACK when the
+    /// queue is full - so a post that did not fit can still be reported
+    /// ([`Self::reject_notification`]) instead of vanishing.
+    // The `Err` hands the caller's own request back unchanged on the queue-full
+    // path; boxing it would allocate only to return what was passed by value.
+    #[allow(clippy::result_large_err)]
+    pub fn try_push_notification_request(
+        &self,
+        request: NotificationRequest,
+    ) -> Result<(), NotificationRequest> {
+        let bound = match &request {
+            NotificationRequest::Post(_) => MAX_QUEUED_REQUESTS,
+            // See `MAX_QUEUED_REQUESTS`: the headroom posts cannot take.
+            NotificationRequest::Withdraw(_) => 2 * MAX_QUEUED_REQUESTS,
+        };
+        self.requests.push_up_to(request, bound)
+    }
 
-/// Is a delivery waiting?
-pub fn has_queued_deliveries() -> bool {
-    PENDING_DELIVERIES
-        .lock()
-        .map_or_else(|e| !e.into_inner().is_empty(), |q| !q.is_empty())
-}
+    /// Take every queued request, in the order the app made them.
+    pub fn drain_notification_requests(&self) -> Vec<NotificationRequest> {
+        self.requests.drain()
+    }
 
-/// A post that never reached the backend - the request queue had no room -
-/// reported as a `Failed` event instead of dropped: to the notification's own
-/// callback, or, without one, to the app-level handler, as a waiting
-/// delivery.
-///
-/// Never through the mailbox: routing would take the id for whatever an
-/// EARLIER post under it left - hand this failure to the notification still
-/// on screen (and end it, although the post that failed replaced nothing) or
-/// swallow it as the trailing close of one that ended. A callback-less post
-/// in an app without a handler ends silently, as routing ends its events.
-/// Returns `false` if the queue of waiting deliveries was full too.
-#[must_use]
-pub fn reject_notification(notification: Notification, reason: AzString) -> bool {
-    let mut event = NotificationEvent::failed(notification.id.clone(), reason);
-    event.payload = notification.payload.clone();
-    let callback = match notification.callback {
-        OptionNotificationCallback::Some(callback) => callback,
-        OptionNotificationCallback::None => match app_notification_handler() {
-            OptionNotificationCallback::Some(handler) => handler,
-            OptionNotificationCallback::None => return true,
-        },
-    };
-    queue_notification_delivery(NotificationDelivery { callback, event })
+    /// Is a request waiting - a post, a withdraw or a permission request? The
+    /// dll's capability pump arms its wake-up timer on this, so a request queued
+    /// by a callback that returned `DoNothing` does not wait for an unrelated
+    /// event to be dispatched.
+    pub fn has_queued_requests(&self) -> bool {
+        self.permission_requested.load(Ordering::Acquire) || !self.requests.is_empty()
+    }
+
+    // ────────── The permission request (callback → platform backend) ───────
+
+    /// Ask for the notification permission
+    /// (`CallbackInfo::request_notification_permission`). Several requests before
+    /// the dll dispatches them are one prompt.
+    pub fn request_notification_permission(&self) {
+        self.permission_requested.store(true, Ordering::Release);
+    }
+
+    /// Take the pending permission request, if any. The dll's dispatch calls this
+    /// on the main thread and asks the OS; the answer arrives through the
+    /// permission manager's async queue as `Capability::Notifications`.
+    pub fn take_notification_permission_request(&self) -> bool {
+        self.permission_requested.swap(false, Ordering::AcqRel)
+    }
+
+    // ────────── The app-level handler ──────────────────────────────────────
+
+    /// Install the app-level handler (`AppConfig::notification_handler`). The dll
+    /// calls this from `App::run`, before any event can arrive; it is the app's,
+    /// not the loop thread's, because on Android `App::run` and the event loop are
+    /// different threads.
+    pub fn set_app_notification_handler(&self, handler: OptionNotificationCallback) {
+        *lock_slot(&self.app_handler) = handler;
+    }
+
+    /// The installed app-level handler, if any.
+    #[must_use]
+    pub fn app_notification_handler(&self) -> OptionNotificationCallback {
+        lock_slot(&self.app_handler).clone()
+    }
+
+    // ────────── Event mailbox (platform → run loop) ────────────────────────
+
+    /// Post an event from a platform callback, on any thread. Never blocks for
+    /// long and never panics - it runs inside an Objective-C block, a D-Bus
+    /// filter or a window procedure, where unwinding would abort the process.
+    /// Returns `false` when the mailbox is full and the event was dropped.
+    pub fn queue_notification_event(&self, event: NotificationEvent) -> bool {
+        self.events.push_up_to(event, MAX_QUEUED_EVENTS).is_ok()
+    }
+
+    /// Take every queued event, in arrival order. Called by the run loop.
+    pub fn drain_notification_events(&self) -> Vec<NotificationEvent> {
+        self.events.drain()
+    }
+
+    /// Is an event waiting to be routed?
+    pub fn has_queued_events(&self) -> bool {
+        !self.events.is_empty()
+    }
+
+    // ────────── Deliveries that wait (for a window, or never got a post) ───
+
+    /// Park a routed delivery until a run loop has a window to run it against,
+    /// or queue one that never went through routing (a rejected post). Returns
+    /// `false` when the queue is full and the delivery was dropped - bounded like
+    /// the mailbox, so a windowless app cannot grow it without limit.
+    pub fn queue_notification_delivery(&self, delivery: NotificationDelivery) -> bool {
+        self.deliveries
+            .push_up_to(delivery, MAX_QUEUED_EVENTS)
+            .is_ok()
+    }
+
+    /// Take every waiting delivery, oldest first.
+    pub fn drain_notification_deliveries(&self) -> Vec<NotificationDelivery> {
+        self.deliveries.drain()
+    }
+
+    /// Is a delivery waiting?
+    pub fn has_queued_deliveries(&self) -> bool {
+        !self.deliveries.is_empty()
+    }
+
+    /// A post that never reached the backend - the request queue had no room -
+    /// reported as a `Failed` event instead of dropped: to the notification's own
+    /// callback, or, without one, to the app-level handler, as a waiting
+    /// delivery.
+    ///
+    /// Never through the mailbox: routing would take the id for whatever an
+    /// EARLIER post under it left - hand this failure to the notification still
+    /// on screen (and end it, although the post that failed replaced nothing) or
+    /// swallow it as the trailing close of one that ended. A callback-less post
+    /// in an app without a handler ends silently, as routing ends its events.
+    /// Returns `false` if the queue of waiting deliveries was full too.
+    #[must_use]
+    pub fn reject_notification(&self, notification: Notification, reason: AzString) -> bool {
+        let mut event = NotificationEvent::failed(notification.id.clone(), reason);
+        event.payload = notification.payload.clone();
+        let callback = match notification.callback {
+            OptionNotificationCallback::Some(callback) => callback,
+            OptionNotificationCallback::None => match self.app_notification_handler() {
+                OptionNotificationCallback::Some(handler) => handler,
+                OptionNotificationCallback::None => return true,
+            },
+        };
+        self.queue_notification_delivery(NotificationDelivery { callback, event })
+    }
+
+    // ────────── The event a callback runs for ──────────────────────────────
+
+    /// Run `f` with `event` as the event `CallbackInfo::get_notification_event`
+    /// reports. The previous value is restored afterwards, also on unwind.
+    pub fn with_current_notification_event<R>(
+        &self,
+        event: &NotificationEvent,
+        f: impl FnOnce() -> R,
+    ) -> R {
+        struct Restore<'a>(&'a Mutex<Option<NotificationEvent>>, Option<NotificationEvent>);
+        impl Drop for Restore<'_> {
+            fn drop(&mut self) {
+                *lock_slot(self.0) = self.1.take();
+            }
+        }
+        let previous = lock_slot(&self.current_event).replace(event.clone());
+        let _restore = Restore(&self.current_event, previous);
+        f()
+    }
+
+    /// The event the running callback was delivered for, or `None` outside a
+    /// notification delivery.
+    #[must_use]
+    pub fn current_notification_event(&self) -> Option<NotificationEvent> {
+        lock_slot(&self.current_event).clone()
+    }
+
+    // ────────── The headless recorder ──────────────────────────────────────
+
+    /// Record a post into the app's recorder (the headless backend).
+    pub fn record_posted_notification(&self, notification: &Notification) {
+        lock_slot(&self.recorded).record_post(notification);
+    }
+
+    /// Record a withdraw into the app's recorder. `true` if a recorded post had
+    /// that id.
+    pub fn record_withdrawn_notification(&self, id: &str) -> bool {
+        lock_slot(&self.recorded).record_withdraw(id)
+    }
+
+    /// A copy of the app's recording - what `assert_notification` reads.
+    #[must_use]
+    pub fn recorded_notifications(&self) -> Vec<RecordedNotification> {
+        lock_slot(&self.recorded).entries().to_vec()
+    }
+
+    /// Forget everything recorded.
+    pub fn clear_recorded_notifications(&self) {
+        lock_slot(&self.recorded).clear();
+    }
 }
 
 // ────────── Routing ────────────────────────────────────────────────────
@@ -421,39 +467,6 @@ impl NotificationRegistry {
     }
 }
 
-// ────────── The event a callback runs for ──────────────────────────────
-
-std::thread_local! {
-    /// Set for the duration of one delivery. Deliveries run on the event-loop
-    /// thread, which is the only thread a `CallbackInfo` exists on.
-    static CURRENT_EVENT: RefCell<Option<NotificationEvent>> = const { RefCell::new(None) };
-}
-
-/// Run `f` with `event` as the event `CallbackInfo::get_notification_event`
-/// reports. The previous value is restored afterwards, also on unwind.
-pub fn with_current_notification_event<R>(event: &NotificationEvent, f: impl FnOnce() -> R) -> R {
-    struct Restore(Option<NotificationEvent>);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            let previous = self.0.take();
-            drop(CURRENT_EVENT.try_with(|slot| slot.replace(previous)));
-        }
-    }
-    let previous = CURRENT_EVENT.with(|slot| slot.replace(Some(event.clone())));
-    let _restore = Restore(previous);
-    f()
-}
-
-/// The event the running callback was delivered for, or `None` outside a
-/// notification delivery.
-#[must_use]
-pub fn current_notification_event() -> Option<NotificationEvent> {
-    CURRENT_EVENT
-        .try_with(|slot| slot.borrow().clone())
-        .ok()
-        .flatten()
-}
-
 // ────────── The headless recorder ──────────────────────────────────────
 
 /// One post the headless backend saw.
@@ -526,43 +539,6 @@ impl NotificationRecorder {
     pub fn clear(&mut self) {
         self.entries.clear();
     }
-}
-
-static RECORDED: std::sync::Mutex<NotificationRecorder> =
-    std::sync::Mutex::new(NotificationRecorder::new());
-
-/// Record a post into the process-wide recorder (the headless backend).
-pub fn record_posted_notification(notification: &Notification) {
-    RECORDED
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .record_post(notification);
-}
-
-/// Record a withdraw into the process-wide recorder. `true` if a recorded
-/// post had that id.
-pub fn record_withdrawn_notification(id: &str) -> bool {
-    RECORDED
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .record_withdraw(id)
-}
-
-/// A copy of the process-wide recording - what `assert_notification` reads.
-#[must_use]
-pub fn recorded_notifications() -> Vec<RecordedNotification> {
-    RECORDED
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .entries()
-        .to_vec()
-}
-
-pub fn clear_recorded_notifications() {
-    RECORDED
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .clear();
 }
 
 // ────────── Scheduled notifications the process holds ──────────────────

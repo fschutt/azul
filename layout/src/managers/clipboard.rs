@@ -28,45 +28,57 @@
 use crate::managers::selection::{ClipboardContent, OptionClipboardContent};
 
 /// Reads the system clipboard: installed by the shell at startup
-/// ([`set_system_clipboard_reader`]); the engine itself cannot reach the OS.
+/// ([`SystemClipboard::install`]); the engine itself cannot reach the OS.
 pub type SystemClipboardReader = extern "C" fn() -> OptionClipboardContent;
 
-/// What the system clipboard holds now, outside a paste (a password manager
-/// clearing its own copy, a "Paste link" button): `None` when it holds
-/// nothing azul reads, or when no shell installed a reader.
-#[must_use]
-pub fn read_system_clipboard() -> Option<ClipboardContent> {
+/// The shell's clipboard reader, one per app: the clipboard is the desktop's, not a window's,
+/// so the app's windows share one slot (a clone is another handle on the SAME slot) and the
+/// shell installs its reader into it.
+#[derive(Debug, Clone, Default)]
+pub struct SystemClipboard {
     #[cfg(feature = "std")]
-    {
-        let reader = *SYSTEM_CLIPBOARD_READER
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        reader.and_then(|read| read().into_option())
-    }
-    #[cfg(not(feature = "std"))]
-    {
-        None
-    }
+    reader: alloc::sync::Arc<std::sync::Mutex<Option<SystemClipboardReader>>>,
 }
 
-/// Installs the shell's clipboard reader ([`read_system_clipboard`]);
-/// `None` removes it.
-pub fn set_system_clipboard_reader(reader: Option<SystemClipboardReader>) {
-    #[cfg(feature = "std")]
-    {
-        *SYSTEM_CLIPBOARD_READER
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = reader;
+impl SystemClipboard {
+    /// A new slot of its own with no reader installed, shared with nobody.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
     }
-    #[cfg(not(feature = "std"))]
-    drop(reader);
-}
 
-/// The shell's clipboard reader, process-wide: the clipboard is the
-/// desktop's, not a window's.
-#[cfg(feature = "std")]
-static SYSTEM_CLIPBOARD_READER: std::sync::Mutex<Option<SystemClipboardReader>> =
-    std::sync::Mutex::new(None);
+    /// What the system clipboard holds now, outside a paste (a password manager
+    /// clearing its own copy, a "Paste link" button): `None` when it holds
+    /// nothing azul reads, or when no shell installed a reader.
+    #[must_use]
+    pub fn read(&self) -> Option<ClipboardContent> {
+        #[cfg(feature = "std")]
+        {
+            let reader = *self
+                .reader
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            reader.and_then(|read| read().into_option())
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            None
+        }
+    }
+
+    /// Installs the shell's clipboard reader ([`Self::read`]); `None` removes it.
+    pub fn install(&self, reader: Option<SystemClipboardReader>) {
+        #[cfg(feature = "std")]
+        {
+            *self
+                .reader
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = reader;
+        }
+        #[cfg(not(feature = "std"))]
+        drop(reader);
+    }
+}
 
 /// Manages clipboard content flow between system clipboard and application
 ///
@@ -866,13 +878,24 @@ mod autotest_generated {
     /// there before it clears it.
     #[test]
     fn the_system_clipboard_is_read_through_the_reader_the_shell_installs() {
-        set_system_clipboard_reader(Some(holds_a_link));
-        let read = read_system_clipboard();
-        set_system_clipboard_reader(None);
+        let clipboard = SystemClipboard::new();
+        clipboard.install(Some(holds_a_link));
+        let read = clipboard.read();
+        clipboard.install(None);
         assert_eq!(
             read.map(|c| c.plain_text.as_str().to_string()),
             Some("https://azul.rs".to_string())
         );
-        assert!(read_system_clipboard().is_none(), "no reader, nothing read");
+        assert!(clipboard.read().is_none(), "no reader, nothing read");
+    }
+
+    /// The reader is the app's: another app's clipboard slot is not touched by it.
+    #[test]
+    fn a_reader_installed_for_one_app_is_not_another_apps() {
+        let ours = SystemClipboard::new();
+        let theirs = SystemClipboard::new();
+        ours.install(Some(holds_a_link));
+        assert!(ours.clone().read().is_some(), "a clone is the same slot");
+        assert!(theirs.read().is_none());
     }
 }

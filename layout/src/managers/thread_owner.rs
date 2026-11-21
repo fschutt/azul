@@ -39,14 +39,14 @@
 //! A window that closes while another stays open hands ALL its threads to that window
 //! ([`ThreadOwnerManager::hand_over`]): the app's go on, the ones being stopped keep
 //! their last word, and the workers of its nodes become orphans there. Only the last
-//! window waits for its workers ([`stop_all`]), because the process ends with it.
+//! window waits for its workers ([`StoppingWorkers::stop_all`]), because the process ends with it.
 //!
 //! TIMERS follow the same rule (THREADS8): a timer one of a node's lifecycle
 //! callbacks started - the map's 250 ms tile sweep - belongs to the node.
 //! When the node unmounts, `LayoutWindow::remap_node_ids` drops it from the
 //! window's timers and puts it on [`ThreadOwnerManager::take_timers_to_stop`],
 //! from which the shell stops its platform timer. A closing window stops ALL
-//! its workers together ([`stop_all`], from `LayoutWindow`'s `Drop`).
+//! its workers together ([`StoppingWorkers::stop_all`], from `LayoutWindow`'s `Drop`).
 
 use alloc::{collections::BTreeMap, vec::Vec};
 
@@ -326,7 +326,7 @@ impl ThreadOwnerManager {
     }
 }
 
-/// An orphan's turn in `LayoutWindow::run_all_threads` (and in [`stop_all`]):
+/// An orphan's turn in `LayoutWindow::run_all_threads` (and in [`StoppingWorkers::stop_all`]):
 /// drops whatever it wrote back (no node reads it, and delivering it would
 /// request frames for nothing) and says whether to retire it NOW - it has
 /// finished, so the join in the thread's destructor returns at once; or it is
@@ -373,75 +373,87 @@ pub fn detach_if_overdue(
     true
 }
 
-/// Stop EVERY worker in `threads` - the last window is going away. A window
-/// that closes while another stays open hands its threads over instead
-/// ([`ThreadOwnerManager::hand_over`]).
-///
-/// Every worker is told `TerminateThread`, its join handle is taken over by
-/// [`STOPPING`], and the `Thread`s go at once - their destructors find no
-/// handle to wait for, and the app's write-back data they hold is dropped
-/// here, on the UI thread. Nothing waits: a tray app goes on running after
-/// its last window, and a worker stuck in a device read froze it for the
-/// whole grace. The process waits for them at its end instead
-/// ([`join_stopping_workers`]).
+/// The workers of the closed windows of ONE app that are still stopping: each one's join handle
+/// and when it was told to stop. Filled by [`StoppingWorkers::stop_all`] as windows close, waited
+/// for by [`StoppingWorkers::join_all`] when the app ends. The app's windows share one (a clone
+/// is another handle on the SAME list); it must outlive any window, whose workers it keeps.
 #[cfg(all(feature = "std", feature = "text_layout"))]
-pub fn stop_all(threads: &mut BTreeMap<ThreadId, crate::thread::Thread>) {
-    if threads.is_empty() {
-        return;
-    }
-    let told = Orphaned::now();
-    let mut handles = Vec::new();
-    for thread in threads.values() {
-        let _ = thread.send_message(azul_core::task::ThreadSendMsg::TerminateThread);
-        if let Ok(mut inner) = thread.ptr.lock() {
-            if let Some(handle) = inner.thread_handle.take() {
-                handles.push(handle);
-            }
-        }
-    }
-    threads.clear();
-    let mut stopping = STOPPING
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    // The ones that have stopped meanwhile need no waiting at the end.
-    stopping.retain(|(handle, _)| !handle.is_finished());
-    stopping.extend(handles.into_iter().map(|handle| (handle, told)));
+#[derive(Debug, Clone, Default)]
+pub struct StoppingWorkers {
+    list: alloc::sync::Arc<std::sync::Mutex<Vec<(std::thread::JoinHandle<()>, Orphaned)>>>,
 }
 
-/// The workers of closed windows that are still stopping: each one's join
-/// handle and when it was told to stop. Filled by [`stop_all`], waited for
-/// by [`join_stopping_workers`].
 #[cfg(all(feature = "std", feature = "text_layout"))]
-static STOPPING: std::sync::Mutex<Vec<(std::thread::JoinHandle<()>, Orphaned)>> =
-    std::sync::Mutex::new(Vec::new());
+impl StoppingWorkers {
+    /// A new, empty list of its own, shared with nobody.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
 
-/// Waits, at the end of the process, for the workers of closed windows that
-/// are still stopping - each up to [`ORPHAN_GRACE`] after it was told, then
-/// it is left (detached: it ends with the process) - so a closing app lets
-/// them finish what they write, as a window's close used to. The shells call
-/// it when `App::run` returns.
-#[cfg(all(feature = "std", feature = "text_layout"))]
-pub fn join_stopping_workers() {
-    let stopping = core::mem::take(
-        &mut *STOPPING
+    /// Stop EVERY worker in `threads` - the last window is going away. A window
+    /// that closes while another stays open hands its threads over instead
+    /// ([`ThreadOwnerManager::hand_over`]).
+    ///
+    /// Every worker is told `TerminateThread`, its join handle is taken over by
+    /// this list, and the `Thread`s go at once - their destructors find no
+    /// handle to wait for, and the app's write-back data they hold is dropped
+    /// here, on the UI thread. Nothing waits: a tray app goes on running after
+    /// its last window, and a worker stuck in a device read froze it for the
+    /// whole grace. The process waits for them at its end instead
+    /// ([`Self::join_all`]).
+    pub fn stop_all(&self, threads: &mut BTreeMap<ThreadId, crate::thread::Thread>) {
+        if threads.is_empty() {
+            return;
+        }
+        let told = Orphaned::now();
+        let mut handles = Vec::new();
+        for thread in threads.values() {
+            let _ = thread.send_message(azul_core::task::ThreadSendMsg::TerminateThread);
+            if let Ok(mut inner) = thread.ptr.lock() {
+                if let Some(handle) = inner.thread_handle.take() {
+                    handles.push(handle);
+                }
+            }
+        }
+        threads.clear();
+        let mut stopping = self
+            .list
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner),
-    );
-    for (handle, told) in stopping {
-        loop {
-            if handle.is_finished() {
-                drop(handle.join());
-                break;
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // The ones that have stopped meanwhile need no waiting at the end.
+        stopping.retain(|(handle, _)| !handle.is_finished());
+        stopping.extend(handles.into_iter().map(|handle| (handle, told)));
+    }
+
+    /// Waits, at the end of the app, for the workers of closed windows that
+    /// are still stopping - each up to [`ORPHAN_GRACE`] after it was told, then
+    /// it is left (detached: it ends with the process) - so a closing app lets
+    /// them finish what they write, as a window's close used to. The shells call
+    /// it when `App::run` returns.
+    pub fn join_all(&self) {
+        let stopping = core::mem::take(
+            &mut *self
+                .list
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
+        for (handle, told) in stopping {
+            loop {
+                if handle.is_finished() {
+                    drop(handle.join());
+                    break;
+                }
+                if told.is_overdue(wall_clock()) || wall_clock().is_none() {
+                    eprintln!(
+                        "[azul][thread] a worker did not stop within {} ms of TerminateThread; the \
+                         process ends without it",
+                        ORPHAN_GRACE.as_millis()
+                    );
+                    break;
+                }
+                std::thread::sleep(core::time::Duration::from_millis(2));
             }
-            if told.is_overdue(wall_clock()) || wall_clock().is_none() {
-                eprintln!(
-                    "[azul][thread] a worker did not stop within {} ms of TerminateThread; the \
-                     process ends without it",
-                    ORPHAN_GRACE.as_millis()
-                );
-                break;
-            }
-            std::thread::sleep(core::time::Duration::from_millis(2));
         }
     }
 }

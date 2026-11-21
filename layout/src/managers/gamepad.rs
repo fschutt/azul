@@ -4,10 +4,10 @@
 //! Poll + push-driven, like the sensors:
 //!
 //! - The **platform backend** (`dll/src/desktop/extra/gamepad/<plat>.rs`) polls `gilrs` / iOS
-//!   `GCController` / Android `InputDevice` and calls [`push_gamepad_state`] whenever a pad's state
-//!   changes.
-//! - The dll **layout pass** drains the channel via [`drain_gamepad_states`] and folds each into
-//!   the manager through [`GamepadManager::set_state`].
+//!   `GCController` / Android `InputDevice` and parks a state in the app's [`GamepadStates`]
+//!   whenever a pad's state changes.
+//! - The dll **layout pass** drains the queue and folds each state into the manager through
+//!   [`GamepadManager::set_state`].
 //! - **Callbacks** read [`GamepadManager::state`] / [`GamepadManager::primary`] synchronously (via
 //!   `CallbackInfo::get_gamepad_state`) to drive movement / menu UI.
 //!
@@ -18,6 +18,7 @@
 
 use alloc::vec::Vec;
 
+use super::shared_queue::SharedQueue;
 pub use azul_core::gamepad::{GamepadAxis, GamepadButton, GamepadId, GamepadState};
 use azul_core::{
     dom::DomNodeId,
@@ -231,26 +232,11 @@ fn state_bitwise_eq(a: &GamepadState, b: &GamepadState) -> bool {
 // pass drains it and applies the latest per id. Pure Rust — no platform
 // dependency (SUPER_PLAN_2 §0.5). Mirrors the sensor reading channel.
 
-static PENDING_STATES: std::sync::Mutex<Vec<GamepadState>> = std::sync::Mutex::new(Vec::new());
-
-/// Park a gamepad state delivered by a platform backend (in the dll).
-/// Thread-safe; poison-recovering.
-pub fn push_gamepad_state(state: GamepadState) {
-    let mut q = PENDING_STATES
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    q.push(state);
-}
-
-/// Drain every state parked by [`push_gamepad_state`], in arrival order.
-/// Called once per layout pass; the caller applies them through
-/// [`GamepadManager::set_state`] (the last per id wins).
-pub fn drain_gamepad_states() -> Vec<GamepadState> {
-    let mut q = PENDING_STATES
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    core::mem::take(&mut *q)
-}
+/// The queue of the states the platform backend parked (`push`, thread-safe); the layout pass
+/// drains it once per pass (`drain`, in arrival order) and applies them through
+/// [`GamepadManager::set_state`] (the last per id wins). It belongs to the app
+/// (`AppServices::gamepad`), shared by its windows.
+pub type GamepadStates = SharedQueue<GamepadState>;
 
 #[cfg(test)]
 mod tests {
@@ -410,11 +396,11 @@ mod tests {
 
     #[test]
     fn states_round_trip_through_the_channel() {
-        drop(drain_gamepad_states());
-        push_gamepad_state(st(0, true, 0b1));
-        push_gamepad_state(st(0, true, 0b10)); // last per id wins
-        push_gamepad_state(st(1, true, 0));
-        let drained = drain_gamepad_states();
+        let queue = GamepadStates::default();
+        queue.push(st(0, true, 0b1));
+        queue.push(st(0, true, 0b10)); // last per id wins
+        queue.push(st(1, true, 0));
+        let drained = queue.drain();
         assert_eq!(drained.len(), 3);
 
         let mut mgr = GamepadManager::new();
@@ -426,7 +412,7 @@ mod tests {
             Some(0b10)
         );
         assert_eq!(mgr.gamepads().len(), 2);
-        assert!(drain_gamepad_states().is_empty());
+        assert!(queue.drain().is_empty());
     }
 }
 
@@ -435,14 +421,6 @@ mod autotest_generated {
     use azul_core::task::SystemTick;
 
     use super::*;
-
-    // NOTE on coverage: `push_gamepad_state` / `drain_gamepad_states` are
-    // deliberately NOT tested here. They share one process-global
-    // `PENDING_STATES` mutex, and `tests::states_round_trip_through_the_channel`
-    // above already asserts an *exact* drained length on it. Since the test
-    // harness runs both modules on parallel threads in the same binary, a push
-    // or drain from here could interleave with that test's push/drain window and
-    // make it fail spuriously. The round-trip is already covered there.
 
     /// Every axis field, paired with a setter, so a test can walk all six
     /// without depending on `GamepadState::axis` (a bug there must not mask a

@@ -28,20 +28,42 @@
 //! Every window gets a [`WindowActivationOrder`] when it is created, and each
 //! backend's focus-in handler (`windowDidBecomeKey`, X11 `FocusIn`, Wayland
 //! `wl_keyboard.enter`, Win32 `WM_SETFOCUS`) stamps it through
-//! [`WindowActivationOrder::note_focused`]. Both read one process-wide
-//! counter, so "newer" is a total order with no ties and no wall clock.
+//! [`WindowActivationOrder::note_focused`]. Both read the app's one
+//! [`ActivationClock`], so "newer" is a total order with no ties and no wall clock.
 
+use alloc::sync::Arc;
 use core::sync::atomic::{AtomicU64, Ordering};
 
-/// The process-wide activation clock. Starts at 1 so `0` can mean "never".
-static CLOCK: AtomicU64 = AtomicU64::new(1);
+/// The activation clock of one app, shared by its windows: a counter that
+/// starts at 1 so `0` can mean "never". A clone is another handle on the SAME
+/// clock.
+#[derive(Debug, Clone)]
+pub struct ActivationClock {
+    ticks: Arc<AtomicU64>,
+}
 
-fn tick() -> u64 {
-    CLOCK.fetch_add(1, Ordering::Relaxed)
+impl Default for ActivationClock {
+    fn default() -> Self {
+        Self {
+            ticks: Arc::new(AtomicU64::new(1)),
+        }
+    }
+}
+
+impl ActivationClock {
+    /// A new clock of its own, shared with nobody.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn tick(&self) -> u64 {
+        self.ticks.fetch_add(1, Ordering::Relaxed)
+    }
 }
 
 /// When a window was created and when it last gained the keyboard focus, on
-/// the process-wide activation clock.
+/// the app's activation clock.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WindowActivationOrder {
     /// Stamped once, when the window's state is created.
@@ -52,18 +74,18 @@ pub struct WindowActivationOrder {
 
 impl WindowActivationOrder {
     /// The order of a window being created now: newer than every existing
-    /// window, never focused.
+    /// window of the app `clock` belongs to, never focused.
     #[must_use]
-    pub fn for_new_window() -> Self {
+    pub fn for_new_window(clock: &ActivationClock) -> Self {
         Self {
-            created: tick(),
+            created: clock.tick(),
             last_focused: 0,
         }
     }
 
     /// The window just gained the keyboard focus.
-    pub fn note_focused(&mut self) {
-        self.last_focused = tick();
+    pub fn note_focused(&mut self, clock: &ActivationClock) {
+        self.last_focused = clock.tick();
     }
 
     /// Has the window ever had the focus?
