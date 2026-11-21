@@ -2103,11 +2103,19 @@ pub fn position_one_line_between<T: ParsedFontTrait>(
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     fonts: &LoadedFonts<T>,
 ) -> (Vec<PositionedItem>, f32) {
-    // The line's items left to right, every segment's after the one before.
-    let line_items: Vec<ShapedItem> = segment_lines
-        .iter()
-        .flat_map(|piece| piece.items.iter().cloned())
-        .collect();
+    // The line's items left to right, every segment's after the one before:
+    // a line of one segment (no shape or exclusion cuts it - nearly every
+    // line) is its segment's items, borrowed; only a cut line is joined.
+    let joined: Vec<ShapedItem>;
+    let line_items: &[ShapedItem] = if let [only] = segment_lines {
+        &only.items
+    } else {
+        joined = segment_lines
+            .iter()
+            .flat_map(|piece| piece.items.iter().cloned())
+            .collect();
+        &joined
+    };
     if let Some(msgs) = debug_messages {
         let line_text: String = line_items
             .iter()
@@ -2515,11 +2523,8 @@ pub fn position_one_line_between<T: ParsedFontTrait>(
                     "[Pos1Line] Positioning item '{item_text}' at pen_x={main_axis_pen}"
                 )));
             }
-            positioned.push(PositionedItem {
-                item: item.clone(),
-                position,
-                line_index,
-            });
+            // (The item is pushed, moved, at the end of this iteration: it is
+            // read below, and was cloned here for that.)
 
             // Outside markers don't advance the pen - they're positioned in the padding gutter
             let is_outside_marker = if let ShapedItem::Cluster(c) = &item {
@@ -2579,6 +2584,11 @@ pub fn position_one_line_between<T: ParsedFontTrait>(
                     }
                 }
             }
+            positioned.push(PositionedItem {
+                item,
+                position,
+                line_index,
+            });
         }
     }
 
