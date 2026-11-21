@@ -109,6 +109,9 @@ thread_local! {
     /// component can render a template component that renders the first one
     /// again, and that cycle goes through `render_fn`, not through the
     /// expansion depth counter.
+    ///
+    /// KEPT per thread: the depth belongs to the call stack, and `render_fn` is an
+    /// `extern "C"` component callback that receives nothing it could carry it in.
     static TEMPLATE_RENDER_DEPTH: Cell<usize> = const { Cell::new(0) };
 }
 

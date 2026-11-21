@@ -58,6 +58,10 @@ const BASE58: &[u8; 58] = b"123456789abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRST
 
 /// Mint tick. Every id is a pure function of its tick, so the sequence is the
 /// same on every run — deterministic, not random.
+///
+/// KEPT process-wide: the id space is the process's. A marker minted by one
+/// window, thread or app of the process must differ from every other, and the
+/// callers (`Uuid::short()` from the C API) have no handle to share a mint by.
 static TICK: AtomicU64 = AtomicU64::new(0);
 
 /// splitmix64's increment (2^64 divided by the golden ratio, made odd): a
