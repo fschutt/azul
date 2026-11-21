@@ -531,6 +531,46 @@ impl CpuBackend {
             &layout_window.gpu_state_manager,
             layout_window.layout_results.keys().copied(),
         );
+        // Which frames scroll by whole device pixels this frame, and the offsets an incremental
+        // frame PAINTS at (`next_scroll_baseline`: a frame whose delta is under half a device
+        // pixel keeps the offset it was last painted at). Found before the damage, because the
+        // damage has to land where the frame paints (A2-cpu-20): placed with the real offsets
+        // it was up to half a device pixel off, and a column of a changed item inside such a
+        // frame could stay stale.
+        let scroll_shifts = cpurender::collect_scroll_shifts(
+            display_list,
+            &scroll_offsets,
+            &self.previous_scroll_offsets,
+            // The matrices this frame paints with (they become `previous_gpu_values` below).
+            &gpu_values.transforms,
+            dpi_factor,
+        );
+        let has_scroll = !scroll_shifts.is_empty();
+        // Advance the scroll baseline ONLY for frames that actually get painted
+        // at their new offset this call (shifted frames now; ALL frames on the
+        // full-repaint path — finalised at the end of render_frame). Frames
+        // whose sub-half-pixel delta was dropped keep their previous baseline,
+        // so slow trackpad scrolling ACCUMULATES until it crosses a device
+        // pixel instead of being silently swallowed frame after frame (content
+        // frozen while the logical offset advances arbitrarily far).
+        let shifted_ids: BTreeSet<u64> = scroll_shifts.iter().map(|(sid, ..)| *sid).collect();
+        let next_scroll_baseline: cpurender::ScrollOffsetMap = scroll_offsets
+            .iter()
+            .map(|(id, off)| {
+                if shifted_ids.contains(id) {
+                    (*id, *off)
+                } else {
+                    (
+                        *id,
+                        self.previous_scroll_offsets
+                            .get(id)
+                            .copied()
+                            .unwrap_or(*off),
+                    )
+                }
+            })
+            .collect();
+
         // In VIEWPORT space: an item inside a scrolled frame (a thumb on a
         // scrolled page) is repainted where the frame paints it. A colour fade
         // frame - the bound background rects whose colour moved - is part of it.
@@ -539,7 +579,7 @@ impl CpuBackend {
             &vview_dls,
             &self.previous_gpu_values,
             &gpu_values,
-            &scroll_offsets,
+            &next_scroll_baseline,
         );
         let has_gpu_damage = !gpu_damage.rects.is_empty() || gpu_damage.needs_full;
         // Zombie exits repaint every tick with no display-list change — their
@@ -635,7 +675,7 @@ impl CpuBackend {
                     old_dl,
                     display_list,
                     &self.previous_scroll_offsets,
-                    &scroll_offsets,
+                    &next_scroll_baseline,
                     patch_hint.as_ref().map(|(h, _)| h),
                     cpurender::FrameValues {
                         old: Some(&old_gpu_values.transforms),
@@ -678,40 +718,6 @@ impl CpuBackend {
         // One shared, viewport-projected collector with the e2e twin - see
         // `cpurender::collect_scroll_shifts` (nested frames used to get an
         // unprojected clip).
-        let scroll_shifts = cpurender::collect_scroll_shifts(
-            display_list,
-            &scroll_offsets,
-            &self.previous_scroll_offsets,
-            // The matrices this frame paints with, kept for the next one.
-            &self.previous_gpu_values.transforms,
-            dpi_factor,
-        );
-        let has_scroll = !scroll_shifts.is_empty();
-        // Advance the scroll baseline ONLY for frames that actually get painted
-        // at their new offset this call (shifted frames now; ALL frames on the
-        // full-repaint path — finalised at the end of render_frame). Frames
-        // whose sub-half-pixel delta was dropped keep their previous baseline,
-        // so slow trackpad scrolling ACCUMULATES until it crosses a device
-        // pixel instead of being silently swallowed frame after frame (content
-        // frozen while the logical offset advances arbitrarily far).
-        let shifted_ids: BTreeSet<u64> = scroll_shifts.iter().map(|(sid, ..)| *sid).collect();
-        let next_scroll_baseline: cpurender::ScrollOffsetMap = scroll_offsets
-            .iter()
-            .map(|(id, off)| {
-                if shifted_ids.contains(id) {
-                    (*id, *off)
-                } else {
-                    (
-                        *id,
-                        self.previous_scroll_offsets
-                            .get(id)
-                            .copied()
-                            .unwrap_or(*off),
-                    )
-                }
-            })
-            .collect();
-
         // The views' damage lands where this frame PAINTS them: an incremental
         // frame rasterises at `next_scroll_baseline` (see `render_offsets`
         // below), and a view inside a scrolled box is painted at its content
@@ -860,7 +866,7 @@ impl CpuBackend {
                 old_dl,
                 display_list,
                 &self.previous_scroll_offsets,
-                &scroll_offsets,
+                &next_scroll_baseline,
             ),
             _ => Vec::new(),
         };
