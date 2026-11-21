@@ -2632,14 +2632,17 @@ pub fn scroll_fast_path_eligible_in(
         .get(&scroll_id)
         .copied()
         .unwrap_or((0.0, 0.0));
-    // A turned item inside it covers no part of the clip for certain.
-    let mut content: Vec<(&DisplayListItem, (f32, f32))> = Vec::new();
+    // A turned item inside it covers no part of the clip for certain. Only the opaque fills
+    // are kept (the one thing read from the content below), and the walk ends with the
+    // frame's last pop.
+    let mut content: Vec<(LogicalRect, (f32, f32))> = Vec::new();
     let mut stack = ScrollStack::with_transforms(scroll_offsets, transforms);
-    for (i, it) in items.iter().enumerate() {
+    let last_pop = pushes.iter().map(|&(_, e)| e).max().unwrap_or(0);
+    for (i, it) in items.iter().enumerate().take(last_pop + 1) {
         if pushes.iter().any(|&(s, e)| i > s && i < e) {
-            if let Some(at) = stack.placement() {
+            if let (Some(r), Some(at)) = (opaque_fill_rect(it), stack.placement()) {
                 content.push((
-                    it,
+                    r,
                     (
                         at.0 - around.0 - own_in_map.0,
                         at.1 - around.1 - own_in_map.1,
@@ -2662,24 +2665,23 @@ pub fn scroll_fast_path_eligible_in(
     // onto the screen — at BOTH the old offset, where the dragged pixels were
     // rendered, and the new one). Then nothing behind can ever show through,
     // so the shift is always safe.
-    let covered_at = |off: (f32, f32)| {
-        let fills: Vec<LogicalRect> = content
-            .iter()
-            .filter_map(|&(it, inner)| {
-                opaque_fill_rect(it).map(|r| {
-                    moved_by(
-                        r,
-                        (
-                            around.0 + off.0 + inner.0,
-                            around.1 + off.1 + inner.1,
-                        ),
-                    )
-                })
-            })
-            .collect();
-        rect_covered_by(clip_bounds, &fills)
-    };
-    if covered_at(scroll_offset) && covered_at(prev_offset) {
+    // The fills where they are painted at the new offset. At the previous one each was
+    // `scroll_offset - prev_offset` further right and down, so they covered the clip then if
+    // these cover the clip moved that far left and up: one list for both questions.
+    let fills: Vec<LogicalRect> = content
+        .iter()
+        .map(|&(r, inner)| {
+            moved_by(
+                r,
+                (
+                    around.0 + scroll_offset.0 + inner.0,
+                    around.1 + scroll_offset.1 + inner.1,
+                ),
+            )
+        })
+        .collect();
+    let since = (scroll_offset.0 - prev_offset.0, scroll_offset.1 - prev_offset.1);
+    if rect_covered_by(clip_bounds, &fills) && rect_covered_by(&moved_by(*clip_bounds, since), &fills) {
         return true;
     }
 
@@ -3875,11 +3877,10 @@ pub fn execute_virtual_view_shift_with(
     else {
         return whole;
     };
-    // Where the view's item is painted from: the frames around it.
-    let mut stack = ScrollStack::new(scroll_offsets);
-    let mut backdrop: Vec<(&DisplayListItem, (f32, f32))> = Vec::with_capacity(shift.index);
+    // Where the view's item is painted from: the frames around it. With the live matrices of
+    // the reference frames, for what is painted OVER the view below (A1-36).
+    let mut stack = ScrollStack::with_transforms(scroll_offsets, transforms);
     for it in &items[..shift.index] {
-        backdrop.push((it, stack.scrolled()));
         stack.step(it);
     }
     let around = stack.scrolled();
@@ -3887,43 +3888,61 @@ pub fn execute_virtual_view_shift_with(
     // behind it can show. A child item is painted at its own rect + the
     // view's origin - the content's scroll offset (`offset`).
     let covered = views.get(child_dom_id).is_some_and(|child| {
-        let covered_at = |scroll: (f32, f32)| {
-            // The child's opaque fills are found once for the list (its index), not by
-            // reading the whole child list again on every pan frame.
-            // Only the fills that are painted where they are laid out: in no frame, or in
-            // frames whose live matrix (a key without a value: the push's own) is the identity.
-            let laid_out_in_place = |frames: &[usize]| {
-                frames.iter().all(|push| match child.items.get(*push) {
-                    Some(DisplayListItem::PushReferenceFrame { transform_key, initial_transform, .. }) => {
-                        is_identity_2d(transforms.get(&transform_key.id).map_or(&initial_transform.m, |t| &t.m))
-                    }
-                    _ => false,
-                })
-            };
-            let fills: Vec<LogicalRect> = child
-                .frame_index()
-                .opaque_fills_in_frames()
-                .filter(|(_, frames)| laid_out_in_place(frames))
-                .map(|(r, _)| r)
-                .map(|r| {
-                    moved_by(
-                        *r,
-                        (
-                            around.0 - bounds.inner().origin.x + scroll.0,
-                            around.1 - bounds.inner().origin.y + scroll.1,
-                        ),
-                    )
-                })
-                .collect();
-            rect_covered_by(&shift.clip, &fills)
+        // The child's opaque fills are found once for the list (its index), not by
+        // reading the whole child list again on every pan frame.
+        // Only the fills that are painted where they are laid out: in no frame, or in
+        // frames whose live matrix (a key without a value: the push's own) is the identity.
+        let laid_out_in_place = |frames: &[usize]| {
+            frames.iter().all(|push| match child.items.get(*push) {
+                Some(DisplayListItem::PushReferenceFrame { transform_key, initial_transform, .. }) => {
+                    is_identity_2d(transforms.get(&transform_key.id).map_or(&initial_transform.m, |t| &t.m))
+                }
+                _ => false,
+            })
         };
-        let prev = (
-            shift.offset.0 - shift.delta.0,
-            shift.offset.1 - shift.delta.1,
-        );
-        covered_at(shift.offset) && covered_at(prev)
+        // Where they are painted at the NEW offset.
+        let fills: Vec<LogicalRect> = child
+            .frame_index()
+            .opaque_fills_in_frames()
+            .filter(|(_, frames)| laid_out_in_place(frames))
+            .map(|(r, _)| r)
+            .map(|r| {
+                moved_by(
+                    *r,
+                    (
+                        around.0 - bounds.inner().origin.x + shift.offset.0,
+                        around.1 - bounds.inner().origin.y + shift.offset.1,
+                    ),
+                )
+            })
+            .collect();
+        // At the PREVIOUS offset (`offset - delta`) every fill was `delta` further right and
+        // down: they covered the clip then if these cover the clip moved `delta` left and up.
+        // One list of fills for both questions, not one built per question per pan frame.
+        rect_covered_by(&shift.clip, &fills)
+            && rect_covered_by(&moved_by(shift.clip, shift.delta), &fills)
     });
-    let backdrop_ok = covered || backdrop_drags_invisibly(&backdrop, &shift.clip);
+    // What is painted before the view is read only when the content does not cover it: each
+    // item with the offset the frames around it paint it at. One inside a frame that turns
+    // or scales it, over the clip, cannot be told from a flat fill: the view is repainted.
+    let backdrop_ok = covered || {
+        let mut behind = ScrollStack::with_transforms(scroll_offsets, transforms);
+        let mut backdrop: Vec<(&DisplayListItem, (f32, f32))> = Vec::with_capacity(shift.index);
+        let mut turned_over_the_clip = false;
+        for it in &items[..shift.index] {
+            if let Some(at) = behind.placement() {
+                backdrop.push((it, at));
+            } else {
+                let turned = it.visual_bounds().map(|b| behind.on_screen(b));
+                if turned.is_some_and(|b| b.is_none_or(|b| rects_overlap(&b, &shift.clip))) {
+                    turned_over_the_clip = true;
+                    break;
+                }
+            }
+            behind.step(it);
+        }
+        !turned_over_the_clip && backdrop_drags_invisibly(&backdrop, &shift.clip)
+    };
     if blit_debug() {
         eprintln!(
             "[viewshift] clip={:?} delta={:?} covered={covered} backdrop_ok={backdrop_ok}",
@@ -3951,15 +3970,22 @@ pub fn execute_virtual_view_shift_with(
         shift.clip.origin.y + shift.clip.size.height,
     );
     for it in &items[shift.index + 1..] {
-        let at = stack.scrolled();
+        // Where the item is PAINTED, read before stepping over it: through the scroll frames
+        // AND the reference frames around it, with their live matrices (A1-36). A panel
+        // placed by `transform` was repainted where it is laid out while the move dragged it
+        // where it is painted, and smeared by the delta every pan frame. Through a matrix
+        // with perspective it can be anywhere: the whole clip.
+        let painted = if it.is_state_management() || paints_nothing(it) {
+            None
+        } else {
+            it.visual_bounds()
+                .or_else(|| it.bounds())
+                .map(|b| stack.on_screen(b).unwrap_or(UNBOUNDED))
+        };
         stack.step(it);
-        if it.is_state_management() || paints_nothing(it) {
-            continue;
-        }
-        let Some(b) = it.visual_bounds().or_else(|| it.bounds()) else {
+        let Some(b) = painted else {
             continue;
         };
-        let b = moved_by(b, at);
         let ix = b.origin.x.max(shift.clip.origin.x);
         let iy = b.origin.y.max(shift.clip.origin.y);
         let ix1 = (b.origin.x + b.size.width).min(cx1);
@@ -12374,5 +12400,45 @@ mod audit_a1_tests {
         assert_eq!(changed(&[(1, 0.5)], &[(1, 0.5), (4, 1.0)]), vec![4]);
         assert_eq!(changed(&[(1, 0.5), (2, 0.25)], &[(1, 0.5)]), vec![2]);
         assert_eq!(changed(&[(1, 0.5), (2, 0.25)], &[(1, 0.5), (3, 0.25)]), vec![2, 3]);
+    }
+
+    /// A1-36: what is painted over a view inside a reference frame is repainted where it is
+    /// PAINTED when the view pans. A view (20, 10) 200 x 100 whose child is one opaque ground;
+    /// after it a 20 x 10 panel laid out at (30, 20) inside a frame that moves it by (50, 0):
+    /// it is painted at (80, 20). A pan by 12 px drags the pixels of x 80 .. 100 to 68 .. 88,
+    /// so the damage must hold the panel where it is, (80, 20) 20 x 10, and where the move
+    /// left it, (68, 20) 20 x 10.
+    /// Mutation: the overlay placed by the scroll offsets alone (`moved_by(b, stack.scrolled())`)
+    /// damages (30, 20) and (20, 20) instead, and neither rect reaches x = 88 .. 100.
+    #[test]
+    fn an_overlay_in_a_moved_frame_is_repainted_where_it_is_painted_when_the_view_pans() {
+        use std::sync::Arc;
+
+        use azul_core::dom::DomId;
+        let moved_by_50 = azul_core::transform::ComputedTransform3D {
+            m: [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [50.0, 0.0, 0.0, 1.0]],
+        };
+        let view = lr(20.0, 10.0, 200.0, 100.0);
+        let host = listed(vec![
+            view_at(1, view, (-12.0, 0.0)),
+            DisplayListItem::PushReferenceFrame {
+                transform_key: azul_core::resources::TransformKey { id: 9 },
+                initial_transform: moved_by_50,
+                bounds: lr(30.0, 20.0, 20.0, 10.0).into(),
+            },
+            opaque(30.0, 20.0, 20.0, 10.0, [0, 200, 0]),
+            DisplayListItem::PopReferenceFrame,
+        ]);
+        let views: std::collections::BTreeMap<DomId, Arc<DisplayList>> =
+            [(DomId { inner: 1 }, Arc::new(listed(vec![opaque(0.0, 0.0, 400.0, 300.0, [240, 240, 230])])))].into_iter().collect();
+        let shift = ViewShift { index: 0, clip: view, delta: (12.0, 0.0), offset: (12.0, 0.0) };
+        let mut pm = AzulPixmap::new(300, 200).expect("a pixmap");
+        let out = execute_virtual_view_shift_with(&mut pm, &host, &views, &shift, 1.0, &ScrollOffsetMap::new(), &HashMap::new());
+        assert_eq!(out.moves.len(), 1, "the ground covers the view: the pixels move");
+        let holds = |x0: f32, x1: f32| {
+            out.damage.iter().any(|r| r.origin.x <= x0 && r.origin.x + r.size.width >= x1 && r.origin.y <= 20.0 && r.origin.y + r.size.height >= 30.0)
+        };
+        assert!(holds(80.0, 100.0), "the panel where it is painted: {:?}", out.damage);
+        assert!(holds(68.0, 88.0), "and where the move left its pixels: {:?}", out.damage);
     }
 }
