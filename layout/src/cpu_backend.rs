@@ -106,6 +106,9 @@ pub struct CpuBackend {
     /// backdrop standing everywhere the diff found nothing, so the window ends
     /// up half light and half dark until something else forces a full repaint.
     pub last_clear_color: Option<[u8; 4]>,
+    /// The scale factor the PREVIOUS frame was painted at, or `None` before the first frame: a
+    /// frame at another factor is repainted in full, like one on another canvas colour.
+    pub last_dpi_factor: Option<f32>,
     /// Repaint the next frame in full (for changes outside the display list); consumed by `render_frame`.
     pub force_full_repaint: bool,
     /// Implied by `transparent`: after every frame the window's shape (the
@@ -257,6 +260,7 @@ impl CpuBackend {
             transparent: false,
             follow_system_background: true,
             last_clear_color: None,
+            last_dpi_factor: None,
             shape_from_alpha: false,
             last_shape: None,
             applied_shape: None,
@@ -402,6 +406,19 @@ impl CpuBackend {
             .last_clear_color
             .is_some_and(|previous| previous != clear_color);
         self.last_clear_color = Some(clear_color);
+        // Nor can a frame painted at another scale factor be repainted in parts: every pixel
+        // of it is another pixel now (a window moved to a display of another scale; the shells
+        // also force a full frame then, which this makes redundant, not wrong). The kept group
+        // surfaces are pictures at the old factor (their keys hold it, so none would be used);
+        // they are dropped now instead of when their lists change.
+        let dpi_changed = self
+            .last_dpi_factor
+            .is_some_and(|previous| previous.to_bits() != dpi_factor.to_bits());
+        self.last_dpi_factor = Some(dpi_factor);
+        if dpi_changed {
+            self.retained_frames.clear();
+        }
+        let clear_color_changed = clear_color_changed || dpi_changed;
 
         // Check if we need to resize the root layer
         let root = compositor.layers.get(&compositor.root_layer);
@@ -1214,7 +1231,19 @@ impl CpuBackend {
             .with_system_style(layout_window.system_style.clone())
             .with_clear_color(clear_color)
             .with_virtual_view_display_lists(vview_dls)
-            .with_retained_frames(Arc::clone(&self.retained_frames));
+            .with_retained_frames(Arc::clone(&self.retained_frames))
+            .with_root_display_list(Arc::clone(display_list));
+        // The kept group surfaces of lists this frame does not paint any more (a view that
+        // rendered again, a list that was patched) are dropped, and those lists let go of.
+        let painted_lists: Vec<usize> = core::iter::once(Arc::as_ptr(display_list) as usize)
+            .chain(
+                render_state
+                    .virtual_view_display_lists
+                    .values()
+                    .map(|list| Arc::as_ptr(list) as usize),
+            )
+            .collect();
+        self.retained_frames.begin_frame(&painted_lists);
 
         // An INCREMENTAL frame paints exactly its damage - and nothing when it
         // has none: the target already holds this frame (a scroll step that
@@ -1296,6 +1325,10 @@ impl CpuBackend {
                 &mut self.glyph_cache,
             );
         }
+
+        // What this frame's passes painted of a group that may only be moved next frame is
+        // kept from here on (`cpurender::retained`).
+        self.retained_frames.commit();
 
         // AZ_DUMP_DL_DIR=/tmp/dls dumps the first display lists as JSON —
         // splits "the DL's clip is collapsed" (layout/reconcile bug) from

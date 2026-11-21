@@ -1295,12 +1295,33 @@ impl ReferenceFrameGroup {
         real_clip_stack: &mut Vec<Option<AzRect>>,
         scroll_offset_stack: &mut Vec<(f32, f32)>,
     ) {
+        drop(self.finish_keeping(
+            pixmap,
+            surfaces,
+            clip_stack,
+            real_clip_stack,
+            scroll_offset_stack,
+        ));
+    }
+
+    /// [`Self::finish`], handing back the surface of an isolated group after it was
+    /// composited: the walk keeps the picture of a frame that may only be moved next frame
+    /// (`retained`). `None` for a frame that had no surface.
+    fn finish_keeping(
+        self,
+        pixmap: &mut AzulPixmap,
+        surfaces: &mut Vec<AzulPixmap>,
+        clip_stack: &mut Vec<Option<AzRect>>,
+        real_clip_stack: &mut Vec<Option<AzRect>>,
+        scroll_offset_stack: &mut Vec<(f32, f32)>,
+    ) -> Option<AzulPixmap> {
         match self {
-            Self::Identity => {}
+            Self::Identity => None,
             Self::Translated => {
                 if scroll_offset_stack.len() > 1 {
                     scroll_offset_stack.pop();
                 }
+                None
             }
             Self::Isolated(group) => {
                 if clip_stack.len() > 1 {
@@ -1312,13 +1333,13 @@ impl ReferenceFrameGroup {
                 if scroll_offset_stack.len() > 1 {
                     scroll_offset_stack.pop();
                 }
-                if let Some(surface) = surfaces.pop() {
-                    let below = match surfaces.last_mut() {
-                        Some(below) => below,
-                        None => pixmap,
-                    };
-                    group.finish(&surface, below);
-                }
+                let surface = surfaces.pop()?;
+                let below = match surfaces.last_mut() {
+                    Some(below) => below,
+                    None => pixmap,
+                };
+                group.finish(&surface, below);
+                Some(surface)
             }
         }
     }
@@ -2175,6 +2196,10 @@ pub struct CpuRenderState {
     /// scaled reference frame whose content did not change is composited again, not painted
     /// again. `None` (a one-off render, a test of the walk) keeps nothing.
     pub retained: Option<std::sync::Arc<RetainedFrames>>,
+    /// The window's own list, when the caller holds it shared: a kept surface holds the list
+    /// it was painted from, and a walk is handed a `&DisplayList`. (A view's list is found in
+    /// `virtual_view_display_lists`.) `None`: the frames of the window's own list are not kept.
+    pub root_display_list: Option<std::sync::Arc<DisplayList>>,
 }
 
 impl CpuRenderState {
@@ -2190,7 +2215,15 @@ impl CpuRenderState {
             virtual_view_display_lists: std::collections::BTreeMap::new(),
             paint_threads: 0,
             retained: None,
+            root_display_list: None,
         }
+    }
+
+    /// The window's own list, shared (see the field).
+    #[must_use]
+    pub fn with_root_display_list(mut self, list: std::sync::Arc<DisplayList>) -> Self {
+        self.root_display_list = Some(list);
+        self
     }
 
     /// Paint a repaint's bands on at most `threads` threads (see the field).
@@ -2265,6 +2298,7 @@ impl CpuRenderState {
             virtual_view_display_lists: std::collections::BTreeMap::new(),
             paint_threads: 0,
             retained: None,
+            root_display_list: None,
         }
     }
 }
@@ -2503,12 +2537,44 @@ pub(crate) fn walk_items(
     let (mut painted, mut skipped) = (0usize, 0usize);
     // The list's frames (where each ends, what it paints), asked for at the first frame met.
     let mut frames: Option<std::sync::Arc<crate::solver3::display_list::FrameIndex>> = None;
+    // The frames this walk is painting whose surface is kept when they close (`retained`).
+    let mut keeping: Vec<(usize, RetainedCandidate)> = Vec::new();
     let mut next = 0usize;
     while next < list.items.len() {
         let item_idx = next;
         next += 1;
         let item = &list.items[item_idx];
         crate::cpu_counters::count(crate::cpu_counters::Counter::ItemsWalked, 1);
+        // The pop of a frame whose surface is kept: what the `PopReferenceFrame` arm of
+        // `render_single_item` does, and the surface, composited, goes to the cache.
+        if keeping.last().is_some_and(|(end, _)| *end == item_idx) {
+            if let Some((_, candidate)) = keeping.pop() {
+                crate::cpu_counters::count(crate::cpu_counters::Counter::ItemsPainted, 1);
+                painted += 1;
+                if transform_stack.len() > 1 {
+                    transform_stack.pop();
+                }
+                if matches!(mask_stack.last(), Some(MaskEntry::Transform(_))) {
+                    if let Some(MaskEntry::Transform(group)) = mask_stack.pop() {
+                        let surface = group.finish_keeping(
+                            pixmap,
+                            surfaces,
+                            clip_stack,
+                            real_clip_stack,
+                            scroll_offset_stack,
+                        );
+                        if let (Some(surface), Some(retained)) =
+                            (surface, render_state.retained.as_deref())
+                        {
+                            if (surface.width, surface.height) == candidate.key.size {
+                                retained.offer(candidate.key, candidate.list, surface, candidate.part);
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
+        }
         // Inside a turned or scaled frame the clip the items paint under is the frame's
         // surface's own (the damage, or the view's box, mapped back through the frame), not a
         // rect of the pixels below: there the walk culls by that clip alone.
@@ -2542,6 +2608,36 @@ pub(crate) fn walk_items(
                 skipped += 1;
                 next = frame.end + 1;
                 continue;
+            }
+            // A frame whose picture is kept from an earlier frame is composited, not painted:
+            // only its matrix, or the clip around it, changed.
+            if let Some(retained) = render_state.retained.as_deref() {
+                if let Some(candidate) = retained_candidate(
+                    list,
+                    item,
+                    &frame,
+                    frames.as_ref().and_then(|index| index.inner_of(item_idx)),
+                    in_group || !surfaces.is_empty(),
+                    below,
+                    dpi_factor,
+                    clip_stack.last().copied().flatten(),
+                    *scroll_offset_stack.last().unwrap_or(&(0.0, 0.0)),
+                    text_shadow_stack,
+                    glyph_cache,
+                    font_manager,
+                    render_state,
+                    retained,
+                ) {
+                    if let Some(surface) = retained.lookup(&candidate.key, candidate.needed) {
+                        crate::cpu_counters::count(crate::cpu_counters::Counter::RetainedHits, 1);
+                        candidate.group.finish(&surface, pixmap);
+                        skipped += 1;
+                        next = frame.end + 1;
+                        continue;
+                    }
+                    crate::cpu_counters::count(crate::cpu_counters::Counter::RetainedMisses, 1);
+                    keeping.push((frame.end, candidate));
+                }
             }
         }
         let by_clip = in_group || matches!(cull, WalkCull::ActiveClip);
@@ -2650,6 +2746,193 @@ pub(crate) fn walk_items(
         )?;
     }
     Ok((painted, skipped))
+}
+
+/// A frame the walk is about to open whose surface can be kept (`retained`): the key of its
+/// picture, the part of the surface a composite of it reads now, the part a walk of it paints
+/// now, and the group it is composited as.
+struct RetainedCandidate {
+    key: super::retained::SurfaceKey,
+    /// Surface px, half-open: what the composite reads (the clip mapped back, and the taps).
+    needed: [i32; 4],
+    /// Surface px, half-open: what a walk paints (`group_visible_part`).
+    part: [i32; 4],
+    group: TransformGroup,
+    list: std::sync::Arc<DisplayList>,
+}
+
+/// `list` as the shared list the render state holds (the window's own, or a view's), if it is
+/// one of them: the list a kept surface holds on to.
+fn shared_list(list: &DisplayList, render_state: &CpuRenderState) -> Option<std::sync::Arc<DisplayList>> {
+    render_state
+        .root_display_list
+        .iter()
+        .chain(render_state.virtual_view_display_lists.values())
+        .find(|shared| core::ptr::eq(std::sync::Arc::as_ptr(shared), list))
+        .cloned()
+}
+
+/// The live values the picture of a frame depends on besides its items (`inner`, from the
+/// list's `FrameIndex`: the keys bound inside the frame, its scroll frames), hashed. `None` for
+/// a frame that holds a view: its picture depends on another list. A key without a value
+/// hashes as that (the walk then paints with the list's own matrix or opacity, which the list
+/// holds).
+fn values_inside(
+    inner: Option<&crate::solver3::display_list::FrameInner>,
+    render_state: &CpuRenderState,
+) -> Option<u64> {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    let Some(inner) = inner else {
+        return Some(hasher.finish());
+    };
+    if inner.has_view {
+        return None;
+    }
+    for key in &inner.transform_keys {
+        match render_state.transforms.get(key) {
+            Some(value) => {
+                for row in &value.m {
+                    for v in row {
+                        v.to_bits().hash(&mut hasher);
+                    }
+                }
+            }
+            None => u32::MAX.hash(&mut hasher),
+        }
+    }
+    for key in &inner.opacity_keys {
+        render_state
+            .opacities
+            .get(key)
+            .map_or(u32::MAX, |o| o.to_bits())
+            .hash(&mut hasher);
+    }
+    for key in &inner.color_keys {
+        render_state
+            .colors
+            .get(key)
+            .map(|c| (c.r, c.g, c.b, c.a))
+            .hash(&mut hasher);
+    }
+    for id in &inner.scroll_ids {
+        let (x, y) = render_state.scroll_offsets.get(id).copied().unwrap_or((0.0, 0.0));
+        (x.to_bits(), y.to_bits()).hash(&mut hasher);
+    }
+    Some(hasher.finish())
+}
+
+/// What every text run and system colour of a picture is painted with, hashed: the
+/// anti-aliasing settings, how many fonts are loaded (a face that arrives paints runs that
+/// were skipped), the system style.
+fn paint_settings(
+    glyph_cache: &GlyphCache,
+    font_manager: &FontManager<FontRef>,
+    render_state: &CpuRenderState,
+) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    format!("{:?}", glyph_cache.text_aa()).hash(&mut hasher);
+    font_manager.parsed_fonts.lock().map_or(0, |fonts| fonts.len()).hash(&mut hasher);
+    font_manager.embedded_fonts.lock().map_or(0, |fonts| fonts.len()).hash(&mut hasher);
+    render_state
+        .system_style
+        .as_ref()
+        .map_or(0usize, |style| std::sync::Arc::as_ptr(style) as usize)
+        .hash(&mut hasher);
+    hasher.finish()
+}
+
+/// The frame `frame`, pushed by `item`, as one whose surface can be kept, or `None`: it must
+/// be self-contained, an isolated group with an affine matrix, not inside another group
+/// (`nested`: that group's surface is the one worth keeping) nor under a text shadow of the
+/// list around it, large enough to be worth a lookup and small enough for the cache, in a list
+/// the render state holds shared, and without a view inside.
+///
+/// The key's offset is the walk's offset at the push, bit for bit (see `retained`, rule 4).
+/// `needed` is `group_part_within` with a margin of 2 px: the composite samples destination
+/// pixel centres mapped back, `s = inv(matrix)(d + 0.5) - 0.5`, and reads the texels
+/// `floor(s)` and `floor(s) + 1`, at most one texel outside the clip mapped back.
+#[allow(clippy::too_many_arguments)]
+fn retained_candidate(
+    list: &DisplayList,
+    item: &DisplayListItem,
+    frame: &crate::solver3::display_list::FrameEntry,
+    inner: Option<&crate::solver3::display_list::FrameInner>,
+    nested: bool,
+    below: (u32, u32),
+    dpi_factor: f32,
+    clip: Option<AzRect>,
+    scroll_offset: (f32, f32),
+    text_shadow_stack: &[StyleBoxShadow],
+    glyph_cache: &GlyphCache,
+    font_manager: &FontManager<FontRef>,
+    render_state: &CpuRenderState,
+    retained: &RetainedFrames,
+) -> Option<RetainedCandidate> {
+    let DisplayListItem::PushReferenceFrame {
+        transform_key,
+        initial_transform,
+        bounds,
+    } = item
+    else {
+        return None;
+    };
+    if nested || !frame.self_contained || !text_shadow_stack.is_empty() || !walk_culls_by_clip() {
+        return None;
+    }
+    let m = render_state
+        .transforms
+        .get(&transform_key.id)
+        .map_or(&initial_transform.m, |t| &t.m);
+    if is_identity_2d(m) || translation_2d(m).is_some() {
+        return None;
+    }
+    let on_surface = |r: &LogicalRect| LogicalRect {
+        origin: LogicalPosition {
+            x: r.origin.x - scroll_offset.0,
+            y: r.origin.y - scroll_offset.1,
+        },
+        size: r.size,
+    };
+    let g = GroupGeometry::of(
+        m,
+        &on_surface(bounds.inner()),
+        &on_surface(&frame.extent),
+        dpi_factor,
+        clip,
+    );
+    let px = u64::from(g.width) * u64::from(g.height);
+    if px < super::retained::MIN_SURFACE_PX || !retained.can_keep((px as usize).saturating_mul(4)) {
+        return None;
+    }
+    let size = (g.width, g.height);
+    let (x0, y0, x1, y1) = group_visible_part(&g.matrix, g.outer_clip, below, size)?;
+    let (nx0, ny0, nx1, ny1) = group_part_within(&g.matrix, g.outer_clip, below, size, 2)?;
+    let shared = shared_list(list, render_state)?;
+    let list_at = std::sync::Arc::as_ptr(&shared) as usize;
+    let values = values_inside(inner, render_state)?;
+    Some(RetainedCandidate {
+        key: super::retained::SurfaceKey {
+            list: list_at,
+            push: frame.push,
+            size,
+            dpi_bits: dpi_factor.to_bits(),
+            offset: (scroll_offset.0.to_bits(), scroll_offset.1.to_bits()),
+            values,
+            settings: paint_settings(glyph_cache, font_manager, render_state),
+        },
+        needed: [nx0, ny0, nx1, ny1],
+        part: [x0, y0, x1, y1],
+        group: TransformGroup {
+            width: g.width,
+            height: g.height,
+            matrix: g.matrix,
+            outer_clip: g.outer_clip,
+            lands: true,
+        },
+        list: shared,
+    })
 }
 
 /// Can nothing of the reference frame `frame`, pushed by `item`, paint in this walk, so that
@@ -2919,7 +3202,7 @@ const fn boxes_overlap(a: &[i32; 4], b: &[i32; 4]) -> bool {
 
 /// What of box `p` lies outside box `d`: up to four boxes (the bands above
 /// and below `d`, then the parts left and right of it in between).
-fn box_minus(p: [i32; 4], d: [i32; 4]) -> Vec<[i32; 4]> {
+pub(crate) fn box_minus(p: [i32; 4], d: [i32; 4]) -> Vec<[i32; 4]> {
     if !boxes_overlap(&p, &d) {
         return vec![p];
     }
@@ -16043,5 +16326,241 @@ mod audit_a1_tests {
         restore_cpu_halos(shared);
         assert_eq!(kept_cpu_halo(mine).flatten().map(|h| h.width), Some(3), "back in this thread's memo");
         assert_eq!(kept_cpu_halo(theirs).flatten().map(|h| h.width), Some(5), "with what the band kept");
+    }
+
+    // ---- kept group surfaces ----------------------------------------------------------------
+
+    use std::sync::Arc;
+
+    /// A window (900 x 700) that is one view, and the view's list: a picture root frame (key 1,
+    /// box 1000 x 800) around a ground, 320 cells, an upright label (key 2), and a label turned
+    /// by its own matrix (key 3, 15 degrees unless the render state says otherwise) with text
+    /// and a halo when there is a font. `edited` paints one cell in another colour (a tile that
+    /// arrived, a label that was edited: another list).
+    struct Scene {
+        host: Arc<DisplayList>,
+        child: Arc<DisplayList>,
+    }
+
+    fn zoom_scene(font: Option<(&ParsedFont, FontHash)>, content_offset: (f32, f32), edited: bool) -> Scene {
+        let mut inner = vec![fill(0.0, 0.0, 1000.0, 800.0, [236, 233, 225])];
+        for i in 0..20u8 {
+            for j in 0..16u8 {
+                let rgb = if edited && i == 4 && j == 3 { [255, 0, 255] } else { [i * 12, j * 15, 80 + i * 4 + j * 4] };
+                inner.push(fill(f32::from(i) * 50.0 + 5.0, f32::from(j) * 50.0 + 5.0, 40.0, 40.0, rgb));
+            }
+        }
+        inner.extend(label_frame(2, IDENTITY, 100.0, 100.0));
+        inner.push(DisplayListItem::PushReferenceFrame {
+            transform_key: azul_core::resources::TransformKey { id: 3 },
+            initial_transform: azul_core::transform::ComputedTransform3D { m: turn_scale_move(15.0, 1.0, 0.0, 0.0) },
+            bounds: wrect(300.0, 200.0, 220.0, 44.0),
+        });
+        inner.push(fill(300.0, 200.0, 220.0, 44.0, [255, 255, 210]));
+        inner.extend(haloed(halo(0.0, 2.0, [255, 255, 255]), label(font, "Hirschauer Steige", 22.0, 306.0, 230.0)));
+        inner.push(DisplayListItem::PopReferenceFrame);
+        let mut child = vec![DisplayListItem::PushReferenceFrame {
+            transform_key: azul_core::resources::TransformKey { id: 1 },
+            initial_transform: azul_core::transform::ComputedTransform3D { m: IDENTITY },
+            bounds: wrect(0.0, 0.0, 1000.0, 800.0),
+        }];
+        child.extend(inner);
+        child.push(DisplayListItem::PopReferenceFrame);
+        let host = vec![DisplayListItem::VirtualView {
+            child_dom_id: azul_core::dom::DomId { inner: 1 },
+            bounds: wrect(0.0, 0.0, 900.0, 700.0),
+            clip_rect: wrect(0.0, 0.0, 900.0, 700.0),
+            content_offset: LogicalPosition { x: content_offset.0, y: content_offset.1 },
+        }];
+        Scene { host: Arc::new(list(host)), child: Arc::new(list(child)) }
+    }
+
+    /// The render state of a frame of `scene`: the picture root scaled by `k` and moved by `t`,
+    /// the turned label at `turned` degrees, kept surfaces in `retained` (if any).
+    fn zoom_state(
+        scene: &Scene,
+        (k, t): (f32, (f32, f32)),
+        turned: f32,
+        retained: Option<&Arc<RetainedFrames>>,
+        threads: usize,
+    ) -> CpuRenderState {
+        let mut state = CpuRenderState::new(ScrollOffsetMap::new())
+            .with_virtual_view_display_lists(
+                [(azul_core::dom::DomId { inner: 1 }, Arc::clone(&scene.child))].into_iter().collect(),
+            )
+            .with_root_display_list(Arc::clone(&scene.host))
+            .with_paint_threads(threads);
+        if let Some(retained) = retained {
+            state = state.with_retained_frames(Arc::clone(retained));
+        }
+        let value = |m| azul_core::transform::ComputedTransform3D { m };
+        state.transforms.insert(1, value(turn_scale_move(0.0, k, t.0, t.1)));
+        state.transforms.insert(3, value(turn_scale_move(turned, 1.0, 0.0, 0.0)));
+        state
+    }
+
+    /// One frame of `scene` as the backend paints it: the kept surfaces of other lists dropped,
+    /// the view (the whole window) repainted, what was painted kept. Returns what was counted.
+    fn zoom_frame(
+        scene: &Scene,
+        state: &CpuRenderState,
+        pm: &mut AzulPixmap,
+        (rr, fm): (&RendererResources, &FontManager<FontRef>),
+    ) -> crate::cpu_counters::CpuFrameCounters {
+        let mut gc = GlyphCache::new();
+        let whole = [rect(0.0, 0.0, 900.0, 700.0)];
+        crate::cpu_counters::reset();
+        if let Some(retained) = &state.retained {
+            retained.begin_frame(&[Arc::as_ptr(&scene.host) as usize, Arc::as_ptr(&scene.child) as usize]);
+        }
+        render_display_list_damaged(&scene.host, pm, 1.0, rr, fm, &mut gc, state, &whole).unwrap();
+        if let Some(retained) = &state.retained {
+            retained.commit();
+        }
+        crate::cpu_counters::take()
+    }
+
+    /// The same frame painted afresh: no kept surface, one pass, a new target.
+    fn fresh_frame(
+        scene: &Scene,
+        zoom: (f32, (f32, f32)),
+        turned: f32,
+        resources: (&RendererResources, &FontManager<FontRef>),
+    ) -> AzulPixmap {
+        let mut pm = AzulPixmap::new(900, 700).unwrap();
+        pm.fill(255, 255, 255, 255);
+        let _ = zoom_frame(scene, &zoom_state(scene, zoom, turned, None, 1), &mut pm, resources);
+        pm
+    }
+
+    /// A1-08 (b): a zoom step composites the picture it kept, and the frame is the one painted
+    /// afresh, pixel for pixel; on one thread and in bands.
+    ///
+    /// The view is 900 x 700 and the picture root's surface 1000 x 800. Step 1 (k = 1.5) paints
+    /// the part that lands, 600 x 467 px and 64 more on each side: [0, 0, 664, 531]. Step 2
+    /// (k = 1.8) reads 500 x 389 px of it (and 2 more): kept, composited, nothing painted.
+    /// Step 3 (k = 1.2, moved by (-100, -50)) reads x 81 .. 836, past what was painted: painted
+    /// again ([19, 0, 898, 689]) and kept. Step 4 (k = 1.3, same move) reads x 74 .. 772,
+    /// y 36 .. 579: kept.
+    /// Mutations: a hit that ignores `needed` (rule 7) composites the transparent rest of the
+    /// surface at step 3; a commit that drops the bands' parts but the last makes step 2 a miss
+    /// in bands; compositing a kept surface with the matrix it was painted under shows step 1's
+    /// picture at step 2.
+    #[test]
+    fn a_zoom_step_composites_the_kept_picture_and_it_is_the_picture_painted_afresh() {
+        let font = test_font();
+        let (rr, fm, font_hash) = resources(font.as_ref());
+        let scene = zoom_scene(font.as_ref().zip(font_hash), (0.0, 0.0), false);
+        for threads in [1usize, 4] {
+            let bands = if threads == 1 { 1 } else { 3 };
+            let retained = Arc::new(RetainedFrames::with_max_bytes(64 << 20));
+            let mut pm = AzulPixmap::new(900, 700).unwrap();
+            pm.fill(255, 255, 255, 255);
+            let steps: [((f32, (f32, f32)), bool); 4] = [
+                ((1.5, (0.0, 0.0)), false),
+                ((1.8, (0.0, 0.0)), true),
+                ((1.2, (-100.0, -50.0)), false),
+                ((1.3, (-100.0, -50.0)), true),
+            ];
+            for (step, (zoom, kept)) in steps.into_iter().enumerate() {
+                let state = zoom_state(&scene, zoom, 15.0, Some(&retained), threads);
+                let counted = zoom_frame(&scene, &state, &mut pm, (&rr, &fm));
+                let what = format!("{threads} thread(s), step {}", step + 1);
+                if kept {
+                    assert_eq!((counted.retained_hits, counted.retained_misses), (bands, 0), "{what}: composited: {counted:?}");
+                    assert_eq!(counted.groups_opened, 0, "{what}: no surface is made: {counted:?}");
+                    assert!(counted.items_painted <= 2 * bands, "{what}: nothing of the view's list is painted: {counted:?}");
+                } else {
+                    assert_eq!((counted.retained_hits, counted.retained_misses), (0, bands), "{what}: painted: {counted:?}");
+                    assert!(counted.items_painted > 100, "{what}: the view's list is painted: {counted:?}");
+                }
+                let fresh = fresh_frame(&scene, zoom, 15.0, (&rr, &fm));
+                assert_eq!(differing_pixels(&pm, &fresh), 0, "{what}: the frame is the one painted afresh");
+                let coloured = pm.data().chunks_exact(4).filter(|p| p[..3] != [255, 255, 255]).count();
+                assert!(coloured > 300_000, "{what}: the view shows the picture ({coloured} px)");
+            }
+            assert_eq!(retained.len(), 1, "one surface for the one frame");
+            assert_eq!(retained.bytes(), 1000 * 800 * 4);
+        }
+    }
+
+    /// A1-08 (b), the invalidation rules, each against the frame painted afresh. After a first
+    /// step that keeps the picture:
+    /// - rule 5, a value inside the frame: the turned label's own matrix is written (15 -> 40
+    ///   degrees). The picture is painted again, and the surface kept for it replaces the old.
+    /// - rule 4, the walk's offset: the view pans by 12 px (`content_offset` (-12, 0)). Painted.
+    /// - rule 1, the list: a cell changes colour (a tile arrives, a label is edited). The old
+    ///   list's surface is dropped at the start of the frame and the old list let go of.
+    /// - the control: the same frame again is composited.
+    /// Mutations: `values` left out of the key shows the label at 15 degrees; the offset left
+    /// out shows the picture 12 px off; a key without the list (or an entry that does not hold
+    /// it) shows the old cell.
+    #[test]
+    fn a_kept_picture_is_painted_again_when_what_it_shows_changed() {
+        let font = test_font();
+        let (rr, fm, font_hash) = resources(font.as_ref());
+        let font = font.as_ref().zip(font_hash);
+        let zoom = (1.5, (0.0, 0.0));
+        let kept_scene = || {
+            let scene = zoom_scene(font, (0.0, 0.0), false);
+            let retained = Arc::new(RetainedFrames::with_max_bytes(64 << 20));
+            let mut pm = AzulPixmap::new(900, 700).unwrap();
+            pm.fill(255, 255, 255, 255);
+            let first = zoom_frame(&scene, &zoom_state(&scene, zoom, 15.0, Some(&retained), 1), &mut pm, (&rr, &fm));
+            assert_eq!((first.retained_hits, first.retained_misses, retained.len()), (0, 1, 1));
+            (scene, retained, pm)
+        };
+
+        // The control: nothing changed.
+        let (scene, retained, mut pm) = kept_scene();
+        let again = zoom_frame(&scene, &zoom_state(&scene, zoom, 15.0, Some(&retained), 1), &mut pm, (&rr, &fm));
+        assert_eq!((again.retained_hits, again.retained_misses), (1, 0));
+        assert_eq!(differing_pixels(&pm, &fresh_frame(&scene, zoom, 15.0, (&rr, &fm))), 0);
+
+        // Rule 5: a value inside the frame.
+        let (scene, retained, mut pm) = kept_scene();
+        let turned = zoom_frame(&scene, &zoom_state(&scene, zoom, 40.0, Some(&retained), 1), &mut pm, (&rr, &fm));
+        assert_eq!((turned.retained_hits, turned.retained_misses), (0, 1), "the label turned: {turned:?}");
+        assert_eq!(turned.retained_invalidations, 1, "the surface of 15 degrees is replaced: {turned:?}");
+        let fresh = fresh_frame(&scene, zoom, 40.0, (&rr, &fm));
+        assert_eq!(differing_pixels(&pm, &fresh), 0, "the label at 40 degrees");
+        assert!(differing_pixels(&fresh, &fresh_frame(&scene, zoom, 15.0, (&rr, &fm))) > 500, "harness: the turn shows");
+        assert_eq!(retained.len(), 1);
+
+        // Rule 4: the walk's offset.
+        let (scene, retained, mut pm) = kept_scene();
+        let panned = Scene { host: zoom_scene(font, (-12.0, 0.0), false).host, child: Arc::clone(&scene.child) };
+        let pan = zoom_frame(&panned, &zoom_state(&panned, zoom, 15.0, Some(&retained), 1), &mut pm, (&rr, &fm));
+        assert_eq!((pan.retained_hits, pan.retained_misses), (0, 1), "the view panned: {pan:?}");
+        let fresh = fresh_frame(&panned, zoom, 15.0, (&rr, &fm));
+        assert_eq!(differing_pixels(&pm, &fresh), 0, "the picture 12 px to the left");
+        assert!(differing_pixels(&fresh, &fresh_frame(&scene, zoom, 15.0, (&rr, &fm))) > 500, "harness: the pan shows");
+
+        // Rule 1: the list.
+        let (scene, retained, mut pm) = kept_scene();
+        assert_eq!(Arc::strong_count(&scene.child), 2, "the kept surface holds its list");
+        let edited = Scene { host: Arc::clone(&scene.host), child: zoom_scene(font, (0.0, 0.0), true).child };
+        let edit = zoom_frame(&edited, &zoom_state(&edited, zoom, 15.0, Some(&retained), 1), &mut pm, (&rr, &fm));
+        assert_eq!((edit.retained_hits, edit.retained_misses), (0, 1), "another list: {edit:?}");
+        assert_eq!(edit.retained_invalidations, 1, "the old list's surface is dropped: {edit:?}");
+        assert_eq!(Arc::strong_count(&scene.child), 1, "and the old list let go of");
+        let fresh = fresh_frame(&edited, zoom, 15.0, (&rr, &fm));
+        assert_eq!(differing_pixels(&pm, &fresh), 0, "the edited cell");
+        // The cell (4, 3) is at (205, 155) 40 x 40 of the picture, x 307 .. 367 on screen.
+        assert_eq!(px(&pm, 330, 250), [255, 0, 255, 255]);
+        assert_eq!(retained.held_lists(), vec![Arc::as_ptr(&edited.child) as usize]);
+    }
+
+    /// A1-08 (b), rule 6: what text is painted with is part of the key.
+    #[test]
+    fn the_settings_a_picture_is_painted_with_are_part_of_its_key() {
+        let fm = empty_font_manager();
+        let state = CpuRenderState::new(ScrollOffsetMap::new());
+        let mut smooth = GlyphCache::new();
+        let _ = smooth.set_text_aa(TextAaSettings { mode: TextAa::Grayscale, ..TextAaSettings::default() });
+        let mut stripes = GlyphCache::new();
+        let _ = stripes.set_text_aa(TextAaSettings { mode: TextAa::Lcd, ..TextAaSettings::default() });
+        assert_eq!(paint_settings(&smooth, &fm, &state), paint_settings(&smooth, &fm, &state));
+        assert_ne!(paint_settings(&smooth, &fm, &state), paint_settings(&stripes, &fm, &state));
     }
 }

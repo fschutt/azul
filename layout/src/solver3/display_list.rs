@@ -3671,6 +3671,34 @@ pub(crate) struct FrameEntry {
     pub(crate) shadow_reach: f32,
 }
 
+/// What the picture of a reference frame depends on besides the items between its push and its
+/// pop: the keys bound there (their live values are read when the frame is painted) and the
+/// scroll frames there (their offsets are). A renderer that keeps a frame's picture keeps it
+/// for one set of these values. Kept only for frames that have any.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub(crate) struct FrameInner {
+    /// The keys of the frames and scrollbar thumbs inside, in list order.
+    pub(crate) transform_keys: Vec<usize>,
+    /// The keys of the opacity groups and scrollbars inside.
+    pub(crate) opacity_keys: Vec<usize>,
+    /// The colour keys bound to fills inside.
+    pub(crate) color_keys: Vec<usize>,
+    /// The scroll frames inside.
+    pub(crate) scroll_ids: Vec<LocalScrollId>,
+    /// A view inside: the picture depends on another list.
+    pub(crate) has_view: bool,
+}
+
+impl FrameInner {
+    fn is_empty(&self) -> bool {
+        self.transform_keys.is_empty()
+            && self.opacity_keys.is_empty()
+            && self.color_keys.is_empty()
+            && self.scroll_ids.is_empty()
+            && !self.has_view
+    }
+}
+
 /// The kinds of scope a display list opens and closes ([`FrameEntry::self_contained`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ScopeKind {
@@ -3739,6 +3767,9 @@ pub(crate) struct FrameIndex {
     views: Vec<usize>,
     /// The bounds of the fully opaque, square-cornered rect fills, in list order.
     opaque_fills: Vec<LogicalRect>,
+    /// By the index of a frame's push: what its picture depends on besides its items, for the
+    /// frames that bind anything inside ([`FrameInner`]).
+    inner: std::collections::HashMap<usize, FrameInner>,
 }
 
 impl FrameIndex {
@@ -3760,9 +3791,11 @@ impl FrameIndex {
             well_formed: bool,
             leaf: bool,
             shadow_reach: f32,
+            inner: FrameInner,
         }
         let mut open: Vec<Open> = Vec::new();
         let mut frames: Vec<FrameEntry> = Vec::new();
+        let mut inner: std::collections::HashMap<usize, FrameInner> = std::collections::HashMap::new();
         // The scopes open at the item, outermost first: a frame is self-contained when the
         // scopes opened inside it are closed inside it, innermost first.
         let mut scopes: Vec<ScopeKind> = Vec::new();
@@ -3800,6 +3833,47 @@ impl FrameIndex {
                     }
                 }
                 _ => {}
+            }
+            // What the open frames' pictures depend on besides their items.
+            if !open.is_empty() {
+                match item {
+                    DisplayListItem::PushReferenceFrame { transform_key, .. } => {
+                        for frame in &mut open {
+                            frame.inner.transform_keys.push(transform_key.id);
+                        }
+                    }
+                    DisplayListItem::PushOpacity { opacity_key: Some(k), .. } => {
+                        for frame in &mut open {
+                            frame.inner.opacity_keys.push(k.id);
+                        }
+                    }
+                    DisplayListItem::ScrollBarStyled { info } => {
+                        for frame in &mut open {
+                            if let Some(k) = info.thumb_transform_key {
+                                frame.inner.transform_keys.push(k.id);
+                            }
+                            if let Some(k) = info.opacity_key {
+                                frame.inner.opacity_keys.push(k.id);
+                            }
+                        }
+                    }
+                    DisplayListItem::PushScrollFrame { scroll_id, .. } => {
+                        for frame in &mut open {
+                            frame.inner.scroll_ids.push(*scroll_id);
+                        }
+                    }
+                    DisplayListItem::VirtualView { .. } => {
+                        for frame in &mut open {
+                            frame.inner.has_view = true;
+                        }
+                    }
+                    _ => {}
+                }
+                if let Some(key) = list.color_binding(i) {
+                    for frame in &mut open {
+                        frame.inner.color_keys.push(key.id);
+                    }
+                }
             }
             match item {
                 DisplayListItem::PushReferenceFrame { transform_key, .. } => {
@@ -3848,6 +3922,9 @@ impl FrameIndex {
                         leaf: done.leaf,
                         shadow_reach: done.shadow_reach,
                     });
+                    if !done.inner.is_empty() {
+                        inner.insert(done.push, done.inner);
+                    }
                 }
             }
             if !open.is_empty() {
@@ -3865,6 +3942,7 @@ impl FrameIndex {
                     well_formed: true,
                     leaf: true,
                     shadow_reach: 0.0,
+                    inner: FrameInner::default(),
                 });
                 scopes.push(ScopeKind::Frame);
             }
@@ -3894,6 +3972,7 @@ impl FrameIndex {
             color_keys: list.color_bindings.iter().flatten().map(|k| k.id).collect(),
             views,
             opaque_fills,
+            inner,
         }
     }
 
@@ -3942,6 +4021,12 @@ impl FrameIndex {
     /// The frame pushed at `push`: where it ends, what it paints, whether a walk may step over it.
     pub(crate) fn frame_at(&self, push: usize) -> Option<FrameEntry> {
         self.entry(push).copied()
+    }
+
+    /// What the picture of the frame pushed at `push` depends on besides its items; `None`
+    /// when nothing is bound inside it.
+    pub(crate) fn inner_of(&self, push: usize) -> Option<&FrameInner> {
+        self.inner.get(&push)
     }
 
     /// The index of the pop of the frame pushed at `push`.
