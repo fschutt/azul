@@ -4661,6 +4661,77 @@ mod audit_a3_window_tests {
         );
     }
 
+    /// A label as a map view places it: `left`, `top` and a rotation of its own.
+    fn placed(left: &str, top: &str, transform: &str, more: &str) -> NodeData {
+        NodeData::create_div().with_css(&format!(
+            "position: absolute; left: {left}; top: {top}; transform: {transform}; {more}"
+        ))
+    }
+
+    fn change(old: &NodeData, new: &NodeData) -> NodeChangeSet {
+        NodeDataFingerprint::compute(old, None).diff(&NodeDataFingerprint::compute(new, None))
+    }
+
+    /// Which inline declarations differ decides how far the change reaches (the table in
+    /// `audit/A3-window.md`, "The inline style of a node, by reach"):
+    /// another rotation alone is paint, another place alone is its own flag (a layout change
+    /// that names itself), anything else - and a transform that comes or goes - is layout.
+    #[test]
+    fn an_inline_style_change_is_classified_by_the_declarations_that_differ() {
+        let base = placed("10px", "20px", "rotate(10deg)", "");
+
+        // Another rotation: the same boxes, another matrix.
+        let turned = change(&base, &placed("10px", "20px", "rotate(25deg)", ""));
+        assert!(turned.contains(NodeChangeSet::INLINE_STYLE_PAINT), "{turned:?}");
+        assert!(!turned.needs_layout(), "a rotation lays nothing out: {turned:?}");
+        assert!(turned.needs_paint());
+
+        // Another place: the box is placed again, named as such.
+        let moved = change(&base, &placed("30px", "20px", "rotate(10deg)", ""));
+        assert!(moved.contains(NodeChangeSet::INLINE_STYLE_INSETS), "{moved:?}");
+        assert!(!moved.contains(NodeChangeSet::INLINE_STYLE_LAYOUT), "{moved:?}");
+        assert!(moved.needs_layout(), "an inset is still a layout change");
+
+        // Another place and another rotation: the place decides.
+        let both = change(&base, &placed("30px", "40px", "rotate(25deg)", ""));
+        assert!(both.contains(NodeChangeSet::INLINE_STYLE_INSETS), "{both:?}");
+        assert!(!both.contains(NodeChangeSet::INLINE_STYLE_LAYOUT), "{both:?}");
+
+        // Anything else changes the layout as before.
+        let wider = change(
+            &placed("10px", "20px", "rotate(10deg)", "width: 50px;"),
+            &placed("10px", "20px", "rotate(10deg)", "width: 60px;"),
+        );
+        assert!(wider.contains(NodeChangeSet::INLINE_STYLE_LAYOUT), "{wider:?}");
+
+        // A transform that comes or goes makes or unmakes a containing block: layout.
+        let plain = NodeData::create_div().with_css("position: absolute; left: 10px; top: 20px;");
+        let appeared = change(&plain, &base);
+        assert!(appeared.contains(NodeChangeSet::INLINE_STYLE_LAYOUT), "{appeared:?}");
+        let gone = change(&base, &plain);
+        assert!(gone.contains(NodeChangeSet::INLINE_STYLE_LAYOUT), "{gone:?}");
+
+        // An inset that comes or goes is another set of declarations: layout.
+        let unplaced = NodeData::create_div().with_css("position: absolute; top: 20px;");
+        let placed_now = change(&unplaced, &plain);
+        assert!(placed_now.contains(NodeChangeSet::INLINE_STYLE_LAYOUT), "{placed_now:?}");
+
+        // The same style: nothing.
+        let same = change(&base, &placed("10px", "20px", "rotate(10deg)", ""));
+        assert!(same.is_empty(), "{same:?}");
+    }
+
+    /// Opacity is a value of the display list as a transform is.
+    #[test]
+    fn an_inline_opacity_change_alone_is_paint() {
+        let faded = change(
+            &NodeData::create_div().with_css("width: 10px; opacity: 0.4;"),
+            &NodeData::create_div().with_css("width: 10px; opacity: 0.8;"),
+        );
+        assert!(faded.contains(NodeChangeSet::INLINE_STYLE_PAINT), "{faded:?}");
+        assert!(!faded.needs_layout(), "{faded:?}");
+    }
+
     /// A view that grows: `k` labels under one parent become `2k`, while `k` labels under a
     /// second parent go. The `k` new labels without a positional twin (2k nodes with their texts)
     /// reach the shallow tiers; the old labels of the second parent (2k nodes) are what is left
