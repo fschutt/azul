@@ -18333,6 +18333,27 @@ mod audit_a1_tests {
         assert_ne!(px(&banded, 839, 669), [1, 2, 3, 255], "and its last pixel");
     }
 
+    /// A1-29: `release_cpu_halos` drops what this thread's CPU renderer keeps - a halo and a
+    /// remembered "not kept" alike - and the store keeps new ones afterwards.
+    /// Mutation: a release that leaves the memo as it is still finds both.
+    #[test]
+    fn released_halos_are_gone_and_the_store_keeps_new_ones() {
+        use super::super::text_halo::{keep_cpu_halo, kept_cpu_halo, release_cpu_halos, CpuHalo};
+        let halo = || {
+            Some(std::sync::Arc::new(CpuHalo { width: 2, height: 1, offset: (0, 0), coverage: vec![255, 0] }))
+        };
+        let (a, b) = (0xA129_0001_u64, 0xA129_0002_u64);
+        keep_cpu_halo(a, halo());
+        keep_cpu_halo(b, None);
+        assert!(matches!(kept_cpu_halo(a), Some(Some(_))), "premise: kept");
+        assert!(matches!(kept_cpu_halo(b), Some(None)), "premise: remembered as not kept");
+        release_cpu_halos();
+        assert!(kept_cpu_halo(a).is_none() && kept_cpu_halo(b).is_none(), "released");
+        keep_cpu_halo(a, halo());
+        assert!(matches!(kept_cpu_halo(a), Some(Some(_))), "and the store keeps on keeping");
+        release_cpu_halos();
+    }
+
     /// A1-06 (a), wired to A8-38: the bands of a repaint read the window's glyph cache and
     /// build what it lacks into caches of their own, which the window's cache takes back when
     /// they are done; no thread writes the window's cache while they run. A window with

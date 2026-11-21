@@ -204,11 +204,16 @@ fn a9_image_memo_holds_its_bounds_under_ten_times_the_load() {
     assert!(memo.get(&5_119).is_some(), "the newest is kept");
 }
 
-/// A9-09: what a minimised macOS window gives back (`window_did_miniaturize`: the CPU
-/// compositor and the glyph cache's older generation) is safe to drop: the frames that follow
-/// paint the same picture. The compositor (its root layer is a whole frame of pixels) serves
-/// the full repaint only; an unchanged frame after the release stays idle, a full repaint makes
-/// it again. The statements are the shell's (the delegate cannot run headless).
+/// A9-09: what a minimised macOS window gives back (`release_regenerable_memory`: what the CPU
+/// backend keeps to make frames cheaper, `CpuBackend::release_caches`, and the glyph cache's
+/// older generation) is safe to drop: the frames that follow paint the same picture. An
+/// unchanged frame after the release stays idle, a full repaint paints it again. The
+/// statements are the shell's (the delegate cannot run headless).
+///
+/// Changed with the merge of A1: the shell releases through `release_caches` (A1-29: the kept
+/// group surfaces and halos go with the compositor), and a full repaint of a list without a
+/// filter that needs layers is the banded walk (A1-21), which makes no compositor - the
+/// assertion that one was "made again" held for the layered repaint this replaced.
 #[cfg(all(feature = "text_layout", feature = "cpurender"))]
 #[test]
 fn a9_09_a_released_cpu_backend_paints_the_same_picture_afterwards() {
@@ -248,20 +253,22 @@ fn a9_09_a_released_cpu_backend_paints_the_same_picture_afterwards() {
     let before = backend.last_frame.as_ref().expect("a frame").clone_pixmap();
 
     // What the shell gives back when the window goes to the Dock.
-    backend.compositor = None;
+    backend.release_caches();
     backend.glyph_cache.gc();
     assert_eq!(backend.glyph_cache.prev_generation_len(), 0);
+    assert!(backend.compositor.is_none() && backend.retained_frames.is_empty());
 
     // The window comes back, nothing changed: nothing is painted, the picture stands.
     backend.render_frame(&lw, &resources, 200.0, 100.0, 1.0);
     assert_eq!(backend.last_frame_damage, FrameDamage::None);
     assert_eq!(backend.last_frame.as_ref().expect("a frame").data(), before.data());
 
-    // A full repaint (an expose, a style change) makes the layers again: the same picture.
+    // A full repaint (an expose, a style change): the same picture, and - for a page without
+    // a filter that needs layers - without a compositor (A1-21).
     backend.force_full_repaint = true;
     backend.render_frame(&lw, &resources, 200.0, 100.0, 1.0);
     assert_eq!(backend.last_frame_damage, FrameDamage::Full);
-    assert!(backend.compositor.is_some(), "the compositor is made again");
+    assert!(backend.compositor.is_none(), "the walk repaints in full without a second buffer");
     let after = backend.last_frame.as_ref().expect("a frame");
     assert_eq!(after.data(), before.data(), "and paints the same picture");
 }

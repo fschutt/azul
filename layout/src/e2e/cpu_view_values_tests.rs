@@ -544,3 +544,30 @@ fn the_frame_is_as_large_as_the_shells_buffer_formula_says() {
     assert_eq!((frame.width(), frame.height()), expected);
     assert_eq!(backend.last_frame_px, Some(expected));
 }
+
+/// A1-29 (merge follow-up 4): what the macOS shell gives back for a window nobody sees and
+/// under memory pressure (`CpuBackend::release_caches`: the kept group surfaces, this thread's
+/// kept halos, the compositor) costs the next frames work, never a pixel: an unchanged frame
+/// after the release is idle (the frame on screen is kept), and a zoom step after it is the
+/// frame a backend that never kept anything paints.
+/// Mutation: a release that also drops `last_frame` or the previous display list turns the
+/// idle frame into a full one.
+#[test]
+fn a_backend_that_released_its_caches_paints_the_same_frames() {
+    let mut z = zoomable(None);
+    let mut backend = CpuBackend::new();
+    let _ = z.frame(&mut backend);
+    z.write(z.picture, zoom(40.0, 20.0, 2.0));
+    let _ = z.frame(&mut backend);
+    backend.release_caches();
+    assert!(backend.retained_frames.is_empty() && backend.compositor.is_none());
+    let _ = z.frame(&mut backend);
+    assert!(
+        matches!(backend.last_frame_damage, crate::window::FrameDamage::None),
+        "nothing changed: an idle frame, got {:?}",
+        backend.last_frame_damage
+    );
+    z.write(z.picture, zoom(40.0, 20.0, 2.5));
+    let after = z.frame(&mut backend);
+    assert_the_frame_is_what_a_full_paint_gives(&z, &after, "a zoom step after a release");
+}
