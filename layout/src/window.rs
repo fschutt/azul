@@ -2635,6 +2635,16 @@ pub struct DomGenerations {
     /// draw a callback image then, `(layout index, node)` in tree order
     /// (`LayoutWindow::invoke_image_callbacks_into_overlay`).
     callback_images: BTreeMap<DomId, (u64, Vec<(usize, NodeId)>)>,
+    /// Per DOM how often the ITEMS of its display list were replaced or spliced since its
+    /// generation last moved ([`Self::bump_list`]): a list built again from the tree, a
+    /// patch by node, a run of a restyle spliced in, a background's layers patched. Not
+    /// counted: writes that leave every item the kind it is and where it is (a caret, a
+    /// colour, a binding, a view's content offset).
+    list_revisions: BTreeMap<DomId, u64>,
+    /// Per DOM: the `(generation, list revision)` its list was last walked at and the
+    /// indices of the `Image` items found then
+    /// (`LayoutWindow::invoke_background_image_callbacks_into_overlay`).
+    image_items: BTreeMap<DomId, ((u64, u64), Vec<usize>)>,
 }
 
 impl DomGenerations {
@@ -2655,8 +2665,46 @@ impl DomGenerations {
         self.of.retain(|dom_id, _| live.contains_key(dom_id));
         self.callback_images
             .retain(|dom_id, _| live.contains_key(dom_id));
+        self.list_revisions
+            .retain(|dom_id, _| live.contains_key(dom_id));
+        self.image_items
+            .retain(|dom_id, _| live.contains_key(dom_id));
+    }
+
+    /// The items of `dom_id`'s display list were replaced or spliced (see `list_revisions`).
+    fn bump_list(&mut self, dom_id: DomId) {
+        let revision = self.list_revisions.entry(dom_id).or_insert(0);
+        *revision = revision.wrapping_add(1);
+    }
+
+    /// What says whether `dom_id`'s display list holds the items, each of the kind and at
+    /// the index, it held when this was last read.
+    fn list_stamp(&self, dom_id: DomId) -> (u64, u64) {
+        (
+            self.get(dom_id),
+            self.list_revisions.get(&dom_id).copied().unwrap_or(0),
+        )
     }
 }
+
+/// How many display-list items the search for callback backgrounds looked at on this thread
+/// to find the `Image` items of a list
+/// (`LayoutWindow::invoke_background_image_callbacks_into_overlay`): what a test reads to say
+/// a frame over the lists of the frame before looks at none.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static BACKGROUND_ITEM_SCAN: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn background_item_scan(steps: usize) {
+    BACKGROUND_ITEM_SCAN.with(|scanned| scanned.set(scanned.get() + steps));
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+const fn background_item_scan(_steps: usize) {}
 
 /// A set of characters: a bit per code point of the Basic Multilingual Plane, the few others
 /// in a set. What a DOM's text uses is collected into one per layout pass (a step per
@@ -11891,6 +11939,8 @@ impl LayoutWindow {
         patch: impl Fn(&mut DisplayList) -> R,
     ) -> Option<R> {
         let lr = self.layout_results.get_mut(&dom_id)?;
+        // A patch by node may put an item of another kind where one was.
+        self.dom_generations.bump_list(dom_id);
         let cached = if dom_id == DomId::ROOT_ID {
             self.layout_cache.cached_display_list.as_mut()
         } else {
@@ -12198,12 +12248,49 @@ impl LayoutWindow {
 
         // Phase 1: every layer the display lists paint, and the ones whose
         // inputs changed.
+        // Where the `Image` items of each list are: found by one walk of the list and kept
+        // while the list holds the same items at the same places (`DomGenerations`). Every
+        // frame walked every item of every list for them - 17,495 of a map view's, on each
+        // pan move, to find its few hundred tiles (none of which is a callback background).
+        // The items themselves are read fresh below.
+        for (dom_id, lr) in &self.layout_results {
+            let stamp = self.dom_generations.list_stamp(*dom_id);
+            if self
+                .dom_generations
+                .image_items
+                .get(dom_id)
+                .is_some_and(|(walked_at, _)| *walked_at == stamp)
+            {
+                continue;
+            }
+            background_item_scan(lr.display_list.items.len());
+            let images: Vec<usize> = lr
+                .display_list
+                .items
+                .iter()
+                .enumerate()
+                .filter(|(_, item)| matches!(item, DisplayListItem::Image { .. }))
+                .map(|(index, _)| index)
+                .collect();
+            self.dom_generations
+                .image_items
+                .insert(*dom_id, (stamp, images));
+        }
+
         let mut seen: BTreeSet<BackgroundSlot> = BTreeSet::new();
         let mut asks: Vec<Ask> = Vec::new();
         let mut shining: BTreeMap<(DomId, NodeId), (LogicalRect, LogicalRect)> = BTreeMap::new();
         for (dom_id, lr) in &self.layout_results {
             let node_data = lr.styled_dom.node_data.as_container();
-            for (index, item) in lr.display_list.items.iter().enumerate() {
+            let images = self
+                .dom_generations
+                .image_items
+                .get(dom_id)
+                .map_or(&[][..], |(_, images)| images.as_slice());
+            for &index in images {
+                let Some(item) = lr.display_list.items.get(index) else {
+                    continue;
+                };
                 let DisplayListItem::Image {
                     bounds,
                     image,
@@ -19576,6 +19663,8 @@ impl LayoutWindow {
                 }
 
                 if !layer_jobs.is_empty() {
+                    // A layer list may trade a gradient for an image.
+                    self.dom_generations.bump_list(DomId::ROOT_ID);
                     let dl = Arc::make_mut(&mut result.display_list);
                     for (node, from_layers, to_layers) in &layer_jobs {
                         if dl
@@ -27752,6 +27841,8 @@ impl LayoutWindow {
             Some(false) => self.layout_cache.cached_display_list = None,
             None => {}
         }
+        // The runs are spliced in: the items behind them move.
+        self.dom_generations.bump_list(dom_id);
         node_patch::commit(
             Arc::make_mut(&mut layout_result.display_list),
             &patches,
@@ -27989,6 +28080,8 @@ impl LayoutWindow {
                 if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
                     layout_result.display_list = display_list.clone();
                 }
+                // Another list: what was found in the one before is void.
+                self.dom_generations.bump_list(dom_id);
                 if dom_id == DomId::ROOT_ID {
                     self.root_display_list_gpu_fingerprint = Some(gpu_fingerprint);
                 }

@@ -1531,3 +1531,41 @@ fn a_bar_that_shows_moves_the_value_generation_and_a_resting_one_does_not() {
     let _ = lw.refresh_scrollbar_gpu_cache_for_cpu_frame();
     assert_eq!(generation(&lw), shown, "nothing was written");
 }
+
+// -- A3-window-06: the per-frame search for callback backgrounds -------------------------------
+
+fn background_items_scanned() -> usize {
+    crate::window::BACKGROUND_ITEM_SCAN.with(core::cell::Cell::get)
+}
+
+/// The budget of A3-window-06: with a callback image registered by name (every window of a
+/// build with the built-in materials has some), a frame over the lists of the frame before
+/// looks at no display-list item to find the `Image` items; a list that was spliced is
+/// walked once more, and only that list.
+#[test]
+fn a_frame_over_the_lists_of_the_frame_before_walks_no_item_for_callback_backgrounds() {
+    let (mut lw, child) = label_window(40);
+    lw.image_cache.add_css_image_id(
+        "probe".into(),
+        azul_core::resources::ImageRef::callback(
+            crate::callbacks::RenderImageCallback::create(late_canvas).to_core(),
+            RefAny::new(()),
+        ),
+    );
+    lw.prepare_frame_content();
+    assert!(background_items_scanned() > 0, "the first frame walks the lists");
+
+    crate::window::BACKGROUND_ITEM_SCAN.with(|scanned| scanned.set(0));
+    lw.prepare_frame_content();
+    lw.prepare_frame_content();
+    assert_eq!(background_items_scanned(), 0, "the same lists: nothing is walked");
+
+    // A hover colour is spliced into the view's list (or the list is built again).
+    let _ = hover(&mut lw, child, 3, true);
+    lw.prepare_frame_content();
+    assert_eq!(
+        background_items_scanned(),
+        lw.layout_results[&child].display_list.items.len(),
+        "the view's list, once; the window's own was not touched"
+    );
+}
