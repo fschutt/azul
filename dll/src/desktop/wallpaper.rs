@@ -10,32 +10,40 @@
 //! - GNOME: `org.gnome.desktop.background picture-uri` (`picture-uri-dark` in the dark mode);
 //!   KDE Plasma: the `Image=` of the desktop containment in `plasma-org.kde.plasma.desktop-appletsrc`.
 //!
-//! [`install`] registers the reader; it runs the first time a metal is drawn.
-//! [`refresh`] reads again - the shells call it when a window is activated,
-//! the moment a user comes back from changing the wallpaper (one `stat` per
-//! screen when nothing changed).
+//! [`install`] gives a window this reader - the shells call it for every
+//! window they build; the window's metals run it the first time one is
+//! drawn. [`refresh`] reads again - the shells call it when a window is
+//! activated, the moment a user comes back from changing the wallpaper (one
+//! `stat` per screen when nothing changed). The wallpapers are the window's
+//! own (`LayoutWindow::material_renderer`): a window refreshed is the window
+//! redrawn.
 //! Where no reader works (a headless run, an unknown desktop) the metals
 //! reflect the system's highlight colour instead.
 
 #[cfg(feature = "materials")]
-use azul_layout::texture::environment::{self, Wallpaper};
+use azul_layout::texture::environment::Wallpaper;
+use azul_layout::window::LayoutWindow;
 
-/// Register this platform's wallpaper reader (`App::create` calls it).
-pub fn install() {
+/// Give `window` this platform's wallpaper reader (every window a shell
+/// builds gets it).
+pub fn install(window: &LayoutWindow) {
     #[cfg(feature = "materials")]
-    environment::set_wallpaper_loader(read_wallpapers);
+    window.material_renderer.desktop().set_loader(read_wallpapers);
+    #[cfg(not(feature = "materials"))]
+    let _ = window;
 }
 
-/// Read the wallpapers again now (the user may have changed them while the
-/// app was in the background). Returns whether they changed: the caller
-/// redraws, and every material frame renders again.
-pub fn refresh() -> bool {
+/// Read the wallpapers of `window` again now (the user may have changed them
+/// while the app was in the background). Returns whether they changed: the
+/// caller redraws, and every material frame of the window renders again.
+pub fn refresh(window: &LayoutWindow) -> bool {
     #[cfg(feature = "materials")]
     {
-        environment::refresh_desktop_wallpapers()
+        window.material_renderer.desktop().refresh()
     }
     #[cfg(not(feature = "materials"))]
     {
+        let _ = window;
         false
     }
 }
@@ -57,6 +65,10 @@ fn cached(
     load: impl FnOnce() -> Option<Wallpaper>,
 ) -> Option<Wallpaper> {
     type Entry = (std::path::PathBuf, Option<std::time::SystemTime>, [u32; 4], Wallpaper);
+    // KEPT process-wide: a memo of what the OS's wallpaper FILES hold, keyed by
+    // path, modification time and screen. The desktop is one per machine, so
+    // the windows share one decode (each window's own wallpapers are its
+    // `DesktopWallpapers`, fed from here).
     static CACHE: std::sync::Mutex<Vec<Entry>> = std::sync::Mutex::new(Vec::new());
     let modified = std::fs::metadata(path).and_then(|m| m.modified()).ok();
     let screen_bits = screen.map(f32::to_bits);

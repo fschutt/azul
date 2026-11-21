@@ -230,9 +230,6 @@ impl App {
         // sheen, and the shadows that follow the light are lit from it;
         // `CallbackInfo::set_app_light` moves it for all of them.
         azul_core::light::set_app_light(app_config.light);
-        // What the metals reflect: the platform's wallpaper reader, run the
-        // first time a metal is drawn.
-        crate::desktop::wallpaper::install();
         // The font faces the app ships (`AppConfig::add_font`): every font
         // manager built from now on - each window's, the PDF writer's -
         // registers them, before the first window exists.

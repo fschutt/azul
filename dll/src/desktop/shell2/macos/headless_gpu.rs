@@ -536,7 +536,10 @@ pub(crate) fn gl_state_around_materials(
     if !gl_ptr.is_gl_usable() {
         return None;
     }
-    let on_gpu = azul_layout::texture::materials::material_shader_compiles(&gl_ptr);
+    // The window's own renderer is the one that compiles the shader here, and
+    // the one whose materials the frame path draws below.
+    let mut window = LayoutWindow::new(FcFontCache::build()).ok()?;
+    let on_gpu = window.material_renderer.shader_compiles(&gl_ptr);
     let names = gl.gen_textures(4);
     for (unit, &name) in names.iter().enumerate() {
         gl.active_texture(glconst::TEXTURE0 + unit as u32);
@@ -550,7 +553,6 @@ pub(crate) fn gl_state_around_materials(
 
     let mut state = FullWindowState::default();
     state.size.dimensions = LogicalSize::new(260.0, 120.0);
-    let mut window = LayoutWindow::new(FcFontCache::build()).ok()?;
     window.renderer_type = Some(RendererType::Hardware);
     window.current_window_state = state.clone();
     window
