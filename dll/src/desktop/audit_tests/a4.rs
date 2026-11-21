@@ -1189,3 +1189,222 @@ mod a_settle_sent_without_the_wait {
         );
     }
 }
+
+// ==== A4-29: a view's zoom is served by the tiles the renderer has ====
+
+mod a_views_zoom_frame {
+    //! A window with a view whose root carries the zoom, as a map's picture
+    //! root does (`transform: translate(0px, 0px)` on the root of the view's
+    //! own DOM, replaced by a translate and a scale while the user zooms):
+    //! what the transactions hand the renderer.
+
+    use azul_core::{
+        callbacks::{VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn},
+        geom::{LogicalPosition, LogicalRect},
+        refany::RefAny,
+        transform::ComputedTransform3D,
+    };
+    use azul_layout::managers::gpu_state::ZoomFrameState;
+    use webrender::api::PropertyBindingId;
+
+    use super::*;
+    use crate::desktop::compositor2::ZOOM_FRAMES;
+
+    /// The picture: a root that carries a transform, and sixty boxes in it.
+    extern "C" fn picture(_data: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+        let mut root = Dom::create_div()
+            .with_css("transform: translate(0px, 0px); transform-origin: 0px 0px;");
+        for i in 0..60 {
+            root = root.with_child(Dom::create_div().with_css(if i % 2 == 0 {
+                "height: 20px; background: #3366cc;"
+            } else {
+                "height: 20px; background: #cc6633;"
+            }));
+        }
+        let rect = LogicalRect::new(LogicalPosition::zero(), info.bounds.logical_size);
+        VirtualViewReturn::with_dom(root, rect, rect)
+    }
+
+    /// A host page: a bar, and the view over the rest.
+    pub(super) fn window() -> LayoutWindow {
+        let mut dom = Dom::create_body()
+            .with_child(Dom::create_div().with_css("height: 30px; background: #444444;"))
+            .with_child(
+                Dom::create_virtual_view(RefAny::new(()), VirtualViewCallback::create(picture))
+                    .with_css("width: 300px; height: 200px;"),
+            );
+        let styled_dom = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_new_generation(
+            styled_dom,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the host lays out");
+        lw
+    }
+
+    pub(super) fn view_of(lw: &LayoutWindow) -> DomId {
+        *lw.layout_results
+            .keys()
+            .find(|dom| **dom != DomId::ROOT_ID)
+            .expect("the view's own DOM is laid out")
+    }
+
+    /// The view's zoom frame as the window has it recorded.
+    pub(super) fn zoom_of(lw: &LayoutWindow) -> Option<ZoomFrameState> {
+        lw.gpu_state_manager.zoom_frames.get(&view_of(lw)).copied()
+    }
+
+    /// The app writes `matrix` as the transform of the view's root (what
+    /// `set_css_property` of a GPU-only value does).
+    pub(super) fn write_zoom(lw: &mut LayoutWindow, node: NodeId, matrix: ComputedTransform3D) {
+        let view = view_of(lw);
+        let cache = lw.gpu_state_manager.get_or_create_cache(view);
+        cache.css_current_transform_values.insert(node, matrix);
+    }
+
+    pub(super) fn scaled(s: f32, tx: f32, ty: f32) -> ComputedTransform3D {
+        let mut m = ComputedTransform3D::IDENTITY;
+        m.m[0][0] = s;
+        m.m[1][1] = s;
+        m.m[3][0] = tx;
+        m.m[3][1] = ty;
+        m
+    }
+
+    pub(super) fn turned() -> ComputedTransform3D {
+        let mut m = ComputedTransform3D::IDENTITY;
+        m.m[0][0] = 0.0;
+        m.m[0][1] = 1.0;
+        m.m[1][0] = -1.0;
+        m.m[1][1] = 0.0;
+        m
+    }
+
+    /// What a transaction carries, read off it: the display list it sends (its
+    /// pipeline's DOM), whether the value of `key` is among its bound values,
+    /// and what it tells the renderer about a zoom of `key`'s frame.
+    pub(super) struct Carried {
+        pub(super) list_of: Option<u32>,
+        pub(super) value: Option<webrender::api::units::LayoutTransform>,
+        pub(super) zooming: Vec<bool>,
+    }
+
+    pub(super) fn carried(txn: WrTransaction, key: usize) -> Carried {
+        let list_of = txn.first_display_list().map(|(pipeline, _)| pipeline.0);
+        let (mut value, mut zooming) = (None, Vec::new());
+        for op in txn.get_frame_ops() {
+            match op {
+                FrameMsg::AppendDynamicProperties(properties) => {
+                    value = properties
+                        .transforms
+                        .iter()
+                        .find(|v| v.key.id == PropertyBindingId::new(key as u64))
+                        .map(|v| v.value)
+                        .or(value);
+                }
+                FrameMsg::SetIsTransformAsyncZooming(is, id)
+                    if id == PropertyBindingId::new(key as u64) =>
+                {
+                    zooming.push(is);
+                }
+                _ => {}
+            }
+        }
+        Carried {
+            list_of,
+            value,
+            zooming,
+        }
+    }
+
+    /// The pass of a frame that laid nothing out.
+    pub(super) fn step(lw: &mut LayoutWindow, key: usize) -> (bool, Carried) {
+        let mut txn = WrTransaction::new();
+        let frame = build_lightweight_transaction(&mut txn, lw, &OptionGlContextPtr::None)
+            .expect("the lightweight transaction");
+        (frame.changed, carried(txn, key))
+    }
+
+    /// A4-29, the decision and the promise. The view's list is sent with its
+    /// root frame as the zoom frame (the window's own list has none). A step
+    /// of the zoom - another scale, another shift - is then a VALUE: no
+    /// display list is translated or sent. The step that makes the frame
+    /// anything but a scale and a translation sends the view's list in the
+    /// SAME transaction as that value, without a zoom frame: the renderer is
+    /// never handed such a value under a frame declared a 2D scale /
+    /// translation. With `AZ_WR_ZOOM_TILES=0` no frame is declared at all.
+    /// Mutations: `keep_zoom_promises` not called from the lightweight
+    /// builder sends the turn without a list; `zoom_frame_now` answering for
+    /// any matrix keeps the frame declared under the turn; `dom_id.inner == 0
+    /// ||` dropped from `zoom_frame_of` could declare a frame of the window's
+    /// own list.
+    #[test]
+    fn a4_29_a_zoom_step_is_a_value_and_a_turn_sends_the_list_with_it() {
+        ZOOM_FRAMES.with(|on| on.set(Some(true)));
+        let mut lw = window();
+        let view = view_of(&lw);
+        publish_gpu_frame(&lw, 0, 0, 0);
+
+        let mut txn = WrTransaction::new();
+        build_full_transaction(&mut txn, &mut lw, &OptionGlContextPtr::None)
+            .expect("the full transaction");
+        let zoom = zoom_of(&lw).expect("the view's root frame is its zoom frame");
+        assert_eq!((zoom.scale, zoom.zooming), (1.0, false));
+        assert!(
+            !lw.gpu_state_manager.zoom_frames.contains_key(&DomId::ROOT_ID),
+            "the window's own list has no zoom frame"
+        );
+        assert_eq!(lw.gpu_state_manager.zoom_frames.len(), 1);
+        count_transaction(&txn);
+        publish_gpu_frame(&lw, 0, 0, 0);
+        assert_eq!(lw.frame_clock.gpu_last().lists_translated, 2, "the host's and the view's");
+
+        // A zoom step: scale 1.25 about a point, i.e. a scale and a shift.
+        write_zoom(&mut lw, zoom.node, scaled(1.25, -40.0, -25.0));
+        let (changed, sent) = step(&mut lw, zoom.key);
+        assert!(changed, "the value moved: a frame");
+        assert_eq!(sent.list_of, None, "a zoom step sends no display list");
+        let value = sent.value.expect("the frame's new value is in the transaction");
+        assert_eq!((value.m11, value.m22, value.m41, value.m42), (1.25, 1.25, -40.0, -25.0));
+        publish_gpu_frame(&lw, 0, 0, 0);
+        let counted = lw.frame_clock.gpu_last();
+        assert_eq!((counted.lists_translated, counted.items_translated), (0, 0));
+        assert_eq!(zoom_of(&lw).map(|z| z.key), Some(zoom.key), "still the view's zoom frame");
+
+        // The app turns the picture: not a scale and a translation any more.
+        write_zoom(&mut lw, zoom.node, turned());
+        let (changed, sent) = step(&mut lw, zoom.key);
+        assert!(changed);
+        assert_eq!(
+            sent.list_of,
+            Some(view.inner as u32),
+            "the view's list goes with the value that breaks the promise"
+        );
+        let value = sent.value.expect("and the value is in the same transaction");
+        assert_eq!((value.m11, value.m12), (0.0, 1.0));
+        assert_eq!(zoom_of(&lw), None, "the list the renderer holds now declares no zoom frame");
+
+        // Back to a plain matrix: the frame is not declared again by itself
+        // (the list the renderer holds is the one without it) ...
+        write_zoom(&mut lw, zoom.node, scaled(1.5, 0.0, 0.0));
+        let (_, sent) = step(&mut lw, zoom.key);
+        assert_eq!(sent.list_of, None);
+        assert_eq!(zoom_of(&lw), None);
+
+        // The switch: a window made with it off declares nothing.
+        ZOOM_FRAMES.with(|on| on.set(Some(false)));
+        let mut off = window();
+        let mut txn = WrTransaction::new();
+        build_full_transaction(&mut txn, &mut off, &OptionGlContextPtr::None)
+            .expect("the full transaction");
+        ZOOM_FRAMES.with(|on| on.set(None));
+        assert!(off.gpu_state_manager.zoom_frames.is_empty(), "AZ_WR_ZOOM_TILES=0");
+    }
+}
