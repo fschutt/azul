@@ -78,6 +78,15 @@ Generated code:
 - `6cdc7a4b4` `cpurender/pixmap.rs` `write_region`: a side past `i32::MAX` writes nothing, as the per-pixel loops
   A1-57 (`7c0cb7f4e`) replaced did (pre-existing `write_region_u32_max_dimensions_are_a_noop`).
 
+- `2d750b70f` (fourth verifier, on the coordinator's word; diff-first-07's step `tlist`) `solver3/display_list.rs`
+  `PatchState::carried`, `try_copy_cached_run`: a `Text` item copied from the list of ANOTHER tree keeps no
+  index of that tree: its `source_node_index` is the index its box has now, the proven background is asked with
+  that index, and a run with a text whose box was not carried is painted. Found by
+  `a_box_that_got_another_layout_index_is_copied_from_the_run_it_had` (49 lines, `Some(35)` for `Some(36)`).
+  The commit message holds the audit of every item variant and list table a copied run brings along (one field
+  to map; no further one). Mutants run: the index not mapped; the background asked with the old index ("the box
+  above": caught only by the new `df_list_tables` lines).
+
 ## Tests changed by the verifier (the code under them is unchanged; each keeps what it guards)
 
 Pre-existing tests whose expectation an area changed on purpose (the area's notes name the change):
@@ -129,6 +138,42 @@ Audit tests with a wrong premise (blind):
   after "abc" (the space is a new character).
 - `b6434a0cf` `audit_tests/a2_cpu.rs` `Stage::write`: asked `Paint` of a write of the value the node has
   (`Unchanged`).
+
+Second round (fourth verifier; each on the coordinator's decision, the measurement in the commit and in the test):
+- `efa4bcf55` layout `audit_tests::a3_window::a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it`
+  (`55c008027`): its `NodeCss` pass of a view's document builds the list in FULL (0 runs copied, 0 translated,
+  measured), so its two mutant premises (">= 40 runs translated", "the shifted list is not the built one") cannot
+  hold; they are gone, the equality with the built list stays, nothing pins the full build. The moved-run
+  property is guarded by `audit_tests::diff_first::a_box_a_patched_pass_moved_is_painted_as_a_build_paints_it`
+  and `the_switch_translates_a_moved_run_as_before`.
+- `dbddfa99f` dll `df_list_against_full` (helper of four tests): `Key { id: N }` masked in the comparison of TWO
+  windows (`PROPERTY_KEY_COUNTER` is process-wide: 184 in one window before and after its rebuild, 122 in the
+  other); only the number, not the item.
+- `2d750b70f` dll `df_list_tables` (more is compared, nothing less): per item the DOM node, layout box and phase,
+  hit tag, proven background, ink, selection colours, colour binding; per list carets, fixed ranges, forced
+  breaks, translated boxes; in the window's and the view's helper. Two cases added to
+  `a_box_that_got_another_layout_index_is_copied_from_the_run_it_had` (rows that come in the middle, with and
+  without anonymous boxes).
+- `2510be1fb` dll `a_box_the_windows_cascade_reached_is_painted_though_it_is_clean`: `patched == 1` reads
+  `patched + across == 1` (measured (0, 1): 235 runs copied, 10 painted; the page's anonymous boxes make no pass
+  of it a same-shaped tree's, so the arm of `tlist` takes it).
+
+ROWS FOR THE LEDGER from the second round (open; owner: the diff-first area):
+1. A `NodeCss` write that relayouts a view's document emits the document's whole display list (not patched):
+   cost scales with the view's items; not on the editor's label drag (a transform write), but on any callback
+   that writes a size.
+2. A page with anonymous boxes never counts as "structure preserved" for the layout reconcile (a carried
+   anonymous box is neither reused nor fresh, so `reused + fresh == nodes` fails): its changed rebuilds take the
+   arm of a changed tree, which records a FULL emission (no patch damage, no move summary).
+3. `wlist`'s own arm has no WINDOW test of a clean box the cascade reached (the df fixture's rows with a box
+   inside always hold an anonymous box); the arm's re-emit set is tested through a view.
+4. By reading, not reproduced: an item of a run copied across trees that is attributed to ANOTHER DOM node than
+   the run's box (a text or inline box under its inline root's run) keeps that node's old id in `node_mapping`
+   if the id moved while the root kept its own and was not laid out again (a node that comes or goes inside an
+   earlier inline-block of unchanged size in the same line). Proposed: in the across arm's loop over the carried
+   boxes, a box whose `dom_node_id` changed also puts the root of its inline context into the re-emit set.
+   Needs a fixture and a test.
+5. The branch "a run with a text whose box was not carried is painted" (`2d750b70f`) has no mutant test.
 
 ## Open (failing in the tree on purpose; with the owner)
 
@@ -240,16 +285,17 @@ published).
 
 azul, second round, in the coordinator's order (it confirms each merge by name and pushes green tips; the
 editor's pin moves once, after the last green merge of the round, on its word):
-- **2a `audit/diff-first` at `83098e8c4`: MERGED as `340bc27b3`** (no conflict, 0 compile errors, no fix).
-  Layout lib 10,915 / 2 / 1 ignored, `tests/all` 3,060 / 0 / 5 (log `501`). The 2: the known font TEST race
-  (alone 3 of 3), and `audit_tests::a3_window::a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it`
-  (`55c008027`) on its first PREMISE ("0 runs were translated"): measured with a probe (log `502`, removed
-  again): the `ContentChange::NodeCss` relayout of a view's document builds the document's list in FULL (every
-  patch counter stays 0, `last_build_was_patched` false; the list is the built one under both policies): the
-  page proves nothing about moved runs, as the premise says; the property is green in
-  `audit_tests::diff_first::a_box_a_patched_pass_moved_is_painted_as_a_build_paints_it` and
-  `the_switch_translates_a_moved_run_as_before` (a resize). WITH THE COORDINATOR (the test is not touched without
-  its word). dll: IN PROGRESS (log `503` the build; then the named tests, the lib whole, `headless_lifecycle`).
+- **2a `audit/diff-first` at `83098e8c4`: MERGED as `340bc27b3`, GREEN at `2510be1fb`** (no conflict, 0 compile
+  errors). On top of the merge, each on the coordinator's word: `efa4bcf55` (the window area's moved-box guard
+  keeps its equality, without the two mutant premises: its `NodeCss` pass builds the list in full), `dbddfa99f`
+  (the two-window comparison masks the ids of the windows' own keys), `2d750b70f` (THE FIX of `tlist`: a text
+  copied across a changed tree names its box by the index the box has now; with the audit of every field a
+  copied run holds, in the commit message), `2510be1fb` (the premise `patched + across == 1`).
+  Suites on `2510be1fb`'s tree: dll lib 3,873 / 0 / 9 ignored (log `512`), `headless_lifecycle` 8 / 0 (`513`),
+  layout lib 10,917 / 0 / 1 ignored and `tests/all` 3,060 / 0 / 5 (`514`). css, core, the fork: untouched by
+  the merge (milestone 6 stands). NOT run for 2a: the Linux / Windows `cargo check` (shared code changed:
+  `layout/`, `dll/.../common/layout.rs`): once before the pin moves, at the end of the round. `api.json`
+  unchanged by 2a. The coordinator pushes; the verifier pushes nothing.
 - 2b `audit/A3-solver` at `8539c5b03` (an `api.json` addition: the Rust outputs of `target/codegen` must be made
   again, see "Generated code"), 2c `audit/A5` at `dbde1ccf5`, 2d `audit/dom-builder` at `234ec3de2`: NOT merged
   yet. A dry `git merge-tree` of each against `70b0434de` showed no conflict.
@@ -738,3 +784,35 @@ The engine's part:
 - dll (the hit and event tests live in its lib): `cargo test -p azul-dll --lib --no-fail-fast` 3864 / 0 / 9 ignored
   (`207`), `cargo test -p azul-dll --test headless_lifecycle` 8 / 0 (`208`), both on `8d589ae37`.
   Disk after the dll build: 8.9 GB free, 9.6 GB after deleting the test binaries (the rule: before every build).
+
+
+### Fourth verifier (took over at `70b0434de`; the second round of merges)
+
+Step 1 was the editor's: m4p `6efb0f0` (the contour label at (inf, NaN): line against line is crossed in
+m4p-types; `audit/PIN_PASS.md` section 9), pushed by the coordinator as m4p `origin/master` `f8e4b86`.
+
+**2a, `audit/diff-first` at `83098e8c4`** (the steps `list` `aa929c920`, `wlist` `554d8ccd2`, `tlist` `dd0ef31d4`,
+the guard `55c008027`): merge `340bc27b3`, no conflict, 0 compile errors in the layout and dll test builds
+(logs `500`, `503`).
+- First run, layout (log `501`): lib 10,915 / 2 / 1 ignored (the font TEST race, alone 3 of 3; the a3_window
+  guard's premise), `tests/all` 3,060 / 0 / 5. Probe of the guard (log `502`): translated 0 under
+  `AlwaysTranslate`, the list the built one under both policies, every patch counter 0 across the pass,
+  `last_build_was_patched` false, an ungrown window differs ("box 2 stands at (0, 10.7), a fresh layout puts it
+  at (0, 255.8)"): a full build. Decision (b): `efa4bcf55`.
+- First run, dll (logs `504`, `505`): lib 3,869 / 4 / 9 ignored; every older test green (the df / dfv walks, the
+  CPU frame and damage tests, the two random damaged-vs-full guards); the six view tests of the step `list`
+  green with `patched == 1`. The four red were the window-list tests, all in `df_list_against_full`. Probe
+  (logs `506`, `507`; one thread): three causes.
+  (A) the helper compared two windows' `ScrollBarStyled` items with their key ids (process-wide counter):
+      `dbddfa99f`.
+  (B) `a_box_that_got_another_layout_index_is_copied_from_the_run_it_had`: 49 texts with the index of the tree
+      before: `2d750b70f` (the fix and its audit).
+  (C) `a_box_the_windows_cascade_reached_is_painted_though_it_is_clean`: (named, across, copied, painted) =
+      (0, 1, 235, 10): `2510be1fb`.
+- The premises, measured (named, across, copied, painted): one class changed, 60 rows (1, 0, 177, 6), 244 rows
+  (1, 0, 729, 6); 40 rows came at the end of 300 (0, 1, 900, 244), of 1,200 (0, 1, 3,600, 244); a row became a
+  list item (0, 1, 177, 8); the epochs of the hand-over survive to `layout_document` in every case.
+- Final runs on the tree of `2510be1fb`: dll lib 3,873 / 0 / 9 ignored (`512`), `headless_lifecycle` 8 / 0
+  (`513`), layout lib 10,917 / 0 / 1 ignored and `tests/all` 3,060 / 0 / 5 (`514`); the mutant of the
+  background (`515`, `516`). The three test-file commits were split by content from the final file; only the
+  final state was built and run.
