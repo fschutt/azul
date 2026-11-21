@@ -184,8 +184,11 @@ pub(super) fn centers_blocks_the_legacy_way(styled_dom: &StyledDom, dom_id: Node
 #[derive(Debug, Default)]
 pub struct BfcPassMemo {
     /// Position vectors for the first pass of [`layout_bfc`], which sizes a
-    /// block's children at positions nobody keeps. Each is as long as the
-    /// layout tree and holds no position while it lies here.
+    /// block's children at positions nobody keeps - and for every other
+    /// sizing of a box at positions nobody keeps: a table's cells (their
+    /// measures and their final layout) and its caption, a child laid out
+    /// into a fragmentainer. Each is as long as the layout tree and holds
+    /// no position while it lies here.
     ///
     /// The first pass made a new `Vec` for every block, and a position vector
     /// is indexed by the box's index in the WHOLE tree: writing the position
@@ -250,7 +253,7 @@ impl BfcPassMemo {
 
     /// A position vector with no position set, at least `tree_len` long: one
     /// taken back earlier, or a new one.
-    fn lend(&mut self, tree_len: usize) -> super::super::PositionVec {
+    pub(super) fn lend(&mut self, tree_len: usize) -> super::super::PositionVec {
         if let Some(mut positions) = self.scratch_positions.pop() {
             if positions.len() < tree_len {
                 positions.resize(tree_len, crate::solver3::POSITION_UNSET);
@@ -272,7 +275,7 @@ impl BfcPassMemo {
     /// boxes its inline boxes hold), so the subtrees of `sized` are all
     /// there is to unset: the vector is then what a new one would be to
     /// `pos_get` / `pos_contains`, the only readers a sizing pass has.
-    fn take_back(
+    pub(super) fn take_back(
         &mut self,
         mut positions: super::super::PositionVec,
         tree: &LayoutTree,
@@ -940,9 +943,11 @@ fn bfc_place_children<T: ParsedFontTrait>(
                     resume: Some(child_tok),
                 };
                 let mut child_out: Option<crate::solver3::break_token::BreakToken> = None;
-                let mut tmp_positions: super::super::PositionVec = Vec::new();
+                // (lent and given back: `BfcPassMemo`)
+                let mut tmp_positions: super::super::PositionVec =
+                    ctx.pass_memo.bfc.lend(tree.nodes.len());
                 let mut tmp_scrollbars = false;
-                crate::solver3::cache::calculate_layout_for_subtree_fragment(
+                let laid_out = crate::solver3::cache::calculate_layout_for_subtree_fragment(
                     ctx,
                     tree,
                     text_cache,
@@ -958,7 +963,9 @@ fn bfc_place_children<T: ParsedFontTrait>(
                     crate::solver3::cache::ComputeMode::ComputeSize,
                     Some(child_space),
                     Some(&mut child_out),
-                )?;
+                );
+                ctx.pass_memo.bfc.take_back(tmp_positions, tree, &[child_index]);
+                laid_out?;
                 fragment_child_resumed = true;
                 if let Some(cont) = child_out {
                     let later: Vec<usize> = pos_children
@@ -1747,9 +1754,11 @@ fn bfc_place_children<T: ParsedFontTrait>(
                             resume: None,
                         };
                         let mut child_out: Option<crate::solver3::break_token::BreakToken> = None;
-                        let mut tmp_positions: super::super::PositionVec = Vec::new();
+                        // (lent and given back: `BfcPassMemo`)
+                        let mut tmp_positions: super::super::PositionVec =
+                            ctx.pass_memo.bfc.lend(tree.nodes.len());
                         let mut tmp_scrollbars = false;
-                        crate::solver3::cache::calculate_layout_for_subtree_fragment(
+                        let laid_out = crate::solver3::cache::calculate_layout_for_subtree_fragment(
                             ctx,
                             tree,
                             text_cache,
@@ -1765,7 +1774,9 @@ fn bfc_place_children<T: ParsedFontTrait>(
                             crate::solver3::cache::ComputeMode::ComputeSize,
                             Some(child_space),
                             Some(&mut child_out),
-                        )?;
+                        );
+                        ctx.pass_memo.bfc.take_back(tmp_positions, tree, &[child_index]);
+                        laid_out?;
                         if let Some(cont) = child_out {
                             let later: Vec<usize> = pos_children
                                 .iter()
@@ -1843,9 +1854,11 @@ fn bfc_place_children<T: ParsedFontTrait>(
                             resume: None,
                         };
                         let mut child_out: Option<crate::solver3::break_token::BreakToken> = None;
-                        let mut tmp_positions: super::super::PositionVec = Vec::new();
+                        // (lent and given back: `BfcPassMemo`)
+                        let mut tmp_positions: super::super::PositionVec =
+                            ctx.pass_memo.bfc.lend(tree.nodes.len());
                         let mut tmp_scrollbars = false;
-                        crate::solver3::cache::calculate_layout_for_subtree_fragment(
+                        let laid_out = crate::solver3::cache::calculate_layout_for_subtree_fragment(
                             ctx,
                             tree,
                             text_cache,
@@ -1861,7 +1874,9 @@ fn bfc_place_children<T: ParsedFontTrait>(
                             crate::solver3::cache::ComputeMode::ComputeSize,
                             Some(child_space),
                             Some(&mut child_out),
-                        )?;
+                        );
+                        ctx.pass_memo.bfc.take_back(tmp_positions, tree, &[child_index]);
+                        laid_out?;
                         if let Some(cont) = child_out {
                             // The child SPLIT: place its fitted part (fall
                             // through with the shortened used_size) and

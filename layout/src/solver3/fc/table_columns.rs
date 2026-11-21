@@ -391,7 +391,6 @@ pub(super) fn measure_cell_content_width<T: ParsedFontTrait>(
         column_flow: None,
     };
 
-    let mut temp_positions: super::super::PositionVec = Vec::new();
     let mut temp_scrollbar_reflow = false;
     let mut temp_float_cache = HashMap::new();
 
@@ -484,7 +483,10 @@ pub(super) fn measure_cell_content_width<T: ParsedFontTrait>(
             + cell_bp.border.cross_end(wm));
     }
 
-    crate::solver3::cache::calculate_layout_for_subtree(
+    // Lent by the pass and given back (`BfcPassMemo`): a vector of its own
+    // was filled up to the cell's index in the tree, per measure of a cell.
+    let mut temp_positions: super::super::PositionVec = ctx.pass_memo.bfc.lend(tree.nodes.len());
+    let measured = crate::solver3::cache::calculate_layout_for_subtree(
         ctx,
         tree,
         text_cache,
@@ -495,7 +497,9 @@ pub(super) fn measure_cell_content_width<T: ParsedFontTrait>(
         &mut temp_scrollbar_reflow,
         &mut temp_float_cache,
         crate::solver3::cache::ComputeMode::ComputeSize,
-    )?;
+    );
+    ctx.pass_memo.bfc.take_back(temp_positions, tree, &[cell_index]);
+    measured?;
 
     let cell_bp = tree
         .get(LayoutNodeId::new(cell_index))

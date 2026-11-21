@@ -850,6 +850,82 @@ fn position_vectors_come_back_empty_and_the_rows_stand_where_they_did() {
     );
 }
 
+/// `body(0) > table(1) > k x [row(2 + 3 i) > cell(3 + 3 i) > block(4 + 3 i)]`: a table (by
+/// `display`, so without the UA sheet's cell padding and border spacing) of `k` rows of one
+/// cell that holds a block 20 x 5 - a cell that is no inline formatting context, measured and
+/// laid out through `cache::calculate_layout_for_subtree`.
+fn table_of_block_cells(k: usize) -> Dom {
+    let mut table = Dom::create_div().with_css("display: table;");
+    for _ in 0..k {
+        table = table.with_child(
+            Dom::create_div().with_css("display: table-row;").with_child(
+                Dom::create_div()
+                    .with_css("display: table-cell;")
+                    .with_child(Dom::create_div().with_css("width: 20px; height: 5px;")),
+            ),
+        );
+    }
+    Dom::create_body().with_css("margin: 0px;").with_child(table)
+}
+
+/// A3-solver-15b. A table measures each of its cells twice and lays it out once at positions
+/// nobody keeps, and made a new position vector for each of those (as it did for its caption,
+/// and `layout_bfc` for a child laid out into a fragmentainer): writing the position of the
+/// cell's child at tree index i filled the vector up to i - cells x 3 x tree length / 2
+/// entries per table. The vectors are lent by the pass (`PassMemo::bfc`, A3-solver-15), as
+/// long as the tree already.
+///
+/// Mutation: `Vec::new()` at one of the three table sites (`fc/table_columns.rs`,
+/// `fc/table_rows.rs`) fills 16x the entries for 4x the rows.
+#[test]
+fn the_cells_of_a_table_borrow_their_position_vectors_from_the_pass() {
+    use crate::solver3::{
+        fc::{SCRATCH_ENTRIES_LEFT_SET, SCRATCH_VECTORS_MADE},
+        POSITION_FILLS,
+    };
+    let counts = |k: usize| {
+        let mut lw = window();
+        POSITION_FILLS.with(|n| n.set(0));
+        SCRATCH_VECTORS_MADE.with(|n| n.set(0));
+        SCRATCH_ENTRIES_LEFT_SET.with(|n| n.set(0));
+        lay_out(&mut lw, table_of_block_cells(k));
+        // The block of row i: 5 px per row, nothing between the rows.
+        for i in [0_usize, 1, k / 2, k - 1] {
+            let block = position_of(&lw, 4 + 3 * i);
+            #[allow(clippy::cast_precision_loss)] // small pixel counts
+            let y = (5 * i) as f32;
+            assert!(
+                block.x.abs() < 0.01 && (block.y - y).abs() < 0.01,
+                "the block in row {i} of {k} stands at ({}, {}), not at (0, {y})",
+                block.x,
+                block.y
+            );
+        }
+        (
+            POSITION_FILLS.with(std::cell::Cell::get),
+            SCRATCH_VECTORS_MADE.with(std::cell::Cell::get),
+            SCRATCH_ENTRIES_LEFT_SET.with(std::cell::Cell::get),
+        )
+    };
+    let ((fills_small, made_small, left_small), (fills_large, made_large, left_large)) =
+        (counts(50), counts(200));
+    assert!(
+        fills_large < fills_small.max(200) * 6,
+        "four times the rows filled {fills_large} entries of position vectors for \
+         {fills_small}: a vector per cell, filled up to the cell's place in the tree"
+    );
+    assert!(
+        made_small <= 8 && made_large <= 8,
+        "a table of one-cell rows made {made_small} / {made_large} position vectors: one per \
+         nesting level is enough"
+    );
+    assert_eq!(
+        (left_small, left_large),
+        (0, 0),
+        "a vector given back still held positions: the next box would take them for its own"
+    );
+}
+
 /// A3-solver-20. `layout_document` made two contexts, one for the reconcile and one for the
 /// layout, each with a style memo of its own: the style of every text node under a restyled box
 /// (on a first layout, and for every label of a view rendered again: all of them), which the

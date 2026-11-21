@@ -170,10 +170,21 @@ pub fn pos_get(positions: &PositionVec, idx: usize) -> Option<LogicalPosition> {
     positions.get(idx).copied().filter(|p| p.x != f32::MIN)
 }
 
+/// How many entries [`pos_set`] filled with "unset" on this thread to make a
+/// vector long enough for the index it wrote (`audit_tests::a3_solver`: a
+/// position vector made for one box and written at that box's index in the
+/// tree is filled up to it, per box).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static POSITION_FILLS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
 /// Set position for node index. Grows the vec if needed.
 #[inline]
 pub fn pos_set(positions: &mut PositionVec, idx: usize, pos: LogicalPosition) {
     if idx >= positions.len() {
+        #[cfg(test)]
+        POSITION_FILLS.with(|n| n.set(n.get() + idx + 1 - positions.len()));
         positions.resize(idx + 1, POSITION_UNSET);
     }
     positions[idx] = pos;
