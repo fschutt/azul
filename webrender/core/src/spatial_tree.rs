@@ -2357,3 +2357,82 @@ fn test_a_picture_cache_under_a_turned_frame_is_drawn_untransformed_and_counted(
             >= 1
     );
 }
+
+/// azul (audit A4-29). A view's zoom: a reference frame directly in the
+/// view's pipeline root, and inside it (through a second, identity frame) a
+/// scroll frame that does not scroll, holding the zoomed content. With the
+/// zoom frame DECLARED a 2D scale / translation that scroll frame is the
+/// scroll root of the content - also of content under a turned frame inside
+/// it - so a picture cache is cut whose spatial node is below the zoom.
+/// Undeclared, the search forgets the scroll frame at the zoom frame and the
+/// content has no scroll root of its own (the document's root): the zoom is
+/// then inside whatever cache draws it, and every step redraws its tiles.
+/// The view's own content frame, next to the zoom, is not touched by either.
+#[test]
+fn test_find_scroll_root_below_a_declared_zoom_frame_of_a_root_pipeline() {
+    for declared in [true, false] {
+        let mut st = SceneSpatialTree::new();
+        let pid = PipelineInstanceId::new(0);
+        let mut next_key = 0u64;
+        let mut uid = || {
+            next_key += 1;
+            SpatialNodeUid::external(
+                SpatialTreeItemKey::new(0, next_key),
+                PipelineId::dummy(),
+                pid,
+            )
+        };
+        let frame = |st: &mut SceneSpatialTree, parent, is_2d, uid| {
+            st.add_reference_frame(
+                parent,
+                TransformStyle::Flat,
+                PropertyBinding::Value(LayoutTransform::identity()),
+                ReferenceFrameKind::Transform {
+                    is_2d_scale_translation: is_2d,
+                    should_snap: false,
+                    paired_with_perspective: false,
+                },
+                LayoutVector2D::new(0.0, 0.0),
+                PipelineId::dummy(),
+                uid,
+            )
+        };
+        let scroll = |st: &mut SceneSpatialTree, parent, id, kind, uid| {
+            st.add_scroll_frame(
+                parent,
+                ExternalScrollId(id, PipelineId::dummy()),
+                PipelineId::dummy(),
+                &LayoutRect::from_size(LayoutSize::new(400.0, 400.0)),
+                &LayoutSize::new(400.0, 400.0),
+                kind,
+                LayoutVector2D::new(0.0, 0.0),
+                APZScrollGeneration::default(),
+                HasScrollLinkedEffect::No,
+                uid,
+            )
+        };
+
+        let root = st.root_reference_frame_index();
+        let view = frame(&mut st, root, true, uid());
+        let pipeline_root = scroll(
+            &mut st,
+            view,
+            0,
+            ScrollFrameKind::PipelineRoot {
+                is_root_pipeline: true,
+            },
+            uid(),
+        );
+        let content = scroll(&mut st, pipeline_root, 1, ScrollFrameKind::Explicit, uid());
+        let zoom = frame(&mut st, pipeline_root, declared, uid());
+        let zoom_space = frame(&mut st, zoom, true, uid());
+        let zoomed = scroll(&mut st, zoom_space, 2, ScrollFrameKind::Explicit, uid());
+        let label = frame(&mut st, zoomed, false, uid());
+        let label_space = frame(&mut st, label, true, uid());
+
+        let below_the_zoom = if declared { zoomed } else { root };
+        assert_eq!(st.find_scroll_root(zoomed, true), below_the_zoom, "declared: {declared}");
+        assert_eq!(st.find_scroll_root(label_space, true), below_the_zoom, "declared: {declared}");
+        assert_eq!(st.find_scroll_root(content, true), content, "declared: {declared}");
+    }
+}

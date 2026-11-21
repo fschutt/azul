@@ -242,6 +242,162 @@ fn view_content_scroll_frames() -> bool {
     *ON.get_or_init(|| !std::env::var("AZ_WR_VIEW_SLICE").is_ok_and(|v| v == "0"))
 }
 
+/// The scroll id, and the first half of the spatial key, of the scroll frame
+/// the ZOOMED content of a view is put under (the zoom frame of
+/// [`translate_displaylist_with_zoom_frame`]).
+const VIEW_ZOOM_CONTENT_FRAME: u64 = u64::MAX - 2;
+
+#[cfg(test)]
+thread_local! {
+    /// A test's own answer to the `AZ_WR_ZOOM_TILES` half of
+    /// [`zoom_frames_enabled`], for its thread.
+    pub(crate) static ZOOM_FRAMES: core::cell::Cell<Option<bool>> =
+        const { core::cell::Cell::new(None) };
+}
+
+/// Whether a view's zoom - one transform over most of its list - is put ABOVE
+/// a picture cache slice of its own, so that a step of the zoom is served by
+/// the tiles the renderer has (audit A4-29). On unless the environment says
+/// `AZ_WR_ZOOM_TILES=0` (read once per process), and only with the view's own
+/// scroll frame ([`view_content_scroll_frames`]): without that there is no
+/// slice of the view to cut.
+///
+/// It decides two things that only work together: the renderer is created with
+/// `low_quality_pinch_zoom` (`wr_translate2::default_renderer_options`), and a
+/// view's list is translated with its zoom frame
+/// (`wr_translate2::submit_display_lists`).
+pub(crate) fn zoom_frames_enabled() -> bool {
+    #[cfg(test)]
+    if let Some(on) = ZOOM_FRAMES.with(core::cell::Cell::get) {
+        return on && view_content_scroll_frames();
+    }
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| !std::env::var("AZ_WR_ZOOM_TILES").is_ok_and(|v| v == "0"))
+        && view_content_scroll_frames()
+}
+
+/// The scale of `m` when it is a uniform, positive scale and a 2D translation
+/// and nothing else - `[s 0 0 0 / 0 s 0 0 / 0 0 1 0 / tx ty 0 1]` - and `None`
+/// for every other matrix (a rotation, a skew, two different scales, a
+/// perspective, a shift in z, a value that is not finite).
+///
+/// It is the promise a zoom frame makes to WebRender
+/// (`is_2d_scale_translation`): below such a frame a picture cache is drawn at
+/// the frame's scale and placed at its offset. Exact zeros are asked for, not
+/// small numbers: a `translate()` and a `scale()` multiply to exact zeros, and
+/// what a rotation by a tiny angle leaves is not a promise kept. A uniform
+/// scale, because the renderer keeps ONE raster scale per cache.
+pub(crate) fn uniform_scale_translation(
+    m: &azul_core::transform::ComputedTransform3D,
+) -> Option<f32> {
+    let m = &m.m;
+    let s = m[0][0];
+    let plain = m[0][1] == 0.0
+        && m[0][2] == 0.0
+        && m[0][3] == 0.0
+        && m[1][0] == 0.0
+        && m[1][2] == 0.0
+        && m[1][3] == 0.0
+        && m[2][0] == 0.0
+        && m[2][1] == 0.0
+        && m[2][2] == 1.0
+        && m[2][3] == 0.0
+        && m[3][2] == 0.0
+        && m[3][3] == 1.0
+        && m[3][0].is_finite()
+        && m[3][1].is_finite();
+    (plain && s.is_finite() && s > 0.0 && (m[1][1] - s).abs() <= s * 1e-6).then_some(s)
+}
+
+/// The reference frame of a list that may be a view's zoom frame: where its
+/// `PushReferenceFrame` is, and its transform key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ZoomFrameCandidate {
+    /// The index of the frame's `PushReferenceFrame` in the list.
+    pub(crate) item: usize,
+    /// The id of its transform key.
+    pub(crate) key: usize,
+}
+
+/// The ONE reference frame of `display_list` that can be a view's zoom frame
+/// (audit A4-29), by the list alone: the first frame that
+///
+/// - is opened while nothing else of the list is open that places, clips or
+///   groups what is inside it - no other reference frame, no scroll frame, no
+///   clip or image mask, no opacity or filter group (a plain stacking context
+///   may be: it is no surface and no spatial node). Its parent is then the
+///   view's own scroll frame, and no clip of the list reaches into it from a
+///   space the zoom does not move;
+/// - holds at least half of the list's items (it is the picture, not a label);
+/// - is, as the list has it, a uniform scale and a translation
+///   ([`uniform_scale_translation`]);
+/// - and whose key opens no other frame of the list (the renderer finds the
+///   frame of a gesture by its key).
+///
+/// Whether the frame's value NOW still is such a matrix is the caller's to
+/// check (it has the window's bound values): `wr_translate2::zoom_frame_of`.
+pub(crate) fn zoom_frame_candidate(display_list: &DisplayList) -> Option<ZoomFrameCandidate> {
+    use azul_layout::solver3::display_list::DisplayListItem as I;
+
+    let items = &display_list.items;
+    // How many clips, scroll frames, groups and reference frames are open.
+    let mut depth = 0usize;
+    // The frame opened at depth 0 that is still open: its item, its key,
+    // whether its matrix is plain.
+    let mut open: Option<(usize, usize, bool)> = None;
+    let mut found: Option<ZoomFrameCandidate> = None;
+    for (index, item) in items.iter().enumerate() {
+        match item {
+            I::PushReferenceFrame {
+                transform_key,
+                initial_transform,
+                ..
+            } => {
+                if depth == 0 && found.is_none() {
+                    open = Some((
+                        index,
+                        transform_key.id,
+                        uniform_scale_translation(initial_transform).is_some(),
+                    ));
+                }
+                depth += 1;
+            }
+            I::PopReferenceFrame => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    if let Some((start, key, plain)) = open.take() {
+                        // Both of its markers count as its items.
+                        if plain && (index + 1 - start) * 2 >= items.len() {
+                            found = Some(ZoomFrameCandidate { item: start, key });
+                        }
+                    }
+                }
+            }
+            I::PushClip { .. }
+            | I::PushImageMaskClip { .. }
+            | I::PushScrollFrame { .. }
+            | I::PushFilter { .. }
+            | I::PushBackdropFilter { .. }
+            | I::PushOpacity { .. } => depth += 1,
+            I::PopClip
+            | I::PopImageMaskClip
+            | I::PopScrollFrame
+            | I::PopFilter
+            | I::PopBackdropFilter
+            | I::PopOpacity => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    let found = found?;
+    let frames_of_its_key = items
+        .iter()
+        .filter(|item| {
+            matches!(item, I::PushReferenceFrame { transform_key, .. } if transform_key.id == found.key)
+        })
+        .count();
+    (frames_of_its_key == 1).then_some(found)
+}
+
 /// `builder.push_hit_test` for the lists that still feed WebRender's hit
 /// tester ([`wr_hit_test_items`]); nothing otherwise.
 #[inline]
@@ -266,15 +422,8 @@ thread_local! {
     pub(crate) static TRANSLATIONS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
-/// Translate ONE Azul `DisplayList` - a DOM's, the window's or a
-/// `VirtualView` child's - to a WebRender display list, to be put into a
-/// transaction as the pipeline `pipeline_id` by the caller.
-///
-/// A `VirtualView` item is only an iframe naming its child's pipeline
-/// (`document_id`, the child's DOM id): the child's own list is a DOM of its
-/// own in `layout_results`, translated by its own call
-/// (`wr_translate2::submit_display_lists`). `layout_results` is read to see
-/// that the child exists.
+/// [`translate_displaylist_with_zoom_frame`] for a list without a zoom frame:
+/// every reference frame of the list is placed where the list opens it.
 pub fn translate_displaylist_to_wr(
     display_list: &DisplayList,
     pipeline_id: PipelineId,
@@ -284,6 +433,54 @@ pub fn translate_displaylist_to_wr(
     wr_resources: Vec<WrResourceUpdate>,
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
     document_id: u32,
+) -> Result<(Vec<WrResourceUpdate>, WrBuiltDisplayList), String> {
+    translate_displaylist_with_zoom_frame(
+        display_list,
+        pipeline_id,
+        viewport_size,
+        renderer_resources,
+        dpi,
+        wr_resources,
+        layout_results,
+        document_id,
+        None,
+    )
+}
+
+/// Translate ONE Azul `DisplayList` - a DOM's, the window's or a
+/// `VirtualView` child's - to a WebRender display list, to be put into a
+/// transaction as the pipeline `pipeline_id` by the caller.
+///
+/// `zoom_frame`: the index of the `PushReferenceFrame` that is the view's
+/// zoom frame, if the caller found one ([`zoom_frame_candidate`]) whose value
+/// is a uniform scale and a translation NOW and will be for as long as the
+/// renderer holds this list (the caller sends the list again, without it, in
+/// the transaction that carries another kind of value). That frame is not
+/// opened inside the view's own scroll frame but next to it, directly in the
+/// pipeline's root frame; it is declared a 2D scale / translation; and what
+/// is inside it gets a scroll frame of its own (it does not scroll either).
+/// WebRender then cuts a picture cache slice for the zoomed content whose
+/// spatial node is BELOW the zoom and below the view's pan: a step of the zoom
+/// is a new scale of the slice in the compositor, not new content of every
+/// tile (`TileCacheInstance::pre_update`; audit A4-29). Only for a view's list
+/// (`pipeline_id.0 != 0`), and only this one frame is declared: a declaration
+/// changes which scroll root WebRender finds below it.
+///
+/// A `VirtualView` item is only an iframe naming its child's pipeline
+/// (`document_id`, the child's DOM id): the child's own list is a DOM of its
+/// own in `layout_results`, translated by its own call
+/// (`wr_translate2::submit_display_lists`). `layout_results` is read to see
+/// that the child exists.
+pub fn translate_displaylist_with_zoom_frame(
+    display_list: &DisplayList,
+    pipeline_id: PipelineId,
+    viewport_size: DeviceIntSize,
+    renderer_resources: &azul_core::resources::RendererResources,
+    dpi: DpiScaleFactor,
+    wr_resources: Vec<WrResourceUpdate>,
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+    document_id: u32,
+    zoom_frame: Option<usize>,
 ) -> Result<(Vec<WrResourceUpdate>, WrBuiltDisplayList), String> {
     #[cfg(test)]
     TRANSLATIONS.with(|count| count.set(count.get() + 1));
@@ -383,6 +580,13 @@ pub fn translate_displaylist_to_wr(
     let mut reference_frames_seen: std::collections::HashSet<u64> =
         std::collections::HashSet::with_capacity(64);
     let mut reference_frame_repeats: BTreeMap<u64, u64> = BTreeMap::new();
+
+    // One entry per open PushReferenceFrame: whether it is the view's zoom
+    // frame, whose PopReferenceFrame also leaves the scroll frame of the
+    // zoomed content.
+    let mut zoom_frames_open: Vec<bool> = Vec::new();
+    // A zoom frame is a view's: the window's own list has none.
+    let zoom_frame = zoom_frame.filter(|_| pipeline_id.0 != 0);
 
     // Coordinate offset stack - tracks the origin offset for each spatial context.
     // When we enter a scroll frame, items inside have absolute coordinates but
@@ -1642,7 +1846,16 @@ pub fn translate_displaylist_to_wr(
                 // allowing WebRender to animate the transform via append_dynamic_properties
                 // without rebuilding the display list.
 
-                let parent_spatial_id = current_spatial!();
+                // The view's zoom frame is opened next to the view's own
+                // scroll frame, not inside it: the slice of the zoomed
+                // content then has the zoom ABOVE its spatial node, as it
+                // has the view's pan (see the function's docs).
+                let is_zoom_frame = zoom_frame == Some(item_index);
+                let parent_spatial_id = if is_zoom_frame {
+                    SpatialId::root_scroll_node(pipeline_id)
+                } else {
+                    current_spatial!()
+                };
 
                 // Convert ComputedTransform3D (row-major [[f32;4];4]) to WR LayoutTransform.
                 // IMPORTANT: Scale the translation components (m[3][0], m[3][1], m[3][2]) by DPI
@@ -1712,7 +1925,10 @@ pub fn translate_displaylist_to_wr(
                     TransformStyle::Flat,
                     binding,
                     ReferenceFrameKind::Transform {
-                        is_2d_scale_translation: false,
+                        // Declared for the zoom frame alone: the caller keeps
+                        // the promise (it sends the list again, undeclared,
+                        // with the first value that is not such a matrix).
+                        is_2d_scale_translation: is_zoom_frame,
                         should_snap: false,
                         paired_with_perspective: false,
                     },
@@ -1738,9 +1954,37 @@ pub fn translate_displaylist_to_wr(
                 // closes both.
                 spatial_stack.push(transformed);
                 spatial_stack.push(window_space);
+
+                // The zoomed content's own scroll frame: the scroll root of
+                // everything up to the frame's pop, so WebRender cuts a slice
+                // for it below the zoom. Like the view's own it has no scroll
+                // range and never gets an offset.
+                if is_zoom_frame {
+                    let extent = LayoutRect::from_origin_and_size(
+                        LayoutPoint::zero(),
+                        LayoutSize::new(viewport_size.width as f32, viewport_size.height as f32),
+                    );
+                    let zoomed_content = builder.define_scroll_frame(
+                        window_space,
+                        ExternalScrollId(VIEW_ZOOM_CONTENT_FRAME, pipeline_id),
+                        extent,
+                        extent,
+                        LayoutVector2D::zero(),
+                        0,
+                        HasScrollLinkedEffect::No,
+                        SpatialTreeItemKey::new(VIEW_ZOOM_CONTENT_FRAME, 0),
+                    );
+                    spatial_stack.push(zoomed_content);
+                }
+                zoom_frames_open.push(is_zoom_frame);
             }
 
             DisplayListItem::PopReferenceFrame => {
+                // The scroll frame of a zoom frame's content is a spatial
+                // node of this translation only: nothing of the builder to pop.
+                if zoom_frames_open.pop() == Some(true) {
+                    spatial_stack.pop();
+                }
                 // The window-space frame and the transformed frame around it.
                 for _ in 0..2 {
                     builder.pop_reference_frame();
@@ -4980,5 +5224,302 @@ mod audit_a4_tests {
         );
         let once: Vec<_> = frames(vec![bar(key)], 1.0).into_iter().map(|(key, _)| key).collect();
         assert_eq!(once, vec![SpatialTreeItemKey::new(key.id as u64, 0)]);
+    }
+
+    // ==== A4-29: a view's zoom frame is above a slice of its own ====
+
+    /// A uniform scale `s` and a shift.
+    fn zoom_matrix(s: f32, tx: f32, ty: f32) -> azul_core::transform::ComputedTransform3D {
+        let mut m = azul_core::transform::ComputedTransform3D::IDENTITY;
+        m.m[0][0] = s;
+        m.m[1][1] = s;
+        m.m[3][0] = tx;
+        m.m[3][1] = ty;
+        m
+    }
+
+    /// A quarter turn.
+    fn quarter_turn() -> azul_core::transform::ComputedTransform3D {
+        let mut m = azul_core::transform::ComputedTransform3D::IDENTITY;
+        m.m[0][0] = 0.0;
+        m.m[0][1] = 1.0;
+        m.m[1][0] = -1.0;
+        m.m[1][1] = 0.0;
+        m
+    }
+
+    fn blue_rect() -> DisplayListItem {
+        DisplayListItem::Rect {
+            bounds: rect(10.0, 10.0, 30.0, 20.0).into(),
+            color: azul_css::props::basic::color::ColorU::new(30, 60, 170, 255),
+            border_radius: Default::default(),
+        }
+    }
+
+    /// A view's list as a map makes it: a rect outside the picture (item 0),
+    /// the picture's root frame (item 1; key `zoom`, matrix `matrix`) with a
+    /// rect (2) and a turned label (3 to 5) in it, its pop (6), and a rect
+    /// after it (7).
+    fn zoomed_view(
+        zoom: azul_core::resources::TransformKey,
+        label: azul_core::resources::TransformKey,
+        matrix: azul_core::transform::ComputedTransform3D,
+    ) -> azul_layout::solver3::display_list::DisplayList {
+        let mut items = vec![
+            blue_rect(),
+            DisplayListItem::PushReferenceFrame {
+                transform_key: zoom,
+                initial_transform: matrix,
+                bounds: rect(0.0, 0.0, 400.0, 300.0).into(),
+            },
+            blue_rect(),
+        ];
+        items.extend(framed(label, quarter_turn()));
+        items.push(DisplayListItem::PopReferenceFrame);
+        items.push(blue_rect());
+        azul_layout::solver3::display_list::DisplayList {
+            items,
+            ..Default::default()
+        }
+    }
+
+    /// A4-29, which frame. The zoom frame of a list is the first reference
+    /// frame opened with nothing else open that holds half of the list and is
+    /// a uniform scale and a translation; a list without one has none.
+    /// Mutations: `depth == 0 &&` dropped finds the frame inside the clip;
+    /// `* 2 >= items.len()` dropped finds the small frame; the key count
+    /// dropped finds the frame whose key opens two.
+    #[test]
+    fn the_zoom_frame_of_a_list_is_its_one_plain_frame_over_most_of_it() {
+        use azul_core::resources::TransformKey;
+        use azul_layout::solver3::display_list::DisplayList;
+
+        use super::{uniform_scale_translation, zoom_frame_candidate, ZoomFrameCandidate};
+
+        let (zoom, label) = (TransformKey::unique(), TransformKey::unique());
+        let found = |list: &DisplayList| zoom_frame_candidate(list);
+
+        // The picture's root: found, at its push, by its key.
+        let list = zoomed_view(zoom, label, zoom_matrix(1.5, 12.0, -7.0));
+        assert_eq!(found(&list), Some(ZoomFrameCandidate { item: 1, key: zoom.id }));
+        // The identity a fresh picture carries is such a matrix too.
+        let list = zoomed_view(zoom, label, zoom_matrix(1.0, 0.0, 0.0));
+        assert_eq!(found(&list).map(|z| z.item), Some(1));
+
+        // A root that turns, or scales its axes differently: none (the turned
+        // label inside is not at the top, and holds 3 of 8 items).
+        assert_eq!(found(&zoomed_view(zoom, label, quarter_turn())), None);
+        let mut stretched = zoom_matrix(1.5, 0.0, 0.0);
+        stretched.m[1][1] = 1.25;
+        assert_eq!(found(&zoomed_view(zoom, label, stretched)), None);
+
+        // The same frame inside a clip of the list: none (the clip is in a
+        // space the zoom would not move).
+        let mut clipped = vec![DisplayListItem::PushClip {
+            bounds: rect(0.0, 0.0, 400.0, 300.0).into(),
+            border_radius: Default::default(),
+        }];
+        clipped.extend(zoomed_view(zoom, label, zoom_matrix(1.5, 0.0, 0.0)).items);
+        clipped.push(DisplayListItem::PopClip);
+        assert_eq!(found(&DisplayList { items: clipped, ..Default::default() }), None);
+
+        // A plain frame over 3 of 20 items: a label, not the picture.
+        let mut small = framed(zoom, zoom_matrix(2.0, 0.0, 0.0));
+        small.extend((0..17).map(|_| blue_rect()));
+        assert_eq!(found(&DisplayList { items: small, ..Default::default() }), None);
+
+        // A key that opens two frames (a box painted twice): none.
+        let mut twice = zoomed_view(zoom, label, zoom_matrix(1.5, 0.0, 0.0)).items;
+        twice.extend(framed(zoom, zoom_matrix(1.5, 0.0, 0.0)));
+        assert_eq!(found(&DisplayList { items: twice, ..Default::default() }), None);
+
+        // The matrix test itself, by hand: scale 1.5 with a shift is 1.5; a
+        // z shift, a perspective term, a negative or zero scale are not plain.
+        assert_eq!(uniform_scale_translation(&zoom_matrix(1.5, 12.0, -7.0)), Some(1.5));
+        for (row, col, value) in [(3, 2, 4.0), (0, 3, 0.001), (2, 2, 2.0), (0, 1, 1e-4)] {
+            let mut m = zoom_matrix(1.5, 0.0, 0.0);
+            m.m[row][col] = value;
+            assert_eq!(uniform_scale_translation(&m), None, "m[{row}][{col}] = {value}");
+        }
+        assert_eq!(uniform_scale_translation(&zoom_matrix(-1.5, 0.0, 0.0)), None);
+        assert_eq!(uniform_scale_translation(&zoom_matrix(0.0, 0.0, 0.0)), None);
+        assert_eq!(uniform_scale_translation(&zoom_matrix(f32::NAN, 0.0, 0.0)), None);
+    }
+
+    /// A4-29, where it is put. Translated with its zoom frame, a view's list
+    /// opens that frame directly in the pipeline's root frame (next to the
+    /// view's own scroll frame, not inside it), declares it a 2D scale /
+    /// translation, and puts what is inside under a second scroll frame
+    /// without a range. By WebRender's rule for a slice's scroll root
+    /// (`SceneSpatialTree::find_scroll_root`: the outermost explicit scroll
+    /// frame, forgotten at a reference frame that is not declared, up to the
+    /// pipeline's root frame - written out here over the built list) the
+    /// zoomed content, its turned label included, then has that second frame
+    /// for its scroll root, with nothing but declared frames between it and
+    /// the pipeline's root: the zoom and the view's pan are both ABOVE the
+    /// slice. What is outside the zoom keeps the view's own frame. Without a
+    /// zoom frame the list is translated as before: the zoom is BELOW the
+    /// one slice of the view.
+    /// Mutations: `parent_spatial_id` left at `current_spatial!()` fails the
+    /// parent; `is_2d_scale_translation: false` fails the declaration and the
+    /// scroll root of the zoomed rect; the second scroll frame not pushed
+    /// fails "the content is in it"; the extra `spatial_stack.pop()` dropped
+    /// leaves the rect after the frame in the zoomed space.
+    #[test]
+    fn a_views_zoom_frame_is_above_a_slice_of_its_own() {
+        use std::collections::BTreeMap;
+
+        use azul_core::resources::{DpiScaleFactor, RendererResources, TransformKey};
+        use webrender::api::{
+            units::DeviceIntSize, ExternalScrollId, PipelineId, ReferenceFrameKind, SpatialId,
+            SpatialTreeItem, SpatialTreeItemKey,
+        };
+
+        let (zoom, label) = (TransformKey::unique(), TransformKey::unique());
+        let list = zoomed_view(zoom, label, zoom_matrix(1.5, 12.0, -7.0));
+        let view = PipelineId(3, 0);
+        let pipeline_root = SpatialId::root_scroll_node(view);
+
+        // (reference frames as (key, id, parent, declared 2D), scroll frames
+        // as (external id, id, parent, content == frame), the rects' spaces)
+        let translate = |zoom_frame: Option<usize>| {
+            let (_, built) = super::translate_displaylist_with_zoom_frame(
+                &list,
+                view,
+                DeviceIntSize::new(800, 600),
+                &RendererResources::default(),
+                DpiScaleFactor::new(1.0),
+                Vec::new(),
+                &BTreeMap::new(),
+                0,
+                zoom_frame,
+            )
+            .expect("the list translates");
+            let mut frames = Vec::new();
+            let mut scrolls = Vec::new();
+            built.iter_spatial_tree(|item| match item {
+                SpatialTreeItem::ReferenceFrame(f) => frames.push((
+                    f.reference_frame.key,
+                    f.reference_frame.id,
+                    f.parent_spatial_id,
+                    matches!(
+                        f.reference_frame.kind,
+                        ReferenceFrameKind::Transform {
+                            is_2d_scale_translation: true,
+                            ..
+                        }
+                    ),
+                )),
+                SpatialTreeItem::ScrollFrame(f) => scrolls.push((
+                    f.external_id,
+                    f.scroll_frame_id,
+                    f.parent_space,
+                    f.content_rect == f.frame_rect,
+                )),
+                _ => {}
+            });
+            let mut spaces = Vec::new();
+            let mut iter = built.iter();
+            while let Some(item) = iter.next() {
+                if let DisplayItem::Rectangle(r) = item.item() {
+                    spaces.push(r.common.spatial_id);
+                }
+            }
+            (frames, scrolls, spaces)
+        };
+        // WebRender's scroll root of a primitive in `space`, over these nodes.
+        let scroll_root_of = |frames: &[(SpatialTreeItemKey, SpatialId, SpatialId, bool)],
+                              scrolls: &[(ExternalScrollId, SpatialId, SpatialId, bool)],
+                              mut space: SpatialId| {
+            let mut outermost = pipeline_root;
+            while space != pipeline_root {
+                if let Some(scroll) = scrolls.iter().find(|s| s.1 == space) {
+                    outermost = space;
+                    space = scroll.2;
+                } else {
+                    let frame = frames.iter().find(|f| f.1 == space).expect("a node of the list");
+                    if !frame.3 {
+                        outermost = pipeline_root;
+                    }
+                    space = frame.2;
+                }
+            }
+            outermost
+        };
+        let zoom_key = SpatialTreeItemKey::new(zoom.id as u64, 0);
+        let zoom_space_key = SpatialTreeItemKey::new(zoom.id as u64, u64::MAX);
+        let label_key = SpatialTreeItemKey::new(label.id as u64, 0);
+
+        super::VIEW_CONTENT_FRAMES.with(|on| on.set(Some(true)));
+        let (frames, scrolls, spaces) = translate(Some(1));
+        let (plain_frames, plain_scrolls, plain_spaces) = translate(None);
+        super::VIEW_CONTENT_FRAMES.with(|on| on.set(None));
+
+        let frame = |key| *frames.iter().find(|f| f.0 == key).expect("the frame");
+        let scroll = |id: u64| {
+            *scrolls
+                .iter()
+                .find(|s| s.0 == ExternalScrollId(id, view))
+                .expect("the scroll frame")
+        };
+        assert_eq!(scrolls.len(), 2, "the view's own frame and the zoomed content's");
+        let content = scroll(super::VIEW_CONTENT_FRAME);
+        let zoomed = scroll(super::VIEW_ZOOM_CONTENT_FRAME);
+        assert_eq!(content.2, pipeline_root);
+
+        let (_, zoom_frame, zoom_parent, zoom_declared) = frame(zoom_key);
+        assert_eq!(zoom_parent, pipeline_root, "next to the view's frame, not in it");
+        assert!(zoom_declared, "the zoom frame is declared a 2D scale / translation");
+        let (_, zoom_space, zoom_space_parent, zoom_space_declared) = frame(zoom_space_key);
+        assert_eq!(zoom_space_parent, zoom_frame);
+        assert!(zoom_space_declared);
+        assert_eq!(zoomed.2, zoom_space, "the zoomed content's frame is inside the zoom");
+        assert!(zoomed.3, "it does not scroll");
+        let (_, _, label_parent, label_declared) = frame(label_key);
+        assert_eq!(label_parent, zoomed.1, "a label of the picture is in the zoomed content");
+        assert!(!label_declared, "no other frame is declared");
+
+        assert_eq!(spaces.len(), 4);
+        assert_eq!(spaces[0], content.1, "before the zoom: the view's own frame");
+        assert_eq!(spaces[1], zoomed.1, "the content is in it");
+        assert_eq!(spaces[3], content.1, "after the zoom: the view's own frame again");
+        let root_of = |space| scroll_root_of(&frames, &scrolls, space);
+        assert_eq!(root_of(spaces[1]), zoomed.1, "the zoomed slice hangs BELOW the zoom");
+        assert_eq!(root_of(spaces[2]), zoomed.1, "the turned label is of that slice");
+        assert_eq!(root_of(spaces[0]), content.1);
+        assert_eq!(root_of(spaces[3]), content.1);
+
+        // Without a zoom frame: as A4-08 left it.
+        assert_eq!(plain_scrolls.len(), 1);
+        let content = plain_scrolls[0];
+        let plain = *plain_frames.iter().find(|f| f.0 == zoom_key).expect("the frame");
+        assert_eq!(plain.2, content.1, "the frame is inside the view's own scroll frame");
+        assert!(!plain.3, "and not declared");
+        assert_eq!(
+            scroll_root_of(&plain_frames, &plain_scrolls, plain_spaces[1]),
+            content.1,
+            "the zoom is below the view's one slice"
+        );
+
+        // The window's own list never has a zoom frame, whatever is asked.
+        let (_, built) = super::translate_displaylist_with_zoom_frame(
+            &list,
+            PipelineId(0, 0),
+            DeviceIntSize::new(800, 600),
+            &RendererResources::default(),
+            DpiScaleFactor::new(1.0),
+            Vec::new(),
+            &BTreeMap::new(),
+            0,
+            Some(1),
+        )
+        .expect("the list translates");
+        let mut scroll_frames = 0;
+        built.iter_spatial_tree(|item| {
+            if let SpatialTreeItem::ScrollFrame(_) = item {
+                scroll_frames += 1;
+            }
+        });
+        assert_eq!(scroll_frames, 0);
     }
 }
