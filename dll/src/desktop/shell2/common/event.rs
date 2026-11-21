@@ -4203,11 +4203,23 @@ impl CommonWindowState {
             // no rebuild of the tester): its child's boxes are hit where the
             // item puts them NOW. One item read per child dom.
             cpu_ht.sync_view_placements(&lw.layout_results);
-            let cpu_ht = &*cpu_ht;
             let resolve = |d: DomId, n: NodeId| lw.scroll_manager.get_current_offset(d, n);
             // Same map the CPU raster paints reference frames from.
             let resolve_tf = |d: DomId, n: NodeId| lw.gpu_state_manager.painted_transform_of(d, n);
-            let nodes = cpu_ht.hit_test_scrolled(position, &resolve, &resolve_tf);
+            // The stamps of the maps `resolve_tf` reads: while a dom's are
+            // what they were, each of its reference frames has the matrix it
+            // had, and the tester's kept bounds of where every turned label
+            // is painted still hold (2,118 matrix look-ups per pointer move
+            // in a city map otherwise).
+            let frame_stamps = |d: DomId| {
+                lw.gpu_state_manager
+                    .get_cache(d)
+                    .map_or([0; 6], azul_core::gpu::GpuValueCache::transform_stamps)
+            };
+            cpu_ht.sync_frame_bounds(&resolve_tf, &frame_stamps);
+            let cpu_ht = &*cpu_ht;
+            let nodes =
+                cpu_ht.hit_test_scrolled_stamped(position, &resolve, &resolve_tf, &frame_stamps);
             return crate::desktop::wr_translate2::convert_cpu_hit_test_to_full(
                 cpu_ht,
                 &nodes,

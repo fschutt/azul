@@ -149,7 +149,68 @@ struct DomIndex {
     /// Per DOM node index: its topmost box entry (`u32::MAX`: none). Empty
     /// for a dom whose node ids are too sparse to list.
     top_entry_of_node: Vec<u32>,
+    /// The groups a query that uses `frame_bounds` looks at whatever the
+    /// point (indices into `groups`): every group that is not in `framed`.
+    plain: Vec<u32>,
+    /// The groups whose innermost link is a reference frame of one of this
+    /// dom's own nodes (a turned label: one frame, one chain, one group), by
+    /// the chain around the frame - for the chains that hold
+    /// [`FRAME_BOUNDS_MIN_GROUPS`] of them or more ([`Self::split_framed`]).
+    framed: Vec<FramedGroups>,
+    /// Where the framed groups are painted, in the space of the chain around
+    /// them, for the matrices the stamps stand for; `None` while not worked
+    /// out ([`CpuHitTester::sync_frame_bounds`]).
+    frame_bounds: Option<FrameBounds>,
+    /// The dom's transform stamps as the last sync found them, and in how
+    /// many syncs in a row.
+    seen_stamps: TransformStamps,
+    seen_times: u8,
 }
+
+/// The stamps of the six maps a dom's reference frames are read from
+/// (`azul_core::gpu::GpuValueCache::transform_stamps`): while they are what
+/// they were, every frame of the dom has the matrix it had. `[0; 6]`: the
+/// dom has no frame.
+pub type TransformStamps = [u64; 6];
+
+/// The framed groups (indices into [`DomIndex::groups`]) under one chain.
+#[derive(Debug)]
+struct FramedGroups {
+    parent: u32,
+    groups: Vec<u32>,
+}
+
+/// Where the framed groups of a dom are painted ([`DomIndex::frame_bounds`]).
+#[derive(Debug)]
+struct FrameBounds {
+    /// The stamps of the matrices the bounds were made with.
+    stamps: TransformStamps,
+    parents: Vec<ParentBounds>,
+}
+
+/// The framed groups under one chain, by where their boxes are painted in
+/// that chain's space: a group can hold the query point only if the point,
+/// in the parent's space, is in the group's painted bounds.
+#[derive(Debug)]
+struct ParentBounds {
+    parent: u32,
+    /// Groups looked at whatever the point: no bounds (a corner behind the
+    /// eye of a perspective, a box that is not finite), or bounds over many
+    /// cells.
+    always: Vec<u32>,
+    /// The other groups, by their painted bounds.
+    grid: Option<EntryGrid>,
+}
+
+/// A chain holds this many framed groups before their painted bounds are
+/// kept: below it, inverting each frame per query is as cheap.
+const FRAME_BOUNDS_MIN_GROUPS: usize = 64;
+/// The painted bounds are worked out at the sync that finds the stamps
+/// unchanged for the this-many-th time in a row: while a matrix changes
+/// between the queries (an animation, a zoom of the frame around the
+/// labels), keeping bounds would cost a pass over every frame per query for
+/// nothing.
+const FRAME_BOUNDS_AFTER_SYNCS: u8 = 3;
 
 /// The entries of one dom that are painted in one chain: they share the
 /// static space the point is mapped into, so one mapped point tests them all.
@@ -162,6 +223,10 @@ struct ChainGroup {
     always: Vec<u32>,
     /// The other entries of a big group, by where their rect is.
     grid: Option<EntryGrid>,
+    /// The box around every rect of the group, in the group's static space
+    /// (`min x, min y, max x, max y`, the far edges as `point_in_rect` forms
+    /// them); `None` when a rect is not finite.
+    bounds: Option<[f32; 4]>,
 }
 
 /// A group is put into a grid from this many entries on.
@@ -331,10 +396,33 @@ impl DomIndex {
                     // every entry is tested, in paint order.
                     always = rects.iter().map(|(i, _)| *i).collect();
                 }
+                let mut bounds = Some([
+                    f32::INFINITY,
+                    f32::INFINITY,
+                    f32::NEG_INFINITY,
+                    f32::NEG_INFINITY,
+                ]);
+                for (_, r) in &rects {
+                    let (x1, y1) = (r.origin.x + r.size.width, r.origin.y + r.size.height);
+                    let finite = r.origin.x.is_finite()
+                        && r.origin.y.is_finite()
+                        && x1.is_finite()
+                        && y1.is_finite();
+                    bounds = match bounds {
+                        Some([x, y, far_x, far_y]) if finite => Some([
+                            x.min(r.origin.x),
+                            y.min(r.origin.y),
+                            far_x.max(x1),
+                            far_y.max(y1),
+                        ]),
+                        _ => None,
+                    };
+                }
                 ChainGroup {
                     chain,
                     always,
                     grid,
+                    bounds,
                 }
             })
             .collect();
@@ -357,7 +445,165 @@ impl DomIndex {
             dom_clips,
             groups,
             top_entry_of_node,
+            plain: Vec::new(),
+            framed: Vec::new(),
+            frame_bounds: None,
+            seen_stamps: [0; 6],
+            seen_times: 0,
         }
+    }
+
+    /// Sorts the groups into `framed` (the innermost link of the group's
+    /// chain is a reference frame of a node of `dom_id`, its rects are
+    /// finite, and the chain around the frame holds
+    /// [`FRAME_BOUNDS_MIN_GROUPS`] such groups) and `plain` (the rest).
+    /// `chains` is the tester's chain table.
+    fn split_framed(&mut self, dom_id: DomId, chains: &[ChainNode]) {
+        self.plain.clear();
+        self.framed.clear();
+        self.frame_bounds = None;
+        self.seen_times = 0;
+        // A group index past `u32` cannot be listed: no bounds are kept then
+        // (`framed` stays empty), and a query walks `groups` as before.
+        let Ok(count) = u32::try_from(self.groups.len()) else {
+            return;
+        };
+        let mut by_parent: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+        for g in 0..count {
+            let group = &self.groups[g as usize];
+            let framed_under = chains.get(group.chain as usize).and_then(|node| {
+                let own_frame = matches!(
+                    node.link,
+                    Some(HitChainLink::Transform(d, _, _)) if d == dom_id
+                );
+                // A chain's parent is interned before it (`ChainPoints`
+                // walks the table by the same rule).
+                (own_frame && group.bounds.is_some() && node.parent < group.chain)
+                    .then_some(node.parent)
+            });
+            match framed_under {
+                Some(parent) => by_parent.entry(parent).or_default().push(g),
+                None => self.plain.push(g),
+            }
+        }
+        for (parent, groups) in by_parent {
+            if groups.len() >= FRAME_BOUNDS_MIN_GROUPS {
+                self.framed.push(FramedGroups { parent, groups });
+            } else {
+                self.plain.extend(groups);
+            }
+        }
+    }
+}
+
+/// What the rounding of a point to the `f32` of the boxes can move it by,
+/// for a coordinate of size `reach`: the painted bounds of a framed group
+/// are widened by it on both sides of the frame's map, so a point the exact
+/// test accepts is never outside them.
+fn bounds_slack(reach: f64) -> f64 {
+    1.0e-3 + reach.abs() * 1.0e-6
+}
+
+/// Where the box `bounds` (`min x, min y, max x, max y` in the space inside
+/// `link`) is painted in the space around the link: the box around its four
+/// painted corners, widened by [`bounds_slack`]. `None` when a corner is not
+/// painted (behind the eye of a perspective) or the result is not finite:
+/// then nothing is known about where the box's content can be hit.
+///
+/// A point `q` of the outer space whose inverse through the link lies in the
+/// box is inside the answer: a frame's plane map is a projective map with
+/// `w > 0` at the four corners, so over the whole box, and such a map takes
+/// the box into the hull of its corners' images.
+fn painted_bounds(
+    link: &HitChainLink,
+    bounds: [f32; 4],
+    live: &LiveValues<'_>,
+) -> Option<LogicalRect> {
+    let [x0, y0, x1, y1] = bounds.map(f64::from);
+    let inner = bounds_slack(x0.abs().max(y0.abs()).max(x1.abs()).max(y1.abs()));
+    let (x0, y0, x1, y1) = (x0 - inner, y0 - inner, x1 + inner, y1 + inner);
+    let (mut min_x, mut min_y) = (f64::INFINITY, f64::INFINITY);
+    let (mut max_x, mut max_y) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+    for corner in [(x0, y0), (x1, y0), (x0, y1), (x1, y1)] {
+        let (x, y) = link_to_screen(link, corner, live)?;
+        min_x = min_x.min(x);
+        min_y = min_y.min(y);
+        max_x = max_x.max(x);
+        max_y = max_y.max(y);
+    }
+    let outer = bounds_slack(
+        min_x.abs().max(min_y.abs()).max(max_x.abs()).max(max_y.abs()),
+    );
+    #[allow(clippy::cast_possible_truncation)] // back in the f32 of the boxes, widened first
+    let rect = LogicalRect {
+        origin: LogicalPosition {
+            x: (min_x - outer) as f32,
+            y: (min_y - outer) as f32,
+        },
+        size: LogicalSize {
+            width: (max_x - min_x + 2.0 * outer) as f32,
+            height: (max_y - min_y + 2.0 * outer) as f32,
+        },
+    };
+    let finite = rect.origin.x.is_finite()
+        && rect.origin.y.is_finite()
+        && rect.size.width.is_finite()
+        && rect.size.height.is_finite();
+    finite.then_some(rect)
+}
+
+/// No scroll frame has an offset: for a map through reference frames only.
+fn no_scroll(_: DomId, _: NodeId) -> Option<LogicalPosition> {
+    None
+}
+
+impl FrameBounds {
+    /// The painted bounds of the `framed` groups for the matrices
+    /// `resolve_transform` answers now, which `stamps` stand for.
+    fn build(
+        groups: &[ChainGroup],
+        framed: &[FramedGroups],
+        chains: &[ChainNode],
+        resolve_transform: &dyn Fn(
+            DomId,
+            NodeId,
+        ) -> Option<azul_core::transform::ComputedTransform3D>,
+        stamps: TransformStamps,
+    ) -> Self {
+        let live = LiveValues {
+            scroll: &no_scroll,
+            transform: resolve_transform,
+            view_shift: &no_view_shift,
+        };
+        let parents = framed
+            .iter()
+            .map(|under| {
+                let mut always = Vec::new();
+                let mut rects: Vec<(u32, LogicalRect)> = Vec::with_capacity(under.groups.len());
+                for &g in &under.groups {
+                    let painted = groups.get(g as usize).and_then(|group| {
+                        let link = chains.get(group.chain as usize)?.link?;
+                        painted_bounds(&link, group.bounds?, &live)
+                    });
+                    match painted {
+                        Some(rect) => rects.push((g, rect)),
+                        None => always.push(g),
+                    }
+                }
+                let grid = EntryGrid::build(&rects, &mut always);
+                if grid.is_none() {
+                    // No grid (bounds with no extent to divide): every
+                    // group is looked at.
+                    always.extend(rects.iter().map(|(g, _)| *g));
+                }
+                ParentBounds {
+                    parent: under.parent,
+                    always,
+                    grid,
+                }
+            })
+            .collect();
+        Self { stamps, parents }
     }
 }
 
@@ -1916,6 +2162,63 @@ impl CpuHitTester {
         }
     }
 
+    /// Keeps, per dom with many framed groups (a map's turned labels: one
+    /// reference frame, one chain, one group each), where each group is
+    /// painted in the space of the chain around its frame - so that a query
+    /// with the same stamps ([`Self::hit_test_scrolled_stamped`]) looks at
+    /// the groups whose painted bounds hold the point instead of inverting
+    /// every frame's matrix to find out.
+    ///
+    /// `stamps_of` answers the transform stamps of a dom
+    /// (`GpuValueCache::transform_stamps`, `[0; 6]` for a dom without a
+    /// cache) and `resolve_transform` the matrices those stamps stand for:
+    /// both from the same `GpuStateManager`. Bounds made with other stamps
+    /// are dropped here, and no query uses bounds whose stamps are not the
+    /// ones it is handed, so a matrix that changed is never missed: at worst
+    /// every frame is inverted, as without this.
+    ///
+    /// The bounds are worked out once the stamps have been the same for
+    /// [`FRAME_BOUNDS_AFTER_SYNCS`] syncs in a row: one matrix look-up and
+    /// four mapped corners per framed group.
+    pub fn sync_frame_bounds(
+        &mut self,
+        resolve_transform: &dyn Fn(
+            DomId,
+            NodeId,
+        ) -> Option<azul_core::transform::ComputedTransform3D>,
+        stamps_of: &dyn Fn(DomId) -> TransformStamps,
+    ) {
+        for (dom_id, index) in &mut self.index {
+            if index.framed.is_empty() {
+                continue;
+            }
+            let stamps = stamps_of(*dom_id);
+            if index
+                .frame_bounds
+                .as_ref()
+                .is_some_and(|bounds| bounds.stamps == stamps)
+            {
+                continue;
+            }
+            index.frame_bounds = None;
+            if index.seen_times > 0 && index.seen_stamps == stamps {
+                index.seen_times = index.seen_times.saturating_add(1);
+            } else {
+                index.seen_stamps = stamps;
+                index.seen_times = 1;
+            }
+            if index.seen_times >= FRAME_BOUNDS_AFTER_SYNCS {
+                index.frame_bounds = Some(FrameBounds::build(
+                    &index.groups,
+                    &index.framed,
+                    &self.chains,
+                    resolve_transform,
+                    stamps,
+                ));
+            }
+        }
+    }
+
     /// Sum of `HitTestEntry` counts across all `DomIds` (for leak probes).
     #[must_use]
     pub fn node_rects_total(&self) -> usize {
@@ -2283,8 +2586,9 @@ impl CpuHitTester {
                 .iter()
                 .map(|(rect, chain)| (sanitize_clip_rect(*rect), *chain))
                 .collect();
-            self.index
-                .insert(*dom_id, DomIndex::build(&entries, index_clips));
+            let mut index = DomIndex::build(&entries, index_clips);
+            index.split_framed(*dom_id, &self.chains);
+            self.index.insert(*dom_id, index);
             self.node_rects.insert(*dom_id, entries);
         }
     }
@@ -2340,8 +2644,42 @@ impl CpuHitTester {
             NodeId,
         ) -> Option<azul_core::transform::ComputedTransform3D>,
     ) -> Vec<(DomId, NodeId, LogicalPosition)> {
+        self.boxes_at(position, resolve_scroll, resolve_transform, None)
+    }
+
+    /// [`Self::hit_test_scrolled`] for a caller that knows the transform
+    /// stamps of the doms (`stamps_of`, as for [`Self::sync_frame_bounds`]):
+    /// the same answer, and where the tester holds painted bounds made with
+    /// the same stamps, only the framed groups whose bounds hold the point
+    /// are looked at.
+    #[must_use]
+    pub fn hit_test_scrolled_stamped(
+        &self,
+        position: LogicalPosition,
+        resolve_scroll: &dyn Fn(DomId, NodeId) -> Option<LogicalPosition>,
+        resolve_transform: &dyn Fn(
+            DomId,
+            NodeId,
+        ) -> Option<azul_core::transform::ComputedTransform3D>,
+        stamps_of: &dyn Fn(DomId) -> TransformStamps,
+    ) -> Vec<(DomId, NodeId, LogicalPosition)> {
+        self.boxes_at(position, resolve_scroll, resolve_transform, Some(stamps_of))
+    }
+
+    /// The boxes at `position`, front to back ([`Self::hit_test_scrolled`]).
+    fn boxes_at(
+        &self,
+        position: LogicalPosition,
+        resolve_scroll: &dyn Fn(DomId, NodeId) -> Option<LogicalPosition>,
+        resolve_transform: &dyn Fn(
+            DomId,
+            NodeId,
+        ) -> Option<azul_core::transform::ComputedTransform3D>,
+        stamps_of: Option<&dyn Fn(DomId) -> TransformStamps>,
+    ) -> Vec<(DomId, NodeId, LogicalPosition)> {
         let results: Vec<(DomId, NodeId, LogicalPosition)> = self
-            .entries_at(position, resolve_scroll, resolve_transform)
+            .entries_at_counted(position, resolve_scroll, resolve_transform, stamps_of)
+            .0
             .into_iter()
             .filter(|hit| hit.scrollbar.is_none())
             .map(|hit| (hit.dom_id, hit.node_id, hit.local))
@@ -2479,7 +2817,7 @@ impl CpuHitTester {
             NodeId,
         ) -> Option<azul_core::transform::ComputedTransform3D>,
     ) -> Vec<EntryHit> {
-        self.entries_at_counted(position, resolve_scroll, resolve_transform)
+        self.entries_at_counted(position, resolve_scroll, resolve_transform, None)
             .0
     }
 
@@ -2496,11 +2834,31 @@ impl CpuHitTester {
             NodeId,
         ) -> Option<azul_core::transform::ComputedTransform3D>,
     ) -> HitTestWork {
-        self.entries_at_counted(position, resolve_scroll, resolve_transform)
+        self.entries_at_counted(position, resolve_scroll, resolve_transform, None)
             .1
     }
 
-    /// [`Self::entries_at`] with what it cost.
+    /// What [`Self::hit_test_scrolled_stamped`] does at `position`
+    /// ([`HitTestWork`]).
+    #[must_use]
+    pub fn hit_test_work_stamped(
+        &self,
+        position: LogicalPosition,
+        resolve_scroll: &dyn Fn(DomId, NodeId) -> Option<LogicalPosition>,
+        resolve_transform: &dyn Fn(
+            DomId,
+            NodeId,
+        ) -> Option<azul_core::transform::ComputedTransform3D>,
+        stamps_of: &dyn Fn(DomId) -> TransformStamps,
+    ) -> HitTestWork {
+        self.entries_at_counted(position, resolve_scroll, resolve_transform, Some(stamps_of))
+            .1
+    }
+
+    /// [`Self::entries_at`] with what it cost. `stamps_of`: the transform
+    /// stamps of the doms, from a caller that keeps the painted bounds of
+    /// the framed groups in step ([`Self::sync_frame_bounds`]); `None`: no
+    /// kept bounds are used.
     fn entries_at_counted(
         &self,
         position: LogicalPosition,
@@ -2509,6 +2867,7 @@ impl CpuHitTester {
             DomId,
             NodeId,
         ) -> Option<azul_core::transform::ComputedTransform3D>,
+        stamps_of: Option<&dyn Fn(DomId) -> TransformStamps>,
     ) -> (Vec<EntryHit>, HitTestWork) {
         let mut results = Vec::new();
         let mut work = HitTestWork::default();
@@ -2526,6 +2885,7 @@ impl CpuHitTester {
             },
             position,
         );
+        points.stamps_of = stamps_of;
 
         // FRONT-MOST FIRST across doms as well (9g-ii-e-i): a child dom (a
         // `VirtualView` page, an iframe) paints AT ITS VIEW'S ITEM in its
@@ -2614,25 +2974,64 @@ impl CpuHitTester {
                 return hits;
             }
         }
-        for group in &index.groups {
-            work.groups_visited += 1;
-            let Some(p) = points.local(group.chain).map(plane_point) else {
-                continue; // nothing inside this chain is at the point
-            };
-            let cell: &[u32] = group.grid.as_ref().map_or(&[], |grid| grid.at(p));
-            for &i in group.always.iter().chain(cell) {
-                let Some(entry) = entries.get(i as usize) else {
+        // The painted bounds of the framed groups, when they were made with
+        // the matrices the frames have now (the caller's stamps say so).
+        let stamps_of = points.stamps_of;
+        let bounds = index.frame_bounds.as_ref().filter(|bounds| {
+            stamps_of.is_some_and(|stamps_of| stamps_of(dom_id) == bounds.stamps)
+        });
+        if let Some(bounds) = bounds {
+            for &g in &index.plain {
+                if let Some(group) = index.groups.get(g as usize) {
+                    Self::group_hits(group, entries, points, work, &mut hits);
+                }
+            }
+            for under in &bounds.parents {
+                // Nothing inside the chain around the frames is at the
+                // point: nothing inside one of the frames is.
+                let Some(around) = points.local(under.parent).map(plane_point) else {
                     continue;
                 };
-                work.entries_tested += 1;
-                if Self::entry_holds(entry, p, points) {
-                    hits.push((i as usize, p));
+                let cell: &[u32] = under.grid.as_ref().map_or(&[], |grid| grid.at(around));
+                for &g in under.always.iter().chain(cell) {
+                    if let Some(group) = index.groups.get(g as usize) {
+                        Self::group_hits(group, entries, points, work, &mut hits);
+                    }
                 }
+            }
+        } else {
+            for group in &index.groups {
+                Self::group_hits(group, entries, points, work, &mut hits);
             }
         }
         // Reverse paint order: the box painted last is on top.
         hits.sort_unstable_by(|a, b| b.0.cmp(&a.0));
         hits
+    }
+
+    /// The entries of one chain group the query point is in, pushed to
+    /// `hits` with the point in the group's static space.
+    fn group_hits(
+        group: &ChainGroup,
+        entries: &[HitTestEntry],
+        points: &mut ChainPoints<'_>,
+        work: &mut HitTestWork,
+        hits: &mut Vec<(usize, LogicalPosition)>,
+    ) {
+        work.groups_visited += 1;
+        let Some(p) = points.local(group.chain).map(plane_point) else {
+            return; // nothing inside this chain is at the point
+        };
+        let cell: &[u32] = group.grid.as_ref().map_or(&[], |grid| grid.at(p));
+        for &i in group.always.iter().chain(cell) {
+            let Some(entry) = entries.get(i as usize) else {
+                continue;
+            };
+            work.entries_tested += 1;
+            if Self::entry_holds(entry, p, points) {
+                hits.push((i as usize, p));
+            }
+        }
     }
 
     /// The hits of `dom_id`, topmost first, with each child dom it shows
@@ -2702,6 +3101,10 @@ struct ChainPoints<'a> {
     pending: Vec<u32>,
     /// Links inverted so far ([`HitTestWork::links_resolved`]).
     links_resolved: usize,
+    /// The transform stamps of the doms, from a caller that keeps the
+    /// painted bounds of the framed groups in step with them; `None`: no
+    /// kept bounds are used ([`CpuHitTester::sync_frame_bounds`]).
+    stamps_of: Option<&'a dyn Fn(DomId) -> TransformStamps>,
 }
 
 /// The query point in one chain's static space.
@@ -2726,6 +3129,7 @@ impl<'a> ChainPoints<'a> {
             points,
             pending: Vec::new(),
             links_resolved: 0,
+            stamps_of: None,
         }
     }
 
@@ -5546,6 +5950,158 @@ mod audit_a6_tests {
             (links[1] as f32) < 6.0 * links[0] as f32,
             "4 n labels, under 6 times the links: {links:?}"
         );
+    }
+
+    // A6-05: the frames near the point, not every frame.
+
+    /// The transform stamps of `gpu`'s doms, as `perform_hit_test` reads them.
+    fn stamps_of(gpu: &GpuStateManager) -> impl Fn(DomId) -> TransformStamps + '_ {
+        move |d| {
+            gpu.get_cache(d)
+                .map_or([0; 6], azul_core::gpu::GpuValueCache::transform_stamps)
+        }
+    }
+
+    /// `times` syncs of the painted bounds with `gpu`'s values.
+    fn sync_bounds(tester: &mut CpuHitTester, gpu: &GpuStateManager, times: usize) {
+        for _ in 0..times {
+            tester.sync_frame_bounds(&|d, n| gpu.painted_transform_of(d, n), &stamps_of(gpu));
+        }
+    }
+
+    fn stamped_at(
+        tester: &CpuHitTester,
+        gpu: &GpuStateManager,
+        x: f32,
+        y: f32,
+    ) -> Vec<(DomId, NodeId, LogicalPosition)> {
+        tester.hit_test_scrolled_stamped(
+            p(x, y),
+            &|_, _| None,
+            &|d, n| gpu.painted_transform_of(d, n),
+            &stamps_of(gpu),
+        )
+    }
+
+    fn stamped_work(tester: &CpuHitTester, gpu: &GpuStateManager, x: f32, y: f32) -> HitTestWork {
+        tester.hit_test_work_stamped(
+            p(x, y),
+            &|_, _| None,
+            &|d, n| gpu.painted_transform_of(d, n),
+            &stamps_of(gpu),
+        )
+    }
+
+    /// The label of A6-01's example: box (300, 200) 100 x 12, turned by 90
+    /// degrees about (300, 212). Its corners are painted at (312, 212),
+    /// (312, 312), (300, 212), (300, 312): the bounds are (300, 212) 12 x 100,
+    /// widened by under 0.01 px, and never narrower than that box.
+    /// Mutation: the corners mapped about the window's corner (no `origin`)
+    /// answers a box near (-212, 300).
+    #[test]
+    fn the_painted_bounds_of_a_turned_box_are_the_box_around_its_painted_corners() {
+        let m = turned(90.0, 0.0, 12.0);
+        let tf = move |_: DomId, _: NodeId| Some(m);
+        let live = LiveValues {
+            scroll: &no_scroll,
+            transform: &tf,
+            view_shift: &no_view_shift,
+        };
+        let link =
+            HitChainLink::Transform(dom(0), NodeId::new(1), FrameOrigin::new(p(300.0, 200.0)));
+        let b = painted_bounds(&link, [300.0, 200.0, 400.0, 212.0], &live).expect("painted");
+        let (far_x, far_y) = (b.origin.x + b.size.width, b.origin.y + b.size.height);
+        assert!(b.origin.x <= 300.0 && b.origin.y <= 212.0, "{b:?}");
+        assert!(far_x >= 312.0 && far_y >= 312.0, "{b:?}");
+        assert!(b.origin.x > 299.99 && b.origin.y > 211.99, "{b:?}");
+        assert!(far_x < 312.01 && far_y < 312.01, "{b:?}");
+    }
+
+    /// Over `n` turned labels (a frame each) a query whose stamps the kept
+    /// bounds were made with inverts the frames whose painted bounds hold the
+    /// point: 16 links and 12 groups at most, at `n` and at `4 n`, where it
+    /// was `n + 2` links. And it answers what the walk over every frame
+    /// answers, at every point of a lattice over the labels.
+    /// Mutations: `sync_frame_bounds` never building (or `dom_hits` ignoring
+    /// the bounds) makes `links_resolved` `n + 2`; a bound that is too small
+    /// (the slack negative, a corner left out) fails the comparison of the
+    /// answers.
+    #[test]
+    fn a_query_over_turned_labels_inverts_the_frames_near_the_point() {
+        for n in [500_usize, 2000] {
+            let (results, gpu) = map_of(n, Some(1));
+            let mut tester = CpuHitTester::new();
+            tester.rebuild_from_layout_with_gpu(&results, Some(&gpu));
+
+            // The stamps have not rested yet: every frame, as before.
+            sync_bounds(&mut tester, &gpu, 1);
+            let cold = stamped_work(&tester, &gpu, 437.5, 71.0);
+            assert_eq!(cold.links_resolved, n + 2, "n = {n}: no bounds yet");
+
+            sync_bounds(&mut tester, &gpu, 2);
+            let work = stamped_work(&tester, &gpu, 437.5, 71.0);
+            assert!(
+                work.links_resolved <= 16,
+                "n = {n}: {} links inverted for one point",
+                work.links_resolved
+            );
+            assert!(work.groups_visited <= 12, "n = {n}: {}", work.groups_visited);
+
+            let (mut on_a_label, mut points) = (0, 0);
+            for row in 0..18_u8 {
+                for col in 0..24_u8 {
+                    let (x, y) = (45.0 + 37.0 * f32::from(col), 35.0 + 7.0 * f32::from(row));
+                    let walked = nodes_at(&tester, &gpu, &|_, _| None, x, y);
+                    assert_eq!(stamped_at(&tester, &gpu, x, y), walked, "n = {n}, at ({x}, {y})");
+                    points += 1;
+                    if walked.iter().any(|(_, node, _)| node.index() > 0) {
+                        on_a_label += 1;
+                    }
+                }
+            }
+            assert!(
+                on_a_label * 3 > points,
+                "n = {n}: the lattice is over the labels ({on_a_label} of {points})"
+            );
+        }
+    }
+
+    /// A matrix that changed is never hit through the bounds of the old one:
+    /// the label moved under the point is hit by the very next query, with
+    /// the tester not synced in between; and once the stamps rest again the
+    /// bounds are those of the new matrix.
+    /// 200 labels in four rows (child y 0 .. 96); label 0 (node 1) is moved
+    /// to child (400, 300): painted at (40, 30) + 1.25 (400, 300) + (10, 6) =
+    /// (550, 411), 100 x 20, so (560, 415) is on it and was on nothing.
+    /// Mutation: the comparison of the stamps taken out of `dom_hits` (kept
+    /// bounds used whatever the matrices are now) misses the moved label.
+    #[test]
+    fn a_matrix_that_changed_is_never_hit_through_old_bounds() {
+        let (results, mut gpu) = map_of(200, Some(1));
+        let mut tester = CpuHitTester::new();
+        tester.rebuild_from_layout_with_gpu(&results, Some(&gpu));
+        sync_bounds(&mut tester, &gpu, 3);
+        assert!(stamped_work(&tester, &gpu, 437.5, 71.0).links_resolved <= 16, "bounds are kept");
+        assert!(stamped_at(&tester, &gpu, 560.0, 415.0).is_empty(), "nothing is painted there");
+
+        set_frame(&mut gpu, dom(1), 1, scaled(1.0, 400.0, 300.0));
+        // Not synced: the kept bounds are those of the old matrices.
+        let hits = stamped_at(&tester, &gpu, 560.0, 415.0);
+        assert!(hits_node(&hits, dom(1), 1), "the moved label is hit at once: {hits:?}");
+        assert_eq!(hits, nodes_at(&tester, &gpu, &|_, _| None, 560.0, 415.0));
+        assert_eq!(
+            stamped_work(&tester, &gpu, 560.0, 415.0).links_resolved,
+            202,
+            "old bounds are not used: every frame is inverted"
+        );
+
+        sync_bounds(&mut tester, &gpu, 3);
+        let hits = stamped_at(&tester, &gpu, 560.0, 415.0);
+        assert!(hits_node(&hits, dom(1), 1), "{hits:?}");
+        assert!(stamped_work(&tester, &gpu, 560.0, 415.0).links_resolved <= 16);
+        // Where the label was, it is not hit any more: (40 + 10 + 1.25 x 40,
+        // 30 + 6 + 1.25 x 8) = (100, 46) was inside it.
+        assert!(!hits_node(&stamped_at(&tester, &gpu, 100.0, 46.0), dom(1), 1));
     }
 
     /// A point the view does not show (beside its box) looks at none of the
