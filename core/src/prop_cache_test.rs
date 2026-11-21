@@ -9,7 +9,10 @@ mod autotest_generated {
             CssPropertyWithConditions, DynamicSelector, DynamicSelectorContext, PseudoStateType,
         },
         props::{
-            basic::{length::SizeMetric, pixel::PixelValue},
+            basic::{
+                length::SizeMetric,
+                pixel::{PixelValue, PT_TO_PX},
+            },
             layout::{
                 LayoutFlexBasis, LayoutInsetBottom, LayoutLeft, LayoutMarginTop, LayoutMaxWidth,
                 LayoutMinWidth, LayoutOverflow, LayoutPaddingLeft, LayoutRight, LayoutTop,
