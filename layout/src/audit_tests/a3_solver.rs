@@ -2000,3 +2000,78 @@ mod sizing;
 mod styles;
 mod taffy;
 mod widgets;
+
+/// The display-list options belong to the window they are set on (they were process-wide
+/// switches once, and a test that set one left it set for every test of its binary). One
+/// window skips the list - the web backend's setting - and the window beside it, laying out
+/// the same page, builds its list as it always does.
+///
+/// Mutation: `skip` read from anywhere but the cache of the pass (a static again) gives both
+/// windows the same list.
+#[test]
+fn the_display_list_options_of_a_window_touch_no_other_window() {
+    let items = |lw: &LayoutWindow| lw.layout_results[&DomId::ROOT_ID].display_list.items.len();
+    let mut skipping = window();
+    skipping.display_list_options.skip = true;
+    let mut building = window();
+    lay_out(&mut skipping, layer_of_absolute_blocks(5));
+    lay_out(&mut building, layer_of_absolute_blocks(5));
+    assert_eq!(items(&skipping), 0, "the window that skips its list built none");
+    assert!(items(&building) > 0, "the window beside it built its list");
+    assert!(
+        skipping.layout_results[&DomId::ROOT_ID].calculated_positions.len()
+            == building.layout_results[&DomId::ROOT_ID].calculated_positions.len(),
+        "both laid the page out: the option only decides about the list"
+    );
+}
+
+/// The counters of the display-list patching are the window's: a window that patched a pass
+/// counts it, a window that laid out beside it counts nothing. (They were thread-locals once:
+/// every window laid out on the thread was in one count.)
+///
+/// Mutation: the counters kept in a static again: the window that did nothing counts too.
+#[test]
+fn the_patch_counters_count_the_passes_of_their_own_window_only() {
+    let mut patching = window();
+    patching.display_list_options.patching = true;
+    let idle = window();
+    lay_out(&mut patching, layer_of_absolute_blocks(5));
+    assert_eq!(
+        patching.display_list_patch_counters(),
+        crate::solver3::cache::DisplayListPatchCounters::default(),
+        "a cold pass patches nothing"
+    );
+
+    // The same document at another height: the resize path, which patches the list.
+    let styled = patching
+        .layout_results
+        .remove(&DomId::ROOT_ID)
+        .expect("laid out before")
+        .styled_dom;
+    let mut ws = patching.current_window_state.clone();
+    ws.size.dimensions = LogicalSize::new(640.0, 520.0);
+    patching.layout_cache.resize_only_hint = true;
+    patching
+        .layout_and_generate_display_list(
+            styled,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the page lays out again");
+    assert!(
+        patching.layout_cache.last_build_was_patched,
+        "premise: the resize of a kept tree patches the list"
+    );
+    let counted = patching.display_list_patch_counters();
+    assert!(
+        counted.cached_runs_copied + counted.runs_painted_by_patched_builds > 0,
+        "the window that patched counted the runs it copied or painted: {counted:?}"
+    );
+    assert_eq!(
+        idle.display_list_patch_counters(),
+        crate::solver3::cache::DisplayListPatchCounters::default(),
+        "the window beside it counted nothing"
+    );
+}

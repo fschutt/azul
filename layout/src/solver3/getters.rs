@@ -4714,6 +4714,7 @@ fn spacing_of_px(px: f32) -> crate::text3::cache::Spacing {
 ///
 /// Panics only on an internal indexing invariant (an in-range `get().unwrap()` over the
 /// font-family list).
+#[must_use]
 pub fn get_style_properties_for_state(
     styled_dom: &StyledDom,
     dom_id: NodeId,
@@ -8092,6 +8093,32 @@ pub struct ScrollbarBaseMemo {
     >,
 }
 
+impl ScrollbarBaseMemo {
+    /// The kept style when it was made for this context and this system scrollbar, else the
+    /// one `make` builds (kept from then on).
+    fn get_or_make(
+        &self,
+        ctx: &azul_css::dynamic_selector::DynamicSelectorContext,
+        sys_key: ScrollbarBaseKey,
+        make: impl FnOnce() -> ComputedScrollbarStyle,
+    ) -> ComputedScrollbarStyle {
+        let mut memo = self.entry.borrow_mut();
+        let kept = match &*memo {
+            Some((memo_ctx, memo_sys, kept)) if memo_ctx == ctx && *memo_sys == sys_key => {
+                Some(*kept)
+            }
+            _ => None,
+        };
+        if let Some(kept) = kept {
+            kept
+        } else {
+            let made = make();
+            *memo = Some((ctx.clone(), sys_key, made));
+            made
+        }
+    }
+}
+
 /// How often [`get_scrollbar_style`] was asked, and how often it made the
 /// node-independent part of its answer, on this thread
 /// (`audit_tests::a3_solver`: once per context, not once per node).
@@ -8240,24 +8267,7 @@ pub fn get_scrollbar_style_with(
     }
     result
     };
-    let result = if let Some(memo) = base {
-        let mut memo = memo.entry.borrow_mut();
-        let kept = match &*memo {
-            Some((memo_ctx, memo_sys, kept)) if memo_ctx == ctx && *memo_sys == sys_key => {
-                Some(*kept)
-            }
-            _ => None,
-        };
-        if let Some(kept) = kept {
-            kept
-        } else {
-            let made = build_base();
-            *memo = Some((ctx.clone(), sys_key, made));
-            made
-        }
-    } else {
-        build_base()
-    };
+    let result = base.map_or_else(build_base, |memo| memo.get_or_make(ctx, sys_key, build_base));
 
     // FAST PATH: 99% of nodes have no scrollbar CSS. Bail before walking 8 × cascade.
     if node_state.is_normal() {

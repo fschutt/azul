@@ -1004,7 +1004,7 @@ pub struct DisplayListPatchCounters {
 
 impl DisplayListPatchCounters {
     /// These counters with `other` counted in.
-    pub fn add(&mut self, other: &Self) {
+    pub const fn add(&mut self, other: &Self) {
         self.moved_runs_painted_anew += other.moved_runs_painted_anew;
         self.moved_runs_translated += other.moved_runs_translated;
         self.translated_runs_painted_anew += other.translated_runs_painted_anew;
