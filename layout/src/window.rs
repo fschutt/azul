@@ -15078,8 +15078,15 @@ impl LayoutWindow {
                 // A DOM its builder handed over flat answers from the tiers it
                 // made node by node (its root is hashed, no other node); a tree
                 // is walked. A view that built what it built before is kept
-                // below without its flat DOM ever becoming a tree.
-                let (fingerprints, transfers) = azul_core::dom::fingerprint_built_dom(&dom);
+                // below without its flat DOM ever becoming a tree; when anything
+                // differs from the view's last build the DOM becomes its tree
+                // here, because what reads it below walks one (the nodes a
+                // re-render changed, the passes before styling).
+                let mut dom = dom;
+                let (fingerprints, transfers) = azul_core::dom::fingerprint_built_dom_against(
+                    &mut dom,
+                    self.child_dom_fingerprints.get(&child),
+                );
                 if self.reclaim_unchanged_child(child, &fingerprints, &transfers) {
                     self.virtual_view_manager.update_virtual_view_info(
                         parent_dom_id,

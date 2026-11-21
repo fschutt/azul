@@ -428,7 +428,7 @@ impl FlatDom {
 
     /// Node `i` as a `NodeData`, copied out of the arenas: the node a `Dom` built by the
     /// same calls holds. `None` past the last node. (Node 0 of a tree a `Dom` carries is
-    /// the `Dom`'s `root`: [`Dom::node_data_at`].)
+    /// the `Dom`'s `root`: [`Dom::flat_node_data_at`].)
     #[must_use]
     pub fn node_data(&self, i: usize) -> Option<NodeData> {
         let node = self.nodes.get(i)?;
@@ -917,12 +917,12 @@ impl BuilderState {
         let mut item = NodeHierarchyItem::zeroed();
         if let Some(parent) = self.open.last_mut() {
             item.parent = parent.index as usize + 1;
-            item.previous_sibling = parent.last_child as usize;
-            if let Some(previous) = (parent.last_child as usize)
-                .checked_sub(1)
-                .and_then(|previous| self.flat.hierarchy.get_mut(previous))
-            {
-                previous.next_sibling = index + 1;
+            let previous = parent.last_child as usize;
+            item.previous_sibling = previous;
+            if previous != 0 {
+                if let Some(previous) = self.flat.hierarchy.get_mut(previous - 1) {
+                    previous.next_sibling = index + 1;
+                }
             }
             if let Some(parent_item) = self.flat.hierarchy.get_mut(parent.index as usize) {
                 parent_item.last_child = index + 1;
@@ -1188,13 +1188,11 @@ impl BuilderState {
                 let Some(node) = self.flat.nodes.get_mut(index) else {
                     return;
                 };
+                let held = node.dataset as usize;
                 match data {
                     OptionRefAny::Some(data) => {
-                        if let Some(slot) = (node.dataset as usize)
-                            .checked_sub(1)
-                            .and_then(|at| self.flat.datasets.get_mut(at))
-                        {
-                            *slot = data;
+                        if held != 0 && held <= self.flat.datasets.len() {
+                            self.flat.datasets[held - 1] = data;
                         } else {
                             self.flat.datasets.push(data);
                             node.dataset = idx(self.flat.datasets.len());
