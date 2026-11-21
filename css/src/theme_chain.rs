@@ -154,6 +154,7 @@ impl ModeWord {
 pub fn theme_env() -> &'static ThemeEnv {
     #[cfg(feature = "std")]
     {
+        // Process-wide configuration, read once from the environment (`AZ_THEME`, `AZ_MODE`).
         static ENV: std::sync::OnceLock<ThemeEnv> = std::sync::OnceLock::new();
         ENV.get_or_init(|| {
             let theme = std::env::var("AZ_THEME").ok();

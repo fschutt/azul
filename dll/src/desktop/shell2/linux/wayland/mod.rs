@@ -6410,7 +6410,12 @@ impl WaylandWindow {
         self.common.note_focus_gained();
         self.dynamic_selector_context.window_focused = true;
         // A changed wallpaper is read again for the metals.
-        if crate::desktop::wallpaper::refresh() {
+        if self
+            .common
+            .layout_window
+            .as_ref()
+            .is_some_and(crate::desktop::wallpaper::refresh)
+        {
             self.request_redraw();
         }
 
@@ -10003,6 +10008,10 @@ impl WaylandPopup {
         // images inside the popup resolve (whole-map seed at creation).
         if let Some(parent_lw) = parent.common.layout_window.as_ref() {
             layout_window.seed_image_id_map(parent_lw.image_id_map_snapshot());
+            // The seeded images include the parent's material images, which
+            // draw with the parent's renderer: the popup reads that one as
+            // its own (the frames they drew, the wallpapers they reflect).
+            layout_window.material_renderer = parent_lw.material_renderer.clone();
         }
         let mut common = event::CommonWindowState::new(
             current_window_state,

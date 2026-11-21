@@ -27,7 +27,7 @@ use azul_css::props::{
     style::border_radius::StyleBorderRadius,
 };
 use azul_layout::{
-    cpurender::{text_halos_of_held_list, TextHalo},
+    cpurender::{TextHalo, TextHaloStore},
     solver3::display_list::{BorderRadius, DisplayList},
     window::DomLayoutResult,
 };
@@ -488,6 +488,7 @@ pub fn translate_displaylist_to_wr(
     pipeline_id: PipelineId,
     viewport_size: DeviceIntSize,
     renderer_resources: &azul_core::resources::RendererResources,
+    halo_store: &TextHaloStore,
     dpi: DpiScaleFactor,
     wr_resources: Vec<WrResourceUpdate>,
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
@@ -498,6 +499,7 @@ pub fn translate_displaylist_to_wr(
         pipeline_id,
         viewport_size,
         renderer_resources,
+        halo_store,
         dpi,
         wr_resources,
         layout_results,
@@ -509,6 +511,9 @@ pub fn translate_displaylist_to_wr(
 /// Translate ONE Azul `DisplayList` - a DOM's, the window's or a
 /// `VirtualView` child's - to a WebRender display list, to be put into a
 /// transaction as the pipeline `pipeline_id` by the caller.
+///
+/// `halo_store`: the window's kept text halos ([`TextHaloStore`]), asked which shadows of
+/// the list are painted as kept pictures (the scan of the frame's resources drew them).
 ///
 /// `zoom_frame`: the index of the `PushReferenceFrame` that is the view's
 /// zoom frame, if the caller found one ([`zoom_frame_candidate`]) whose value
@@ -535,6 +540,7 @@ pub fn translate_displaylist_with_zoom_frame(
     pipeline_id: PipelineId,
     viewport_size: DeviceIntSize,
     renderer_resources: &azul_core::resources::RendererResources,
+    halo_store: &TextHaloStore,
     dpi: DpiScaleFactor,
     wr_resources: Vec<WrResourceUpdate>,
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
@@ -689,7 +695,8 @@ pub fn translate_displaylist_with_zoom_frame(
     // picture a later frame draws the one that stands in for it. Every other
     // shadow goes to WebRender's own. (What the list's shadows are found by is
     // kept from the scan of the frame's resources while the list is the same.)
-    let halos: BTreeMap<usize, TextHalo> = text_halos_of_held_list(display_list, dpi_scale, None)
+    let halos: BTreeMap<usize, TextHalo> = halo_store
+        .text_halos_of_held_list(display_list, dpi_scale, None)
         .into_iter()
         .map(|halo| (halo.push, halo))
         .collect();
@@ -3310,6 +3317,7 @@ mod stacking_context_tests {
             PipelineId(0, 0),
             DeviceIntSize::new(400, 100),
             resources,
+            &azul_layout::cpurender::TextHaloStore::new(),
             DpiScaleFactor::new(dpi),
             Vec::new(),
             &BTreeMap::new(),
@@ -4250,6 +4258,7 @@ mod text_halo_tests {
             PipelineId(0, 0),
             DeviceIntSize::new(1200, 400),
             &window.renderer_resources,
+            &window.text_halo_store,
             dpi,
             Vec::new(),
             &BTreeMap::new(),
@@ -4279,17 +4288,19 @@ mod text_halo_tests {
     /// the first.
     #[test]
     fn a_halo_is_drawn_once_and_found_kept_by_every_later_frame() {
-        use azul_layout::cpurender::halos_drawn;
-
         let mut window = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
-        let start = halos_drawn();
+        let start = window.text_halo_store.halos_drawn();
         drop(frame(&mut window, labels(0.0, "#333333", "#ffffff", true)));
-        assert_eq!(halos_drawn() - start, LABELS, "the first frame draws each label's halo");
+        assert_eq!(
+            window.text_halo_store.halos_drawn() - start,
+            LABELS,
+            "the first frame draws each label's halo"
+        );
         for dx in [37.5, 80.0, -20.0] {
-            let before = halos_drawn();
+            let before = window.text_halo_store.halos_drawn();
             drop(frame(&mut window, labels(dx, "#333333", "#ffffff", true)));
             assert_eq!(
-                halos_drawn() - before,
+                window.text_halo_store.halos_drawn() - before,
                 0,
                 "the labels moved by {dx}: their halos are found kept, none is drawn again"
             );
@@ -4302,8 +4313,6 @@ mod text_halo_tests {
     /// scans, and once every one is kept a scan draws nothing.
     #[test]
     fn a_frame_draws_only_the_halos_its_budget_allows_and_the_rest_come_later() {
-        use azul_layout::cpurender::{halos_drawn, text_halos, within_halo_budget};
-
         const MANY: usize = 24;
         let mut grid = Dom::create_div().with_css("position: relative; width: 600px; height: 700px;");
         for i in 0..MANY {
@@ -4342,40 +4351,42 @@ mod text_halo_tests {
             .expect("the root DOM is laid out")
             .display_list
             .clone();
+        let halo_store = &window.text_halo_store;
         let scan = |free: usize, time: std::time::Duration| {
-            within_halo_budget(free, time, || {
-                text_halos(
-                    &list.items,
-                    2.0,
-                    Some((&window.renderer_resources, &window.font_manager)),
-                )
-                .len()
+            halo_store.within_halo_budget(free, time, || {
+                halo_store
+                    .text_halos(
+                        &list.items,
+                        2.0,
+                        Some((&window.renderer_resources, &window.font_manager)),
+                    )
+                    .len()
             })
         };
 
         // No time at all and three halos as of right: three are drawn.
-        let start = halos_drawn();
+        let start = halo_store.halos_drawn();
         let (kept, left) = scan(3, std::time::Duration::ZERO);
-        assert_eq!(halos_drawn() - start, 3, "a frame draws what its budget allows");
+        assert_eq!(halo_store.halos_drawn() - start, 3, "a frame draws what its budget allows");
         assert_eq!((kept, left), (3, MANY - 3), "and leaves the others for later");
 
         // Each later frame draws three more, finds those kept before.
         let mut frames = 1;
         let mut last = (kept, left);
         while last.1 > 0 {
-            let before = halos_drawn();
+            let before = halo_store.halos_drawn();
             last = scan(3, std::time::Duration::ZERO);
             frames += 1;
-            assert!(halos_drawn() - before <= 3, "frame {frames}");
+            assert!(halo_store.halos_drawn() - before <= 3, "frame {frames}");
             assert!(frames <= MANY, "the halos come: {last:?}");
         }
         assert_eq!(last.0, MANY, "every label has its halo at last");
         assert_eq!(frames, MANY / 3, "three a frame");
 
         // Everything kept: the next scan finds them all and draws none.
-        let before = halos_drawn();
+        let before = halo_store.halos_drawn();
         assert_eq!(scan(3, std::time::Duration::ZERO), (MANY, 0));
-        assert_eq!(halos_drawn(), before, "no halo is drawn again");
+        assert_eq!(halo_store.halos_drawn(), before, "no halo is drawn again");
     }
 
     #[test]
@@ -4401,7 +4412,7 @@ mod text_halo_tests {
     #[test]
     fn a_halo_tinted_with_its_colour_is_the_cpu_renderers_text_shadow() {
         use azul_layout::{
-            cpurender::{render, text_halos, RenderOptions},
+            cpurender::{render, RenderOptions},
             glyph_cache::GlyphCache,
         };
 
@@ -4424,7 +4435,7 @@ mod text_halo_tests {
             &mut GlyphCache::new(),
         )
         .expect("the CPU renderer draws the frame");
-        let halos = text_halos(&list.items, 2.0, None);
+        let halos = window.text_halo_store.text_halos(&list.items, 2.0, None);
         assert_eq!(halos.len(), LABELS, "every label's halo is kept");
         let mut worst = (0u8, (0, 0));
         for halo in &halos {
@@ -4575,6 +4586,7 @@ mod flora_window_tests {
             PipelineId(0, 0),
             DeviceIntSize::new((500.0 * dpi) as i32, (260.0 * dpi) as i32),
             &window.renderer_resources,
+            &window.text_halo_store,
             DpiScaleFactor::new(dpi),
             Vec::new(),
             &BTreeMap::new(),
@@ -4892,6 +4904,7 @@ mod log_volume_tests {
             PipelineId(0, 0),
             DeviceIntSize::new(400, 100),
             &RendererResources::default(),
+            &azul_layout::cpurender::TextHaloStore::new(),
             DpiScaleFactor::new(1.0),
             Vec::new(),
             &BTreeMap::new(),
@@ -5140,6 +5153,7 @@ mod audit_a4_tests {
                 pipeline,
                 DeviceIntSize::new(800, 600),
                 &RendererResources::default(),
+                &azul_layout::cpurender::TextHaloStore::new(),
                 DpiScaleFactor::new(1.0),
                 Vec::new(),
                 &BTreeMap::new(),
@@ -5403,6 +5417,7 @@ mod audit_a4_tests {
                 view,
                 DeviceIntSize::new(800, 600),
                 &RendererResources::default(),
+                &azul_layout::cpurender::TextHaloStore::new(),
                 DpiScaleFactor::new(1.0),
                 Vec::new(),
                 &BTreeMap::new(),
@@ -5522,6 +5537,7 @@ mod audit_a4_tests {
             PipelineId(0, 0),
             DeviceIntSize::new(800, 600),
             &RendererResources::default(),
+            &azul_layout::cpurender::TextHaloStore::new(),
             DpiScaleFactor::new(1.0),
             Vec::new(),
             &BTreeMap::new(),

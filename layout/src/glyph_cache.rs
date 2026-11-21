@@ -178,6 +178,22 @@ pub struct GlyphCache {
     /// How many cell sets this cache has had to build (found in neither
     /// generation): what a repaint of text drawn before must leave unchanged.
     cells_built: u64,
+    /// How often [`Self::get_or_build_decoding`] had to ask its caller to decode a glyph
+    /// (found in neither generation): what a repaint of text drawn before must leave
+    /// unchanged. Counted by the cache itself, so a test reads it from the cache it paints
+    /// with and no other test's decodes are in it.
+    decodes: u64,
+    /// The window's cache while this one is the cache of a thread that paints a band of a
+    /// repaint (`bands`): read first, never written while the bands run. A band looks a
+    /// glyph's cells up there ([`Self::cached_cells`]) and builds into this cache only what
+    /// the window's lacks; the window's cache takes those back when the bands are done
+    /// ([`Self::absorb`]). `None` for every other cache.
+    window: Option<std::sync::Arc<GlyphCache>>,
+    /// What the thread that paints with this cache keeps between its draws: what it counted,
+    /// its pooled text rasteriser and tint table, the shadows and halos kept for the next
+    /// frame. Owned here because this is the one mutable object that travels through every
+    /// paint function already (one per window, one per band of a repaint).
+    pub(crate) scratch: crate::cpurender::PaintScratch,
 }
 
 impl core::fmt::Debug for GlyphCache {
@@ -243,7 +259,60 @@ impl GlyphCache {
             lcd_subpixel_order: LcdSubpixelOrder::Rgb,
             text_aa: crate::cpurender::TextAaSettings::default(),
             cells_built: 0,
+            decodes: 0,
+            window: None,
+            scratch: crate::cpurender::PaintScratch::default(),
         }
+    }
+
+    /// An empty cache for a thread that paints a band of a repaint of `window`'s frame: the
+    /// window's text settings (a band that painted with the defaults would draw another text
+    /// than one pass does), its own counters and rasteriser, the frame's kept halos, shadows and
+    /// log notes (`share`), and the window's cache to look cells up in.
+    pub(crate) fn for_band(
+        window: &std::sync::Arc<Self>,
+        share: &crate::cpurender::BandShare,
+    ) -> Self {
+        let mut cache = Self::new();
+        cache.text_aa = window.text_aa;
+        cache.lcd_subpixel_order = window.lcd_subpixel_order;
+        cache.scratch = crate::cpurender::PaintScratch::for_band(share);
+        cache.window = Some(std::sync::Arc::clone(window));
+        cache
+    }
+
+    /// The window's cache, when this is the cache of a band of a repaint: the one a band asks
+    /// for a glyph's cells before it builds any (see the field). An `Arc` clone, so that the
+    /// caller can read it while it builds into this cache.
+    pub(crate) fn window_arc(&self) -> Option<std::sync::Arc<Self>> {
+        self.window.clone()
+    }
+
+    /// Let go of the window's cache: the frame's thread must be the only holder of it when it
+    /// takes it back after the bands.
+    pub(crate) fn release_window(&mut self) {
+        self.window = None;
+    }
+
+    /// What painting with this cache counted of the frame under way
+    /// ([`FrameCounts`](crate::cpu_counters::FrameCounts)): zeroed when a frame starts and taken
+    /// when it ends.
+    #[must_use]
+    pub const fn counts(&self) -> &crate::cpu_counters::FrameCounts {
+        &self.scratch.counts
+    }
+
+    /// How often [`Self::get_or_build_decoding`] has asked its caller to decode a glyph since
+    /// this cache was made.
+    #[must_use]
+    pub const fn decodes(&self) -> u64 {
+        self.decodes
+    }
+
+    /// Let go of what is kept only to make the next frame cheaper: the blurred box shadows and
+    /// the CPU renderer's halos and turned text pictures. The glyphs stay (see [`Self::gc`]).
+    pub fn release_kept(&mut self) {
+        self.scratch.release_kept();
     }
 
     /// How many cell sets this cache has built since it was made: a glyph,
@@ -391,8 +460,7 @@ impl GlyphCache {
             if let Some(v) = self.paths_prev.remove(&key) {
                 self.paths.insert(key, v);
             } else {
-                #[cfg(test)]
-                GLYPH_DECODES.with(|n| n.set(n.get() + 1));
+                self.decodes += 1;
                 let glyph = decode()?;
                 return self.get_or_build(font_hash, glyph_id, &glyph, parsed_font, ppem);
             }
@@ -1120,6 +1188,7 @@ fn hinted_outline_scale(hint_correction: f32) -> (f64, f64) {
 /// Windows keep
 /// it. Override with `AZ_TEXT_HINTING=1` / `0`. Read once.
 pub(crate) fn text_hinting_enabled() -> bool {
+    // Process-wide configuration, read once from the environment (`AZ_TEXT_HINTING`).
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| {
         std::env::var("AZ_TEXT_HINTING").map_or(cfg!(not(target_os = "macos")), |s| {
@@ -1132,6 +1201,7 @@ pub(crate) fn text_hinting_enabled() -> bool {
 /// ON by default (matches CoreText / modern browser grayscale rendering); set
 /// `AZ_HINT_LIGHT=0` (or `false`) to force Windows-style full grid-fit. Read once.
 pub(crate) fn hint_light_enabled() -> bool {
+    // Process-wide configuration, read once from the environment (`AZ_HINT_LIGHT`).
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| {
         std::env::var("AZ_HINT_LIGHT")
@@ -1151,6 +1221,7 @@ pub(crate) fn hint_light_enabled() -> bool {
 /// rounding to an integer pixel and drifting the whole line. Set
 /// `AZ_TEXT_SUBPIXEL=0` (or `false`) to force integer X placement. Read once.
 pub(crate) fn text_subpixel_enabled() -> bool {
+    // Process-wide configuration, read once from the environment (`AZ_TEXT_SUBPIXEL`).
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| {
         std::env::var("AZ_TEXT_SUBPIXEL")
@@ -2374,13 +2445,6 @@ impl GlyphCache {
         self.lcd_tiles.insert(key, Some(std::sync::Arc::clone(&tile)));
         Some((tile, int_x, int_y))
     }
-}
-
-#[cfg(test)]
-thread_local! {
-    /// Tests: how often `get_or_build_decoding` has asked its caller to decode a
-    /// glyph on this thread.
-    pub(crate) static GLYPH_DECODES: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
 }
 
 /// Guards of the 2026-11-21 audit (area A8, `audit/A8.md`).

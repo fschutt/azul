@@ -634,6 +634,10 @@ pub struct FontRef {
 
 /// Never-reused source of [`FontRef::id`]. Starts at 1 so `id == 0` can flag
 /// an un-initialised / raw-reconstructed handle.
+///
+/// Kept process-wide because `FontRef::new` is a C-ABI constructor (`AzFontRef`): there is no
+/// owner a caller could hand it, and the id must stay unique across every font of the process
+/// for as long as any map keyed by it lives (an address would be reused once a font is freed).
 static FONT_REF_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 #[must_use]

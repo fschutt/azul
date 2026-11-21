@@ -6760,17 +6760,17 @@ impl CallbackInfo {
         self.get_layout_window().frame_timings()
     }
 
-    /// What the frames of this thread did with the text halos the GPU backend
+    /// What the frames of this window did with the text halos the GPU backend
     /// keeps as pictures ([`crate::window::TextHaloStats`]): how many the
     /// last scan of the display lists drew, dropped, left for a later frame and
     /// painted with a stand-in, what one frame uses and what is kept.
     ///
     /// What a frame recorder reads next to [`Self::get_frame_timings`]. The
-    /// halos are kept by the thread that builds the frames, which is the thread
-    /// callbacks run on. All zero on the CPU backend (it keeps its halos apart).
+    /// halos are kept per window, by the window the callback runs for. All zero
+    /// on the CPU backend (it keeps its halos apart).
     #[must_use]
     pub fn get_text_halo_stats(&self) -> crate::window::TextHaloStats {
-        crate::cpu_counters::text_halo_stats()
+        self.get_layout_window().text_halo_stats()
     }
 
     /// Returns the active rotation gesture (radians + center), if any.

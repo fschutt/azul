@@ -5528,7 +5528,12 @@ impl X11Window {
                     self.common.note_focus_gained();
                     self.dynamic_selector_context.window_focused = true;
                     // A changed wallpaper is read again for the metals.
-                    if crate::desktop::wallpaper::refresh() {
+                    if self
+                        .common
+                        .layout_window
+                        .as_ref()
+                        .is_some_and(crate::desktop::wallpaper::refresh)
+                    {
                         self.request_redraw();
                     }
                     // The keyboard state is a guess again: everything released

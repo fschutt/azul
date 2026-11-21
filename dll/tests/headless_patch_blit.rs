@@ -46,7 +46,10 @@ fn page_dom() -> StyledDom {
 fn run(patching: bool) -> (Vec<u8>, bool) {
     // Honest (refined) damage is REQUIRED here: with full-strength damage
     // the whole frame repaints and the blit is unfalsifiable.
-    azul_layout::cpurender::set_dl_diff_refinements(true);
+    assert!(
+        azul_layout::cpurender::dl_diff_refinements_enabled(),
+        "premise: honest (refined) damage (AZ_DL_DIFF_REFINE=0 turns it off)"
+    );
     let font_cache = FcFontCache::build();
     let mut lw = LayoutWindow::new(font_cache).unwrap();
     lw.display_list_options.patching = patching;

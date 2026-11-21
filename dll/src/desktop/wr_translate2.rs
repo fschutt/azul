@@ -896,7 +896,7 @@ fn font_key_from_hash(font_hash: u64) -> FontKey {
 /// [`collect_image_resource_updates`]): a frame always makes progress.
 const HALOS_DRAWN_ANYWAY: usize = 2;
 /// How long a frame goes on drawing text halos after those (the time it spends
-/// drawing them, `cpurender::within_halo_budget`).
+/// drawing them, `TextHaloStore::within_halo_budget`).
 const HALO_FRAME_BUDGET: std::time::Duration = std::time::Duration::from_millis(12);
 /// The most frames in a row that are made only to draw the text halos the scan
 /// before them left (a quarter of a minute at 60 frames a second, and every one
@@ -1135,21 +1135,23 @@ fn collect_image_resource_updates_and_halos(
     let mut painted: Vec<(DomId, Vec<azul_layout::cpurender::TextHalo>)> = Vec::new();
     // A window nobody sees, whose pictures were given back
     // (`release_text_halo_images`, audit A5-20): no halo is drawn and none is
-    // looked up - the kept pictures of the thread may hold some another window
-    // paints, and registering those would bring this window's back one by one.
-    // Its lists are translated to the renderer's own shadows meanwhile. The
-    // first scan after it shows again draws a small picture for every label.
+    // looked up - registering the pictures its store still holds (the ones its
+    // lists painted until they were given back) would bring this window's back
+    // one by one. Its lists are translated to the renderer's own shadows
+    // meanwhile. The first scan after it shows again draws a small picture for
+    // every label.
     let release = layout_window.gpu_state_manager.halo_release;
     let halos_held_back = release == azul_layout::managers::gpu_state::HaloRelease::Hidden;
+    let halo_store = &layout_window.text_halo_store;
     if release == azul_layout::managers::gpu_state::HaloRelease::Returning {
-        azul_layout::cpurender::draw_every_small_halo_in_the_next_scan();
+        halo_store.draw_every_small_halo_in_the_next_scan();
     }
     let ((), halos_left) = if halos_held_back {
         ((), 0)
     } else {
-        azul_layout::cpurender::within_halo_budget(free, time, || {
+        halo_store.within_halo_budget(free, time, || {
             for (dom_id, layout_result) in &layout_window.layout_results {
-                let halos = azul_layout::cpurender::text_halos_of_list(
+                let halos = halo_store.text_halos_of_list(
                     &layout_result.display_list,
                     dpi,
                     Some((renderer_resources, &layout_window.font_manager)),
@@ -1166,11 +1168,10 @@ fn collect_image_resource_updates_and_halos(
     // picture. What the lists paint is then asked once more, the way their
     // translation asks (without fonts: nothing is drawn, nothing counted twice),
     // so that what is registered is what a translation finds.
-    if !halos_held_back && azul_layout::cpurender::halo_scan_changed_pictures() {
+    if !halos_held_back && halo_store.halo_scan_changed_pictures() {
         painted.clear();
         for (dom_id, layout_result) in &layout_window.layout_results {
-            let halos =
-                azul_layout::cpurender::text_halos_of_list(&layout_result.display_list, dpi, None);
+            let halos = halo_store.text_halos_of_list(&layout_result.display_list, dpi, None);
             if !halos.is_empty() {
                 painted.push((*dom_id, halos));
             }
@@ -2058,7 +2059,8 @@ fn reserve_image_places(
 /// `DeleteImage` for the key of every halo slot, and the display lists that
 /// painted from them once more, translated WITHOUT them. Returns how many keys
 /// it deleted; when that is not 0 the caller sends `txn` (and then lets the
-/// kept pictures of the thread forget this window, `text_halos_forget_use`).
+/// window's store forget what its lists painted,
+/// `TextHaloStore::text_halos_forget_use`).
 ///
 /// Why the keys: the renderer holds a picture's bytes as the image's template -
 /// the same allocation the kept picture has - for as long as the key lives, so
@@ -4079,6 +4081,7 @@ fn submit_display_lists(
                 pipeline_id,
                 viewport_size,
                 &layout_window.renderer_resources,
+                &layout_window.text_halo_store,
                 dpi,
                 Vec::new(), // Resources already added above
                 &layout_window.layout_results,
@@ -4720,6 +4723,7 @@ fn process_virtual_view_updates(layout_window: &mut LayoutWindow, txn: &mut WrTr
                 pipeline_id,
                 viewport_size,
                 &layout_window.renderer_resources,
+                &layout_window.text_halo_store,
                 dpi,
                 Vec::new(), // Resources should already be registered
                 &layout_window.layout_results,

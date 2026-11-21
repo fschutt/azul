@@ -3008,14 +3008,19 @@ pub(crate) fn reconcile_transient_windows(
 ///
 /// Falls back to a private manager when there is no app-level one, which is the
 /// old behaviour and keeps this infallible to adopt.
+///
+/// The window also gets the platform's wallpaper reader (`wallpaper::install`):
+/// what its metals reflect is its own, read the first time one is drawn.
 pub fn layout_window_sharing_fonts(
     app_font_manager: Option<
         &Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
     >,
     fc_cache: &FcFontCache,
 ) -> Result<LayoutWindow, azul_layout::solver3::LayoutError> {
-    match app_font_manager {
-        Some(fm) => Ok(LayoutWindow::from_font_manager(fm.clone_shared())),
-        None => LayoutWindow::new(fc_cache.clone()),
-    }
+    let window = match app_font_manager {
+        Some(fm) => LayoutWindow::from_font_manager(fm.clone_shared()),
+        None => LayoutWindow::new(fc_cache.clone())?,
+    };
+    crate::desktop::wallpaper::install(&window);
+    Ok(window)
 }

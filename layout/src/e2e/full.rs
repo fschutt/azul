@@ -890,7 +890,7 @@ pub struct FrameReportResponse {
     pub gpu_total: azul_layout::window::GpuFrameCounters,
     /// What the GPU backend's scans did with the text halos it keeps as pictures: the last
     /// scan's numbers (drawn, dropped, left for a later frame, painted with a stand-in), the
-    /// thread's sums and what is kept (`azul_layout::cpurender::TextHaloStats`; audit A5).
+    /// window's sums and what is kept (`azul_layout::cpurender::TextHaloStats`; audit A5).
     pub text_halos: TextHalosJson,
     /// What the last CPU frame did (pixels cleared / blitted, items walked / painted, text runs,
     /// glyphs, halos drawn, isolated groups and their pixels, retained surfaces used, items of
