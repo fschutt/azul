@@ -3773,7 +3773,7 @@ mod audit_diff_first_tests {
         let mut old = StyledDom::create_from_dom(tree_page(&spec, false, false, false));
         // Section 0's box (node 2) gets a style of its own, as `set_node_style` writes it
         // (the node's own style, not a sheet hung on it: no fingerprint of the build shows it).
-        let written = crate::dom::NodeData::create_div().with_css("width: 77px;").style;
+        let written = crate::dom::NodeData::create_div().with_css("width: 77px;").style.clone();
         old.node_data.as_container_mut()[NodeId::new(2)].style = written;
         let mut grown = spec.clone();
         grown.push(spec[0].clone());
