@@ -2396,6 +2396,7 @@ fn shift_if_sticky<T: ParsedFontTrait>(
     };
     let shift = constraint.shift_at(scroll_offset);
     constraint.baked = shift;
+    let stood_at = *current_pos;
     if kept.is_some() || shift.x != 0.0 || shift.y != 0.0 {
         // (For a box this pass placed, `static_pos` is the position.)
         current_pos.x = static_pos.x + shift.x;
@@ -2408,6 +2409,32 @@ fn shift_if_sticky<T: ParsedFontTrait>(
             static_pos,
             *current_pos
         );
+    }
+    let stands_at = *current_pos;
+
+    // The box is shifted AS A UNIT: what is inside it goes with it, as with
+    // a relative shift (`shift_if_relatively_positioned`). Positions are
+    // absolute, so every box below takes the distance the box moved in this
+    // step: the whole shift for a box the pass has just placed (the boxes
+    // below it stand where the flow put them), and for a box it did not
+    // place the change of its shift since the pass before - nothing, while
+    // its scroller stands where it stood (the boxes below it have that
+    // pass's shift in their positions, or were laid out from the box's
+    // shifted position in this one).
+    let moved = if kept.is_some() {
+        LogicalPosition::new(stands_at.x - stood_at.x, stands_at.y - stood_at.y)
+    } else {
+        shift
+    };
+    if moved.x != 0.0 || moved.y != 0.0 {
+        let mut stack = tree.children(node_index).to_vec();
+        while let Some(child_idx) = stack.pop() {
+            if let Some(child_pos) = calculated_positions.get_mut(child_idx) {
+                child_pos.x += moved.x;
+                child_pos.y += moved.y;
+            }
+            stack.extend_from_slice(tree.children(child_idx));
+        }
     }
     Some(constraint)
 }
