@@ -179,6 +179,13 @@ impl<T: ParsedFontTrait> ParsedFontTrait for FontOrRef<T> {
         }
     }
 
+    fn glyph_ink_box(&self, glyph_id: u16) -> Option<[i16; 4]> {
+        match self {
+            Self::Font(f) => f.glyph_ink_box(glyph_id),
+            Self::Ref(r) => r.glyph_ink_box(glyph_id),
+        }
+    }
+
     fn get_hyphen_glyph_and_advance(&self, font_size: f32) -> Option<(u16, f32)> {
         match self {
             Self::Font(f) => f.get_hyphen_glyph_and_advance(font_size),
