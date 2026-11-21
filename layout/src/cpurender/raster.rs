@@ -1348,14 +1348,11 @@ impl GroupGeometry {
         let width = x1.saturating_sub(x).clamp(0, MAX_TRANSFORM_GROUP_SIDE) as u32;
         let height = y1.saturating_sub(y).clamp(0, MAX_TRANSFORM_GROUP_SIDE) as u32;
 
-        let outer_clip = clip.map(|c| {
-            (
-                c.x.round() as i32,
-                c.y.round() as i32,
-                (c.x + c.width).round() as i32,
-                (c.y + c.height).round() as i32,
-            )
-        });
+        // The pixels the group may land on are the pixels a direct paint under the same
+        // clip may write (`AzRect::pixel_box`): rounded to the nearest edge instead, a group
+        // under a clip that starts at x = 62.5 began at column 63 where its content, painted
+        // in place the frame before, began at column 62.
+        let outer_clip = clip.map(|c| c.pixel_box());
 
         // Group pixel s -> pixmap: p = (x, y) + s, then about the frame's
         // origin o: o + M (p - o), M's translation in logical units scaled

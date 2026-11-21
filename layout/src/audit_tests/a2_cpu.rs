@@ -990,3 +990,77 @@ fn a2_cpu_05_a_changed_text_shadow_is_not_an_idle_frame() {
          it does not answer 'nothing': {changed:?}"
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// Hand-built lists: a group under a clip between pixels (A2-cpu-06)
+// ---------------------------------------------------------------------------------------------
+
+/// The colour of device pixel `(x, y)`.
+fn px(p: &AzulPixmap, x: u32, y: u32) -> [u8; 3] {
+    let i = ((y * p.width() + x) * 4) as usize;
+    let d = p.data();
+    [d[i], d[i + 1], d[i + 2]]
+}
+
+/// A2-cpu-06. An isolated group lands on the same pixels of a clip as a direct paint under
+/// that clip.
+///
+/// Hand-computed at a scale of 1.25: a view box at logical (50, 40) 300 x 200 is the device
+/// clip x 62.5 .. 437.5, y 50 .. 300. A fill painted under it writes the columns 62 .. 436 (`as
+/// i32` on both edges: `agg_fill_path_clipped`, `render_rect`). The view's content inside a
+/// frame scaled by 1.5 is an isolated group; its composite was clipped to `round(62.5) .. round(
+/// 437.5)` = 63 .. 437: column 62 showed the page for as long as the frame was scaled, and
+/// column 437 showed the content. Expected, scaled or not: column 62 the content, column 437 the
+/// page.
+///
+/// mutation: `c.pixel_box()` -> the four `round()`s in `GroupGeometry::of` fails here.
+#[test]
+fn a2_cpu_06_a_scaled_group_fills_the_same_columns_of_a_clip_between_pixels_as_a_direct_paint() {
+    const GROUND: [u8; 3] = [47, 49, 54];
+    const PAGE: [u8; 3] = [232, 232, 232];
+    let dpi = 1.25_f32;
+    let parent = list(vec![
+        rect(0.0, 0.0, LIST_W, LIST_H, PAGE),
+        DisplayListItem::VirtualView {
+            child_dom_id: CHILD,
+            bounds: wlr(50.0, 40.0, 300.0, 200.0),
+            clip_rect: wlr(50.0, 40.0, 300.0, 200.0),
+            content_offset: LogicalPosition::zero(),
+        },
+    ]);
+    // The view's content: a ground far larger than the view, in a frame scaled by `k` about
+    // the view's corner.
+    let framed = |k: f32| {
+        Arc::new(list(vec![
+            DisplayListItem::PushReferenceFrame {
+                transform_key: azul_core::resources::TransformKey { id: 5 },
+                initial_transform: azul_core::transform::ComputedTransform3D {
+                    m: [
+                        [k, 0.0, 0.0, 0.0],
+                        [0.0, k, 0.0, 0.0],
+                        [0.0, 0.0, 1.0, 0.0],
+                        [0.0, 0.0, 0.0, 1.0],
+                    ],
+                },
+                bounds: wlr(0.0, 0.0, 300.0, 200.0),
+            },
+            rect(-256.0, -256.0, 812.0, 712.0, GROUND),
+            DisplayListItem::PopReferenceFrame,
+        ]))
+    };
+    for (what, k) in [("painted in place (scale 1)", 1.0_f32), ("a group (scale 1.5)", 1.5)] {
+        let frame = fresh_list_frame(&parent, &framed(k), dpi);
+        assert_eq!(px(&frame, 250, 100), GROUND, "harness, {what}: inside the view");
+        assert_eq!(px(&frame, 20, 100), PAGE, "harness, {what}: beside the view");
+        assert_eq!(
+            px(&frame, 62, 100),
+            GROUND,
+            "{what}: column 62 is the first column of the clip x 62.5 .. 437.5"
+        );
+        assert_eq!(
+            px(&frame, 437, 100),
+            PAGE,
+            "{what}: column 437 is past the clip's last column, 436"
+        );
+    }
+}

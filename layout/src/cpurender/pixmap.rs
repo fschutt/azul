@@ -1213,6 +1213,21 @@ impl AzRect {
         })
     }
 
+    /// The device pixels a paint under this clip may write, `(x0, y0, x1, y1)`, half-open: the
+    /// rule of every fill, text run and image (`as i32` on both edges, see
+    /// `agg_fill_path_clipped`: a pixel the clip covers in part is inside at the near edge
+    /// and outside at the far edge). What is composited under a clip instead of painted under
+    /// it (an isolated group) takes this box, or its edge columns are not the paints'.
+    #[allow(clippy::cast_possible_truncation)] // saturating: a clip far outside is clamped by its user
+    pub(crate) fn pixel_box(&self) -> (i32, i32, i32, i32) {
+        (
+            self.x as i32,
+            self.y as i32,
+            (self.x + self.width) as i32,
+            (self.y + self.height) as i32,
+        )
+    }
+
     /// Intersect this rect with a clip rect. Returns None if fully clipped.
     pub(crate) fn clip(&self, clip: &Self) -> Option<Self> {
         let x1 = self.x.max(clip.x);
