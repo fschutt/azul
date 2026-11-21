@@ -300,9 +300,9 @@ fn a_label_whose_style_has_an_input_outside_the_key_is_not_served_by_its_inputs(
 
 /// A3-solver-20b, the guard, a box that is no inline box: an underlined block is not served a
 /// plain block's style. The labels UNDER it get the style they build, whichever way: what a
-/// box hands down to the text in it is no input of that text's own style (`text-decoration` is
-/// not inherited; the inline formatting context adds what the boxes around a text propagate,
-/// `getters::propagated_text_decoration`).
+/// box hands down to the text in it is no input of that text's own style (the build reads a
+/// node's OWN decoration, `getters::own_text_decoration`; the inline formatting context adds
+/// what the boxes around a text propagate, `getters::propagated_text_decoration`).
 ///
 /// `body(0) > [div(1) > span(2) > text(3), div(4) > span(5) > text(6), div(7) > span(8) >
 /// text(9)]`, the second and the third block underlined.
