@@ -211,7 +211,13 @@ core, 7 failing (all new tests of diff-first, `cfc4d6d72`; messages verbatim in 
   37, 33, 42, 47, 6], ...): 9 differences, the first: Some(\"node 9: matched rules\")": the restricted cascade
   (`009e311d8`, `recascade_nodes`) against a new cascade. Owner: diff-first.
 
-## State for a successor (the CHECKPOINT; written when the verifier's context ran short)
+## State for a successor (CURRENT; kept by the second verifier, who took over at `a23a72fde`)
+
+<!-- STATE-BEGIN -->
+(see the end of the log: "second verifier")
+<!-- STATE-END -->
+
+## State for a successor (the FIRST verifier's hand-over at `a23a72fde`; superseded by the section above)
 
 Tree: `audit/integration`, clean; head = `b419ea882` (merge of `audit/A8` at `1b3cd3449`) + log commits. Everything
 the coordinator named for the checkpoint is merged; the second round's queue is listed in the log and must NOT be
@@ -322,3 +328,23 @@ What is left for the checkpoint, in order:
   webrender's dependencies). Compile fixes needed by the whole branch: 17, all in azul-layout (none in css, core,
   dll, the fork, or for Linux / Windows).
 - the verifier stops here (context short). Everything is committed; nothing was pushed.
+
+### Second verifier (took over at `a23a72fde`; same rules, same environment)
+
+- step 1: `2f34d89fa`: the repointing guard's `NOT_WALKED` lists the six audit fixtures (`a5.rs Recorder`,
+  `a10/layer.rs Window`, `a2_cpu.rs Stage`, `a3_solver/raised_bars.rs ViewWindow`, `a3_window.rs WatchedWindow`,
+  `a6.rs Scene`; const `FIXTURE`). All six were read: each is a struct of a test module.
+- step 2: merge `audit/A4` at `a1fc02edf` (`d6ff63ad7`, no conflict). `cargo test -p azul-dll --lib --no-run`: 0
+  errors (log `50-build-dll-tests`). From the test binary, filters `audit_tests::a4 audit_tests::a2_gpu
+  retained_list_tests every_holder_of_a_nodes_data frame_schedule` (log `51-dll-a4`): 36 passed, 2 failed. FIXED:
+  `retained_list_tests::a_pan_inside_the_margin_...`, `::leaving_the_margin_...` (A4-38 `11d6afef6`),
+  `a4_31_a_settle_sent_without_the_wait_...` (`f1805b5a9`), `a2_gpu::a_panned_views_content_reaches_webrender_...`
+  (`a816b1ae0`), the 1x halo twin (removed with its reason, `bf3955421`; row A4-39 open, low), the repointing guard.
+  Still failing there (A3-window's two restatements, not merged at that point):
+  `retained_list_tests::a_view_the_frame_does_not_send_again_is_still_drawn`,
+  `::the_hover_of_a_label_in_the_map_sends_the_maps_list_alone_and_draws_it`.
+- step 3 (three of four tips, merged together, one build): `audit/A3-solver` at `79a700d1f` (`1fc01c22b`),
+  `audit/A1` at `6c4d7265a` (`45720ab97`), `audit/A3-window` at `1af12829a` (`f1e2af9c8`). One conflict, A1 x
+  A3-window in `solver3/display_list.rs` `try_copy_cached_run`: both kept (A1's `builder.next_text_ink = ..` line,
+  then A3-window's `builder.next_color_binding = binding;`). `audit/diff-first` is still to come (the coordinator
+  names the commit; a second conflict in the same function is expected, its commit message says how the lines read).
