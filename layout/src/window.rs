@@ -784,6 +784,160 @@ pub struct FrameTimings {
     pub frame_work_us: u64,
     /// The last layout pass alone: style, layout and display list.
     pub layout_us: u64,
+    /// GPU path, last frame: Transactions sent to the renderer.
+    pub gpu_transactions: u64,
+    /// GPU path, last frame: Display lists translated and sent (a list the renderer holds is not).
+    pub gpu_lists_translated: u64,
+    /// GPU path, last frame: Items of those lists.
+    pub gpu_items_translated: u64,
+    /// GPU path, last frame: Their serialised size in bytes.
+    pub gpu_list_bytes: u64,
+    /// GPU path, last frame: Images, fonts and font instances added.
+    pub gpu_resource_adds: u64,
+    /// GPU path, last frame: Images updated in place.
+    pub gpu_resource_updates: u64,
+    /// GPU path, last frame: Images, fonts and font instances deleted.
+    pub gpu_resource_deletes: u64,
+    /// GPU path, last frame: Bytes of the images added and updated (the dirty part of an update).
+    pub gpu_resource_bytes: u64,
+    /// GPU path, last frame: Bound values sent (transforms, opacities, colours): the whole set whenever one changed.
+    pub gpu_dynamic_properties: u64,
+    /// GPU path, last frame: Scenes the renderer built (every list of the window flattened again).
+    pub gpu_scene_builds: u64,
+    /// GPU path, last frame: Frames the renderer built.
+    pub gpu_frame_builds: u64,
+    /// GPU path, last frame: Glyphs rasterised (whole process: the rasteriser's workers have no window).
+    pub gpu_glyphs_rasterized: u64,
+    /// GPU path, last frame: Uploads into the renderer's texture cache: images, glyphs.
+    pub gpu_texture_uploads: u64,
+    /// GPU path, last frame: Their pixels.
+    pub gpu_texture_upload_px: u64,
+    /// GPU path, last frame: Draw calls of the frame.
+    pub gpu_draw_calls: u64,
+    /// GPU path, last frame: Time in the translation of the display lists (UI thread).
+    pub gpu_translate_us: u64,
+    /// GPU path, last frame: Time registering fonts and images, text halos included (UI thread).
+    pub gpu_resources_us: u64,
+    /// GPU path, last frame: Time collecting and comparing the bound values (UI thread).
+    pub gpu_values_us: u64,
+    /// GPU path, last frame: Time building the transactions, the three above included (UI thread).
+    pub gpu_transaction_us: u64,
+    /// GPU path, last frame: Time the UI thread waited for the renderer's threads (send + flush).
+    pub gpu_blocked_us: u64,
+    /// GPU path, last frame: Time of the scene builds (scene builder thread, inside `blocked_us`).
+    pub gpu_scene_build_us: u64,
+    /// GPU path, last frame: Time of the frame builds (render backend thread, inside `blocked_us`).
+    pub gpu_frame_build_us: u64,
+    /// GPU path, last frame: Time drawing the frame: texture uploads and draw calls (UI thread).
+    pub gpu_render_us: u64,
+}
+
+/// How many counters [`GpuFrameCounters`] has.
+pub const GPU_FRAME_COUNTERS: usize = 23;
+
+/// What the GPU path (the translation to the renderer's display lists, the
+/// transactions, the renderer's threads and its draw) did for one frame:
+/// counts and microseconds, written by the renderer's host when the frame has
+/// been drawn ([`FrameClock::note_gpu`]). All zero on a CPU backend.
+///
+/// A count does not depend on how loaded the machine is; the times say where
+/// a frame's interval went. `FrameTimings::gpu_*` are the last frame's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
+#[repr(C)]
+pub struct GpuFrameCounters {
+    /// Transactions sent to the renderer.
+    pub transactions: u64,
+    /// Display lists translated and sent (a list the renderer holds is not).
+    pub lists_translated: u64,
+    /// Items of those lists.
+    pub items_translated: u64,
+    /// Their serialised size in bytes.
+    pub list_bytes: u64,
+    /// Images, fonts and font instances added.
+    pub resource_adds: u64,
+    /// Images updated in place.
+    pub resource_updates: u64,
+    /// Images, fonts and font instances deleted.
+    pub resource_deletes: u64,
+    /// Bytes of the images added and updated (the dirty part of an update).
+    pub resource_bytes: u64,
+    /// Bound values sent (transforms, opacities, colours): the whole set whenever one changed.
+    pub dynamic_properties: u64,
+    /// Scenes the renderer built (every list of the window flattened again).
+    pub scene_builds: u64,
+    /// Frames the renderer built.
+    pub frame_builds: u64,
+    /// Glyphs rasterised (whole process: the rasteriser's workers have no window).
+    pub glyphs_rasterized: u64,
+    /// Uploads into the renderer's texture cache: images, glyphs.
+    pub texture_uploads: u64,
+    /// Their pixels.
+    pub texture_upload_px: u64,
+    /// Draw calls of the frame.
+    pub draw_calls: u64,
+    /// Time in the translation of the display lists (UI thread).
+    pub translate_us: u64,
+    /// Time registering fonts and images, text halos included (UI thread).
+    pub resources_us: u64,
+    /// Time collecting and comparing the bound values (UI thread).
+    pub values_us: u64,
+    /// Time building the transactions, the three above included (UI thread).
+    pub transaction_us: u64,
+    /// Time the UI thread waited for the renderer's threads (send + flush).
+    pub blocked_us: u64,
+    /// Time of the scene builds (scene builder thread, inside `blocked_us`).
+    pub scene_build_us: u64,
+    /// Time of the frame builds (render backend thread, inside `blocked_us`).
+    pub frame_build_us: u64,
+    /// Time drawing the frame: texture uploads and draw calls (UI thread).
+    pub render_us: u64,
+}
+
+impl GpuFrameCounters {
+    /// The counters in the order of the fields.
+    #[must_use]
+    pub const fn to_array(&self) -> [u64; GPU_FRAME_COUNTERS] {
+        [self.transactions, self.lists_translated, self.items_translated, self.list_bytes, self.resource_adds, self.resource_updates, self.resource_deletes, self.resource_bytes, self.dynamic_properties, self.scene_builds, self.frame_builds, self.glyphs_rasterized, self.texture_uploads, self.texture_upload_px, self.draw_calls, self.translate_us, self.resources_us, self.values_us, self.transaction_us, self.blocked_us, self.scene_build_us, self.frame_build_us, self.render_us]
+    }
+
+    /// [`Self::to_array`] back.
+    #[must_use]
+    pub const fn from_array(a: [u64; GPU_FRAME_COUNTERS]) -> Self {
+        Self {
+            transactions: a[0],
+            lists_translated: a[1],
+            items_translated: a[2],
+            list_bytes: a[3],
+            resource_adds: a[4],
+            resource_updates: a[5],
+            resource_deletes: a[6],
+            resource_bytes: a[7],
+            dynamic_properties: a[8],
+            scene_builds: a[9],
+            frame_builds: a[10],
+            glyphs_rasterized: a[11],
+            texture_uploads: a[12],
+            texture_upload_px: a[13],
+            draw_calls: a[14],
+            translate_us: a[15],
+            resources_us: a[16],
+            values_us: a[17],
+            transaction_us: a[18],
+            blocked_us: a[19],
+            scene_build_us: a[20],
+            frame_build_us: a[21],
+            render_us: a[22],
+        }
+    }
+
+    /// `self` plus `other`, counter by counter.
+    pub fn add(&mut self, other: &Self) {
+        let (mut a, b) = (self.to_array(), other.to_array());
+        for (x, y) in a.iter_mut().zip(b) {
+            *x = x.saturating_add(y);
+        }
+        *self = Self::from_array(a);
+    }
 }
 
 /// The clock behind [`FrameTimings`]: atomics, because a frame is presented
@@ -806,6 +960,10 @@ pub struct FrameClock {
     open: core::sync::atomic::AtomicU64,
     /// When the work of that frame started; `0`: it needed no layout pass.
     open_work_started: core::sync::atomic::AtomicU64,
+    /// The GPU path's counters of the last frame ([`GpuFrameCounters`]) ...
+    gpu_last: [core::sync::atomic::AtomicU64; GPU_FRAME_COUNTERS],
+    /// ... and of every frame of this window.
+    gpu_total: [core::sync::atomic::AtomicU64; GPU_FRAME_COUNTERS],
 }
 
 impl FrameClock {
@@ -875,15 +1033,68 @@ impl FrameClock {
         }
     }
 
+    /// What the GPU path did for the frame that was just drawn.
+    pub fn note_gpu(&self, frame: &GpuFrameCounters) {
+        for ((last, total), value) in self
+            .gpu_last
+            .iter()
+            .zip(self.gpu_total.iter())
+            .zip(frame.to_array())
+        {
+            last.store(value, Ordering::Relaxed);
+            total.fetch_add(value, Ordering::Relaxed);
+        }
+    }
+
+    /// The GPU path's counters of the last frame it drew.
+    #[must_use]
+    pub fn gpu_last(&self) -> GpuFrameCounters {
+        GpuFrameCounters::from_array(core::array::from_fn(|i| {
+            self.gpu_last[i].load(Ordering::Relaxed)
+        }))
+    }
+
+    /// The GPU path's counters summed over every frame of this window.
+    #[must_use]
+    pub fn gpu_total(&self) -> GpuFrameCounters {
+        GpuFrameCounters::from_array(core::array::from_fn(|i| {
+            self.gpu_total[i].load(Ordering::Relaxed)
+        }))
+    }
+
     /// What the clock measured so far.
     #[must_use]
     pub fn timings(&self) -> FrameTimings {
         let us = |nanos: &core::sync::atomic::AtomicU64| nanos.load(Ordering::Relaxed) / 1_000;
+        let gpu = self.gpu_last();
         FrameTimings {
             frame_count: self.frames.load(Ordering::Relaxed),
             frame_interval_us: us(&self.interval_ns),
             frame_work_us: us(&self.work_ns),
             layout_us: us(&self.layout_ns),
+            gpu_transactions: gpu.transactions,
+            gpu_lists_translated: gpu.lists_translated,
+            gpu_items_translated: gpu.items_translated,
+            gpu_list_bytes: gpu.list_bytes,
+            gpu_resource_adds: gpu.resource_adds,
+            gpu_resource_updates: gpu.resource_updates,
+            gpu_resource_deletes: gpu.resource_deletes,
+            gpu_resource_bytes: gpu.resource_bytes,
+            gpu_dynamic_properties: gpu.dynamic_properties,
+            gpu_scene_builds: gpu.scene_builds,
+            gpu_frame_builds: gpu.frame_builds,
+            gpu_glyphs_rasterized: gpu.glyphs_rasterized,
+            gpu_texture_uploads: gpu.texture_uploads,
+            gpu_texture_upload_px: gpu.texture_upload_px,
+            gpu_draw_calls: gpu.draw_calls,
+            gpu_translate_us: gpu.translate_us,
+            gpu_resources_us: gpu.resources_us,
+            gpu_values_us: gpu.values_us,
+            gpu_transaction_us: gpu.transaction_us,
+            gpu_blocked_us: gpu.blocked_us,
+            gpu_scene_build_us: gpu.scene_build_us,
+            gpu_frame_build_us: gpu.frame_build_us,
+            gpu_render_us: gpu.render_us,
         }
     }
 }
@@ -994,6 +1205,11 @@ pub struct FrameReport {
     /// a steady state must pin: a view that reports a different size every
     /// time it is handed the box it asked for would show up here every frame.
     pub virtual_view_size_passes: u32,
+    /// What the GPU path did for the last frame it drew ([`GpuFrameCounters`]; all zero on a CPU
+    /// backend). Filled in by [`LayoutWindow::frame_report_synced`].
+    pub gpu_last: GpuFrameCounters,
+    /// The GPU path's counters summed over every frame of the window (two reads give a span's).
+    pub gpu_total: GpuFrameCounters,
     /// The work of the last CPU frame ([`crate::cpu_counters`]): pixels cleared and blitted, items
     /// walked and painted, text runs and glyphs rasterised, halos drawn, isolated groups opened
     /// and their pixels, retained surfaces used, items of the scans of a whole list. Filled in by
@@ -2962,6 +3178,8 @@ impl LayoutWindow {
     pub fn frame_report_synced(&self) -> FrameReport {
         let generation = self.frame_report_reset_request.load(Ordering::SeqCst);
         let mut report = self.frame_report.as_of_generation(generation);
+        report.gpu_last = self.frame_clock.gpu_last();
+        report.gpu_total = self.frame_clock.gpu_total();
         let cpu = self.cpu_frame_counters();
         report.cpu_last = cpu.last;
         report.cpu_since_reset = cpu.since_reset;

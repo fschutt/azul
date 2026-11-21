@@ -1,10 +1,13 @@
 //! A4, the GPU path (WebRender integration).
 //!
-//! What the window reports of its frames: the frame clock.
+//! What the window reports of its frames: the frame clock and the GPU path's
+//! counters.
 
 use rust_fontconfig::FcFontCache;
 
-use crate::window::{FrameClock, FrameDamage, LayoutWindow};
+use crate::window::{
+    FrameClock, FrameDamage, GpuFrameCounters, LayoutWindow, GPU_FRAME_COUNTERS,
+};
 
 /// A4-04. A frame that is noted when it is handed to its renderer and recorded
 /// when it is drawn is ONE frame: counted once, its interval the time since the
@@ -52,4 +55,39 @@ fn a4_04_a_window_counts_a_noted_and_recorded_frame_once() {
         lw.record_frame(FrameDamage::None, FrameDamage::None);
         assert_eq!(lw.frame_timings().frame_count, frame);
     }
+}
+
+/// The GPU path's counters: the last frame's are what `FrameTimings::gpu_*`
+/// and the frame report's `gpu_last` say, the total is their sum.
+#[test]
+fn a4_counters_of_the_gpu_path_reach_the_frame_timings_and_the_frame_report() {
+    let lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    assert_eq!(lw.frame_report_synced().gpu_last, GpuFrameCounters::default());
+
+    // Every counter its own value: a field written to the wrong slot shows.
+    let numbered = |base: u64| {
+        let mut a = [0u64; GPU_FRAME_COUNTERS];
+        for (i, slot) in a.iter_mut().enumerate() {
+            *slot = base + i as u64;
+        }
+        GpuFrameCounters::from_array(a)
+    };
+    let (one, two) = (numbered(100), numbered(1_000));
+    assert_eq!(one.to_array()[0], one.transactions);
+    assert_eq!(one.to_array()[GPU_FRAME_COUNTERS - 1], one.render_us);
+
+    lw.frame_clock.note_gpu(&one);
+    lw.frame_clock.note_gpu(&two);
+    let report = lw.frame_report_synced();
+    assert_eq!(report.gpu_last, two, "the last frame's");
+    let mut sum = one;
+    sum.add(&two);
+    assert_eq!(report.gpu_total, sum, "every frame's");
+
+    let timings = lw.frame_timings();
+    assert_eq!(timings.gpu_transactions, two.transactions);
+    assert_eq!(timings.gpu_items_translated, two.items_translated);
+    assert_eq!(timings.gpu_glyphs_rasterized, two.glyphs_rasterized);
+    assert_eq!(timings.gpu_blocked_us, two.blocked_us);
+    assert_eq!(timings.gpu_render_us, two.render_us);
 }

@@ -655,6 +655,176 @@ use azul_core::resources::{
 };
 use azul_layout::window::LayoutWindow;
 
+// ==== What the GPU path does for a frame, counted (audit A4) ====
+
+use azul_layout::window::GpuFrameCounters;
+
+thread_local! {
+    /// What the GPU path did on this thread since the last frame was published
+    /// ([`publish_gpu_frame`]): the UI thread's part of a frame's
+    /// [`GpuFrameCounters`].
+    static GPU_FRAME: std::cell::Cell<GpuFrameCounters> =
+        std::cell::Cell::new(GpuFrameCounters::default());
+    /// A frame was asked of the renderer and its counters are not published yet.
+    static GPU_FRAME_OPEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// The renderer's process-wide counters as of the last published frame.
+    static WR_COUNTERS_SEEN: std::cell::Cell<Option<webrender::azul_counters::Counters>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Count into the frame this thread is preparing.
+pub(crate) fn gpu_count(f: impl FnOnce(&mut GpuFrameCounters)) {
+    GPU_FRAME.with(|cell| {
+        let mut frame = cell.get();
+        f(&mut frame);
+        cell.set(frame);
+    });
+}
+
+/// Microseconds since `started`.
+pub(crate) fn elapsed_us(started: std::time::Instant) -> u64 {
+    u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX)
+}
+
+/// Which time of [`GpuFrameCounters`] a [`GpuTimer`] adds to.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum GpuTime {
+    Translate,
+    Resources,
+    Values,
+    Transaction,
+}
+
+/// Adds the time it lived to one of the frame's times.
+pub(crate) struct GpuTimer(std::time::Instant, GpuTime);
+
+/// Time what follows, until the value is dropped, as `which`.
+#[must_use]
+pub(crate) fn gpu_time(which: GpuTime) -> GpuTimer {
+    GpuTimer(std::time::Instant::now(), which)
+}
+
+impl Drop for GpuTimer {
+    fn drop(&mut self) {
+        let us = elapsed_us(self.0);
+        let which = self.1;
+        gpu_count(|c| {
+            let slot = match which {
+                GpuTime::Translate => &mut c.translate_us,
+                GpuTime::Resources => &mut c.resources_us,
+                GpuTime::Values => &mut c.values_us,
+                GpuTime::Transaction => &mut c.transaction_us,
+            };
+            *slot = slot.saturating_add(us);
+        });
+    }
+}
+
+/// The bytes of an image a resource update hands to the renderer: the whole
+/// image, or the dirty part of an update. A texture the renderer only refers
+/// to (an external image) has none.
+fn resource_image_bytes(
+    descriptor: &WrImageDescriptor,
+    data: &WrImageData,
+    dirty: Option<&DirtyRect<i32, webrender::api::units::DevicePixel>>,
+) -> u64 {
+    if !matches!(data, WrImageData::Raw(_)) {
+        return 0;
+    }
+    let (w, h) = match dirty {
+        Some(DirtyRect::Partial(rect)) => (
+            rect.width().clamp(0, descriptor.size.width.max(0)),
+            rect.height().clamp(0, descriptor.size.height.max(0)),
+        ),
+        _ => (descriptor.size.width, descriptor.size.height),
+    };
+    let px = u64::try_from(w).unwrap_or(0) * u64::try_from(h).unwrap_or(0);
+    px * u64::try_from(descriptor.format.bytes_per_pixel()).unwrap_or(0)
+}
+
+/// `txn` is about to be sent: it is one transaction of the frame, and its
+/// resource updates are counted by kind. Called by whoever sends it.
+pub fn count_transaction(txn: &WrTransaction) {
+    use webrender::ResourceUpdate as U;
+
+    let (mut adds, mut updates, mut deletes, mut bytes) = (0u64, 0u64, 0u64, 0u64);
+    for update in &txn.resource_updates {
+        match update {
+            U::AddImage(image) => {
+                adds += 1;
+                bytes += resource_image_bytes(&image.descriptor, &image.data, None);
+            }
+            U::UpdateImage(image) => {
+                updates += 1;
+                bytes +=
+                    resource_image_bytes(&image.descriptor, &image.data, Some(&image.dirty_rect));
+            }
+            U::AddBlobImage(..) | U::AddFont(..) | U::AddFontInstance(..) => adds += 1,
+            U::UpdateBlobImage(..) | U::SetBlobImageVisibleArea(..) => updates += 1,
+            U::DeleteImage(..)
+            | U::DeleteBlobImage(..)
+            | U::DeleteFont(..)
+            | U::DeleteFontInstance(..) => deletes += 1,
+        }
+    }
+    gpu_count(|c| {
+        c.transactions += 1;
+        c.resource_adds += adds;
+        c.resource_updates += updates;
+        c.resource_deletes += deletes;
+        c.resource_bytes += bytes;
+    });
+}
+
+/// A transaction asked the renderer for a frame: its counters are owed.
+fn gpu_frame_requested() {
+    GPU_FRAME_OPEN.with(|open| open.set(true));
+}
+
+/// The frame was drawn: what this thread counted for it, with what the
+/// renderer's threads did since the last published frame, becomes the
+/// window's last GPU frame (`FrameClock::note_gpu`: the frame report's
+/// `gpu_last`, `FrameTimings::gpu_*`). `blocked_us`: how long the UI thread
+/// waited for the renderer's threads; `render_us`: how long the draw took.
+///
+/// Called by a shell right after `renderer.render`. A shell that does not call
+/// it has its frames published late and without the two times
+/// ([`publish_stale_gpu_frame`]).
+pub fn publish_gpu_frame(
+    layout_window: &LayoutWindow,
+    blocked_us: u64,
+    render_us: u64,
+    draw_calls: u64,
+) {
+    GPU_FRAME_OPEN.with(|open| open.set(false));
+    let mut frame = GPU_FRAME.with(|cell| cell.replace(GpuFrameCounters::default()));
+    let now = webrender::azul_counters::snapshot();
+    let before = WR_COUNTERS_SEEN
+        .with(|seen| seen.replace(Some(now)))
+        .unwrap_or_default();
+    let wr = now.since(&before);
+    frame.scene_builds = wr.scene_builds;
+    frame.frame_builds = wr.frame_builds;
+    frame.glyphs_rasterized = wr.glyphs_rasterized;
+    frame.texture_uploads = wr.texture_uploads;
+    frame.texture_upload_px = wr.texture_upload_px;
+    frame.scene_build_us = wr.scene_build_ns / 1_000;
+    frame.frame_build_us = wr.frame_build_ns / 1_000;
+    frame.blocked_us = blocked_us;
+    frame.render_us = render_us;
+    frame.draw_calls = draw_calls;
+    layout_window.frame_clock.note_gpu(&frame);
+}
+
+/// Publish the counters of a frame whose shell did not ([`publish_gpu_frame`])
+/// before the next transaction is built, so they are not added to the next
+/// frame's.
+fn publish_stale_gpu_frame(layout_window: &LayoutWindow) {
+    if GPU_FRAME_OPEN.with(std::cell::Cell::get) {
+        publish_gpu_frame(layout_window, 0, 0, 0);
+    }
+}
+
 /// Generate FontKey deterministically from font hash
 /// This ensures the same font always gets the same key across frames
 fn font_key_from_hash(font_hash: u64) -> FontKey {
@@ -1272,6 +1442,7 @@ pub(crate) fn register_frame_resources(
     txn: &mut WrTransaction,
     dpi: DpiScaleFactor,
 ) -> bool {
+    let _timed = gpu_time(GpuTime::Resources);
     // --- Fonts ---
     let (font_updates, live_font_hashes) =
         collect_font_resource_updates(layout_window, &layout_window.renderer_resources, dpi);
@@ -1868,6 +2039,8 @@ pub fn generate_frame(
     display_list_was_rebuilt: bool,
     gl_context: &azul_core::gl::OptionGlContextPtr,
 ) {
+    publish_stale_gpu_frame(layout_window);
+    let _timed = gpu_time(GpuTime::Transaction);
     let physical_size = layout_window.current_window_state.size.get_physical_size();
     let framebuffer_size =
         DeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
@@ -1986,6 +2159,7 @@ pub fn generate_frame(
         "[generate_frame] Calling generate_frame on transaction"
     );
     txn.generate_frame(0, WrRenderReasons::empty());
+    gpu_frame_requested();
     layout_window.note_frame_presented();
 
     log_debug!(
@@ -2112,6 +2286,8 @@ pub fn scroll_all_nodes(layout_window: &mut LayoutWindow, txn: &mut WrTransactio
 #[must_use]
 pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) -> bool {
     use webrender::api::{DynamicProperties, PropertyValue};
+
+    let _timed = gpu_time(GpuTime::Values);
 
     // Get DPI scale factor to match display list coordinate space.
     // Display list items are in logical CSS pixels scaled by DPI in compositor2.
@@ -2261,6 +2437,9 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
     // on every later frame (audit A4-01).
     txn.reset_dynamic_properties();
     txn.append_dynamic_properties(properties);
+    gpu_count(|c| {
+        c.dynamic_properties += (float_count + transform_count + color_count) as u64;
+    });
 
     log_debug!(
         LogCategory::Rendering,
@@ -2697,6 +2876,8 @@ pub fn build_webrender_transaction(
     render_api: &mut WrRenderApi,
     gl_context: &azul_core::gl::OptionGlContextPtr,
 ) -> Result<(), &'static str> {
+    publish_stale_gpu_frame(layout_window);
+    let _timed = gpu_time(GpuTime::Transaction);
     log_debug!(
         LogCategory::Rendering,
         "[build_atomic_txn] Building atomic transaction"
@@ -2907,17 +3088,30 @@ fn submit_display_lists(
             dom_id.inner as u32,
             layout_window.document_id.id,
         ));
-        match crate::desktop::compositor2::translate_displaylist_to_wr(
-            &layout_result.display_list,
-            pipeline_id,
-            viewport_size,
-            &layout_window.renderer_resources,
-            dpi,
-            Vec::new(), // Resources already added above
-            &layout_window.layout_results,
-            layout_window.document_id.id,
-        ) {
+        let translation = {
+            let _timed = gpu_time(GpuTime::Translate);
+            crate::desktop::compositor2::translate_displaylist_to_wr(
+                &layout_result.display_list,
+                pipeline_id,
+                viewport_size,
+                &layout_window.renderer_resources,
+                dpi,
+                Vec::new(), // Resources already added above
+                &layout_window.layout_results,
+                layout_window.document_id.id,
+            )
+        };
+        match translation {
             Ok((_, built_display_list)) => {
+                let (items, bytes) = (
+                    layout_result.display_list.items.len() as u64,
+                    built_display_list.size_in_bytes() as u64,
+                );
+                gpu_count(|c| {
+                    c.lists_translated += 1;
+                    c.items_translated += items;
+                    c.list_bytes += bytes;
+                });
                 log_debug!(
                     LogCategory::Rendering,
                     "[submit_display_lists] Adding display list for DOM {} (pipeline {:?}, \
@@ -3008,6 +3202,7 @@ fn build_webrender_transaction_tail(
         "[build_atomic_txn] Step 7: Calling generate_frame"
     );
     txn.generate_frame(0, webrender::api::RenderReasons::empty());
+    gpu_frame_requested();
     layout_window.note_frame_presented();
 
     // Increment epoch for next frame
@@ -3051,6 +3246,8 @@ pub fn build_image_only_transaction(
     _render_api: &mut WrRenderApi,
     gl_context: &azul_core::gl::OptionGlContextPtr,
 ) -> Result<LightweightFrame, &'static str> {
+    publish_stale_gpu_frame(layout_window);
+    let _timed = gpu_time(GpuTime::Transaction);
     log_debug!(
         LogCategory::Rendering,
         "[build_image_only_txn] Building lightweight transaction (layout unchanged)"
@@ -3075,6 +3272,7 @@ pub fn build_image_only_transaction(
     // lists that name them are translated again below (the halos drawn so far are
     // part of what a translation is made against, `translation_env`).
     if layout_window.gpu_state_manager.halos_owed {
+        let _timed = gpu_time(GpuTime::Resources);
         register_image_resources(layout_window, txn);
     }
 
@@ -3165,6 +3363,7 @@ pub fn build_image_only_transaction(
     let changed = images_changed || scroll_changed || gpu_values_changed || lists_sent;
     if changed {
         txn.generate_frame(0, webrender::api::RenderReasons::empty());
+        gpu_frame_requested();
         layout_window.note_frame_presented();
     }
 
@@ -3418,17 +3617,30 @@ fn process_virtual_view_updates(layout_window: &mut LayoutWindow, txn: &mut WrTr
         ));
 
         // Translate display list to WebRender
-        match crate::desktop::compositor2::translate_displaylist_to_wr(
-            &layout_result.display_list,
-            pipeline_id,
-            viewport_size,
-            &layout_window.renderer_resources,
-            dpi,
-            Vec::new(), // Resources should already be registered
-            &layout_window.layout_results,
-            layout_window.document_id.id,
-        ) {
+        let translation = {
+            let _timed = gpu_time(GpuTime::Translate);
+            crate::desktop::compositor2::translate_displaylist_to_wr(
+                &layout_result.display_list,
+                pipeline_id,
+                viewport_size,
+                &layout_window.renderer_resources,
+                dpi,
+                Vec::new(), // Resources should already be registered
+                &layout_window.layout_results,
+                layout_window.document_id.id,
+            )
+        };
+        match translation {
             Ok((_, built_display_list)) => {
+                let (items, bytes) = (
+                    layout_result.display_list.items.len() as u64,
+                    built_display_list.size_in_bytes() as u64,
+                );
+                gpu_count(|c| {
+                    c.lists_translated += 1;
+                    c.items_translated += items;
+                    c.list_bytes += bytes;
+                });
                 log_debug!(
                     LogCategory::Rendering,
                     "[process_virtual_view_updates] Submitting display list for VirtualView DOM \
@@ -4020,5 +4232,95 @@ mod display_list_submission_tests {
         note_display_lists_submitted(&mut lw);
         let settled = submit_display_lists(&mut WrTransaction::new(), &lw, false);
         assert!(settled.translated.is_empty(), "and held again at the new scale");
+    }
+}
+
+#[cfg(test)]
+mod audit_a4_tests {
+    //! The GPU path's counters of a frame (audit A4, `## Counters`): what a
+    //! transaction translated and held is what the window reports for the
+    //! frame, and a frame starts at zero.
+
+    use azul_core::{
+        dom::{Dom, DomId},
+        geom::LogicalSize,
+        resources::RendererResources,
+        styled_dom::StyledDom,
+    };
+    use azul_layout::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use super::{count_transaction, publish_gpu_frame, set_display_lists, WrTransaction};
+
+    /// A laid-out window of `boxes` painted boxes.
+    fn window(boxes: usize) -> LayoutWindow {
+        let mut dom = Dom::create_body();
+        for _ in 0..boxes {
+            dom = dom.with_child(
+                Dom::create_div().with_css("width: 20px; height: 4px; background: #3366cc;"),
+            );
+        }
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(200.0, 400.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            StyledDom::create_from_dom(dom),
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the window lays out");
+        lw
+    }
+
+    #[test]
+    fn a_frame_counts_its_lists_items_and_transaction_and_the_next_starts_at_zero() {
+        let mut lw = window(32);
+        // Whatever this thread counted before this test is not this frame's.
+        publish_gpu_frame(&lw, 0, 0, 0);
+        let before = lw.frame_clock.gpu_total().items_translated;
+
+        let mut txn = WrTransaction::new();
+        let sent = set_display_lists(&mut txn, &mut lw, false).expect("translates");
+        assert_eq!(sent.translated, vec![DomId::ROOT_ID]);
+        count_transaction(&txn);
+        publish_gpu_frame(&lw, 1_500, 2_500, 7);
+
+        let items = lw.layout_results[&DomId::ROOT_ID].display_list.items.len() as u64;
+        assert!(items >= 32, "a box each at the least: {items}");
+        let frame = lw.frame_clock.gpu_last();
+        assert_eq!(frame.transactions, 1);
+        assert_eq!(frame.lists_translated, 1);
+        assert_eq!(frame.items_translated, items);
+        assert!(frame.list_bytes > 0);
+        assert_eq!(
+            (frame.blocked_us, frame.render_us, frame.draw_calls),
+            (1_500, 2_500, 7)
+        );
+        assert_eq!(lw.frame_timings().gpu_items_translated, items, "what an app reads");
+
+        // The renderer holds the list now: the next frame's transaction
+        // translates nothing, and its counters do not carry the last frame's.
+        let mut txn = WrTransaction::new();
+        let again = set_display_lists(&mut txn, &mut lw, false).expect("ok");
+        assert!(again.translated.is_empty());
+        count_transaction(&txn);
+        publish_gpu_frame(&lw, 0, 0, 0);
+        let frame = lw.frame_clock.gpu_last();
+        assert_eq!(
+            (frame.lists_translated, frame.items_translated, frame.list_bytes),
+            (0, 0, 0),
+            "a held list costs the frame no translation"
+        );
+        assert_eq!(frame.transactions, 1);
+        assert_eq!(
+            lw.frame_clock.gpu_total().items_translated - before,
+            items,
+            "the sum of both frames"
+        );
     }
 }

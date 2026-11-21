@@ -2042,6 +2042,7 @@ pub fn generate_frame(
     // Display list was rebuilt
     wr_translate2::generate_frame(&mut txn, layout_window, render_api, true, gl_context);
 
+    wr_translate2::count_transaction(&txn);
     render_api.send_transaction(wr_translate2::wr_translate_document_id(document_id), txn);
 }
 
@@ -2104,6 +2105,7 @@ pub fn submit_lightweight_frame(
         return false;
     }
 
+    wr_translate2::count_transaction(&txn);
     render_api.send_transaction(wr_translate2::wr_translate_document_id(document_id), txn);
     if flush_scene_builder {
         render_api.flush_scene_builder();

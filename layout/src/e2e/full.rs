@@ -733,6 +733,11 @@ pub struct FrameReportResponse {
     pub terminal_result: u8,
     /// Injectable test-clock offset in ms (advanced by `tick_ms`).
     pub test_clock_offset_ms: u64,
+    /// What the GPU path did for the last frame it drew (transactions, lists and items
+    /// translated, resource updates, scene and frame builds, glyphs, uploads, and where the time
+    /// went), and the sum over every frame of the window. All zero on a CPU backend.
+    pub gpu_last: azul_layout::window::GpuFrameCounters,
+    pub gpu_total: azul_layout::window::GpuFrameCounters,
     /// What the last CPU frame did (pixels cleared / blitted, items walked / painted, text runs,
     /// glyphs, halos drawn, isolated groups and their pixels, retained surfaces used, items of
     /// the whole-list scans), and the sum since `reset_frame_counters`.
@@ -8744,6 +8749,8 @@ fn build_frame_report_response(
         hit_depth_cap: report.hit_depth_cap,
         terminal_result: report.terminal_result,
         test_clock_offset_ms: azul_core::task::test_clock_offset_ms(),
+        gpu_last: report.gpu_last,
+        gpu_total: report.gpu_total,
         cpu_last: (&report.cpu_last).into(),
         cpu_since_reset: (&report.cpu_since_reset).into(),
     }

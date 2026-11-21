@@ -552,6 +552,7 @@ impl Document {
 
         self.has_built_scene = false;
 
+        crate::azul_counters::frame_built(precise_time_ns() - frame_build_start_time);
         let frame_build_time_ms = profiler::ns_to_ms(precise_time_ns() - frame_build_start_time);
         self.profile
             .set(profiler::FRAME_BUILDING_TIME, frame_build_time_ms);
@@ -576,6 +577,7 @@ impl Document {
         // hit-test items reads nothing of it (audit A4-03).
         if !self.scene.hit_testing_scene.is_empty() {
             self.spatial_tree.update_tree(&self.dynamic_properties);
+            crate::azul_counters::hit_tester_rebuilt();
         }
 
         let hit_tester = Arc::new(self.scene.create_hit_tester(&self.spatial_tree));

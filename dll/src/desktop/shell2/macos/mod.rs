@@ -9833,12 +9833,16 @@ impl MacOSWindow {
         // frame WebRender published has nothing to send).
         let only_shows_a_published_frame =
             std::mem::take(&mut self.frame_waiting) && !display_list_needs_rebuild && txn.is_empty();
+        // From here to the flush's return the UI thread waits for the scene
+        // builder and the render backend: the frame's `gpu_blocked_us`.
+        let blocked_started = std::time::Instant::now();
         if let Some(layout_window) = self
             .common
             .layout_window
             .as_ref()
             .filter(|_| !only_shows_a_published_frame)
         {
+            crate::desktop::wr_translate2::count_transaction(&txn);
             let doc_id = wr_translate_document_id(layout_window.document_id);
             log_trace!(
                 LogCategory::Rendering,
@@ -9857,8 +9861,11 @@ impl MacOSWindow {
                 .flush_scene_builder();
         }
         log_trace!(LogCategory::Rendering, "[WebRender] Transaction sent");
+        let blocked_us = crate::desktop::wr_translate2::elapsed_us(blocked_started);
 
         // Step 2: Call WebRender to composite the scene
+        let render_started = std::time::Instant::now();
+        let mut draw_calls = 0u64;
         let physical_size = self.common.current_window_state().size.get_physical_size();
         // The canvas follows the mode the window shows (THE clear colour).
         self.common.sync_renderer_clear_color();
@@ -9889,6 +9896,7 @@ impl MacOSWindow {
                         "[WebRender] Render successful: {:?}",
                         results.stats
                     );
+                    draw_calls = results.stats.total_draw_calls as u64;
 
                     // Store WebRender's dirty rects for per-rect compositor invalidation.
                     // request_redraw() uses these to call setNeedsDisplayInRect: instead
@@ -9945,6 +9953,14 @@ impl MacOSWindow {
             } else {
                 FrameDamage::Rects(self.gpu_damage_rects.clone())
             };
+            // What the GPU path did for this frame, for the frame report and
+            // `get_frame_timings` (the swap below is not in `render_us`).
+            crate::desktop::wr_translate2::publish_gpu_frame(
+                layout_window,
+                blocked_us,
+                crate::desktop::wr_translate2::elapsed_us(render_started),
+                draw_calls,
+            );
             layout_window.record_frame(paint.clone(), paint);
         }
 
