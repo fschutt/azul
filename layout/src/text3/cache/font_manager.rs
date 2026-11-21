@@ -144,11 +144,8 @@ std::thread_local! {
 }
 
 std::thread_local! {
-    /// The selectors [`with_chain_key`] was last asked for, with their key
-    /// and the count of size-free keys it was built under (`SIZE_FREE_KEYS`:
-    /// a stack found to be drawn alike at every size is keyed without the
-    /// size from then on, A8-28).
-    static LAST_CHAIN_KEY: core::cell::RefCell<Option<(Vec<FontSelector>, usize, FontChainKey)>> =
+    /// The selectors [`with_chain_key`] was last asked for, with their key.
+    static LAST_CHAIN_KEY: core::cell::RefCell<Option<(Vec<FontSelector>, FontChainKey)>> =
         const { core::cell::RefCell::new(None) };
 }
 
@@ -159,27 +156,22 @@ std::thread_local! {
 /// and consecutive containers mostly share one stack (a map's labels come
 /// layer by layer): the key - a `Vec<String>` of the families - was built,
 /// hashed and dropped for each, 12,500 times a pass in a Berlin view. Equal
-/// selectors give an equal key (`from_selectors` reads nothing else but the
-/// set of size-free keys, whose count the memo compares), so a hit compares
-/// them and hands out the kept key.
+/// selectors give an equal key (`from_selectors` reads nothing else), so a
+/// hit compares them and hands out the kept key.
 pub(crate) fn with_chain_key<R>(
     selectors: &[FontSelector],
     f: impl FnOnce(&FontChainKey) -> R,
 ) -> R {
     LAST_CHAIN_KEY.with(|last| {
         let mut last = last.borrow_mut();
-        let free = super::font_chains::SIZE_FREE_KEYS.load(std::sync::atomic::Ordering::Acquire);
-        let known = matches!(
-            &*last,
-            Some((seen, seen_free, _)) if *seen_free == free && seen.as_slice() == selectors
-        );
+        let known = matches!(&*last, Some((seen, _)) if seen.as_slice() == selectors);
         if !known {
             #[cfg(test)]
             CHAIN_KEYS_BUILT.with(|n| n.set(n.get() + 1));
-            *last = Some((selectors.to_vec(), free, FontChainKey::from_selectors(selectors)));
+            *last = Some((selectors.to_vec(), FontChainKey::from_selectors(selectors)));
         }
         match &*last {
-            Some((_, _, key)) => f(key),
+            Some((_, key)) => f(key),
             None => f(&FontChainKey::from_selectors(selectors)),
         }
     })
@@ -1615,9 +1607,7 @@ mod audit_a8_tests {
     #[test]
     fn a_stack_asked_again_keeps_its_chain_key() {
         let built = || CHAIN_KEYS_BUILT.with(core::cell::Cell::get);
-        // A family no test resolves: no other test can make its key size-free
-        // meanwhile (A8-28).
-        let (a, b) = (stack("A8-12 unresolved", 12), stack("A8-12 unresolved", 13));
+        let (a, b) = (stack("Azul Mock Mono", 12), stack("Azul Mock Mono", 13));
         let before = built();
         for _ in 0..100 {
             with_chain_key(&a, |key| assert_eq!(*key, FontChainKey::from_selectors(&a)));

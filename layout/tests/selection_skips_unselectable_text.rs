@@ -121,8 +121,10 @@ fn a_drag_does_not_end_in_unselectable_text() {
     lw.process_mouse_click_for_selection(from, 0)
         .expect("premise: the press lands on \"one\"");
 
-    lw.process_mouse_drag_for_selection(from, inside(rect_of(&lw, 3)))
-        .expect("the drag is handled");
+    // The answer says whether the selection CHANGED since A6-14 / `2bfe90fac` (a drag that
+    // sets the selection it had answers `None` and asks for no repaint); this test asked for
+    // `Some` ("the drag is handled"). What the drag left is asserted below.
+    let _ = lw.process_mouse_drag_for_selection(from, inside(rect_of(&lw, 3)));
 
     let focus = lw
         .text_edit_manager
@@ -179,8 +181,10 @@ fn a_drag_that_starts_in_a_text_field_stays_in_it() {
     lw.process_mouse_click_for_selection(from, 0)
         .expect("premise: the press lands in the field");
 
-    lw.process_mouse_drag_for_selection(from, inside(rect_of(&lw, 4)))
-        .expect("the drag is handled");
+    // The answer says whether the selection CHANGED since A6-14 / `2bfe90fac` (a drag that
+    // sets the selection it had answers `None` and asks for no repaint); this test asked for
+    // `Some` ("the drag is handled"). What the drag left is asserted below.
+    let _ = lw.process_mouse_drag_for_selection(from, inside(rect_of(&lw, 4)));
 
     assert!(
         lw.text_edit_manager.get_cross_block_selection().is_none(),

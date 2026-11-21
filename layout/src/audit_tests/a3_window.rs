@@ -246,7 +246,11 @@ fn a_kept_view_laid_out_for_another_box_copies_no_layout_tree() {
             RefAny::new(Watched(Arc::clone(&calls))),
             VirtualViewCallback::create(sliced_page),
         )
-        .with_css("position: absolute; left: 0px; top: 0px; right: 0px; bottom: 0px;"),
+        // A size of its own: a view is a replaced box, and an absolutely positioned
+        // replaced box with `width: auto` is as wide as its intrinsic size (300 x 150), not
+        // as its insets leave room for (CSS 2 10.3.8). The four insets alone, as this test
+        // had them, left the view 300 x 150 in both windows.
+        .with_css("position: absolute; left: 0px; top: 0px; width: 100%; height: 100%;"),
     );
     let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
     let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
@@ -1358,7 +1362,9 @@ fn a_rebuilt_page_resolves_its_fonts_again_for_a_character_it_did_not_have() {
     lay_out_text(&mut lw, &ws, "abc");
 
     crate::window::FONT_RESOLUTIONS.with(|ran| ran.set(0));
-    lay_out_text(&mut lw, &ws, "cab cab");
+    // "cabcab", not "cab cab": the space is a character "abc" did not have, and by the rule
+    // this test pins it is another requirement (the test resolved once here, rightly).
+    lay_out_text(&mut lw, &ws, "cabcab");
     assert_eq!(font_resolutions(), 0, "the same characters in another order");
     lay_out_text(&mut lw, &ws, "abd");
     assert_eq!(font_resolutions(), 1, "`d` is new: the chains were resolved for a, b, c");
