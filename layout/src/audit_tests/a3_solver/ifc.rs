@@ -85,3 +85,29 @@ fn plain_labels_skip_the_white_space_processing() {
         "{general} of {asked} plain label texts went through the whole white-space processing"
     );
 }
+
+/// A3-solver-24. The reconcile keeps a clean node by reading it out of the old tree
+/// (`LayoutTree::get_full_node`: a copy of its hot, warm and cold parts and of its child list)
+/// and handing that copy to the builder, which CLONED it again
+/// (`LayoutTreeBuilder::clone_node_from_old`) and dropped the first copy with its boxes and
+/// lists. The copy is read without the child list and moved into the builder
+/// (`adopt_node_from_old`).
+///
+/// Mutation: `clone_node_from_old(&old_full_node, ..)` in `cache::reconcile_node` clones once
+/// per kept node.
+#[test]
+fn the_reconcile_moves_a_kept_node_into_the_new_tree_without_cloning_it_again() {
+    use crate::solver3::layout_tree::BUILDER_NODE_CLONES;
+    let mut lw = window();
+    lay_out(&mut lw, layer_of_absolute_spans(100));
+    BUILDER_NODE_CLONES.with(|n| n.set(0));
+    // The same page again: every box is kept.
+    lay_out(&mut lw, layer_of_absolute_spans(100));
+    let kept = lw.layout_cache.last_reconcile_reused;
+    assert!(kept >= 200, "harness: the second layout kept the boxes of the first ({kept})");
+    assert_eq!(
+        BUILDER_NODE_CLONES.with(std::cell::Cell::get),
+        0,
+        "{kept} kept boxes were cloned a second time on their way into the new tree"
+    );
+}

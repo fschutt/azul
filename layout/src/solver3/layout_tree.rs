@@ -1800,10 +1800,28 @@ impl LayoutTree {
     /// Used when passing node data to `LayoutTreeBuilder::clone_node_from_old()`.
     #[must_use]
     pub fn get_full_node(&self, index: usize) -> Option<LayoutNode> {
+        self.full_node(index, true)
+    }
+
+    /// [`Self::get_full_node`] with no children listed: the node as
+    /// [`LayoutTreeBuilder::adopt_node_from_old`] takes it, which gives it
+    /// the children the new tree has and would drop the copied list.
+    #[must_use]
+    pub fn get_full_node_without_children(&self, index: usize) -> Option<LayoutNode> {
+        self.full_node(index, false)
+    }
+
+    /// The node at `index` put together from the hot / warm / cold arrays,
+    /// with its children listed (`with_children`) or with none.
+    fn full_node(&self, index: usize, with_children: bool) -> Option<LayoutNode> {
         let hot = self.nodes.get(index)?;
         let warm = self.warm.get(index).cloned().unwrap_or_default();
         let cold = self.cold.get(index).cloned().unwrap_or_default();
-        let children = self.children(index).to_vec();
+        let children = if with_children {
+            self.children(index).to_vec()
+        } else {
+            Vec::new()
+        };
         Some(LayoutNode {
             box_props: hot.box_props.unpack(),
             dom_node_id: hot.dom_node_id,
@@ -2493,6 +2511,14 @@ fn compute_subtree_needs_intrinsic(styled_dom: &StyledDom, tree: &LayoutTree) ->
 #[cfg(test)]
 thread_local! {
     pub(crate) static BUILDER_FINGERPRINTS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// How many old nodes [`LayoutTreeBuilder::clone_node_from_old`] cloned on this
+/// thread (`audit_tests::a3_solver::ifc`: none once the reconcile hands its
+/// copy of a clean node over with [`LayoutTreeBuilder::adopt_node_from_old`]).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static BUILDER_NODE_CLONES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
 /// Incrementally builds a [`LayoutTree`] from a [`StyledDom`].
@@ -4019,8 +4045,25 @@ impl LayoutTreeBuilder {
         parent: Option<usize>,
         new_dom_id: Option<NodeId>,
     ) -> usize {
+        #[cfg(test)]
+        BUILDER_NODE_CLONES.with(|n| n.set(n.get() + 1));
+        self.adopt_node_from_old(old_node.clone(), parent, new_dom_id)
+    }
+
+    /// [`Self::clone_node_from_old`] for an old node the caller owns and
+    /// needs no more: the node is moved into the new tree, not cloned into
+    /// it. A node read out of the old tree for this
+    /// ([`LayoutTree::get_full_node_without_children`]) is a copy already;
+    /// cloning that copy again copied every box, map and list it holds a
+    /// second time, for every clean node of every reconcile.
+    pub fn adopt_node_from_old(
+        &mut self,
+        old_node: LayoutNode,
+        parent: Option<usize>,
+        new_dom_id: Option<NodeId>,
+    ) -> usize {
         let index = self.nodes.len();
-        let mut new_node = old_node.clone();
+        let mut new_node = old_node;
         new_node.parent = parent;
         new_node.parent_formatting_context =
             parent.and_then(|p| self.nodes.get(p).map(|n| n.formatting_context));
@@ -9045,6 +9088,97 @@ mod audit_a3_solver_tests {
         assert!(builder.nodes.capacity() >= 1_000);
         assert!(builder.nodes.is_empty());
         assert!(builder.dom_to_layout.is_empty());
+    }
+
+    /// `body(0) > div(1)` as a tree of two boxes, the div's carrying what a layout leaves on
+    /// a node (a used size, a baseline, a position, a dirty flag).
+    fn laid_out_pair() -> LayoutTree {
+        let sd = StyledDom::create_from_dom(
+            azul_core::dom::Dom::create_body().with_child(azul_core::dom::Dom::create_div()),
+        );
+        let mut builder = LayoutTreeBuilder::new(LogicalSize::new(800.0, 600.0));
+        let mut msgs = None;
+        let root = builder.create_node_from_dom(&sd, NodeId::ZERO, None, &mut msgs);
+        let child = builder.create_node_from_dom(&sd, NodeId::new(1), Some(root), &mut msgs);
+        if let Some(node) = builder.get_mut(child) {
+            node.used_size = Some(LogicalSize::new(120.0, 30.0));
+            node.baseline = Some(11.0);
+            node.relative_position = Some(LogicalPosition::new(3.0, 4.0));
+            node.dirty_flag = DirtyFlag::Layout;
+        }
+        builder.build(root)
+    }
+
+    /// A3-solver-24: a node read out of a tree without its children is the node read with
+    /// them, less the list. (Compared as `Debug` text: every field of a node is in it, also
+    /// the ones without `PartialEq` - the inline layouts, the taffy cache.)
+    ///
+    /// Mutation: any field `full_node` fills differently for `with_children: false`.
+    #[test]
+    fn a_node_read_without_its_children_is_the_node_less_the_list() {
+        let old = laid_out_pair();
+        let mut with = old.get_full_node(0).expect("the root");
+        assert_eq!(with.children, vec![1], "harness: the root lists its child");
+        with.children.clear();
+        let without = old.get_full_node_without_children(0).expect("the root");
+        assert_eq!(format!("{with:?}"), format!("{without:?}"));
+        assert!(old.get_full_node_without_children(2).is_none());
+    }
+
+    /// A3-solver-24: moving an old node into a builder (`adopt_node_from_old`) makes the node
+    /// that cloning it into the builder makes (`clone_node_from_old`) - under the new parent
+    /// and the new DOM identity, clean, with the children the new tree gives it and the
+    /// measurements the old node had - and registers it under the same DOM node.
+    ///
+    /// Mutation: without `new_node.children = Vec::new()` the cloned root, read with its
+    /// children, lists its child twice and the adopted one once; an `adopt_node_from_old`
+    /// that keeps the old dirty flag or DOM node fails the last assertions.
+    #[test]
+    fn adopting_an_old_node_makes_the_node_that_cloning_it_makes() {
+        let old = laid_out_pair();
+        let viewport = LogicalSize::new(800.0, 600.0);
+        let (mut by_clone, mut by_adoption) =
+            (LayoutTreeBuilder::new(viewport), LayoutTreeBuilder::new(viewport));
+        // The child moves to another DOM node, as a positional match makes it.
+        let moved = Some(NodeId::new(5));
+
+        let root = old.get_full_node(0).expect("the root");
+        let child = old.get_full_node(1).expect("the child");
+        let cloned_root = by_clone.clone_node_from_old(&root, None, Some(NodeId::ZERO));
+        let cloned_child = by_clone.clone_node_from_old(&child, Some(cloned_root), moved);
+
+        let adopted_root = by_adoption.adopt_node_from_old(
+            old.get_full_node_without_children(0).expect("the root"),
+            None,
+            Some(NodeId::ZERO),
+        );
+        let adopted_child = by_adoption.adopt_node_from_old(
+            old.get_full_node_without_children(1).expect("the child"),
+            Some(adopted_root),
+            moved,
+        );
+
+        assert_eq!((cloned_root, cloned_child), (adopted_root, adopted_child));
+        for index in [cloned_root, cloned_child] {
+            assert_eq!(
+                format!("{:?}", by_clone.get(index)),
+                format!("{:?}", by_adoption.get(index)),
+                "node {index}"
+            );
+        }
+        assert_eq!(by_clone.dom_to_layout, by_adoption.dom_to_layout);
+
+        let adopted = by_adoption.get(adopted_child).expect("the adopted child");
+        assert_eq!(adopted.dom_node_id, moved);
+        assert_eq!(adopted.parent, Some(adopted_root));
+        assert_eq!(adopted.dirty_flag, DirtyFlag::None);
+        assert!(adopted.children.is_empty());
+        assert_eq!(adopted.used_size, Some(LogicalSize::new(120.0, 30.0)));
+        assert_eq!(adopted.baseline, Some(11.0));
+        assert_eq!(
+            by_adoption.get(adopted_root).map(|n| n.children.clone()),
+            Some(vec![adopted_child])
+        );
     }
 
     /// One positioned cluster: the ASCII letter at byte `start_byte` of `text`, one glyph 10px
