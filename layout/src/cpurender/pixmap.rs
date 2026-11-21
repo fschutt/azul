@@ -291,17 +291,27 @@ pub(crate) fn blit_pixmap_affine_general(
     let sw = src.width as i32;
     let sh = src.height as i32;
     let dw = dst.width as i32;
-    let mut inv = *m;
-    // agg's invert() on a degenerate matrix produces non-finite values; the
-    // finite-check below skips those pixels, so the collapsed-layer case
-    // degrades to "draws nothing" rather than UB or garbage.
-    inv.invert();
+    // The inverse map, with the matrix's translation split into its whole pixels and the
+    // rest: a destination pixel `d` is the source point `L^-1 ((d - whole) + (0.5 - rest))`.
+    // `d - whole` is an exact integer, so a composite whose translation differs by whole
+    // pixels (a pan of a view, the pixels of the frame before moved next to a strip painted
+    // now) computes, for the same pixel of the picture, the same numbers and so the same
+    // weights. Mapped through an inverse matrix that carries the translation
+    // (`d inv + inv_t`), the two sums rounded apart in their last bits, and a weight that
+    // sat on a rounding boundary came out a level apart: moved pixels next to painted ones.
+    let det = m.sx * m.sy - m.shx * m.shy;
+    // A degenerate matrix has no area: the collapsed-layer case draws nothing.
+    if !(det.is_finite() && det != 0.0 && m.tx.is_finite() && m.ty.is_finite()) {
+        return;
+    }
+    let (whole_x, whole_y) = (m.tx.floor(), m.ty.floor());
+    let (rest_x, rest_y) = (0.5 - (m.tx - whole_x), 0.5 - (m.ty - whole_y));
 
     for dy in y0..y1 {
         for dx in x0..x1 {
             // Sample at the dest pixel CENTER, mapped back to src space.
-            let (mut fx, mut fy) = (f64::from(dx) + 0.5, f64::from(dy) + 0.5);
-            inv.transform(&mut fx, &mut fy);
+            let (u, v) = ((f64::from(dx) - whole_x) + rest_x, (f64::from(dy) - whole_y) + rest_y);
+            let (fx, fy) = ((m.sy * u - m.shx * v) / det, (m.sx * v - m.shy * u) / det);
             if !(fx.is_finite() && fy.is_finite()) {
                 return;
             }
