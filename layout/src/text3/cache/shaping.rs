@@ -598,15 +598,14 @@ pub(super) fn shape_with_font_fallback<T: ParsedFontTrait>(
     loaded_fonts: &LoadedFonts<T>,
     tally: &mut ShapingTally,
 ) -> Result<Vec<ShapedCluster>, LayoutError> {
-    // Cache the debug flag in a `OnceLock<bool>` — reading it per-shape
+    // The debug flag is read once (`env_flag!`) — reading it per-shape
     // (this function fires once per text segment, ~hundreds of times
     // per render of a real DOM) costs ~100 ns per `std::env::var_os`
     // call on macOS (env-lock + hashmap lookup), and even before the
     // lookup finishes the `eprintln!` machinery takes a stderr lock
     // and allocates the formatted string. Both are invisible in
     // release unless `AZ_FONT_FALLBACK_DEBUG=1` is set.
-    static FONT_FB_DEBUG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    let dbg = *FONT_FB_DEBUG.get_or_init(|| std::env::var_os("AZ_FONT_FALLBACK_DEBUG").is_some());
+    let dbg = env_flag!("AZ_FONT_FALLBACK_DEBUG");
 
     let segments = split_text_by_font_coverage(text, font_chain, loaded_fonts, tally);
 

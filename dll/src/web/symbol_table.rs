@@ -2578,8 +2578,10 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     // Web backend: the display-list painter surface
     // (`azul_layout::solver3::display_list` — `DisplayListGenerator` +
     // all `paint_*` helpers) is never executed in wasm. `layout_document`
-    // gates its `generate_display_list` call behind `SKIP_DISPLAY_LIST`
-    // (set by `AzStartup_solveLayoutReal`) because the web backend emits
+    // gates its `generate_display_list` call behind
+    // `LayoutCache::display_list_options.skip` (set through
+    // `LayoutWindow::display_list_options` by `AzStartup_solveLayoutReal`)
+    // because the web backend emits
     // TLV DOM patches, not a display list. Classify these symbols `Leaf`
     // so the transitive lifter stops at the `generate_display_list` entry
     // and never descends into the painters (~300+ fns: glyph emission,
@@ -2588,7 +2590,8 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     //
     // The match must stay a MODULE-PATH cut (`display_list::`), never a bare
     // substring: a substring match once stubbed `set_skip_display_list` (the
-    // setter of the very gate that makes this cut sound) and std/alloc/core
+    // setter of the gate that made this cut sound, a function that is gone
+    // since the gate became a field of the layout cache) and std/alloc/core
     // generics that merely mention display-list TYPES as parameters
     // (`Vec<DisplayListItem>` clone/drop, slice sorts on
     // `(DomId, Arc<DisplayList>)`) — all of which run on LIVE paths and

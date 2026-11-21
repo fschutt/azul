@@ -489,6 +489,7 @@ impl ShapedCluster {
 /// `start_byte_in_run`, which `text()` slices with.
 #[must_use]
 pub fn empty_arc_str() -> Arc<str> {
+    // KEPT: one shared, immutable empty string (a constant), made on first use.
     static EMPTY: std::sync::OnceLock<Arc<str>> = std::sync::OnceLock::new();
     EMPTY.get_or_init(|| Arc::from("")).clone()
 }
@@ -615,6 +616,7 @@ pub struct PositionedItem {
 }
 
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 std::thread_local! {
     /// Tests: how often this thread has measured an item's bounds.
     pub(crate) static ITEM_BOUNDS_CALLS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };

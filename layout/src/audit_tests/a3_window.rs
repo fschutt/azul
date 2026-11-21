@@ -3090,7 +3090,7 @@ fn a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it() {
 
     use crate::{
         overlay::{ContentChange, ContentDirtyTier},
-        solver3::display_list::{set_moved_run_policy_on_this_thread, MovedRunPolicy},
+        solver3::display_list::MovedRunPolicy,
     };
 
     const BEFORE: f32 = 10.7;
@@ -3109,16 +3109,16 @@ fn a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it() {
     };
     let (fresh, fresh_child) = rows_window(AFTER);
 
-    // The pass as it is (the default policy: a moved box is painted anew).
-    set_moved_run_policy_on_this_thread(Some(MovedRunPolicy::TweenFramesTranslate));
+    // The pass as it is (the default policy: a moved box is painted anew), whatever the
+    // environment says: this window's own option.
     let (mut lw, child) = rows_window(BEFORE);
+    lw.display_list_options.moved_runs = MovedRunPolicy::TweenFramesTranslate;
     assert!(
         same_bits(&lw, child, &fresh, fresh_child).is_err(),
         "premise: before the pass the rows stand where the lower box put them"
     );
     grow(&mut lw, child);
     let painted = same_bits(&lw, child, &fresh, fresh_child);
-    set_moved_run_policy_on_this_thread(None);
     if let Err(difference) = painted {
         panic!("after the pass: {difference}");
     }

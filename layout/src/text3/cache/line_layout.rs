@@ -2916,6 +2916,9 @@ fn below_every_shape(line_top: f32, constraints: &UnifiedConstraints) -> bool {
 /// are read from the embedded dictionary once and shared after that.
 #[cfg(feature = "text_layout_hyphenation")]
 pub(super) fn get_hyphenator(language: HyphenationLanguage) -> Result<Arc<Standard>, LayoutError> {
+    // KEPT: the embedded hyphenation dictionaries, one per language, each a pure function of
+    // constants read on first use (bounded by the number of languages, shared by every window:
+    // `hyphenator_for` is called from the line breakers that take no cache).
     static DICTIONARIES: std::sync::OnceLock<Mutex<HashMap<HyphenationLanguage, Arc<Standard>>>> =
         std::sync::OnceLock::new();
     let mut dictionaries = DICTIONARIES

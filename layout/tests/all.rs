@@ -74,7 +74,8 @@
 //!
 //! 1. `web_flexbox_simple_ref` set `solver3::SKIP_DISPLAY_LIST` (a global `AtomicBool`) and never
 //!    put it back, so every test that ran afterwards got an empty display list. `xml_dom_embed`
-//!    measured zero text items.
+//!    measured zero text items. (The flag is `LayoutWindow::display_list_options.skip` now, a
+//!    field of one window; so are the switches `dl_patch_golden` flipped.)
 //! 2. `text3_shaping_cache_identity`'s negative control re-executes `current_exe()` with `--exact
 //!    <test name>`. libtest names are now module-qualified, so the bare name matched nothing, the
 //!    child ran zero tests and exited 0, and the control read that as "the defect did not

@@ -344,6 +344,7 @@ pub(crate) fn box_anchor(
 }
 
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     /// How often [`box_anchor`] ran on this thread. One call is the cost unit
     /// of a scroll chain - a cascade lookup of the box's `position`, and one

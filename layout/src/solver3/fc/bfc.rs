@@ -214,6 +214,7 @@ pub struct BfcPassMemo {
 /// on this thread (`audit_tests::a3_solver`: one for a percentage padding
 /// that resolves to another length, none for a page of absolute lengths).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static BOX_PROPS_CHANGES_NOTED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
@@ -238,6 +239,7 @@ fn same_box_props(
 /// found set (`audit_tests::a3_solver`: a handful per pass, one per box below
 /// the block, and none).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static SCRATCH_VECTORS_MADE: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
     pub(crate) static SCRATCH_ENTRIES_UNSET: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
