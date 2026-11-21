@@ -1323,6 +1323,48 @@ fn a_box_at_its_static_position_in_an_rtl_block_does_not_drift_by_its_margin() {
     assert_as_in_a_fresh_layout(&incremental, &fresh(page, &second), &[1, 2, 3, 4]);
 }
 
+/// A3-solver-52. An out-of-flow child takes its static position from its parent's layout
+/// (`cache::process_out_of_flow_children`), which passes over a child that has a position - the
+/// test by which it tells the children it has just placed. A pass begins with the positions of
+/// the pass before, so when a layout root is laid out again, its absolutely positioned children
+/// all "have a position": they kept the place the positioning pass gave them last time as
+/// their static position, whatever the root's new layout says.
+///
+/// `body(0) > .g(1) > .a(2) > [.x(3), .p(4)]`: `.a` goes from 100 to 200 px high (`.g` has a
+/// definite height, so `.a` is the one layout root), `.x` is half of it, `.p` (all insets
+/// `auto`) stands below `.x`: at y = 50 before, at y = 100 in a fresh layout of the second
+/// stylesheet. The incremental pass left it at 50.
+///
+/// Mutation: without the emptied slots in `layout_document`'s root loop `.p` stays at y = 50.
+#[test]
+fn a_box_at_its_static_position_follows_the_flow_of_a_parent_laid_out_again() {
+    let page = || {
+        Dom::create_body().with_child(
+            div_class("g").with_child(
+                div_class("a")
+                    .with_child(div_class("x"))
+                    .with_child(div_class("p")),
+            ),
+        )
+    };
+    let base = "body { margin: 0; } .g { height: 400px; } \
+                .a { position: relative; width: 300px; } .x { height: 50%; } \
+                .p { position: absolute; width: 10px; height: 10px; }";
+    let (first, second) = (
+        format!("{base} .a {{ height: 100px; }}"),
+        format!("{base} .a {{ height: 200px; }}"),
+    );
+    let incremental = restyled(page, &first, &second);
+    let fresh = fresh(page, &second);
+    let p = position_of(&fresh, 4);
+    assert!(
+        (p.y - 100.0).abs() < 0.01,
+        "harness: a fresh layout puts the box below the 100 px block, at y = {}",
+        p.y
+    );
+    assert_as_in_a_fresh_layout(&incremental, &fresh, &[2, 3, 4]);
+}
+
 // The guards of the second round, one file per part of the solver (`a3_solver/*.rs`).
 mod ifc;
 mod sizing;
