@@ -547,3 +547,59 @@ fn em_and_rem_insets_resolve_alike_at_rest_and_under_a_focused_root() {
         );
     }
 }
+
+/// `body > div > k x [label > text]`: the map editor's label layer WITHOUT its groups of 64 -
+/// `k` absolutely positioned labels under one positioned block, every third one turned by its
+/// own `transform` (a reference frame each). `spans`: the labels are spans (the layer is the
+/// root of an inline formatting context) or divs (the layer is a block container of blocks).
+fn flat_layer_of_turned_labels(k: usize, spans: bool) -> Dom {
+    let mut layer = Dom::create_div().with_css("position: relative; width: 600px; height: 400px;");
+    for i in 0..k {
+        let turn = if i % 3 == 0 {
+            format!(" transform: rotate({}deg);", (i % 7) * 10 + 5)
+        } else {
+            String::new()
+        };
+        let css = format!(
+            "position: absolute; left: {}px; top: {}px;{turn}",
+            (i % 50) * 10,
+            (i / 50) * 9
+        );
+        let text = format!("label {i}");
+        layer = layer.with_child(if spans {
+            Dom::create_span_with_text(text).with_css(&css)
+        } else {
+            Dom::create_div_with_text(text).with_css(&css)
+        });
+    }
+    Dom::create_body().with_css("margin: 0px;").with_child(layer)
+}
+
+/// A3-solver-13, the audit's question 1: a FLAT list of absolutely positioned siblings with
+/// transforms under one parent is laid out and painted with a number of `position` lookups that
+/// grows with the list, not with its square - for labels that are spans and labels that are
+/// divs. (`get_position_type` is asked by nearly every walk over children, siblings or
+/// ancestors: the scans found so far - Z10, A3-solver-01, -03, -07 - all asked it or stood next
+/// to a walk that does. The scans that ask nothing have counters of their own above.)
+#[test]
+fn a_flat_layer_of_absolute_labels_takes_position_lookups_in_proportion_to_its_labels() {
+    use crate::solver3::positioning::POSITION_TYPE_LOOKUPS;
+    for spans in [true, false] {
+        let lookups = |k: usize| {
+            let mut lw = window();
+            POSITION_TYPE_LOOKUPS.with(|n| n.set(0));
+            lay_out(&mut lw, flat_layer_of_turned_labels(k, spans));
+            POSITION_TYPE_LOOKUPS.with(std::cell::Cell::get)
+        };
+        let (small, large) = (lookups(400), lookups(1_600));
+        assert!(
+            small >= 400,
+            "harness (spans = {spans}): every label's position was looked up ({small})"
+        );
+        assert!(
+            large < small * 6,
+            "spans = {spans}: four times the labels took {large} position lookups for {small}: \
+             more than linear"
+        );
+    }
+}

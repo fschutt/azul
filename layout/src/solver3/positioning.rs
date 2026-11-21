@@ -43,12 +43,23 @@ pub(crate) struct PositionOffsets {
     pub(crate) left: Option<f32>,
 }
 
+/// How often [`get_position_type`] was asked on this thread. Nearly every walk
+/// of the solver over a box's children, siblings or ancestors asks it, so its
+/// count at n and at 4 n boxes is the size sweep of `audit_tests::a3_solver`
+/// for a scan per child that nobody has found yet.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static POSITION_TYPE_LOOKUPS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
 // +spec:positioning:94ef0f - position property: static|relative|absolute|sticky|fixed, initial
 // static, applies to all elements except table-column-group/table-column
 /// Looks up the `position` property using the compact-cache-aware getter.
 // +spec:positioning:ba937d - positioned elements have position != static
 #[must_use]
 pub fn get_position_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutPosition {
+    #[cfg(test)]
+    POSITION_TYPE_LOOKUPS.with(|n| n.set(n.get() + 1));
     let Some(id) = dom_id else {
         return LayoutPosition::Static;
     };
