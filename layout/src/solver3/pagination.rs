@@ -255,8 +255,11 @@ pub struct HeaderFooterConfig {
     /// Content generator for the footer
     pub footer_content: MarginBoxContent,
     /// The font family of the header and footer text: a CSS `font-family` list
-    /// (`"Georgia, serif"`). Unset - the default - the text is set in the
-    /// document's default font (see [`FakePageConfig::font_family`]).
+    /// (`"Georgia, serif"`). Unset - the default - the text is set in the font
+    /// of the document's ROOT element (`<html>` of an HTML document), not in
+    /// that of `<body>`: `font-family` is inherited downward only, so one set
+    /// on `<body>` does not reach the header. Set the family here, or on the
+    /// root element.
     pub font_family: OptionString,
     /// Height of the header area (if shown)
     pub header_height: f32,
@@ -349,7 +352,10 @@ impl HeaderFooterConfig {
     }
 
     /// Set the font family of the header and footer text: a CSS `font-family`
-    /// list such as `"Georgia, 'Times New Roman', serif"`.
+    /// list such as `"Georgia, 'Times New Roman', serif"`. Left unset, the text
+    /// is set in the font of the document's root element, not in that of
+    /// `<body>` (see [`Self::font_family`]): set the family here, or on the
+    /// root element.
     #[must_use]
     pub fn with_font_family(mut self, family: impl Into<String>) -> Self {
         self.font_family = OptionString::Some(AzString::from(family.into()));
@@ -461,9 +467,10 @@ pub struct FakePageConfig {
     /// `font-family` list (`"Georgia, 'Times New Roman', serif"`), resolved
     /// through the same font manager and fontconfig chains as the text of the
     /// document, so a family the system lacks falls back as it does there.
-    /// Unset - the default - the text is set in the document's default font:
-    /// the one a node without a `font-family` of its own has, that of the
-    /// document's root element.
+    /// Unset - the default - the text is set in the font of the document's ROOT
+    /// element (`<html>` of an HTML document), not in that of `<body>`:
+    /// `font-family` is inherited downward only, so one set on `<body>` does
+    /// not reach the header. Set the family here, or on the root element.
     pub font_family: OptionString,
     /// Header height in points
     pub header_height: f32,
@@ -618,7 +625,9 @@ impl FakePageConfig {
 
     /// Set the font family of the header, the footer and the page numbers: a
     /// CSS `font-family` list such as `"Georgia, 'Times New Roman', serif"`
-    /// (see [`Self::font_family`]).
+    /// (see [`Self::font_family`]). Left unset, the text is set in the font of
+    /// the document's root element, not in that of `<body>`: set the family
+    /// here, or on the root element.
     #[must_use]
     pub fn with_font_family(mut self, family: impl Into<String>) -> Self {
         self.font_family = OptionString::Some(AzString::from(family.into()));
