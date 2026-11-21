@@ -375,8 +375,9 @@ editor's pin moves once, after the last green merge of the round, on its word):
   merged tree. LEFT by that area, not done here (rows): the view test of its "For area diff-first (2)",
   dom-builder-07 (changed nodes without the tree), the `Refstr` variants in `api.json`, more widgets behind
   `AZ_FLAT_WIDGETS`, the editor's label loop on the builder (needs the pin and the bindings).
-- THE ROUND'S FOUR MERGES ARE IN. To do, in this order: (1) `cargo check -p azul-dll --target
-  x86_64-unknown-linux-gnu` and `--target x86_64-pc-windows-gnu` (delete `<target>/<triple>` after each);
+- THE ROUND'S FOUR MERGES ARE IN AND PUSHED (`origin/fix/input-bugs-2026-09-19` = `6a36285036932b6e4d995207243e7fcea2e3ffab`).
+  DONE on that tree: (1) `cargo check -p azul-dll --target x86_64-unknown-linux-gnu`: 0 errors (log `590`), `--target
+  x86_64-pc-windows-gnu`: 0 errors (`591`); both target directories deleted. To do, in this order:
   (2) on the coordinator's word the editor's pin to the pushed tip: `api.json` CHANGED twice, so the editor's
   bindings are copied from `<azul worktree>/target/codegen` into `mapedit3/target/azul-codegen` (+ `.rev`), the
   four `rev` lines and three comment lines of `mapedit3/Cargo.toml`, `cargo update -p azul-dll` through `prun`;
