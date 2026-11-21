@@ -220,6 +220,72 @@ fn the_static_places_of_many_boxes_in_one_paragraph_are_read_off_one_listing_of_
     );
 }
 
+/// A3-solver-16b. The line a footnote is anchored in is the line of its static position in
+/// the paragraph it was taken out of, and the footnotes of a page (`footnotes::footnote_boxes`)
+/// and of a column (`fc::columns::anchored_notes`) asked for it one box at a time
+/// (`fc::inline_static_place_in_tree`): the paragraph's stored text expanded and its items
+/// walked twice per footnote. They ask one `fc::TreeStaticPlaces` now, which expands and
+/// lists a paragraph when its first box asks.
+///
+/// The boxes asked about here are the absolutely positioned spans of a paragraph (a window
+/// has no footnotes: `float: footnote` is `none` off paged media); the question is the same
+/// one. The answers are those of the one-by-one search, and the items looked at grow with
+/// the paragraph, not with boxes x items.
+///
+/// Mutation: a `TreeStaticPlaces` per box (or `inline_static_place_in_tree` per box) looks
+/// at 16x the items for 4x the boxes.
+#[test]
+fn the_anchor_lines_of_many_boxes_of_a_paragraph_list_its_items_once() {
+    use crate::solver3::fc::{
+        inline_static_place_in_tree, TreeStaticPlaces, STATIC_PLACE_ITEM_VISITS,
+    };
+    let visits = |k: usize| {
+        let mut lw = window();
+        lay_out(&mut lw, paragraph_with_an_absolute_span_after_each_word(k));
+        let lr = &lw.layout_results[&DomId::ROOT_ID];
+        let tree = &lr.layout_tree;
+        let index_of = |node: usize| {
+            tree.dom_to_layout
+                .get(&NodeId::new(node))
+                .and_then(|v| v.first())
+                .expect("the node is laid out")
+                .index()
+        };
+        // body(0) > paragraph(1) > k x [span(2 + 4 i) > text, span(4 + 4 i, absolute) > text]
+        let paragraph = index_of(1);
+        let boxes: Vec<usize> = (0..k).map(|i| index_of(4 + 4 * i)).collect();
+        let one_by_one: Vec<_> = boxes
+            .iter()
+            .map(|&b| inline_static_place_in_tree(tree, paragraph, b))
+            .collect();
+        STATIC_PLACE_ITEM_VISITS.with(|n| n.set(0));
+        let mut places = TreeStaticPlaces::default();
+        let listed: Vec<_> = boxes
+            .iter()
+            .map(|&b| places.place(tree, paragraph, b))
+            .collect();
+        let visits = STATIC_PLACE_ITEM_VISITS.with(std::cell::Cell::get);
+        assert!(
+            listed.iter().all(Option::is_some),
+            "harness: each of the {k} boxes has a place in the paragraph"
+        );
+        assert_eq!(
+            listed, one_by_one,
+            "the places read off one listing are the places the search per box finds"
+        );
+        visits
+    };
+    let (small, large) = (visits(100), visits(400));
+    assert!(
+        small >= 100,
+        "harness: the paragraph's items were listed for its 100 boxes ({small})"
+    );
+    assert!(
+        large < small * 6,
+        "four times the words and boxes looked at {large} items for {small}: more than linear"
+    );
+}
+
 /// The bounds of the lines the cell of DOM node `node` keeps (`OverflowInfo::unclipped_bounds`
 /// of its stored inline layout), as (width, height).
 fn kept_line_bounds(lw: &LayoutWindow, node: usize) -> (f32, f32) {

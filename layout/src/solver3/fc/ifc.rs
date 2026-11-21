@@ -457,6 +457,11 @@ pub(crate) struct InlineStaticPlace {
 ///
 /// `node_of` names the DOM node an item comes from; DOM node ids are in
 /// document (pre-order) order (`StyledDom`), so "before" is "a lower id".
+///
+/// The definition, by one walk over the items per box. The layout asks
+/// through [`StaticPlaces`] / [`TreeStaticPlaces`], which list the items
+/// once for many boxes and are tested against this.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn inline_static_place(
     items: &[text3::cache::PositionedItem],
     node_of: impl Fn(&ShapedItem) -> Option<NodeId>,
@@ -556,6 +561,30 @@ thread_local! {
 /// of one line in their order.
 struct StaticPlaces<'a> {
     items: &'a [text3::cache::PositionedItem],
+    tables: StaticPlaceTables,
+}
+
+impl<'a> StaticPlaces<'a> {
+    fn new(
+        items: &'a [text3::cache::PositionedItem],
+        node_of: impl Fn(&ShapedItem) -> Option<NodeId>,
+    ) -> Self {
+        Self {
+            items,
+            tables: StaticPlaceTables::new(items, node_of),
+        }
+    }
+
+    /// [`inline_static_place`] of `child` among the items.
+    fn place(&mut self, child: NodeId) -> Option<InlineStaticPlace> {
+        self.tables.place(self.items, child)
+    }
+}
+
+/// What [`StaticPlaces`] lists of a context's items, without the items: a
+/// holder that owns the items keeps this beside them ([`TreeStaticPlaces`])
+/// and hands the same items to every call.
+struct StaticPlaceTables {
     /// Per DOM node that has items, by node index: its first and its last
     /// item.
     by_node: BTreeMap<usize, (usize, usize)>,
@@ -566,9 +595,9 @@ struct StaticPlaces<'a> {
     line_extents: BTreeMap<usize, Option<(f32, f32)>>,
 }
 
-impl<'a> StaticPlaces<'a> {
+impl StaticPlaceTables {
     fn new(
-        items: &'a [text3::cache::PositionedItem],
+        items: &[text3::cache::PositionedItem],
         node_of: impl Fn(&ShapedItem) -> Option<NodeId>,
     ) -> Self {
         let mut by_node: BTreeMap<usize, (usize, usize)> = BTreeMap::new();
@@ -586,15 +615,19 @@ impl<'a> StaticPlaces<'a> {
                 .or_insert((i, i));
         }
         Self {
-            items,
             by_node,
             by_line: None,
             line_extents: BTreeMap::new(),
         }
     }
 
-    /// [`inline_static_place`] of `child` among the items.
-    fn place(&mut self, child: NodeId) -> Option<InlineStaticPlace> {
+    /// [`inline_static_place`] of `child` among `items`, the items the
+    /// tables were made of.
+    fn place(
+        &mut self,
+        items: &[text3::cache::PositionedItem],
+        child: NodeId,
+    ) -> Option<InlineStaticPlace> {
         // The scan keeps, of the nodes below `child`, the greatest and of its
         // items the last (`>=`); of the nodes at or above it the smallest
         // and of its items the first (`<`).
@@ -613,19 +646,21 @@ impl<'a> StaticPlaces<'a> {
             (None, Some(i)) => (i, false),
             (None, None) => return None,
         };
-        let items = self.items;
-        let anchor = &items[anchor_index];
-        let line = self.line_extent(anchor.line_index);
+        let anchor = items.get(anchor_index)?;
+        let line = self.line_extent(items, anchor.line_index);
         Some(static_place_at(anchor, after_content, line))
     }
 
     /// The extent of line `line_index`: [`widen_line_extent`] over its items
     /// in their order, as the scan folds them.
-    fn line_extent(&mut self, line_index: usize) -> Option<(f32, f32)> {
+    fn line_extent(
+        &mut self,
+        items: &[text3::cache::PositionedItem],
+        line_index: usize,
+    ) -> Option<(f32, f32)> {
         if let Some(known) = self.line_extents.get(&line_index) {
             return *known;
         }
-        let items = self.items;
         let by_line = self.by_line.get_or_insert_with(|| {
             let mut by_line: Vec<(usize, usize)> = items
                 .iter()
@@ -657,6 +692,11 @@ impl<'a> StaticPlaces<'a> {
 /// [`inline_static_place`] for the out-of-flow layout child `child_index`
 /// of the inline formatting context root `ifc_root`, from the layout the
 /// root holds. `None` when the root holds no inline layout or no content.
+///
+/// One box at a time: the root's stored text is expanded and its items are
+/// walked twice for every box asked about. The callers ask through
+/// [`TreeStaticPlaces`]; this is what its answers are compared with.
+#[cfg(test)]
 pub(crate) fn inline_static_place_in_tree(
     tree: &LayoutTree,
     ifc_root: usize,
@@ -673,6 +713,53 @@ pub(crate) fn inline_static_place_in_tree(
         |item| item_dom_node(tree, child_map.as_deref(), item),
         child,
     )
+}
+
+/// The places of MANY boxes taken out of the inline formatting contexts of
+/// one tree (the footnotes of a page, of a column): where
+/// [`inline_static_place`] puts the out-of-flow layout child `child_index`
+/// of the context root `ifc_root`, from the layout the root holds.
+///
+/// A root's layout is expanded (`LayoutTree::materialized_inline_layout_for_node`:
+/// a copy of every item of a text kept dense) and its items are listed
+/// ([`StaticPlaceTables`]) when the first box taken out of it asks, and both
+/// are kept for the boxes after it. Asked box by box, a paragraph with k
+/// footnotes was expanded k times and its items walked 2 k times: boxes x
+/// items per page.
+///
+/// For a tree as it stands while this lives: nothing here sees a layout of
+/// one of its contexts.
+#[derive(Default)]
+pub(crate) struct TreeStaticPlaces {
+    /// Per context root asked about: its expanded layout and what is listed
+    /// of it; `None` for a root without an inline layout.
+    by_root: BTreeMap<usize, Option<(Arc<text3::cache::UnifiedLayout>, StaticPlaceTables)>>,
+}
+
+impl TreeStaticPlaces {
+    /// The place of `child_index` in the context of `ifc_root`. `None` when
+    /// the root holds no inline layout or no content.
+    pub(crate) fn place(
+        &mut self,
+        tree: &LayoutTree,
+        ifc_root: usize,
+        child_index: usize,
+    ) -> Option<InlineStaticPlace> {
+        let child = tree.get(LayoutNodeId::new(child_index))?.dom_node_id?;
+        let listed = self.by_root.entry(ifc_root).or_insert_with(|| {
+            let layout = tree.materialized_inline_layout_for_node(ifc_root)?;
+            let child_map = tree
+                .warm(LayoutNodeId::new(ifc_root))
+                .and_then(|w| w.inline_content_cache.as_deref())
+                .map(|c| Arc::clone(&c.child_map));
+            let tables = StaticPlaceTables::new(&layout.items, |item| {
+                item_dom_node(tree, child_map.as_deref(), item)
+            });
+            Some((layout, tables))
+        });
+        let (layout, tables) = listed.as_mut()?;
+        tables.place(&layout.items, child)
+    }
 }
 
 /// The DOM node a laid-out inline item comes from: a cluster's text node,
