@@ -12287,6 +12287,17 @@ pub trait PlatformWindow {
             }
         }
 
+        // The hover change between the pointer's last two hit tests has been
+        // determined (the enter / leave events above) and the tooltip timer
+        // has seen it: it is told once. Without this every later pass that
+        // ran without a new hit test - a key, a window event, the re-run
+        // after a callback rebuilt the DOM - found the same two frames and
+        // sent the same events, restyled `:hover` and re-armed the tooltip
+        // again.
+        if let Some(lw) = self.get_layout_window_mut() {
+            lw.hover_manager.mark_hover_changes_delivered();
+        }
+
         // MWA-A3c: incremental :hover restyle. Enter/leave events dispatched
         // to callbacks, but the styled DOM's :hover flags were never updated
         // outside a full DOM regeneration — pure-CSS hover styling was dead

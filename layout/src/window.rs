@@ -14436,6 +14436,16 @@ impl LayoutWindow {
     ///   should stop `TOOLTIP_DELAY_TIMER_ID` and hide any currently-visible tooltip.
     /// - `NoChange` if the hovered node hasn't changed between frames.
     pub fn handle_hover_change_for_tooltip(&self, hover_time_ms: u32) -> TooltipTimerAction {
+        // The two newest hit tests are a change once: a pass that runs
+        // without a new one (a key, a timer's state change) must not start
+        // the delay again or hide a tooltip that is showing
+        // (`HoverManager::hover_change_pending`).
+        if !self
+            .hover_manager
+            .hover_change_pending(&crate::managers::hover::InputPointId::Mouse)
+        {
+            return TooltipTimerAction::NoChange;
+        }
         let current_hover = self.hover_manager.current_hover_node();
         let previous_hover = self.hover_manager.previous_hover_node();
 
