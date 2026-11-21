@@ -21,9 +21,9 @@ use crate::{geom::LogicalPosition, sync::OnceLock};
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct CpuFeatures {
     /// SSE instructions are available.
-    pub sse: bool,
+    pub(crate) sse: bool,
     /// AVX instructions are available.
-    pub avx: bool,
+    pub(crate) avx: bool,
 }
 
 /// The features [`detect_cpu_features`] found; none until it ran.
