@@ -11903,10 +11903,19 @@ impl MacOSWindow {
         // or directly after CPU rendering
         match &self.backend {
             RenderBackend::OpenGL => {
-                // For GPU rendering, flush the OpenGL context
+                // For GPU rendering, flush the OpenGL context - unless the
+                // window gave its text halo pictures back while nobody sees it
+                // (A5-20, as in the render pass: a frame without them is not
+                // presented).
+                let halos_hidden = self.common.layout_window.as_ref().is_some_and(|lw| {
+                    lw.gpu_state_manager.halo_release
+                        == azul_layout::managers::gpu_state::HaloRelease::Hidden
+                });
                 if let Some(ref gl_context) = self.gl_context {
-                    unsafe {
-                        let _: () = msg_send![gl_context, flushBuffer];
+                    if !halos_hidden {
+                        unsafe {
+                            let _: () = msg_send![gl_context, flushBuffer];
+                        }
                     }
                 }
             }
