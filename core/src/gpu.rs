@@ -21,7 +21,7 @@
 #[cfg(not(feature = "std"))]
 use alloc::collections::BTreeMap as HashMap;
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering};
 #[cfg(feature = "std")]
 use std::collections::HashMap;
 
@@ -33,6 +33,112 @@ use crate::{
     styled_dom::StyledDom,
     transform::{ComputedTransform3D, RotationMode, INITIALIZED, USE_AVX, USE_SSE},
 };
+
+/// One of the six maps a node's reference frame is read from
+/// ([`GpuValueCache::reference_frame_of`]): the keys or the values of the
+/// CSS, the animation or the sticky channel, by node. A `HashMap` that
+/// carries a STAMP of its content, so a reader that keeps something derived
+/// from the frames of a whole DOM (the hit tester: where every frame's boxes
+/// are painted) can tell in six comparisons that none of them changed,
+/// instead of reading every frame's matrix again
+/// ([`GpuValueCache::transform_stamps`]).
+///
+/// The rule the stamp keeps: two maps with the same stamp have the same
+/// content. 0 is the empty map nobody wrote; every change takes a number
+/// never handed out before (one counter for the process), and a clone keeps
+/// the stamp of what it copies. The stamp cannot be forgotten by a writer:
+/// reading goes through `Deref`, and every way to change the map goes
+/// through [`Self::insert`], [`Self::remove`], [`Self::retain`] (which
+/// restamp only when the content did change) or through `DerefMut` (which
+/// restamps always: `entry`, `clear`, a `&mut HashMap` handed to a function).
+#[derive(Clone)]
+pub struct StampedMap<V> {
+    map: HashMap<NodeId, V>,
+    stamp: u64,
+}
+
+/// A stamp no [`StampedMap`] has had before.
+fn next_map_stamp() -> u64 {
+    static NEXT: AtomicUsize = AtomicUsize::new(1);
+    NEXT.fetch_add(1, AtomicOrdering::Relaxed) as u64
+}
+
+impl<V> Default for StampedMap<V> {
+    fn default() -> Self {
+        Self {
+            map: HashMap::new(),
+            stamp: 0,
+        }
+    }
+}
+
+impl<V: core::fmt::Debug> core::fmt::Debug for StampedMap<V> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(&self.map, f)
+    }
+}
+
+impl<V> core::ops::Deref for StampedMap<V> {
+    type Target = HashMap<NodeId, V>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.map
+    }
+}
+
+impl<V> core::ops::DerefMut for StampedMap<V> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.stamp = next_map_stamp();
+        &mut self.map
+    }
+}
+
+impl<'a, V> IntoIterator for &'a StampedMap<V> {
+    type Item = (&'a NodeId, &'a V);
+    type IntoIter = <&'a HashMap<NodeId, V> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        (&self.map).into_iter()
+    }
+}
+
+impl<V> StampedMap<V> {
+    /// The stamp of the content: equal stamps, equal content.
+    #[must_use]
+    pub const fn stamp(&self) -> u64 {
+        self.stamp
+    }
+
+    /// `HashMap::remove`; a new stamp when the node had an entry.
+    pub fn remove(&mut self, node: &NodeId) -> Option<V> {
+        let removed = self.map.remove(node);
+        if removed.is_some() {
+            self.stamp = next_map_stamp();
+        }
+        removed
+    }
+
+    /// `HashMap::retain` for a test that only reads the value; a new stamp
+    /// when an entry was dropped.
+    pub fn retain<F: FnMut(&NodeId, &V) -> bool>(&mut self, mut keep: F) {
+        let before = self.map.len();
+        self.map.retain(|node, value| keep(node, value));
+        if self.map.len() != before {
+            self.stamp = next_map_stamp();
+        }
+    }
+}
+
+impl<V: PartialEq> StampedMap<V> {
+    /// `HashMap::insert`; a new stamp unless the node already had this
+    /// value.
+    pub fn insert(&mut self, node: NodeId, value: V) -> Option<V> {
+        if self.map.get(&node) != Some(&value) {
+            self.stamp = next_map_stamp();
+        }
+        self.map.insert(node, value)
+    }
+}
 
 /// Caches GPU transform and opacity keys and their current values for all nodes.
 ///
@@ -51,9 +157,9 @@ pub struct GpuValueCache {
     pub h_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
     /// CSS transform keys (keyed by node ID) — for CSS `transform` property animation.
     /// Separate from scrollbar transform keys to avoid `SpatialTreeItemKey` collisions.
-    pub css_transform_keys: HashMap<NodeId, TransformKey>,
+    pub css_transform_keys: StampedMap<TransformKey>,
     /// Current CSS transform values (keyed by node ID)
-    pub css_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
+    pub css_current_transform_values: StampedMap<ComputedTransform3D>,
     /// ANIMATION transform keys (keyed by node ID).
     ///
     /// A separate channel from `css_transform_keys` on purpose. That map is
@@ -63,19 +169,19 @@ pub struct GpuValueCache {
     /// moving. Scrollbar thumbs already have their own channel for the same
     /// reason; this follows that precedent rather than fighting the cascade for
     /// one map.
-    pub anim_transform_keys: HashMap<NodeId, TransformKey>,
+    pub anim_transform_keys: StampedMap<TransformKey>,
     /// Current animation transform values (keyed by node ID).
-    pub anim_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
+    pub anim_current_transform_values: StampedMap<ComputedTransform3D>,
     /// STICKY transform keys (keyed by node ID): one per `position: sticky`
     /// box, minted by `synchronize`, so its display list wraps the box in a
     /// reference frame. A channel of its own for the reason the animation
     /// channel has one: `synchronize` owns the CSS map.
-    pub sticky_transform_keys: HashMap<NodeId, TransformKey>,
+    pub sticky_transform_keys: StampedMap<TransformKey>,
     /// Current sticky translations (keyed by node ID): how far a scroll
     /// since the layout pass moved the box from where that pass placed it.
     /// The identity right after layout; written per frame by the layout
     /// crate's `GpuStateManager::update_scrollbar_transforms`.
-    pub sticky_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
+    pub sticky_current_transform_values: StampedMap<ComputedTransform3D>,
     /// The cursor's SHEEN over a material (keyed by the material's node): the
     /// transform that moves the sheen's highlight to the cursor. A channel of
     /// its own, minted by the layout window for a window `WebRender` draws; the
@@ -176,6 +282,22 @@ impl GpuValueCache {
                     .zip(self.sticky_current_transform_values.get(&node))
             })
             .map(|(key, transform)| (*key, *transform))
+    }
+
+    /// The stamps of the six maps [`Self::reference_frame_of`] reads (keys and
+    /// values of the CSS, animation and sticky channel). While they are what
+    /// they were, every node of this cache has the reference frame and the
+    /// matrix it had ([`StampedMap`]).
+    #[must_use]
+    pub const fn transform_stamps(&self) -> [u64; 6] {
+        [
+            self.css_transform_keys.stamp(),
+            self.css_current_transform_values.stamp(),
+            self.anim_transform_keys.stamp(),
+            self.anim_current_transform_values.stamp(),
+            self.sticky_transform_keys.stamp(),
+            self.sticky_current_transform_values.stamp(),
+        ]
     }
 
     /// [`Self::reference_frame_of`] for a node laid out at `size` (its border
@@ -941,3 +1063,91 @@ pub enum GpuOpacityKeyEvent {
 #[cfg(test)]
 #[path = "gpu_test.rs"]
 mod gpu_test;
+
+/// Audit A6-05: the stamps of the transform maps.
+#[cfg(test)]
+mod audit_a6_tests {
+    use super::*;
+
+    fn tx(x: f32) -> ComputedTransform3D {
+        let mut t = ComputedTransform3D::IDENTITY;
+        t.m[3][0] = x;
+        t
+    }
+
+    /// Equal stamps, equal content: a write that changes nothing keeps the stamp, every write
+    /// that changes the map takes a new one, and so does every `&mut` to the map inside.
+    /// Mutation: `insert` never restamping fails the second comparison; `deref_mut` not
+    /// restamping fails the `entry` step (a frame's matrix would change under the hit
+    /// tester's kept bounds).
+    #[test]
+    fn a_transform_map_is_restamped_when_its_content_changes() {
+        let (a, b) = (NodeId::new(1), NodeId::new(2));
+        let mut map: StampedMap<ComputedTransform3D> = StampedMap::default();
+        assert_eq!(map.stamp(), 0, "the empty map nobody wrote");
+
+        assert_eq!(map.insert(a, tx(1.0)), None);
+        let first = map.stamp();
+        assert_ne!(first, 0);
+        assert_eq!(map.insert(a, tx(1.0)), Some(tx(1.0)));
+        assert_eq!(map.stamp(), first, "the same value again: the same content");
+        assert_eq!(map.insert(a, tx(2.0)), Some(tx(1.0)));
+        let second = map.stamp();
+        assert_ne!(second, first, "another value");
+
+        assert_eq!(map.remove(&b), None);
+        assert_eq!(map.stamp(), second, "nothing was removed");
+        map.retain(|node, _| *node == a);
+        assert_eq!(map.stamp(), second, "nothing was dropped");
+
+        // Reading does not restamp.
+        assert_eq!(map.get(&a), Some(&tx(2.0)));
+        assert_eq!(map.len(), 1);
+        assert_eq!((&map).into_iter().count(), 1);
+        assert_eq!(map.stamp(), second);
+
+        // A clone has the content, and the stamp; they part at the first change.
+        let mut copy = map.clone();
+        assert_eq!(copy.stamp(), second);
+        copy.entry(b).or_insert(tx(3.0));
+        assert_ne!(copy.stamp(), second, "a `&mut` to the map inside: restamped");
+        assert_eq!(map.stamp(), second, "the original was not written");
+
+        assert_eq!(map.remove(&a), Some(tx(2.0)));
+        let third = map.stamp();
+        assert!(third != second && third != first && third != 0);
+        assert!(map.is_empty());
+    }
+
+    /// The cache's six stamps change with the frame of a node, and with nothing else: an
+    /// opacity or a colour written leaves them alone.
+    /// Mutation: a map left out of `transform_stamps` (the animation keys, say) fails the
+    /// step that removes only that map's entry.
+    #[test]
+    fn the_caches_stamps_follow_the_reference_frames() {
+        let node = NodeId::new(4);
+        let mut cache = GpuValueCache::default();
+        assert_eq!(cache.transform_stamps(), [0; 6]);
+
+        cache.opacity_keys.insert(node, OpacityKey::unique());
+        cache.current_opacity_values.insert(node, 0.5);
+        assert_eq!(cache.transform_stamps(), [0; 6], "an opacity is no frame");
+
+        cache.anim_transform_keys.insert(node, TransformKey::unique());
+        cache.anim_current_transform_values.insert(node, tx(5.0));
+        let keyed = cache.transform_stamps();
+        assert_eq!(cache.painted_transform_of(node), Some(tx(5.0)));
+        assert_ne!(keyed, [0; 6]);
+
+        cache.anim_current_transform_values.insert(node, tx(5.0));
+        assert_eq!(cache.transform_stamps(), keyed, "the same matrix: the same frame");
+        cache.anim_current_transform_values.insert(node, tx(6.0));
+        let moved = cache.transform_stamps();
+        assert_ne!(moved, keyed);
+
+        // The key alone goes: the node has no frame any more, with its value still there.
+        cache.anim_transform_keys.remove(&node);
+        assert_eq!(cache.painted_transform_of(node), None);
+        assert_ne!(cache.transform_stamps(), moved);
+    }
+}
