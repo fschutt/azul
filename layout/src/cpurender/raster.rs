@@ -21574,4 +21574,157 @@ mod audit_a1_tests {
         assert!(outside_active_clip(&item, visual, &[], offset, AzRect::from_xywh(0.0, 0.0, 100.0, 100.0), &[], 1.0));
         assert!(!outside_active_clip(&item, visual, &[], offset, None, &[], 1.0), "no clip: nothing is culled");
     }
+
+    // ---- A3-core-26: the ink of a text run ---------------------------------------------------
+
+    /// A list of one run: the glyphs `ids` of `font` at `size` px from the pen `(x, y)`, each
+    /// a face advance after the one before, in `rgb`, under a clip that cuts nothing, with
+    /// the ink the face's glyph boxes give it (`text_ink_of_run`, as the generator fills it).
+    fn inked_run(font: &ParsedFont, font_hash: FontHash, ids: &[u16], size: f32, (x, y): (f32, f32), rgb: [u8; 3]) -> DisplayList {
+        use crate::font_traits::ParsedFontTrait;
+        let units_per_em = f32::from(font.font_metrics.units_per_em);
+        let mut pen_x = x;
+        let mut glyphs = Vec::new();
+        for id in ids {
+            glyphs.push(GlyphInstance {
+                index: u32::from(*id),
+                point: LogicalPosition { x: pen_x, y },
+                size: LogicalSize { width: 0.0, height: size },
+            });
+            pen_x += f32::from(font.get_horizontal_advance(*id)) * size / units_per_em;
+        }
+        let font_ref = crate::parsed_font_to_font_ref(font.clone());
+        let ink = crate::solver3::display_list::text_ink_of_run(&glyphs, size, units_per_em, |id| font_ref.glyph_ink_box(id));
+        let everything = wrect(-10_000.0, -10_000.0, 20_000.0, 20_000.0);
+        let mut dl = list(vec![DisplayListItem::Text {
+            glyphs,
+            font_hash,
+            font_size_px: size,
+            color: ColorU { r: rgb[0], g: rgb[1], b: rgb[2], a: 255 },
+            clip_rect: everything,
+            line_box: everything,
+            source_node_index: None,
+        }]);
+        dl.text_ink = vec![ink];
+        dl
+    }
+
+    /// A3-core-26: the ink a list knows for a run holds every pixel the run paints. A line of
+    /// letters with ascenders, descenders and brackets in the test font, at 14, 31.5 and 96
+    /// px, at a scale factor of 1 and of 2, in LCD stripes, in grayscale and thickened
+    /// (synthetic bold): painted on white, and every pixel that is not white lies in the
+    /// device box of `visual_bounds_of`.
+    /// Mutation: the pad left out of `text_ink_of_run` loses the LCD filter's column beside
+    /// the first stem and the thickened outline; `y_max` taken downwards puts the box under
+    /// the baseline.
+    #[test]
+    fn the_ink_a_list_knows_holds_every_pixel_its_run_paints() {
+        let Some(font) = test_font() else {
+            eprintln!("[skip] no system font available");
+            return;
+        };
+        let (rr, fm, font_hash) = resources(Some(&font));
+        let font_hash = font_hash.expect("the font's hash");
+        let ids: Vec<u16> = "Hamburgefonstiv Jgq(|)".chars().filter_map(|c| font.lookup_glyph_index(c as u32)).collect();
+        assert!(ids.len() > 10, "harness: the test font has Latin letters");
+        for (size, dpi) in [(14.0_f32, 1.0_f32), (31.5, 1.0), (96.0, 1.0), (14.0, 2.0), (31.5, 2.0)] {
+            for (mode, bold) in [(TextAa::Lcd, false), (TextAa::Grayscale, false), (TextAa::Lcd, true)] {
+                let dl = inked_run(&font, font_hash.with_synthetic_bold(bold), &ids, size, (60.25, 150.5), [0, 0, 0]);
+                assert!(dl.text_ink_at(0).is_some(), "premise: the face knows the boxes of its glyphs");
+                let ink = dl.visual_bounds_of(0).expect("the run has ink");
+                let mut pm = AzulPixmap::new(1800, 600).unwrap();
+                pm.fill(255, 255, 255, 255);
+                let mut gc = GlyphCache::new();
+                let _ = gc.set_text_aa(TextAaSettings { mode, ..TextAaSettings::default() });
+                let state = CpuRenderState::new(ScrollOffsetMap::new());
+                render_display_list_with_state(&dl, &mut pm, dpi, &rr, &fm, &mut gc, &state).unwrap();
+                let (x0, y0) = ((ink.origin.x * dpi).floor() as i64, (ink.origin.y * dpi).floor() as i64);
+                let x1 = ((ink.origin.x + ink.size.width) * dpi).ceil() as i64;
+                let y1 = ((ink.origin.y + ink.size.height) * dpi).ceil() as i64;
+                let (mut painted, mut outside) = (0usize, 0usize);
+                for y in 0..pm.height {
+                    for x in 0..pm.width {
+                        if px(&pm, x, y) != [255, 255, 255, 255] {
+                            painted += 1;
+                            let (x, y) = (i64::from(x), i64::from(y));
+                            outside += usize::from(x < x0 || x >= x1 || y < y0 || y >= y1);
+                        }
+                    }
+                }
+                let what = format!("{size} px at a scale factor of {dpi}, {mode:?}, bold {bold}");
+                assert!(painted > 200, "{what}: the run is painted ({painted} px)");
+                assert_eq!(outside, 0, "{what}: {outside} painted pixels outside the ink ({x0}, {y0}) .. ({x1}, {y1})");
+            }
+        }
+    }
+
+    /// A3-core-26: a run whose last glyph is wider than an em is repainted whole. The glyph
+    /// of the test font whose outline reaches furthest right of its pen (it must reach more
+    /// than 1.15 em: the item's own estimate ends an em right of the last pen) after an `A`,
+    /// at 40 px: painted black, then the list is replaced by the same run in red. The damage
+    /// of the two lists, repainted on the black frame, gives the red frame - damaged == full.
+    /// The same without the ink table (the estimate): black pixels of the wide glyph are
+    /// left, which is the bug and shows that the test can fail.
+    /// Skipped, with a message, for a font without such a glyph.
+    #[test]
+    fn a_run_whose_last_glyph_is_wider_than_an_em_is_repainted_whole() {
+        let Some(font) = test_font() else {
+            eprintln!("[skip] no system font available");
+            return;
+        };
+        let (rr, fm, font_hash) = resources(Some(&font));
+        let font_hash = font_hash.expect("the font's hash");
+        let units_per_em = f32::from(font.font_metrics.units_per_em);
+        let widest = (0..font.num_glyphs)
+            .filter_map(|id| {
+                let glyph = font.get_or_decode_glyph(id)?;
+                (!glyph.outline.is_empty()).then_some((glyph.bounding_box.max_x, id))
+            })
+            .max();
+        let (Some((reach, wide)), Some(letter)) = (widest, font.lookup_glyph_index('A' as u32)) else {
+            eprintln!("[skip] the test font has no outlines");
+            return;
+        };
+        if f32::from(reach) <= 1.15 * units_per_em {
+            eprintln!("[skip] no glyph of the test font reaches more than 1.15 em right of its pen ({reach} units)");
+            return;
+        }
+        let run_in = |rgb: [u8; 3]| inked_run(&font, font_hash, &[letter, wide], 40.0, (100.0, 150.0), rgb);
+        let paint = |dl: &DisplayList| {
+            let mut pm = AzulPixmap::new(900, 300).unwrap();
+            pm.fill(255, 255, 255, 255);
+            let mut gc = GlyphCache::new();
+            let state = CpuRenderState::new(ScrollOffsetMap::new());
+            render_display_list_with_state(dl, &mut pm, 1.0, &rr, &fm, &mut gc, &state).unwrap();
+            pm
+        };
+        let repainted = |old: &DisplayList, new: &DisplayList| {
+            let offsets = ScrollOffsetMap::new();
+            let damage = compute_display_list_damage(old, new, &offsets, &offsets).expect("the lists pair");
+            let mut pm = paint(old);
+            let mut gc = GlyphCache::new();
+            let state = CpuRenderState::new(ScrollOffsetMap::new()).with_paint_threads(1);
+            render_display_list_damaged(new, &mut pm, 1.0, &rr, &fm, &mut gc, &state, &damage).unwrap();
+            pm
+        };
+        let (black, red) = (run_in([0, 0, 0]), run_in([200, 0, 0]));
+        let estimate = black.items[0].visual_bounds().expect("a run has bounds");
+        let ink = black.visual_bounds_of(0).expect("the run has ink");
+        assert!(
+            ink.origin.x + ink.size.width > estimate.origin.x + estimate.size.width + 2.0,
+            "premise: the wide glyph's ink ends at {}, the estimate at {}",
+            ink.origin.x + ink.size.width,
+            estimate.origin.x + estimate.size.width
+        );
+        let full = paint(&red);
+        assert_eq!(differing_pixels(&repainted(&black, &red), &full), 0, "damaged == full");
+        // Without the table the damage is the estimate's, and the end of the glyph stays black.
+        let (mut black_bare, mut red_bare) = (black.clone(), red.clone());
+        black_bare.text_ink.clear();
+        red_bare.text_ink.clear();
+        assert!(
+            differing_pixels(&repainted(&black_bare, &red_bare), &full) > 0,
+            "harness: the estimate leaves pixels of the wide glyph unrepainted"
+        );
+    }
 }
