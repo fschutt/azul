@@ -208,3 +208,99 @@ fn a_view_no_pass_rendered_again_leaves_its_arena_for_the_next_render() {
     );
     assert!(w.lw.retired_child_results.is_empty(), "the retired result went with the pass");
 }
+
+// -- A3-window-09: a pass that keeps the layout tree does not copy it --------------------------
+
+/// A view that shows a slice of a document longer than its box on both axes: a box of another
+/// size is served by the slice it has, so the view is kept and its document laid out again
+/// for the new box (`follow_host_in_kept_view`).
+extern "C" fn sliced_page(mut data: RefAny, _info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+    let _call = data
+        .downcast_ref::<Watched>()
+        .map(|watched| watched.0.fetch_add(1, Ordering::SeqCst))
+        .expect("the view's data");
+    let mut rows = Dom::create_div();
+    for row in 0..40 {
+        rows = rows.with_child(Dom::create_div().with_css(&format!(
+            "position: absolute; left: 10px; top: {}px; width: 50%; height: 4px; background: \
+             #336699;",
+            10 + row * 6
+        )));
+    }
+    let window = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(300.0, 300.0));
+    let document = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(3000.0, 3000.0));
+    VirtualViewReturn::with_dom(rows, window, document)
+}
+
+/// A relayout of the same DOM for a smaller window keeps the view and lays its document out
+/// again for the smaller box, on the retained tree. The pass takes that tree as its own: the
+/// kept result lets go of it first. It used to hold it through the pass, and the pass copied
+/// every box of the document (`solver3::cache::unshare`) per frame of a window resize.
+#[test]
+fn a_kept_view_laid_out_for_another_box_copies_no_layout_tree() {
+    use crate::solver3::cache::TREE_COPIES;
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut dom = Dom::create_body().with_css("margin: 0px;").with_child(
+        Dom::create_virtual_view(
+            RefAny::new(Watched(Arc::clone(&calls))),
+            VirtualViewCallback::create(sliced_page),
+        )
+        .with_css("position: absolute; left: 0px; top: 0px; right: 0px; bottom: 0px;"),
+    );
+    let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(300.0, 300.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "harness: the view was rendered");
+
+    // The same DOM, a smaller window: what a shell's resize does. Nothing but the styled DOM
+    // of the root's result is kept, so the root's own tree is held by the solver alone.
+    let previous = lw
+        .layout_results
+        .remove(&DomId::ROOT_ID)
+        .expect("the root's result");
+    let styled = previous.styled_dom;
+    drop(previous.layout_tree);
+    drop(previous.display_list);
+    ws.size.dimensions = LogicalSize::new(260.0, 240.0);
+    lw.current_window_state = ws.clone();
+    TREE_COPIES.with(|copies| copies.set(0));
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out again");
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "harness: the view is kept (its slice serves the smaller box), not rendered again"
+    );
+    let child = *lw
+        .layout_results
+        .keys()
+        .find(|dom| **dom != DomId::ROOT_ID)
+        .expect("the view's document");
+    assert!(
+        (lw.layout_results[&child].viewport.size.width - 260.0).abs() < 0.5,
+        "harness: the view's document was laid out for the new box: {:?}",
+        lw.layout_results[&child].viewport.size
+    );
+    assert_eq!(
+        TREE_COPIES.with(std::cell::Cell::get),
+        0,
+        "no pass copied a layout tree the window still held"
+    );
+}

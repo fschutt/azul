@@ -8136,6 +8136,10 @@ impl LayoutWindow {
         let Some(previous) = self.layout_results.remove(&dom_id) else {
             return Ok(());
         };
+        // The result's hold on the layout tree goes before the pass: a pass that keeps the
+        // tree takes it as its own only when nothing else holds it, and copies every node
+        // of it otherwise (`solver3::cache::unshare`).
+        drop(previous.layout_tree);
         let displaced = self.stage_view_size_dirt(dom_id, stale);
         let result = self.layout_dom_recursive_impl(
             previous.styled_dom,
@@ -8230,6 +8234,8 @@ impl LayoutWindow {
         } else {
             Some(previous.viewport)
         };
+        // As above: the tree is the pass's own once this result lets go of it.
+        drop(previous.layout_tree);
         let displaced = self.stage_view_size_dirt(dom_id, stale);
         let mut debug_messages = None;
         let ran = self
@@ -11167,6 +11173,10 @@ impl LayoutWindow {
         let Some(previous) = self.layout_results.remove(&DomId::ROOT_ID) else {
             return;
         };
+        // The pass may keep the layout tree (the DOM is the one it was laid out from): it
+        // takes it as its own only when this result no longer holds it, and copies every
+        // node of it otherwise (`solver3::cache::unshare`).
+        drop(previous.layout_tree);
         let window_state = self.current_window_state.clone();
         let system_callbacks = ExternalSystemCallbacks::rust_internal();
         let mut debug_messages = None;
@@ -12980,6 +12990,11 @@ impl LayoutWindow {
             self.child_layout_caches.remove(&child);
         }
         let mut styled_dom = kept.styled_dom;
+        // The kept result's hold on the layout tree goes before the pass: a resize of the
+        // view's document keeps the tree, takes it as its own only when nothing else holds
+        // it, and copied every node of it otherwise (`solver3::cache::unshare`): 12,470
+        // boxes of a map view per frame of a window resize.
+        drop(kept.layout_tree);
         // Read before the context is offered: a resize that flips no
         // condition still starts a new cascade generation, which is no
         // restyle of the view's document.
