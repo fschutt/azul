@@ -17730,8 +17730,45 @@ mod paint_restyle_tests {
         );
     }
 
+    /// While this lives, the windows this thread builds bind a state colour when a state
+    /// first PAINTS it (A3-window-50) and not from the build of the list (A3-window-55,
+    /// `AZ_EAGER_STATE_COLORS`): for the guards of the decoration patch.
+    struct BoundWhenPainted;
+
+    impl BoundWhenPainted {
+        fn on_this_thread() -> Self {
+            azul_layout::window::set_state_colors_from_the_build_on_this_thread(Some(false));
+            Self
+        }
+    }
+
+    impl Drop for BoundWhenPainted {
+        fn drop(&mut self) {
+            azul_layout::window::set_state_colors_from_the_build_on_this_thread(None);
+        }
+    }
+
+    /// The decoration patch (A3-window-07), with the binding of A3-window-50: the first
+    /// enter paints the label's run into the view's list, the leave is the key's value.
     #[test]
     fn a_hover_over_a_label_paints_its_run_into_the_views_list_and_asks_for_a_repaint() {
+        let _binding = BoundWhenPainted::on_this_thread();
+        a_hover_over_a_label(1);
+    }
+
+    /// Audit A4-23, the eager binding (A3-window-55, the default): the label's background is
+    /// bound to a colour key by the build of the view's list, so the FIRST enter is the
+    /// key's value already: no list is built, none is patched, the view's list is the
+    /// allocation it was (a patched list is a whole list to the GPU renderer).
+    /// Mutation: `bind_state_colors` given no nodes (the enter paints a run: 1 patch).
+    #[test]
+    fn a_hover_over_a_label_is_the_value_of_a_colour_key_from_its_first_enter() {
+        a_hover_over_a_label(0);
+    }
+
+    /// The pointer enters and leaves the label; the enter paints `patches_of_the_enter` runs
+    /// into the view's list.
+    fn a_hover_over_a_label(patches_of_the_enter: u32) {
         let mut page = page();
         let before = (
             list_of(&page, DomId::ROOT_ID),
@@ -17748,7 +17785,7 @@ mod paint_restyle_tests {
             },
         )]);
         let tier = apply_hover_restyle(&mut page.lw, enter);
-        assert_a_repaint_of_the_views_list(&page, tier, before, "enter", 0);
+        assert_a_repaint_of_the_view(&page, tier, before, "enter", 0, patches_of_the_enter);
         assert_eq!(painted(&page, page.child), 1, "the label is painted in its hover colour");
 
         // And leaves it.
@@ -17769,8 +17806,22 @@ mod paint_restyle_tests {
         assert_eq!(painted(&page, page.child), 0, "and loses it");
     }
 
+    /// The decoration patch for `:active`, with the binding of A3-window-50.
     #[test]
     fn a_press_on_a_label_paints_its_run_into_the_views_list_and_asks_for_a_repaint() {
+        let _binding = BoundWhenPainted::on_this_thread();
+        a_press_on_a_label(1);
+    }
+
+    /// The eager binding for `:active` (A3-window-55): the press is a value already.
+    #[test]
+    fn a_press_on_a_label_is_the_value_of_a_colour_key_from_the_first_press() {
+        a_press_on_a_label(0);
+    }
+
+    /// The label is pressed and released; the press paints `patches_of_the_press` runs into
+    /// the view's list.
+    fn a_press_on_a_label(patches_of_the_press: u32) {
         let mut page = page();
         let before = (
             list_of(&page, DomId::ROOT_ID),
@@ -17779,7 +17830,7 @@ mod paint_restyle_tests {
         // The press lands on the deepest node, the text; its span is active with it.
         let press = BTreeMap::from([(page.child, vec![NodeId::new(ACTIVE_TEXT)])]);
         let tier = apply_active_restyle(&mut page.lw, press, false);
-        assert_a_repaint_of_the_views_list(&page, tier, before, "press", 0);
+        assert_a_repaint_of_the_view(&page, tier, before, "press", 0, patches_of_the_press);
         assert_eq!(painted(&page, page.child), 1, "the pressed label is painted active");
 
         let before = (

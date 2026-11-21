@@ -4934,6 +4934,11 @@ struct DisplayListBuilder {
     /// fades (`GpuValueCache::color_keys` of the DOM being built): their
     /// background rect carries the key ([`DisplayList::color_bindings`]).
     bound_colors: BTreeMap<NodeId, ColorKey>,
+    /// The ids of the keys of `bound_colors`: what a run copied from the list before asks
+    /// for each of its bound rects (`try_copy_cached_run`). It asked every key of
+    /// `bound_colors` per copied rect: with a key per label that has a `:hover` background
+    /// (audit A4-23) that is labels x labels per pass.
+    bound_color_ids: std::collections::BTreeSet<usize>,
     /// One-shot: the colour key of the NEXT pushed item.
     next_color_binding: Option<ColorKey>,
     color_bindings: Vec<Option<ColorKey>>,
@@ -4969,11 +4974,19 @@ impl DisplayListBuilder {
             next_text_selection_colors: None,
             text_selection_colors: Vec::new(),
             bound_colors: BTreeMap::new(),
+            bound_color_ids: std::collections::BTreeSet::new(),
             next_color_binding: None,
             color_bindings: Vec::new(),
             carets: Vec::new(),
             open_opacity_groups: Vec::new(),
         }
+    }
+
+    /// Binds the backgrounds this builder paints to the colour keys of `cache`
+    /// ([`Self::bound_colors`]).
+    pub(crate) fn bind_colors_of(&mut self, cache: &GpuValueCache) {
+        self.bound_colors = cache.color_keys.iter().map(|(n, k)| (*n, *k)).collect();
+        self.bound_color_ids = self.bound_colors.values().map(|key| key.id).collect();
     }
 
     /// Log a debug message if debug is enabled
@@ -6005,7 +6018,7 @@ pub fn generate_display_list_impl<T: ParsedFontTrait + Sync + 'static>(
     let debug_enabled = generator.ctx.debug_messages.is_some();
     let mut builder = DisplayListBuilder::with_debug(debug_enabled);
     if let Some(cache) = gpu_value_cache {
-        builder.bound_colors = cache.color_keys.iter().map(|(n, k)| (*n, *k)).collect();
+        builder.bind_colors_of(cache);
     }
 
     // 0. Canvas background propagation (CSS 2.1 § 14.2): "The background of the root element
@@ -7067,6 +7080,18 @@ where
         // child's id) — the golden test caught a first-item flattening here.
         builder.set_current_layout(Some((node_index, phase)));
         for i in run.0..run.1 {
+            // A copied rect stays bound while its key does. One that lost its key and
+            // paints nothing (the see-through rect of a state colour, audit A4-23) is
+            // not copied: a build pushes no unbound rect of alpha 0 (`push_rect`).
+            let binding = prev
+                .color_binding(i)
+                .filter(|key| builder.bound_color_ids.contains(&key.id));
+            if binding.is_none()
+                && prev.color_binding(i).is_some()
+                && matches!(&prev.items[i], DisplayListItem::Rect { color, .. } if color.a == 0)
+            {
+                continue;
+            }
             builder.set_current_node(prev.node_mapping.get(i).copied().flatten());
             // The background a text run is proven to sit on is the box of an
             // ANCESTOR (`compute_uniform_text_bg`), which may have moved or
@@ -7089,10 +7114,7 @@ where
             // A copied run keeps its ink: the entry is relative to the run's first pen, so
             // the translation below leaves it true.
             builder.next_text_ink = prev.text_ink.get(i).copied().flatten();
-            // A copied rect stays bound while its key does.
-            builder.next_color_binding = prev
-                .color_binding(i)
-                .filter(|key| builder.bound_colors.values().any(|k| k == key));
+            builder.next_color_binding = binding;
             let item = translate_item(prev.items[i].clone(), delta);
             builder.push_item(item);
         }
@@ -9889,11 +9911,27 @@ where
             // canvas (step 0 of `generate_display_list`): painting them on
             // the box again would double a translucent colour.
             let painted_on_the_canvas = self.canvas_painted.contains(&Some(dom_id));
-            let background_contents = if is_table_cell || painted_on_the_canvas {
+            let mut background_contents = if is_table_cell || painted_on_the_canvas {
                 Vec::new()
             } else {
                 get_background_contents(self.ctx.styled_dom, dom_id, &styled_node_state)
             };
+            // Audit A4-23: a box whose background is bound to a colour key always has the
+            // rect the key is the colour of, also while it paints nothing - a see-through
+            // layer over the box a single colour layer fills (`push_background_layer` binds
+            // it, and both renderers draw nothing for a bound rect whose value has alpha
+            // 0). A `:hover { background }` that comes is then the key's value, from the
+            // first enter on, and the list stays (`LayoutWindow::bind_state_colors`). Not
+            // where another painter has the box's background (the canvas, a table).
+            if background_contents.is_empty()
+                && !is_table_cell
+                && !painted_on_the_canvas
+                && builder.bound_colors.contains_key(&dom_id)
+            {
+                background_contents.push(azul_css::props::style::StyleBackgroundContent::Color(
+                    ColorU::TRANSPARENT,
+                ));
+            }
             let border_info = get_border_info(self.ctx.styled_dom, dom_id, &styled_node_state);
 
             let node_type = &self.ctx.styled_dom.node_data.as_container()[dom_id];

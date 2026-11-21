@@ -145,8 +145,11 @@ fn plan_one<T: ParsedFontTrait + Sync + 'static>(
 
     // The run, as the build paints it.
     let mut builder = DisplayListBuilder::with_debug(false);
-    if let Some(cache) = gpu_value_cache {
-        builder.bound_colors = cache.color_keys.iter().map(|(n, k)| (*n, *k)).collect();
+    // The run is this node's alone: its own key is the only one it can bind. (Every key of
+    // the DOM was copied into the builder per patched node: a key per label that has a
+    // `:hover` background, audit A4-23.)
+    if let Some(key) = gpu_value_cache.and_then(|cache| cache.color_key(node)) {
+        builder.bound_colors.insert(node, key);
     }
     builder.set_current_layout(Some((index, EmitPhase::BgBorder)));
     generator

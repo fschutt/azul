@@ -6471,8 +6471,36 @@ mod tests {
     /// 30 plain moves of 12 px along the first row of labels: the pointer enters and leaves
     /// ten of them. No layout, no DOM, no rebuild of the window's list; the view's list is
     /// what is rebuilt, at most once a move.
+    ///
+    /// With a state colour bound when a state first PAINTS it (A3-window-50: the decoration
+    /// patch shows the first enter of each label); the binding from the build of the list,
+    /// which is the default, is the test below.
     #[test]
     fn a_mouse_move_over_the_text_of_labels_costs_no_layout_and_no_rebuild_of_the_windows_list() {
+        azul_layout::window::set_state_colors_from_the_build_on_this_thread(Some(false));
+        let swept = std::panic::catch_unwind(|| a_sweep_over_the_labels(false));
+        azul_layout::window::set_state_colors_from_the_build_on_this_thread(None);
+        if let Err(panic) = swept {
+            std::panic::resume_unwind(panic);
+        }
+    }
+
+    /// Audit A4-23, the eager binding (A3-window-55): the same sweep changes NO list. Every
+    /// label's background is bound to a colour key by the build of the view's list, so each
+    /// enter and each leave is that key's value: no layout, no build, no patch, and the
+    /// view's list is the allocation it was (to the GPU renderer a changed list is a
+    /// translation of every item of it and a scene build).
+    /// Mutation: `LayoutWindow::bind_state_colors` given no nodes (the first enter of each
+    /// label paints a run: the view's list is another list, `dl_node_patches` > 0).
+    #[test]
+    fn a_mouse_move_over_the_text_of_labels_changes_no_list() {
+        a_sweep_over_the_labels(true);
+    }
+
+    /// The sweep of the two tests above; `by_value`: the labels' hover colour is a value
+    /// from the first enter (the view's list stays), else the first enter of a label is a
+    /// run painted into the view's list.
+    fn a_sweep_over_the_labels(by_value: bool) {
         use std::sync::atomic::Ordering;
 
         let (mut window, hovers) = labels_window();
@@ -6521,6 +6549,18 @@ mod tests {
             std::ptr::eq(root_after.as_ptr(), root_before.as_ptr()),
             "the window's list (thousands of items) was not rebuilt for a label's hover"
         );
+        if by_value {
+            assert!(
+                std::ptr::eq(child_after.as_ptr(), child_before.as_ptr()),
+                "the view's list is the list it was: a hover colour is the value of a key"
+            );
+            assert_eq!(
+                (report.dl_rebuilds, report.dl_node_patches),
+                (0, 0),
+                "no list was built and none was patched"
+            );
+            return;
+        }
         assert!(
             !std::ptr::eq(child_after.as_ptr(), child_before.as_ptr()),
             "the view's list is what holds the label: it is another list now"
