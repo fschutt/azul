@@ -14530,6 +14530,67 @@ mod tests {
         );
     }
 
+    /// The two cheapest rebuilds, counted: an identical one styles no node, runs no layout
+    /// pass and keeps the display list where it lies (the renderers skip a list by its
+    /// identity); one changed text styles no node either.
+    #[test]
+    fn an_identical_rebuild_and_a_changed_text_style_no_node() {
+        use azul_core::dom::DomId;
+
+        use crate::desktop::shell2::common::{
+            event::PlatformWindow, layout::LayoutRegenerateResult,
+        };
+
+        let first_item = |window: &HeadlessWindow| {
+            let lw = window.common.layout_window.as_ref().expect("a layout window");
+            lw.layout_results[&DomId::ROOT_ID]
+                .display_list
+                .items
+                .iter()
+                .next()
+                .map(|item| core::ptr::from_ref(item) as usize)
+        };
+        let state = df_state_with(60, false);
+        let mut window = df_window(&state);
+
+        let (nodes, list) = (
+            azul_core::styled_dom::nodes_cascaded_on_this_thread(),
+            first_item(&window),
+        );
+        assert!(list.is_some(), "premise: the page has a display list");
+        let passes = window
+            .common
+            .layout_window
+            .as_ref()
+            .map(|lw| lw.frame_report.layout_passes);
+        window
+            .common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        let result = window.regenerate_layout().expect("the identical rebuild");
+        let _ = window.common.take_regeneration();
+        assert!(matches!(result, LayoutRegenerateResult::LayoutUnchanged));
+        assert_eq!(
+            azul_core::styled_dom::nodes_cascaded_on_this_thread() - nodes,
+            0,
+            "an identical rebuild styles no node"
+        );
+        assert_eq!(
+            window.common.layout_window.as_ref().map(|lw| lw.frame_report.layout_passes),
+            passes,
+            "and lays nothing out"
+        );
+        assert_eq!(first_item(&window), list, "and its display list is the list it had");
+
+        df_change(&state, |page| page.rows[30].text = "another text".to_string());
+        let nodes = azul_core::styled_dom::nodes_cascaded_on_this_thread();
+        df_rebuild(&mut window, &azul_layout::window::DiffFirstStep::ALL);
+        assert_eq!(
+            azul_core::styled_dom::nodes_cascaded_on_this_thread() - nodes,
+            0,
+            "a changed text styles no node"
+        );
+    }
+
     /// `(rebuilds that kept the styled DOM, cascades, boxes the solver built fresh)` for one
     /// rebuild of a page of `rows` rows after `change`, with `steps` on.
     fn df_cost(
