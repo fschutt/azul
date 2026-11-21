@@ -12269,6 +12269,24 @@ impl LayoutWindow {
         // ---- 5. The boxes and the items, moved together. ----
         let moved = moves && (delta.x != 0.0 || delta.y != 0.0);
         if moved {
+            // The place the solver last SOLVED for the box (`cache::AbsPlacement`, kept with
+            // the box's interior) was made from the insets it had then. A pass drops it for
+            // a box whose insets its reconcile sees move (`layout_document`, the paint
+            // flag); this box it will find clean (step 4), and no solve stands behind where
+            // the box is now. So the entry goes here, and the next pass solves the box from
+            // its style. Left standing, a pass that laid the box's parent out again - the
+            // flow puts the box's slot back to its static position, which the entry takes
+            // for "nothing moved" - placed the label where its last solve had it: back
+            // where the drag began. (The boxes below it are solved from their containing
+            // block's rect, which moved: their entries do not hold.)
+            if let Some(run) = cache
+                .cache_map
+                .entries
+                .get_mut(index)
+                .and_then(|entry| entry.abs_interior.as_deref_mut())
+            {
+                run.placement = None;
+            }
             for layout_box in &subtree {
                 for positions in [
                     &mut result.calculated_positions,

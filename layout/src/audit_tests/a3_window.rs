@@ -2303,7 +2303,9 @@ fn same_lists(got: &DisplayList, want: &DisplayList) -> Result<(), String> {
 /// Mutations: `+ delta` -> `- delta` in `move_node_in_place` or in `move_frame`; the
 /// `PushReferenceFrame` arm of `move_frame` removed (the frame's box stays behind); the
 /// solver's positions not moved; the compact slots not written (the next pass puts the label
-/// back: the last block).
+/// back: the last block); the box's `AbsPlacement` not dropped by the move (the next pass
+/// places the label from its last solve, at (175, 31): the solver's own check panics in a
+/// test build, the last assertion fails without it).
 #[test]
 fn a_label_moved_where_it_lies_stands_as_a_fresh_layout_puts_it() {
     let (mut lw, child) = turned_label_window(40, 150.0, 10.0, 12.0);
@@ -2313,6 +2315,19 @@ fn a_label_moved_where_it_lies_stands_as_a_fresh_layout_puts_it() {
         write_label(&mut lw, child, 181.5, 36.25, 12.0),
         crate::overlay::ContentDirtyTier::Paint,
         "premise: the third move is made where the label lies"
+    );
+    // The solver keeps no placement for the moved box: the one it had was solved from the
+    // insets of (175, 31), and no solve was made for where the box is now.
+    let moved_box = lw.layout_results[&child].layout_tree.dom_to_layout[&NodeId::new(DRAGGED)][0]
+        .index();
+    assert!(
+        lw.child_layout_caches[&child]
+            .cache_map
+            .entries
+            .get(moved_box)
+            .and_then(|entry| entry.abs_interior.as_deref())
+            .is_none_or(|run| run.placement.is_none()),
+        "the placement of the solve before the moves does not stand for the moved box"
     );
     let (fresh, fresh_child) = turned_label_window(40, 181.5, 36.25, 12.0);
 
