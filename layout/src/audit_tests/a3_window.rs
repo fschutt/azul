@@ -2309,7 +2309,9 @@ fn same_lists(got: &DisplayList, want: &DisplayList) -> Result<(), String> {
 /// Mutations: `+ delta` -> `- delta` in `move_node_in_place` or in `move_frame`; the
 /// `PushReferenceFrame` arm of `move_frame` removed (the frame's box stays behind); the
 /// solver's positions not moved; the compact slots not written (the next pass puts the label
-/// back: the last block).
+/// back: the last block); the box's `AbsPlacement` not dropped by the move (the next pass
+/// places the label from its last solve, at (175, 31): the solver's own check panics in a
+/// test build, the last assertion fails without it).
 #[test]
 fn a_label_moved_where_it_lies_stands_as_a_fresh_layout_puts_it() {
     let (mut lw, child) = turned_label_window(40, 150.0, 10.0, 12.0);
@@ -2319,6 +2321,19 @@ fn a_label_moved_where_it_lies_stands_as_a_fresh_layout_puts_it() {
         write_label(&mut lw, child, 181.5, 36.25, 12.0),
         crate::overlay::ContentDirtyTier::Paint,
         "premise: the third move is made where the label lies"
+    );
+    // The solver keeps no placement for the moved box: the one it had was solved from the
+    // insets of (175, 31), and no solve was made for where the box is now.
+    let moved_box = lw.layout_results[&child].layout_tree.dom_to_layout[&NodeId::new(DRAGGED)][0]
+        .index();
+    assert!(
+        lw.child_layout_caches[&child]
+            .cache_map
+            .entries
+            .get(moved_box)
+            .and_then(|entry| entry.abs_interior.as_deref())
+            .is_none_or(|run| run.placement.is_none()),
+        "the placement of the solve before the moves does not stand for the moved box"
     );
     let (fresh, fresh_child) = turned_label_window(40, 181.5, 36.25, 12.0);
 
@@ -2502,8 +2517,8 @@ fn clearing_an_override_the_own_style_states_too_rebuilds_no_cascade() {
 
 // -- A3-window-16: a patched frame of a fade writes the window's list where it lies -------------
 
-/// A text colour fade patches the colour of its runs into the window's list on every frame
-/// (`patch_paint_colors`). The solver's cache holds that very list (each patched frame hands
+/// A text or border colour fade patches the colour into the window's list on every frame
+/// (`patch_paint_colors`; a border's here). The solver's cache holds that very list (each patched frame hands
 /// it the patched one), so `Arc::make_mut` copied the whole list per frame; the cache now
 /// lets go of it for the patch. With nobody else holding the list, a patched frame leaves it
 /// the allocation it was.
@@ -2514,14 +2529,18 @@ fn a_patched_frame_of_a_colour_fade_copies_no_list() {
     use azul_css::props::{
         basic::color::ColorU,
         property::{CssProperty, CssPropertyType},
-        style::StyleTextColor,
+        style::StyleBorderTopColor,
     };
 
     use crate::overlay::ContentChange;
 
+    // A border colour, not a text colour: this window has no font (an empty font cache), so
+    // a text paints no glyph run, a fade of its colour finds no item to patch and every
+    // frame of it builds the list - the fixture never reached the patch it is about.
     let mut dom = Dom::create_body().with_css("margin: 0px;").with_child(
-        Dom::create_span_with_text("Fading")
-            .with_css("color: #000000; font-size: 12px; animation: color 300ms linear;"),
+        Dom::create_div().with_css(
+            "width: 80px; height: 24px; border: 2px solid #000000; animation: all 300ms linear;",
+        ),
     );
     let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
     let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
@@ -2540,7 +2559,7 @@ fn a_patched_frame_of_a_colour_fade_copies_no_list() {
     drop(lw.apply_content_change(ContentChange::NodeCss {
         dom_id: root,
         node_id: node,
-        props: vec![CssProperty::text_color(StyleTextColor {
+        props: vec![CssProperty::border_top_color(StyleBorderTopColor {
             inner: ColorU {
                 r: 255,
                 g: 0,
@@ -2553,8 +2572,15 @@ fn a_patched_frame_of_a_colour_fade_copies_no_list() {
     assert!(
         lw.css_transitions
             .iter()
-            .any(|t| t.node == node && t.prop_type == CssPropertyType::TextColor),
+            .any(|t| t.node == node && t.prop_type == CssPropertyType::BorderTopColor),
         "harness: the colour write seeds a fade"
+    );
+    assert!(
+        lw.layout_cache
+            .cached_display_list
+            .as_ref()
+            .is_some_and(|cached| Arc::ptr_eq(&cached.5, &lw.layout_results[&root].display_list)),
+        "harness: the solver's cache holds the window's list (what a patched frame copied)"
     );
 
     // Frame 1 as the shells run it (it may build the list); then the fade's frames.
