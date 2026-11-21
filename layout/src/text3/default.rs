@@ -198,7 +198,11 @@ impl ParsedFontTrait for FontRef {
 
     fn glyph_ink_box(&self, glyph_id: u16) -> Option<[i16; 4]> {
         // The box of the decoded outline (`decode_glyph_inner` takes it around the outline's
-        // points); a glyph without an outline paints nothing.
+        // points); a glyph without an outline paints nothing. A build that decodes no
+        // outlines (`web_lift`) does not know.
+        if cfg!(feature = "web_lift") {
+            return None;
+        }
         let glyph = crate::font_ref_to_parsed_font(self).get_or_decode_glyph(glyph_id)?;
         if glyph.outline.is_empty() {
             return Some([0; 4]);

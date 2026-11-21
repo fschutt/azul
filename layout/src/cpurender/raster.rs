@@ -21860,4 +21860,42 @@ mod audit_a1_tests {
             "harness: the estimate leaves pixels of the wide glyph unrepainted"
         );
     }
+
+    /// A3-core-26 (c): every font type a list can be generated with knows the boxes of its
+    /// glyphs, and they are one box: `ParsedFont` (a build over parsed faces), `FontRef` (the
+    /// shells' font type) and `FontOrRef` around either answer the same for every glyph of
+    /// the test font, a glyph without an outline with the box of no area and a glyph the
+    /// face does not have with "not known".
+    /// Mutation: without the method on `ParsedFont` or on `FontOrRef` the trait's default
+    /// answers `None` for a letter and the first assertion of the loop fails.
+    #[test]
+    fn every_font_type_knows_the_same_glyph_boxes() {
+        use crate::{font_traits::ParsedFontTrait, text3::cache::FontOrRef};
+        let Some(font) = test_font() else {
+            eprintln!("[skip] no system font available");
+            return;
+        };
+        let font_ref = crate::parsed_font_to_font_ref(font.clone());
+        let wrapped: FontOrRef<ParsedFont> = FontOrRef::Font(font.clone());
+        let wrapped_ref: FontOrRef<ParsedFont> = FontOrRef::Ref(font_ref.clone());
+        let letter = font.lookup_glyph_index('H' as u32).expect("harness: the test font has an H");
+        let known = ParsedFontTrait::glyph_ink_box(&font, letter).expect("a parsed face knows the box of its H");
+        assert!(known[2] > known[0] && known[3] > known[1], "an H has a box with an area: {known:?}");
+        let mut outlines = 0_usize;
+        for id in 0..font.num_glyphs.min(600) {
+            let parsed = ParsedFontTrait::glyph_ink_box(&font, id);
+            assert_eq!(parsed, font_ref.glyph_ink_box(id), "glyph {id}: `ParsedFont` against `FontRef`");
+            assert_eq!(parsed, wrapped.glyph_ink_box(id), "glyph {id}: `FontOrRef::Font`");
+            assert_eq!(parsed, wrapped_ref.glyph_ink_box(id), "glyph {id}: `FontOrRef::Ref`");
+            outlines += usize::from(parsed.is_some_and(|b| b != [0; 4]));
+        }
+        assert!(outlines > 20, "harness: the test font has outlines ({outlines})");
+        if let Some(space) = font.lookup_glyph_index(' ' as u32) {
+            assert_eq!(ParsedFontTrait::glyph_ink_box(&font, space), Some([0; 4]), "a space has no ink");
+        }
+        if font.num_glyphs < u16::MAX {
+            assert_eq!(ParsedFontTrait::glyph_ink_box(&font, u16::MAX), None, "no such glyph: not known");
+            assert_eq!(wrapped.glyph_ink_box(u16::MAX), None);
+        }
+    }
 }
