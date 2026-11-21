@@ -482,8 +482,8 @@ pub use icon::{
 /// Callback handling for layout events (invocation, result processing).
 #[cfg(feature = "text_layout")]
 pub mod callbacks;
-/// What a CPU frame did, counted.
-#[cfg(feature = "cpurender")]
+/// What a CPU frame did, counted. Not behind `cpurender`: the frame report and the display-list
+/// scans carry these counters in every feature set (all zero where nothing counts).
 pub mod cpu_counters;
 /// CPU-based software rendering (no GPU required).
 #[cfg(feature = "cpurender")]

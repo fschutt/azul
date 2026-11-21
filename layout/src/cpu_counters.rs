@@ -213,11 +213,13 @@ pub struct CpuCounterState {
 }
 
 /// A frame being rendered on this thread: counted from [`Self::begin`] to its drop, where its
-/// counters go to the window.
+/// counters go to the window. (With the window: `crate::window` is `text_layout`'s.)
+#[cfg(feature = "text_layout")]
 pub struct FrameScope<'a> {
     window: &'a crate::window::LayoutWindow,
 }
 
+#[cfg(feature = "text_layout")]
 impl<'a> FrameScope<'a> {
     /// Zero this thread's counters and count the frame of `window`.
     #[must_use]
@@ -227,9 +229,66 @@ impl<'a> FrameScope<'a> {
     }
 }
 
+#[cfg(feature = "text_layout")]
 impl Drop for FrameScope<'_> {
     fn drop(&mut self) {
         self.window.record_cpu_counters(take());
+    }
+}
+
+/// What the scans of this thread did with the text halos: the numbers of the last
+/// scan (`cpurender::within_halo_budget`, one per frame that registers its images), the
+/// sums since the thread began and what is kept now. [`text_halo_stats`].
+///
+/// The frame recorder of an app reads it per frame: `created` and `pending` fall
+/// to 0 a few frames after a view changed, `evicted` counts pictures of earlier
+/// frames only, and `frame_halos` / `frame_box_bytes` say what one frame needs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(C)]
+pub struct TextHaloStats {
+    /// The scans so far.
+    pub scans: u64,
+    /// The halo pictures drawn so far.
+    pub created_total: u64,
+    /// The halo pictures dropped so far.
+    pub evicted_total: u64,
+    /// The last scan: pictures drawn.
+    pub created: u64,
+    /// The last scan: pictures dropped to make room (never one the scan used).
+    pub evicted: u64,
+    /// The last scan: halos left for a later frame by the frame's time budget.
+    pub pending: u64,
+    /// The last scan: halos not drawn because the pictures the scan itself uses
+    /// fill the cache (`MAX_HALO_BYTES`, `MAX_HALOS`).
+    pub unkept: u64,
+    /// The last scan: halos without a picture of their own that were painted with
+    /// a stand-in (the picture of the same text at another size).
+    pub stand_ins: u64,
+    /// The last scan: small pictures drawn to stand in for halos that had none.
+    pub previews: u64,
+    /// The last scan: the kept pictures it used, each counted once ...
+    pub frame_halos: u64,
+    /// ... and the bytes they would hold as the whole boxes their glyphs can reach
+    /// (what was kept before a picture was cut to its ink: a cache of 32 MB and
+    /// 1,024 pictures held a frame only while these two stayed under that).
+    pub frame_box_bytes: u64,
+    /// The pictures kept now.
+    pub kept: u64,
+    /// The bytes they hold.
+    pub kept_bytes: u64,
+}
+
+/// What the scans of this thread did with the text halos ([`TextHaloStats`]): the halo cache's
+/// numbers with the CPU renderer (feature `cpurender`), all zero without it, which keeps no halos.
+#[must_use]
+pub fn text_halo_stats() -> TextHaloStats {
+    #[cfg(feature = "cpurender")]
+    {
+        crate::cpurender::text_halo_stats()
+    }
+    #[cfg(not(feature = "cpurender"))]
+    {
+        TextHaloStats::default()
     }
 }
 

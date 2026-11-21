@@ -1247,7 +1247,7 @@ impl GpuFrameCounters {
 
 /// The text halo counters, among the window's own records: what
 /// `CallbackInfo::get_text_halo_stats` answers, next to [`FrameTimings`].
-pub use crate::cpurender::TextHaloStats;
+pub use crate::cpu_counters::TextHaloStats;
 
 /// The clock behind [`FrameTimings`]: atomics, because a frame is presented
 /// by renderers that only borrow the window
@@ -1546,10 +1546,10 @@ pub struct FrameReport {
     /// The GPU path's counters summed over every frame of the window (two reads give a span's).
     pub gpu_total: GpuFrameCounters,
     /// What the GPU backend's scans did with the text halos it keeps as pictures
-    /// ([`crate::cpurender::TextHaloStats`]): the last scan's numbers (drawn, dropped, left,
+    /// ([`TextHaloStats`]): the last scan's numbers (drawn, dropped, left,
     /// painted with a stand-in), the sums of this thread and what is kept. Per thread, not per
     /// window, and not reset with the counters. Filled in by [`LayoutWindow::frame_report_synced`].
-    pub text_halos: crate::cpurender::TextHaloStats,
+    pub text_halos: TextHaloStats,
     /// The work of the last CPU frame ([`crate::cpu_counters`]): pixels cleared and blitted, items
     /// walked and painted, text runs and glyphs rasterised, halos drawn, isolated groups opened
     /// and their pixels, retained surfaces used, items of the scans of a whole list. Filled in by
@@ -4445,7 +4445,7 @@ impl LayoutWindow {
         let cpu = self.cpu_frame_counters();
         report.cpu_last = cpu.last;
         report.cpu_since_reset = cpu.since_reset;
-        report.text_halos = crate::cpurender::text_halo_stats();
+        report.text_halos = crate::cpu_counters::text_halo_stats();
         report
     }
 

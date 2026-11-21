@@ -6747,7 +6747,7 @@ impl CallbackInfo {
     /// callbacks run on. All zero on the CPU backend (it keeps its halos apart).
     #[must_use]
     pub fn get_text_halo_stats(&self) -> crate::window::TextHaloStats {
-        crate::cpurender::text_halo_stats()
+        crate::cpu_counters::text_halo_stats()
     }
 
     /// Returns the active rotation gesture (radians + center), if any.
