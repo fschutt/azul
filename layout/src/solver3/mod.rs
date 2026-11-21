@@ -1979,7 +1979,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // is clamped based on scroll offset and inset properties relative to the
     // nearest scrollport. Must happen after relative positioning but before
     // absolute positioning (sticky elements establish containing blocks).
-    {
+    let document_has_sticky_boxes = {
         let _p = crate::probe::Probe::span("adjust_sticky_positions");
         // A box this pass does not place is shifted from the static place
         // its constraint of the pass before holds
@@ -2030,12 +2030,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 warm.sticky = None;
             }
         }
+        let any = !constraints.is_empty();
         for (index, constraint) in constraints {
             if let Some(warm) = new_tree.warm.get_mut(index) {
                 warm.sticky = Some(Box::new(constraint));
             }
         }
-    }
+        any
+    };
 
     // --- Step 3.5: Position Out-of-Flow Elements ---
     // This must be done AFTER adjusting relative positions, so that absolutely
@@ -2043,13 +2045,25 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // position of their relatively positioned containing blocks.
     {
         let _p = crate::probe::Probe::span("position_out_of_flow");
-        positioning::position_out_of_flow_elements(
+        // The sticky boxes BELOW an absolutely positioned box are shifted
+        // again once that box is placed (the step above saw them where the
+        // flow had their box before its insets were solved), and the
+        // constraints of those shifts are the ones later scrolls move them
+        // by. Only asked for in a document that has a sticky box at all.
+        let mut below_placed_boxes: Vec<(usize, positioning::StickyConstraint)> = Vec::new();
+        positioning::position_out_of_flow_elements_with_sticky(
             &mut ctx,
             &mut new_tree,
             text_cache,
             &mut calculated_positions,
             viewport,
+            document_has_sticky_boxes.then_some((scroll_offsets, &mut below_placed_boxes)),
         );
+        for (index, constraint) in below_placed_boxes {
+            if let Some(warm) = new_tree.warm.get_mut(index) {
+                warm.sticky = Some(Box::new(constraint));
+            }
+        }
     }
 
     // --- Step 3.6: Lay the Named Flows Out Through Their Regions ---

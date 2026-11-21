@@ -301,6 +301,38 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
     calculated_positions: &mut super::PositionVec,
     viewport: LogicalRect,
 ) {
+    position_out_of_flow_elements_with_sticky(
+        ctx,
+        tree,
+        text_cache,
+        calculated_positions,
+        viewport,
+        None,
+    );
+}
+
+/// [`position_out_of_flow_elements`] in a document with sticky boxes.
+///
+/// `sticky`: the scroll offsets of the pass and where the constraints of the
+/// sticky boxes BELOW the placed boxes go (`shift_sticky_descendants`; a box
+/// below two nested absolutely positioned boxes is pushed twice, the later
+/// entry is the one that stands). `None` shifts no sticky box: a document
+/// without one, a paged pass.
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Panics
+///
+/// Panics if a resolved offset (`top`/`bottom`) is None where both edges are expected.
+pub fn position_out_of_flow_elements_with_sticky<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+    text_cache: &mut TextLayoutCache,
+    calculated_positions: &mut super::PositionVec,
+    viewport: LogicalRect,
+    mut sticky: Option<(
+        &BTreeMap<NodeId, ScrollPosition>,
+        &mut Vec<(usize, StickyConstraint)>,
+    )>,
+) {
     use azul_css::props::style::StyleDirection;
     // The margin notes placed so far (`margin_note_place`), for the ones
     // after them on the same side of the same container.
@@ -543,6 +575,17 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                             node_index,
                             &mut boxes_below,
                         );
+                        if let Some((scroll_offsets, constraints)) = sticky.as_mut() {
+                            shift_sticky_descendants(
+                                ctx,
+                                tree,
+                                calculated_positions,
+                                *scroll_offsets,
+                                viewport,
+                                &boxes_below,
+                                &mut **constraints,
+                            );
+                        }
                     }
                     continue;
                 }
@@ -1215,7 +1258,8 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                     calculated_positions,
                 );
                 // ...which are the flow's positions: the relatively
-                // positioned boxes below the box are shifted from them.
+                // positioned boxes below the box are shifted from them, and
+                // then the sticky ones.
                 shift_relative_descendants(
                     ctx,
                     tree,
@@ -1224,6 +1268,17 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                     node_index,
                     &mut boxes_below,
                 );
+                if let Some((scroll_offsets, constraints)) = sticky.as_mut() {
+                    shift_sticky_descendants(
+                        ctx,
+                        tree,
+                        calculated_positions,
+                        *scroll_offsets,
+                        viewport,
+                        &boxes_below,
+                        &mut **constraints,
+                    );
+                }
             }
 
             let is_margin_note = margin_note.is_some();
@@ -1274,6 +1329,17 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                         node_index,
                         &mut boxes_below,
                     );
+                    if let Some((scroll_offsets, constraints)) = sticky.as_mut() {
+                        shift_sticky_descendants(
+                            ctx,
+                            tree,
+                            calculated_positions,
+                            *scroll_offsets,
+                            viewport,
+                            &boxes_below,
+                            &mut **constraints,
+                        );
+                    }
                 }
             }
 
@@ -2202,123 +2268,183 @@ pub fn adjust_sticky_positions_of<T: ParsedFontTrait>(
     // closure). Avoids the lift-fragile Result Ok-niche read at the call site.
     let mut constraints = Vec::new();
     for node_index in 0..tree.nodes.len() {
-        let node = &tree.nodes[node_index];
-        let position_type = get_position_type(ctx.styled_dom, node.dom_node_id);
-
-        if position_type != LayoutPosition::Sticky {
-            continue;
-        }
-
-        let Some(dom_id) = node.dom_node_id else {
-            continue;
-        };
-
-        // The nearest scrollport for this sticky element, and how far it
-        // has scrolled: one answer (`nearest_scrollport`).
-        let (scrollport, scroll_offset, scroller) = nearest_scrollport(
+        let placed =
+            !placed_now.is_some_and(|placed| !placed.get(node_index).copied().unwrap_or(false));
+        if let Some(constraint) = shift_if_sticky(
+            ctx,
             tree,
-            node_index,
-            ctx.styled_dom,
             calculated_positions,
-            viewport,
             scroll_offsets,
-        );
-
-        // The containing block for percentage resolution is the parent's content box
-        let containing_block = node
-            .parent
-            .and_then(|parent_idx| {
-                let parent_node = tree.get(LayoutNodeId::new(parent_idx))?;
-                let parent_pos = calculated_positions
-                    .get(parent_idx)
-                    .copied()
-                    .unwrap_or_default();
-                let parent_size = parent_node.used_size.unwrap_or_default();
-                let parent_wm = parent_node
-                    .dom_node_id
-                    .map(|pid| {
-                        let ps = &ctx.styled_dom.styled_nodes.as_container()[pid].styled_node_state;
-                        get_writing_mode(ctx.styled_dom, pid, ps).unwrap_or_default()
-                    })
-                    .unwrap_or_default();
-                let pbp = parent_node.box_props.unpack();
-                let content_size = pbp.inner_size(parent_size, parent_wm);
-                let content_origin = LogicalPosition::new(
-                    parent_pos.x + pbp.border.left + pbp.padding.left,
-                    parent_pos.y + pbp.border.top + pbp.padding.top,
-                );
-                Some(LogicalRect::new(content_origin, content_size))
-            })
-            .unwrap_or(viewport);
-
-        // Resolve inset properties (top, right, bottom, left)
-        let offsets =
-            resolve_position_offsets(ctx.styled_dom, Some(dom_id), scrollport.size, viewport.size);
-
-        let Some(current_pos) = calculated_positions.get_mut(node_index) else {
-            continue;
-        };
-
-        // Where normal flow put the box: its position, if this pass placed
-        // it. Otherwise the position is the one the pass before SHIFTED, and
-        // the flow's place is in that pass's constraint - exactly, while the
-        // position is still that place plus that shift (bit for bit), and
-        // moved along with the position when something moved the box's
-        // subtree since (a sibling before it that grew).
-        let kept = placed_now
-            .is_some_and(|placed| !placed.get(node_index).copied().unwrap_or(false))
-            .then(|| {
-                tree.warm(LayoutNodeId::new(node_index))
-                    .and_then(|w| w.sticky.as_deref().copied())
-            })
-            .flatten();
-        let static_pos = match kept {
-            Some(before) => {
-                let flow = before.static_rect.origin;
-                let shifted = LogicalPosition::new(flow.x + before.baked.x, flow.y + before.baked.y);
-                if shifted.x.to_bits() == current_pos.x.to_bits()
-                    && shifted.y.to_bits() == current_pos.y.to_bits()
-                {
-                    flow
-                } else {
-                    LogicalPosition::new(
-                        current_pos.x - before.baked.x,
-                        current_pos.y - before.baked.y,
-                    )
-                }
-            }
-            None => *current_pos,
-        };
-        let element_size = node.used_size.unwrap_or_default();
-        let nbp = node.box_props.unpack();
-        let margin = &nbp.margin;
-        let mut constraint = StickyConstraint {
-            scroller,
-            scrollport,
-            static_rect: LogicalRect::new(static_pos, element_size),
-            margin: [margin.top, margin.right, margin.bottom, margin.left],
-            insets: [offsets.top, offsets.right, offsets.bottom, offsets.left],
-            containing_block,
-            baked: LogicalPosition::zero(),
-        };
-        let shift = constraint.shift_at(scroll_offset);
-        constraint.baked = shift;
-        if kept.is_some() || shift.x != 0.0 || shift.y != 0.0 {
-            // (For a box this pass placed, `static_pos` is the position.)
-            current_pos.x = static_pos.x + shift.x;
-            current_pos.y = static_pos.y + shift.y;
-
-            debug_log!(
-                ctx,
-                "Adjusted sticky element #{} from {:?} to {:?}",
-                node_index,
-                static_pos,
-                *current_pos
-            );
+            viewport,
+            node_index,
+            placed,
+        ) {
+            constraints.push((node_index, constraint));
         }
-        constraints.push((node_index, constraint));
     }
     constraints
+}
+
+/// One step of [`adjust_sticky_positions_of`]: if the box at `node_index` is
+/// sticky, it is shifted for the scroll offsets of this pass, and what a
+/// later scroll needs to move it is returned. `placed_now`: the box's
+/// position is one this pass computed from the flow (see there).
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
+fn shift_if_sticky<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    calculated_positions: &mut super::PositionVec,
+    scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
+    viewport: LogicalRect,
+    node_index: usize,
+    placed_now: bool,
+) -> Option<StickyConstraint> {
+    let node = &tree.nodes[node_index];
+    let position_type = get_position_type(ctx.styled_dom, node.dom_node_id);
+
+    if position_type != LayoutPosition::Sticky {
+        return None;
+    }
+
+    let dom_id = node.dom_node_id?;
+
+    // The nearest scrollport for this sticky element, and how far it
+    // has scrolled: one answer (`nearest_scrollport`).
+    let (scrollport, scroll_offset, scroller) = nearest_scrollport(
+        tree,
+        node_index,
+        ctx.styled_dom,
+        calculated_positions,
+        viewport,
+        scroll_offsets,
+    );
+
+    // The containing block for percentage resolution is the parent's content box
+    let containing_block = node
+        .parent
+        .and_then(|parent_idx| {
+            let parent_node = tree.get(LayoutNodeId::new(parent_idx))?;
+            let parent_pos = calculated_positions
+                .get(parent_idx)
+                .copied()
+                .unwrap_or_default();
+            let parent_size = parent_node.used_size.unwrap_or_default();
+            let parent_wm = parent_node
+                .dom_node_id
+                .map(|pid| {
+                    let ps = &ctx.styled_dom.styled_nodes.as_container()[pid].styled_node_state;
+                    get_writing_mode(ctx.styled_dom, pid, ps).unwrap_or_default()
+                })
+                .unwrap_or_default();
+            let pbp = parent_node.box_props.unpack();
+            let content_size = pbp.inner_size(parent_size, parent_wm);
+            let content_origin = LogicalPosition::new(
+                parent_pos.x + pbp.border.left + pbp.padding.left,
+                parent_pos.y + pbp.border.top + pbp.padding.top,
+            );
+            Some(LogicalRect::new(content_origin, content_size))
+        })
+        .unwrap_or(viewport);
+
+    // Resolve inset properties (top, right, bottom, left)
+    let offsets =
+        resolve_position_offsets(ctx.styled_dom, Some(dom_id), scrollport.size, viewport.size);
+
+    let current_pos = calculated_positions.get_mut(node_index)?;
+
+    // Where normal flow put the box: its position, if this pass placed
+    // it. Otherwise the position is the one the pass before SHIFTED, and
+    // the flow's place is in that pass's constraint - exactly, while the
+    // position is still that place plus that shift (bit for bit), and
+    // moved along with the position when something moved the box's
+    // subtree since (a sibling before it that grew).
+    let kept = (!placed_now)
+        .then(|| {
+            tree.warm(LayoutNodeId::new(node_index))
+                .and_then(|w| w.sticky.as_deref().copied())
+        })
+        .flatten();
+    let static_pos = match kept {
+        Some(before) => {
+            let flow = before.static_rect.origin;
+            let shifted = LogicalPosition::new(flow.x + before.baked.x, flow.y + before.baked.y);
+            if shifted.x.to_bits() == current_pos.x.to_bits()
+                && shifted.y.to_bits() == current_pos.y.to_bits()
+            {
+                flow
+            } else {
+                LogicalPosition::new(
+                    current_pos.x - before.baked.x,
+                    current_pos.y - before.baked.y,
+                )
+            }
+        }
+        None => *current_pos,
+    };
+    let element_size = node.used_size.unwrap_or_default();
+    let nbp = node.box_props.unpack();
+    let margin = &nbp.margin;
+    let mut constraint = StickyConstraint {
+        scroller,
+        scrollport,
+        static_rect: LogicalRect::new(static_pos, element_size),
+        margin: [margin.top, margin.right, margin.bottom, margin.left],
+        insets: [offsets.top, offsets.right, offsets.bottom, offsets.left],
+        containing_block,
+        baked: LogicalPosition::zero(),
+    };
+    let shift = constraint.shift_at(scroll_offset);
+    constraint.baked = shift;
+    if kept.is_some() || shift.x != 0.0 || shift.y != 0.0 {
+        // (For a box this pass placed, `static_pos` is the position.)
+        current_pos.x = static_pos.x + shift.x;
+        current_pos.y = static_pos.y + shift.y;
+
+        debug_log!(
+            ctx,
+            "Adjusted sticky element #{} from {:?} to {:?}",
+            node_index,
+            static_pos,
+            *current_pos
+        );
+    }
+    Some(constraint)
+}
+
+/// The sticky shifts of the boxes below an absolutely positioned box, after
+/// the positioning pass placed that box and derived every position below it
+/// from the flow again (`cache::position_bfc_child_descendants`): the shift
+/// [`adjust_sticky_positions_of`] had applied went with what that overwrote,
+/// and the constraint it kept was the one of the place the box had before
+/// its parent was placed - as the relative shifts did
+/// ([`shift_relative_descendants`], which runs first, as in the document's
+/// passes, and leaves `boxes`: everything below the box in ascending layout
+/// index). Each sticky box among them is shifted from the place the flow
+/// has just given it, and its constraint is pushed onto `constraints` for
+/// the caller to keep in the tree instead of the earlier one.
+fn shift_sticky_descendants<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    calculated_positions: &mut super::PositionVec,
+    scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
+    viewport: LogicalRect,
+    boxes: &[usize],
+    constraints: &mut Vec<(usize, StickyConstraint)>,
+) {
+    for &index in boxes {
+        if let Some(constraint) = shift_if_sticky(
+            ctx,
+            tree,
+            calculated_positions,
+            scroll_offsets,
+            viewport,
+            index,
+            true,
+        ) {
+            constraints.push((index, constraint));
+        }
+    }
 }
 
 // +spec:positioning:22f165 - absolute/fixed containing block: nearest positioned ancestor's
