@@ -1642,6 +1642,20 @@ fn inside_isolated_transform(mask_stack: &[MaskEntry]) -> bool {
     })
 }
 
+/// Is the walk inside a group whose pixels start transparent and are blended into the pixels
+/// below at its pop: an opacity group that fades or blends, or an isolated `filter` group?
+/// Text in it is grayscale wherever its run is cut (see the `Text` arm).
+fn inside_blended_group(mask_stack: &[MaskEntry]) -> bool {
+    use azul_css::props::style::effects::StyleMixBlendMode;
+    mask_stack.iter().any(|entry| match entry {
+        MaskEntry::Opacity { opacity, blend, .. } => {
+            *opacity < 1.0 || !matches!(blend, StyleMixBlendMode::Normal)
+        }
+        MaskEntry::Filter(group) => group.is_some(),
+        _ => false,
+    })
+}
+
 /// Does a `filter` list need its group's own pixels apart from the backdrop?
 /// `flood()` fills the group and `composite()` reads the group's own alpha,
 /// so both do; the colour filters that act per pixel do not.
@@ -4770,7 +4784,14 @@ pub fn render_single_item(
             // stripes smear into colour fringes there: grayscale coverage is what such a group
             // wants (and is cheaper). The settled picture is not resampled - its frame is the
             // identity or a translation, no group - and keeps its LCD text.
+            // The same for a run inside a group that is blended at its pop (an opacity under
+            // 1, a blend mode, an isolated filter): its pixels start transparent and are
+            // composited afterwards. Decided from the groups that are open, not from the
+            // pixels under the part of the run that the clip leaves: a damage rect or a band
+            // seam that cut such a run where its backdrop was opaque on one side only gave
+            // the two sides different text (LCD above the seam, grayscale below it).
             let grayscale = inside_isolated_transform(mask_stack)
+                || inside_blended_group(mask_stack)
                 || run.is_some_and(|run| !backdrop_is_opaque(pixmap, run));
             // The display list's uniform background is a HINT from the
             // ancestors (`compute_uniform_text_bg`: the first one painting an
@@ -17597,5 +17618,40 @@ mod audit_a1_tests {
             assert_eq!((counted.bands, counted.px_cleared), (3, 0), "dpi {dpi}: {counted:?}");
             assert_eq!(differing_pixels(&banded, &plain), 0, "dpi {dpi}: the banded full repaint is the full walk");
         }
+    }
+
+    /// A1-23: a run that a band seam (or the edge of a damage rect) cuts where its backdrop is
+    /// opaque on one side only is the same text on both sides. A half-opaque group across
+    /// row 234 of the 900 x 700 page, with an opaque fill over its upper part alone (rows 200
+    /// .. 234) and a run of 36 px with its baseline at row 246: above the seam the run stands
+    /// on the fill, below it on the group's cleared pixels. In bands, in one pass, and as one
+    /// pass over the lower band alone on top of the full frame, the pixels are the same.
+    /// Mutation: the choice made from the pixels under the clipped run paints LCD text above
+    /// the seam in bands and grayscale text in one pass.
+    #[test]
+    fn a_run_cut_where_its_backdrop_changes_is_the_same_text_on_both_sides() {
+        let font = test_font();
+        let (rr, fm, font_hash) = resources(font.as_ref());
+        let mut items = vec![fill(0.0, 0.0, 900.0, 700.0, [236, 233, 225])];
+        items.push(DisplayListItem::PushOpacity {
+            bounds: wrect(100.0, 180.0, 400.0, 120.0),
+            opacity: 0.5,
+            opacity_key: None,
+            mix_blend_mode: Default::default(),
+        });
+        items.push(fill(100.0, 200.0, 400.0, 34.0, [250, 250, 250]));
+        items.extend(label(font.as_ref().zip(font_hash), "Hagelloch", 36.0, 120.0, 246.0));
+        items.push(DisplayListItem::PopOpacity);
+        let dl = list(items);
+        let (banded, counted) = repaint(&dl, (&rr, &fm), (900, 700), 1.0, 4);
+        let (single, _) = repaint(&dl, (&rr, &fm), (900, 700), 1.0, 1);
+        assert_eq!(counted.bands, 3, "the seams are at rows 234 and 468");
+        assert_eq!(differing_pixels(&banded, &single), 0, "bands == one pass");
+        // A damage rect that is the lower band alone, on the full frame: nothing changes.
+        let mut damaged = single.clone_pixmap();
+        let mut gc = GlyphCache::new();
+        let state = CpuRenderState::new(ScrollOffsetMap::new()).with_paint_threads(1);
+        render_display_list_damaged(&dl, &mut damaged, 1.0, &rr, &fm, &mut gc, &state, &[rect(0.0, 234.0, 900.0, 234.0)]).unwrap();
+        assert_eq!(differing_pixels(&damaged, &single), 0, "damaged == full");
     }
 }
