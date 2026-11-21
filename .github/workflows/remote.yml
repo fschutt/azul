@@ -1,0 +1,134 @@
+# "remote": one shell command (usually a cargo command) run on a GitHub-hosted runner, for work that is too
+# heavy for a developer's machine (8 GB, one build at a time) or that needs another operating system. The
+# repository is public, so the runners cost nothing.
+#
+#   scripts/remote.sh <branch> <runner> '<command>' [--wait]
+#   gh workflow run remote.yml --ref master -f ref=<branch> -f os=macos-15 -f command='cargo test -p azul-dll --lib log_gate'
+#
+# then `gh run watch <id>`, `gh run view <id> --log`, `gh run download <id>`. The workflow file is read from the
+# branch given to --ref (it must exist on master for the dispatch to find it); `ref` is the code to check out.
+#
+# What it is NOT: it is not the CI. It runs what it is told, nothing else, and its result gates nothing. The CI
+# (rust.yml) stays the authority for a release. It holds no secret and reads the repository, nothing else; the
+# command arrives in an environment variable, never interpolated into the script, and only someone with write
+# access to the repository can dispatch it.
+
+name: remote
+run-name: remote ${{ inputs.os }} ${{ inputs.ref }} ${{ inputs.tag }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch, tag or commit to check out'
+        required: true
+        type: string
+      os:
+        description: 'Runner'
+        type: choice
+        options:
+          - ubuntu-22.04
+          - macos-15
+          - windows-2022
+        default: ubuntu-22.04
+      command:
+        description: 'Shell command, run with bash at the repository root'
+        required: true
+        type: string
+      apt:
+        description: 'Ubuntu packages to install first (space separated); the default is what the layout and dll tests need'
+        type: string
+        default: 'libv4l-dev fonts-liberation fonts-dejavu-core fonts-noto-core'
+      artifacts:
+        description: 'Paths to upload when the command is done (globs, one per line); the log is always uploaded'
+        type: string
+        default: ''
+      tag:
+        description: 'Free text that ends up in the run name (scripts/remote.sh puts a unique one there to find its run)'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+  NO_COLOR: 1
+  CARGO_INCREMENTAL: 0
+  # Smaller artifacts and faster links; the dev profile keeps its debug assertions and overflow checks.
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+  RUST_BACKTRACE: 1
+  AZ_REQUIRE_TEST_FONTS: 1
+
+jobs:
+  run:
+    name: ${{ inputs.os }}
+    runs-on: ${{ inputs.os }}
+    timeout-minutes: 120
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026-09-03; the toolchain itself is pinned via with:
+        with:
+          toolchain: 1.91.0
+          components: clippy, rustfmt
+
+      - name: Install packages (Ubuntu)
+        if: runner.os == 'Linux' && inputs.apt != ''
+        env:
+          PACKAGES: ${{ inputs.apt }}
+        run: |
+          sudo apt-get update -qq || true
+          read -r -a packages <<< "$PACKAGES"
+          sudo apt-get install -y "${packages[@]}"
+
+      - name: Key of the build cache
+        id: key
+        shell: bash
+        env:
+          COMMAND: ${{ inputs.command }}
+        run: echo "command=$(printf '%s' "$COMMAND" | cksum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      # The dependencies are what costs: the cache keeps the registry and the target directory of the last run of
+      # the same command on the same lock file; the workspace crates are built again (their files are new).
+      - name: Rust build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: remote-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ steps.key.outputs.command }}
+          restore-keys: |
+            remote-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+
+      - name: Run the command
+        shell: bash
+        env:
+          COMMAND: ${{ inputs.command }}
+          REF: ${{ inputs.ref }}
+          RUNNER_NAME: ${{ inputs.os }}
+        run: |
+          echo "ref: $REF ($(git rev-parse --short HEAD))"
+          echo "runner: $RUNNER_NAME"
+          echo "command: $COMMAND"
+          echo
+          set -o pipefail
+          bash -c "$COMMAND" 2>&1 | tee remote.log
+
+      - name: Upload the log and the files asked for
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: remote-${{ runner.os }}
+          path: |
+            remote.log
+            ${{ inputs.artifacts }}
+          retention-days: 7
+          if-no-files-found: ignore
