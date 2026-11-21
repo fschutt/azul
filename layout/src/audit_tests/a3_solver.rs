@@ -242,3 +242,89 @@ fn the_scrollbar_style_every_node_starts_from_is_made_once_per_context() {
          for {asks} asks"
     );
 }
+
+/// `body(0) > div(1) > k x [abs div(a) > flex row(a + 1) > items x [div > text]]` with
+/// `a = 2 + (2 + 2 items) i`: a canvas of `k` absolutely positioned boxes, each holding a flex
+/// row of `items` fixed-size items with a text - a node graph in small. Every row is a flex
+/// container under a block, so every row is laid out through a taffy bridge of its own.
+fn canvas_of_flex_nodes(k: usize, items: usize) -> Dom {
+    let mut canvas = Dom::create_div().with_css("position: relative; width: 600px; height: 400px;");
+    for i in 0..k {
+        let mut row = Dom::create_div().with_css("display: flex; flex-direction: row;");
+        for j in 0..items {
+            row = row.with_child(
+                Dom::create_div_with_text(format!("{i}.{j}"))
+                    .with_css("width: 30px; height: 10px; flex-shrink: 0;"),
+            );
+        }
+        canvas = canvas.with_child(
+            Dom::create_div()
+                .with_css(&format!(
+                    "position: absolute; left: {}px; top: {}px;",
+                    (i % 10) * 40,
+                    (i / 10) * 12
+                ))
+                .with_child(row),
+        );
+    }
+    Dom::create_body().with_css("margin: 0px;").with_child(canvas)
+}
+
+/// A3-solver-05. A taffy bridge is made for every flex or grid container that a block, an
+/// inline or the positioning pass lays out, and each bridge holds two style memos with one cell
+/// per node of the WHOLE document. A cell was a `OnceCell<taffy::Style>` (several hundred
+/// bytes): megabytes allocated, initialised and dropped per bridge. It is a pointer.
+///
+/// Mutation: an unboxed cell (`OnceCell<Style>`) is as large as a `Style` and fails the bound.
+#[test]
+fn a_taffy_bridge_keeps_a_pointer_per_node_not_a_style() {
+    use crate::solver3::taffy_bridge::{BRIDGES_MADE, STYLE_CELL_BYTES};
+    let mut lw = window();
+    BRIDGES_MADE.with(|n| n.set(0));
+    STYLE_CELL_BYTES.with(|n| n.set(0));
+    lay_out(&mut lw, canvas_of_flex_nodes(40, 2));
+    let bridges = BRIDGES_MADE.with(std::cell::Cell::get);
+    let cell = STYLE_CELL_BYTES.with(std::cell::Cell::get);
+    assert!(
+        bridges >= 40,
+        "harness: each of the 40 flex rows under a block got a bridge ({bridges})"
+    );
+    assert!(
+        cell > 0 && cell <= 2 * core::mem::size_of::<usize>(),
+        "a cell of a bridge's style memo takes {cell} bytes, times every node of the document, \
+         times {bridges} bridges"
+    );
+}
+
+/// A3-solver-05 / -06, the result: the flex rows of the canvas place their items side by side
+/// at the widths they state, and every box of the canvas stands at its insets.
+#[test]
+fn flex_rows_in_absolute_boxes_place_their_items_side_by_side() {
+    let mut lw = window();
+    lay_out(&mut lw, canvas_of_flex_nodes(40, 3));
+    for i in [0_usize, 9, 10, 39] {
+        // abs div(a), row(a + 1), items a + 2, a + 4, a + 6 (each followed by its text).
+        let a = 2 + 8 * i;
+        #[allow(clippy::cast_precision_loss)] // small pixel counts
+        let (x, y) = (((i % 10) * 40) as f32, ((i / 10) * 12) as f32);
+        let node = position_of(&lw, a);
+        assert!(
+            (node.x - x).abs() < 0.01 && (node.y - y).abs() < 0.01,
+            "box {i} stands at ({}, {}), its insets say ({x}, {y})",
+            node.x,
+            node.y
+        );
+        let items: Vec<LogicalPosition> =
+            [a + 2, a + 4, a + 6].iter().map(|&n| position_of(&lw, n)).collect();
+        for (j, item) in items.iter().enumerate() {
+            #[allow(clippy::cast_precision_loss)]
+            let item_x = x + 30.0 * j as f32;
+            assert!(
+                (item.x - item_x).abs() < 0.01 && (item.y - y).abs() < 0.01,
+                "item {j} of row {i} stands at ({}, {}), not ({item_x}, {y})",
+                item.x,
+                item.y
+            );
+        }
+    }
+}

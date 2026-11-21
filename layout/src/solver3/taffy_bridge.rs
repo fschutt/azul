@@ -705,17 +705,34 @@ struct TaffyBridge<'a, 'b, T: ParsedFontTrait> {
     /// Built once per node and LENT, never cloned: a hashed memo that handed
     /// out clones (a `Style` holds Vecs) was 8% of a 300-contact list's layout
     /// (`AzContacts`, 2026-10-06).
-    dom_styles: Vec<std::cell::OnceCell<Style>>,
+    ///
+    /// Each cell holds its style BOXED: a bridge is made for every flex or
+    /// grid container a block, an inline or the positioning pass lays out
+    /// (`layout_taffy_subtree`), with one cell per node of the WHOLE document,
+    /// and a `Style` is several hundred bytes. Unboxed, every bridge
+    /// allocated, initialised and dropped megabytes whatever the size of the
+    /// container it was made for (a node graph of 4,000 nodes: 4 MB per
+    /// bridge, hundreds of bridges per layout). A pointer per node is 8 bytes.
+    dom_styles: Vec<std::cell::OnceCell<Box<Style>>>,
     /// The style each LAYOUT node hands taffy ([`Self::get_taffy_style`]: its
     /// DOM node's, with the root's margin and a stretched item's cross size
     /// adjusted - both fixed by the styles and the tree), indexed by layout
-    /// node, built once.
-    node_styles: Vec<std::cell::OnceCell<Style>>,
+    /// node, built once. Boxed like [`Self::dom_styles`].
+    node_styles: Vec<std::cell::OnceCell<Box<Style>>>,
     /// The style of a node without a DOM node (anonymous boxes).
     default_style: Style,
     /// Flex ROWS whose width alone is being measured, innermost last (see
     /// `compute_child_layout`): their items' heights are not laid out.
     width_only_rows: Vec<usize>,
+}
+
+/// How many bridges were made on this thread, and how many bytes one cell of
+/// their style memos takes (`audit_tests::a3_solver`: a bridge costs a pointer
+/// per node of the document, not a `Style` per node).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static BRIDGES_MADE: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    pub(crate) static STYLE_CELL_BYTES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
 impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
@@ -724,6 +741,8 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         tree: &'a mut LayoutTree,
         text_cache: *mut crate::font_traits::TextLayoutCache,
     ) -> Self {
+        #[cfg(test)]
+        BRIDGES_MADE.with(|n| n.set(n.get() + 1));
         let dom_nodes = ctx.styled_dom.node_data.len();
         let layout_nodes = tree.nodes.len();
         Self {
@@ -751,7 +770,11 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             return &self.default_style;
         };
         match self.dom_styles.get(id.index()) {
-            Some(cell) => cell.get_or_init(|| self.translate_style_to_taffy(dom_id)),
+            Some(cell) => {
+                #[cfg(test)]
+                STYLE_CELL_BYTES.with(|n| n.set(core::mem::size_of_val(cell)));
+                &**cell.get_or_init(|| Box::new(self.translate_style_to_taffy(dom_id)))
+            }
             // A node the styled DOM does not have: nothing to memoise.
             None => &self.default_style,
         }
