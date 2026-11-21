@@ -1721,23 +1721,117 @@ thread_local! {
     /// the walk culled inside them).
     #[cfg(test)]
     static GROUP_CULL_OFF: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Tests: test every item of every level against the walk's cull, as before a level had
+    /// a grid (`item_grid`).
+    #[cfg(test)]
+    static GRID_OFF: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Tests: the items a walk on this thread hands to the painter (the list's address and
+    /// the item's index), in order, pushes and pops left out; `None`: not recorded.
+    #[cfg(test)]
+    static PAINT_TRACE: std::cell::RefCell<Option<Vec<(usize, usize)>>> = const { std::cell::RefCell::new(None) };
 }
 
 /// Tests: the switches of this thread's walk, for the band threads it starts (a thread starts
-/// with its own thread-locals): whether the walk culls by the clip, whether halos are kept.
+/// with its own thread-locals): whether the walk culls by the clip, whether halos are kept,
+/// whether the levels' grids are left unused.
 #[cfg(test)]
-pub(crate) fn walk_test_flags() -> (bool, bool) {
+pub(crate) fn walk_test_flags() -> (bool, bool, bool) {
     (
         GROUP_CULL_OFF.with(std::cell::Cell::get),
         super::text_halo::cpu_halos_are_kept(),
+        GRID_OFF.with(std::cell::Cell::get),
     )
 }
 
 /// Tests: paint on this thread with the switches of [`walk_test_flags`].
 #[cfg(test)]
-pub(crate) fn set_walk_test_flags((cull_off, halos_kept): (bool, bool)) {
+pub(crate) fn set_walk_test_flags((cull_off, halos_kept, grid_off): (bool, bool, bool)) {
     GROUP_CULL_OFF.with(|c| c.set(cull_off));
     super::text_halo::keep_cpu_halos(halos_kept);
+    GRID_OFF.with(|c| c.set(grid_off));
+}
+
+/// Does a walk ask the grids of a list's levels which children can paint (`item_grid`; the
+/// default), or test every item (`AZ_CPU_GRID=off`)?
+fn walk_uses_grids() -> bool {
+    #[cfg(test)]
+    if GRID_OFF.with(std::cell::Cell::get) {
+        return false;
+    }
+    super::item_grid::grid_is_used()
+}
+
+/// The rect outside which a walk culls every direct child of the level it is entering, in the
+/// coordinates the items are stored in, and whether it culls by its clip (`true`) or by its
+/// damage rect; `None` when it culls nothing there, or not by a rect.
+///
+/// A level is the top of a list or the inside of one scope (`item_grid`), and the walk's state
+/// is the same at all of its direct children, so this is asked once, when the walk enters.
+/// The walk's own tests, per item (`walk_range`):
+///
+/// - inside an isolated frame, and in a view's list, by the innermost clip
+///   (`outside_active_clip`): `bounds - offset`, widened by the text shadows' reach, against
+///   `clip / dpi`; nothing is culled without a clip, or while a filter or a mask is open;
+/// - else, under a damage rect: `bounds - offset`, widened the same, against the rect;
+/// - else nothing.
+///
+/// Here the rect is moved instead of the bounds: `[x0 + ox - g, y0 + oy - g, x1 + ox + g,
+/// y1 + oy + g]`, with `g` the reach of the text shadows open now, one px, and 1e-5 of the
+/// largest coordinate (the two subtractions round apart by an ulp or two; 1e-5 is eighty).
+/// What meets the walk's test meets this rect; the walk still makes its test on what it visits.
+///
+/// Example: a damage rect (40, 200) 100 x 30 at the offset (0, 1500) of a scrolled page, no
+/// shadow: [38.98, 1698.98, 141.02, 1731.02] (g = 1 + 1730 x 1e-5 = 1.02).
+fn level_cull_rect(
+    cull: &WalkCull,
+    mask_stack: &[MaskEntry],
+    clip: Option<AzRect>,
+    scroll_offset: (f32, f32),
+    text_shadow_stack: &[StyleBoxShadow],
+    dpi_factor: f32,
+) -> Option<(super::item_grid::Box4, bool)> {
+    // (Tests that paint "unculled" walk every item.)
+    if !walk_culls_by_clip() {
+        return None;
+    }
+    let by_clip = inside_isolated_transform(mask_stack) || matches!(cull, WalkCull::ActiveClip);
+    let [x0, y0, x1, y1] = if by_clip {
+        if !(dpi_factor > 0.0) {
+            return None;
+        }
+        let clip = clip?;
+        if mask_stack.iter().any(|e| match e {
+            MaskEntry::Filter(_) => true,
+            MaskEntry::ImageMask { width, height, .. } => *width > 0 && *height > 0,
+            _ => false,
+        }) {
+            return None;
+        }
+        [
+            clip.x / dpi_factor,
+            clip.y / dpi_factor,
+            clip.x / dpi_factor + clip.width / dpi_factor,
+            clip.y / dpi_factor + clip.height / dpi_factor,
+        ]
+    } else if let WalkCull::Damage(damage) = cull {
+        [
+            damage.origin.x,
+            damage.origin.y,
+            damage.origin.x + damage.size.width,
+            damage.origin.y + damage.size.height,
+        ]
+    } else {
+        return None;
+    };
+    let (ox, oy) = scroll_offset;
+    let moved = [x0 + ox, y0 + oy, x1 + ox, y1 + oy];
+    let largest = moved
+        .iter()
+        .chain([x0, y0, x1, y1, ox, oy].iter())
+        .fold(0.0_f32, |m, v| m.max(v.abs()));
+    let grow = text_shadow_reach(text_shadow_stack).max(0.0) + 1.0 + largest * 1e-5;
+    let rect = [moved[0] - grow, moved[1] - grow, moved[2] + grow, moved[3] + grow];
+    rect.iter().all(|v| v.is_finite()).then_some((rect, by_clip))
 }
 
 /// Does the walk cull by the clip it paints under (always, outside tests)?
@@ -2897,7 +2991,45 @@ pub(crate) fn walk_range(
     let mut keeping_fades: Vec<(usize, FadeCandidate)> = Vec::new();
     let mut next = range.start;
     let end = range.end.min(list.items.len());
+    // The grids of the list's levels (`item_grid`), for a list long enough to have any, and
+    // where this walk is in each level it has entered: the children that can paint under its
+    // cull there. The walk steps from one of them to the next; everything it visits goes
+    // through the tests below as before.
+    let grid = (list.items.len() > super::item_grid::MIN_GRID_CHILDREN && walk_uses_grids())
+        .then(|| {
+            let index = frames.get_or_insert_with(|| list.frame_index());
+            super::item_grid::ItemGrid::of_list(list, index)
+        })
+        .flatten()
+        .filter(|grid| grid.has_levels());
+    let mut cursors: Vec<super::item_grid::Cursor> = Vec::new();
+    if let Some(grid) = grid.as_deref() {
+        let rect = level_cull_rect(
+            &cull,
+            mask_stack,
+            clip_stack.last().copied().flatten(),
+            *scroll_offset_stack.last().unwrap_or(&(0.0, 0.0)),
+            text_shadow_stack,
+            dpi_factor,
+        );
+        cursors.extend(grid.cursor_for_walk(range.start, end, rect));
+    }
     while next < end {
+        if let Some(grid) = grid.as_deref() {
+            // Out of the levels that ended; in the innermost one left, on to the next child
+            // that can paint (or to the level's end, whose pop is the walk's to make).
+            while cursors.last().is_some_and(|cursor| next >= cursor.end) {
+                cursors.pop();
+            }
+            if let Some(cursor) = cursors.last_mut() {
+                let target = cursor.step(next, grid);
+                if target > next {
+                    skipped += target - next;
+                    next = target;
+                    continue;
+                }
+            }
+        }
         let item_idx = next;
         next += 1;
         let item = &list.items[item_idx];
@@ -3164,6 +3296,14 @@ pub(crate) fn walk_range(
         }
 
         painted += 1;
+        #[cfg(test)]
+        if !item.is_state_management() {
+            PAINT_TRACE.with(|trace| {
+                if let Some(trace) = trace.borrow_mut().as_mut() {
+                    trace.push((list as *const DisplayList as usize, item_idx));
+                }
+            });
+        }
         let _p_item = crate::probe::Probe::span(probe_label_for_item(item));
         let bound_item = if bind_colors {
             item_with_bound_color(item, list.color_binding(item_idx), render_state)
@@ -3202,6 +3342,21 @@ pub(crate) fn walk_range(
             text_shadow_stack,
             render_state,
         )?;
+        // The walk made a push: the level inside it, when that has a grid, with the walk's
+        // state as it is now (the push's clip, offset, shadow or group is in it).
+        if let Some(grid) = grid.as_deref() {
+            if grid.has_level_inside(item_idx) {
+                let rect = level_cull_rect(
+                    &cull,
+                    mask_stack,
+                    clip_stack.last().copied().flatten(),
+                    *scroll_offset_stack.last().unwrap_or(&(0.0, 0.0)),
+                    text_shadow_stack,
+                    dpi_factor,
+                );
+                cursors.extend(grid.cursor_inside(item_idx, rect));
+            }
+        }
     }
     Ok((painted, skipped))
 }
@@ -20985,5 +21140,327 @@ mod audit_a1_tests {
         assert!(index.opacity_scope_at(third).is_none(), "its pop closes a clip's scope");
         assert!(index.opacity_scope_at(fourth).is_none(), "the frame around its push ends inside it");
         assert!(index.opacity_scope_at(1).is_none() && index.opacity_scope_at(frame_push).is_none(), "no group is pushed there");
+    }
+
+    // ---- A1-07b: the grids of a list's levels -----------------------------------------------
+
+    /// A fixed sequence of numbers per seed.
+    struct Lcg(u64);
+
+    impl Lcg {
+        fn below(&mut self, n: u32) -> u32 {
+            self.0 = self.0.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+            ((self.0 >> 33) % u64::from(n.max(1))) as u32
+        }
+
+        /// A coordinate below `max`, on quarter pixels.
+        fn coord(&mut self, max: u32) -> f32 {
+            self.below(max * 4) as f32 / 4.0
+        }
+
+        fn rgb(&mut self) -> [u8; 3] {
+            [self.below(256) as u8, self.below(256) as u8, self.below(256) as u8]
+        }
+
+        /// `count` fills of up to 62 x 42 px with their corners inside `(x, y) w x h`.
+        fn fills(&mut self, count: usize, (x, y, w, h): (f32, f32, u32, u32)) -> Vec<DisplayListItem> {
+            (0..count)
+                .map(|_| {
+                    let (fx, fy) = (x + self.coord(w), y + self.coord(h));
+                    let (fw, fh) = (self.coord(60) + 2.0, self.coord(40) + 2.0);
+                    let rgb = self.rgb();
+                    fill(fx, fy, fw, fh, rgb)
+                })
+                .collect()
+        }
+    }
+
+    /// A list of about 2,000 items over (0, 0) 1600 x 1400 with every kind of scope a level
+    /// can hold, from the sequence of `seed`, and the live values it is painted with (scroll
+    /// offsets, matrices): 260 loose fills, then forty blocks of thirty more loose fills or of
+    /// one scope: clips (square and rounded), opacity groups, text shadows, moved frames,
+    /// scroll frames in their clips, masks; then a clip around 320 fills (a level with a grid
+    /// inside the top level's), a frame scaled by 1.3 around 330 fills (a level whose items
+    /// are culled by the clip of the frame's surface), a box shadow and two large fills.
+    fn random_list(seed: u64) -> (DisplayList, ScrollOffsetMap, HashMap<usize, azul_core::transform::ComputedTransform3D>) {
+        let mut rng = Lcg(seed);
+        let mut scrolls = ScrollOffsetMap::new();
+        let mut transforms = HashMap::new();
+        let world = (0.0, 0.0, 1600, 1400);
+        let mut items = vec![fill(0.0, 0.0, 1600.0, 1400.0, [236, 233, 225])];
+        // (So that the top level has a grid whatever the sequence deals.)
+        items.extend(rng.fills(260, world));
+        for block in 0..40usize {
+            let (bx, by) = (rng.coord(1400), rng.coord(1200));
+            let inside = (bx, by, 200, 150);
+            match rng.below(9) {
+                0..=2 => items.extend(rng.fills(30, world)),
+                3 => {
+                    let r = if rng.below(2) == 0 { 0.0 } else { 12.0 };
+                    items.push(DisplayListItem::PushClip {
+                        bounds: wrect(bx, by, 200.0, 150.0),
+                        border_radius: BorderRadius { top_left: r, top_right: r, bottom_left: r, bottom_right: r },
+                    });
+                    items.extend(rng.fills(20, (bx - 30.0, by - 30.0, 260, 210)));
+                    items.push(DisplayListItem::PopClip);
+                }
+                4 => {
+                    items.push(DisplayListItem::PushOpacity {
+                        bounds: wrect(bx, by, 200.0, 150.0),
+                        opacity: 0.6,
+                        opacity_key: None,
+                        mix_blend_mode: Default::default(),
+                    });
+                    items.extend(rng.fills(10, inside));
+                    items.push(DisplayListItem::PopOpacity);
+                }
+                5 => {
+                    let (blur, spread) = (rng.coord(6), rng.coord(4));
+                    items.extend(haloed(halo(blur, spread, [255, 255, 255]), rng.fills(10, inside)));
+                }
+                6 => {
+                    let key = 100 + block;
+                    transforms.insert(
+                        key,
+                        azul_core::transform::ComputedTransform3D {
+                            m: turn_scale_move(0.0, 1.0, rng.coord(80) - 40.0, rng.coord(60) - 30.0),
+                        },
+                    );
+                    items.push(DisplayListItem::PushStackingContext { z_index: 0, bounds: wrect(bx, by, 200.0, 150.0) });
+                    items.push(DisplayListItem::PushReferenceFrame {
+                        transform_key: azul_core::resources::TransformKey { id: key },
+                        initial_transform: azul_core::transform::ComputedTransform3D { m: IDENTITY },
+                        bounds: wrect(bx, by, 200.0, 150.0),
+                    });
+                    items.extend(rng.fills(10, inside));
+                    items.push(DisplayListItem::PopReferenceFrame);
+                    items.push(DisplayListItem::PopStackingContext);
+                }
+                7 => {
+                    let id = 500 + block as u64;
+                    scrolls.insert(id, (rng.coord(40), rng.coord(300)));
+                    items.push(DisplayListItem::PushClip { bounds: wrect(bx, by, 200.0, 150.0), border_radius: BorderRadius::default() });
+                    items.push(DisplayListItem::PushScrollFrame {
+                        clip_bounds: wrect(bx, by, 200.0, 150.0),
+                        content_size: LogicalSize { width: 240.0, height: 450.0 },
+                        scroll_id: id,
+                    });
+                    items.extend(rng.fills(20, (bx, by, 240, 450)));
+                    items.push(DisplayListItem::PopScrollFrame);
+                    items.push(DisplayListItem::PopClip);
+                }
+                _ => {
+                    items.push(DisplayListItem::PushImageMaskClip {
+                        bounds: wrect(bx, by, 200.0, 150.0),
+                        mask_image: None,
+                        mask_rect: wrect(bx + 20.0, by + 20.0, 120.0, 90.0),
+                        geometry: None,
+                    });
+                    items.extend(rng.fills(5, inside));
+                    items.push(DisplayListItem::PopImageMaskClip);
+                }
+            }
+        }
+        items.push(DisplayListItem::PushClip { bounds: wrect(100.0, 60.0, 1300.0, 1100.0), border_radius: BorderRadius::default() });
+        items.extend(rng.fills(320, world));
+        items.push(DisplayListItem::PopClip);
+        transforms.insert(900, azul_core::transform::ComputedTransform3D { m: turn_scale_move(0.0, 1.3, 40.0, 30.0) });
+        items.push(DisplayListItem::PushReferenceFrame {
+            transform_key: azul_core::resources::TransformKey { id: 900 },
+            initial_transform: azul_core::transform::ComputedTransform3D { m: IDENTITY },
+            bounds: wrect(0.0, 0.0, 1000.0, 900.0),
+        });
+        items.extend(rng.fills(330, (0.0, 0.0, 940, 860)));
+        items.push(DisplayListItem::PopReferenceFrame);
+        items.push(DisplayListItem::BoxShadow {
+            bounds: wrect(300.0, 200.0, 160.0, 60.0),
+            shadow: StyleBoxShadow { color: ColorU { r: 0, g: 0, b: 0, a: 160 }, ..halo(9.0, 2.0, [0, 0, 0]) },
+            border_radius: BorderRadius::default(),
+        });
+        items.push(fill(20.0, 640.0, 1500.0, 12.0, [10, 10, 10]));
+        items.push(fill(700.0, 0.0, 14.0, 1400.0, [10, 10, 10]));
+        (list(items), scrolls, transforms)
+    }
+
+    /// The damage rects `damage` of `dl` repainted into a white 900 x 700 frame on one thread,
+    /// with the levels' grids or (`grid` false) with every item tested: the frame, the items
+    /// handed to the painter (list and index, in order), and what was counted.
+    fn traced_repaint(
+        dl: &DisplayList,
+        state: &CpuRenderState,
+        damage: &[LogicalRect],
+        dpi: f32,
+        grid: bool,
+    ) -> (AzulPixmap, Vec<(usize, usize)>, crate::cpu_counters::CpuFrameCounters) {
+        let (rr, fm) = (RendererResources::default(), empty_font_manager());
+        let mut pm = AzulPixmap::new(900, 700).unwrap();
+        pm.fill(255, 255, 255, 255);
+        let mut gc = GlyphCache::new();
+        GRID_OFF.with(|c| c.set(!grid));
+        PAINT_TRACE.with(|trace| *trace.borrow_mut() = Some(Vec::new()));
+        crate::cpu_counters::reset();
+        let painted = render_display_list_damaged(dl, &mut pm, dpi, &rr, &fm, &mut gc, state, damage);
+        let counted = crate::cpu_counters::take();
+        let trace = PAINT_TRACE.with(|trace| trace.borrow_mut().take()).unwrap_or_default();
+        GRID_OFF.with(|c| c.set(false));
+        painted.unwrap();
+        (pm, trace, counted)
+    }
+
+    /// A1-07b: a walk that asks the grids of a list's levels hands the painter the items the
+    /// walk that tests every item hands it, in the same order, and paints the same pixels.
+    /// Three lists from fixed sequences (`random_list`), each as a window's own list (culled
+    /// by the damage rect; by the clip of its surface inside the scaled frame) at a scale
+    /// factor of 1 and of 2, and as a view's list (culled by the view's clip), under twelve
+    /// damage rects each: positions and sizes from the sequence, up to 300 x 200 px.
+    /// The lists' top level, the clip around 320 fills and the scaled frame around 330 have a
+    /// grid; over all the rects the grids make the walk visit less than a third of the items.
+    /// Mutations: a rect that is not moved by the walk's offset (`level_cull_rect`) loses
+    /// the content of scroll frames and of the view; a cursor that does not wait for the end
+    /// of a child it entered steps out of a clip without its pop (the clip stack is one short
+    /// and later items are cut); a level's rect taken before the push's own clip, offset or
+    /// shadow is on the stacks loses the items a moved frame brings into the rect.
+    #[test]
+    fn a_walk_through_the_grids_paints_the_items_of_the_walk_that_tests_every_item() {
+        let (mut walked_grid, mut walked_scan, mut painted_items) = (0u64, 0u64, 0usize);
+        for seed in [11u64, 12, 13] {
+            let (dl, scrolls, transforms) = random_list(seed);
+            let grid = crate::cpurender::item_grid::ItemGrid::of(&dl.items);
+            assert!(grid.has_levels(), "seed {seed}: the list is a tree and its top level has a grid");
+            let child = Arc::new(dl);
+            let host = Arc::new(list(vec![
+                fill(0.0, 0.0, 900.0, 700.0, [200, 200, 200]),
+                DisplayListItem::VirtualView {
+                    child_dom_id: azul_core::dom::DomId { inner: 1 },
+                    bounds: wrect(50.0, 40.0, 800.0, 600.0),
+                    clip_rect: wrect(50.0, 40.0, 800.0, 600.0),
+                    content_offset: LogicalPosition { x: 120.5, y: 80.25 },
+                },
+            ]));
+            let state_of = |as_view: bool| {
+                let mut state = CpuRenderState::new(scrolls.clone()).with_paint_threads(1);
+                state.transforms = transforms.clone();
+                if as_view {
+                    state = state
+                        .with_virtual_view_display_lists(
+                            [(azul_core::dom::DomId { inner: 1 }, Arc::clone(&child))].into_iter().collect(),
+                        )
+                        .with_root_display_list(Arc::clone(&host));
+                }
+                state
+            };
+            let mut rng = Lcg(seed * 977);
+            for (as_view, dpi) in [(false, 1.0_f32), (false, 2.0), (true, 1.0)] {
+                let state = state_of(as_view);
+                let painted_list: &DisplayList = if as_view { &host } else { &child };
+                for _ in 0..12 {
+                    let (w, h) = (rng.coord(300) + 4.0, rng.coord(200) + 4.0);
+                    let damage = [rect(rng.coord(800) / dpi, rng.coord(600) / dpi, w / dpi, h / dpi)];
+                    let (with_grid, trace, counted) = traced_repaint(painted_list, &state, &damage, dpi, true);
+                    let (scanned, trace_scan, counted_scan) = traced_repaint(painted_list, &state, &damage, dpi, false);
+                    let what = format!("seed {seed}, view {as_view}, dpi {dpi}, damage {:?}", damage[0]);
+                    assert_eq!(trace, trace_scan, "{what}: the same items in the same order");
+                    assert_eq!(differing_pixels(&with_grid, &scanned), 0, "{what}: the same pixels");
+                    assert!(counted.items_walked <= counted_scan.items_walked, "{what}: never more items visited");
+                    walked_grid += counted.items_walked;
+                    walked_scan += counted_scan.items_walked;
+                    painted_items += trace.len();
+                }
+            }
+        }
+        assert!(painted_items > 1000, "the comparison is not vacuous: {painted_items} items were painted");
+        assert!(walked_grid * 3 < walked_scan, "the grids are asked: {walked_grid} items visited against {walked_scan}");
+    }
+
+    /// A page of `n` rows of 24 px in a scroll frame (id 5): a ground, a clip, the scroll
+    /// frame, and per row a stacking context around two fills.
+    fn page(n: usize) -> DisplayList {
+        let mut items = vec![fill(0.0, 0.0, 900.0, 700.0, [250, 250, 250])];
+        items.push(DisplayListItem::PushClip { bounds: wrect(0.0, 0.0, 900.0, 700.0), border_radius: BorderRadius::default() });
+        items.push(DisplayListItem::PushScrollFrame {
+            clip_bounds: wrect(0.0, 0.0, 900.0, 700.0),
+            content_size: LogicalSize { width: 900.0, height: n as f32 * 24.0 },
+            scroll_id: 5,
+        });
+        for row in 0..n {
+            let y = row as f32 * 24.0;
+            items.push(DisplayListItem::PushStackingContext { z_index: 0, bounds: wrect(10.0, y, 710.0, 20.0) });
+            items.push(fill(10.0, y, 600.0, 20.0, [(row % 200) as u8, 90, 160]));
+            items.push(fill(620.0, y + 2.0, 100.0, 16.0, [30, (row % 150) as u8, 60]));
+            items.push(DisplayListItem::PopStackingContext);
+        }
+        items.push(DisplayListItem::PopScrollFrame);
+        items.push(DisplayListItem::PopClip);
+        list(items)
+    }
+
+    /// A1-07b, the size sweep: under a fixed small damage rect the walk visits the same few
+    /// items of a page of 500 rows and of one of 2,000. The page is scrolled by 300 px; the
+    /// damage (40, 200) 100 x 30 shows the content's y 500 .. 530: the rows 20, 21 and 22
+    /// (y 480, 504, 528; row 20 ends at 500 and touches the rect), of each the first fill
+    /// (x 10 .. 610; the second one, from x 620, is tested and culled). The walk visits the
+    /// ground, the clip's and the scroll frame's push and pop, and the four items of each of
+    /// those rows: 17 items, whatever the page's length. The walk that tests every item
+    /// visits 4 n + 5.
+    /// Mutation: a grid whose cells grow with the list (a fixed number of cells) hands out
+    /// four times the rows for four times the page.
+    #[test]
+    fn four_times_the_rows_do_not_cost_a_small_repaint_more() {
+        let damage = [rect(40.0, 200.0, 100.0, 30.0)];
+        let mut state = CpuRenderState::new(ScrollOffsetMap::new()).with_paint_threads(1);
+        state.scroll_offsets.insert(5, (0.0, 300.0));
+        let mut walked = Vec::new();
+        for n in [500usize, 2000] {
+            let dl = page(n);
+            let (with_grid, trace, counted) = traced_repaint(&dl, &state, &damage, 1.0, true);
+            let (scanned, trace_scan, counted_scan) = traced_repaint(&dl, &state, &damage, 1.0, false);
+            assert_eq!(trace, trace_scan, "n = {n}");
+            assert_eq!(differing_pixels(&with_grid, &scanned), 0, "n = {n}");
+            // The ground and the first fill of the rows 20 .. 22 (a row is four items from
+            // index 3 on: a push, two fills, a pop).
+            let wanted: Vec<usize> = vec![0, 3 + 20 * 4 + 1, 3 + 21 * 4 + 1, 3 + 22 * 4 + 1];
+            assert_eq!(trace.iter().map(|(_, index)| *index).collect::<Vec<_>>(), wanted, "n = {n}");
+            assert_eq!(counted_scan.items_walked, 4 * n as u64 + 5, "n = {n}: every item is tested");
+            assert_eq!(counted.items_walked, 17, "n = {n}: the three rows and what is around them");
+            assert_ne!(px(&with_grid, 100, 215), [255, 255, 255, 255], "n = {n}: the rows are painted");
+            walked.push(counted.items_walked);
+        }
+        assert!(walked[1] * 2 < walked[0] * 3, "four times the rows, under 1.5 times the items: {walked:?}");
+    }
+
+    /// A1-07b: the bands of a repaint ask the grids with their own rects, and the frame is the
+    /// one a single pass paints while testing every item. The whole 900 x 700 frame of a
+    /// `random_list` on four threads (three bands of 234 rows: each asks for a third of the
+    /// rows) against one pass without grids.
+    /// Mutation: a cursor made from the frame's rect instead of the band's paints the same
+    /// pixels but visits every child in every band (the count); a grid that is not shared
+    /// read-only between the band threads does not compile.
+    #[test]
+    fn bands_that_ask_the_grids_paint_the_frame_of_one_pass_that_tests_every_item() {
+        let (rr, fm) = (RendererResources::default(), empty_font_manager());
+        let (dl, scrolls, transforms) = random_list(21);
+        let whole = [rect(0.0, 0.0, 900.0, 700.0)];
+        let paint = |threads: usize, grid: bool| {
+            let mut state = CpuRenderState::new(scrolls.clone()).with_paint_threads(threads);
+            state.transforms = transforms.clone();
+            let mut pm = AzulPixmap::new(900, 700).unwrap();
+            pm.fill(255, 255, 255, 255);
+            let mut gc = GlyphCache::new();
+            GRID_OFF.with(|c| c.set(!grid));
+            crate::cpu_counters::reset();
+            let painted = render_display_list_damaged(&dl, &mut pm, 1.0, &rr, &fm, &mut gc, &state, &whole);
+            GRID_OFF.with(|c| c.set(false));
+            painted.unwrap();
+            (pm, crate::cpu_counters::take())
+        };
+        let (banded, counted) = paint(4, true);
+        let (banded_scan, counted_banded_scan) = paint(4, false);
+        let (single, counted_single) = paint(1, false);
+        assert_eq!((counted.bands, counted_single.bands), (3, 0));
+        assert_eq!(differing_pixels(&banded, &single), 0, "bands with grids against one pass without");
+        assert_eq!(differing_pixels(&banded_scan, &single), 0, "premise: the bands are the pass");
+        assert!(counted.items_walked < counted_banded_scan.items_walked, "a band visits what its rows can show: {counted:?}");
+        let coloured = single.data().chunks_exact(4).filter(|p| p[..3] != [236, 233, 225]).count();
+        assert!(coloured > 100_000, "the frame shows the list ({coloured} px)");
     }
 }

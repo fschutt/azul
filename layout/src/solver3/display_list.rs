@@ -3949,6 +3949,10 @@ pub(crate) struct FrameIndex {
     /// By the index of a `PushOpacity`, for the groups a walk may step over
     /// ([`OpacityScope`], [`FrameIndex::opacity_scope_at`]).
     opacity_scopes: std::collections::HashMap<usize, OpacityScope>,
+    /// What a renderer derives from the same items once and asks about per pass (the CPU
+    /// renderer's `item_grid`): made by its first ask, and dropped with this index - that
+    /// is, with the items it describes.
+    pub(crate) derived: std::sync::OnceLock<std::sync::Arc<dyn core::any::Any + Send + Sync>>,
 }
 
 /// A frame that holds frames: `own` is its box and what its own items paint (not what is
@@ -4312,6 +4316,7 @@ impl FrameIndex {
             opacity_extents,
             opacity_nesting,
             opacity_scopes,
+            derived: std::sync::OnceLock::new(),
         }
     }
 
