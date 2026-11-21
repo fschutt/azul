@@ -87,6 +87,28 @@ pub enum SubmittedDigest {
     ScrollOffsets,
 }
 
+/// What a digest of the bound values was taken of
+/// ([`GpuStateManager::last_gpu_value_source`]): everything the digest is a
+/// function of, in a form that is compared without reading a value.
+#[derive(Debug, Clone)]
+pub struct GpuValueSource {
+    /// The digest that was taken.
+    digest: u64,
+    /// [`GpuStateManager::value_generation`] then: the content of every
+    /// DOM's value cache.
+    generation: u64,
+    /// The renderer's scale then, bitwise (the values go across in device px).
+    scale_bits: u32,
+    /// The display list each DOM showed then, in DOM order: which DOMs'
+    /// caches were read, and the lists whose keys the values are bound by.
+    /// Weak: it keeps the allocation, so a list built later never has the
+    /// address of one of these.
+    lists: alloc::vec::Vec<(
+        DomId,
+        alloc::sync::Weak<crate::solver3::display_list::DisplayList>,
+    )>,
+}
+
 #[derive(Debug, Clone)]
 pub struct GpuStateManager {
     /// GPU value caches indexed by DOM ID
@@ -137,6 +159,12 @@ pub struct GpuStateManager {
     /// last handed to the renderer, so an IDENTICAL set can be recognised and
     /// skipped. See [`GpuStateManager::gpu_values_changed`].
     pub last_gpu_value_digest: Option<u64>,
+    /// What [`Self::last_gpu_value_digest`] was taken of
+    /// ([`Self::note_gpu_value_digest`]). While it still describes the
+    /// window, a walk of the bound values would give that digest again, and
+    /// the renderer's host does not walk them
+    /// ([`Self::gpu_values_are_the_digested_ones`]).
+    pub last_gpu_value_source: Option<GpuValueSource>,
     /// Digest of the image registrations last handed to the renderer.
     /// See [`GpuStateManager::submitted_digest_changed`].
     pub last_image_digest: Option<u64>,
@@ -302,6 +330,72 @@ impl GpuStateManager {
         true
     }
 
+    /// `digest` is the digest of the bound values as a walk of them just found
+    /// them, for the DOMs of `layout_results` at the renderer's `scale`:
+    /// remembers what it was taken of. The renderer's host calls this where
+    /// it compares the digest with [`Self::last_gpu_value_digest`].
+    pub fn note_gpu_value_digest(
+        &mut self,
+        layout_results: &BTreeMap<DomId, crate::window::DomLayoutResult>,
+        scale: f32,
+        digest: u64,
+    ) {
+        self.last_gpu_value_source = Some(GpuValueSource {
+            digest,
+            generation: self.value_generation(),
+            scale_bits: scale.to_bits(),
+            lists: layout_results
+                .iter()
+                .map(|(dom, result)| (*dom, alloc::sync::Arc::downgrade(&result.display_list)))
+                .collect(),
+        });
+    }
+
+    /// Would a walk of the bound values give [`Self::last_gpu_value_digest`]
+    /// again? Then the values are the ones the renderer was last sent and
+    /// its host has nothing to walk, hash or send: the frame of a pan, of a
+    /// tile that arrived, of a hover, of a fade's hold.
+    ///
+    /// Yes exactly when everything the digest is a function of is what it
+    /// was when the digest was taken ([`Self::note_gpu_value_digest`]):
+    /// - the digest kept is still that one (a full frame forgets it,
+    ///   [`Self::invalidate_submitted_digests`], and so does anything else
+    ///   that makes the renderer need the values again: this answers `false`
+    ///   wherever the digest alone would say "send");
+    /// - no value and no key of any DOM was written since
+    ///   ([`Self::value_generation`]);
+    /// - the scale is the same;
+    /// - every DOM shows the very list it showed (the same allocation; the
+    ///   DOMs are the same ones). A list that was built again - also one
+    ///   with the same items and the same values - answers `false`: its keys
+    ///   are new bindings to the renderer, and which DOMs there are decides
+    ///   whose values are read.
+    #[must_use]
+    pub fn gpu_values_are_the_digested_ones(
+        &self,
+        layout_results: &BTreeMap<DomId, crate::window::DomLayoutResult>,
+        scale: f32,
+    ) -> bool {
+        let Some(source) = self.last_gpu_value_source.as_ref() else {
+            return false;
+        };
+        self.last_gpu_value_digest == Some(source.digest)
+            && source.scale_bits == scale.to_bits()
+            && source.generation == self.value_generation()
+            && source.lists.len() == layout_results.len()
+            && source
+                .lists
+                .iter()
+                .zip(layout_results)
+                .all(|((dom, list), (dom_now, now))| {
+                    dom == dom_now
+                        && core::ptr::eq(
+                            list.as_ptr(),
+                            alloc::sync::Arc::as_ptr(&now.display_list),
+                        )
+                })
+    }
+
     /// Forget what was last submitted, so the next submission pushes
     /// everything again.
     ///
@@ -368,6 +462,7 @@ impl GpuStateManager {
             scrollbar_fade_left_ms: BTreeMap::new(),
             scrollbar_fade_ends: BTreeMap::new(),
             last_gpu_value_digest: None,
+            last_gpu_value_source: None,
             last_image_digest: None,
             last_scroll_digest: None,
             submitted_display_lists: BTreeMap::new(),
