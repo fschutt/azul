@@ -1447,6 +1447,13 @@ pub enum EmitPhase {
     BgBorder,
     /// Pushed by `paint_node_content`.
     Content,
+    /// Pushed by `paint_selections` for the text block whose IFC root is
+    /// the box: the highlight rects of the local and the remote ranges and
+    /// the selection handles, painted between the box's clips and its
+    /// content run. Tagged so that a patch can find the old run of a block
+    /// whose selection changed (the drag highlight); never substituted
+    /// from a cached list: a build decides it from the selection as it is.
+    Selection,
 }
 
 impl DisplayList {
@@ -5582,7 +5589,9 @@ impl<'a> PatchState<'a> {
                 i += 1;
             }
             if let Some((node, phase)) = tag {
-                if !matches!(phase, EmitPhase::ScWalk) {
+                // A selection run is built from the selection on every pass
+                // and is no paint call a cached run could stand in for.
+                if !matches!(phase, EmitPhase::ScWalk | EmitPhase::Selection) {
                     if prev.items[start..i].iter().all(patchable_item) {
                         runs.entry((node, phase as u8))
                             .or_default()
@@ -7324,7 +7333,10 @@ where
 
         // 2. Selection highlights go UNDER the content...
         if paints_its_selection {
-            self.paint_selections(builder, node_index)?;
+            builder.set_current_layout(Some((node_index, EmitPhase::Selection)));
+            let painted = self.paint_selections(builder, node_index);
+            builder.set_current_layout(None);
+            painted?;
         }
 
         // 3. Paint the node's own content (text, images, hit-test areas).

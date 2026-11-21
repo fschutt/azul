@@ -13,7 +13,8 @@ use crate::{
     callbacks::ExternalSystemCallbacks,
     solver3::{
         display_list::{
-            DisplayList, DisplayListItem, INLINE_LAYOUT_COPIES, SCROLL_CHAIN_WALKS, TAG_LIST_READS,
+            DisplayList, DisplayListItem, EmitPhase, INLINE_LAYOUT_COPIES, SCROLL_CHAIN_WALKS,
+            TAG_LIST_READS,
         },
         layout_tree::LayoutNodeId,
     },
@@ -435,4 +436,85 @@ fn an_adapter_is_always_handed_an_update_it_can_take() {
     let patch = manager.hand_to_adapter(false);
     assert!(patch.tree.is_none() && patch.nodes.is_empty());
     assert_eq!(patch.focus, manager.root_id, "the focus handed out before");
+}
+
+/// A3-core-17 (A3-window-11): the rects of a selection were painted without a layout tag, so a
+/// patch could not find the old highlight of a block. They carry the block's layout index and
+/// `EmitPhase::Selection` now; nothing else carries that phase, and a list without a selection
+/// has no such item.
+#[test]
+fn the_rects_of_a_selection_carry_their_blocks_layout_index_and_the_selection_phase() {
+    use azul_core::{dom::DomNodeId, styled_dom::NodeHierarchyItemId};
+
+    let page = Dom::create_body()
+        .with_css("margin: 0px;")
+        .with_child(Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "a line of text to select",
+        )))
+        .with_child(Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "and a second paragraph",
+        )));
+    let mut lw = laid_out_with(page, FcFontCache::build());
+    let selection_tags = |lw: &LayoutWindow| -> Vec<(usize, usize)> {
+        let list = &lw.layout_results.get(&DomId::ROOT_ID).expect("the root's layout").display_list;
+        list.layout_node_mapping
+            .iter()
+            .enumerate()
+            .filter_map(|(i, tag)| match tag {
+                Some((index, EmitPhase::Selection)) => Some((i, *index)),
+                _ => None,
+            })
+            .collect()
+    };
+    assert!(selection_tags(&lw).is_empty(), "no selection, no item of the selection phase");
+
+    let body = DomNodeId {
+        dom: DomId::ROOT_ID,
+        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(0))),
+    };
+    assert!(lw.select_all_text(body), "harness: select-all made a selection");
+    let result = lw.layout_results.get(&DomId::ROOT_ID).expect("the root's layout");
+    let list = &result.display_list;
+    let rects: Vec<usize> = list
+        .items
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| matches!(item, DisplayListItem::SelectionRect { .. }))
+        .map(|(i, _)| i)
+        .collect();
+    assert!(rects.len() >= 2, "harness: both paragraphs are highlighted ({} rects)", rects.len());
+
+    let tagged = selection_tags(&lw);
+    for i in &rects {
+        assert!(
+            tagged.iter().any(|(item, _)| item == i),
+            "selection rect {i} carries no selection tag: {:?}",
+            list.layout_node_mapping[*i]
+        );
+    }
+    // Each run belongs to one box, and that box is a text block's root: the content run that
+    // follows the highlight is tagged with the same layout index.
+    let blocks: std::collections::BTreeSet<usize> = tagged.iter().map(|(_, index)| *index).collect();
+    assert!(blocks.len() >= 2, "one run per highlighted block: {blocks:?}");
+    for index in &blocks {
+        let last = tagged.iter().filter(|(_, at)| at == index).map(|(i, _)| *i).max().expect("a run");
+        let content = list.layout_node_mapping[last + 1..]
+            .iter()
+            .find(|tag| !matches!(tag, Some((_, EmitPhase::Selection))))
+            .copied()
+            .flatten();
+        assert_eq!(
+            content,
+            Some((*index, EmitPhase::Content)),
+            "the highlight of box {index} is followed by that box's content run"
+        );
+    }
+    // Only what `paint_selections` pushes has the phase.
+    for (i, _) in &tagged {
+        assert!(
+            matches!(list.items[*i], DisplayListItem::SelectionRect { .. }),
+            "item {i} of the selection phase is {:?}",
+            list.items[*i]
+        );
+    }
 }
