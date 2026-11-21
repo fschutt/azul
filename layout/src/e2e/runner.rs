@@ -2848,6 +2848,8 @@ impl Runner {
                     if idx < layout_result.styled_dom.node_data.as_ref().len() {
                         layout_result.styled_dom.node_data.as_container_mut()[*node_id]
                             .set_tab_index(*tab_index);
+                        // As the shells' pass does (A6-16b).
+                        layout_result.styled_dom.rebuild_derived_node_lists();
                     }
                 }
                 ProcessEventResult::DoNothing
