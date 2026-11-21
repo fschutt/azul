@@ -6722,7 +6722,7 @@ impl<'a, 'b, T> DisplayListGenerator<'a, 'b, T>
 where
     T: ParsedFontTrait + Sync + 'static,
 {
-    pub(crate) const fn new(
+    pub(crate) fn new(
         ctx: &'a mut LayoutContext<'b, T>,
         scroll_offsets: &'a BTreeMap<NodeId, ScrollPosition>,
         positioned_tree: &'a PositionedTree<'a>,
