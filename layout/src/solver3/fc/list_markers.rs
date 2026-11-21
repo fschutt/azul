@@ -520,3 +520,7 @@ mod marker_style_tests {
     }
 }
 
+
+#[cfg(test)]
+#[path = "list_markers_test.rs"]
+mod list_markers_test;
