@@ -274,6 +274,9 @@ pub(crate) fn locate(list: &DisplayList, patches: &[DecorationPatch]) -> Option<
     // where its content runs start.
     let mut background: Vec<Vec<(usize, usize)>> = vec![Vec::new(); patches.len()];
     let mut content: Vec<Vec<usize>> = vec![Vec::new(); patches.len()];
+    // Whether the list holds a selection run of the box (`EmitPhase::Selection`, A3-core-17):
+    // it lies between the box's background run and its content run.
+    let mut selected: Vec<bool> = vec![false; patches.len()];
     let mut i = 0_usize;
     while i < n {
         let tag = list.layout_node_mapping[i];
@@ -290,6 +293,7 @@ pub(crate) fn locate(list: &DisplayList, patches: &[DecorationPatch]) -> Option<
         match phase {
             EmitPhase::BgBorder => background[k].push((start, i)),
             EmitPhase::Content => content[k].push(start),
+            EmitPhase::Selection => selected[k] = true,
             EmitPhase::ScWalk => {}
         }
     }
@@ -299,7 +303,11 @@ pub(crate) fn locate(list: &DisplayList, patches: &[DecorationPatch]) -> Option<
         let (at, old_len) = match background[k].as_slice() {
             [(start, end)] => (*start, *end - *start),
             [] => match content[k].as_slice() {
-                [start] if patch.content_follows => (*start, 0),
+                // A run the list does not hold yet goes right before the content run only
+                // when nothing lies between the two: not when the box's highlight does
+                // (`plan_one` says so too, from the selection as it is now; this is the
+                // list as it was built).
+                [start] if patch.content_follows && !selected[k] => (*start, 0),
                 _ => return None,
             },
             _ => return None,
