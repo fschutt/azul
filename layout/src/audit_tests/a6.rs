@@ -417,3 +417,110 @@ mod drawn_is_hit {
         assert!((850..=1280).contains(&covered), "80 x 16 px turned: {covered}");
     }
 }
+
+/// A6-14: a pointer move of a selection drag that ends on the caret position the drag already
+/// ended on rebuilds no display list and asks for no frame.
+#[cfg(feature = "text_layout")]
+mod a_drag_that_selects_nothing_new {
+    use azul_core::{
+        dom::{Dom, IdOrClass},
+        geom::{LogicalPosition, LogicalSize},
+        resources::RendererResources,
+        selection::Selection,
+        styled_dom::StyledDom,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use crate::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+
+    /// One line of 16 px text in a 600 px paragraph at the window's corner.
+    fn paragraph() -> LayoutWindow {
+        let css_src = "* { margin: 0; padding: 0; } body { font-size: 16px; width: 600px; } .p { \
+                       display: block; width: 600px; }";
+        let class: azul_core::dom::IdOrClassVec = vec![IdOrClass::Class("p".into())].into();
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_div().with_ids_and_classes(class).with_child(
+                Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "a line with enough words to drag a selection over",
+                ),
+            ),
+        );
+        let (css, _) = azul_css::parser2::new_from_str(css_src);
+        let styled_dom = StyledDom::create(&mut dom, css);
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("LayoutWindow::new");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            styled_dom,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut Some(Vec::new()),
+        )
+        .expect("layout must succeed");
+        lw
+    }
+
+    /// The primary selection, as the drag left it.
+    fn selection(lw: &LayoutWindow) -> Option<Selection> {
+        let mc = lw.text_edit_manager.multi_cursor.as_ref()?;
+        Some(mc.get_primary()?.selection)
+    }
+
+    /// A drag of 12 moves over the same letter: the first one changes the selection (a list, a
+    /// frame), the eleven that follow change nothing and cost neither. Moving on to another
+    /// letter, and back onto the anchor, are changes again.
+    /// Mutation: the early return taken out of `process_mouse_drag_for_selection` answers
+    /// `Some` for the eleven and rebuilds the list eleven times; a comparison that always says
+    /// "unchanged" fails the first and the last two drags.
+    #[test]
+    fn a_drag_move_that_selects_nothing_new_rebuilds_no_list() {
+        let anchor_at = LogicalPosition::new(4.0, 8.0);
+        let over = LogicalPosition::new(200.0, 8.0);
+        let further = LogicalPosition::new(330.0, 8.0);
+
+        let mut lw = paragraph();
+        lw.process_mouse_click_for_selection(anchor_at, 0);
+        let pressed = selection(&lw).expect("the press plants a caret in the paragraph");
+        assert!(matches!(pressed, Selection::Cursor(_)), "harness: {pressed:?}");
+
+        // A move that stays on the anchor selects nothing: no list.
+        let rebuilds = lw.frame_report.dl_rebuilds;
+        assert!(lw.process_mouse_drag_for_selection(anchor_at, anchor_at).is_none());
+        assert_eq!(selection(&lw), Some(pressed));
+        assert_eq!(lw.frame_report.dl_rebuilds, rebuilds);
+
+        // The first move over a letter further along: a range, told to the caller.
+        assert!(
+            lw.process_mouse_drag_for_selection(anchor_at, over).is_some(),
+            "the drag reached another letter: the selection changed"
+        );
+        let dragged = selection(&lw).expect("the drag keeps the session");
+        assert!(matches!(dragged, Selection::Range(_)), "{dragged:?}");
+        assert_ne!(dragged, pressed);
+
+        // Eleven more moves that end on the same letter.
+        let rebuilds = lw.frame_report.dl_rebuilds;
+        for i in 0..11 {
+            assert!(
+                lw.process_mouse_drag_for_selection(anchor_at, over).is_none(),
+                "move {i}: the same caret position, nothing to tell"
+            );
+        }
+        assert_eq!(selection(&lw), Some(dragged));
+        assert_eq!(
+            lw.frame_report.dl_rebuilds, rebuilds,
+            "eleven moves that selected nothing new rebuilt no list"
+        );
+
+        // On to another letter, and back onto the anchor: both are changes.
+        assert!(lw.process_mouse_drag_for_selection(anchor_at, further).is_some());
+        let longer = selection(&lw).expect("the drag keeps the session");
+        assert_ne!(longer, dragged);
+        assert!(lw.process_mouse_drag_for_selection(anchor_at, anchor_at).is_some());
+        assert_eq!(selection(&lw), Some(pressed), "back on the anchor: the caret again");
+    }
+}

@@ -28477,12 +28477,13 @@ impl LayoutWindow {
         let moved = !self.same_caret_position(block, anchor, focus);
 
         // Back inside the anchor block: a single-node range again.
+        let mut changed = self.text_edit_manager.get_cross_block_selection().is_some();
         self.text_edit_manager.clear_cross_block_selection();
 
         // Update primary selection: Cursor → Range(anchor, focus)
         let mc = self.text_edit_manager.multi_cursor.as_mut()?;
         if let Some(primary) = mc.get_primary_mut() {
-            primary.selection = if moved {
+            let selection = if moved {
                 Selection::Range(SelectionRange {
                     start: anchor,
                     end: focus,
@@ -28490,6 +28491,15 @@ impl LayoutWindow {
             } else {
                 Selection::Cursor(anchor)
             };
+            changed |= primary.selection != selection;
+            primary.selection = selection;
+        }
+        // A pointer move that ends on the caret position the drag already
+        // ended on changes no highlight: no list is owed, and no frame. (A
+        // drag over text crosses a letter a few times a second and moves 60
+        // to 120 times: every one of those moves rebuilt the DOM's list.)
+        if !changed {
+            return None;
         }
 
         self.text_edit_manager.mark_dirty();
