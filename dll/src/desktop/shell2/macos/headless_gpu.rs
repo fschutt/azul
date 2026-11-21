@@ -49,13 +49,72 @@ extern "C" {
     fn CGLSetCurrentContext(ctx: *mut c_void) -> i32;
 }
 
-/// A CGL context made current on this thread, destroyed when dropped.
-struct OffscreenContext(*mut c_void);
+/// The turn of ONE test with the real renderer, in the whole test process. What the renderer
+/// did is counted for the process (`webrender::azul_counters`: tiles drawn, draw calls,
+/// uploads), and a test reads those counts around its own frames: with a second test drawing
+/// at the same time a count can only be too high. A test that took the smallest of five
+/// counts for that reason (`a_zoom_step_of_a_view_draws_no_tile_again_and_the_settle_draws_them_once`)
+/// was red in every parallel run of the suite once a neighbour drew during all five of its
+/// steps ("every step of the zoom drew tiles again: [1, 2, 1, 2, 1]"; alone, and in the
+/// suite on one thread, green). So the tests that draw with the real renderer run one after
+/// the other: every one of them makes an [`OffscreenContext`], and the context holds the
+/// turn for as long as it lives. This module is test code only (`cfg(test)` where it is
+/// declared): the lock does not exist in a product build.
+///
+/// Per thread the turn is taken once, however many contexts the thread makes while it has
+/// it (a second lock of a plain mutex on the same thread would wait for ever), and given
+/// back when its last context is gone. A poisoned lock (a test that panicked with the
+/// turn) is taken as it is.
+struct RendererTurn;
+
+static RENDERER_TURN: Mutex<()> = Mutex::new(());
+
+thread_local! {
+    /// How many contexts of this thread hold the turn, and the lock while any does.
+    static RENDERER_TURN_HELD: std::cell::RefCell<(usize, Option<std::sync::MutexGuard<'static, ()>>)> =
+        const { std::cell::RefCell::new((0, None)) };
+}
+
+impl RendererTurn {
+    fn take() -> Self {
+        RENDERER_TURN_HELD.with(|held| {
+            let mut held = held.borrow_mut();
+            if held.0 == 0 {
+                held.1 = Some(
+                    RENDERER_TURN
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner),
+                );
+            }
+            held.0 += 1;
+        });
+        Self
+    }
+}
+
+impl Drop for RendererTurn {
+    fn drop(&mut self) {
+        // (`try_with`: a context dropped while the thread's locals are being torn down
+        // finds none; the lock went with them)
+        let _ = RENDERER_TURN_HELD.try_with(|held| {
+            let mut held = held.borrow_mut();
+            held.0 = held.0.saturating_sub(1);
+            if held.0 == 0 {
+                held.1 = None;
+            }
+        });
+    }
+}
+
+/// A CGL context made current on this thread, destroyed when dropped. It holds the
+/// [`RendererTurn`]: taken before the context is made, given back after it is destroyed.
+struct OffscreenContext(*mut c_void, RendererTurn);
 
 impl OffscreenContext {
     /// A 3.2 core context like the window's (`create_opengl_pixel_format`),
     /// on the GPU if there is one, else on any renderer that offers it.
     fn new() -> Option<Self> {
+        let turn = RendererTurn::take();
         const PROFILE: i32 = 99;
         const CORE_3_2: i32 = 0x3200;
         const COLOR_SIZE: i32 = 8;
@@ -88,7 +147,7 @@ impl OffscreenContext {
                     CGLDestroyContext(context);
                     continue;
                 }
-                return Some(Self(context));
+                return Some(Self(context, turn));
             }
         }
         None
