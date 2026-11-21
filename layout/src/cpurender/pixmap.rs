@@ -101,42 +101,43 @@ pub(crate) fn for_each_clipped_pixel(
     clip: Option<(i32, i32, i32, i32)>,
     mut apply: impl FnMut(&mut [u8], [u8; 4]),
 ) {
-    let sw = src.width as i32;
-    let sh = src.height as i32;
-    let dw = dst.width as i32;
-    let dh = dst.height as i32;
-
-    for sy in 0..sh {
-        // saturating: px_y/px_x are caller-supplied device offsets that a large-but-legal
-        // CSS transform can push to ~i32::MAX; a plain `+` overflows. A saturated result
-        // fails the bounds check below and is skipped, which is the intended outcome.
-        let dy = px_y.saturating_add(sy);
-        if dy < 0 || dy >= dh {
+    // The rows and columns of `src` that land inside `dst` and the clip, found once; a row is
+    // then one slice of each buffer. The loops used to visit every pixel of `src` and test it
+    // against the target, the clip and both buffers' lengths: a layer of the window's size
+    // composited under a small clip walked the whole layer (A1-55).
+    let (dw, dh) = (dst.width as i32, dst.height as i32);
+    let (x0, y0, x1, y1) = clip.map_or((0, 0, dw, dh), |(cx0, cy0, cx1, cy1)| {
+        (cx0.max(0), cy0.max(0), cx1.min(dw), cy1.min(dh))
+    });
+    // The `i` in `0..len` with `lo <= at + i < hi`.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // both are in 0..=len
+    let landing_between = |len: u32, at: i32, lo: i32, hi: i32| {
+        let first = (i64::from(lo) - i64::from(at)).max(0);
+        let end = i64::from(len).min(i64::from(hi) - i64::from(at));
+        (end > first).then_some((first as usize, end as usize))
+    };
+    let Some((cols, rows)) =
+        landing_between(src.width, px_x, x0, x1).zip(landing_between(src.height, px_y, y0, y1))
+    else {
+        return;
+    };
+    let (sw, dw) = (src.width as usize, dst.width as usize);
+    let from: &[u8] = &src.data;
+    let to: &mut [u8] = &mut dst.data;
+    for sy in rows.0..rows.1 {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // inside `dst`
+        let (dy, dx) = (
+            (i64::from(px_y) + sy as i64) as usize,
+            (i64::from(px_x) + cols.0 as i64) as usize,
+        );
+        let si = (sy * sw + cols.0) * 4;
+        let di = (dy * dw + dx) * 4;
+        let n = (cols.1 - cols.0).min(whole_pixels(from.len(), si)).min(whole_pixels(to.len(), di));
+        if n == 0 {
             continue;
         }
-        if let Some((_, cy0, _, cy1)) = clip {
-            if dy < cy0 || dy >= cy1 {
-                continue;
-            }
-        }
-        for sx in 0..sw {
-            let dx = px_x.saturating_add(sx);
-            if dx < 0 || dx >= dw {
-                continue;
-            }
-            if let Some((cx0, _, cx1, _)) = clip {
-                if dx < cx0 || dx >= cx1 {
-                    continue;
-                }
-            }
-            let si = ((sy * sw + sx) * 4) as usize;
-            let di = ((dy * dw + dx) * 4) as usize;
-            if si + 3 >= src.data.len() || di + 3 >= dst.data.len() {
-                continue;
-            }
-
-            let px = [src.data[si], src.data[si + 1], src.data[si + 2], src.data[si + 3]];
-            apply(&mut dst.data[di..di + 4], px);
+        for (below, layer) in to[di..di + n * 4].chunks_exact_mut(4).zip(from[si..si + n * 4].chunks_exact(4)) {
+            apply(below, [layer[0], layer[1], layer[2], layer[3]]);
         }
     }
 }
@@ -877,24 +878,16 @@ impl AzulPixmap {
         let old_h = self.height as usize;
         let new_w = new_width as usize;
         let new_h = new_height as usize;
-        let mut new_data = vec![fill_a; new_w * new_h * 4];
-
-        // Fill entire buffer with fill color first (covers right + bottom strips)
-        for chunk in new_data.chunks_exact_mut(4) {
-            chunk[0] = fill_r;
-            chunk[1] = fill_g;
-            chunk[2] = fill_b;
-            chunk[3] = fill_a;
-        }
-
-        // Copy old rows into top-left corner
+        // The old rows in the top-left corner, the right and bottom strips in the fill colour.
         let old_stride = old_w * 4;
         let new_stride = new_w * 4;
-        for row in 0..old_h {
-            let src = row * old_stride;
-            let dst = row * new_stride;
-            new_data[dst..dst + old_stride].copy_from_slice(&self.data[src..src + old_stride]);
-        }
+        let new_data = resized_buffer(
+            &self.data,
+            old_stride,
+            (old_h, old_stride),
+            (new_h, new_stride),
+            [fill_r, fill_g, fill_b, fill_a],
+        );
 
         self.data = new_data.into();
         self.width = new_width;
@@ -924,25 +917,14 @@ impl AzulPixmap {
         let new_stride = new_w * 4;
         let old_stride = old_w * 4;
 
-        let mut new_data = vec![0u8; new_w * new_h * 4];
-
-        // Fill entire buffer with fill color
-        for chunk in new_data.chunks_exact_mut(4) {
-            chunk[0] = fill_r;
-            chunk[1] = fill_g;
-            chunk[2] = fill_b;
-            chunk[3] = fill_a;
-        }
-
-        // Copy overlapping region from old to new
-        let copy_rows = old_h.min(new_h);
-        let copy_cols_bytes = old_stride.min(new_stride);
-        for row in 0..copy_rows {
-            let src = row * old_stride;
-            let dst = row * new_stride;
-            new_data[dst..dst + copy_cols_bytes]
-                .copy_from_slice(&self.data[src..src + copy_cols_bytes]);
-        }
+        // The overlapping region from the old buffer, the rest in the fill colour.
+        let new_data = resized_buffer(
+            &self.data,
+            old_stride,
+            (old_h.min(new_h), old_stride.min(new_stride)),
+            (new_h, new_stride),
+            [fill_r, fill_g, fill_b, fill_a],
+        );
 
         self.data = new_data.into();
         self.width = new_width;
@@ -1026,6 +1008,38 @@ impl AzulPixmap {
             height,
         })
     }
+}
+
+/// A buffer of `new.0` rows of `new.1` bytes: its first `kept.0` rows start with the first
+/// `kept.1` bytes of the same row of `old` (rows of `old_stride` bytes), and every other pixel
+/// is `fill`. Each byte is written once: the resizes filled the whole new buffer with the
+/// colour (after `vec![..]` had written it, too) and then copied the old pixels over that -
+/// two to three passes over a frame of 22 MB on every step of a live resize (A1-56).
+fn resized_buffer(
+    old: &[u8],
+    old_stride: usize,
+    kept: (usize, usize),
+    new: (usize, usize),
+    fill: [u8; 4],
+) -> Vec<u8> {
+    let (rows, stride) = new;
+    // Zeroed by the allocator: nothing more is written for a transparent fill.
+    let mut data = vec![0u8; rows * stride];
+    if stride == 0 {
+        return data;
+    }
+    for (row, line) in data.chunks_exact_mut(stride).enumerate() {
+        let from_old = if row < kept.0 { kept.1.min(stride) } else { 0 };
+        if from_old > 0 {
+            line[..from_old].copy_from_slice(&old[row * old_stride..row * old_stride + from_old]);
+        }
+        if fill != [0; 4] {
+            for px in line[from_old..].chunks_exact_mut(4) {
+                px.copy_from_slice(&fill);
+            }
+        }
+    }
+    data
 }
 
 // ============================================================================
@@ -4616,5 +4630,102 @@ mod audit_a1_tests {
         }
         assert_eq!(checked, 6 * 6 * 6);
         let _ = crate::cpu_counters::take();
+    }
+
+
+    /// A1-55: a layer blit walks the pixels that land inside the target and the clip, row by
+    /// row. The same bytes as the loop over every pixel of the layer it replaces (here, on
+    /// plain buffers, with `blend_over` at an opacity of 0.5 = 127), for a 6 x 5 layer at every kind
+    /// of place around a 9 x 7 target under no clip, a clip inside it, one that reaches past
+    /// it and an empty one; and `copy_pixmap_clipped` copies exactly those pixels.
+    /// Mutation: the clip's near edge left out of `landing_between` paints left of the clip.
+    #[test]
+    fn a_layer_blit_over_what_lands_is_the_blit_over_every_pixel() {
+        let mut layer = AzulPixmap::new(6, 5).expect("a layer");
+        for (i, px) in layer.data_mut().chunks_exact_mut(4).enumerate() {
+            let a = [0_u8, 255, 90, 255, 1, 254, 200][i % 7];
+            let premultiplied = |v: usize| (v % 256 * usize::from(a) / 255) as u8;
+            px.copy_from_slice(&[premultiplied(i * 11), premultiplied(i * 23), premultiplied(i * 37), a]);
+        }
+        let old = |dst: &mut [u8], (px_x, px_y): (i32, i32), clip: Option<(i32, i32, i32, i32)>, copy: bool| {
+            for sy in 0..5_i32 {
+                for sx in 0..6_i32 {
+                    let (dx, dy) = (px_x.saturating_add(sx), px_y.saturating_add(sy));
+                    if dx < 0 || dx >= 9 || dy < 0 || dy >= 7 {
+                        continue;
+                    }
+                    if clip.is_some_and(|(cx0, cy0, cx1, cy1)| dx < cx0 || dx >= cx1 || dy < cy0 || dy >= cy1) {
+                        continue;
+                    }
+                    let (si, di) = (((sy * 6 + sx) * 4) as usize, ((dy * 9 + dx) * 4) as usize);
+                    let s = &layer.data()[si..si + 4];
+                    if copy {
+                        dst[di..di + 4].copy_from_slice(s);
+                    } else {
+                        blend_over(&mut dst[di..di + 4], [s[0], s[1], s[2], s[3]], 127);
+                    }
+                }
+            }
+        };
+        let clips = [None, Some((2, 1, 7, 5)), Some((-4, -4, 40, 40)), Some((5, 5, 5, 9)), Some((8, 0, 3, 7))];
+        for px_x in [-7, -2, 0, 4, 8, 9] {
+            for px_y in [-6, -1, 0, 3, 6, 7] {
+                for clip in clips {
+                    let mut new = patterned_target();
+                    let mut want = patterned_target().data().to_vec();
+                    blit_pixmap_clipped(&layer, &mut new, px_x, px_y, 0.5, clip);
+                    old(&mut want, (px_x, px_y), clip, false);
+                    assert!(new.data() == want.as_slice(), "blended at ({px_x}, {px_y}) under {clip:?}");
+                    let mut new = patterned_target();
+                    let mut want = patterned_target().data().to_vec();
+                    copy_pixmap_clipped(&layer, &mut new, px_x, px_y, clip);
+                    old(&mut want, (px_x, px_y), clip, true);
+                    assert!(new.data() == want.as_slice(), "copied at ({px_x}, {px_y}) under {clip:?}");
+                }
+            }
+        }
+    }
+
+    /// A1-56: a resized pixmap holds the old pixels where the two sizes overlap and the fill
+    /// colour everywhere else, each byte written once. A 5 x 4 pixmap of numbered pixels made
+    /// larger, smaller, wider and lower, narrower and higher: pixel (x, y) is the old one
+    /// where x < 5 and y < 4, else the colour; growing does the same and refuses to shrink.
+    /// Mutation: the fill from byte 0 of every row writes over the kept pixels.
+    #[test]
+    fn a_resized_pixmap_keeps_what_overlaps_and_fills_the_rest() {
+        let numbered = || {
+            let mut pm = AzulPixmap::new(5, 4).expect("a pixmap");
+            for (i, px) in pm.data_mut().chunks_exact_mut(4).enumerate() {
+                px.copy_from_slice(&[i as u8, 100, 200, 255]);
+            }
+            pm
+        };
+        let check = |pm: &AzulPixmap, fill: [u8; 4], what: &str| {
+            for y in 0..pm.height() {
+                for x in 0..pm.width() {
+                    let at = ((y * pm.width() + x) * 4) as usize;
+                    let want = if x < 5 && y < 4 { [(y * 5 + x) as u8, 100, 200, 255] } else { fill };
+                    assert_eq!(&pm.data()[at..at + 4], &want[..], "{what}: pixel ({x}, {y})");
+                }
+            }
+        };
+        for (w, h) in [(8, 6), (3, 2), (8, 2), (3, 6), (5, 4), (5, 9)] {
+            for fill in [[9, 8, 7, 255], [0, 0, 0, 0]] {
+                let mut pm = numbered();
+                pm.resize_reuse(w, h, fill[0], fill[1], fill[2], fill[3]);
+                assert_eq!((pm.width(), pm.height(), pm.data().len()), (w, h, (w * h * 4) as usize));
+                check(&pm, fill, "resize_reuse");
+                let mut pm = numbered();
+                let grown = pm.resize_grow_only(w, h, fill[0], fill[1], fill[2], fill[3]);
+                if w >= 5 && h >= 4 {
+                    assert!(grown.is_some());
+                    assert_eq!((pm.width(), pm.height()), (w, h));
+                    check(&pm, fill, "resize_grow_only");
+                } else {
+                    assert!(grown.is_none(), "a pixmap does not shrink by growing");
+                    assert_eq!((pm.width(), pm.height()), (5, 4));
+                }
+            }
+        }
     }
 }
