@@ -2296,12 +2296,31 @@ impl WindowGpuValues {
         doms: impl IntoIterator<Item = azul_core::dom::DomId>,
     ) -> Self {
         let mut values = Self::default();
+        // A9-03: straight into the merged maps. A map per DOM, copied into these and
+        // dropped, hashed and stored every value twice per frame (2,119 transforms of the
+        // editor's view: two maps of ~299 KB).
+        let Self {
+            transforms,
+            opacities,
+            colors,
+        } = &mut values;
         for dom in doms {
-            let cache = gpu_state.get_cache(dom);
-            let (transforms, opacities) = extract_gpu_values(cache, dom);
-            values.transforms.extend(transforms);
-            values.opacities.extend(opacities);
-            values.colors.extend(extract_gpu_colors(cache));
+            let Some(cache) = gpu_state.get_cache(dom) else {
+                continue;
+            };
+            transforms.reserve(cache.css_transform_keys.len());
+            cache.for_each_bound_value(
+                dom,
+                |key, value| {
+                    transforms.insert(key, *value);
+                },
+                |key, value| {
+                    opacities.insert(key, value);
+                },
+            );
+            cache.for_each_bound_color(|key, color| {
+                colors.insert(key, color);
+            });
         }
         values
     }

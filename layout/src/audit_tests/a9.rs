@@ -117,3 +117,60 @@ fn a9_04_a_dropped_child_leaves_no_fingerprints_or_layout_cache() {
     assert_eq!(lw.child_dom_fingerprints.len(), 0);
     assert_eq!(lw.child_layout_caches.len(), 0);
 }
+
+/// A9-03: `WindowGpuValues::of_doms` (now inserting straight into the merged maps) gives what
+/// the per-DOM extraction merged gave: every DOM's transforms, opacities and colours, a DOM
+/// without a cache contributing nothing.
+#[cfg(all(feature = "text_layout", feature = "cpurender"))]
+#[test]
+fn a9_03_of_doms_equals_the_per_dom_extraction() {
+    use azul_core::{
+        dom::{DomId, NodeId},
+        resources::{ColorKey, OpacityKey, TransformKey},
+        transform::ComputedTransform3D,
+    };
+    use azul_css::props::basic::ColorU;
+
+    use crate::{
+        cpurender::{extract_gpu_colors, extract_gpu_values, WindowGpuValues},
+        managers::gpu_state::GpuStateManager,
+    };
+
+    let mut gpu = GpuStateManager::default();
+    let root = DomId::ROOT_ID;
+    let view = DomId { inner: 1 };
+    let empty = DomId { inner: 7 };
+    for (dom, n) in [(root, 3usize), (view, 2_119)] {
+        let cache = gpu.get_or_create_cache(dom);
+        for i in 0..n {
+            let node = NodeId::new(i);
+            cache.css_transform_keys.insert(node, TransformKey::unique());
+            cache
+                .css_current_transform_values
+                .insert(node, ComputedTransform3D::new_translation(i as f32, 1.0, 0.0));
+            if i % 7 == 0 {
+                cache.opacity_keys.insert(node, OpacityKey::unique());
+                cache.current_opacity_values.insert(node, 0.5);
+            }
+            if i % 11 == 0 {
+                cache.color_keys.insert(node, ColorKey::unique());
+                cache.current_color_values.insert(node, ColorU { r: 1, g: 2, b: 3, a: 4 });
+            }
+        }
+    }
+    let doms = [root, view, empty];
+    let fresh = WindowGpuValues::of_doms(&gpu, doms);
+
+    let mut merged = WindowGpuValues::default();
+    for dom in doms {
+        let cache = gpu.get_cache(dom);
+        let (t, o) = extract_gpu_values(cache, dom);
+        merged.transforms.extend(t);
+        merged.opacities.extend(o);
+        merged.colors.extend(extract_gpu_colors(cache));
+    }
+    assert_eq!(fresh, merged);
+    assert_eq!(fresh.transforms.len(), 3 + 2_119);
+    assert_eq!(fresh.opacities.len(), 1 + 303);
+    assert_eq!(fresh.colors.len(), 1 + 193);
+}
