@@ -506,3 +506,34 @@ fn wayland_sizes_and_renders_with_the_compositors_preferred_scale() {
         "a scale change remakes the buffers and repaints the frame in full"
     );
 }
+
+/// A10-11. The iOS present hands Core Graphics a copy of the frame. It takes
+/// the copy's buffer from the pool the release callback fills (two buffers
+/// alternate: `a_run_of_whole_frame_presents_allocates_two_buffers` in
+/// azul-layout), and it hands nothing over while the layer still shows the
+/// frame (`frame_already_shown`: no frame since, or one that changed nothing).
+///
+/// Mutations: `Box::from(pixmap.data())` back in `display_layer`, the release
+/// callback dropping the box, or the skip removed, fail here.
+#[test]
+fn the_ios_present_reuses_its_frame_copies_and_skips_an_unchanged_frame() {
+    let present = body(IOS_RS, "extern \"C\" fn display_layer(");
+    assert!(
+        present.contains("pool.take(len)") && !present.contains("Box::from(pixmap.data())"),
+        "the frame copy must come from the pool"
+    );
+    let skip = present
+        .find("present_geometry::frame_already_shown(")
+        .expect("the present must ask whether the layer already shows the frame");
+    let copy = present.find("pool.take(len)").expect("the copy");
+    assert!(skip < copy, "the skip comes before the copy");
+    assert!(
+        present.contains("let contents: *mut Object = msg_send![layer, contents];"),
+        "a layer without contents is never skipped"
+    );
+    let release = body(IOS_RS, "extern \"C\" fn release_frame_pixels(");
+    assert!(
+        release.contains("pool.give_back(buffer);"),
+        "the release callback must give the buffer back to the pool"
+    );
+}

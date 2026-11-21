@@ -977,6 +977,59 @@ pub mod present_geometry {
     }
 }
 
+/// Frame-sized byte buffers that a shell hands to its window system and gets
+/// back some time later (Core Graphics calls a data provider's release
+/// callback when the layer lets go of the image): kept and handed out again
+/// instead of allocated and freed per present (audit A10-11).
+///
+/// At a steady frame size two buffers alternate (the one on screen and the
+/// one being filled), so a run of presents allocates twice.
+#[derive(Debug, Default)]
+pub struct FrameBufferPool {
+    free: Vec<Box<[u8]>>,
+    allocations: u64,
+}
+
+impl FrameBufferPool {
+    /// How many returned buffers are kept; more are freed.
+    pub const KEPT: usize = 3;
+
+    /// An empty pool.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            free: Vec::new(),
+            allocations: 0,
+        }
+    }
+
+    /// A buffer of exactly `len` bytes. Its contents are whatever the last
+    /// frame left in it: the caller overwrites all of it.
+    #[must_use]
+    pub fn take(&mut self, len: usize) -> Box<[u8]> {
+        if let Some(i) = self.free.iter().position(|buffer| buffer.len() == len) {
+            return self.free.swap_remove(i);
+        }
+        // Another frame size: the kept buffers fit no frame any more.
+        self.free.clear();
+        self.allocations += 1;
+        vec![0_u8; len].into_boxed_slice()
+    }
+
+    /// The window system is done with `buffer`.
+    pub fn give_back(&mut self, buffer: Box<[u8]>) {
+        if self.free.len() < Self::KEPT {
+            self.free.push(buffer);
+        }
+    }
+
+    /// How many buffers were allocated so far (the count the tests read).
+    #[must_use]
+    pub const fn allocations(&self) -> u64 {
+        self.allocations
+    }
+}
+
 impl LayoutWindow {
     /// THE factor of this window's frame, device pixels per logical pixel:
     /// what every shell hands `CpuBackend::render_frame` and sizes its buffer

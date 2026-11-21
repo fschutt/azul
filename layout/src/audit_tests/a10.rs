@@ -16,7 +16,7 @@ use crate::window::{
         frame_dpi_factor, frame_size_px, logical_len_for_px, preferred_scale,
         rows_of_bottom_left_rect, surface_len_px, wayland_frame_scale, PxRect,
     },
-    FrameClock, FrameDamage,
+    FrameBufferPool, FrameClock, FrameDamage,
 };
 
 fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
@@ -487,4 +487,48 @@ fn a_whole_frame_present_is_skipped_only_when_the_frame_is_already_shown() {
     assert!(frame_already_shown(8, Some(7), true), "one frame since, and it changed nothing");
     assert!(!frame_already_shown(8, Some(7), false), "one frame since, with damage");
     assert!(!frame_already_shown(u64::MAX, Some(u64::MAX - 2), true));
+}
+
+/// A10-11. A shell that hands the window system a copy of each frame (iOS:
+/// the data provider of the layer's image) keeps the copies' buffers: the
+/// buffer of frame N comes back when frame N + 1 is on screen, and is the
+/// buffer of frame N + 2. A hundred presents allocate two buffers, not a
+/// hundred; a change of the frame's size allocates two more.
+///
+/// Mutation: `take` allocating every time (no reuse) gives 100 and 200.
+#[test]
+fn a_run_of_whole_frame_presents_allocates_two_buffers() {
+    let mut pool = FrameBufferPool::new();
+    let mut on_screen: Option<Box<[u8]>> = None;
+    let mut present = |pool: &mut FrameBufferPool, len: usize| {
+        let mut buffer = pool.take(len);
+        assert_eq!(buffer.len(), len);
+        buffer.fill(7);
+        // The layer takes the new image and lets go of the one before.
+        if let Some(previous) = on_screen.replace(buffer) {
+            pool.give_back(previous);
+        }
+    };
+    for _ in 0..100 {
+        present(&mut pool, 4 * 300 * 200);
+    }
+    assert_eq!(pool.allocations(), 2, "two buffers alternate at a steady size");
+    for _ in 0..100 {
+        present(&mut pool, 4 * 320 * 200);
+    }
+    assert_eq!(pool.allocations(), 4, "a resize allocates two more, once");
+
+    // More buffers come back than are kept: the rest is freed, not hoarded.
+    let mut pool = FrameBufferPool::new();
+    let taken: Vec<Box<[u8]>> = (0..8).map(|_| pool.take(64)).collect();
+    assert_eq!(pool.allocations(), 8);
+    for buffer in taken {
+        pool.give_back(buffer);
+    }
+    for _ in 0..FrameBufferPool::KEPT {
+        let _reused = pool.take(64);
+    }
+    assert_eq!(pool.allocations(), 8, "the kept ones are handed out again");
+    let _fresh = pool.take(64);
+    assert_eq!(pool.allocations(), 9, "only KEPT were kept");
 }
