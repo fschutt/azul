@@ -2308,3 +2308,52 @@ fn test_find_scroll_root_root_pipeline_under_a_complex_frame() {
         );
     }
 }
+
+/// azul (audit A4-29). A picture cache asks for the scale and the offset
+/// between its spatial node and the screen. Below a frame whose value is a
+/// scale and a translation it gets them; below one that TURNS - a frame its
+/// host declared a 2D scale / translation and then gave another value - there
+/// is none, and upstream panicked on the render backend ("pictures caches
+/// don't support complex transforms"). Now the cache is drawn untransformed
+/// for that frame and the case is counted.
+/// Mutation: the `expect` back in `get_relative_scale_offset` panics here;
+/// the counter call removed fails the last assertion.
+#[test]
+fn test_a_picture_cache_under_a_turned_frame_is_drawn_untransformed_and_counted() {
+    let mut cst = SceneSpatialTree::new();
+    let root = cst.root_reference_frame_index();
+    let scaled = add_reference_frame(
+        &mut cst,
+        root,
+        LayoutTransform::scale(2.0, 2.0, 1.0),
+        LayoutVector2D::zero(),
+        SpatialTreeItemKey::new(0, 0),
+    );
+    // A quarter turn about z.
+    let turned = add_reference_frame(
+        &mut cst,
+        root,
+        LayoutTransform::new(
+            0.0, 1.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+        ),
+        LayoutVector2D::zero(),
+        SpatialTreeItemKey::new(0, 1),
+    );
+
+    let mut st = SpatialTree::new();
+    st.apply_updates(cst.end_frame_and_get_pending_updates());
+    st.update_tree(&SceneProperties::new());
+
+    let plain = crate::picture::get_relative_scale_offset(scaled, root, &st);
+    assert_eq!((plain.scale.x, plain.scale.y), (2.0, 2.0));
+
+    let before = crate::azul_counters::snapshot();
+    let fallback = crate::picture::get_relative_scale_offset(turned, root, &st);
+    assert_eq!(fallback, ScaleOffset::identity());
+    assert!(
+        crate::azul_counters::snapshot()
+            .since(&before)
+            .complex_tile_cache_transforms
+            >= 1
+    );
+}
