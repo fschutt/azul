@@ -2012,6 +2012,29 @@ pub fn adjust_sticky_positions<T: ParsedFontTrait>(
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
     viewport: LogicalRect,
 ) -> Vec<(usize, StickyConstraint)> {
+    adjust_sticky_positions_of(ctx, tree, calculated_positions, scroll_offsets, viewport, None)
+}
+
+/// [`adjust_sticky_positions`] in a pass that placed only some boxes.
+///
+/// A sticky box is shifted from where normal flow put it, and that place is
+/// kept for later scrolls ([`StickyConstraint::static_rect`]). The position
+/// vector holds it only for a box the pass has just placed: an incremental
+/// pass takes every other position from the pass before, shifted already.
+/// `placed_now[i]` says that the position of box `i` is one this pass
+/// computed from the flow (`None`: all of them); for any other box the place
+/// normal flow gave it is the one its constraint of the pass before holds
+/// (`LayoutNodeWarm::sticky`, still in the tree while this runs).
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
+pub fn adjust_sticky_positions_of<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    calculated_positions: &mut super::PositionVec,
+    scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
+    viewport: LogicalRect,
+    placed_now: Option<&[bool]>,
+) -> Vec<(usize, StickyConstraint)> {
     // Returns no `Result`: Ok-always (its only `?` is Option-`?` in an `.and_then`
     // closure). Avoids the lift-fragile Result Ok-niche read at the call site.
     let mut constraints = Vec::new();
@@ -2073,7 +2096,36 @@ pub fn adjust_sticky_positions<T: ParsedFontTrait>(
             continue;
         };
 
-        let static_pos = *current_pos;
+        // Where normal flow put the box: its position, if this pass placed
+        // it. Otherwise the position is the one the pass before SHIFTED, and
+        // the flow's place is in that pass's constraint - exactly, while the
+        // position is still that place plus that shift (bit for bit), and
+        // moved along with the position when something moved the box's
+        // subtree since (a sibling before it that grew).
+        let kept = placed_now
+            .is_some_and(|placed| !placed.get(node_index).copied().unwrap_or(false))
+            .then(|| {
+                tree.warm(LayoutNodeId::new(node_index))
+                    .and_then(|w| w.sticky.as_deref().copied())
+            })
+            .flatten();
+        let static_pos = match kept {
+            Some(before) => {
+                let flow = before.static_rect.origin;
+                let shifted = LogicalPosition::new(flow.x + before.baked.x, flow.y + before.baked.y);
+                if shifted.x.to_bits() == current_pos.x.to_bits()
+                    && shifted.y.to_bits() == current_pos.y.to_bits()
+                {
+                    flow
+                } else {
+                    LogicalPosition::new(
+                        current_pos.x - before.baked.x,
+                        current_pos.y - before.baked.y,
+                    )
+                }
+            }
+            None => *current_pos,
+        };
         let element_size = node.used_size.unwrap_or_default();
         let nbp = node.box_props.unpack();
         let margin = &nbp.margin;
@@ -2088,9 +2140,10 @@ pub fn adjust_sticky_positions<T: ParsedFontTrait>(
         };
         let shift = constraint.shift_at(scroll_offset);
         constraint.baked = shift;
-        if shift.x != 0.0 || shift.y != 0.0 {
-            current_pos.x += shift.x;
-            current_pos.y += shift.y;
+        if kept.is_some() || shift.x != 0.0 || shift.y != 0.0 {
+            // (For a box this pass placed, `static_pos` is the position.)
+            current_pos.x = static_pos.x + shift.x;
+            current_pos.y = static_pos.y + shift.y;
 
             debug_log!(
                 ctx,

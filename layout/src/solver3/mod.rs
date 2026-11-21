@@ -1882,15 +1882,15 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // positioning absolute elements, the absolute elements will be positioned
     // relative to the wrong (pre-adjustment) position of their containing block.
     // Pass the viewport to correctly resolve percentage offsets for the root element.
-    {
-        let _p = crate::probe::Probe::span("adjust_relative_positions");
-        // The boxes whose position this pass computed from the flow: every
-        // box BELOW a layout root that was laid out. A root's own position
-        // is the one it had (it is laid out where it stood) - the tree
-        // root's too, unless no pass had placed it yet - and so is every
-        // position outside the roots' subtrees: the relative shift is in
-        // those already and must not be added again.
-        let placed_now: Vec<bool> = {
+    // The boxes whose position this pass computed from the flow: every
+    // box BELOW a layout root that was laid out. A root's own position
+    // is the one it had (it is laid out where it stood) - the tree
+    // root's too, unless no pass had placed it yet - and so is every
+    // position outside the roots' subtrees: the relative shift (and the
+    // sticky one, Step 3.25) is in those already and must not be added
+    // again.
+    let placed_now: Vec<bool> = {
+        {
             let mut placed = vec![false; new_tree.nodes.len()];
             let mut stack: Vec<usize> = Vec::new();
             for &root in &laid_out_roots {
@@ -1913,7 +1913,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 }
             }
             placed
-        };
+        }
+    };
+    {
+        let _p = crate::probe::Probe::span("adjust_relative_positions");
         positioning::adjust_relative_positions_of(
             &mut ctx,
             &new_tree,
@@ -1930,12 +1933,13 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // absolute positioning (sticky elements establish containing blocks).
     {
         let _p = crate::probe::Probe::span("adjust_sticky_positions");
-        let constraints = positioning::adjust_sticky_positions(
+        let constraints = positioning::adjust_sticky_positions_of(
             &mut ctx,
             &new_tree,
             &mut calculated_positions,
             scroll_offsets,
             viewport,
+            Some(&placed_now),
         );
         // Each sticky box keeps what a scroll after this pass needs to move
         // it (`StickyConstraint`); a box that stopped being sticky drops it.
