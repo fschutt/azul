@@ -629,6 +629,62 @@ fn count_cells_built(glyph_cache: &GlyphCache, before: u64) {
     }
 }
 
+/// The buffer kept under `key`, with its size, and `key` is the most recently used from here
+/// on.
+///
+/// The order of use (`cache.1`) may hold a key at several places: its LAST one counts
+/// ([`keep_shadow`] skips the others when it evicts). A use is then a push. It was a `retain`
+/// over the whole order to take the key's old place out - every kept shadow visited for every
+/// shadow of every pass, inside the lock the band threads share (1,600 small shadows kept:
+/// 2.5 million visits a frame). The order is compacted to one place per key when it holds
+/// more than twice the kept shadows and 64.
+fn kept_shadow(cache: &mut ShadowCache, key: u64) -> Option<(std::sync::Arc<Vec<u8>>, u32, u32)> {
+    let entry = cache.0.get(&key)?;
+    let found = (std::sync::Arc::clone(&entry.data), entry.w, entry.h);
+    if cache.1.back() != Some(&key) {
+        cache.1.push_back(key);
+        if cache.1.len() > 2 * cache.0.len() + 64 {
+            let mut seen = std::collections::HashSet::with_capacity(cache.0.len());
+            let mut last_places: Vec<u64> =
+                cache.1.iter().rev().copied().filter(|k| seen.insert(*k)).collect();
+            last_places.reverse();
+            cache.1 = last_places.into();
+        }
+    }
+    Some(found)
+}
+
+/// Keep `data` (`w` x `h` px) under `key`, as the most recently used; the least recently used
+/// buffers go until it fits under [`SHADOW_CACHE_MAX_BYTES`], and a buffer larger than that
+/// is not kept.
+fn keep_shadow(cache: &mut ShadowCache, key: u64, data: &std::sync::Arc<Vec<u8>>, w: u32, h: u32) {
+    let bytes = data.len();
+    if bytes > SHADOW_CACHE_MAX_BYTES {
+        // It can never fit: making room for it emptied the whole cache, on every draw of it.
+        return;
+    }
+    if let Some(replaced) = cache.0.remove(&key) {
+        cache.2 = cache.2.saturating_sub(replaced.data.len());
+    }
+    while cache.2 + bytes > SHADOW_CACHE_MAX_BYTES {
+        let Some(oldest) = cache.1.pop_front() else {
+            break;
+        };
+        // Used again since this place in the order: its later place decides.
+        if cache.1.contains(&oldest) {
+            continue;
+        }
+        if let Some(old) = cache.0.remove(&oldest) {
+            cache.2 = cache.2.saturating_sub(old.data.len());
+        }
+    }
+    if cache.2 + bytes <= SHADOW_CACHE_MAX_BYTES {
+        cache.0.insert(key, ShadowCacheEntry { data: std::sync::Arc::clone(data), w, h });
+        cache.1.push_back(key);
+        cache.2 += bytes;
+    }
+}
+
 /// The box-shadow cache this thread paints with: the frame's shared one in a band, else its own.
 fn with_shadow_cache<R>(f: impl FnOnce(&mut ShadowCache) -> R) -> R {
     let shared = FRAME_SHADOW_CACHE.with(|frame| frame.borrow().clone());
@@ -911,18 +967,7 @@ fn render_box_shadow(
         h.finish()
     };
 
-    let cached = with_shadow_cache(|c| {
-        if let Some(e) = c.0.get(&cache_key) {
-            // LRU touch.
-            let data = e.data.clone();
-            let (w, h) = (e.w, e.h);
-            c.1.retain(|k| *k != cache_key);
-            c.1.push_back(cache_key);
-            Some((data, w, h))
-        } else {
-            None
-        }
-    });
+    let cached = with_shadow_cache(|c| kept_shadow(c, cache_key));
 
     let (shadow_data, sw, sh) = if let Some((data, w, h)) = cached {
         drop(crate::probe::Probe::span("shadow_cache_hit"));
@@ -987,30 +1032,7 @@ fn render_box_shadow(
         }
 
         let data = std::sync::Arc::new(tmp.data.into_vec());
-        with_shadow_cache(|c| {
-            let bytes = data.len();
-            // Evict LRU until the new entry fits.
-            while c.2 + bytes > SHADOW_CACHE_MAX_BYTES {
-                let Some(old_key) = c.1.pop_front() else {
-                    break;
-                };
-                if let Some(old) = c.0.remove(&old_key) {
-                    c.2 = c.2.saturating_sub(old.data.len());
-                }
-            }
-            if c.2 + bytes <= SHADOW_CACHE_MAX_BYTES {
-                c.0.insert(
-                    cache_key,
-                    ShadowCacheEntry {
-                        data: data.clone(),
-                        w: sw,
-                        h: sh,
-                    },
-                );
-                c.1.push_back(cache_key);
-                c.2 += bytes;
-            }
-        });
+        with_shadow_cache(|c| keep_shadow(c, cache_key, &data, sw, sh));
         (data, sw, sh)
     };
 
@@ -19785,5 +19807,46 @@ mod audit_a1_tests {
         assert_eq!(boxes.out, PixelBox { x: 8, y: 8, width: 12, height: 14 });
         let unclipped = text_shadow_boxes(source, 2, None, (100, 100)).expect("it lands");
         assert_eq!(unclipped.out, PixelBox { x: 8, y: 8, width: 24, height: 14 });
+    }
+
+
+    /// A1-53: a use of a kept box shadow makes it the most recently used without a search of
+    /// the order, the order stays short however often shadows are used, and the least
+    /// recently used one still goes first. Three buffers of 6 MB under the 16 MB bound: 1 and
+    /// 2 are kept, 1 is used, 3 does not fit beside both: 2 goes. Then 20,000 uses of 1 and 3
+    /// in turn: the order holds at most 2 x 2 + 64 places (one more before it is compacted),
+    /// not 20,000. Then 1 is used last and 4 evicts 3.
+    /// Mutation: the `contains` test left out of `keep_shadow` evicts 1 (its first place is
+    /// the front of the order); without the compaction the order grows by a place per use.
+    #[test]
+    fn a_used_shadow_is_the_newest_without_a_search_of_the_order() {
+        let six_mb = 6 << 20;
+        let mut cache = ShadowCache::default();
+        let keep = |cache: &mut ShadowCache, key: u64| keep_shadow(cache, key, &Arc::new(vec![0_u8; six_mb]), 1, 1);
+        let held = |cache: &ShadowCache| {
+            let mut keys: Vec<u64> = cache.0.keys().copied().collect();
+            keys.sort_unstable();
+            keys
+        };
+        keep(&mut cache, 1);
+        keep(&mut cache, 2);
+        assert!(kept_shadow(&mut cache, 1).is_some());
+        keep(&mut cache, 3);
+        assert_eq!(held(&cache), vec![1, 3], "the least recently used made room");
+        assert_eq!(cache.2, 2 * six_mb);
+        for i in 0..20_000_u64 {
+            assert!(kept_shadow(&mut cache, [1, 3][(i % 2) as usize]).is_some());
+        }
+        assert!(cache.1.len() <= 2 * 2 + 64 + 1, "the order holds {} places for two shadows", cache.1.len());
+        assert!(kept_shadow(&mut cache, 1).is_some());
+        keep(&mut cache, 4);
+        assert_eq!(held(&cache), vec![1, 4], "3 was used before 1");
+        assert!(kept_shadow(&mut cache, 9).is_none());
+        // A buffer over the bound is not kept, and what is kept stays (making room for it
+        // emptied the cache before).
+        keep_shadow(&mut cache, 5, &Arc::new(vec![0_u8; SHADOW_CACHE_MAX_BYTES + 4]), 1, 1);
+        assert!(kept_shadow(&mut cache, 5).is_none());
+        assert_eq!(held(&cache), vec![1, 4]);
+        assert_eq!(cache.2, cache.0.values().map(|e| e.data.len()).sum::<usize>());
     }
 }
