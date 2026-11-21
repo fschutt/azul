@@ -838,6 +838,44 @@ mod autotest_generated {
         assert_eq!(nan.dims.flex_shrink, 0);
     }
 
+    /// A3-core-24: `tab-size: 4` is kept by the parser as `4em`; encoded as a
+    /// px length it was the sentinel, which the reader takes for the default
+    /// 8. And a `border-spacing` in another unit than px left its slot at
+    /// 0, which the reader takes for 0 px. The slot holds the tab size's
+    /// number, and the sentinel ("read the cascade") for such a spacing.
+    #[test]
+    fn a_declared_tab_size_and_a_relative_border_spacing_are_not_the_default() {
+        use azul_css::props::{layout::table::LayoutBorderSpacing, style::text::StyleTabSize};
+
+        let tab = |inner: PixelValue| {
+            let mut s = Sink::new();
+            s.apply(&CssProperty::TabSize(CssPropertyValue::Exact(StyleTabSize { inner })));
+            s.cold.tab_size
+        };
+        assert_eq!(tab(PixelValue::em(4.0)), 40, "tab-size: 4");
+        assert_eq!(tab(PixelValue::em(2.5)), 25, "tab-size: 2.5");
+        assert_eq!(tab(PixelValue::px(20.0)), 200, "tab-size: 20px");
+        assert_eq!(tab(PixelValue::em(0.0)), 0, "tab-size: 0");
+        let mut unset = Sink::new();
+        unset.apply(&CssProperty::TabSize(CssPropertyValue::Initial));
+        assert!(unset.cold.tab_size >= I16_SENTINEL_THRESHOLD, "a keyword is no number");
+
+        let spacing = |horizontal: PixelValue, vertical: PixelValue| {
+            let mut s = Sink::new();
+            s.apply(&CssProperty::BorderSpacing(CssPropertyValue::Exact(LayoutBorderSpacing {
+                horizontal,
+                vertical,
+            })));
+            (s.cold.border_spacing_h, s.cold.border_spacing_v)
+        };
+        assert_eq!(spacing(PixelValue::px(3.0), PixelValue::px(4.5)), (30, 45));
+        assert_eq!(
+            spacing(PixelValue::em(0.5), PixelValue::px(2.0)),
+            (I16_SENTINEL, 20),
+            "an em spacing is asked of the cascade, not read as 0"
+        );
+    }
+
     #[test]
     fn apply_gap_px_sets_both_axes_and_ignores_unresolvable_units() {
         let mut s = Sink::new();

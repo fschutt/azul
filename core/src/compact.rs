@@ -363,20 +363,16 @@ impl CssPropertyCache {
             // Border spacing (two PixelValue → i16 × 10 resolved px)
             if let Some(val) = self.get_border_spacing(nd, &node_id, &default_state) {
                 if let Some(spacing) = val.get_property() {
-                    if spacing.horizontal.metric == SizeMetric::Px {
-                        result.tier2_cold[i].border_spacing_h =
-                            encode_resolved_px_i16(spacing.horizontal.number.get());
-                    }
-                    if spacing.vertical.metric == SizeMetric::Px {
-                        result.tier2_cold[i].border_spacing_v =
-                            encode_resolved_px_i16(spacing.vertical.number.get());
-                    }
+                    result.tier2_cold[i].border_spacing_h =
+                        encode_border_spacing_i16(spacing.horizontal);
+                    result.tier2_cold[i].border_spacing_v =
+                        encode_border_spacing_i16(spacing.vertical);
                 }
             }
 
-            // Tab size (PixelValue → i16 × 10 resolved px)
+            // Tab size (its number, of spaces or of px, x 10 in an i16)
             if let Some(val) = self.get_tab_size(nd, &node_id, &default_state) {
-                result.tier2_cold[i].tab_size = encode_css_pixel_as_i16(val);
+                result.tier2_cold[i].tab_size = encode_tab_size_i16(val);
             }
 
             // =====================================================================
@@ -2077,16 +2073,12 @@ fn apply_css_property_to_compact(
         }
         CssProperty::BorderSpacing(v) => {
             if let Some(spacing) = v.get_property() {
-                if spacing.horizontal.metric == SizeMetric::Px {
-                    cold.border_spacing_h = encode_resolved_px_i16(spacing.horizontal.number.get());
-                }
-                if spacing.vertical.metric == SizeMetric::Px {
-                    cold.border_spacing_v = encode_resolved_px_i16(spacing.vertical.number.get());
-                }
+                cold.border_spacing_h = encode_border_spacing_i16(spacing.horizontal);
+                cold.border_spacing_v = encode_border_spacing_i16(spacing.vertical);
             }
         }
         CssProperty::TabSize(v) => {
-            cold.tab_size = encode_css_pixel_as_i16(v);
+            cold.tab_size = encode_tab_size_i16(v);
         }
 
         // Tier 2b text
@@ -2823,6 +2815,35 @@ fn encode_css_pixel_as_i16<T: HasInnerPixelValue>(val: &CssPropertyValue<T>) -> 
         _ => return I16_SENTINEL,
     };
     azul_css::compact_cache::encode_css_pixel_as_i16(&mapped)
+}
+
+/// One axis of `border-spacing` for its slot: px in tenths; any other unit (`0.5em`) or a
+/// length beyond the slot as the sentinel, which sends the table's reader to the cascade.
+///
+/// A spacing in another unit used to leave the slot at its default, 0, which the reader
+/// takes for "0 px": `border-spacing: 0.5em` was no spacing at all.
+fn encode_border_spacing_i16(spacing: azul_css::props::basic::pixel::PixelValue) -> i16 {
+    if spacing.metric == SizeMetric::Px {
+        encode_resolved_px_i16(spacing.number.get())
+    } else {
+        I16_SENTINEL
+    }
+}
+
+/// `tab-size` for its slot: the declared NUMBER in tenths, whatever its unit - what the
+/// cascade's reader takes (`inner.number`: the count of spaces of `tab-size: 4`, which the
+/// parser keeps as `4em`, or the px of a length). The keywords as before.
+///
+/// Encoded as a px length it was the sentinel for every `tab-size: <number>` (an `em` is no
+/// px), and the sentinel reads as the default: a declared tab size was 8 at rest and the
+/// declared one only in another state.
+fn encode_tab_size_i16<T: HasInnerPixelValue>(val: &CssPropertyValue<T>) -> i16 {
+    match val {
+        CssPropertyValue::Exact(inner) => {
+            encode_resolved_px_i16(inner.get_inner_pixel().number.get())
+        }
+        _ => encode_css_pixel_as_i16(val),
+    }
 }
 
 /// A box length (padding, border width, inset) for its slot: thousandths of a pixel

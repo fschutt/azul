@@ -1084,3 +1084,26 @@ fn a_radius_the_slot_cannot_hold_is_a_radius_at_rest_too() {
     assert_eq!(declared(3, &rest), declared(3, &hovered), "12.34px: one number in both states");
     assert_eq!(declared(5, &rest), PixelValue::px(0.0));
 }
+
+/// A3-core-24: `tab-size: 4` reached the compact slot as "not a px length" and was read as the
+/// default, 8, at rest (the declared 4 only in another state). The slot holds the number.
+#[test]
+fn a_declared_tab_size_is_in_its_slot() {
+    // 0 body, 1 the block with a tab size, 2 a block without.
+    let styled = StyledDom::create_from_dom(
+        Dom::create_body()
+            .with_child(Dom::create_div().with_css("tab-size: 4;"))
+            .with_child(Dom::create_div()),
+    );
+    let compact = styled
+        .css_property_cache
+        .ptr
+        .compact_cache
+        .as_ref()
+        .expect("the compact cache is built with the styled DOM");
+    assert_eq!(compact.get_tab_size_raw(1), 40, "4 spaces, in tenths");
+    assert!(
+        compact.get_tab_size_raw(2) >= azul_css::compact_cache::I16_SENTINEL_THRESHOLD,
+        "nothing declared: the default"
+    );
+}
