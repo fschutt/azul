@@ -4883,12 +4883,19 @@ pub fn render_single_item(
                 .unwrap_or(1.0);
 
             if scrollbar_opacity > 0.001 {
+                // The bar fades: its colours at the opacity's share of their alpha (A2-gpu-07:
+                // it used to be painted in full at any opacity above zero and gone at zero,
+                // a step where WebRender shows the fade).
+                let faded = |c: ColorU| ColorU {
+                    a: (f32::from(c.a) * scrollbar_opacity.clamp(0.0, 1.0)).round() as u8,
+                    ..c
+                };
                 // Render track
                 if info.track_color.a > 0 {
                     render_rect(
                         pixmap,
                         &scroll_rect(info.track_bounds.inner()),
-                        info.track_color,
+                        faded(info.track_color),
                         &BorderRadius::default(),
                         clip,
                         dpi_factor,
@@ -4901,7 +4908,7 @@ pub fn render_single_item(
                         render_rect(
                             pixmap,
                             &scroll_rect(btn_bounds.inner()),
-                            info.button_color,
+                            faded(info.button_color),
                             &BorderRadius::default(),
                             clip,
                             dpi_factor,
@@ -4915,7 +4922,7 @@ pub fn render_single_item(
                         render_rect(
                             pixmap,
                             &scroll_rect(btn_bounds.inner()),
-                            info.button_color,
+                            faded(info.button_color),
                             &BorderRadius::default(),
                             clip,
                             dpi_factor,
@@ -4946,7 +4953,7 @@ pub fn render_single_item(
                     render_rect(
                         pixmap,
                         &scroll_rect(&transformed_thumb),
-                        info.thumb_color,
+                        faded(info.thumb_color),
                         &info.thumb_border_radius,
                         clip,
                         dpi_factor,
@@ -17653,5 +17660,49 @@ mod audit_a1_tests {
         let state = CpuRenderState::new(ScrollOffsetMap::new()).with_paint_threads(1);
         render_display_list_damaged(&dl, &mut damaged, 1.0, &rr, &fm, &mut gc, &state, &[rect(0.0, 234.0, 900.0, 234.0)]).unwrap();
         assert_eq!(differing_pixels(&damaged, &single), 0, "damaged == full");
+    }
+
+    /// A2-gpu-07: a scrollbar is painted at its opacity, not in full or not at all. A black
+    /// thumb (20, 10) 10 x 40 on white with its opacity key at 0.5 is mid grey, 128 (127 or
+    /// 128 by the rounding of the blend); at 1 black; without a value black; at 0 not painted.
+    /// Mutation: the colours not faded paint black at 0.5.
+    #[test]
+    fn a_scrollbar_is_painted_at_its_opacity() {
+        use crate::solver3::display_list::ScrollbarDrawInfo;
+        let black = ColorU { r: 0, g: 0, b: 0, a: 255 };
+        let clear = ColorU { r: 0, g: 0, b: 0, a: 0 };
+        let dl = list(vec![DisplayListItem::ScrollBarStyled {
+            info: Box::new(ScrollbarDrawInfo {
+                bounds: wrect(20.0, 10.0, 10.0, 40.0),
+                orientation: azul_core::dom::ScrollbarOrientation::Vertical,
+                track_bounds: wrect(20.0, 10.0, 10.0, 40.0),
+                track_color: clear,
+                thumb_bounds: wrect(20.0, 10.0, 10.0, 40.0),
+                thumb_color: black,
+                thumb_border_radius: BorderRadius::default(),
+                button_decrement_bounds: None,
+                button_increment_bounds: None,
+                button_color: clear,
+                opacity_key: Some(azul_core::resources::OpacityKey { id: 5 }),
+                thumb_transform_key: None,
+                thumb_initial_transform: azul_core::transform::ComputedTransform3D { m: IDENTITY },
+                hit_id: None,
+                clip_to_container_border: false,
+                container_border_radius: BorderRadius::default(),
+                visibility: Default::default(),
+            }),
+        }]);
+        let at = |opacity: Option<f32>| {
+            let mut state = CpuRenderState::new(ScrollOffsetMap::new());
+            if let Some(opacity) = opacity {
+                state.opacities.insert(5, opacity);
+            }
+            px(&full(&dl, &state, (60, 60)).0, 25, 30)
+        };
+        let half = at(Some(0.5));
+        assert!((126..=129).contains(&half[0]) && half[0] == half[1] && half[1] == half[2], "half black on white: {half:?}");
+        assert_eq!(at(Some(1.0)), [0, 0, 0, 255]);
+        assert_eq!(at(None), [0, 0, 0, 255], "no value: the bar shows");
+        assert_eq!(at(Some(0.0)), [255, 255, 255, 255], "faded out");
     }
 }
