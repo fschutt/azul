@@ -7927,14 +7927,25 @@ fn render_border_sides(
     bounds: &LogicalRect,
     colors: [ColorU; 4], // top, right, bottom, left
     widths: [f32; 4],    // top, right, bottom, left
-    _styles: [azul_css::props::style::border::BorderStyle; 4],
+    styles: [azul_css::props::style::border::BorderStyle; 4],
     border_radius: &BorderRadius,
     clip: Option<AzRect>,
     dpi_factor: f32,
 ) {
+    use azul_css::props::style::border::BorderStyle;
+
     let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
         return;
     };
+    // A side with `border-style: none` or `hidden` paints nothing, whatever width and colour
+    // the cascade left on it (`render_border` returns for them; this path ignored the styles
+    // and painted such a side solid - A1-46). Its width still insets the other sides.
+    let mut colors = colors;
+    for (color, style) in colors.iter_mut().zip(styles) {
+        if matches!(style, BorderStyle::None | BorderStyle::Hidden) {
+            color.a = 0;
+        }
+    }
 
     // Outer corners
     let ox = f64::from(rect.x);
@@ -8039,11 +8050,14 @@ fn render_border_sides(
                 u32::from(c.b),
                 u32::from(c.a),
             );
+            // At least one device pixel (A1-46): a side thinner than one (0.5 px at dpi 1)
+            // had `iy as i32 - 1 < oy as i32`, an inverted bar, which `blend_bar` normalises
+            // into two rows, one of them outside the box. `render_border` has the same rule.
             rb.blend_bar(
                 ox as i32,
                 oy as i32,
                 (ox + ow) as i32 - 1,
-                iy as i32 - 1,
+                (iy as i32 - 1).max(oy as i32),
                 &ac,
                 255,
             );
@@ -8059,15 +8073,17 @@ fn render_border_sides(
             );
             rb.blend_bar(
                 ox as i32,
-                (iy + ih) as i32,
+                ((iy + ih) as i32).min((oy + oh) as i32 - 1),
                 (ox + ow) as i32 - 1,
                 (oy + oh) as i32 - 1,
                 &ac,
                 255,
             );
         }
+        // The rows between the top and the bottom side: none when the two meet.
+        let between = iy as i32 <= (iy + ih) as i32 - 1;
         // Left: between top and bottom
-        if widths[3] > 0.0 && colors[3].a > 0 {
+        if widths[3] > 0.0 && colors[3].a > 0 && between {
             let c = colors[3];
             let ac = Rgba8::new(
                 u32::from(c.r),
@@ -8078,14 +8094,14 @@ fn render_border_sides(
             rb.blend_bar(
                 ox as i32,
                 iy as i32,
-                ix as i32 - 1,
+                (ix as i32 - 1).max(ox as i32),
                 (iy + ih) as i32 - 1,
                 &ac,
                 255,
             );
         }
         // Right
-        if widths[1] > 0.0 && colors[1].a > 0 {
+        if widths[1] > 0.0 && colors[1].a > 0 && between {
             let c = colors[1];
             let ac = Rgba8::new(
                 u32::from(c.r),
@@ -8094,7 +8110,7 @@ fn render_border_sides(
                 u32::from(c.a),
             );
             rb.blend_bar(
-                (ix + iw) as i32,
+                ((ix + iw) as i32).min((ox + ow) as i32 - 1),
                 iy as i32,
                 (ox + ow) as i32 - 1,
                 (iy + ih) as i32 - 1,
@@ -18505,5 +18521,39 @@ mod audit_a1_tests {
         assert_eq!(behind.frame_index().extent_with(&behind.items, 0, &HashMap::new()), None);
         let flat = column(0.0);
         assert_eq!(flat.frame_index().extent_with(&flat.items, 0, &HashMap::new()), Some(rect(0.0, 0.0, 400.0, 100.0)));
+    }
+
+    /// A1-46: borders with sides that differ. A 40 x 20 box at (10, 10): a red top side of
+    /// half a pixel, blue sides of 2 px right and below, and a left side of 2 px with
+    /// `border-style: none`.
+    /// - The top side is one device pixel, row 10, and nothing above the box (row 9).
+    /// - The left side paints nothing: (10, 20) is the page. The right one is the columns
+    ///   48 and 49, the bottom one the rows 28 and 29.
+    /// Mutations: the top bar's last row as `iy as i32 - 1` (9, before the first, 10) is
+    /// normalised by `blend_bar` into the rows 9 and 10 - red above the box; the styles
+    /// ignored paint the left side blue.
+    #[test]
+    fn a_border_side_thinner_than_a_pixel_is_one_row_and_a_side_without_a_style_is_not_painted() {
+        use azul_css::props::style::border::BorderStyle;
+        let (red, blue) = (ColorU { r: 255, g: 0, b: 0, a: 255 }, ColorU { r: 0, g: 0, b: 255, a: 255 });
+        let mut pm = AzulPixmap::new(60, 40).unwrap();
+        pm.fill(255, 255, 255, 255);
+        render_border_sides(
+            &mut pm,
+            &rect(10.0, 10.0, 40.0, 20.0),
+            [red, blue, blue, blue],
+            [0.5, 2.0, 2.0, 2.0],
+            [BorderStyle::Solid, BorderStyle::Solid, BorderStyle::Solid, BorderStyle::None],
+            &BorderRadius::default(),
+            None,
+            1.0,
+        );
+        let (white, red, blue) = ([255, 255, 255, 255], [255, 0, 0, 255], [0, 0, 255, 255]);
+        assert_eq!(px(&pm, 30, 10), red, "the top side: one device pixel");
+        assert_eq!(px(&pm, 30, 9), white, "and nothing above the box");
+        assert_eq!(px(&pm, 30, 11), white);
+        assert_eq!(px(&pm, 10, 20), white, "border-style: none paints nothing");
+        assert_eq!((px(&pm, 48, 20), px(&pm, 49, 20), px(&pm, 47, 20)), (blue, blue, white));
+        assert_eq!((px(&pm, 30, 28), px(&pm, 30, 29), px(&pm, 30, 27)), (blue, blue, white));
     }
 }
