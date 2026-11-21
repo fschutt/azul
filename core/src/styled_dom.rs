@@ -2100,23 +2100,61 @@ impl StyledDom {
             .collect()
     }
 
-    /// Inheritance computed again for the states the nodes are in now, after
+    /// The whole DOM styled again for the states the nodes are in now, after
     /// a state change moved a value a node hands to its children
-    /// (`.bar:hover { color: red }` reaching the text in the bar): the
-    /// inherited values, the compact cache, the resolved font sizes.
+    /// (`.bar:hover { color: red }` reaching the text in the bar): the whole
+    /// cascade in place, pruned as a created DOM is.
+    ///
+    /// This used to run the inheritance pass alone (`compute_inherited_values`)
+    /// over the rows as they lay. A cascade PRUNES its rows once the compact
+    /// cache is built (`prune_compact_normal_props`: the resting values with a
+    /// compact encoding, the UA's defaults among them), and the inheritance
+    /// pass computes a node's values FROM those rows: run after the prune, it
+    /// dropped every inherited value whose declaration was a pruned row - the
+    /// root's text colour for every node that inherits it, a link's colour for
+    /// the link's text - from `computed_values`, for the whole DOM, on every
+    /// hover that handed a value down. (`get_property` then answered nothing,
+    /// or the parent's value, where the compact cache still held the right
+    /// one.) Callers that know which nodes hand values down ask
+    /// [`Self::recascade_subtrees`], which styles those subtrees alone.
     pub fn recompute_inheritance_for_states(&mut self) {
-        let states = self.node_states();
-        self.css_property_cache
-            .downcast_mut()
-            .compute_inherited_values(
-                self.node_hierarchy.as_container().internal,
-                self.node_data.as_container().internal,
-                &states,
-            );
-        self.recompute_inheritance_and_compact_cache();
-        self.css_property_cache
-            .downcast_mut()
-            .invalidate_resolved_font_sizes();
+        let css = self.get_css_property_cache().retained_author_css.clone();
+        self.restyle(css);
+        self.get_css_property_cache_mut().prune_compact_normal_props();
+    }
+
+    /// The cascade run again for `roots` and everything below them, under the
+    /// states the nodes are in now: what a state change owes when it moved a
+    /// value a node hands to its children (`.bar:hover { color: red }`
+    /// reaching the text in the bar). The nodes' rows, inherited values,
+    /// compact entries and font sizes are made again by the cascade over the
+    /// named nodes ([`Self::restyle_changed_nodes`], which builds the rows of
+    /// their ancestors again first: the rows a cascade prunes are what a node
+    /// inherits from); every other node keeps what it has. Where that cascade
+    /// says no (more than half of the DOM, a sheet with `var()`), the whole
+    /// cascade runs in place, pruned as a created DOM is.
+    pub fn recascade_subtrees(&mut self, roots: &[NodeId]) {
+        let count = self.node_data.as_ref().len();
+        let mut reached = vec![false; count];
+        {
+            let hierarchy = self.node_hierarchy.as_container();
+            for root in roots {
+                if root.index() >= count {
+                    continue;
+                }
+                // The arena is in document order: a subtree is a run of it.
+                let end = (root.index() + hierarchy.subtree_len(*root) + 1).min(count);
+                for flag in &mut reached[root.index()..end] {
+                    *flag = true;
+                }
+            }
+        }
+        if !reached.iter().any(|r| *r) {
+            return;
+        }
+        if !self.restyle_changed_nodes(&reached) {
+            self.recompute_inheritance_for_states();
+        }
     }
 
     /// Whether `node`'s subtree ends where the arena ends: it is the root, or
@@ -3077,10 +3115,39 @@ impl StyledDom {
     /// reconciliation, and the one of a rebuild that reconciled first and could keep no row
     /// (`cascade_at_rest`, then this).
     pub fn let_raised_states_in(&mut self) {
-        let cascaded = self.restyle_for_raised_states();
-        if !cascaded && self.a_raised_state_hands_values_down() {
-            self.recompute_inheritance_for_states();
+        if self.restyle_for_raised_states() {
+            return;
         }
+        // The nodes that hand their children a value for the state they are in: their
+        // subtrees are styled again under it, and nothing else of the DOM is touched
+        // (`recascade_subtrees` says why the inheritance pass alone would not do).
+        let roots = self.nodes_whose_state_hands_values_down();
+        if !roots.is_empty() {
+            self.recascade_subtrees(&roots);
+        }
+    }
+
+    /// The nodes of [`Self::a_raised_state_hands_values_down`]: each node that is in a state
+    /// and hands its children a value because of it, in document order.
+    #[must_use]
+    pub fn nodes_whose_state_hands_values_down(&self) -> Vec<NodeId> {
+        let cache = self.get_css_property_cache();
+        let node_data = self.node_data.as_container();
+        self.styled_nodes
+            .as_container()
+            .internal
+            .iter()
+            .enumerate()
+            .filter(|(index, styled)| {
+                !styled.styled_node_state.is_normal()
+                    && node_data.internal.get(*index).is_some_and(|node| {
+                        !cache
+                            .state_inherited_values(node, *index, &styled.styled_node_state)
+                            .is_empty()
+                    })
+            })
+            .map(|(index, _)| NodeId::new(index))
+            .collect()
     }
 
     /// Which nodes drop and which take `:focus-within` when the focus moves
@@ -3703,15 +3770,21 @@ impl StyledDom {
         }
 
         // A state that moves an INHERITED value moves it for every descendant
-        // that does not declare its own: they read it from the inheritance
-        // passes, which resolve each node under the state it is in.
-        if result
+        // that does not declare its own: the subtree of each such node is
+        // styled again under the states the nodes are in now (the node that
+        // took the state and the node that dropped it alike).
+        let handed_down: Vec<NodeId> = result
             .changed_nodes
-            .values()
-            .flatten()
-            .any(|c| c.current_prop.get_type().is_inheritable())
-        {
-            self.recompute_inheritance_for_states();
+            .iter()
+            .filter(|(_, changes)| {
+                changes
+                    .iter()
+                    .any(|c| c.current_prop.get_type().is_inheritable())
+            })
+            .map(|(node, _)| *node)
+            .collect();
+        if !handed_down.is_empty() {
+            self.recascade_subtrees(&handed_down);
         }
 
         result
