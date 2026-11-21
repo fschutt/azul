@@ -15444,6 +15444,10 @@ mod tests {
 
         let flat_state = df_state_with(60, false);
         let tree_state = df_state_with(60, false);
+        // Two windows: each has its own scrollbar keys (ids of a process-wide counter), so
+        // the dumps are compared with those ids masked ([`df_mask_key_ids`]; the page
+        // overflows: 60 rows are 1,429 px in a window of 600).
+        let dump = |window: &HeadlessWindow| df_mask_key_ids(df_dump(window));
 
         let before = expansions();
         let mut flat = make_window_sized(&flat_state, dfb_layout, 400.0, 600.0);
@@ -15456,7 +15460,7 @@ mod tests {
         flat.regenerate_layout().expect("settle");
         let _ = flat.common.take_regeneration();
         let mut tree = df_window(&tree_state);
-        assert_eq!(df_dump(&flat), df_dump(&tree), "the first build, built either way");
+        assert_eq!(dump(&flat), dump(&tree), "the first build, built either way");
 
         // The same page again: read flat, kept, never a tree.
         let unchanged = |flat: &mut HeadlessWindow, what: &str| {
@@ -15474,7 +15478,7 @@ mod tests {
         };
         unchanged(&mut flat, "the first identical rebuild");
         unchanged(&mut flat, "the second");
-        assert_eq!(df_dump(&flat), df_dump(&tree), "after two identical rebuilds");
+        assert_eq!(dump(&flat), dump(&tree), "after two identical rebuilds");
 
         // One changed text: the texts exit for both; the flat DOM becomes its tree once.
         for state in [&flat_state, &tree_state] {
@@ -15485,7 +15489,7 @@ mod tests {
         assert_eq!(cascaded() - nodes, 0, "a changed text styles no node, built either way");
         assert_eq!(expansions() - trees, 1, "a rebuild that changed something reads the tree");
         df_rebuild(&mut tree, &DiffFirstStep::ALL);
-        assert_eq!(df_dump(&flat), df_dump(&tree), "after a changed text");
+        assert_eq!(dump(&flat), dump(&tree), "after a changed text");
 
         // One changed class: the same exit for both (the styled DOM kept, or not).
         for state in [&flat_state, &tree_state] {
@@ -15497,7 +15501,7 @@ mod tests {
         let before = kept();
         df_rebuild(&mut tree, &DiffFirstStep::ALL);
         assert_eq!(flat_kept, kept() - before, "a changed class takes the same exit");
-        assert_eq!(df_dump(&flat), df_dump(&tree), "after a changed class");
+        assert_eq!(dump(&flat), dump(&tree), "after a changed class");
 
         // A row added (the tree changed), then the same page again.
         for state in [&flat_state, &tree_state] {
@@ -15509,9 +15513,9 @@ mod tests {
         }
         df_rebuild(&mut flat, &DiffFirstStep::ALL);
         df_rebuild(&mut tree, &DiffFirstStep::ALL);
-        assert_eq!(df_dump(&flat), df_dump(&tree), "after a row was added");
+        assert_eq!(dump(&flat), dump(&tree), "after a row was added");
         unchanged(&mut flat, "identical again, after the tree changed");
-        assert_eq!(df_dump(&flat), df_dump(&tree), "at the end");
+        assert_eq!(dump(&flat), dump(&tree), "at the end");
     }
 
     /// `(rebuilds that kept the styled DOM, cascades, boxes the solver built fresh)` for one
