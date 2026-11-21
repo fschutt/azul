@@ -1173,3 +1173,48 @@ fn a2_cpu_14_a_scaled_frame_between_pixels_is_composited_where_the_damage_repain
          {first:?}"
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// A window: a border thinner than a device pixel (A2-cpu-17)
+// ---------------------------------------------------------------------------------------------
+
+/// A2-cpu-17. A solid border thinner than one device pixel is one device pixel, inside its box.
+///
+/// Hand-computed at dpi 1: a box at (20, 20) with `border: 0.5px solid red`. Device width
+/// `0.5 as i32 = 0`: the top strip was the bar of rows `20 ..= 19` - nothing, or (normalised) the
+/// rows 19 and 20, one above the box. Expected: row 20 red from column 20 on, row 19 untouched;
+/// column 20 red, column 19 untouched.
+///
+/// mutation: `(sw as i32).max(1)` -> `sw as i32` in `render_border` fails here.
+#[test]
+fn a2_cpu_17_a_border_thinner_than_a_device_pixel_is_one_pixel_inside_its_box() {
+    let mut dom = Dom::create_body()
+        .with_css("margin: 0px;")
+        .with_child(abs_box(0.0, 0.0, 200.0, 100.0, "background: #ffffff;"))
+        .with_child(abs_box(20.0, 20.0, 100.0, 40.0, "border: 0.5px solid #ff0000;"));
+    let styled_dom = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(200.0, 100.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_new_generation(
+        styled_dom,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    let mut backend = CpuBackend::new();
+    let _ = backend.render_frame(&lw, &RendererResources::default(), 200.0, 100.0, 1.0);
+    let frame = backend.last_frame.as_ref().expect("a frame");
+    let red = |x: u32, y: u32| {
+        let [r, g, b] = px(frame, x, y);
+        r > 200 && g < 60 && b < 60
+    };
+    assert!(red(60, 20), "the top edge, row 20: {:?}", px(frame, 60, 20));
+    assert!(!red(60, 19), "nothing above the box, row 19: {:?}", px(frame, 60, 19));
+    assert!(red(20, 40), "the left edge, column 20: {:?}", px(frame, 20, 40));
+    assert!(!red(19, 40), "nothing left of the box, column 19: {:?}", px(frame, 19, 40));
+    assert!(!red(60, 30), "nothing inside the box: {:?}", px(frame, 60, 30));
+}

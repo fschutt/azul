@@ -6251,7 +6251,11 @@ fn render_border(
             }
             let (xi, yi) = (x as i32, y as i32);
             let (x2i, y2i) = ((x + w) as i32 - 1, (y + h) as i32 - 1);
-            let swi = sw as i32;
+            // At least one device pixel: a border thinner than one (0.5px at dpi 1) had
+            // `swi == 0`, and the strips below were then the inverted bars `yi ..= yi - 1`
+            // (nothing, or - normalised - two rows, one of them outside the box). WebRender
+            // draws one device pixel for it (`floor`, at least 1).
+            let swi = (sw as i32).max(1);
             // Top strip
             rb.blend_bar(xi, yi, x2i, yi + swi - 1, &agg_color, 255);
             // Bottom strip
