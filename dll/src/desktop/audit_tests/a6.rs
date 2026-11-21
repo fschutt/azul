@@ -181,3 +181,34 @@ mod pointer_positions {
         assert!(WINDOWS_RS.contains("common::event::pointer_scale("));
     }
 }
+
+/// A6-11: what a press may start (a text selection drag) is worked out at the press edge,
+/// not on every pass.
+mod press_edge {
+    const EVENT_RS: &str = include_str!("../shell2/common/event.rs");
+
+    /// The hit nodes are collected, and their ancestors and children walked, only when the
+    /// left button went down in this pass: a guard on the source, because the analysis sits
+    /// in the middle of the event pass (`process_window_events_inner`) and its only reader is
+    /// the `if left_down && !lw.prev_left_down` arm below it.
+    /// Mutation: `press_edge &&` or `.filter(|_| press_edge)` taken out (the analysis on every
+    /// pointer move again) fails this.
+    #[test]
+    fn the_press_analysis_runs_at_the_press_edge_only() {
+        let from = EVENT_RS
+            .find("let press_edge = left_down")
+            .expect("the press edge is named");
+        let analysis = &EVENT_RS[from..];
+        let to = analysis
+            .find("lw.prev_left_down = left_down;")
+            .expect("the block ends where the edge is recorded");
+        let analysis = &analysis[..to];
+        assert!(analysis.contains(".is_some_and(|lw| !lw.prev_left_down)"));
+        assert!(analysis.contains(".filter(|_| press_edge)"));
+        assert!(analysis.contains("let press_on_editable = press_edge && press_targets"));
+        assert!(
+            analysis.contains("if left_down && !lw.prev_left_down {"),
+            "the one reader of the answer is the press edge"
+        );
+    }
+}

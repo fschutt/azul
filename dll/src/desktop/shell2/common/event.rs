@@ -12641,8 +12641,17 @@ pub trait PlatformWindow {
             // armed drag-autoscroll and scrolled the UI away. `user-select:
             // none` is honoured too, through the engine's own
             // `is_text_selectable`.
+            // Asked at the press EDGE only (the one moment the answer is
+            // read, below): on every other pass - every pointer move - the
+            // hit nodes are not collected and no ancestor or child of theirs
+            // is walked.
+            let press_edge = left_down
+                && self
+                    .get_layout_window()
+                    .is_some_and(|lw| !lw.prev_left_down);
             let press_targets: Vec<azul_core::dom::DomNodeId> = hit_test_for_dispatch
                 .as_ref()
+                .filter(|_| press_edge)
                 .map(|ht| {
                     ht.hovered_nodes
                         .iter()
@@ -12657,7 +12666,7 @@ pub trait PlatformWindow {
                         .collect()
                 })
                 .unwrap_or_default();
-            let press_on_editable = press_targets.iter().any(|dnid| {
+            let press_on_editable = press_edge && press_targets.iter().any(|dnid| {
                 if self.node_is_window_drag_region(*dnid) {
                     return false;
                 }
