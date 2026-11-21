@@ -4335,6 +4335,24 @@ impl LayoutWindow {
         .unwrap_or_else(LogicalPosition::zero)
     }
 
+    /// Device pixels per logical pixel of the window's CPU frame: `dpi / 96`,
+    /// the factor every shell hands `CpuBackend::render_frame` (headless, X11,
+    /// macOS, Windows: `ws.size.dpi as f32 / 96.0`). NOT
+    /// `WindowSize::get_hidpi_factor()`, which is a `FloatValue`: three
+    /// decimals, cut off, so a scale of 4/3 (dpi 128) reads 1.333 there and
+    /// 1.3333334 here. Whatever has to land on whole device pixels of the
+    /// frame (a view's content offset) is snapped with this one.
+    #[allow(clippy::cast_precision_loss)] // a dpi is far below 2^24
+    #[must_use]
+    pub fn frame_dpi_factor(&self) -> f32 {
+        let dpi = self.current_window_state.size.dpi;
+        if dpi == 0 {
+            1.0
+        } else {
+            dpi as f32 / 96.0
+        }
+    }
+
     pub fn virtual_view_content_offset(&self, dom_id: DomId, node_id: NodeId) -> LogicalPosition {
         let window_origin = self
             .virtual_view_manager
@@ -4350,7 +4368,10 @@ impl LayoutWindow {
         // then moves the view's pixels and paints the strip that came in
         // (`execute_virtual_view_shift`) instead of the whole view, which it
         // did for every frame of a wheel glide (9.3 px, 8.9 px, ...).
-        let s = self.current_window_state.size.get_hidpi_factor().inner.get();
+        // The grid is the FRAME's (`frame_dpi_factor`), not `get_hidpi_factor()`'s:
+        // that one keeps three decimals, cut off (4/3 is 1.333), and an offset
+        // snapped on its grid is no whole device pixel of a frame rendered at 4/3.
+        let s = self.frame_dpi_factor();
         let snap = |v: f32| {
             if s.is_finite() && s > 0.0 {
                 (v * s).round() / s
