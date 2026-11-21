@@ -178,6 +178,21 @@ impl FrameSchedule {
             .is_some_and(|scene| now.saturating_duration_since(scene.sent_at) >= Self::VALVE)
     }
 
+    /// The shell waited for the renderer's threads OUTSIDE a pass (it sent a
+    /// transaction of its own and flushed: a hidden window giving its halo
+    /// pictures back, audit A5-20): everything sent so far has been taken, so
+    /// nothing is in flight and the queue is empty. Such a transaction must
+    /// take the scene builder's queue (one with a display list or a delete
+    /// does by itself; never `skip_scene_builder` there), or it could pass
+    /// what a pass sent without the wait.
+    ///
+    /// Not calling this is safe - the schedule then goes on believing in a
+    /// scene in flight, routes through the queue and waits a little more than
+    /// it has to, until a pass waits - but it is not what is true.
+    pub fn waited_outside_a_pass(&mut self) {
+        *self = Self::new();
+    }
+
     /// The pass is about to send a transaction of `shape` (or nothing): what
     /// it does, and what is in flight afterwards.
     pub fn on_send(&mut self, shape: FrameShape, pass: FramePass) -> FrameSend {
@@ -575,6 +590,49 @@ mod tests {
         assert!(!schedule.on_send(scene(5), forced(t)).arm_valve);
         assert!(!schedule.on_send(VALUES, pass(t)).arm_valve);
         assert!(!schedule.valve_due(t + Duration::from_secs(3600)));
+    }
+
+    /// A wait outside a pass (a hidden window's release, A5-20) while a scene
+    /// is in flight: told of it, the schedule is settled and the next
+    /// transaction goes as its builder routed it; NOT told, it errs to the
+    /// safe side only - it still believes in the scene, so the next
+    /// transaction takes the queue and a second list waits - and the first
+    /// pass that waits (the return pass is forced) puts it right.
+    /// Mutation: `waited_outside_a_pass` leaving `queued` set fails the first
+    /// block; `forced_sync` no longer resetting the state fails the second.
+    #[test]
+    fn a_wait_outside_a_pass_settles_the_schedule_and_without_the_word_it_errs_safely() {
+        let t = Instant::now();
+        let mut told = FrameSchedule::new();
+        let _ = told.on_send(scene(5), pass(t));
+        let _ = told.on_send(VALUES, pass(t));
+        told.waited_outside_a_pass();
+        assert_eq!(told, FrameSchedule::new());
+        assert!(!told.valve_due(t + FrameSchedule::VALVE), "nothing in flight: no valve");
+        assert_eq!(
+            said(told.on_send(VALUES, pass(t))),
+            (true, false, true, true, false)
+        );
+
+        let mut not_told = FrameSchedule::new();
+        let _ = not_told.on_send(scene(5), pass(t));
+        // The release sent its own list at the next epoch and waited; the
+        // schedule was not told.
+        assert_eq!(
+            said(not_told.on_send(VALUES, pass(t))),
+            (true, true, false, false, false),
+            "over-cautious: behind a scene that has landed"
+        );
+        // A frame the renderer took in reports the release's epoch, past the
+        // scene's: landed.
+        assert!(not_told.on_published(|_| Some(Epoch(6))));
+        // The pass after the window is shown again is forced: it waits, and
+        // the schedule is what is true.
+        assert_eq!(
+            said(not_told.on_send(scene(7), forced(t))),
+            (true, true, true, true, false)
+        );
+        assert_eq!(not_told, FrameSchedule::new());
     }
 
     /// The state a schedule is in, for the table below.

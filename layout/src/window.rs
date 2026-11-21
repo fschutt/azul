@@ -5690,11 +5690,12 @@ impl LayoutWindow {
     /// when the offset is already correct.
     ///
     /// The list is LOOKED AT first and written only when an item really moves.
-    /// When it is written it is written IN PLACE if nothing else holds it
-    /// besides the two shares this window knows how to step aside for - the
-    /// layout cache's copy of the root's list and the renderer's record of
-    /// what it was sent (a `Weak`) - and the record is renewed for the same
-    /// list. A GPU frame translates no `content_offset` (`WebRender` scrolls
+    /// When it is written it is written IN PLACE if nothing else OWNS it
+    /// besides the share this window knows how to step aside for - the
+    /// layout cache's copy of the root's list. Weak references do not count
+    /// (the renderer's record of what it was sent, the names the GPU path
+    /// keeps of a list): they read nothing, and what they stand for does
+    /// not depend on this offset. The record is renewed for the same list. A GPU frame translates no `content_offset` (`WebRender` scrolls
     /// the child's pipeline by the LIVE offset, `scroll_all_nodes`), so an
     /// offset that moved is not a list the renderer is owed: the host's list
     /// stays the one it holds, and a pan costs the frame nothing that grows
@@ -5766,9 +5767,28 @@ impl LayoutWindow {
             self.gpu_state_manager.submitted_display_lists.remove(&dom_id);
         }
 
-        let in_place = Arc::get_mut(&mut lr.display_list)
-            .map(|list| repoint(list))
-            .is_some();
+        // IN PLACE whenever this window is the list's one OWNER - also while
+        // weak references to it live. `Arc::get_mut` refuses then, and the
+        // GPU path keeps weak references as the NAME of a list (the kept
+        // fonts and images of a list, `wr_translate2::list_names`; its kept
+        // text shadows, `text_halo::LIST_SHADOWS`; the digest of the bound
+        // values, `GpuValueSource`): with any of them alive every pan frame
+        // copied the host's list (ten thousand items), the copy was a list
+        // the renderer did not hold, and the frame translated and sent it
+        // and had the scene built - for an offset no GPU frame reads. None
+        // of those names is of a `content_offset`: what they keep of the
+        // list is as true after this write as before it.
+        let in_place = Arc::strong_count(&lr.display_list) == 1;
+        if in_place {
+            // SAFETY: the count says no other `Arc` of this list exists, and
+            // `&mut self` that no reference into this one is out; so nothing
+            // can read the list while it is written. A weak reference reads
+            // nothing unless it is upgraded: no holder of one upgrades it
+            // (they compare `Weak::as_ptr`), and all of them live on this
+            // thread, which is here. The pointer is the allocation's own
+            // (`Arc::as_ptr`), valid for writes for as long as the `Arc` is.
+            repoint(unsafe { &mut *Arc::as_ptr(&lr.display_list).cast_mut() });
+        }
         // The list the shares go back to: the one just written, or - when a
         // holder of ours forced a copy - the one they knew.
         let shares = Arc::clone(&lr.display_list);

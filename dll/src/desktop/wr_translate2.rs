@@ -989,9 +989,13 @@ struct KeptNames {
 thread_local! {
     /// [`ListNames`] by the list's allocation. The `Weak` is what makes the
     /// address an identity: while it is held the allocation is not given to
-    /// another list, and a list that has a `Weak` is never changed in place
-    /// (`Arc::get_mut` refuses, `Arc::make_mut` moves it to a new allocation):
-    /// the same address with a living list is the same items.
+    /// another list, and a list that has a `Weak` is not changed in place by
+    /// `Arc::get_mut` (it refuses) or `Arc::make_mut` (it moves the list to a
+    /// new allocation). ONE writer writes under a `Weak`, on purpose: a pan
+    /// moves a `VirtualView` item's `content_offset`
+    /// (`LayoutWindow::patch_virtual_view_content_offset`), which is neither
+    /// a font nor an image nor an index: the same address with a living list
+    /// is the same names.
     static LIST_NAMES: RefCell<Vec<KeptNames>> = const { RefCell::new(Vec::new()) };
     /// Tests: how many lists [`list_names`] walked on this thread.
     #[cfg(test)]
