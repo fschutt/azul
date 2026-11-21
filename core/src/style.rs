@@ -569,105 +569,126 @@ pub fn construct_html_cascade_tree(
     NodeDataContainer { internal: nodes }
 }
 
-/// Which rules of a stylesheet a node can match, by where each rule's
-/// subject can be.
+/// The class the SUBJECT of `path` (its rightmost compound) names, its first
+/// one: a node without that class cannot be the subject, whatever the rest
+/// of the path says ([`selector_group_matches`] asks every selector of the
+/// compound). `None` for a subject that names no class.
+fn subject_class(path: &CssPath) -> Option<&str> {
+    let (subject, _) = CssGroupIterator::new(path.selectors.as_ref()).next()?;
+    subject.iter().find_map(|selector| match selector {
+        CssPathSelector::Class(class) => Some(class.as_str()),
+        _ => None,
+    })
+}
+
+/// Which rules of a stylesheet a node can match: by where each rule's
+/// subject can be, and by the class it names.
 ///
 /// A rule scoped to a subtree (`Dom::with_css`, the leading
 /// [`CssPathSelector::Root`]) only matches inside that subtree, and a page of
 /// widgets carries one such sheet per widget instance: trying every node
-/// against every rule made a restyle cost nodes times rules. The index hands
-/// a node the unscoped rules and the rules of the scopes around it, in rule
-/// order, so the cascade's "the last match wins" order is unchanged.
+/// against every rule made a restyle cost nodes times rules. And one sheet
+/// on the root of a big subtree (`Dom::with_component_css`: a map view's
+/// label styles, one class per style) scopes every one of its rules to every
+/// node below it, which is nodes times rules again: a rule whose subject
+/// names a class ([`subject_class`]) can only match a node that carries the
+/// class. The index hands a node the rules of the scopes around it and of
+/// the unscoped sheets that name one of its classes or none, in rule order,
+/// so the cascade's "the last match wins" order is unchanged - the rules it
+/// leaves out are the ones the matcher refuses on the subject's scope or
+/// class.
 ///
 /// The walk goes through the nodes in ascending order
-/// ([`Self::candidates`]), entering and leaving scopes as it goes.
-pub(crate) struct ScopedRuleIndex {
-    /// The rules that can match anywhere, ascending.
+/// ([`Self::candidates_into`]), entering and leaving scopes as it goes.
+pub(crate) struct SubjectRuleIndex<'a> {
+    /// The rules that can match anywhere and whose subject names no class,
+    /// ascending.
     unscoped: Vec<usize>,
-    /// `(first node, last node, rule)` of every scoped rule, by first node.
-    scoped: Vec<(usize, usize, usize)>,
+    /// The rules that can match anywhere, by the class their subject names,
+    /// ascending per class.
+    unscoped_by_class: alloc::collections::BTreeMap<&'a str, Vec<usize>>,
+    /// `(first node, last node, rule, class of its subject)` of every scoped
+    /// rule, by first node.
+    scoped: Vec<(usize, usize, usize, Option<&'a str>)>,
     /// How many entries of `scoped` the walk has entered.
     entered: usize,
-    /// `(last node, rule)` of the entered scopes the walk is still inside.
+    /// `(last node, rule)` of the entered scoped rules without a class that
+    /// the walk is still inside.
     active: Vec<(usize, usize)>,
-    /// The scoped rules of the node the walk is at, ascending.
-    here: Vec<usize>,
+    /// `(last node, rule)` of the entered scoped rules by their class. A
+    /// class's list drops the scopes the walk has left when a node of the
+    /// class asks for it.
+    active_by_class: alloc::collections::BTreeMap<&'a str, Vec<(usize, usize)>>,
 }
 
-impl ScopedRuleIndex {
+impl<'a> SubjectRuleIndex<'a> {
     /// The index of `paths`, the rules in cascade order (a rule is its
     /// position in `paths`), over the tree `hierarchy`.
-    // An `impl Trait` argument cannot elide the lifetime of its item (unstable), so the one
-    // named lifetime stays.
-    #[allow(single_use_lifetimes)]
-    pub(crate) fn new<'a>(
+    pub(crate) fn new(
         paths: impl Iterator<Item = &'a CssPath>,
         hierarchy: &NodeDataContainerRef<'_, NodeHierarchyItem>,
     ) -> Self {
         let mut unscoped = Vec::new();
+        let mut unscoped_by_class: alloc::collections::BTreeMap<&'a str, Vec<usize>> =
+            alloc::collections::BTreeMap::new();
         let mut scoped = Vec::new();
         for (rule, path) in paths.enumerate() {
-            match subject_range(path, hierarchy) {
-                Some((first, last)) => scoped.push((first, last, rule)),
-                None => unscoped.push(rule),
+            let class = subject_class(path);
+            match (subject_range(path, hierarchy), class) {
+                (Some((first, last)), class) => scoped.push((first, last, rule, class)),
+                (None, Some(class)) => unscoped_by_class.entry(class).or_default().push(rule),
+                (None, None) => unscoped.push(rule),
             }
         }
-        scoped.sort_unstable();
+        scoped.sort_unstable_by_key(|&(first, last, rule, _)| (first, last, rule));
         Self {
             unscoped,
+            unscoped_by_class,
             scoped,
             entered: 0,
             active: Vec::new(),
-            here: Vec::new(),
+            active_by_class: alloc::collections::BTreeMap::new(),
         }
     }
 
-    /// The rules `node` can match, in rule order. Nodes must be asked for in
-    /// ascending order: a scope the walk has left is not entered again.
-    pub(crate) fn candidates(&mut self, node: usize) -> MergedRules<'_> {
-        while let Some(&(first, last, rule)) = self.scoped.get(self.entered) {
+    /// The rules the node `node` (its data: `data`) can match, in rule
+    /// order, into `out`. Nodes must be asked for in ascending order: a
+    /// scope the walk has left is not entered again.
+    pub(crate) fn candidates_into(&mut self, node: usize, data: &NodeData, out: &mut Vec<usize>) {
+        while let Some(&(first, last, rule, class)) = self.scoped.get(self.entered) {
             if first > node {
                 break;
             }
-            self.active.push((last, rule));
+            match class {
+                Some(class) => self
+                    .active_by_class
+                    .entry(class)
+                    .or_default()
+                    .push((last, rule)),
+                None => self.active.push((last, rule)),
+            }
             self.entered += 1;
         }
         self.active.retain(|&(last, _)| last >= node);
-        self.here.clear();
-        self.here.extend(self.active.iter().map(|&(_, rule)| rule));
-        self.here.sort_unstable();
-        MergedRules {
-            a: &self.unscoped,
-            b: &self.here,
+
+        out.clear();
+        out.extend_from_slice(&self.unscoped);
+        let ascending = out.len();
+        out.extend(self.active.iter().map(|&(_, rule)| rule));
+        for class in data.attributes().iter().filter_map(|attr| attr.as_class()) {
+            if let Some(rules) = self.unscoped_by_class.get(class) {
+                out.extend_from_slice(rules);
+            }
+            if let Some(rules) = self.active_by_class.get_mut(class) {
+                rules.retain(|&(last, _)| last >= node);
+                out.extend(rules.iter().map(|&(_, rule)| rule));
+            }
         }
-    }
-}
-
-/// Two ascending lists of rules read as one ascending list.
-#[derive(Clone)]
-pub(crate) struct MergedRules<'a> {
-    a: &'a [usize],
-    b: &'a [usize],
-}
-
-impl Iterator for MergedRules<'_> {
-    type Item = usize;
-
-    fn next(&mut self) -> Option<usize> {
-        let take_a = match (self.a.first(), self.b.first()) {
-            (Some(x), Some(y)) => x <= y,
-            (Some(_), None) => true,
-            (None, Some(_)) => false,
-            (None, None) => return None,
-        };
-        if take_a {
-            let (&rule, rest) = self.a.split_first()?;
-            self.a = rest;
-            Some(rule)
-        } else {
-            let (&rule, rest) = self.b.split_first()?;
-            self.b = rest;
-            Some(rule)
+        if out.len() > ascending {
+            // Rule order is cascade order; a class the node lists twice
+            // offers its rules twice.
+            out.sort_unstable();
+            out.dedup();
         }
     }
 }

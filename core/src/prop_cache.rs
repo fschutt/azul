@@ -2229,18 +2229,21 @@ impl CssPropertyCache {
                         mask | crate::style::left_state_bits(&rule.path)
                     });
 
-                // Each node is tried only against the rules that can match it:
-                // the unscoped ones and those of the `with_css` scopes around
-                // it (`ScopedRuleIndex`), not every widget's sheet on the page.
+                // Each node is tried only against the rules that can match it
+                // (`SubjectRuleIndex`): the unscoped ones and those of the
+                // `with_css` scopes around it, not every widget's sheet on
+                // the page - and of the rules that name a class, only those
+                // of the classes it carries, not every class of a sheet.
                 let hierarchy = node_hierarchy.as_container();
-                let mut index = crate::style::ScopedRuleIndex::new(
+                let mut index = crate::style::SubjectRuleIndex::new(
                     specific_rules.iter().map(|rule| &rule.path),
                     &hierarchy,
                 );
+                let mut candidates: Vec<usize> = Vec::new();
                 let node_total = if live_passes == 0 { 0 } else { node_data.len() };
                 for node_index in 0..node_total {
                     let node_id = NodeId::new(node_index);
-                    let candidates = index.candidates(node_index);
+                    index.candidates_into(node_index, &node_data[node_id], &mut candidates);
                     for (pass, (pseudo, state)) in passes.iter().enumerate() {
                         let bit = 1u16 << pass;
                         if live_passes & bit == 0 {
@@ -2248,7 +2251,7 @@ impl CssPropertyCache {
                         }
                         let state = *state;
                         // Each pass reads the node's candidates from the start.
-                        for rule_idx in candidates.clone() {
+                        for &rule_idx in &candidates {
                             if takes_part[rule_idx] & bit == 0 {
                                 continue;
                             }

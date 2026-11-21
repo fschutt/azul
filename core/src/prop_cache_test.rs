@@ -2318,3 +2318,170 @@ mod scoped_rule_index_tests {
         );
     }
 }
+
+/// Guards of the 2026-11-21 audit, area A3-core (`audit/A3-core.md`).
+#[cfg(all(test, feature = "std", feature = "css_parser"))]
+mod audit_a3_core_tests {
+    use azul_css::{
+        css::Css,
+        dynamic_selector::PseudoStateType,
+        props::{
+            layout::spacing::LayoutMarginTop,
+            property::{CssProperty, CssPropertyType},
+        },
+    };
+
+    use crate::{
+        dom::{Dom, NodeId},
+        style::MATCH_ATTEMPTS,
+        styled_dom::{StyledDom, StyledNodeState},
+    };
+
+    fn margin_top(px: isize) -> CssProperty {
+        CssProperty::const_margin_top(LayoutMarginTop::const_px(px))
+    }
+
+    /// The `margin-top` node `node` of `styled` has at rest.
+    fn margin_of(styled: &StyledDom, node: usize) -> Option<CssProperty> {
+        let id = NodeId::new(node);
+        let data = styled.node_data.as_container();
+        let rest = StyledNodeState::new();
+        let value = styled
+            .get_css_property_cache()
+            .get_property(&data[id], &id, &rest, &CssPropertyType::MarginTop)
+            .cloned();
+        value
+    }
+
+    /// A sheet of `classes` classes, each with a resting and a `:hover`
+    /// rule, as the sheet of a map view's labels has them.
+    fn sheet(classes: usize) -> Css {
+        let mut text = String::new();
+        for c in 0..classes {
+            text.push_str(&format!(
+                ".c{c} {{ margin-top: {}px; }} .c{c}:hover {{ opacity: 0.5; }} ",
+                c + 1
+            ));
+        }
+        Css::from_string(text.into())
+    }
+
+    /// `nodes` children of one root that carries `sheet(classes)`, the i-th
+    /// of class `c{i % classes}`; and how often a selector was matched
+    /// while it was styled.
+    fn styled_page(nodes: usize, classes: usize) -> (StyledDom, u64) {
+        let mut root = Dom::create_body().with_component_css(sheet(classes));
+        for i in 0..nodes {
+            root = root
+                .with_child(Dom::create_div().with_class(format!("c{}", i % classes).into()));
+        }
+        MATCH_ATTEMPTS.with(|c| c.set(0));
+        let styled = StyledDom::create_from_dom(root);
+        (styled, MATCH_ATTEMPTS.with(core::cell::Cell::get))
+    }
+
+    /// A3-core-04: one sheet on the root scoped each of its rules to every
+    /// node below, so a node was tried against every rule of the sheet:
+    /// nodes x rules. A node is tried against the rules of its own classes.
+    #[test]
+    fn a_node_is_tried_against_the_rules_of_its_own_classes() {
+        let nodes = 400;
+        let (_, few) = styled_page(nodes, 10);
+        let (styled, many) = styled_page(nodes, 160);
+        assert!(few >= nodes as u64, "harness: the nodes were matched ({few})");
+        assert!(
+            many <= few * 2,
+            "sixteen times the classes took {many} selector matches for {few}: every node was \
+             tried against every class"
+        );
+        // And every node has its own class's margin and hover rule.
+        let cache = styled.get_css_property_cache();
+        for i in 0..nodes {
+            let node = 1 + i;
+            assert_eq!(
+                margin_of(&styled, node),
+                Some(margin_top((i % 160) as isize + 1)),
+                "node {node}"
+            );
+            assert!(
+                cache.css_props.get_slice(node).iter().any(|p| {
+                    p.prop_type == CssPropertyType::Opacity && p.state == PseudoStateType::Hover
+                }),
+                "node {node} has its hover opacity"
+            );
+        }
+        assert!(cache.css_props.get_slice(0).is_empty(), "the root has no class");
+    }
+
+    /// A3-core-04: the rules a node gets by its classes apply in the order
+    /// of the sheet, together with the rules that name no class, and only
+    /// inside the subtree their sheet is on.
+    #[test]
+    fn the_rules_of_a_nodes_classes_apply_in_sheet_order_and_scope() {
+        let class = |d: Dom, c: &str| d.with_class(c.into());
+        // 0 body, then the children in order.
+        let page = |sheet: &str, children: Vec<Dom>| {
+            let mut root = Dom::create_body().with_component_css(Css::from_string(sheet.into()));
+            for child in children {
+                root = root.with_child(child);
+            }
+            StyledDom::create_from_dom(root)
+        };
+        let div = Dom::create_div;
+
+        // A compound of two classes is kept under its first one.
+        let styled = page(
+            ".a { margin-top: 1px; } .b { margin-top: 2px; } .a.b { margin-top: 5px; }",
+            vec![
+                class(class(div(), "a"), "b"),
+                class(class(div(), "b"), "a"),
+                class(div(), "b"),
+                class(div(), "a"),
+                class(class(div(), "a"), "a"),
+                div(),
+            ],
+        );
+        assert_eq!(margin_of(&styled, 1), Some(margin_top(5)), "a b");
+        assert_eq!(margin_of(&styled, 2), Some(margin_top(5)), "b a");
+        assert_eq!(margin_of(&styled, 3), Some(margin_top(2)), "b alone: `.a.b` is not its rule");
+        assert_eq!(margin_of(&styled, 4), Some(margin_top(1)), "a alone");
+        assert_eq!(margin_of(&styled, 5), Some(margin_top(1)), "a listed twice");
+        assert!(
+            styled.get_css_property_cache().css_props.get_slice(6).is_empty(),
+            "a node without a class gets no class rule"
+        );
+
+        // Equal specificity: the later rule of the sheet wins, whichever
+        // class the node lists first.
+        let styled = page(
+            ".b { margin-top: 2px; } .a { margin-top: 1px; }",
+            vec![class(class(div(), "a"), "b"), class(class(div(), "b"), "a")],
+        );
+        assert_eq!(margin_of(&styled, 1), Some(margin_top(1)), "a b: `.a` is the later rule");
+        assert_eq!(margin_of(&styled, 2), Some(margin_top(1)), "b a: `.a` is the later rule");
+
+        // A rule that names no class reaches the node beside its class rules.
+        let styled = page(
+            "div { margin-top: 9px; } .a { margin-top: 1px; } #x { margin-top: 7px; }",
+            vec![class(div(), "a"), class(div(), "a").with_id("x".into()), div()],
+        );
+        assert_eq!(margin_of(&styled, 1), Some(margin_top(1)), "the class over the type");
+        assert_eq!(margin_of(&styled, 2), Some(margin_top(7)), "the id over the class");
+        assert_eq!(margin_of(&styled, 3), Some(margin_top(9)), "the type rule alone");
+
+        // Two subtrees, each with its own sheet for the same class.
+        let part = |px: usize| {
+            Dom::create_div()
+                .with_component_css(Css::from_string(
+                    format!(".a {{ margin-top: {px}px; }}").into(),
+                ))
+                .with_child(class(Dom::create_div(), "a"))
+        };
+        let styled = StyledDom::create_from_dom(
+            Dom::create_body().with_child(part(1)).with_child(part(2)),
+        );
+        // 0 body, 1 first part, 2 its child, 3 second part, 4 its child.
+        assert_eq!(margin_of(&styled, 2), Some(margin_top(1)), "the first part's sheet");
+        assert_eq!(margin_of(&styled, 4), Some(margin_top(2)), "the second part's sheet");
+    }
+}
