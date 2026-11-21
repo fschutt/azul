@@ -399,6 +399,13 @@ fn apply_os_dpi_change(window: &mut WaylandWindow, new_dpi: u32) {
             ws.size.dpi = new_dpi;
         },
     );
+    // A CPU frame at another scale is repainted in full (A10-08): the list's
+    // diff is in logical px, and the frame kept (top-left, or cropped) from
+    // the old scale shares no pixel with the new one.
+    #[cfg(feature = "cpurender")]
+    {
+        window.cpu_backend.force_full_repaint = true;
+    }
     window
         .common
         .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);

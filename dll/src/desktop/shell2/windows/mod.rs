@@ -6541,6 +6541,15 @@ unsafe extern "system" fn window_proc(
                 crate::desktop::shell2::common::event::WindowStateSource::Os,
                 |ws| ws.size.dpi = new_dpi,
             );
+            // A CPU frame at another scale is repainted in full (A10-08): the
+            // list's diff is in logical px, and the frame kept from the old
+            // scale shares no pixel with the new one.
+            #[cfg(feature = "cpurender")]
+            {
+                if new_dpi != old_dpi {
+                    window.cpu_backend.force_full_repaint = true;
+                }
+            }
 
             // Get suggested size from lParam (RECT*). Per MSDN this is "a
             // suggested size and position of the current window scaled for

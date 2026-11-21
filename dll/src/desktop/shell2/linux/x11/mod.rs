@@ -6005,6 +6005,14 @@ impl X11Window {
                             // force a full re-present (the CPU surface re-allocates
                             // itself from the new physical dims in render_frame).
                             self.os_present_requested = true;
+                            // And a full REPAINT of the CPU frame (A10-08): the
+                            // re-present above uploads the retained frame, and
+                            // the list's diff is in logical px - an item that
+                            // kept its logical place kept its old-scale pixels.
+                            #[cfg(feature = "cpurender")]
+                            {
+                                self.cpu_backend.force_full_repaint = true;
+                            }
                             self.request_redraw();
                         }
                     }
