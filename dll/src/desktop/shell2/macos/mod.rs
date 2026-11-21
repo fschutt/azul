@@ -2064,6 +2064,17 @@ pub struct CPUViewIvars {
     /// framebuffer is filled with before the frame at the new size is in it
     /// (`blank_frame_pixel`); kept by every render.
     blank_rgb: Cell<[u8; 3]>,
+    /// The framebuffer holds the blank fill, not a frame: `drawRect:` made it
+    /// anew without a frame to keep (the first one, a resize over content
+    /// that was not a frame, another backing scale). Whatever the next
+    /// present's damage says, the whole frame has to be copied in, or the
+    /// fill is what the window shows (`CPUView::shows_blank`). Cleared by
+    /// every full copy.
+    fb_blank: Cell<bool>,
+    /// Backing pixels per point the framebuffer was last sized with (`0.0`
+    /// before the first `drawRect:`): pixels kept across a resize are only
+    /// the frame before while this stays the same.
+    backing_scale: Cell<f64>,
 }
 
 /// The RGBA a CPU view's framebuffer is filled with when its size changes,
@@ -2652,6 +2663,13 @@ define_class!(
 
             let ivars = self.ivars();
 
+            // Another backing scale (the window is on another display now):
+            // what the framebuffer holds is a frame at the old scale, and
+            // its top-left part is not the top-left part of the next frame.
+            let previous_scale = ivars.backing_scale.get();
+            let scale_changed = previous_scale > 0.0 && (previous_scale - scale).abs() > 1e-6;
+            ivars.backing_scale.set(scale);
+
             // Resize framebuffer if view bounds changed
             let current_width = ivars.width.get();
             let current_height = ivars.height.get();
@@ -2678,7 +2696,8 @@ define_class!(
                 let kept = current_width > 0
                     && current_height > 0
                     && fb.len() >= current_width * current_height * 4
-                    && ivars.fb_content_valid.get();
+                    && ivars.fb_content_valid.get()
+                    && !scale_changed;
                 let old = if kept { Some(core::mem::take(&mut *fb)) } else { None };
                 fb.clear();
                 fb.resize(width * height * 4, 0);
@@ -2697,6 +2716,12 @@ define_class!(
                 // against this buffer would leave everything outside its rects
                 // blank: the next present goes through a full copy.
                 ivars.fb_content_valid.set(kept);
+                if !kept {
+                    // And a present that says "nothing changed" would leave
+                    // ALL of it blank: the next present copies the frame in
+                    // whatever its damage is (`shows_blank`).
+                    ivars.fb_blank.set(true);
+                }
             }
 
             // CPU render on every drawRect that needs it (first frame, after
@@ -3232,6 +3257,8 @@ define_class!(
             cached_bitmap_stale: Cell::new(true),
                 transparent: Cell::new(false),
                 blank_rgb: Cell::new([255, 255, 255]),
+                fb_blank: Cell::new(true),
+                backing_scale: Cell::new(0.0),
             });
             unsafe {
                 msg_send_id![super(this), initWithFrame: frame]
@@ -3627,11 +3654,21 @@ impl CPUView {
 
         // Every branch below rewrites the whole buffer.
         note_cpu_frame_size((pixmap_w, pixmap_h), (view_w, view_h));
-        self.ivars().fb_content_valid.set(true);
         if pixmap_w == view_w && pixmap_h == view_h {
             let len = (view_w * view_h * 4).min(pixmap_data.len()).min(fb.len());
             fb[..len].copy_from_slice(&pixmap_data[..len]);
+            // The framebuffer is this frame, pixel for pixel: the next one
+            // may be rendered into it, or copied into it rect by rect.
+            self.ivars().fb_content_valid.set(true);
+            self.ivars().fb_blank.set(false);
         } else if pixmap_w > 0 && pixmap_h > 0 {
+            // It shows this frame, but STRETCHED: no pixel of it is a pixel
+            // of the frame. It is no base for an incremental frame (a frame
+            // rendered into it, or rects copied into it, would stand next to
+            // stretched pixels for good): the next present of a frame of the
+            // view's size is a full copy, which revalidates.
+            self.ivars().fb_content_valid.set(false);
+            self.ivars().fb_blank.set(false);
             // Nearest-neighbor scale for DPI mismatch
             let sx = pixmap_w as f32 / view_w as f32;
             let sy = pixmap_h as f32 / view_h as f32;
@@ -3704,13 +3741,24 @@ impl CPUView {
         Some(fb.as_mut_ptr())
     }
 
+    /// Whether the framebuffer holds the blank fill instead of a frame (see
+    /// the ivar): the next present has to copy the whole frame in, even one
+    /// whose damage says that nothing changed.
+    pub fn shows_blank(&self) -> bool {
+        self.ivars().fb_blank.get()
+    }
+
     /// Mark the present rects `rects` (buffer px of the `fb_w` x `fb_h`
     /// framebuffer: top-left origin, y down) as needing display: each one
     /// flipped to the view's bottom-left origin and divided by the backing
     /// scale ([`present_rect_in_view_points`]).
     fn invalidate_px_rects(&self, rects: &[(u32, u32, u32, u32)], fb_w: usize, fb_h: usize) {
-        // The framebuffer's own pixels per point.
-        let scale = fb_w as f64 / self.bounds().size.width.max(1.0);
+        // The scale `drawRect:` sized the framebuffer with; before the first
+        // one, the framebuffer's own pixels per point.
+        let mut scale = self.ivars().backing_scale.get();
+        if !(scale > 0.0) {
+            scale = fb_w as f64 / self.bounds().size.width.max(1.0);
+        }
         for rect in rects {
             let (x, y, w, h) = present_rect_in_view_points(*rect, fb_h, scale);
             let dirty = NSRect::new(NSPoint::new(x, y), NSSize::new(w, h));
@@ -9869,7 +9917,24 @@ impl MacOSWindow {
                     if let Some(ref pixmap) = self.cpu_backend.last_frame {
                         if let Some(ref cpu_view) = self.cpu_view {
                             match &self.cpu_backend.last_present_damage {
-                                crate::desktop::shell2::headless::FrameDamage::None => {}
+                                // "Nothing changed" is about the frame, not
+                                // about the view: a framebuffer `drawRect:`
+                                // just made anew holds the blank fill, and
+                                // the frame is copied in all the same. (A
+                                // resize whose render ran at the tick BEFORE
+                                // `drawRect:` resized the buffer ends here:
+                                // that render was the full repaint, this one
+                                // finds nothing left to do.)
+                                crate::desktop::shell2::headless::FrameDamage::None
+                                    if !cpu_view.shows_blank() => {}
+                                crate::desktop::shell2::headless::FrameDamage::None => {
+                                    cpu_view.update_framebuffer(
+                                        pixmap.data(),
+                                        pixmap.width() as usize,
+                                        pixmap.height() as usize,
+                                        None,
+                                    );
+                                }
                                 damage => {
                                     let rects = damage.to_present_rects_physical(
                                         dpi,
