@@ -771,6 +771,33 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
   all DOMs (the window's chains and `FontResolutions::of_children`) would let it run again.
 - `FontResolutions` holds 8 KB per DOM (`CharSet`) and a view's handful of font chains.
 
+## Handover for round 3 (the session that wrote this ran out of context)
+- **Done:** the merge into `audit/integration` is `f295e3c1a` (kept the integration form of `core/src/gpu.rs`;
+  the 23 notes checked against the stamped maps; the three `.entry()` writers of transform keys maps - the sheen
+  keys, the slides of the animation tick, `publish_live_sample` - use `ensure_transform_key` / `key_transform`
+  THERE, and `publish_live_sample` notes its opacity write THERE). Those four edits exist only in the merge
+  commit: this branch still has the plain-map form of `gpu.rs` from the cherry-pick `9c486a5a3`, so do not port
+  them back (they would not compile here).
+- **Not started, in the coordinator's order:** 11, 43, 38, 16, 32, then 14, 15, 27, 29, 36, 39, 42. Each block
+  above says what is missing; nothing of them is half-done in the tree (the working tree is clean).
+  - 11: `git cherry-pick -x 505c953ee` (A3-core-17; touches `solver3/display_list.rs` and
+    `audit_tests/a3_core.rs`), then add the arm for its new `EmitPhase` variant in `node_patch::locate`
+    (`solver3/display_list/node_patch.rs`, the `match phase`), then the patch as designed in the block of 11.
+  - 43: `update_drag_visual` (`window.rs`): for `dom_id != DomId::ROOT_ID` call
+    `self.regenerate_display_list_for_dom(dom_id)` and return `ShouldReRenderCurrentWindow`; the test needs a
+    node drag inside a view (`gesture_drag_manager`, A6's manager: read its test helpers first).
+  - 38: the whitelist is in `patch_restyled_decorations`; `color` needs the Text items of the node's content run
+    re-emitted (the run is tagged `(layout index, Content)`), `outline` is painted after the content.
+  - 16: `tick_animations`, the block that starts at `for (tr, rect) in self.css_transitions.iter_mut().zip(rects)`;
+    the copy per tick comes from `cached.5 = patched` keeping a second `Arc` of the root's list.
+- **Not read (item 3 of round 3):** `AnimationManager::tick`, `run_track_frames`, `dispatch_events_propagated`,
+  the unread parts of `apply_user_change` / `apply_system_change` (line ranges under "Not read"),
+  `layout_transient_content`.
+- The helpers this area uses for tests are in `layout/src/audit_tests/a3_window.rs` (`label_window`,
+  `moved_label_window`, `render_the_view_again`, `hover`, `boxes_page`) and the counters are `cfg(test)`
+  thread-locals in `window.rs` (`CSS_DIFF_WORK`, `FONT_RESOLUTIONS`, `SCROLLBAR_FADE_WORK`,
+  `BACKGROUND_ITEM_SCAN`, `LAYOUT_NODE_LOOKUPS`, `CALLBACK_IMAGE_SCAN`).
+
 ## Integration
 - `9c486a5a3` on this branch is A3-core's `b37653684` cherry-picked (A3-core-08, `core/src/gpu.rs` +
   `gpu_test.rs`): the merge sees the same change twice.
