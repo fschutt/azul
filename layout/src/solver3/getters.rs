@@ -4572,6 +4572,22 @@ pub fn propagated_text_decoration(
     decoration
 }
 
+/// A letter- or word-spacing of `px` resolved pixels as the text layout keeps
+/// it: no spacing is `Spacing::default()` - `Px(0)`, as
+/// `StyleProperties::default` and the text API have it - whichever way the
+/// value was read. The compact cache answers `0.0` for a node at rest, which
+/// became `PxF(0.0)`, and the cascade answers nothing for a node that is
+/// hovered or holds the focus, which became `Px(0)`: the same node's style was
+/// unequal to itself across a hover (another value, another hash), with no
+/// rule involved.
+fn spacing_of_px(px: f32) -> crate::text3::cache::Spacing {
+    if px == 0.0 {
+        crate::text3::cache::Spacing::default()
+    } else {
+        crate::text3::cache::Spacing::PxF(px)
+    }
+}
+
 /// [`get_style_properties`] resolved against an EXPLICIT pseudo-state rather
 /// than the node's own.
 ///
@@ -4785,7 +4801,7 @@ pub fn get_style_properties_for_state(
         if node_state.is_normal() {
             if let Some(ref cc) = cache.compact_cache {
                 if let Some(px_val) = cc.get_letter_spacing(dom_id.index()) {
-                    fast_ls = Some(crate::text3::cache::Spacing::PxF(px_val * zoom));
+                    fast_ls = Some(spacing_of_px(px_val * zoom));
                 }
             }
         }
@@ -4797,7 +4813,7 @@ pub fn get_style_properties_for_state(
                     let px_value = v
                         .inner
                         .resolve_with_context(&font_size_context, PropertyContext::FontSize);
-                    crate::text3::cache::Spacing::PxF(zoomed_length(
+                    spacing_of_px(zoomed_length(
                         styled_dom,
                         dom_id,
                         v.inner.metric,
@@ -4815,7 +4831,7 @@ pub fn get_style_properties_for_state(
         if node_state.is_normal() {
             if let Some(ref cc) = cache.compact_cache {
                 if let Some(px_val) = cc.get_word_spacing(dom_id.index()) {
-                    fast_ws = Some(crate::text3::cache::Spacing::PxF(px_val * zoom));
+                    fast_ws = Some(spacing_of_px(px_val * zoom));
                 }
             }
         }
@@ -4827,7 +4843,7 @@ pub fn get_style_properties_for_state(
                     let px_value = v
                         .inner
                         .resolve_with_context(&font_size_context, PropertyContext::FontSize);
-                    crate::text3::cache::Spacing::PxF(zoomed_length(
+                    spacing_of_px(zoomed_length(
                         styled_dom,
                         dom_id,
                         v.inner.metric,
@@ -13113,5 +13129,34 @@ mod audit_a3_solver_tests {
             Some(plain),
             "another cascade"
         );
+    }
+    /// A3-solver-49. A node's letter- and word-spacing are the same value at
+    /// rest (read from the compact cache) and hovered (read from the cascade,
+    /// which holds no rule): no spacing is one value, `Spacing::default()`.
+    ///
+    /// Mutation: `spacing_of_px` returning `PxF(px)` for every `px` makes the
+    /// resting style's spacings `PxF(0.0)` and the hovered one's `Px(0)`.
+    #[test]
+    fn a_hovered_node_has_the_spacings_it_has_at_rest() {
+        use azul_core::dom::Dom;
+
+        // body(0) > span(1) > text(2).
+        let sd = StyledDom::create_from_dom(
+            Dom::create_body().with_child(Dom::create_span_with_text("label")),
+        );
+        let text = NodeId::new(2);
+        let viewport = PhysicalSize::new(800.0, 600.0);
+        let rest = sd.styled_nodes.as_container()[text].styled_node_state;
+        let hovered = StyledNodeState {
+            hover: true,
+            ..rest
+        };
+        let at_rest = get_style_properties_for_state(&sd, text, None, viewport, &rest);
+        let under_the_pointer =
+            get_style_properties_for_state(&sd, text, None, viewport, &hovered);
+        assert_eq!(at_rest.letter_spacing, crate::text3::cache::Spacing::default());
+        assert_eq!(at_rest.word_spacing, crate::text3::cache::Spacing::default());
+        assert_eq!(under_the_pointer.letter_spacing, at_rest.letter_spacing);
+        assert_eq!(under_the_pointer.word_spacing, at_rest.word_spacing);
     }
 }
