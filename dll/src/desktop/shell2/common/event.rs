@@ -17464,8 +17464,31 @@ mod paint_restyle_tests {
         Arc::as_ptr(&page.lw.layout_results[&dom].display_list)
     }
 
+    /// How many rectangles of the list of `dom` are painted in the colour of a state, as the
+    /// renderers paint them: a rect bound to a colour key in the key's value (A4-23: a state
+    /// colour that goes by value leaves its rect in the list, painted see-through).
     fn painted(page: &Page, dom: DomId) -> usize {
-        states_painted(&page.lw.layout_results[&dom].display_list)
+        let list = &page.lw.layout_results[&dom].display_list;
+        let mut values: BTreeMap<usize, azul_css::props::basic::color::ColorU> = BTreeMap::new();
+        if let Some(cache) = page.lw.gpu_state_manager.caches.get(&dom) {
+            cache.for_each_bound_color(|key, color| {
+                values.insert(key, color);
+            });
+        }
+        list.items
+            .iter()
+            .enumerate()
+            .filter(|(index, item)| {
+                let DisplayListItem::Rect { color, .. } = item else {
+                    return false;
+                };
+                let shown = list
+                    .color_binding(*index)
+                    .and_then(|key| values.get(&key.id).copied())
+                    .unwrap_or(*color);
+                shown == STATE
+            })
+            .count()
     }
 
     /// What the restyle of a state costs, as the pass sees it: the tier, the DOMs whose list
@@ -17491,6 +17514,20 @@ mod paint_restyle_tests {
         what: &str,
         rebuilds: u32,
     ) {
+        assert_a_repaint_of_the_view(page, tier, (root_before, child_before), what, rebuilds, 1);
+    }
+
+    /// As above, with the number of runs painted into the view's list (`patches`): 1 for a
+    /// state colour that comes (the run is put in and bound to a colour key), 0 for one
+    /// that goes or comes again (A4-23: the key's value is written, no list is touched).
+    fn assert_a_repaint_of_the_view(
+        page: &Page,
+        tier: ProcessEventResult,
+        (root_before, child_before): (*const DisplayList, *const DisplayList),
+        what: &str,
+        rebuilds: u32,
+        patches: u32,
+    ) {
         assert_eq!(
             tier,
             ProcessEventResult::ShouldReRenderCurrentWindow,
@@ -17512,9 +17549,16 @@ mod paint_restyle_tests {
             // Patched where it lies: a list nobody else holds keeps its place, so its
             // pointer says nothing; the patch is counted instead.
             assert_eq!(
-                page.lw.frame_report.dl_node_patches, 1,
+                page.lw.frame_report.dl_node_patches, patches,
                 "{what}: the label's run was painted into the list"
             );
+            if patches == 0 {
+                assert_eq!(
+                    list_of(page, page.child),
+                    child_before,
+                    "{what}: a value leaves the list the allocation it was"
+                );
+            }
         }
         assert_eq!(
             page.lw.frame_report.dl_rebuilds, rebuilds,
@@ -17563,7 +17607,7 @@ mod paint_restyle_tests {
             },
         )]);
         let tier = apply_hover_restyle(&mut page.lw, leave);
-        assert_a_repaint_of_the_views_list(&page, tier, before, "leave", 0);
+        assert_a_repaint_of_the_view(&page, tier, before, "leave", 0, 0);
         assert_eq!(painted(&page, page.child), 0, "and loses it");
     }
 
@@ -17586,7 +17630,7 @@ mod paint_restyle_tests {
         );
         page.lw.frame_report.reset_counters();
         let tier = apply_active_restyle(&mut page.lw, BTreeMap::new(), true);
-        assert_a_repaint_of_the_views_list(&page, tier, before, "release", 0);
+        assert_a_repaint_of_the_view(&page, tier, before, "release", 0, 0);
         assert_eq!(painted(&page, page.child), 0, "and is not after the release");
     }
 

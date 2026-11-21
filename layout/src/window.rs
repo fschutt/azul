@@ -3284,6 +3284,12 @@ pub struct DomGenerations {
     /// Boxes were moved where they lie since the shell last built its hit-test index from
     /// the layout results (`LayoutWindow::take_boxes_moved_in_place`).
     boxes_moved_in_place: bool,
+    /// Per DOM: the nodes whose solid background `LayoutWindow::patch_restyled_decorations`
+    /// bound to a colour key of its own when a state (`:hover`, `:active`) painted it (audit
+    /// A4-23): while a node is in here its display list holds that one bound rect as the
+    /// node's background, and a later change of the state is the key's VALUE. Emptied by
+    /// every build of the DOM's list (`LayoutWindow::release_state_colors`).
+    state_colors: BTreeMap<DomId, BTreeSet<NodeId>>,
 }
 
 impl DomGenerations {
@@ -3309,6 +3315,8 @@ impl DomGenerations {
         self.image_items
             .retain(|dom_id, _| live.contains_key(dom_id));
         self.frame_owners
+            .retain(|dom_id, _| live.contains_key(dom_id));
+        self.state_colors
             .retain(|dom_id, _| live.contains_key(dom_id));
     }
 
@@ -3353,6 +3361,30 @@ impl DomGenerations {
             self.get(dom_id),
             self.list_revisions.get(&dom_id).copied().unwrap_or(0),
         )
+    }
+}
+
+/// The colour `node`'s whole background is painted in, when it is one: `Some(colour)` for a
+/// single solid layer, `Some(transparent)` for no layer at all (nothing is painted), `None`
+/// for anything else (several layers, a gradient, an image).
+fn solid_background_of(
+    styled_dom: &StyledDom,
+    node: NodeId,
+) -> Option<azul_css::props::basic::color::ColorU> {
+    use azul_css::props::{basic::color::ColorU, style::StyleBackgroundContent};
+
+    let states = styled_dom.styled_nodes.as_container();
+    let state = &states.get(node)?.styled_node_state;
+    let layers = solver3::getters::get_background_contents(styled_dom, node, state);
+    match layers.as_slice() {
+        [] => Some(ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        }),
+        [StyleBackgroundContent::Color(color)] => Some(*color),
+        _ => None,
     }
 }
 
@@ -9970,6 +10002,8 @@ impl LayoutWindow {
         if !self.skip_gpu_sync {
             let _ = self.gpu_state_manager.get_or_create_cache(dom_id);
         }
+        self.settle_state_colors_in_the_kept_list(dom_id);
+        self.release_state_colors(dom_id);
         if dom_id == DomId::ROOT_ID {
             self.retain_running_color_keys();
         }
@@ -21312,13 +21346,20 @@ impl LayoutWindow {
     /// colour it does not have. The list built without it paints the
     /// cascade's colour, which is where a settled fade ends.
     pub fn retain_running_color_keys(&mut self) {
+        self.retain_color_keys_of(&BTreeSet::new());
+    }
+
+    /// [`Self::retain_running_color_keys`], keeping the keys of `also` too: the nodes whose
+    /// background a state bound (`DomGenerations::state_colors`), where the list that binds
+    /// them is kept (`patch_restyled_decorations`) and not built.
+    fn retain_color_keys_of(&mut self, also: &BTreeSet<NodeId>) {
         let Some(cache) = self.gpu_state_manager.caches.get_mut(&DomId::ROOT_ID) else {
             return;
         };
         if cache.color_keys.is_empty() && cache.current_color_values.is_empty() {
             return;
         }
-        let running: BTreeSet<NodeId> = self
+        let mut running: BTreeSet<NodeId> = self
             .css_transitions
             .iter()
             .filter(|tr| tr.t < 1.0 && transition_patch_color(&tr.to).is_some_and(|(_, slot)| {
@@ -21326,6 +21367,7 @@ impl LayoutWindow {
             }))
             .map(|tr| tr.node)
             .collect();
+        running.extend(also.iter().copied());
         let held = cache.color_keys.len() + cache.current_color_values.len();
         cache.color_keys.retain(|node, _| running.contains(node));
         cache
@@ -29250,6 +29292,78 @@ impl LayoutWindow {
         }
     }
 
+    /// Audit A4-23: before every BUILD of the display list of `dom_id` (a layout pass,
+    /// [`Self::regenerate_display_list_for_dom`]) the state colours of the list that goes
+    /// are let go ([`DomGenerations::state_colors`]). A build paints every background from
+    /// the cascade and binds it to whatever key its node has: a key left from a hover would
+    /// bind a background to a colour the cascade no longer says (and, after a rebuild that
+    /// renumbered the nodes, another node's). A view's document has no other colour keys
+    /// (fades are driven for the window's DOM alone): all of its keys go. The window's own
+    /// are judged by [`Self::retain_running_color_keys`], which the builds run next.
+    fn release_state_colors(&mut self, dom_id: DomId) {
+        drop(self.dom_generations.state_colors.remove(&dom_id));
+        if dom_id == DomId::ROOT_ID {
+            return;
+        }
+        if let Some(cache) = self.gpu_state_manager.caches.get_mut(&dom_id) {
+            if !cache.color_keys.is_empty() || !cache.current_color_values.is_empty() {
+                cache.retain_colors(|_| false);
+            }
+        }
+    }
+
+    /// Audit A4-23: before a layout pass of `dom_id` lets its state colours go
+    /// ([`Self::release_state_colors`]), the list the pass may copy runs from (the solver's
+    /// kept list: `self.layout_cache` IS this DOM's cache during its pass) is made to say
+    /// what is on screen: a rect a state colour is bound to takes the key's VALUE as its own
+    /// colour. Without it a run copied into the pass's list would show the colour the rect
+    /// had when it was bound - a hover that went by value would come back with the next
+    /// pass. (A rect whose value is see-through stays in a copied run, painting nothing,
+    /// until its node is painted again.)
+    fn settle_state_colors_in_the_kept_list(&mut self, dom_id: DomId) {
+        use solver3::display_list::DisplayListItem;
+
+        let Some(nodes) = self
+            .dom_generations
+            .state_colors
+            .get(&dom_id)
+            .filter(|nodes| !nodes.is_empty())
+        else {
+            return;
+        };
+        let Some(cache) = self.gpu_state_manager.caches.get(&dom_id) else {
+            return;
+        };
+        let values: BTreeMap<usize, azul_css::props::basic::color::ColorU> = nodes
+            .iter()
+            .filter_map(|node| Some((cache.color_key(*node)?.id, cache.color_value(*node)?)))
+            .collect();
+        let Some(kept) = self.layout_cache.cached_display_list.as_mut() else {
+            return;
+        };
+        let stale: Vec<(usize, azul_css::props::basic::color::ColorU)> = kept
+            .5
+            .items
+            .iter()
+            .enumerate()
+            .filter_map(|(index, item)| {
+                let value = *values.get(&kept.5.color_binding(index)?.id)?;
+                matches!(item, DisplayListItem::Rect { color, .. } if *color != value)
+                    .then_some((index, value))
+            })
+            .collect();
+        if stale.is_empty() {
+            return;
+        }
+        let list = Arc::make_mut(&mut kept.5);
+        for (index, value) in stale {
+            if let Some(DisplayListItem::Rect { color, .. }) = list.items.get_mut(index) {
+                *color = value;
+            }
+        }
+        list.frame_index.clear();
+    }
+
     /// A restyle that changed nothing but the DECORATIONS of a few nodes of `dom_id` - their
     /// background, border colours, shadows (a `:hover { background }` on one label of a map) -
     /// shown without building the DOM's display list again: each node's background-and-border
@@ -29310,7 +29424,6 @@ impl LayoutWindow {
         if !only_decorations || self.text_edit_manager.tween.is_active() {
             return false;
         }
-        let nodes: Vec<NodeId> = changed.keys().copied().collect();
 
         // The light and the colour keys a build of this list runs under.
         let _light = azul_core::light::LightScope::enter(
@@ -29318,8 +29431,102 @@ impl LayoutWindow {
             [self.window_desktop_origin().x, self.window_desktop_origin().y],
         );
         if dom_id == DomId::ROOT_ID {
-            self.retain_running_color_keys();
+            // The keys a fade drives, and those of the state colours this list binds.
+            let state_colors = self
+                .dom_generations
+                .state_colors
+                .get(&DomId::ROOT_ID)
+                .cloned()
+                .unwrap_or_default();
+            self.retain_color_keys_of(&state_colors);
         }
+
+        // A4-23: BY VALUE. A node whose background this function bound to a colour key when
+        // a state last painted it (step 4 below), and whose background is again one solid
+        // colour or nothing, changes by the key's value: no run is painted and no list is
+        // touched, so neither renderer takes a list for it (a patched list is a whole list
+        // to the GPU renderer: translated and scene-built again on every enter and leave).
+        // Every other node is painted by the patch as before; a state colour it had goes,
+        // its new run is painted unbound.
+        let state_colored = |window: &Self, node: NodeId| {
+            window
+                .dom_generations
+                .state_colors
+                .get(&dom_id)
+                .is_some_and(|nodes| nodes.contains(&node))
+                && window
+                    .gpu_state_manager
+                    .caches
+                    .get(&dom_id)
+                    .is_some_and(|cache| cache.color_key(node).is_some())
+        };
+        // A fade drives its node's colour key itself (`tick_animations`, the window's DOM).
+        let fading = |window: &Self, node: NodeId| {
+            dom_id == DomId::ROOT_ID && window.css_transitions.iter().any(|tr| tr.node == node)
+        };
+        let mut by_value: Vec<(NodeId, azul_css::props::basic::color::ColorU)> = Vec::new();
+        let mut nodes: Vec<NodeId> = Vec::new();
+        {
+            let Some(layout_result) = self.layout_results.get(&dom_id) else {
+                return false;
+            };
+            for (node, changes) in changed {
+                let background_alone = changes.iter().all(|change| {
+                    matches!(
+                        change.current_prop.get_type(),
+                        Ty::BackgroundContent | Ty::BackgroundColor
+                    ) && matches!(
+                        change.previous_prop.get_type(),
+                        Ty::BackgroundContent | Ty::BackgroundColor
+                    )
+                });
+                let value = (background_alone
+                    && state_colored(&*self, *node)
+                    && !fading(&*self, *node))
+                    .then(|| solid_background_of(&layout_result.styled_dom, *node))
+                    .flatten();
+                match value {
+                    Some(color) => by_value.push((*node, color)),
+                    None => nodes.push(*node),
+                }
+            }
+        }
+        for node in &nodes {
+            let had = self
+                .dom_generations
+                .state_colors
+                .get_mut(&dom_id)
+                .is_some_and(|bound| bound.remove(node));
+            if had && !fading(&*self, *node) {
+                if let Some(cache) = self.gpu_state_manager.caches.get_mut(&dom_id) {
+                    drop(cache.remove_color(*node));
+                }
+            }
+        }
+        if nodes.is_empty() {
+            // Values alone: the list is the list it was.
+            if let Some(cache) = self.gpu_state_manager.caches.get_mut(&dom_id) {
+                for (node, color) in &by_value {
+                    drop(cache.set_color_value(*node, *color));
+                }
+            }
+            self.serve_paint_dirt(dom_id);
+            return true;
+        }
+        // The one solid colour each patched node's background is now (`None`: no single
+        // solid colour, or nothing to see): what step 4 binds.
+        let solid_now: Vec<Option<azul_css::props::basic::color::ColorU>> = {
+            let Some(layout_result) = self.layout_results.get(&dom_id) else {
+                return false;
+            };
+            nodes
+                .iter()
+                .map(|node| {
+                    solid_background_of(&layout_result.styled_dom, *node)
+                        .filter(|color| color.a > 0 && !fading(&*self, *node))
+                })
+                .collect()
+        };
 
         // 1. The runs, painted from the inputs `regenerate_display_list_for_dom` builds with.
         let patches = {
@@ -29422,11 +29629,42 @@ impl LayoutWindow {
         }
         // The runs are spliced in: the items behind them move.
         self.dom_generations.bump_list(dom_id);
-        node_patch::commit(
-            Arc::make_mut(&mut layout_result.display_list),
-            &patches,
-            &placements,
-        );
+        let list = Arc::make_mut(&mut layout_result.display_list);
+        node_patch::commit(list, &patches, &placements);
+        // 4. (A4-23) A run that is the node's background in ONE solid colour is bound to a
+        // colour key of the node: from now on that background changes by value (above). A
+        // run the patch took out (the state went and nothing is painted) binds nothing.
+        if let Some(cache) = self.gpu_state_manager.caches.get_mut(&dom_id) {
+            let runs = node_patch::committed_runs(&patches, &placements);
+            for ((node, shown), (first, len)) in nodes.iter().zip(&solid_now).zip(runs) {
+                let Some(shown) = *shown else {
+                    continue;
+                };
+                let mut rects = (first..first + len).filter(|index| {
+                    matches!(
+                        list.items.get(*index),
+                        Some(solver3::display_list::DisplayListItem::Rect { color, .. })
+                            if *color == shown
+                    )
+                });
+                let (Some(index), None) = (rects.next(), rects.next()) else {
+                    continue;
+                };
+                let key = cache.key_color(*node, shown);
+                if list.color_bindings.len() < list.items.len() {
+                    list.color_bindings.resize(list.items.len(), None);
+                }
+                list.color_bindings[index] = Some(key);
+                self.dom_generations
+                    .state_colors
+                    .entry(dom_id)
+                    .or_default()
+                    .insert(*node);
+            }
+            for (node, color) in &by_value {
+                drop(cache.set_color_value(*node, *color));
+            }
+        }
         if cache_holds_it == Some(true) {
             if let Some(cached) = self.layout_cache.cached_display_list.as_mut() {
                 cached.5 = layout_result.display_list.clone();
@@ -29485,6 +29723,7 @@ impl LayoutWindow {
         // from, and a CPU frame takes it only while it shows the layout the
         // move starts from (`LayoutCache::last_patch_move_from_seq`) - a
         // keystroke's list after a presented reflow does not blit by it.
+        self.release_state_colors(dom_id);
         if dom_id == DomId::ROOT_ID {
             self.retain_running_color_keys();
         }

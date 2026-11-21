@@ -476,9 +476,125 @@ fn a_hover_over_one_label_of_many_touches_that_labels_items_alone() {
     assert_eq!(&hovered[..at], &before[..at], "the items before it are untouched");
     assert_eq!(&hovered[at + 1..], &before[at..], "the items behind it moved by one, unchanged");
 
+    // The leave (A4-23): the item put in was bound to a colour key of the label, and the
+    // colour going is that key's value. No list is built or patched for it; the list keeps
+    // the rect, which paints nothing now, and is painted as it was before the hover.
     let left = hover(&mut lw, child, 201, false);
     assert_eq!(lw.frame_report.dl_rebuilds, 0, "no list was built for the leave either");
-    assert_eq!(left, before, "the list is the one it was before the hover");
+    assert_eq!(lw.frame_report.dl_node_patches, 1, "nor patched: the leave is a value");
+    assert_eq!(left, hovered, "the list holds the items it held");
+    assert_eq!(painted_lines(&lw, child), before, "and is painted as before the hover");
+}
+
+/// The list of `dom` as the renderers paint it: a rect bound to a colour key in the key's
+/// value (`GpuValueCache::for_each_bound_color`), left out where that value is see-through
+/// (both renderers paint nothing for it); every other item as it is.
+fn painted_lines(lw: &LayoutWindow, dom: DomId) -> Vec<String> {
+    let list = &lw.layout_results[&dom].display_list;
+    let mut values: BTreeMap<usize, azul_css::props::basic::color::ColorU> = BTreeMap::new();
+    if let Some(cache) = lw.gpu_state_manager.caches.get(&dom) {
+        cache.for_each_bound_color(|key, color| {
+            values.insert(key, color);
+        });
+    }
+    list.items
+        .iter()
+        .enumerate()
+        .filter_map(|(i, item)| {
+            let value = list.color_binding(i).and_then(|key| values.get(&key.id).copied());
+            let item = match (item, value) {
+                (
+                    DisplayListItem::Rect {
+                        bounds,
+                        border_radius,
+                        ..
+                    },
+                    Some(color),
+                ) => {
+                    if color.a == 0 {
+                        return None;
+                    }
+                    DisplayListItem::Rect {
+                        bounds: *bounds,
+                        color,
+                        border_radius: *border_radius,
+                    }
+                }
+                _ => item.clone(),
+            };
+            Some(format!(
+                "{item:?} | node {:?} | call {:?}",
+                list.node_mapping.get(i),
+                list.layout_node_mapping.get(i)
+            ))
+        })
+        .collect()
+}
+
+/// Audit A4-23. A hover that comes AGAIN over a label is a value: the first enter paints the
+/// label's background into the list and binds it to a colour key; the leave, the next enter
+/// and the next leave write that key's colour and touch no list (to the GPU renderer a
+/// patched list is a whole list: translated and scene-built again for every enter and
+/// leave). What is painted is at every step what a list built from the styles paints.
+/// Mutations: the bind of step 4 removed, or `by_value` always empty (the leave patches:
+/// `dl_node_patches` 1); `set_color_value` not called (the painted list keeps the hover
+/// colour after the leave).
+#[test]
+fn a_hover_that_comes_again_is_a_value_and_no_list() {
+    let (mut lw, child) = label_window(40);
+    let at_rest = lines(&lw.layout_results[&child].display_list);
+    // Label 9 (9 % 3 == 0: no background of its own).
+    let hovered = hover(&mut lw, child, 9, true);
+    assert_eq!(painted_lines(&lw, child), hovered, "the bound colour is the hover colour");
+    let list = Arc::as_ptr(&lw.layout_results[&child].display_list);
+    lw.frame_report.reset_counters();
+
+    for (enters, painted) in [(false, &at_rest), (true, &hovered), (false, &at_rest)] {
+        drop(hover(&mut lw, child, 9, enters));
+        assert_eq!(lw.frame_report.dl_rebuilds, 0, "enters {enters}: no list is built");
+        assert_eq!(lw.frame_report.dl_node_patches, 0, "enters {enters}: no list is patched");
+        assert!(
+            core::ptr::eq(list, Arc::as_ptr(&lw.layout_results[&child].display_list)),
+            "enters {enters}: the list is the allocation it was"
+        );
+        assert_eq!(&painted_lines(&lw, child), painted, "enters {enters}: what is painted");
+    }
+
+    // A build of the list lets the key go: the list holds what the styles say and nothing
+    // else, and the next enter is a patch again.
+    lw.regenerate_display_list_for_dom(child);
+    assert_eq!(lines(&lw.layout_results[&child].display_list), at_rest, "a built list at rest");
+    lw.frame_report.reset_counters();
+    drop(hover(&mut lw, child, 9, true));
+    assert_eq!(lw.frame_report.dl_node_patches, 1, "after a build the hover is painted in");
+    assert_eq!(painted_lines(&lw, child), hovered);
+}
+
+/// A node whose state colour is NOT one solid background takes the patch, bound or not: label
+/// 10 has a background of its own, so its hover run replaces a rect (it is bound then, and
+/// its leave is a value back to its own colour); a label left through a build of the list
+/// has no key and its leave is a patch.
+#[test]
+fn a_state_colour_without_a_key_still_takes_the_patch() {
+    let (mut lw, child) = label_window(40);
+    let at_rest = lines(&lw.layout_results[&child].display_list);
+    lw.frame_report.reset_counters();
+    drop(hover(&mut lw, child, 10, true));
+    assert_eq!(lw.frame_report.dl_node_patches, 1, "the enter is painted into the list");
+    drop(hover(&mut lw, child, 10, false));
+    assert_eq!(lw.frame_report.dl_node_patches, 1, "the leave is the key's value");
+    assert_eq!(painted_lines(&lw, child), at_rest, "its own background is painted again");
+
+    drop(hover(&mut lw, child, 9, true));
+    lw.regenerate_display_list_for_dom(child);
+    lw.frame_report.reset_counters();
+    drop(hover(&mut lw, child, 9, false));
+    assert_eq!(
+        (lw.frame_report.dl_rebuilds, lw.frame_report.dl_node_patches),
+        (0, 1),
+        "no key after a build: the leave takes the run out of the list"
+    );
+    assert_eq!(lines(&lw.layout_results[&child].display_list), at_rest);
 }
 
 /// A restyle the patch cannot show is refused whole and leaves the list as it is: a property

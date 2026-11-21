@@ -423,6 +423,30 @@ pub(crate) fn commit(list: &mut DisplayList, patches: &[DecorationPatch], placem
     list.frame_index.clear();
 }
 
+/// Where the run of each patch lies in the list AFTER [`commit`] put the runs in at
+/// `placements`: `(first item, items)` per patch. A run in front of another one moved it by
+/// the difference between what it replaced and what it is.
+pub(crate) fn committed_runs(
+    patches: &[DecorationPatch],
+    placements: &[(usize, usize)],
+) -> Vec<(usize, usize)> {
+    let n = patches.len().min(placements.len());
+    (0..n)
+        .map(|k| {
+            let at = placements[k].0;
+            let mut first = at;
+            for j in 0..n {
+                if placements[j].0 < at {
+                    // A run in front: `first` is behind its old items, so the subtraction
+                    // cannot wrap.
+                    first = first + patches[j].run.items.len() - placements[j].1;
+                }
+            }
+            (first, patches[k].run.items.len())
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------------------------------
 // A box that MOVED where it lies: the items of its reference frame shifted (A3-window-49).
 //
