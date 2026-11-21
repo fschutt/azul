@@ -1,5 +1,6 @@
-//! OpenGL context wrappers, texture cache management, shader compilation,
+//! OpenGL context wrappers, textures, shader compilation,
 //! vertex buffer abstractions, and FFI-safe GL type aliases for the C/Python API.
+//! (The cache of the textures a window shows lives in azul-dll's `gl_texture_cache`.)
 
 #![allow(unused_variables)]
 #[cfg(not(feature = "std"))]
@@ -31,14 +32,11 @@ pub use gl_context_loader::{
 pub use crate::glconst::*;
 use crate::{
     geom::PhysicalSizeU32,
-    hit_test::DocumentId,
     resources::{
-        Brush, Epoch, ExternalImageId, ImageDescriptor, ImageDescriptorFlags, RawImage,
-        RawImageData, RawImageFormat,
+        Brush, ImageDescriptor, ImageDescriptorFlags, RawImage, RawImageData, RawImageFormat,
     },
     svg::{TessellatedGPUSvgNode, TessellatedSvgNode},
     window::RendererType,
-    OrderedMap,
 };
 
 pub type GLuint = u32;
@@ -821,157 +819,6 @@ impl Drop for GLsyncPtr {
     fn drop(&mut self) {
         self.run_destructor = false;
     }
-}
-
-/// Each pipeline (window) has its own OpenGL textures. GL Textures can technically
-/// be shared across pipelines, however this turns out to be very difficult in practice.
-pub type GlTextureStorage = OrderedMap<Epoch, OrderedMap<ExternalImageId, Texture>>;
-
-/// Non-cleaned up textures. When a `GlTexture` is registered, it has to stay active as long
-/// as `WebRender` needs it for drawing. To transparently do this, we store the epoch that the
-/// texture was originally created with, and check, **after we have drawn the frame**,
-/// if there are any textures that need cleanup.
-///
-/// Because the Texture2d is wrapped in an Rc, the destructor (which cleans up the OpenGL
-/// texture) does not run until we remove the textures
-///
-/// Note: Because textures could be used after the current draw call (ex. for scrolling),
-/// the `ACTIVE_GL_TEXTURES` are indexed by their epoch. Use `renderer.flush_pipeline_info()`
-/// to see which textures are still active and which ones can be safely removed.
-///
-/// See: <https://github.com/servo/webrender/issues/2940>
-///
-/// WARNING: Not thread-safe (however, the Texture itself is thread-unsafe, so it's unlikely to ever
-/// be misused)
-static mut ACTIVE_GL_TEXTURES: Option<OrderedMap<DocumentId, GlTextureStorage>> = None;
-
-/// Sound accessor for the process-global GL texture table.
-///
-/// AUDIT: GL access is single-threaded by design (see the WARNING above — the
-/// `Texture` itself is thread-unsafe), so no lock is used. The soundness fix
-/// here is to never form an *implicit* reference to the `static mut` (the
-/// edition-2024 `static_mut_refs` hard error + `&mut`-aliasing UB that
-/// `ACTIVE_GL_TEXTURES.as_mut()` / `.as_ref()` triggered). Deriving the
-/// reference from `&raw mut` gives it correct provenance without ever naming
-/// the static as an auto-ref place. Callers must not hold two of these at once
-/// (they don't — every use is a single non-reentrant scope).
-#[inline]
-#[allow(clippy::deref_addrof)] // the `&raw mut` deref is deliberate: it avoids naming the static as
-                               // an auto-ref place (edition-2024 `static_mut_refs`)
-fn active_gl_textures() -> &'static mut Option<OrderedMap<DocumentId, GlTextureStorage>> {
-    // SAFETY: `&raw mut` avoids an intermediate `&mut ACTIVE_GL_TEXTURES`; the
-    // static is valid for the whole program. Single-threaded access (GL thread).
-    unsafe { &mut *(&raw mut ACTIVE_GL_TEXTURES) }
-}
-
-/// Inserts a new texture into the OpenGL texture cache, returns a new image ID
-/// for the inserted texture
-///
-/// This function exists so azul doesn't have to use `lazy_static` as a dependency
-///
-/// # Panics
-///
-/// Panics if the global active-GL-texture table has not been initialized.
-#[must_use]
-pub fn insert_into_active_gl_textures(
-    document_id: DocumentId,
-    epoch: Epoch,
-    texture: Texture,
-) -> ExternalImageId {
-    let external_image_id = ExternalImageId::new();
-
-    let active = active_gl_textures();
-    if active.is_none() {
-        *active = Some(OrderedMap::new());
-    }
-    let active_textures = active.as_mut().unwrap();
-    let active_epochs = active_textures.entry(document_id).or_default();
-    let active_textures_for_epoch = active_epochs.entry(epoch).or_default();
-    active_textures_for_epoch.insert(external_image_id, texture);
-
-    external_image_id
-}
-
-/// Destroys all textures from the given `document_id`
-/// where the texture is **older** than the given `epoch`.
-pub fn gl_textures_remove_epochs_from_pipeline(document_id: &DocumentId, epoch: Epoch) {
-    // TODO: Handle overflow of Epochs correctly (low priority)
-    let Some(active_textures) = active_gl_textures().as_mut() else {
-        return;
-    };
-
-    let Some(active_epochs) = active_textures.get_mut(document_id) else {
-        return;
-    };
-
-    // NOTE: original code used retain() but that
-    // doesn't work on no_std
-    let mut epochs_to_remove = Vec::new();
-
-    for (gl_texture_epoch, _) in active_epochs.iter() {
-        if *gl_texture_epoch < epoch {
-            epochs_to_remove.push(*gl_texture_epoch);
-        }
-    }
-
-    for epoch in epochs_to_remove {
-        active_epochs.remove(&epoch);
-    }
-}
-
-// document_id, epoch, external_image_id
-#[must_use]
-pub fn remove_single_texture_from_active_gl_textures(
-    document_id: &DocumentId,
-    epoch: &Epoch,
-    external_image_id: &ExternalImageId,
-) -> Option<()> {
-    let active_textures = active_gl_textures().as_mut()?;
-    let epochs = active_textures.get_mut(document_id)?;
-    let images_in_epoch = epochs.get_mut(epoch)?;
-    images_in_epoch.remove(external_image_id);
-    Some(())
-}
-
-/// Removes a `DocumentId` from the active epochs
-pub fn gl_textures_remove_active_pipeline(document_id: &DocumentId) {
-    let Some(active_textures) = active_gl_textures().as_mut() else {
-        return;
-    };
-    active_textures.remove(document_id);
-}
-
-/// Destroys all textures, usually done before destroying the OpenGL context
-#[allow(clippy::cast_precision_loss)] // OpenGL/graphics binding: GL-bounded numeric casts to GL*
-                                      // types
-pub fn gl_textures_clear_opengl_cache() {
-    *active_gl_textures() = None;
-}
-
-// Search all epoch hash maps for the given key
-// There does not seem to be a way to get the epoch for the key,
-// so we simply have to search all active epochs
-//
-// NOTE: Invalid textures can be generated on minimize / maximize
-// Luckily, webrender simply ignores an invalid texture, so we don't
-// need to check whether a window is maximized or minimized - if
-// we encounter an invalid ID, webrender simply won't draw anything,
-// but at least it won't crash. Usually invalid textures are also 0x0
-// pixels large - so it's not like we had anything to draw anyway.
-#[allow(clippy::cast_precision_loss)] // OpenGL/graphics binding: GL-bounded numeric casts
-#[must_use]
-pub fn get_opengl_texture(image_key: &ExternalImageId) -> Option<(GLuint, (f32, f32))> {
-    let active_textures = active_gl_textures().as_ref()?;
-    active_textures
-        .values()
-        .flat_map(|active_document| active_document.values())
-        .find_map(|active_epoch| active_epoch.get(image_key))
-        .map(|tex| {
-            (
-                tex.texture_id,
-                (tex.size.width as f32, tex.size.height as f32),
-            )
-        })
 }
 
 /// For .`get_gl_precision_format()`, but ABI-safe - returning an array or a tuple is not ABI-safe

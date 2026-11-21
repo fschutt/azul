@@ -1900,9 +1900,14 @@ mod audit_a3_core_tests {
     fn cascade_tree_of(dom: &CompactDom) -> (Vec<CascadeInfo>, u64) {
         let hierarchy = dom.node_hierarchy.as_ref();
         let depths = hierarchy.get_parents_sorted_by_depth();
-        SIBLING_STEPS.with(|c| c.set(0));
-        let tree = construct_html_cascade_tree(&hierarchy, &depths, &dom.node_data.as_ref());
-        (tree.internal, SIBLING_STEPS.with(core::cell::Cell::get))
+        let mut steps = 0;
+        let tree = construct_html_cascade_tree_metered(
+            &hierarchy,
+            &depths,
+            &dom.node_data.as_ref(),
+            &mut steps,
+        );
+        (tree.internal, steps)
     }
 
     /// `k` labels (a span around its text) under one node: every label has a

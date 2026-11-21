@@ -39,7 +39,17 @@
 //! against 7 `[Debug][Platform]` ones. Asking for platform detail at Debug means
 //! writing 55 MB of layout tracing you did not want, which is slow enough to
 //! change the behaviour being measured.
+//!
+//! # The filter is a value
+//!
+//! What the filter holds is a [`LogFilter`], and what an environment asks of one is a
+//! [`LogSettings`] (a pure function of the variables it is given, so a test hands it the
+//! environment it means). The process has ONE [`LogFilter`], which the free functions of this
+//! module ask: the `log_*!` macros stand at some seven hundred call sites that carry no window
+//! and no app, and a logger is the configuration of the whole process by nature, as the `log`
+//! crate's is. A test makes a filter of its own and never touches the process's.
 
+use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 
 /// Severity, ordered so `level as u8 >= threshold` is the enabled test.
@@ -55,7 +65,7 @@ pub enum Level {
 }
 
 /// Log categories, in the order the shell's `LogCategory` declares them. The
-/// discriminants are the bit positions used by [`CATEGORY_MASK`].
+/// discriminants are the bit positions of a [`LogFilter`]'s category mask.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Category {
@@ -77,100 +87,241 @@ pub enum Category {
 /// Number of [`Category`] variants.
 pub const CATEGORY_COUNT: usize = 13;
 
-/// Minimum severity that passes. `u8::MAX` means "logging off entirely".
-static MIN_LEVEL: AtomicU8 = AtomicU8::new(u8::MAX);
-/// One enable bit per [`Category`]; bit N corresponds to discriminant N.
-static CATEGORY_MASK: AtomicU32 = AtomicU32::new(u32::MAX);
-/// Mirror of `MIN_LEVEL != u8::MAX`, so the hot path is a single bool load.
-static ANY_ENABLED: AtomicBool = AtomicBool::new(false);
-/// Whether `AZ_LOG` has been parsed yet.
-static INITIALISED: AtomicBool = AtomicBool::new(false);
-/// Echo every passing record to stderr, in addition to whatever sink the build
-/// has.
+/// What passes: the lowest severity, the categories that are on, and whether a passing record is
+/// echoed to stderr.
 ///
-/// **ON as soon as anything asks for logging, OFF for a plain run.** Asking for
-/// debugging and getting silence is the bug this module exists to kill:
-/// `AZ_DEBUG=<port>` and `AZ_E2E=<file>` routed every record into the debug
-/// server's in-memory queue and printed nothing on the terminal, so the
-/// operator saw a blank screen and concluded logging was broken. If you turn a
-/// debug mode on, you get logs — [`crate::log_filter`] callers OR the shell's
-/// `log_gate`, which also treats an active debug server as "asked for logs".
-///
-/// It must NOT default to on for an app that asked for nothing. The default
-/// level is Debug and the Layout category alone emits 482 547 records on a
-/// three-resize run, so an unconditional echo would make every shipped azul app
-/// write ~55 MB of layout tracing to stderr on an ordinary run. That is a worse
-/// bug than the silence it fixes.
-///
-/// Set explicitly with `AZ_LOG_STDERR=1` / `AZ_LOG_STDERR=0` (0 keeps the queue
-/// for the debugger UI); `AZ_LOG=off` silences everything. Volume is a
-/// LEVEL/CATEGORY question — `AZ_LOG=debug,-layout` — not a reason to have no
-/// sink.
-static STDERR_ECHO: AtomicBool = AtomicBool::new(false);
-
-/// The five level switches, exposed individually.
-///
-/// Individual statics are how these are usually flipped from a debugger or a
-/// callback: `log_filter::DEBUG.store(true, ..)`.
-/// They are derived from [`MIN_LEVEL`] and kept in step by [`recompute`].
-pub static TRACE: AtomicBool = AtomicBool::new(false);
-/// See [`TRACE`].
-pub static DEBUG: AtomicBool = AtomicBool::new(false);
-/// See [`TRACE`].
-pub static INFO: AtomicBool = AtomicBool::new(false);
-/// See [`TRACE`].
-pub static WARN: AtomicBool = AtomicBool::new(false);
-/// See [`TRACE`].
-pub static ERROR: AtomicBool = AtomicBool::new(false);
-
-fn recompute(min: u8) {
-    let on = |l: Level| min != u8::MAX && (l as u8) >= min;
-    TRACE.store(on(Level::Trace), Ordering::Relaxed);
-    DEBUG.store(on(Level::Debug), Ordering::Relaxed);
-    INFO.store(on(Level::Info), Ordering::Relaxed);
-    WARN.store(on(Level::Warn), Ordering::Relaxed);
-    ERROR.store(on(Level::Error), Ordering::Relaxed);
-    ANY_ENABLED.store(min != u8::MAX, Ordering::Relaxed);
+/// The process has one (the free functions of this module read and write it); a test makes its
+/// own with [`LogFilter::new`] and configures it with [`LogFilter::set_min_level`],
+/// [`LogFilter::set_category`] or [`LogFilter::apply`].
+#[derive(Debug)]
+pub struct LogFilter {
+    /// Minimum severity that passes. `u8::MAX` means "logging off entirely".
+    min_level: AtomicU8,
+    /// One enable bit per [`Category`]; bit N corresponds to discriminant N.
+    category_mask: AtomicU32,
+    /// Mirror of `min_level != u8::MAX`, so the hot path is a single bool load.
+    any_enabled: AtomicBool,
+    /// Whether the filter has been configured (the process's by `AZ_LOG`, on the first
+    /// question, unless something set a level before).
+    initialised: AtomicBool,
+    /// Echo every passing record to stderr, in addition to whatever sink the build
+    /// has.
+    ///
+    /// **ON as soon as anything asks for logging, OFF for a plain run.** Asking for
+    /// debugging and getting silence is the bug this module exists to kill:
+    /// `AZ_DEBUG=<port>` and `AZ_E2E=<file>` routed every record into the debug
+    /// server's in-memory queue and printed nothing on the terminal, so the
+    /// operator saw a blank screen and concluded logging was broken. If you turn a
+    /// debug mode on, you get logs — [`crate::log_filter`] callers OR the shell's
+    /// `log_gate`, which also treats an active debug server as "asked for logs".
+    ///
+    /// It must NOT default to on for an app that asked for nothing. The default
+    /// level is Debug and the Layout category alone emits 482 547 records on a
+    /// three-resize run, so an unconditional echo would make every shipped azul app
+    /// write ~55 MB of layout tracing to stderr on an ordinary run. That is a worse
+    /// bug than the silence it fixes.
+    ///
+    /// Set explicitly with `AZ_LOG_STDERR=1` / `AZ_LOG_STDERR=0` (0 keeps the queue
+    /// for the debugger UI); `AZ_LOG=off` silences everything. Volume is a
+    /// LEVEL/CATEGORY question — `AZ_LOG=debug,-layout` — not a reason to have no
+    /// sink.
+    stderr_echo: AtomicBool,
 }
+
+impl Default for LogFilter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl LogFilter {
+    /// A filter that passes nothing yet: logging off, every category on, no echo.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            min_level: AtomicU8::new(u8::MAX),
+            category_mask: AtomicU32::new(u32::MAX),
+            any_enabled: AtomicBool::new(false),
+            initialised: AtomicBool::new(false),
+            stderr_echo: AtomicBool::new(false),
+        }
+    }
+
+    /// Set the minimum level at runtime. `None` disables logging entirely.
+    pub fn set_min_level(&self, level: Option<Level>) {
+        let min = level.map_or(u8::MAX, |l| l as u8);
+        self.min_level.store(min, Ordering::Relaxed);
+        self.any_enabled.store(min != u8::MAX, Ordering::Relaxed);
+        self.initialised.store(true, Ordering::Relaxed);
+    }
+
+    /// Current minimum level, or `None` when logging is off.
+    #[must_use]
+    pub fn min_level(&self) -> Option<Level> {
+        match self.min_level.load(Ordering::Relaxed) {
+            0 => Some(Level::Trace),
+            1 => Some(Level::Debug),
+            2 => Some(Level::Info),
+            3 => Some(Level::Warn),
+            4 => Some(Level::Error),
+            _ => None,
+        }
+    }
+
+    /// Enable or silence one category at runtime, independently of the level.
+    pub fn set_category(&self, category: Category, enabled: bool) {
+        let bit = 1u32 << (category as u8);
+        let mut cur = self.category_mask.load(Ordering::Relaxed);
+        loop {
+            let next = if enabled { cur | bit } else { cur & !bit };
+            match self.category_mask.compare_exchange_weak(
+                cur,
+                next,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return,
+                Err(actual) => cur = actual,
+            }
+        }
+    }
+
+    /// Whether `category` is currently enabled, ignoring the level.
+    #[must_use]
+    pub fn category_enabled(&self, category: Category) -> bool {
+        self.category_mask.load(Ordering::Relaxed) & (1u32 << (category as u8)) != 0
+    }
+
+    /// Whether records at `level` in `category` should be emitted.
+    ///
+    /// This is THE hot path — it runs before the `format!` at every one of the 700+
+    /// `log_*!` call sites, so it must stay two relaxed loads and no allocation.
+    #[must_use]
+    pub fn enabled(&self, category: Category, level: Level) -> bool {
+        if !self.any_enabled.load(Ordering::Relaxed) {
+            return false;
+        }
+        (level as u8) >= self.min_level.load(Ordering::Relaxed) && self.category_enabled(category)
+    }
+
+    /// Level-only test, for call sites that have no category.
+    #[must_use]
+    pub fn level_enabled(&self, level: Level) -> bool {
+        self.any_enabled.load(Ordering::Relaxed)
+            && (level as u8) >= self.min_level.load(Ordering::Relaxed)
+    }
+
+    /// Whether passing records should also be echoed to stderr.
+    #[must_use]
+    pub fn stderr_echo(&self) -> bool {
+        self.stderr_echo.load(Ordering::Relaxed)
+    }
+
+    /// Turn the stderr echo on or off at runtime.
+    pub fn set_stderr_echo(&self, on: bool) {
+        self.stderr_echo.store(on, Ordering::Relaxed);
+    }
+
+    /// Configure the filter as `settings` say, and count it configured (so the process's is not
+    /// configured from the environment again).
+    pub fn apply(&self, settings: &LogSettings) {
+        let min = settings.level.map_or(u8::MAX, |l| l as u8);
+        self.min_level.store(min, Ordering::Relaxed);
+        self.any_enabled.store(min != u8::MAX, Ordering::Relaxed);
+        for &(category, enabled) in &settings.overrides {
+            self.set_category(category, enabled);
+        }
+        if let Some(echo) = settings.stderr_echo {
+            self.stderr_echo.store(echo, Ordering::Relaxed);
+        }
+        self.initialised.store(true, Ordering::Relaxed);
+    }
+}
+
+/// What an environment asks of a [`LogFilter`]: [`LogSettings::from_environment`] reads it off the
+/// variables it is given, [`LogFilter::apply`] puts it on a filter.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LogSettings {
+    /// The minimum level; `None` is "off".
+    pub level: Option<Level>,
+    /// The categories the environment turned on (`+name`) or off (`-name`), in order.
+    pub overrides: Vec<(Category, bool)>,
+    /// Whether to echo passing records to stderr; `None` leaves the filter's echo as it is.
+    pub stderr_echo: Option<bool>,
+}
+
+impl LogSettings {
+    /// The settings of a build with no environment to read: Debug, so an embedder that installs a
+    /// sink still gets records, matching the `std` default for a run that asked for logs.
+    #[must_use]
+    pub const fn without_environment() -> Self {
+        Self {
+            level: Some(Level::Debug),
+            overrides: Vec::new(),
+            stderr_echo: None,
+        }
+    }
+
+    /// What the environment `var` (a variable's value, `None` where it is not set) asks for:
+    /// `AZ_LOG` and `AZ_LOG_STDERR`, and which of [`LOG_REQUEST_VARS`] are set at all.
+    #[cfg(feature = "std")]
+    #[must_use]
+    pub fn from_environment(var: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Self {
+        let raw = var("AZ_LOG")
+            .and_then(|value| value.into_string().ok())
+            .unwrap_or_default();
+        // Setting AZ_LOG AT ALL is a request to see logs, so it turns the echo on. Leaving it unset
+        // is not, which is what keeps an ordinary app run quiet. (`log_gate` additionally treats an
+        // active debug server as such a request; it can see `log_active()` and this crate cannot.)
+        let mut stderr_echo = (!raw.trim().is_empty()).then_some(true);
+        let (parsed, overrides) = parse(&raw);
+        let level = level_for(asked_for_logs_in(var), parsed);
+        // Explicit override only. The default is ON (see `LogFilter::stderr_echo`) — this exists so a
+        // build that genuinely wants the queue and nothing else can say so, not as the switch that
+        // makes logging work.
+        if let Some(value) = var("AZ_LOG_STDERR").and_then(|value| value.into_string().ok()) {
+            let value = value.trim().to_ascii_lowercase();
+            let off = matches!(value.as_str(), "0" | "off" | "false" | "no" | "none");
+            stderr_echo = Some(!off);
+        }
+        // AZ_LOG=off means off, including the echo.
+        if level.is_none() {
+            stderr_echo = Some(false);
+        }
+        Self {
+            level,
+            overrides,
+            stderr_echo,
+        }
+    }
+}
+
+// The filter of the process: the one the free functions below ask. Process-wide because the
+// `log_*!` macros (some seven hundred call sites, and the shells' `log_gate`) carry no window or app
+// to ask, and because `AZ_LOG` configures the logger of the whole process, as `RUST_LOG` does the
+// `log` crate's.
+static PROCESS: LogFilter = LogFilter::new();
 
 /// Set the global minimum level at runtime. `None` disables logging entirely.
 pub fn set_min_level(level: Option<Level>) {
-    let min = level.map_or(u8::MAX, |l| l as u8);
-    MIN_LEVEL.store(min, Ordering::Relaxed);
-    recompute(min);
-    INITIALISED.store(true, Ordering::Relaxed);
+    PROCESS.set_min_level(level);
 }
 
 /// Current global minimum level, or `None` when logging is off.
 #[must_use]
 pub fn min_level() -> Option<Level> {
-    match MIN_LEVEL.load(Ordering::Relaxed) {
-        0 => Some(Level::Trace),
-        1 => Some(Level::Debug),
-        2 => Some(Level::Info),
-        3 => Some(Level::Warn),
-        4 => Some(Level::Error),
-        _ => None,
-    }
+    PROCESS.min_level()
 }
 
 /// Enable or silence one category at runtime, independently of the level.
 pub fn set_category(category: Category, enabled: bool) {
-    let bit = 1u32 << (category as u8);
-    let mut cur = CATEGORY_MASK.load(Ordering::Relaxed);
-    loop {
-        let next = if enabled { cur | bit } else { cur & !bit };
-        match CATEGORY_MASK.compare_exchange_weak(cur, next, Ordering::Relaxed, Ordering::Relaxed) {
-            Ok(_) => return,
-            Err(actual) => cur = actual,
-        }
-    }
+    PROCESS.set_category(category, enabled);
 }
 
 /// Whether `category` is currently enabled, ignoring the level.
 #[must_use]
 pub fn category_enabled(category: Category) -> bool {
-    CATEGORY_MASK.load(Ordering::Relaxed) & (1u32 << (category as u8)) != 0
+    PROCESS.category_enabled(category)
 }
 
 /// Whether records at `level` in `category` should be emitted.
@@ -179,22 +330,19 @@ pub fn category_enabled(category: Category) -> bool {
 /// `log_*!` call sites, so it must stay two relaxed loads and no allocation.
 #[must_use]
 pub fn enabled(category: Category, level: Level) -> bool {
-    if !INITIALISED.load(Ordering::Relaxed) {
+    if !PROCESS.initialised.load(Ordering::Relaxed) {
         init_from_env();
     }
-    if !ANY_ENABLED.load(Ordering::Relaxed) {
-        return false;
-    }
-    (level as u8) >= MIN_LEVEL.load(Ordering::Relaxed) && category_enabled(category)
+    PROCESS.enabled(category, level)
 }
 
 /// Level-only test, for call sites that have no category.
 #[must_use]
 pub fn level_enabled(level: Level) -> bool {
-    if !INITIALISED.load(Ordering::Relaxed) {
+    if !PROCESS.initialised.load(Ordering::Relaxed) {
         init_from_env();
     }
-    ANY_ENABLED.load(Ordering::Relaxed) && (level as u8) >= MIN_LEVEL.load(Ordering::Relaxed)
+    PROCESS.level_enabled(level)
 }
 
 /// Whether passing records should also be echoed to stderr.
@@ -204,20 +352,20 @@ pub fn level_enabled(level: Level) -> bool {
 /// depend on whether something had already gone through the level gate: a
 /// caller that reaches `log_gate::emit` directly rather than through a
 /// `log_*!` macro never triggers `init_from_env`, so `AZ_LOG=debug` had not
-/// been read yet, `STDERR_ECHO` was still its `false` default, and the record
+/// been read yet, the echo was still its `false` default, and the record
 /// was written to NO sink at all. That is what
 /// `a_record_reaches_stderr_exactly_once` catches ("got 0").
 #[must_use]
 pub fn stderr_echo() -> bool {
-    if !INITIALISED.load(Ordering::Relaxed) {
+    if !PROCESS.initialised.load(Ordering::Relaxed) {
         init_from_env();
     }
-    STDERR_ECHO.load(Ordering::Relaxed)
+    PROCESS.stderr_echo()
 }
 
 /// Turn the stderr echo on or off at runtime.
 pub fn set_stderr_echo(on: bool) {
-    STDERR_ECHO.store(on, Ordering::Relaxed);
+    PROCESS.set_stderr_echo(on);
 }
 
 /// Map a category name to its enum value. Accepts the spellings used in
@@ -247,12 +395,7 @@ pub fn category_from_name(name: &str) -> Option<Category> {
 /// Split out from [`init_from_env`] so it is testable without touching the
 /// process environment.
 #[must_use]
-// The path stays QUALIFIED: `use alloc::vec::Vec` below is in scope for the
-// BODY, not the signature, and without `std` there is no prelude `Vec`.
-// clippy::unused_qualifications sees only the std build, where it resolves.
-#[allow(unused_qualifications)]
-pub fn parse(raw: &str) -> (Option<Level>, alloc::vec::Vec<(Category, bool)>) {
-    use alloc::vec::Vec;
+pub fn parse(raw: &str) -> (Option<Level>, Vec<(Category, bool)>) {
     // An `AZ_LOG` that is set but empty or unrecognised means "logs, please":
     // Debug. (A process that did not set it at all is `level_for`'s business.)
     let mut level = Some(Level::Debug);
@@ -320,13 +463,25 @@ pub const fn level_for(asked: bool, parsed: Option<Level>) -> Option<Level> {
     }
 }
 
+/// The variable `name` of the process's environment: what the settings are read from.
+#[cfg(feature = "std")]
+fn environment_var(name: &str) -> Option<std::ffi::OsString> {
+    std::env::var_os(name)
+}
+
 /// Whether the environment asks for logs: one of [`LOG_REQUEST_VARS`] is set.
 #[cfg(feature = "std")]
 #[must_use]
 pub fn asked_for_logs() -> bool {
-    LOG_REQUEST_VARS
-        .iter()
-        .any(|var| std::env::var_os(var).is_some())
+    asked_for_logs_in(&environment_var)
+}
+
+/// [`asked_for_logs`] of the environment `var` describes (a variable's value, `None` where it
+/// is not set).
+#[cfg(feature = "std")]
+#[must_use]
+pub fn asked_for_logs_in(var: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> bool {
+    LOG_REQUEST_VARS.iter().any(|name| var(name).is_some())
 }
 
 /// The level the environment asks for, `None` for "off": what `AZ_LOG` parses
@@ -344,51 +499,18 @@ pub fn level_from_env() -> Option<Level> {
     level_for(asked_for_logs(), parse(&raw).0)
 }
 
-/// Parse `AZ_LOG` (and `AZ_LOG_STDERR`) into the atomics. Idempotent; the first
-/// caller wins and later ones are no-ops, so an explicit [`set_min_level`] made
-/// before any logging is not clobbered.
+/// Configure the process's filter from `AZ_LOG` (and `AZ_LOG_STDERR`).
+///
+/// Idempotent; the first caller wins and later ones are no-ops, so an explicit
+/// [`set_min_level`] made before any logging is not clobbered.
 pub fn init_from_env() {
-    if INITIALISED.swap(true, Ordering::SeqCst) {
+    if PROCESS.initialised.swap(true, Ordering::SeqCst) {
         return;
     }
     #[cfg(feature = "std")]
-    {
-        let raw = std::env::var("AZ_LOG").unwrap_or_default();
-        // Setting AZ_LOG AT ALL is a request to see logs, so it turns the echo
-        // on. Leaving it unset is not, which is what keeps an ordinary app run
-        // quiet. (`log_gate` additionally treats an active debug server as such
-        // a request; it can see `log_active()` and this crate cannot.)
-        if !raw.trim().is_empty() {
-            STDERR_ECHO.store(true, Ordering::Relaxed);
-        }
-        let (parsed, overrides) = parse(&raw);
-        let level = level_for(asked_for_logs(), parsed);
-        let min = level.map_or(u8::MAX, |l| l as u8);
-        MIN_LEVEL.store(min, Ordering::Relaxed);
-        recompute(min);
-        for (cat, on) in overrides {
-            set_category(cat, on);
-        }
-        // Explicit override only. The default is ON (see STDERR_ECHO) — this
-        // exists so a build that genuinely wants the queue and nothing else can
-        // say so, not as the switch that makes logging work.
-        if let Ok(v) = std::env::var("AZ_LOG_STDERR") {
-            let v = v.trim().to_ascii_lowercase();
-            let off = matches!(v.as_str(), "0" | "off" | "false" | "no" | "none");
-            STDERR_ECHO.store(!off, Ordering::Relaxed);
-        }
-        // AZ_LOG=off means off, including the echo.
-        if level.is_none() {
-            STDERR_ECHO.store(false, Ordering::Relaxed);
-        }
-    }
+    PROCESS.apply(&LogSettings::from_environment(&environment_var));
     #[cfg(not(feature = "std"))]
-    {
-        // No environment to read: default to Debug so an embedder that installs
-        // a sink still gets records, matching the std default.
-        MIN_LEVEL.store(Level::Debug as u8, Ordering::Relaxed);
-        recompute(Level::Debug as u8);
-    }
+    PROCESS.apply(&LogSettings::without_environment());
 }
 
 #[cfg(test)]

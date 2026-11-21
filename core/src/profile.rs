@@ -88,6 +88,7 @@ impl ProfileFlags {
 #[cfg(feature = "std")]
 #[inline]
 pub fn flags() -> ProfileFlags {
+    // `AZ_PROFILE`, read once: the process's configuration.
     static FLAGS: OnceLock<ProfileFlags> = OnceLock::new();
     *FLAGS.get_or_init(|| {
         let raw = std::env::var("AZ_PROFILE").ok();
@@ -151,6 +152,7 @@ pub fn flags() -> ProfileFlags {
 #[cfg(feature = "std")]
 #[inline]
 pub fn out_path() -> Option<&'static str> {
+    // `AZ_PROFILE_OUT`, read once: the process's configuration.
     static PATH: OnceLock<Option<String>> = OnceLock::new();
     PATH.get_or_init(|| std::env::var("AZ_PROFILE_OUT").ok())
         .as_deref()

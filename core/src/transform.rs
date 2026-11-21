@@ -13,18 +13,59 @@
 
 #[cfg(not(feature = "std"))]
 use crate::float_math::FloatMath as _;
-use core::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
-
 use azul_css::props::style::{StyleTransform, StyleTransformOrigin};
 
-use crate::geom::LogicalPosition;
+use crate::{geom::LogicalPosition, sync::OnceLock};
 
-/// CPU feature detection: true if initialization has been performed
-pub static INITIALIZED: AtomicBool = AtomicBool::new(false);
-/// CPU feature detection: true if AVX instructions are available
-pub static USE_AVX: AtomicBool = AtomicBool::new(false);
-/// CPU feature detection: true if SSE instructions are available
-pub static USE_SSE: AtomicBool = AtomicBool::new(false);
+/// What the CPU can do that the transform math has a faster path for.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct CpuFeatures {
+    /// SSE instructions are available.
+    pub(crate) sse: bool,
+    /// AVX instructions are available.
+    pub(crate) avx: bool,
+}
+
+/// The features [`detect_cpu_features`] found; none until it ran.
+///
+/// Process-wide because it is a fact of the hardware: computed once, and never written again.
+static CPU_FEATURES: OnceLock<CpuFeatures> = OnceLock::new();
+
+/// One-time CPU feature detection (SSE/AVX) for the transform math fast paths
+/// (`GpuValueCache::init_simd_features` calls it; until it ran the math takes the scalar path).
+#[allow(clippy::missing_const_for_fn)] // the non-x86_64 body is empty; the x86_64 one reads the CPU
+pub(crate) fn detect_cpu_features() {
+    #[cfg(target_arch = "x86_64")]
+    {
+        let _features = CPU_FEATURES.get_or_init(|| {
+            use core::arch::x86_64::__cpuid;
+
+            let mut found = CpuFeatures::default();
+            // SAFETY: `cpuid` exists on every x86_64 CPU; leaf 1 is asked only after leaf 0 said
+            // the CPU has one.
+            unsafe {
+                let mut cpuid = __cpuid(0);
+                if cpuid.eax > 0 {
+                    cpuid = __cpuid(1);
+                    found.sse = (cpuid.edx & (1_u32 << 25)) != 0;
+                    found.avx = (cpuid.ecx & (1_u32 << 28)) != 0;
+                }
+            }
+            found
+        });
+    }
+}
+
+/// The CPU's features, as far as [`detect_cpu_features`] has found them (none before).
+pub(crate) fn cpu_features() -> CpuFeatures {
+    CPU_FEATURES.get().copied().unwrap_or_default()
+}
+
+/// Whether [`detect_cpu_features`] has read the CPU (on x86_64; elsewhere it reads nothing).
+#[cfg(test)]
+pub(crate) fn cpu_features_detected() -> bool {
+    CPU_FEATURES.get().is_some()
+}
 
 /// Specifies the coordinate system convention for rotations.
 ///
@@ -325,6 +366,7 @@ impl ComputedTransform3D {
     }
 
     /// Computes the matrix of a rect from a `&[StyleTransform]`.
+    #[must_use]
     pub fn from_style_transform_vec(
         t_vec: &[StyleTransform],
         transform_origin: &StyleTransformOrigin,
@@ -334,15 +376,13 @@ impl ComputedTransform3D {
     ) -> Self {
         // Uses AVX or SSE SIMD when available on x86_64
         //
-        // AUDIT-TODO: `USE_AVX`/`USE_SSE` are populated in `gpu.rs` from a raw
+        // AUDIT-TODO: `CPU_FEATURES` is populated by `detect_cpu_features` from a raw
         // CPUID leaf-1 feature bit (ECX[28] for AVX), which reports only that
         // the CPU *implements* AVX — NOT that the OS has enabled the YMM state
         // via XCR0 (XGETBV). On a kernel that didn't `XSETBV`-enable AVX, using
         // these intrinsics faults with SIGILL. The robust gate is
         // `is_x86_feature_detected!("avx")` / `("sse")`, which also checks the
-        // OS-enabled bit. That detection lives in `gpu.rs` (out of scope for
-        // this edit); consumers here rely on it having gated the flags. Prefer
-        // migrating the `gpu.rs` probe to `is_x86_feature_detected!`.
+        // OS-enabled bit. Prefer migrating `detect_cpu_features` to it.
         // CSS Transforms Level 1 §9 ("The Transform Rendering Model"):
         //
         //   1. The functions are MULTIPLIED left to right, so the LAST listed function is the first
@@ -361,11 +401,9 @@ impl ComputedTransform3D {
             y: PixelValue::const_px(0),
         };
         let mut matrix = Self::IDENTITY;
-        let use_avx =
-            INITIALIZED.load(AtomicOrdering::Relaxed) && USE_AVX.load(AtomicOrdering::Relaxed);
-        let use_sse = !use_avx
-            && INITIALIZED.load(AtomicOrdering::Relaxed)
-            && USE_SSE.load(AtomicOrdering::Relaxed);
+        let features = cpu_features();
+        let use_avx = features.avx;
+        let use_sse = !use_avx && features.sse;
 
         if use_avx {
             for t in t_vec {

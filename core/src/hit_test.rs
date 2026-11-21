@@ -3,10 +3,7 @@
 //! feed into the event dispatch system.
 
 use alloc::{collections::BTreeMap, vec::Vec};
-use core::{
-    fmt,
-    sync::atomic::{AtomicU32, Ordering as AtomicOrdering},
-};
+use core::fmt;
 
 use crate::{
     dom::{
@@ -190,20 +187,8 @@ impl ::core::fmt::Debug for PipelineId {
     }
 }
 
-static LAST_PIPELINE_ID: AtomicU32 = AtomicU32::new(0);
-
-impl Default for PipelineId {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl PipelineId {
     pub const DUMMY: Self = Self(0, 0);
-
-    pub fn new() -> Self {
-        Self(LAST_PIPELINE_ID.fetch_add(1, AtomicOrdering::SeqCst), 0)
-    }
 }
 
 /// A single hit-test result for a regular (non-scroll) DOM node.

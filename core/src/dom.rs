@@ -12,7 +12,6 @@ use core::{
     hash::{Hash, Hasher},
     iter::FromIterator,
     mem,
-    sync::atomic::{AtomicUsize, Ordering},
 };
 
 pub use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
@@ -55,8 +54,6 @@ pub use crate::{
     },
     id::{Node, NodeHierarchy, NodeId},
 };
-
-static TAG_ID: AtomicUsize = AtomicUsize::new(1);
 
 /// Strongly-typed input element types for HTML `<input>` elements.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -142,6 +139,10 @@ impl InputType {
     }
 }
 
+// The tag a node is hit-tested by: made from the node's own place in its DOM
+// (`CssPropertyCache::generate_tag_ids`: its index plus one; 0 is "no tag"), never from
+// a counter - a counter made the tag numbers an artifact of allocation order, and the
+// same UI rebuilt got other tags than the display list it reused.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]
 pub struct TagId {
@@ -169,35 +170,6 @@ impl TagId {
     pub const fn from_crate_internal(t: Self) -> Self {
         t
     }
-
-    /// Creates a new, unique hit-testing tag ID.
-    /// Wraps around to 1 on overflow (0 is reserved for "no tag").
-    ///
-    /// AUDIT: the wrap is only reachable after 2^64 - 1 allocations (a process
-    /// running long enough to exhaust the counter is not realistic), but note
-    /// that on wrap the freshly-issued id could theoretically collide with a
-    /// still-live tag from very early in the process. This is left as a
-    /// documented, non-triggerable limitation rather than adding a live-tag
-    /// registry to detect collisions on every allocation. AUDIT-TODO: revisit
-    /// if `TagId` is ever narrowed below 64 bits.
-    pub fn unique() -> Self {
-        loop {
-            let current = TAG_ID.load(Ordering::SeqCst);
-            let next = if current == usize::MAX {
-                1
-            } else {
-                current + 1
-            };
-            if TAG_ID
-                .compare_exchange(current, next, Ordering::SeqCst, Ordering::SeqCst)
-                .is_ok()
-            {
-                return Self {
-                    inner: current as u64,
-                };
-            }
-        }
-    }
 }
 
 /// Same as the `TagId`, but only for scrollable nodes.
@@ -219,17 +191,6 @@ impl ::core::fmt::Display for ScrollTagId {
 impl ::core::fmt::Debug for ScrollTagId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{self}")
-    }
-}
-
-impl ScrollTagId {
-    /// Creates a new, unique scroll tag ID. Note that this should not
-    /// be used for identifying nodes, use the `DomNodeHash` instead.
-    #[must_use]
-    pub fn unique() -> Self {
-        Self {
-            inner: TagId::unique(),
-        }
     }
 }
 

@@ -176,6 +176,7 @@ static TEST_HOOKS_IN_THIS_BINARY: &str = TEST_HOOKS_MARKER;
 #[cfg(feature = "test-hooks")]
 #[must_use]
 pub fn test_hooks() -> &'static TestHooks {
+    // The test switches of the environment, read once: the process's configuration.
     static HOOKS: std::sync::OnceLock<TestHooks> = std::sync::OnceLock::new();
     // Every binary that asks for a hook keeps the marker (a linker that drops what nothing reads
     // would drop it otherwise).

@@ -593,20 +593,6 @@ mod autotest_generated {
     // =====================================================================
 
     #[test]
-    fn tag_id_unique_never_returns_zero_and_never_repeats() {
-        // 0 is reserved for "no tag". Other tests in this binary also allocate tags,
-        // so assert distinctness rather than a specific starting value.
-        let ids: Vec<TagId> = (0..512).map(|_| TagId::unique()).collect();
-        for id in &ids {
-            assert_ne!(id.inner, 0, "TagId 0 is reserved for 'no tag'");
-        }
-        let mut sorted: Vec<u64> = ids.iter().map(|t| t.inner).collect();
-        sorted.sort_unstable();
-        sorted.dedup();
-        assert_eq!(sorted.len(), 512, "TagId::unique() handed out a duplicate");
-    }
-
-    #[test]
     fn tag_id_crate_internal_conversions_are_identity_at_limits() {
         for inner in [0u64, 1, u64::MAX, u64::MAX - 1] {
             let t = TagId { inner };
@@ -630,12 +616,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn scroll_tag_id_unique_is_distinct_and_debug_matches_display() {
-        let a = ScrollTagId::unique();
-        let b = ScrollTagId::unique();
-        assert_ne!(a, b);
-        assert_ne!(a.inner.inner, 0);
-
+    fn scroll_tag_id_debug_matches_display() {
         let s = ScrollTagId {
             inner: TagId { inner: u64::MAX },
         };

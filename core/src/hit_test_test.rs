@@ -272,16 +272,7 @@ mod autotest_generated {
     // ------------------------------------------------------------------
 
     #[test]
-    fn pipeline_id_new_is_monotonic_and_second_field_is_zero() {
-        let a = PipelineId::new();
-        let b = PipelineId::new();
-        let c = PipelineId::default();
-        // The counter only ever moves forward (other tests in this binary may
-        // bump it concurrently, so assert ordering, not adjacency).
-        assert!(b.0 > a.0);
-        assert!(c.0 > b.0);
-        assert_eq!(a.1, 0);
-        assert_eq!(b.1, 0);
+    fn the_dummy_pipeline_id_is_source_zero_sequence_zero() {
         assert_eq!(PipelineId::DUMMY, PipelineId(0, 0));
     }
 

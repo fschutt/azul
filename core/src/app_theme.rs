@@ -38,6 +38,11 @@ mod state {
 
     use azul_css::AzString;
 
+    // Process-wide because the app's choice is published by `App::create` and `CallbackInfo::set_theme`
+    // to every window, and a window opened after a switch has to start in it: window creation, and the
+    // cascade of a DOM styled with no window context (`CssPropertyCache` asks `current_theme()`), have no
+    // path back to an `App` (see the module docs; an owner would be the App's own settings).
+
     /// The app's choice; `None` until `App::create` publishes one.
     pub(super) static APP_THEME: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
 
@@ -48,6 +53,9 @@ mod state {
     std::thread_local! {
         /// The theme the DOM being built on this thread is for, while a
         /// [`super::ThemeScope`] is entered.
+        ///
+        /// Thread-scoped because a widget's `dom()` takes no info argument and the build runs
+        /// synchronously on the calling thread.
         pub(super) static BUILD_THEME: core::cell::RefCell<Option<AzString>> =
             const { core::cell::RefCell::new(None) };
     }
@@ -119,6 +127,8 @@ pub fn resolve_app_theme(choice: Option<&str>) -> AzString {
 fn report_theme_choice(name: &str) {
     #[cfg(feature = "std")]
     {
+        // Once per process because the lines are those of the environment (`AZ_THEME`, `AZ_MODE`),
+        // which is the process's.
         static ENV_REPORTED: std::sync::Once = std::sync::Once::new();
         ENV_REPORTED.call_once(|| {
             for warning in &azul_css::theme_chain::theme_env().warnings {

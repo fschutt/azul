@@ -119,7 +119,9 @@ pub const CSS_ANIMATION_TIMER_ID: TimerId = TimerId { id: 0x0008 };
 /// First available ID for user-defined timers
 pub const USER_TIMER_ID_START: usize = 0x0100;
 
-// User timers start at 0x0100 to avoid conflicts with reserved system timer IDs
+// User timers start at 0x0100 to avoid conflicts with reserved system timer IDs.
+// Process-wide: `TimerId::unique()` is a C-API constructor (api.json) with no app to ask, and the
+// ids of every app and window of the process share one namespace.
 static MAX_TIMER_ID: AtomicUsize = AtomicUsize::new(USER_TIMER_ID_START);
 
 /// ID for uniquely identifying a timer
@@ -161,6 +163,7 @@ impl_vec_partialord!(TimerId, TimerIdVec);
 // Thread IDs 0-4 are reserved for internal framework use.
 // User threads start at RESERVED_THREAD_ID_COUNT.
 const RESERVED_THREAD_ID_COUNT: usize = 5;
+// Process-wide: `ThreadId::unique()` is a C-API constructor (api.json) with no app to ask.
 static MAX_THREAD_ID: AtomicUsize = AtomicUsize::new(RESERVED_THREAD_ID_COUNT);
 
 /// ID for uniquely identifying a background thread
@@ -201,6 +204,9 @@ impl ThreadId {
 
 // Request ids start at 1: 0 is `RequestId::invalid()`, the never-matching
 // sentinel an app can store before it has issued anything.
+// Process-wide: the request functions (`FileDialog::open_file`, `FilePath::read_bytes`, ...) are
+// C-API entry points that mint an id before any window or app is in reach, and an app matches
+// a resumed answer to its request by the id alone.
 static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Identifies one in-flight request created by a resumable API function.
@@ -326,6 +332,9 @@ std::thread_local! {
     /// When set, this thread's clock is FROZEN at this instant: `Instant::now()`
     /// answers `base + TEST_CLOCK_OFFSET_MS` and real time does not flow into it
     /// at all. See [`freeze_test_clock`].
+    ///
+    /// A thread-local for the reason of [`TEST_CLOCK_OFFSET_MS`]: the clock is read by
+    /// `Instant::now()` and a C-API function pointer, neither of which can carry a handle.
     static TEST_CLOCK_BASE: core::cell::Cell<Option<StdInstant>> =
         const { core::cell::Cell::new(None) };
 }
@@ -396,6 +405,10 @@ pub fn reset_test_clock() {
 /// gets a real monotonic source: the browser drives redraw, each produced DOM
 /// patch is one frame, and one frame is exactly what a `t` (tick) duration
 /// counts. `AzStartup_buildPatch` calls [`advance_system_tick`] once per patch.
+///
+/// Process-wide: it stands in for the operating system's clock, which belongs to the whole process;
+/// `Instant::now()` (hundreds of call sites, and the C-API `GetSystemTimeCallbackType`) has no
+/// window or app to ask.
 #[cfg(feature = "std")]
 static SYSTEM_TICK: AtomicU64 = AtomicU64::new(0);
 

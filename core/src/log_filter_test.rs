@@ -3,14 +3,9 @@ pub use super::*;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::ffi::OsString;
 
-    /// The tests that read or write the process-wide level, category and echo
-    /// state take this lock: in parallel they stomp each other (one test's
-    /// `set_min_level(Some(Debug))` between another's `set_min_level(Some(Warn))`
-    /// and its assertion made `runtime_toggles_take_effect` flaky). Poisoning
-    /// is tolerated: a failed test must not fail its neighbours.
-    static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    use super::*;
 
     /// An `AZ_LOG` that is SET but empty (or `1`) means "logs, please": Debug.
     /// What a process that did not set it at all gets is `level_for`'s rule,
@@ -37,62 +32,36 @@ mod tests {
         assert!(LOG_REQUEST_VARS.contains(&"AZ_E2E"));
     }
 
-    /// The probe of [`the_environment_decides_the_level_and_the_echo`]: runs
-    /// only in the child process it starts, where it reads the environment
-    /// the way the first log call of any process does and prints what it
-    /// found.
-    #[test]
-    fn probe_the_state_the_environment_leaves() {
-        if std::env::var_os("AZ_LOG_FILTER_PROBE").is_none() {
-            return;
-        }
-        init_from_env();
-        println!(
-            "PROBE level={:?} echo={} layout={} platform={} debug_passes={} error_passes={}",
-            min_level(),
-            stderr_echo(),
-            category_enabled(Category::Layout),
-            category_enabled(Category::Platform),
-            enabled(Category::Layout, Level::Debug),
-            enabled(Category::Layout, Level::Error),
-        );
-    }
-
-    /// What `init_from_env` leaves in a process whose environment is exactly
-    /// `env`, read in a child process (the state is process-wide and set once,
-    /// and the developer running the tests may have `AZ_LOG` set).
-    fn probe(env: &[(&str, &str)]) -> String {
-        let exe = std::env::current_exe().expect("the test binary has a path");
-        let out = std::process::Command::new(exe)
-            .args([
-                "log_filter::log_filter_test::tests::probe_the_state_the_environment_leaves",
-                "--exact",
-                "--nocapture",
-                "--test-threads=1",
-            ])
-            .env_clear()
-            .env("AZ_LOG_FILTER_PROBE", "1")
-            .envs(env.iter().copied())
-            .output()
-            .expect("re-running the test binary must succeed");
-        let stdout = String::from_utf8_lossy(&out.stdout);
-        stdout
-            .lines()
-            .find_map(|line| line.find("PROBE ").map(|at| line[at + 6..].to_string()))
-            .unwrap_or_else(|| {
-                panic!(
-                    "the child printed no PROBE line (probe name stale?)\n--- child stdout \
-                     ---\n{stdout}\n--- child stderr ---\n{}",
-                    String::from_utf8_lossy(&out.stderr)
-                )
-            })
+    /// What a filter that was configured from the environment `env` answers, in the words
+    /// `the_environment_decides_the_level_and_the_echo` lists them: the level, the echo, whether
+    /// Layout and Platform are on, whether a Layout Debug record and a Layout Error record pass.
+    fn configured_by(env: &[(&str, &str)]) -> String {
+        let var = |name: &str| {
+            env.iter()
+                .find(|(key, _)| *key == name)
+                .map(|(_, value)| OsString::from(*value))
+        };
+        let filter = LogFilter::new();
+        filter.apply(&LogSettings::from_environment(&var));
+        format!(
+            "level={:?} echo={} layout={} platform={} debug_passes={} error_passes={}",
+            filter.min_level(),
+            filter.stderr_echo(),
+            filter.category_enabled(Category::Layout),
+            filter.category_enabled(Category::Platform),
+            filter.enabled(Category::Layout, Level::Debug),
+            filter.enabled(Category::Layout, Level::Error),
+        )
     }
 
     /// REGRESSION (2026-11-20, a 612 MB log of a two-minute editor session):
     /// with `AZ_LOG` unset an ordinary lean build printed the whole Debug
-    /// firehose (3.4 million lines, 60 s of the 124 s). A process that asked
-    /// for no logs is at Error and echoes nothing else; every way of asking
+    /// firehose (3.4 million lines, 60 s of the 124 s). A process that asked for
+    /// no logs is at Error and echoes nothing else; every way of asking
     /// still works.
+    ///
+    /// The environment is handed to the settings, and the settings to a filter of this
+    /// test's own: nothing here reads or writes the process's environment or its filter.
     #[test]
     fn the_environment_decides_the_level_and_the_echo() {
         // (environment, level, echo to stderr, Layout enabled, Debug passes)
@@ -125,14 +94,40 @@ mod tests {
             (&[("AZ_LOG", "off"), ("AZ_LOG_STDERR", "1")], "None", false, true, false),
         ];
         for (env, level, echo, layout, debug_passes) in cases {
-            let got = probe(env);
             let want = format!(
                 "level={level} echo={echo} layout={layout} platform=true debug_passes={debug_passes} \
                  error_passes={}",
                 *level != "None" && layout.to_owned()
             );
-            assert_eq!(got, want, "environment {env:?}");
+            assert_eq!(configured_by(env), want, "environment {env:?}");
         }
+    }
+
+    /// The two readings of the process's environment agree: the level the filter is configured to
+    /// and the level the `log` facade's own logger takes (`level_from_env`).
+    #[test]
+    fn the_settings_of_the_real_environment_name_the_level_the_facade_takes() {
+        let settings = LogSettings::from_environment(&environment_var);
+        assert_eq!(settings.level, level_from_env());
+    }
+
+    /// A filter configured by settings that leave the echo open (`None`) keeps the echo it had.
+    #[test]
+    fn settings_that_name_no_echo_leave_the_echo_as_it_is() {
+        let filter = LogFilter::new();
+        filter.set_stderr_echo(true);
+        filter.apply(&LogSettings {
+            level: Some(Level::Warn),
+            overrides: Vec::new(),
+            stderr_echo: None,
+        });
+        assert!(filter.stderr_echo());
+        filter.apply(&LogSettings {
+            level: Some(Level::Warn),
+            overrides: Vec::new(),
+            stderr_echo: Some(false),
+        });
+        assert!(!filter.stderr_echo());
     }
 
     #[test]
@@ -203,39 +198,48 @@ mod tests {
         }
     }
 
+    /// A filter nothing configured passes nothing, and says so for every level and category.
+    #[test]
+    fn a_new_filter_passes_nothing() {
+        let filter = LogFilter::new();
+        assert_eq!(filter.min_level(), None);
+        assert!(!filter.level_enabled(Level::Error));
+        assert!(!filter.enabled(Category::General, Level::Error));
+        assert!(!filter.stderr_echo());
+    }
+
+    /// The level and the echo of one filter move no other: the tests that flip them take a filter
+    /// each, and the process's is not among them.
     #[test]
     fn runtime_toggles_take_effect() {
-        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-        set_min_level(Some(Level::Warn));
-        assert!(!DEBUG.load(Ordering::Relaxed));
-        assert!(WARN.load(Ordering::Relaxed));
-        assert!(ERROR.load(Ordering::Relaxed));
-        assert!(level_enabled(Level::Error));
-        assert!(!level_enabled(Level::Debug));
+        let filter = LogFilter::new();
+        let other = LogFilter::new();
+        filter.set_min_level(Some(Level::Warn));
+        assert!(filter.level_enabled(Level::Warn));
+        assert!(filter.level_enabled(Level::Error));
+        assert!(!filter.level_enabled(Level::Info));
+        assert!(!filter.level_enabled(Level::Debug));
 
-        set_min_level(Some(Level::Trace));
-        assert!(TRACE.load(Ordering::Relaxed));
-        assert!(level_enabled(Level::Trace));
+        filter.set_min_level(Some(Level::Trace));
+        assert!(filter.level_enabled(Level::Trace));
 
-        set_min_level(None);
-        assert!(!level_enabled(Level::Error), "None must silence even Error");
-        assert!(!ERROR.load(Ordering::Relaxed));
+        filter.set_min_level(None);
+        assert!(!filter.level_enabled(Level::Error), "None must silence even Error");
 
-        // Restore a sane default for any other test in this binary.
-        set_min_level(Some(Level::Debug));
+        assert_eq!(other.min_level(), None, "a filter of its own is not moved by another");
     }
 
     #[test]
     fn silencing_one_category_leaves_the_others() {
-        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-        set_min_level(Some(Level::Debug));
-        set_category(Category::Layout, false);
+        let filter = LogFilter::new();
+        filter.set_min_level(Some(Level::Debug));
+        filter.set_category(Category::Layout, false);
         assert!(
-            !enabled(Category::Layout, Level::Error),
+            !filter.enabled(Category::Layout, Level::Error),
             "silenced category ignores level"
         );
-        assert!(enabled(Category::Platform, Level::Debug));
-        set_category(Category::Layout, true);
-        assert!(enabled(Category::Layout, Level::Debug));
+        assert!(filter.enabled(Category::Platform, Level::Debug));
+        filter.set_category(Category::Layout, true);
+        assert!(filter.enabled(Category::Layout, Level::Debug));
     }
 }

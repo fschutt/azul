@@ -445,15 +445,15 @@ mod autotest_generated {
 
         #[cfg(target_arch = "x86_64")]
         {
+            use crate::transform::{cpu_features, cpu_features_detected};
+
             assert!(
-                INITIALIZED.load(AtomicOrdering::SeqCst),
-                "the one-time init flag must be set after the first call"
+                cpu_features_detected(),
+                "the CPU must have been read after the first call"
             );
-            let sse = USE_SSE.load(AtomicOrdering::SeqCst);
-            let avx = USE_AVX.load(AtomicOrdering::SeqCst);
+            let found = cpu_features();
             GpuValueCache::init_simd_features();
-            assert_eq!(sse, USE_SSE.load(AtomicOrdering::SeqCst));
-            assert_eq!(avx, USE_AVX.load(AtomicOrdering::SeqCst));
+            assert_eq!(found, cpu_features(), "a second call must not change what was found");
         }
     }
 

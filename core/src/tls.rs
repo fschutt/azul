@@ -165,6 +165,10 @@ azul_css::impl_result!(
 );
 
 /// The app's set, as [`set_app_trust_roots`] left it. Never `AppDefault`.
+///
+/// Process-wide because every TLS client of the process (pooled HTTP clients, IMAP, SMTP, iroh)
+/// that names no set of its own resolves `AppDefault` through it with no `App` in reach, and a
+/// process without an `App` (a headless service) sets it itself.
 #[cfg(feature = "std")]
 static APP_TRUST_ROOTS: std::sync::RwLock<Option<TrustRoots>> = std::sync::RwLock::new(None);
 

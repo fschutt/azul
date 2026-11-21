@@ -76,7 +76,6 @@
     unexpected_cfgs,
     unpredictable_function_pointer_comparisons, // intentional in dom callback comparison
     improper_ctypes_definitions,           // xml component fns use Rust fn pointers internally
-    static_mut_refs,                       // TODO: migrate to OnceLock for Rust 2024
 )]
 
 // `extern crate` + `#[macro_use]` required for `no_std` support:
@@ -103,6 +102,8 @@ pub mod debug;
 pub mod db;
 /// Unified `AZ_PROFILE` gate for memory and CPU profiling instrumentation.
 pub mod profile;
+/// [`work_count::WorkCount`]: a count of the work a struct did, kept in the struct and read from it.
+pub mod work_count;
 /// `no_std`-friendly synchronization primitives.
 ///
 /// In `std` builds these re-export the matching `std::sync` types. In
@@ -380,7 +381,7 @@ pub mod geom;
 /// lives in `azul_layout::managers::global_hotkey`, the OS backends in
 /// `azul-dll` (`desktop/global_hotkey`).
 pub mod global_hotkey;
-/// OpenGL context wrappers, shader compilation, and texture cache.
+/// OpenGL context wrappers, shader compilation, and textures.
 ///
 pub mod gl;
 /// FXAA (Fast Approximate Anti-Aliasing) shader.

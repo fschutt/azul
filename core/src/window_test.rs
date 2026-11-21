@@ -90,25 +90,8 @@ mod autotest_generated {
     }
 
     // ---------------------------------------------------------------------
-    // Constructors: WindowId / IconKey (atomic counters)
+    // Constructors: IconKey (atomic counter)
     // ---------------------------------------------------------------------
-
-    #[test]
-    fn window_id_new_is_unique_and_monotonic() {
-        // The counter is process-global and shared with other tests in this
-        // binary, so only *relative* properties may be asserted.
-        let mut ids = BTreeSet::new();
-        let mut prev = WindowId::new();
-        assert!(ids.insert(prev));
-        for _ in 0..1000 {
-            let next = WindowId::new();
-            assert!(next.id > prev.id, "WindowId counter must strictly increase");
-            assert!(ids.insert(next), "WindowId::new() handed out a duplicate");
-            prev = next;
-        }
-        // Default delegates to new(): two defaults are never the same window.
-        assert_ne!(WindowId::default(), WindowId::default());
-    }
 
     #[test]
     fn icon_key_new_is_unique_and_monotonic() {

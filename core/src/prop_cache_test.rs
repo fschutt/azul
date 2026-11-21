@@ -2142,35 +2142,42 @@ mod autotest_generated {
     // std-gated profiling helpers
     // =====================================================================
 
-    #[cfg(feature = "std")]
-    #[test]
-    fn css_prop_type_label_is_interned_and_distinct_per_variant() {
-        let a = CssPropertyCache::css_prop_type_label(&CssPropertyType::Width);
-        let b = CssPropertyCache::css_prop_type_label(&CssPropertyType::Width);
-        assert!(!a.is_empty());
-        assert_eq!(
-            a.as_ptr(),
-            b.as_ptr(),
-            "the label table must leak at most one &'static str per variant"
-        );
-
-        let other = CssPropertyCache::css_prop_type_label(&CssPropertyType::Height);
-        assert_ne!(a, other);
-    }
-
+    /// The walks a cache counted come out sorted by count, descending, and are taken: what
+    /// the layout pass prints under `AZ_PROFILE=cascade`. Counted by a `PropWalks` of the
+    /// test's own (the cache counts only under the environment that asks for it).
     #[cfg(feature = "std")]
     #[test]
     fn drain_css_prop_counts_is_sorted_descending_and_drains() {
-        // The counter is thread-local and only records when AZ_PROP_COUNT=1, so
-        // the contract to pin here is "never panics, and drains".
-        let first = drain_css_prop_counts();
-        for w in first.windows(2) {
-            assert!(w[0].1 >= w[1].1, "counts must be sorted descending");
+        let walks = PropWalks::default();
+        for _ in 0..3 {
+            walks.count(CssPropertyType::Width);
         }
-        assert!(
-            drain_css_prop_counts().is_empty(),
-            "a drained counter comes back empty"
+        walks.count(CssPropertyType::Height);
+        for _ in 0..2 {
+            walks.count(CssPropertyType::FontSize);
+        }
+        assert_eq!(
+            walks.drain(),
+            vec![
+                (CssPropertyType::Width, 3),
+                (CssPropertyType::FontSize, 2),
+                (CssPropertyType::Height, 1),
+            ]
         );
+        assert!(walks.drain().is_empty(), "a drained counter comes back empty");
+    }
+
+    /// A cache that was never asked to count has nothing to drain, and counting is no part of
+    /// what a cache is.
+    #[cfg(feature = "std")]
+    #[test]
+    fn a_cache_that_counted_nothing_drains_nothing_and_equals_one_that_did() {
+        let quiet = CssPropertyCache::empty(0);
+        let counted = CssPropertyCache::empty(0);
+        counted.prop_walks.count(CssPropertyType::Width);
+        assert!(quiet.drain_css_prop_counts().is_empty());
+        assert!(quiet == counted, "the counts are not what a cache holds");
+        assert_eq!(counted.drain_css_prop_counts(), vec![(CssPropertyType::Width, 1)]);
     }
 }
 
@@ -2244,7 +2251,6 @@ mod declared_lookup_tests {
 mod scoped_rule_index_tests {
     use crate::{
         dom::{Dom, NodeId},
-        style::MATCH_ATTEMPTS,
         styled_dom::{StyledDom, StyledNodeState},
     };
     use azul_css::{
@@ -2283,10 +2289,10 @@ mod scoped_rule_index_tests {
     /// rule only in the pass for the state it ends in.
     #[test]
     fn a_restyle_tries_each_node_only_against_the_rules_scoped_around_it() {
-        MATCH_ATTEMPTS.with(|c| c.set(0));
         let styled = StyledDom::create_from_dom(page());
-        let attempts = MATCH_ATTEMPTS.with(core::cell::Cell::get);
+        let attempts = styled.get_css_property_cache().match_work.attempts.get();
         let nodes = styled.node_data.as_ref().len() as u64;
+        assert!(attempts > 0, "the cascade matched no selector, or its matches were not counted");
         assert!(
             attempts <= nodes * 11,
             "{attempts} selector matches for {nodes} nodes: every node was tried against \
@@ -2336,7 +2342,6 @@ mod audit_a3_core_tests {
 
     use crate::{
         dom::{Dom, NodeId},
-        style::MATCH_ATTEMPTS,
         styled_dom::{StyledDom, StyledNodeState},
     };
 
@@ -2378,9 +2383,9 @@ mod audit_a3_core_tests {
             root = root
                 .with_child(Dom::create_div().with_class(format!("c{}", i % classes).into()));
         }
-        MATCH_ATTEMPTS.with(|c| c.set(0));
         let styled = StyledDom::create_from_dom(root);
-        (styled, MATCH_ATTEMPTS.with(core::cell::Cell::get))
+        let attempts = styled.get_css_property_cache().match_work.attempts.get();
+        (styled, attempts)
     }
 
     /// A3-core-04: one sheet on the root scoped each of its rules to every
@@ -2428,9 +2433,9 @@ mod audit_a3_core_tests {
                 f.push_to(node, (key, set * 10 + key));
             }
         }
-        crate::prop_cache::RUN_COMPARES.with(|c| c.set(0));
         f.sort_each_and_flatten(|entry| entry.0);
-        (f, crate::prop_cache::RUN_COMPARES.with(core::cell::Cell::get))
+        let compares = f.run_compares.get();
+        (f, compares)
     }
 
     /// A3-core-07: collapsing equal runs compared every node's run with the
@@ -2476,9 +2481,12 @@ mod audit_a3_core_tests {
                 Dom::create_span_with_text("label").with_class(format!("c{}", i % classes).into()),
             );
         }
-        crate::prop_cache::INHERITED_BUCKET_READS.with(|c| c.set(0));
         let styled = StyledDom::create_from_dom(root);
-        let reads = crate::prop_cache::INHERITED_BUCKET_READS.with(core::cell::Cell::get);
+        let reads = styled
+            .get_css_property_cache()
+            .computed_values
+            .bucket_reads
+            .get();
         (styled, reads)
     }
 
@@ -2540,9 +2548,9 @@ mod audit_a3_core_tests {
             for _ in 0..k {
                 root = root.with_child(class(Dom::create_div(), "b"));
             }
-            crate::style::GENERAL_SIBLING_STEPS.with(|c| c.set(0));
             let styled = StyledDom::create_from_dom(root);
-            (styled, crate::style::GENERAL_SIBLING_STEPS.with(core::cell::Cell::get))
+            let steps = styled.get_css_property_cache().match_work.sibling_steps.get();
+            (styled, steps)
         };
         let (styled, few) = page(200);
         let (_, many) = page(800);
@@ -2581,9 +2589,9 @@ mod audit_a3_core_tests {
                     f.push_to(node, (key, set * 10 + key));
                 }
             }
-            crate::prop_cache::RUN_COMPARES.with(|c| c.set(0));
             f.sort_each_and_flatten(|entry| entry.0);
-            (f, crate::prop_cache::RUN_COMPARES.with(core::cell::Cell::get))
+            let compares = f.run_compares.get();
+            (f, compares)
         };
         let nodes = 8_000;
         let (_, few) = cycled(nodes, 16);
@@ -2627,11 +2635,11 @@ mod audit_a3_core_tests {
             .into_iter()
             .find(|ty| values.get(2, *ty).is_some())
             .expect("harness: a text node inherits some property from the root");
-            crate::prop_cache::INHERITED_GET_READS.with(|c| c.set(0));
+            values.get_reads.reset();
             for i in 0..labels {
                 assert!(values.get(2 + 2 * i, shared).is_some(), "text {i} has it");
             }
-            let reads = crate::prop_cache::INHERITED_GET_READS.with(core::cell::Cell::get);
+            let reads = values.get_reads.get();
             // And a class's own colour is still found, among its type's buckets.
             assert!(values.get(1, CssPropertyType::TextColor).is_some());
             (reads, values.bucket_count())

@@ -136,39 +136,71 @@ use crate::{
         NodeHierarchyItem, NodeHierarchyItemId, NodeHierarchyItemVec, ParentWithNodeDepth,
         ParentWithNodeDepthVec, StyledNodeState, TagIdToNodeIdMapping,
     },
+    work_count::WorkCount,
 };
 // The tests build their trees with it (they import this module's names).
 #[cfg(test)]
 use crate::id::NodeDataContainer;
 
-#[cfg(feature = "std")]
-std::thread_local! {
-    static PROP_COUNTS: core::cell::RefCell<
-        std::collections::HashMap<&'static str, usize>
-    > = core::cell::RefCell::new(std::collections::HashMap::new());
+/// How often each property type was looked up through [`CssPropertyCache::get_property`].
+///
+/// A cascade walk is counted only under `AZ_PROFILE=cascade`: the narrow diagnostic that says which
+/// properties drove the cascade walks of a layout pass. It is no part of what the cache is: two
+/// caches that differ in nothing else are equal. [`CssPropertyCache::drain_css_prop_counts`] hands
+/// the counts out.
+#[derive(Debug, Default)]
+pub struct PropWalks {
+    #[cfg(feature = "std")]
+    counts: std::sync::Mutex<alloc::collections::BTreeMap<CssPropertyType, usize>>,
 }
 
-/// Drain the per-thread CSS cascade-walk counter populated by
-/// [`CssPropertyCache::get_property`] when `AZ_PROP_COUNT=1` is set
-/// in the environment.
-///
-/// Returns `(property_label, count)` pairs
-/// sorted by count descending. Layout-side instrumentation calls
-/// this after each `layout_document` to print which properties
-/// drove the most cascade walks.
-#[cfg(feature = "std")]
-#[must_use]
-pub fn drain_css_prop_counts() -> Vec<(&'static str, usize)> {
-    // try_with: no real TLS in the lifted-to-wasm web backend (see the
-    // get_property recording site) — return empty rather than panic.
-    PROP_COUNTS
-        .try_with(|c| {
-            let map = core::mem::take(&mut *c.borrow_mut());
-            let mut v: Vec<_> = map.into_iter().collect();
-            v.sort_by(|a, b| b.1.cmp(&a.1));
-            v
-        })
-        .unwrap_or_default()
+impl Clone for PropWalks {
+    fn clone(&self) -> Self {
+        Self {
+            #[cfg(feature = "std")]
+            counts: std::sync::Mutex::new(
+                self.counts.lock().map(|counts| counts.clone()).unwrap_or_default(),
+            ),
+        }
+    }
+}
+
+impl PartialEq for PropWalks {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl PropWalks {
+    /// One more walk for `ty`.
+    #[cfg(feature = "std")]
+    fn count(&self, ty: CssPropertyType) {
+        if let Ok(mut counts) = self.counts.lock() {
+            *counts.entry(ty).or_insert(0) += 1;
+        }
+    }
+
+    /// Without `std` there is no lock to count behind, and no environment that asks for it.
+    #[cfg(not(feature = "std"))]
+    fn count(&self, _ty: CssPropertyType) {}
+
+    /// Takes the counts, sorted by count descending.
+    #[cfg(feature = "std")]
+    fn drain(&self) -> Vec<(CssPropertyType, usize)> {
+        let taken = self
+            .counts
+            .lock()
+            .map(|mut counts| core::mem::take(&mut *counts))
+            .unwrap_or_default();
+        let mut counts: Vec<_> = taken.into_iter().collect();
+        counts.sort_by(|a, b| b.1.cmp(&a.1));
+        counts
+    }
+
+    #[cfg(not(feature = "std"))]
+    fn drain(&self) -> Vec<(CssPropertyType, usize)> {
+        Vec::new()
+    }
 }
 
 /// Match on any `CssProperty` variant and access the inner `CssPropertyValue`<T>.
@@ -481,6 +513,9 @@ pub struct FlatVecVec<T> {
     /// How many entries of `data` the rows [`Self::replace_rows`] replaced since the store
     /// was last compacted pointed at (an upper bound of what no node points at any more).
     orphaned: usize,
+    /// How many recorded runs `dedup_runs` compared a node's run with: what the size sweep of
+    /// the tests reads to say nodes of one rule set do not each read the table of runs.
+    run_compares: WorkCount,
 }
 
 impl<T: PartialEq> PartialEq for FlatVecVec<T> {
@@ -506,6 +541,7 @@ impl<T> Default for FlatVecVec<T> {
             data: Vec::new(),
             offsets: Vec::new(),
             orphaned: 0,
+            run_compares: WorkCount::new(),
         }
     }
 }
@@ -538,6 +574,7 @@ impl<T> FlatVecVec<T> {
             data: Vec::new(),
             offsets: Vec::new(),
             orphaned: 0,
+            run_compares: WorkCount::new(),
         }
     }
 
@@ -615,6 +652,7 @@ impl<T> FlatVecVec<T> {
             data: self.data.clone(),
             offsets,
             orphaned: 0,
+            run_compares: self.run_compares.clone(),
         };
         store.orphaned = store.data.len().saturating_sub(live);
         if store.orphaned > 256 && store.orphaned > store.data.len() / 2 {
@@ -738,10 +776,15 @@ impl<T> FlatVecVec<T> {
         /// runs are still reused, so the result is partial sharing, never wrong.
         const MAX_RUNS: usize = 1024;
 
-        /// Is the recorded run `(start, len)` of `data` the run `run`?
-        fn same<T: PartialEq>(data: &[T], (rs, rl): (u32, u32), run: &[T]) -> bool {
-            #[cfg(all(test, feature = "std"))]
-            RUN_COMPARES.with(|c| c.set(c.get() + 1));
+        /// Is the recorded run `(start, len)` of `data` the run `run`? (`compares` counts the
+        /// asks.)
+        fn same<T: PartialEq>(
+            data: &[T],
+            (rs, rl): (u32, u32),
+            run: &[T],
+            compares: &WorkCount,
+        ) -> bool {
+            compares.bump();
             rl as usize == run.len() && data[rs as usize..(rs + rl) as usize] == *run
         }
 
@@ -774,7 +817,8 @@ impl<T> FlatVecVec<T> {
             }
             let s = start as usize;
             let run = &self.data[s..s + len as usize];
-            let mut existing = last.filter(|at| same(&new_data, runs[*at], run));
+            let mut existing =
+                last.filter(|at| same(&new_data, runs[*at], run, &self.run_compares));
             let mut key = None;
             if existing.is_none() {
                 let k = key_of(run);
@@ -782,7 +826,10 @@ impl<T> FlatVecVec<T> {
                     filed
                         .iter()
                         .map(|at| *at as usize)
-                        .find(|at| Some(*at) != last && same(&new_data, runs[*at], run))
+                        .find(|at| {
+                            Some(*at) != last
+                                && same(&new_data, runs[*at], run, &self.run_compares)
+                        })
                 });
                 key = Some(k);
             }
@@ -1024,29 +1071,6 @@ impl<'a, T> Iterator for FlatVecVecIter<'a, T> {
 
 impl<T> ExactSizeIterator for FlatVecVecIter<'_, T> {}
 
-#[cfg(all(test, feature = "std"))]
-std::thread_local! {
-    /// How many recorded runs `FlatVecVec::dedup_runs` compared a node's run
-    /// with on this thread: what the size sweep of the tests reads to say
-    /// nodes of one rule set do not each read the table of runs.
-    pub(crate) static RUN_COMPARES: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
-}
-
-#[cfg(all(test, feature = "std"))]
-std::thread_local! {
-    /// How many buckets of [`InheritedValues`] stores this thread looked at
-    /// to read or place values (`values_for`: all of them; placing a value:
-    /// its parent's, else the ones under its hash): what the size sweep of
-    /// the tests reads to say the inheritance pass does not look at every
-    /// distinct value of the DOM for every node.
-    pub(crate) static INHERITED_BUCKET_READS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
-    /// How many times `CssPropertyCache::generate_tag_ids` walked a DOM on
-    /// this thread.
-    pub(crate) static TAG_ID_PASSES: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
-    /// How many buckets [`InheritedValues::get`] searched on this thread.
-    pub(crate) static INHERITED_GET_READS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
-}
-
 /// The slow path's inherited-value store, TRANSPOSED: one copy of each distinct
 /// value plus the nodes that resolve to it.
 ///
@@ -1085,6 +1109,13 @@ pub struct InheritedValues {
     /// 26 text styles, for a property (`user-select`, `direction`) that has
     /// one or two.
     by_type: alloc::collections::BTreeMap<CssPropertyType, Vec<u32>>,
+    /// How many buckets this store looked at to read or place values (`values_for`: all of
+    /// them; placing a value: its parent's, else the ones under its hash): what the size sweep
+    /// of the tests reads to say the inheritance pass does not look at every distinct value of
+    /// the DOM for every node.
+    pub(crate) bucket_reads: WorkCount,
+    /// How many buckets [`Self::get`] searched.
+    pub(crate) get_reads: WorkCount,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1103,7 +1134,16 @@ impl InheritedValues {
             node_count: 0,
             by_hash: alloc::collections::BTreeMap::new(),
             by_type: alloc::collections::BTreeMap::new(),
+            bucket_reads: WorkCount::new(),
+            get_reads: WorkCount::new(),
         }
+    }
+
+    /// Takes over the work `previous` (the store this one replaces) had counted: the cascade
+    /// starts each pass with an empty store, and what a pass read stays counted with the DOM.
+    fn carry_work_from(&self, previous: &Self) {
+        self.bucket_reads.add(previous.bucket_reads.get());
+        self.get_reads.add(previous.get_reads.get());
     }
 
     /// The key a (type, value) is kept under in `by_hash`.
@@ -1120,8 +1160,7 @@ impl InheritedValues {
     fn bucket_of(&self, prop_type: CssPropertyType, value: &CssPropertyWithOrigin) -> Option<usize> {
         let candidates = self.by_hash.get(&Self::bucket_hash(prop_type, value))?;
         candidates.iter().map(|b| *b as usize).find(|b| {
-            #[cfg(all(test, feature = "std"))]
-            INHERITED_BUCKET_READS.with(|c| c.set(c.get() + 1));
+            self.bucket_reads.bump();
             self.buckets
                 .get(*b)
                 .is_some_and(|bucket| bucket.prop_type == prop_type && bucket.value == *value)
@@ -1203,8 +1242,7 @@ impl InheritedValues {
             .iter()
             .filter_map(|index| self.buckets.get(*index as usize))
             .find(|b| {
-                #[cfg(all(test, feature = "std"))]
-                INHERITED_GET_READS.with(|c| c.set(c.get() + 1));
+                self.get_reads.bump();
                 b.nodes.binary_search(&n).is_ok()
             })
             .map(|b| &b.value)
@@ -1217,8 +1255,7 @@ impl InheritedValues {
         let Ok(n) = u32::try_from(node) else {
             return Vec::new();
         };
-        #[cfg(all(test, feature = "std"))]
-        INHERITED_BUCKET_READS.with(|c| c.set(c.get() + self.buckets.len() as u64));
+        self.bucket_reads.add(self.buckets.len() as u64);
         let mut out: Vec<_> = self
             .buckets
             .iter()
@@ -1284,8 +1321,7 @@ impl InheritedValues {
                     .ok()?;
                 let bucket = *near_buckets.get(at)? as usize;
                 let b = self.buckets.get(bucket)?;
-                #[cfg(all(test, feature = "std"))]
-                INHERITED_BUCKET_READS.with(|c| c.set(c.get() + 1));
+                self.bucket_reads.bump();
                 (b.prop_type == *prop_type && b.value == *value).then_some(bucket)
             });
             let found = hinted.or_else(|| self.bucket_of(*prop_type, value));
@@ -1396,6 +1432,8 @@ impl InheritedValues {
             node_count,
             by_hash: self.by_hash.clone(),
             by_type: self.by_type.clone(),
+            bucket_reads: self.bucket_reads.clone(),
+            get_reads: self.get_reads.clone(),
         }
     }
 
@@ -1418,6 +1456,7 @@ impl InheritedValues {
         }
         self.node_count += other.node_count;
         other.node_count = 0;
+        self.carry_work_from(other);
     }
 
     /// Approximate retained heap bytes: one value per bucket plus the node ids.
@@ -1698,6 +1737,19 @@ pub struct CssPropertyCache {
     /// (an `env()`, a `system:` length), so a new environment lays out only
     /// them again.
     pub env_readers: EnvReaders,
+    /// How many times `generate_tag_ids` walked this cache's DOM: what a test reads to say
+    /// styling a DOM walks it once.
+    pub(crate) tag_id_passes: WorkCount,
+    /// How many nodes the walks that prepared the `Dom` this cache was made for visited
+    /// (`scope_inline_css`, `take_css_from_dom`): what a test reads to say each node is visited
+    /// once per walk.
+    pub(crate) dom_prepare_steps: WorkCount,
+    /// How much selector matching the cascades of this cache did: what a test reads to say a
+    /// restyle tries each node against the rules around it only.
+    pub(crate) match_work: crate::style::MatchWork,
+    /// The cascade walks by property type, counted under `AZ_PROFILE=cascade`
+    /// ([`Self::drain_css_prop_counts`]).
+    pub(crate) prop_walks: PropWalks,
 }
 
 /// The nodes whose style reads the window's environment.
@@ -1859,9 +1911,7 @@ impl CssPropertyCache {
 
         #[cfg(feature = "std")]
         {
-            static PRUNE_DBG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-            let dbg = *PRUNE_DBG.get_or_init(crate::profile::memory_enabled);
-            if dbg {
+            if crate::profile::memory_enabled() {
                 let mut normal_compact = 0usize;
                 let mut normal_noncompact = 0usize;
                 let mut nonnormal = 0usize;
@@ -2668,7 +2718,7 @@ impl CssPropertyCache {
                                 continue;
                             }
                             let rule_block: &CssRuleBlock = specific_rules[rule_idx];
-                            if !crate::style::matches_html_element_remembering(
+                            if !crate::style::matches_html_element_metered(
                                 &rule_block.path,
                                 node_id,
                                 &hierarchy,
@@ -2677,6 +2727,7 @@ impl CssPropertyCache {
                                 pseudo.clone(),
                                 Some(ancestor_states),
                                 Some((&mut sibling_memo, rule_idx)),
+                                &self.match_work,
                             ) {
                                 continue;
                             }
@@ -3023,8 +3074,6 @@ impl CssPropertyCache {
         node_data: &NodeDataContainerRef<'_, NodeData>,
         node_hierarchy: &NodeHierarchyItemVec,
     ) -> Vec<TagIdToNodeIdMapping> {
-        #[cfg(all(test, feature = "std"))]
-        TAG_ID_PASSES.with(|c| c.set(c.get() + 1));
         // Tag ID generation: determine which nodes need hit-test tags for
         // hover/click/scroll events. Uses compact cache for display/overflow
         // checks instead of get_property_slow (which searches 6 data structures).
@@ -3032,6 +3081,7 @@ impl CssPropertyCache {
             DISPLAY_MASK, DISPLAY_SHIFT, OVERFLOW_MASK, OVERFLOW_X_SHIFT, OVERFLOW_Y_SHIFT,
         };
 
+        self.tag_id_passes.bump();
         let compact_cache = self.compact_cache.as_ref();
         let node_data_container = &node_data.internal;
 
@@ -3540,6 +3590,10 @@ impl CssPropertyCache {
             inline_overruled: alloc::collections::BTreeMap::new(),
             css_wide_values: alloc::collections::BTreeMap::new(),
             env_readers: EnvReaders::default(),
+            tag_id_passes: WorkCount::new(),
+            dom_prepare_steps: WorkCount::new(),
+            match_work: crate::style::MatchWork::default(),
+            prop_walks: PropWalks::default(),
         }
     }
 
@@ -3934,39 +3988,17 @@ impl CssPropertyCache {
         node_state: &StyledNodeState,
         css_property_type: &CssPropertyType,
     ) -> Option<&'a CssProperty> {
-        // Thread-local counter of cascade walks, broken down by
-        // property type. Drain with `drain_css_prop_counts` (free
-        // fn below) when `AZ_PROP_COUNT=1` is set to see which
+        // Counter of cascade walks, broken down by property type, in the cache that walked.
+        // Drain with `drain_css_prop_counts` when `AZ_PROFILE=cascade` is set to see which
         // properties dominate the cold layout path.
         //
-        // Env check is read ONCE at process start and cached in a
-        // `OnceLock<bool>`. Before this, the env check ran per
-        // `get_property` call — and the function fires 710k+ times
-        // per cold layout on excel.html. `std::env::var_os` takes
-        // ~100 ns per call on macOS (env lock + hashmap lookup), so
-        // the naive check added ~70 ms of pure noise to every
-        // single layout, regardless of whether the env var was set.
-        // Using a one-time cached bool removes that overhead.
-        //
-        // `no_std` builds have no thread-locals / env, so the profiling
-        // counter is compiled out entirely.
-        #[cfg(feature = "std")]
-        {
-            static PROP_COUNT_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-            let enabled = *PROP_COUNT_ENABLED.get_or_init(crate::profile::cascade_enabled);
-            if enabled {
-                // `try_with` (not `with`): the lifted-to-wasm web backend has no
-                // real TLS, so `with` would hit `panic_access_error` (the layout
-                // path reads CSS props via these getters → would trap). `try_with`
-                // returns Err and we skip the profiling-only increment (and its
-                // inner Mutex-guarded label table). Desktop behaviour unchanged —
-                // when the env var is unset the whole block is gated off anyway.
-                let _ = PROP_COUNTS.try_with(|c| {
-                    *c.borrow_mut()
-                        .entry(Self::css_prop_type_label(css_property_type))
-                        .or_insert(0) += 1;
-                });
-            }
+        // The flag is `profile::cascade_enabled`, read from the environment ONCE and cached
+        // there: this function fires 710k+ times per cold layout on excel.html, and
+        // `std::env::var_os` takes ~100 ns per call on macOS (env lock + hashmap lookup), so a
+        // per-call check added ~70 ms of pure noise to every single layout, whether or not the
+        // variable was set.
+        if crate::profile::cascade_enabled() {
+            self.prop_walks.count(*css_property_type);
         }
 
         // Always use full cascade resolution.
@@ -4024,26 +4056,15 @@ impl CssPropertyCache {
         )
     }
 
-    #[cfg(feature = "std")]
-    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see
-                                                 // find_in_stateful)
-    fn css_prop_type_label(t: &CssPropertyType) -> &'static str {
-        // Intern Debug-format labels under a mutex-guarded map so
-        // we leak at most one `&'static str` per distinct
-        // `CssPropertyType` variant (bounded at ≤ 178 total). Only
-        // triggered when `AZ_PROP_COUNT=1`, so zero cost normally.
-        use std::sync::{Mutex, OnceLock};
-        static TABLE: OnceLock<Mutex<std::collections::HashMap<CssPropertyType, &'static str>>> =
-            OnceLock::new();
-        let m = TABLE.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
-        let mut g = m.lock().expect("AZ_PROP_COUNT label table poisoned");
-        if let Some(s) = g.get(t) {
-            return s;
-        }
-        let s: String = std::format!("{t:?}");
-        let leaked: &'static str = std::boxed::Box::leak(s.into_boxed_str());
-        g.insert(*t, leaked);
-        leaked
+    /// Takes the per-property cascade-walk counts of this cache, populated by
+    /// [`Self::get_property`] when `AZ_PROFILE=cascade` is set in the environment.
+    ///
+    /// Returns `(property type, count)` pairs sorted by count descending. Layout-side
+    /// instrumentation calls this on the DOM it just laid out to print which properties drove
+    /// the most cascade walks.
+    #[must_use]
+    pub fn drain_css_prop_counts(&self) -> Vec<(CssPropertyType, usize)> {
+        self.prop_walks.drain()
     }
 
     /// Full cascade resolution for any CSS property type.
@@ -6503,6 +6524,7 @@ impl CssPropertyCache {
         // nodes would still be listed. Change detection compares against the
         // snapshot taken below, not against the live store.
         let previous = core::mem::replace(&mut self.computed_values, InheritedValues::new());
+        self.computed_values.carry_work_from(&previous);
         self.computed_values.grow_to(node_hierarchy.len());
         // The keywords' values are found node by node below, each from its parent's.
         self.css_wide_values.clear();
@@ -7594,7 +7616,7 @@ impl CssPropertyCache {
                                 continue;
                             }
                             let rule_block: &CssRuleBlock = specific_rules[rule_idx];
-                            if !crate::style::matches_html_element_remembering(
+                            if !crate::style::matches_html_element_metered(
                                 &rule_block.path,
                                 node_id,
                                 &hierarchy,
@@ -7603,6 +7625,7 @@ impl CssPropertyCache {
                                 pseudo.clone(),
                                 Some(ancestor_states),
                                 Some((&mut sibling_memo, rule_idx)),
+                                &self.match_work,
                             ) {
                                 continue;
                             }
