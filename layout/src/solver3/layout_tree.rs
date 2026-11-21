@@ -2375,6 +2375,14 @@ fn compute_subtree_needs_intrinsic(styled_dom: &StyledDom, tree: &LayoutTree) ->
     out
 }
 
+/// How many node fingerprints [`LayoutTreeBuilder::create_node_from_dom`]
+/// computed itself on this thread (`audit_tests::a3_solver`: none for the nodes
+/// the reconcile creates, which hands over the one it computed).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static BUILDER_FINGERPRINTS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
 /// Incrementally builds a [`LayoutTree`] from a [`StyledDom`].
 ///
 /// Usage: create via [`LayoutTreeBuilder::new`], call [`process_node`](Self::process_node)
@@ -3326,13 +3334,35 @@ impl LayoutTreeBuilder {
         }
     }
 
-    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+    /// Room for `additional` more nodes, so that building a tree of a known
+    /// size does not regrow (and copy) the node buffer on the way.
+    pub fn reserve_nodes(&mut self, additional: usize) {
+        self.nodes.reserve(additional);
+    }
+
     pub fn create_node_from_dom(
         &mut self,
         styled_dom: &StyledDom,
         dom_id: NodeId,
         parent: Option<usize>,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ) -> usize {
+        self.create_node_from_dom_fingerprinted(styled_dom, dom_id, parent, debug_messages, None)
+    }
+
+    /// [`Self::create_node_from_dom`] for a caller that has the node's
+    /// fingerprint already: `fingerprint` must be
+    /// `NodeDataFingerprint::compute` of this DOM node and its state in
+    /// `styled_dom` (the reconcile computes it to compare the node with its
+    /// old box, just before it creates the new one). `None` computes it here.
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+    pub fn create_node_from_dom_fingerprinted(
+        &mut self,
+        styled_dom: &StyledDom,
+        dom_id: NodeId,
+        parent: Option<usize>,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+        fingerprint: Option<NodeDataFingerprint>,
     ) -> usize {
         let index = self.nodes.len();
         // as IT sees it). If this is 0 but build() sees 0 nodes, the push is lost
@@ -3399,14 +3429,18 @@ impl LayoutTreeBuilder {
             // ── COLD ──
             anonymous_type: None,
             preview_byte_range: None,
-            node_data_fingerprint: NodeDataFingerprint::compute(
-                &styled_dom.node_data.as_container()[dom_id],
-                styled_dom
-                    .styled_nodes
-                    .as_container()
-                    .get(dom_id)
-                    .map(|n| &n.styled_node_state),
-            ),
+            node_data_fingerprint: fingerprint.unwrap_or_else(|| {
+                #[cfg(test)]
+                BUILDER_FINGERPRINTS.with(|n| n.set(n.get() + 1));
+                NodeDataFingerprint::compute(
+                    &styled_dom.node_data.as_container()[dom_id],
+                    styled_dom
+                        .styled_nodes
+                        .as_container()
+                        .get(dom_id)
+                        .map(|n| &n.styled_node_state),
+                )
+            }),
             subtree_hash: SubtreeHash(0),
             dirty_flag: DirtyFlag::Layout,
             unresolved_box_props: collected.unresolved,
@@ -8883,5 +8917,21 @@ mod autotest_generated {
             walked.len(),
             tree.nodes.len()
         );
+    }
+}
+
+#[cfg(test)]
+mod audit_a3_solver_tests {
+    use super::*;
+
+    /// A3-solver-11: the reconcile reserves the builder's node buffer for the DOM it is about
+    /// to walk (`cache::reconcile_and_invalidate_restyled`); reserving adds no node.
+    #[test]
+    fn reserve_nodes_makes_room_without_adding_a_node() {
+        let mut builder = LayoutTreeBuilder::new(LogicalSize::new(800.0, 600.0));
+        builder.reserve_nodes(1_000);
+        assert!(builder.nodes.capacity() >= 1_000);
+        assert!(builder.nodes.is_empty());
+        assert!(builder.dom_to_layout.is_empty());
     }
 }

@@ -1714,6 +1714,13 @@ pub fn reconcile_and_invalidate_restyled<T: ParsedFontTrait>(
     let _probe_outer = crate::probe::Probe::span("reconcile_and_invalidate");
     let _flows = crate::solver3::regions::NamedFlowScope::enter(ctx.styled_dom);
     let mut new_tree_builder = LayoutTreeBuilder::new(ctx.viewport_size);
+    // Room for a box per DOM node and some anonymous ones: grown by doubling,
+    // the builder's nodes (about a kilobyte each) were copied to a larger
+    // buffer a dozen times while a 12,000-node tree was built.
+    new_tree_builder.reserve_nodes({
+        let dom_nodes = ctx.styled_dom.node_data.len();
+        dom_nodes + dom_nodes / 8 + 16
+    });
     let mut recon_result = ReconciliationResult {
         css_relayout: css_dirty
             .iter()
@@ -2993,7 +3000,9 @@ fn reconcile_node(
         .and_then(|c| c.get(new_dom_id.index()))
         .copied()
         .unwrap_or(false);
-    let new_fingerprint = {
+    // `fingerprint_computed`: computed here, from this DOM node and its state -
+    // what `create_node_from_dom` would compute again for a fresh node.
+    let (new_fingerprint, fingerprint_computed) = {
         let mut reused: Option<NodeDataFingerprint> = None;
         if diff_clean_here {
             if let Some(old_c) = old_cold {
@@ -3018,16 +3027,19 @@ fn reconcile_node(
             }
         }
         if let Some(fp) = reused {
-            fp
+            (fp, false)
         } else {
             let _p = crate::probe::Probe::span("fingerprint_compute");
-            NodeDataFingerprint::compute(
-                node_data,
-                styled_dom
-                    .styled_nodes
-                    .as_container()
-                    .get(new_dom_id)
-                    .map(|n| &n.styled_node_state),
+            (
+                NodeDataFingerprint::compute(
+                    node_data,
+                    styled_dom
+                        .styled_nodes
+                        .as_container()
+                        .get(new_dom_id)
+                        .map(|n| &n.styled_node_state),
+                ),
+                true,
             )
         }
     };
@@ -3201,11 +3213,18 @@ fn reconcile_node(
             let _ = (0xBB00_0001u32);
         }
         recon.fresh_nodes += 1;
-        let idx = new_tree_builder.create_node_from_dom(
+        // The fingerprint computed above goes with the node: the builder
+        // computed it a second time for every fresh node (seven hashes over
+        // the node's text, inline CSS, classes, callbacks and attributes) -
+        // every node of a view rendered again with new label positions. One
+        // taken over from the old tree (the diff's skip) is not handed on:
+        // the builder computes the node's own, as it always did.
+        let idx = new_tree_builder.create_node_from_dom_fingerprinted(
             styled_dom,
             new_dom_id,
             new_parent_idx,
             debug_messages,
+            fingerprint_computed.then_some(new_fingerprint),
         );
         recon.fresh_indices.insert(idx);
         if let Some(node) = new_tree_builder.get_mut(idx) {

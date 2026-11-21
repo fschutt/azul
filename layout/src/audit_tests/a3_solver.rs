@@ -447,3 +447,25 @@ fn a_block_folds_its_childrens_intrinsic_sizes_in_one_walk() {
         "four times the children took {large} comparisons for {small}: more than linear"
     );
 }
+
+/// A3-solver-10. The reconcile computes a node's fingerprint to compare it with its old box,
+/// and for a node it builds fresh the tree builder computed the same fingerprint again
+/// (`LayoutTreeBuilder::create_node_from_dom`). The reconcile hands over the one it computed.
+///
+/// Mutation: `create_node_from_dom` (no fingerprint handed over) in `cache::reconcile_node`
+/// makes the builder compute one per node.
+#[test]
+fn the_reconcile_hands_the_builder_the_fingerprint_it_computed() {
+    use crate::solver3::layout_tree::BUILDER_FINGERPRINTS;
+    let mut lw = window();
+    BUILDER_FINGERPRINTS.with(|n| n.set(0));
+    lay_out(&mut lw, layer_of_absolute_spans(200));
+    let by_builder = BUILDER_FINGERPRINTS.with(std::cell::Cell::get);
+    let nodes = lw.layout_results[&DomId::ROOT_ID].layout_tree.nodes.len();
+    assert!(nodes >= 400, "harness: the 200 labels and their texts have boxes ({nodes})");
+    assert!(
+        by_builder <= 4,
+        "the builder computed {by_builder} fingerprints of its own for a tree of {nodes} boxes \
+         the reconcile had fingerprinted"
+    );
+}
