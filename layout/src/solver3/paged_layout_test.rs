@@ -449,9 +449,9 @@ fn a_second_layout_in_the_same_font_manager_loads_no_face_again() {
     let mut font_manager = FontManager::<FontRef>::new(FcFontCache::default()).expect("manager");
     let config = header_and_footer().with_font_family("Azul Mock Wide");
 
-    let (first, _) = lay_out_in(&mut font_manager, THREE_PAGES, config.clone(), &counting);
+    let (first, _) = lay_out_in(&mut font_manager, THREE_PAGES, config.clone(), counting);
     let loaded_by_the_first = loads.load(Ordering::Relaxed);
-    let (second, _) = lay_out_in(&mut font_manager, THREE_PAGES, config, &counting);
+    let (second, _) = lay_out_in(&mut font_manager, THREE_PAGES, config, counting);
 
     assert!(
         loaded_by_the_first > 0,
