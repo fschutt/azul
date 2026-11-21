@@ -1171,6 +1171,9 @@ pub struct TransformGroup {
     matrix: Mat3,
     /// The clip open around the push, device pixels, half-open.
     outer_clip: Option<(i32, i32, i32, i32)>,
+    /// Whether any of the group can land in the pixels below. A group that cannot has a
+    /// one-pixel stand-in for a surface and composites nothing.
+    lands: bool,
 }
 
 impl ReferenceFrameGroup {
@@ -1216,23 +1219,42 @@ impl ReferenceFrameGroup {
             dpi_factor,
             clip_stack.last().copied().flatten(),
         );
-        crate::cpu_counters::count(crate::cpu_counters::Counter::GroupsOpened, 1);
-        crate::cpu_counters::count(crate::cpu_counters::Counter::GroupPx, u64::from(width) * u64::from(height));
+        // Of the group's box, only the part that can land in the pixels below is painted: the
+        // clip around the push, mapped back through the matrix (and the walk culls the items
+        // outside it). Where the matrix cannot be inverted, or has a perspective part, all of it.
+        let part = group_visible_part(&matrix, outer_clip, below, (width, height));
+        let lands = width > 0
+            && height > 0
+            && part.is_none_or(|(x0, y0, x1, y1)| x1 > x0 && y1 > y0);
 
         // The group's surface: its pixel (0, 0) is the box's device pixel
         // (x, y), so the walk paints at its position less the box's origin.
-        let surface = AzulPixmap::new(width.max(1), height.max(1)).map_or_else(
-            || AzulPixmap {
-                data: Vec::new().into(),
-                width: 0,
-                height: 0,
-            },
-            |mut surface| {
-                surface.fill(0, 0, 0, 0);
-                surface
-            },
-        );
-        surfaces.push(surface);
+        // Transparent from the allocator (`new_transparent`): a page of it costs memory once
+        // something is painted on it, and only the part that lands is painted.
+        let surface: Option<AzulPixmap> = if lands {
+            use crate::cpu_counters::{count, Counter};
+            count(Counter::GroupsOpened, 1);
+            count(Counter::GroupPx, u64::from(width) * u64::from(height));
+            count(
+                Counter::GroupPxPainted,
+                part.map_or(u64::from(width) * u64::from(height), |(x0, y0, x1, y1)| {
+                    u64::from((x1 - x0) as u32) * u64::from((y1 - y0) as u32)
+                }),
+            );
+            AzulPixmap::new_transparent(width, height)
+        } else {
+            // A group whose box lands nowhere (a label turned outside the damage, the view or
+            // the part of the picture a zoom shows) gets no surface of its size: one pixel
+            // stands in, the clip pushed below denies every paint into it, and its pop
+            // composites nothing. It used to be allocated, cleared and blitted like any other.
+            crate::cpu_counters::count(crate::cpu_counters::Counter::GroupsEmpty, 1);
+            AzulPixmap::new_transparent(1, 1)
+        };
+        surfaces.push(surface.unwrap_or_else(|| AzulPixmap {
+            data: Vec::new().into(),
+            width: 0,
+            height: 0,
+        }));
         let (sx, sy) = scroll_offset_stack.last().copied().unwrap_or((0.0, 0.0));
         scroll_offset_stack.push((sx + x as f32 / dpi_factor, sy + y as f32 / dpi_factor));
 
@@ -1240,11 +1262,8 @@ impl ReferenceFrameGroup {
         // around it: that clip applies where the group lands, at the pop.
         let group_clip = AzRect::from_xywh(0.0, 0.0, width as f32, height as f32)
             .unwrap_or(AzRect::DENY_ALL);
-        real_clip_stack.push(Some(group_clip));
-        // Of that box, only the part that can land in the pixels below is painted: the clip
-        // around the push, mapped back through the matrix (and the walk culls the items outside
-        // it). Where the matrix cannot be inverted, or has a perspective part, all of it.
-        let painted_clip = match group_visible_part(&matrix, outer_clip, below, (width, height)) {
+        real_clip_stack.push(Some(if lands { group_clip } else { AzRect::DENY_ALL }));
+        let painted_clip = match part {
             None => group_clip,
             Some((x0, y0, x1, y1)) => AzRect::from_xywh(
                 x0 as f32,
@@ -1261,6 +1280,7 @@ impl ReferenceFrameGroup {
             height,
             matrix,
             outer_clip,
+            lands,
         }))
     }
 
@@ -1394,7 +1414,7 @@ impl GroupGeometry {
 impl TransformGroup {
     /// Composites the group's `surface` through its matrix into `pixmap`.
     fn finish(&self, surface: &AzulPixmap, pixmap: &mut AzulPixmap) {
-        if self.width == 0 || self.height == 0 {
+        if self.width == 0 || self.height == 0 || !self.lands {
             return;
         }
         if mat3_is_affine(&self.matrix) {
@@ -1542,10 +1562,12 @@ fn outside_active_clip(
     let Some(clip) = clip else {
         return false;
     };
-    if mask_stack
-        .iter()
-        .any(|e| matches!(e, MaskEntry::Filter(_) | MaskEntry::ImageMask { .. }))
-    {
+    // (A mask that reaches no pixel of the pixmap leaves an empty entry: it holds nothing back.)
+    if mask_stack.iter().any(|e| match e {
+        MaskEntry::Filter(_) => true,
+        MaskEntry::ImageMask { width, height, .. } => *width > 0 && *height > 0,
+        _ => false,
+    }) {
         return false;
     }
     let bounds = if text_shadow_stack.is_empty() {
@@ -4172,11 +4194,27 @@ pub fn render_single_item(
                     width: px_w,
                     height: px_h,
                 });
+            } else {
+                // Every push leaves an entry, as a filter's does: a mask that reaches no
+                // pixel of this pixmap (an element scrolled out, a group that lands nowhere)
+                // pushed nothing, and its pop then took the entry of the group around it.
+                mask_stack.push(MaskEntry::ImageMask {
+                    snapshot: Vec::new(),
+                    mask_data: Vec::new(),
+                    origin_x: 0,
+                    origin_y: 0,
+                    width: 0,
+                    height: 0,
+                });
             }
         }
         DisplayListItem::PopImageMaskClip => {
-            if let Some(entry) = mask_stack.pop() {
-                apply_mask(pixmap, &entry);
+            // Only a mask's own entry: the pop never takes the entry of an opacity group, a
+            // frame or a clip around it.
+            if matches!(mask_stack.last(), Some(MaskEntry::ImageMask { .. })) {
+                if let Some(entry) = mask_stack.pop() {
+                    apply_mask(pixmap, &entry);
+                }
             }
         }
     }
@@ -15320,5 +15358,132 @@ mod audit_a1_tests {
             group_part_within(&g.matrix, Some((110, 0, 400, 300)), (400, 300), (g.width, g.height), 0),
             Some((40, 0, 80, 60))
         );
+    }
+
+    fn wrect(x: f32, y: f32, w: f32, h: f32) -> crate::solver3::display_list::WindowLogicalRect {
+        rect(x, y, w, h).into()
+    }
+
+    fn fill(x: f32, y: f32, w: f32, h: f32, rgb: [u8; 3]) -> DisplayListItem {
+        DisplayListItem::Rect {
+            bounds: wrect(x, y, w, h),
+            color: ColorU { r: rgb[0], g: rgb[1], b: rgb[2], a: 255 },
+            border_radius: BorderRadius::default(),
+        }
+    }
+
+    /// A reference frame of `key` with the box `(0, 0) w x h` and the matrix `m` around `inner`.
+    fn frame(key: usize, m: [[f32; 4]; 4], (w, h): (f32, f32), inner: Vec<DisplayListItem>) -> Vec<DisplayListItem> {
+        let mut items = vec![DisplayListItem::PushReferenceFrame {
+            transform_key: azul_core::resources::TransformKey { id: key },
+            initial_transform: azul_core::transform::ComputedTransform3D { m },
+            bounds: wrect(0.0, 0.0, w, h),
+        }];
+        items.extend(inner);
+        items.push(DisplayListItem::PopReferenceFrame);
+        items
+    }
+
+    /// A row-vector 4x4 that turns by `degrees`, scales by `k` and then moves by `(tx, ty)`.
+    fn turn_scale_move(degrees: f32, k: f32, tx: f32, ty: f32) -> [[f32; 4]; 4] {
+        let (s, c) = degrees.to_radians().sin_cos();
+        [
+            [k * c, k * s, 0.0, 0.0],
+            [-k * s, k * c, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [tx, ty, 0.0, 1.0],
+        ]
+    }
+
+    fn list(items: Vec<DisplayListItem>) -> DisplayList {
+        DisplayList { items, ..Default::default() }
+    }
+
+    fn px(p: &AzulPixmap, x: u32, y: u32) -> [u8; 4] {
+        let i = ((y * p.width + x) * 4) as usize;
+        [p.data[i], p.data[i + 1], p.data[i + 2], p.data[i + 3]]
+    }
+
+    /// `dl` painted in full into a white `w` x `h` frame at DPI 1, and what the walk counted.
+    fn full(dl: &DisplayList, state: &CpuRenderState, (w, h): (u32, u32)) -> (AzulPixmap, crate::cpu_counters::CpuFrameCounters) {
+        let (rr, fm) = (RendererResources::default(), empty_font_manager());
+        let mut pm = AzulPixmap::new(w, h).unwrap();
+        pm.fill(255, 255, 255, 255);
+        let mut gc = GlyphCache::new();
+        crate::cpu_counters::reset();
+        render_display_list_with_state(dl, &mut pm, 1.0, &rr, &fm, &mut gc, state).unwrap();
+        (pm, crate::cpu_counters::take())
+    }
+
+    /// A1-03 (c): a group whose box lands nowhere gets no surface. Two frames with a 40 x 30
+    /// box: one turned by 30 degrees and moved to (1000, 1000), far outside the 200 x 120 frame
+    /// (the frame's rect mapped back through it is x in [-1366, -1132], nowhere near the box),
+    /// one scaled by 1.5 and moved to (20, 10). One surface is made, of 40 x 30 px, the other
+    /// group is counted empty, and the picture is the one the unculled walk paints.
+    /// Mutation: `lands` always true in `ReferenceFrameGroup::begin` counts two groups opened.
+    #[test]
+    fn a_group_that_lands_nowhere_gets_no_surface() {
+        let mut items = frame(1, turn_scale_move(30.0, 1.0, 1000.0, 1000.0), (40.0, 30.0), vec![fill(5.0, 5.0, 20.0, 10.0, [255, 0, 0])]);
+        items.extend(frame(2, turn_scale_move(0.0, 1.5, 20.0, 10.0), (40.0, 30.0), vec![fill(5.0, 5.0, 20.0, 10.0, [0, 0, 255])]));
+        let dl = list(items);
+        let state = CpuRenderState::new(ScrollOffsetMap::new());
+        let (culled, counted) = full(&dl, &state, (200, 120));
+        assert_eq!(counted.groups_opened, 1, "one group lands: {counted:?}");
+        assert_eq!(counted.groups_empty, 1, "the other lands nowhere: {counted:?}");
+        assert_eq!(counted.group_px, 40 * 30, "only the group that lands has a surface: {counted:?}");
+        assert_eq!(counted.group_px_painted, 40 * 30, "and all of it can land: {counted:?}");
+        // The blue rect (5, 5) 20 x 10 scaled by 1.5 and moved by (20, 10): x 27.5 .. 57.5,
+        // y 17.5 .. 32.5.
+        assert_eq!(px(&culled, 35, 22), [0, 0, 255, 255]);
+        assert_eq!(px(&culled, 100, 100), [255, 255, 255, 255]);
+        GROUP_CULL_OFF.with(|c| c.set(true));
+        let (whole, counted_whole) = full(&dl, &state, (200, 120));
+        GROUP_CULL_OFF.with(|c| c.set(false));
+        assert_eq!(counted_whole.groups_opened, 2, "unculled, both groups have a surface");
+        assert!(culled.data() == whole.data(), "the picture is the unculled one");
+    }
+
+    /// A1-04 (e): a surface made transparent by the allocator is transparent black, of the size
+    /// asked for; no size, no surface.
+    #[test]
+    fn a_transparent_pixmap_is_zeroed_bytes() {
+        let p = AzulPixmap::new_transparent(3, 2).expect("a pixmap");
+        assert_eq!((p.width(), p.height(), p.data().len()), (3, 2, 24));
+        assert!(p.data().iter().all(|b| *b == 0));
+        assert!(AzulPixmap::new_transparent(0, 5).is_none());
+        assert!(AzulPixmap::new_transparent(5, 0).is_none());
+        assert!(AzulPixmap::new_transparent(u32::MAX, u32::MAX).is_none(), "an absurd size is refused, not aborted on");
+    }
+
+    /// A1-05: a mask that reaches no pixel of the pixmap leaves an (empty) entry, so its pop
+    /// closes it and not the group around it. A half-opaque group with a green fill at
+    /// (10, 10) 50 x 50 and, inside it, a mask at (1000, 1000): the fill ends up half green over
+    /// white, (128, 255, 128). Before, the mask's pop took the opacity group's entry, the
+    /// group's own pop found none, and the fill stayed opaque green over a cleared box.
+    /// Mutation: `PopImageMaskClip` popping whatever is on top paints (0, 255, 0).
+    #[test]
+    fn a_mask_that_reaches_no_pixel_does_not_close_the_group_around_it() {
+        let dl = list(vec![
+            DisplayListItem::PushOpacity {
+                bounds: wrect(10.0, 10.0, 50.0, 50.0),
+                opacity: 0.5,
+                opacity_key: None,
+                mix_blend_mode: Default::default(),
+            },
+            fill(10.0, 10.0, 50.0, 50.0, [0, 255, 0]),
+            DisplayListItem::PushImageMaskClip {
+                bounds: wrect(1000.0, 1000.0, 10.0, 10.0),
+                mask_image: None,
+                mask_rect: wrect(1000.0, 1000.0, 10.0, 10.0),
+                geometry: None,
+            },
+            DisplayListItem::PopImageMaskClip,
+            DisplayListItem::PopOpacity,
+        ]);
+        let state = CpuRenderState::new(ScrollOffsetMap::new());
+        let (painted, _) = full(&dl, &state, (100, 80));
+        let [r, g, b, a] = px(&painted, 30, 30);
+        assert!((120..=136).contains(&r) && g == 255 && (120..=136).contains(&b) && a == 255, "half green over white, got {:?}", [r, g, b, a]);
+        assert_eq!(px(&painted, 80, 70), [255, 255, 255, 255], "outside the group nothing changed");
     }
 }
