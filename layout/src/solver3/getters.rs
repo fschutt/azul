@@ -4089,6 +4089,14 @@ pub fn get_vertical_align_for_node(
 /// (109k `ComputedValues` where 2,200 were expected) and it is invisible
 /// without counting the pointers, which is what `AZ_PROFILE=memory` now
 /// does.
+///
+/// A THIRD map in front of the build, `by_inputs`. `by_value` finds an equal
+/// style only after it was built, hashed and compared, so every node of a
+/// pass still paid the build (the family list cloned, the font stack cloned
+/// out of its memo: some fifteen allocations) for a style that was there. A
+/// node whose INPUTS ([`StyleInputs`]) equal an earlier node's takes that
+/// node's style without building: the 12,000 labels of a map view and their
+/// texts build a handful of styles, not 24,000.
 #[derive(Default, Debug)]
 pub struct StyleCache {
     /// Key: (node, pseudo-state, viewport w/h bits, cascade epoch). The epoch
@@ -4096,18 +4104,243 @@ pub struct StyleCache {
     /// or a user override within one pass miss instead of serving the style
     /// resolved before it.
     by_node: HashMap<(u32, StyledNodeState, u32, u32, u64), std::sync::Arc<StyleProperties>>,
+    /// Key: what the build reads of a node, for the nodes it reads nothing
+    /// else of ([`style_inputs_of`]). Compared by equality, never by a hash
+    /// alone.
+    by_inputs: HashMap<StyleInputs, std::sync::Arc<StyleProperties>>,
     by_value: HashMap<u64, Vec<std::sync::Arc<StyleProperties>>>,
 }
 
-/// The nodes whose style [`get_style_properties_cached`] built on this thread
-/// since a test last cleared the set, and how often it built the style of a
-/// node that is in it already (`audit_tests::a3_solver`: a pass builds a
-/// node's style once, the reconcile and the layout share one memo).
+/// Everything [`get_style_properties`] reads of a node it reads nothing else
+/// of ([`style_inputs_of`] says which nodes those are): the second key of
+/// [`StyleCache`]. Two nodes with equal inputs have equal styles.
+///
+/// Every field is a VALUE the build reads, taken where the build takes it -
+/// the node's compact slots, the two properties it asks the cascade for, the
+/// font sizes its lengths resolve against - never a hash of them, and the map
+/// compares keys by `==`. A field too many costs a shared style. A field too
+/// few would hand a node another node's font or colour, which is why every
+/// hit is checked against a real build in test and debug builds
+/// ([`get_style_properties_cached`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct StyleInputs {
+    /// `CssPropertyCache::cascade_epoch`: the cascade the slots were read
+    /// from, and with it what is one per document - the context the `system:`
+    /// colours and a theme's fonts resolve against, the family lists behind
+    /// `font_family_hash`.
+    cascade_epoch: u64,
+    /// The viewport (`f32::to_bits`), as in the node key.
+    viewport: (u32, u32),
+    /// The system style the platform's font names come from, by the address
+    /// of its `Arc` (0: none). The pass that owns the memo holds the `Arc`.
+    system_style: usize,
+    /// The tier-1 enums, whole: `font-weight`, `font-style`, `display`.
+    tier1: u64,
+    /// `CompactNodeProps::font_size`, as encoded.
+    font_size: u32,
+    /// The parent's and the root's font size in px (`f32::to_bits`): what an
+    /// inherited size, an `em` and a `rem` resolve against.
+    parent_font_size_px: u32,
+    root_font_size_px: u32,
+    /// `CompactTextProps`: the colour, the family list, the line height and
+    /// the two spacings, as encoded.
+    text_color: u32,
+    font_family_hash: u64,
+    line_height: i16,
+    letter_spacing: i16,
+    word_spacing: i16,
+    /// `CompactNodePropsCold::tab_size`, as encoded.
+    tab_size: i16,
+    /// `text-transform` as the cascade answers it for the node.
+    text_transform: Option<azul_css::props::style::text::StyleTextTransform>,
+    /// `vertical-align`, one of its keywords (a length or a percentage has no
+    /// inputs: `style_inputs_of`).
+    vertical_align: core::mem::Discriminant<crate::text3::cache::VerticalAlign>,
+}
+
+/// The [`StyleInputs`] of `dom_id`. `None` for a node whose style has an
+/// input that is not among them; its style is built, as before:
+///
+/// - a node in any state but the normal one (every getter then reads the
+///   cascade, tier by tier);
+/// - a document that uses a viewport unit (the font-size memo is off) or a
+///   CSS `zoom` (every length takes its node's zoom), or that declares
+///   `font-variant-numeric`, `font-variant-caps` or `font-feature-settings`
+///   anywhere (the build then asks the cascade for them);
+/// - a compact slot that sends the build to the cascade: a `font-size`, a
+///   colour, a line height or a spacing the slot cannot hold;
+/// - `bolder` / `lighter` (resolved against the parent's weight), a
+///   `text-decoration` of its own, a colour an ancestor's runtime override
+///   hands down, a `vertical-align` length or percentage;
+/// - an inline box that paints or moves something: a background, a border,
+///   padding, a horizontal margin (all of it is in the box's style).
+///
+/// What is left reads the fields of the key and what is one per document and
+/// cascade (the dynamic context, the family lists, the `DOM_HAS_*` flags): a
+/// plain label and its text.
+fn style_inputs_of(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    system_style: Option<&std::sync::Arc<azul_css::system::SystemStyle>>,
+    viewport_size: PhysicalSize,
+) -> Option<StyleInputs> {
+    use azul_css::compact_cache as compact;
+
+    // The web lift has neither the font-size nor the zoom memo
+    // (`memoised_font_size`, `document_has_zoom`): asking here would walk
+    // the document for every node.
+    if cfg!(feature = "web_lift") {
+        return None;
+    }
+    let styled_nodes = styled_dom.styled_nodes.as_container();
+    let node_state = &styled_nodes.get(dom_id)?.styled_node_state;
+    if !node_state.is_normal() {
+        return None;
+    }
+    let node_data_container = styled_dom.node_data.as_container();
+    let node_data = node_data_container.get(dom_id)?;
+    let cache = &styled_dom.css_property_cache.ptr;
+    let cc = cache.compact_cache.as_ref()?;
+    if cc.uses_viewport_units
+        || cc.dom_declared(
+            compact::DOM_HAS_FONT_VARIANT_NUMERIC
+                | compact::DOM_HAS_FONT_VARIANT_CAPS
+                | compact::DOM_HAS_FONT_FEATURE_SETTINGS,
+        )
+    {
+        return None;
+    }
+
+    let idx = dom_id.index();
+    let tier1 = *cc.tier1_enums.get(idx)?;
+    let dims = cc.tier2_dims.get(idx)?;
+    let cold = cc.tier2_cold.get(idx)?;
+    let text = cc.tier2b_text.get(idx)?;
+
+    // The slots for which the build leaves the compact cache: a font size
+    // that is neither a length nor "the parent's", a line height the slot
+    // cannot hold, no colour, a spacing that is no px.
+    let font_size = dims.font_size;
+    let font_size_from_cascade = font_size >= compact::U32_SENTINEL_THRESHOLD
+        && font_size != compact::U32_SENTINEL
+        && font_size != compact::U32_INHERIT
+        && font_size != compact::U32_INITIAL;
+    let line_height_from_cascade = text.line_height >= compact::I16_SENTINEL_THRESHOLD
+        && text.line_height != compact::I16_SENTINEL;
+    if font_size_from_cascade
+        || line_height_from_cascade
+        || text.text_color == 0
+        || text.letter_spacing >= compact::I16_SENTINEL_THRESHOLD
+        || text.word_spacing >= compact::I16_SENTINEL_THRESHOLD
+        || cold.hot_flags & compact::HOT_FLAG_HAS_TEXT_DECORATION != 0
+        || compact::decode_font_weight(tier1).is_relative()
+    {
+        return None;
+    }
+    if document_has_zoom(styled_dom) || inherited_color_override(styled_dom, dom_id).is_some() {
+        return None;
+    }
+
+    // What an inline box paints around its text and how far its edges move
+    // the pen is in its style and nowhere in the key: only a box with none
+    // of it. (Any other display: the build reads none of it.)
+    let display = match get_display_property(styled_dom, Some(dom_id)) {
+        MultiValue::Exact(v) => v,
+        _ => LayoutDisplay::Inline,
+    };
+    if matches!(
+        display,
+        LayoutDisplay::Inline | LayoutDisplay::InlineBlock | LayoutDisplay::InlineBlockListItem
+    ) {
+        // The slots first, so that a decorated box is not asked for its
+        // decoration twice (here and by its build).
+        if cold.hot_flags & compact::HOT_FLAG_HAS_BACKGROUND != 0
+            || cold.border_styles_packed != 0
+            || dims.padding_top != 0
+            || dims.padding_right != 0
+            || dims.padding_bottom != 0
+            || dims.padding_left != 0
+            || dims.margin_left != 0
+            || dims.margin_right != 0
+        {
+            return None;
+        }
+        // Then the build's own three reads, which also know what the slots
+        // do not say (the stroke of an SVG shape, the background an `<html>`
+        // takes from its `<body>`).
+        if get_background_color(styled_dom, dom_id, node_state).a > 0
+            || !get_background_contents(styled_dom, dom_id, node_state).is_empty()
+        {
+            return None;
+        }
+        let border_info = get_border_info(styled_dom, dom_id, node_state);
+        if get_inline_border_info(styled_dom, dom_id, node_state, &border_info, viewport_size)
+            .is_some()
+        {
+            return None;
+        }
+    }
+
+    // The two properties the build asks the cascade for in every state.
+    let text_transform = cache
+        .get_text_transform(node_data, &dom_id, node_state)
+        .and_then(|v| v.get_property().copied());
+    let vertical_align = get_vertical_align_for_node(styled_dom, dom_id, viewport_size);
+    if matches!(vertical_align, crate::text3::cache::VerticalAlign::Offset(_)) {
+        return None;
+    }
+
+    Some(StyleInputs {
+        cascade_epoch: cache.cascade_epoch,
+        viewport: (viewport_size.width.to_bits(), viewport_size.height.to_bits()),
+        system_style: system_style.map_or(0, |style| std::sync::Arc::as_ptr(style) as usize),
+        tier1,
+        font_size,
+        parent_font_size_px: get_parent_font_size(styled_dom, dom_id, node_state).to_bits(),
+        root_font_size_px: get_root_font_size(styled_dom, node_state).to_bits(),
+        text_color: text.text_color,
+        font_family_hash: text.font_family_hash,
+        line_height: text.line_height,
+        letter_spacing: text.letter_spacing,
+        word_spacing: text.word_spacing,
+        tab_size: cold.tab_size,
+        text_transform,
+        vertical_align: core::mem::discriminant(&vertical_align),
+    })
+}
+
+/// Whether `style` equals itself: not when one of its lengths is NaN (a
+/// degenerate viewport or font size), which no other style equals either.
+#[cfg(any(test, debug_assertions))]
+fn style_equals_itself(style: &StyleProperties) -> bool {
+    let same = style;
+    style == same
+}
+
+/// The nodes whose style [`get_style_properties_cached`] resolved on this
+/// thread since a test last cleared the set - built, or taken by its inputs:
+/// every ask the node key did not answer - and how often it resolved the
+/// style of a node that is in it already (`audit_tests::a3_solver`: a pass
+/// resolves a node's style once, the reconcile and the layout share one memo).
 #[cfg(test)]
 thread_local! {
     pub(crate) static STYLE_BUILT_NODES: core::cell::RefCell<std::collections::HashSet<u32>> =
         core::cell::RefCell::new(std::collections::HashSet::new());
     pub(crate) static STYLE_REBUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// The second key of the style memo, counted on this thread
+/// (`audit_tests::a3_solver::styles`): how often a node took an earlier
+/// node's style by its inputs, which nodes did, and how many styles were
+/// built because neither key had them - the builds of a release build. (The
+/// build by which a hit checks itself in test and debug builds is not
+/// counted.)
+#[cfg(test)]
+thread_local! {
+    pub(crate) static STYLE_VALUE_HITS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    pub(crate) static STYLE_VALUE_HIT_NODES: core::cell::RefCell<std::collections::HashSet<u32>> =
+        core::cell::RefCell::new(std::collections::HashSet::new());
+    pub(crate) static STYLE_BUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
 /// [`get_style_properties`], memoised in a caller-owned per-document cache
@@ -4116,6 +4349,12 @@ thread_local! {
 /// The cache is passed separately from `styled_dom` rather than taking the
 /// whole `LayoutContext`, so callers can hand over two disjoint fields of
 /// the same context without a borrow conflict.
+///
+/// # Panics
+///
+/// In test and debug builds, when a style taken by its inputs
+/// ([`StyleInputs`]) is not the style the node builds: the key lacks an
+/// input.
 #[must_use]
 pub fn get_style_properties_cached(
     cache: &mut StyleCache,
@@ -4141,13 +4380,58 @@ pub fn get_style_properties_cached(
         drop(crate::probe::Probe::span("style_props_memo_hit"));
         return std::sync::Arc::clone(v);
     }
-    let _p = crate::probe::Probe::span("style_props_build");
     #[cfg(test)]
     STYLE_BUILT_NODES.with(|built| {
         if !built.borrow_mut().insert(key.0) {
             STYLE_REBUILDS.with(|n| n.set(n.get() + 1));
         }
     });
+
+    // The second key, in front of the build: a node whose inputs equal an
+    // earlier node's takes that node's style.
+    let inputs = style_inputs_of(styled_dom, dom_id, system_style, viewport_size);
+    let by_inputs = match &inputs {
+        Some(inputs) => cache.by_inputs.get(inputs).cloned(),
+        None => None,
+    };
+    if let Some(shared) = by_inputs {
+        drop(crate::probe::Probe::span("style_props_inputs_hit"));
+        #[cfg(test)]
+        {
+            STYLE_VALUE_HITS.with(|n| n.set(n.get() + 1));
+            STYLE_VALUE_HIT_NODES.with(|nodes| {
+                nodes.borrow_mut().insert(key.0);
+            });
+        }
+        // THE CHECK OF THE KEY. In test and debug builds every hit builds
+        // the style the long way as well and compares: a difference means
+        // the build read something of this node that `StyleInputs` does not
+        // hold, and the node would be drawn in another node's style. The
+        // crate's whole test suite runs through here; a release build skips
+        // the build, which is the point of the key.
+        #[cfg(any(test, debug_assertions))]
+        {
+            let built = get_style_properties(styled_dom, dom_id, system_style, viewport_size);
+            assert!(
+                *shared == built || !style_equals_itself(&built),
+                "style memo: node {} took the style of an earlier node with the same inputs, \
+                 and its own style is another one - `getters::StyleInputs` lacks something \
+                 `get_style_properties_for_state` reads (add it to the key, or to the nodes \
+                 `style_inputs_of` answers `None` for)\n  inputs: {:?}\n  taken:  {:?}\n  \
+                 built:  {:?}",
+                dom_id.index(),
+                inputs,
+                shared,
+                built
+            );
+        }
+        cache.by_node.insert(key, std::sync::Arc::clone(&shared));
+        return shared;
+    }
+
+    let _p = crate::probe::Probe::span("style_props_build");
+    #[cfg(test)]
+    STYLE_BUILDS.with(|n| n.set(n.get() + 1));
     let built = get_style_properties(styled_dom, dom_id, system_style, viewport_size);
 
     // Share by VALUE. Nodes that resolve to the same computed style get the
@@ -4174,6 +4458,9 @@ pub fn get_style_properties_cached(
         fresh
     };
     cache.by_node.insert(key, std::sync::Arc::clone(&shared));
+    if let Some(inputs) = inputs {
+        cache.by_inputs.insert(inputs, std::sync::Arc::clone(&shared));
+    }
     shared
 }
 
@@ -12768,6 +13055,60 @@ mod audit_a3_solver_tests {
             )
             .is_none(),
             "nor another style"
+        );
+    }
+
+    /// A3-solver-20b. The inputs a style is shared by ([`StyleInputs`]) name
+    /// the pass they were read in, as the node key does - the viewport, the
+    /// cascade - and the system style; and a plain text node and a plain
+    /// inline box HAVE inputs (without them no label takes a style by value).
+    ///
+    /// Mutation: `viewport: (0, 0)`, `cascade_epoch: 0` or `system_style: 0` in
+    /// `style_inputs_of` leaves equal what is expected to differ here; a
+    /// `style_inputs_of` that answers `None` for every node fails the first
+    /// `expect`.
+    #[test]
+    fn the_inputs_of_a_style_name_the_viewport_the_cascade_and_the_system_style() {
+        use azul_core::dom::Dom;
+
+        // body(0) > span(1) > text(2).
+        let mut sd = StyledDom::create_from_dom(
+            Dom::create_body().with_child(Dom::create_span_with_text("label")),
+        );
+        let (span, text) = (NodeId::new(1), NodeId::new(2));
+        let viewport = PhysicalSize::new(800.0, 600.0);
+        let plain = style_inputs_of(&sd, text, None, viewport)
+            .expect("a text node at rest with nothing declared on it is keyed by its inputs");
+        assert!(
+            style_inputs_of(&sd, span, None, viewport).is_some(),
+            "a plain inline box at rest is keyed by its inputs"
+        );
+        assert_eq!(
+            style_inputs_of(&sd, text, None, viewport),
+            Some(plain),
+            "the same node asked again"
+        );
+        assert_ne!(
+            style_inputs_of(&sd, text, None, PhysicalSize::new(801.0, 600.0)),
+            Some(plain),
+            "another viewport width"
+        );
+        assert_ne!(
+            style_inputs_of(&sd, text, None, PhysicalSize::new(800.0, 601.0)),
+            Some(plain),
+            "another viewport height"
+        );
+        let system = std::sync::Arc::new(azul_css::system::SystemStyle::default());
+        assert_ne!(
+            style_inputs_of(&sd, text, Some(&system), viewport),
+            Some(plain),
+            "another system style"
+        );
+        sd.css_property_cache.downcast_mut().cascade_epoch += 1;
+        assert_ne!(
+            style_inputs_of(&sd, text, None, viewport),
+            Some(plain),
+            "another cascade"
         );
     }
 }
