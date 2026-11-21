@@ -1412,7 +1412,12 @@ pub fn regenerate_layout(
     // nothing appended to it, has its inheritance and its compact cache from that cascade:
     // building both a second time was a whole pass over every node of the window's DOM on
     // every rebuild, to arrive at what was there.
-    if !styled_by_one_cascade || decorations_appended {
+    // And for a tree that says so itself (`needs_recompute_after_append`: set by every
+    // `append_child`, cleared by the recompute): an append the two facts above do not know.
+    if !styled_by_one_cascade
+        || decorations_appended
+        || styled_dom.needs_recompute_after_append()
+    {
         styled_dom.recompute_inheritance_and_compact_cache();
     }
     drop(span_csd);
