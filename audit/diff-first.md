@@ -484,6 +484,31 @@ compact entries and all ~200 properties per node in three states equal a DOM sty
 - severity: low
 - status: open: the exact change is given; it touches A6's queue contract (which reconciliation drains which DOM's entries)
 
+### diff-first-13 the kept exits told the solver "unchanged" for a node a callback had written
+- file:line: `layout.rs` exits 1.45, 1.46 and the GRANULAR DIFF block; `layout/src/window.rs` `DomGenerations`
+  (`bump_for_pass`, `written_since_pass`), `dom_written_since_its_pass`, `note_dom_laid_out`,
+  `invoke_virtual_view_callback_impl`; `layout/src/solver3/cache.rs` `reconcile_node` (`diff_clean_here`: where
+  the flag is believed)
+- class: wrong-output (a written style is never laid out), on the DEFAULT path since the step `text`; found by
+  the verifier: `dragging_the_slider_leaves_no_thumb_behind` (the thumb follows one move and stops)
+- evidence: `set_css_property` from a callback writes the node's own style on the kept arena
+  (`apply_node_css_change`: `upsert_inline_css_property`) and, in a shell, lays nothing out; the rebuild the
+  callback returned (`RefreshDom`) does. That rebuild compares the app's two builds: the thumb reads alike in
+  both (the app does not store the value), the caption's text changed: exit 1.45, `dom_diff_clean[thumb] = true`.
+  The solver then takes over the thumb's fingerprint of its last pass - from before the write - and finds no
+  dirt. With a state change in the same rebuild the exits hand over no flags, which is why the press and the
+  first move worked.
+- fix: a DOM a callback wrote since its last layout pass (its generation moved without a pass) gets no flags
+  from any exit that keeps or compares it; the solver fingerprints every node of it and finds the write.
+- what it costs: such a rebuild hashes every node again (200-500 ns each), as the full path does.
+- not covered by a test: that flags ARE still handed over for a DOM nobody wrote (a mutant that calls every DOM
+  written passes every test and loses the skip): `last_fingerprint_skips` of the text exit is the count to
+  assert; added with the next commit that touches the dll tests.
+- test: dll `dragging_the_slider_leaves_no_thumb_behind`,
+  `a_style_a_callback_wrote_is_laid_out_by_the_rebuild_it_asked_for`.
+- severity: high
+- status: fixed 6c43652f1
+
 ### A3-window-32 (styled_dom part) the preparation walks of a `Dom` before it is styled
 - file:line: `core/src/styled_dom.rs` `create_from_dom_inheriting`, `create_from_prepared_dom`
 - what the row said: "the four preparation walks run twice; every attached sheet is cloned". Both are gone on the
@@ -623,6 +648,48 @@ a node with the style of ANOTHER node (rows handed to the wrong node) or with it
    entries alone when it does not (`recascade_nodes(.., dirty = subtree of x or nothing, moved_in_place = {x})`
    reads `user_overridden_properties` in the compact builder's step 4b and in `apply_cascade_properties` step 5).
 
+## For area A3-core (the display-list patch): the last bit of a translated item
+
+Reported by the verifier on the first half (five equality walks, one item each differing in the last bit of an
+f32: `hit area 14x14 @ (2, 59.8)` on the kept-DOM window, `(2, 59.800003)` on the full-path window; the walk passes
+with `AZ_NO_DL_PATCH=1`). The `node` lines of the dumps are equal: the LAYOUT positions agree to the bit. The item
+differs.
+
+- where: `layout/src/solver3/display_list.rs` `PatchState::build` (6160: `deltas[i] = new_positions[i] -
+  prev_positions[i]`), `DisplayListGenerator::try_copy_cached_run` (`translate_item(prev.items[i].clone(), delta)`)
+  and `translate_item` (1100: `origin += delta`). The solver's patched pass (`dl_patched_pass`), older than this
+  task; not `node_patch.rs` (the window's move in place) and no function of the diff-first steps.
+- class: wrong-output (one ulp), sign/offset
+- evidence: a copied run of a node that MOVED is given `old_rect + (new_pos - old_pos)`. A fresh paint computes
+  the rect from `new_pos` (for a hit area or a background: the node's position itself). In f32,
+  `a + (b - a) != b` in the last bit for most pairs (the subtraction rounds, then the addition rounds again):
+  with `a = 45.8`, `b = 59.800003` the patch gives `59.8`. The two windows of a walk patch at different rebuilds
+  (a kept DOM keeps the tree's shape more often than a new one whose CSS diff names a node), so their items carry
+  different rounding histories; a list that was patched k times carries k roundings.
+- why it shows on the diff-first exits: they do not produce the value; they make the patched pass the common
+  one. On the full path alone the same happens after any text edit or resize that shifts boxes.
+- fix (exact, 4 lines, in `try_copy_cached_run` after the delta is read; the run is already popped, so it stays
+  consumed):
+  ```
+          let delta = patch.deltas.get(node_index).copied().unwrap_or_else(LogicalPosition::zero);
+  +       // A node that moved is painted anew: `old + (new - old)` is not, to the bit, the rect a
+  +       // paint from the new position gives, and the next fresh list would differ from this one
+  +       // in every such item. A run is copied only where it lies.
+  +       if delta.x != 0.0 || delta.y != 0.0 {
+  +           return false;
+  +       }
+  ```
+  `translate_item` is then called with a zero delta only (its early return). Cost: a pass that shifts boxes (a
+  line more in a paragraph above them) paints the shifted boxes again instead of translating their runs; boxes
+  that did not move are still copied. `compute_patch_move_summary` (the CPU blit by the dominant delta) reads
+  positions, not items, and is not touched.
+  An exact translation is not available from the item alone: the paint computes `new_pos + offset` with the
+  item's offset inside its node, which the stored rect holds only rounded.
+- test: the five walks without `AZ_NO_DL_PATCH`; a unit test of its own: a list whose middle paragraph grows by
+  a line, patched, equals the list built fresh, item by item.
+- severity: medium
+- status: open: not applied here (A3-core's file; the coordinator sent the report to the window area's owner too: one of the two applies it)
+
 ## For area dom-builder
 
 Checked against `regenerate_layout` at this branch's tip (after the steps `tree` and `view`), for the two lines
@@ -685,6 +752,15 @@ ARENA after the flatten, never `nodes_at`.
 | step `tree`, window and shell (exit 1.47, the solver's flags) | e332a6b34 | dll `a_rebuild_that_changed_the_tree_*`, `rows_that_come_*`, `five_hundred_nodes_*`, `the_steps_of_the_switch_*`, `a_changed_text_takes_the_full_path_*` |
 | step `view`, the pairing path (+ the class "moved in place") | 43bb97f38 | dll `a_view_rendered_again_*`, `a_view_whose_labels_all_moved_*`, `a_view_that_exchanged_5_percent_*` |
 | step `view`, the kept exits (`restyle_kept_child`) | eba4d13e4 | the three above + dll `one_changed_label_of_a_view_styles_that_label` |
+
+| diff-first-13 (a written DOM gets no clean flags; the slider) | 6c43652f1 | dll `dragging_the_slider_leaves_no_thumb_behind`, `a_style_a_callback_wrote_is_laid_out_by_the_rebuild_it_asked_for` |
+
+**The verifier's first run of the dll suite (integration `57a46db75`, first half): the seven of this area.**
+1. `dragging_the_slider_leaves_no_thumb_behind`: a real defect of the kept exits: fixed 6c43652f1 (diff-first-13).
+2. `a_changed_text_takes_the_full_path_where_the_reconciliation_has_work` ("a handler: the full path"): the
+   expectation was the step `text`'s and the test ran with every step: fixed in e332a6b34 (the test sets `text`).
+3. five equality walks, one f32 item in the last bit: the solver's display-list patch translates a copied run by
+   `new - old`; not a function of these steps: "For area A3-core" above, with the exact change. NOT applied here.
 
 **Most likely to fail compilation or to draw wrongly, first:** eba4d13e4 (the arm of
 `invoke_virtual_view_callback_impl` gained a branch without re-indenting what it wraps; partial moves out of the
