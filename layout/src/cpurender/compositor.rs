@@ -6712,6 +6712,27 @@ pub fn compute_resize_damage(
     rects
 }
 
+/// Cut damage rects to the frame, `0..width` by `0..height` logical px: a rect (or the part of one)
+/// outside it names pixels the frame does not have, and a rect with no pixel inside it is no damage.
+///
+/// A window that shrinks damages the OLD bounds of the boxes it narrowed, and those lie past the
+/// new edge (the strip a box lost). The rasteriser clamps every rect to its buffer, so the pixels it
+/// wrote were always inside; the damage a frame REPORTS has to name the same pixels. Reported
+/// whole, a 300 px wide strip past a 500 px edge was damage "painted" that no pixel of the frame
+/// held, and it lay outside the rects the frame presented (`present ⊇ paint`, which
+/// `FrameReport` documents).
+pub fn clip_damage_to_frame(rects: &mut Vec<LogicalRect>, width: f32, height: f32) {
+    let frame = LogicalRect {
+        origin: LogicalPosition { x: 0.0, y: 0.0 },
+        size: LogicalSize { width, height },
+    };
+    rects.retain_mut(|rect| {
+        let inside = intersect_logical_rects(*rect, frame);
+        *rect = inside;
+        inside.size.width > 0.0 && inside.size.height > 0.0
+    });
+}
+
 /// Compare a rectangular sub-region of two pixmaps pixel-by-pixel.
 /// Returns the number of pixels that differ by more than `threshold` per channel.
 #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
@@ -13237,3 +13258,7 @@ mod audit_a1_composite_reach_tests {
         assert_eq!(turned.map(r), Some(rect(-23.0, 7.0, 16.0, 26.0)), "a quarter turn");
     }
 }
+
+#[cfg(test)]
+#[path = "compositor_test.rs"]
+mod compositor_test;
