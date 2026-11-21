@@ -618,6 +618,17 @@ fn shared_glyphs() -> Option<std::sync::Arc<GlyphCache>> {
     SHARED_GLYPHS.with(|frame| frame.borrow().clone())
 }
 
+/// Count the glyph cell sets `glyph_cache` has built since it had built `before`
+/// (`Counter::CellsBuilt`), on this thread: the cache is the window's, or in a band the band's
+/// own, whose count nobody reads once the window's cache has absorbed it. The three glyph loops
+/// are the only callers of the cell builders.
+fn count_cells_built(glyph_cache: &GlyphCache, before: u64) {
+    let built = glyph_cache.cells_built().saturating_sub(before);
+    if built != 0 {
+        crate::cpu_counters::count(crate::cpu_counters::Counter::CellsBuilt, built);
+    }
+}
+
 /// The box-shadow cache this thread paints with: the frame's shared one in a band, else its own.
 fn with_shadow_cache<R>(f: impl FnOnce(&mut ShadowCache) -> R) -> R {
     let shared = FRAME_SHADOW_CACHE.with(|frame| frame.borrow().clone());
@@ -6435,6 +6446,7 @@ fn render_glyphs_lcd(
     parsed_font.touch();
     // In a band: the window's cache, asked first and never written (`shared_glyphs`).
     let shared = shared_glyphs();
+    let cells_built_before = glyph_cache.cells_built();
     for glyph in glyphs {
         let glyph_index = glyph.index as u16;
 
@@ -6560,6 +6572,7 @@ fn render_glyphs_lcd(
         };
         ras.add_cells_offset(cells, int_x * 3, int_y);
     }
+    count_cells_built(glyph_cache, cells_built_before);
 
     drop(p_outline);
     let _p_sweep = crate::probe::Probe::span("glyph_lcd_sweep");
@@ -6875,7 +6888,8 @@ fn render_text_prerendered_lcd(
         else {
             continue;
         };
-        let Some((tile, int_x, int_y)) = glyph_cache.get_or_build_lcd_tile(
+        let cells_built_before = glyph_cache.cells_built();
+        let tile = glyph_cache.get_or_build_lcd_tile(
             font_hash.font_hash,
             glyph.index as u16,
             ppem,
@@ -6888,7 +6902,10 @@ fn render_text_prerendered_lcd(
             bg,
             lut,
             params,
-        ) else {
+        );
+        // Per glyph: the loop has a `return` of its own below.
+        count_cells_built(glyph_cache, cells_built_before);
+        let Some((tile, int_x, int_y)) = tile else {
             continue; // no cells (space) — nothing to paint for this glyph
         };
         let x0 = int_x + tile.dx;
@@ -7158,6 +7175,7 @@ pub(super) fn render_text(
     parsed_font.touch();
     // In a band: the window's cache, asked first and never written (`shared_glyphs`).
     let shared = shared_glyphs();
+    let cells_built_before = glyph_cache.cells_built();
     for glyph in glyphs {
         let glyph_index = glyph.index as u16;
 
@@ -7244,6 +7262,7 @@ pub(super) fn render_text(
 
         ras.add_cells_offset(cells, int_x, int_y);
     }
+    count_cells_built(glyph_cache, cells_built_before);
 
     // Single render pass for all glyphs in this text run
     if glyph_cache.text_aa().aliased() {
@@ -18350,7 +18369,12 @@ mod audit_a1_tests {
         let held = window.cells_len();
         assert!(held > 0, "and holds what the bands built");
         assert_eq!(window.cells_built(), 0, "it built none of it: nothing wrote it while the bands ran");
-        let (again, _) = paint(&mut window, 4);
+        // The builds of the band caches reach the frame's counters through their threads':
+        // at least one per cell set the window holds now (two bands may each have built one
+        // that crosses their seam).
+        assert!(counted.cells_built >= held as u64, "{counted:?} for {held} cell sets");
+        let (again, counted_again) = paint(&mut window, 4);
+        assert_eq!(counted_again.cells_built, 0, "every band finds every cell set in the window's cache");
         assert_eq!(window.cells_len(), held, "a second repaint needs no cell the first did not leave");
         assert_eq!(differing_pixels(&again, &banded), 0, "the cells a band finds are the cells a band builds");
         let mut one = GlyphCache::new();
