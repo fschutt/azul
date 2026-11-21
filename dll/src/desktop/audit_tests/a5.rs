@@ -229,6 +229,12 @@ impl Recorder {
 /// with a solid halo (a text shadow that is a spread and nothing else), at
 /// `zoom` times their size and place.
 pub(super) fn labels(count: usize, zoom: f32) -> Dom {
+    labels_from(0, count, zoom)
+}
+
+/// The labels `first .. first + count` of the same map ([`labels`]): what a
+/// view shows after a pan by `first` labels.
+fn labels_from(first: usize, count: usize, zoom: f32) -> Dom {
     let mut page = Dom::create_div().with_css(
         format!(
             "position: relative; width: {}px; height: {}px; background: #4477aa;",
@@ -237,7 +243,7 @@ pub(super) fn labels(count: usize, zoom: f32) -> Dom {
         )
         .as_str(),
     );
-    for i in 0..count {
+    for i in first..first + count {
         let style = format!(
             "position: absolute; left: {}px; top: {}px; margin: 0px; font-size: {}px; \
              line-height: 1; color: #111111; white-space: nowrap; \
@@ -440,61 +446,78 @@ fn a5_a_zoom_that_settles_keeps_every_halo_at_2x() {
     a_zoom_that_settles_keeps_every_halo(2.0);
 }
 
+/// A picture of 4 x 2 px, every byte `fill` (a halo's picture, for the tests of
+/// the slot keys).
+fn slot_picture(fill: u8) -> azul_core::resources::ImageRef {
+    use azul_core::resources::{ImageRef, RawImage, RawImageData, RawImageFormat};
+
+    ImageRef::new_rawimage(RawImage {
+        pixels: RawImageData::U8(vec![fill; 4 * 2 * 4].into()),
+        width: 4,
+        height: 2,
+        premultiplied_alpha: true,
+        data_format: RawImageFormat::RGBA8,
+        tag: Vec::new().into(),
+    })
+    .expect("a picture")
+}
+
+/// The key `image` resolves to: what a translation paints it from.
+fn registered(
+    rr: &RendererResources,
+    image: &azul_core::resources::ImageRef,
+) -> Option<azul_core::resources::ImageKey> {
+    rr.currently_registered_images
+        .get(&image.get_hash())
+        .map(|resolved| resolved.key)
+}
+
 /// A5-15 (review of A4-27, invariant I-g: the kept pictures are a thread's, the
-/// slot keys a window's). The sequence, with two windows A and B on one thread:
+/// slot keys a window's). Giving a slot's key a new picture removed the
+/// registration of the picture the key had shown, whoever held it. With two
+/// windows A and B on one thread a picture can be another slot's by then:
 ///
-/// 1. A paints a label with the picture `old` from slot 1 (A's key K1 shows it).
-/// 2. B's scans draw the label's picture at another size into the place of
-///    `old`: slot 1 shows `new` now, and `old` has no slot.
-/// 3. A's next scan finds `old` as a label's own picture - it gets slot 2 - and,
-///    further down its list, a label painted with `new` from slot 1. The slots
-///    are registered in list order: slot 2 first (a new key K2 shows `old`,
-///    `old` resolves to K2), then slot 1 (K1 is given `new`).
+/// 1. A paints `old` from slot 1 (key K1) and `other` from slot 2 (key K2).
+/// 2. B's scans change what the slots show: slot 2 shows `old` now, slot 1
+///    shows `new`.
+/// 3. A's next scan registers the slots in list order: slot 2 first (K2 is
+///    given `old`, which resolves to K2 from now on), then slot 1 (K1 is given
+///    `new`).
 ///
-/// Giving K1 its new picture removed the registration of the picture K1 had
-/// shown - `old`, which K2 shows since a moment ago. The label of slot 2 was
-/// then translated to WebRender's own shadow (no spread: no outline), and stayed
-/// so: slot 2 "shows `old` already", so no later scan registered it again.
+/// Step 3's second half removed the registration of the picture K1 had shown -
+/// `old`, which K2 shows since a moment ago. The label of slot 2 was translated
+/// to WebRender's own shadow (no spread: no outline), and stayed so: slot 2
+/// "shows `old` already", so no later scan registered it again.
+///
+/// (Changed with A5-16: a picture in a slot that has NO key takes the key that
+/// shows it with it, so the sequence needs slot 2 to have a key of its own.)
 ///
 /// Mutation: the `resolved.key == key` guard removed from the `TextHalo` arm of
 /// `plan_overlay_image_uploads` leaves `old` unregistered: this fails.
 #[test]
 fn a5_15_a_picture_given_a_new_slot_stays_registered_when_its_old_slot_shows_another() {
-    use azul_core::resources::{
-        IdNamespace, ImageDirtyRect, ImageRef, ImageSlot, RawImage, RawImageData, RawImageFormat,
-    };
+    use azul_core::resources::{IdNamespace, ImageDirtyRect, ImageSlot};
 
     use crate::desktop::wr_translate2::plan_overlay_image_uploads;
 
-    let picture = |fill: u8| {
-        ImageRef::new_rawimage(RawImage {
-            pixels: RawImageData::U8(vec![fill; 4 * 2 * 4].into()),
-            width: 4,
-            height: 2,
-            premultiplied_alpha: true,
-            data_format: RawImageFormat::RGBA8,
-            tag: Vec::new().into(),
-        })
-        .expect("a picture")
-    };
     let namespace = IdNamespace(7);
-    let (old, new) = (picture(1), picture(2));
-    let registered = |rr: &RendererResources, image: &ImageRef| {
-        rr.currently_registered_images
-            .get(&image.get_hash())
-            .map(|resolved| resolved.key)
-    };
+    let (old, new, other) = (slot_picture(1), slot_picture(2), slot_picture(3));
 
-    // 1. The window paints `old` from slot 1.
+    // 1. The window paints `old` from slot 1 and `other` from slot 2.
     let mut rr = RendererResources::default();
     let first = plan_overlay_image_uploads(
-        [(ImageSlot::TextHalo(1), &old, ImageDirtyRect::All)].into_iter(),
+        [
+            (ImageSlot::TextHalo(1), &old, ImageDirtyRect::All),
+            (ImageSlot::TextHalo(2), &other, ImageDirtyRect::All),
+        ]
+        .into_iter(),
         &mut rr,
         namespace,
     );
-    assert_eq!(first.len(), 1);
-    assert!(!first[0].update, "a slot's first picture adds its key");
-    let key_1 = first[0].key;
+    assert_eq!(first.len(), 2);
+    assert!(!first[0].update && !first[1].update, "a slot's first picture adds its key");
+    let (key_1, key_2) = (first[0].key, first[1].key);
+    assert_ne!(key_1, key_2);
 
     // 3. `old` from slot 2, then `new` from slot 1.
     let second = plan_overlay_image_uploads(
@@ -507,17 +530,15 @@ fn a5_15_a_picture_given_a_new_slot_stays_registered_when_its_old_slot_shows_ano
         namespace,
     );
     assert_eq!(second.len(), 2);
-    assert!(!second[0].update, "slot 2 is new: its key is added");
-    assert!(second[1].update, "slot 1 keeps its key: new pixels under it");
-    let key_2 = second[0].key;
-    assert_ne!(key_2, key_1);
-    assert_eq!(second[1].key, key_1);
+    assert!(second[0].update && second[1].update, "both keys live on with new pixels");
+    assert_eq!((second[0].key, second[1].key), (key_2, key_1));
     assert_eq!(
         registered(&rr, &old),
         Some(key_2),
         "the picture slot 2 paints resolves to slot 2's key"
     );
     assert_eq!(registered(&rr, &new), Some(key_1));
+    assert_eq!(registered(&rr, &other), None, "the picture nothing shows is forgotten");
     assert_eq!(rr.image_key_map.get(&key_1), Some(&new.get_hash()));
     assert_eq!(rr.image_key_map.get(&key_2), Some(&old.get_hash()));
 
@@ -537,6 +558,90 @@ fn a5_15_a_picture_given_a_new_slot_stays_registered_when_its_old_slot_shows_ano
     assert!(replaced[0].update);
     assert_eq!(registered(&rr, &old), None, "a replaced picture is forgotten");
     assert!(!rr.image_last_seen_epoch.contains_key(&old.get_hash()));
+}
+
+/// A5-16 (review of A4-27, invariant I-c / I-g). With two windows A and B on one
+/// thread:
+///
+/// 1. A paints a label with `old` from slot 1 (A's key K1 shows it).
+/// 2. B's scans draw the label's picture at another size into the place of
+///    `old`: slot 1 is another picture's now, and `old` gets a new slot (2) when
+///    it is next used.
+/// 3. A's next scan paints the same label with the same picture, from slot 2.
+///
+/// Step 3 minted a key K2 for slot 2 and uploaded the picture a second time;
+/// `old` resolved to K2 from then on, the list of A went again (a new key), and
+/// K1 was left: it shows a picture that is registered under another key, so no
+/// GC reaches it and no slot of A updates it - one image leaked in the renderer
+/// per label and zoom of the other window. Now the key goes with the picture:
+/// slot 2 takes K1, nothing is uploaded, and what the list names is what it
+/// named.
+///
+/// Mutation: the block removed from `plan_overlay_image_uploads`: step 3 uploads
+/// (`moved` is not empty) and two keys show the one picture.
+#[test]
+fn a5_16_a_halo_picture_given_a_new_slot_keeps_the_key_that_shows_it() {
+    use azul_core::resources::{IdNamespace, ImageDirtyRect, ImageSlot};
+
+    use crate::desktop::wr_translate2::plan_overlay_image_uploads;
+
+    let namespace = IdNamespace(7);
+    let (old, new) = (slot_picture(1), slot_picture(2));
+    let mut rr = RendererResources::default();
+    let first = plan_overlay_image_uploads(
+        [(ImageSlot::TextHalo(1), &old, ImageDirtyRect::All)].into_iter(),
+        &mut rr,
+        namespace,
+    );
+    let key_1 = first[0].key;
+
+    // 3. The same picture, from slot 2.
+    let moved = plan_overlay_image_uploads(
+        [(ImageSlot::TextHalo(2), &old, ImageDirtyRect::All)].into_iter(),
+        &mut rr,
+        namespace,
+    );
+    assert!(moved.is_empty(), "the renderer holds the picture: nothing to upload");
+    assert_eq!(rr.image_slots.get(&ImageSlot::TextHalo(2)), Some(&key_1));
+    assert!(!rr.image_slots.contains_key(&ImageSlot::TextHalo(1)));
+    assert_eq!(registered(&rr, &old), Some(key_1), "the list's key shows what it showed");
+    assert_eq!(rr.image_key_map.len(), 1, "one key, and none left behind");
+
+    // The slot the picture came from is another picture's: when this window
+    // paints that one, it gets a key of its own.
+    let again = plan_overlay_image_uploads(
+        [
+            (ImageSlot::TextHalo(2), &old, ImageDirtyRect::All),
+            (ImageSlot::TextHalo(1), &new, ImageDirtyRect::All),
+        ]
+        .into_iter(),
+        &mut rr,
+        namespace,
+    );
+    assert_eq!(again.len(), 1);
+    assert!(!again[0].update, "slot 1 has no key in this window any more: one is added");
+    assert_ne!(again[0].key, key_1);
+    assert_eq!(registered(&rr, &new), Some(again[0].key));
+    assert_eq!(registered(&rr, &old), Some(key_1));
+
+    // A node's picture is not a halo's: two node slots that show one frame each
+    // hold it under their own key, as before.
+    let node = |n: usize| {
+        ImageSlot::Node(azul_core::dom::DomId { inner: 0 }, azul_core::dom::NodeId::new(n))
+    };
+    let mut rr = RendererResources::default();
+    let one = plan_overlay_image_uploads(
+        [(node(3), &old, ImageDirtyRect::All)].into_iter(),
+        &mut rr,
+        namespace,
+    );
+    let two = plan_overlay_image_uploads(
+        [(node(4), &old, ImageDirtyRect::All)].into_iter(),
+        &mut rr,
+        namespace,
+    );
+    assert_eq!((one.len(), two.len()), (1, 1));
+    assert_ne!(one[0].key, two[0].key);
 }
 
 /// How many labels a translation of the window's list made NOW, without a scan
@@ -602,13 +707,15 @@ fn a_release_keeps_what_the_lists_paint(not_shown: bool) {
         assert!(guard < 20, "the first view's halos come");
     }
     view.lay_out(labels(LABELS, 1.5));
-    let (mut before, mut resting) = (view.frame(), 0);
+    let mut before = view.frame();
+    let mut resting = 0;
     for _ in 0..40 {
-        before = view.frame();
-        resting = if before.at_rest() { resting + 1 } else { 0 };
         if resting == 5 {
             break;
         }
+        let now = view.frame();
+        resting = if now.at_rest() { resting + 1 } else { 0 };
+        before = now;
     }
     assert_eq!(resting, 5, "premise: the view came to rest: {:?}", before.stats);
     assert_eq!(before.own().len(), LABELS, "premise: every label has its own picture");
@@ -690,4 +797,58 @@ fn a5_18_the_macos_release_marks_what_every_window_paints_before_it_gives_halos_
     assert!(marked < every_window, "the closure that marks is what the loop calls");
     assert!(every_window < own && own < released, "marked first, released last");
     assert!(body.contains("if !keep_caches() {"), "the user's switch keeps the halos too");
+}
+
+/// A5-19. A pan in a cache that the view fills (a map whose labels' pictures
+/// are more than the thread keeps: here eight pictures, and room for eight).
+/// Frame by frame:
+///
+/// 1. the view shows labels 0..8, each with its own picture: the cache is full;
+/// 2. the pan shows labels 4..12. Its scan may not drop the pictures of labels
+///    0..4 (the frame before's: the two-scan rule), so labels 8..12 get neither
+///    their picture nor a small one. Before, nothing was owed for a halo without
+///    room: the four new labels stayed without outline until something else made
+///    a scan (the next pan, the pointer over a label). Now one scan is owed;
+/// 3. that scan drops the four pictures of the labels that left and draws the
+///    four new ones: every label has its halo, and the view comes to rest.
+///
+/// Mutation: `owes_a_scan_for_room` always false in `text_halo.rs`: frame 2 owes
+/// nothing (`pan.owed` fails).
+#[test]
+fn a5_19_a_pan_in_a_full_cache_gets_its_new_labels_their_halos_in_the_next_frame() {
+    const SHOWN: usize = 8;
+    draw_every_halo_in_this_thread();
+    text_halo_bounds_in_this_thread(SHOWN, usize::MAX);
+    let mut view = Recorder::new(2.0);
+    view.lay_out(labels_from(0, SHOWN, 1.0));
+    let first = view.frame();
+    assert_eq!(first.own().len(), SHOWN, "premise: the view's pictures fill the cache");
+    assert!(!first.owed);
+
+    view.lay_out(labels_from(4, SHOWN, 1.0));
+    let pan = view.frame();
+    assert_eq!(pan.own(), [0, 1, 2, 3], "the labels that stayed keep their pictures");
+    assert_eq!(
+        (pan.stats.unkept, pan.stats.pending, pan.stats.evicted),
+        (4, 0, 0),
+        "the new labels have no room, and the frame before's pictures are not dropped for them"
+    );
+    assert!(pan.owed, "one scan is owed: it may drop the pictures of the labels that left");
+
+    let next = view.frame();
+    assert_eq!(next.own().len(), SHOWN, "every label has its own halo: {:?}", next.halos);
+    assert_eq!((next.stats.created, next.stats.evicted, next.stats.unkept), (4, 4, 0));
+    assert!(!next.owed);
+
+    let mut resting = 0;
+    for n in 0..20 {
+        let now = view.frame();
+        assert_eq!(now.own().len(), SHOWN, "frame {n} after: a label lost its halo");
+        assert_eq!(now.stats.created + now.stats.evicted, 0, "frame {n} after");
+        resting = if now.at_rest() { resting + 1 } else { 0 };
+        if resting == 5 {
+            break;
+        }
+    }
+    assert_eq!(resting, 5, "the view came to rest");
 }
