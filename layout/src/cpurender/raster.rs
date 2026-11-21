@@ -376,8 +376,6 @@ fn render_radial_gradient(
         return;
     }
 
-    let lut = build_gradient_lut_linear(&gradient.stops, system_colors);
-
     let w = f64::from(rect.width);
     let h = f64::from(rect.height);
 
@@ -387,52 +385,92 @@ fn render_radial_gradient(
     let cx = f64::from(rect.x) + f64::from(cx_frac) * w;
     let cy = f64::from(rect.y) + f64::from(cy_frac) * h;
 
-    // Compute radius based on shape and size
-    let radius = match gradient.size {
-        RadialGradientSize::ClosestSide => {
-            let dx = (f64::from(cx_frac) * w).min((1.0 - f64::from(cx_frac)) * w);
-            let dy = (f64::from(cy_frac) * h).min((1.0 - f64::from(cy_frac)) * h);
-            match gradient.shape {
-                Shape::Circle => dx.min(dy),
-                Shape::Ellipse => dx.min(dy), // simplified
-            }
+    // The gradient's radii (CSS Images 3, 3.2.1). A circle has one. An ELLIPSE has one per
+    // axis: to a side, the centre's distance to that side on each axis; to a corner, the
+    // side's ellipse grown by sqrt(2) - the ellipse of the same proportions through the
+    // corner. It was painted as a circle of the smaller (or larger) distance: the default
+    // `radial-gradient(a, b)` - an ellipse to the farthest corner - on a box that is not
+    // square was a circle (A1-51).
+    let (near_x, far_x) = {
+        let (left, right) = (f64::from(cx_frac) * w, (1.0 - f64::from(cx_frac)) * w);
+        (left.min(right), left.max(right))
+    };
+    let (near_y, far_y) = {
+        let (top, bottom) = (f64::from(cy_frac) * h, (1.0 - f64::from(cy_frac)) * h);
+        (top.min(bottom), top.max(bottom))
+    };
+    let both = |r: f64| (r, r);
+    let (rx, ry) = match (&gradient.shape, &gradient.size) {
+        (Shape::Circle, RadialGradientSize::ClosestSide) => both(near_x.min(near_y)),
+        (Shape::Circle, RadialGradientSize::FarthestSide) => both(far_x.max(far_y)),
+        (Shape::Circle, RadialGradientSize::ClosestCorner) => both(near_x.hypot(near_y)),
+        (Shape::Circle, RadialGradientSize::FarthestCorner) => both(far_x.hypot(far_y)),
+        (Shape::Ellipse, RadialGradientSize::ClosestSide) => (near_x, near_y),
+        (Shape::Ellipse, RadialGradientSize::FarthestSide) => (far_x, far_y),
+        (Shape::Ellipse, RadialGradientSize::ClosestCorner) => {
+            (near_x * core::f64::consts::SQRT_2, near_y * core::f64::consts::SQRT_2)
         }
-        RadialGradientSize::FarthestSide => {
-            let dx = (f64::from(cx_frac) * w).max((1.0 - f64::from(cx_frac)) * w);
-            let dy = (f64::from(cy_frac) * h).max((1.0 - f64::from(cy_frac)) * h);
-            match gradient.shape {
-                Shape::Circle => dx.max(dy),
-                Shape::Ellipse => dx.max(dy),
-            }
-        }
-        RadialGradientSize::ClosestCorner => {
-            let dx = (f64::from(cx_frac) * w).min((1.0 - f64::from(cx_frac)) * w);
-            let dy = (f64::from(cy_frac) * h).min((1.0 - f64::from(cy_frac)) * h);
-            dx.hypot(dy)
-        }
-        RadialGradientSize::FarthestCorner => {
-            let dx = (f64::from(cx_frac) * w).max((1.0 - f64::from(cx_frac)) * w);
-            let dy = (f64::from(cy_frac) * h).max((1.0 - f64::from(cy_frac)) * h);
-            dx.hypot(dy)
+        (Shape::Ellipse, RadialGradientSize::FarthestCorner) => {
+            (far_x * core::f64::consts::SQRT_2, far_y * core::f64::consts::SQRT_2)
         }
     };
 
-    if radius < 0.001 {
+    if !(rx >= 0.001 && ry >= 0.001) {
         return;
     }
-
-    // Gradient-space (radius=100 at distance=100) → pixel-space around (cx, cy).
-    // Build as T * S (scale first, then translate) so S only affects the radius.
-    // scale() pre-multiplies so we must start from scaling matrix.
-    let mut transform = TransAffine::new_scaling_uniform(radius / 100.0);
-    transform.translate(cx, cy);
-    transform.invert();
 
     let mut path = if border_radius.is_zero() {
         build_pixel_snapped_rect_path(&rect)
     } else {
         build_rounded_rect_path(&rect, border_radius, dpi_factor)
     };
+
+    // `repeating-radial-gradient`: the span of the ray between the first and the last stop
+    // repeats outwards and inwards (it was painted once and clamped, A1-52). The stops are
+    // spread over that span, gradient space gets 100 units per period, and the distance is
+    // counted from where the span begins. A period under a pixel cannot repeat: it paints
+    // clamped, as a linear one does.
+    if gradient.extend_mode == azul_css::props::style::background::ExtendMode::Repeat {
+        let resolved: Vec<(f32, ColorU)> = stops
+            .iter()
+            .map(|stop| (stop.offset.normalized(), resolve_color(&stop.color, system_colors)))
+            .filter(|(t, _)| t.is_finite())
+            .collect();
+        let first = resolved.iter().map(|(t, _)| *t).fold(f32::INFINITY, f32::min);
+        let last = resolved.iter().map(|(t, _)| *t).fold(f32::NEG_INFINITY, f32::max);
+        let span = f64::from(last - first);
+        if span.is_finite() && span * rx.min(ry) >= 1.0 {
+            let over_span: Vec<(f32, ColorU)> =
+                resolved.iter().map(|(t, c)| ((t - first) / (last - first), *c)).collect();
+            let lut = build_gradient_lut(&over_span, GRADIENT_LUT_MIN);
+            let mut transform = TransAffine::new_scaling(rx * span / 100.0, ry * span / 100.0);
+            transform.translate(cx, cy);
+            transform.invert();
+            // agg's gradient distances are in sixteenths of a unit.
+            #[allow(clippy::cast_possible_truncation)] // a start beyond i32 saturates: far outside
+            let start = (f64::from(first) / span * 100.0 * 16.0).round() as i32;
+            agg_fill_gradient_clipped(
+                pixmap,
+                &mut path,
+                &lut,
+                RadialRepeatFrom { start },
+                transform,
+                0.0,
+                100.0,
+                clip,
+            );
+            return;
+        }
+    }
+
+    let lut = build_gradient_lut_linear(&gradient.stops, system_colors);
+
+    // Gradient-space (radius=100 at distance=100) → pixel-space around (cx, cy).
+    // Build as T * S (scale first, then translate) so S only affects the radii.
+    // scale() pre-multiplies so we must start from scaling matrix.
+    let mut transform = TransAffine::new_scaling(rx / 100.0, ry / 100.0);
+    transform.translate(cx, cy);
+    transform.invert();
 
     agg_fill_gradient_clipped(
         pixmap,
@@ -444,6 +482,24 @@ fn render_radial_gradient(
         100.0,
         clip,
     );
+}
+
+/// The distance from the centre counted from `start` and wrapped into one period (`d`, the
+/// gradient's far end): a `repeating-radial-gradient` whose stops begin `start` sixteenths of a
+/// unit out. `GradientRepeatAdaptor` wraps from the centre, which is right only for a first
+/// stop at 0.
+struct RadialRepeatFrom {
+    start: i32,
+}
+
+impl agg_rust::span_gradient::GradientFunction for RadialRepeatFrom {
+    fn calculate(&self, x: i32, y: i32, d: i32) -> i32 {
+        use agg_rust::span_gradient::GradientFunction;
+        if d <= 0 {
+            return 0;
+        }
+        GradientRadialD.calculate(x, y, d).saturating_sub(self.start).rem_euclid(d)
+    }
 }
 
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
@@ -629,6 +685,62 @@ fn count_cells_built(glyph_cache: &GlyphCache, before: u64) {
     }
 }
 
+/// The buffer kept under `key`, with its size, and `key` is the most recently used from here
+/// on.
+///
+/// The order of use (`cache.1`) may hold a key at several places: its LAST one counts
+/// ([`keep_shadow`] skips the others when it evicts). A use is then a push. It was a `retain`
+/// over the whole order to take the key's old place out - every kept shadow visited for every
+/// shadow of every pass, inside the lock the band threads share (1,600 small shadows kept:
+/// 2.5 million visits a frame). The order is compacted to one place per key when it holds
+/// more than twice the kept shadows and 64.
+fn kept_shadow(cache: &mut ShadowCache, key: u64) -> Option<(std::sync::Arc<Vec<u8>>, u32, u32)> {
+    let entry = cache.0.get(&key)?;
+    let found = (std::sync::Arc::clone(&entry.data), entry.w, entry.h);
+    if cache.1.back() != Some(&key) {
+        cache.1.push_back(key);
+        if cache.1.len() > 2 * cache.0.len() + 64 {
+            let mut seen = std::collections::HashSet::with_capacity(cache.0.len());
+            let mut last_places: Vec<u64> =
+                cache.1.iter().rev().copied().filter(|k| seen.insert(*k)).collect();
+            last_places.reverse();
+            cache.1 = last_places.into();
+        }
+    }
+    Some(found)
+}
+
+/// Keep `data` (`w` x `h` px) under `key`, as the most recently used; the least recently used
+/// buffers go until it fits under [`SHADOW_CACHE_MAX_BYTES`], and a buffer larger than that
+/// is not kept.
+fn keep_shadow(cache: &mut ShadowCache, key: u64, data: &std::sync::Arc<Vec<u8>>, w: u32, h: u32) {
+    let bytes = data.len();
+    if bytes > SHADOW_CACHE_MAX_BYTES {
+        // It can never fit: making room for it emptied the whole cache, on every draw of it.
+        return;
+    }
+    if let Some(replaced) = cache.0.remove(&key) {
+        cache.2 = cache.2.saturating_sub(replaced.data.len());
+    }
+    while cache.2 + bytes > SHADOW_CACHE_MAX_BYTES {
+        let Some(oldest) = cache.1.pop_front() else {
+            break;
+        };
+        // Used again since this place in the order: its later place decides.
+        if cache.1.contains(&oldest) {
+            continue;
+        }
+        if let Some(old) = cache.0.remove(&oldest) {
+            cache.2 = cache.2.saturating_sub(old.data.len());
+        }
+    }
+    if cache.2 + bytes <= SHADOW_CACHE_MAX_BYTES {
+        cache.0.insert(key, ShadowCacheEntry { data: std::sync::Arc::clone(data), w, h });
+        cache.1.push_back(key);
+        cache.2 += bytes;
+    }
+}
+
 /// The box-shadow cache this thread paints with: the frame's shared one in a band, else its own.
 fn with_shadow_cache<R>(f: impl FnOnce(&mut ShadowCache) -> R) -> R {
     let shared = FRAME_SHADOW_CACHE.with(|frame| frame.borrow().clone());
@@ -655,14 +767,10 @@ fn render_box_shadow(
     // with every partial repaint. Writers must clip (the LCD fringe law);
     // the pixels outside the rect are either untouched-and-correct or
     // covered by another damage rect's own clear+repaint.
-    let clip_px = clip.map(|c| {
-        (
-            c.x as i32,
-            c.y as i32,
-            (c.x + c.width).ceil() as i32,
-            (c.y + c.height).ceil() as i32,
-        )
-    });
+    // The pixels a paint under the clip may write (`AzRect::pixel_box`, the one clip rule of
+    // the CPU path, A2-cpu-06): the far edges were rounded UP here, so under a clip that ends
+    // between two pixels a shadow wrote the column and the row no fill under that clip writes.
+    let clip_px = clip.map(|c| c.pixel_box());
     #[allow(clippy::too_many_arguments)]
     fn blit_clipped(
         pixmap: &mut AzulPixmap,
@@ -767,6 +875,32 @@ fn render_box_shadow(
         if sw == 0 || sh == 0 || sw > MAX_SHADOW_PIXBUF_SIZE || sh > MAX_SHADOW_PIXBUF_SIZE {
             return Ok(());
         }
+        // The finished buffer - filled, blurred, cut to the padding box's curve - depends on
+        // nothing but these (the box's PLACE is the blit's offset below), and was made again
+        // on every draw: for every pass, and for every band the box reaches (A1-54).
+        let inset_key = {
+            use core::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            0x49_u8.hash(&mut h);
+            (sw, sh).hash(&mut h);
+            for v in [rect.width, rect.height, blur_r, spread, offset_x, offset_y, dpi_factor] {
+                v.to_bits().hash(&mut h);
+            }
+            (color.r, color.g, color.b, color.a).hash(&mut h);
+            for r in [
+                border_radius.top_left,
+                border_radius.top_right,
+                border_radius.bottom_left,
+                border_radius.bottom_right,
+            ] {
+                r.to_bits().hash(&mut h);
+            }
+            h.finish()
+        };
+        let kept = with_shadow_cache(|c| kept_shadow(c, inset_key));
+        let finished = if let Some((data, _, _)) = kept {
+            data
+        } else {
         let mut tmp = AzulPixmap::new_transparent(sw, sh).ok_or("cannot create shadow pixmap")?;
         let agg_color = Rgba8::new(
             u32::from(color.r),
@@ -840,6 +974,10 @@ fn render_box_shadow(
                 }
             }
         }
+            let data = std::sync::Arc::new(tmp.data.into_vec());
+            with_shadow_cache(|c| keep_shadow(c, inset_key, &data, sw, sh));
+            data
+        };
         // Never outside the padding box (nor the active clip).
         let padding_clip = (
             rect.x.floor() as i32,
@@ -862,7 +1000,7 @@ fn render_box_shadow(
         blit_clipped(
             pixmap,
             Some(clip),
-            tmp.data(),
+            &finished,
             sw,
             sh,
             0,
@@ -915,18 +1053,7 @@ fn render_box_shadow(
         h.finish()
     };
 
-    let cached = with_shadow_cache(|c| {
-        if let Some(e) = c.0.get(&cache_key) {
-            // LRU touch.
-            let data = e.data.clone();
-            let (w, h) = (e.w, e.h);
-            c.1.retain(|k| *k != cache_key);
-            c.1.push_back(cache_key);
-            Some((data, w, h))
-        } else {
-            None
-        }
-    });
+    let cached = with_shadow_cache(|c| kept_shadow(c, cache_key));
 
     let (shadow_data, sw, sh) = if let Some((data, w, h)) = cached {
         drop(crate::probe::Probe::span("shadow_cache_hit"));
@@ -991,30 +1118,7 @@ fn render_box_shadow(
         }
 
         let data = std::sync::Arc::new(tmp.data.into_vec());
-        with_shadow_cache(|c| {
-            let bytes = data.len();
-            // Evict LRU until the new entry fits.
-            while c.2 + bytes > SHADOW_CACHE_MAX_BYTES {
-                let Some(old_key) = c.1.pop_front() else {
-                    break;
-                };
-                if let Some(old) = c.0.remove(&old_key) {
-                    c.2 = c.2.saturating_sub(old.data.len());
-                }
-            }
-            if c.2 + bytes <= SHADOW_CACHE_MAX_BYTES {
-                c.0.insert(
-                    cache_key,
-                    ShadowCacheEntry {
-                        data: data.clone(),
-                        w: sw,
-                        h: sh,
-                    },
-                );
-                c.1.push_back(cache_key);
-                c.2 += bytes;
-            }
-        });
+        with_shadow_cache(|c| keep_shadow(c, cache_key, &data, sw, sh));
         (data, sw, sh)
     };
 
@@ -1118,10 +1222,30 @@ fn render_box_shadow(
     // 3, 7.1): a rounded box is cut out of it through its own curve, or a
     // translucent box would show its shadow through it.
     if matches!(shadow.clip_mode, BoxShadowClipMode::Outset) && !border_radius.is_zero() {
+        // The shadow with the box cut out depends on the blurred buffer (`cache_key`) and on
+        // where the box lies in it - which is the shadow's offset and the fraction of a pixel
+        // the shadow starts at, not the box's place. It was made again on every draw (a mask
+        // of the buffer's size rasterised, the buffer copied, every pixel multiplied): for
+        // every pass and every band a rounded, shadowed box reaches (A1-54). A box that
+        // stands still or moves by whole pixels finds it kept.
+        let (box_x, box_y) = (rect.x - dst_x as f32, rect.y - dst_y as f32);
+        let cut_key = {
+            use core::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            0x52_u8.hash(&mut h);
+            cache_key.hash(&mut h);
+            box_x.to_bits().hash(&mut h);
+            box_y.to_bits().hash(&mut h);
+            h.finish()
+        };
+        if let Some((cut, _, _)) = with_shadow_cache(|c| kept_shadow(c, cut_key)) {
+            blit_clipped(pixmap, clip_px, &cut, sw, sh, 0, 0, sw, sh, dst_x, dst_y);
+            return Ok(());
+        }
         let mut mask = AzulPixmap::new_transparent(sw, sh).ok_or("cannot create shadow mask")?;
         if let Some(border_box) = AzRect::from_xywh(
-            rect.x - dst_x as f32,
-            rect.y - dst_y as f32,
+            box_x,
+            box_y,
             rect.width,
             rect.height,
         ) {
@@ -1144,6 +1268,8 @@ fn render_box_shadow(
                 *channel = ((u32::from(*channel) * left + 127) / 255) as u8;
             }
         }
+        let outside_the_box = std::sync::Arc::new(outside_the_box);
+        with_shadow_cache(|c| keep_shadow(c, cut_key, &outside_the_box, sw, sh));
         blit_clipped(
             pixmap,
             clip_px,
@@ -7373,10 +7499,16 @@ fn text_shadow_boxes(
         reach.3.min(target.1 as i32),
     );
     if let Some(c) = clip {
-        out.0 = out.0.max(c.x.floor() as i32);
-        out.1 = out.1.max(c.y.floor() as i32);
-        out.2 = out.2.min((c.x + c.width).ceil() as i32);
-        out.3 = out.3.min((c.y + c.height).ceil() as i32);
+        // The pixels a paint under the clip may write (`AzRect::pixel_box`, A2-cpu-06): by
+        // `floor` / `ceil` a halo landed in the column and row the clip ends in, which no
+        // fill and no glyph under that clip writes. `out` is not below zero before this (it
+        // is cut to the target), so a negative near edge, which `pixel_box` truncates towards
+        // zero, changes nothing.
+        let (cx0, cy0, cx1, cy1) = c.pixel_box();
+        out.0 = out.0.max(cx0);
+        out.1 = out.1.max(cy0);
+        out.2 = out.2.min(cx1);
+        out.3 = out.3.min(cy1);
     }
     if out.2 <= out.0 || out.3 <= out.1 {
         return None;
@@ -19757,5 +19889,217 @@ mod audit_a1_tests {
         assert_eq!(px(&direct, 3 + 6, 2 + 8), [10, 200, 30, 255], "below the window: not painted");
         let opaque = (5..30).filter(|x| px(&direct, 3 + x, 2 + 4) != [10, 200, 30, 255]).count();
         assert!(opaque > 10, "and the window is painted ({opaque} px of its fourth row differ from the ground)");
+    }
+
+
+    /// A2-cpu-06 (the shadow sites): a box shadow and a text halo land on the pixels a paint
+    /// under the clip may write (`AzRect::pixel_box`). Under the clip (0, 0) 30.5 x 40 fills
+    /// write the columns 0 .. 29: the shadow of a box at (10, 10) 40 x 20, which reaches over
+    /// the clip's right edge, stops at column 29 too; with the far edge rounded up it wrote
+    /// column 30. And the boxes of a halo with a reach of 2 around ink at (10, 10) 20 x 10
+    /// under the clip (0.5, 0.5) 20 x 30: out = [8, 8, 20, 22) (it was [8, 8, 21, 22)).
+    /// Mutation: `ceil` on the far edge in either place.
+    #[test]
+    fn a_shadow_lands_on_the_pixels_a_fill_under_its_clip_may_write() {
+        let mut pm = AzulPixmap::new(60, 50).unwrap();
+        pm.fill(255, 255, 255, 255);
+        let shadow = StyleBoxShadow { color: ColorU { r: 0, g: 0, b: 0, a: 255 }, ..halo(0.0, 4.0, [0, 0, 0]) };
+        let clip = AzRect::from_xywh(0.0, 0.0, 30.5, 40.0);
+        render_box_shadow(&mut pm, &rect(10.0, 10.0, 40.0, 20.0), &shadow, &BorderRadius::default(), clip, 1.0).unwrap();
+        assert_eq!(px(&pm, 8, 20), [0, 0, 0, 255], "premise: the spread's ring left of the box is painted");
+        assert_eq!(px(&pm, 29, 8), [0, 0, 0, 255], "the last column a fill under the clip writes");
+        assert_eq!(px(&pm, 30, 8), [255, 255, 255, 255], "the column the clip ends in is not written");
+
+        let source = AzRect::from_xywh(10.0, 10.0, 20.0, 10.0).expect("ink");
+        let boxes = text_shadow_boxes(source, 2, AzRect::from_xywh(0.5, 0.5, 20.0, 30.0), (100, 100)).expect("it lands");
+        assert_eq!(boxes.out, PixelBox { x: 8, y: 8, width: 12, height: 14 });
+        let unclipped = text_shadow_boxes(source, 2, None, (100, 100)).expect("it lands");
+        assert_eq!(unclipped.out, PixelBox { x: 8, y: 8, width: 24, height: 14 });
+    }
+
+
+    /// A1-53: a use of a kept box shadow makes it the most recently used without a search of
+    /// the order, the order stays short however often shadows are used, and the least
+    /// recently used one still goes first. Three buffers of 6 MB under the 16 MB bound: 1 and
+    /// 2 are kept, 1 is used, 3 does not fit beside both: 2 goes. Then 20,000 uses of 1 and 3
+    /// in turn: the order holds at most 2 x 2 + 64 places (one more before it is compacted),
+    /// not 20,000. Then 1 is used last and 4 evicts 3.
+    /// Mutation: the `contains` test left out of `keep_shadow` evicts 1 (its first place is
+    /// the front of the order); without the compaction the order grows by a place per use.
+    #[test]
+    fn a_used_shadow_is_the_newest_without_a_search_of_the_order() {
+        let six_mb = 6 << 20;
+        let mut cache = ShadowCache::default();
+        let keep = |cache: &mut ShadowCache, key: u64| keep_shadow(cache, key, &Arc::new(vec![0_u8; six_mb]), 1, 1);
+        let held = |cache: &ShadowCache| {
+            let mut keys: Vec<u64> = cache.0.keys().copied().collect();
+            keys.sort_unstable();
+            keys
+        };
+        keep(&mut cache, 1);
+        keep(&mut cache, 2);
+        assert!(kept_shadow(&mut cache, 1).is_some());
+        keep(&mut cache, 3);
+        assert_eq!(held(&cache), vec![1, 3], "the least recently used made room");
+        assert_eq!(cache.2, 2 * six_mb);
+        for i in 0..20_000_u64 {
+            assert!(kept_shadow(&mut cache, [1, 3][(i % 2) as usize]).is_some());
+        }
+        assert!(cache.1.len() <= 2 * 2 + 64 + 1, "the order holds {} places for two shadows", cache.1.len());
+        assert!(kept_shadow(&mut cache, 1).is_some());
+        keep(&mut cache, 4);
+        assert_eq!(held(&cache), vec![1, 4], "3 was used before 1");
+        assert!(kept_shadow(&mut cache, 9).is_none());
+        // A buffer over the bound is not kept, and what is kept stays (making room for it
+        // emptied the cache before).
+        keep_shadow(&mut cache, 5, &Arc::new(vec![0_u8; SHADOW_CACHE_MAX_BYTES + 4]), 1, 1);
+        assert!(kept_shadow(&mut cache, 5).is_none());
+        assert_eq!(held(&cache), vec![1, 4]);
+        assert_eq!(cache.2, cache.0.values().map(|e| e.data.len()).sum::<usize>());
+    }
+
+
+    /// A1-54: the shadow of a rounded box with the box cut out of it, and an inner shadow cut
+    /// to its padding box, are made once and kept; they were made again on every draw. An
+    /// outer shadow keeps two buffers (the blur, and the blur with the box cut out where it
+    /// lies in the buffer), an inner one keeps one; a draw at another place a whole number of
+    /// pixels away makes nothing new, and what is drawn from the kept buffer is, byte for
+    /// byte, what a draw with an empty cache paints there. Half a pixel further the box lies
+    /// elsewhere in the buffer: a third buffer.
+    /// Mutation: the place of the box left out of the cut's key draws the half-pixel shadow
+    /// with the whole-pixel cut (the last assert); a cut kept under the blur's key fails the
+    /// counts.
+    #[test]
+    fn a_rounded_or_inner_shadow_is_cut_once_and_kept() {
+        let clear = || SHADOW_BLUR_CACHE.with(|c| *c.borrow_mut() = ShadowCache::default());
+        let kept = || SHADOW_BLUR_CACHE.with(|c| c.borrow().0.len());
+        let radius = BorderRadius { top_left: 6.0, top_right: 6.0, bottom_left: 6.0, bottom_right: 6.0 };
+        let draw = |shadow: &StyleBoxShadow, x: f32, y: f32| {
+            let mut pm = AzulPixmap::new(120, 90).unwrap();
+            pm.fill(255, 255, 255, 255);
+            render_box_shadow(&mut pm, &rect(x, y, 50.0, 30.0), shadow, &radius, None, 1.0).unwrap();
+            pm
+        };
+        let outer = StyleBoxShadow { color: ColorU { r: 0, g: 0, b: 0, a: 160 }, ..halo(5.0, 2.0, [0, 0, 0]) };
+        let inner = StyleBoxShadow {
+            color: ColorU { r: 0, g: 0, b: 0, a: 160 },
+            clip_mode: azul_css::props::style::box_shadow::BoxShadowClipMode::Inset,
+            ..halo(5.0, 2.0, [0, 0, 0])
+        };
+        for (shadow, buffers) in [(&outer, 2_usize), (&inner, 1)] {
+            clear();
+            let first = draw(shadow, 20.0, 20.0);
+            assert!(first.data().chunks_exact(4).any(|p| p != [255, 255, 255, 255]), "premise: a shadow is painted");
+            assert_eq!(kept(), buffers);
+            let moved = draw(shadow, 33.0, 27.0);
+            assert_eq!(kept(), buffers, "moved by whole pixels: nothing new is made");
+            let again = draw(shadow, 20.0, 20.0);
+            assert!(first.data() == again.data(), "the kept shadow is the shadow that was drawn");
+            clear();
+            let cold = draw(shadow, 33.0, 27.0);
+            assert!(moved.data() == cold.data(), "and elsewhere it is the shadow a first draw paints there");
+        }
+        clear();
+        let _ = draw(&outer, 20.0, 20.0);
+        let half = draw(&outer, 20.5, 20.0);
+        assert_eq!(kept(), 3, "half a pixel further the box lies elsewhere in the buffer: another cut");
+        clear();
+        assert!(half.data() == draw(&outer, 20.5, 20.0).data(), "which is the cut a first draw makes there");
+    }
+
+
+    /// A black-to-white radial gradient about the centre of a 200 x 100 box, painted.
+    fn radial_gradient_picture(
+        shape: azul_css::props::style::background::Shape,
+        size: azul_css::props::style::background::RadialGradientSize,
+        repeat: bool,
+        stops_percent: &[(f32, u8)],
+    ) -> AzulPixmap {
+        use azul_css::props::{
+            basic::{length::PercentageValue, FloatValue},
+            style::background::{
+                BackgroundPositionHorizontal, BackgroundPositionVertical, ExtendMode, NormalizedLinearColorStop,
+                RadialGradient, StyleBackgroundPosition,
+            },
+        };
+        let stops: Vec<NormalizedLinearColorStop> = stops_percent
+            .iter()
+            .map(|(percent, grey)| NormalizedLinearColorStop {
+                offset: PercentageValue::new(*percent),
+                color: ColorOrSystem::Color(ColorU { r: *grey, g: *grey, b: *grey, a: 255 }),
+                offset_px: FloatValue::const_new(0),
+            })
+            .collect();
+        let gradient = RadialGradient {
+            shape,
+            size,
+            position: StyleBackgroundPosition {
+                horizontal: BackgroundPositionHorizontal::Center,
+                vertical: BackgroundPositionVertical::Center,
+            },
+            extend_mode: if repeat { ExtendMode::Repeat } else { ExtendMode::Clamp },
+            stops: stops.into(),
+        };
+        let mut pm = AzulPixmap::new(200, 100).unwrap();
+        pm.fill(255, 0, 0, 255);
+        render_radial_gradient(&mut pm, &rect(0.0, 0.0, 200.0, 100.0), &gradient, &BorderRadius::default(), None, 1.0, None);
+        pm
+    }
+
+    /// A1-51: an elliptical radial gradient is an ellipse. Black to white about the centre of a
+    /// 200 x 100 box, to the farthest corner (the CSS default): the radii are 100 sqrt(2) =
+    /// 141.4 and 50 sqrt(2) = 70.7 px. The pixel 90.5 px right of the centre is at
+    /// 90.5 / 141.4 = 0.640 of the ray, the pixel 45.5 px below it at 45.5 / 70.7 = 0.643:
+    /// the same grey (163 and 164). Painted as the circle of the corner's distance (111.8 px),
+    /// they were 0.81 and 0.41 of the ray: 206 and 104. A `circle` still is that circle. To
+    /// the closest side the radii are 100 and 50: 50.5 px right and 25.5 px below are both
+    /// half way (129, 130).
+    /// Mutation: one radius for both axes of the ellipse.
+    #[test]
+    fn an_elliptical_radial_gradient_is_an_ellipse() {
+        use azul_css::props::style::background::{RadialGradientSize as Size, Shape};
+        let grey = |pm: &AzulPixmap, x: u32, y: u32| {
+            let p = px(pm, x, y);
+            assert!(p[0] == p[1] && p[1] == p[2] && p[3] == 255, "a grey, got {p:?}");
+            i32::from(p[0])
+        };
+        let stops = [(0.0, 0), (100.0, 255)];
+        let ellipse = radial_gradient_picture(Shape::Ellipse, Size::FarthestCorner, false, &stops);
+        let (right, below) = (grey(&ellipse, 190, 50), grey(&ellipse, 100, 95));
+        assert!((right - 163).abs() <= 4 && (below - 164).abs() <= 4, "0.64 of the ray on both axes: {right}, {below}");
+        let circle = radial_gradient_picture(Shape::Circle, Size::FarthestCorner, false, &stops);
+        let (right, below) = (grey(&circle, 190, 50), grey(&circle, 100, 95));
+        assert!((right - 206).abs() <= 4 && (below - 104).abs() <= 4, "a circle of 111.8 px: {right}, {below}");
+        let side = radial_gradient_picture(Shape::Ellipse, Size::ClosestSide, false, &stops);
+        let (right, below) = (grey(&side, 150, 50), grey(&side, 100, 75));
+        assert!((right - 129).abs() <= 4 && (below - 130).abs() <= 4, "half way on both axes: {right}, {below}");
+    }
+
+    /// A1-52: a repeating radial gradient repeats. A circle to the closest side of a 200 x 100
+    /// box has a ray of 50 px; black at 0 % and white at 20 % is a period of 10 px. The pixels
+    /// 2.5, 12.5 and 22.5 px right of the centre are a quarter into a period (64), those 7.5
+    /// and 17.5 px out three quarters (191). Painted once and clamped, everything beyond
+    /// 10 px was white. With the stops at 10 % and 30 % the period begins 5 px out: 7.5 and
+    /// 17.5 px are a quarter in, 2.5 px is three quarters into the period before.
+    /// Mutation: `GradientRadialD` in place of `RadialRepeatFrom` clamps; a start of 0 shifts
+    /// the second picture by half a period.
+    #[test]
+    fn a_repeating_radial_gradient_repeats_from_its_first_stop() {
+        use azul_css::props::style::background::{RadialGradientSize as Size, Shape};
+        let grey = |pm: &AzulPixmap, x: u32| i32::from(px(pm, x, 50)[0]);
+        let near = |got: i32, want: i32| (got - want).abs() <= 10;
+        let from_centre = radial_gradient_picture(Shape::Circle, Size::ClosestSide, true, &[(0.0, 0), (20.0, 255)]);
+        for x in [102, 112, 122] {
+            assert!(near(grey(&from_centre, x), 64), "x {x}: a quarter into a period, got {}", grey(&from_centre, x));
+        }
+        for x in [107, 117] {
+            assert!(near(grey(&from_centre, x), 191), "x {x}: three quarters, got {}", grey(&from_centre, x));
+        }
+        let from_five = radial_gradient_picture(Shape::Circle, Size::ClosestSide, true, &[(10.0, 0), (30.0, 255)]);
+        for (x, want) in [(107, 64), (117, 64), (102, 191), (112, 191)] {
+            assert!(near(grey(&from_five, x), want), "x {x}: wanted {want}, got {}", grey(&from_five, x));
+        }
+        let clamped = radial_gradient_picture(Shape::Circle, Size::ClosestSide, false, &[(0.0, 0), (20.0, 255)]);
+        assert_eq!(grey(&clamped, 122), 255, "not repeating: white beyond the last stop");
     }
 }
