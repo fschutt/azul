@@ -499,21 +499,24 @@ mod tests {
     /// A snapshot made in a layout callback measures with the faces the screen draws with: the
     /// faces an app ships (`AppConfig::add_font`) are the registered fonts of its windows, the
     /// callback's info carries them, and the family of a shipped face resolves in the snapshot to
-    /// the very face (under the id, in the tier, with the chains) it resolves to in the window.
-    /// Before, the snapshot was built over a font manager with registered fonts of its own and
-    /// the family was unknown to it.
+    /// the very face (under the id, in the tier, first in the chain of a stack naming it) it
+    /// resolves to in the window. Before, the snapshot was built over a font manager with
+    /// registered fonts of its own and the family was unknown to it.
     /// Mutation: `from_layout_info` building its manager with `FontManager::new` fails it.
     #[cfg(feature = "text_layout")]
     #[test]
     fn a_snapshot_made_in_a_layout_callback_resolves_the_family_of_an_apps_shipped_face() {
-        use std::{collections::BTreeSet, sync::Arc};
+        use std::sync::Arc;
 
         use azul_core::{dom::Dom, styled_dom::StyledDom};
         use rust_fontconfig::{FcFontCache, FontId};
 
         use crate::{
             solver3::getters::collect_and_resolve_font_chains_with_registration,
-            text3::{cache::MemoryFontTier, fontreg::RegisteredFonts},
+            text3::{
+                cache::{FontChainKeyOrRef, MemoryFontTier},
+                fontreg::RegisteredFonts,
+            },
         };
 
         const FAMILY: &str = "Azul Snapshot Shipped Face";
@@ -533,7 +536,8 @@ mod tests {
             .font_match
             .id;
 
-        // The faces a DOM naming the family resolves to, in a font manager.
+        // The face the family of a DOM's text resolves to - the first of the chain of the stack
+        // that names it - in a font manager.
         let styled = StyledDom::create_from_dom(
             Dom::create_body().with_child(
                 Dom::create_div()
@@ -544,7 +548,7 @@ mod tests {
             ),
         );
         let platform = azul_css::system::Platform::current();
-        let faces_of = |manager: &InnerFontManager| -> BTreeSet<FontId> {
+        let face_of_the_family = |manager: &InnerFontManager| -> Option<FontId> {
             collect_and_resolve_font_chains_with_registration(
                 &styled,
                 &manager.fc_cache,
@@ -552,13 +556,21 @@ mod tests {
                 &platform,
             )
             .chains
-            .values()
-            .flat_map(|chain| chain.fonts().map(|face| face.id))
-            .collect()
+            .iter()
+            .find_map(|(key, chain)| match key {
+                FontChainKeyOrRef::Chain(key)
+                    if key.font_families.iter().any(|family| {
+                        rust_fontconfig::utils::normalize_family_name(family) == norm
+                    }) =>
+                {
+                    chain.fonts().next().map(|face| face.id)
+                }
+                _ => None,
+            })
         };
-        let on_screen = faces_of(&window);
-        assert!(
-            on_screen.contains(&shipped),
+        assert_eq!(
+            face_of_the_family(&window),
+            Some(shipped),
             "premise: the window draws the family with the shipped face"
         );
 
@@ -578,9 +590,9 @@ mod tests {
             assert_eq!(indexed.font_match.id, shipped, "under the id the window has it under");
             assert_eq!(indexed.tier, MemoryFontTier::Fallback, "in the tier the window has it in");
             assert_eq!(
-                faces_of(manager),
-                on_screen,
-                "pagination measures with the faces the screen draws with"
+                face_of_the_family(manager),
+                Some(shipped),
+                "pagination measures the family in the face the screen draws it in"
             );
         });
 
