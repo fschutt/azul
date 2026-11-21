@@ -5155,14 +5155,19 @@ fn windowed_structural_damage(
     let mut unmappable = false;
     // `all` is one list and `window` its changed middle: a frame pushed inside the window is
     // read down to its pop, which may lie past the window (in the equal suffix).
-    let mut collect_window = |all: &[DisplayListItem],
+    // A frame's live matrices where the caller passed none: every frame as its push built it.
+    let built_only: HashMap<usize, azul_core::transform::ComputedTransform3D> = HashMap::new();
+    let mut collect_window = |list: &DisplayList,
                               window: core::ops::Range<usize>,
                               offsets: &ScrollOffsetMap,
                               frames: &FrameStack,
+                              live_values: Option<&HashMap<usize, azul_core::transform::ComputedTransform3D>>,
                               live: &dyn Fn(
         usize,
         azul_core::transform::ComputedTransform3D,
     ) -> azul_core::transform::ComputedTransform3D| {
+        let all = &list.items;
+        let index = list.frame_index();
         let mut stack = stack.clone();
         let mut frames = frames.clone();
         for at in window {
@@ -5228,11 +5233,20 @@ fn windowed_structural_damage(
             // Switch toggle's 2830 stale px — and, for Text, the LCD
             // subpixel fringe one column outside the box.
             // A frame in the window is damaged by what it PAINTS (its box and everything down
-            // to its pop: `reference_frame_extent_walked`), not by its box alone: its matrix
-            // may be what changed, and what it paints past its box (an overflowing child, a
-            // shadow) can lie in the equal suffix, where no item is damaged.
+            // to its pop), not by its box alone: its matrix may be what changed, and what it
+            // paints past its box (an overflowing child, a shadow) can lie in the equal
+            // suffix, where no item is damaged. With the frames INSIDE it where their
+            // matrices paint them (`FrameIndex::extent_with`, A1-37): the extent of the items
+            // where they are laid out missed a card moved by `translate(-100, 0)` inside the
+            // frame by 100 px. A matrix with perspective inside it: no rect covers it.
             let painted = match item {
-                DisplayListItem::PushReferenceFrame { .. } => reference_frame_extent_walked(all, at),
+                DisplayListItem::PushReferenceFrame { .. } => {
+                    let extent = index.extent_with(all, at, live_values.unwrap_or(&built_only));
+                    if extent.is_none() {
+                        unmappable = true;
+                    }
+                    extent
+                }
                 _ => item.visual_bounds().or_else(|| item.bounds()),
             };
             let Some(b) = painted else {
@@ -5262,17 +5276,19 @@ fn windowed_structural_damage(
     };
 
     collect_window(
-        o,
+        old,
         prefix..o.len() - suffix,
         old_offsets,
         &frames_old,
+        values.old,
         &|key, built| values.old_matrix(key, built),
     );
     collect_window(
-        n,
+        new,
         prefix..n.len() - suffix,
         new_offsets,
         &frames_new,
+        values.new,
         &|key, built| values.new_matrix(key, built),
     );
     if unmappable {
@@ -5461,16 +5477,23 @@ fn compute_display_list_damage_impl(
                 if !old_item.is_visually_equal(new_item) {
                     // A transform that changed moves the frame's whole
                     // content: damaged where it was and where it is.
-                    let content = |items: &[DisplayListItem], b: &LogicalRect, acc: (f32, f32)| {
-                        let c = reference_frame_extent_walked(items, idx).unwrap_or(*b);
-                        LogicalRect {
+                    // What the frame paints, with the frames INSIDE it where their matrices
+                    // paint them (`FrameIndex::extent_with`, A1-37; the list's index answers
+                    // without a walk from the push to the pop). `None`: a matrix with
+                    // perspective inside it, which no rect covers.
+                    let built_only = HashMap::new();
+                    let content = |list: &DisplayList,
+                                   live: Option<&HashMap<usize, azul_core::transform::ComputedTransform3D>>,
+                                   acc: (f32, f32)| {
+                        let c = list.frame_index().extent_with(&list.items, idx, live.unwrap_or(&built_only))?;
+                        Some(LogicalRect {
                             origin: at(c.origin, acc),
                             size: c.size,
-                        }
+                        })
                     };
                     let (Some(a), Some(b)) = (
-                        frames_old.map(content(&old.items, ob.inner(), acc_old)),
-                        frames_new.map(content(&new.items, nb.inner(), acc_new)),
+                        content(old, values.old, acc_old).and_then(|c| frames_old.map(c)),
+                        content(new, values.new, acc_new).and_then(|c| frames_new.map(c)),
                     ) else {
                         return None;
                     };
@@ -12476,5 +12499,45 @@ mod audit_a1_tests {
         assert_eq!(uncovered_before.damage, vec![view]);
         // Laid out at 0 it covered the view before (from x = 20) and covers it now (from 8).
         assert_eq!(pan(&child(0.0)).moves.len(), 1);
+    }
+
+    /// A1-37: a frame whose matrix changed with a new list is damaged by what it PAINTS, the
+    /// frames inside it where their matrices put them. An outer frame (key 1), box (0, 0)
+    /// 200 x 40, holds an inner frame (key 2) moved by (300, 0) with a 50 x 20 fill laid out
+    /// at (20, 0): the fill is painted at x 320 .. 370. The new list bakes `translate(10, 0)`
+    /// into the outer frame: the fill is now painted at 330 .. 380. The damage must hold the
+    /// fill where it was and where it is, x 320 .. 380.
+    /// Mutation: the extent of the items where they are laid out
+    /// (`reference_frame_extent_walked`: (0, 0) 200 x 40) damages x 0 .. 210 and leaves the
+    /// fill's old picture at 320 .. 370 on screen.
+    #[test]
+    fn a_frame_changed_by_a_new_list_is_damaged_where_the_frames_inside_it_paint() {
+        let moved = |tx: f32| azul_core::transform::ComputedTransform3D {
+            m: [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [tx, 0.0, 0.0, 1.0]],
+        };
+        let page = |outer: f32| {
+            listed(vec![
+                DisplayListItem::PushReferenceFrame {
+                    transform_key: azul_core::resources::TransformKey { id: 1 },
+                    initial_transform: moved(outer),
+                    bounds: lr(0.0, 0.0, 200.0, 40.0).into(),
+                },
+                DisplayListItem::PushReferenceFrame {
+                    transform_key: azul_core::resources::TransformKey { id: 2 },
+                    initial_transform: moved(300.0),
+                    bounds: lr(20.0, 0.0, 50.0, 20.0).into(),
+                },
+                opaque(20.0, 0.0, 50.0, 20.0, [0, 200, 0]),
+                DisplayListItem::PopReferenceFrame,
+                DisplayListItem::PopReferenceFrame,
+            ])
+        };
+        let none = ScrollOffsetMap::new();
+        let damage = compute_display_list_damage(&page(0.0), &page(10.0), &none, &none).expect("a paired diff");
+        let holds = |x0: f32, x1: f32| {
+            damage.iter().any(|r| r.origin.x <= x0 && r.origin.x + r.size.width >= x1 && r.origin.y <= 0.0 && r.origin.y + r.size.height >= 20.0)
+        };
+        assert!(holds(320.0, 370.0), "the fill where it was painted: {damage:?}");
+        assert!(holds(330.0, 380.0), "and where it is painted now: {damage:?}");
     }
 }
