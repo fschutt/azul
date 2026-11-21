@@ -2215,6 +2215,28 @@ impl GestureAndDragManager {
         self.get_drag_direction()
     }
 
+    /// The swipe an event pass has to TELL: an injected native swipe (the
+    /// event loop takes it back at the end of the pass), or - on the pass
+    /// that saw the button released (`release_edge`) - a pointer session that
+    /// ended fast ([`Self::detect_swipe_direction`]).
+    ///
+    /// The session of a drag is kept after its release (the click count
+    /// needs it, `sample_cleanup_interval_ms`), and a fast one answers
+    /// `is_swipe()` for as long as it is the newest: asked on every pass, it
+    /// was told as a swipe on every pointer move of the drag and on every
+    /// pass of the two seconds after it, each time after a walk over every
+    /// sample of the session (`total_distance`, up to 1,000).
+    #[must_use]
+    pub fn swipe_to_tell(&self, release_edge: bool) -> Option<GestureDirection> {
+        if let Some(NativeGestureEvent::Swipe(d)) = self.native_gesture {
+            return Some(d);
+        }
+        if !release_edge || !self.is_swipe() {
+            return None;
+        }
+        self.get_drag_direction()
+    }
+
     /// Detect pinch gesture (two-touch zoom in/out)
     ///
     /// Returns Some if two touch points are active and distance is changing
@@ -5290,5 +5312,48 @@ mod trackpad_scroll_swipe_tests {
             None,
             "a gesture whose start was not seen is not judged"
         );
+    }
+}
+
+/// Audit A6-20: what a pointer session tells an event pass.
+#[cfg(test)]
+mod audit_a6_tests {
+    use super::*;
+
+    fn at(ms: u64) -> CoreInstant {
+        use std::sync::OnceLock;
+        static BASE: OnceLock<std::time::Instant> = OnceLock::new();
+        let base = *BASE.get_or_init(std::time::Instant::now);
+        (base + core::time::Duration::from_millis(ms)).into()
+    }
+
+    fn p(x: f32, y: f32) -> LogicalPosition {
+        LogicalPosition::new(x, y)
+    }
+
+    /// A drag of 120 px in 100 ms (1,200 px/s, over the 500 px/s of a swipe): while the button
+    /// is held there is nothing to tell, the pass of the release is told the swipe, and the
+    /// passes after it nothing - the session is still the newest and still fast. A native
+    /// swipe is told whatever the buttons do.
+    /// Mutation: `release_edge` ignored in `swipe_to_tell` (the old rule) answers `Some` in
+    /// the first and the third step.
+    #[test]
+    fn a_swipe_of_the_pointer_is_told_at_the_release_only() {
+        let mut m = GestureAndDragManager::new();
+        m.start_input_session(p(0.0, 0.0), at(0), 1, WindowPosition::Uninitialized, p(0.0, 0.0));
+        for i in 1..=10_u8 {
+            let x = 12.0 * f32::from(i);
+            assert!(m.record_input_sample(p(x, 0.0), at(10 * u64::from(i)), 1, p(x, 0.0)));
+        }
+        assert!(m.is_swipe(), "harness: 1,200 px/s");
+        assert_eq!(m.swipe_to_tell(false), None, "the button is held");
+
+        m.end_current_session();
+        assert_eq!(m.swipe_to_tell(true), Some(GestureDirection::Right));
+        assert!(m.is_swipe(), "the ended session is kept, and still fast");
+        assert_eq!(m.swipe_to_tell(false), None, "a pass after the release");
+
+        m.inject_native_gesture(NativeGestureEvent::Swipe(GestureDirection::Up));
+        assert_eq!(m.swipe_to_tell(false), Some(GestureDirection::Up));
     }
 }
