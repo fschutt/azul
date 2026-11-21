@@ -126,7 +126,7 @@ frequency for the editor's loads). One row per finding id; the text blocks below
 | A3-solver-23 | waste | `fc/white_space.rs` plain text | low | fixed 16395bc3e | `white_space.rs` tests of the helper (see the commit) |
 | A3-solver-24 | waste | `layout_tree.rs` / `cache.rs` a kept node cloned twice | medium | fixed 7b39826e2 | `ifc.rs` count test (with 1ee264920: revert both) |
 | A3-solver-25 | waste | `layout_tree.rs` `build` makes the DOM-to-box map a second time | low | fixed 99d7efff1 | `layout_tree::audit_a3_solver_tests::build_hands_the_dom_map_over_as_it_is` |
-| A3-solver-25b | waste | `layout_tree.rs` `dom_to_layout: BTreeMap<NodeId, Vec<..>>`: one heap list per DOM node | low | blocked (a): the public type of `LayoutTree::dom_to_layout` (215 uses in 74 files of every area) becomes a dense table; design below | - |
+| A3-solver-25b | waste | `layout_tree.rs` `dom_to_layout: BTreeMap<NodeId, Vec<..>>`: one heap list per DOM node | low | fixed 8b7055be4 | `layout_tree::audit_a3_solver_tests::a_tree_of_one_box_per_node_keeps_no_list_per_node`, `the_table_answers_what_the_map_answered`, `a3_solver::a_laid_out_page_keeps_the_boxes_of_its_nodes_in_one_table` |
 | A3-solver-26 | waste | `sizing.rs` dirty closure as a hash set | low | fixed 4909c9d07 | `sizing.rs` tests of the helper (see the commit) |
 | A3-solver-27 | quadratic | `positioning.rs` nested shifted relative boxes | low | fixed 8abfe10f9 | `nested_shifted_boxes_are_moved_by_one_walk`, `nested_shifts_are_added_one_after_the_other_outermost_first` |
 | A3-solver-28 | n x depth | several (list below) | low | checked: fine | - |
@@ -1030,3 +1030,14 @@ The branch contains `audit/integration` (aeb5d0dfe) since `ceb7587af`.
   reading that cannot happen right after a pass; a dump that shows it is a finding.
 - New test counter `solver3::cache::TREE_WRITE_COPIES` (copies made by `cache::own_mut`, which
   `DomLayoutResult::layout_tree_mut` now calls); `TREE_COPIES` counts what it counted.
+
+### A3-solver-25b (fixed 8b7055be4)
+
+- `layout_tree::DomBoxes`: a slot per DOM node index (vacant / the node's one box inline / the number of a list),
+  16 bytes a slot, one allocation per tree (reserved with the builder's nodes). The map's method names and
+  answers; `get` and `[&node]` hand out a slice, the iterators a key by value. Every use was read: what changed
+  outside `layout_tree.rs` is in the commit message by access pattern (4 loops / lookups, 2 fixtures, 48 literals).
+- For whoever adds a use: there is no `entry`, `remove`, `get_mut` (nothing needed one); a fixture literal writes
+  `dom_to_layout: Default::default()`.
+- A copy of a tree (`LayoutTree::clone`: the text-edit writes, a display-list-only rebuild after A6-13) copies
+  one buffer for the table instead of a list per node.
