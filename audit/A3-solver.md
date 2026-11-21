@@ -108,14 +108,14 @@ frequency for the editor's loads). One row per finding id; the text blocks below
 | A3-solver-12 | waste | `getters.rs` `memoised_font_size` | medium | fixed 31f19e937 | `the_font_sizes_of_a_focused_page_are_answered_by_the_memo` |
 | A3-solver-13 | guard | `positioning.rs` `get_position_type` counter | low | fixed 6cc8bf1ac | `a_flat_layer_of_absolute_labels_takes_position_lookups_in_proportion_to_its_labels` |
 | A3-solver-14 | waste | `positioning.rs` `position_out_of_flow_elements`, `cache.rs` `calculate_layout_for_subtree_fragment` | high | fixed 93cf4a98a | `a_pass_for_a_paragraph_lays_out_no_interior_of_the_labels_beside_it` and three more |
-| A3-solver-14b | waste | `positioning.rs` the solve of every absolute box in every pass | medium | open: the solve (containing block, used size, insets) still runs per absolute box per pass; a memo of it keyed by every input is the next commit | - |
+| A3-solver-14b | waste | `positioning.rs` the solve of every absolute box in every pass | medium | fixed f8e1e7c73 | `a_pass_for_a_paragraph_solves_none_of_the_labels_beside_it`, `labels_that_moved_are_solved_again` |
 | A3-solver-15 | quadratic | `fc/bfc.rs` Pass 1 position vector | low | fixed 4eabd302a | `the_first_pass_of_a_block_borrows_its_position_vector_from_the_pass` |
 | A3-solver-15b | quadratic | `fc/table_rows.rs`, `fc/table_columns.rs`, `fc/table.rs` temp position vectors | low | open: the table passes still make a vector per call; same pool as 15 | - |
 | A3-solver-16 | quadratic | `fc/ifc.rs` `static_positions_of` | low | fixed 640fefd1b | `the_static_places_of_many_boxes_in_one_paragraph_are_read_off_one_listing_of_its_items` |
 | A3-solver-16b | quadratic | `fc/ifc.rs` `inline_static_place_in_tree` (footnotes, columns) | low | open: one expansion and scan per footnote / column anchor; paged media only | - |
 | A3-solver-17 | waste | `taffy_bridge.rs` width-only answers | high | fixed b27f65a88 | `a_nested_flex_row_answers_each_width_question_of_a_first_layout_once` |
 | A3-solver-17b | waste | `taffy_bridge.rs` measure spill | medium | fixed 9d4637c90 | `the_measurement_a_second_store_evicts_is_found_in_the_second_way` |
-| A3-solver-17c | waste | `taffy_bridge.rs` `set_final_layout_current(node, false)` on every measure | medium | open: a measure rewrites the subtree, so the final after it is recomputed; needs the measure to restore or not to write | - |
+| A3-solver-17c | waste | `taffy_bridge.rs` `set_final_layout_current(node, false)` on every measure | medium | blocked (a): a measure in the taffy bridge writes the tree's final state (sizes, offsets, inline layout, per-node caches); keeping the final layout current across a computed measure needs side-effect-free measures; design below | - |
 | A3-solver-18 | quadratic | `taffy_bridge.rs` style conversion per bridge | medium | fixed 134b2fb7f | `the_cells_of_the_taffy_style_memo_grow_with_the_document_not_with_its_bridges` |
 | A3-solver-19 | waste | `sizing.rs` a text measured for itself and for the box around it | medium | fixed dfe923716 | `sizing.rs` tests of the helper (see the commit) |
 | A3-solver-19b | waste | `mod.rs` intrinsic pass per turn of the layout loop | medium | fixed a74109c49 | `a_later_turn_of_the_layout_loop_measures_no_label_whose_inputs_stayed` |
@@ -731,4 +731,48 @@ pass keeps or reverts the fix by what the test did before it.
   through that one level), and the css-dirty channel lays a block out through its parent by design (scroll extent
   and auto height of the parent).
 - New: **53** (sticky inside an absolute box), see the table.
+
+### A3-solver-14b (fixed f8e1e7c73)
+
+- `cache::AbsPlacement` inside the (now boxed) `AbsInterior`: a box is placed from its last solve when its
+  containing block, the viewport, the containing block's direction, its box props and its static position (or
+  its un-re-derived final position) are what they were. The box's own style is not compared: it relies on the
+  dirty marks every per-node layout cache relies on, plus `layout_document` dropping the placement of every
+  `paint_dirty` node (the inset-only moves of 41).
+- Same switches and the same check as 14 (`AZ_NO_ABS_INTERIOR_REUSE`, `AZ_CHECK_ABS_INTERIOR_REUSE`, on in this
+  crate's tests). Known ways the check can fire in the suite without the memo being the bug: an inset that is
+  no multiple of 0.1 px on a box whose state changes between passes (A3-core 36a: the compact path rounds, the
+  cascade path does not), a `rem` inset with a changed root font size if the reconcile does not mark the box.
+  Both are inputs the dirty marks should carry; the panic names the box.
+- The memory note of 14 is replaced: `NodeCache` + 8 bytes; about 110 bytes on the heap per absolutely
+  positioned box with children.
+
+### A3-solver-17c, the final layout after a computed measure: blocked (a), design
+
+Every computation in the taffy bridge - a measure (`RunMode::ComputeSize`) or the final layout - writes the tree:
+`compute_child_layout` stores the answered size as the node's `used_size`, `compute_non_flex_layout` re-flows
+inline content and re-places children at the measure's constraints, and the per-node caches of the subtree are
+stored at those constraints. So `NodeCache::final_layout_current` is cleared by every computation and a final
+layout after a computed measure runs again (`taffy_bridge.rs` 2228, 2343, 2359, 3476). Done short of it: the
+measures that are answered without computing (width-only answers 17, the spill 17b, pure-measure sizes, the
+intrinsic-width answers) - each avoided measure is an avoided re-run of the final.
+To keep the final current across a COMPUTED measure, a measure must leave the tree as it found it:
+1. A journal on `TaffyBridge` (`measure_undo: Vec<(usize, SubtreeState)>`), opened by `compute_child_layout` when
+   `run_mode == ComputeSize` and `final_layout_current(node)`, closed when that call returns.
+2. `SubtreeState` = for every node of the subtree: `used_size`, the warm fields a layout writes
+   (`relative_position`, `inline_layout_result`, `inline_measure_layouts`, `scrollbar_info`,
+   `overflow_content_size`, `escaped_*_margin`, `baseline`, `measured_content_sizes`, `taffy_cache`) and its
+   `NodeCache` (`layout_entry`, `measure_entries`, the taffy fields). All of them are `Clone`; the inline layouts
+   are `Arc`s. Taken before the measure runs (a subtree walk), put back after it, then
+   `set_final_layout_current(node, true)` again. The measure's ANSWER is kept in taffy's cache as now.
+3. What must not be put back: the caches whose purpose is to remember the measure - `taffy_measure_spill`,
+   `taffy_width_only`, `width_only_fresh`, `TaffyPassMemo::last_measures` - and `LayoutCacheMap::tree_writes`
+   (the measure wrote; the restore is one more write for any `abs_interior` bookkeeping inside: bump it).
+4. Cost model to decide by a run: the snapshot is O(subtree) per computed measure against one avoided final
+   layout of the subtree per pass; only worth it where the final is the expensive one (text). Counters to add:
+   finals re-run because a measure cleared the flag (`taffy_final_layout_stale` span exists) against measures
+   computed.
+5. Tests: the existing `flex_items_keep_the_size_their_container_gave_them` family (they pin what a measure must
+   not leak into the final) plus a count test: a flex row of text items laid out twice with one probe in
+   between runs each item's final once.
 
