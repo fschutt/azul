@@ -103,9 +103,11 @@ measured: the ranking is by steps.
 ### A3-core-06b `InheritedValues::get` scans all buckets for one inherited value
 - file:line: `core/src/prop_cache.rs` `InheritedValues::get`.
 - class: waste (O(buckets) per read of an inherited, non-compact property the node does not declare). severity: low
-- evidence: 15 buckets for Berlin, 150-200 for Tuebingen's styles; reached from `get_property_slow`.
-- fix: a per-type list of buckets.
-- status: open: not written yet (this round)
+- evidence: 15 buckets for Berlin, 150-200 for Tuebingen's styles; reached from `get_property_slow`
+  (`user-select` per text block of a list build: 6,200 x 200 bucket tests).
+- fix: `by_type`, the buckets of each type in creation order; `get` searches those. Same answer.
+- test: `prop_cache_test::audit_a3_core_tests::one_inherited_value_is_looked_for_among_the_buckets_of_its_type`.
+- status: fixed b5f9198d0
 
 ### A3-core-07 `FlatVecVec::dedup_runs` compared every node's run with the table from the start
 - file:line: `core/src/prop_cache.rs` `dedup_runs`.
@@ -114,9 +116,13 @@ measured: the ranking is by steps.
 - test: `prop_cache_test::audit_a3_core_tests::nodes_of_one_rule_set_do_not_each_read_the_table_of_runs`.
 - status: fixed ffd50bd86
 
-### A3-core-07b `dedup_runs` with interleaved styles
-- class: waste (a node whose style differs from its predecessor's scans the table). severity: low
-- status: open: not written yet (this round)
+### A3-core-07b `dedup_runs` with alternating rule sets
+- class: quadratic-like (nodes x distinct runs, up to 1,024, when the rule sets alternate from node to node:
+  table cells with a class per column). severity: low
+- fix: the run of the node before, then the recorded runs under a key of (length, first, last entry); the table
+  is not read. `T: Hash` joins the bounds; `StatefulCssProperty` derives it.
+- test: `prop_cache_test::audit_a3_core_tests::nodes_whose_rule_sets_alternate_do_not_each_read_the_table_of_runs`.
+- status: fixed 54359da8a
 
 ### A3-core-08 write generation on `GpuValueCache` (A9 H4/H6/H7)
 - file:line: `core/src/gpu.rs`.
@@ -204,29 +210,44 @@ measured: the ranking is by steps.
 ### A3-core-11a `restyle` generates the tag ids and every caller generates them again
 - file:line: `core/src/prop_cache.rs` (end of `restyle`), `core/src/styled_dom.rs` (callers).
 - class: waste (2 x O(nodes), est. 1-2 ms at 12.5k). severity: low
-- status: open: not written yet (this round)
+- fix: `restyle_cascade` (the cascade alone); `restyle` keeps its signature for the callers that read the ids.
+- test: `styled_dom_test::audit_a3_core_tests::styling_a_dom_generates_its_tag_ids_once`.
+- status: fixed bcc242e11
 
 ### A3-core-11b repeated whole-tree walks of the `Dom` before styling
 - file:line: `core/src/styled_dom.rs` (`fixup_children_estimated` x3, `scope_inline_css` x2), the pre-passes of
   `LayoutWindow::style_user_dom_for`.
-- class: waste (about 10 pointer-chasing walks of 12.5k nodes, est. 1-2 ms). severity: low
-- status: open: not written yet (this round)
+- class: waste (pointer-chasing walks of 12.5k nodes). severity: low
+- fix: both constructors end in `create_from_prepared_dom`; the second preparation (three walks) is gone. Left:
+  the flatten counts the nodes once more (`convert_dom_into_compact_dom`: its own guarantee), and the pre-passes of
+  `LayoutWindow::style_user_dom_for` (form controls, webview probe, translation, respin, icons) are one walk each,
+  each needed for what it does: not merged.
+- test: `styled_dom_test::audit_a3_core_tests::a_dom_is_prepared_for_styling_once`.
+- status: fixed 9e3e2f5be
 
 ### A3-core-11c `copy_special_moving_complex` clones callbacks, a11y info and fluent args it could move
 - file:line: `core/src/dom.rs` `copy_special_moving_complex`.
 - class: waste (about 19,000 `RefAny` clone + drop pairs per Berlin render). severity: low
-- status: open: not written yet (this round)
+- fix: the three fields are moved the way `style` and `extra` already were.
+- test: `dom_test::audit_tests::copy_special_moving_complex_moves_the_handlers_and_shares_no_data_again`.
+- status: fixed 1d70da663
 
 ### A3-core-11d per text block: an ancestor walk for the background hint, three `BTreeMap`s and a `Vec`
 - file:line: `layout/src/solver3/display_list.rs` `compute_uniform_text_bg`, `paint_inline_content`.
-- class: waste (linear). severity: low
-- status: open: not written yet (this round)
+- class: waste (two map nodes allocated per text block: 12,400 per Berlin list). severity: low
+- fix: a text with no inline box around it is entered into neither map (a missing entry means the same). The
+  ancestor walk of `compute_uniform_text_bg` is one compact bit per ancestor without a background: left.
+- test: `audit_tests::a3_core::a_text_without_an_inline_box_around_it_is_entered_into_no_map`.
+- status: fixed e1a8bf41f
 
 ### A3-core-11e the general sibling combinator `~` walks all earlier siblings per candidate
 - file:line: `core/src/style.rs` `matches_html_element_in`.
 - class: quadratic for a sheet that uses `~` (`.a ~ .b` over 12,000 `.b` siblings without an `.a`: 72 million
   steps). severity: low (the editor's sheet has none)
-- status: open: not written yet (this round)
+- fix: `GeneralSiblingMemo`, one per cascade and one for the hosts of generated content: what a walk found is
+  kept for the siblings it passed. `matches_html_element_in` keeps its signature (no memo).
+- test: `prop_cache_test::audit_a3_core_tests::the_general_sibling_combinator_does_not_walk_back_from_every_sibling`.
+- status: fixed d34a3b878
 
 ### A3-core-12 the compact box slots were tenths of a pixel in an `i16` (A3-solver 36a)
 - file:line: `css/src/compact_cache.rs` `CompactNodeProps` (18 slots), `core/src/compact.rs` (47 writes),
@@ -291,6 +312,15 @@ measured: the ranking is by steps.
 - note: A3-window's `node_patch.rs:290` matches `EmitPhase` exhaustively: it needs `EmitPhase::Selection => {}`.
 - status: fixed 505c953ee
 
+### A3-core-18 letter spacing, word spacing and text indent were tenths of a pixel at rest
+- file:line: `css/src/compact_cache.rs` `CompactTextProps`; reader `getters.rs` (the text style).
+- class: sign/offset (rounding): `letter-spacing: 0.25px` was 0.3 px at rest (0.05 px per letter: a pixel over a
+  20-letter label) and 0.25 px hovered; the editor writes a scale-dependent letter spacing per text style.
+  severity: medium
+- fix: the three slots are `PxSlot` (thousandths); `CompactTextProps` is 32 bytes (was 24).
+- test: `compact_test::a_letter_spacing_is_kept_to_the_thousandth`.
+- status: fixed ce8af9d5d
+
 ### A3-core-19 `add_forced_page_break` scanned and sorted the list per break (A3-window)
 - class: quadratic in the forced breaks of a paged document. severity: low
 - fix: bisection + insert. test: the two existing tests in the file.
@@ -314,7 +344,62 @@ measured: the ranking is by steps.
 - fix: `DisplayListGenerator::loaded_fonts` (once per list build).
 - status: fixed 73914ce4d
 
+### A3-core-23 a border radius in `%` / `em`, or beyond 3276 px, was no radius at rest
+- file:line: `core/src/compact.rs` (radius arms), `getters.rs` `get_style_border_radius`, `get_border_radius`.
+- class: wrong-output. `border-radius: 50%`, `1em`, `9999px` were left out of the slot, which then said "none":
+  square at rest, round only while hovered. The editor has two such boxes (`map.rs:2053`, the toolbar badge).
+  severity: high
+- fix: `encode_radius_i16` writes `I16_AUTO` ("read the cascade") for such a radius; both readers fall to the
+  cascade for it; the cascade path gives a px radius in the slot's tenths (one number in every state).
+- test: `audit_tests::a3_core::a_radius_the_slot_cannot_hold_is_a_radius_at_rest_too`.
+- status: fixed 6a0be5cf5
+
+### A3-core-24 a declared `tab-size` and a `border-spacing` in another unit were the default at rest
+- file:line: `core/src/compact.rs` (`encode_tab_size_i16`, `encode_border_spacing_i16`).
+- class: wrong-output. `tab-size: 4` (kept as `4em`) was the sentinel and read as 8 at rest;
+  `border-spacing: 0.5em` left its slot at 0 and was no spacing. severity: medium
+- fix: the builder writes the tab size's number, and the sentinel for a spacing that is not px.
+- test: `compact_test::a_declared_tab_size_and_a_relative_border_spacing_are_not_the_default`,
+  `audit_tests::a3_core::a_declared_tab_size_is_in_its_slot`.
+- status: fixed 7d830412d
+
+### A3-core-25 `flex-grow` / `flex-shrink` were hundredths at rest and thousandths in another state
+- file:line: `layout/src/solver3/taffy_bridge.rs` (the two flex factor reads), `css/src/compact_cache.rs`.
+- class: sign/offset (rounding). severity: low
+- fix: `flex_as_its_slot_reads_it` on the cascade's answer.
+- test: `compact_cache::tests::a_flex_factor_is_one_number_in_every_state`.
+- status: fixed 7531e2d0d
+
+### A3-core-26 the bounds of a `Text` item are an estimate, and ink outside them is not damaged
+- file:line: `layout/src/solver3/display_list.rs` `DisplayListItem::visual_bounds` (Text arm): the pen positions
+  grown by 1 em left and right, 1.5 em up, 0.75 em down, cut to the item's clip. Readers: the damage of a changed
+  item (`raster.rs`, `compositor.rs`, `solver3/mod.rs` patch damage), the background hint's pixel check (15).
+- class: wrong-output for a glyph whose ink leaves that box (stale pixels where the ink was: nothing repaints
+  them). The rasteriser itself culls with a 4 em reach (`raster.rs` `glyph_ink_reach`): it expects ink the item
+  bounds do not cover. Which glyphs: the last glyph of a run wider than 1 em (wide icons of an icon font at 1.125
+  to 1.25 em, long ligatures, swash faces), ink higher than 1.5 em. Not verified with a font. severity: medium
+- why it is not a local fix: the item has no font, so its method cannot know the ink; widening the estimate to
+  the rasteriser's 4 em would grow every text damage rect by 3 em on each side (a hovered 12 px label: 36 px
+  around it).
+- design (complete): (1) data: `DisplayList::text_ink: Vec<Option<WindowLogicalRect>>`, parallel to `items` like
+  `uniform_text_bgs`; the generator fills it where it pushes a run (`push_text_run` gets the rect), from the
+  font it shapes with: the union of `pen + glyph bounding box x scale` over the run's glyphs (the face's glyph
+  boxes, cached per face), grown by the LCD filter's pad, cut to the clip. (2) every operation that keeps the
+  parallel lists in step takes the new list: `insert_parallel`, the replacement in `set_node_item`,
+  `DisplayListBuilder::build`, `try_copy_cached_run` / `PatchState` (translated by the node's delta), the page
+  slicer, A3-window's `node_patch::commit`. (3) readers: `DisplayList::visual_bounds_of(i)` = the stored ink for
+  a `Text` with one, else `items[i].visual_bounds()`; the damage sites and the hint check call it instead of the
+  item method (A1: `raster.rs`, `compositor.rs`; `solver3/mod.rs`). (4) struct literals of `DisplayList` outside
+  `display_list.rs` (`compositor.rs:6616`, `headless.rs` tests) get the field. (5) test: a test face whose last
+  glyph is 2 em wide; paint, recolour, the damage holds every pixel that differs between the two frames.
+- done short of it: nothing that would be right for every font; the hand-off for A1 below names the check.
+- status: blocked (a): the ink of a run needs the font, which only the list (not the item) can carry: a field on
+  `DisplayList` kept in step by five files of three areas, to be done after the branches are merged
+
 ### Checked: fine (do not check again)
+- The remaining approximate slots: `line_height` (px x 100 or number x 1000 in an `i16`: 0.005 px per line;
+  beyond the range it is `I16_AUTO` and the cascade is asked), `opacity` (254 steps), `z-index` and the grid lines
+  (out of range: the sentinel, the cascade is asked). No "declared but read as unset" among them.
 - `:nth-child`, `:first`, `:last`: O(1) per node from `CascadeInfo`; the tree is built in one pass (02).
 - Descendant / child combinators: ancestor walk per candidate, O(depth). Adjacent sibling `+`: O(gap of text nodes).
 - `get_parents_sorted_by_depth`: BFS, O(n). `subtree_len`: O(depth). `convert_dom_into_compact_dom`: one pass.
@@ -343,6 +428,10 @@ measured: the ranking is by steps.
    patch) is A3-window's.
 4. **a11y**: built always (default feature), diffed per layout pass. With 10b + 10c nothing is built while no
    reader is attached; with 10a a reader's pass reads only the DOMs that changed.
+
+Found beside the four questions, all wrong output at rest that the compact cache's slots caused and a raised state
+hid: box lengths and text spacings rounded to tenths of a pixel (12, 18), a radius in `%` / `em` or above 3276 px
+read as none (23), a declared tab size read as 8 and an `em` border spacing as 0 (24).
 
 ## For area A2-gpu / A3-window / A6 / A1 / A3-solver (writers of `GpuValueCache` maps: A3-core-08)
 
@@ -495,6 +584,11 @@ No change. (`Dom::css` as a shared sheet was allowed and is not needed: A3-core-
 
 - A3-core-12: label and tile positions of a map are no longer rounded to tenths of a pixel: a label can sit up to
   0.05 px from where it sat. Nothing should jump on hover.
+- A3-core-18: labels with a letter spacing are set at the declared spacing: a long label can be a pixel or two
+  narrower or wider than before, and its width no longer changes in steps while zooming.
+- A3-core-23: boxes with `border-radius: 50%` (the map's circular marker, `map.rs:2053`; the toolbar's badge) and
+  pills (`9999px`) are round at rest now; they were square until hovered.
+- A3-core-24: text with a declared `tab-size` uses it at rest; a table with `border-spacing` in `em` has it.
 - A3-core-10c (once A10 has made the change): the VoiceOver checks listed under "For area A10".
 - A3-core-17: selecting text (drag) highlights as before.
 
