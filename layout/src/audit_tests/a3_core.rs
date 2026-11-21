@@ -518,3 +518,167 @@ fn the_rects_of_a_selection_carry_their_blocks_layout_index_and_the_selection_ph
         );
     }
 }
+
+/// One accessibility pass of `m` over `results` (a nested DOM under its host in `hosts`), with
+/// the DOMs' generations or without, the caret in `caret_in` if any: what the pass did and what
+/// it published.
+#[cfg(feature = "a11y")]
+fn a11y_pass(
+    m: &mut crate::managers::a11y::A11yManager,
+    results: &std::collections::BTreeMap<DomId, crate::window::DomLayoutResult>,
+    hosts: &std::collections::BTreeMap<DomId, (DomId, NodeId)>,
+    generations: Option<&std::collections::BTreeMap<DomId, u64>>,
+    caret_in: Option<DomId>,
+) -> (crate::managers::a11y::A11yPassStats, Option<accesskit::TreeUpdate>) {
+    use crate::managers::{
+        a11y::{A11yTreeInputs, CursorA11yInfo},
+        scroll_state::ScrollManager,
+    };
+
+    let scroll_manager = ScrollManager::new();
+    let overrides = std::collections::BTreeMap::new();
+    let title = azul_css::AzString::from("t");
+    let inputs = A11yTreeInputs {
+        layout_results: results,
+        scroll_manager: &scroll_manager,
+        window_title: &title,
+        window_size: LogicalSize::new(640.0, 480.0),
+        focused_node: None,
+        hidpi_factor: 1.0,
+        dirty_text_overrides: &overrides,
+        cursor_info: caret_in.map(|dom_id| CursorA11yInfo {
+            dom_id,
+            node_id: NodeId::new(0),
+            anchor_offset: 0,
+            focus_offset: 0,
+        }),
+        nested_dom_hosts: hosts,
+        language: "",
+        language_is_rtl: false,
+        translate: None,
+        dom_generations: generations,
+    };
+    let stats = m.refresh(&inputs);
+    (stats, m.take_pending())
+}
+
+/// An update as something two managers can be compared by: whole tree or patch, the focus, and
+/// every node with its id, sorted.
+#[cfg(feature = "a11y")]
+fn a11y_update_key(update: Option<&accesskit::TreeUpdate>) -> Option<(bool, u64, Vec<(u64, accesskit::Node)>)> {
+    update.map(|update| {
+        let mut nodes: Vec<(u64, accesskit::Node)> =
+            update.nodes.iter().map(|(id, node)| (id.0, node.clone())).collect();
+        nodes.sort_by_key(|(id, _)| *id);
+        (update.tree.is_some(), update.focus.0, nodes)
+    })
+}
+
+/// A3-core-10 (a): a pass told the DOMs' generations puts a DOM that is still the one it was
+/// back into the tree without reading a node of it (`walked` counts the nodes read, `replayed`
+/// the ones put back), whatever happened to the other DOMs, and publishes exactly what a pass
+/// that walks everything publishes. The map view under a window whose sidebar changed is the
+/// case: `k` labels are replayed, the window's own few nodes are walked, at `k` and at `4k`.
+#[cfg(feature = "a11y")]
+#[test]
+fn an_unchanged_dom_is_put_back_into_the_accessibility_tree_unread() {
+    use std::collections::BTreeMap;
+
+    use crate::managers::a11y::A11yManager;
+
+    // 0 body, 1 a sidebar's div, 2 its text, 3 the view's host.
+    let window = |sidebar: &str, host_left: usize| {
+        let dom = Dom::create_body()
+            .with_css("margin: 0px;")
+            .with_child(
+                Dom::create_div()
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(sidebar)),
+            )
+            .with_child(Dom::create_div().with_css(&format!(
+                "position: absolute; left: {host_left}px; top: 40px; width: 300px; height: 200px;"
+            )));
+        laid_out(dom).layout_results.remove(&DomId::ROOT_ID).expect("the window's layout")
+    };
+    let view_dom = DomId { inner: 1 };
+    let mut hosts = BTreeMap::new();
+    hosts.insert(view_dom, (DomId::ROOT_ID, NodeId::new(3)));
+    let gens = |window: u64, view: u64| {
+        let mut g = BTreeMap::new();
+        g.insert(DomId::ROOT_ID, window);
+        g.insert(view_dom, view);
+        g
+    };
+
+    let mut walked_with_the_window_changed = Vec::new();
+    for k in [50usize, 200] {
+        let view = laid_out(label_layer(k, 0))
+            .layout_results
+            .remove(&DomId::ROOT_ID)
+            .expect("the view's layout");
+        let mut told = A11yManager::new();
+        let mut untold = A11yManager::new();
+        let mut results = BTreeMap::new();
+        results.insert(DomId::ROOT_ID, window("layers", 10));
+        results.insert(view_dom, view);
+
+        // Both managers see the same passes; `told` knows the generations.
+        let mut step = |results: &BTreeMap<_, _>, g: &BTreeMap<DomId, u64>, caret: Option<DomId>| {
+            let (stats, update) = a11y_pass(&mut told, results, &hosts, Some(g), caret);
+            let (reference, expected) = a11y_pass(&mut untold, results, &hosts, None, caret);
+            assert_eq!(
+                a11y_update_key(update.as_ref()),
+                a11y_update_key(expected.as_ref()),
+                "a pass that replays publishes what a pass that walks publishes (k = {k})"
+            );
+            assert_eq!(reference.replayed, 0, "without generations every DOM is walked");
+            assert_eq!(stats.walked + stats.replayed, stats.nodes - 1, "every node, once: {stats:?}");
+            assert_eq!(reference.walked, reference.nodes - 1);
+            stats
+        };
+
+        // 1. The first pass walks everything.
+        let first = step(&results, &gens(1, 1), None);
+        assert_eq!(first.replayed, 0);
+        let in_view = first.nodes - 1 - 4;
+        assert!(in_view > k, "harness: the view's labels are in the tree ({in_view} of {k})");
+
+        // 2. Nothing changed: no node of either DOM is read.
+        let second = step(&results, &gens(1, 1), None);
+        assert_eq!((second.walked, second.replayed), (0, first.nodes - 1));
+        assert!(!second.published);
+
+        // 3. The window is another DOM (its sidebar says something else), the view is not, and
+        //    its host is where it was: the window's 4 nodes are read, the view's none.
+        results.insert(DomId::ROOT_ID, window("styles", 10));
+        let third = step(&results, &gens(2, 1), None);
+        assert_eq!((third.walked, third.replayed), (4, in_view), "k = {k}");
+        assert!(third.published, "the sidebar's new text is published");
+        walked_with_the_window_changed.push(third.walked);
+
+        // 4. The host moved: the view's top-level node is placed against it, the view is
+        //    walked (and the comparison above holds its new place to the walking pass's).
+        results.insert(DomId::ROOT_ID, window("styles", 30));
+        let fourth = step(&results, &gens(3, 1), None);
+        assert_eq!(fourth.replayed, 0, "a view whose host moved is walked");
+
+        // 5. The caret is in the view: its nodes may carry what is not the DOM's. Walked, the
+        //    window (unchanged) replayed.
+        let fifth = step(&results, &gens(3, 1), Some(view_dom));
+        assert_eq!((fifth.walked, fifth.replayed), (in_view, 4));
+        // 6. The caret left: walked once more (what it left behind is rebuilt), 7. then not.
+        let sixth = step(&results, &gens(3, 1), None);
+        assert_eq!((sixth.walked, sixth.replayed), (in_view, 4));
+        let seventh = step(&results, &gens(3, 1), None);
+        assert_eq!((seventh.walked, seventh.replayed), (0, first.nodes - 1));
+
+        // 8. The view is another DOM with the same content: walked, nothing to publish.
+        let eighth = step(&results, &gens(3, 2), None);
+        assert_eq!((eighth.walked, eighth.replayed), (in_view, 4));
+        assert!(!eighth.published);
+    }
+    assert_eq!(
+        walked_with_the_window_changed,
+        vec![4, 4],
+        "the nodes read when the window changes do not grow with the view"
+    );
+}
