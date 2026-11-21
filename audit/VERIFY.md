@@ -245,9 +245,10 @@ and A1's `a_full_repaint_in_bands_is_the_full_walk`). The 7 MP of seven repaints
 scenario saw before the audit were seven incremental frames with the view's rect as damage (7 x 937,260), and
 the same holds today.
 
-What is left on the azul side: the dll lib (`cargo test -p azul-dll --lib --no-fail-fast`, the hit and event
-tests in it) and `headless_lifecycle` on the tip with the three commits; then the tip's hash to the
-coordinator, who pushes. Then the editor (m4p worktree, `audit/PIN_PASS.md` section 9 has its state): the pin
+dll lib on `8d589ae37`: 3864 / 0 / 9 ignored (log `207`); `headless_lifecycle` 8 / 0 (`208`). css, core, the
+Linux / Windows checks and the fork stand from milestones 5 / 6 (the three commits touch `layout/` only).
+THE TIP TO PUSH (the coordinator pushes): the commit of this log line's parent chain, `8d589ae37` + log commits.
+Then the editor (m4p worktree, `audit/PIN_PASS.md` section 9 has its state): the pin
 to the pushed tip, the rebuild, e2e, budgets, the performance matrix three ways, the final plain release
 build. Second-round rows found by the verifier: "an absolutely placed span with text has two hit entries (two
 boxes of one DOM node, the second ranking at its parent)"; "a drag's first move builds two lists (the node's
@@ -689,3 +690,6 @@ The engine's part:
   known TEST race on the process-wide registry generation (milestone 5; alone 3 of 3 again); `tests/all`
   3060 / 0 / 5; the renderer's groups alone (`cpurender::`, `audit_tests::a2_cpu`, `audit_tests::a1`,
   `audit_tests::a10`, `dl_patch`): 923 / 0 / 1 ignored.
+- dll (the hit and event tests live in its lib): `cargo test -p azul-dll --lib --no-fail-fast` 3864 / 0 / 9 ignored
+  (`207`), `cargo test -p azul-dll --test headless_lifecycle` 8 / 0 (`208`), both on `8d589ae37`.
+  Disk after the dll build: 8.9 GB free, 9.6 GB after deleting the test binaries (the rule: before every build).
