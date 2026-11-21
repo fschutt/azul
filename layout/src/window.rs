@@ -20994,6 +20994,14 @@ impl LayoutWindow {
             language_is_rtl: language.is_rtl,
             translate: has_translations
                 .then_some(crate::managers::a11y::A11yTranslate(&translate_key)),
+            // The generation of each DOM is A3-window's
+            // `LayoutWindow::dom_generation` (its commit d305eaae7, not on
+            // this branch). Where the branches meet this becomes
+            // `Some(&generations)` with `generations: BTreeMap<DomId, u64>`
+            // collected from `self.layout_results.keys()` and
+            // `self.dom_generation(..)` before `inputs`; until then every
+            // DOM is walked in every pass, as it always was.
+            dom_generations: None,
         };
         // A refused update keeps the last good state parked/delivered and the
         // next pass resends the whole tree; `last_rejection` records why (the

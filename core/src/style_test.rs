@@ -1844,3 +1844,130 @@ mod autotest_generated {
         assert!(!matches(path, 4, None));
     }
 }
+
+/// Guards of the 2026-11-21 audit, area A3-core (`audit/A3-core.md`).
+#[cfg(all(test, feature = "std"))]
+mod audit_a3_core_tests {
+    use super::*;
+    use crate::{
+        dom::Dom,
+        styled_dom::{convert_dom_into_compact_dom, CompactDom},
+    };
+
+    /// The tree as it was built before the audit: every node that has
+    /// children counts the element siblings before it by walking back from
+    /// itself.
+    fn cascade_tree_by_walking_back(dom: &CompactDom) -> Vec<CascadeInfo> {
+        let hierarchy = dom.node_hierarchy.as_ref();
+        let data = dom.node_data.as_ref();
+        let no_element_from = |from: Option<NodeId>| {
+            let mut next = from;
+            while let Some(sibling) = next {
+                if is_element_sibling(&data[sibling]) {
+                    return false;
+                }
+                next = hierarchy[sibling].next_sibling;
+            }
+            true
+        };
+        let mut nodes = vec![CascadeInfo::default(); hierarchy.len()];
+        for (_, parent) in hierarchy.get_parents_sorted_by_depth() {
+            let count = parent
+                .preceding_siblings(&hierarchy)
+                .filter(|sibling| is_element_sibling(&data[*sibling]))
+                .count();
+            nodes[parent.index()] = CascadeInfo {
+                index_in_parent: u32::try_from(count.saturating_sub(1)).unwrap_or(u32::MAX),
+                is_last_child: no_element_from(hierarchy[parent].next_sibling),
+            };
+            let mut element_idx = 0_u32;
+            for child in parent.children(&hierarchy) {
+                let is_element = is_element_sibling(&data[child]);
+                nodes[child.index()] = CascadeInfo {
+                    index_in_parent: element_idx,
+                    is_last_child: is_element && no_element_from(hierarchy[child].next_sibling),
+                };
+                if is_element {
+                    element_idx += 1;
+                }
+            }
+        }
+        nodes
+    }
+
+    /// The tree [`construct_html_cascade_tree`] builds for `dom`, and the
+    /// sibling links it followed.
+    fn cascade_tree_of(dom: &CompactDom) -> (Vec<CascadeInfo>, u64) {
+        let hierarchy = dom.node_hierarchy.as_ref();
+        let depths = hierarchy.get_parents_sorted_by_depth();
+        SIBLING_STEPS.with(|c| c.set(0));
+        let tree = construct_html_cascade_tree(&hierarchy, &depths, &dom.node_data.as_ref());
+        (tree.internal, SIBLING_STEPS.with(core::cell::Cell::get))
+    }
+
+    /// `k` labels (a span around its text) under one node: every label has a
+    /// child, as the labels of a map view have.
+    fn flat_labels(k: usize) -> CompactDom {
+        let mut layer = Dom::create_div();
+        for i in 0..k {
+            layer = layer.with_child(Dom::create_span_with_text(format!("label {i}")));
+        }
+        convert_dom_into_compact_dom(Dom::create_body().with_child(layer))
+    }
+
+    /// A3-core-02: a node with k children that have children of their own
+    /// was walked k^2 / 2 times (each such child counted its earlier
+    /// siblings by walking back). The sibling links followed grow with the
+    /// tree now.
+    #[test]
+    fn a_parent_of_many_parents_is_walked_once() {
+        let (_, small) = cascade_tree_of(&flat_labels(500));
+        let (_, large) = cascade_tree_of(&flat_labels(2_000));
+        assert!(small >= 500, "harness: the siblings were walked ({small})");
+        assert!(
+            large <= small * 5,
+            "four times the labels followed {large} sibling links for {small}: more than linear"
+        );
+    }
+
+    /// A3-core-02: the positions are the ones the walk back from every
+    /// parent found - text between elements, text first and last, nested
+    /// parents, a lone child, many labels under one node.
+    #[test]
+    fn the_cascade_tree_is_the_one_the_walk_back_built() {
+        let text = |t: &str| Dom::create_text_do_not_use_without_block_level_wrapper(t);
+        let mixed = Dom::create_body()
+            .with_child(text("first"))
+            .with_child(Dom::create_div().with_child(Dom::create_span_with_text("a")))
+            .with_child(text("between"))
+            .with_child(
+                Dom::create_div()
+                    .with_child(Dom::create_div().with_child(Dom::create_div()))
+                    .with_child(text("x"))
+                    .with_child(Dom::create_span_with_text("b"))
+                    .with_child(Dom::create_div()),
+            )
+            .with_child(Dom::create_span_with_text("c"))
+            .with_child(text("last"));
+        let doms = [
+            convert_dom_into_compact_dom(mixed),
+            convert_dom_into_compact_dom(Dom::create_body()),
+            convert_dom_into_compact_dom(Dom::create_body().with_child(Dom::create_div())),
+            flat_labels(1),
+            flat_labels(130),
+        ];
+        for dom in &doms {
+            let (tree, _) = cascade_tree_of(dom);
+            assert_eq!(tree, cascade_tree_by_walking_back(dom));
+        }
+        // And the answer itself, for the labels: the i-th label is the i-th
+        // element child, the last one the last child.
+        let (labels, _) = cascade_tree_of(&doms[4]);
+        for i in 0..130 {
+            // body 0, layer 1, label i at 2 + 2 i, its text after it.
+            let label = labels[2 + 2 * i];
+            assert_eq!(label.index_in_parent as usize, i);
+            assert_eq!(label.is_last_child, i == 129);
+        }
+    }
+}

@@ -291,13 +291,10 @@ pub(crate) fn get_border_info<T: ParsedFontTrait>(
         let bbc = make_color(cc.get_border_bottom_color_raw(idx));
         let blc = make_color(cc.get_border_left_color_raw(idx));
 
-        // Border widths from i16 × 10
-        let decode_width = |raw: i16| -> f32 {
-            if raw >= azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
-                0.0 // sentinel → fall back to 0
-            } else {
-                f32::from(raw) / 10.0
-            }
+        // Border widths from the compact slot (thousandths of a px);
+        // a sentinel → fall back to 0
+        let decode_width = |raw: azul_css::compact_cache::PxSlot| -> f32 {
+            azul_css::compact_cache::decode_px_slot(raw).unwrap_or(0.0)
         };
 
         let btw = decode_width(cc.get_border_top_width_raw(idx));
