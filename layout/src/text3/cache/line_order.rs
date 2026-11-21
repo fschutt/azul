@@ -75,6 +75,32 @@ impl LogicalLine {
     #[must_use]
     pub fn into_visual(self, base: BidiDirection) -> VisualLine {
         let paragraph = BidiLevel::paragraph(base).level();
+        // Rule L2 reverses runs from the highest level down to the lowest
+        // odd one: when the highest level is below the lowest odd one (every
+        // line of a left-to-right paragraph without right-to-left text, and
+        // any line whose items are all at one even level) it reverses
+        // nothing, and the visual order is the logical one. The levels' range
+        // is found in one pass, by the L1 rule below, without the four
+        // vectors the reordering takes - once per line of every paragraph.
+        let mut range: Option<(u8, u8)> = None;
+        let mut ends_a_segment = true;
+        for item in self.0.iter().rev() {
+            let level = if matches!(item, ShapedItem::Tab { .. } | ShapedItem::Break { .. }) {
+                ends_a_segment = true;
+                paragraph
+            } else if ends_a_segment && is_bidi_white_space(item) {
+                paragraph
+            } else {
+                ends_a_segment = false;
+                item.bidi_level().map_or(paragraph, |level| level.level())
+            };
+            range = Some(range.map_or((level, level), |(low, high)| {
+                (low.min(level), high.max(level))
+            }));
+        }
+        if range.is_none_or(|(lowest, highest)| highest < (lowest | 1)) {
+            return VisualLine(self.0);
+        }
         let mut levels: Vec<u8> = self
             .0
             .iter()
@@ -378,5 +404,86 @@ mod tests {
         assert_eq!(super::visual_order_of_pieces("12 34", &[0, 3], None), [0, 1]);
         // a piece past the end of the text is at the paragraph's level
         assert_eq!(super::visual_order_of_pieces("ab", &[0, 5], None), [0, 1]);
+    }
+}
+
+/// Guards of the 2026-11-21 audit, area A8 (`audit/A8.md`).
+#[cfg(test)]
+mod audit_a8_tests {
+    use super::*;
+
+    /// `LogicalLine::into_visual` before A8-19, kept as the reference.
+    fn old_into_visual(line: LogicalLine, base: BidiDirection) -> VisualLine {
+        let paragraph = BidiLevel::paragraph(base).level();
+        let mut levels: Vec<u8> = line
+            .0
+            .iter()
+            .map(|item| item.bidi_level().map_or(paragraph, |level| level.level()))
+            .collect();
+        let mut ends_a_segment = true;
+        for (item, level) in line.0.iter().zip(levels.iter_mut()).rev() {
+            if matches!(item, ShapedItem::Tab { .. } | ShapedItem::Break { .. }) {
+                *level = paragraph;
+                ends_a_segment = true;
+            } else if ends_a_segment && is_bidi_white_space(item) {
+                *level = paragraph;
+            } else {
+                ends_a_segment = false;
+            }
+        }
+        let mut items: Vec<Option<ShapedItem>> = line.0.into_iter().map(Some).collect();
+        VisualLine(
+            visual_order(&levels)
+                .into_iter()
+                .filter_map(|index| items[index].take())
+                .collect(),
+        )
+    }
+
+    /// A8-19: every line is put in the visual order it was put in before -
+    /// lines that reorder nothing (all at level 0, all at one even level, a
+    /// right-to-left paragraph's left-to-right text) through the new early
+    /// return, the others through the reordering - for both paragraph
+    /// directions, with trailing and inner white space.
+    /// Mutation: `highest < (lowest | 1)` -> `highest <= (lowest | 1)` (a line
+    /// at levels 0 and 1 kept in logical order) fails it.
+    #[test]
+    fn a_line_is_put_in_the_visual_order_it_was_put_in_before() {
+        let texts = ["Hauptstrasse", "Am Neckar 12 ", " a b  c ", "one-two three", "x"];
+        let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut next = |n: u64| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state % n) as u8
+        };
+        for text in texts {
+            let shaped = super::super::break_opportunities::audit_a8_tests::shaped(text);
+            for base in [BidiDirection::Ltr, BidiDirection::Rtl] {
+                for pattern in 0..8 {
+                    let mut items = shaped.clone();
+                    for (i, item) in items.iter_mut().enumerate() {
+                        if let ShapedItem::Cluster(cluster) = item {
+                            let level = match pattern {
+                                0 => 0,
+                                1 => 1,
+                                2 => 2,
+                                3 => if i % 2 == 0 { 0 } else { 2 },
+                                4 => if i < 3 { 1 } else { 2 },
+                                _ => next(4),
+                            };
+                            cluster.bidi_level = BidiLevel::new(level);
+                        }
+                    }
+                    let line = LogicalLine::new(items);
+                    assert_eq!(
+                        line.clone().into_visual(base),
+                        old_into_visual(line, base),
+                        "{text:?} {base:?} pattern {pattern}"
+                    );
+                }
+            }
+        }
+        assert_eq!(LogicalLine::default().into_visual(BidiDirection::Ltr), VisualLine::default());
     }
 }

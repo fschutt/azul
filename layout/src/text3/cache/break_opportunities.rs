@@ -612,7 +612,7 @@ impl<'a> BreakCursor<'a> {
 
 /// Guards of the 2026-11-21 audit, area A8 (`audit/A8.md`).
 #[cfg(test)]
-mod audit_a8_tests {
+pub(super) mod audit_a8_tests {
     use azul_css::props::basic::FontRef;
 
     use super::*;
@@ -639,8 +639,8 @@ mod audit_a8_tests {
         unit
     }
 
-    /// The shaped items of `text` in the mock font.
-    fn shaped(text: &str) -> Vec<ShapedItem> {
+    /// The shaped items of `text` in the mock font (also `line_order`'s tests).
+    pub(crate) fn shaped(text: &str) -> Vec<ShapedItem> {
         let fm: FontManager<FontRef> =
             FontManager::new(FcFontCache::default()).expect("a font manager");
         let selectors = vec![FontSelector {
