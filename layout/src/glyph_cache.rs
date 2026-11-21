@@ -7,7 +7,7 @@
 //!    expensive path→cells conversion on every frame. Cells are computed at position (0,0) and
 //!    offset at render time.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, hash::BuildHasherDefault};
 
 use agg_rust::{
     basics::{VertexD, VertexSource, PATH_CMD_STOP},
@@ -16,6 +16,14 @@ use agg_rust::{
 };
 
 use crate::font::parsed::{build_glyph_path, OwnedGlyph, ParsedFont};
+
+/// The cache's maps. Every glyph of every text run looks up a path and a cell
+/// set (and a tile on the pre-blended path) on every repaint: tens of
+/// thousands of lookups a frame for a map's labels. The keys are a few small
+/// integers compared in full by `Eq`, so the hash only spreads them over the
+/// buckets: `std`'s `SipHash` (built for untrusted keys) cost more than the
+/// rest of a hit.
+type FastMap<K, V> = HashMap<K, V, BuildHasherDefault<azul_core::hash::FastHasher>>;
 
 /// A `VertexSource` view over an already-built slice of path vertices.
 ///
@@ -154,18 +162,21 @@ const MAX_CELL_ENTRIES: usize = 8192;
 /// entries are dropped — and they are dropped one map at a time, never
 /// all of them.
 pub struct GlyphCache {
-    paths: HashMap<GlyphPathKey, Option<(PathStorage, bool)>>,
+    paths: FastMap<GlyphPathKey, Option<(PathStorage, bool)>>,
     /// Previous generation, see the type docs.
-    paths_prev: HashMap<GlyphPathKey, Option<(PathStorage, bool)>>,
-    cells: HashMap<GlyphCellKey, Option<CachedCells>>,
+    paths_prev: FastMap<GlyphPathKey, Option<(PathStorage, bool)>>,
+    cells: FastMap<GlyphCellKey, Option<CachedCells>>,
     /// Previous generation, see the type docs.
-    cells_prev: HashMap<GlyphCellKey, Option<CachedCells>>,
+    cells_prev: FastMap<GlyphCellKey, Option<CachedCells>>,
     /// Pre-blended LCD tiles (uniform-background fast path). `None` entry =
     /// glyph has no cells. Flat cap with full drop — see `MAX_TILE_ENTRIES`.
-    lcd_tiles: HashMap<LcdTileKey, Option<LcdGlyphTile>>,
+    lcd_tiles: FastMap<LcdTileKey, Option<LcdGlyphTile>>,
     /// LCD stripe order of the panel this cache's window is on.
     lcd_subpixel_order: LcdSubpixelOrder,
     text_aa: crate::cpurender::TextAaSettings,
+    /// How many cell sets this cache has had to build (found in neither
+    /// generation): what a repaint of text drawn before must leave unchanged.
+    cells_built: u64,
 }
 
 impl core::fmt::Debug for GlyphCache {
@@ -223,14 +234,24 @@ impl GlyphCache {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            paths: HashMap::new(),
-            paths_prev: HashMap::new(),
-            cells: HashMap::new(),
-            cells_prev: HashMap::new(),
-            lcd_tiles: HashMap::new(),
+            paths: FastMap::default(),
+            paths_prev: FastMap::default(),
+            cells: FastMap::default(),
+            cells_prev: FastMap::default(),
+            lcd_tiles: FastMap::default(),
             lcd_subpixel_order: LcdSubpixelOrder::Rgb,
             text_aa: crate::cpurender::TextAaSettings::default(),
+            cells_built: 0,
         }
+    }
+
+    /// How many cell sets this cache has built since it was made: a glyph,
+    /// size and sub-pixel step drawn for the first time (or again after its
+    /// entry aged out of both generations). A repaint of text whose cells
+    /// are kept adds nothing to it.
+    #[must_use]
+    pub const fn cells_built(&self) -> u64 {
+        self.cells_built
     }
 
     /// The panel stripe order LCD text is blended for.
@@ -341,18 +362,20 @@ impl GlyphCache {
         })
     }
 
-    /// Promote `key` from the previous cell generation if it is there, and
-    /// otherwise rotate when the young map is full. Mirrors what
-    /// `get_or_build` does inline for paths.
-    fn promote_or_rotate_cells(&mut self, key: &GlyphCellKey) {
-        if self.cells.contains_key(key) {
-            return;
-        }
+    /// For a `key` the young cell map does NOT hold: promote it from the
+    /// previous generation if it is there (`true`: nothing to build), and
+    /// otherwise rotate when the young map is full (`false`: the caller builds
+    /// it). Mirrors what `get_or_build` does inline for paths. The caller has
+    /// already looked in the young map, so a hit costs that one lookup.
+    fn promote_or_rotate_cells(&mut self, key: &GlyphCellKey) -> bool {
         if let Some(v) = self.cells_prev.remove(key) {
             self.cells.insert(*key, v);
-        } else if self.cells.len() >= MAX_CELL_ENTRIES {
+            return true;
+        }
+        if self.cells.len() >= MAX_CELL_ENTRIES {
             self.cells_prev = core::mem::take(&mut self.cells);
         }
+        false
     }
 
     /// Drop the previous generation of both caches.
@@ -363,8 +386,8 @@ impl GlyphCache {
     /// bounds the cache, so this is an opportunity to return memory early,
     /// not a correctness requirement.
     pub fn gc(&mut self) {
-        self.paths_prev = HashMap::new();
-        self.cells_prev = HashMap::new();
+        self.paths_prev = FastMap::default();
+        self.cells_prev = FastMap::default();
     }
 
     /// Get cached rasterizer cells for a glyph, or build them from the path.
@@ -492,8 +515,8 @@ impl GlyphCache {
             glyph_y.floor() as i32
         };
 
-        self.promote_or_rotate_cells(&cell_key);
-        if !self.cells.contains_key(&cell_key) {
+        if !self.cells.contains_key(&cell_key) && !self.promote_or_rotate_cells(&cell_key) {
+            self.cells_built += 1;
             // Build cells from cached path
             let path_key = GlyphPathKey {
                 font_hash,
@@ -666,8 +689,8 @@ impl GlyphCache {
             embolden_64,
         };
 
-        self.promote_or_rotate_cells(&cell_key);
-        if !self.cells.contains_key(&cell_key) {
+        if !self.cells.contains_key(&cell_key) && !self.promote_or_rotate_cells(&cell_key) {
+            self.cells_built += 1;
             let path_key = GlyphPathKey {
                 font_hash,
                 glyph_id,
@@ -2028,5 +2051,64 @@ impl GlyphCache {
         };
         self.lcd_tiles.insert(key, Some(tile.clone()));
         Some((tile, int_x, int_y))
+    }
+}
+
+/// Guards of the 2026-11-21 audit (area A8, `audit/A8.md`).
+#[cfg(test)]
+mod audit_a8_tests {
+    use super::*;
+
+    /// One glyph id at `n` fonts and the four quarter-pixel steps, looked up
+    /// on both paths (grayscale and LCD): `2 * n` distinct cell keys.
+    fn look_up_all(cache: &mut GlyphCache, n: u64) {
+        for font in 0..n {
+            #[allow(clippy::cast_precision_loss)] // 0..4
+            let x = (font % 4) as f32 * 0.25;
+            let _ = cache.get_or_build_cells(font, 3, 16, x, 0.0, 1.0, false, 1.0);
+            let _ = cache.get_or_build_cells_lcd(font, 3, 16, x, 0.0, 1.0, false, 1.0);
+        }
+    }
+
+    /// A8-02: a repaint of text whose cells are kept builds no cells. No path
+    /// is cached here, so every first lookup is a (negative-cached) build -
+    /// the branch a real miss takes - and every later one must find it.
+    /// Mutant: drop `!self.cells.contains_key(&cell_key) &&` from either cell
+    /// lookup and the second pass builds again.
+    #[test]
+    fn a_repaint_of_kept_cells_builds_none() {
+        let mut cache = GlyphCache::new();
+        look_up_all(&mut cache, 64);
+        assert_eq!(cache.cells_built(), 128, "64 keys on each path, each built once");
+        assert_eq!(cache.cells_len(), 128);
+        for _ in 0..3 {
+            look_up_all(&mut cache, 64);
+        }
+        assert_eq!(cache.cells_built(), 128, "a repaint of kept cells must build none");
+        assert_eq!(cache.cells_len(), 128);
+    }
+
+    /// A8-02: an entry the rotation moved to the previous generation is
+    /// promoted, not built again; one `gc` dropped from both is built again.
+    /// Mutant: make `promote_or_rotate_cells` return `false` after promoting
+    /// and the promoted keys count as built.
+    #[test]
+    fn an_aged_cell_entry_is_promoted_not_rebuilt() {
+        let mut cache = GlyphCache::new();
+        for i in 0..MAX_CELL_ENTRIES as u64 {
+            let _ = cache.get_or_build_cells(i, 0, 16, 0.0, 0.0, 1.0, false, 1.0);
+        }
+        // One past the limit: everything so far becomes the previous generation.
+        let _ = cache.get_or_build_cells(u64::MAX, 0, 16, 0.0, 0.0, 1.0, false, 1.0);
+        let built = cache.cells_built();
+        assert_eq!(built, MAX_CELL_ENTRIES as u64 + 1);
+        for i in 0..16u64 {
+            let _ = cache.get_or_build_cells(i, 0, 16, 0.0, 0.0, 1.0, false, 1.0);
+        }
+        assert_eq!(cache.cells_built(), built, "found in the previous generation: promoted");
+        assert_eq!(cache.cells_len(), MAX_CELL_ENTRIES + 1, "a promotion moves, it does not copy");
+        cache.gc();
+        let _ = cache.get_or_build_cells(100, 0, 16, 0.0, 0.0, 1.0, false, 1.0);
+        assert_eq!(cache.cells_built(), built + 1, "gone from both generations: built again");
     }
 }
