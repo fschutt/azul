@@ -21,6 +21,7 @@ use std::hash::{Hash, Hasher};
 
 use azul_core::{geom::LogicalRect, resources::ImageRef};
 
+#[cfg(feature = "cpurender")]
 use crate::image_memo::ImageMemo;
 
 /// At most this many masks ...
@@ -53,15 +54,18 @@ struct Key {
     outline: u64,
 }
 
-/// The SVG masks of one layout cache, by what they are drawn from.
+/// The SVG masks of one layout cache, by what they are drawn from. Holds nothing in a build
+/// without the `cpurender` feature, which draws no mask.
 #[derive(Debug)]
 pub struct SvgMaskMemo {
+    #[cfg(feature = "cpurender")]
     memo: ImageMemo<Key, ImageRef>,
 }
 
 impl Default for SvgMaskMemo {
     fn default() -> Self {
         Self {
+            #[cfg(feature = "cpurender")]
             memo: ImageMemo::new(MAX_ENTRIES, MAX_BYTES),
         }
     }
@@ -112,6 +116,7 @@ fn path_hash(path: &azul_core::svg::SvgMultiPolygon) -> u64 {
     h.finish()
 }
 
+#[cfg(feature = "cpurender")]
 impl SvgMaskMemo {
     /// The mask of `kind` for these inputs: the memo's, else `rasterise()`'s
     /// (remembered when it drew one).
