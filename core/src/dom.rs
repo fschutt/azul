@@ -31,8 +31,8 @@ use azul_css::{
 pub use crate::a11y::*;
 use crate::{
     callbacks::{
-        CoreCallback, CoreCallbackData, CoreCallbackDataVec, CoreCallbackType, VirtualViewCallback,
-        VirtualViewCallbackType,
+        CoreCallback, CoreCallbackData, CoreCallbackDataVec, CoreCallbackType,
+        TransientContentCallback, VirtualViewCallback, VirtualViewCallbackType,
     },
     geom::LogicalPosition,
     id::{NodeDataContainer, NodeDataContainerRef, NodeDataContainerRefMut},
@@ -1396,6 +1396,24 @@ impl crate::refany::RefAnyHolder for VirtualViewNode {
     }
 }
 
+/// What builds the content of a `<transient-window>` node when the engine
+/// shows the window (A3-solver-34): the callback and the data it is called
+/// with. See [`NodeData::set_transient_content`].
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct TransientContentNode {
+    /// The callback that returns the window's content.
+    pub callback: TransientContentCallback,
+    /// The data the callback is called with.
+    pub refany: RefAny,
+}
+
+impl crate::refany::RefAnyHolder for TransientContentNode {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        visit(&mut self.refany);
+    }
+}
+
 /// A node holds its `RefAny`s in its fields, each reached through its row of
 /// the table of a node's fields (`crate::layout_inputs::NodeField`).
 impl crate::refany::RefAnyHolder for NodeData {
@@ -2473,6 +2491,9 @@ pub struct NodeDataExt {
     pub attributes: AttributeTypeVec,
     /// `VirtualView` callback data, only set when `node_type` == `NodeType::VirtualView`.
     pub virtual_view: Option<VirtualViewNode>,
+    /// What builds the content of a `<transient-window>` node when the engine
+    /// shows it ([`NodeData::set_transient_content`]).
+    pub transient_content: Option<TransientContentNode>,
     /// `data-*` attributes for this node, useful to store UI-related data on the node itself.
     pub dataset: Option<RefAny>,
     /// SVG-specific data or raster clip mask for this DOM node.
@@ -2540,7 +2561,7 @@ impl NodeDataExt {
         &self,
     ) -> (
         &AttributeTypeVec,
-        &Option<VirtualViewNode>,
+        (&Option<VirtualViewNode>, &Option<TransientContentNode>),
         &Option<RefAny>,
         &Option<SvgNodeData>,
         &Option<Box<Menu>>,
@@ -2553,7 +2574,7 @@ impl NodeDataExt {
     ) {
         (
             &self.attributes,
-            &self.virtual_view,
+            (&self.virtual_view, &self.transient_content),
             &self.dataset,
             &self.svg_data,
             &self.menu_bar,
@@ -2575,6 +2596,7 @@ impl NodeDataExt {
     fn is_identity_empty(&self) -> bool {
         self.attributes.as_ref().is_empty()
             && self.virtual_view.is_none()
+            && self.transient_content.is_none()
             && self.dataset.is_none()
             && self.svg_data.is_none()
             && self.menu_bar.is_none()
@@ -3981,6 +4003,56 @@ impl NodeData {
         self.extra
             .as_ref()
             .and_then(|ext| ext.dataset_merge_callback.clone())
+    }
+
+    /// Lets the engine ASK for the content of this `<transient-window>` node
+    /// when it shows the window, instead of taking it from the node's
+    /// children: `callback` is called with `data` and returns the content,
+    /// which becomes the last child of the window's root. A popup that is
+    /// closed then costs its DOM one node - not its whole panel, built,
+    /// styled and reconciled on every rebuild of the DOM around it.
+    ///
+    /// The callback runs each time the engine takes the window's content
+    /// from the DOM: when the window opens and is measured, and after every
+    /// rebuild of the DOM around it while it is open
+    /// (`crate::transient::extract_subtree_as_dom`). A dataset merge that
+    /// keeps another allocation than `data` repoints `data` like every other
+    /// `RefAny` of the node, so the callback is called with the widget's kept
+    /// state.
+    ///
+    /// The content is styled by what it carries itself - inline styles and
+    /// the sheets of `with_css` on its own nodes - and inherits from the
+    /// transient node. Rules of a stylesheet around the node that select
+    /// nodes of the content do not reach it: it is not part of that DOM.
+    /// For a popup window (`TransientDock::Popup`, torn off or not); a window
+    /// docked inline lays out the node's children in place and never asks.
+    /// On a node of another type it is carried and never called.
+    #[inline]
+    pub fn set_transient_content<C: Into<TransientContentCallback>>(
+        &mut self,
+        data: RefAny,
+        callback: C,
+    ) {
+        self.extra
+            .get_or_insert_with(|| Box::new(NodeDataExt::default()))
+            .transient_content = Some(TransientContentNode {
+            callback: callback.into(),
+            refany: data,
+        });
+    }
+
+    /// What builds this node's transient content, if anything
+    /// ([`Self::set_transient_content`]).
+    #[inline]
+    #[must_use]
+    pub fn get_transient_content(&self) -> Option<&TransientContentNode> {
+        self.extra.as_ref()?.transient_content.as_ref()
+    }
+
+    /// Takes off what builds this node's transient content.
+    #[inline]
+    pub fn take_transient_content(&mut self) -> Option<TransientContentNode> {
+        self.extra.as_mut()?.transient_content.take()
     }
 
     /// Sets the component origin for this node.
@@ -7803,6 +7875,15 @@ impl Dom {
     pub fn set_merge_callback<C: Into<DatasetMergeCallback>>(&mut self, callback: C) {
         self.root.set_merge_callback(callback);
     }
+    /// Setter form of [`Self::with_transient_content`].
+    #[inline]
+    pub fn set_transient_content<C: Into<TransientContentCallback>>(
+        &mut self,
+        data: RefAny,
+        callback: C,
+    ) {
+        self.root.set_transient_content(data, callback);
+    }
     /// Setter form of [`Self::with_svg_data`].
     #[inline]
     pub fn set_svg_data(&mut self, data: SvgNodeData) {
@@ -7920,6 +8001,21 @@ impl Dom {
     #[must_use]
     pub fn with_merge_callback<C: Into<DatasetMergeCallback>>(mut self, callback: C) -> Self {
         self.root.set_merge_callback(callback);
+        self
+    }
+
+    /// Lets the engine ask for the content of this `<transient-window>` when
+    /// it shows the window, instead of building it with the DOM around it:
+    /// `callback(data)` returns the content. See
+    /// [`NodeData::set_transient_content`].
+    #[inline]
+    #[must_use]
+    pub fn with_transient_content<C: Into<TransientContentCallback>>(
+        mut self,
+        data: RefAny,
+        callback: C,
+    ) -> Self {
+        self.root.set_transient_content(data, callback);
         self
     }
 

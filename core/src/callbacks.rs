@@ -205,6 +205,52 @@ impl VirtualViewCallback {
     }
 }
 
+// -- transient window content callback (A3-solver-34)
+
+/// Builds the content of a `<transient-window>` from the data the node
+/// carries with it (`Dom::with_transient_content`).
+pub type TransientContentCallbackType = extern "C" fn(RefAny) -> Dom;
+
+/// Callback that returns the content of a `<transient-window>` - a popup's
+/// panel - when the engine shows the window, so that a DOM full of closed
+/// popups does not build, style and reconcile the panel of each of them on
+/// every rebuild. See `Dom::with_transient_content`.
+#[repr(C)]
+pub struct TransientContentCallback {
+    pub cb: TransientContentCallbackType,
+    /// For FFI: stores the foreign callable (e.g., `PyFunction`)
+    /// Native Rust code sets this to None
+    pub ctx: OptionRefAny,
+}
+impl_callback!(TransientContentCallback, TransientContentCallbackType);
+
+// Host-invoker plumbing for TransientContentCallback. See `crate::host_invoker`.
+// No argument carries a context: the thunk reads it from the invocation slot
+// `invoke` sets. Without a host to ask, the window shows an empty block.
+crate::impl_managed_callback! {
+    wrapper:        TransientContentCallback,
+    ctx_field:      ctx,
+    data:           data: RefAny,
+    args:           [],
+    return_ty:      Dom,
+    default_ret:    Dom::create_div(),
+    invoker_static: TRANSIENT_CONTENT_CALLBACK_INVOKER,
+    invoker_ty:     AzTransientContentCallbackInvoker,
+    thunk_fn:       az_transient_content_callback_thunk,
+    setter_fn:      AzApp_setTransientContentCallbackInvoker,
+    from_handle_fn: AzTransientContentCallback_createFromHostHandle,
+    from_handle_byref_fn: AzTransientContentCallback_createFromHostHandleByref,
+}
+
+impl TransientContentCallback {
+    pub fn create(cb: TransientContentCallbackType) -> Self {
+        Self {
+            cb,
+            ctx: OptionRefAny::None,
+        }
+    }
+}
+
 // -- caret / selection tween callbacks (system text animations)
 //
 // The framework animates the caret and the selection highlight between their

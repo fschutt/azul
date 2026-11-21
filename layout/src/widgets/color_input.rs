@@ -88,6 +88,9 @@ pub(crate) struct ColorInputLook {
     pub slider_focus: Vec<CssPropertyWithConditions>,
     /// The theme's marker class on the swatch, if it has one.
     pub marker: Option<&'static str>,
+    /// The widget theme this look is: the picker's panel, built when its
+    /// popup is shown ([`picker_content`]), is built in the same one.
+    pub theme: crate::widgets::themes::UiTheme,
 }
 
 // ---- the base: the picker's structure, in every theme ----
@@ -325,7 +328,10 @@ impl ColorInput {
     }
 
     /// Converts this `ColorInput` into a styled [`Dom`]: the swatch, with the
-    /// picker popup attached as its (closed) transient child. The look comes
+    /// picker popup attached as its (closed) transient child. The popup node
+    /// has no child: the picker's panel is built when the engine shows the
+    /// popup ([`picker_content`], A3-solver-34), so an input whose picker is
+    /// closed is two nodes, not its panel's fifty. The look comes
     /// from the theme module (`themes::flat::color_input` /
     /// `themes::flora::color_input`); `None` carries both
     /// looks, each in its `@theme(<name>)` block, and the app theme picks.
@@ -385,9 +391,10 @@ pub(crate) fn build(input: ColorInput, look: &ColorInputLook) -> Dom {
             hsv: Hsv::from_color(color),
             open: false,
             drag: Drag::None,
+            look: look.theme,
+            pin: theme,
+            built_for: azul_core::app_theme::current_theme(),
         });
-
-        let panel = picker_panel(&data, color, look, theme);
 
         // `tearoff`: the grip strip at the top of the panel tears the picker
         // off into a floating palette (a real toplevel) and docks it back.
@@ -408,7 +415,18 @@ pub(crate) fn build(input: ColorInput, look: &ColorInputLook) -> Dom {
             data.clone(),
             Callback::from_ptr(on_picker_dismissed).to_core(),
         );
-        let popup = Dom::create_from_data(transient).with_child(panel);
+        // A3-solver-34: the panel is not built here. Every rebuild of a DOM
+        // with colour inputs built, styled and reconciled the panel of each
+        // of them, open or not (some fifty nodes an input; a node of the
+        // node graph with a colour field carried one). The popup node asks
+        // for it when the engine shows the popup: with the swatch's data,
+        // which the dataset merge keeps (`merge_picker_data`) and the
+        // reconcile repoints on this node as on the swatch.
+        transient.set_transient_content(
+            data.clone(),
+            picker_content as azul_core::callbacks::TransientContentCallbackType,
+        );
+        let popup = Dom::create_from_data(transient);
 
         // A translucent colour shows a checkerboard through it: the board and
         // a colour overlay go in as children, under the popup node. The
@@ -617,6 +635,16 @@ pub struct ColorPickerData {
     hsv: Hsv,
     open: bool,
     drag: Drag,
+    /// The widget theme the input was built in: the look its picker's panel
+    /// is built in when the popup is shown ([`picker_content`]).
+    look: crate::widgets::themes::UiTheme,
+    /// The theme the input is pinned to, if it is: the panel's own controls
+    /// wear it, or follow the app theme with the input.
+    pin: crate::widgets::themes::OptionUiTheme,
+    /// The app theme the input's DOM was built for
+    /// (`azul_core::app_theme::current_theme`): the panel is built for it
+    /// too, outside the layout callback that built the input.
+    built_for: AzString,
 }
 
 impl ColorPickerData {
@@ -665,6 +693,10 @@ extern "C" fn merge_picker_data(mut new_data: RefAny, mut old_data: RefAny) -> R
             let app_color = new_g.state.inner.color;
             old_g.state.on_value_change = new_g.state.on_value_change.clone();
             old_g.state.title = new_g.state.title.clone();
+            // The look is the new build's: the app may have changed its theme.
+            old_g.look = new_g.look;
+            old_g.pin = new_g.pin;
+            old_g.built_for = new_g.built_for.clone();
             old_g.set_color(app_color);
             true
         } else {
@@ -975,6 +1007,58 @@ fn field_container_style(width_px: isize, grow: bool) -> CssPropertyWithConditio
         CssProperty::const_flex_grow(LayoutFlexGrow::const_new(isize::from(grow))),
     ));
     props.into()
+}
+
+/// The content of the picker's popup, built when the engine shows the popup
+/// (`NodeData::set_transient_content`, A3-solver-34): the panel for the
+/// colour `data` holds, in the look and for the app theme the input was
+/// built with. `data` is the swatch's `ColorPickerData` - after a rebuild the
+/// one the merge kept - and every control of the panel carries it.
+extern "C" fn picker_content(mut data: RefAny) -> Dom {
+    use crate::widgets::themes::UiTheme;
+
+    let (color, look, pin, built_for) = {
+        let Some(picker) = data.downcast_ref::<ColorPickerData>() else {
+            return Dom::create_div();
+        };
+        (
+            picker.color(),
+            picker.look,
+            picker.pin,
+            picker.built_for.clone(),
+        )
+    };
+    // The panel's own controls follow the app theme through
+    // `UiTheme::current`: the one of the build, not of whoever asks.
+    let _built_for = azul_core::app_theme::ThemeScope::enter(built_for);
+    let look = match look {
+        UiTheme::Flat => crate::widgets::themes::flat::color_input_look(),
+        UiTheme::Flora => crate::widgets::themes::flora::color_input_look(),
+    };
+    picker_panel(&data, color, &look, pin)
+}
+
+/// `dom` - a built colour input - with its picker's panel in the popup node,
+/// as the engine shows the popup (`azul_core::transient::extract_subtree_as_dom`
+/// asks the node's content callback): what the tests of the panel read.
+#[cfg(test)]
+pub(crate) fn with_panel(mut dom: Dom) -> Dom {
+    // The popup is the swatch's last child.
+    if let Some(popup) = dom.children.as_mut().last_mut() {
+        if let Some(content) = popup.root.take_transient_content() {
+            popup.add_child(content.callback.invoke(content.refany));
+        }
+    }
+    dom
+}
+
+#[cfg(test)]
+impl ColorInput {
+    /// [`Self::dom`] with the picker's panel in its popup node
+    /// ([`with_panel`]).
+    pub(crate) fn dom_with_panel(self) -> Dom {
+        with_panel(self.dom())
+    }
 }
 
 /// The picker panel that lives inside the popup, in `look`. Its structure -
@@ -2158,7 +2242,7 @@ mod autotest_generated {
     /// two is the real wiring — nothing is re-created by hand, so a mismatch between what
     /// `dom()` stores and what the handler expects cannot hide behind the fixture.
     fn laid_out(color_input: ColorInput) -> (StyledDom, RefAny) {
-        let dom = color_input.dom();
+        let dom = color_input.dom_with_panel();
         let state = dom.root.callbacks.as_ref()[0].refany.clone();
         (StyledDom::create_from_dom(dom), state)
     }
@@ -2779,7 +2863,7 @@ mod autotest_generated {
     #[test]
     fn dom_is_a_div_with_the_native_class_and_a_closed_popup_child() {
         for c in SAMPLE_COLORS {
-            let dom = ColorInput::create(c).dom();
+            let dom = ColorInput::create(c).dom_with_panel();
             assert!(
                 matches!(dom.root.get_node_type(), NodeType::Div),
                 "{c:?}: the color input is not a div",
@@ -2837,7 +2921,7 @@ mod autotest_generated {
         // background appended *after* it (so a user override earlier in the table can't win).
         for c in SAMPLE_COLORS {
             let base = properties(&ColorInput::create(c).resolved_style());
-            let rendered = inline_properties(&ColorInput::create(c).dom());
+            let rendered = inline_properties(&ColorInput::create(c).dom_with_panel());
 
             // The colour, plus — for a translucent swatch only — the three
             // props that let the checkerboard sit under it (relative
@@ -2867,9 +2951,9 @@ mod autotest_generated {
     fn dom_round_trips_every_channel_of_every_sample_color() {
         for c in SAMPLE_COLORS {
             assert_eq!(
-                dom_background(&ColorInput::create(c).dom()),
+                dom_background(&ColorInput::create(c).dom_with_panel()),
                 Some(c),
-                "create({c:?}).dom() does not paint {c:?}",
+                "create({c:?}).dom_with_panel() does not paint {c:?}",
             );
         }
     }
@@ -2879,7 +2963,7 @@ mod autotest_generated {
         for c in SAMPLE_COLORS {
             // At rest: the focus ring is a `:focus` declaration with a night
             // twin of the same property, which is a pair, not a duplicate.
-            let props = crate::widgets::theme_probe::unconditional(&ColorInput::create(c).dom());
+            let props = crate::widgets::theme_probe::unconditional(&ColorInput::create(c).dom_with_panel());
             let backgrounds = props
                 .iter()
                 .filter(|p| matches!(p, CssProperty::BackgroundContent(_)))
@@ -2907,7 +2991,7 @@ mod autotest_generated {
         // `dom()` performs; losing it would leave a background-only, zero-sized node.
         for c in SAMPLE_COLORS {
             let rendered: CssPropertyWithConditionsVec =
-                inline_properties(&ColorInput::create(c).dom())
+                inline_properties(&ColorInput::create(c).dom_with_panel())
                     .into_iter()
                     .map(CssPropertyWithConditions::simple)
                     .collect();
@@ -2927,7 +3011,7 @@ mod autotest_generated {
     #[test]
     fn dom_registers_exactly_one_activation_handler_and_it_is_the_widgets_own() {
         for c in SAMPLE_COLORS {
-            let dom = ColorInput::create(c).dom();
+            let dom = ColorInput::create(c).dom_with_panel();
             let callbacks = dom.root.callbacks.as_ref();
 
             assert_eq!(callbacks.len(), 1, "{c:?}: expected exactly one callback");
@@ -2961,7 +3045,7 @@ mod autotest_generated {
                     RefAny::new(9u32),
                     value_do_nothing as ColorInputOnValueChangeCallbackType,
                 )
-                .dom();
+                .dom_with_panel();
 
             let mut state = dom.root.callbacks.as_ref()[0].refany.clone();
             let picker = state
@@ -2990,7 +3074,7 @@ mod autotest_generated {
     #[test]
     fn dom_of_a_callback_less_color_input_still_registers_the_click_handler() {
         // The handler must always be installed: it is what opens the picker.
-        let dom = ColorInput::create(DEFAULT_COLOR).dom();
+        let dom = ColorInput::create(DEFAULT_COLOR).dom_with_panel();
         assert_eq!(dom.root.callbacks.as_ref().len(), 1);
 
         let mut state = dom.root.callbacks.as_ref()[0].refany.clone();
@@ -3010,7 +3094,7 @@ mod autotest_generated {
             style: OptionCssPropertyWithConditionsVec::Some(CssPropertyWithConditionsVec::new()),
             ..ColorInput::default()
         };
-        let dom = w.dom();
+        let dom = w.dom_with_panel();
         assert_eq!(
             inline_properties(&dom),
             vec![expected_background(DEFAULT_COLOR)],
@@ -3018,7 +3102,7 @@ mod autotest_generated {
         );
 
         // ...and the no-opinion default still gets the real table around it.
-        let dom = ColorInput::default().dom();
+        let dom = ColorInput::default().dom_with_panel();
         assert!(
             inline_properties(&dom).len() > 1,
             "a no-opinion default must resolve its style, not render bare",
@@ -3033,7 +3117,7 @@ mod autotest_generated {
     fn the_rendered_dom_flattens_with_exactly_one_transient_window() {
         // `Dom::estimated_total_children` is a *cached* count; if it under-reports, the
         // flatten under-allocates its arenas. The picker panel is a real subtree.
-        let styled = StyledDom::create_from_dom(ColorInput::create(SAMPLE_COLORS[6]).dom());
+        let styled = StyledDom::create_from_dom(ColorInput::create(SAMPLE_COLORS[6]).dom_with_panel());
         let nodes = styled.node_data.as_ref();
         assert!(
             nodes.len() > 10,
@@ -3627,7 +3711,7 @@ mod autotest_generated {
             b: 0,
             a: 255,
         })
-        .dom();
+        .dom_with_panel();
         let old = old_dom.root.get_dataset().cloned().unwrap();
         {
             let mut o = old.clone();
@@ -3649,7 +3733,7 @@ mod autotest_generated {
             a: 255,
         })
         .with_on_value_change(probe, record_value as ColorInputOnValueChangeCallbackType)
-        .dom();
+        .dom_with_panel();
         let new = new_dom.root.get_dataset().cloned().unwrap();
         let mut merged = merge_picker_data(new, old.clone());
         let d = merged.downcast_ref::<ColorPickerData>().unwrap();
@@ -3670,7 +3754,7 @@ mod autotest_generated {
             b: 0,
             a: 255,
         })
-        .dom();
+        .dom_with_panel();
         let new = new_dom.root.get_dataset().cloned().unwrap();
         let mut merged = merge_picker_data(new, old);
         let d = merged.downcast_ref::<ColorPickerData>().unwrap();
@@ -3685,7 +3769,7 @@ mod autotest_generated {
         );
         assert_eq!(d.hsv.h, 120.0);
         // A foreign old payload is not merged into.
-        let new_dom = ColorInput::create(DEFAULT_COLOR).dom();
+        let new_dom = ColorInput::create(DEFAULT_COLOR).dom_with_panel();
         let new = new_dom.root.get_dataset().cloned().unwrap();
         let mut out = merge_picker_data(new, RefAny::new(7u8));
         assert!(out.downcast_ref::<ColorPickerData>().is_some());
@@ -3807,7 +3891,7 @@ mod autotest_generated {
     /// The rendered widget, the state its controls share, and the node of
     /// the picker control carrying `class` (plane / hue / alpha).
     fn picker_control(color: ColorU, class: &str) -> (StyledDom, RefAny, DomNodeId) {
-        let dom = ColorInput::create(color).dom();
+        let dom = ColorInput::create(color).dom_with_panel();
         let state = dom.root.callbacks.as_ref()[0].refany.clone();
         let styled = StyledDom::create_from_dom(dom);
         let idx = styled
@@ -4074,7 +4158,7 @@ mod theme_tests {
     };
 
     fn input(theme: UiTheme) -> Dom {
-        ColorInput::create(RED).with_theme(theme).dom()
+        ColorInput::create(RED).with_theme(theme).dom_with_panel()
     }
 
     /// The picker panel inside the swatch's popup (the popup is the swatch's
@@ -4227,8 +4311,8 @@ mod theme_tests {
         let plain = ColorInput::create(RED);
         assert_eq!(plain.theme, OptionUiTheme::None, "no opinion by default");
         assert_eq!(
-            declarations(&plain.clone().dom()),
-            declarations(&plain.with_theme(UiTheme::Flat).dom())
+            declarations(&plain.clone().dom_with_panel()),
+            declarations(&plain.with_theme(UiTheme::Flat).dom_with_panel())
         );
     }
 
@@ -4366,8 +4450,8 @@ mod app_theme_tests {
         };
         checks::assert_follows_the_app_theme(
             "color_input",
-            || ColorInput::create(color).dom(),
-            |t: UiTheme| ColorInput::create(color).with_theme(t).dom(),
+            || ColorInput::create(color).dom_with_panel(),
+            |t: UiTheme| ColorInput::create(color).with_theme(t).dom_with_panel(),
         );
     }
 
@@ -4416,7 +4500,7 @@ mod app_theme_tests {
         let translucent = azul_css::props::basic::ColorU { a: 128, ..opaque };
         for t in checks::BOTH {
             for color in [opaque, translucent] {
-                let dom = checks::under(t, || ColorInput::create(color).dom());
+                let dom = checks::under(t, || ColorInput::create(color).dom_with_panel());
                 assert_structure_is_shared(
                     &format!("color_input alpha {} built for {}", color.a, t.name()),
                     &own_nodes(dom),
@@ -4594,7 +4678,8 @@ mod audit_a3_solver_tests {
         }
     }
 
-    /// The closed picker every colour input carries: its alpha bar and its
+    /// The picker's panel (as its popup shows it, `dom_with_panel`; since
+    /// A3-solver-34 a closed input builds none): its alpha bar and its
     /// preview are a checkerboard node each, where they were 96 nodes. (A
     /// process started with `AZ_COLOR_PICKER_CHECKER=cells` builds the cells:
     /// the test then has nothing to say.)
@@ -4615,7 +4700,7 @@ mod audit_a3_solver_tests {
         let cell_divs = |dom: &Dom| {
             with_class(dom, CHECKERBOARD_LIGHT_CLASS) + with_class(dom, CHECKERBOARD_DARK_CLASS)
         };
-        let closed = ColorInput::create(opaque).dom();
+        let closed = ColorInput::create(opaque).dom_with_panel();
         assert_eq!(with_class(&closed, CHECKERBOARD_CLASS), 2, "the alpha bar's and the preview's");
         assert_eq!(cell_divs(&closed), 0);
         let total = nodes(&closed);
@@ -4624,9 +4709,120 @@ mod audit_a3_solver_tests {
             "a closed picker is {total} nodes: more than its alpha bar's cells alone were"
         );
         // A translucent colour: the swatch has a checkerboard of its own.
-        let translucent = ColorInput::create(ColorU { a: 128, ..opaque }).dom();
+        let translucent = ColorInput::create(ColorU { a: 128, ..opaque }).dom_with_panel();
         assert_eq!(with_class(&translucent, CHECKERBOARD_CLASS), 3);
         assert_eq!(cell_divs(&translucent), 0);
         assert_eq!(nodes(&translucent), total + 2, "the swatch's board and the colour over it");
+    }
+
+    /// A3-solver-34. Every colour input of a DOM carried its picker's panel -
+    /// grip, plane, hue and alpha bars, preview, hex field, four channel
+    /// fields: some fifty nodes - whether its picker was open or not, and
+    /// every rebuild built, styled and reconciled all of them. The popup node
+    /// asks for the panel when the engine shows the popup.
+    ///
+    /// Counted: a closed input is 2 nodes, the swatch and the popup node (4
+    /// for a translucent colour: its board and the colour over it), none of
+    /// them of the panel's class; ten inputs are 20 nodes. The engine's own
+    /// extraction of the popup shows the panel, the same nodes the popup of
+    /// a built-in-place panel held.
+    ///
+    /// Mutation: `build` giving the popup its panel as a child again
+    /// (`.with_child(picker_panel(..))`) counts the panel's nodes per input.
+    #[test]
+    fn a_closed_colour_input_builds_no_panel() {
+        let opaque = ColorU {
+            r: 200,
+            g: 60,
+            b: 20,
+            a: 255,
+        };
+        let closed = ColorInput::create(opaque).dom();
+        assert_eq!(nodes(&closed), 2, "the swatch and its popup node");
+        assert_eq!(with_class(&closed, COLOR_PICKER_CLASS), 0);
+        let popup = closed.children.as_ref().last().expect("the popup node");
+        assert!(matches!(popup.root.get_node_type(), NodeType::TransientWindow(_)));
+        assert!(popup.children.as_ref().is_empty(), "a closed popup holds no panel");
+        assert!(
+            popup.root.get_transient_content().is_some(),
+            "the popup asks for its panel when it is shown"
+        );
+        if checkerboard_build() == CheckerboardBuild::OneNode {
+            let translucent = ColorInput::create(ColorU { a: 128, ..opaque }).dom();
+            assert_eq!(nodes(&translucent), 4, "and the swatch's board and the colour over it");
+        }
+        let mut page = Dom::create_body();
+        for _ in 0..10 {
+            page = page.with_child(ColorInput::create(opaque).dom());
+        }
+        assert_eq!(nodes(&page), 1 + 10 * 2, "ten closed inputs");
+
+        // What the engine shows: body 0 > swatch 1 > popup 2.
+        let styled = azul_core::styled_dom::StyledDom::create_from_dom(
+            Dom::create_body().with_child(ColorInput::create(opaque).dom()),
+        );
+        let shown = azul_core::transient::extract_subtree_as_dom(
+            &styled,
+            azul_core::dom::NodeId::new(2),
+        )
+        .expect("the popup's content");
+        assert_eq!(shown.children.as_ref().len(), 1, "the popup's root holds the panel");
+        assert_eq!(with_class(&shown, COLOR_PICKER_CLASS), 1);
+        for part in [
+            COLOR_PICKER_GRIP_CLASS,
+            COLOR_PICKER_PLANE_CLASS,
+            COLOR_PICKER_HUE_CLASS,
+            COLOR_PICKER_ALPHA_CLASS,
+            COLOR_PICKER_EYEDROPPER_CLASS,
+        ] {
+            assert_eq!(with_class(&shown, part), 1, "the panel's {part}");
+        }
+        // The same panel the tests of the panel read (`with_panel`).
+        let in_place = ColorInput::create(opaque).dom_with_panel();
+        let popup = in_place.children.as_ref().last().expect("the popup node");
+        assert_eq!(nodes(&shown), nodes(popup));
+        assert!(nodes(popup) > 20, "harness: the panel is the bulk of an open input");
+    }
+
+    /// A3-solver-34, the state. The panel is built from the data the popup
+    /// node carries, and that is the swatch's dataset - one allocation - so
+    /// what the dataset merge keeps across a rebuild (the hue at black, a
+    /// drag, the open flag) is what the panel's controls carry: the reconcile
+    /// repoints the node's content data with its other `RefAny`s
+    /// (`azul_core::layout_inputs::NodeField::TransientContent`).
+    ///
+    /// Mutation: `build` handing the popup a dataset of its own
+    /// (`RefAny::new(..)` for `data.clone()`) fails the first assertion; a
+    /// `picker_content` that builds from another `RefAny` than the one it is
+    /// given fails the second.
+    #[test]
+    fn the_panel_is_built_from_the_state_the_swatch_keeps() {
+        let dom = ColorInput::create(ColorU {
+            r: 10,
+            g: 200,
+            b: 30,
+            a: 255,
+        })
+        .dom();
+        let dataset = dom.root.get_dataset().expect("the swatch's dataset").clone();
+        let popup = dom.children.as_ref().last().expect("the popup node");
+        let content = popup
+            .root
+            .get_transient_content()
+            .expect("the popup's content callback");
+        assert_eq!(
+            content.refany.sharing_info.ptr, dataset.sharing_info.ptr,
+            "the popup's content is built from the swatch's dataset"
+        );
+        let panel = content.callback.invoke(content.refany.clone());
+        assert_eq!(with_class(&panel, COLOR_PICKER_CLASS), 1);
+        // panel > [grip, plane, ..]: the plane's handlers carry the state.
+        let plane = &panel.children.as_ref()[1];
+        assert_eq!(with_class(plane, COLOR_PICKER_PLANE_CLASS), 1);
+        assert_eq!(
+            plane.root.callbacks.as_ref()[0].refany.sharing_info.ptr,
+            dataset.sharing_info.ptr,
+            "the panel's controls write into the state the swatch keeps"
+        );
     }
 }

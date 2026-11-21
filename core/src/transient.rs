@@ -541,6 +541,15 @@ mod tests {
 ///
 /// Returns `None` if `root` is not a `TransientWindow` or has no subtree to
 /// show, so a caller cannot open a window onto nothing.
+///
+/// A node that carries a content callback
+/// (`NodeData::set_transient_content`) is ASKED for its content here
+/// (A3-solver-34): the callback is called with the node's data and the `Dom`
+/// it returns becomes the last child of the window's root - after the node's
+/// own children, if it has any. The callback is not carried into the copy.
+/// Both callers go through this: the measure of a window about to open
+/// (`LayoutWindow::layout_transient_content`) and the shell's sync after
+/// every layout of the parent while the window is open.
 #[must_use]
 pub fn extract_subtree_as_dom(
     styled_dom: &crate::styled_dom::StyledDom,
@@ -559,7 +568,168 @@ pub fn extract_subtree_as_dom(
     let mut dom = build_subtree(styled_dom, root, true, 0)?;
     // The container inside its own window is just a block.
     dom.root.set_node_type(NodeType::Div);
+    // Content the node builds when it is shown: asked for now.
+    if let Some(content) = dom.root.take_transient_content() {
+        dom.add_child(content.callback.invoke(content.refany));
+    }
     Some(dom)
+}
+
+/// A3-solver-34: the content callback of a transient node.
+#[cfg(test)]
+mod audit_a3_solver_tests {
+    use alloc::{
+        string::{String, ToString},
+        vec::Vec,
+    };
+
+    use crate::{
+        dom::{Dom, IdOrClass, NodeData, NodeType},
+        id::NodeId,
+        refany::RefAny,
+        styled_dom::StyledDom,
+    };
+
+    use super::{extract_subtree_as_dom, TransientWindowConfig};
+
+    /// How often the content was asked for, and what it is asked to say.
+    struct Panel {
+        asked: usize,
+        label: &'static str,
+    }
+
+    /// The content: a box of the class the data names, holding one box.
+    extern "C" fn panel(mut data: RefAny) -> Dom {
+        let label = match data.downcast_mut::<Panel>() {
+            Some(mut state) => {
+                state.asked += 1;
+                state.label
+            }
+            None => "no-data",
+        };
+        Dom::create_div()
+            .with_ids_and_classes(vec![IdOrClass::Class(label.into())].into())
+            .with_child(Dom::create_div())
+    }
+
+    fn classes_of(dom: &Dom) -> Vec<String> {
+        dom.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .filter_map(|c| match c {
+                IdOrClass::Class(name) => Some(name.as_str().to_string()),
+                IdOrClass::Id(_) => None,
+            })
+            .collect()
+    }
+
+    /// A closed popup that builds its content when shown is ONE node of the
+    /// DOM around it; the window's content is what the callback returns for
+    /// the node's data, asked once per extraction, after the node's own
+    /// children. A node without a callback is its children, as before.
+    ///
+    /// Mutation: the call taken out of `extract_subtree_as_dom` leaves the
+    /// window empty (0 children, never asked).
+    #[test]
+    fn a_transient_node_is_asked_for_its_content_when_its_window_is_shown() {
+        let data = RefAny::new(Panel {
+            asked: 0,
+            label: "lazy-panel",
+        });
+        let asked = |data: &RefAny| {
+            let mut data = data.clone();
+            let asked = data.downcast_ref::<Panel>().map(|p| p.asked);
+            asked
+        };
+        let popup = Dom::create_from_data(NodeData::create_node(NodeType::TransientWindow(
+            TransientWindowConfig::closed(),
+        )))
+        .with_transient_content(data.clone(), panel as crate::callbacks::TransientContentCallbackType);
+        // body > swatch > popup: three nodes, none of them the panel's.
+        let page = Dom::create_body().with_child(Dom::create_div().with_child(popup));
+        let styled = StyledDom::create_from_dom(page);
+        assert_eq!(styled.node_data.as_ref().len(), 3, "the closed popup is one node");
+        assert_eq!(asked(&data), Some(0), "building the DOM asks for nothing");
+
+        let content = extract_subtree_as_dom(&styled, NodeId::new(2)).expect("the popup's content");
+        assert_eq!(asked(&data), Some(1));
+        assert!(matches!(content.root.get_node_type(), NodeType::Div));
+        assert!(
+            content.root.get_transient_content().is_none(),
+            "the copy shows the content, it does not build it again"
+        );
+        assert_eq!(content.children.as_ref().len(), 1);
+        let shown = &content.children.as_ref()[0];
+        assert_eq!(classes_of(shown), vec!["lazy-panel".to_string()]);
+        assert_eq!(shown.children.as_ref().len(), 1);
+
+        // Asked again by every extraction: the content follows its data.
+        let _ = extract_subtree_as_dom(&styled, NodeId::new(2));
+        assert_eq!(asked(&data), Some(2));
+
+        // A node with children and a callback: the children, then the content.
+        let both = Dom::create_from_data(NodeData::create_node(NodeType::TransientWindow(
+            TransientWindowConfig::closed(),
+        )))
+        .with_child(Dom::create_div().with_ids_and_classes(
+            vec![IdOrClass::Class("own-child".into())].into(),
+        ))
+        .with_transient_content(data.clone(), panel as crate::callbacks::TransientContentCallbackType);
+        let styled = StyledDom::create_from_dom(Dom::create_body().with_child(both));
+        let content = extract_subtree_as_dom(&styled, NodeId::new(1)).expect("content");
+        let shown: Vec<Vec<String>> = content.children.as_ref().iter().map(classes_of).collect();
+        assert_eq!(
+            shown,
+            vec![vec!["own-child".to_string()], vec!["lazy-panel".to_string()]]
+        );
+
+        // No callback: the children alone, nothing asked.
+        let plain = Dom::create_from_data(NodeData::create_node(NodeType::TransientWindow(
+            TransientWindowConfig::closed(),
+        )))
+        .with_child(Dom::create_div());
+        let styled = StyledDom::create_from_dom(Dom::create_body().with_child(plain));
+        let content = extract_subtree_as_dom(&styled, NodeId::new(1)).expect("content");
+        assert_eq!(content.children.as_ref().len(), 1);
+        assert_eq!(asked(&data), Some(3), "three extractions of nodes with a callback");
+    }
+
+    /// The dataset merge of a rebuild repoints the content's data like every
+    /// other `RefAny` of the node: the callback is called with the state the
+    /// widget kept, not with the one the rebuild made (a colour picker would
+    /// be built closed, its hue forgotten). The node's table of fields has a
+    /// row for it.
+    ///
+    /// Mutation: the `TransientContent` arm of `NodeField::for_each_refany`
+    /// visiting nothing leaves the content's data unvisited (0 for 1).
+    #[test]
+    fn the_data_of_a_transient_nodes_content_is_one_of_the_nodes_refanys() {
+        use crate::refany::RefAnyHolder;
+
+        let data = RefAny::new(Panel {
+            asked: 0,
+            label: "lazy-panel",
+        });
+        let mut node = NodeData::create_node(NodeType::TransientWindow(
+            TransientWindowConfig::closed(),
+        ));
+        node.set_transient_content(data.clone(), panel as crate::callbacks::TransientContentCallbackType);
+        let mut seen = 0;
+        node.for_each_refany(&mut |held: &mut RefAny| {
+            if held.sharing_info.ptr == data.sharing_info.ptr {
+                seen += 1;
+            }
+        });
+        assert_eq!(seen, 1, "the content's data is walked with the node's other data");
+        // A rebuild that keeps its DOM carries the fresh callback and data over.
+        let field = crate::layout_inputs::NodeField::TransientContent;
+        assert!(field.retained().carries() && field.holds_value(&node));
+        let mut held = NodeData::create_div();
+        field.carry(&node, &mut held);
+        assert!(held.get_transient_content().is_some());
+        assert!(!field.holds_value(&NodeData::create_div()));
+    }
 }
 
 /// Clones `id` and its descendants into a fresh `Dom`, styles baked in.

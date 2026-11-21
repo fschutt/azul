@@ -4185,23 +4185,28 @@ pub fn menubar(m: crate::widgets::menubar::Menubar) -> Dom {
 /// rings on every keyboard stop.
 #[must_use]
 pub fn color_input(c: crate::widgets::color_input::ColorInput) -> Dom {
+    crate::widgets::color_input::build(c, &color_input_look())
+}
+
+/// The flat colour input's look: what [`color_input`] builds the swatch
+/// with, and what the picker's panel is built with when its popup is shown
+/// (`color_input::picker_content`).
+pub(crate) fn color_input_look() -> crate::widgets::color_input::ColorInputLook {
     use super::decl;
     use crate::widgets::color_input::{
         ColorInputLook, EYEDROPPER_CSS, GRIP_HANDLE_CSS, PANEL_CSS, PREVIEW_CSS,
     };
     let ring = decl::focus_halo(FIELD_RING, DARK_ACC).to_vec();
-    crate::widgets::color_input::build(
-        c,
-        &ColorInputLook {
-            swatch: ring.clone(),
-            panel_css: PANEL_CSS,
-            preview_css: PREVIEW_CSS,
-            eyedropper_css: EYEDROPPER_CSS,
-            grip_handle_css: GRIP_HANDLE_CSS,
-            slider_focus: ring,
-            marker: None,
-        },
-    )
+    ColorInputLook {
+        swatch: ring.clone(),
+        panel_css: PANEL_CSS,
+        preview_css: PREVIEW_CSS,
+        eyedropper_css: EYEDROPPER_CSS,
+        grip_handle_css: GRIP_HANDLE_CSS,
+        slider_focus: ring,
+        marker: None,
+        theme: super::UiTheme::Flat,
+    }
 }
 
 // ==== date_picker ====
