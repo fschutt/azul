@@ -713,7 +713,7 @@ impl LayoutCacheMap {
             }
         };
         for (dom_id, new_indices) in &new_tree.dom_to_layout {
-            let Some(old_indices) = old_tree.dom_to_layout.get(dom_id) else {
+            let Some(old_indices) = old_tree.dom_to_layout.get(&dom_id) else {
                 continue;
             };
             for (new_idx, old_idx) in new_indices.iter().zip(old_indices) {
@@ -6434,7 +6434,7 @@ mod autotest_generated {
             warm,
             cold: vec![LayoutNodeCold::default(); n],
             root: 0,
-            dom_to_layout: BTreeMap::new(),
+            dom_to_layout: Default::default(),
             children_arena,
             children_offsets,
             subtree_needs_intrinsic: Vec::new(),
