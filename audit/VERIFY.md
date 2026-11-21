@@ -184,6 +184,32 @@ The gate runs as one background chain writing `<scratchpad>/verify/gate.txt` (on
 failing names; logs `40-gate-layout` .. `46-gate-check-windows`): if this file's log below does not hold its
 results, read that file, or run the steps of point 3 again.
 
+### THE GATE on the checkpoint tree (head `e19bed682` + log commits), run as one chain
+
+| suite | command | passed | failed | ignored | failing |
+|---|---|---|---|---|---|
+| layout lib | `cargo test -p azul-layout --features e2e-server --lib --test all --no-fail-fast` | 10870 | 0 | 1 | none (base: 10404 / 0 / 1) |
+| layout `tests/all` | (same command) | 3059 | 1 | 5 | `a_measured_label_flows_its_text_only_at_a_new_width::a_hovered_label_flows_its_text_once_however_often_it_is_measured` (pre-existing; passes with `AZ_NO_TAFFY_MEASURE_JOURNAL=1`: A3-solver 17c `083fe5ada`) (base: 3060 / 0 / 5) |
+| css | `cargo test -p azul-css --no-fail-fast` | lib 2942 + every integration target and the doc tests | 0 | | none |
+| core | `cargo test -p azul-core --no-fail-fast` | lib 3128 + every integration target and the doc tests | 7 (lib) | | the seven `audit_diff_first_tests` below |
+| dll lib | `cargo test -p azul-dll --lib --no-fail-fast` | 3834 | 16 | 9 | the same 16 as the first run (table "dll lib failures") (base: 3731 / 0 / 9) |
+| dll `headless_lifecycle` | `cargo test -p azul-dll --test headless_lifecycle` | 8 | 0 | 0 | none (base: 8) |
+| Linux, Windows | `cargo check -p azul-dll --target x86_64-unknown-linux-gnu` / `x86_64-pc-windows-gnu` | refused by the disk floor in the chain (8.x GB free), started again after a cleanup: result in the log below or in `<scratchpad>/verify/gate.txt` (blocks "== check ...") | | | |
+| fork tests | `render_api::audit_a4_tests`, `spatial_tree` | NOT RUN: disk | | | |
+
+core, 7 failing (all new tests of diff-first, `cfc4d6d72`; messages verbatim in `<scratchpad>/verify/42-failures.txt`):
+- `diff::diff_test::audit_diff_first_tests::a_rebuild_that_changed_the_tree_or_a_sheet_is_not_named`
+  (`diff_test.rs:5375` "premise: the sheet is listed": 2, expected 1),
+  `::a_rebuild_that_kept_the_tree_names_the_nodes_it_changed` (`:5333` "the second span's style": `None`, expected
+  `Some([4])`), `::the_changed_nodes_are_written_onto_the_kept_arena` (`:5390` "three nodes changed"),
+  `::the_subtree_sizes_are_the_tree` (`:5322` "an inline style is no attached sheet"). These read like the premise
+  the verifier met in A3-solver's label tests: `Dom::with_css("..")` is a scoped SHEET on the subtree, not the
+  node's own style (`with_css_props` is).
+- `styled_dom::styled_dom_test::audit_diff_first_tests::the_cascade_over_changed_nodes_answers_what_a_new_cascade_answers`,
+  `..._beside_sibling_rules`, `..._under_a_hover`: `styled_dom_test.rs:3369` "seed 1, step 0 (kind 6, picks [38,
+  37, 33, 42, 47, 6], ...): 9 differences, the first: Some(\"node 9: matched rules\")": the restricted cascade
+  (`009e311d8`, `recascade_nodes`) against a new cascade. Owner: diff-first.
+
 ## State for a successor (the CHECKPOINT; written when the verifier's context ran short)
 
 Tree: `audit/integration`, clean; head = `b419ea882` (merge of `audit/A8` at `1b3cd3449`) + log commits. Everything
@@ -203,19 +229,21 @@ What is left for the checkpoint, in order:
    ACCEPT table (the actual dumps are written to `$TMPDIR/az_golden_<group>.actual.txt` by the failing test); any
    OTHER document: do not update, send it to the coordinator. The measured-label test with and without
    `AZ_NO_TAFFY_MEASURE_JOURNAL=1`.) Tell the coordinator rows 1 and 2 at once.
-2. `cargo test -p azul-css --no-fail-fast`, `cargo test -p azul-core` (A8 changed the css parser and core's prop
+2. (DONE in the gate.) `cargo test -p azul-css --no-fail-fast`, `cargo test -p azul-core` (A8 changed the css parser and core's prop
    cache; `cargo test -p azul-core --lib compact::audit_a8_tests`).
-3. The gate on that tree: `cargo test -p azul-layout --features e2e-server --lib --test all --no-fail-fast`;
+3. (DONE except the cross-target checks and the fork tests: table "THE GATE" above.) The gate on that tree: `cargo test -p azul-layout --features e2e-server --lib --test all --no-fail-fast`;
    delete its binaries; `cargo test -p azul-dll --lib --no-fail-fast`; `cargo test -p azul-dll --test
    headless_lifecycle`; `cargo check -p azul-dll --target x86_64-unknown-linux-gnu`, then
    `--target x86_64-pc-windows-gnu` (check only; delete `<target>/<triple>` after each). Fork tests only with the
    audit's filters (`render_api::audit_a4_tests`, `spatial_tree`), only if the disk allows, else "not run: disk".
-4. The 16 dll failures: none is fixed. The coordinator routes them (table above); the two cheap ones a verifier can
+4. The 16 dll failures, the 7 core failures of diff-first's tests and the measured-label test: none is fixed. The coordinator routes them (table above); the two cheap ones a verifier can
    do itself: the `NOT_WALKED` entries of the repointing guard; restating expectations ONLY where an owner's note
    names the change.
 5. Milestone 4 to the coordinator with the verified commit; no push. Then, on its word, the pin pass
    (`audit/PIN_PASS.md` in `<scratchpad>/wt/m4p-integration`), building into the editor's target directory, after
    telling the coordinator (it frees space first); the full `azul-doc codegen all` belongs to it.
+6. Disk: after the gate the target directory holds no test binary, no `*.rlib` over 3 MB and no `azul-doc`
+   binary (deleted for space): the next test build compiles its dependencies again (about 8 minutes for the dll).
 
 ## Log
 
