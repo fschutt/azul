@@ -2988,4 +2988,44 @@ mod audit_a3_core_tests {
         take_css_from_dom(&mut tree(), &mut more);
         assert_eq!(more.len(), 6);
     }
+
+    /// A3-core-20 (A3-window-18): a styled DOM says whether the pass that
+    /// makes a COMPOSED tree's inheritance and compact cache right is owed.
+    /// One that came out of a cascade owes none; `append_child` owes one;
+    /// the pass pays it. And the pass on a DOM that owes none builds the
+    /// tables it had: skipping it there changes nothing a reader sees.
+    #[test]
+    fn a_styled_dom_owes_the_recompute_only_after_an_append() {
+        let page = || {
+            Dom::create_body()
+                .with_css("color: red; font-size: 20px;")
+                .with_child(Dom::create_div().with_css("width: 5px; padding: 3px;"))
+        };
+        let mut fresh = StyledDom::create_from_dom(page());
+        assert!(!fresh.needs_recompute_after_append(), "one cascade: nothing owed");
+
+        // The pass on such a DOM builds the compact cache it already has.
+        let before = fresh
+            .get_css_property_cache()
+            .compact_cache
+            .as_ref()
+            .map(|c| (c.tier1_enums.clone(), c.tier2_dims.clone(), c.tier2_cold.clone(), c.tier2b_text.clone()))
+            .expect("the cascade builds the compact cache");
+        fresh.recompute_inheritance_and_compact_cache();
+        let after = fresh
+            .get_css_property_cache()
+            .compact_cache
+            .as_ref()
+            .map(|c| (c.tier1_enums.clone(), c.tier2_dims.clone(), c.tier2_cold.clone(), c.tier2b_text.clone()))
+            .expect("still there");
+        assert!(before == after, "the pass on an uncomposed DOM changes no compact entry");
+        assert!(!fresh.needs_recompute_after_append());
+
+        // Composition owes the pass, and the pass pays it.
+        let mut composed = StyledDom::create_from_dom(page());
+        composed.append_child(StyledDom::create_from_dom(Dom::create_div().with_css("height: 9px;")));
+        assert!(composed.needs_recompute_after_append(), "an appended subtree is not inherited into yet");
+        composed.recompute_inheritance_and_compact_cache();
+        assert!(!composed.needs_recompute_after_append());
+    }
 }

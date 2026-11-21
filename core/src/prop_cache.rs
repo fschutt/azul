@@ -1265,6 +1265,14 @@ pub struct CssPropertyCache {
     /// `StyledDom::migrate_user_overrides_from`, [`Self::append`]) and never
     /// lowered: `false` means there is none.
     pub text_color_override_seen: bool,
+    /// Another styled DOM was appended to this one
+    /// (`StyledDom::append_child`) and the inheritance tables and the
+    /// compact cache have not been rebuilt for the composed tree since
+    /// (`StyledDom::recompute_inheritance_and_compact_cache`): what the
+    /// appended subtree inherits and its compact entries are still the ones
+    /// of its own, isolated cascade. A DOM that came out of one cascade has
+    /// both right and this `false`.
+    pub composed_since_recompute: bool,
     /// The window's dynamic-selector context (viewport size, theme, OS,
     /// media type...), provided by the layout funnel before the first
     /// layout. `None` = context UNKNOWN (a freshly created `StyledDom` that no
@@ -3219,6 +3227,7 @@ impl CssPropertyCache {
             retained_author_css: Css::default(),
             user_overridden_properties: Vec::new(),
             text_color_override_seen: false,
+            composed_since_recompute: false,
             dynamic_context: None,
             ua_applied: false,
             cascade_epoch: 0,

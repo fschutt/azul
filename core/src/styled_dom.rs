@@ -1777,6 +1777,9 @@ impl StyledDom {
         self.styled_nodes.append(&mut other.styled_nodes);
         self.get_css_property_cache_mut()
             .append(other.get_css_property_cache_mut());
+        // What the appended subtree inherits and its compact entries are its
+        // own cascade's until `recompute_inheritance_and_compact_cache` runs.
+        self.get_css_property_cache_mut().composed_since_recompute = true;
 
         // Tag IDs are globally unique (AtomicUsize counter) and never collide,
         // so we only shift node_id (which changes when DOMs are merged).
@@ -1895,6 +1898,18 @@ impl StyledDom {
         self.css_property_cache.downcast_mut().compact_cache = Some(compact);
         let cache = self.css_property_cache.downcast_mut();
         cache.cascade_epoch = cache.cascade_epoch.wrapping_add(1);
+        cache.composed_since_recompute = false;
+    }
+
+    /// Whether [`Self::recompute_inheritance_and_compact_cache`] is owed: a
+    /// styled DOM was appended ([`Self::append_child`]) and it has not run
+    /// since. `false` for a DOM that came out of one cascade - its
+    /// inheritance and its compact cache are the composed tree's already, and
+    /// running the pass again builds the same tables a second time (a shell
+    /// did so for every window DOM it regenerated).
+    #[must_use]
+    pub fn needs_recompute_after_append(&self) -> bool {
+        self.get_css_property_cache().composed_since_recompute
     }
 
     /// The state every node is in (hover, focus, active, ...), in node order:
