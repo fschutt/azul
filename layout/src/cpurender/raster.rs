@@ -21484,4 +21484,46 @@ mod audit_a1_tests {
         let coloured = single.data().chunks_exact(4).filter(|p| p[..3] != [236, 233, 225]).count();
         assert!(coloured > 100_000, "the frame shows the list ({coloured} px)");
     }
+
+    /// A1-63: a shape filled under a clip is, inside the clip, the shape filled without one,
+    /// pixel for pixel, also when its edges are long and slanted. A quad like a turned
+    /// label's fill (its corners at (60.3, 60.1), (201.2, 111.4), (190.9, 139.6) and
+    /// (49.7, 88.2)) under six clips - a strip across it, a column at its left end, three
+    /// pixels on an edge, each half of the frame, a thin band: inside the clip the pixels of
+    /// the fill without a clip, outside it nothing.
+    /// Mutation: the geometry cut 32 px outside the pass's clip (as it was) cuts the quad's
+    /// long edges at x = 68 for the strip from x = 100, and what is left of each edge runs
+    /// a hair off the true one: a level off in a few pixels along it
+    /// (`a_turned_label_of_a_view_is_drawn_without_a_surface`, damaged != full, 5 px).
+    #[test]
+    fn a_long_slanted_edge_under_a_clip_is_the_edge_of_the_full_paint() {
+        let fill_colour = Rgba8::new(20, 60, 200, 255);
+        let paint = |clip: Option<AzRect>| {
+            let mut pm = AzulPixmap::new(400, 300).unwrap();
+            pm.fill(255, 255, 255, 255);
+            let mut path = PathStorage::new();
+            path.move_to(60.3, 60.1);
+            path.line_to(201.2, 111.4);
+            path.line_to(190.9, 139.6);
+            path.line_to(49.7, 88.2);
+            path.close_polygon(PATH_FLAGS_NONE);
+            agg_fill_path_clipped(&mut pm, &mut path, &fill_colour, FillingRule::NonZero, clip);
+            pm
+        };
+        let whole = paint(None);
+        let filled = whole.data().chunks_exact(4).filter(|p| p[..3] != [255, 255, 255]).count();
+        assert!(filled > 3500, "the quad of about 150 x 30 px is there ({filled} px)");
+        for (x, y, w, h) in [(100u32, 60u32, 130u32, 90u32), (70, 50, 20, 100), (150, 100, 3, 3), (0, 0, 120, 100), (130, 0, 270, 300), (95, 75, 40, 12)] {
+            let clipped = paint(AzRect::from_xywh(x as f32, y as f32, w as f32, h as f32));
+            let mut differing = 0usize;
+            for cy in 0..300u32 {
+                for cx in 0..400u32 {
+                    let inside = cx >= x && cx < x + w && cy >= y && cy < y + h;
+                    let want = if inside { px(&whole, cx, cy) } else { [255, 255, 255, 255] };
+                    differing += usize::from(px(&clipped, cx, cy) != want);
+                }
+            }
+            assert_eq!(differing, 0, "under the clip ({x}, {y}) {w} x {h}");
+        }
+    }
 }

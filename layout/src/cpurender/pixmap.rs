@@ -1535,30 +1535,33 @@ pub(crate) const GEOMETRY_MARGIN: f64 = 32.0;
 /// than this is stepped finer ([`GEOMETRY_MARGIN`]).
 pub(crate) const MAX_ARC_SEGMENT_PX: f64 = GEOMETRY_MARGIN - 4.0;
 
-/// The box the AA rasterizer clips a path's GEOMETRY to for the pixel clip
-/// `clip`: the clip grown by [`GEOMETRY_MARGIN`], within the pixmap grown by
-/// the same. Cutting the geometry exactly at the clip changes the coverage of
-/// the pixels along the cut by a step (the cut's own rounding), so a shape
-/// painted in two passes whose clips meet differed from one pass in the
-/// anti-aliased pixels along the seam; grown, the cut lies away from the
-/// pixels the pixel clip (`clip_box_i`) writes. That holds at the pixmap's own
-/// edge as well: a rounded box that reaches past the window was cut AT the
-/// window's edge, so its corner differed by a level in a pixel or two from the
-/// same box in a layer wider than the window (the compositor's group layers).
-/// The pixels beyond the pixmap are never written, so the cut may lie there.
-/// The geometric clip still bounds the sweep (the huge-coordinate guard).
-fn geometry_clip_box(clip: Option<AzRect>, w: u32, h: u32) -> (f64, f64, f64, f64) {
-    let (right, bottom) = (f64::from(w) + GEOMETRY_MARGIN, f64::from(h) + GEOMETRY_MARGIN);
-    clip.map_or_else(
-        || (-GEOMETRY_MARGIN, -GEOMETRY_MARGIN, right, bottom),
-        |c| {
-            (
-                (f64::from(c.x) - GEOMETRY_MARGIN).max(-GEOMETRY_MARGIN),
-                (f64::from(c.y) - GEOMETRY_MARGIN).max(-GEOMETRY_MARGIN),
-                (f64::from(c.x + c.width) + GEOMETRY_MARGIN).min(right),
-                (f64::from(c.y + c.height) + GEOMETRY_MARGIN).min(bottom),
-            )
-        },
+/// The box the AA rasterizer clips a path's GEOMETRY to: the pixmap grown by
+/// [`GEOMETRY_MARGIN`], whatever the pixel clip of the pass is.
+///
+/// Cutting the geometry changes the coverage of the pixels along the edge that
+/// is cut: the cut is rounded to AGG's 1/256 px grid, and what is left of the
+/// edge runs from the cut to its far vertex, a hair off the true edge all the
+/// way. A cut at the pixmap's edge is the same cut in every pass, so the
+/// pixels agree; a cut at the PASS's clip is not: a shape painted under a
+/// damage rect or in a band was rasterized from other geometry than the same
+/// shape in a full repaint. With the cut 32 px outside the pass's clip (as it
+/// was) that held for the short segments of a corner arc and failed for a long
+/// slanted edge - the side of a turned label, a diagonal stroke - whose cut,
+/// 32 px away, still moves the edge inside the clip: a repaint of a strip
+/// across a turned label differed from the full paint by a level in a few
+/// pixels along the label's sides (`a_turned_label_of_a_view_is_drawn_without_a_
+/// surface`, damaged != full). The pixel clip (`clip_box_i`) alone decides
+/// which pixels a pass writes; the rasterizer sweeps the shape's cells inside
+/// the pixmap, which costs the cells outside the clip and nothing per pixel.
+///
+/// The pixels beyond the pixmap are never written, so the cut may lie there;
+/// it still bounds the sweep (the huge-coordinate guard).
+fn geometry_clip_box(_clip: Option<AzRect>, w: u32, h: u32) -> (f64, f64, f64, f64) {
+    (
+        -GEOMETRY_MARGIN,
+        -GEOMETRY_MARGIN,
+        f64::from(w) + GEOMETRY_MARGIN,
+        f64::from(h) + GEOMETRY_MARGIN,
     )
 }
 
