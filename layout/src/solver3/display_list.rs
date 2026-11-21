@@ -3650,13 +3650,74 @@ pub(crate) fn reference_frame_extent_walked(
 
 /// One reference frame of a list: where it ends and what it paints.
 #[derive(Debug, Clone, Copy)]
-struct FrameEntry {
+pub(crate) struct FrameEntry {
     /// The index of its `PushReferenceFrame`.
-    push: usize,
+    pub(crate) push: usize,
     /// The index of its matching `PopReferenceFrame` (the list's length when it has none).
-    end: usize,
+    pub(crate) end: usize,
     /// Its box and everything down to the pop, in its own space.
-    extent: LogicalRect,
+    pub(crate) extent: LogicalRect,
+    /// Every scope opened between the push and the pop (a clip, a mask, a scroll frame, an
+    /// opacity or filter group, a text shadow, a frame) is closed there, innermost first, and
+    /// the pop closes nothing opened before the push: a walk that steps from the push to past
+    /// the pop leaves its stacks as a walk through the frame does. `false` for a frame that is
+    /// never popped.
+    pub(crate) self_contained: bool,
+    /// No reference frame, scroll frame or view inside: everything the frame paints is placed
+    /// by the frame's own matrix alone, inside `extent` widened by `shadow_reach`.
+    pub(crate) leaf: bool,
+    /// How far past the ink of a text run a text shadow pushed inside the frame paints (the
+    /// largest offset + blur + spread, logical px): `extent` counts the ink alone.
+    pub(crate) shadow_reach: f32,
+}
+
+/// The kinds of scope a display list opens and closes ([`FrameEntry::self_contained`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScopeKind {
+    Clip,
+    ImageMask,
+    ScrollFrame,
+    StackingContext,
+    Frame,
+    Filter,
+    BackdropFilter,
+    Opacity,
+    TextShadow,
+}
+
+/// `(kind, true)` for an item that opens a scope, `(kind, false)` for one that closes one.
+fn scope_of(item: &DisplayListItem) -> Option<(ScopeKind, bool)> {
+    Some(match item {
+        DisplayListItem::PushClip { .. } => (ScopeKind::Clip, true),
+        DisplayListItem::PopClip => (ScopeKind::Clip, false),
+        DisplayListItem::PushImageMaskClip { .. } => (ScopeKind::ImageMask, true),
+        DisplayListItem::PopImageMaskClip => (ScopeKind::ImageMask, false),
+        DisplayListItem::PushScrollFrame { .. } => (ScopeKind::ScrollFrame, true),
+        DisplayListItem::PopScrollFrame => (ScopeKind::ScrollFrame, false),
+        DisplayListItem::PushStackingContext { .. } => (ScopeKind::StackingContext, true),
+        DisplayListItem::PopStackingContext => (ScopeKind::StackingContext, false),
+        DisplayListItem::PushReferenceFrame { .. } => (ScopeKind::Frame, true),
+        DisplayListItem::PopReferenceFrame => (ScopeKind::Frame, false),
+        DisplayListItem::PushFilter { .. } => (ScopeKind::Filter, true),
+        DisplayListItem::PopFilter => (ScopeKind::Filter, false),
+        DisplayListItem::PushBackdropFilter { .. } => (ScopeKind::BackdropFilter, true),
+        DisplayListItem::PopBackdropFilter => (ScopeKind::BackdropFilter, false),
+        DisplayListItem::PushOpacity { .. } => (ScopeKind::Opacity, true),
+        DisplayListItem::PopOpacity => (ScopeKind::Opacity, false),
+        DisplayListItem::PushTextShadow { .. } => (ScopeKind::TextShadow, true),
+        DisplayListItem::PopTextShadow => (ScopeKind::TextShadow, false),
+        _ => return None,
+    })
+}
+
+/// How far a text shadow paints past the ink of the text under it: the larger offset, the
+/// blur and the spread, logical px (what the rasteriser's cull widens a run by).
+pub(crate) fn text_shadow_reach(shadow: &StyleBoxShadow) -> f32 {
+    use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+    let length = |v: &PixelValue| v.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
+    length(&shadow.offset_x.inner).abs().max(length(&shadow.offset_y.inner).abs())
+        + length(&shadow.blur_radius.inner).max(0.0)
+        + length(&shadow.spread_radius.inner).max(0.0)
 }
 
 /// The reference frames of one list, found in one walk: where each ends and what it paints
@@ -3694,10 +3755,52 @@ impl FrameIndex {
             push: usize,
             frame_box: LogicalRect,
             bounds: GroupBounds,
+            /// How many scopes were open at the push.
+            scopes_before: usize,
+            well_formed: bool,
+            leaf: bool,
+            shadow_reach: f32,
         }
         let mut open: Vec<Open> = Vec::new();
         let mut frames: Vec<FrameEntry> = Vec::new();
+        // The scopes open at the item, outermost first: a frame is self-contained when the
+        // scopes opened inside it are closed inside it, innermost first.
+        let mut scopes: Vec<ScopeKind> = Vec::new();
         for (i, item) in items.iter().enumerate() {
+            match scope_of(item) {
+                // A frame's own push and pop are counted where the frame opens and closes.
+                Some((ScopeKind::Frame, _)) | None => {}
+                Some((kind, true)) => scopes.push(kind),
+                Some((kind, false)) => {
+                    let closes_its_own = scopes.last() == Some(&kind)
+                        && open.last().is_none_or(|frame| scopes.len() > frame.scopes_before + 1);
+                    if closes_its_own {
+                        scopes.pop();
+                    } else {
+                        // A pop without its push, or across a frame's edge: no frame open here
+                        // can be stepped over.
+                        for frame in &mut open {
+                            frame.well_formed = false;
+                        }
+                    }
+                }
+            }
+            match item {
+                DisplayListItem::PushReferenceFrame { .. }
+                | DisplayListItem::PushScrollFrame { .. }
+                | DisplayListItem::VirtualView { .. } => {
+                    for frame in &mut open {
+                        frame.leaf = false;
+                    }
+                }
+                DisplayListItem::PushTextShadow { shadow } => {
+                    let reach = text_shadow_reach(shadow);
+                    for frame in &mut open {
+                        frame.shadow_reach = frame.shadow_reach.max(reach);
+                    }
+                }
+                _ => {}
+            }
             match item {
                 DisplayListItem::PushReferenceFrame { transform_key, .. } => {
                     transform_keys.insert(transform_key.id);
@@ -3724,11 +3827,27 @@ impl FrameIndex {
             if let DisplayListItem::PopReferenceFrame = item {
                 // Closes the innermost open frame; the pop is not in that frame's range.
                 if let Some(done) = open.pop() {
+                    // Its own push is the innermost scope still open: nothing inside it was
+                    // left open. Otherwise the frames around it cannot be stepped over either.
+                    let closed = scopes.len() == done.scopes_before + 1;
+                    if !closed {
+                        for frame in &mut open {
+                            frame.well_formed = false;
+                        }
+                    }
+                    scopes.truncate(done.scopes_before);
                     let extent = done
                         .bounds
                         .finish()
                         .map_or(done.frame_box, |c| rect_union(done.frame_box, c));
-                    frames.push(FrameEntry { push: done.push, end: i, extent });
+                    frames.push(FrameEntry {
+                        push: done.push,
+                        end: i,
+                        extent,
+                        self_contained: closed && done.well_formed,
+                        leaf: done.leaf,
+                        shadow_reach: done.shadow_reach,
+                    });
                 }
             }
             if !open.is_empty() {
@@ -3742,7 +3861,12 @@ impl FrameIndex {
                     push: i,
                     frame_box: *bounds.inner(),
                     bounds: GroupBounds::default(),
+                    scopes_before: scopes.len(),
+                    well_formed: true,
+                    leaf: true,
+                    shadow_reach: 0.0,
                 });
+                scopes.push(ScopeKind::Frame);
             }
         }
         // A frame that is never popped runs to the end of the list.
@@ -3751,7 +3875,14 @@ impl FrameIndex {
                 .bounds
                 .finish()
                 .map_or(done.frame_box, |c| rect_union(done.frame_box, c));
-            frames.push(FrameEntry { push: done.push, end: items.len(), extent });
+            frames.push(FrameEntry {
+                push: done.push,
+                end: items.len(),
+                extent,
+                self_contained: false,
+                leaf: done.leaf,
+                shadow_reach: done.shadow_reach,
+            });
         }
         frames.sort_by_key(|f| f.push);
         Self {
@@ -3806,6 +3937,11 @@ impl FrameIndex {
     /// What the frame pushed at `push` paints.
     pub(crate) fn extent_of(&self, push: usize) -> Option<LogicalRect> {
         self.entry(push).map(|f| f.extent)
+    }
+
+    /// The frame pushed at `push`: where it ends, what it paints, whether a walk may step over it.
+    pub(crate) fn frame_at(&self, push: usize) -> Option<FrameEntry> {
+        self.entry(push).copied()
     }
 
     /// The index of the pop of the frame pushed at `push`.

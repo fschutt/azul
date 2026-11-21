@@ -166,6 +166,10 @@ pub struct GlyphCache {
     /// LCD stripe order of the panel this cache's window is on.
     lcd_subpixel_order: LcdSubpixelOrder,
     text_aa: crate::cpurender::TextAaSettings,
+    /// The caches of the band threads of a repaint (`cpurender::bands`): one more cache per
+    /// thread beside the one that paints with `self`, kept here between frames so that each is
+    /// warm on the next one. Taken out while the bands run ([`Self::take_band_caches`]).
+    band_caches: Vec<GlyphCache>,
 }
 
 impl core::fmt::Debug for GlyphCache {
@@ -230,7 +234,51 @@ impl GlyphCache {
             lcd_tiles: HashMap::new(),
             lcd_subpixel_order: LcdSubpixelOrder::Rgb,
             text_aa: crate::cpurender::TextAaSettings::default(),
+            band_caches: Vec::new(),
         }
+    }
+
+    /// `n` caches for the band threads of a repaint, with this cache's settings: the ones kept
+    /// from the frame before, and new ones for the rest. Each band thread paints with one of
+    /// its own (a cache is filled while it is read, so two threads cannot share one), and
+    /// [`Self::put_band_caches`] keeps them for the next frame. At most
+    /// `cpurender::bands::max_threads() - 1` are ever kept (three by default), each bounded
+    /// like this one.
+    #[must_use]
+    pub fn take_band_caches(&mut self, n: usize) -> Vec<Self> {
+        let mut caches = core::mem::take(&mut self.band_caches);
+        caches.truncate(n);
+        while caches.len() < n {
+            caches.push(Self::new());
+        }
+        for cache in &mut caches {
+            let _ = cache.set_lcd_subpixel_order(self.lcd_subpixel_order);
+            let _ = cache.set_text_aa(self.text_aa);
+        }
+        caches
+    }
+
+    /// Keep the band threads' caches for the next frame ([`Self::take_band_caches`]). A cache
+    /// that grew past [`Self::MAX_BAND_CACHE_ENTRIES`] is dropped instead (its thread starts
+    /// with an empty one next time): per-thread caches must not multiply the memory of one.
+    pub fn put_band_caches(&mut self, mut caches: Vec<Self>) {
+        caches.retain(|cache| {
+            cache.paths_len() + cache.cells_len() + cache.lcd_tiles.len()
+                <= Self::MAX_BAND_CACHE_ENTRIES
+        });
+        self.band_caches = caches;
+    }
+
+    /// The most entries (paths, cells and tiles, both generations) a band thread's cache may
+    /// hold and still be kept for the next frame: a seventh of what the window's own cache may
+    /// hold ((4,096 paths + 8,192 cells) x 2 generations + 4,096 tiles = 28,672), so the three
+    /// band caches of a repaint on four threads together stay under half of it.
+    pub const MAX_BAND_CACHE_ENTRIES: usize = 4096;
+
+    /// How many band caches are kept (for memory probes and tests).
+    #[must_use]
+    pub fn band_caches_len(&self) -> usize {
+        self.band_caches.len()
     }
 
     /// The panel stripe order LCD text is blended for.
@@ -365,6 +413,9 @@ impl GlyphCache {
     pub fn gc(&mut self) {
         self.paths_prev = HashMap::new();
         self.cells_prev = HashMap::new();
+        for cache in &mut self.band_caches {
+            cache.gc();
+        }
     }
 
     /// Get cached rasterizer cells for a glyph, or build them from the path.

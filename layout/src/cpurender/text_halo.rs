@@ -79,14 +79,70 @@ thread_local! {
     static CPU_HALOS_OFF: Cell<bool> = const { Cell::new(false) };
 }
 
+/// The CPU renderer's kept halos while the bands of a repaint run (`bands`): the memo of the
+/// thread that paints the frame, moved behind a lock that its band threads share. A band thread
+/// starts with no thread-locals of its own, and one that drew every halo of its band again
+/// would lose what keeping them gains.
+pub(super) type SharedCpuHalos = Arc<std::sync::Mutex<ImageMemo<u64, Option<Arc<CpuHalo>>>>>;
+
+thread_local! {
+    /// Set on a thread while it paints a band: the frame's shared halos ([`SharedCpuHalos`]),
+    /// read and kept instead of this thread's own [`CPU_HALOS`].
+    static FRAME_CPU_HALOS: RefCell<Option<SharedCpuHalos>> = const { RefCell::new(None) };
+}
+
+/// This thread's kept halos, moved out to be shared with the band threads of the frame it
+/// paints; [`restore_cpu_halos`] moves them back.
+pub(super) fn share_cpu_halos() -> SharedCpuHalos {
+    let memo = CPU_HALOS.with(|halos| {
+        core::mem::replace(
+            &mut *halos.borrow_mut(),
+            ImageMemo::new(MAX_CPU_HALOS, MAX_CPU_HALO_BYTES),
+        )
+    });
+    Arc::new(std::sync::Mutex::new(memo))
+}
+
+/// Paint on this thread with the frame's shared halos (`Some`), or with its own again (`None`).
+/// A band thread sets `None` before it ends, so that the frame's thread is the only holder
+/// when it restores them.
+pub(super) fn adopt_cpu_halos(shared: Option<SharedCpuHalos>) {
+    FRAME_CPU_HALOS.with(|frame| *frame.borrow_mut() = shared);
+}
+
+/// Move the halos shared for a frame's bands back into this thread's own memo, with what the
+/// bands kept. Left as they are (the thread then keeps an empty memo and draws halos again) if
+/// a band thread still holds the store.
+pub(super) fn restore_cpu_halos(shared: SharedCpuHalos) {
+    adopt_cpu_halos(None);
+    if let Ok(lock) = Arc::try_unwrap(shared) {
+        let memo = lock.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
+        CPU_HALOS.with(|halos| *halos.borrow_mut() = memo);
+    }
+}
+
+/// The frame's shared halos, while this thread paints a band of it.
+fn frame_cpu_halos() -> Option<SharedCpuHalos> {
+    FRAME_CPU_HALOS.with(|frame| frame.borrow().clone())
+}
+
 /// The halo kept under `key`: `Some(None)` for a shadow that is not kept, `None` for one not seen.
 pub(super) fn kept_cpu_halo(key: u64) -> Option<Option<Arc<CpuHalo>>> {
+    if let Some(shared) = frame_cpu_halos() {
+        return shared.lock().ok().and_then(|mut halos| halos.get(&key));
+    }
     CPU_HALOS.with(|halos| halos.borrow_mut().get(&key))
 }
 
 /// Keep `halo` under `key`.
 pub(super) fn keep_cpu_halo(key: u64, halo: Option<Arc<CpuHalo>>) {
     let bytes = halo.as_ref().map_or(0, |h| h.coverage.len());
+    if let Some(shared) = frame_cpu_halos() {
+        if let Ok(mut halos) = shared.lock() {
+            halos.insert(key, halo, bytes);
+        }
+        return;
+    }
     CPU_HALOS.with(|halos| halos.borrow_mut().insert(key, halo, bytes));
 }
 

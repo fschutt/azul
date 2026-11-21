@@ -34,7 +34,7 @@ use crate::{
     font::parsed::ParsedFont,
     glyph_cache::GlyphCache,
     solver3::display_list::{
-        reference_frame_extent, BorderRadius, DisplayList, DisplayListItem, LocalScrollId,
+        BorderRadius, DisplayList, DisplayListItem, LocalScrollId,
     },
     text3::cache::{FontHash, FontManager},
 };
@@ -1442,6 +1442,23 @@ thread_local! {
     static GROUP_CULL_OFF: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+/// Tests: the switches of this thread's walk, for the band threads it starts (a thread starts
+/// with its own thread-locals): whether the walk culls by the clip, whether halos are kept.
+#[cfg(test)]
+pub(crate) fn walk_test_flags() -> (bool, bool) {
+    (
+        GROUP_CULL_OFF.with(std::cell::Cell::get),
+        super::text_halo::cpu_halos_are_kept(),
+    )
+}
+
+/// Tests: paint on this thread with the switches of [`walk_test_flags`].
+#[cfg(test)]
+pub(crate) fn set_walk_test_flags((cull_off, halos_kept): (bool, bool)) {
+    GROUP_CULL_OFF.with(|c| c.set(cull_off));
+    super::text_halo::keep_cpu_halos(halos_kept);
+}
+
 /// Does the walk cull by the clip it paints under (always, outside tests)?
 fn walk_culls_by_clip() -> bool {
     #[cfg(test)]
@@ -2484,6 +2501,8 @@ pub(crate) fn walk_items(
     render_state: &CpuRenderState,
 ) -> Result<(usize, usize), String> {
     let (mut painted, mut skipped) = (0usize, 0usize);
+    // The list's frames (where each ends, what it paints), asked for at the first frame met.
+    let mut frames: Option<std::sync::Arc<crate::solver3::display_list::FrameIndex>> = None;
     let mut next = 0usize;
     while next < list.items.len() {
         let item_idx = next;
@@ -2494,6 +2513,37 @@ pub(crate) fn walk_items(
         // surface's own (the damage, or the view's box, mapped back through the frame), not a
         // rect of the pixels below: there the walk culls by that clip alone.
         let in_group = inside_isolated_transform(mask_stack);
+        let is_frame_push = matches!(item, DisplayListItem::PushReferenceFrame { .. });
+        let frame = if is_frame_push {
+            frames.get_or_insert_with(|| list.frame_index()).frame_at(item_idx)
+        } else {
+            None
+        };
+        // A frame nothing of which can paint under the clip is stepped over whole, from its
+        // push to past its pop: a map's list is two thousand label frames, each of a handful
+        // of items, of which a pass reaches a few.
+        if let Some(frame) = frame {
+            let below = surfaces
+                .last()
+                .map_or((pixmap.width, pixmap.height), |s| (s.width, s.height));
+            if frame_paints_nothing(
+                item,
+                &frame,
+                &cull,
+                in_group,
+                below,
+                dpi_factor,
+                clip_stack.last().copied().flatten(),
+                *scroll_offset_stack.last().unwrap_or(&(0.0, 0.0)),
+                mask_stack,
+                text_shadow_stack,
+                render_state,
+            ) {
+                skipped += 1;
+                next = frame.end + 1;
+                continue;
+            }
+        }
         let by_clip = in_group || matches!(cull, WalkCull::ActiveClip);
         if by_clip
             && outside_active_clip(
@@ -2583,7 +2633,7 @@ pub(crate) fn walk_items(
         render_single_item(
             item,
             list.uniform_text_bgs.get(item_idx).copied().flatten(),
-            reference_frame_extent(list, item_idx),
+            frame.map(|f| f.extent),
             pixmap,
             dpi_factor,
             renderer_resources,
@@ -2600,6 +2650,122 @@ pub(crate) fn walk_items(
         )?;
     }
     Ok((painted, skipped))
+}
+
+/// Can nothing of the reference frame `frame`, pushed by `item`, paint in this walk, so that
+/// the walk may step from its push to past its pop?
+///
+/// - A frame that is not self-contained (`FrameEntry::self_contained`) is always walked.
+/// - A turned or scaled frame (an isolated group) paints nothing when no part of its surface
+///   can land in the pixels below: the test `ReferenceFrameGroup::begin` makes, on the same
+///   geometry, before a surface exists. It is counted in `groups_empty` here.
+/// - A frame that is the identity or a move paints its items where they are laid out, moved:
+///   it paints nothing when its extent, moved and widened by the reach of the text shadows in
+///   and around it, lies outside what the walk culls its items by (the clip of a view or of a
+///   group, the damage rect). Only for a leaf (`FrameEntry::leaf`): a frame, scroll frame or
+///   view inside places content where the extent does not say.
+///
+/// Example (a move): extent (100, 40) 60 x 20, matrix translate(30, 0), walk offset (10, 0),
+/// shadow reach 3: painted box (100 - 10 + 30 - 3, 40 - 3) 66 x 26 = x 117 .. 183, y 37 .. 63.
+/// Under a damage rect (0, 0) 110 x 100 it paints nothing; under (0, 0) 120 x 100 it may.
+#[allow(clippy::too_many_arguments)]
+fn frame_paints_nothing(
+    item: &DisplayListItem,
+    frame: &crate::solver3::display_list::FrameEntry,
+    cull: &WalkCull,
+    in_group: bool,
+    below: (u32, u32),
+    dpi_factor: f32,
+    clip: Option<AzRect>,
+    scroll_offset: (f32, f32),
+    mask_stack: &[MaskEntry],
+    text_shadow_stack: &[StyleBoxShadow],
+    render_state: &CpuRenderState,
+) -> bool {
+    let DisplayListItem::PushReferenceFrame {
+        transform_key,
+        initial_transform,
+        bounds,
+    } = item
+    else {
+        return false;
+    };
+    if !frame.self_contained || !walk_culls_by_clip() || !(dpi_factor > 0.0) {
+        return false;
+    }
+    // The walk paints at `pos - offset` (`scroll_rect` of `render_single_item`).
+    let on_surface = |r: &LogicalRect| LogicalRect {
+        origin: LogicalPosition {
+            x: r.origin.x - scroll_offset.0,
+            y: r.origin.y - scroll_offset.1,
+        },
+        size: r.size,
+    };
+    let m = render_state
+        .transforms
+        .get(&transform_key.id)
+        .map_or(&initial_transform.m, |t| &t.m);
+    let moved_by = if is_identity_2d(m) {
+        Some((0.0, 0.0))
+    } else {
+        translation_2d(m)
+    };
+    let Some((tx, ty)) = moved_by else {
+        let g = GroupGeometry::of(
+            m,
+            &on_surface(bounds.inner()),
+            &on_surface(&frame.extent),
+            dpi_factor,
+            clip,
+        );
+        let part = group_visible_part(&g.matrix, g.outer_clip, below, (g.width, g.height));
+        let lands =
+            g.width > 0 && g.height > 0 && part.is_none_or(|(x0, y0, x1, y1)| x1 > x0 && y1 > y0);
+        if !lands {
+            crate::cpu_counters::count(crate::cpu_counters::Counter::GroupsEmpty, 1);
+        }
+        return !lands;
+    };
+    if !frame.leaf {
+        return false;
+    }
+    let reach = text_shadow_stack
+        .iter()
+        .map(crate::solver3::display_list::text_shadow_reach)
+        .fold(frame.shadow_reach, f32::max);
+    let extent = on_surface(&frame.extent);
+    let painted_box = LogicalRect {
+        origin: LogicalPosition {
+            x: extent.origin.x + tx - reach,
+            y: extent.origin.y + ty - reach,
+        },
+        size: LogicalSize {
+            width: extent.size.width + 2.0 * reach,
+            height: extent.size.height + 2.0 * reach,
+        },
+    };
+    if in_group || matches!(cull, WalkCull::ActiveClip) {
+        // As `outside_active_clip` culls an item: by the clip, unless a filter or a mask is open.
+        let Some(clip) = clip else {
+            return false;
+        };
+        if mask_stack.iter().any(|e| match e {
+            MaskEntry::Filter(_) => true,
+            MaskEntry::ImageMask { width, height, .. } => *width > 0 && *height > 0,
+            _ => false,
+        }) {
+            return false;
+        }
+        let clip_logical = LogicalRect {
+            origin: LogicalPosition { x: clip.x / dpi_factor, y: clip.y / dpi_factor },
+            size: LogicalSize { width: clip.width / dpi_factor, height: clip.height / dpi_factor },
+        };
+        return !rects_overlap_or_adjacent(&painted_box, &clip_logical, 0.0);
+    }
+    match cull {
+        WalkCull::Damage(damage) => !rects_overlap_or_adjacent(&painted_box, damage, 0.0),
+        WalkCull::InGroups | WalkCull::ActiveClip => false,
+    }
 }
 
 /// Compact item-kind label for [`crate::probe`]. Names must be `'static`
@@ -2953,7 +3119,8 @@ pub fn render_display_list_damaged(
         (r, g, b, a)
     };
     for sr in &rects {
-        let (painted, skipped) = paint_damage_rect(
+        // One pass, or bands of rows on a few threads when the rect is large (`bands`).
+        let (painted, skipped) = super::bands::paint_rect(
             display_list,
             pixmap,
             dpi_factor,
@@ -15485,5 +15652,396 @@ mod audit_a1_tests {
         let [r, g, b, a] = px(&painted, 30, 30);
         assert!((120..=136).contains(&r) && g == 255 && (120..=136).contains(&b) && a == 255, "half green over white, got {:?}", [r, g, b, a]);
         assert_eq!(px(&painted, 80, 70), [255, 255, 255, 255], "outside the group nothing changed");
+    }
+
+    // ---- text and a page of everything that could show a seam -------------------------------
+
+    fn test_font() -> Option<ParsedFont> {
+        let candidates = [
+            "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "C:/Windows/Fonts/arial.ttf",
+        ];
+        for path in candidates {
+            if let Ok(bytes) = std::fs::read(path) {
+                let arc = std::sync::Arc::new(rust_fontconfig::FontBytes::Owned(std::sync::Arc::from(bytes.as_slice())));
+                if let Some(font) = ParsedFont::from_bytes(&bytes, 0, &mut Vec::new()).map(|f| f.with_source_bytes(arc)) {
+                    return Some(font);
+                }
+            }
+        }
+        None
+    }
+
+    /// The resources and the font manager a walk needs, with `font` (if there is one) in them.
+    fn resources(font: Option<&ParsedFont>) -> (RendererResources, FontManager<FontRef>, Option<FontHash>) {
+        let rr = RendererResources::default();
+        let Some(font) = font else {
+            return (rr, empty_font_manager(), None);
+        };
+        let font_ref = crate::parsed_font_to_font_ref(font.clone());
+        let hash = crate::font_ref_to_parsed_font(&font_ref).hash;
+        let fm: FontManager<FontRef> = FontManager::new(rust_fontconfig::FcFontCache::default()).expect("FontManager::new");
+        fm.insert_font(rust_fontconfig::FontId::new(), font_ref);
+        (rr, fm, Some(FontHash::from_hash(hash)))
+    }
+
+    fn glyphs_of(font: &ParsedFont, text: &str, size: f32, x: f32, y: f32) -> Vec<GlyphInstance> {
+        let scale = size / f32::from(font.font_metrics.units_per_em);
+        let mut pen_x = x;
+        let mut out = Vec::new();
+        for c in text.chars() {
+            let gid = font.lookup_glyph_index(c as u32).unwrap_or(0);
+            let advance = f32::from(font.get_horizontal_advance(gid)) * scale;
+            out.push(GlyphInstance {
+                index: u32::from(gid),
+                point: LogicalPosition { x: pen_x, y },
+                size: LogicalSize { width: advance, height: size },
+            });
+            pen_x += advance;
+        }
+        out
+    }
+
+    /// A run of `text` with its baseline at `(x, y)`, in black; nothing without a font.
+    fn label(font: Option<(&ParsedFont, FontHash)>, text: &str, size: f32, x: f32, y: f32) -> Vec<DisplayListItem> {
+        let Some((font, font_hash)) = font else {
+            return Vec::new();
+        };
+        let clip_rect = wrect(x - 4.0, y - size * 1.2, size * 0.7 * text.len() as f32 + 8.0, size * 1.6);
+        vec![DisplayListItem::Text {
+            glyphs: glyphs_of(font, text, size, x, y),
+            font_hash,
+            font_size_px: size,
+            color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+            clip_rect,
+            line_box: clip_rect,
+            source_node_index: None,
+        }]
+    }
+
+    fn halo(blur: f32, spread: f32, rgb: [u8; 3]) -> StyleBoxShadow {
+        use azul_css::props::basic::pixel::{PixelValue, PixelValueNoPercent};
+        let length = |v: f32| PixelValueNoPercent { inner: PixelValue::px(v) };
+        StyleBoxShadow {
+            offset_x: length(0.0),
+            offset_y: length(0.0),
+            blur_radius: length(blur),
+            spread_radius: length(spread),
+            color: ColorU { r: rgb[0], g: rgb[1], b: rgb[2], a: 255 },
+            clip_mode: azul_css::props::style::box_shadow::BoxShadowClipMode::Outset,
+        }
+    }
+
+    /// `inner` under a text shadow.
+    fn haloed(shadow: StyleBoxShadow, inner: Vec<DisplayListItem>) -> Vec<DisplayListItem> {
+        let mut items = vec![DisplayListItem::PushTextShadow { shadow }];
+        items.extend(inner);
+        items.push(DisplayListItem::PopTextShadow);
+        items
+    }
+
+    /// A page 900 x 700 with something of every kind across the rows 234 and 468, where a
+    /// repaint of the whole page on 4 threads puts its seams (3 bands of 234 rows: 630,000 px
+    /// are 3 bands' worth): a rounded fill, a box shadow, a label with a solid halo and one with
+    /// a blurred halo, plain text, a half-opaque group with a fill and text, a scaled group of
+    /// cells (the separable composite), and a turned label with a halo (the general composite).
+    fn seam_page(font: Option<(&ParsedFont, FontHash)>) -> DisplayList {
+        let mut items = vec![fill(0.0, 0.0, 900.0, 700.0, [236, 233, 225])];
+        // 1. a rounded fill across row 234
+        items.push(DisplayListItem::Rect {
+            bounds: wrect(40.0, 200.0, 200.0, 80.0),
+            color: ColorU { r: 40, g: 120, b: 200, a: 255 },
+            border_radius: BorderRadius { top_left: 14.0, top_right: 14.0, bottom_left: 14.0, bottom_right: 14.0 },
+        });
+        // 2. a box shadow across row 468
+        items.push(DisplayListItem::BoxShadow {
+            bounds: wrect(60.0, 440.0, 160.0, 60.0),
+            shadow: StyleBoxShadow { color: ColorU { r: 0, g: 0, b: 0, a: 160 }, ..halo(9.0, 2.0, [0, 0, 0]) },
+            border_radius: BorderRadius::default(),
+        });
+        items.push(fill(60.0, 440.0, 160.0, 60.0, [250, 250, 250]));
+        // 3. labels with halos across row 234 (baselines at 240 and 236), plain text across 468
+        items.extend(haloed(halo(0.0, 3.0, [255, 255, 255]), label(font, "Neckarhalde", 24.0, 300.0, 240.0)));
+        items.extend(haloed(halo(2.0, 0.0, [255, 240, 120]), label(font, "Ammergasse", 18.0, 520.0, 236.0)));
+        items.extend(label(font, "Wilhelmstrasse 12", 16.0, 300.0, 473.0));
+        // 4. a half-opaque group across row 468
+        items.push(DisplayListItem::PushOpacity {
+            bounds: wrect(540.0, 430.0, 180.0, 80.0),
+            opacity: 0.5,
+            opacity_key: None,
+            mix_blend_mode: Default::default(),
+        });
+        items.push(fill(540.0, 430.0, 180.0, 80.0, [200, 30, 30]));
+        items.extend(label(font, "Schlossberg", 20.0, 552.0, 474.0));
+        items.push(DisplayListItem::PopOpacity);
+        // 5. a scaled group of 12 x 12 cells of 9 px (box 120 x 120, scaled by 1.7 from
+        //    (700, 140): rows 140 .. 344, across row 234)
+        let mut cells = Vec::new();
+        for i in 0..12u8 {
+            for j in 0..12u8 {
+                cells.push(fill(f32::from(i) * 10.0, f32::from(j) * 10.0, 9.0, 9.0, [i * 20, j * 20, 90 + i * 5 + j * 5]));
+            }
+        }
+        items.extend(frame(1, turn_scale_move(0.0, 1.7, 700.0, 140.0), (120.0, 120.0), cells));
+        // 6. a turned label with a halo (box 220 x 44 turned by 20 degrees about (0, 0) and moved
+        //    to (40, 560): its far end is 220 sin 20 = 75 px lower, rows 560 .. 676), and one
+        //    across row 468 (moved to (330, 400): rows 400 .. 516)
+        for (key, tx, ty) in [(2usize, 40.0_f32, 560.0_f32), (3, 330.0, 400.0)] {
+            let mut inner = vec![fill(0.0, 0.0, 220.0, 44.0, [255, 255, 210])];
+            inner.extend(haloed(halo(0.0, 2.0, [255, 255, 255]), label(font, "Hirschauer Steige", 22.0, 6.0, 30.0)));
+            items.extend(frame(key, turn_scale_move(20.0, 1.0, tx, ty), (220.0, 44.0), inner));
+        }
+        list(items)
+    }
+
+    /// `dl` repainted in full (one damage rect, the whole frame) into a white `w` x `h` frame
+    /// on `threads` threads, and what was counted.
+    fn repaint(
+        dl: &DisplayList,
+        (rr, fm): (&RendererResources, &FontManager<FontRef>),
+        (w, h): (u32, u32),
+        dpi: f32,
+        threads: usize,
+    ) -> (AzulPixmap, crate::cpu_counters::CpuFrameCounters) {
+        let state = CpuRenderState::new(ScrollOffsetMap::new()).with_paint_threads(threads);
+        let mut pm = AzulPixmap::new(w, h).unwrap();
+        pm.fill(255, 255, 255, 255);
+        let mut gc = GlyphCache::new();
+        let whole = [rect(0.0, 0.0, w as f32 / dpi, h as f32 / dpi)];
+        crate::cpu_counters::reset();
+        render_display_list_damaged(dl, &mut pm, dpi, rr, fm, &mut gc, &state, &whole).unwrap();
+        (pm, crate::cpu_counters::take())
+    }
+
+    fn differing_pixels(a: &AzulPixmap, b: &AzulPixmap) -> usize {
+        a.data().chunks_exact(4).zip(b.data().chunks_exact(4)).filter(|(p, q)| p != q).count()
+    }
+
+    /// A1-06 (a): a repaint in bands on four threads is the repaint of one pass, pixel for
+    /// pixel, on a page with every kind of item across the seams (`seam_page`), at DPI 1, 1.5
+    /// and 2. The banded repaint runs FIRST, so its threads draw the halos and glyphs
+    /// themselves; the single pass then finds the halos kept. The bands are counted, and the
+    /// band threads' counts reach the frame's counters (as many items walked per band as the
+    /// one pass walks).
+    /// Mutations: a band painted at `y - y0` (in its own coordinates) moves everything below
+    /// the first seam; copying back `rows` instead of the band's columns is caught by the
+    /// narrower rect of the second test; a band thread without the frame's cull switches or a
+    /// glyph cache with other settings changes pixels; `merge` left out loses the walked items.
+    #[test]
+    fn a_repaint_in_bands_is_the_repaint_of_one_pass() {
+        let font = test_font();
+        let (rr, fm, font_hash) = resources(font.as_ref());
+        let dl = seam_page(font.as_ref().zip(font_hash));
+        for dpi in [1.0_f32, 1.5, 2.0] {
+            let (banded, counted) = repaint(&dl, (&rr, &fm), (900, 700), dpi, 4);
+            let (single, counted_single) = repaint(&dl, (&rr, &fm), (900, 700), dpi, 1);
+            assert_eq!(counted.bands, 3, "dpi {dpi}: 630,000 px are three bands: {counted:?}");
+            assert_eq!(counted.band_threads, 2, "dpi {dpi}: this thread and two more: {counted:?}");
+            assert_eq!((counted_single.bands, counted_single.band_threads), (0, 0), "dpi {dpi}: one pass");
+            assert_eq!(
+                counted.items_walked,
+                3 * counted_single.items_walked,
+                "dpi {dpi}: every band walks the list once, and its count reaches the frame's"
+            );
+            assert_eq!(counted.px_cleared, counted_single.px_cleared, "dpi {dpi}: every pixel is cleared once");
+            let coloured = single.data().chunks_exact(4).filter(|p| p[..3] != [236, 233, 225]).count();
+            assert!(coloured > 20_000, "dpi {dpi}: the page shows its content ({coloured} px), the comparison is not vacuous");
+            assert_eq!(differing_pixels(&banded, &single), 0, "dpi {dpi}: the bands are the pass");
+        }
+    }
+
+    /// A1-06 (a): the same for a damage rect inside the frame, (60, 30) 780 x 640 of the page:
+    /// what a band writes back is its rect and nothing left or right of it, and the pixels
+    /// outside the damage are untouched (they are a marker colour no item paints).
+    #[test]
+    fn a_damage_rect_in_bands_leaves_the_pixels_around_it_alone() {
+        let font = test_font();
+        let (rr, fm, font_hash) = resources(font.as_ref());
+        let dl = seam_page(font.as_ref().zip(font_hash));
+        let damage = [rect(60.0, 30.0, 780.0, 640.0)];
+        let paint = |threads: usize| {
+            let state = CpuRenderState::new(ScrollOffsetMap::new()).with_paint_threads(threads);
+            let mut pm = AzulPixmap::new(900, 700).unwrap();
+            pm.fill(1, 2, 3, 255);
+            let mut gc = GlyphCache::new();
+            crate::cpu_counters::reset();
+            render_display_list_damaged(&dl, &mut pm, 1.0, &rr, &fm, &mut gc, &state, &damage).unwrap();
+            (pm, crate::cpu_counters::take())
+        };
+        let (banded, counted) = paint(4);
+        let (single, _) = paint(1);
+        assert_eq!(counted.bands, 2, "780 x 640 = 499,200 px are two bands: {counted:?}");
+        assert_eq!(differing_pixels(&banded, &single), 0);
+        for (x, y) in [(59, 300), (840, 300), (400, 29), (400, 670), (0, 0), (899, 699)] {
+            assert_eq!(px(&banded, x, y), [1, 2, 3, 255], "({x}, {y}) is outside the damage");
+        }
+        assert_ne!(px(&banded, 60, 300), [1, 2, 3, 255], "the damage's first column is painted");
+        assert_ne!(px(&banded, 839, 669), [1, 2, 3, 255], "and its last pixel");
+    }
+
+    // ---- stepping over frames ---------------------------------------------------------------
+
+    const IDENTITY: [[f32; 4]; 4] = [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ];
+
+    /// A label as a map's list holds one: a frame at `(x, y)` with the matrix `m` around a
+    /// stacking context and its ink, a 40 x 12 fill. Five items.
+    fn label_frame(key: usize, m: [[f32; 4]; 4], x: f32, y: f32) -> Vec<DisplayListItem> {
+        vec![
+            DisplayListItem::PushReferenceFrame {
+                transform_key: azul_core::resources::TransformKey { id: key },
+                initial_transform: azul_core::transform::ComputedTransform3D { m },
+                bounds: wrect(x, y, 40.0, 12.0),
+            },
+            DisplayListItem::PushStackingContext { z_index: 0, bounds: wrect(x, y, 40.0, 12.0) },
+            fill(x, y, 40.0, 12.0, [(key % 200) as u8, 60, 160]),
+            DisplayListItem::PopStackingContext,
+            DisplayListItem::PopReferenceFrame,
+        ]
+    }
+
+    /// `n` labels on a grid of 20 columns, 50 px apart, rows 20 px apart; every other one moved
+    /// by 3 px by its matrix, every seventh turned by 10 degrees.
+    fn label_grid(n: usize) -> DisplayList {
+        let mut items = Vec::new();
+        for i in 0..n {
+            let (x, y) = ((i % 20) as f32 * 50.0, (i / 20) as f32 * 20.0);
+            let m = if i % 7 == 6 {
+                turn_scale_move(10.0, 1.0, 0.0, 0.0)
+            } else if i % 2 == 1 {
+                turn_scale_move(0.0, 1.0, 3.0, 0.0)
+            } else {
+                IDENTITY
+            };
+            items.extend(label_frame(i + 1, m, x, y));
+        }
+        list(items)
+    }
+
+    /// A1-07 (h): a walk steps over the frames that cannot paint under its damage rect. A grid
+    /// of n labels of five items each and a damage rect (0, 0) 100 x 40 over its corner: the
+    /// labels that can reach it are those of columns 0 .. 2 and rows 0 .. 2 (the third of each
+    /// only touches it), 9 of them, and two turned ones whose group lies within the 64 px the
+    /// walk paints around what lands, so the walk hands n pushes and 11 x 4 more items to the
+    /// cull instead of 5 n; four times the labels walk four times the pushes and the same few
+    /// items, and the picture is the one the unculled walk paints.
+    /// Mutations: without the step every item is walked (5 n); a step to `frame.end` instead of
+    /// `frame.end + 1` hands a frame's pop to the walk and paints the label's neighbours moved.
+    #[test]
+    fn a_walk_steps_over_the_frames_that_cannot_paint_under_its_damage() {
+        let (rr, fm) = (RendererResources::default(), empty_font_manager());
+        let damage = [rect(0.0, 0.0, 100.0, 40.0)];
+        let state = CpuRenderState::new(ScrollOffsetMap::new()).with_paint_threads(1);
+        let mut walked = Vec::new();
+        for n in [200usize, 800] {
+            let dl = label_grid(n);
+            let paint = |cull: bool| {
+                let mut pm = AzulPixmap::new(1000, 820).unwrap();
+                pm.fill(255, 255, 255, 255);
+                let mut gc = GlyphCache::new();
+                GROUP_CULL_OFF.with(|c| c.set(!cull));
+                crate::cpu_counters::reset();
+                render_display_list_damaged(&dl, &mut pm, 1.0, &rr, &fm, &mut gc, &state, &damage).unwrap();
+                GROUP_CULL_OFF.with(|c| c.set(false));
+                (pm, crate::cpu_counters::take())
+            };
+            let (stepped, counted) = paint(true);
+            let (whole, counted_whole) = paint(false);
+            assert_eq!(counted_whole.items_walked, 5 * n as u64, "n = {n}: unculled, every item is walked");
+            assert!(
+                counted.items_walked >= n as u64 && counted.items_walked <= n as u64 + 4 * 20,
+                "n = {n}: the pushes and the items of the few labels that reach the rect, got {}",
+                counted.items_walked
+            );
+            assert!(stepped.data() == whole.data(), "n = {n}: the picture is the unculled one");
+            assert_ne!(px(&stepped, 10, 5), [255, 255, 255, 255], "n = {n}: the first label is painted");
+            walked.push(counted.items_walked);
+        }
+        assert!(walked[1] < 6 * walked[0], "four times the labels: {walked:?}");
+        assert!(walked[1] - walked[0] <= 600 + 8, "600 more pushes, no more items: {walked:?}");
+    }
+
+    /// A1-07 (h): the rule itself, on the example of `frame_paints_nothing`. Extent
+    /// (100, 40) 60 x 20, matrix translate(30, 0), walk offset (10, 0), shadow reach 3: the box
+    /// that can be painted is x 117 .. 183, y 37 .. 63.
+    /// Mutation: the reach left out gives x 120 .. 180, and the damage rect ending at 118 would
+    /// step over a label whose halo reaches it; `+ tx` -> `- tx` gives 57 .. 123 and walks the
+    /// frame under a rect it cannot reach.
+    #[test]
+    fn a_frame_is_stepped_over_only_when_its_moved_extent_and_its_halo_miss_the_cull() {
+        use crate::solver3::display_list::FrameEntry;
+        let push = DisplayListItem::PushReferenceFrame {
+            transform_key: azul_core::resources::TransformKey { id: 77 },
+            initial_transform: azul_core::transform::ComputedTransform3D { m: turn_scale_move(0.0, 1.0, 30.0, 0.0) },
+            bounds: wrect(100.0, 40.0, 60.0, 20.0),
+        };
+        let entry = FrameEntry {
+            push: 0,
+            end: 4,
+            extent: rect(100.0, 40.0, 60.0, 20.0),
+            self_contained: true,
+            leaf: true,
+            shadow_reach: 3.0,
+        };
+        let state = CpuRenderState::new(ScrollOffsetMap::new());
+        let nothing = |entry: &FrameEntry, cull: WalkCull, clip: Option<AzRect>| {
+            frame_paints_nothing(&push, entry, &cull, false, (400, 300), 1.0, clip, (10.0, 0.0), &[], &[], &state)
+        };
+        let damage = |w: f32| WalkCull::Damage(rect(0.0, 0.0, w, 100.0));
+        assert!(nothing(&entry, damage(110.0), None), "117 is past a rect that ends at 110");
+        assert!(!nothing(&entry, damage(118.0), None), "the halo's 3 px reach a rect that ends at 118");
+        assert!(!nothing(&entry, damage(200.0), None));
+        assert!(nothing(&entry, WalkCull::Damage(rect(0.0, 70.0, 400.0, 30.0)), None), "y 37 .. 63 is above a rect from 70");
+        // A full repaint culls nothing outside groups; a view culls by its clip.
+        assert!(!nothing(&entry, WalkCull::InGroups, None));
+        assert!(nothing(&entry, WalkCull::ActiveClip, AzRect::from_xywh(0.0, 0.0, 110.0, 100.0)));
+        assert!(!nothing(&entry, WalkCull::ActiveClip, AzRect::from_xywh(0.0, 0.0, 118.0, 100.0)));
+        assert!(!nothing(&entry, WalkCull::ActiveClip, None), "no clip, nothing to cull by");
+        // Not a leaf, or not self-contained: walked.
+        assert!(!nothing(&FrameEntry { leaf: false, ..entry }, damage(110.0), None));
+        assert!(!nothing(&FrameEntry { self_contained: false, ..entry }, damage(110.0), None));
+        // The live matrix decides, not the list's: moved back by a value of translate(-80, 0),
+        // the box is x 7 .. 73 and reaches the rect.
+        let mut live = CpuRenderState::new(ScrollOffsetMap::new());
+        live.transforms.insert(77, azul_core::transform::ComputedTransform3D { m: turn_scale_move(0.0, 1.0, -80.0, 0.0) });
+        assert!(!frame_paints_nothing(&push, &entry, &damage(110.0), false, (400, 300), 1.0, None, (10.0, 0.0), &[], &[], &live));
+    }
+
+    /// A1-06 (a): the halos the frame's thread keeps are shared with a band thread, and come
+    /// back with what the band kept. Mutation: a band thread that does not adopt the store
+    /// finds nothing kept (and would draw every halo of its band on every frame); a store not
+    /// restored loses the frame thread's halos after the first repaint in bands.
+    #[test]
+    fn a_band_thread_reads_and_keeps_the_halos_of_the_frames_thread() {
+        use super::super::text_halo::{
+            adopt_cpu_halos, keep_cpu_halo, kept_cpu_halo, restore_cpu_halos, share_cpu_halos, CpuHalo,
+        };
+        fn halo(width: u32) -> Option<std::sync::Arc<CpuHalo>> {
+            Some(std::sync::Arc::new(CpuHalo { width, height: 1, offset: (0, 0), coverage: vec![7; width as usize] }))
+        }
+        let (mine, theirs) = (0x00A1_0001_u64, 0x00A1_0002_u64);
+        keep_cpu_halo(mine, halo(3));
+        let shared = share_cpu_halos();
+        assert!(kept_cpu_halo(mine).is_none(), "moved out of this thread's memo while it is shared");
+        let for_band = std::sync::Arc::clone(&shared);
+        std::thread::spawn(move || {
+            assert!(kept_cpu_halo(mine).is_none(), "a new thread has kept nothing");
+            adopt_cpu_halos(Some(for_band));
+            assert_eq!(kept_cpu_halo(mine).flatten().map(|h| h.width), Some(3), "the band reads the frame's halo");
+            keep_cpu_halo(theirs, halo(5));
+            adopt_cpu_halos(None);
+        })
+        .join()
+        .expect("the band thread");
+        restore_cpu_halos(shared);
+        assert_eq!(kept_cpu_halo(mine).flatten().map(|h| h.width), Some(3), "back in this thread's memo");
+        assert_eq!(kept_cpu_halo(theirs).flatten().map(|h| h.width), Some(5), "with what the band kept");
     }
 }
