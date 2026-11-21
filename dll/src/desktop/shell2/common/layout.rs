@@ -909,6 +909,9 @@ pub fn regenerate_layout(
 
     let e2e_mount_xml = layout_window.e2e_mount.xml().map(str::to_string);
     let e2e_mount_dirty = layout_window.e2e_mount.take_dirty();
+    // Whether the tree comes out of ONE cascade over the app's `Dom` (not a mounted document,
+    // not a tree kept from an earlier mount): see the recompute below.
+    let mut styled_by_one_cascade = false;
     let mut user_styled_dom = match e2e_mount_xml {
         Some(xml) => {
             let must_reparse = e2e_mount_dirty;
@@ -959,7 +962,10 @@ pub fn regenerate_layout(
         // `_for`: cascaded under the context THIS pass installs, so a DOM
         // built for a dark window is dark from its first cascade (the plain
         // `style_user_dom` styles for the previous pass's state).
-        None => layout_window.style_user_dom_for(user_dom, current_window_state),
+        None => {
+            styled_by_one_cascade = true;
+            layout_window.style_user_dom_for(user_dom, current_window_state)
+        }
     };
     // The rice listing, once per (re)load of the rice (`azul_css::rice`): the
     // theme chain, every file with its priority and version, live versus
@@ -996,10 +1002,13 @@ pub fn regenerate_layout(
     // `env(titlebar-area-*)`): nothing under a bar drawn above the content,
     // the room the overlaid controls take, and nothing to say where azul
     // draws none - the frame's own measure or the desktop's metrics apply.
-    let mut styled_dom = match csd::csd_injection_for(
+    let injection = csd::csd_injection_for(
         current_window_state.flags.has_decorations,
         current_window_state.flags.decorations,
-    ) {
+    );
+    // Every injection appends a styled tree to the user's (`append_child`).
+    let decorations_appended = !matches!(injection, csd::CsdInjection::None);
+    let mut styled_dom = match injection {
         csd::CsdInjection::Titlebar => {
             layout_window.drawn_titlebar = azul_css::system::TitlebarReport::NoArea;
             log_debug!(
@@ -1078,7 +1087,14 @@ pub fn regenerate_layout(
     //
     // Re-running inheritance + compact cache rebuild on the fully composed tree
     // fixes both issues. Cost: one extra O(n) pass — acceptable for correctness.
-    styled_dom.recompute_inheritance_and_compact_cache();
+    //
+    // Only for a COMPOSED tree. The app's `Dom`, styled by the one cascade above with
+    // nothing appended to it, has its inheritance and its compact cache from that cascade:
+    // building both a second time was a whole pass over every node of the window's DOM on
+    // every rebuild, to arrive at what was there.
+    if !styled_by_one_cascade || decorations_appended {
+        styled_dom.recompute_inheritance_and_compact_cache();
+    }
     azul_layout::probe::emit_phase_heap("after_recompute_cache");
     phases.mark("after_recompute_cache");
 
