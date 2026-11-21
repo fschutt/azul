@@ -775,9 +775,10 @@ mod audit_a8_tests {
     /// shape (four times as tall, four times the vertices, four times the
     /// lines: about four times the edges; the walk over every edge read
     /// sixteen times as many).
-    /// Mutation: `>` -> `>=` in `band_edges`' test of the lower end fails
-    /// nothing (an edge ending at the band's top is not crossed in it); its
-    /// `<=` -> `<` of the upper end fails a band whose bottom is a vertex.
+    /// Mutation: `<=` -> `<` in `band_edges`' test of the upper end fails the
+    /// band of no height at the vertex 25 (read at its top, where the edge
+    /// starting there is crossed). (`>` -> `>=` of the lower end is
+    /// equivalent: an edge ending at the band's top is crossed nowhere in it.)
     #[test]
     #[allow(clippy::cast_precision_loss)] // small counts
     fn a_bands_spans_are_the_spans_of_the_walk_over_every_edge() {
@@ -795,7 +796,7 @@ mod audit_a8_tests {
         for rings in &shapes {
             for fill_rule in [FillRule::NonZero, FillRule::EvenOdd] {
                 for cover in [BandCover::Any, BandCover::Whole] {
-                    for (top, height) in [(-30.0_f32, 20.0_f32), (0.0, 10.0), (12.5, 0.0), (25.0, 25.0), (33.3, 7.1), (60.0, 40.0), (99.0, 5.0), (140.0, 10.0)] {
+                    for (top, height) in [(-30.0_f32, 20.0_f32), (0.0, 10.0), (12.5, 0.0), (25.0, 0.0), (25.0, 25.0), (33.3, 7.1), (60.0, 40.0), (99.0, 5.0), (140.0, 10.0)] {
                         assert_eq!(
                             ring_spans_in_band(rings, fill_rule, top, top + height, cover),
                             old_ring_spans_in_band(rings, fill_rule, top, top + height, cover),
