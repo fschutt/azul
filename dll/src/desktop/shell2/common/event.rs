@@ -4134,10 +4134,16 @@ impl CommonWindowState {
         // all. `cpu_hit_tester` is therefore allocated and rebuilt on EVERY
         // backend now, GPU included — it used to be `None` there.
         // CPU path: layout-based hit tester
-        if let Some(ref cpu_ht) = self.cpu_hit_tester {
+        if let Some(cpu_ht) = self.cpu_hit_tester.as_mut() {
             // SAFETY: neither layout_results nor the managers are modified by
             // hit testing
             let lw = unsafe { &*layout_results_ptr };
+            // A view that panned or scrolled since the tester was built had
+            // its item's `content_offset` re-pointed in place (no layout, so
+            // no rebuild of the tester): its child's boxes are hit where the
+            // item puts them NOW. One item read per child dom.
+            cpu_ht.sync_view_placements(&lw.layout_results);
+            let cpu_ht = &*cpu_ht;
             let resolve = |d: DomId, n: NodeId| lw.scroll_manager.get_current_offset(d, n);
             // Same map the CPU raster paints reference frames from.
             let resolve_tf = |d: DomId, n: NodeId| lw.gpu_state_manager.painted_transform_of(d, n);
