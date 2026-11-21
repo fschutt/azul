@@ -917,6 +917,8 @@ std::thread_local! {
     /// the tests reads to say the inheritance pass does not look at every
     /// distinct value of the DOM for every node.
     pub(crate) static INHERITED_BUCKET_READS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+    /// How many buckets [`InheritedValues::get`] searched on this thread.
+    pub(crate) static INHERITED_GET_READS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
 }
 
 /// The slow path's inherited-value store, TRANSPOSED: one copy of each distinct
@@ -951,6 +953,12 @@ pub struct InheritedValues {
     /// inherited property; reading all of them for every value of every
     /// node was nodes times distinct values.
     by_hash: alloc::collections::BTreeMap<u64, Vec<u32>>,
+    /// The buckets of each property type, in the order they were made: what
+    /// [`Self::get`] searches. It used to pass over every bucket of the
+    /// store to find the ones of its type - 150 to 200 buckets on a map with
+    /// 26 text styles, for a property (`user-select`, `direction`) that has
+    /// one or two.
+    by_type: alloc::collections::BTreeMap<CssPropertyType, Vec<u32>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -968,6 +976,7 @@ impl InheritedValues {
             buckets: Vec::new(),
             node_count: 0,
             by_hash: alloc::collections::BTreeMap::new(),
+            by_type: alloc::collections::BTreeMap::new(),
         }
     }
 
@@ -998,6 +1007,10 @@ impl InheritedValues {
         let index = self.buckets.len();
         self.by_hash
             .entry(Self::bucket_hash(bucket.prop_type, &bucket.value))
+            .or_default()
+            .push(u32::try_from(index).unwrap_or(u32::MAX));
+        self.by_type
+            .entry(bucket.prop_type)
             .or_default()
             .push(u32::try_from(index).unwrap_or(u32::MAX));
         self.buckets.push(bucket);
@@ -1036,17 +1049,26 @@ impl InheritedValues {
     pub fn clear_values(&mut self) {
         self.buckets.clear();
         self.by_hash.clear();
+        self.by_type.clear();
     }
 
     /// The resolved value of `prop_type` for `node`, if any.
     ///
-    /// Linear over buckets (a handful) then binary over the node list.
+    /// Over the buckets of the type, in the order they were made (the first
+    /// that holds the node, as the scan of all buckets found it), then
+    /// binary over the node list.
     #[must_use]
     pub fn get(&self, node: usize, prop_type: CssPropertyType) -> Option<&CssPropertyWithOrigin> {
         let n = u32::try_from(node).ok()?;
-        self.buckets
+        self.by_type
+            .get(&prop_type)?
             .iter()
-            .find(|b| b.prop_type == prop_type && b.nodes.binary_search(&n).is_ok())
+            .filter_map(|index| self.buckets.get(*index as usize))
+            .find(|b| {
+                #[cfg(all(test, feature = "std"))]
+                INHERITED_GET_READS.with(|c| c.set(c.get() + 1));
+                b.nodes.binary_search(&n).is_ok()
+            })
             .map(|b| &b.value)
     }
 
@@ -1153,6 +1175,7 @@ impl InheritedValues {
     pub fn append(&mut self, other: &mut Self) {
         let shift = u32::try_from(self.node_count).unwrap_or(u32::MAX);
         other.by_hash.clear();
+        other.by_type.clear();
         for mut ob in core::mem::take(&mut other.buckets) {
             for n in &mut ob.nodes {
                 *n = n.saturating_add(shift);

@@ -2521,6 +2521,50 @@ mod audit_a3_core_tests {
         );
     }
 
+    /// A3-core-06b: reading ONE inherited value passed over every bucket of
+    /// the store to find those of its type. It searches the buckets of the
+    /// type alone: a property all nodes share costs the same in a DOM of 10
+    /// text styles and of 160.
+    #[test]
+    fn one_inherited_value_is_looked_for_among_the_buckets_of_its_type() {
+        let labels = 300;
+        let reads_for = |classes: usize| {
+            let (styled, _) = styled_labels(labels, classes);
+            let values = &styled.get_css_property_cache().computed_values;
+            // A property every label has from the root, not from its class.
+            let shared = [
+                CssPropertyType::FontSize,
+                CssPropertyType::FontFamily,
+                CssPropertyType::Cursor,
+                CssPropertyType::Direction,
+                CssPropertyType::LineHeight,
+            ]
+            .into_iter()
+            .find(|ty| values.get(2, *ty).is_some())
+            .expect("harness: a text node inherits some property from the root");
+            crate::prop_cache::INHERITED_GET_READS.with(|c| c.set(0));
+            for i in 0..labels {
+                assert!(values.get(2 + 2 * i, shared).is_some(), "text {i} has it");
+            }
+            let reads = crate::prop_cache::INHERITED_GET_READS.with(core::cell::Cell::get);
+            // And a class's own colour is still found, among its type's buckets.
+            assert!(values.get(1, CssPropertyType::TextColor).is_some());
+            (reads, values.bucket_count())
+        };
+        let (few, few_buckets) = reads_for(10);
+        let (many, many_buckets) = reads_for(160);
+        assert!(many_buckets >= few_buckets + 250, "harness: {few_buckets} -> {many_buckets} buckets");
+        assert!(
+            few <= 4 * labels as u64,
+            "{few} buckets searched for {labels} reads of a shared value"
+        );
+        assert!(
+            many <= few * 2,
+            "{many} buckets searched with 160 text styles for {few} with 10: the read passed over \
+             the buckets of other types"
+        );
+    }
+
     /// A3-core-04: the rules a node gets by its classes apply in the order
     /// of the sheet, together with the rules that name no class, and only
     /// inside the subtree their sheet is on.
