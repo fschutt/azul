@@ -508,6 +508,9 @@ impl CompositorState {
         // pop remove the parent from the stack.
         let mut scroll_promoted: Vec<bool> = Vec::new();
         let mut filter_promoted: Vec<bool> = Vec::new();
+        // Whether each open `PushBackdropFilter` opened a layer: its pop closes that layer and
+        // no other (A1-42).
+        let mut backdrop_promoted: Vec<bool> = Vec::new();
         // The scroll frames painted IN PLACE rather than promoted (see the
         // `PushScrollFrame` arm), each with the `layer_stack` depth it was
         // opened at. The rasteriser moves their content inside the parent
@@ -726,14 +729,20 @@ impl CompositorState {
                     }
                 }
                 DisplayListItem::PushFilter { bounds, filters } => {
-                    let has_blur = filters.iter().any(|f| matches!(f, StyleFilter::Blur(_)));
-                    let (pw, ph) = if has_blur {
+                    // A layer for every list the flat walk does not apply itself
+                    // (`filters_need_a_layer`: anything but `flood()` / `composite()`), not
+                    // for a blur alone: a group with `grayscale()`, `brightness()`,
+                    // `opacity()` ... and no blur sent the full repaint here
+                    // (`full_repaint_needs_layers`), got no layer and was painted
+                    // unfiltered (A1-38).
+                    let needs_layer = super::raster::filters_need_a_layer(filters);
+                    let (pw, ph) = if needs_layer {
                         layer_pixel_size(bounds.inner().size, dpi_factor, node_of(display_list, i))
                     } else {
                         (0, 0)
                     };
                     let end = find_matching_pop(&display_list.items, i, MatchKind::Filter);
-                    let promote = has_blur && pw > 0 && ph > 0 && end > i + 1;
+                    let promote = needs_layer && pw > 0 && ph > 0 && end > i + 1;
                     filter_promoted.push(promote);
                     if promote {
                         let b = *bounds.inner();
@@ -885,7 +894,9 @@ impl CompositorState {
                 DisplayListItem::PushBackdropFilter { bounds, filters } => {
                     let b = *bounds.inner();
                     let (pw, ph) = layer_pixel_size(b.size, dpi_factor, node_of(display_list, i));
-                    if pw > 0 && ph > 0 && !filters.is_empty() {
+                    let promote = pw > 0 && ph > 0 && !filters.is_empty();
+                    backdrop_promoted.push(promote);
+                    if promote {
                         let new_id = self.alloc_layer_id();
                         let mut layer = Layer::new(new_id, b, pw, ph);
                         layer.filters.clone_from(filters);
@@ -909,13 +920,12 @@ impl CompositorState {
                     }
                 }
                 DisplayListItem::PopBackdropFilter => {
-                    if layer_stack.len() > 1 {
-                        let top_id = *layer_stack.last().unwrap();
-                        if let Some(layer) = self.layers.get(&top_id) {
-                            if layer.is_backdrop_filter {
-                                layer_stack.pop();
-                            }
-                        }
+                    // Paired by the RECORDED decision, like `PopOpacity` and `PopFilter`: a
+                    // test of the top layer's kind popped the layer of an OUTER backdrop
+                    // filter for an inner one that had opened none (no size, no filters),
+                    // and what the outer group opened after it was painted twice.
+                    if backdrop_promoted.pop() == Some(true) && layer_stack.len() > 1 {
+                        layer_stack.pop();
                     }
                 }
                 // `text-shadow` (Push/PopTextShadow) is a text-rasterization
@@ -12539,5 +12549,68 @@ mod audit_a1_tests {
         };
         assert!(holds(320.0, 370.0), "the fill where it was painted: {damage:?}");
         assert!(holds(330.0, 380.0), "and where it is painted now: {damage:?}");
+    }
+
+    /// A1-38: a filter the flat walk does not apply gets a layer whatever it is, not only a
+    /// blur. A 100 x 100 frame, a red 40 x 40 fill at (10, 10) inside `filter:
+    /// grayscale(100%)`: painted through the layers it is grey - 0.2126 * 255 = 54 in every
+    /// channel - and the page next to it is the white the frame was cleared to.
+    /// Mutation: a layer for a blur alone (`has_blur` in `allocate_layers_from_display_list`)
+    /// allocates none, and the fill comes out red.
+    #[test]
+    fn a_filter_without_a_blur_gets_a_layer_and_is_applied() {
+        use azul_css::props::basic::length::PercentageValue;
+        let dl = listed(vec![
+            DisplayListItem::PushFilter {
+                bounds: lr(10.0, 10.0, 40.0, 40.0).into(),
+                filters: vec![StyleFilter::Grayscale(PercentageValue::new(100.0))],
+            },
+            opaque(10.0, 10.0, 40.0, 40.0, [255, 0, 0]),
+            DisplayListItem::PopFilter,
+        ]);
+        let mut comp = CompositorState::new(100, 100);
+        comp.allocate_layers_from_display_list(&dl, 1.0, &HashMap::new(), &HashMap::new());
+        assert!(comp.layers.values().any(|l| !l.filters.is_empty() && !l.is_backdrop_filter), "a layer for the group");
+        let rr = RendererResources::default();
+        let fm = FontManager::new(rust_fontconfig::FcFontCache::default()).expect("a font manager");
+        let mut gc = GlyphCache::new();
+        comp.render_layers(&dl, 1.0, &rr, &fm, &mut gc, &CpuRenderState::new(ScrollOffsetMap::new())).unwrap();
+        let mut out = AzulPixmap::new(100, 100).expect("a pixmap");
+        out.fill(255, 255, 255, 255);
+        comp.composite_frame(&mut out, 1.0);
+        let (r, g, b) = {
+            let i = ((30 * 100 + 30) * 4) as usize;
+            (out.data()[i], out.data()[i + 1], out.data()[i + 2])
+        };
+        assert!(r == g && g == b && (53..=55).contains(&r), "grey of red, 54: got ({r}, {g}, {b})");
+    }
+
+    /// A1-42: a `PopBackdropFilter` closes the layer its own push opened, and no other. An
+    /// outer backdrop filter (a layer) holds an inner one with no filters (no layer) and,
+    /// after it, a filter group (a layer): that group's layer is the OUTER backdrop layer's
+    /// child.
+    /// Mutation: the pop paired by "is the top layer a backdrop layer" closes the outer layer
+    /// at the inner pop; the filter group's layer becomes the root's child and the outer
+    /// layer, which does not skip its range, paints the group a second time.
+    #[test]
+    fn a_backdrop_filters_pop_closes_the_layer_its_own_push_opened() {
+        use azul_css::props::basic::length::PercentageValue;
+        let invert = || vec![StyleFilter::Invert(PercentageValue::new(100.0))];
+        let dl = listed(vec![
+            opaque(0.0, 0.0, 100.0, 100.0, [0, 0, 255]),
+            DisplayListItem::PushBackdropFilter { bounds: lr(0.0, 0.0, 100.0, 100.0).into(), filters: invert() },
+            DisplayListItem::PushBackdropFilter { bounds: lr(0.0, 0.0, 50.0, 50.0).into(), filters: Vec::new() },
+            DisplayListItem::PopBackdropFilter,
+            DisplayListItem::PushFilter { bounds: lr(60.0, 60.0, 20.0, 20.0).into(), filters: invert() },
+            opaque(60.0, 60.0, 20.0, 20.0, [255, 0, 0]),
+            DisplayListItem::PopFilter,
+            DisplayListItem::PopBackdropFilter,
+        ]);
+        let mut comp = CompositorState::new(100, 100);
+        comp.allocate_layers_from_display_list(&dl, 1.0, &HashMap::new(), &HashMap::new());
+        let backdrop = comp.layers.values().find(|l| l.is_backdrop_filter).expect("the outer backdrop layer");
+        assert_eq!(backdrop.children.len(), 1, "the filter group inside it is its child");
+        let child = comp.layers.get(&backdrop.children[0]).expect("the child layer");
+        assert_eq!(child.display_list_range, (5, 6), "the filter group's own range");
     }
 }

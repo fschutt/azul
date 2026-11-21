@@ -1711,10 +1711,26 @@ fn inside_blended_group(mask_stack: &[MaskEntry]) -> bool {
 /// Does a `filter` list need its group's own pixels apart from the backdrop?
 /// `flood()` fills the group and `composite()` reads the group's own alpha,
 /// so both do; the colour filters that act per pixel do not.
+///
+/// Only a list made of those two alone: a list that also holds a filter the walk does not
+/// apply (a blur) is the layered compositor's whole (`filters_need_a_layer`), which applies
+/// every filter of it to the group's layer - isolating it here as well flooded the parent
+/// under that layer a second time.
 fn filter_group_needs_isolation(filters: &[StyleFilter]) -> bool {
+    !filters_need_a_layer(filters)
+        && filters
+            .iter()
+            .any(|f| matches!(f, StyleFilter::Flood(_) | StyleFilter::Composite(_)))
+}
+
+/// Does a `filter` list hold a filter the flat walk does not apply: anything but `flood()`
+/// and `composite()`? Such a group is painted through a layer of the layered compositor,
+/// which applies the list when the layer is composited (`apply_layer_filters`).
+#[must_use]
+pub(crate) fn filters_need_a_layer(filters: &[StyleFilter]) -> bool {
     filters
         .iter()
-        .any(|f| matches!(f, StyleFilter::Flood(_) | StyleFilter::Composite(_)))
+        .any(|f| !matches!(f, StyleFilter::Flood(_) | StyleFilter::Composite(_)))
 }
 
 /// An isolated `filter` group of the direct (layer-less) render path.
@@ -4303,15 +4319,20 @@ pub fn render_display_list_damaged(
     Ok(rects.iter().map(|r| r.logical).collect())
 }
 
-/// Does a full repaint of `display_list` need the layered compositor? Only for a `filter` that
-/// the flat walk does not apply: the walk isolates `flood()` and `composite()` groups itself,
-/// and a blur (or any other filter) is applied to a layer when layers are composited.
+/// Does painting `display_list` need the layered compositor? For a `filter` that the flat
+/// walk does not apply - the walk isolates `flood()` and `composite()` groups itself, and a
+/// blur (or any other filter) is applied to a layer when layers are composited - and for a
+/// `backdrop-filter`, which only the layered compositor applies at all (it filters what is
+/// composited under the group's layer; the walk's arm for it is empty).
+///
+/// Such a list is painted through layers on EVERY frame that paints, not only on a full
+/// repaint: the walk that repaints damage would paint the group unfiltered inside the rects
+/// it repaints (`CpuBackend::render_frame`).
 #[must_use]
 pub fn full_repaint_needs_layers(display_list: &DisplayList) -> bool {
     display_list.items.iter().any(|item| match item {
-        DisplayListItem::PushFilter { filters, .. } => filters
-            .iter()
-            .any(|f| !matches!(f, StyleFilter::Flood(_) | StyleFilter::Composite(_))),
+        DisplayListItem::PushFilter { filters, .. } => filters_need_a_layer(filters),
+        DisplayListItem::PushBackdropFilter { filters, .. } => !filters.is_empty(),
         _ => false,
     })
 }
@@ -18080,5 +18101,31 @@ mod audit_a1_tests {
         assert_eq!(px(&left, 10, 4), [255, 0, 0, 255], "two 30 px corners on a 40 px edge are 20 px each");
         assert_eq!(px(&left, 10, 35), [255, 0, 0, 255]);
         assert_eq!(px(&left, 1, 1), [255, 255, 255, 255]);
+    }
+
+    /// A1-38: which lists the layered compositor has to paint. A `backdrop-filter` (only the
+    /// layers apply it at all) and a filter other than `flood()` / `composite()`; not a list
+    /// of those two alone, which the walk isolates and applies itself, and not a backdrop
+    /// filter without filters. The walk isolates only a list it applies whole.
+    /// Mutation: `PushBackdropFilter` left out of `full_repaint_needs_layers` sends a page
+    /// with a frosted panel through the flat walk, whose arm for it is empty.
+    #[test]
+    fn a_backdrop_filter_and_every_filter_the_walk_does_not_apply_need_the_layers() {
+        use azul_css::props::basic::length::PercentageValue;
+        let around = |push: DisplayListItem, pop: DisplayListItem| list(vec![push, fill(0.0, 0.0, 10.0, 10.0, [255, 0, 0]), pop]);
+        let invert = || StyleFilter::Invert(PercentageValue::new(100.0));
+        let flood = || StyleFilter::Flood(ColorU { r: 0, g: 0, b: 255, a: 255 });
+        let filter = |filters: Vec<StyleFilter>| around(DisplayListItem::PushFilter { bounds: wrect(0.0, 0.0, 10.0, 10.0), filters }, DisplayListItem::PopFilter);
+        let backdrop = |filters: Vec<StyleFilter>| {
+            around(DisplayListItem::PushBackdropFilter { bounds: wrect(0.0, 0.0, 10.0, 10.0), filters }, DisplayListItem::PopBackdropFilter)
+        };
+        assert!(full_repaint_needs_layers(&backdrop(vec![invert()])));
+        assert!(!full_repaint_needs_layers(&backdrop(Vec::new())));
+        assert!(full_repaint_needs_layers(&filter(vec![invert()])));
+        assert!(full_repaint_needs_layers(&filter(vec![flood(), invert()])));
+        assert!(!full_repaint_needs_layers(&filter(vec![flood()])));
+        assert!(filter_group_needs_isolation(&[flood()]));
+        assert!(!filter_group_needs_isolation(&[flood(), invert()]), "the layer applies the whole list");
+        assert!(!filter_group_needs_isolation(&[invert()]));
     }
 }

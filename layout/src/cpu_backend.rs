@@ -946,7 +946,15 @@ impl CpuBackend {
             // forced to `None`, the match fell through to `_`, the buffer was
             // filled white and everything was repainted — `FrameDamage::Full`
             // for a window that only grew by a strip.
-            Some(mut rects) if can_reuse_previous_frame => {
+            // Not for a list with a group only the layered compositor paints right (a blur or
+            // another filter, a backdrop filter): the walk that repaints damage paints such a
+            // group UNFILTERED inside every rect it repaints - a caret blinking in a blurred
+            // panel left a sharp patch per blink. Those frames are full repaints through the
+            // layers (A1-38); an idle frame of such a window is still skipped above.
+            Some(mut rects)
+                if can_reuse_previous_frame
+                    && !cpurender::full_repaint_needs_layers(display_list) =>
+            {
                 // Incremental: changed items + (scroll strips added below)
                 rects.extend(resize_damage);
                 all_damage = rects;
