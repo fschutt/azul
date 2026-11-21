@@ -134,6 +134,9 @@ pub struct KeyringChannels {
     pub results: SharedQueue<KeyringResult>,
 }
 
+// A queue operation hands items over or says whether the item was taken: a caller that only
+// wants the queue emptied, or the event parked, rightly ignores the answer.
+#[allow(clippy::must_use_candidate)]
 impl KeyringChannels {
     /// Queue a keyring op from a callback, in the app's own namespace.
     pub fn push_request(&self, request: KeyringRequest) {

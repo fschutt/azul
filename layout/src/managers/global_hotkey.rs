@@ -1243,6 +1243,7 @@ impl SharedGlobalHotkeys {
     /// Run `f` - a fired global hotkey's callback - with `event` readable through
     /// [`Self::delivered_event`] (`CallbackInfo::get_global_hotkey_event`). The previous
     /// value is restored afterwards, also on unwind.
+    #[allow(clippy::must_use_candidate)] // returns what `f` returns: a caller may want only its effect
     pub fn with_delivered_event<R>(&self, event: GlobalHotkeyEvent, f: impl FnOnce() -> R) -> R {
         struct Restore<'a>(&'a Mutex<Option<GlobalHotkeyEvent>>, Option<GlobalHotkeyEvent>);
         impl Drop for Restore<'_> {

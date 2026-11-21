@@ -198,6 +198,9 @@ impl Default for EyedropperChannel {
     }
 }
 
+// A queue operation hands items over or says whether the item was taken: a caller that only
+// wants the queue emptied, or the event parked, rightly ignores the answer.
+#[allow(clippy::must_use_candidate)]
 impl EyedropperChannel {
     /// A new channel of its own, shared with nobody.
     #[must_use]

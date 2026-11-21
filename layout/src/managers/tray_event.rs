@@ -43,6 +43,9 @@ pub struct TrayEvents {
     current: Arc<Mutex<Option<TrayEvent>>>,
 }
 
+// A queue operation hands items over or says whether the item was taken: a caller that only
+// wants the queue emptied, or the event parked, rightly ignores the answer.
+#[allow(clippy::must_use_candidate)]
 impl TrayEvents {
     /// A new mailbox and slot of their own, shared with nobody.
     #[must_use]
@@ -68,12 +71,14 @@ impl TrayEvents {
     /// Is an event waiting? The Linux loops do not park while one is (it was
     /// queued on the loop thread itself, by a D-Bus handler, after this
     /// iteration's collector ran).
+    #[must_use]
     pub fn has_queued_tray_events(&self) -> bool {
         !self.pending.is_empty()
     }
 
     /// Run `f` with `event` as the event `CallbackInfo::get_tray_event` reports.
     /// The previous value is restored afterwards, also on unwind.
+    #[allow(clippy::must_use_candidate)] // returns what `f` returns: a caller may want only its effect
     pub fn with_current_tray_event<R>(&self, event: &TrayEvent, f: impl FnOnce() -> R) -> R {
         struct Restore<'a>(&'a Mutex<Option<TrayEvent>>, Option<TrayEvent>);
         impl Drop for Restore<'_> {

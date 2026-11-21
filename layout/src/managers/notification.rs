@@ -124,6 +124,9 @@ fn lock_slot<T>(slot: &Mutex<T>) -> MutexGuard<'_, T> {
     slot.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+// A queue operation hands items over or says whether the item was taken: a caller that only
+// wants the queue emptied, or the event parked, rightly ignores the answer.
+#[allow(clippy::must_use_candidate)]
 impl NotificationChannels {
     /// A new set of queues of its own, shared with nobody.
     #[must_use]
@@ -167,6 +170,7 @@ impl NotificationChannels {
     /// dll's capability pump arms its wake-up timer on this, so a request queued
     /// by a callback that returned `DoNothing` does not wait for an unrelated
     /// event to be dispatched.
+    #[must_use]
     pub fn has_queued_requests(&self) -> bool {
         self.permission_requested.load(Ordering::Acquire) || !self.requests.is_empty()
     }
@@ -219,6 +223,7 @@ impl NotificationChannels {
     }
 
     /// Is an event waiting to be routed?
+    #[must_use]
     pub fn has_queued_events(&self) -> bool {
         !self.events.is_empty()
     }
@@ -241,6 +246,7 @@ impl NotificationChannels {
     }
 
     /// Is a delivery waiting?
+    #[must_use]
     pub fn has_queued_deliveries(&self) -> bool {
         !self.deliveries.is_empty()
     }

@@ -23,6 +23,9 @@ pub struct SharedQueue<T> {
     items: Arc<Mutex<Vec<T>>>,
 }
 
+// A queue operation hands items over or says whether the item was taken: a caller that only
+// wants the queue emptied, or the event parked, rightly ignores the answer.
+#[allow(clippy::must_use_candidate)]
 impl<T> SharedQueue<T> {
     /// A new, empty queue that no one else shares yet.
     #[must_use]
