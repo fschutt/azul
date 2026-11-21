@@ -2200,7 +2200,14 @@ fn apply_runtime_states_before_layout(
     // Rules that name a state left of their subject (`.btn:hover .ink`,
     // `.frame:focus-within .hint`) were matched while every node was at rest;
     // match them again now that the runtime states are back.
-    let _ = styled_dom.restyle_for_raised_states();
+    let cascaded = styled_dom.restyle_for_raised_states();
+    // A node in a state hands its children the inheritable values the state declares
+    // (`.row:hover { color: .. }`), and the DOM was cascaded at rest: without the whole
+    // cascade above, its children hold the resting value - the hovered row showed its hover
+    // colour and the text in it the resting one, until the pointer left and came back.
+    if !cascaded && styled_dom.a_raised_state_hands_values_down() {
+        styled_dom.recompute_inheritance_for_states();
+    }
 
     styled_dom
 }

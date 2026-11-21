@@ -2643,6 +2643,31 @@ impl StyledDom {
         true
     }
 
+    /// Whether a node hands its children a value because of a state it is in
+    /// ([`CssPropertyCache::state_inherited_values`]: `.row:hover { color: .. }` on a hovered
+    /// row). The inheritance passes apply such a value for the states they are run under; a
+    /// DOM cascaded at rest and given its states flag by flag afterwards has children that
+    /// still hold the resting value, and owes [`Self::recompute_inheritance_for_states`]
+    /// when this says yes. A DOM with every node at rest costs a pass over its states.
+    #[must_use]
+    pub fn a_raised_state_hands_values_down(&self) -> bool {
+        let cache = self.get_css_property_cache();
+        let node_data = self.node_data.as_container();
+        self.styled_nodes
+            .as_container()
+            .internal
+            .iter()
+            .enumerate()
+            .any(|(index, styled)| {
+                !styled.styled_node_state.is_normal()
+                    && node_data.internal.get(index).is_some_and(|node| {
+                        !cache
+                            .state_inherited_values(node, index, &styled.styled_node_state)
+                            .is_empty()
+                    })
+            })
+    }
+
     /// Which nodes drop and which take `:focus-within` when the focus moves
     /// from `lost` to `gained`: the two ancestor chains without the part
     /// they share, which holds the focus before and after.

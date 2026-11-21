@@ -14281,7 +14281,8 @@ mod tests {
             ".df-list { padding: 2px; } .df-row { padding: 4px; background: #eeeeee; } \
              .df-dense .df-row { padding: 1px; } .df-k1 { background: #ddddff; width: 200px; } \
              .df-k2 { color: #aa0000; font-size: 18px; } .df-k3 { margin-top: 3px; } \
-             #df-id1 { background: #00ff00; } .df-row:hover { background: #ffff00; }",
+             #df-id1 { background: #00ff00; } .df-row:hover { background: #ffff00; color: \
+             #0000aa; }",
         );
         if siblings {
             sheet.push_str(" .df-k1 + .df-row { margin-left: 6px; }");
@@ -14673,6 +14674,90 @@ mod tests {
         );
         azul_layout::window::set_diff_first_steps_on_this_thread(None);
         assert_eq!(chosen, (false, true, true));
+    }
+
+    // --- diff-first-10: a full rebuild under a hovered node with an inherited `:hover` value ---
+    //
+    // The full path cascades the new DOM at rest and raises the states afterwards. A node in
+    // a state hands its children the inheritable values the state declares; the children of a
+    // DOM cascaded at rest held the resting ones until the pointer left and came back.
+
+    /// The app state of [`df10_layout`]: how many rows the page has.
+    struct Df10Rows(usize);
+
+    /// `body > .df10-row > span.df10-cell > text`, each row 40 px high; a hovered row's
+    /// `color` (inherited by the cell and the text) is red, a resting one's black.
+    extern "C" fn df10_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_core::events::{EventFilter, HoverEventFilter};
+        let rows = data
+            .downcast_ref::<Df10Rows>()
+            .map(|rows| rows.0)
+            .expect("app state");
+        let mut body = Dom::create_body()
+            .with_css("margin: 0px; font-size: 14px;")
+            .with_component_css(azul_css::css::Css::from_string(
+                ".df10-row { height: 40px; color: #000000; } .df10-row:hover { color: #ff0000; }"
+                    .into(),
+            ));
+        for i in 0..rows {
+            body = body.with_child(
+                Dom::create_div()
+                    .with_class("df10-row".into())
+                    .with_callback(
+                        EventFilter::Hover(HoverEventFilter::MouseEnter),
+                        RefAny::new(()),
+                        a3w_hover_noop as usize,
+                    )
+                    .with_child(Dom::create_span().with_class("df10-cell".into()).with_child(
+                        Dom::create_text_do_not_use_without_block_level_wrapper(format!("row {i}")),
+                    )),
+            );
+        }
+        body
+    }
+
+    /// The colour the first text of the page is painted in (the text of the first row).
+    fn df10_first_text_colour(window: &HeadlessWindow) -> Option<String> {
+        let lw = window.common.layout_window.as_ref()?;
+        let result = lw.layout_results.get(&azul_core::dom::DomId::ROOT_ID)?;
+        result.display_list.items.iter().find_map(|item| match item {
+            DisplayListItem::Text { color, .. } | DisplayListItem::TextLayout { color, .. } => {
+                Some(format!("{color:?}"))
+            }
+            _ => None,
+        })
+    }
+
+    /// A rebuild that changes the tree (a row comes at the end) while the pointer rests on
+    /// the first row: the text in that row keeps the row's hover colour. Down the full path
+    /// (`AZ_DIFF_FIRST=0`), which is the reference of every equality walk.
+    #[test]
+    fn a_full_rebuild_keeps_the_hover_colour_the_hovered_row_hands_its_text() {
+        let state = Arc::new(RefCell::new(RefAny::new(Df10Rows(3))));
+        let mut window = make_window_sized(&state, df10_layout, 400.0, 300.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        let _ = window.common.take_regeneration();
+        let resting = df10_first_text_colour(&window);
+        assert!(resting.is_some(), "premise: the first row paints a text");
+
+        // Over the first row.
+        step(&mut window, HeadlessEvent::MouseMove { x: 200.0, y: 20.0 });
+        let hovered = df10_first_text_colour(&window);
+        assert_ne!(hovered, resting, "premise: the hover reaches the text in the row");
+
+        {
+            let mut guard = state.borrow_mut();
+            let any: &mut RefAny = &mut guard;
+            let mut rows = any.downcast_mut::<Df10Rows>().expect("app state");
+            rows.0 = 4;
+        }
+        df_rebuild(&mut window, &[]);
+        assert_eq!(
+            df10_first_text_colour(&window),
+            hovered,
+            "the row is still hovered after the rebuild: its text shows the colour it hands down"
+        );
     }
 }
 
