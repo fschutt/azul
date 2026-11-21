@@ -13457,10 +13457,16 @@ impl LayoutWindow {
         let lr = self.layout_results.get_mut(&dom_id)?;
         // A patch by node may put an item of another kind where one was.
         self.dom_generations.bump_list(dom_id);
+        // The cache of THIS DOM: the window's, or the one a view's document is laid out in
+        // (`child_layout_caches`), which holds the document's list the same way. Without it
+        // a tile that arrived in a map copied the view's whole list the first time after
+        // every pass of the view, and the view's cache kept the list with the tile before.
         let cached = if dom_id == DomId::ROOT_ID {
             self.layout_cache.cached_display_list.as_mut()
         } else {
-            None
+            self.child_layout_caches
+                .get_mut(&dom_id)
+                .and_then(|cache| cache.cached_display_list.as_mut())
         };
         let Some(cached) = cached else {
             return Some(patch(Arc::make_mut(&mut lr.display_list)));

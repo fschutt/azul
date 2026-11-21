@@ -1148,6 +1148,67 @@ fn the_first_picture_on_a_kept_place_leaves_the_list_the_renderer_holds() {
     assert!(!held(&lw), "a node without a place: its first picture is a change of the list");
 }
 
+/// A view of one image (a map's tile layer).
+extern "C" fn tile_page(_data: RefAny, _info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+    let layer = Dom::create_div()
+        .with_child(Dom::create_image(picture(4)).with_css("width: 40px; height: 30px;"));
+    let window = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(600.0, 400.0));
+    VirtualViewReturn::with_dom(layer, window, window)
+}
+
+/// A3-window-54: a tile that arrives in a VIEW is patched into the view's list where it lies.
+/// The view's document has a solver cache of its own that holds its list; the patch lets it
+/// go of the list and gives it the patched one, as the window's cache always did. It copied
+/// the view's whole list for the first tile after every pass of the view, and the cache kept
+/// the list with the tile from before.
+/// Mutation: the `else` arm of `patch_display_list` answering `None` again (the list is
+/// another allocation after the patch, and the cache holds the old one).
+#[test]
+fn a_tile_that_arrives_in_a_view_is_patched_into_the_list_where_it_lies() {
+    use crate::overlay::ContentChange;
+
+    let mut dom = Dom::create_body().with_css("margin: 0px;").with_child(
+        Dom::create_virtual_view(RefAny::new(()), VirtualViewCallback::create(tile_page))
+            .with_css("position: absolute; left: 0px; top: 0px; width: 600px; height: 400px;"),
+    );
+    let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(600.0, 400.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    let child = *lw
+        .layout_results
+        .keys()
+        .find(|dom| **dom != DomId::ROOT_ID)
+        .expect("the view's document");
+    let list = Arc::as_ptr(&lw.layout_results[&child].display_list);
+    let _ = lw.apply_content_change(ContentChange::Image {
+        dom_id: child,
+        node_id: NodeId::new(1),
+        image: picture(4),
+        dirty_rect: None,
+    });
+    assert!(
+        core::ptr::eq(list, Arc::as_ptr(&lw.layout_results[&child].display_list)),
+        "the view's list is the allocation it was"
+    );
+    assert!(
+        lw.child_layout_caches[&child]
+            .cached_display_list
+            .as_ref()
+            .is_none_or(|cached| Arc::ptr_eq(&cached.5, &lw.layout_results[&child].display_list)),
+        "the view's solver cache holds the patched list"
+    );
+}
+
 // -- A3-window-31: the CSS diff of a view that rendered again ---------------------------------
 
 /// The data of the view of [`moved_label_page`]: how many labels it draws and how far to the
