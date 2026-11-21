@@ -1,7 +1,7 @@
 # A3-core: quadratics and waste in `core/`, `css/`, the display list builder, a11y
 
 Area agent A3-core of the blind audit (2026-11-21). Nothing here was compiled or run.
-Branch `audit/A3-core`, base `audit/base` (`f48bcc7b4`).
+Branch `audit/A3-core`, base `audit/base` (`f48bcc7b4`). Append-only since the integration started.
 
 ## Claims
 
@@ -11,255 +11,338 @@ Functions this area rewrote or restructured (final):
   `SubjectRuleIndex` (+ `subject_class`).
 - `core/src/prop_cache.rs`: `InheritedValues` (`set_node_near`, `bucket_of`, `push_bucket`, `by_hash`, `append`),
   `CssPropertyCache::compute_inherited_values`, `store_if_changed`, `FlatVecVec::dedup_runs`, the rule loop of
-  `CssPropertyCache::restyle` (candidates only).
+  `CssPropertyCache::restyle` (candidates only); fields `text_color_override_seen`, `composed_since_recompute`.
 - `core/src/styled_dom.rs`: `take_css_from_dom` (new), its two callers; `collect_css_from_dom` / `strip_css_from_dom`
-  are test-only now.
-- `core/src/gpu.rs`: `GpuValueCache::value_generation` / `note_value_write`, and the bodies of
-  `apply_transform_events`, `apply_opacity_events`, `refresh_transform_value(s)_of`, `refresh_opacity_value_of`
-  (they only gained the generation; events and values are as before).
+  are test-only; `needs_recompute_after_append`; the override writers raise `text_color_override_seen`.
+- `core/src/gpu.rs`: `GpuValueCache::value_generation` / `note_value_write` and the bodies of
+  `apply_transform_events`, `apply_opacity_events`, `refresh_transform_value(s)_of`, `refresh_opacity_value_of`.
+- `core/src/compact.rs`: the box slot writes (`encode_css_pixel_as_px_slot`, `encode_margin_px_slot`,
+  `encode_gap_px_slot`), `note_px_overflow`, four arms of `update_dom_declared_flags`.
 - `css/src/css.rs`: `Css::from_string` (memo), `ParsedStyles` (`kept_bytes`, `keep`).
+- `css/src/compact_cache.rs`: `PxSlot` and its codec, the 18 box slots of `CompactNodeProps` and their accessors,
+  `px_overflow`, `DOM_HAS_TEXT_TRANSFORM` / `_VERTICAL_ALIGN` / `_ZOOM_OR_ASPECT_RATIO`.
+- `css/src/props/basic/length.rs`: `FloatValue::new` (rounds).
 - `layout/src/solver3/display_list.rs`: `get_tag_id` -> `DisplayListGenerator::tag_id_of` / `tags_by_node`,
-  `enter_scroll_chain` (`box_chain_key`, `box_chain_links`), `paint_selections`, `paint_cursor`.
-- Not touched although claimed at the start: `layout/src/managers/a11y.rs`, `window.rs` 19632-19900 (findings only).
+  `enter_scroll_chain` (`box_chain_key`, `box_chain_links`), `paint_selections`, `paint_cursor`,
+  `EmitPhase::Selection`, `add_forced_page_break`, `DisplayListGenerator::loaded_fonts`.
+- `layout/src/managers/a11y.rs`: `A11yManager::{on_demand, stale, handed_focus, hand_to_adapter, update_pending,
+  replay_key}`, `rebuild_retained` (the per-DOM replay), `RetainedA11yDom`, `A11yTreeInputs::dom_generations`;
+  `layout/src/window.rs`: `update_a11y_tree`, `a11y_update_pending`, `a11y_update_on_demand`, `update_a11y_tree_now`.
+- In A3-solver's files, few lines each: `getters.rs` (`get_css_property_pixel!`, `declared_border_info`,
+  `compact_border_width_needs_cascade`, `compute_all_zooms`, `get_aspect_ratio_property`,
+  `get_vertical_align_property`, the `text-transform` read, `inherited_color_override`), `sizing.rs` (the
+  `flex-wrap` read), `taffy_bridge.rs` (gap decode), `fc/table_borders.rs` (width decode).
+
+Private generator functions of `display_list.rs` that A3-window's `display_list/node_patch.rs` calls and that were
+NOT renamed and keep their signatures: `paint_node_background_and_border_inner`, `push_node_clips`,
+`paint_selections`, `maybe_paint_placeholder_prompt`, `collect_stacking_contexts`, `establishes_stacking_context`,
+`compute_uniform_text_bg`, `svg_stroke_for`, `get_paint_rect`; fields `canvas_painted`, `bound_colors`,
+`forced_page_breaks`, `open_opacity_groups`; `DisplayListGenerator::new` (same arguments).
 
 ## Findings
 
 Real sizes used below: Berlin view 12,470 DOM nodes (about 6,200 labels = span + text, 1 text style: 3 rules in the
 view's sheet), Tuebingen view 2,192 nodes / 17,495 display list items / 2,118 reference frames / 3,703 hit-test areas
-(26 text styles + 21 point styles: up to ~75 rules). Costs are estimates from reading (steps x a guessed ns), never
+(26 text styles + 21 point styles: about 73 rules). Costs are estimates from reading (steps x a guessed ns), never
 measured: the ranking is by steps.
 
 ### A3-core-01 the display list scans the DOM's tag list once per box
 - file:line: `layout/src/solver3/display_list.rs` `get_tag_id` (12202 at base), asked by `paint_node_content_inner`
-  (9327) for every box, `generate_for_stacking_context` (6870), `paint_inline_shape_of` (11871).
-- class: quadratic (boxes x tags).
-- evidence: `tag_ids_to_node_ids.iter().find(node)`: a tagged box reads the list up to its entry, an untagged one (text
-  node, group div, anonymous box with a DOM node) all of it. Berlin: 6,200 tagged spans x ~3,100 + 6,200 text nodes x
-  6,200 = about 54 million entry compares per display list of the view (est. 40-80 ms); Tuebingen 2,192 x ~1,500 = 3
-  million. Runs at every build of the view's list: settle render, pan render, every hover that rebuilds the list (Z3).
-- fix: `DisplayListGenerator::tag_id_of` reads a per-generation table by node index (`tags_by_node`, first entry per
-  node = what `find` returned; out-of-table ids still scan). Identical answers.
-- test: `audit_tests::a3_core::a_display_list_reads_the_tag_list_once_not_once_per_box` (counter `TAG_LIST_READS`, 250
-  vs 1,000 labels, flat and groups of 64), `every_hit_test_area_carries_the_tag_of_its_node`.
-- status: fixed `4720e5091`.
+  for every box, `generate_for_stacking_context`, `paint_inline_shape_of`.
+- class: quadratic (boxes x tags). severity: high
+- evidence: `tag_ids_to_node_ids.iter().find(node)`: Berlin 6,200 tagged spans x ~3,100 + 6,200 text nodes x 6,200 =
+  about 54 million entry compares per display list of the view (est. 40-80 ms); at every build of the view's list.
+- fix: `DisplayListGenerator::tag_id_of` reads a per-build table by node index. Identical answers.
+- test: `audit_tests::a3_core::{a_display_list_reads_the_tag_list_once_not_once_per_box,
+  every_hit_test_area_carries_the_tag_of_its_node}`.
+- status: fixed 4720e5091
 
 ### A3-core-02 the cascade tree walks back over the siblings of every node that has children
-- file:line: `core/src/style.rs` `construct_html_cascade_tree` (447 at base).
-- class: quadratic (k^2 / 2 for k siblings that have children).
-- evidence: per non-leaf node `preceding_siblings(..).count()`. A label is span > text, so every label is a non-leaf:
-  flat, 6,200 labels = 19 million sibling steps (each reads a `NodeData`) per styling; in groups of 64 it is 200,000.
-  This is the third flat-sibling quadratic (after Z9, Z10): it alone would have kept the flattened editor slow.
-  Called once per `StyledDom` creation, and a second time by `generated_content::insert_generated_nodes` when a sheet
-  has `content` rules.
-- fix: the child walk records each child's count of earlier element siblings; a parent reads it (the old walk stays
-  for the root and for a node listed before its parent).
+- file:line: `core/src/style.rs` `construct_html_cascade_tree`.
+- class: quadratic (k^2 / 2 for k siblings that have children). severity: high
+- evidence: per non-leaf node `preceding_siblings(..).count()`; flat, 6,200 labels = 19 million sibling steps per
+  styling (the third flat-sibling quadratic after Z9, Z10).
+- fix: the child walk records each child's count of earlier element siblings; a parent reads it.
 - test: `style_test::audit_a3_core_tests::{a_parent_of_many_parents_is_walked_once,
-  the_cascade_tree_is_the_one_the_walk_back_built}` (counter `SIBLING_STEPS`; result against a copy of the old walk).
-- status: fixed `a2ff3cc60`.
+  the_cascade_tree_is_the_one_the_walk_back_built}`.
+- status: fixed a2ff3cc60
 
 ### A3-core-03 selection and caret painters copy every text block's lines before looking for a selection
-- file:line: `layout/src/solver3/display_list.rs` `paint_selections` (5986), `paint_cursor` (6232).
-- class: waste (per text block per display list: one `Arc<UnifiedLayout>` made from the dense clusters).
-- evidence: `materialized_inline_layout_for_node` first, `is_text_selectable` / selection lookup / caret lookup after.
-  Berlin: 6,200 allocations and ~50,000 cluster conversions per list build (est. 2-4 ms), for labels that are
-  `user-select: none`; `paint_cursor` paid it whenever any caret existed in the window.
+- file:line: `layout/src/solver3/display_list.rs` `paint_selections`, `paint_cursor`.
+- class: waste (one `Arc<UnifiedLayout>` per text block per display list). severity: medium
+- evidence: Berlin: 6,200 allocations and ~50,000 cluster conversions per list build (est. 2-4 ms).
 - fix: existence check first, the copy only in the branch that paints.
-- test: `audit_tests::a3_core::a_block_without_a_selection_or_a_caret_copies_no_lines` (counter
-  `INLINE_LAYOUT_COPIES`; needs the system fonts, like the caret tests).
-- status: fixed `e1a9d8435`.
+- test: `audit_tests::a3_core::a_block_without_a_selection_or_a_caret_copies_no_lines`.
+- status: fixed e1a9d8435
 
 ### A3-core-04 selector matching was nodes x rules for one sheet on a subtree root
-- file:line: `core/src/prop_cache.rs` `restyle` (rule loop, 2232-2326 at base), `core/src/style.rs` `ScopedRuleIndex`.
-- class: quadratic-like (nodes x rules; rules grow with the map's text styles, not with nodes).
-- evidence: `Dom::with_component_css` scopes every rule of the sheet to the whole subtree, so every node was tried
-  against every rule in its pass (`matches_html_element_in`, ~50 ns), and `candidates()` rebuilt + sorted the active
-  list per node. Tuebingen 2,192 nodes x 75 rules = 164,000 matches; Berlin 12,470 x 3 = 37,000; a Berlin-sized view
-  with Tuebingen's styles 935,000 (est. 45 ms).
-- fix: `SubjectRuleIndex`: rules whose subject compound names a class are kept per class (scoped ones entered /
-  left by the same scope walk) and offered only to nodes carrying the class; other rules as before. The dropped
-  candidates are exactly those `selector_group_matches` rejects on `has_class`; order = rule order (sorted).
+- file:line: `core/src/prop_cache.rs` `restyle` (rule loop), `core/src/style.rs` `ScopedRuleIndex`.
+- class: quadratic-like (nodes x rules). severity: high
+- evidence: Tuebingen 2,192 nodes x 75 rules = 164,000 matches; a Berlin-sized view with Tuebingen's styles 935,000
+  (est. 45 ms).
+- fix: `SubjectRuleIndex`: rules whose subject compound names a class are offered only to nodes carrying it.
 - test: `prop_cache_test::audit_a3_core_tests::{a_node_is_tried_against_the_rules_of_its_own_classes,
-  the_rules_of_a_nodes_classes_apply_in_sheet_order_and_scope}`; the existing
-  `a_restyle_tries_each_node_only_against_the_rules_scoped_around_it` still bounds the scope walk.
-- status: fixed `d08a602d4`.
+  the_rules_of_a_nodes_classes_apply_in_sheet_order_and_scope}`.
+- status: fixed d08a602d4
 
 ### A3-core-05 a scroll chain walk per positioned box
-- file:line: `layout/src/solver3/display_list.rs` `enter_scroll_chain` (7097 at base).
-- class: waste (O(depth) cascade lookups per label per list; identical answers).
-- evidence: `ScrollChain::of` per stacking context / positioned box / absolute in-flow child: `box_anchor` +
-  `establishes_containing_block` + `paints_as_a_group` + `chain_link` per level, ~10 slow-path lookups per label
-  (est. 1 us): 6,200 per Berlin list.
-- fix: memo by `(parent layout index, absolute | fixed | other)` (`box_chains`), which is all `box_anchor` reads of
-  the box itself.
+- file:line: `layout/src/solver3/display_list.rs` `enter_scroll_chain`.
+- class: waste (O(depth) cascade lookups per label per list). severity: medium
+- fix: memo by `(parent layout index, absolute | fixed | other)` (`box_chains`).
 - test: `audit_tests::a3_core::{the_positioned_boxes_of_one_parent_share_one_scroll_chain_walk,
   a_shared_scroll_chain_is_the_chain_of_every_box_that_shares_it}`.
-- status: fixed `1a172f584`.
+- status: fixed 1a172f584
 
 ### A3-core-06 the inheritance pass was nodes x distinct inherited values
-- file:line: `core/src/prop_cache.rs` `compute_inherited_values` (6060), `InheritedValues::{values_for, set_node}`.
-- class: quadratic-like (nodes x buckets x log nodes), plus one deep copy of the parent's values per node.
-- evidence: per node `values_for(parent)` binary-searched every bucket's node list and cloned the hits; `set_node`
-  compared each of the node's ~8 values with every bucket. Buckets = distinct (type, value, origin): ~15 for Berlin,
-  150-200 for Tuebingen's 26 text styles (about 3,000 steps per node there).
-- fix: an ancestor stack hands a node its parent's stored vector (borrowed; the same content `values_for` rebuilt);
-  `set_node_near` places a value in the parent's bucket when equal, else by hash (`by_hash`).
-- test: `prop_cache_test::audit_a3_core_tests::the_inheritance_pass_does_not_read_every_distinct_value_for_every_node`
-  (+ the existing `compute_inherited_values_*` and `core/tests/css_inheritance.rs`).
-- status: fixed `736f93547`. Still open: `InheritedValues::get` (the read of ONE inherited value by
-  `get_property_slow`) scans all buckets and binary-searches those of the type: O(buckets) per read of an inherited,
-  non-compact property that the node does not declare. A per-type bucket list would make it O(buckets of the type).
+- file:line: `core/src/prop_cache.rs` `compute_inherited_values`, `InheritedValues::{values_for, set_node}`.
+- class: quadratic-like (nodes x buckets x log nodes). severity: medium
+- fix: an ancestor stack hands a node its parent's stored vector; `set_node_near` places a value by hash.
+- test: `prop_cache_test::audit_a3_core_tests::the_inheritance_pass_does_not_read_every_distinct_value_for_every_node`.
+- status: fixed 736f93547
+
+### A3-core-06b `InheritedValues::get` scans all buckets for one inherited value
+- file:line: `core/src/prop_cache.rs` `InheritedValues::get`.
+- class: waste (O(buckets) per read of an inherited, non-compact property the node does not declare). severity: low
+- evidence: 15 buckets for Berlin, 150-200 for Tuebingen's styles; reached from `get_property_slow`.
+- fix: a per-type list of buckets.
+- status: open: not written yet (this round)
 
 ### A3-core-07 `FlatVecVec::dedup_runs` compared every node's run with the table from the start
-- file:line: `core/src/prop_cache.rs` `dedup_runs` (641).
-- class: quadratic-like (nodes x distinct rule sets, capped at 1,024), three calls per styling.
-- fix: the matched run is swapped to the front (nodes of a style come in a row). Exact (a run is recorded once).
+- file:line: `core/src/prop_cache.rs` `dedup_runs`.
+- class: quadratic-like (nodes x distinct rule sets, capped at 1,024). severity: medium
+- fix: the matched run is swapped to the front (nodes of a style come in a row).
 - test: `prop_cache_test::audit_a3_core_tests::nodes_of_one_rule_set_do_not_each_read_the_table_of_runs`.
-- status: fixed `ffd50bd86`; open for interleaved styles (a hash per run costs Berlin more than it saves).
+- status: fixed ffd50bd86
 
-### A3-core-08 write generation on `GpuValueCache` (for A9 H4/H6/H7)
+### A3-core-07b `dedup_runs` with interleaved styles
+- class: waste (a node whose style differs from its predecessor's scans the table). severity: low
+- status: open: not written yet (this round)
+
+### A3-core-08 write generation on `GpuValueCache` (A9 H4/H6/H7)
 - file:line: `core/src/gpu.rs`.
-- class: waste (enabler; no reader yet).
-- fix: `value_generation` + `note_value_write()`; core's own writers bump by value (not per event: A2-gpu-08's
-  event count is untouched).
+- class: waste (enabler; no reader yet). severity: medium
+- fix: `value_generation` + `note_value_write()`; core's own writers bump by value, events untouched.
 - test: `gpu_test::audit_a3_core_tests::the_value_generation_moves_with_a_value_and_not_with_an_event`.
-- status: fixed `b37653684` (core side). NOT usable by readers until the direct writers listed under "For area"
-  bump it.
+- status: fixed b37653684
+- (The direct writers in other areas' files and the readers are listed under "For area" below: their rows.)
 
 ### A3-core-09 sheets copied and parsed per render
-- file:line: `core/src/styled_dom.rs` `collect_css_from_dom` / `strip_css_from_dom` (3966), `css/src/css.rs`
-  `Css::from_string` (194), `ParsedStyles::keep`.
-- class: waste.
-- evidence: every node sheet deep-cloned once more at styling (then the original dropped); the view's sheet
-  (`ViewSheet`, up to 75 rules) parsed at every render although a pan render repeats the text; the memo's 4 MB bound
-  counted text only.
+- file:line: `core/src/styled_dom.rs` `collect_css_from_dom` / `strip_css_from_dom`, `css/src/css.rs`
+  `Css::from_string`, `ParsedStyles::keep`.
+- class: waste. severity: medium
 - fix: `take_css_from_dom` (move); `PARSED_SHEETS` memo in `from_string`; `kept_bytes`.
 - test: `styled_dom_test::audit_a3_core_tests::take_css_from_dom_moves_what_collect_listed_and_strips_the_tree`,
   `css::scoped_parse_tests::{a_sheet_is_parsed_once_per_text, the_bound_of_the_parsed_styles_counts_the_parsed_rules}`.
-- status: fixed `806490941`. Open (A9's item): a memo hit still deep-copies the rules, because `scope_inline_css`
-  writes each node's range into its rules' paths. Sharing needs `Dom::css` to hold `(Arc<Css>, scope)` (public `Dom`:
-  api.json) with the cascade reading the scope beside the rule.
+- status: fixed 806490941
 
-### A3-core-10 a11y: every layout pass walks every exposed node of every DOM, attached reader or not
-- file:line: `layout/src/window.rs:3787` (call, after every `layout_and_generate_display_list`), `19632`
-  `update_a11y_tree`, `layout/src/managers/a11y.rs:1292` `rebuild_retained`; scroll path
-  `dll/.../common/event.rs:5193` `rebuild_a11y_after_scroll_if_due` (at most every 100 ms while an offset moves).
-- class: waste (O(exposed nodes) per layout; no quadratic found: the `ScrollChains` trie and the per-node parent walk
-  are linear).
-- evidence: `a11y` is a default feature of azul-layout / azul-dll. `is_exposed_to_accessibility` is true for every
-  div, span and non-blank text node, so all 12,470 view nodes are in the tree. A pass DIFFS (node signatures; an
-  unchanged node is not rebuilt, an unchanged tree publishes nothing), but it still does per node: `dom_to_layout`
-  lookup, a `ScrollChain` (a `Vec`) from the trie, 2 inserts into `own_origin` / `parent_of_entry`, a signature hash
-  (type, text, attributes, a11y info, child texts), `retained.nodes` lookup, `parent_children_map` push, 2 set
-  inserts in `enforce_child_invariants`, a map remove in the third pass: about 10 hash operations + 1-2 allocations,
-  est. 0.4-1 us per node = 5-12 ms per pass at 12.5k nodes, whether or not a screen reader is attached (nothing in
-  `update_a11y_tree` asks). Triggers: every successful layout pass of the window (a keystroke in a sidebar field
-  relays out the window DOM and re-walks the unchanged 12.5k view nodes), every view re-render that goes through the
-  layout tail, and every 100 ms while a scroll offset moves.
-- fix (not made blind: a wrong gate leaves a screen reader without updates): (1) gate the pass on "a platform
-  adapter has asked for the tree" - `A11yManager` gets `consumer_attached: bool` (default true = today's behaviour),
-  the shells set it false at start and true from accesskit's activation handler (then `resend_full_tree()` + one
-  pass); the e2e / debug-server tree readers set it true. (2) Skip a DOM whose inputs did not move since the last
-  pass: needs a per-DOM generation bumped where `layout_results` entries are replaced or patched (A3-window).
-  (3) Constant factors: sum the scroll offset per chain id once (`box_chain_id`) instead of materialising a
-  `ScrollChain` per node.
-- status: open (see "For area A10" / questions).
+### A3-core-09b a memo hit of `Css::from_string` deep-copies the parsed sheet (A9's item)
+- file:line: `css/src/css.rs` `ParsedStyles::get`; the copy is needed because `scope_inline_css` writes each node's
+  range into its rules' paths. Sharing needs `Dom::css` to hold `(Arc<Css>, scope)`: an api.json change.
+- class: waste, once per view render. severity: low
+- evidence: the editor's sheet (`mapedit3/src/ui/main/map.rs` `ViewSheet`: per text layer `.tN { 10-14
+  declarations }` + `.tN:hover { background }`, per point style `.yN { 5 declarations }`): Tuebingen 26 + 26 + 21 =
+  73 rules, about 440 declarations; Berlin 3 rules, about 14 declarations. A copy is one `Vec` of selectors, one of
+  declarations and the class string per rule, the family list of each text class, and the declarations themselves:
+  about 300 heap blocks and (at an assumed 64-72 bytes per declaration; `size_of` cannot be evaluated here) about
+  40 KB for Tuebingen, 1.3 KB for Berlin: est. 30 us per view render, against a render of 10 ms and more (0.3 %).
+- decision: noise; no api.json change for it.
+- status: checked: fine
 
-### A3-core-11 open, small: other per-node waste seen in the styling path (not fixed)
-- `core/src/styled_dom.rs:1470` / `prop_cache.rs:2600`: `restyle` ends in `generate_tag_ids`, and every caller
-  discards that result and generates the ids again after the compact cache exists (2 x O(nodes), ~1-2 ms at 12.5k).
-  Fix: split `restyle` from the tag ids (tests read the returned ids, so the signature change touches tests).
-- `core/src/styled_dom.rs:1255-1275 / 1680-1711 / 3897`: `fixup_children_estimated` x3 and `scope_inline_css` x2
-  per styling of a `Dom` (plus 5 whole-tree pre-passes in `LayoutWindow::style_user_dom_for`: form controls, webview
-  probe, translation, respin, icons): ~10 pointer-chasing walks of 12.5k `Dom` nodes (~1-2 ms). Fix: one walk.
-- `core/src/dom.rs:4361` `copy_special_moving_complex` moves style / extra / node type but CLONES `callbacks`
-  (3 `RefAny` clones + a `Vec` per label), `accessibility`, `fluent_args`, and the originals are dropped with the
-  `Dom`: ~19,000 `RefAny` clone+drop pairs per Berlin render. Moving them is the same data; not done blind because the
-  function carries web-lift (remill) constraints I cannot check.
-- `layout/src/solver3/display_list.rs` `compute_uniform_text_bg` (5768): one ancestor walk with
-  `get_background_contents` per text block (3-4 lookups per label); `paint_inline_content` (11281-11299): three
-  `BTreeMap`s and an ancestor `Vec` per text block. Linear; a memo per parent would halve the lookups.
-- `core/src/style.rs` general sibling combinator (`~`): `matches_html_element_in` walks ALL earlier siblings of a
-  candidate until one matches: O(siblings) per node whose subject compound matches, so `.a ~ .b` over 12,000 `.b`
-  siblings without an `.a` is 72 million steps. Only when a sheet uses `~` (the editor's does not). Fix: per parent,
-  the first sibling index matching each left compound (one pass).
+### A3-core-10a a11y: a pass walks every exposed node of every DOM
+- file:line: `layout/src/managers/a11y.rs` `rebuild_retained`; `layout/src/window.rs` `update_a11y_tree_now`.
+- class: waste (O(exposed nodes) per layout pass: 12,470 view nodes re-read for a keystroke in a sidebar).
+  severity: medium
+- fix: told the DOMs' generations (`A11yTreeInputs::dom_generations`), the pass keeps per DOM what its walk found
+  and replays a DOM whose generation, replay key (pixel factor, language, scroll offsets and travel), edit state,
+  window origin and host placement are the ones of that walk: no node of it is read (`A11yPassStats::walked` /
+  `replayed`). The rest of the pass (reading order, child invariants, child list compare, removal, focus) is
+  untouched and still sees every id: one map lookup and a push per replayed node remain.
+- test: `audit_tests::a3_core::an_unchanged_dom_is_put_back_into_the_accessibility_tree_unread` (a manager told the
+  generations against one that is not, eight passes at k = 50 and 200 labels: same updates; 0 nodes read when
+  nothing changed, the window's 4 at both k when the window changed).
+- status: open: one line in `update_a11y_tree_now` (`dom_generations: Some(&generations)`, the map collected from
+  `self.layout_results.keys()` and `self.dom_generation(..)`) once A3-window's d305eaae7 is on the branch; that
+  commit does not cherry-pick onto this branch (it needs its earlier commits). Mechanism and test: 240793513
+- re-architecture not done, design: for a zero-cost replay the third pass, the invariant guard and the removal
+  would have to work on per-DOM segments (`order` as one `Vec` per DOM, `seen` per DOM, the guard's `valid` /
+  `claimed` sets only for walked DOMs plus the host nodes of replayed ones, whose own-DOM children are their
+  retained children with ids of other DOMs filtered out). Not needed for the editor once 10b / 10c are in: the
+  pass then runs only while a reader is attached.
 
-### A3-core-12 (from A3-solver 36a) compact pixel slots round to 0.1 px and overflow at +-3276.7 px
-- file:line: `css/src/compact_cache.rs:1278` `encode_resolved_px_i16` (x10 in an `i16`), fields `top/right/bottom/
-  left`, `margin_*`, `padding_*`, `border_*_width`, gaps of `CompactNodeProps`; readers `getters.rs:979-1035`.
-- class: wrong-output (rounding) + waste (slow path beyond the range).
-- evidence: the resting-state fast path answers `round(px * 10) / 10`, the slow path (any raised state, e.g. hover)
-  the declared value (three decimals): a label at `left: 123.456px` is laid out at 123.5 at rest and at 123.456 if a
-  relayout happens while it is hovered (0.044 px). The exact value is the right one (CSS has no such rounding).
-  A value beyond 3,276.3 px (a 4K view, or a picture coordinate inside the overscan of a 2560 px view at the right
-  edge: 2560 + 512 = 3,072 is inside, 3,840 is not) is the sentinel: a cascade lookup per read.
-- fix (not made: 145 encode / decode sites in three files, one of them A3-solver's, and every layout number with a
-  fraction moves by up to 0.05 px, which no guard can be reasoned through blind): store these slots in the lossless
-  `u32` encoding the sizes already use (`encode_pixel_value_u32`, +2 bytes x 18 slots = +36 bytes per node), decode
-  through the same accessors. Test to write with it: the same node read at rest and with `hover` raised gives the
-  same number for `left: 123.456px` and for `left: 5000px`, and the compact read count for 5000 px is 0 slow reads.
-- status: open.
+### A3-core-10b a11y: the pass runs whether or not an assistive technology reads the tree (layout side)
+- file:line: `layout/src/window.rs` `update_a11y_tree`, `a11y_update_pending`, `a11y_update_on_demand`;
+  `layout/src/managers/a11y.rs` `hand_to_adapter`.
+- class: waste (est. 5-12 ms per layout pass at 12.5k nodes, per 100 ms of scrolling). severity: medium
+- fix: `A11yManager::on_demand`: a pass asked for only marks the tree stale; `a11y_update_on_demand(full)` runs it
+  inside the adapter's `update_if_active` closure and always returns an update the adapter can take (whole tree for
+  an adapter that holds none, a patch otherwise). Nothing is built and the retained tree does not advance while no
+  reader is active. Inert until a shell sets `on_demand`.
+- test: `audit_tests::a3_core::{an_a11y_pass_on_demand_runs_when_the_update_is_asked_for,
+  nothing_is_built_while_no_reader_is_active_and_the_first_update_is_the_whole_tree,
+  an_adapter_is_always_handed_an_update_it_can_take}`.
+- status: fixed 43ff05b24
 
-### A3-core-13 (from A3-solver 36b/36c) properties without a compact arm or DOM flag
-- `aspect-ratio`, `zoom`, `text-transform`, `vertical-align` (property getter), `flex-wrap` getter: one cascade
-  lookup per node per call. Fix as proposed by A3-solver: a `DOM_HAS_*` bit each in
-  `CompactLayoutCache::dom_declared_flags` (set in `update_dom_declared_flags`, `core/src/compact.rs`), the getter
-  answering the initial value when the bit is clear. Three bits are said to be free; each getter is in
-  `solver3/getters.rs` (A3-solver's), the flags in `css/src/compact_cache.rs` + `core/src/compact.rs` (mine).
-- `inherited_color_override` / `propagated_text_decoration`: a root walk per node once any user override exists.
-  Fix: a count of nodes with a `color` override on the cache (`user_overridden_properties` writers are in
-  `styled_dom.rs`), the walk skipped at 0.
-- status: open (not started: budget).
+### A3-core-10c a11y: the macOS shell builds the update before `update_if_active` and activates its adapter itself
+- file:line: `dll/src/desktop/shell2/macos/mod.rs` 10723-10888, `macos/accessibility.rs` (A10's files).
+- class: waste (the closure runs on every call because `init_accessibility` forces the adapter active).
+  severity: medium
+- fix: the exact change is under "For area A10" below (switch `AZ_A11Y_EAGER=1` keeps today's path).
+- status: open: the shell files are A10's; the change is written out under "For area A10"
+
+### A3-core-10d a11y: Win32, X11 and Wayland build the update before `update_if_active`
+- file:line: `windows/accessibility.rs:96-129` + drains `windows/mod.rs` 1953, 7662; `linux/x11/accessibility.rs:87-115`
+  + drains `x11/mod.rs` 6706, 8408 and `wayland/mod.rs` 1744, 6896.
+- proposed change (the same shape as macOS; these adapters are not forced active, so no init change): set
+  `on_demand`; the activation handler answers `None` after `feed.placeholder_requested()` and wakes the loop
+  (`loop_waker::wake()`; X11 / Wayland handlers run on accesskit's thread); `update_tree_on_demand(build)` as on
+  macOS, with `try_lock` failing meaning "nothing ran, try again at the next drain" (no `feed.missed()`); each drain
+  becomes `if lw.a11y_update_pending() || adapter.awaiting_tree() { .. }`. X11 / Wayland: the deactivation handler
+  has to set the feed's phase to inactive. iOS (`UIAccessibilityIsVoiceOverRunning`) and Android build their own
+  snapshot (`build_a11y_snapshot`); not looked at further.
+- status: noted (other platform)
+
+### A3-core-11a `restyle` generates the tag ids and every caller generates them again
+- file:line: `core/src/prop_cache.rs` (end of `restyle`), `core/src/styled_dom.rs` (callers).
+- class: waste (2 x O(nodes), est. 1-2 ms at 12.5k). severity: low
+- status: open: not written yet (this round)
+
+### A3-core-11b repeated whole-tree walks of the `Dom` before styling
+- file:line: `core/src/styled_dom.rs` (`fixup_children_estimated` x3, `scope_inline_css` x2), the pre-passes of
+  `LayoutWindow::style_user_dom_for`.
+- class: waste (about 10 pointer-chasing walks of 12.5k nodes, est. 1-2 ms). severity: low
+- status: open: not written yet (this round)
+
+### A3-core-11c `copy_special_moving_complex` clones callbacks, a11y info and fluent args it could move
+- file:line: `core/src/dom.rs` `copy_special_moving_complex`.
+- class: waste (about 19,000 `RefAny` clone + drop pairs per Berlin render). severity: low
+- status: open: not written yet (this round)
+
+### A3-core-11d per text block: an ancestor walk for the background hint, three `BTreeMap`s and a `Vec`
+- file:line: `layout/src/solver3/display_list.rs` `compute_uniform_text_bg`, `paint_inline_content`.
+- class: waste (linear). severity: low
+- status: open: not written yet (this round)
+
+### A3-core-11e the general sibling combinator `~` walks all earlier siblings per candidate
+- file:line: `core/src/style.rs` `matches_html_element_in`.
+- class: quadratic for a sheet that uses `~` (`.a ~ .b` over 12,000 `.b` siblings without an `.a`: 72 million
+  steps). severity: low (the editor's sheet has none)
+- status: open: not written yet (this round)
+
+### A3-core-12 the compact box slots were tenths of a pixel in an `i16` (A3-solver 36a)
+- file:line: `css/src/compact_cache.rs` `CompactNodeProps` (18 slots), `core/src/compact.rs` (47 writes),
+  `layout/src/solver3/getters.rs` `get_css_property_pixel!`.
+- class: wrong-output (rounding: `left: 10.04px` was 10.0 at rest and 10.04 hovered) + waste (a cascade lookup per
+  read beyond +-3276 px). severity: medium
+- fix: (1) d91394f21: one number through both paths, and an overflow table (`px_overflow`) filled when the cache is
+  built for what a slot cannot hold; (2) 10fece2b9: the slots are `PxSlot` = `i32` thousandths of a pixel, the
+  number a declared length has; the slow path's quantisation is gone. `CompactNodeProps` is 108 bytes (was 72).
+- test: `compact_test::a_box_length_slot_holds_the_declared_thousandths`,
+  `audit_tests::a3_core::an_inset_is_one_number_at_rest_and_hovered_and_costs_no_lookup_beyond_the_slot`.
+- guards whose numbers changed or can move: listed in the message of 10fece2b9.
+- status: fixed 10fece2b9
+
+### A3-core-13 properties without a compact answer were asked of the cascade per node (A3-solver 36b, 36c)
+- file:line: `layout/src/solver3/getters.rs` `compute_all_zooms`, `get_aspect_ratio_property`,
+  `get_vertical_align_property`, the `text-transform` read, `inherited_color_override`; `sizing.rs` (flex-wrap).
+- class: waste (one or more cascade lookups per node per layout). severity: medium
+- fix: three `DOM_HAS_*` bits (text-transform, vertical-align, zoom-or-aspect-ratio: the word is full); `flex-wrap`
+  from its tier-1 slot; `CssPropertyCache::text_color_override_seen` gates the walk for a colour override.
+- test: `audit_tests::a3_core::{a_dom_that_declares_no_zoom_ratio_alignment_or_transform_is_not_asked_for_them,
+  the_used_colour_walks_to_the_root_only_for_an_override_of_colour}`.
+- status: fixed 27632f452
+
+### A3-core-13b `propagated_text_decoration` walks to the root per text block and text node (36c, second half)
+- evidence: one compact bit per ancestor (`has_text_decoration`), no cascade lookup at rest: about 12 ns per call at
+  depth 4, 12,400 calls per layout of the Berlin view = 0.15 ms. Linear, bounded by depth. A DOM-level bit would
+  need a 33rd `DOM_HAS_*` flag (the word is full).
+- severity: low
+- status: checked: fine
+
+### A3-core-14 `FloatValue::new` truncated to three decimals (A2-cpu-24)
+- file:line: `css/src/props/basic/length.rs`.
+- class: sign/offset (rounding). severity: medium
+- fix: rounds to the nearest thousandth (half away from zero); NaN and infinities as before.
+- test: the pinned examples in `length.rs`, `angle.rs`, `pixel.rs`, `props/layout/*.rs` (listed in the commit).
+- status: fixed fb8751e41
+
+### A3-core-15 the uniform text background is taken from ancestors only (A3-window's "possible wrong output")
+- file:line: `layout/src/solver3/display_list.rs` `compute_uniform_text_bg`; reader `cpurender/raster.rs`
+  `render_single_item` (Text arm).
+- evidence: the claim can be false (an earlier positioned sibling, a tile image, lies under the text), but its one
+  reader keeps it only when every pixel the run covers is that colour (`backdrop_is_colour`, cef7aaa9d, pixel test
+  `text_over_a_positioned_layer_keeps_the_layers_colour_around_its_glyphs`); all four list walks go through it; the
+  GPU path does not read the hint. A proof in the builder would cost labels x items or give the fast path up for
+  every page with a positioned box. The comments said "proven"; they say hint now (5f29eb550).
+- severity: medium (had it been wrong)
+- status: checked: fine
+
+### A3-core-16 `enter_scroll_chain` copied three lists per positioned box (A3-window)
+- file:line: `layout/src/solver3/display_list.rs` `enter_scroll_chain`.
+- class: waste (an allocation or two per label per list). severity: low
+- fix: the lists are compared where they lie; nothing is allocated without a detour.
+- test: `a_shared_scroll_chain_is_the_chain_of_every_box_that_shares_it` (existing) holds the result.
+- status: fixed 7426fd1f9
+
+### A3-core-17 selection rects carried no layout tag (A3-window-11)
+- file:line: `layout/src/solver3/display_list.rs` `EmitPhase`, `paint_in_flow_descendants`.
+- class: enabler for a patch of the drag highlight. severity: medium
+- fix: `EmitPhase::Selection` (added last); `PatchState::build` leaves it out as it does the walk's items.
+- test: `audit_tests::a3_core::the_rects_of_a_selection_carry_their_blocks_layout_index_and_the_selection_phase`.
+- note: A3-window's `node_patch.rs:290` matches `EmitPhase` exhaustively: it needs `EmitPhase::Selection => {}`.
+- status: fixed 505c953ee
+
+### A3-core-19 `add_forced_page_break` scanned and sorted the list per break (A3-window)
+- class: quadratic in the forced breaks of a paged document. severity: low
+- fix: bisection + insert. test: the two existing tests in the file.
+- status: fixed 73914ce4d
+
+### A3-core-20 no way to tell whether a styled DOM was composed with `append_child` (A3-window-18)
+- file:line: `core/src/styled_dom.rs` `append_child_with_index`, `recompute_inheritance_and_compact_cache`.
+- class: enabler (the shell rebuilds the compact cache of every window DOM a second time). severity: medium
+- fix: `CssPropertyCache::composed_since_recompute`, `StyledDom::needs_recompute_after_append()`.
+- test: `styled_dom_test::audit_a3_core_tests::a_styled_dom_owes_the_recompute_only_after_an_append`.
+- status: fixed 5000f480c
+
+### A3-core-21 nothing kept `node_patch.rs` in step with the builder (A3-window)
+- fix: a builder-side test of what a build emits between a box's background run and its content run.
+- test: `audit_tests::a3_core::between_a_boxes_background_run_and_its_content_run_a_build_emits_only_what_the_patch_asks_about`.
+- severity: medium
+- status: fixed f87ab2acd
+
+### A3-core-22 the builder asked the font manager for the loaded fonts per ellipsis and prompt (A3-solver 42)
+- class: waste (two locks and a fold over all faces per call). severity: low
+- fix: `DisplayListGenerator::loaded_fonts` (once per list build).
+- status: fixed 73914ce4d
 
 ### Checked: fine (do not check again)
-- `:nth-child`, `:first`, `:last`: O(1) per node from `CascadeInfo` (`style.rs` `match_nth_child`); the tree is built
-  in one pass now (A3-core-02). The runner's `span:nth-child(25640)` is a printed path, not a scan.
-- Descendant / child combinators: ancestor walk per candidate, O(depth). Adjacent sibling `+`: O(gap of text
-  nodes). `~`: see A3-core-11.
-- `get_parents_sorted_by_depth` (`id.rs:314`): BFS, O(n). `subtree_len`: O(depth).
-- `convert_dom_into_compact_dom`: one recursive pass, O(n); no vector splices.
-- `StyledDom::append_child`: O(children of root) count + a sort of `non_leaf_nodes` per call (quadratic only when used
-  in a loop; `append_child_with_index` + `finalize_non_leaf_nodes` exist for that). The dll uses it twice per window
-  DOM (titlebar + user DOM), not per view render.
-- `restyle` inheritance walk (`prop_cache.rs:2396`): per parent, 10 states x its own props + its children; O(n x
-  props). `apply_ua_css_in_tree`, `hand_ua_defaults_down`, `build_compact_cache_with_inheritance`,
+- `:nth-child`, `:first`, `:last`: O(1) per node from `CascadeInfo`; the tree is built in one pass (02).
+- Descendant / child combinators: ancestor walk per candidate, O(depth). Adjacent sibling `+`: O(gap of text nodes).
+- `get_parents_sorted_by_depth`: BFS, O(n). `subtree_len`: O(depth). `convert_dom_into_compact_dom`: one pass.
+- `StyledDom::append_child`: O(children of root) count + a sort of `non_leaf_nodes` per call; twice per window DOM.
+- `restyle` inheritance walk, `apply_ua_css_in_tree`, `hand_ua_defaults_down`, `build_compact_cache_with_inheritance`,
   `generate_tag_ids`, `sync_backdrop_state`, `hide_contentless_generated_nodes`: one pass each, O(n x props).
-- `insert_generated_nodes`: returns early without `content` rules (two O(n) scans of inline props).
-- Hover restyle in core (`restyle_nodes_state`): touches the changed nodes and their parts only; see answer 3.
-- Display list: `collect_stacking_contexts` / `file_into_context` visit each box once; z-order = 3 filters + 2
-  stable sorts per context (O(c log c)); `establishes_stacking_context` / `paints_as_positioned_box` are O(1) lookups
-  (called 3-4 times per box); `push_item` O(1) except `PopOpacity` (`group_paint_bounds` walks the group: nested
-  opacity groups cost depth x size); glyphs are copied once per run per list (`to_vec_offset`), linear.
-- a11y: no quadratic (`ScrollChains::compute` is the linear trie; the nearest-exposed-parent walk stops at the
-  parent because every element is exposed).
+- `insert_generated_nodes`: returns early without `content` rules.
+- Hover restyle in core (`restyle_nodes_state`): touches the changed nodes and their parts only (answer 3).
+- Display list: `collect_stacking_contexts` / `file_into_context` visit each box once; z-order = 3 filters + 2 stable
+  sorts per context; `push_item` O(1) except `PopOpacity` (`group_paint_bounds` walks the group).
+- a11y: no quadratic (`ScrollChains::compute` is the linear trie; the parent walk stops at the parent).
+- status: checked: fine
 
-## The four answers
+## The four answers (as of this round)
 
-1. **Styling one view render of 12.5k nodes, step by step** (`StyledDom::create_from_dom_inheriting`):
-   (a) `Dom` walks: `fixup_children_estimated`, `scope_inline_css`, sheet collection (was a deep copy per node sheet:
-   09), flatten (`convert_dom_into_compact_dom`, clones each node's callbacks: 11): linear.
-   (b) parse: node strings are memoised by text (`parse_scoped`), the view's sheet was parsed per render (09).
-   (c) `construct_html_cascade_tree`: linear in groups, QUADRATIC flat (02, fixed).
-   (d) match (`restyle`): was nodes x rules-in-scope x passes (04, fixed: nodes x own-class rules).
-   (e) inheritance walk + `sort_each_and_flatten` + `dedup_runs`: linear x props; dedup was nodes x rule sets (07).
-   (f) UA pass, `compute_inherited_values`: was nodes x distinct inherited values (06, fixed).
-   (g) compact cache, prune, tag ids (twice: 11): linear.
-   Superlinear before this branch: (c) when flat; (d), (e-dedup), (f) in nodes x styles.
-2. **A flat list of 12k siblings under one parent is safe in this area after this branch**: the cascade tree (02)
-   was the one flat-sibling quadratic in `core/`; `:nth-child` is O(1); no vector splices in `StyledDom`
-   construction; the display list builder files and sorts each box once (stable sort per context) and no longer
-   scans the tag list per box (01). Not safe: a sheet using the general sibling combinator `~` (11). A3-solver
-   reports the solver linear for 12k absolute siblings on its branch; `diff` / window code is A3-window's answer.
-3. **A paint-only restyle of ONE node (hover colour) in this area**: `restyle_nodes_state` re-matches nothing. It
-   sets the flag on the node (and its `part_of_parent` children), lists the property types that node declares for
-   `:hover` (its sheet rules, inherited entries, inline conditions) and compares `get_property_slow` before / after
-   for each: O(hover props of the node). It re-runs the whole cascade only if a rule names `:hover` LEFT of its
-   subject (`left_state_mask`; the editor's `.tN:hover` does not), and the whole inheritance + compact cache (O(n))
-   only if a changed property is inherited (`color`, `cursor`; the editor's hover changes `background`: not
-   inherited). What follows the restyle (display list rebuild or patch) is A3-window's; a rebuild of the view's list
-   was 54 M tag-list reads + 6,200 chain walks + 6,200 line copies on Berlin before 01 / 05 / 03.
-4. **a11y**: built always (default feature), diffed per layout pass, never rebuilt per frame; O(exposed nodes) per
-   pass with no reader attached: est. 5-12 ms at 12.5k nodes per layout pass and per 100 ms of scrolling
-   (A3-core-10). Not fixed.
+1. **Styling one view render of 12.5k nodes, step by step** (`StyledDom::create_from_dom_inheriting`): `Dom` walks
+   (linear; 11b), parse (memoised: 09), `construct_html_cascade_tree` (was quadratic flat: 02), match (was nodes x
+   rules: 04), inheritance walk + `dedup_runs` (07), UA pass + `compute_inherited_values` (06), compact cache (12,
+   13), tag ids (twice: 11a). Superlinear before this branch: the cascade tree when flat; matching, dedup and
+   inherited values in nodes x styles.
+2. **A flat list of 12k siblings under one parent is safe in this area after this branch**, except for a sheet that
+   uses the general sibling combinator `~` (11e).
+3. **A paint-only restyle of ONE node (hover colour)**: `restyle_nodes_state` re-matches nothing; it compares the
+   hover properties the node declares before / after. It re-runs the cascade only for a rule with `:hover` left of
+   its subject, and the inheritance + compact cache only for an inherited property. What follows (list rebuild or
+   patch) is A3-window's.
+4. **a11y**: built always (default feature), diffed per layout pass. With 10b + 10c nothing is built while no
+   reader is attached; with 10a a reader's pass reads only the DOMs that changed.
 
 ## For area A2-gpu / A3-window / A6 / A1 / A3-solver (writers of `GpuValueCache` maps: A3-core-08)
 
@@ -276,12 +359,16 @@ followed by a mutating call or `=`):
 
 ## For area A1 and A4 (readers: A9's H4, H6, H7)
 
-Once the writers above bump the generation: keep, per DOM, the `value_generation()` last read (CPU:
-`WindowGpuValues::of_doms` and the previous-values copy; GPU: `synchronize_gpu_values`). A frame whose every DOM
-cache has the generation it had at the previous frame AND whose display lists are the same `Arc`s has the same bound
-values: skip the copy, the comparison (`window_value_damage` has no value damage) and the transaction. A DOM cache
-that was replaced (remount) must be compared by `(DomId, generation)` plus the cache's presence. In debug builds
-assert the skipped path against the full comparison until the verification pass has run the e2e scenarios.
+Once the writers above bump the generation: keep, per DOM, the `value_generation()` last read. A frame whose every
+DOM cache has the generation it had at the previous frame AND whose display lists are the same `Arc`s has the same
+bound values: skip the copy, the comparison and the transaction. A DOM cache that was replaced (remount) must be
+compared by `(DomId, generation)` plus the cache's presence.
+
+For A1 (A3-core-15): the rect `render_single_item` verifies before it trusts the background hint is
+`item.visual_bounds()` (for `Text`: the pen positions grown by 1 em left / right, 1.5 em up, 0.75 em down, cut to
+the item's clip). A glyph tile that reaches beyond that box (ink wider than 1 em right of the last pen position:
+an icon font's wide glyph, a long ligature; plus the LCD filter's pad) is stamped over pixels that were not
+compared. If that can happen, verify the union of the tile rects instead.
 
 ## For area A10: the accessibility update built on demand (A3-core-10), macOS
 
@@ -381,37 +468,44 @@ VoiceOver AFTER the editor is up: the focused control is announced and the Voice
 the map's labels; start the editor with VoiceOver already running: same; Accessibility Inspector shows the tree and
 follows a hover. `AZ_A11Y_EAGER=1` must behave as before.
 
-Other platforms: noted, not to be changed now (RULES 8.4), see A3-core-10b.
+Other platforms: noted, not to be changed now (RULES 8.4), see A3-core-10d.
 
 ## For area A3-window
 
-- `layout/src/window.rs:13065`: a tag lookup by scanning `tag_ids_to_node_ids` (same pattern as A3-core-01); one
-  lookup per call there, fine unless it sits in a per-node loop.
-- `StyledDom::append_child` in `dll/.../common/layout.rs:2187-2188` is followed by
-  `recompute_inheritance_and_compact_cache` (layout.rs:1079): a second whole-DOM compact build per window DOM
-  regeneration (the cascade built one already). Not the view's path.
-- A per-DOM "inputs changed" generation would let the a11y pass skip unchanged DOMs (A3-core-10 fix 2).
+- `EmitPhase::Selection` (A3-core-17): `display_list/node_patch.rs:290` needs the arm `EmitPhase::Selection => {}`.
+- `StyledDom::needs_recompute_after_append()` (A3-core-20) is there for `dll/.../common/layout.rs` about 1079:
+  `if styled_dom.needs_recompute_after_append() { styled_dom.recompute_inheritance_and_compact_cache(); }`.
+- The a11y replay (A3-core-10a) reads `LayoutWindow::dom_generation`: the line for `update_a11y_tree_now` is in the
+  finding. What the replay needs of the generation: equal values promise the same node types, texts, attributes,
+  a11y info and callback kinds, the same hierarchy, boxes and positions (what the doc of `DomGenerations` says).
+- `layout/src/window.rs:13065`: a tag lookup by scanning `tag_ids_to_node_ids` (as A3-core-01); one lookup per call.
 
-## Questions for the coordinator / the user
+## For area A3-solver
 
-1. a11y: may the pass be gated on an attached assistive technology (A3-core-10)? It needs one line per shell and a
-   test with VoiceOver / Orca that nobody can run blind.
-2. A3-core-12 (compact pixel slots): widening them changes every fractional layout number by up to 0.05 px (towards
-   the exact value). Do it in the verification pass, where the pixel-identity guards can be run?
-3. `Dom::css` as `(shared sheet, scope)` (A3-core-09 rest): an api.json change of the public `Dom`; wanted?
+- `getters.rs`, `sizing.rs`, `taffy_bridge.rs`, `fc/table_borders.rs` were touched for A3-core-12 and -13 (see
+  Claims): a few lines each inside existing functions, and `get_aspect_ratio_property` became a function around the
+  macro-made `aspect_ratio_from_the_cascade`.
+- `DisplayListGenerator::loaded_fonts` (A3-core-22) can read `self.ctx.loaded_fonts()` once that exists here.
+
+## api.json
+
+No change. (`Dom::css` as a shared sheet was allowed and is not needed: A3-core-09b.)
+
+## What to look at on the real window
+
+- A3-core-12: label and tile positions of a map are no longer rounded to tenths of a pixel: a label can sit up to
+  0.05 px from where it sat. Nothing should jump on hover.
+- A3-core-10c (once A10 has made the change): the VoiceOver checks listed under "For area A10".
+- A3-core-17: selecting text (drag) highlights as before.
 
 ## What was not read
 
-- `core/src/dom.rs` outside the builder / flatten paths (node types, attributes, a11y info, menus), `xml*.rs`,
-  `icon.rs` (`resolve_icons_in_dom_with_context` runs per styling: not read), `custom_property_cascade.rs`
-  (only reached with `var()`), `ua_css.rs` (the table `get_ua_default` reads per node x UA type: not read),
-  `compact.rs` beyond the builder loop, `diff.rs` (A3-window), `events.rs` / `hit_test.rs` (A6), `transform.rs`
-  (A2-gpu), `resources.rs`, `gl*.rs`, `svg.rs`, widgets-side files.
-- `css/src`: only `css.rs` (parse entry points, memo) and the i16 codec of `compact_cache.rs`; not the parser
-  (`parser2.rs`), the property parsers (`props/**`), `dynamic_selector.rs`, `system.rs`, `rice.rs`.
-- `layout/src/solver3/display_list.rs`: read the generator's walk (3869-5040, 5590-5900, 5966-6130, 6212-6330,
-  6474-7430, 7575-8470, 9245-9690, 11040-11605, 11880-12220); NOT read: pagination / slicer (12300-14760), tables
-  (8780-9210), scrollbars (9953-10515), inline box fragments and ellipsis (10515-10980), placeholder prompt, SVG
-  masks (14956-15600), patching (`PatchState`, `compute_patch_move_summary`, 5117-5590), `FrameIndex` (A1), the
-  item methods (`is_visually_equal`, `visual_bounds`: 2773-3480).
-- `layout/src/managers/a11y.rs`: read 1-320, 760-1900; not `build_content` / `build_node` / role maps / tests.
+- `core/src/dom.rs` outside the builder / flatten paths, `xml*.rs`, `icon.rs`, `custom_property_cascade.rs`,
+  `ua_css.rs` beyond the tables named above, `compact.rs` beyond the builder loop and the slot writers, `diff.rs`
+  (A3-window), `events.rs` / `hit_test.rs` (A6), `transform.rs` (A2-gpu), `resources.rs`, `gl*.rs`, `svg.rs`.
+- `css/src`: only `css.rs` (parse entry points, memo), the codecs and slots of `compact_cache.rs`, `length.rs`; not
+  the parser (`parser2.rs`), the other property parsers, `dynamic_selector.rs`, `system.rs`.
+- `layout/src/solver3/display_list.rs`: read the generator's walk; NOT read: pagination / slicer, tables, scrollbars,
+  inline box fragments and ellipsis, SVG masks, `compute_patch_move_summary`, `FrameIndex` (A1), most item methods.
+- `layout/src/managers/a11y.rs`: not `build_content` / `build_node` / the role maps.
+- The shells other than what "For area A10" names (read for the a11y hand-over only).
