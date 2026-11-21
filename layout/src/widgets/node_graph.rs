@@ -2360,6 +2360,7 @@ fn render_node(
         })
         .collect::<Vec<_>>();
 
+    let node_id = node_local_dataset.node_id;
     let node_local_dataset = RefAny::new(node_local_dataset);
 
     Dom::create_div()
@@ -2956,6 +2957,38 @@ fn render_node(
         // the fast-path jump that positions this node without a relayout.
         .with_marker(Some(visual_marker).into())
     ].into())
+    // The same node of the graph is the same node of the DOM in every render,
+    // wherever it stands among the nodes that have DOM.
+    .with_key(node_key(node_id))
+}
+
+/// The reconciliation key of the DOM of the graph node `node_id` (its
+/// wrapper; everything below it is known by its place under the wrapper).
+///
+/// Without a key a node of the DOM is known by its place among its siblings
+/// (`azul_core::diff`), and the nodes that have DOM change with every culled
+/// render: after a pan the wrapper at place 0 belonged to another graph node
+/// than before, and took over what the old one carried - the focus and text
+/// of its fields, and the `transform` the drag had written on its box, which
+/// outranks the one the new box was built with (a written property is carried
+/// over to the matched node of every rebuild). With the key a node is matched
+/// to itself or, new to the DOM, to nothing.
+///
+/// A key is known DOM-wide: two graphs in one DOM whose node ids overlap
+/// share keys and are matched in document order.
+fn node_key(node_id: NodeGraphNodeId) -> (&'static str, u64) {
+    ("azul-nodegraph-node", node_id.inner)
+}
+
+/// As [`node_key`], for the DOM of a connection: its two ports.
+fn connection_key(connection: &ConnectionLocalDataset) -> (&'static str, u64, usize, u64, usize) {
+    (
+        "azul-nodegraph-connection",
+        connection.out_node_id.inner,
+        connection.out_idx,
+        connection.in_node_id.inner,
+        connection.in_idx,
+    )
 }
 
 /// Every connection of `node_graph` that is drawn - its output port has a type
@@ -3109,7 +3142,8 @@ fn render_connections(
                 children.push(
                     Dom::create_div()
                         .with_css("flex-grow: 1; position: absolute; overflow: hidden;")
-                        .with_children(vec![connection_div].into()),
+                        .with_children(vec![connection_div].into())
+                        .with_key(connection_key(&cld)),
                 );
             }
 
@@ -7821,5 +7855,100 @@ mod audit_a3_solver_tests {
         // would find nothing: the one-node graph has no node 3.
         let other = graph_of(&[(1.0, 1.0)]);
         assert!(index.node(&other, NodeGraphNodeId { inner: 3 }).is_none());
+    }
+
+    /// The graph nodes that have DOM in a render, in order, each with the
+    /// reconciliation key of its wrapper.
+    fn node_keys(dom: &Dom) -> Vec<(u64, Option<u64>)> {
+        dom.children.as_ref()[0].children.as_ref()[1]
+            .children
+            .as_ref()
+            .iter()
+            .filter_map(|wrapper| {
+                let mut data = wrapper.children.as_ref().first()?.root.get_dataset()?.clone();
+                let id = data.downcast_ref::<NodeLocalDataset>()?.node_id.inner;
+                Some((id, wrapper.root.get_key()))
+            })
+            .collect()
+    }
+
+    /// As [`node_keys`] for the connections: the node a wire leaves, and the
+    /// key of the wire's wrapper.
+    fn connection_keys(dom: &Dom) -> Vec<(u64, Option<u64>)> {
+        dom.children.as_ref()[0].children.as_ref()[0]
+            .children
+            .as_ref()
+            .iter()
+            .filter_map(|wrapper| {
+                let mut data = wrapper.children.as_ref().first()?.root.get_dataset()?.clone();
+                let out = data
+                    .downcast_ref::<ConnectionLocalDataset>()?
+                    .out_node_id
+                    .inner;
+                Some((out, wrapper.root.get_key()))
+            })
+            .collect()
+    }
+
+    /// How many of `keys` are set and unlike every other.
+    fn distinct(keys: &[(u64, Option<u64>)]) -> usize {
+        keys.iter()
+            .filter_map(|k| k.1)
+            .collect::<std::collections::BTreeSet<u64>>()
+            .len()
+    }
+
+    /// A3-solver-35g. Nothing of a graph's DOM had a key, so a node was known
+    /// by its place among the nodes that have DOM - and after a pan another
+    /// graph node stands at that place: it took over the old one's state and
+    /// the `transform` the pan had written on it. The wrapper of a node (and
+    /// of a connection) carries a key made of the node's id (the wire's two
+    /// ports).
+    ///
+    /// The column at the offset 0 has DOM for its nodes 1..=19, 1000 px up
+    /// for the nodes 8..=42: node 8 is the first there and the eighth here.
+    /// Twelve nodes are in both renders, each with one key in both; no two
+    /// nodes of a render share a key; the same for the wires.
+    ///
+    /// Mutation: no `with_key` on the wrapper (every key `None`), or a key
+    /// that takes the node's place or the graph's offset in, fails.
+    #[test]
+    fn a_node_and_a_wire_keep_their_key_from_render_to_render() {
+        let g = column(60);
+        let here = g.clone().dom_in_view(VIEW);
+        let there = panned(&g, 0.0, -1000.0).dom_in_view(VIEW);
+        for (what, a, b) in [
+            ("node", node_keys(&here), node_keys(&there)),
+            ("wire", connection_keys(&here), connection_keys(&there)),
+        ] {
+            assert!(
+                a.len() > 5 && b.len() > 5 && a[0].0 != b[0].0,
+                "harness ({what}s): the two renders show other parts of the column: {} and {}",
+                a.len(),
+                b.len()
+            );
+            assert_eq!(distinct(&a), a.len(), "every {what} of a render has a key of its own");
+            assert_eq!(distinct(&b), b.len(), "every {what} of a render has a key of its own");
+            let in_both: Vec<(Option<u64>, Option<u64>)> = a
+                .iter()
+                .filter_map(|(id, key)| {
+                    let other = b.iter().find(|(other_id, _)| other_id == id)?;
+                    Some((*key, other.1))
+                })
+                .collect();
+            assert!(
+                in_both.len() > 5,
+                "harness ({what}s): {} are in both renders",
+                in_both.len()
+            );
+            assert!(
+                in_both.iter().all(|(one, other)| one == other),
+                "a {what} has another key in another render: {in_both:?}"
+            );
+        }
+        // A node's key is not a wire's.
+        let nodes = node_keys(&here);
+        let wires = connection_keys(&here);
+        assert!(nodes.iter().all(|n| wires.iter().all(|w| w.1 != n.1)));
     }
 }
