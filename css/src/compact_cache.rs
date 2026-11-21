@@ -1473,6 +1473,21 @@ pub fn decode_flex_u16(v: u16) -> Option<f32> {
     Some(f32::from(v) / 100.0)
 }
 
+/// A flex factor as a reader of its slot gets it (hundredths in a `u16`):
+/// exactly the number `decode_flex_u16` of `encode_flex_u16` gives, or the
+/// factor itself when the slot cannot hold it (negative, 655.29 and above).
+///
+/// `flex-grow` and `flex-shrink` are read from the slot at rest and from the
+/// cascade in any other state; the cascade's answer goes through this, so a
+/// factor is one number whatever state its node is in (`flex-grow: 0.333`
+/// was 0.33 at rest and 0.333 hovered: with factors that sum to less than 1
+/// the hovered item took another share of the free space).
+#[inline]
+#[must_use]
+pub fn flex_as_its_slot_reads_it(factor: f32) -> f32 {
+    decode_flex_u16(encode_flex_u16(factor)).unwrap_or(factor)
+}
+
 /// `SizeMetric` → u8 (4 bits, 12 variants)
 #[inline]
 #[must_use]
@@ -2866,6 +2881,21 @@ mod tests {
         // + 1×i16 tab_size + 4×i16 grid placement (8B) + 3×u8 (opacity,
         // hot_flags, extra_flags) = 45B, padded to 48B for u32 alignment.
         assert_eq!(size_of::<CompactNodePropsCold>(), 48);
+    }
+
+    /// A3-core-25: the cascade's flex factor, read in a raised state, is the
+    /// number the slot gives at rest.
+    #[test]
+    fn a_flex_factor_is_one_number_in_every_state() {
+        for factor in [0.0f32, 0.333, 0.5, 1.0, 1.004, 2.25, 655.0] {
+            let at_rest = decode_flex_u16(encode_flex_u16(factor)).expect("it fits the slot");
+            assert_eq!(flex_as_its_slot_reads_it(factor), at_rest, "{factor}");
+        }
+        assert!((flex_as_its_slot_reads_it(0.333) - 0.33).abs() < 1e-6, "0.333 is 33 hundredths");
+        // What the slot cannot hold is read from the cascade in every state.
+        assert_eq!(encode_flex_u16(-1.0), U16_SENTINEL);
+        assert_eq!(flex_as_its_slot_reads_it(-1.0), -1.0);
+        assert_eq!(flex_as_its_slot_reads_it(700.0), 700.0);
     }
 
     #[test]

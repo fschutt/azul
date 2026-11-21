@@ -1365,7 +1365,10 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     .get_property(node_data, &id, node_state, &CssPropertyType::FlexGrow)
                     .and_then(|p| {
                         if let CssProperty::FlexGrow(v) = p {
-                            Some(v.get_property_or_default().unwrap_or_default().inner.get())
+                            // (as the slot gives it at rest: hundredths)
+                            Some(azul_css::compact_cache::flex_as_its_slot_reads_it(
+                                v.get_property_or_default().unwrap_or_default().inner.get(),
+                            ))
                         } else {
                             None
                         }
@@ -1389,7 +1392,9 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     .get_property(node_data, &id, node_state, &CssPropertyType::FlexShrink)
                     .and_then(|p| {
                         if let CssProperty::FlexShrink(v) = p {
-                            Some(v.get_property_or_default().unwrap_or_default().inner.get())
+                            Some(azul_css::compact_cache::flex_as_its_slot_reads_it(
+                                v.get_property_or_default().unwrap_or_default().inner.get(),
+                            ))
                         } else {
                             None
                         }
