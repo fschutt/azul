@@ -238,9 +238,10 @@ impl Drop for FrameScope<'_> {
     }
 }
 
-/// What the scans of this thread did with the text halos: the numbers of the last
-/// scan (`cpurender::within_halo_budget`, one per frame that registers its images), the
-/// sums since the thread began and what is kept now. [`text_halo_stats`].
+/// What the scans of one window did with the text halos: the numbers of the last
+/// scan (`TextHaloStore::within_halo_budget`, one per frame that registers its images), the
+/// sums since the window's store was made and what is kept now
+/// (`TextHaloStore::text_halo_stats`, `LayoutWindow::text_halo_stats`).
 ///
 /// The frame recorder of an app reads it per frame: `created` and `pending` fall
 /// to 0 a few frames after a view changed, `evicted` counts pictures of earlier
@@ -278,20 +279,6 @@ pub struct TextHaloStats {
     pub kept: u64,
     /// The bytes they hold.
     pub kept_bytes: u64,
-}
-
-/// What the scans of this thread did with the text halos ([`TextHaloStats`]): the halo cache's
-/// numbers with the CPU renderer (feature `cpurender`), all zero without it, which keeps no halos.
-#[must_use]
-pub fn text_halo_stats() -> TextHaloStats {
-    #[cfg(feature = "cpurender")]
-    {
-        crate::cpurender::text_halo_stats()
-    }
-    #[cfg(not(feature = "cpurender"))]
-    {
-        TextHaloStats::default()
-    }
 }
 
 #[cfg(test)]
