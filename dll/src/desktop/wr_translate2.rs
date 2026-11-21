@@ -850,6 +850,16 @@ pub fn publish_gpu_frame(
     layout_window.frame_clock.note_gpu(&frame);
 }
 
+/// The transaction a pass just sent is not drawn by that pass: its frame is
+/// drawn when the renderer has built it, by a later pass (audit A4-31,
+/// `shell2::common::frame_schedule`). What this thread counted for it stays
+/// counted and is published with the frame that shows it
+/// ([`publish_gpu_frame`]); until then the builders of the passes in between
+/// do not publish it as a frame of its own ([`publish_stale_gpu_frame`]).
+pub fn gpu_frame_is_drawn_later() {
+    GPU_FRAME_OPEN.with(|open| open.set(false));
+}
+
 /// Publish the counters of a frame whose shell did not ([`publish_gpu_frame`])
 /// before the next transaction is built, so they are not added to the next
 /// frame's.
