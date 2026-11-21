@@ -123,8 +123,11 @@ trace's; nothing was measured):
   rows for the 11.9k labels that moved (about 1 us each: 12 ms; the builder's row for one node) + the O(n) parts
   above (flatten, `reconcile_dom` by key, the keep test, the splice: 20-35 ms at 25k nodes). The solver keeps the
   interior of every label that kept its node id and places it again; an exchange that shifts ids lays out the
-  labels after it (06b). A pan that exchanges nothing: 0 nodes cascaded, 0 boxes built
-  (`a_view_whose_labels_all_moved_styles_no_node_and_keeps_every_box`).
+  labels after it (06b). A pan that exchanges nothing, a label selected or restyled: the document is kept
+  (11b): no flatten, no pairing; 0 nodes cascaded and 0 boxes built for the pan
+  (`a_view_whose_labels_all_moved_styles_no_node_and_keeps_every_box`), 2 nodes for the label
+  (`one_changed_label_of_a_view_styles_that_label`); what is left is O(n) with small constants (the fingerprint
+  of the callback's DOM, the clone of the cascade for the CSS diff, the compact clone, the tags: 08).
 
 ## What "unchanged" means
 
@@ -450,18 +453,22 @@ compact entries and all ~200 properties per node in three states equal a DOM sty
   inherited rows and computed values and has its compact entries built again: none of the kept tables holds a
   node's own declarations, the properties do not inherit, no selector reads a style. The proof is on
   `recascade_nodes` and `own_style_moved_in_place`.
-- NOT built for a view: the kept-DOM exits `text` / `nodes` / `style` (no flatten, no `reconcile_dom`, no
-  remap for a re-render that keeps the tree). What they would save beyond this step: the flatten and
-  `reconcile_dom` (est. 0.7-1.2 us per node: 17-30 ms at 25k nodes). The ingredients exist
-  (`same_tree_changes` on `child_dom_fingerprints`, `adopt_changed_nodes`, `css_diff_of_kept_dom`,
-  `relayout_child_dom_in_place` as the template for the pass); a kept view's document would keep the hover
-  states of its nodes, which the full path drops (a new document is at rest): the same stated difference as
-  identity on the root's exits.
+- the kept exits (diff-first-11b, `restyle_kept_child`): a re-render that keeps the tree and the sheets and
+  changes nodes where they stand (a label selected or moved, a pan that brings none in) keeps the view's
+  DOCUMENT: no flatten, no `reconcile_dom`, no remap (est. 0.7-1.2 us per node saved: 17-30 ms at 25k nodes); the
+  changed nodes are written onto it and styled where they stand. It says no where the pairing has work (a changed
+  key, an image, an `Updated` handler: `changed_nodes_are_adoptable`), for a document with a node in a state (a
+  document rendered anew starts at rest; a kept one would keep the hover: taken to the pairing path instead, so
+  there is NO stated difference from the full path here), another context or host values, nested views, a
+  retired result. Identity follows the place, as on the root's exits 1.45 / 1.46: for keyed nodes that is the
+  pairing `reconcile_dom` makes (an unchanged key at an unchanged place); for keyless nodes whose contents
+  exchange places it is the difference stated under "What unchanged means".
 - test: dll `a_view_rendered_again_leaves_what_the_full_path_leaves`,
   `a_view_whose_labels_all_moved_styles_no_node_and_keeps_every_box`,
-  `a_view_that_exchanged_5_percent_of_its_labels_styles_5_percent`.
+  `a_view_that_exchanged_5_percent_of_its_labels_styles_5_percent`,
+  `one_changed_label_of_a_view_styles_that_label`.
 - severity: high
-- status: fixed 43bb97f38
+- status: fixed eba4d13e4 (the pairing path: 43bb97f38)
 
 ### diff-first-12 a lost focus is looked up by node index alone
 - file:line: `layout.rs` `regenerate_layout`, "A FOCUSED node that the rebuild did not carry over"
@@ -676,9 +683,12 @@ ARENA after the flatten, never `nodes_at`.
 | rows agent 1 (step 3.4's line) | 8cfbd5812 | dll `rows_that_come_are_styled_and_laid_out_and_no_other_node` |
 | step `tree`, core (`unstyled_*`, `cascade_at_rest`, `spliced`, `cascade_reusing`) | 06480341b | core `styled_dom_test::audit_diff_first_tests::a_cascade_that_keeps_rows_*`, `sections_that_come_*`, `a_node_written_*`, `a_node_whose_own_sheet_*`, `an_unstyled_dom_*` |
 | step `tree`, window and shell (exit 1.47, the solver's flags) | e332a6b34 | dll `a_rebuild_that_changed_the_tree_*`, `rows_that_come_*`, `five_hundred_nodes_*`, `the_steps_of_the_switch_*`, `a_changed_text_takes_the_full_path_*` |
-| step `view` (+ the class "moved in place") | 43bb97f38 | dll `a_view_rendered_again_*`, `a_view_whose_labels_all_moved_*`, `a_view_that_exchanged_5_percent_*` |
+| step `view`, the pairing path (+ the class "moved in place") | 43bb97f38 | dll `a_view_rendered_again_*`, `a_view_whose_labels_all_moved_*`, `a_view_that_exchanged_5_percent_*` |
+| step `view`, the kept exits (`restyle_kept_child`) | eba4d13e4 | the three above + dll `one_changed_label_of_a_view_styles_that_label` |
 
-**Most likely to fail compilation or to draw wrongly, first:** e332a6b34 (the shell's control flow around the
+**Most likely to fail compilation or to draw wrongly, first:** eba4d13e4 (the arm of
+`invoke_virtual_view_callback_impl` gained a branch without re-indenting what it wraps; partial moves out of the
+taken result) > e332a6b34 (the shell's control flow around the
 unstyled tree; `begin_reconciliation_before_styling`'s borrow of the old result) > 43bb97f38
 (`reconcile_rematerialized_child` re-borrows the new arena after the cascade; the test closures of `dfv_mutate`)
 > 06480341b (`cascade_at_rest` on `self`: the split of `create_from_compact_dom`; `spliced`'s struct update) >
@@ -688,8 +698,7 @@ too): `an_unstyled_dom_cascaded_at_rest_is_the_dom_the_creation_makes` and the w
 **In flight:** nothing uncommitted beyond these notes.
 
 **Left, in the order of the coordinator's priorities, each with its design in the block named:**
-1. Views, the kept-DOM exits (`text` / `nodes` / `style` for a re-render that keeps the tree): diff-first-11,
-   "NOT built". Saves the flatten and `reconcile_dom` of a settle (est. 17-30 ms at 25k nodes).
+1. (done: eba4d13e4) Views, the kept exits.
 2. The solver across renumbering: diff-first-06b (A3-solver's and A8's files). It is what a pan that brings
    labels in the middle of the list still pays in layout.
 3. The display list across a changed tree: diff-first-07.
