@@ -10884,6 +10884,8 @@ impl PlatformWindow for WaylandPopup {
         // The popup has no WebRender hit-tester; the CPU one answers clicks.
         if let Some(ref mut cpu_ht) = self.common.cpu_hit_tester {
             if let Some(lw) = self.common.layout_window.as_ref() {
+                // `AZ_TRACE_HIT`, as the window's settings carry it.
+                cpu_ht.set_trace(lw.settings.window.trace_hit);
                 cpu_ht
                     .rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
             }
