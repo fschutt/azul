@@ -69,6 +69,9 @@ pub struct AutodebugConfig {
     pub status_only: bool,
     pub collect_only: bool,
     pub cleanup: bool,
+    /// The environment the tool was started with (`CHROME`, the scratch directory, the checks of
+    /// the agent preflight).
+    pub settings: crate::settings::ToolSettings,
 }
 
 /// Output directory layout.
@@ -1046,7 +1049,7 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
     // ── Phase 1a: Chrome screenshots (persistent CDP instance) ──────────
 
     if !config.skip_chrome {
-        let chrome_path = get_chrome_path();
+        let chrome_path = get_chrome_path(&config.settings);
         let mut chrome_errors = 0usize;
 
         // Filter to only jobs that need Chrome screenshots
@@ -1143,6 +1146,7 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
                             &layout_file,
                             job.size.width,
                             job.size.height,
+                            &config.settings.temp_dir,
                         ) {
                             eprintln!(
                                 "    Warning: Layout extraction failed for {}: {}",
@@ -1199,6 +1203,8 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
     let start = Instant::now();
     let azul_done = AtomicUsize::new(0);
     let azul_errors = AtomicUsize::new(0);
+    // The engine's text anti-aliasing as the tool was started with it, told to every glyph cache.
+    let text_aa: azul_layout::cpurender::TextAaSettings = config.settings.text_aa.into();
 
     // Collect debug data per test (keyed by test_name, prefer desktop)
     let debug_data_map: Arc<Mutex<std::collections::HashMap<String, DebugData>>> =
@@ -1216,6 +1222,7 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
             job.size.width,
             job.size.height,
             &font_context,
+            text_aa,
         ) {
             Ok(dd) => {
                 let mut map = debug_data_map.lock().unwrap();
@@ -1502,6 +1509,7 @@ fn generate_chrome_layout_with_timeout(
     output_file: &Path,
     width: u32,
     height: u32,
+    temp_dir: &Path,
 ) -> Result<(), String> {
     use std::process::{Command, Stdio};
 
@@ -1546,7 +1554,6 @@ fn generate_chrome_layout_with_timeout(
         original_content.clone()
     };
 
-    let temp_dir = std::env::temp_dir();
     let temp_html = temp_dir.join(format!("chrome_layout_{}.html", std::process::id()));
     fs::write(&temp_html, &extraction_html).map_err(|e| format!("write temp html: {}", e))?;
 
@@ -1630,6 +1637,7 @@ fn generate_azul_rendering_at_size_cached(
     width: u32,
     height: u32,
     font_context: &azul_layout::FontContext,
+    text_aa: azul_layout::cpurender::TextAaSettings,
 ) -> Result<super::DebugData, String> {
     let (debug_data, _timing) = super::pipeline::render_xhtml_to_webp(
         font_context,
@@ -1638,6 +1646,7 @@ fn generate_azul_rendering_at_size_cached(
         width,
         height,
         false,
+        text_aa,
     )?;
     Ok(debug_data)
 }
@@ -1904,7 +1913,11 @@ pub fn build_autodebug_prompt(test: &FailingTestData) -> String {
 // ── Main Entry Point ───────────────────────────────────────────────────
 
 /// Parse CLI arguments for the autodebug command.
-pub fn parse_autodebug_args(args: &[&str], project_root: &Path) -> Result<AutodebugConfig, String> {
+pub fn parse_autodebug_args(
+    args: &[&str],
+    project_root: &Path,
+    settings: &crate::settings::ToolSettings,
+) -> Result<AutodebugConfig, String> {
     let manifest_dir = project_root.join("doc");
     let test_dir = manifest_dir.join("working");
 
@@ -1922,6 +1935,7 @@ pub fn parse_autodebug_args(args: &[&str], project_root: &Path) -> Result<Autode
         status_only: false,
         collect_only: false,
         cleanup: false,
+        settings: settings.clone(),
     };
 
     for arg in args {
@@ -2009,7 +2023,7 @@ pub fn run_autodebug(config: AutodebugConfig) -> Result<(), String> {
     }
 
     // Preflight checks (skip agent-specific checks for dry-run)
-    preflight_checks(&project_root, config.dry_run)?;
+    preflight_checks(&project_root, config.dry_run, &config.settings)?;
 
     // Ensure output directories exist
     for dir in &[
@@ -2083,13 +2097,17 @@ pub fn run_autodebug(config: AutodebugConfig) -> Result<(), String> {
 
 /// Preflight checks before running the pipeline.
 /// `dry_run` skips agent-specific checks (CLAUDECODE env, API key, claude CLI).
-fn preflight_checks(workspace_root: &Path, dry_run: bool) -> Result<(), String> {
+fn preflight_checks(
+    workspace_root: &Path,
+    dry_run: bool,
+    settings: &crate::settings::ToolSettings,
+) -> Result<(), String> {
     println!("Preflight checks");
     println!("================\n");
 
     if !dry_run {
         // Refuse to run inside an existing Claude Code session
-        if std::env::var("CLAUDECODE").is_ok() {
+        if settings.inside_claude_code {
             return Err(
                 "Cannot run inside a Claude Code session.\nThe executor spawns claude CLI \
                  subprocesses which would conflict.\nRun this command from a regular \
@@ -2100,7 +2118,7 @@ fn preflight_checks(workspace_root: &Path, dry_run: bool) -> Result<(), String> 
         println!("  [OK] Not running inside Claude Code");
 
         // Check that ANTHROPIC_API_KEY is NOT set
-        if std::env::var("ANTHROPIC_API_KEY").is_ok() {
+        if settings.anthropic_api_key_set {
             return Err(
                 "ANTHROPIC_API_KEY is set in environment.\nThis would route claude CLI through \
                  the paid API.\nUnset it first: unset ANTHROPIC_API_KEY"

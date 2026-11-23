@@ -41,18 +41,28 @@ pub struct SpecConfig {
     pub skill_tree_dir: PathBuf,
     /// Gemini API key
     pub api_key: String,
+    /// The environment the tool was started with (the checks of the agent preflight).
+    pub settings: crate::settings::ToolSettings,
 }
 
 impl SpecConfig {
-    pub fn new(workspace_root: &std::path::Path, api_key: String) -> Self {
+    pub fn new(
+        workspace_root: &std::path::Path,
+        api_key: String,
+        settings: &crate::settings::ToolSettings,
+    ) -> Self {
         Self {
             spec_dir: workspace_root.join("doc/w3c-specs"),
             skill_tree_dir: workspace_root.join("doc/skill-tree"),
             api_key,
+            settings: settings.clone(),
         }
     }
 
-    pub fn from_azul_root(azul_root: &std::path::Path) -> Self {
+    pub fn from_azul_root(
+        azul_root: &std::path::Path,
+        settings: &crate::settings::ToolSettings,
+    ) -> Self {
         let spec_dir = azul_root.join("doc").join("target").join("w3c_specs");
         let skill_tree_dir = azul_root.join("doc").join("target").join("skill_tree");
 
@@ -65,6 +75,7 @@ impl SpecConfig {
             spec_dir,
             skill_tree_dir,
             api_key,
+            settings: settings.clone(),
         }
     }
 
@@ -89,8 +100,12 @@ impl SpecConfig {
 }
 
 /// Main entry point for spec commands
-pub fn run_spec_command(args: &[String], workspace_root: &std::path::Path) -> Result<(), String> {
-    let config = SpecConfig::from_azul_root(workspace_root);
+pub fn run_spec_command(
+    args: &[String],
+    workspace_root: &std::path::Path,
+    settings: &crate::settings::ToolSettings,
+) -> Result<(), String> {
+    let config = SpecConfig::from_azul_root(workspace_root, settings);
 
     if args.is_empty() {
         print_spec_help();

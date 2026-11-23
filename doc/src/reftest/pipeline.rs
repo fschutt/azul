@@ -76,6 +76,7 @@ impl ChromeBackend {
         chrome_layout_json: &Path,
         width: u32,
         height: u32,
+        temp_dir: &Path,
     ) -> Result<(String, Option<ChromePerformanceTiming>), String> {
         match self {
             ChromeBackend::Cdp(cdp) => {
@@ -123,6 +124,7 @@ impl ChromeBackend {
                     chrome_layout_json,
                     width,
                     height,
+                    temp_dir,
                 )
                 .map_err(|e| format!("{}", e))?;
                 Ok((data, None))
@@ -156,6 +158,11 @@ fn extract_metadata_from_string(xml: &str) -> TestMetadata {
 pub struct ReftestPipeline {
     pub chrome: ChromeBackend,
     pub font_context: azul_layout::FontContext,
+    /// How the engine's glyphs are anti-aliased in the azul renders of this run: the comparison
+    /// pins it (`reftest::comparison_text_aa`), a headless run takes the tool's own setting.
+    pub text_aa: azul_layout::cpurender::TextAaSettings,
+    /// Where the process backend of Chrome writes its scratch page (`ToolSettings::temp_dir`).
+    pub temp_dir: std::path::PathBuf,
 }
 
 impl ReftestPipeline {
@@ -257,11 +264,15 @@ impl ReftestPipeline {
         let conf = std::fs::canonicalize(&conf).unwrap_or(conf);
         // Chrome reads it at spawn; azul's alias parser reads it lazily on
         // the first font-stack build. Set BEFORE either happens.
-        std::env::set_var("FONTCONFIG_FILE", &conf);
+        std::env::set_var(crate::settings::FONTCONFIG_FILE, &conf);
         Ok(conf)
     }
 
-    pub fn new(chrome_path: &str) -> Result<Self, String> {
+    pub fn new(
+        chrome_path: &str,
+        text_aa: azul_layout::cpurender::TextAaSettings,
+        temp_dir: std::path::PathBuf,
+    ) -> Result<Self, String> {
         let t0 = Instant::now();
         let registry = azul_layout::FcFontRegistry::new();
         let _had_cache = registry.load_from_disk_cache();
@@ -295,6 +306,8 @@ impl ReftestPipeline {
         Ok(Self {
             chrome: ChromeBackend::new(chrome_path),
             font_context,
+            text_aa,
+            temp_dir,
         })
     }
 
@@ -311,8 +324,14 @@ impl ReftestPipeline {
 
         // Chrome
         let (chrome_layout_data, chrome_timing) = if !chrome_img.exists() {
-            self.chrome
-                .screenshot(test_file, chrome_img, chrome_layout_json, width, height)?
+            self.chrome.screenshot(
+                test_file,
+                chrome_img,
+                chrome_layout_json,
+                width,
+                height,
+                &self.temp_dir,
+            )?
         } else {
             (
                 std::fs::read_to_string(chrome_layout_json).unwrap_or_default(),
@@ -321,8 +340,15 @@ impl ReftestPipeline {
         };
 
         // Debug pass (collects layout diagnostics)
-        let (debug_pass_data, _) =
-            render_xhtml_to_webp(&self.font_context, test_file, azul_img, width, height, true)?;
+        let (debug_pass_data, _) = render_xhtml_to_webp(
+            &self.font_context,
+            test_file,
+            azul_img,
+            width,
+            height,
+            true,
+            self.text_aa,
+        )?;
         // Timing pass (accurate measurement)
         let (mut debug_data, azul_timing) = render_xhtml_to_webp(
             &self.font_context,
@@ -331,6 +357,7 @@ impl ReftestPipeline {
             width,
             height,
             false,
+            self.text_aa,
         )?;
 
         debug_data.chrome_layout = chrome_layout_data.clone();
@@ -381,6 +408,7 @@ pub fn render_xhtml_to_webp(
     width: u32,
     height: u32,
     collect_debug: bool,
+    text_aa: azul_layout::cpurender::TextAaSettings,
 ) -> Result<(DebugData, AzulTiming), String> {
     use azul_core::{dom::DomId, geom::LogicalSize};
     use azul_layout::{callbacks::ExternalSystemCallbacks, window_state::FullWindowState};
@@ -424,10 +452,10 @@ pub fn render_xhtml_to_webp(
     let t_render = Instant::now();
     let dpi = 1.0_f32;
     let mut gc = azul_layout::glyph_cache::GlyphCache::new();
-    // The harness chooses the anti-aliasing with AZ_TEXT_AA (`pin_comparison_text_blend` in reftest/mod.rs);
-    // since bf4dd8c9a the renderer no longer reads it, a glyph cache is told: without this the
+    // The harness chooses the anti-aliasing (`comparison_text_aa` in reftest/mod.rs); since
+    // bf4dd8c9a the renderer reads no switch itself, a glyph cache is told: without this the
     // pages were drawn with LCD fringes and compared to Chrome's grayscale, ~11,000 pixels off.
-    gc.set_text_aa(azul_layout::cpurender::TextAaSettings::from_env());
+    gc.set_text_aa(text_aa);
     let pixmap = azul_layout::cpurender::render_with_font_manager(
         &dl,
         &rr,

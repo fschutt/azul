@@ -1,5 +1,4 @@
 use std::{
-    env,
     fs::{self, File},
     io::Write,
     path::{Path, PathBuf},
@@ -30,6 +29,8 @@ use azul_layout::{
 use base64::Engine;
 use image::{self, GenericImageView};
 use serde_derive::{Deserialize, Serialize};
+
+use crate::settings::ToolSettings;
 
 pub mod apply_midlevel;
 pub mod autodebug;
@@ -74,6 +75,8 @@ pub struct RunRefTestsConfig {
     pub test_dir: PathBuf,
     pub output_dir: PathBuf,
     pub output_filename: &'static str,
+    /// The environment the tool was started with (`CHROME`, the engine's text switches).
+    pub settings: ToolSettings,
 }
 
 /// What a reftest run actually did.
@@ -173,6 +176,7 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<ReftestOutcome>
         test_dir,
         output_dir,
         output_filename,
+        settings,
     } = config;
 
     // Create output directory if it doesn't exist
@@ -192,7 +196,7 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<ReftestOutcome>
     let mut errored = 0usize;
 
     // Get Chrome path
-    let chrome_path = get_chrome_path();
+    let chrome_path = get_chrome_path(&settings);
 
     // Get Chrome version
     let chrome_version = get_chrome_version(&chrome_path);
@@ -237,9 +241,12 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<ReftestOutcome>
     println!("Initializing reftest pipeline...");
     // Hermetic fonts for BOTH engines (see write_hermetic_fontconfig).
     let _ = pipeline::ReftestPipeline::write_hermetic_fontconfig(&output_dir);
-    pin_comparison_text_blend();
-    let mut pipeline = pipeline::ReftestPipeline::new(&chrome_path)
-        .map_err(|e| anyhow::anyhow!("Pipeline init failed: {}", e))?;
+    let mut pipeline = pipeline::ReftestPipeline::new(
+        &chrome_path,
+        comparison_text_aa(&settings),
+        settings.temp_dir.clone(),
+    )
+    .map_err(|e| anyhow::anyhow!("Pipeline init failed: {}", e))?;
 
     // Process tests via unified pipeline
     for test_file in &test_files {
@@ -367,7 +374,11 @@ pub fn copy_report_html(src: &Path, dst: &Path) -> std::io::Result<()> {
 }
 
 /// reftest output directory (doc/target/reftest) if they exist.
-pub fn generate_reftest_page(output_dir: &Path, test_dir: Option<&Path>) -> anyhow::Result<()> {
+pub fn generate_reftest_page(
+    output_dir: &Path,
+    test_dir: Option<&Path>,
+    settings: &ToolSettings,
+) -> anyhow::Result<()> {
     fs::create_dir_all(output_dir)?;
 
     // Check if we have existing reftest results to copy
@@ -456,7 +467,7 @@ pub fn generate_reftest_page(output_dir: &Path, test_dir: Option<&Path>) -> anyh
         .unwrap_or(0);
 
     // Get Chrome version
-    let chrome_path = get_chrome_path();
+    let chrome_path = get_chrome_path(settings);
     let chrome_version = get_chrome_version(&chrome_path);
     let is_chrome_installed = !chrome_version.contains("Unknown");
 
@@ -505,13 +516,14 @@ pub fn run_single_reftest(test_name: &str, config: RunRefTestsConfig) -> anyhow:
         test_dir,
         output_dir,
         output_filename,
+        settings,
     } = config;
 
     fs::create_dir_all(&output_dir)?;
     let _ = fs::create_dir_all(output_dir.join("reftest_img"));
 
     let test_file = find_test_file_by_name(test_name, &test_dir)?;
-    let chrome_path = get_chrome_path();
+    let chrome_path = get_chrome_path(&settings);
     let chrome_version = get_chrome_version(&chrome_path);
     let current_time = chrono::Local::now().format("%Y-%m-%d").to_string();
     let git_hash = get_git_hash();
@@ -522,9 +534,12 @@ pub fn run_single_reftest(test_name: &str, config: RunRefTestsConfig) -> anyhow:
 
     // Use unified pipeline
     let _ = pipeline::ReftestPipeline::write_hermetic_fontconfig(&output_dir);
-    pin_comparison_text_blend();
-    let mut pipe = pipeline::ReftestPipeline::new(&chrome_path)
-        .map_err(|e| anyhow::anyhow!("Pipeline: {}", e))?;
+    let mut pipe = pipeline::ReftestPipeline::new(
+        &chrome_path,
+        comparison_text_aa(&settings),
+        settings.temp_dir.clone(),
+    )
+    .map_err(|e| anyhow::anyhow!("Pipeline: {}", e))?;
 
     let chrome_img = output_dir
         .join("reftest_img")
@@ -596,6 +611,7 @@ pub fn run_single_reftest_headless(
     test_name: &str,
     test_dir: &Path,
     output_dir: &Path,
+    settings: &ToolSettings,
 ) -> anyhow::Result<()> {
     fs::create_dir_all(output_dir)?;
 
@@ -609,17 +625,21 @@ pub fn run_single_reftest_headless(
             ));
         }
         // Use .html file
-        return run_single_reftest_headless(test_name, test_dir, output_dir);
+        return run_single_reftest_headless(test_name, test_dir, output_dir, settings);
     }
 
-    let chrome_path = get_chrome_path();
+    let chrome_path = get_chrome_path(settings);
     if get_chrome_version(&chrome_path).contains("Unknown") {
         return Err(anyhow::anyhow!("Chrome not found. Set CHROME env var."));
     }
 
     // Use unified pipeline (shared font cache + persistent CDP)
-    let mut pipe = pipeline::ReftestPipeline::new(&chrome_path)
-        .map_err(|e| anyhow::anyhow!("Pipeline init: {}", e))?;
+    let mut pipe = pipeline::ReftestPipeline::new(
+        &chrome_path,
+        settings.text_aa.into(),
+        settings.temp_dir.clone(),
+    )
+    .map_err(|e| anyhow::anyhow!("Pipeline init: {}", e))?;
 
     let chrome_img = output_dir.join(format!("{}_chrome.webp", test_name));
     let azul_img = output_dir.join(format!("{}_azul.webp", test_name));
@@ -661,11 +681,11 @@ pub fn find_test_files(dir: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
     Ok(test_files)
 }
 
-pub fn get_chrome_path() -> String {
+pub fn get_chrome_path(settings: &ToolSettings) -> String {
     // Check for environment variable override first
-    if let Ok(chrome_path) = env::var("CHROME") {
+    if let Some(chrome_path) = &settings.chrome {
         if !chrome_path.is_empty() {
-            return chrome_path;
+            return chrome_path.clone();
         }
     }
 
@@ -695,10 +715,14 @@ pub fn get_chrome_path() -> String {
     #[cfg(target_os = "windows")]
     {
         // Check Program Files locations
-        let program_files =
-            env::var("PROGRAMFILES").unwrap_or_else(|_| "C:\\Program Files".to_string());
-        let x86_program_files =
-            env::var("PROGRAMFILES(X86)").unwrap_or_else(|_| "C:\\Program Files (x86)".to_string());
+        let program_files = settings
+            .program_files
+            .clone()
+            .unwrap_or_else(|| "C:\\Program Files".to_string());
+        let x86_program_files = settings
+            .program_files_x86
+            .clone()
+            .unwrap_or_else(|| "C:\\Program Files (x86)".to_string());
 
         let chrome_paths = [
             format!("{}\\Google\\Chrome\\Application\\chrome.exe", program_files),
@@ -804,6 +828,7 @@ pub fn generate_chrome_screenshot_with_debug(
     layout_output_file: &Path,
     width: u32,
     height: u32,
+    temp_dir: &Path,
 ) -> anyhow::Result<String> {
     let canonical_path = test_file.canonicalize()?;
 
@@ -843,7 +868,7 @@ pub fn generate_chrome_screenshot_with_debug(
 
     // Extract layout information using dump-dom with inline script
     // The script must execute synchronously during HTML parsing
-    let layout_json = generate_simple_layout_info(chrome_path, test_file, width, height)
+    let layout_json = generate_simple_layout_info(chrome_path, test_file, width, height, temp_dir)
         .unwrap_or_else(|e| format!("{{\"error\": \"Layout extraction failed: {}\"}}", e));
 
     // Save layout JSON to file
@@ -858,6 +883,7 @@ fn generate_simple_layout_info(
     test_file: &Path,
     width: u32,
     height: u32,
+    temp_dir: &Path,
 ) -> anyhow::Result<String> {
     // Use a script that runs synchronously and stores result in DOM
     // The key is to NOT use any async operations
@@ -892,7 +918,6 @@ fn generate_simple_layout_info(
 })()"#;
 
     // Create temp HTML with the script embedded
-    let temp_dir = std::env::temp_dir();
     let temp_html = temp_dir.join("chrome_simple_layout.html");
     let original_content = fs::read_to_string(test_file)?;
 
@@ -1023,7 +1048,12 @@ impl Default for Options {
 /// the reftest pipeline compares like with like (same rationale as the
 /// hermetic font pinning). The colorimetric path is verified by unit
 /// tests in agg-rust-azul and by the fontblend probe page.
-fn pin_comparison_text_blend() {
+///
+/// The pin is a VALUE now: it used to be `set_var("AZ_TEXT_AA", "legacy")` on the tool's own
+/// process, which the engine's glyph cache then read back. The mode is the legacy blend and the
+/// rest (`AZ_LCD_*`) is whatever the tool was started with (`ToolSettings::text_aa`); the
+/// reftest pipeline hands the result to the glyph cache it renders with.
+fn comparison_text_aa(settings: &ToolSettings) -> azul_layout::cpurender::TextAaSettings {
     // Aliased, to match the `antialias=false` pinned onto Chrome in
     // `write_hermetic_fontconfig`. Comparing ANTIALIASED text across two
     // rasterisers is not possible at this threshold — the two disagree about AA
@@ -1043,7 +1073,11 @@ fn pin_comparison_text_blend() {
     // against /etc/fonts rather than the cwd, so Chrome silently used each
     // machine's system settings and no pin here reached it (see
     // `write_hermetic_fontconfig`).
-    std::env::set_var("AZ_TEXT_AA", "legacy");
+    azul_core::resources::TextAntialiasing {
+        mode: azul_core::resources::TextAntialiasMode::LcdLegacy,
+        ..settings.text_aa
+    }
+    .into()
 }
 
 pub fn pixels_similar(p1: &image::Rgba<u8>, p2: &image::Rgba<u8>, threshold: f64) -> bool {

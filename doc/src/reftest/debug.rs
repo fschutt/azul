@@ -94,6 +94,9 @@ pub struct DebugConfig {
     pub add_working_diff: bool,
     pub dry_run: bool,
     pub no_screenshots: bool,
+    /// The environment the tool was started with (`CHROME`, the scratch directory, the text
+    /// switches).
+    pub settings: crate::settings::ToolSettings,
 }
 
 /// Collected debug data for a test
@@ -422,7 +425,7 @@ fn run_test_and_collect_data(
     let xhtml_source = fs::read_to_string(test_file)?;
 
     // Get Chrome path
-    let chrome_path = super::get_chrome_path();
+    let chrome_path = super::get_chrome_path(&config.settings);
 
     // Generate Chrome screenshot and layout data
     let debug_dir = config.output_dir.join("debug_output");
@@ -439,6 +442,7 @@ fn run_test_and_collect_data(
         &chrome_layout_path,
         super::WIDTH,
         super::HEIGHT,
+        &config.settings.temp_dir,
     )?;
 
     let chrome_layout_data = if chrome_layout_path.exists() {
@@ -452,7 +456,7 @@ fn run_test_and_collect_data(
     let azul_screenshot_path = debug_dir.join(format!("{}_azul.webp", config.test_name));
 
     let (css_warnings, layout_debug_messages, azul_display_list) =
-        generate_azul_with_debug(test_file, &azul_screenshot_path)?;
+        generate_azul_with_debug(test_file, &azul_screenshot_path, &config.settings)?;
 
     // Compare images if both exist
     let diff_count = if chrome_screenshot_path.exists() && azul_screenshot_path.exists() {
@@ -502,6 +506,7 @@ fn run_test_and_collect_data(
 fn generate_azul_with_debug(
     test_file: &Path,
     output_path: &Path,
+    settings: &crate::settings::ToolSettings,
 ) -> anyhow::Result<(Vec<String>, Vec<String>, Option<String>)> {
     let fc_cache = azul_layout::font::loading::build_font_cache();
     let font_context = azul_layout::FontContext::from_fc_cache(fc_cache);
@@ -512,6 +517,7 @@ fn generate_azul_with_debug(
         super::WIDTH,
         super::HEIGHT,
         true,
+        settings.text_aa.into(),
     )
     .map_err(|e| anyhow::anyhow!("{}", e))?;
 
