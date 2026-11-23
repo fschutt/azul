@@ -25,7 +25,7 @@
 # calls.
 #
 # ---------------------------------------------------------------------------
-# Three further defects were found and fixed here; each had produced a concrete
+# Four further defects were found and fixed here; each had produced a concrete
 # wrong answer against this tree.
 #
 #   3. SIGPIPE + `set -o pipefail` made the check NONDETERMINISTIC. The window
@@ -55,6 +55,18 @@
 #      nothing in it can ever be compiled for a build that lacks that feature.
 #      The declaring file is now walked up the module chain to the crate root,
 #      and a wasm-excluding cfg anywhere on that chain excludes the whole file.
+#
+#   6. A test module written out in a FILE of its own was not recognised as test
+#      code. `in_test_module` exempts an inline `#[cfg(test)] mod tests { .. }`
+#      (compiled into no artifact: a std clock call in it can never trap), but the
+#      tests were moved out of the source files into adjacent ones, declared
+#      `#[cfg(test)] #[path = "x_test.rs"] mod x_test;` at the foot of `x.rs`, and
+#      that is the same code in another file: layout/src/texture/materials_test.rs
+#      was reported for a `std::time::Instant::now()` that waits for a worker
+#      thread to end. The module chain now follows a `#[path = "<file>"]` of a
+#      sibling file, and a declaration whose cfg selects test builds only
+#      (`#[cfg(test)]`, `all(test, ..)`) excludes the whole file, as a
+#      wasm-excluding one does.
 #
 # Because of (5) the accepted-cfg test now has to understand FEATURE NAMES, not
 # just the literal `std`: `e2e-server = ["std", ...]`. The crate's Cargo.toml is
@@ -89,6 +101,51 @@
 # This script therefore prints, on every run, how many sites rest on that weaker
 # guarantee. Run with STRICT_WASM_CFG=1 to have those count as failures.
 set -uo pipefail
+
+# ---------------------------------------------------------------------------
+# --self-test: the gate against a small crate whose answer is known, one file per case, so that a
+# change to the gate that lets a real finding through, or reports a test file, is red here and not
+# found by the next person who trips on it. `bash scripts/check_wasm_instant.sh --self-test`.
+# ---------------------------------------------------------------------------
+if [ "${1:-}" = "--self-test" ]; then
+  fx=$(mktemp -d) || exit 2
+  trap 'rm -rf "$fx"' EXIT
+  mkdir -p "$fx/src"
+  printf '[package]\nname = "fx"\nversion = "0.0.0"\nedition = "2021"\n\n[features]\ndefault = ["std"]\nstd = []\n' > "$fx/Cargo.toml"
+  clock='fn t() { let _s = std::time::Instant::now(); }'
+  printf 'mod a;\nmod b;\nmod c;\n#[cfg(test)]\nmod d_tests;\nmod e;\nmod f;\nmod g;\nmod h;\n' > "$fx/src/lib.rs"
+  # a: the adjacent test file of a source file - a test-only module, NOT reported (defect 6)
+  printf 'pub fn a() {}\n\n#[cfg(test)]\n#[path = "a_test.rs"]\nmod a_test;\n' > "$fx/src/a.rs"
+  printf '%s\n' "$clock" > "$fx/src/a_test.rs"
+  # b: the same file without the `#[cfg(test)]` is production code - reported
+  printf 'pub fn b() {}\n\n#[path = "b_test.rs"]\nmod b_test;\n' > "$fx/src/b.rs"
+  printf '%s\n' "$clock" > "$fx/src/b_test.rs"
+  # c: an ungated call in a source file - reported
+  printf 'pub fn c() { let _s = std::time::Instant::now(); }\n' > "$fx/src/c.rs"
+  # d: `#[cfg(test)] mod d_tests;`, declared by name - NOT reported
+  printf '%s\n' "$clock" > "$fx/src/d_tests.rs"
+  # e: `all(test, ..)`, with other attributes and a comment between it and the `mod` - NOT reported
+  printf 'pub fn e() {}\n\n#[cfg(all(test, unix))]\n// between\n#[allow(dead_code)]\n#[path = "e_test.rs"]\nmod e_test;\n' > "$fx/src/e.rs"
+  printf '%s\n' "$clock" > "$fx/src/e_test.rs"
+  # f: `any(test, ..)` also selects builds that are not tests - reported
+  printf 'pub fn f() {}\n\n#[cfg(any(test, unix))]\n#[path = "f_test.rs"]\nmod f_test;\n' > "$fx/src/f.rs"
+  printf '%s\n' "$clock" > "$fx/src/f_test.rs"
+  # g: `not(test)` selects exactly the builds that are not tests - reported
+  printf 'pub fn g() {}\n\n#[cfg(not(test))]\n#[path = "g_x.rs"]\nmod g_x;\n' > "$fx/src/g.rs"
+  printf '%s\n' "$clock" > "$fx/src/g_x.rs"
+  # h: the call is gated away from wasm - NOT reported (the control: the gate does not report everything)
+  printf '#[cfg(not(target_arch = "wasm32"))]\npub fn h() { let _s = std::time::Instant::now(); }\n' > "$fx/src/h.rs"
+  want="b_test.rs c.rs f_test.rs g_x.rs"
+  out=$(STRICT_WASM_CFG=1 bash "$0" "$fx/src" 2>&1)
+  got=$(printf '%s\n' "$out" | sed -n 's#^ERROR: .* at .*/src/\([A-Za-z0-9_]*\.rs\):.*#\1#p' | sort | tr '\n' ' ' | sed 's/ $//')
+  if [ "$got" = "$want" ]; then
+    echo "OK: the wasm Instant gate reports exactly what it should on its fixture ($want)."
+    exit 0
+  fi
+  echo "SELF-TEST FAILED: the gate should report [$want] on its fixture and reported [$got]:" >&2
+  printf '%s\n' "$out" >&2
+  exit 1
+fi
 
 DIRS=("$@")
 [ ${#DIRS[@]} -eq 0 ] && DIRS=(css/src core/src layout/src)
@@ -261,6 +318,24 @@ in_test_module() {
   ' "$1"
 }
 
+# ---------------------------------------------------------------------------
+# is_test_cfg "<flattened cfg text>"
+#
+# True when the attribute selects test builds only: `#[cfg(test)]`, or an `all(..)` that requires
+# `test` as one of its terms (`#[cfg(all(test, unix))]`). `any(test, ..)` and `not(test)` do not:
+# they select builds that are not tests too.
+#
+# This is what `in_test_module` recognises for a module written out inline; `mod_decl_excluded`
+# uses it for a module written out in a FILE of its own (`#[cfg(test)] mod tests;`, or the adjacent
+# `x_test.rs` of a source file, `#[cfg(test)] #[path = "x_test.rs"] mod x_test;`) - the same code,
+# compiled into no artifact either (defect (6) in the header).
+# ---------------------------------------------------------------------------
+is_test_cfg() {
+  local bare re='^#\[cfg\((test\)|all\(([^()]*,)?test[,)])'
+  bare=$(printf '%s' "$1" | tr -d '[:space:]')
+  [[ "$bare" =~ $re ]]
+}
+
 excludes_wasm() {
   local text="$1" feats="$2" bare stripped prev feat
   EXCL_KIND=""
@@ -312,11 +387,51 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
+# path_declarer FILE
+#
+# Prints the sibling file (same directory) that includes FILE through a
+# `#[path = "<FILE's name>"] mod ...;` declaration, if there is one. A `#[path]` is
+# relative to the directory of the file that carries it, so the includer of a file
+# is found next to it.
+# ---------------------------------------------------------------------------
+path_declarer() {
+  local file="$1" dir base cand
+  dir=$(dirname "$file")
+  base=$(basename "$file")
+  for cand in "$dir"/*.rs; do
+    [ -f "$cand" ] || continue
+    [ "$cand" = "$file" ] && continue
+    if grep -qE "^[[:space:]]*#\[[[:space:]]*path[[:space:]]*=[[:space:]]*\"${base}\"" "$cand"; then
+      printf '%s' "$cand"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# ---------------------------------------------------------------------------
+# path_decl_line DECLARER BASE
+#
+# Prints the line of the `mod <name>;` that the `#[path = "<BASE>"]` attribute in
+# DECLARER belongs to (other attributes and comments may sit in between).
+# ---------------------------------------------------------------------------
+path_decl_line() {
+  awk -v want="$2" '
+    !found && /^[[:space:]]*#\[[[:space:]]*path[[:space:]]*=/ && index($0, "\"" want "\"") { found = 1; next }
+    found && /^[[:space:]]*(pub([[:space:]]*\([^)]*\))?[[:space:]]+)?mod[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*;/ { print NR; exit }
+    found && /^[[:space:]]*(#\[|\/\/)/ { next }
+    found && /[^[:space:]]/ { found = 0 }
+  ' "$1"
+}
+
+# ---------------------------------------------------------------------------
 # module_chain_excluded FILE FEATS
 #
 # Walks FILE up its module chain (`b.rs` <- `a/mod.rs` <- `lib.rs`, etc.) and
 # succeeds if any `mod <name>;` declaration on the way carries a wasm-excluding
-# cfg. This is the fix for defect (5).
+# cfg (defect (5)), or a test-only one (defect (6)): EXCL_KIND is then `test`.
+# A file included by a `#[path = "..."]` of a sibling file is followed through
+# that file (the adjacent `x_test.rs` of `x.rs`).
 # ---------------------------------------------------------------------------
 MOD_CHAIN_KIND=""
 module_chain_excluded() {
@@ -332,6 +447,19 @@ module_chain_excluded() {
     case "$base" in
       lib.rs|main.rs) return 1 ;;
     esac
+
+    # Included by a `#[path = "<this file>"] mod ...;` in a sibling file: declared THERE, not by name
+    # in the parent's mod.rs.
+    declarer=$(path_declarer "$cur")
+    if [ -n "$declarer" ]; then
+      decl_line=$(path_decl_line "$declarer" "$base")
+      if [ -n "$decl_line" ] && mod_decl_excluded "$declarer" "$decl_line" "$feats"; then
+        MOD_CHAIN_KIND="$EXCL_KIND"
+        return 0
+      fi
+      cur="$declarer"
+      continue
+    fi
 
     if [ "$base" = "mod.rs" ]; then
       modname=$(basename "$dir")
@@ -365,7 +493,8 @@ module_chain_excluded() {
 # ---------------------------------------------------------------------------
 # mod_decl_excluded DECLARER DECL_LINE FEATS
 #
-# True when the attribute block directly above `mod x;` excludes wasm. The block
+# True when the attribute block directly above `mod x;` excludes wasm, or selects
+# test builds only (`is_test_cfg`; EXCL_KIND is then `test`). The block
 # may contain doc comments and other attributes, and any attribute in it may
 # span several lines — so candidates come from flatten_cfgs (which knows the
 # real extent) rather than from a fixed line window.
@@ -399,6 +528,10 @@ mod_decl_excluded() {
     [ "$end" -lt "$top" ] && continue
     [ "$end" -ge "$decl_line" ] && continue
     if excludes_wasm "$text" "$feats"; then
+      return 0
+    fi
+    if is_test_cfg "$text"; then
+      EXCL_KIND=test
       return 0
     fi
   done < <(flatten_cfgs "$declarer")

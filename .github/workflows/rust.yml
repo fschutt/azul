@@ -586,8 +586,12 @@ jobs:
       - name: No workspace member may join untested
         run: ./scripts/workspace_test_coverage.sh
 
+      # The gate first, on a fixture whose answer is known (a test file is not reported, a source
+      # file is), then on the tree.
       - name: Check no std Instant::now() in WASM-compatible crates
-        run: STRICT_WASM_CFG=1 bash scripts/check_wasm_instant.sh
+        run: |
+          bash scripts/check_wasm_instant.sh --self-test
+          STRICT_WASM_CFG=1 bash scripts/check_wasm_instant.sh
 
   layout_feature_check:
     # azul-layout in every feature set a consumer turns on (printpdf builds it

@@ -296,6 +296,12 @@ pub mod desktop;
 #[cfg(feature = "web-e2e-runner")]
 pub mod e2e_web_runner;
 
+// The one reader of the process environment: `ProcessEnv`, an `azul_css::env::EnvSource`.
+// The settings of every library crate are built from it once, at the start. (It needs azul-css,
+// so it is part of the internal build with `cabi_internal`.)
+#[cfg(feature = "cabi_internal")]
+pub mod env;
+
 // Target-stable home for the `extra::*` feature handles (audio, video_codec,
 // sqlite, pdf, webtransport). With the desktop module it re-exports the real `desktop::extra::*`
 // types; without it (wasm, the `engine` profile: `az_engine_stubs`) it provides repr-C-identical

@@ -54,6 +54,7 @@ impl<T> SharedQueue<T> {
             return Err(item);
         }
         items.push(item);
+        drop(items);
         Ok(())
     }
 
@@ -94,9 +95,9 @@ impl<T> SharedQueue<T> {
     }
 
     /// Take the oldest queued item `wanted` answers `true` for, if any.
-    pub fn take_first(&self, mut wanted: impl FnMut(&T) -> bool) -> Option<T> {
+    pub fn take_first(&self, wanted: impl FnMut(&T) -> bool) -> Option<T> {
         let mut items = self.lock();
-        let at = items.iter().position(|item| wanted(item))?;
+        let at = items.iter().position(wanted)?;
         Some(items.remove(at))
     }
 

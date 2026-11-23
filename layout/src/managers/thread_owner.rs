@@ -380,8 +380,13 @@ pub fn detach_if_overdue(
 #[cfg(all(feature = "std", feature = "text_layout"))]
 #[derive(Debug, Clone, Default)]
 pub struct StoppingWorkers {
-    list: alloc::sync::Arc<std::sync::Mutex<Vec<(std::thread::JoinHandle<()>, Orphaned)>>>,
+    list: alloc::sync::Arc<std::sync::Mutex<StoppingList>>,
 }
+
+/// What a [`StoppingWorkers`] keeps behind its lock: each stopping worker's join handle, with when
+/// it was told to stop.
+#[cfg(all(feature = "std", feature = "text_layout"))]
+type StoppingList = Vec<(std::thread::JoinHandle<()>, Orphaned)>;
 
 #[cfg(all(feature = "std", feature = "text_layout"))]
 impl StoppingWorkers {

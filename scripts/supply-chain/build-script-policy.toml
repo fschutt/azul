@@ -831,7 +831,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["1.2.2:70e2c18f228f56ab3a0121c0e3ba4bf63ad67ae2ba3012845c3aeb44850f8ea4"]
+reviewed = ["1.2.3:90ba5056bb1c9241978c3b7c76da6f6b3ecfde9e440c1d96bfc5d9953c692c42"]
 
 [crate."fst"]  # build-script
 allow = true
@@ -2462,7 +2462,7 @@ allow = true
 risk = "high"
 review = "audited"
 reason = "no build code; WHATWG URL parser. socket_addrs() is opt-in DNS, never called internally"
-reviewed = ["2.5.8:0eb80aad344a2a41324533f0da4d8d054f16a8a911b9e978f966aca87f3d7fb4"]
+reviewed = ["2.5.9:448c1b5c25caee17013344505feefe8c07f1bb6d8d4eb96f4ac40b9afb2a8fe8"]
 
 [crate."utf16_iter"]  # build-dependency
 allow = true
