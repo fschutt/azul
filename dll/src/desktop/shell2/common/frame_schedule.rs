@@ -30,7 +30,7 @@
 //!    GL texture cache keeps textures for.
 //! 5. A pass that must be in step waits whatever it sends: a window's first
 //!    frame, a pass at a new size, a live resize, and every pass with
-//!    `AZ_WR_SYNC_SCENE=1` (`RenderSettings::sync_scene`, read once at the app's start).
+//!    `AZ_WR_SYNC_SCENE=1` (`WebRenderSettings::sync_scene`, read once at the app's start).
 //! 6. Anything sent without a wait leaves the queue "not known empty"
 //!    ([`FrameSchedule`]'s `queued`) until a pass waits again: the scene may
 //!    be published while a transaction sent after it is still queued, and

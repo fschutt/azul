@@ -2092,6 +2092,9 @@ impl IOSWindow {
         if let Some(lw) = self.common.layout_window.as_ref() {
             self.cpu_backend
                 .hit_tester
+                .set_trace(lw.settings.window.trace_hit);
+            self.cpu_backend
+                .hit_tester
                 .rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
         }
 

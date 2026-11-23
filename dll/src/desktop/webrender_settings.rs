@@ -103,7 +103,9 @@ impl WebRenderSettings {
             atlas_size: env
                 .var(ATLAS_SIZE)
                 .and_then(|s| s.parse::<i32>().ok())
-                .map_or(DEFAULT_ATLAS_SIZE, |v| v.clamp(MIN_ATLAS_SIZE, MAX_ATLAS_SIZE)),
+                .map_or(DEFAULT_ATLAS_SIZE, |v| {
+                    v.clamp(MIN_ATLAS_SIZE, MAX_ATLAS_SIZE)
+                }),
             image_budget_mb: megabytes(env, IMAGE_BUDGET_MB, DEFAULT_IMAGE_BUDGET_MB),
             glyph_budget_mb: megabytes(env, GLYPH_BUDGET_MB, DEFAULT_GLYPH_BUDGET_MB),
             walk_gpu_values: flag(env, WALK_GPU_VALUES),

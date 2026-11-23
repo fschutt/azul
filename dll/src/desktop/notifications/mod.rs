@@ -785,15 +785,29 @@ fn cap(available: bool, backend: String, reason: String) -> PlatformCapability {
     }
 }
 
+/// Whether the process asks for the headless backend (`AZ_BACKEND=headless`), read now through the
+/// one process reader: the one question put to the process outside an app's settings, for an app
+/// that probes before `App::create` has read its environment. A probe after it is answered by the
+/// switch `App::create` set.
+fn headless_asked_of_the_process() -> bool {
+    let shell = crate::desktop::shell_settings::ShellSettings::from_lookup(
+        &crate::env::ProcessEnv::new(),
+    );
+    crate::desktop::shell2::common::compositor::AzBackend::headless_selected_by(
+        shell.backend.as_deref(),
+    )
+}
+
 /// `PlatformCapability::notifications()`: can this process show a native
 /// notification, through which backend, and if not, why. Non-destructive: it
 /// never starts the backend (on macOS it must not even touch
 /// `UNUserNotificationCenter` before the bundle check has passed).
 #[must_use]
 pub fn probe() -> PlatformCapability {
-    // `AZ_BACKEND=headless`: `App::create` already set the switch from the app's settings, so an
-    // app that probes while it builds its state, before `App::run` (AzClock), is told too.
-    if HEADLESS.load(Ordering::Relaxed) {
+    // `AZ_BACKEND=headless`: `App::create` sets the switch from the app's settings. An app that
+    // probes while it builds its state - BEFORE `App::create`, when there are no settings yet
+    // (AzClock's `ClockApp::new`) - is told by the process itself (`headless_asked_of_the_process`).
+    if HEADLESS.load(Ordering::Relaxed) || headless_asked_of_the_process() {
         return cap(
             false,
             "headless (recorded)".to_string(),

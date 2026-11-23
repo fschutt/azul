@@ -38,9 +38,13 @@ fn describe(settings: &AppSettings) -> String {
 /// parent removed first, so what the child sees is exactly this) and returns its probe line.
 fn probe(vars: &[(&str, &str)]) -> String {
     let mut child = Command::new(std::env::current_exe().expect("the test binary"));
-    child.args(["--exact", "the_real_environment_reaches_the_settings_once", "--nocapture"]);
-    for (name, _) in std::env::vars() {
-        if name.starts_with("AZ_") {
+    child.args([
+        "--exact",
+        "the_real_environment_reaches_the_settings_once",
+        "--nocapture",
+    ]);
+    for (name, _) in std::env::vars_os() {
+        if name.to_string_lossy().starts_with("AZ_") {
             child.env_remove(name);
         }
     }
@@ -50,7 +54,11 @@ fn probe(vars: &[(&str, &str)]) -> String {
     }
     let output = child.output().expect("the child runs");
     let text = String::from_utf8_lossy(&output.stdout).into_owned();
-    assert!(output.status.success(), "the child failed: {text}\n{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "the child failed: {text}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     text.lines()
         .find(|line| line.starts_with("PROBE "))
         .unwrap_or_else(|| panic!("the child printed no probe line: {text}"))
@@ -63,7 +71,9 @@ fn the_real_environment_reaches_the_settings_once() {
     // they are.
     if std::env::var_os(CHILD).is_some() {
         let settings = AppSettings::from_lookup(&ProcessEnv::new());
-        println!("{}", describe(&settings));
+        // (a line of its own: a harness that runs one test at a time has written `test name ... `
+        // to this line already)
+        println!("\n{}", describe(&settings));
         return;
     }
 
@@ -79,11 +89,17 @@ fn the_real_environment_reaches_the_settings_once() {
         ("AZ_WR_ATLAS_SIZE", "2048"),
     ]);
     assert!(asked.contains("backend=Some(\"headless\")"), "{asked}");
-    assert!(asked.contains("headless_snapshot=Some(\"/tmp/azul-probe.png\")"), "{asked}");
+    assert!(
+        asked.contains("headless_snapshot=Some(\"/tmp/azul-probe.png\")"),
+        "{asked}"
+    );
     assert!(asked.contains("hit_debug=true"), "{asked}");
     assert!(asked.contains("exit_after_first_frame=true"), "{asked}");
     assert!(asked.contains("patching=false"), "AZ_NO_DL_PATCH: {asked}");
-    assert!(asked.contains("dense_text=Verify"), "AZ_DENSE_TEXT: {asked}");
+    assert!(
+        asked.contains("dense_text=Verify"),
+        "AZ_DENSE_TEXT: {asked}"
+    );
     assert!(asked.contains("hinting=false"), "AZ_TEXT_HINTING: {asked}");
     assert!(asked.contains("atlas=2048"), "AZ_WR_ATLAS_SIZE: {asked}");
 
@@ -101,12 +117,22 @@ fn the_real_environment_reaches_the_settings_once() {
     {
         use std::os::unix::ffi::OsStrExt;
         let mut child = Command::new(std::env::current_exe().expect("the test binary"));
-        child.args(["--exact", "the_real_environment_reaches_the_settings_once", "--nocapture"]);
+        child.args([
+            "--exact",
+            "the_real_environment_reaches_the_settings_once",
+            "--nocapture",
+        ]);
         child.env(CHILD, "1");
-        child.env("AZ_BACKEND", std::ffi::OsStr::from_bytes(&[0x68, 0xff, 0x69]));
+        child.env(
+            "AZ_BACKEND",
+            std::ffi::OsStr::from_bytes(&[0x68, 0xff, 0x69]),
+        );
         let output = child.output().expect("the child runs");
         let text = String::from_utf8_lossy(&output.stdout).into_owned();
-        assert!(text.contains("backend=None"), "a value that is not UTF-8 is unset: {text}");
+        assert!(
+            text.contains("backend=None"),
+            "a value that is not UTF-8 is unset: {text}"
+        );
     }
 }
 
@@ -122,4 +148,54 @@ fn the_reader_of_a_desktop_is_the_process_environment() {
     let env = ProcessEnv::new();
     assert_eq!(env.var("PATH"), std::env::var("PATH").ok());
     assert_eq!(env.var_os("PATH"), std::env::var_os("PATH"));
+}
+
+/// What `PlatformCapability::notifications()` answers in the child: its `backend` word.
+fn probe_backend_word() -> String {
+    azul::desktop::notifications::probe()
+        .backend
+        .as_str()
+        .to_string()
+}
+
+/// An app that asks whether it can notify while it builds its state, BEFORE `App::create` has
+/// read the environment (AzClock's `ClockApp::new`), is told that a headless run records: the
+/// process itself is asked, through the one reader.
+#[test]
+fn a_probe_before_the_app_exists_sees_the_headless_backend() {
+    const PROBE_CHILD: &str = "AZ_ENV_PROCESS_NOTIFICATION_CHILD";
+    if std::env::var_os(PROBE_CHILD).is_some() {
+        println!("\nNOTIFICATIONS {}", probe_backend_word());
+        return;
+    }
+    let run = |headless: bool| -> String {
+        let mut child = Command::new(std::env::current_exe().expect("the test binary"));
+        child.args([
+            "--exact",
+            "a_probe_before_the_app_exists_sees_the_headless_backend",
+            "--nocapture",
+        ]);
+        for (name, _) in std::env::vars_os() {
+            if name.to_string_lossy().starts_with("AZ_") {
+                child.env_remove(name);
+            }
+        }
+        child.env(PROBE_CHILD, "1");
+        if headless {
+            child.env("AZ_BACKEND", "headless");
+        }
+        let output = child.output().expect("the child runs");
+        let text = String::from_utf8_lossy(&output.stdout).into_owned();
+        assert!(
+            output.status.success(),
+            "the child failed: {text}\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        text.lines()
+            .find_map(|line| line.strip_prefix("NOTIFICATIONS "))
+            .unwrap_or_else(|| panic!("the child printed no probe line: {text}"))
+            .to_string()
+    };
+    assert_eq!(run(true), "headless (recorded)", "AZ_BACKEND=headless");
+    assert_ne!(run(false), "headless (recorded)", "no AZ_BACKEND");
 }
