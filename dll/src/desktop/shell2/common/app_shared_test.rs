@@ -133,3 +133,39 @@ fn the_app_owns_what_its_environment_asked_and_a_test_app_holds_the_empty_one() 
     let tested = AppShared::with_settings(&AppConfig::default(), asked);
     assert!(tested.settings().shell.hit_debug);
 }
+
+/// A window is handed the layout settings of the app that builds it, whatever it started with
+/// (`LayoutWindow::set_settings`): the e2e machinery of the window (`AZ_E2E_SHOT_DIR`,
+/// `AZ_E2E_RECORD`, ...) and the solver's switches read them from there, and a window nobody
+/// seeded has the empty environment's.
+#[test]
+fn a_seeded_window_holds_the_layout_settings_of_its_app() {
+    let config = AppConfig::default();
+    let mut settings = AppSettings::default();
+    settings.layout.e2e.record_baselines = true;
+    settings.layout.e2e.shot_dir = Some(std::path::PathBuf::from("/tmp/azul-shots"));
+    settings.layout.solver.patching = false;
+    let app = AppShared::with_settings(&config, settings.clone());
+
+    let mut window =
+        LayoutWindow::new(rust_fontconfig::FcFontCache::default()).expect("a layout window");
+    assert_eq!(
+        window.settings,
+        azul_layout::settings::LayoutSettings::default(),
+        "a window nobody seeded has the empty environment's"
+    );
+    app.seed_window(&mut window, &config);
+    assert_eq!(window.settings, settings.layout);
+    assert!(
+        !window.display_list_options.patching,
+        "the solver group is what the window's passes run under"
+    );
+
+    // another app's window sees its own app's settings, not this one's
+    let other = AppShared::new(&config);
+    let mut other_window =
+        LayoutWindow::new(rust_fontconfig::FcFontCache::default()).expect("a layout window");
+    other.seed_window(&mut other_window, &config);
+    assert!(!other_window.settings.e2e.record_baselines);
+    assert!(other_window.display_list_options.patching);
+}
