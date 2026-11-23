@@ -109,7 +109,10 @@ impl Drop for App {
 
 impl Default for App {
     fn default() -> Self {
-        Self::create(RefAny::new(()), AppConfig::default())
+        // The config of the C API's `AppConfig::create`: the default text anti-aliasing is the
+        // one the environment asks for (`AZ_TEXT_AA`, ...), as it was when `AppConfig::default()`
+        // read it itself.
+        Self::create(RefAny::new(()), crate::env::app_config_create())
     }
 }
 

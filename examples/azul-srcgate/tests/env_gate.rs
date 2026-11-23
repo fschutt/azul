@@ -369,178 +369,25 @@ fn rules() -> Vec<Rule> {
 /// W0: css, core, webrender (the shared seam, `AppConfig::create`, the log gate, the test hooks).
 static W0: &[Allow] = &[
     Allow::exactly(
-        "core/src/custom_property_cascade.rs",
-        NAME,
-        2,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/custom_property_cascade.rs",
-        READ,
-        2,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/diff.rs",
-        NAME,
-        2,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/diff.rs",
-        READ,
-        2,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/dom_builder.rs",
-        NAME,
-        1,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/dom_builder.rs",
-        READ,
-        1,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/log_filter.rs",
-        NAME,
-        9,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/log_filter.rs",
-        READ,
-        2,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/profile.rs",
-        NAME,
-        3,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/profile.rs",
-        READ,
-        3,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/refany.rs",
-        NAME,
-        1,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/refany.rs",
-        READ,
-        1,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/resources.rs",
-        NAME,
-        7,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/resources.rs",
-        READ,
-        1,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
         "core/src/run_mode.rs",
         NAME,
         6,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/run_mode.rs",
-        READ,
-        1,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/styled_dom.rs",
-        NAME,
-        1,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/styled_dom.rs",
-        READ,
-        1,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/window.rs",
-        NAME,
-        1,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/window.rs",
-        READ,
-        1,
-        "css, core, webrender: wired by cluster W0",
+        "TestHooks::from_env: the one place that knows which variable of the test run means what \
+         (keyring_gate, RF38); a settings file of its own would be the same list",
     ),
     Allow::exactly(
         "css/src/codegen/lang/cobol.rs",
         NAME,
         1,
-        "css, core, webrender: wired by cluster W0",
+        "not an environment variable: DISPLAY is a reserved word of COBOL in the keyword table \
+         of the code generator",
     ),
     Allow::exactly(
         "css/src/rice.rs",
         NAME,
         4,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "css/src/rice.rs",
-        READ,
-        1,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "css/src/system.rs",
-        NAME,
-        12,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "css/src/system.rs",
-        READ,
-        9,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "css/src/theme_chain.rs",
-        NAME,
-        2,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "css/src/theme_chain.rs",
-        READ,
-        2,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "webrender/core/src/renderer/init.rs",
-        NAME,
-        1,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "webrender/core/src/renderer/init.rs",
-        READ,
-        1,
-        "css, core, webrender: wired by cluster W0",
+        "RiceEnv::from_lookup: the home directories the rice root and the legacy stylesheet are \
+         looked for under (HOME, USERPROFILE, APPDATA, XDG_CONFIG_HOME)",
     ),
 ];
 /// W1: layout solver3, text3, glyph_cache, lib.rs (the `env_flag!` macro).
@@ -785,7 +632,7 @@ static W2: &[Allow] = &[
     Allow::exactly(
         "layout/src/cpurender/raster.rs",
         READ,
-        5,
+        6,
         "window, render, widgets: wired by cluster W2",
     ),
     Allow::exactly(
@@ -1475,7 +1322,7 @@ static W4: &[Allow] = &[
     Allow::exactly(
         "dll/src/desktop/wr_translate2.rs",
         NAME,
-        4,
+        5,
         "dll app start and shells: wired by cluster W4",
     ),
     Allow::exactly(
