@@ -49,7 +49,7 @@ use azul_srcgate::{
     Rule,
 };
 
-const ROOTS: &[Root] = &[
+static ROOTS: &[Root] = &[
     Root {
         dir: "core/src",
         min_files: 20,
@@ -84,7 +84,7 @@ const NAME: &str = "az-name";
 
 /// The names of the variables that are not `AZ_*` / `AZUL_*` but are read by the engine, the
 /// tools or the platform layers (ledger section 2.4).
-const PLATFORM_NAMES: &[&str] = &[
+static PLATFORM_NAMES: &[&str] = &[
     "ANDROID_AVD_HOME",
     "ANDROID_NDK_HOME",
     "ANTHROPIC_API_KEY",
@@ -367,180 +367,27 @@ fn rules() -> Vec<Rule> {
 // ---------------------------------------------------------------------------------------------
 
 /// W0: css, core, webrender (the shared seam, `AppConfig::create`, the log gate, the test hooks).
-const W0: &[Allow] = &[
-    Allow::exactly(
-        "core/src/custom_property_cascade.rs",
-        NAME,
-        2,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/custom_property_cascade.rs",
-        READ,
-        2,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/diff.rs",
-        NAME,
-        2,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/diff.rs",
-        READ,
-        2,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/dom_builder.rs",
-        NAME,
-        1,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/dom_builder.rs",
-        READ,
-        1,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/log_filter.rs",
-        NAME,
-        9,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/log_filter.rs",
-        READ,
-        2,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/profile.rs",
-        NAME,
-        3,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/profile.rs",
-        READ,
-        3,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/refany.rs",
-        NAME,
-        1,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/refany.rs",
-        READ,
-        1,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/resources.rs",
-        NAME,
-        7,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/resources.rs",
-        READ,
-        1,
-        "css, core, webrender: wired by cluster W0",
-    ),
+static W0: &[Allow] = &[
     Allow::exactly(
         "core/src/run_mode.rs",
         NAME,
-        6,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/run_mode.rs",
-        READ,
-        1,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/styled_dom.rs",
-        NAME,
-        1,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/styled_dom.rs",
-        READ,
-        1,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/window.rs",
-        NAME,
-        1,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "core/src/window.rs",
-        READ,
-        1,
-        "css, core, webrender: wired by cluster W0",
+        10,
+        "TestHooks::from_env: the one place that knows which variable of the test run means what \
+         (keyring_gate, RF38); a settings file of its own would be the same list",
     ),
     Allow::exactly(
         "css/src/codegen/lang/cobol.rs",
         NAME,
         1,
-        "css, core, webrender: wired by cluster W0",
+        "not an environment variable: DISPLAY is a reserved word of COBOL in the keyword table \
+         of the code generator",
     ),
     Allow::exactly(
         "css/src/rice.rs",
         NAME,
         4,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "css/src/rice.rs",
-        READ,
-        1,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "css/src/system.rs",
-        NAME,
-        12,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "css/src/system.rs",
-        READ,
-        9,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "css/src/theme_chain.rs",
-        NAME,
-        2,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "css/src/theme_chain.rs",
-        READ,
-        2,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "webrender/core/src/renderer/init.rs",
-        NAME,
-        1,
-        "css, core, webrender: wired by cluster W0",
-    ),
-    Allow::exactly(
-        "webrender/core/src/renderer/init.rs",
-        READ,
-        1,
-        "css, core, webrender: wired by cluster W0",
+        "RiceEnv::from_lookup: the home directories the rice root and the legacy stylesheet are \
+         looked for under (HOME, USERPROFILE, APPDATA, XDG_CONFIG_HOME)",
     ),
 ];
 /// W1: layout solver3, text3, glyph_cache, lib.rs: nothing left.
@@ -550,7 +397,7 @@ const W0: &[Allow] = &[
 /// last use (cluster W2: window.rs x3, widgets/node_graph.rs x1).
 const W1: &[Allow] = &[];
 /// W2: layout window, cpu_backend, cpurender, managers, widgets, scroll_timer, callbacks.
-const W2: &[Allow] = &[
+static W2: &[Allow] = &[
     Allow::exactly(
         "layout/src/widgets/map.rs",
         NAME,
@@ -563,9 +410,17 @@ const W2: &[Allow] = &[
         1,
         "window, render, widgets: wired by cluster W2",
     ),
+    Allow::exactly(
+        "layout/src/cpurender/raster.rs",
+        READ,
+        1,
+        "TextAaSettings::from_env: AZ_TEXT_AA and the AZ_LCD_* of the process for a tool that has \
+         no app to take them from (the doc tool's reftests, until W6 hands them its own settings \
+         and the function goes); it was the read of AppConfig::create before the env pass",
+    ),
 ];
 /// W3: layout e2e, telemetry, request, probe, updater, icon_remap, file_picker, file, dialogs.
-const W3: &[Allow] = &[
+static W3: &[Allow] = &[
     Allow::exactly(
         "layout/src/desktop/file_picker.rs",
         NAME,
@@ -754,7 +609,7 @@ const W3: &[Allow] = &[
     ),
 ];
 /// W4: dll app start, compositor, wr_translate, shell2 common, macos, windows, android, headless.
-const W4: &[Allow] = &[
+static W4: &[Allow] = &[
     Allow::exactly(
         "dll/src/desktop/app_identity.rs",
         NAME,
@@ -890,13 +745,7 @@ const W4: &[Allow] = &[
     Allow::exactly(
         "dll/src/desktop/shell2/run.rs",
         NAME,
-        6,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/run.rs",
-        READ,
-        5,
+        1,
         "dll app start and shells: wired by cluster W4",
     ),
     Allow::exactly(
@@ -938,7 +787,7 @@ const W4: &[Allow] = &[
     Allow::exactly(
         "dll/src/desktop/wr_translate2.rs",
         NAME,
-        4,
+        5,
         "dll app start and shells: wired by cluster W4",
     ),
     Allow::exactly(
@@ -951,7 +800,7 @@ const W4: &[Allow] = &[
 /// W5: dll linux shell and extras. Everything is wired through `PlatformEnv`, `LinuxSettings`
 /// and `ExtraSettings` (settings files, one place that names the variables) except the OS
 /// facade below.
-const W5: &[Allow] = &[Allow::exactly(
+static W5: &[Allow] = &[Allow::exactly(
     "dll/src/desktop/extra/sqlite/mod.rs",
     DIR,
     1,
@@ -960,7 +809,7 @@ const W5: &[Allow] = &[Allow::exactly(
      snapshot twin because the OS decides it",
 )];
 /// W6: tools: doc and the web-lift transpiler (`dll/src/web`).
-const W6: &[Allow] = &[
+static W6: &[Allow] = &[
     Allow::exactly(
         "dll/src/web/classify.rs",
         NAME,
@@ -1215,7 +1064,7 @@ const W6: &[Allow] = &[
     ),
 ];
 /// W7: what stays for good: the reader, the facades, the process-level proofs.
-const W7: &[Allow] = &[
+static W7: &[Allow] = &[
     Allow::exactly(
         "dll/src/env.rs",
         READ,
@@ -1389,7 +1238,7 @@ fn base_with(name: &str, tree: &[(&str, &str)]) -> PathBuf {
     base
 }
 
-const SMALL: &[Root] = &[Root {
+static SMALL: &[Root] = &[Root {
     dir: "core/src",
     min_files: 1,
 }];

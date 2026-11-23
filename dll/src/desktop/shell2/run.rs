@@ -670,7 +670,7 @@ pub fn run(
             {
                 crate::plog_info!(
                     "[macOS] X11 requested - running the X11 backend against DISPLAY={:?}",
-                    std::env::var("DISPLAY").ok()
+                    app_shared.settings().platform.display
                 );
                 super::common::x11_host::activate();
                 // Anything memoised before this line is AppKit's monitor list;
@@ -2200,10 +2200,10 @@ pub fn run(
     crate::plog_info!(
         "[Linux] run() entry — AZ_BACKEND={:?} WAYLAND_DISPLAY={:?} DISPLAY={:?} \
          XDG_SESSION_TYPE={:?}",
-        std::env::var("AZ_BACKEND").ok(),
-        std::env::var("WAYLAND_DISPLAY").ok(),
-        std::env::var("DISPLAY").ok(),
-        std::env::var("XDG_SESSION_TYPE").ok(),
+        app_shared.settings().shell.backend,
+        app_shared.settings().platform.wayland_display,
+        app_shared.settings().platform.display,
+        app_shared.settings().platform.xdg_session_type,
     );
     let (debug_request_rx, component_map) = setup_debug_and_e2e(&config, app_shared.settings());
 

@@ -3992,7 +3992,7 @@ impl CssPropertyCache {
         // Drain with `drain_css_prop_counts` when `AZ_PROFILE=cascade` is set to see which
         // properties dominate the cold layout path.
         //
-        // The flag is `profile::cascade_enabled`, read from the environment ONCE and cached
+        // The flag is `profile::cascade_enabled`, installed ONCE at the start and only read
         // there: this function fires 710k+ times per cold layout on excel.html, and
         // `std::env::var_os` takes ~100 ns per call on macOS (env lock + hashmap lookup), so a
         // per-call check added ~70 ms of pure noise to every single layout, whether or not the

@@ -46,7 +46,7 @@ use crate::{
 };
 
 /// What the environment asks of the theme and the mode: `AZ_THEME` and
-/// `AZ_MODE`, read once per process ([`theme_env`]).
+/// `AZ_MODE` ([`ThemeEnv::from_lookup`]), installed once per process ([`install_env`]).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ThemeEnv {
     /// The theme chain's head `AZ_THEME` names (`xyz:pink`); `None` leaves
@@ -144,32 +144,50 @@ impl ModeWord {
     }
 }
 
-/// The environment's request ([`ThemeEnv`]), read from `AZ_THEME` and `AZ_MODE`
-/// on first use and kept for the life of the process.
+/// What nobody asked for: the environment's request when none was installed.
+static NOTHING_ASKED: ThemeEnv = ThemeEnv {
+    theme: None,
+    mode: None,
+    warnings: Vec::new(),
+};
+
+/// The request of the environment of this process, as the dll installed it at the start.
 ///
-/// The theme chain is a startup decision, and a pin that changed mid-run would
-/// make a screenshot disagree with itself. Without `std` there is no process
-/// environment, so nothing is asked for.
+/// That is [`ThemeEnv::from_lookup`] through [`install_env`]; before that, and in a process that
+/// never installs one, [`ThemeEnv::default`] (nothing asked): the empty environment.
+///
+/// The theme chain is a startup decision, and a pin that changed mid-run would make a screenshot
+/// disagree with itself. Style resolution asks from places that carry no context (the dynamic
+/// selector, the window background), so the pins are kept here once, read-only after the
+/// install, and nothing in this crate reads the process environment.
 #[must_use]
 pub fn theme_env() -> &'static ThemeEnv {
     #[cfg(feature = "std")]
     {
-        // Process-wide configuration, read once from the environment (`AZ_THEME`, `AZ_MODE`).
-        static ENV: std::sync::OnceLock<ThemeEnv> = std::sync::OnceLock::new();
-        ENV.get_or_init(|| {
-            let theme = std::env::var("AZ_THEME").ok();
-            let mode = std::env::var("AZ_MODE").ok();
-            ThemeEnv::from_values(theme.as_deref(), mode.as_deref())
-        })
+        INSTALLED.get().unwrap_or(&NOTHING_ASKED)
     }
     #[cfg(not(feature = "std"))]
     {
-        static NOTHING_ASKED: ThemeEnv = ThemeEnv {
-            theme: None,
-            mode: None,
-            warnings: Vec::new(),
-        };
         &NOTHING_ASKED
+    }
+}
+
+// The pins of the process: installed once at the start (`install_env`), then only read.
+#[cfg(feature = "std")]
+static INSTALLED: std::sync::OnceLock<ThemeEnv> = std::sync::OnceLock::new();
+
+/// Installs the pins [`theme_env`] answers.
+///
+/// The first install of a process wins and later ones are ignored, so a pin never changes under
+/// a running app. Without `std` nothing is kept.
+pub fn install_env(env: ThemeEnv) {
+    #[cfg(feature = "std")]
+    {
+        drop(INSTALLED.set(env));
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        drop(env);
     }
 }
 

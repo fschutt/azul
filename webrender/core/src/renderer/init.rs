@@ -201,6 +201,10 @@ pub struct WebRenderOptions {
     /// make the result look quite close to the high-quality zoom, except for glyphs.
     pub low_quality_pinch_zoom: bool,
     pub max_shared_surface_size: i32,
+    /// Path of the Tracy profiler's shared library, loaded when the first renderer is created and
+    /// the `profiler` feature is on. WebRender reads no environment: the embedder hands the
+    /// value over (azul-dll reads `WR_TRACY_PATH`).
+    pub tracy_path: Option<String>,
 }
 
 impl WebRenderOptions {
@@ -272,6 +276,7 @@ impl Default for WebRenderOptions {
             reject_software_rasterizer: false,
             low_quality_pinch_zoom: false,
             max_shared_surface_size: 2048,
+            tracy_path: None,
         }
     }
 }
@@ -304,7 +309,7 @@ pub fn create_webrender_instance(
         // if the path was provided.
         #[cfg(feature = "profiler")]
         unsafe {
-            if let Ok(ref tracy_path) = std::env::var("WR_TRACY_PATH") {
+            if let Some(ref tracy_path) = options.tracy_path {
                 let ok = tracy_rs::load(tracy_path);
                 info!("Load tracy from {} -> {}", tracy_path, ok);
             }

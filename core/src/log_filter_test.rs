@@ -3,7 +3,7 @@ pub use super::*;
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsString;
+    use azul_css::env::{EnvSource, MapEnv, NoEnv};
 
     use super::*;
 
@@ -36,13 +36,12 @@ mod tests {
     /// `the_environment_decides_the_level_and_the_echo` lists them: the level, the echo, whether
     /// Layout and Platform are on, whether a Layout Debug record and a Layout Error record pass.
     fn configured_by(env: &[(&str, &str)]) -> String {
-        let var = |name: &str| {
-            env.iter()
-                .find(|(key, _)| *key == name)
-                .map(|(_, value)| OsString::from(*value))
-        };
+        let mut map = MapEnv::new();
+        for (key, value) in env {
+            map.set(key, value);
+        }
         let filter = LogFilter::new();
-        filter.apply(&LogSettings::from_environment(&var));
+        filter.apply(&LogSettings::from_lookup(&map));
         format!(
             "level={:?} echo={} layout={} platform={} debug_passes={} error_passes={}",
             filter.min_level(),
@@ -103,12 +102,65 @@ mod tests {
         }
     }
 
-    /// The two readings of the process's environment agree: the level the filter is configured to
-    /// and the level the `log` facade's own logger takes (`level_from_env`).
+    /// `Default` is the behaviour of an EMPTY environment (and a closure is an environment too).
     #[test]
-    fn the_settings_of_the_real_environment_name_the_level_the_facade_takes() {
-        let settings = LogSettings::from_environment(&environment_var);
-        assert_eq!(settings.level, level_from_env());
+    fn the_default_settings_are_the_empty_environments() {
+        assert_eq!(LogSettings::default(), LogSettings::from_lookup(&NoEnv));
+        assert_eq!(LogSettings::default().level, Some(LEVEL_WHEN_NOT_ASKED));
+        let closure = |name: &str| (name == "AZ_LOG").then(|| String::from("warn"));
+        assert_eq!(LogSettings::from_lookup(&closure).level, Some(Level::Warn));
+        // a variable that is set to nothing asks for logs, and so does a non-text value
+        assert!(LogSettings::asked(&MapEnv::new().with("AZ_E2E", "")));
+        assert!(!LogSettings::asked(&NoEnv));
+        #[cfg(feature = "std")]
+        {
+            let os_only = MapEnv::new().with_os("AZ_LOG_FILE", "/tmp/x");
+            assert!(os_only.is_set("AZ_LOG_FILE") && LogSettings::asked(&os_only));
+        }
+    }
+
+    /// A question that comes before anything configured the filter is answered as an empty
+    /// environment would, and that is no configuration: the install that follows takes effect,
+    /// and the first install is the one that stays.
+    #[test]
+    fn a_default_answer_is_no_configuration_and_the_first_install_wins() {
+        let filter = LogFilter::new();
+        filter.ensure_configured();
+        assert_eq!(filter.min_level(), Some(LEVEL_WHEN_NOT_ASKED));
+        assert!(!filter.stderr_echo());
+        assert!(filter.enabled(Category::Layout, Level::Error));
+        assert!(!filter.enabled(Category::Layout, Level::Debug));
+
+        let debug = LogSettings {
+            level: Some(Level::Debug),
+            overrides: vec![(Category::Layout, false)],
+            stderr_echo: Some(true),
+        };
+        filter.install(&debug);
+        assert_eq!(filter.min_level(), Some(Level::Debug));
+        assert!(filter.stderr_echo());
+        assert!(!filter.category_enabled(Category::Layout));
+
+        // a second install (another `App::create` of the process) changes nothing
+        filter.install(&LogSettings {
+            level: None,
+            ..LogSettings::default()
+        });
+        assert_eq!(filter.min_level(), Some(Level::Debug));
+        // and a question after the install does not default it again
+        filter.ensure_configured();
+        assert_eq!(filter.min_level(), Some(Level::Debug));
+    }
+
+    /// A level set at run time before the install is the configuration: the install and the
+    /// default leave it alone.
+    #[test]
+    fn a_level_set_at_run_time_is_not_clobbered_by_the_install() {
+        let filter = LogFilter::new();
+        filter.set_min_level(Some(Level::Trace));
+        filter.ensure_configured();
+        filter.install(&LogSettings::default());
+        assert_eq!(filter.min_level(), Some(Level::Trace));
     }
 
     /// A filter configured by settings that leave the echo open (`None`) keeps the echo it had.

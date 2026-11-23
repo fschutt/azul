@@ -1730,21 +1730,18 @@ std::thread_local! {
 }
 
 /// Whether a widget that has both builds makes its DOM through [`DomBuilder`] (`AZ_FLAT_WIDGETS=1`,
-/// read once per process).
+/// installed once per process: `DiagSettings::flat_widgets`).
 ///
 /// Or as a tree of `Dom`s (the default, and the reference of the tests that compare the two).
 #[must_use]
 pub fn flat_widgets_enabled() -> bool {
     #[cfg(feature = "std")]
     {
-        // `AZ_FLAT_WIDGETS`, read once: the process's configuration.
-        static FROM_ENVIRONMENT: crate::sync::OnceLock<bool> = crate::sync::OnceLock::new();
+        // `AZ_FLAT_WIDGETS` (installed once at the start): the process's configuration.
         if let Some(forced) = FLAT_WIDGETS_ON_THIS_THREAD.with(core::cell::Cell::get) {
             return forced;
         }
-        *FROM_ENVIRONMENT.get_or_init(|| {
-            std::env::var("AZ_FLAT_WIDGETS").is_ok_and(|value| !value.is_empty() && value != "0")
-        })
+        crate::diagnostics::settings().flat_widgets
     }
     #[cfg(not(feature = "std"))]
     {

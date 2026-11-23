@@ -18,7 +18,7 @@
 //! decides: `azul_core::log_filter` starts at Error unless one of its
 //! `LOG_REQUEST_VARS` (`AZ_LOG`, `AZ_LOG_FILE`, `AZ_LOG_STDERR`, `AZ_DEBUG`,
 //! `AZ_E2E`, `AZ_RECORD`) is set, and the `log` facade's built-in logger takes
-//! its level from the same function (`log_filter::level_from_env`). It used to
+//! its level from the same function (`log_filter::configured_level`). It used to
 //! start at Debug: an ordinary run of an app printed every Debug record to stderr,
 //! 3.4 million lines (612 MB, half the wall time) in two minutes of the map editor.
 //!
@@ -693,12 +693,14 @@ mod tests {
     // ==================================================================
 
     /// What `App::create` does at its start, for the child half of a probe: the settings are
-    /// read from the REAL environment of the child process once, the log gate is told what they
-    /// ask of it, and the logger is installed.
+    /// read from the REAL environment of the child process once, the libraries (azul-css and
+    /// azul-core: the log filter among them) and the log gate are told what the settings ask of
+    /// them, and the logger is installed.
     fn start_like_an_app() {
         let settings = crate::desktop::app_settings::AppSettings::from_lookup(
             &crate::env::ProcessEnv::new(),
         );
+        settings.install_libraries();
         install(&settings.shell);
         crate::desktop::logging::init_default_logger(settings.shell.no_color);
     }

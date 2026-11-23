@@ -2484,7 +2484,7 @@ pub(crate) fn discover(
     // Useful for tiling-WM users whose `XDG_CURRENT_DESKTOP` still says
     // `gnome` even though their system colors come from pywal.
     let force_riced = matches!(
-        azul_css::system::ricing_mode(),
+        azul_css::rice::installed_mode().unwrap_or_default(),
         azul_css::system::RicingMode::Force,
     );
 

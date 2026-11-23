@@ -1061,7 +1061,7 @@ impl CursorPosition {
 ///
 /// Every field here maps onto a `webrender::DebugFlags` bit except
 /// `show_hit_test_areas`, which is azul's own overlay. Populate it from the
-/// environment with [`DebugState::from_az_overlay_env`] — see that function for
+/// environment with [`DebugState::from_lookup`] (the verbs: [`DebugState::from_overlay_spec`]) — see that function for
 /// the verb list and why the hit-test overlay is no longer `debug_assertions`-only.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
@@ -1103,48 +1103,22 @@ pub struct DebugState {
 }
 
 impl DebugState {
-    /// Build a `DebugState` from the `AZ_OVERLAY` environment variable.
-    ///
-    /// `AZ_OVERLAY` is a comma-separated list of verbs, e.g.
+    /// Build a `DebugState` from the verbs of `AZ_OVERLAY`: a comma-separated list, e.g.
     ///
     /// ```text
     /// AZ_OVERLAY=hit-test
     /// AZ_OVERLAY=hit-test,overdraw,profiler
-    /// AZ_OVERLAY=list          # print the verbs and exit-code nothing
     /// ```
     ///
-    /// WHY THIS EXISTS: the hit-test overlay used to be `#[cfg(debug_assertions)]`
-    /// in the compositor, so a debug build painted every hit-test area red and a
-    /// release build painted none, with no way to ask for either. That is a
-    /// debug/release divergence in VISUAL OUTPUT — running hello-world showed a
-    /// red window and the reasonable first guess was "this linked the wrong
-    /// DLL". It was not. An overlay you cannot turn on when you need it, and
-    /// cannot turn off when you do not, is worse than no overlay.
-    ///
-    /// Available in RELEASE builds too, deliberately: the moment you need to see
-    /// hit-test regions or overdraw is usually on the build a user is running.
-    ///
-    /// Unknown verbs are reported and ignored rather than fatal — a typo in a
+    /// The environment is read elsewhere ([`DebugState::from_lookup`]), so this is testable
+    /// without one. Unknown verbs are reported and ignored rather than fatal: a typo in a
     /// debugging aid must not stop the app you are trying to debug.
-    /// Reading the environment needs std; on `no_std` there is no environment to
-    /// read, so the overlay is simply off. `from_overlay_spec` stays available
-    /// everywhere, so a `no_std` embedder can still enable overlays explicitly.
-    #[cfg(feature = "std")]
-    #[must_use]
-    pub fn from_az_overlay_env() -> Self {
-        std::env::var("AZ_OVERLAY")
-            .map_or_else(|_| Self::default(), |v| Self::from_overlay_spec(v.as_str()))
-    }
-
-    /// `no_std`: there is no environment, so no overlay.
-    #[cfg(not(feature = "std"))]
-    #[must_use]
-    pub fn from_az_overlay_env() -> Self {
-        Self::default()
-    }
-
-    /// The parser behind [`DebugState::from_az_overlay_env`], separated so it is
-    /// testable without touching the process environment.
+    ///
+    /// WHY THE OVERLAY EXISTS: the hit-test overlay used to be `#[cfg(debug_assertions)]` in the
+    /// compositor, so a debug build painted every hit-test area red and a release build painted
+    /// none, with no way to ask for either. That is a debug/release divergence in VISUAL OUTPUT.
+    /// An overlay you cannot turn on when you need it, and cannot turn off when you do not, is
+    /// worse than no overlay.
     #[must_use]
     pub fn from_overlay_spec(spec: &str) -> Self {
         let mut s = Self::default();

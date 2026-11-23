@@ -181,7 +181,7 @@ fn push_text_decoration_rect(
 /// `getenv` per item would be a real cost in a large DOM.
 fn show_hit_test_overlay() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| azul_core::window::DebugState::from_az_overlay_env().show_hit_test_areas)
+    *ON.get_or_init(|| azul_core::window::DebugState::from_lookup(&crate::env::ProcessEnv::new()).show_hit_test_areas)
 }
 
 /// Whether the hit-test areas of a display list are handed to WebRender
@@ -4883,6 +4883,9 @@ mod log_volume_tests {
         if std::env::var_os("AZ_TRANSLATE_PROBE_CHILD").is_none() {
             return;
         }
+        // What `App::create` installs from the environment (the log filter, among others).
+        crate::desktop::app_settings::AppSettings::from_lookup(&crate::env::ProcessEnv::new())
+            .install_libraries();
         let items = (0..ITEMS)
             .map(|i| DisplayListItem::Rect {
                 bounds: LogicalRect::new(

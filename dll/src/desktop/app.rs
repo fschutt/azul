@@ -109,7 +109,10 @@ impl Drop for App {
 
 impl Default for App {
     fn default() -> Self {
-        Self::create(RefAny::new(()), AppConfig::default())
+        // The config of the C API's `AppConfig::create`: the default text anti-aliasing is the
+        // one the environment asks for (`AZ_TEXT_AA`, ...), as it was when `AppConfig::default()`
+        // read it itself.
+        Self::create(RefAny::new(()), crate::env::app_config_create())
     }
 }
 
@@ -157,6 +160,20 @@ impl App {
         // the process again; the libraries read no environment themselves.
         let env = crate::env::ProcessEnv::new();
         let settings = AppSettings::from_lookup(&env);
+        // What azul-css and azul-core ask of it (the theme and mode pins, the log filter, the
+        // profiling gate, the diagnostic dials, the test hooks) is installed where their
+        // context-free code finds it, before the first log record and before the system style is
+        // discovered. The first install of a process wins.
+        settings.install_libraries();
+        // The end user's rice (`~/.azul/css/<theme>/*.css` and the legacy per-app file,
+        // `azul_css::rice`), in the `AZ_RICING` mode, with the real home directory: installed
+        // HERE (a test or a tool that never creates an App never reads it), and before the system
+        // style is discovered, which asks the mode. Each window loads the rice of its app theme
+        // when it first styles its DOM.
+        azul_css::rice::install(
+            azul_css::rice::RiceEnv::from_lookup(&env),
+            settings.css.ricing,
+        );
 
         // `AZ_BACKEND=headless` is known before `App::run` starts the headless loop, for what an
         // app asks while it builds its state (`PlatformCapability::notifications()`).
@@ -248,12 +265,8 @@ impl App {
         // sheen, and the shadows that follow the light are lit from it;
         // `CallbackInfo::set_app_light` moves it for all of them.
         azul_core::light::set_app_light(app_config.light);
-        // The end user's rice (`~/.azul/css/<theme>/*.css` and the legacy
-        // per-app file, `azul_css::rice`), in the `AZ_RICING` mode. Installed
-        // HERE, with the real home directory, so a test or a tool that never
-        // creates an App never reads it; each window loads the rice of its
-        // app theme when it first styles its DOM.
-        azul_css::rice::install(azul_css::rice::RiceEnv::from_process());
+        // The rice was installed at the top (above); the watcher is the one thread that
+        // follows its files in `AZ_RICING=watch`.
         start_rice_watcher();
 
         // Global hotkeys: NO backend here. `App::create` cannot know whether
@@ -281,7 +294,7 @@ impl App {
         // every lookup against the window's context. `AZ_RICING=off` skips
         // them, like the user stylesheet. Nothing here can fail the app: what
         // does not load is reported and skipped.
-        if azul_css::system::ricing_enabled() {
+        if azul_css::rice::installed_mode() != Some(azul_css::system::RicingMode::Off) {
             if let Some(root) = azul_layout::icon_remap::user_icons_root() {
                 let report = azul_layout::icon_remap::load_user_icon_rules(
                     &mut app_config.icon_provider,

@@ -124,19 +124,6 @@ const ALLOWED: &[Allow] = &[
          and rendering choice) and AZ_E2E_TEST (the scenario runner's file, and the table of \
          knobs that need a cargo feature); the shells read the fields",
     ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/linux/mod.rs",
-        READ,
-        2,
-        "the windowing choice on Linux (x11, wayland)",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/run.rs",
-        READ,
-        1,
-        "logs AZ_BACKEND at the run entry of Linux (moves to the platform settings with its \
-         neighbours)",
-    ),
 ];
 
 fn rules() -> Vec<Rule> {

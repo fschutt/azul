@@ -24,7 +24,11 @@
 //! manager is made with the text group (`FontManager::with_settings`). A window that is not
 //! seeded runs on the defaults, which is the behaviour of an empty environment.
 
-use azul_css::env::{EnvSource, NoEnv};
+use azul_core::settings::CoreSettings;
+use azul_css::{
+    env::{EnvSource, NoEnv},
+    settings::CssSettings,
+};
 use azul_layout::settings::LayoutSettings;
 
 #[cfg(az_x11)]
@@ -44,6 +48,11 @@ pub struct AppSettings {
     pub shell: ShellSettings,
     /// The WebRender path: the texture cache, the display-list translation, the transaction.
     pub webrender: WebRenderSettings,
+    /// What azul-css asks of the environment: the rice mode, the theme and mode pins.
+    pub css: CssSettings,
+    /// What azul-core asks of the environment: the log filter, the profiling gate, the
+    /// diagnostic dials, the default text anti-aliasing, the test hooks.
+    pub core: CoreSettings,
     /// The platform lookups: the session, the desktop, the user's directories.
     pub platform: PlatformEnv,
     /// The Linux shell's switches (X11 and Wayland); where the X11 backend is built.
@@ -59,10 +68,23 @@ impl AppSettings {
             layout: LayoutSettings::from_lookup(env),
             shell: ShellSettings::from_lookup(env),
             webrender: WebRenderSettings::from_lookup(env),
+            css: CssSettings::from_lookup(env),
+            core: CoreSettings::from_lookup(env),
             platform: PlatformEnv::from_lookup(env),
             #[cfg(az_x11)]
             linux: LinuxSettings::from_lookup(env),
         }
+    }
+
+    /// Puts what azul-css and azul-core ask of the environment where their context-free code
+    /// finds it: the theme and mode pins, the log filter, the profiling gate, the diagnostic
+    /// dials, the test hooks. The first install of a process wins.
+    ///
+    /// `App::create` does it before the first log record; a test that re-runs its binary under
+    /// an environment of its own does it first thing in the child, as `App::create` would.
+    pub fn install_libraries(&self) {
+        self.css.install();
+        self.core.install();
     }
 }
 

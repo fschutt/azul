@@ -142,8 +142,8 @@ name = "codegen_project"
 path = "tests/codegen_project.rs"
 required-features = ["codegen"]
 
-# The twin of `run_mode_release.rs` that proves a build WITH `test-hooks` reads the test switches
-# once. Without the feature the file would compile to an empty harness (the zero-test guard calls
+# The twin of `run_mode_release.rs` that proves a build WITH `test-hooks` serves the test hooks
+# that were installed once (the dll builds them from the environment it read at the start). Without the feature the file would compile to an empty harness (the zero-test guard calls
 # that a failure), so a plain `cargo test -p azul-core` skips it; the `test_lib` job runs it with
 # `--features test-hooks`.
 [[test]]
