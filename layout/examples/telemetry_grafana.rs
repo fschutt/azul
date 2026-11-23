@@ -266,6 +266,9 @@ mod engine_frame {
                 DomId::ROOT_ID,
                 false,
                 Vec::new(),
+                BTreeMap::new(),
+                Vec::new(),
+                false,
                 None,
                 &self.image_cache,
                 None,
@@ -274,6 +277,7 @@ mod engine_frame {
                     cb: azul_core::task::get_system_time_libstd,
                 },
                 &[],
+                &BTreeMap::new(),
             ) {
                 Ok(dl) => dl,
                 Err(_) => return 0,
