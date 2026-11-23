@@ -21,6 +21,7 @@ use std::{
 
 use azul_core::resources::TextAntialiasing;
 use azul_css::env::{EnvSource, NoEnv};
+use azul_layout::settings::LayoutSettings;
 
 // ---------------------------------------------------------------------------------------------
 // Names the tool sets on a child process (it never reads these)
@@ -116,8 +117,13 @@ pub struct ToolSettings {
     /// `PROGRAMFILES(X86)` (Windows).
     pub program_files_x86: Option<String>,
     /// The engine's text anti-aliasing as its own switches ask for it. The reftest overrides the
-    /// mode and keeps the rest (`reftest::pin_comparison_text_blend`).
+    /// mode and keeps the rest (`reftest::comparison_text_aa`).
     pub text_aa: TextAntialiasing,
+    /// Every other switch of azul-layout (the solver, text, window and render groups of
+    /// `azul_layout::settings`), as the engine's own constructor reads them from the lookup. The
+    /// tool applies it to every `LayoutWindow` it makes (`LayoutWindow::set_settings`): a window
+    /// nobody did that for runs with the defaults, the behaviour of an empty environment.
+    pub layout: LayoutSettings,
     /// `CLAUDECODE` is set to a UTF-8 value: the tool runs inside a Claude Code session.
     pub inside_claude_code: bool,
     /// `ANTHROPIC_API_KEY` is set to a UTF-8 value (the key itself is not kept).
@@ -152,6 +158,7 @@ impl ToolSettings {
             program_files: env.var(PROGRAMFILES),
             program_files_x86: env.var(PROGRAMFILES_X86),
             text_aa: TextAntialiasing::from_vars(|name| env.var(name)),
+            layout: LayoutSettings::from_lookup(env),
             inside_claude_code: env.var(CLAUDECODE).is_some(),
             anthropic_api_key_set: env.var(ANTHROPIC_API_KEY).is_some(),
             telegram_token: env.var(DOC_TG_TOKEN).or_else(|| env.var(TELEGRAM_BOT_TOKEN)),
@@ -207,6 +214,7 @@ impl fmt::Debug for ToolSettings {
             .field("program_files", &self.program_files)
             .field("program_files_x86", &self.program_files_x86)
             .field("text_aa", &self.text_aa)
+            .field("layout", &self.layout)
             .field("inside_claude_code", &self.inside_claude_code)
             .field("anthropic_api_key_set", &self.anthropic_api_key_set)
             .field(

@@ -518,6 +518,7 @@ fn generate_azul_with_debug(
         super::HEIGHT,
         true,
         settings.text_aa.into(),
+        &settings.layout,
     )
     .map_err(|e| anyhow::anyhow!("{}", e))?;
 

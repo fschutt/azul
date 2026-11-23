@@ -1604,7 +1604,7 @@ pub fn render_xml_to_png(
     output_path: &Path,
     width: u32,
     height: u32,
-    text_aa: azul_layout::cpurender::TextAaSettings,
+    settings: &crate::settings::ToolSettings,
 ) -> Result<(), String> {
     use azul_core::{dom::DomId, geom::LogicalSize};
     use azul_layout::{callbacks::ExternalSystemCallbacks, window_state::FullWindowState};
@@ -1615,6 +1615,7 @@ pub fn render_xml_to_png(
 
     let mut layout_window = azul_layout::LayoutWindow::from_font_context(font_context)
         .map_err(|e| format!("LayoutWindow: {:?}", e))?;
+    layout_window.set_settings(settings.layout.clone());
 
     let mut ws = FullWindowState::default();
     ws.size.dimensions = LogicalSize {
@@ -1640,7 +1641,7 @@ pub fn render_xml_to_png(
     // The caller chooses the anti-aliasing (the tool's own `ToolSettings::text_aa`); since
     // bf4dd8c9a the renderer reads no switch itself, a glyph cache is told: without this the
     // pages were drawn with LCD fringes and compared to Chrome's grayscale, ~11,000 pixels off.
-    gc.set_text_aa(text_aa);
+    gc.set_text_aa(settings.text_aa.into());
     let pixmap = azul_layout::cpurender::render_with_font_manager(
         &dl,
         &rr,
@@ -1821,7 +1822,7 @@ pub fn run_autodoc_screenshots(config: &AutoreviewConfig) -> Result<(), String> 
                 &out,
                 block.width,
                 block.height,
-                config.settings.text_aa.into(),
+                &config.settings,
             ) {
                 Ok(()) => {
                     let badge = match (&block.slideshow, block.subtitle.is_empty()) {
@@ -2088,7 +2089,7 @@ pub fn render_all_screenshots(
             &png,
             block.width,
             block.height,
-            settings.text_aa.into(),
+            settings,
         ) {
             Ok(()) => {
                 println!(

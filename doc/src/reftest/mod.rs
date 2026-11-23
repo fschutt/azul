@@ -244,7 +244,7 @@ pub fn run_reftests(config: RunRefTestsConfig) -> anyhow::Result<ReftestOutcome>
     let mut pipeline = pipeline::ReftestPipeline::new(
         &chrome_path,
         comparison_text_aa(&settings),
-        settings.temp_dir.clone(),
+        &settings,
     )
     .map_err(|e| anyhow::anyhow!("Pipeline init failed: {}", e))?;
 
@@ -537,7 +537,7 @@ pub fn run_single_reftest(test_name: &str, config: RunRefTestsConfig) -> anyhow:
     let mut pipe = pipeline::ReftestPipeline::new(
         &chrome_path,
         comparison_text_aa(&settings),
-        settings.temp_dir.clone(),
+        &settings,
     )
     .map_err(|e| anyhow::anyhow!("Pipeline: {}", e))?;
 
@@ -634,12 +634,9 @@ pub fn run_single_reftest_headless(
     }
 
     // Use unified pipeline (shared font cache + persistent CDP)
-    let mut pipe = pipeline::ReftestPipeline::new(
-        &chrome_path,
-        settings.text_aa.into(),
-        settings.temp_dir.clone(),
-    )
-    .map_err(|e| anyhow::anyhow!("Pipeline init: {}", e))?;
+    let mut pipe =
+        pipeline::ReftestPipeline::new(&chrome_path, settings.text_aa.into(), settings)
+            .map_err(|e| anyhow::anyhow!("Pipeline init: {}", e))?;
 
     let chrome_img = output_dir.join(format!("{}_chrome.webp", test_name));
     let azul_img = output_dir.join(format!("{}_azul.webp", test_name));

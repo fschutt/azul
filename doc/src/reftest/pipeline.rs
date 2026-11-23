@@ -163,6 +163,8 @@ pub struct ReftestPipeline {
     pub text_aa: azul_layout::cpurender::TextAaSettings,
     /// Where the process backend of Chrome writes its scratch page (`ToolSettings::temp_dir`).
     pub temp_dir: std::path::PathBuf,
+    /// The engine's settings (`ToolSettings::layout`), given to every `LayoutWindow` of the run.
+    pub layout: azul_layout::settings::LayoutSettings,
 }
 
 impl ReftestPipeline {
@@ -271,7 +273,7 @@ impl ReftestPipeline {
     pub fn new(
         chrome_path: &str,
         text_aa: azul_layout::cpurender::TextAaSettings,
-        temp_dir: std::path::PathBuf,
+        settings: &crate::settings::ToolSettings,
     ) -> Result<Self, String> {
         let t0 = Instant::now();
         let registry = azul_layout::FcFontRegistry::new();
@@ -307,7 +309,8 @@ impl ReftestPipeline {
             chrome: ChromeBackend::new(chrome_path),
             font_context,
             text_aa,
-            temp_dir,
+            temp_dir: settings.temp_dir.clone(),
+            layout: settings.layout.clone(),
         })
     }
 
@@ -348,6 +351,7 @@ impl ReftestPipeline {
             height,
             true,
             self.text_aa,
+            &self.layout,
         )?;
         // Timing pass (accurate measurement)
         let (mut debug_data, azul_timing) = render_xhtml_to_webp(
@@ -358,6 +362,7 @@ impl ReftestPipeline {
             height,
             false,
             self.text_aa,
+            &self.layout,
         )?;
 
         debug_data.chrome_layout = chrome_layout_data.clone();
@@ -409,6 +414,7 @@ pub fn render_xhtml_to_webp(
     height: u32,
     collect_debug: bool,
     text_aa: azul_layout::cpurender::TextAaSettings,
+    layout: &azul_layout::settings::LayoutSettings,
 ) -> Result<(DebugData, AzulTiming), String> {
     use azul_core::{dom::DomId, geom::LogicalSize};
     use azul_layout::{callbacks::ExternalSystemCallbacks, window_state::FullWindowState};
@@ -422,6 +428,7 @@ pub fn render_xhtml_to_webp(
     // Fresh LayoutWindow from shared FontContext — no stale cache
     let mut layout_window = azul_layout::LayoutWindow::from_font_context(font_context)
         .map_err(|e| format!("LayoutWindow: {:?}", e))?;
+    layout_window.set_settings(layout.clone());
 
     let t_layout = Instant::now();
     let mut ws = FullWindowState::default();

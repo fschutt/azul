@@ -1223,6 +1223,7 @@ pub fn discover_failing_tests(config: &AutodebugConfig) -> Result<Vec<FailingTes
             job.size.height,
             &font_context,
             text_aa,
+            &config.settings.layout,
         ) {
             Ok(dd) => {
                 let mut map = debug_data_map.lock().unwrap();
@@ -1638,6 +1639,7 @@ fn generate_azul_rendering_at_size_cached(
     height: u32,
     font_context: &azul_layout::FontContext,
     text_aa: azul_layout::cpurender::TextAaSettings,
+    layout: &azul_layout::settings::LayoutSettings,
 ) -> Result<super::DebugData, String> {
     let (debug_data, _timing) = super::pipeline::render_xhtml_to_webp(
         font_context,
@@ -1647,6 +1649,7 @@ fn generate_azul_rendering_at_size_cached(
         height,
         false,
         text_aa,
+        layout,
     )?;
     Ok(debug_data)
 }

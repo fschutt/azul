@@ -2,6 +2,7 @@ use std::{ffi::OsString, path::PathBuf};
 
 use azul_core::resources::{TextAntialiasMode, TextAntialiasing};
 use azul_css::env::{MapEnv, NoEnv};
+use azul_layout::settings::LayoutSettings;
 
 use super::*;
 
@@ -54,6 +55,7 @@ fn an_empty_environment_is_the_default_of_every_field() {
     assert_eq!(none.program_files, None);
     assert_eq!(none.program_files_x86, None);
     assert_eq!(none.text_aa, TextAntialiasing::default());
+    assert_eq!(none.layout, LayoutSettings::default());
     assert!(!none.inside_claude_code);
     assert!(!none.anthropic_api_key_set);
     assert_eq!(none.telegram_token, None);
@@ -117,6 +119,24 @@ fn the_text_anti_aliasing_is_the_engine_s_reading_of_the_lookup() {
         ..ToolSettings::from_lookup(&MapEnv::new().with("AZ_LCD_CONTRAST", "9")).text_aa
     };
     assert_eq!(pinned, s.text_aa);
+}
+
+/// The engine's switches are not named in the doc tool: the whole lookup goes to the engine's own
+/// constructor, so whatever its groups read (now or when a cluster adds a group) reaches the
+/// `LayoutWindow`s the tool makes.
+#[test]
+fn the_layout_settings_are_what_the_engine_reads_from_the_same_lookup() {
+    for env in [
+        MapEnv::new(),
+        MapEnv::new().with("AZ_NO_DL_PATCH", "1"),
+        MapEnv::new().with("AZ_PATCH_VERIFY", "1").with("AZ_TEXT_HINTING", "0"),
+        everything(),
+    ] {
+        assert_eq!(
+            ToolSettings::from_lookup(&env).layout,
+            LayoutSettings::from_lookup(&env)
+        );
+    }
 }
 
 #[test]
