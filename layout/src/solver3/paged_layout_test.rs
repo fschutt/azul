@@ -1034,7 +1034,7 @@ fn a_document_of_exactly_the_cap_is_not_truncated() {
 /// The precalculation-only entry has the cap too: its page count is the cap's.
 #[test]
 fn the_pagination_without_pages_is_capped_too() {
-    let styled_dom = Dom::from_xml_string(&one_box("height:1e12px"));
+    let styled_dom = Dom::from_xml_string(one_box("height:1e12px"));
     let loader = PathLoader::new();
     let mut font_manager = FontManager::<FontRef>::new(FcFontCache::default()).expect("manager");
     let info = compute_document_pagination(

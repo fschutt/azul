@@ -809,8 +809,7 @@ where
     }
 
     let mut page_count = 0usize;
-    let mut slicing = PageSlicingReport::default();
-    if materialize_pages {
+    let slicing = if materialize_pages {
         // The text of the headers, the footers and the page numbers is set
         // with the font manager the document was shaped with: its fonts are
         // resolved and loaded there, whether the caller registered any font
@@ -826,7 +825,7 @@ where
         // Each page is handed to the sink as soon as it is sliced, so the
         // caller can consume (e.g. serialize) it and drop it. Peak memory is
         // one page instead of the whole document.
-        slicing = paginate_streaming_with_running_text(
+        paginate_streaming_with_running_text(
             full_display_list,
             &slicer_config,
             &breaks,
@@ -835,8 +834,10 @@ where
                 page_count += 1;
                 on_page(page)
             },
-        )?;
-    }
+        )?
+    } else {
+        PageSlicingReport::default()
+    };
 
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
