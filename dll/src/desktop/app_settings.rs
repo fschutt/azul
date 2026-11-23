@@ -15,9 +15,17 @@
 //!
 //! The settings of the other layers hang on this struct as a field each, with one line in
 //! [`AppSettings::from_lookup`]: the platform lookups, the Linux shell's and the extras' switches
-//! (the platform layer's group D3 and D5), and the css, core and layout settings.
+//! (the platform layer's group D3 and D5), and the css and core settings.
+//!
+//! The settings of azul-layout ([`LayoutSettings`]: the solver, the text, and the groups of the
+//! window, the render path, the services and the E2E engine) reach every window through
+//! [`AppShared::seed_window`](super::shell2::common::app_shared::AppShared::seed_window) (they
+//! are `LayoutWindow::set_settings`), and the app's font manager is made with the text group
+//! (`FontManager::with_settings`): until that happens the solver and text switches
+//! (`AZ_NO_DL_PATCH`, `AZ_DENSE_TEXT`, `AZ_TEXT_HINTING`, the traces) have no effect.
 
 use azul_css::env::{EnvSource, NoEnv};
+use azul_layout::settings::LayoutSettings;
 
 #[cfg(az_x11)]
 use super::shell2::linux::linux_settings::LinuxSettings;
@@ -26,8 +34,11 @@ use super::{
 };
 
 /// Everything the environment asks of an app, read once at its start.
-#[derive(Debug, Clone, PartialEq, Eq)]
+// Not `Eq`: the settings of the layout engine hold values that are only `PartialEq`.
+#[derive(Debug, Clone, PartialEq)]
 pub struct AppSettings {
+    /// The settings of azul-layout: the solver, the text, and the groups of the other clusters.
+    pub layout: LayoutSettings,
     /// The app start and the platform shells.
     pub shell: ShellSettings,
     /// The WebRender path.
@@ -44,6 +55,7 @@ impl AppSettings {
     #[must_use]
     pub fn from_lookup(env: &dyn EnvSource) -> Self {
         Self {
+            layout: LayoutSettings::from_lookup(env),
             shell: ShellSettings::from_lookup(env),
             render: RenderSettings::from_lookup(env),
             platform: PlatformEnv::from_lookup(env),

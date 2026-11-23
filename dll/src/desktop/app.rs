@@ -834,6 +834,11 @@ impl AppInternal {
             None,
         );
 
+        // The text settings the environment asked for go to the app's font manager (and from it
+        // to the manager of every window: `clone_shared`); the rest of the layout settings go
+        // to each window when it is seeded (`AppShared::seed_window`).
+        let text_settings = settings.layout.text;
+
         // The App's undo history and services come as one handle (see `SharedUndoManager`); the
         // hotkey manager the App exposes is the one its windows join.
         let undo_manager = crate::desktop::shell2::common::event::SharedUndoManager::new();
@@ -859,7 +864,7 @@ impl AppInternal {
                 registered_fonts,
             )
             .ok()
-            .map(Arc::new),
+            .map(|manager| Arc::new(manager.with_settings(text_settings))),
             fc_cache: Box::new(fc_cache),
             font_registry,
             undo_manager,
