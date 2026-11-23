@@ -417,6 +417,7 @@ impl FontContext {
             // A context holds no registered fonts: the manager made of it has a registry of its
             // own, as `FontManager::new` makes.
             registered_fonts: Arc::default(),
+            settings: crate::settings::TextSettings::default(),
             chain_key_memo: Mutex::default(),
         };
         // Idempotent: reuses the FontIds already in the shared fc_cache.
