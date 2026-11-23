@@ -13,6 +13,11 @@
 //!
 //! The other half of what a new window takes from its app is [`AppShared::seed_window`]: the
 //! settings of the config and the choices as they stand now, in ONE place for every shell.
+//!
+//! The app also owns what the ENVIRONMENT asked of it, read once at its start
+//! ([`AppSettings`], `App::create`): every window reaches it through its `AppShared`
+//! ([`AppShared::settings`], `window.common.app.settings()`) and no layer below asks the process
+//! environment again.
 
 use std::sync::{
     atomic::{AtomicU8, Ordering},
@@ -24,6 +29,8 @@ use azul_core::{
     window::{DarkLightMode, OptionDarkLightMode},
 };
 use azul_layout::{appenv::GpuProvisionHooks, window::LayoutWindow};
+
+use crate::desktop::app_settings::AppSettings;
 
 /// What the app chose and configured that every window of it reads: the light / dark mode and the
 /// language it chose (and may switch), the platform's natural-scrolling preference, the two
@@ -45,6 +52,9 @@ pub struct AppShared {
     expose_system_media_controls: bool,
     /// The driver-provisioning entry points the CPU dialogs call, set for a running app only.
     gpu_provision: Option<GpuProvisionHooks>,
+    /// What the environment asked of the app, read once at its start. An app that never read the
+    /// process (a test, a tool) holds the empty environment's.
+    settings: AppSettings,
 }
 
 /// `0` follows the desktop, `1` pins light, `2` pins dark.
@@ -58,11 +68,18 @@ const fn mode_code(mode: OptionDarkLightMode) -> u8 {
 
 impl AppShared {
     /// The state of an app from its config alone: the mode it starts in, the two flags, no
-    /// language chosen yet, no natural-scrolling preference known, no GPU hooks. Nothing is read
-    /// from the platform, so a test that builds windows from a config reads nothing of the
-    /// machine it runs on.
+    /// language chosen yet, no natural-scrolling preference known, no GPU hooks, and the empty
+    /// environment's settings. Nothing is read from the platform, so a test that builds windows
+    /// from a config reads nothing of the machine it runs on.
     #[must_use]
-    pub const fn new(config: &AppConfig) -> Self {
+    pub fn new(config: &AppConfig) -> Self {
+        Self::with_settings(config, AppSettings::default())
+    }
+
+    /// [`Self::new`] for an app whose environment asked for `settings` (a test of a window that
+    /// must see a switch on, a host that reads its own source).
+    #[must_use]
+    pub fn with_settings(config: &AppConfig, settings: AppSettings) -> Self {
         Self {
             mode: AtomicU8::new(mode_code(config.mode)),
             locale: Mutex::new(None),
@@ -70,15 +87,17 @@ impl AppShared {
             synthesize_pinch_from_ctrl_wheel: config.synthesize_pinch_from_ctrl_wheel,
             expose_system_media_controls: config.expose_system_media_controls,
             gpu_provision: None,
+            settings,
         }
     }
 
-    /// The state of a RUNNING app ([`Self::new`]), plus what only a running app has: the
-    /// platform's natural-scrolling preference when the config asks for it
-    /// (`NaturalScroll::System`), read once here, and the GPU provisioning hooks.
+    /// The state of a RUNNING app ([`Self::with_settings`], with the `settings` its environment
+    /// asked for, read once by `App::create`), plus what only a running app has: the platform's
+    /// natural-scrolling preference when the config asks for it (`NaturalScroll::System`), read
+    /// once here, and the GPU provisioning hooks.
     #[must_use]
-    pub fn for_app(config: &AppConfig) -> Self {
-        let mut shared = Self::new(config);
+    pub fn for_app(config: &AppConfig, settings: AppSettings) -> Self {
+        let mut shared = Self::with_settings(config, settings);
         if config.natural_scroll == NaturalScroll::System {
             shared.set_system_natural_scroll(
                 crate::desktop::extra::natural_scroll::read_system_preference(),
@@ -86,6 +105,12 @@ impl AppShared {
         }
         shared.gpu_provision = Some(gpu_provision_hooks());
         shared
+    }
+
+    /// What the environment asked of this app, read once at its start.
+    #[must_use]
+    pub const fn settings(&self) -> &AppSettings {
+        &self.settings
     }
 
     /// The app's mode: `None` follows the desktop.
