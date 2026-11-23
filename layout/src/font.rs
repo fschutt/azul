@@ -830,7 +830,7 @@ pub mod parsed {
         /// Built on first use from the retained source bytes, not at load:
         /// `HintInstance::new` copies `cvt`/`fpgm`/`prep`, allocates the
         /// interpreter and executes `fpgm`, and a face is only ever hinted
-        /// when `text_hinting_enabled()` (off by default on macOS), so a load
+        /// when `TextSettings::hinting` says so (off by default on macOS), so a load
         /// paid that for every face of every chain for nothing.
         pub(crate) hint_slot:
             std::sync::OnceLock<Option<std::sync::Mutex<allsorts::hinting::HintInstance>>>,
@@ -2966,6 +2966,20 @@ pub mod parsed {
             // Call the existing shape_text_for_parsed_font method (defined in default.rs)
             crate::text3::default::shape_text_for_parsed_font(
                 self, text, script, language, direction, style,
+            )
+        }
+
+        fn shape_text_with(
+            &self,
+            text: &str,
+            script: crate::font_traits::Script,
+            language: crate::font_traits::Language,
+            direction: crate::font_traits::BidiDirection,
+            style: &crate::font_traits::StyleProperties,
+            settings: &crate::settings::TextSettings,
+        ) -> Result<Vec<crate::font_traits::Glyph>, crate::font_traits::LayoutError> {
+            crate::text3::default::shape_text_for_parsed_font_with(
+                self, text, script, language, direction, style, settings,
             )
         }
 

@@ -594,6 +594,19 @@ impl TextShapingCache {
         self.fonts_generation = generation;
     }
 
+    /// Tells the cache the settings its shaping runs under from now on: the font manager's
+    /// ([`crate::settings::TextSettings`] of `FontManager::settings`), which the caller shapes
+    /// with. A layout pass sets them first thing, next to the fonts generation.
+    pub const fn set_settings(&mut self, settings: crate::settings::TextSettings) {
+        self.tally.settings = settings;
+    }
+
+    /// The settings the shaping through this cache runs under ([`Self::set_settings`]).
+    #[must_use]
+    pub const fn settings(&self) -> crate::settings::TextSettings {
+        self.tally.settings
+    }
+
     /// #28: fork this cache for a SPECULATIVE layout query (`LayoutWindow::
     /// query_pagination`). The three stage maps hold `Arc`'d entries keyed by
     /// CONTENT (the per-item key hashes text/bidi/script/style — never a
@@ -614,8 +627,9 @@ impl TextShapingCache {
             generation: self.generation,
             sweep_at: self.sweep_at,
             fonts_generation: self.fonts_generation,
-            // What the fork shapes is its own to count: it dies with it.
-            tally: ShapingTally::default(),
+            // What the fork shapes is its own to count: it dies with it. It shapes under the
+            // settings of the cache it was forked from.
+            tally: ShapingTally::under(self.tally.settings),
         }
     }
 
@@ -1287,7 +1301,7 @@ impl TextShapingCache {
             }
         }
 
-        if env_flag!("TEXTDBG") {
+        if self.tally.settings.trace_text {
             let total_items: usize = fragment_layouts.values().map(|f| f.items.len()).sum();
             let text_preview: String = content
                 .iter()

@@ -1891,6 +1891,10 @@ jobs:
       - name: Build azul with rust9x (i686, WinXP+)
         working-directory: azul
         shell: bash
+        # Two crates at a time: with the runner's default (one per core) rustc could not even load three proc-macro DLLs
+        # (LoadLibraryExW "Not enough memory resources", os error 8, run 45178260225): the commit limit, not a code error.
+        env:
+          CARGO_BUILD_JOBS: "2"
         run: |
           cargo +rust9x build --release \
             --target i686-rust9x-windows-msvc \
@@ -4786,7 +4790,10 @@ jobs:
     # Builds iOS demo apps.
     name: Mobile demo apps (iOS)
     needs: [content_state_lint, documentation_paths, clippy, check_crates, feature_matrix_check, test_lib, codegen_macos]
-    timeout-minutes: 60
+    # Six demos, each for the device and the simulator, one after the other: azul-dll is built again
+    # for every one (each demo pins its own azul features), ~14 minutes a build on a runner, so the
+    # twelve take ~170 minutes. At 60 the job was cancelled after four builds (website run 45178260225).
+    timeout-minutes: 240
     if: >-
       (github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website')
       && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')

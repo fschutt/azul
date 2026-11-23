@@ -1771,6 +1771,7 @@ impl FlowWalk<'_> {
         self.pen += edges.bottom;
         self.record_paragraph(
             ctx.styled_dom,
+            ctx.settings().dense_text,
             tree,
             positions,
             node,
@@ -1887,6 +1888,8 @@ impl FlowWalk<'_> {
     fn record_paragraph(
         &mut self,
         styled_dom: &StyledDom,
+        // How the lines are stored (`SolverSettings::dense_text` of the pass).
+        dense: crate::settings::DenseTextMode,
         tree: &mut LayoutTree,
         positions: &mut PositionVec,
         node: usize,
@@ -1912,7 +1915,8 @@ impl FlowWalk<'_> {
             let text_width = (rect.size.width - edges.inline()).max(0.0);
             let mut lines = None;
             for part in parts.iter().filter(|p| p.region == region) {
-                lines = Some(Arc::new(CachedInlineLayout::new(
+                lines = Some(Arc::new(CachedInlineLayout::new_in(
+                    dense,
                     Arc::new(shift_layout(
                         &part.layout,
                         part.origin.x - content_origin.x,
@@ -1952,7 +1956,8 @@ impl FlowWalk<'_> {
             overflow: crate::text3::cache::OverflowInfo::default(),
         });
         if let Some(warm) = tree.warm_mut(LayoutNodeId::new(node)) {
-            warm.inline_layout_result = Some(Box::new(CachedInlineLayout::new(
+            warm.inline_layout_result = Some(Box::new(CachedInlineLayout::new_in(
+                dense,
                 Arc::clone(&whole),
                 AvailableSpace::Definite((first_rect.size.width - edges.inline()).max(0.0)),
                 false,
