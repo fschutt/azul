@@ -993,18 +993,6 @@ const W3: &[Allow] = &[
 /// W4: dll app start, compositor, wr_translate, shell2 common, macos, windows, android, headless.
 const W4: &[Allow] = &[
     Allow::exactly(
-        "dll/src/desktop/app.rs",
-        NAME,
-        3,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/app.rs",
-        READ,
-        3,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
         "dll/src/desktop/app_identity.rs",
         NAME,
         1,

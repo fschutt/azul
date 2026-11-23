@@ -178,6 +178,9 @@ StyleOverflowWrap::BreakWord
 
 `hyphens: none | manual | auto` enables soft-hyphen breaking. `auto`
 requires the layout crate's hyphenation resources for the active language.
+The layout crate's `text_layout_hyphenation` feature embeds the English (US)
+patterns only (91 KB); `text_layout_hyphenation_all` embeds all 82 languages
+(2.9 MB). Text in a language the build has no patterns for is not hyphenated.
 
 ## Direction and writing mode
 
