@@ -91,7 +91,9 @@ gl-context-loader       = { version = "0.1.8", default-features = false, optiona
 # text3 features
 unicode-bidi            = { version = "0.3.18", default-features = false, optional = true, features = ["hardcoded-data"]}
 thiserror = { version = "2.0.17", default-features = false }
-hyphenation             = { version = "0.8.4", default-features = false, features = ["embed_all"], optional = true }
+# The patterns embedded in the binary are chosen by the features of azul-layout: `text_layout_hyphenation`
+# embeds English (US) only (91 KB), `text_layout_hyphenation_all` all 82 languages (2.9 MB).
+hyphenation             = { version = "0.8.4", default-features = false, features = ["embed_en-us"], optional = true }
 unicode-segmentation    = { version = "1.12.0", default-features = false, optional = true }
 unicode-normalization   = { version = "0.1.24",  default-features = false, optional = true }
 allsorts = { package = "allsorts-azul", version = "0.17.4", default-features = false, features = ["flate2_rust"], optional = true }
@@ -279,8 +281,16 @@ text_layout = [
     "dep:regex-lite"
 ]
 
-# Automatic hyphenation (adds ~25 deps: bincode, fst, hyphenation_commons, pocket-resources)
+# Automatic hyphenation (adds ~25 deps: bincode, fst, hyphenation_commons, pocket-resources).
+# Embeds the English (US) patterns only (91 KB): `hyphens: auto` hyphenates English, and text in a
+# language without an embedded dictionary is not hyphenated (no error, no break). The patterns of
+# the other languages come with `text_layout_hyphenation_all`.
 text_layout_hyphenation = ["text_layout", "dep:hyphenation"]
+
+# Automatic hyphenation in all 82 languages of the `hyphenation` crate (2.9 MB of patterns in the
+# binary, 530 KB of them Hungarian). Cargo unifies features, so one crate turning this on
+# embeds all 82 in the whole build.
+text_layout_hyphenation_all = ["text_layout_hyphenation", "hyphenation/embed_all"]
 
 # PDF text operations (requires text_layout)
 pdf = ["text_layout"]
