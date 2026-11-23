@@ -684,6 +684,9 @@ pub struct ScrollManager {
     /// this flag must stay at its default there (we preserve current behavior) and
     /// primarily controls mouse-wheel direction on platforms that don't pre-apply.
     natural_scroll: bool,
+    /// The direction was pinned by the window's settings (`AZ_NATURAL_SCROLL`,
+    /// [`Self::pin_natural_scroll`]): the app's `AppConfig::natural_scroll` does not change it.
+    natural_scroll_pinned: bool,
     /// The PLATFORM's natural-scrolling preference, where a backend reported one
     /// (`AppConfig::natural_scroll = System` reads it): `None` = the platform said
     /// nothing (X11, mobile, or no reader yet). The shell that builds the window reads
@@ -831,25 +834,30 @@ impl ScrollManager {
     /// Creates a new empty `ScrollManager`
     #[must_use]
     pub fn new() -> Self {
-        let mut m = Self::default();
-        // Power-user / test override: this env var wins so the direction can
-        // be flipped without a rebuild and so tests are hermetic.
-        #[cfg(feature = "std")]
-        if let Some(v) = std::env::var_os("AZ_NATURAL_SCROLL") {
-            m.natural_scroll = matches!(v.to_str(), Some("1" | "true" | "TRUE"));
+        Self::default()
+    }
+
+    /// Pins the scroll direction the window's settings ask for
+    /// (`WindowSettings::natural_scroll`, from `AZ_NATURAL_SCROLL`): the power-user and test
+    /// override that flips the direction without a rebuild. A pin wins over every other source
+    /// of the direction that goes through [`Self::adopt_app_natural_scroll`]; `None` leaves the
+    /// direction to the app and the platform.
+    pub const fn pin_natural_scroll(&mut self, pin: Option<bool>) {
+        self.natural_scroll_pinned = pin.is_some();
+        if let Some(natural) = pin {
+            self.natural_scroll = natural;
         }
-        m
     }
 
     /// Take `AppConfig::natural_scroll` (9b-ii-b-i-a): `Enabled` flips in the
     /// engine; `System` and `Disabled` do not - the platform already applied
     /// the user's preference to the deltas it hands over, and `System` only
     /// makes that preference readable. The shell hands every window it builds
-    /// the app's mode. `AZ_NATURAL_SCROLL` wins over it, as over every other
-    /// source of the direction.
-    pub fn adopt_app_natural_scroll(&mut self, mode: azul_core::resources::NaturalScroll) {
-        #[cfg(feature = "std")]
-        if std::env::var_os("AZ_NATURAL_SCROLL").is_some() {
+    /// the app's mode. A pin of the settings (`AZ_NATURAL_SCROLL`,
+    /// [`Self::pin_natural_scroll`]) wins over it, as over every other source of the
+    /// direction.
+    pub const fn adopt_app_natural_scroll(&mut self, mode: azul_core::resources::NaturalScroll) {
+        if self.natural_scroll_pinned {
             return;
         }
         self.natural_scroll = matches!(mode, azul_core::resources::NaturalScroll::Enabled);

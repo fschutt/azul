@@ -2,7 +2,10 @@
 //! nothing one store draws, counts, bounds, switches or gives back reaches another, and so that the
 //! code of a scan may ask the store it runs in.
 
+use azul_css::env::MapEnv;
+
 use super::*;
+use crate::settings::render::RenderSettings;
 
 /// The bytes of a picture of 4 x 4 px.
 const BYTES: usize = 4 * 4 * 4;
@@ -151,4 +154,29 @@ fn a_store_asked_from_two_threads_counts_every_scan() {
         }
     });
     assert_eq!(store.text_halo_stats().scans, 2 * SCANS);
+}
+
+/// A store starts with what an empty environment asks for, and takes what its window's settings
+/// ask for: no slots with `AZ_HALO_SLOTS=0`, a log line per scan with `AZ_HALO_STATS=1`.
+///
+/// Mutation: a store that ignores `apply_settings` keeps its slots on and fails the second block.
+#[test]
+fn a_store_takes_the_slots_and_the_log_of_its_windows_settings() {
+    let store = TextHaloStore::new();
+    assert!(store.slots_on(), "an empty environment has the slots on");
+    assert!(!store.with_state(|state| state.log_scans), "and logs nothing");
+
+    let env = MapEnv::new().with("AZ_HALO_SLOTS", "0").with("AZ_HALO_STATS", "1");
+    store.apply_settings(&RenderSettings::from_lookup(&env));
+    assert!(!store.slots_on(), "AZ_HALO_SLOTS=0 turns the slots off");
+    assert!(store.with_state(|state| state.log_scans), "AZ_HALO_STATS=1 logs the scans");
+
+    store.apply_settings(&RenderSettings::default());
+    assert!(store.slots_on(), "the defaults again");
+    assert!(!store.with_state(|state| state.log_scans));
+
+    // another store is not touched by any of it
+    let other = TextHaloStore::new();
+    store.apply_settings(&RenderSettings::from_lookup(&env));
+    assert!(other.slots_on());
 }

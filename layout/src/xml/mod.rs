@@ -295,8 +295,7 @@ pub fn parse_html_to_styled_dom(source: &str) -> StyledDom {
 
 /// Whether `AZ_PROFILE=memory` asks for the per-phase RSS breakdown.
 fn memory_profile_enabled() -> bool {
-    static MEM_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *MEM_ENABLED.get_or_init(azul_core::profile::memory_enabled)
+    azul_core::profile::memory_enabled()
 }
 
 /// A document loader's arena and stylesheets as a `StyledDom`: the
