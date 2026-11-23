@@ -143,6 +143,9 @@ pub mod material_icons;
 pub mod menu;
 /// Menu rendering - Converts Menu structures to StyledDom
 pub mod menu_renderer;
+/// The platform lookups (session, desktop, home and XDG directories), typed and read once at the
+/// start of the app.
+pub mod platform_settings;
 /// Shader disk cache for WebRender program binaries
 pub mod shader_cache;
 /// New windowing backend (shell2) - modern, clean architecture

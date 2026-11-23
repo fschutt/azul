@@ -32,6 +32,9 @@ pub mod camera;
 /// The latest-frame mailbox the macOS capture backends hand frames through
 /// (buffer reuse + condvar). Plain std, unit-tested on every host.
 pub mod capture_slot;
+/// What the platform services read from the environment (typed; the one place that names the
+/// variables).
+pub mod extra_settings;
 pub mod file_picker;
 /// Gamepad / game-controller input (P6 feature 6). The dispatcher pulls each
 /// pad's state every frame via [`gamepad::poll`] (gilrs on desktop — pending
