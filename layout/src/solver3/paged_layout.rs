@@ -390,6 +390,9 @@ where
         running_text::RunningText,
     };
 
+    // The text is shaped under the font manager's settings.
+    text_cache.set_settings(font_manager.settings);
+
     // Font Resolution And Loading
     {
         use crate::solver3::getters::{
@@ -424,7 +427,7 @@ where
 
         if !font_requirements_unchanged {
             let _p = crate::probe::Probe::span("font_chain_resolve");
-            let trace = std::env::var_os("AZ_PAGINATE_TRACE").is_some();
+            let trace = font_manager.settings.trace_paginate;
             // Clock reads are GATED ON `trace`, and use azul_core's clock rather
             // than std's, for two independent reasons:
             //
@@ -519,7 +522,7 @@ where
             style_cache: Default::default(),
             virtual_view_sizes: None,
             scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
-            pass_memo: Default::default(),
+            pass_memo: crate::solver3::PassMemo::with_settings(cache.display_list_options),
             styled_dom: new_dom,
             font_manager: &*font_manager,
             text_selections: &empty_text_selections,
@@ -625,7 +628,7 @@ where
             style_cache: Default::default(),
             virtual_view_sizes: None,
             scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
-            pass_memo: Default::default(),
+            pass_memo: crate::solver3::PassMemo::with_settings(cache.display_list_options),
             styled_dom: new_dom,
             font_manager: &*font_manager,
             text_selections: &empty_text_selections,
@@ -1096,6 +1099,9 @@ fn compute_layout_pass<T: ParsedFontTrait + Sync + 'static>(
 ) -> Result<()> {
     use crate::{solver3::cache, window::LayoutWindow};
 
+    // The text is shaped under the font manager's settings.
+    text_cache.set_settings(font_manager.settings);
+
     // Before any style is read: on paged media a `float: footnote` element
     // is an out-of-flow box, in continuous media it is in the flow.
     crate::solver3::footnotes::announce(new_dom, fragmentation_context.is_paged());
@@ -1111,7 +1117,7 @@ fn compute_layout_pass<T: ParsedFontTrait + Sync + 'static>(
         style_cache: Default::default(),
         virtual_view_sizes: None,
         scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
-        pass_memo: Default::default(),
+        pass_memo: crate::solver3::PassMemo::with_settings(cache.display_list_options),
         styled_dom: new_dom,
         font_manager,
         text_selections: &empty_text_selections,
@@ -1200,7 +1206,7 @@ fn compute_layout_pass<T: ParsedFontTrait + Sync + 'static>(
         style_cache: Default::default(),
         virtual_view_sizes: None,
         scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
-        pass_memo: Default::default(),
+        pass_memo: crate::solver3::PassMemo::with_settings(cache.display_list_options),
         styled_dom: new_dom,
         font_manager,
         text_selections: &empty_text_selections,
@@ -2612,7 +2618,13 @@ pub fn pagination_to_dom_breaks(
             .breaks
             .iter()
             .map(|b| {
-                let split = line_split_at_y(tree, positions, styled_dom, b.y);
+                let split = line_split_at_y(
+                    tree,
+                    positions,
+                    styled_dom,
+                    b.y,
+                    cache.display_list_options.dense_text,
+                );
                 let line_path = split.and_then(|(idx, _)| {
                     let dom_id = tree.get(LayoutNodeId::new(idx))?.dom_node_id?;
                     Some(child_index_path(styled_dom, dom_id))
@@ -2692,7 +2704,14 @@ pub fn spine_line_start_at_y(
     styled_dom: &StyledDom,
     y: f32,
 ) -> Option<azul_core::selection::ContentIndex> {
-    line_split_at_y(tree, positions, styled_dom, y).map(|(_, line_start)| line_start)
+    line_split_at_y(
+        tree,
+        positions,
+        styled_dom,
+        y,
+        crate::settings::DenseTextMode::default(),
+    )
+    .map(|(_, line_start)| line_start)
 }
 
 /// [`spine_line_start_at_y`] with the block it splits: the child-index path
@@ -2705,19 +2724,27 @@ pub fn spine_line_split_at_y(
     styled_dom: &StyledDom,
     y: f32,
 ) -> Option<(Vec<u32>, azul_core::selection::ContentIndex)> {
-    let (layout_idx, line_start) = line_split_at_y(tree, positions, styled_dom, y)?;
+    let (layout_idx, line_start) = line_split_at_y(
+        tree,
+        positions,
+        styled_dom,
+        y,
+        crate::settings::DenseTextMode::default(),
+    )?;
     let dom_id = tree.get(LayoutNodeId::new(layout_idx))?.dom_node_id?;
     Some((child_index_path(styled_dom, dom_id), line_start))
 }
 
 /// The one body of [`spine_line_start_at_y`] / [`spine_line_split_at_y`]:
 /// the layout index of the block the break lands in and the first line that
-/// moves.
+/// moves. `dense` is the mode the layouts of the tree were stored under: with
+/// `Verify` the dense answer is compared with the sparse one.
 fn line_split_at_y(
     tree: &crate::solver3::layout_tree::LayoutTree,
     positions: &crate::solver3::PositionVec,
     styled_dom: &StyledDom,
     y: f32,
+    dense: crate::settings::DenseTextMode,
 ) -> Option<(usize, azul_core::selection::ContentIndex)> {
     // Re-find the spine block the path addresses (same selection rule).
     let (layout_idx, node_top) = spine_layout_hit_at_y(tree, positions, styled_dom, y)?;
@@ -2735,7 +2762,7 @@ fn line_split_at_y(
     if let Some(dense) = tree.get_dense_for_node(layout_idx) {
         if !dense.clusters.is_empty() {
             let result = spine_line_start_dense(dense, rel_y);
-            if crate::solver3::layout_tree::dense_text_mode() == 2 {
+            if dense == crate::settings::DenseTextMode::Verify {
                 let sparse = spine_line_start_sparse(layout, rel_y);
                 assert_eq!(
                     result, sparse,
@@ -3059,6 +3086,8 @@ where
     ) -> std::result::Result<T, crate::text3::cache::LayoutError>,
 {
     use crate::solver3::break_token::{token_fingerprint, BreakToken};
+    // The text is shaped under the font manager's settings.
+    text_cache.set_settings(font_manager.settings);
     let mut laid_out: usize = 0;
     let mut converged_at: Option<usize> = None;
     use crate::solver3::{
@@ -3164,7 +3193,7 @@ where
             style_cache: Default::default(),
             virtual_view_sizes: None,
             scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
-            pass_memo: Default::default(),
+            pass_memo: crate::solver3::PassMemo::with_settings(cache.display_list_options),
             styled_dom: new_dom,
             font_manager: &*font_manager,
             text_selections: &empty_text_selections,

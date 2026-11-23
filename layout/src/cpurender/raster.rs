@@ -7649,9 +7649,12 @@ fn render_text_prerendered_lcd(
     }
     let effective_px = font_size_px * dpi_factor;
     let scale = effective_px / units_per_em;
+    // The glyphs are hinted and placed under the font manager's text settings (a no-op
+    // once the cache holds them).
+    let _ = glyph_cache.set_text_settings(font_manager.settings);
     // ppem = 0 selects the UNHINTED font-unit path in the glyph cache — the
-    // platform-faithful default on macOS (see `text_hinting_enabled`).
-    let ppem = if crate::glyph_cache::text_hinting_enabled() {
+    // platform-faithful default on macOS (see `TextSettings::hinting`).
+    let ppem = if glyph_cache.hinting() {
         effective_px.round() as u16
     } else {
         0
@@ -7979,9 +7982,12 @@ pub(super) fn render_text(
 
     let effective_px = font_size_px * dpi_factor;
     let scale = effective_px / units_per_em;
+    // The glyphs are hinted and placed under the font manager's text settings (a no-op
+    // once the cache holds them).
+    let _ = glyph_cache.set_text_settings(font_manager.settings);
     // ppem = 0 selects the UNHINTED font-unit path in the glyph cache — the
-    // platform-faithful default on macOS (see `text_hinting_enabled`).
-    let ppem = if crate::glyph_cache::text_hinting_enabled() {
+    // platform-faithful default on macOS (see `TextSettings::hinting`).
+    let ppem = if glyph_cache.hinting() {
         effective_px.round() as u16
     } else {
         0

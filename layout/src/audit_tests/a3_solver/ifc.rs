@@ -24,6 +24,62 @@ fn layer_of_mock_font_labels(k: usize) -> Dom {
         .with_child(layer)
 }
 
+/// How many inline layouts the tree of the root document stores, and how many of them are
+/// retired into their dense view (`CachedInlineLayout::retire_sparse`: no items, a dense view).
+fn stored_and_retired_lines(lw: &LayoutWindow) -> (usize, usize) {
+    let tree = &lw.layout_results[&DomId::ROOT_ID].layout_tree;
+    let (mut stored, mut retired) = (0, 0);
+    for i in 0..tree.nodes.len() {
+        let Some(kept) = tree
+            .warm(crate::solver3::layout_tree::LayoutNodeId::new(i))
+            .and_then(|w| w.inline_layout_result.as_ref())
+        else {
+            continue;
+        };
+        stored += 1;
+        if kept.layout.items.is_empty() && kept.dense.is_some() {
+            retired += 1;
+        }
+    }
+    (stored, retired)
+}
+
+/// A window lays its text out under the dense mode its settings give it
+/// (`SolverSettings::dense_text`, `AZ_DENSE_TEXT` in the environment of a host): under `On` the
+/// stored lines of plain text are their dense view alone, under `Off` the items stay and no
+/// dense view is made.
+///
+/// Mutation: `CachedInlineLayout::new_with_constraints_in(DenseTextMode::default(), ..)` in
+/// `fc::layout_ifc` stores every window's lines as `On` does.
+#[test]
+fn a_window_stores_its_lines_under_the_dense_mode_its_settings_give_it() {
+    use crate::settings::{DenseTextMode, LayoutSettings, SolverSettings};
+    let stored_under = |mode: DenseTextMode| {
+        let mut lw = window();
+        lw.set_settings(LayoutSettings {
+            solver: SolverSettings {
+                dense_text: mode,
+                ..SolverSettings::default()
+            },
+            ..LayoutSettings::default()
+        });
+        lay_out(&mut lw, layer_of_mock_font_labels(5));
+        stored_and_retired_lines(&lw)
+    };
+    let (stored_on, retired_on) = stored_under(DenseTextMode::On);
+    assert!(
+        stored_on >= 5,
+        "harness: each of the 5 labels stores its lines ({stored_on})"
+    );
+    assert!(
+        retired_on >= 5,
+        "under On the labels keep their dense view alone ({retired_on} of {stored_on})"
+    );
+    let (stored_off, retired_off) = stored_under(DenseTextMode::Off);
+    assert_eq!(stored_off, stored_on, "the same labels store their lines");
+    assert_eq!(retired_off, 0, "under Off the items stay and nothing is retired");
+}
+
 /// A3-solver-21. An absolutely positioned block with a text is laid out with its parent's flow
 /// (`cache::process_out_of_flow_children`) and again by the positioning pass
 /// (`positioning::position_out_of_flow_elements`), at the same shrink-to-fit width: the second
@@ -38,10 +94,6 @@ fn layer_of_mock_font_labels(k: usize) -> Dom {
 #[test]
 fn a_reused_label_reports_its_lines_without_expanding_them() {
     use crate::solver3::fc::{IFC_REUSE_EXITS, IFC_REUSE_EXPANSIONS};
-    if crate::solver3::layout_tree::dense_text_mode() != 1 {
-        // `AZ_DENSE_TEXT=0` and `verify` keep the items: there is nothing to expand.
-        return;
-    }
     let k = 200;
     let mut lw = window();
     IFC_REUSE_EXITS.with(|n| n.set(0));
@@ -146,10 +198,6 @@ fn a_measure_of_a_table_cell_builds_no_paint_runs() {
         fc::{IFC_MEASURE_STORES, IFC_MEASURE_STORE_RUN_BUILDS},
         layout_tree::GLYPH_RUNS_BUILT_ON_READ,
     };
-    if crate::solver3::layout_tree::dense_text_mode() != 1 {
-        // `AZ_DENSE_TEXT=0` and `verify` build the runs when a layout is stored.
-        return;
-    }
     let (rows, columns) = (20, 4);
     let mut lw = window();
     IFC_MEASURE_STORES.with(|n| n.set(0));
