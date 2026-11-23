@@ -157,3 +157,30 @@ fn an_x11_session_needs_a_display_and_no_sign_of_wayland() {
     assert!(!session(&[("DISPLAY", ":0"), ("XDG_SESSION_TYPE", "wayland")]));
     assert!(session(&[("DISPLAY", ":0"), ("XDG_SESSION_TYPE", "tty")]));
 }
+
+#[test]
+fn azul_css_reads_the_same_session_from_the_snapshot_as_from_the_environment() {
+    let env = MapEnv::new()
+        .with("XDG_CURRENT_DESKTOP", "ubuntu:GNOME")
+        .with("DESKTOP_SESSION", "ubuntu")
+        .with("KDE_FULL_SESSION", "true")
+        .with("SWAYSOCK", "/run/user/1000/sway-ipc.sock")
+        .with("LANGUAGE", "de:en")
+        .with("LC_ALL", "de_DE.UTF-8")
+        .with("LC_MESSAGES", "fr_FR.UTF-8")
+        .with("LANG", "C");
+    let snapshot = PlatformEnv::from_lookup(&env);
+    assert_eq!(
+        azul_css::settings::SystemEnv::from_lookup(&snapshot),
+        azul_css::settings::SystemEnv::from_lookup(&env),
+        "every variable azul-css asks of a session is one the snapshot holds"
+    );
+    assert_eq!(
+        azul_css::system::detect_linux_desktop_env(&snapshot),
+        azul_css::system::detect_linux_desktop_env(&env)
+    );
+    assert_eq!(
+        azul_css::system::detect_system_language(&snapshot),
+        azul_css::system::detect_system_language(&env)
+    );
+}
