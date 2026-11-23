@@ -166,6 +166,9 @@ impl App {
             crate::desktop::notifications::use_headless_backend();
         }
 
+        // What the log gate is told (the stderr copy, the log file) before the first record.
+        crate::desktop::shell2::common::log_gate::install(&settings.shell);
+
         // Initialize AZ_RECORD file logging before anything else
         debug_server::init_recording();
 

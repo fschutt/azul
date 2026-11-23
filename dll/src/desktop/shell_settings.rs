@@ -16,6 +16,10 @@ const BACKEND: &str = "AZ_BACKEND";
 const WINDOW: &str = "AZ_WINDOW";
 /// `AZ_E2E`: the script (a file or a directory) of an end-to-end run.
 const E2E: &str = "AZ_E2E";
+/// `AZ_LOG_STDERR`: `0`, `off`, `false`, `no` or `none` switch the stderr copy of the log off.
+const LOG_STDERR: &str = "AZ_LOG_STDERR";
+/// `AZ_LOG_FILE`: the file the log is written to.
+const LOG_FILE: &str = "AZ_LOG_FILE";
 /// `NO_COLOR` (https://no-color.org/): no colour in the built-in stderr logger.
 const NO_COLOR: &str = "NO_COLOR";
 /// `AZ_E2E_RUNTIME`: the JavaScript runtime of the embedded web end-to-end runner.
@@ -194,6 +198,13 @@ pub struct ShellSettings {
     pub headless_snapshot_path: Option<String>,
     /// `NO_COLOR` is set (to anything): the built-in stderr logger does not colour its lines.
     pub no_color: bool,
+    /// `AZ_LOG_STDERR` says `0`, `off`, `false`, `no` or `none` (any case, blanks around): the
+    /// log gate prints nothing to stderr itself and a debug server being on does not bring the
+    /// copy back.
+    pub log_stderr_off: bool,
+    /// `AZ_LOG_FILE`: the file the log gate writes every record to; `None` when it is unset or
+    /// not UTF-8.
+    pub log_file: Option<String>,
     /// `AZ_HIT_DEBUG` is set (to a UTF-8 value): trace every hit test.
     pub hit_debug: bool,
     /// `AZ_FOCUS_TRACE` is set (to a UTF-8 value): one line per focus or popup decision.
@@ -254,6 +265,13 @@ impl ShellSettings {
             exit_after_first_frame: env.var(EXIT_AFTER_FIRST_FRAME).is_some(),
             headless_snapshot_path: env.var(HEADLESS_SNAPSHOT_PATH),
             no_color: env.is_set(NO_COLOR),
+            log_stderr_off: env.var(LOG_STDERR).is_some_and(|v| {
+                matches!(
+                    v.trim().to_ascii_lowercase().as_str(),
+                    "0" | "off" | "false" | "no" | "none"
+                )
+            }),
+            log_file: env.var(LOG_FILE),
             hit_debug: env.var(HIT_DEBUG).is_some(),
             focus_trace: env.var(FOCUS_TRACE).is_some(),
             reconcile_debug: env.is_set(RECONCILE_DEBUG),

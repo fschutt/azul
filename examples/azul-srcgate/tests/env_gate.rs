@@ -1233,18 +1233,6 @@ const W4: &[Allow] = &[
         "dll app start and shells: wired by cluster W4",
     ),
     Allow::exactly(
-        "dll/src/desktop/shell2/common/log_gate.rs",
-        NAME,
-        2,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/common/log_gate.rs",
-        READ,
-        2,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
         "dll/src/desktop/shell2/headless/mod.rs",
         NAME,
         1,

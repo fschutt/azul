@@ -192,22 +192,57 @@ pub fn stderr_writer_count(level: LogLevel) -> u8 {
     u8::from(gate_writes_stderr(level)) + u8::from(facade_writes_stderr(level))
 }
 
-/// `AZ_LOG_STDERR=0`-style opt-out, read once.
+/// `AZ_LOG_STDERR=0`-style opt-out, as the app's settings said ([`install`]).
 fn stderr_explicitly_disabled() -> bool {
     #[cfg(feature = "std")]
     {
-        static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        return *OFF.get_or_init(|| {
-            std::env::var("AZ_LOG_STDERR")
-                .map(|v| {
-                    let v = v.trim().to_ascii_lowercase();
-                    matches!(v.as_str(), "0" | "off" | "false" | "no" | "none")
-                })
-                .unwrap_or(false)
-        });
+        return STDERR_OFF.get().copied().unwrap_or(false);
     }
     #[cfg(not(feature = "std"))]
     false
+}
+
+/// Whether the app asked to switch the stderr copy off (`ShellSettings::log_stderr_off`). Set by
+/// [`install`]; a process that never installed has not asked.
+#[cfg(feature = "std")]
+static STDERR_OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+/// The log file ([`log_file`]), opened by [`install`] when the app asked for one.
+#[cfg(feature = "std")]
+static FILE: std::sync::OnceLock<Option<std::sync::Mutex<std::fs::File>>> =
+    std::sync::OnceLock::new();
+
+/// Hands the log gate what the app's environment asked of it: whether the stderr copy is off
+/// (`AZ_LOG_STDERR`) and the file to write to (`AZ_LOG_FILE`, opened now and announced on stderr,
+/// because a log file you cannot find is indistinguishable from logging being broken). Called
+/// once by `App::create`, before the first record; the log gate is process-wide (every `log_*!`
+/// asks it), so what the first call said stays, and it reads nothing from the environment
+/// itself. A process that never calls it is an app that asked for nothing.
+#[cfg(feature = "std")]
+pub fn install(shell: &crate::desktop::shell_settings::ShellSettings) {
+    let _ = STDERR_OFF.set(shell.log_stderr_off);
+    let _ = FILE.set(shell.log_file.as_deref().and_then(open_log_file));
+}
+
+/// Nothing to install without `std`.
+#[cfg(not(feature = "std"))]
+pub fn install(_shell: &crate::desktop::shell_settings::ShellSettings) {}
+
+/// Creates the log file `path` names; says so on stderr, or why not.
+#[cfg(feature = "std")]
+fn open_log_file(path: &str) -> Option<std::sync::Mutex<std::fs::File>> {
+    match std::fs::File::create(path) {
+        Ok(f) => {
+            // Announced on stderr, because a log file you cannot find is
+            // indistinguishable from logging being broken.
+            eprintln!("[azul] logging to {path}");
+            Some(std::sync::Mutex::new(f))
+        }
+        Err(e) => {
+            eprintln!("[azul] AZ_LOG_FILE={path} could not be opened: {e} — stderr only");
+            None
+        }
+    }
 }
 
 /// THE gate. Runs before the `format!` at every `log_*!` call site, so it stays
@@ -481,7 +516,7 @@ pub fn micros_since_start() -> u128 {
     0
 }
 
-/// Destination file for the log, from `AZ_LOG_FILE=<path>`.
+/// Destination file for the log, from `AZ_LOG_FILE=<path>` ([`install`]).
 ///
 /// Writing to a file rather than stdout/stderr matters for the runs these
 /// traces are for: a drag-resize emits thousands of lines, and a terminal both
@@ -492,24 +527,7 @@ pub fn micros_since_start() -> u128 {
 /// file-only, which is the combination you usually want.
 #[cfg(feature = "std")]
 pub fn log_file() -> Option<&'static std::sync::Mutex<std::fs::File>> {
-    static FILE: std::sync::OnceLock<Option<std::sync::Mutex<std::fs::File>>> =
-        std::sync::OnceLock::new();
-    FILE.get_or_init(|| {
-        let path = std::env::var("AZ_LOG_FILE").ok()?;
-        match std::fs::File::create(&path) {
-            Ok(f) => {
-                // Announced on stderr, because a log file you cannot find is
-                // indistinguishable from logging being broken.
-                eprintln!("[azul] logging to {path}");
-                Some(std::sync::Mutex::new(f))
-            }
-            Err(e) => {
-                eprintln!("[azul] AZ_LOG_FILE={path} could not be opened: {e} — stderr only");
-                None
-            }
-        }
-    })
-    .as_ref()
+    FILE.get().and_then(Option::as_ref)
 }
 
 #[cfg(not(feature = "std"))]
@@ -672,6 +690,17 @@ mod tests {
     // REGRESSION (B4): every log record must be printed EXACTLY ONCE
     // ==================================================================
 
+    /// What `App::create` does at its start, for the child half of a probe: the settings are
+    /// read from the REAL environment of the child process once, the log gate is told what they
+    /// ask of it, and the logger is installed.
+    fn start_like_an_app() {
+        let settings = crate::desktop::app_settings::AppSettings::from_lookup(
+            &crate::env::ProcessEnv::new(),
+        );
+        install(&settings.shell);
+        crate::desktop::logging::init_default_logger(settings.shell.no_color);
+    }
+
     /// Unique needle so the parent can count the child's lines without being
     /// confused by libtest's own output.
     const DUP_PROBE: &str = "AZ-DUP-LOG-PROBE-a7f3";
@@ -700,7 +729,7 @@ mod tests {
     fn a_record_reaches_stderr_exactly_once() {
         // --- child half: install the logger, emit one record, exit ---
         if std::env::var_os("AZ_DUP_LOG_PROBE_CHILD").is_some() {
-            crate::desktop::logging::init_default_logger(false);
+            start_like_an_app();
             emit(
                 LogLevel::Debug,
                 LogCategory::Input,
@@ -862,7 +891,7 @@ mod tests {
     fn a_run_that_asked_for_nothing_prints_its_errors_and_no_more() {
         // --- child half: the logger as App::create installs it, one record per level ---
         if std::env::var_os("AZ_QUIET_PROBE_CHILD").is_some() {
-            crate::desktop::logging::init_default_logger(false);
+            start_like_an_app();
             crate::log_trace!(LogCategory::Layout, "{QUIET_PROBE} trace");
             crate::log_debug!(LogCategory::Layout, "{QUIET_PROBE} debug");
             crate::log_info!(LogCategory::Layout, "{QUIET_PROBE} info");

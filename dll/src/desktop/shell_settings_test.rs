@@ -17,6 +17,8 @@ fn an_empty_environment_asks_for_nothing_and_default_is_that() {
     assert_eq!(none.e2e_runtime, None);
     assert!(!none.e2e_run);
     assert!(!none.no_color);
+    assert!(!none.log_stderr_off);
+    assert_eq!(none.log_file, None);
     assert_eq!(none.headless_snapshot_path, None);
     assert!(!none.focus_trace);
     assert!(!none.reconcile_debug);
@@ -242,4 +244,25 @@ fn a_scripted_run_and_the_colour_switch_are_on_when_the_variable_is_set_at_all()
     // an empty script is no script, but the run is still a scripted one for the panic modal
     let settings = ShellSettings::from_lookup(&MapEnv::new().with("AZ_E2E", ""));
     assert_eq!(settings.e2e_script, None);
+}
+
+#[test]
+fn the_log_gate_asks_for_a_file_and_can_switch_its_stderr_copy_off() {
+    for (value, off) in [
+        ("0", true),
+        ("off", true),
+        (" OFF ", true),
+        ("False", true),
+        ("no", true),
+        ("none", true),
+        ("1", false),
+        ("", false),
+        ("on", false),
+        ("2", false),
+    ] {
+        let settings = ShellSettings::from_lookup(&MapEnv::new().with("AZ_LOG_STDERR", value));
+        assert_eq!(settings.log_stderr_off, off, "AZ_LOG_STDERR={value:?}");
+    }
+    let settings = ShellSettings::from_lookup(&MapEnv::new().with("AZ_LOG_FILE", "/tmp/azul.log"));
+    assert_eq!(settings.log_file.as_deref(), Some("/tmp/azul.log"));
 }
