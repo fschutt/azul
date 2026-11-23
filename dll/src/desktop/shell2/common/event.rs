@@ -4006,6 +4006,8 @@ impl CommonWindowState {
         if let (Some(cpu_ht), Some(lw)) =
             (self.cpu_hit_tester.as_mut(), self.layout_window.as_ref())
         {
+            // `AZ_TRACE_HIT`, as this window's settings say (`WindowSettings::trace_hit`).
+            cpu_ht.set_trace(lw.settings.window.trace_hit);
             cpu_ht.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
         }
     }

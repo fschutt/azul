@@ -2732,6 +2732,7 @@ pub fn drain_virtual_view_updates(
     let rebuilt = !updated.is_empty();
     if rebuilt {
         if let Some(cpu_ht) = cpu_hit_tester {
+            cpu_ht.set_trace(layout_window.settings.window.trace_hit);
             cpu_ht.rebuild_from_layout_with_gpu(
                 &layout_window.layout_results,
                 Some(&layout_window.gpu_state_manager),
