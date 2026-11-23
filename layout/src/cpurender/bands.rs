@@ -265,6 +265,7 @@ fn paint_band(
 fn empty_cache_like(like: &GlyphCache) -> GlyphCache {
     let mut cache = GlyphCache::new();
     let _ = cache.set_text_aa(like.text_aa());
+    let _ = cache.set_text_settings(like.text_settings());
     let _ = cache.set_lcd_subpixel_order(like.lcd_subpixel_order());
     cache
 }

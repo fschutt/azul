@@ -11,7 +11,7 @@ use azul_core::{
     spaces::{ContentInset, Inclusivity},
 };
 
-use crate::text3::cache::UnifiedConstraints;
+use crate::{settings::DenseTextMode, text3::cache::UnifiedConstraints};
 
 /// Unique identifier for an Inline Formatting Context (IFC).
 ///
@@ -359,7 +359,8 @@ impl core::ops::Deref for GlyphRunList {
             GLYPH_RUNS_BUILT_ON_READ.with(|n| n.set(n.get() + 1));
             // `made` fills the cell, so only a deferred list gets here.
             self.deferred_from.as_deref().map_or_else(Vec::new, |dense| {
-                compact_glyph_runs(crate::text3::dense::get_glyph_runs_simple_dense(dense))
+                // A deferred list is only made under `DenseTextMode::On`: nothing to verify.
+                compact_glyph_runs(crate::text3::dense::get_glyph_runs_simple_dense(dense), false)
             })
         })
     }
@@ -430,53 +431,41 @@ pub struct TextPayload {
     pub sparse: Arc<UnifiedLayout>,
 }
 
-/// §3.2 flip step (a): the paint-run computation, routed by `AZ_DENSE_TEXT`.
+/// §3.2 flip step (a): the paint-run computation, routed by the [`DenseTextMode`] of the pass
+/// (`SolverSettings::dense_text`, `AZ_DENSE_TEXT` in the environment).
 ///
-/// - unset/`0` — the sparse reference walker (production default).
-/// - `1`      — build [`crate::text3::dense::DenseText`] and walk THAT
-///   (`get_glyph_runs_simple_dense`), the compact model's first production consumer.
-/// - `verify` — dense path PLUS an A/B assert against the reference; the e2e corpus run with this
-///   set is the flip proof over real layouts.
+/// - `Off` — the sparse reference walker.
+/// - `On` — build [`crate::text3::dense::DenseText`] and walk THAT
+///   (`get_glyph_runs_simple_dense`), the compact model's first production consumer. The
+///   default: (d7) the dense model is the stored form in production, the retirement (d6h)
+///   plateaued at 65.2 MB heap vs 73.6 flag-off on the 960-line corpus, with the full battery
+///   + flag-on corpus + flag-on reftests green.
+/// - `Verify` — dense path PLUS an A/B assert against the reference, both forms retained; the
+///   e2e corpus run with this set is the flip proof over real layouts.
 ///
 /// Layouts containing combined blocks (tate-chu-yoko) fall back to the
 /// reference under the flag: the dense model keeps atomics on the sparse
 /// side by design and the twin would silently DROP their glyphs.
 fn compute_glyph_runs(
     layout: &UnifiedLayout,
+    mode: DenseTextMode,
 ) -> (
     Vec<crate::text3::glyphs::SimpleGlyphRun>,
     Option<Arc<crate::text3::dense::DenseText>>,
 ) {
     #[cfg(test)]
     GLYPH_RUNS_BUILT_AT_STORE.with(|n| n.set(n.get() + 1));
-    compute_glyph_runs_with_mode(layout, dense_text_mode())
-}
-
-/// The process-wide `AZ_DENSE_TEXT` mode: 0 off, 1 on, 2 verify.
-///
-/// (d7) DEFAULT ON: the dense model is the stored form in production —
-/// the retirement (d6h) plateaued at 65.2 MB heap vs 73.6 flag-off on
-/// the 960-line corpus, with the full battery + flag-on corpus +
-/// flag-on reftests green. `AZ_DENSE_TEXT=0` is the escape hatch;
-/// `verify` retains both forms and A/B-asserts every dense-first arm.
-pub(crate) fn dense_text_mode() -> u8 {
-    // KEPT: the process-wide `AZ_DENSE_TEXT` configuration, read once from the environment.
-    static MODE: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
-    *MODE.get_or_init(|| match std::env::var("AZ_DENSE_TEXT").as_deref() {
-        Ok("0" | "off") => 0,
-        Ok("verify") => 2,
-        _ => 1,
-    })
+    compute_glyph_runs_with_mode(layout, mode)
 }
 
 /// #25: converts the transient builder output into the stored compact form.
-/// Under `AZ_DENSE_TEXT=verify` every run is roundtripped and compared
+/// With `verify` (`DenseTextMode::Verify`) every run is roundtripped and compared
 /// BIT-EXACTLY against its original — the same proof obligation the dense
 /// campaign carried: the stored form must be an encoding, never a rewrite.
 fn compact_glyph_runs(
     runs: Vec<crate::text3::glyphs::SimpleGlyphRun>,
+    verify: bool,
 ) -> Vec<crate::text3::glyphs::CompactGlyphRun> {
-    let verify = dense_text_mode() == 2;
     runs.into_iter()
         .map(|r| {
             if verify {
@@ -494,16 +483,16 @@ fn compact_glyph_runs(
 }
 
 /// Testable core of [`compute_glyph_runs`] — `mode` injected so the d1
-/// retention pin can exercise the dense path without env-var races.
+/// retention pin can exercise the dense path.
 fn compute_glyph_runs_with_mode(
     layout: &UnifiedLayout,
-    mode: u8,
+    mode: DenseTextMode,
 ) -> (
     Vec<crate::text3::glyphs::SimpleGlyphRun>,
     Option<Arc<crate::text3::dense::DenseText>>,
 ) {
     use crate::text3::cache::ShapedItem;
-    if mode == 0
+    if mode == DenseTextMode::Off
         || layout
             .items
             .iter()
@@ -516,7 +505,7 @@ fn compute_glyph_runs_with_mode(
     // one, and the sparse `layout` retires when the last one has.
     let dense = crate::text3::dense::DenseText::from_unified(layout);
     let ours = crate::text3::dense::get_glyph_runs_simple_dense(&dense);
-    if mode == 2 {
+    if mode == DenseTextMode::Verify {
         let reference = crate::text3::glyphs::get_glyph_runs_simple(layout);
         assert_eq!(
             reference.len(),
@@ -571,17 +560,33 @@ fn compute_glyph_runs_with_mode(
 }
 
 impl CachedInlineLayout {
-    /// Creates a new cached inline layout.
+    /// Creates a new cached inline layout, stored as a pass without settings stores it
+    /// ([`DenseTextMode::On`]): what a test or a host that lays nothing out through a pass
+    /// wants. A pass stores under its own mode ([`Self::new_in`]).
     #[must_use]
     pub fn new(
         layout: Arc<UnifiedLayout>,
         available_width: AvailableSpace,
         has_floats: bool,
     ) -> Self {
-        let (runs, dense) = compute_glyph_runs(&layout);
-        let glyph_runs = Arc::new(GlyphRunList::made(compact_glyph_runs(runs)));
-        let retired_metrics = Self::retired_metrics_of(&layout, dense.as_deref());
-        let (layout, overflow) = Self::retire_sparse(layout, dense.as_deref());
+        Self::new_in(DenseTextMode::default(), layout, available_width, has_floats)
+    }
+
+    /// [`Self::new`] stored under `mode` (`SolverSettings::dense_text` of the pass).
+    #[must_use]
+    pub fn new_in(
+        mode: DenseTextMode,
+        layout: Arc<UnifiedLayout>,
+        available_width: AvailableSpace,
+        has_floats: bool,
+    ) -> Self {
+        let (runs, dense) = compute_glyph_runs(&layout, mode);
+        let glyph_runs = Arc::new(GlyphRunList::made(compact_glyph_runs(
+            runs,
+            mode == DenseTextMode::Verify,
+        )));
+        let retired_metrics = Self::retired_metrics_of(&layout, dense.as_deref(), mode);
+        let (layout, overflow) = Self::retire_sparse(layout, dense.as_deref(), mode);
         // Payload built from the STORED form — under the retirement the
         // sparse half is the sentinel and consumers expand from dense.
         let payload = Self::build_payload(&layout, dense.as_ref());
@@ -599,7 +604,8 @@ impl CachedInlineLayout {
         }
     }
 
-    /// Creates a new cached inline layout with full constraints.
+    /// Creates a new cached inline layout with full constraints, stored under the default mode
+    /// ([`Self::new`]); a pass stores under its own ([`Self::new_with_constraints_in`]).
     #[must_use]
     pub fn new_with_constraints(
         layout: Arc<UnifiedLayout>,
@@ -607,10 +613,32 @@ impl CachedInlineLayout {
         has_floats: bool,
         constraints: UnifiedConstraints,
     ) -> Self {
-        let (runs, dense) = compute_glyph_runs(&layout);
-        let glyph_runs = Arc::new(GlyphRunList::made(compact_glyph_runs(runs)));
-        let retired_metrics = Self::retired_metrics_of(&layout, dense.as_deref());
-        let (layout, overflow) = Self::retire_sparse(layout, dense.as_deref());
+        Self::new_with_constraints_in(
+            DenseTextMode::default(),
+            layout,
+            available_width,
+            has_floats,
+            constraints,
+        )
+    }
+
+    /// [`Self::new_with_constraints`] stored under `mode` (`SolverSettings::dense_text` of the
+    /// pass).
+    #[must_use]
+    pub fn new_with_constraints_in(
+        mode: DenseTextMode,
+        layout: Arc<UnifiedLayout>,
+        available_width: AvailableSpace,
+        has_floats: bool,
+        constraints: UnifiedConstraints,
+    ) -> Self {
+        let (runs, dense) = compute_glyph_runs(&layout, mode);
+        let glyph_runs = Arc::new(GlyphRunList::made(compact_glyph_runs(
+            runs,
+            mode == DenseTextMode::Verify,
+        )));
+        let retired_metrics = Self::retired_metrics_of(&layout, dense.as_deref(), mode);
+        let (layout, overflow) = Self::retire_sparse(layout, dense.as_deref(), mode);
         // Payload built from the STORED form — under the retirement the
         // sparse half is the sentinel and consumers expand from dense.
         let payload = Self::build_payload(&layout, dense.as_ref());
@@ -642,11 +670,14 @@ impl CachedInlineLayout {
     /// the compaction done for it.
     ///
     /// Deferred only where the runs come from the dense view alone
-    /// (`compute_glyph_runs_with_mode`: `AZ_DENSE_TEXT` on - not off, not
-    /// `verify` - and no combined block). There `new_with_constraints` builds
+    /// (`compute_glyph_runs_with_mode`: [`DenseTextMode::On`] - not off, not
+    /// verify - and no combined block). There `new_with_constraints` builds
     /// the dense view, makes the runs from it and keeps both; this builds the
     /// same dense view and hands it to the list. Everything else of the
     /// entry is made by the same code from the same values.
+    ///
+    /// Stored under the default mode; a pass stores under its own
+    /// ([`Self::new_measure_with_constraints_in`]).
     #[must_use]
     pub fn new_measure_with_constraints(
         layout: Arc<UnifiedLayout>,
@@ -654,20 +685,45 @@ impl CachedInlineLayout {
         has_floats: bool,
         constraints: UnifiedConstraints,
     ) -> Self {
+        Self::new_measure_with_constraints_in(
+            DenseTextMode::default(),
+            layout,
+            available_width,
+            has_floats,
+            constraints,
+        )
+    }
+
+    /// [`Self::new_measure_with_constraints`] stored under `mode` (`SolverSettings::dense_text`
+    /// of the pass).
+    #[must_use]
+    pub fn new_measure_with_constraints_in(
+        mode: DenseTextMode,
+        layout: Arc<UnifiedLayout>,
+        available_width: AvailableSpace,
+        has_floats: bool,
+        constraints: UnifiedConstraints,
+    ) -> Self {
         use crate::text3::cache::ShapedItem;
-        if dense_text_mode() != 1
+        if mode != DenseTextMode::On
             || layout
                 .items
                 .iter()
                 .any(|it| matches!(it.item, ShapedItem::CombinedBlock { .. }))
         {
-            return Self::new_with_constraints(layout, available_width, has_floats, constraints);
+            return Self::new_with_constraints_in(
+                mode,
+                layout,
+                available_width,
+                has_floats,
+                constraints,
+            );
         }
         let dense = Arc::new(crate::text3::dense::DenseText::from_unified(&layout));
         let glyph_runs = Arc::new(GlyphRunList::deferred(Arc::clone(&dense)));
         let dense = Some(dense);
-        let retired_metrics = Self::retired_metrics_of(&layout, dense.as_deref());
-        let (layout, overflow) = Self::retire_sparse(layout, dense.as_deref());
+        let retired_metrics = Self::retired_metrics_of(&layout, dense.as_deref(), mode);
+        let (layout, overflow) = Self::retire_sparse(layout, dense.as_deref(), mode);
         let payload = Self::build_payload(&layout, dense.as_ref());
         Self {
             layout,
@@ -702,10 +758,11 @@ impl CachedInlineLayout {
     fn retired_metrics_of(
         layout: &UnifiedLayout,
         dense: Option<&crate::text3::dense::DenseText>,
+        mode: DenseTextMode,
     ) -> Option<RetiredLayoutMetrics> {
         use crate::text3::cache::ShapedItem;
         let dense = dense?;
-        if dense_text_mode() != 1
+        if mode != DenseTextMode::On
             || layout.items.is_empty()
             || dense.clusters.len() != layout.items.len()
         {
@@ -773,13 +830,14 @@ impl CachedInlineLayout {
     fn retire_sparse(
         layout: Arc<UnifiedLayout>,
         dense: Option<&crate::text3::dense::DenseText>,
+        mode: DenseTextMode,
     ) -> (Arc<UnifiedLayout>, crate::text3::cache::OverflowInfo) {
         let overflow = layout.overflow.clone();
         // Empty layouts are skipped: nothing to save, and the identity
         // swap would be pure Arc churn (unit fixtures rely on ptr_eq).
         let fully_covered = !layout.items.is_empty()
             && dense.is_some_and(|d| d.clusters.len() == layout.items.len());
-        if dense_text_mode() == 1 && fully_covered {
+        if mode == DenseTextMode::On && fully_covered {
             // KEPT: one shared, immutable empty layout (a constant), made on first use.
             static EMPTY: std::sync::OnceLock<Arc<UnifiedLayout>> = std::sync::OnceLock::new();
             let sentinel = EMPTY
@@ -6472,20 +6530,20 @@ mod autotest_generated {
         CachedInlineLayout::new(empty_layout(), width, has_floats)
     }
 
-    /// d1 retention wiring: mode 0 stores NO dense view; mode 1 (and 2)
+    /// d1 retention wiring: `Off` stores NO dense view; `On` (and `Verify`)
     /// store one, and the runs it derives equal the reference's. The
     /// SEMANTIC equality over real shaped content is pinned by
-    /// text3_dense_equivalence + the e2e corpus under AZ_DENSE_TEXT=verify;
+    /// text3_dense_equivalence + the e2e corpus under `DenseTextMode::Verify`;
     /// this pins the CACHE wiring (someone dropping the retention or the
     /// tuple plumbing goes red here).
     #[test]
     fn dense_view_is_retained_exactly_when_the_flag_asks() {
         let l = empty_layout();
-        let (runs0, d0) = compute_glyph_runs_with_mode(&l, 0);
-        assert!(d0.is_none(), "mode 0 must not retain a dense view");
-        let (runs1, d1) = compute_glyph_runs_with_mode(&l, 1);
-        assert!(d1.is_some(), "mode 1 must retain the dense view");
-        let (runs2, d2) = compute_glyph_runs_with_mode(&l, 2);
+        let (runs0, d0) = compute_glyph_runs_with_mode(&l, DenseTextMode::Off);
+        assert!(d0.is_none(), "Off must not retain a dense view");
+        let (runs1, d1) = compute_glyph_runs_with_mode(&l, DenseTextMode::On);
+        assert!(d1.is_some(), "On must retain the dense view");
+        let (runs2, d2) = compute_glyph_runs_with_mode(&l, DenseTextMode::Verify);
         assert!(d2.is_some(), "verify mode must retain the dense view");
         assert_eq!(runs0.len(), runs1.len());
         assert_eq!(runs0.len(), runs2.len());
@@ -9879,10 +9937,6 @@ mod audit_a3_solver_tests {
     /// expansion's last.
     #[test]
     fn a_retired_layout_keeps_the_measures_its_expansion_has() {
-        if dense_text_mode() != 1 {
-            // `AZ_DENSE_TEXT=0` and `verify` keep the sparse layout: nothing is retired.
-            return;
-        }
         let (style, text) = (style_20px(), Arc::<str>::from("abcd"));
         // Two lines of two letters, the second line 24px below the first.
         let cached = stored(vec![
@@ -9927,9 +9981,6 @@ mod audit_a3_solver_tests {
     /// `CachedInlineLayout::retired_metrics_of` keeps measures for the first (the second) layout.
     #[test]
     fn a_retired_layout_whose_expansion_could_measure_differently_keeps_no_measures() {
-        if dense_text_mode() != 1 {
-            return;
-        }
         let (style, text) = (style_20px(), Arc::<str>::from("ab"));
         // The second letter half a thousandth of a pixel lower: the dense view splits a run
         // only where `y` moves by more than a thousandth.
@@ -9971,10 +10022,6 @@ mod audit_a3_solver_tests {
     #[test]
     fn a_measures_paint_runs_are_built_when_first_read_and_are_the_stored_layouts() {
         use crate::text3::glyphs::CompactGlyphRun;
-        if dense_text_mode() != 1 {
-            // `AZ_DENSE_TEXT=0` and `verify` build the runs when the layout is stored.
-            return;
-        }
         let (style, text) = (style_20px(), Arc::<str>::from("abcd"));
         let lines = || {
             Arc::new(UnifiedLayout {

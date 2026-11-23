@@ -507,9 +507,9 @@ path = "tests/all.rs"
 name = "a_new_app_light_relights_the_materials_of_a_window"
 path = "tests/a_new_app_light_relights_the_materials_of_a_window.rs"
 
-# Own process on purpose: forces AZ_TEXT_HINTING=0 (the macOS glyph mode)
-# before the first glyph renders, which the read-once caches would otherwise
-# leak into every other test of the shared binary.
+# Its own binary since it forced AZ_TEXT_HINTING=0 (the macOS glyph mode) through the
+# environment before the first glyph rendered; the window of each test now gets that
+# mode as a setting (`TextSettings::hinting`).
 [[test]]
 name = "textinput_lcd_seam"
 path = "tests/textinput_lcd_seam.rs"

@@ -4484,6 +4484,7 @@ impl LayoutWindow {
             ..settings.solver
         };
         self.font_manager.settings = settings.text;
+        self.text_cache.set_settings(settings.text);
         // The window's own groups: what the switches of this window answer until a test or a
         // host chooses otherwise, the direction the environment pins for scrolling, the walk of
         // every scroll-driven box, and what the window's text halos do.
@@ -30349,7 +30350,8 @@ impl LayoutWindow {
                 .layout_tree_mut()
                 .warm_mut(LayoutNodeId::new(ifc_layout_index))
             {
-                let fresh = CachedInlineLayout::new_with_constraints(
+                let fresh = CachedInlineLayout::new_with_constraints_in(
+                    self.display_list_options.dense_text,
                     new_layout,
                     constraints.available_width,
                     false, // No floats in quick relayout
