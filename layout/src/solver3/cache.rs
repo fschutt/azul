@@ -911,60 +911,22 @@ pub struct CascadedSince {
     pub across_trees: bool,
 }
 
-/// How the layout passes of one document build their display list.
+/// What the layout passes of one document run under: how they build their display list
+/// (`patching`, `moved_runs`, `skip`), the storage form of text, the switches back to the old
+/// behaviour and the traces ([`crate::settings::SolverSettings`], which holds them all).
 ///
 /// A window owns one value (`LayoutWindow::display_list_options`) and writes it
 /// into the cache of every pass it runs; a program or a test sets the value of
 /// its own window. It is no process-wide switch: two windows - two tests of one
-/// binary - can differ. [`Default`] is what the environment of the process asks
-/// for ([`Self::from_environment`]), so that `AZ_NO_DL_PATCH` and
-/// `AZ_DL_TRANSLATE_MOVED_RUNS` still switch a whole run for measuring.
+/// binary - can differ. [`Default`] is what an empty environment asks for, so a
+/// window nobody configured patches its display list and paints a moved box's run
+/// anew; the process environment reaches a window through
+/// `LayoutWindow::set_settings`, built once at the start by the dll.
 ///
 /// Kept out of the `display_list` module on purpose: the web backend's lift
 /// stubs every symbol of that module, and this type is read by the layout pass
 /// of every backend.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DisplayListOptions {
-    /// Patch the list that is kept: the runs of the boxes that neither
-    /// reflowed, nor changed size, nor moved are copied from it and only the
-    /// rest is painted. Off (`AZ_NO_DL_PATCH=1`): every pass paints every box.
-    /// Both ways build the same list; the golden-equality tests lay a page out
-    /// twice, once each way.
-    pub patching: bool,
-    /// What a patched build does with the cached run of a box that moved
-    /// ([`super::display_list::MovedRunPolicy`]).
-    pub moved_runs: super::display_list::MovedRunPolicy,
-    /// Build no display list: the pass computes every box's place and returns
-    /// an empty list. The web backend emits DOM patches instead of a list.
-    pub skip: bool,
-}
-
-impl DisplayListOptions {
-    /// The options the environment of the process asks for: patching unless
-    /// `AZ_NO_DL_PATCH` is set; a moved box's run painted anew, except on the
-    /// frames of a tween (`AZ_DL_TRANSLATE_MOVED_RUNS` = `1`: translated by
-    /// every pass, `0`: painted anew by every pass, anything else and unset:
-    /// the default); a list is built.
-    #[must_use]
-    pub fn from_environment() -> Self {
-        use super::display_list::MovedRunPolicy;
-        Self {
-            patching: std::env::var_os("AZ_NO_DL_PATCH").is_none(),
-            moved_runs: match std::env::var("AZ_DL_TRANSLATE_MOVED_RUNS").as_deref() {
-                Ok("1") => MovedRunPolicy::AlwaysTranslate,
-                Ok("0") => MovedRunPolicy::NeverTranslate,
-                _ => MovedRunPolicy::TweenFramesTranslate,
-            },
-            skip: false,
-        }
-    }
-}
-
-impl Default for DisplayListOptions {
-    fn default() -> Self {
-        Self::from_environment()
-    }
-}
+pub use crate::settings::SolverSettings as DisplayListOptions;
 
 /// What the display-list patching of one document's layout passes did, summed
 /// over the passes of its cache (`LayoutCache::display_list_patch_counters`;

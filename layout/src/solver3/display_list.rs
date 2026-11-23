@@ -1571,26 +1571,9 @@ pub(crate) const fn patchable_item(item: &DisplayListItem) -> bool {
 
 /// What a patched build does with the cached run of a box that MOVED since
 /// the list was built (`DisplayListGenerator::try_copy_cached_run`, which
-/// says why a translated copy is not the item a paint makes).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MovedRunPolicy {
-    /// The default. The box is painted anew - except on a frame of a layout
-    /// tween that another frame follows: that frame copies the run shifted by
-    /// the move and records the box with the list
-    /// ([`DisplayList::translated_since_painted`]), and the frame that ends
-    /// the tween, like every pass that is no tween frame, paints the recorded
-    /// boxes anew. A list at rest is bit for bit a painted one; a list during
-    /// a tween is up to a rounding per frame off.
-    TweenFramesTranslate,
-    /// The behaviour before the audit, for measuring
-    /// (`AZ_DL_TRANSLATE_MOVED_RUNS=1`): every pass copies the run shifted by
-    /// the move, nothing is recorded and nothing is painted anew for having
-    /// been translated.
-    AlwaysTranslate,
-    /// The other extreme, for measuring (`AZ_DL_TRANSLATE_MOVED_RUNS=0`): a
-    /// moved box is painted anew by every pass, the frames of a tween too.
-    NeverTranslate,
-}
+/// says why a translated copy is not the item a paint makes). Defined with the
+/// other settings of the solver: [`crate::settings::MovedRunPolicy`].
+pub use crate::settings::MovedRunPolicy;
 
 /// Which emission site produced a display-list item. See
 /// [`DisplayList::layout_node_mapping`].
@@ -6291,8 +6274,7 @@ pub(crate) struct PatchState<'a> {
     /// shifted by the move (`try_copy_cached_run`).
     translate_moved: bool,
     /// What this build does with the run of a box that moved
-    /// ([`crate::solver3::cache::DisplayListOptions::moved_runs`] of the
-    /// document's cache).
+    /// ([`crate::settings::SolverSettings::moved_runs`] of the document's cache).
     moved_runs: MovedRunPolicy,
     /// The boxes whose runs this build copied although a paint would not put
     /// them there to the bit: translated now, or found translated in `prev`

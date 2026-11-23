@@ -929,7 +929,7 @@ impl Default for GestureAndDragManager {
 impl GestureAndDragManager {
     /// A new event id, one more than the last this manager allocated: the id
     /// of the input sample about to be recorded.
-    pub fn allocate_event_id(&mut self) -> u64 {
+    pub const fn allocate_event_id(&mut self) -> u64 {
         let id = self.next_event_id;
         self.next_event_id += 1;
         id

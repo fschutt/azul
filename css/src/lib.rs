@@ -111,6 +111,10 @@ pub mod css;
 pub mod custom_properties;
 /// Typed default values for CSS properties (font size, font id, text color).
 pub mod defaults;
+/// The seam between the process environment and the typed settings of the engine.
+///
+/// `EnvSource`, `NoEnv`, `MapEnv`: the library crates never read `std::env`.
+pub mod env;
 /// Runtime CSS selector matching (`:hover`, `@os`, `@media`, etc.).
 pub mod dynamic_selector;
 /// CSS string parser (tokenizer, declaration parser, shorthand expansion).

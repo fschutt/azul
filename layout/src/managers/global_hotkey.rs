@@ -515,7 +515,7 @@ impl GlobalHotkeyManager {
 
     /// The next window's sequence number: monotonic, never reused, and this
     /// manager's own (it numbers the windows of its app).
-    pub fn next_window_seq(&mut self) -> WindowSeq {
+    pub const fn next_window_seq(&mut self) -> WindowSeq {
         let seq = self.next_window_seq;
         self.next_window_seq += 1;
         seq
