@@ -572,19 +572,13 @@ const W1: &[Allow] = &[
     Allow::exactly(
         "layout/src/solver3/cache.rs",
         NAME,
-        7,
+        5,
         "solver3 and text3: wired by cluster W1",
     ),
     Allow::exactly(
         "layout/src/solver3/cache.rs",
         FLAG,
         5,
-        "solver3 and text3: wired by cluster W1",
-    ),
-    Allow::exactly(
-        "layout/src/solver3/cache.rs",
-        READ,
-        2,
         "solver3 and text3: wired by cluster W1",
     ),
     Allow::exactly(
@@ -1118,18 +1112,6 @@ const W3: &[Allow] = &[
 ];
 /// W4: dll app start, compositor, wr_translate, shell2 common, macos, windows, android, headless.
 const W4: &[Allow] = &[
-    Allow::exactly(
-        "dll/src/desktop/app.rs",
-        NAME,
-        3,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/app.rs",
-        READ,
-        3,
-        "dll app start and shells: wired by cluster W4",
-    ),
     Allow::exactly(
         "dll/src/desktop/app_identity.rs",
         NAME,

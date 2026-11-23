@@ -296,6 +296,10 @@ pub mod managers;
 pub mod pgo;
 pub mod probe;
 pub mod resource_handles;
+/// The switches the process environment used to flip, as plain values the owner of a window, a
+/// font manager or a cache hands down: one struct per group with a pure `from_lookup`, and a
+/// `Default` that is the behaviour of an empty environment.
+pub mod settings;
 /// CSS layout solver: block, inline, flex, grid, and table formatting.
 #[cfg(feature = "text_layout")]
 // Scoped (was crate-wide): solver internals — intentional `drop(&_)` scope

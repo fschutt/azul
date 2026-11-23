@@ -10,7 +10,7 @@ use azul_core::{refany::RefAny, resources::AppConfig, window::MonitorVec};
 use azul_layout::window_state::{WindowCreateOptions, WindowCreateOptionsVec};
 use rust_fontconfig::{registry::FcFontRegistry, FcFontCache};
 
-use crate::desktop::shell2::common::debug_server;
+use crate::desktop::{app_settings::AppSettings, shell2::common::debug_server};
 
 /// Wait (off the calling thread) for the font scan to finish, then write the
 /// on-disk font manifest.
@@ -152,6 +152,12 @@ impl App {
         // SIGPIPE -> SIG_IGN before any socket/pipe I/O happens (see fn docs).
         ignore_sigpipe_once();
 
+        // The environment, read ONCE, here: every setting the dll's layers take from it, in one
+        // value. It goes to the app (`AppShared`, handed to every window) and nothing below asks
+        // the process again; the libraries read no environment themselves.
+        let env = crate::env::ProcessEnv::new();
+        let settings = AppSettings::from_lookup(&env);
+
         // Initialize AZ_RECORD file logging before anything else
         debug_server::init_recording();
 
@@ -174,6 +180,18 @@ impl App {
         // The app's trusted roots, before any connection: every HTTP request, database sync
         // and iroh endpoint whose config names no set of its own trusts what the app set.
         azul_core::tls::set_app_trust_roots(app_config.trust_roots.clone());
+
+        // `AZ_DUMP_SYSTEM_STYLE=1` prints what desktop detection actually read, so the values can
+        // be diffed against the desktop's own config (kdeglobals / *.colors / `gsettings get`).
+        // Detection fails SILENTLY by returning plausible defaults, so a dump is the only way to
+        // tell "detected" from "fell back".
+        #[cfg(all(not(miri), target_os = "linux"))]
+        if settings.shell.dump_system_style {
+            eprint!(
+                "{}",
+                crate::desktop::shell2::linux::system_style::dump_discovered_style()
+            );
+        }
 
         // Discover the real system style (replaces the hard-coded default from AppConfig::create)
         app_config.system_style = discover_system_style(app_config.localization.known_languages.as_slice());
@@ -261,7 +279,7 @@ impl App {
             }
         }
 
-        let app_internal = AppInternal::create(initial_data, app_config);
+        let app_internal = AppInternal::create_with_settings(initial_data, app_config, settings);
         let boxed = Box::new(app_internal);
 
         Self {
@@ -415,9 +433,11 @@ impl App {
             "Starting App::run",
             None,
         );
+        // What the environment asked of this app, read once by `App::create`.
+        let settings = self.ptr.app_shared.settings();
         crate::plog_info!(
             "[azul] App::run starting (AZ_BACKEND={:?})",
-            std::env::var("AZ_BACKEND").ok()
+            settings.shell.backend
         );
         // Embedded web-e2e executor: AZ_BACKEND=<http url> + AZ_E2E=<specs>
         // turns THIS binary into the test runner against that URL and exits
@@ -462,8 +482,7 @@ impl App {
         // it.
         #[cfg(feature = "telemetry")]
         {
-            let channel =
-                std::env::var("AZ_TELEMETRY_CHANNEL").unwrap_or_else(|_| "default".to_owned());
+            let channel = settings.shell.telemetry_channel.clone();
             let _telemetry_config = azul_layout::telemetry::init(
                 config.updates.app_name.as_str(),
                 azul_layout::telemetry::AppMeta::new(
@@ -669,10 +688,25 @@ pub struct AppInternal {
 }
 
 impl AppInternal {
-    /// Creates a new, empty application.
+    /// Creates a new, empty application that reads no environment: its settings are the empty
+    /// environment's ([`AppSettings::default`]). [`App::create`] reads the process once and calls
+    /// [`Self::create_with_settings`].
     ///
     /// Does not open any windows  -  call `App::run` to enter the event loop.
     pub fn create(initial_data: RefAny, app_config: AppConfig) -> Self {
+        Self::create_with_settings(initial_data, app_config, AppSettings::default())
+    }
+
+    /// [`Self::create`] for an app whose environment asked for `settings`: the app's
+    /// [`AppShared`](crate::desktop::shell2::common::app_shared::AppShared) owns them and hands
+    /// them to every window it builds.
+    ///
+    /// Does not open any windows  -  call `App::run` to enter the event loop.
+    pub fn create_with_settings(
+        initial_data: RefAny,
+        app_config: AppConfig,
+        settings: AppSettings,
+    ) -> Self {
         debug_server::log(
             debug_server::LogLevel::Info,
             debug_server::LogCategory::General,
@@ -804,6 +838,7 @@ impl AppInternal {
         // here, for `NaturalScroll::System`), from the config before it moves into the app.
         let app_shared = Arc::new(crate::desktop::shell2::common::app_shared::AppShared::for_app(
             &app_config,
+            settings,
         ));
 
         Self {
@@ -873,17 +908,6 @@ pub(crate) fn discover_system_style(known_languages: &[azul_css::system::SystemL
     }
     #[cfg(all(not(miri), target_os = "linux"))]
     {
-        // `AZ_DUMP_SYSTEM_STYLE=1` prints what desktop detection actually
-        // read, so the values can be diffed against the desktop's own config
-        // (kdeglobals / *.colors / `gsettings get`). Detection fails SILENTLY
-        // by returning plausible defaults, so a dump is the only way to tell
-        // "detected" from "fell back".
-        if std::env::var("AZ_DUMP_SYSTEM_STYLE").as_deref() == Ok("1") {
-            eprint!(
-                "{}",
-                crate::desktop::shell2::linux::system_style::dump_discovered_style()
-            );
-        }
         crate::desktop::shell2::linux::system_style::discover(known_languages)
     }
     #[cfg(all(
