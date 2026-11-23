@@ -205,7 +205,7 @@ pub fn compute_page_breaks(
     constraints: &PageConstraints,
     policy: &BreakPolicy,
 ) -> Vec<PageBreakPosition> {
-    compute_page_breaks_impl(input, *constraints, policy, None, None, None)
+    compute_page_breaks_impl(input, *constraints, policy, None, None, None, usize::MAX)
 }
 
 /// The breaks a paged layout is sliced by: [`compute_page_breaks`] (or
@@ -218,6 +218,10 @@ pub fn compute_page_breaks_for_slicer(
     config: &SlicerConfig,
 ) -> Vec<PageBreakPosition> {
     let footnotes = (!config.footnotes.is_empty()).then_some(&config.footnotes);
+    // As many breaks as the config allows pages: the last one ends the last
+    // page, and that there is one is how the caller sees that the document
+    // goes on (`needs_more_pages`).
+    let max_breaks = config.max_breaks();
     match &config.page_sequence {
         // classic office suites model: every page's height from ITS setup.
         Some(sequence) => {
@@ -233,6 +237,7 @@ pub fn compute_page_breaks_for_slicer(
                 Some(sequence),
                 None,
                 footnotes,
+                max_breaks,
             )
         }
         None => compute_page_breaks_impl(
@@ -242,6 +247,7 @@ pub fn compute_page_breaks_for_slicer(
             None,
             None,
             footnotes,
+            max_breaks,
         ),
     }
 }
@@ -280,8 +286,15 @@ pub fn compute_page_breaks_with_report(
     policy: &BreakPolicy,
 ) -> (Vec<PageBreakPosition>, Vec<MonolithWarning>) {
     let mut warnings = Vec::new();
-    let breaks =
-        compute_page_breaks_impl(input, *constraints, policy, None, Some(&mut warnings), None);
+    let breaks = compute_page_breaks_impl(
+        input,
+        *constraints,
+        policy,
+        None,
+        Some(&mut warnings),
+        None,
+        usize::MAX,
+    );
     (breaks, warnings)
 }
 
@@ -305,7 +318,15 @@ pub fn compute_page_breaks_with_sequence(
         first_page_content_height: sequence.setup_for_page(0).content_height(),
         normal_page_content_height: default_h,
     };
-    compute_page_breaks_impl(input, constraints, policy, Some(sequence), None, None)
+    compute_page_breaks_impl(
+        input,
+        constraints,
+        policy,
+        Some(sequence),
+        None,
+        None,
+        usize::MAX,
+    )
 }
 
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
@@ -317,6 +338,7 @@ fn compute_page_breaks_impl(
     sequence: Option<&crate::solver3::pagination::PageSequence>,
     mut monolith_report: Option<&mut Vec<MonolithWarning>>,
     footnotes: Option<&crate::solver3::footnotes::Footnotes>,
+    max_breaks: usize,
 ) -> Vec<PageBreakPosition> {
     let any_awareness = policy.honor_break_inside
         || policy.atomic_lines
@@ -330,7 +352,11 @@ fn compute_page_breaks_impl(
         // are tall, and which notes those are depends on where it starts.
         || footnotes.is_some();
     if !any_awareness {
-        return compute_page_breaks_from_display_list(input.display_list, &constraints);
+        return compute_page_breaks_from_display_list_capped(
+            input.display_list,
+            &constraints,
+            max_breaks,
+        );
     }
 
     // With footnotes the pages are cut from the FLOW: the notes are parked
@@ -413,6 +439,11 @@ fn compute_page_breaks_impl(
     let mut note_rest: Vec<crate::solver3::footnotes::NoteRest> = Vec::new();
 
     loop {
+        // The page cap: the break that ends page `max_breaks` is the last one
+        // looked for (see `needs_more_pages`).
+        if breaks.len() >= max_breaks {
+            break;
+        }
         // Per-page setup (classic office suites model): the sequence overrides the height
         // for THIS page index (explicit / first / parity / default).
         if let Some(seq) = sequence {
@@ -513,6 +544,9 @@ fn compute_page_breaks_impl(
 
     // Any forced breaks past the last interval position still apply.
     for fb in forced_iter {
+        if breaks.len() >= max_breaks {
+            break;
+        }
         if fb.y > prev_end + MERGE_WINDOW_PX {
             breaks.push(PageBreakPosition {
                 y: fb.y,
@@ -875,11 +909,49 @@ pub fn compute_page_breaks_from_display_list(
     display_list: &DisplayList,
     constraints: &PageConstraints,
 ) -> Vec<PageBreakPosition> {
-    compute_page_breaks_from_forced(
+    compute_page_breaks_from_display_list_capped(display_list, constraints, usize::MAX)
+}
+
+/// [`compute_page_breaks_from_display_list`], looking for at most `max_breaks`
+/// breaks: the first ones, in page order. A result of exactly `max_breaks`
+/// breaks means the document goes on (see [`needs_more_pages`]).
+#[must_use]
+pub fn compute_page_breaks_from_display_list_capped(
+    display_list: &DisplayList,
+    constraints: &PageConstraints,
+    max_breaks: usize,
+) -> Vec<PageBreakPosition> {
+    compute_page_breaks_from_forced_capped(
         &display_list.forced_page_breaks,
         constraints,
         calculate_display_list_height(display_list),
+        max_breaks,
     )
+}
+
+/// Whether `breaks`, as computed with a limit of `max_pages` pages
+/// ([`max_breaks_for`]), say that the document needs more pages than that:
+/// `max_pages == 0` is no limit.
+///
+/// A document of `max_pages` pages has `max_pages - 1` breaks, and a break is only
+/// made where the content goes on after it, so `max_pages` breaks are the
+/// pages `1..=max_pages` and a page after them. The last of those breaks ends
+/// page `max_pages`: it stays in `breaks`, and the pages end there.
+#[must_use]
+pub const fn needs_more_pages(breaks: &[PageBreakPosition], max_pages: usize) -> bool {
+    max_pages != 0 && breaks.len() >= max_pages
+}
+
+/// How many breaks to look for when a layout may have `max_pages` pages (`0`
+/// = any number): as many, the last of them ends the last page and shows that
+/// the document goes on ([`needs_more_pages`]).
+#[must_use]
+pub const fn max_breaks_for(max_pages: usize) -> usize {
+    if max_pages == 0 {
+        usize::MAX
+    } else {
+        max_pages
+    }
 }
 
 /// The display-list-independent pagination core.
@@ -911,6 +983,19 @@ pub fn compute_page_breaks_from_forced(
     constraints: &PageConstraints,
     total_height: f32,
 ) -> Vec<PageBreakPosition> {
+    compute_page_breaks_from_forced_capped(forced_breaks, constraints, total_height, usize::MAX)
+}
+
+/// [`compute_page_breaks_from_forced`] looking for at most `max_breaks` breaks:
+/// the interval breaks are not made past them, and of the forced and interval
+/// breaks together the first `max_breaks` are kept.
+#[must_use]
+pub fn compute_page_breaks_from_forced_capped(
+    forced_breaks: &[crate::solver3::display_list::ForcedBreak],
+    constraints: &PageConstraints,
+    total_height: f32,
+    max_breaks: usize,
+) -> Vec<PageBreakPosition> {
     let first = constraints.first_page_content_height;
     let normal = constraints.normal_page_content_height;
 
@@ -936,9 +1021,11 @@ pub fn compute_page_breaks_from_forced(
     // cursor — emit the first-page break once and stop (defect 3: the old loop
     // never terminated here).
     let mut y = first;
+    let mut interval_breaks = 0usize;
     #[allow(clippy::while_float)]
     // intentional bounded float loop; an integer counter would be artificial
-    while y < total_height {
+    while y < total_height && interval_breaks < max_breaks {
+        interval_breaks += 1;
         breaks.push(PageBreakPosition {
             y,
             kind: BreakKind::Interval,
@@ -973,6 +1060,7 @@ pub fn compute_page_breaks_from_forced(
             _ => merged.push(b),
         }
     }
+    merged.truncate(max_breaks);
     merged
 }
 
@@ -1899,3 +1987,7 @@ mod tests {
         assert_eq!(page_spans(&[], 0.0), Vec::<(f32, f32)>::new());
     }
 }
+
+#[cfg(test)]
+#[path = "page_breaks_test.rs"]
+mod page_breaks_test;

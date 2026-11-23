@@ -164,6 +164,8 @@ fn pages_with(
             pages,
             breaks: streamed.breaks,
             total_content_height: streamed.total_content_height,
+            truncated: streamed.truncated,
+            slicing: streamed.slicing,
         }
     } else {
         layout_document_paged_v2(

@@ -862,8 +862,12 @@ mod encrypted {
         let here = Folder::new("crash");
         here.write_all(&files("old/", 200, 50));
         here.sync(&drive).unwrap();
-        fs::remove_dir_all(here.path("old")).unwrap();
+        // `new/` is made while `old/` is still there: a folder made after another one is gone can
+        // be given the freed inode number (a Linux disk reuses them at once, APFS never does), and
+        // the sync finds a renamed folder by its inode - it would see `old/` renamed to `new/`,
+        // send 200 changed files and delete none.
         here.write_all(&files("new/", 200, 50));
+        fs::remove_dir_all(here.path("old")).unwrap();
         // The first commit of the run fails: the pack of new files is named by nothing.
         index.fail_next.store(1, Ordering::SeqCst);
         assert!(here.sync(&drive).is_err());
