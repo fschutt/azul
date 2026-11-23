@@ -1080,6 +1080,22 @@ pub mod mock {
             );
         }
 
+        /// What the run was started with names the allow-list: the text of `AZ_E2E_ALLOW_HTTP`
+        /// that `configure` gave the store, parsed where it is first needed; a run started with
+        /// nothing allows nothing.
+        #[test]
+        fn a_scripted_run_sends_the_requests_its_launch_allows_and_refuses_the_rest() {
+            let mut s = store(true);
+            s.launch.allow_http = Some(" http://127.0.0.1:* , ".to_owned());
+            assert_eq!(
+                take_http_in(&mut s, "http://127.0.0.1:8790/rooms"),
+                Answer::NotArmed
+            );
+            assert_eq!(take_http_in(&mut s, "http://localhost/x"), Answer::Unmocked);
+            let mut none = store(true);
+            assert_eq!(take_http_in(&mut none, "http://127.0.0.1:8790/"), Answer::Unmocked);
+        }
+
         /// A scripted run keeps its determinism: an unmocked request is
         /// refused and recorded, and a canned answer is used in both runs.
         #[test]
@@ -1101,8 +1117,8 @@ pub mod mock {
     #[cfg(test)]
     mod device_tests {
         use super::{
-            device_in, parse_synthetic_devices, record_unavailable_in, DeviceKind, MockDevice,
-            MockState,
+            device_in, parse_synthetic_devices, record_unavailable_in, DeviceKind, Launch,
+            MockDevice, MockState,
         };
 
         fn store(armed: bool, synthetic: [bool; 4]) -> MockState {
@@ -1121,6 +1137,51 @@ pub mod mock {
             let mut s = store(false, [true; 4]);
             for kind in DeviceKind::ALL {
                 assert_eq!(device_in(&mut s, kind), MockDevice::Real, "{kind:?}");
+            }
+        }
+
+        /// The devices the launch names (`AZ_SYNTHETIC_DEVICES`, as `configure` gave the store its
+        /// text) get their stand-in; a store nobody configured names none.
+        #[test]
+        fn the_devices_the_launch_names_get_their_stand_in() {
+            let mut s = MockState {
+                armed: Some(true),
+                scripted: Some(false),
+                launch: Launch {
+                    synthetic_devices: Some("camera, audio_sink".to_owned()),
+                    allow_http: None,
+                },
+                ..MockState::default()
+            };
+            assert_eq!(device_in(&mut s, DeviceKind::Camera), MockDevice::Synthetic);
+            assert_eq!(device_in(&mut s, DeviceKind::AudioSink), MockDevice::Synthetic);
+            assert_eq!(
+                device_in(&mut s, DeviceKind::Microphone),
+                MockDevice::Unavailable
+            );
+            let mut all = MockState {
+                armed: Some(true),
+                scripted: Some(false),
+                launch: Launch {
+                    synthetic_devices: Some("all".to_owned()),
+                    allow_http: None,
+                },
+                ..MockState::default()
+            };
+            for kind in DeviceKind::ALL {
+                assert_eq!(device_in(&mut all, kind), MockDevice::Synthetic, "{kind:?}");
+            }
+            let mut unconfigured = MockState {
+                armed: Some(true),
+                scripted: Some(false),
+                ..MockState::default()
+            };
+            for kind in DeviceKind::ALL {
+                assert_eq!(
+                    device_in(&mut unconfigured, kind),
+                    MockDevice::Unavailable,
+                    "{kind:?}"
+                );
             }
         }
 
