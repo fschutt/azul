@@ -4,7 +4,8 @@
 //!
 //! Nothing here reads the process: [`ServiceSettings::from_lookup`] takes a `&dyn EnvSource`
 //! (`azul_css::env`), the one process reader is `azul_dll::env::ProcessEnv`, and `Default` is the
-//! behaviour of an EMPTY environment (no picker named, symbols recovered with `addr2line`).
+//! behaviour of an EMPTY environment (no picker named, symbols recovered with `addr2line`, no forced
+//! rollout cohort).
 //!
 //! What a service needs from a place that carries no context (a `FileDialog` function is a plain
 //! static function, the profiler is process-wide) it gets once from [`ServiceSettings::install`],
@@ -31,6 +32,9 @@ pub struct ServiceSettings {
     /// `AZ_PROBE_ADDR2LINE` is not `0`: the profiler may ask the system's `addr2line` for the name
     /// of a callback it only knows by its address. On by default.
     pub probe_addr2line: bool,
+    /// `AZ_UPDATE_BUCKET=<0-99>`: the rollout cohort the updater uses instead of drawing one, for
+    /// drills and tests; `None` when it is unset or no number from 0 to 99.
+    pub update_bucket: Option<u8>,
 }
 
 impl Default for ServiceSettings {
@@ -40,6 +44,7 @@ impl Default for ServiceSettings {
             platform: PlatformEnv::default(),
             file_picker: None,
             probe_addr2line: true,
+            update_bucket: None,
         }
     }
 }
@@ -52,6 +57,10 @@ impl ServiceSettings {
             platform: PlatformEnv::from_lookup(env),
             file_picker: env.var(PICKER_VAR),
             probe_addr2line: env.var("AZ_PROBE_ADDR2LINE").is_none_or(|v| v != "0"),
+            update_bucket: env
+                .var("AZ_UPDATE_BUCKET")
+                .and_then(|v| v.parse::<u8>().ok())
+                .filter(|b| *b < 100),
         }
     }
 

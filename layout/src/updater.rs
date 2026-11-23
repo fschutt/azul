@@ -48,16 +48,35 @@ pub enum InstallKind {
 
 impl InstallKind {
     /// Detects the install kind of the CURRENT executable.
+    ///
+    /// A context-free function of the C API: it asks the process environment (`SNAP`) itself.
+    /// Code that has the app's settings asks [`InstallKind::detect_in`].
     #[must_use]
     pub fn detect() -> Self {
         let exe = std::env::current_exe().unwrap_or_default();
         Self::detect_for(&exe)
     }
 
-    /// The detection, parameterized for tests.
+    /// The detection, parameterized for tests; asks the process environment (`SNAP`) itself, as
+    /// the C API has no other way (see [`InstallKind::detect_with`]).
     #[must_use]
     pub fn detect_for(exe: &Path) -> Self {
-        if std::env::var_os("SNAP").is_some() {
+        Self::detect_with(exe, std::env::var_os("SNAP").is_some())
+    }
+
+    /// The install kind of the CURRENT executable under the platform variables `platform` (the
+    /// environment the app read once at its start).
+    #[must_use]
+    pub fn detect_in(platform: &crate::settings::PlatformEnv) -> Self {
+        let exe = std::env::current_exe().unwrap_or_default();
+        Self::detect_with(&exe, platform.snap)
+    }
+
+    /// The detection of the executable `exe`; `snap` says the program runs confined as a snap
+    /// (`SNAP` is set).
+    #[must_use]
+    pub fn detect_with(exe: &Path, snap: bool) -> Self {
+        if snap {
             return Self::Snap;
         }
         if Path::new("/.flatpak-info").exists() {
@@ -363,6 +382,10 @@ pub struct UpdateState {
     /// expired; it only goes up, and only with a chain that verified - so it never runs ahead of
     /// a statement's own expiry (X-DELTA-AZDRIVE-KEYS-33).
     pub clock_floor_unix: u64,
+    /// The cohort a host forces ([`UpdateState::rollout_bucket`] answers it instead of drawing
+    /// one): `AZ_UPDATE_BUCKET`, for drills and tests. Not a mark: it is never written to the
+    /// state file.
+    pub forced_bucket: Option<u8>,
 }
 
 /// The file of [`UpdateState`] in a state folder.
@@ -451,6 +474,7 @@ impl UpdateState {
             rollout_bucket,
             key_generation: number_field("key_generation")?,
             clock_floor_unix: number_field("clock_floor_unix")?,
+            forced_bucket: None,
         })
     }
 
@@ -481,14 +505,10 @@ impl UpdateState {
     /// WHEN a phased rollout reaches this install. Drawn once (from the
     /// clock's sub-second noise), then PERSISTED — the client stays in the
     /// same cohort for every release, which is what makes per-version A/B
-    /// comparisons in Grafana meaningful. `AZ_UPDATE_BUCKET=<0-99>`
-    /// overrides for drills and tests.
+    /// comparisons in Grafana meaningful. [`UpdateState::forced_bucket`]
+    /// (`AZ_UPDATE_BUCKET=<0-99>`, which the app start hands in) overrides for drills and tests.
     pub fn rollout_bucket(&mut self) -> u8 {
-        if let Some(forced) = std::env::var("AZ_UPDATE_BUCKET")
-            .ok()
-            .and_then(|v| v.parse::<u8>().ok())
-            .filter(|b| *b < 100)
-        {
+        if let Some(forced) = self.forced_bucket {
             return forced;
         }
         if let Some(bucket) = self.rollout_bucket {
@@ -3440,9 +3460,19 @@ pub fn within_maintenance_window(rule: &str, now_unix: u64) -> bool {
 /// Draws a rollout cohort (0-99) the way [`UpdateState::rollout_bucket`]
 /// does, `AZ_UPDATE_BUCKET` included. The caller keeps it: a cohort is
 /// drawn once per machine and never again.
+///
+/// A context-free function of the C API: it asks the process environment (`AZ_UPDATE_BUCKET`)
+/// itself.
 #[must_use]
 pub fn draw_rollout_bucket() -> u8 {
-    UpdateState::default().rollout_bucket()
+    UpdateState {
+        forced_bucket: std::env::var("AZ_UPDATE_BUCKET")
+            .ok()
+            .and_then(|v| v.parse::<u8>().ok())
+            .filter(|b| *b < 100),
+        ..UpdateState::default()
+    }
+    .rollout_bucket()
 }
 
 // ---------------------------------------------------------------------------
@@ -3607,23 +3637,25 @@ fn data_home_from(
     }
 }
 
-/// [`data_home_from`] of this process's environment.
-fn data_home() -> Option<PathBuf> {
+/// [`data_home_from`] of the platform variables `platform`: the environment the app read once at
+/// its start.
+fn data_home_in(platform: &crate::settings::PlatformEnv) -> Option<PathBuf> {
     data_home_from(
-        std::env::var_os("HOME"),
-        std::env::var_os("XDG_DATA_HOME"),
-        std::env::var_os("APPDATA"),
+        platform.home.clone(),
+        platform.xdg_data_home.clone(),
+        platform.app_data.clone(),
     )
 }
 
 /// Platform data directory for the updater's state
-/// (`update-state.json` + the staging area), keyed by app name. Falls back to the shared
+/// (`update-state.json` + the staging area), keyed by app name, under the platform variables
+/// `platform` (the app's environment, read once at its start). Falls back to the shared
 /// temporary folder when the platform's folder is not set: fine for what is only a convenience
 /// (the problem reports), NOT for the marks that refuse a rollback or the staged update - see
 /// [`private_state_dir`].
 #[must_use]
-pub fn default_state_dir(app_name: &str) -> PathBuf {
-    data_home()
+pub fn default_state_dir(platform: &crate::settings::PlatformEnv, app_name: &str) -> PathBuf {
+    data_home_in(platform)
         .unwrap_or_else(std::env::temp_dir)
         .join(app_name)
 }
@@ -3637,8 +3669,11 @@ pub fn default_state_dir(app_name: &str) -> PathBuf {
 ///
 /// The platform's data folder is not set (`HOME`, `XDG_DATA_HOME` or `APPDATA`), or `app_name` is
 /// not a single folder name.
-pub fn private_state_dir(app_name: &str) -> Result<PathBuf, String> {
-    private_state_dir_in(data_home(), app_name)
+pub fn private_state_dir(
+    platform: &crate::settings::PlatformEnv,
+    app_name: &str,
+) -> Result<PathBuf, String> {
+    private_state_dir_in(data_home_in(platform), app_name)
 }
 
 /// [`private_state_dir`] under `data_home` (`None` = the platform's folder is not set).
@@ -3739,11 +3774,11 @@ extern "C" fn update_check_worker(
         return;
     };
 
-    let install = InstallKind::detect();
+    let install = InstallKind::detect_in(&task.env.platform);
     let effective = apply_shared_update_policy(effective_mode(task.env.update_mode, &install));
     // The marks that refuse a rollback and the staged update live in the user's own folder; the
     // shared temporary folder is no place for them.
-    let state_dir = private_state_dir(&task.env.app_name);
+    let state_dir = private_state_dir(&task.env.platform, &task.env.app_name);
     let policy = task.env.update_policy();
 
     let result = match (task.env.update_manifest.as_deref(), effective, &policy) {
@@ -3765,6 +3800,7 @@ extern "C" fn update_check_worker(
                     UpdateAudience::NotifyOnly
                 };
                 let mut state = UpdateState::load(dir);
+                state.forced_bucket = task.env.update_bucket;
                 let r = check_for_updates_blocking(
                     url,
                     &task.env.current_version,
@@ -3939,6 +3975,7 @@ mod tests {
             rollout_bucket: Some(42),
             key_generation: 3,
             clock_floor_unix: 1_700_000_500,
+            forced_bucket: None,
         };
         state.save(&dir);
         assert_eq!(UpdateState::load(&dir), state);
@@ -6819,3 +6856,7 @@ mod tests {
         assert!(draw_rollout_bucket() < 100);
     }
 }
+
+#[cfg(test)]
+#[path = "updater_settings_test.rs"]
+mod settings_tests;

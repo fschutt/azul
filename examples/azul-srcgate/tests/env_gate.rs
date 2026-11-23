@@ -974,8 +974,8 @@ const W3: &[Allow] = &[
     Allow::exactly(
         "layout/src/updater.rs",
         NAME,
-        5,
-        "the update facade: InstallKind::detect(_for) (SNAP), draw_rollout_bucket / UpdateState::rollout_bucket (AZ_UPDATE_BUCKET) and default_state_dir / private_state_dir (HOME, XDG_DATA_HOME, APPDATA) are context-free public functions, three of them C ABI (api.json InstallKind and ReleaseInfo): they ask the OS",
+        2,
+        "the update facade: InstallKind::detect and detect_for (SNAP) and draw_rollout_bucket (AZ_UPDATE_BUCKET) are the context-free functions of the C API (api.json InstallKind and ReleaseInfo); the app's own update flows take both from AppEnv",
     ),
     Allow::exactly(
         "layout/src/updater.rs",
@@ -986,8 +986,8 @@ const W3: &[Allow] = &[
     Allow::exactly(
         "layout/src/updater.rs",
         READ,
-        5,
-        "the update facade: InstallKind::detect(_for) (SNAP), draw_rollout_bucket / UpdateState::rollout_bucket (AZ_UPDATE_BUCKET) and default_state_dir / private_state_dir (HOME, XDG_DATA_HOME, APPDATA) are context-free public functions, three of them C ABI (api.json InstallKind and ReleaseInfo): they ask the OS",
+        2,
+        "the update facade: InstallKind::detect and detect_for (SNAP) and draw_rollout_bucket (AZ_UPDATE_BUCKET) are the context-free functions of the C API (api.json InstallKind and ReleaseInfo); the app's own update flows take both from AppEnv",
     ),
 ];
 /// W4: dll app start, compositor, wr_translate, shell2 common, macos, windows, android, headless.

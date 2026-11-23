@@ -43,3 +43,18 @@ fn the_platform_group_reads_the_platform_variables() {
     assert_eq!(settings.platform, PlatformEnv::from_lookup(&env));
     assert!(settings.platform.snap);
 }
+
+#[test]
+fn the_forced_rollout_cohort_is_a_number_from_zero_to_ninety_nine() {
+    let bucket = |value: &str| {
+        ServiceSettings::from_lookup(&MapEnv::new().with("AZ_UPDATE_BUCKET", value)).update_bucket
+    };
+    assert_eq!(bucket("0"), Some(0));
+    assert_eq!(bucket("99"), Some(99));
+    assert_eq!(bucket("100"), None, "a cohort is 0-99");
+    assert_eq!(bucket("256"), None, "no u8");
+    assert_eq!(bucket("-1"), None);
+    assert_eq!(bucket(""), None);
+    assert_eq!(bucket("soon"), None);
+    assert_eq!(ServiceSettings::default().update_bucket, None);
+}

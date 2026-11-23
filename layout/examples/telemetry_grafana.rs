@@ -881,10 +881,10 @@ fn run_rollout_drill(manifest_url: &str, current_version: &str, channel: &str) {
     drop(std::fs::remove_dir_all(&state_dir)); // fresh cohorts per drill
 
     for bucket in [5u8, 25, 42, 75, 95] {
-        // AZ_UPDATE_BUCKET forces the cohort — exactly what a fleet of
-        // machines would each draw once and persist.
-        std::env::set_var("AZ_UPDATE_BUCKET", bucket.to_string());
+        // The state's forced cohort (AZ_UPDATE_BUCKET, which an app hands in at its start) is
+        // exactly what a fleet of machines would each draw once and persist.
         let mut state = up::UpdateState::load(&state_dir);
+        state.forced_bucket = Some(bucket);
         let verdict = up::check_for_updates_blocking(
             manifest_url,
             current_version,
@@ -905,8 +905,8 @@ fn run_rollout_drill(manifest_url: &str, current_version: &str, channel: &str) {
     }
 
     // The system-installed audience: no notification until 100%.
-    std::env::set_var("AZ_UPDATE_BUCKET", "0");
     let mut state = up::UpdateState::load(&state_dir);
+    state.forced_bucket = Some(0);
     let verdict = up::check_for_updates_blocking(
         manifest_url,
         current_version,
@@ -924,7 +924,6 @@ fn run_rollout_drill(manifest_url: &str, current_version: &str, channel: &str) {
         up::UpdateCheckResult::Error(e) => format!("ERROR {}", e.as_str()),
     };
     println!("rollout: notify-only audience -> {text}");
-    std::env::remove_var("AZ_UPDATE_BUCKET");
 }
 
 /// A stand-in for an app's own `extern "C"` UI callback — timed via
