@@ -9918,26 +9918,22 @@ impl LayoutWindow {
     ) -> Result<(), solver3::LayoutError> {
         // Optional memory-breakdown print for the CSS property cache and
         // the layout tree. Gated on `AZ_PROFILE=memory` (the flag word is
-        // parsed by `azul_core::profile::flags`); off costs one env-var
-        // read on the first call (`OnceLock`-cached) and nothing after.
+        // parsed once, at the start, into `azul_core::profile::flags`); a
+        // check is a read of what was parsed.
         //
         // It is NOT `AZ_MEM_BREAKDOWN=1`, which is what this comment used
         // to say — that variable has never existed, and setting it prints
         // nothing at all.
-        // KEEP: an environment flag, read once (a fact of the process, not state of a window).
-        static MEM_BREAKDOWN_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        //
         // Optional AZ_PROFILE=cpu dump: per-phase wall-clock timings from
         // `Probe::span` spans (layout, style, cascade, paint, text-shape,
         // callbacks, …). Drains the thread-local buffer once per pass so
         // the printout reflects ONE layout/relayout frame — which makes it
         // easy to see which phase spiked during a stuttering frame.
-        // KEEP: an environment flag, read once.
-        static CPU_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        //
         // Optional AZ_PROFILE=cascade dump: top-N CSS properties by
         // cascade-walk count per layout pass. Narrow diagnostic for
         // prop-cache triage — not a general CPU profile.
-        // KEEP: an environment flag, read once.
-        static CASCADE_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
         let dom_id = if styled_dom.dom_id.inner == 0 {
             DomId::ROOT_ID
@@ -10690,7 +10686,7 @@ impl LayoutWindow {
             return Ok(());
         }
 
-        if *MEM_BREAKDOWN_ENABLED.get_or_init(azul_core::profile::memory_enabled) {
+        if azul_core::profile::memory_enabled() {
             // ACROSS FRAMES. A single snapshot says where memory is; the DELTA
             // says whether a change helped, and whether the process is still
             // growing after it should have settled. Steady-state growth per
@@ -11200,7 +11196,7 @@ impl LayoutWindow {
             }
         }
 
-        if *CPU_ENABLED.get_or_init(azul_core::profile::cpu_enabled) {
+        if azul_core::profile::cpu_enabled() {
             let events = crate::probe::Probe::drain();
             crate::probe::print_drained_events("layout pass", &events);
         } else if !crate::probe::Probe::drained_by_its_caller() {
@@ -11220,7 +11216,7 @@ impl LayoutWindow {
             crate::probe::Probe::drop_events();
         }
 
-        if *CASCADE_ENABLED.get_or_init(azul_core::profile::cascade_enabled) {
+        if azul_core::profile::cascade_enabled() {
             // The walks the cache of the DOM this pass laid out counted. The DOM is still
             // this function's own here; `layout_results` takes it at the end of the pass.
             let counts = styled_dom.get_css_property_cache().drain_css_prop_counts();
@@ -11540,9 +11536,7 @@ impl LayoutWindow {
         // window where the main [MEM] block runs is one where the map is empty
         // BY CONSTRUCTION. Measuring it there printed a confident 0 DOMs that
         // said nothing about the map and everything about the placement.
-        // KEEP: an environment flag, read once.
-        static MEM_LR_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        if *MEM_LR_ENABLED.get_or_init(azul_core::profile::memory_enabled) {
+        if azul_core::profile::memory_enabled() {
             let mut lr_styled = 0usize;
             let mut lr_tree = 0usize;
             for res in self.layout_results.values() {
@@ -11574,9 +11568,7 @@ impl LayoutWindow {
         // and the setting (`AZ_MALLOC_TRIM=1`) is what makes the A/B possible at all.
         if self.settings.window.malloc_trim {
             let released = crate::probe::malloc_trim();
-            // KEEP: an environment flag, read once.
-            static MEM_TRIM_LOG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-            if *MEM_TRIM_LOG.get_or_init(azul_core::profile::memory_enabled) {
+            if azul_core::profile::memory_enabled() {
                 // rss_census(), not current_rss_bytes(): the latter is behind
                 // `#[cfg(feature = "probe")]` and this path must report in any
                 // build where the trim itself runs.
@@ -30907,7 +30899,7 @@ impl LayoutWindow {
             if let Some(dir) = self.settings.window.patch_verify_dump.as_deref() {
                 // Best effort: a dump that cannot be written must not fail
                 // the verification it documents.
-                drop(std::fs::create_dir_all(&dir));
+                drop(std::fs::create_dir_all(dir));
                 drop(std::fs::write(dir.join("patched.txt"), patched.join("\n")));
                 drop(std::fs::write(
                     dir.join("wholesale.txt"),

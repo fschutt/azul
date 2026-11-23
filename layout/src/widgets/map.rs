@@ -3807,7 +3807,7 @@ fn rerender_marked_view(marker: Option<AzString>, info: &mut CallbackInfo) {
 /// `AZ_VIDEO_FRAMELOG`): a callback that has the window reads them from it; the render callback
 /// and the workers, which have none, read the copy the map took on mount
 /// ([`MapTileCache::debug`], [`TileFetchInit::debug`]).
-fn widget_settings(info: &CallbackInfo) -> crate::settings::widgets::WidgetSettings {
+const fn widget_settings(info: &CallbackInfo) -> crate::settings::widgets::WidgetSettings {
     info.get_layout_window().settings.widgets
 }
 
