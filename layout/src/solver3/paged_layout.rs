@@ -2737,14 +2737,14 @@ pub fn spine_line_split_at_y(
 
 /// The one body of [`spine_line_start_at_y`] / [`spine_line_split_at_y`]:
 /// the layout index of the block the break lands in and the first line that
-/// moves. `dense` is the mode the layouts of the tree were stored under: with
+/// moves. `dense_mode` is the mode the layouts of the tree were stored under: with
 /// `Verify` the dense answer is compared with the sparse one.
 fn line_split_at_y(
     tree: &crate::solver3::layout_tree::LayoutTree,
     positions: &crate::solver3::PositionVec,
     styled_dom: &StyledDom,
     y: f32,
-    dense: crate::settings::DenseTextMode,
+    dense_mode: crate::settings::DenseTextMode,
 ) -> Option<(usize, azul_core::selection::ContentIndex)> {
     // Re-find the spine block the path addresses (same selection rule).
     let (layout_idx, node_top) = spine_layout_hit_at_y(tree, positions, styled_dom, y)?;
@@ -2762,7 +2762,7 @@ fn line_split_at_y(
     if let Some(dense) = tree.get_dense_for_node(layout_idx) {
         if !dense.clusters.is_empty() {
             let result = spine_line_start_dense(dense, rel_y);
-            if dense == crate::settings::DenseTextMode::Verify {
+            if dense_mode == crate::settings::DenseTextMode::Verify {
                 let sparse = spine_line_start_sparse(layout, rel_y);
                 assert_eq!(
                     result, sparse,
