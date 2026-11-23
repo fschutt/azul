@@ -711,49 +711,13 @@ const W1: &[Allow] = &[
 /// W2: layout window, cpu_backend, cpurender, managers, widgets, scroll_timer, callbacks.
 const W2: &[Allow] = &[
     Allow::exactly(
-        "layout/src/widgets/color_input.rs",
+        "layout/src/widgets/map.rs",
         NAME,
-        1,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/widgets/color_input.rs",
-        READ,
         1,
         "window, render, widgets: wired by cluster W2",
     ),
     Allow::exactly(
         "layout/src/widgets/map.rs",
-        NAME,
-        2,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/widgets/map.rs",
-        READ,
-        2,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/widgets/node_graph.rs",
-        NAME,
-        1,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/widgets/node_graph.rs",
-        FLAG,
-        1,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/widgets/video.rs",
-        NAME,
-        1,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/widgets/video.rs",
         READ,
         1,
         "window, render, widgets: wired by cluster W2",

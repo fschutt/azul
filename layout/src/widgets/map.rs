@@ -1109,6 +1109,12 @@ pub struct MapTileCache {
     /// When each `Failed` entry failed ([`map_clock`] seconds): a wanted tile
     /// is queued again [`RETRY_FAILED_SECS`] later ([`Self::want_tiles_at`]).
     pub failed_at: BTreeMap<TileStyleKey, f64>,
+    /// The map's debug log (`AZ_MAP_DEBUG`, `WidgetSettings::map_debug`). Set on mount from the
+    /// window's settings: the render callback has no window to ask, and finds it here.
+    pub debug: bool,
+    /// The map prints its counters on stdout (`AZ_MAP_STATS`, `WidgetSettings::map_stats`). Set
+    /// on mount like [`Self::debug`].
+    pub stats: bool,
 }
 
 /// How long a tile whose fetch failed waits before the view asks for it
@@ -1152,6 +1158,8 @@ impl MapTileCache {
             stand_ins: alloc::collections::BTreeSet::new(),
             pinned: alloc::collections::BTreeSet::new(),
             failed_at: BTreeMap::new(),
+            debug: false,
+            stats: false,
         }
     }
 
@@ -1728,6 +1736,12 @@ pub struct TileFetchInit {
     /// queued. A tile decoded earlier keeps its labels until it is decoded
     /// again.
     pub language: AzString,
+    /// The worker's debug log (`AZ_MAP_DEBUG`, `WidgetSettings::map_debug` of the window the map
+    /// is mounted in): the worker has no window to ask.
+    pub debug: bool,
+    /// The worker prints its per-tile numbers on stdout (`AZ_MAP_STATS`,
+    /// `WidgetSettings::map_stats`), like [`Self::debug`].
+    pub stats: bool,
 }
 
 /// Worker-thread output, sent back via `ThreadWriteBackMsg`. The
@@ -2162,6 +2176,7 @@ azul_core::impl_managed_callback! {
 /// rather than while `layout()` describes it: the built-in tile worker, then
 /// whatever the app's `on_mount` hook wants the fetches to run on.
 fn mount_map(data: &mut RefAny, info: &CallbackInfo) {
+    let widgets = widget_settings(info);
     let (hook, setup) = {
         let Some(mut cache) = data.downcast_mut::<MapTileCache>() else {
             return;
@@ -2169,6 +2184,8 @@ fn mount_map(data: &mut RefAny, info: &CallbackInfo) {
         if cache.fetch_callback.is_none() {
             cache.fetch_callback = MAP_TILE_FETCHER.get().cloned();
         }
+        cache.debug = widgets.map_debug;
+        cache.stats = widgets.map_stats;
         (cache.on_mount.clone(), cache.setup.clone())
     };
     let OptionMapMount::Some(hook) = hook else {
@@ -2255,7 +2272,7 @@ fn replace_overlays(data: &mut RefAny, info: &mut CallbackInfo, overlays: MapOve
 /// so the anchor lives in `MapTileCache::drag_anchor`.
 extern "C" fn map_on_pointer_down(mut data: RefAny, info: CallbackInfo) -> Update {
     #[cfg(feature = "std")]
-    if map_debug() {
+    if widget_settings(&info).map_debug {
         eprintln!("[map] pointer_down fired");
     }
     let pos = match info.get_cursor_relative_to_node().into_option() {
@@ -2288,7 +2305,7 @@ extern "C" fn map_on_pointer_down(mut data: RefAny, info: CallbackInfo) -> Updat
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 extern "C" fn map_on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     #[cfg(feature = "std")]
-    if map_debug() {
+    if widget_settings(&info).map_debug {
         let dragging = data
             .downcast_ref::<MapTileCache>()
             .is_some_and(|c| c.drag_anchor.is_some());
@@ -2536,7 +2553,7 @@ extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update 
         })
     };
     #[cfg(feature = "std")]
-    if map_debug() {
+    if widget_settings(&info).map_debug {
         eprintln!("[map] scroll fired dy={dy}");
     }
     if dy == 0.0 {
@@ -3269,7 +3286,7 @@ fn svg_string_to_dom(_svg: &str) -> Option<Dom> {
 /// `Fetching` state shows immediately.
 extern "C" fn map_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Update {
     #[cfg(feature = "std")]
-    if map_debug() {
+    if widget_settings(&info).map_debug {
         eprintln!("[map] after_mount fired");
     }
     mount_map(&mut data, &info);
@@ -3312,6 +3329,9 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
 
     use crate::thread::Thread;
 
+    let widgets = widget_settings(info);
+    let debug = widgets.map_debug;
+
     // Collect the work first (URL build + state flip) under one borrow,
     // then spawn outside it so we don't hold the cache lock across
     // `info.add_thread`.
@@ -3322,7 +3342,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
             // tile stays Pending forever and the map shows placeholders — the
             // exact symptom of "panning works, tiles never paint".
             #[cfg(feature = "std")]
-            if map_debug() {
+            if debug {
                 std::eprintln!("[map] spawn_pending: ABORT — dataset is not a MapTileCache");
             }
             return;
@@ -3332,7 +3352,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
             // the callback was lost when the cache RefAny was rebuilt (the
             // merge callback is what preserves it across relayout).
             #[cfg(feature = "std")]
-            if map_debug() {
+            if debug {
                 std::eprintln!(
                     "[map] spawn_pending: ABORT — no fetch_callback on the cache ({} tiles held)",
                     cache.tiles.len()
@@ -3346,7 +3366,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
         let look = cache.current_look();
         let look_changed = cache.set_active_look(look);
         #[cfg(feature = "std")]
-        if map_debug() {
+        if debug {
             std::eprintln!(
                 "[map] spawn_pending: scheme={:?} look={:?} \
                  look_changed={look_changed} ready={} pending={}",
@@ -3414,7 +3434,11 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
         let pending: Vec<TileStyleKey> = queue.into_iter().take(budget).collect();
         let language = info.get_layout_window().active_language().id;
         for key in pending {
-            to_spawn.push(tile_fetch_init(&cache, key, &language));
+            to_spawn.push(TileFetchInit {
+                debug,
+                stats: widgets.map_stats,
+                ..tile_fetch_init(&cache, key, &language)
+            });
             cache.tiles.insert(key, TileEntry::Fetching);
         }
         // Now that the current view's tiles are queued (Fetching, so eviction
@@ -3426,14 +3450,14 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
     let (cb, pool) = {
         let Some(cache) = data.downcast_ref::<MapTileCache>() else {
             #[cfg(feature = "std")]
-            if map_debug() {
+            if debug {
                 std::eprintln!("[map] spawn_pending: ABORT — dataset vanished before spawn");
             }
             return;
         };
         let Some(cb) = cache.fetch_callback.as_ref() else {
             #[cfg(feature = "std")]
-            if map_debug() {
+            if debug {
                 std::eprintln!("[map] spawn_pending: ABORT — fetch_callback gone at spawn");
             }
             return;
@@ -3446,7 +3470,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
     // Distinguish "nothing to do" from "never got here" — a quiet log and an
     // aborted one look identical otherwise.
     #[cfg(feature = "std")]
-    if spawn_count == 0 && map_debug() {
+    if spawn_count == 0 && debug {
         std::eprintln!("[map] spawn_pending: 0 tiles were Pending (nothing to spawn)");
     }
     for init in to_spawn {
@@ -3461,7 +3485,7 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
         info.add_thread(ThreadId::unique(), thread);
     }
     #[cfg(feature = "std")]
-    if map_debug() {
+    if debug {
         eprintln!("[map] spawn_pending: {spawn_count} thread(s) spawned");
     }
 }
@@ -3490,6 +3514,10 @@ fn tile_fetch_init(cache: &MapTileCache, key: TileStyleKey, language: &AzString)
         cache_max_bytes: cache.setup.disk_cache_max_bytes,
         disk_usage: Arc::clone(&cache.disk_usage),
         language: language.clone(),
+        // The caller, which has a window to ask, sets the two switches
+        // ([`spawn_pending_tile_fetches`]).
+        debug: false,
+        stats: false,
     }
 }
 
@@ -3557,11 +3585,12 @@ pub extern "C" fn map_tile_writeback(
     mut incoming: RefAny,
     mut info: CallbackInfo,
 ) -> Update {
+    let widgets = widget_settings(&info);
     // The worker sent something that is not a TileReadyMsg: the tile arrived
     // and is dropped on the floor here.
     let Some(mut m) = incoming.downcast_mut::<TileReadyMsg>() else {
         #[cfg(feature = "std")]
-        if map_debug() {
+        if widgets.map_debug {
             std::eprintln!("[map] writeback: DROPPED — payload is not a TileReadyMsg");
         }
         return Update::DoNothing;
@@ -3583,7 +3612,7 @@ pub extern "C" fn map_tile_writeback(
             // MapTileCache — typically a rebuild replaced it. The fetch
             // succeeded and the pixels are still discarded.
             #[cfg(feature = "std")]
-            if map_debug() {
+            if widgets.map_debug {
                 std::eprintln!(
                     "[map] writeback: DROPPED tile=({},{},{}) — target dataset is not a \
                      MapTileCache",
@@ -3628,7 +3657,7 @@ pub extern "C" fn map_tile_writeback(
         // away and re-fetched logged as a success. A log line that lies is
         // worse than no log line.
         #[cfg(feature = "std")]
-        if map_debug() {
+        if widgets.map_debug {
             eprintln!(
                 "[map] writeback tile=({},{},{}) theme={:?} stored={} drawn={} svg_len={} \
                  bytes_cached={} err={:?}",
@@ -3643,7 +3672,7 @@ pub extern "C" fn map_tile_writeback(
                 msg.2.as_str()
             );
         }
-        if map_stats_enabled() {
+        if widgets.map_stats {
             print_tile_stats(&cache);
         }
     } // drop the cache borrow before touching `info`
@@ -3774,11 +3803,12 @@ fn rerender_marked_view(marker: Option<AzString>, info: &mut CallbackInfo) {
     }
 }
 
-/// Whether the map's debug log is on (`AZ_MAP_DEBUG`), read once: the hot
-/// paths (every render, every pointer move) asked the environment each time.
-fn map_debug() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("AZ_MAP_DEBUG").is_some())
+/// What the window `info` belongs to asks of the widgets (`AZ_MAP_DEBUG`, `AZ_MAP_STATS`,
+/// `AZ_VIDEO_FRAMELOG`): a callback that has the window reads them from it; the render callback
+/// and the workers, which have none, read the copy the map took on mount
+/// ([`MapTileCache::debug`], [`TileFetchInit::debug`]).
+fn widget_settings(info: &CallbackInfo) -> crate::settings::widgets::WidgetSettings {
+    info.get_layout_window().settings.widgets
 }
 
 /// Whether the map prints its counters on stdout - `AZ_MAP_STATS=1` (`AzMaps`
@@ -4043,8 +4073,13 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
             own: bool,
         },
     }
-    let started = map_stats_enabled().then(std::time::Instant::now);
     let mut data = data;
+    // The window's switches, as the map took them on mount (a render callback has no window to
+    // ask).
+    let (debug, stats) = data
+        .downcast_ref::<MapTileCache>()
+        .map_or((false, false), |cache| (cache.debug, cache.stats));
+    let started = stats.then(std::time::Instant::now);
     let bounds = info.get_bounds();
     let bounds_logical = bounds.get_logical_size();
     let width_px = bounds_logical.width;
@@ -4055,7 +4090,7 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
     // positions tiles at NaN/∞ (off-screen → blank) and can allocate unboundedly, so
     // render nothing until the layout settles to a finite box.
     if !width_px.is_finite() || !height_px.is_finite() || width_px <= 0.0 || height_px <= 0.0 {
-        if map_debug() {
+        if debug {
             eprintln!("[map] non-finite bounds {width_px}x{height_px} — skipping render");
         }
         return VirtualViewReturn {
@@ -4133,7 +4168,7 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
     // when the framework finds this node with real bounds — so seeing this line at
     // all confirms invocation, and the values reveal a zero / infinite / off-screen
     // grid (the usual causes of a blank map).
-    if map_debug() {
+    if debug {
         eprintln!(
             "[map] render bounds={:.0}x{:.0} z={} centre_tile=({:.2},{:.2}) tiles x{}..{} y{}..{} \
              = {}",
@@ -4228,7 +4263,7 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
             if tiles_settle > now {
                 cache.fade_until = cache.fade_until.max(tiles_settle);
                 #[cfg(feature = "std")]
-                if map_debug() {
+                if debug {
                     std::eprintln!(
                         "[map] fade: {} tile(s) fading in until {tiles_settle:.3} (now {now:.3})",
                         cache.arrived.len()
@@ -4518,7 +4553,7 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
                 }
                 // The fetch state, as text over the tile, only for the debug
                 // log's reader (`AZ_MAP_DEBUG`): the map shows its ground.
-                other if map_debug() => {
+                other if debug => {
                     let state_tag = match other {
                         Some(TileDisplay::Glyph(g)) => *g,
                         _ => "",
@@ -4599,7 +4634,7 @@ extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> 
         if frame.settled_at > now {
             cache.fade_until = cache.fade_until.max(frame.settled_at);
             #[cfg(feature = "std")]
-            if map_debug() {
+            if debug {
                 std::eprintln!(
                     "[map] fade: labels fading until {:.3} (now {now:.3}, {} candidates, {} drawn)",
                     frame.settled_at,

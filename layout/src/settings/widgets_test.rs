@@ -14,24 +14,18 @@ fn asked(name: &str, value: &str) -> WidgetSettings {
 fn an_empty_environment_is_the_default_and_every_widget_builds_as_shipped() {
     let none = WidgetSettings::from_lookup(&NoEnv);
     assert_eq!(none, WidgetSettings::default());
-    assert!(!none.color_picker_cells, "a checkerboard is one node");
     assert!(!none.map_debug);
     assert!(!none.map_stats);
-    assert!(!none.node_graph_pan_on_nodes, "a pan is carried by the two containers");
     assert!(!none.video_framelog);
 }
 
+/// The two A/B variables of widget builders that have no window to ask are gone: setting them
+/// changes nothing.
 #[test]
-fn a_switch_that_wants_one_exact_value_takes_nothing_else() {
-    assert!(asked("AZ_COLOR_PICKER_CHECKER", "cells").color_picker_cells);
-    assert!(!asked("AZ_COLOR_PICKER_CHECKER", "one").color_picker_cells);
-    assert!(!asked("AZ_COLOR_PICKER_CHECKER", "").color_picker_cells);
-    assert!(!asked("AZ_COLOR_PICKER_CHECKER", "CELLS").color_picker_cells);
-
-    assert!(asked("AZ_NODEGRAPH_PAN", "nodes").node_graph_pan_on_nodes);
-    assert!(!asked("AZ_NODEGRAPH_PAN", "containers").node_graph_pan_on_nodes);
-    assert!(!asked("AZ_NODEGRAPH_PAN", "1").node_graph_pan_on_nodes);
-    assert!(!asked("AZ_NODEGRAPH_PAN", "").node_graph_pan_on_nodes);
+fn the_retired_ab_variables_change_nothing() {
+    for (name, value) in [("AZ_COLOR_PICKER_CHECKER", "cells"), ("AZ_NODEGRAPH_PAN", "nodes")] {
+        assert_eq!(asked(name, value), WidgetSettings::default(), "{name}={value}");
+    }
 }
 
 #[test]
