@@ -6,8 +6,29 @@ use super::*;
 fn the_default_is_the_empty_environment_of_every_part() {
     let none = AppSettings::from_lookup(&NoEnv);
     assert_eq!(none, AppSettings::default());
+    assert_eq!(none.layout, LayoutSettings::default());
     assert_eq!(none.shell, ShellSettings::default());
     assert_eq!(none.render, RenderSettings::default());
+}
+
+/// The layout engine's switches are read from the SAME environment as the shell's: a variable of
+/// the solver and one of the text group arrive in the carrier, where the windows and the app's
+/// font manager take them from.
+#[test]
+fn the_layout_settings_are_built_from_the_one_environment() {
+    use azul_layout::settings::DenseTextMode;
+
+    let env = MapEnv::new()
+        .with("AZ_NO_DL_PATCH", "1")
+        .with("AZ_DENSE_TEXT", "verify")
+        .with("AZ_TEXT_HINTING", "0")
+        .with("AZ_BACKEND", "cpu");
+    let settings = AppSettings::from_lookup(&env);
+    assert!(!settings.layout.solver.patching);
+    assert_eq!(settings.layout.solver.dense_text, DenseTextMode::Verify);
+    assert!(!settings.layout.text.hinting);
+    assert_eq!(settings.shell.backend.as_deref(), Some("cpu"));
+    assert_eq!(settings.layout, LayoutSettings::from_lookup(&env));
 }
 
 #[test]
