@@ -1840,6 +1840,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
             e2e_scratch: _,
         skip_gpu_sync: _,
         display_list_options: _,
+        settings: _,
         frame_report: _,
         frame_report_reset_request: _,
         cpu_counters: _,
@@ -2325,13 +2326,19 @@ pub struct LayoutWindow {
     /// whose store/load is inconsistent in the lifted wasm: the flag that skips
     /// the display list was one). Default false → desktop is unaffected.
     pub skip_gpu_sync: bool,
-    /// How this window's layout passes build their display list: patching on or
-    /// off, what a moved box's run does, no list at all (the web backend). The
-    /// window writes it into the cache of every pass it runs; a test sets it on
-    /// its own window (`lw.display_list_options.patching = false`) without
-    /// touching any other window. Starts as what the environment of the process
-    /// asks for (`AZ_NO_DL_PATCH`, `AZ_DL_TRANSLATE_MOVED_RUNS`).
+    /// What this window's layout passes run under: how they build their display list
+    /// (patching on or off, what a moved box's run does, no list at all for the web
+    /// backend), the storage form of text, the switches back to the old behaviour and
+    /// the traces (`crate::settings::SolverSettings`). The window writes it into the cache of
+    /// every pass it runs; a test sets it on its own window
+    /// (`lw.display_list_options.patching = false`) without touching any other window.
+    /// Starts as the defaults, which are the behaviour of an empty environment; the process
+    /// environment reaches it through [`Self::set_settings`].
     pub display_list_options: solver3::cache::DisplayListOptions,
+    /// Every group of settings of azul-layout this window was given
+    /// ([`Self::set_settings`]): what the process environment asked for, built once at the
+    /// start by the dll. Starts as the defaults, the behaviour of an empty environment.
+    pub settings: crate::settings::LayoutSettings,
     /// Per-frame damage + frame-work observability record. Written by the CPU
     /// backend after each `render_frame` and by the event loop; read by E2E
     /// assertions through `CallbackInfo::get_layout_window()`.
@@ -4462,6 +4469,24 @@ impl LayoutWindow {
         1 + ((u64::from(self.document_id.namespace_id.0) << 32) | u64::from(self.document_id.id))
     }
 
+    /// Gives this window the settings the process environment (or a host) asked for: every
+    /// group of [`crate::settings::LayoutSettings`]. The solver's group becomes what the layout
+    /// passes of this window run under ([`Self::display_list_options`]; the host's `skip` stays
+    /// as it is), and the text group goes to this window's font manager, from which the shaping
+    /// and the glyph painting take it. Called once, before the first pass, by whoever read the
+    /// environment (the dll's `App::create`); a window nobody called it on has the defaults,
+    /// the behaviour of an empty environment.
+    // The groups of the other clusters grow this to more than assignments of `Copy` values.
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn set_settings(&mut self, settings: crate::settings::LayoutSettings) {
+        self.display_list_options = crate::settings::SolverSettings {
+            skip: self.display_list_options.skip,
+            ..settings.solver
+        };
+        self.font_manager.settings = settings.text;
+        self.settings = settings;
+    }
+
     /// Moves whenever this window presents a frame, on every backend: the
     /// recorded frames ([`Self::record_frame`]) plus the noted ones
     /// ([`Self::note_frame_presented`]). While it stands still, what the
@@ -4514,7 +4539,8 @@ impl LayoutWindow {
             e2e_scratch: std::sync::Mutex::new(crate::e2e::E2eScratch::default()),
             // M12.7 web/headless GPU-sync skip (default false → desktop unaffected)
             skip_gpu_sync: false,
-            display_list_options: solver3::cache::DisplayListOptions::from_environment(),
+            display_list_options: solver3::cache::DisplayListOptions::default(),
+            settings: crate::settings::LayoutSettings::default(),
             frame_report: FrameReport::default(),
             recorded_size_queries: (Vec::new(), false),
             recorded_style_dependencies: azul_core::callbacks::SystemStyleDependencies::empty(),
@@ -34844,6 +34870,7 @@ impl LayoutWindow {
             // The E2E mount override is an XML source string + a dirty flag:
             skip_gpu_sync: _,
             display_list_options: _,
+            settings: _,
             e2e_mount: _,
             #[cfg(feature = "e2e-server")]
                 e2e_scratch: _,
