@@ -759,19 +759,12 @@ enum CheckerboardBuild {
     Cells,
 }
 
-/// The build the process asked for: one node, or - with the environment
-/// variable `AZ_COLOR_PICKER_CHECKER=cells` - a div per cell, as every
-/// checkerboard was built before. Read once.
-fn checkerboard_build() -> CheckerboardBuild {
-    #[cfg(feature = "std")]
-    {
-        static CELLS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        if *CELLS.get_or_init(|| {
-            std::env::var_os("AZ_COLOR_PICKER_CHECKER").is_some_and(|v| v == "cells")
-        }) {
-            return CheckerboardBuild::Cells;
-        }
-    }
+/// The build a checkerboard gets: ONE node. A div per cell ([`checkerboard_cells`]) is what
+/// every checkerboard was built as before; it stays for the tests that compare the two and for
+/// a build that restyles the cells by class. The environment variable that asked for it
+/// (`AZ_COLOR_PICKER_CHECKER=cells`) is gone: a widget builder has no window to ask for the
+/// process's settings, and a switch that no builder can reach is dead.
+const fn checkerboard_build() -> CheckerboardBuild {
     CheckerboardBuild::OneNode
 }
 
@@ -782,10 +775,10 @@ fn checkerboard_build() -> CheckerboardBuild {
 /// ONE node by default ([`checkerboard_one_node`]). A div per cell was 75
 /// nodes for the picker's alpha bar and 21 for its preview - 96 of the 142
 /// nodes every colour input carries in its closed popup, styled, laid out and
-/// reconciled with every DOM the input is in. `AZ_COLOR_PICKER_CHECKER=cells`
-/// builds the cells again ([`checkerboard_cells`]): for a stylesheet that
-/// restyles them by class (`.__azul_native_checkerboard_dark { … }`; the one
-/// node has no cell to carry a class), and to compare the two on screen.
+/// reconciled with every DOM the input is in. [`checkerboard_cells`] builds the
+/// cells again: for a stylesheet that restyles them by class
+/// (`.__azul_native_checkerboard_dark { … }`; the one node has no cell to carry a
+/// class), and to compare the two.
 fn checkerboard(w: f32, h: f32, cell: f32) -> Dom {
     match checkerboard_build() {
         CheckerboardBuild::OneNode => checkerboard_one_node(w, h, cell),
@@ -923,7 +916,7 @@ fn checkerboard_one_node(w: f32, h: f32, cell: f32) -> Dom {
 }
 
 /// [`checkerboard`] built from DIVS, a row of cells per row: a stylesheet can
-/// restyle the cells by class. What `AZ_COLOR_PICKER_CHECKER=cells` builds.
+/// restyle the cells by class. What every checkerboard was built as before the one node.
 fn checkerboard_cells(w: f32, h: f32, cell: f32) -> Dom {
     use azul_core::dom::IdOrClass::Class;
     use azul_css::dynamic_selector::{DynamicSelector, ThemeCondition};

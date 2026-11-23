@@ -175,6 +175,12 @@ pub struct GlyphCache {
     /// LCD stripe order of the panel this cache's window is on.
     lcd_subpixel_order: LcdSubpixelOrder,
     text_aa: crate::cpurender::TextAaSettings,
+    /// How the glyphs drawn with this cache are hinted and placed
+    /// ([`crate::settings::TextSettings`]: hinting, light hinting, sub-pixel placement): the
+    /// window's, from its font manager ([`Self::set_text_settings`]). The defaults until the
+    /// owner of the render target says otherwise: the renderer reads no environment variable
+    /// for it.
+    text_settings: crate::settings::TextSettings,
     /// How many cell sets this cache has had to build (found in neither
     /// generation): what a repaint of text drawn before must leave unchanged.
     cells_built: u64,
@@ -258,6 +264,7 @@ impl GlyphCache {
             lcd_tiles: FastMap::default(),
             lcd_subpixel_order: LcdSubpixelOrder::Rgb,
             text_aa: crate::cpurender::TextAaSettings::default(),
+            text_settings: crate::settings::TextSettings::default(),
             cells_built: 0,
             decodes: 0,
             window: None,
@@ -275,6 +282,7 @@ impl GlyphCache {
     ) -> Self {
         let mut cache = Self::new();
         cache.text_aa = window.text_aa;
+        cache.text_settings = window.text_settings;
         cache.lcd_subpixel_order = window.lcd_subpixel_order;
         cache.scratch = crate::cpurender::PaintScratch::for_band(share);
         cache.window = Some(std::sync::Arc::clone(window));
@@ -361,6 +369,38 @@ impl GlyphCache {
         true
     }
 
+    /// How the glyphs drawn with this cache are hinted and placed.
+    ///
+    /// [`TextSettings::default`](crate::settings::TextSettings::default) until the owner of the
+    /// render target says otherwise ([`Self::set_text_settings`]).
+    #[must_use]
+    pub const fn text_settings(&self) -> crate::settings::TextSettings {
+        self.text_settings
+    }
+
+    /// Whether the TrueType hinting bytecode runs for the glyphs drawn with this cache: the
+    /// text settings say, and the platform default is off on macOS.
+    #[must_use]
+    pub const fn hinting(&self) -> bool {
+        self.text_settings.hinting
+    }
+
+    /// Sets how the glyphs drawn with this cache are hinted and placed. On a change the paths,
+    /// the cells and the tiles are dropped, which were built under the old settings; the caller
+    /// repaints what is on screen. Returns whether anything changed.
+    pub fn set_text_settings(&mut self, settings: crate::settings::TextSettings) -> bool {
+        if self.text_settings == settings {
+            return false;
+        }
+        self.text_settings = settings;
+        self.paths.clear();
+        self.paths_prev.clear();
+        self.cells.clear();
+        self.cells_prev.clear();
+        self.lcd_tiles.clear();
+        true
+    }
+
     /// Entry count of the glyph-path cache (for leak probes).
     /// Counts BOTH generations — a probe watching for unbounded growth
     /// must see everything the cache is holding.
@@ -412,6 +452,7 @@ impl GlyphCache {
                 self.paths_prev = core::mem::take(&mut self.paths);
             }
         }
+        let hint_light = self.text_settings.hint_light;
         let entry = self.paths.entry(key).or_insert_with(|| {
             // Only fires on a MISS, so this span is the true cost of
             // running the hinting interpreter for a glyph — as opposed
@@ -419,7 +460,9 @@ impl GlyphCache {
             let _p = crate::probe::Probe::span("glyph_path_build");
             // Try hinted path first if ppem > 0
             if ppem > 0 {
-                if let Some(path) = build_hinted_path(glyph_id, glyph_data, parsed_font, ppem) {
+                if let Some(path) =
+                    build_hinted_path(glyph_id, glyph_data, parsed_font, ppem, hint_light)
+                {
                     return Some((path, true));
                 }
             }
@@ -498,6 +541,7 @@ impl GlyphCache {
                                                                        // font/fixed-point cast
     #[allow(clippy::too_many_arguments)]
     fn gray_cell_key(
+        subpixel: bool,
         font_hash: u64,
         glyph_id: u16,
         ppem: u16,
@@ -524,7 +568,7 @@ impl GlyphCache {
         // stays grid-snapped (`subpx_y == 0` for grid_snapped). With
         // `AZ_TEXT_SUBPIXEL=0` the grid_snapped case reverts to integer X
         // (sub-pixel 0, rounded origin), the previous behaviour.
-        let subpx_x_snap = grid_snapped && !text_subpixel_enabled();
+        let subpx_x_snap = grid_snapped && !subpixel;
         let subpx_x = if subpx_x_snap {
             0
         } else {
@@ -585,6 +629,7 @@ impl GlyphCache {
                                                                        // font/fixed-point cast
     #[allow(clippy::too_many_arguments)]
     fn lcd_cell_key(
+        subpixel: bool,
         font_hash: u64,
         glyph_id: u16,
         ppem: u16,
@@ -598,7 +643,7 @@ impl GlyphCache {
         let embolden_64 = embolden_key(embolden_px);
 
         let rescale_hinted = is_hinted && (hint_correction - 1.0).abs() > 1e-4;
-        let subpx = text_subpixel_enabled();
+        let subpx = subpixel;
 
         // Mirrors the uncached LCD path exactly: fractional x when sub-pixel
         // positioning is on, rounded x when it is off, always-rounded y.
@@ -659,6 +704,7 @@ impl GlyphCache {
         embolden_px: f32,
     ) -> Option<Option<(&[CellAa], i32, i32)>> {
         let (key, int_x, int_y) = Self::gray_cell_key(
+            self.text_settings.subpixel,
             font_hash,
             glyph_id,
             ppem,
@@ -690,6 +736,7 @@ impl GlyphCache {
         embolden_px: f32,
     ) -> Option<Option<(&[CellAa], i32, i32)>> {
         let (key, int_x, int_y) = Self::lcd_cell_key(
+            self.text_settings.subpixel,
             font_hash,
             glyph_id,
             ppem,
@@ -815,6 +862,7 @@ impl GlyphCache {
         embolden_px: f32,
     ) -> Option<(&[CellAa], i32, i32)> {
         let (cell_key, int_x, int_y) = Self::gray_cell_key(
+            self.text_settings.subpixel,
             font_hash,
             glyph_id,
             ppem,
@@ -969,6 +1017,7 @@ impl GlyphCache {
     ) -> Option<(&[CellAa], i32, i32)> {
         let _p = crate::probe::Probe::span("glyph_cache_lcd_lookup");
         let (cell_key, int_x, int_y) = Self::lcd_cell_key(
+            self.text_settings.subpixel,
             font_hash,
             glyph_id,
             ppem,
@@ -1085,6 +1134,8 @@ fn build_hinted_path(
     glyph: &OwnedGlyph,
     parsed_font: &ParsedFont,
     ppem: u16,
+    // Light hinting (`TextSettings::hint_light`): the grid-fitted Y with the unhinted X.
+    hint_light: bool,
 ) -> Option<PathStorage> {
     use allsorts::hinting::f26dot6::F26Dot6;
     let raw_points = glyph.raw_points.as_ref()?;
@@ -1155,11 +1206,11 @@ fn build_hinted_path(
     // sub-pixel-positioned and anti-alias to soft gray instead of snapping to a
     // hard full-black 1px column (Windows-style full grid-fit). This is what
     // converges our CPU text onto CoreText — full bytecode hinting over-snaps X,
-    // rendering stems thinner + darker than CoreText's. On by default; set
-    // AZ_HINT_LIGHT=0 to force Windows-style full grid-fit. The interpreter still
+    // rendering stems thinner + darker than CoreText's. On by default; the setting
+    // `TextSettings::hint_light` off (`AZ_HINT_LIGHT=0`) forces Windows-style full grid-fit. The interpreter still
     // runs in full (its Y output + FLIP'd on-curve flags are used), so no hinting
     // correctness is lost — only the X axis is left sub-pixel for grayscale AA.
-    if hint_light_enabled() {
+    if hint_light {
         let light: Vec<(i32, i32)> = hinted
             .iter()
             .enumerate()
@@ -1175,59 +1226,6 @@ fn build_hinted_path(
 /// Scaling Y would move the grid-fitted baseline and stems off the pixel grid.
 fn hinted_outline_scale(hint_correction: f32) -> (f64, f64) {
     (f64::from(hint_correction), 1.0)
-}
-
-/// Whether to run the font's TrueType hinting bytecode AT ALL.
-///
-/// Platform default: OFF on macOS, ON elsewhere. CoreText never executes TT
-/// instructions (no macOS browser hints text), so running the untuned
-/// programs of Apple system fonts snapped individual glyphs' stems and
-/// x-heights to DIFFERENT pixel rows than their neighbours — the reported
-/// "the r is out of line with the ea", "the u is not tall enough".
-/// `FreeType` and `ClearType` conventions expect grid-fitting, so Linux and
-/// Windows keep
-/// it. Override with `AZ_TEXT_HINTING=1` / `0`. Read once.
-pub(crate) fn text_hinting_enabled() -> bool {
-    // Process-wide configuration, read once from the environment (`AZ_TEXT_HINTING`).
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| {
-        std::env::var("AZ_TEXT_HINTING").map_or(cfg!(not(target_os = "macos")), |s| {
-            !(s == "0" || s.eq_ignore_ascii_case("false"))
-        })
-    })
-}
-
-/// Whether to apply CoreText-style "light" hinting (grid-fit Y only, fractional X).
-/// ON by default (matches CoreText / modern browser grayscale rendering); set
-/// `AZ_HINT_LIGHT=0` (or `false`) to force Windows-style full grid-fit. Read once.
-pub(crate) fn hint_light_enabled() -> bool {
-    // Process-wide configuration, read once from the environment (`AZ_HINT_LIGHT`).
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| {
-        std::env::var("AZ_HINT_LIGHT")
-            .map(|s| !(s == "0" || s.eq_ignore_ascii_case("false")))
-            .unwrap_or(true)
-    })
-}
-
-/// Whether to place each glyph ORIGIN at a sub-pixel HORIZONTAL position (a
-/// 1/4-pixel X bucket) instead of snapping it to a whole pixel.
-///
-/// ON by default. This is the horizontal half of the light-hinting philosophy
-/// (crisp vertical, soft/sub-pixel horizontal): the grid-fitted glyph *outline*
-/// still snaps its stems and baseline to the pixel grid, but the pen advances
-/// accumulate at fractional precision so a run of glyphs lands where CoreText
-/// (which positions glyphs at fractional x) puts them, rather than each origin
-/// rounding to an integer pixel and drifting the whole line. Set
-/// `AZ_TEXT_SUBPIXEL=0` (or `false`) to force integer X placement. Read once.
-pub(crate) fn text_subpixel_enabled() -> bool {
-    // Process-wide configuration, read once from the environment (`AZ_TEXT_SUBPIXEL`).
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| {
-        std::env::var("AZ_TEXT_SUBPIXEL")
-            .map(|s| !(s == "0" || s.eq_ignore_ascii_case("false")))
-            .unwrap_or(true)
-    })
 }
 
 /// Build an agg `PathStorage` from TrueType contour data (points in `F26Dot6`).
@@ -1724,25 +1722,6 @@ mod autotest_generated {
     }
 
     // ---------------------------------------------------------------------
-    // env-backed predicates
-    // ---------------------------------------------------------------------
-
-    #[test]
-    fn hint_light_enabled_is_stable_across_calls() {
-        // OnceLock-backed: whatever the env says, every call must agree.
-        let first = hint_light_enabled();
-        assert_eq!(first, hint_light_enabled());
-        assert_eq!(first, hint_light_enabled());
-    }
-
-    #[test]
-    fn text_subpixel_enabled_is_stable_across_calls() {
-        let first = text_subpixel_enabled();
-        assert_eq!(first, text_subpixel_enabled());
-        assert_eq!(first, text_subpixel_enabled());
-    }
-
-    // ---------------------------------------------------------------------
     // GlyphCache::new / paths_len / cells_len
     // ---------------------------------------------------------------------
 
@@ -2096,9 +2075,9 @@ mod autotest_generated {
             return;
         };
         let glyph = empty_glyph(); // raw_points / instructions all None
-        assert!(build_hinted_path(0, &glyph, &font, 16).is_none());
+        assert!(build_hinted_path(0, &glyph, &font, 16, true).is_none());
         assert!(
-            build_hinted_path(u16::MAX, &glyph, &font, u16::MAX).is_none(),
+            build_hinted_path(u16::MAX, &glyph, &font, u16::MAX, true).is_none(),
             "missing raw data must short-circuit before any hinting arithmetic"
         );
     }
@@ -2114,7 +2093,7 @@ mod autotest_generated {
         glyph.raw_contour_ends = Some(Vec::new());
         glyph.instructions = Some(Vec::new());
         assert!(
-            build_hinted_path(0, &glyph, &font, 16).is_none(),
+            build_hinted_path(0, &glyph, &font, 16, true).is_none(),
             "an empty point/contour list must bail out, not hint an empty glyph"
         );
     }
@@ -2132,7 +2111,7 @@ mod autotest_generated {
         }
         font.hint_slot = std::sync::OnceLock::from(None);
         assert!(
-            build_hinted_path(gid, &glyph, &font, 16).is_none(),
+            build_hinted_path(gid, &glyph, &font, 16, true).is_none(),
             "no interpreter => no hinted path"
         );
     }
@@ -2150,7 +2129,7 @@ mod autotest_generated {
         }
         font.font_metrics.units_per_em = 0;
         assert!(
-            build_hinted_path(gid, &glyph, &font, 16).is_none(),
+            build_hinted_path(gid, &glyph, &font, 16, true).is_none(),
             "upem == 0 must bail out before the divide-by-upem scale"
         );
     }
@@ -2163,7 +2142,7 @@ mod autotest_generated {
         let Some((gid, glyph)) = glyph_a(&font) else {
             return;
         };
-        let Some(path) = build_hinted_path(gid, &glyph, &font, 16) else {
+        let Some(path) = build_hinted_path(gid, &glyph, &font, 16, true) else {
             return; // unhinted font (CFF / no instructions): nothing to assert
         };
         assert!(path.total_vertices() > 0, "hinted path must have vertices");
@@ -2220,6 +2199,7 @@ impl GlyphCache {
     /// are the builder's, moved).
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::too_many_arguments)]
     fn lcd_tile_key(
+        subpixel: bool,
         font_hash: u64,
         glyph_id: u16,
         ppem: u16,
@@ -2232,7 +2212,7 @@ impl GlyphCache {
         bg: azul_css::props::basic::color::ColorU,
     ) -> (LcdTileKey, i32, i32) {
         let rescale_hinted = is_hinted && (hint_correction - 1.0).abs() > 1e-4;
-        let subpx = text_subpixel_enabled();
+        let subpx = subpixel;
         let (int_x, subpx_x) = if subpx {
             (glyph_x.floor() as i32, quantize_subpx_lcd(glyph_x))
         } else {
@@ -2284,6 +2264,7 @@ impl GlyphCache {
         bg: azul_css::props::basic::color::ColorU,
     ) -> Option<Option<(std::sync::Arc<LcdGlyphTile>, i32, i32)>> {
         let (key, int_x, int_y) = Self::lcd_tile_key(
+            self.text_settings.subpixel,
             font_hash,
             glyph_id,
             ppem,
@@ -2340,6 +2321,7 @@ impl GlyphCache {
         params: agg_rust::pixfmt_lcd::LcdBlendParams,
     ) -> Option<(std::sync::Arc<LcdGlyphTile>, i32, i32)> {
         let (key, int_x, int_y) = Self::lcd_tile_key(
+            self.text_settings.subpixel,
             font_hash,
             glyph_id,
             ppem,
@@ -2755,3 +2737,7 @@ mod audit_a1_tests {
         assert_eq!(window.cells_built(), 0, "taken over, not built");
     }
 }
+
+#[cfg(test)]
+#[path = "glyph_cache_test.rs"]
+mod text_settings_tests;

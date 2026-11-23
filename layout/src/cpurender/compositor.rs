@@ -13,7 +13,7 @@ use azul_css::props::{
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
 use super::*;
-use crate::glyph_cache::GlyphCache;
+use crate::{glyph_cache::GlyphCache, settings::render::PaintSwitches};
 
 /// A row-major 3x3 matrix over column vectors `[x; y; 1]`:
 /// `x' = (m0 x + m1 y + m2) / w`, `y' = (m3 x + m4 y + m5) / w`,
@@ -1118,7 +1118,7 @@ impl CompositorState {
             .collect();
 
         #[cfg(feature = "std")]
-        if map_debug() {
+        if render_state.switches.map_debug {
             for (id, range, bounds, scroll_id, child_ranges) in &layer_ranges {
                 std::eprintln!(
                     "[cpu-layer] render id={:?} range={:?} bounds={:?} scroll={:?} skip={:?} \
@@ -3852,6 +3852,31 @@ pub fn execute_virtual_view_shift_with(
     scroll_offsets: &ScrollOffsetMap,
     transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
 ) -> ScrollShiftOutcome {
+    execute_virtual_view_shift_switched(
+        pixmap,
+        display_list,
+        views,
+        shift,
+        dpi_factor,
+        scroll_offsets,
+        transforms,
+        PaintSwitches::default(),
+    )
+}
+
+/// [`execute_virtual_view_shift_with`] under the knobs of a window (`switches`: its trace).
+#[must_use]
+#[allow(clippy::implicit_hasher)]
+pub fn execute_virtual_view_shift_switched(
+    pixmap: &mut AzulPixmap,
+    display_list: &DisplayList,
+    views: &std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
+    shift: &ViewShift,
+    dpi_factor: f32,
+    scroll_offsets: &ScrollOffsetMap,
+    transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
+    switches: PaintSwitches,
+) -> ScrollShiftOutcome {
     let whole = ScrollShiftOutcome {
         damage: vec![shift.clip],
         present_extra: Vec::new(),
@@ -3874,7 +3899,7 @@ pub fn execute_virtual_view_shift_with(
         .iter()
         .all(|v| integral(*v));
     if !integral(shift.delta.0) || !integral(shift.delta.1) || !on_the_grid {
-        if blit_debug() {
+        if switches.blit_debug {
             eprintln!(
                 "[viewshift] delta {:?} or offset {:?} is no whole device pixel",
                 shift.delta, shift.offset
@@ -3958,7 +3983,7 @@ pub fn execute_virtual_view_shift_with(
         }
         !turned_over_the_clip && backdrop_drags_invisibly(&backdrop, &shift.clip)
     };
-    if blit_debug() {
+    if switches.blit_debug {
         eprintln!(
             "[viewshift] clip={:?} delta={:?} covered={covered} backdrop_ok={backdrop_ok}",
             shift.clip, shift.delta
@@ -4561,74 +4586,6 @@ fn render_display_list_range(
 // AzulPixmap — replacement for tiny_skia::Pixmap
 // ============================================================================
 
-/// Is the trace switch `AZ_BLIT_DEBUG` set? Asked of the environment once per process: a read
-/// takes the process's lock on the environment and scans every variable, and the list diff
-/// asked once per mismatched pair of items (17,495 times for a map whose every item moved).
-#[doc(hidden)]
-#[must_use]
-pub fn blit_debug() -> bool {
-    // Process-wide configuration, read once from the environment.
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("AZ_BLIT_DEBUG").is_some())
-}
-
-/// Is the trace switch `AZ_PATCH_DEBUG` set? Asked once per process, like [`blit_debug`].
-#[doc(hidden)]
-#[must_use]
-pub fn patch_debug() -> bool {
-    // Process-wide configuration, read once from the environment.
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("AZ_PATCH_DEBUG").is_some())
-}
-
-/// Is the trace switch `AZ_MAP_DEBUG` set? Asked once per process, like [`blit_debug`].
-#[doc(hidden)]
-#[must_use]
-pub fn map_debug() -> bool {
-    // Process-wide configuration, read once from the environment.
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var("AZ_MAP_DEBUG").is_ok())
-}
-
-/// Compute damage rects by comparing two display lists item by item.
-///
-/// Returns a list of bounding rects that need repainting, or `None` if a
-/// full repaint is required (structural change, different item count, etc.).
-///
-/// The comparison is conservative: any item whose bounds or content changed
-/// produces a damage rect covering both the old and new bounds.
-///
-/// The returned rects are in VIEWPORT space. Items inside a scroll frame are
-/// stored at CONTENT coords but render at `pos - scroll_offset`, so a changed
-/// item's bounds are projected through the accumulated scroll offset of its
-/// enclosing frame(s) — the OLD item through `old_offsets` (where its pixels
-/// were on screen), the NEW item through `new_offsets` (where they will be).
-/// Without this projection, damage for items inside a scrolled frame lands at
-/// the content-space position (off by exactly the scroll offset), so the
-/// consumer repaints the wrong band and the changed item stays visually stale.
-/// Runtime toggle for the DAMAGE REFINEMENTS (skip non-painting items,
-/// symmetric-difference strips for same-origin solid rects / clips).
-/// Default ON. They were landed default-OFF because honest (smaller)
-/// damage un-masked what looked like a cross-path LCD divergence; the
-/// real defect was twofold and is FIXED: (1) the FIR spread in the LCD
-/// pixfmts wrote 2 stripes outside the renderer clip, double-blending
-/// retained fringe on damage-rect repaints (agg-rust `set_stripe_clip`),
-/// and (2) a changed Text item's damage did not cover the 1-device-px
-/// fringe overhang (inflated in the diff below). The corpus damage-
-/// soundness gate is green with the refinements on; `AZ_DL_DIFF_REFINE=0`
-/// remains as the kill-switch.
-#[must_use]
-pub fn dl_diff_refinements_enabled() -> bool {
-    // Process-wide configuration, read once from the environment: the kill switch is
-    // `AZ_DL_DIFF_REFINE=0` ("off" too), nothing else turns the refinements off. (A test that
-    // needs honest damage asserts this answer instead of forcing it: no code can change it.)
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| match std::env::var("AZ_DL_DIFF_REFINE") {
-        Ok(v) => !(v == "0" || v.eq_ignore_ascii_case("off")),
-        Err(_) => true,
-    })
-}
-
 /// Round-3 translate hint: a mismatching item pair whose OLD geometry
 /// translated by `delta` equals the NEW one, and whose old bounds sit
 /// inside `region_old`, is a MOVE — collected into the returned moved
@@ -4874,6 +4831,30 @@ pub fn execute_translate_blit(
     new_display_list: &DisplayList,
     dpi_factor: f32,
 ) -> TranslateBlitResult {
+    execute_translate_blit_switched(
+        output,
+        hint,
+        exceptions,
+        mover_rects,
+        rider_rects,
+        new_display_list,
+        dpi_factor,
+        PaintSwitches::default(),
+    )
+}
+
+/// [`execute_translate_blit`] under the knobs of a window (`switches`: its trace).
+#[must_use]
+pub fn execute_translate_blit_switched(
+    output: &mut AzulPixmap,
+    hint: &TranslateHint,
+    exceptions: &[LogicalRect],
+    mover_rects: &[LogicalRect],
+    rider_rects: &[LogicalRect],
+    new_display_list: &DisplayList,
+    dpi_factor: f32,
+    switches: PaintSwitches,
+) -> TranslateBlitResult {
     let mut res = TranslateBlitResult::default();
     let d = hint.delta;
     // Where every mover now is: what lies inside one moved with it. A mover
@@ -4885,7 +4866,7 @@ pub fn execute_translate_blit(
         .map(|m| moved_by(*m, (-d.0, -d.1)))
         .chain(rider_rects.iter().copied())
         .collect();
-    if blit_debug() {
+    if switches.blit_debug {
         eprintln!(
             "[blit] delta={:?} movers={} exceptions={}",
             d,
@@ -5013,7 +4994,7 @@ pub fn execute_translate_blit(
         res.present_extra.push(clip);
     }
     res.damage.extend(exceptions.iter().copied());
-    if blit_debug() {
+    if switches.blit_debug {
         eprintln!("[blit]   damage {:?}", res.damage);
     }
     res
@@ -5304,10 +5285,21 @@ const DIRECT_REACH: f32 = 1.0;
 /// with it, not with the matrix the list was built with: a change inside a
 /// sliding toast card is damaged where the card is now, not where it
 /// started. Empty maps mean "the lists' own matrices".
+///
+/// It also carries the knobs of the diff (`PaintSwitches`, the window's `RenderSettings::paint`):
+/// the damage refinements (skip the items that paint nothing, the strips of a resized rect:
+/// default ON; they were landed default-OFF because honest, smaller, damage un-masked what
+/// looked like a cross-path LCD divergence, the real defect was twofold and is FIXED: the FIR
+/// spread of the LCD pixfmts wrote two stripes outside the renderer clip, double-blending
+/// retained fringe on damage-rect repaints, and a changed Text item's damage did not cover the
+/// 1-device-px fringe overhang; the corpus damage-soundness gate is green with the refinements
+/// on, and `AZ_DL_DIFF_REFINE=0` remains as the kill switch), and the trace of the diff.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FrameValues<'a> {
     pub old: Option<&'a HashMap<usize, azul_core::transform::ComputedTransform3D>>,
     pub new: Option<&'a HashMap<usize, azul_core::transform::ComputedTransform3D>>,
+    /// The knobs of the diff; the default is the shipping paths and no trace.
+    pub switches: PaintSwitches,
 }
 
 impl FrameValues<'_> {
@@ -5447,7 +5439,7 @@ fn windowed_structural_damage(
     // or after, lies in its own item's rect, and every pixel BETWEEN window
     // items belongs to visually-equal prefix/suffix items, which by
     // definition did not change.
-    let refine = dl_diff_refinements_enabled();
+    let refine = values.switches.dl_diff_refine;
     let mut damage: Vec<LogicalRect> = Vec::new();
     let mut skipped_nonpainting = false;
     // A window item under a perspective transform: no rect covers its image.
@@ -5687,6 +5679,25 @@ pub fn compute_display_list_damage_live(
     compute_display_list_damage_impl(old, new, old_offsets, new_offsets, hint, values)
 }
 
+/// Compute damage rects by comparing two display lists item by item.
+///
+/// Returns a list of bounding rects that need repainting, or `None` if a
+/// full repaint is required (structural change, different item count, etc.).
+///
+/// The comparison is conservative: any item whose bounds or content changed
+/// produces a damage rect covering both the old and new bounds.
+///
+/// The returned rects are in VIEWPORT space. Items inside a scroll frame are
+/// stored at CONTENT coords but render at `pos - scroll_offset`, so a changed
+/// item's bounds are projected through the accumulated scroll offset of its
+/// enclosing frame(s) — the OLD item through `old_offsets` (where its pixels
+/// were on screen), the NEW item through `new_offsets` (where they will be).
+/// Without this projection, damage for items inside a scrolled frame lands at
+/// the content-space position (off by exactly the scroll offset), so the
+/// consumer repaints the wrong band and the changed item stays visually stale.
+///
+/// This is the diff with the shipping switches (`PaintSwitches::default()`); the backends
+/// call [`compute_display_list_damage_live`], whose [`FrameValues`] carry their window's.
 #[must_use]
 pub fn compute_display_list_damage(
     old: &DisplayList,
@@ -5917,7 +5928,7 @@ fn compute_display_list_damage_impl(
             ) {
                 continue;
             }
-            let refine = dl_diff_refinements_enabled();
+            let refine = values.switches.dl_diff_refine;
             // Items that never RASTERIZE must never produce PAINT damage.
             // The root's HitTestArea resizes with the window (640→680 =
             // a full-viewport "change") and TextLayout is PDF/a11y
@@ -6282,7 +6293,7 @@ fn compute_display_list_damage_impl(
                     }
                 }
             }
-            if blit_debug() {
+            if values.switches.blit_debug {
                 eprintln!(
                     "[dldiff] mismatch {:?} old_bounds={:?}",
                     std::mem::discriminant(new_item),
@@ -8756,7 +8767,7 @@ mod autotest_generated {
     /// (and the resize damage already covers it).
     #[test]
     fn a_scroll_frame_that_only_resized_damages_nothing_by_itself() {
-        assert!(dl_diff_refinements_enabled(), "premise: honest (refined) damage");
+        assert!(PaintSwitches::default().dl_diff_refine, "premise: honest (refined) damage");
         let list = |width: f32| {
             dlist(vec![
                 push_scroll(1, 0.0, 0.0, width, 300.0),
@@ -10043,7 +10054,7 @@ mod autotest_generated {
         let parent = dlist(frame_around(9, (0.0, 0.0, 400.0, 300.0), view_item(1, 50.0, 40.0, 100.0, 60.0, (0.0, 0.0))));
 
         let live: HashMap<usize, ComputedTransform3D> = [(9, scale(2.0))].into_iter().collect();
-        let values = FrameValues { old: Some(&live), new: Some(&live) };
+        let values = FrameValues { old: Some(&live), new: Some(&live), ..FrameValues::default() };
         let d = compute_virtual_view_damage_live(
             &parent,
             &cur,
@@ -10077,7 +10088,7 @@ mod autotest_generated {
             &prev,
             &ScrollOffsetMap::new(),
             &ScrollOffsetMap::new(),
-            FrameValues { old: Some(&live), new: Some(&live) },
+            FrameValues { old: Some(&live), new: Some(&live), ..FrameValues::default() },
         );
         // (10, 10) of the frame is at (30, 20) of the child and at (80, 60) on screen.
         assert!(has_rect(&d, (80.0, 60.0, 20.0, 10.0)), "{d:?}");

@@ -1318,7 +1318,8 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
                 // could stand on but nothing could be typed into — the first
                 // keystroke into an empty TextInput was silently dropped.
                 warm_node.inline_layout_result =
-                    Some(Box::new(CachedInlineLayout::new_with_constraints(
+                    Some(Box::new(CachedInlineLayout::new_with_constraints_in(
+                        ctx.settings().dense_text,
                         Arc::new(text3::cache::UnifiedLayout {
                             items: Vec::new(),
                             overflow: text3::cache::OverflowInfo::default(),
@@ -1779,14 +1780,16 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
             // are made when they are first read, not for every measure
             // (`CachedInlineLayout::new_measure_with_constraints`).
             let mut cil = if is_measure {
-                CachedInlineLayout::new_measure_with_constraints(
+                CachedInlineLayout::new_measure_with_constraints_in(
+                    ctx.settings().dense_text,
                     main_frag.clone(),
                     current_width_type,
                     has_floats,
                     text3_constraints.clone(),
                 )
             } else {
-                CachedInlineLayout::new_with_constraints(
+                CachedInlineLayout::new_with_constraints_in(
+                    ctx.settings().dense_text,
                     main_frag.clone(),
                     current_width_type,
                     has_floats,
