@@ -482,7 +482,8 @@ impl TextChangeset {
     /// Create a changeset under `id`: the id the window that records it took
     /// from its own counter, which is what keeps the ids of its edits apart
     /// (`LayoutWindow::apply_text_changeset`).
-    pub fn new(
+    #[must_use]
+    pub const fn new(
         id: ChangesetId,
         target: DomNodeId,
         operation: TextOperation,

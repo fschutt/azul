@@ -446,7 +446,7 @@ impl ContentOverlay {
     /// The id of a new overlay part: one more than the last this overlay
     /// minted. Ids are keys of this overlay's own previews, so they need to
     /// differ only inside it.
-    fn mint_part_id(&mut self) -> OverlayPartId {
+    const fn mint_part_id(&mut self) -> OverlayPartId {
         self.minted_parts += 1;
         OverlayPartId(self.minted_parts)
     }

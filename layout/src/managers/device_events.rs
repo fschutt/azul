@@ -202,8 +202,12 @@ const SESSION_LOG_LEN: usize = 32;
 /// the SAME log.
 #[derive(Debug, Clone, Default)]
 pub struct SessionLog {
-    entries: alloc::sync::Arc<std::sync::Mutex<(u64, Vec<(u64, SessionChange)>)>>,
+    entries: alloc::sync::Arc<std::sync::Mutex<SessionEntries>>,
 }
+
+/// What a [`SessionLog`] keeps behind its lock: the position of the next change, and the last few
+/// changes, each with its position.
+type SessionEntries = (u64, Vec<(u64, SessionChange)>);
 
 impl SessionLog {
     /// A new, empty log of its own, shared with nobody.
