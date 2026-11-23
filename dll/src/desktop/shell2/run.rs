@@ -578,10 +578,8 @@ fn setup_debug_and_e2e(
         // those before the first request can be dispatched.
         debug_server::install_e2e_host_hooks();
 
+        // `AZ_DEBUG=<port>` was folded into the config's port at `App::create`.
         let mut debug_port = config.remote_control.debug_port.into_option();
-        if debug_port.is_none() {
-            debug_port = debug_server::get_debug_port();
-        }
         let e2e_file = e2e_test_file();
         
         let mut needs_debug = false;

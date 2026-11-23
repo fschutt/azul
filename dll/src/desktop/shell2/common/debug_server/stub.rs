@@ -93,10 +93,6 @@ pub fn log_active() -> bool {
     false
 }
 
-/// No-op: response recording requires the debug server.
-#[inline(always)]
-pub fn init_recording() {}
-
 /// Lean-build logging: forward to the `log` facade (the built-in stderr logger
 /// installed by `desktop::logging::init_default_logger`, or a host logger).
 /// Gated by `log_active()` so direct callers (App::run etc.) honor `AZ_LOG`.

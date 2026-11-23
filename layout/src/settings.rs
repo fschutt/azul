@@ -27,8 +27,16 @@ pub mod text;
 // Cluster W2 (window, render, widgets): its `pub mod` lines go here.
 
 // Cluster W3 (e2e, telemetry, services): its `pub mod` lines go here.
+pub mod e2e;
+pub mod platform;
+pub mod services;
+pub mod telemetry;
 
+pub use e2e::E2eSettings;
+pub use platform::PlatformEnv;
+pub use services::ServiceSettings;
 pub use solver::{DenseTextMode, MovedRunPolicy, SolverSettings};
+pub use telemetry::TelemetrySettings;
 pub use text::TextSettings;
 
 /// Every group of settings of azul-layout.
@@ -47,6 +55,13 @@ pub struct LayoutSettings {
     // Cluster W2 (window, render, widgets): its fields go here.
 
     // Cluster W3 (e2e, telemetry, services): its fields go here.
+    /// The end-to-end machinery and the debug server ([`E2eSettings`]).
+    pub e2e: E2eSettings,
+    /// The telemetry client ([`TelemetrySettings`]).
+    pub telemetry: TelemetrySettings,
+    /// The services: the file picker, the profiler's symbol lookup, the platform folders
+    /// ([`ServiceSettings`]).
+    pub services: ServiceSettings,
 }
 
 impl LayoutSettings {
@@ -60,6 +75,9 @@ impl LayoutSettings {
             // Cluster W2 (window, render, widgets): its groups go here.
 
             // Cluster W3 (e2e, telemetry, services): its groups go here.
+            e2e: E2eSettings::from_lookup(env),
+            telemetry: TelemetrySettings::from_lookup(env),
+            services: ServiceSettings::from_lookup(env),
         }
     }
 }

@@ -6177,17 +6177,18 @@ pub fn log_active() -> bool {
     is_debug_enabled()
 }
 
-/// Initialize file-based recording from `AZ_RECORD` environment variable.
+/// Initialize file-based recording into `record`, the file `AZ_RECORD=<filepath>` named
+/// ([`azul_layout::settings::E2eSettings::record`], read from the environment once at the start).
 ///
-/// When `AZ_RECORD=<filepath>` is set, all log messages are written to the
-/// specified file in addition to the normal debug server log queue. This also
-/// enables debug logging so all `log_trace!` / `log_debug!` / etc. macros fire.
+/// With a file, all log messages are written to it in addition to the normal debug server log
+/// queue. This also enables debug logging so all `log_trace!` / `log_debug!` / etc. macros fire.
+/// `None` records nothing.
 ///
-/// Called once from `App::create()` before any other logging.
+/// Called once, from `E2eSettings::install`, before any other logging.
 #[cfg(feature = "std")]
-pub fn init_recording() {
-    if let Ok(path) = std::env::var("AZ_RECORD") {
-        if let Ok(file) = std::fs::File::create(&path) {
+pub fn init_recording(record: Option<&std::path::Path>) {
+    if let Some(path) = record {
+        if let Ok(file) = std::fs::File::create(path) {
             let _ = RECORD_FILE.set(Mutex::new(file));
             DEBUG_ENABLED.store(true, Ordering::SeqCst);
             SERVER_START_TIME.get_or_init(std::time::Instant::now);
@@ -6262,16 +6263,6 @@ pub fn queue_e2e_tests(tests: Vec<E2eTest>) -> std::sync::mpsc::Receiver<DebugRe
     rx
 }
 
-/// Get debug server port from environment
-///
-/// The `AZ_DEBUG` environment variable should be set to a port number (e.g., `AZ_DEBUG=8765`).
-/// Ports below 1024 require root/administrator privileges.
-/// Returns `None` if not set or not a valid port number.
-#[cfg(feature = "std")]
-pub fn get_debug_port() -> Option<u16> {
-    std::env::var("AZ_DEBUG").ok().and_then(|s| s.parse().ok())
-}
-
 /// Initialize the process-wide debug-server statics.
 ///
 /// Split out of `start_debug_server`, which now lives in the DLL
@@ -6308,7 +6299,7 @@ pub fn clear_debug_server() {
 }
 
 /// The port the debug server was started on (`0` if it was never started).
-/// Unlike [`get_debug_port`] this reads the ACTUAL bound port, not `AZ_DEBUG`.
+/// Unlike `E2eSettings::debug_port` (what `AZ_DEBUG` asked for) this is the ACTUAL bound port.
 #[cfg(feature = "std")]
 #[cfg(feature = "e2e-server")]
 #[must_use]

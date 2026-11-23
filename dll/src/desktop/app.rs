@@ -152,8 +152,23 @@ impl App {
         // SIGPIPE -> SIG_IGN before any socket/pipe I/O happens (see fn docs).
         ignore_sigpipe_once();
 
-        // Initialize AZ_RECORD file logging before anything else
-        debug_server::init_recording();
+        // The e2e machinery and the services learn what the environment asks of them, ONCE, HERE,
+        // before the first log record: the debug server starts recording (`AZ_RECORD`), the request
+        // mock store learns the stand-in devices and the URLs an e2e run may fetch, the file picker
+        // and the profiler are told what the run was started with. azul-layout reads no
+        // environment itself.
+        let e2e_settings = azul_layout::settings::E2eSettings::from_lookup(&crate::env::ProcessEnv);
+        e2e_settings.install();
+        let service_settings =
+            azul_layout::settings::ServiceSettings::from_lookup(&crate::env::ProcessEnv);
+        service_settings.install();
+        // `AZ_DEBUG=<port>` names the port of the debug server where the app's own config names
+        // none (`RemoteControlConfig::debug_port`).
+        if app_config.remote_control.debug_port.is_none() {
+            if let Some(port) = e2e_settings.debug_port {
+                app_config.remote_control.debug_port = azul_css::OptionU16::Some(port);
+            }
+        }
 
         // Install azul's built-in stderr logger (errors unless AZ_LOG asks for
         // more; AZ_LOG=off to silence). The lean `build-dll` library otherwise installs NO logger,
@@ -249,7 +264,7 @@ impl App {
         // them, like the user stylesheet. Nothing here can fail the app: what
         // does not load is reported and skipped.
         if azul_css::system::ricing_enabled() {
-            if let Some(root) = azul_layout::icon_remap::user_icons_root() {
+            if let Some(root) = azul_layout::icon_remap::user_icons_root(&service_settings.platform) {
                 let report = azul_layout::icon_remap::load_user_icon_rules(
                     &mut app_config.icon_provider,
                     &root,
@@ -464,12 +479,15 @@ impl App {
         {
             let channel =
                 std::env::var("AZ_TELEMETRY_CHANNEL").unwrap_or_else(|_| "default".to_owned());
+            let telemetry_settings =
+                azul_layout::telemetry::TelemetrySettings::from_lookup(&crate::env::ProcessEnv);
             let _telemetry_config = azul_layout::telemetry::init(
                 config.updates.app_name.as_str(),
                 azul_layout::telemetry::AppMeta::new(
                     config.updates.current_version.as_str(),
                     channel,
                 ),
+                &telemetry_settings,
             );
             azul_layout::telemetry::install_panic_hook();
             azul_layout::telemetry::record_session_start();

@@ -44,7 +44,7 @@
 
 use std::time::Instant;
 
-use azul_layout::telemetry::{self, AppMeta, Severity};
+use azul_layout::telemetry::{self, AppMeta, Severity, TelemetrySettings};
 
 /// One paragraph of the synthetic document.
 const PARAGRAPH: &str = "<p class=\"body\">The quick brown fox jumps over the lazy dog, then \
@@ -346,12 +346,14 @@ fn main() {
     }
 
     // ── Consent ─────────────────────────────────────────────────────────
-    // Reads AZ_TELEMETRY plus the layered config files. Tier is `off` unless
-    // something explicitly opted in, and nothing below sends anything at
-    // tier off.
+    // Reads AZ_TELEMETRY (from the process environment, once, here) plus the layered config
+    // files. Tier is `off` unless something explicitly opted in, and nothing below sends
+    // anything at tier off.
+    let settings = TelemetrySettings::from_lookup(&|name: &str| std::env::var(name).ok());
     let config = telemetry::init(
         "azul-telemetry-demo",
         AppMeta::new(&args.version, &args.channel),
+        &settings,
     );
     telemetry::install_panic_hook();
     // The app registers its support mailbox right after init — it must exist

@@ -177,10 +177,11 @@ pub fn load_user_icon_rules(
 }
 
 /// `~/.azul`, where user themes live (`css/<theme>/`, `icons/<theme>/`):
-/// `$HOME`, else `%USERPROFILE%`. `None` when neither is set.
+/// `$HOME`, else `%USERPROFILE%`, as `platform` (the environment, read once at the start) names
+/// them. `None` when neither is set.
 #[must_use]
-pub fn user_azul_root() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
+pub fn user_azul_root(platform: &crate::settings::PlatformEnv) -> Option<PathBuf> {
+    let home = platform.home_dir()?;
     if home.is_empty() {
         return None;
     }
@@ -189,8 +190,8 @@ pub fn user_azul_root() -> Option<PathBuf> {
 
 /// `~/.azul/icons`, the root [`load_user_icon_rules`] reads at startup.
 #[must_use]
-pub fn user_icons_root() -> Option<PathBuf> {
-    user_azul_root().map(|root| root.join("icons"))
+pub fn user_icons_root(platform: &crate::settings::PlatformEnv) -> Option<PathBuf> {
+    user_azul_root(platform).map(|root| root.join("icons"))
 }
 
 /// The running executable's file stem: the name `app=` rule terms compare

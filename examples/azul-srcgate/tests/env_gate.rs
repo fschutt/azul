@@ -925,19 +925,7 @@ const W2: &[Allow] = &[
 const W3: &[Allow] = &[
     Allow::exactly(
         "layout/src/desktop/file_picker.rs",
-        NAME,
-        1,
-        "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
-    ),
-    Allow::exactly(
-        "layout/src/desktop/file_picker.rs",
         DIR,
-        1,
-        "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
-    ),
-    Allow::exactly(
-        "layout/src/desktop/file_picker.rs",
-        READ,
         1,
         "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
     ),
@@ -962,13 +950,13 @@ const W3: &[Allow] = &[
     Allow::exactly(
         "layout/src/e2e/full.rs",
         NAME,
-        5,
+        3,
         "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
     ),
     Allow::exactly(
         "layout/src/e2e/full.rs",
         READ,
-        5,
+        3,
         "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
     ),
     Allow::exactly(
@@ -1002,81 +990,9 @@ const W3: &[Allow] = &[
         "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
     ),
     Allow::exactly(
-        "layout/src/icon_remap.rs",
-        NAME,
-        2,
-        "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
-    ),
-    Allow::exactly(
-        "layout/src/icon_remap.rs",
-        READ,
-        2,
-        "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
-    ),
-    Allow::exactly(
-        "layout/src/probe.rs",
-        NAME,
-        1,
-        "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
-    ),
-    Allow::exactly(
-        "layout/src/probe.rs",
-        READ,
-        1,
-        "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
-    ),
-    Allow::exactly(
-        "layout/src/request.rs",
-        NAME,
-        2,
-        "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
-    ),
-    Allow::exactly(
-        "layout/src/request.rs",
-        READ,
-        2,
-        "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
-    ),
-    Allow::exactly(
-        "layout/src/telemetry/config.rs",
-        NAME,
-        12,
-        "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
-    ),
-    Allow::exactly(
-        "layout/src/telemetry/config.rs",
-        READ,
-        10,
-        "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
-    ),
-    Allow::exactly(
-        "layout/src/telemetry/mod.rs",
-        NAME,
-        4,
-        "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
-    ),
-    Allow::exactly(
         "layout/src/telemetry/mod.rs",
         DIR,
         1,
-        "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
-    ),
-    Allow::exactly(
-        "layout/src/telemetry/mod.rs",
-        READ,
-        5,
-        "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
-    ),
-    Allow::exactly(
-        "layout/src/telemetry/sysinfo.rs",
-        NAME,
-        2,
-        "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
-    ),
-    Allow::exactly(
-        "layout/src/telemetry/sysinfo.rs",
-        READ,
-        2,
         "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
     ),
     Allow::exactly(
