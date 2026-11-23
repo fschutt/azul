@@ -996,7 +996,7 @@ mod tests {
         // `currentColor` never resolved, and the close button painted nothing
         // while this test stayed green. Read the registered markup instead, so
         // the premise is the shipped one.
-        let (icons, _) = rendered_icons("definitely-not-a-real-theme", TINT);
+        let (icons, _) = rendered_icons("definitely-not-a-real-theme", TINT, "/nonexistent-home");
         let (_, registered) = icons
             .iter()
             .find(|(name, _)| name == "titlebar-close")
@@ -1017,7 +1017,7 @@ mod tests {
     /// stays reachable for the decorative uses that want it.
     #[test]
     fn the_titlebar_glyph_is_registered_beside_the_theme_icons() {
-        let (icons, _) = rendered_icons("definitely-not-a-real-theme", TINT);
+        let (icons, _) = rendered_icons("definitely-not-a-real-theme", TINT, "/nonexistent-home");
         assert!(
             icons.iter().any(|(name, _)| name == "titlebar-close"),
             "even a session with no icon theme at all gets the window control"
