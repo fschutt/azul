@@ -997,3 +997,7 @@ unsafe extern "C" fn on_terminated(web_view: *mut c_void, _reason: c_int, data: 
         }),
     );
 }
+
+#[cfg(test)]
+#[path = "wpe_thread_test.rs"]
+mod tests;

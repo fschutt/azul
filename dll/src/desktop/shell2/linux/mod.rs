@@ -416,3 +416,7 @@ pub(crate) enum BackendType {
     X11,
     Wayland,
 }
+
+#[cfg(test)]
+#[path = "mod_test.rs"]
+mod tests;
