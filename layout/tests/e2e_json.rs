@@ -44,7 +44,9 @@
 
 use std::path::{Path, PathBuf};
 
-use azul_layout::e2e::{load_e2e_tests, render_report, run_e2e_test, E2eTest, E2eTestResult};
+use azul_layout::e2e::{
+    load_e2e_tests, render_report, run_e2e_test_with_settings, E2eTest, E2eTestResult,
+};
 
 /// The workspace root — `layout/`'s parent.
 fn repo_root() -> PathBuf {
@@ -115,7 +117,17 @@ fn run_all_e2e_scenarios() {
     // clock; the CLI runner runs the same scenarios fully in parallel), but
     // because this gate is small and a serial run keeps the report order and any
     // failure trace trivially reproducible.
-    let results: Vec<E2eTestResult> = tests.iter().map(run_e2e_test).collect();
+    //
+    // The switches of the process (AZ_E2E_RECORD, AZ_PATCH_VERIFY, the traces, ...) are read HERE,
+    // once, by the harness - azul-layout reads no environment - and every scenario's window runs
+    // under them.
+    let settings = azul_layout::settings::LayoutSettings::from_lookup(&|name: &str| {
+        std::env::var(name).ok()
+    });
+    let results: Vec<E2eTestResult> = tests
+        .iter()
+        .map(|test| run_e2e_test_with_settings(test, &settings))
+        .collect();
 
     let (report, verdict) = render_report(&tests, &results);
     eprint!("{report}");
