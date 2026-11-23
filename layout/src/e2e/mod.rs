@@ -171,6 +171,11 @@ mod class_swap_tests;
 #[cfg(test)]
 mod cpu_view_values_tests;
 
+// A screenshot is copied to the folder its window's settings name (`AZ_E2E_SHOT_DIR`), by the
+// thread that encodes it, and to none when the window has no folder.
+#[cfg(test)]
+mod shot_dir_tests;
+
 pub mod hooks {
     //! Dependency-injection seam for the three host-coupled call sites in
     //! [`super::full`]. See the module docs above.
