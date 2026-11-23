@@ -193177,7 +193177,7 @@
                         "constructors": {
                             "create": {
                                 "fn_args": [],
-                                "fn_body": "azul_core::resources::AppConfig::create()"
+                                "fn_body": "azul_dll::env::app_config_create()"
                             }
                         },
                         "functions": {

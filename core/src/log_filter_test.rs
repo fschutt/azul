@@ -3,7 +3,7 @@ pub use super::*;
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsString;
+    use azul_css::env::{EnvSource, MapEnv, NoEnv};
 
     use super::*;
 
@@ -36,13 +36,12 @@ mod tests {
     /// `the_environment_decides_the_level_and_the_echo` lists them: the level, the echo, whether
     /// Layout and Platform are on, whether a Layout Debug record and a Layout Error record pass.
     fn configured_by(env: &[(&str, &str)]) -> String {
-        let var = |name: &str| {
-            env.iter()
-                .find(|(key, _)| *key == name)
-                .map(|(_, value)| OsString::from(*value))
-        };
+        let mut map = MapEnv::new();
+        for (key, value) in env {
+            map.set(key, value);
+        }
         let filter = LogFilter::new();
-        filter.apply(&LogSettings::from_environment(&var));
+        filter.apply(&LogSettings::from_lookup(&map));
         format!(
             "level={:?} echo={} layout={} platform={} debug_passes={} error_passes={}",
             filter.min_level(),
@@ -103,12 +102,21 @@ mod tests {
         }
     }
 
-    /// The two readings of the process's environment agree: the level the filter is configured to
-    /// and the level the `log` facade's own logger takes (`level_from_env`).
+    /// `Default` is the behaviour of an EMPTY environment (and a closure is an environment too).
     #[test]
-    fn the_settings_of_the_real_environment_name_the_level_the_facade_takes() {
-        let settings = LogSettings::from_environment(&environment_var);
-        assert_eq!(settings.level, level_from_env());
+    fn the_default_settings_are_the_empty_environments() {
+        assert_eq!(LogSettings::default(), LogSettings::from_lookup(&NoEnv));
+        assert_eq!(LogSettings::default().level, Some(LEVEL_WHEN_NOT_ASKED));
+        let closure = |name: &str| (name == "AZ_LOG").then(|| String::from("warn"));
+        assert_eq!(LogSettings::from_lookup(&closure).level, Some(Level::Warn));
+        // a variable that is set to nothing asks for logs, and so does a non-text value
+        assert!(LogSettings::asked(&MapEnv::new().with("AZ_E2E", "")));
+        assert!(!LogSettings::asked(&NoEnv));
+        #[cfg(feature = "std")]
+        {
+            let os_only = MapEnv::new().with_os("AZ_LOG_FILE", "/tmp/x");
+            assert!(os_only.is_set("AZ_LOG_FILE") && LogSettings::asked(&os_only));
+        }
     }
 
     /// A filter configured by settings that leave the echo open (`None`) keeps the echo it had.

@@ -1,7 +1,8 @@
 //! Unified profiling gate.
 //!
-//! Reads `AZ_PROFILE` once on first access, caches the result forever.
-//! Value is a comma-separated list of tokens; unknown tokens are ignored,
+//! `AZ_PROFILE` is read once, at the start, by the dll (`ProfileSettings::from_lookup`) and
+//! installed here ([`install`]); this module reads no environment. A process that never installs
+//! any profiles nothing. Value is a comma-separated list of tokens; unknown tokens are ignored,
 //! whitespace is trimmed, matching is case-insensitive.
 //!
 //! Tokens:
@@ -45,9 +46,6 @@
 //!   clock) and `libc::getrusage` isn't available. The probe module detects WASM at compile time
 //!   and forces the no-op impl.
 
-#[cfg(feature = "std")]
-use std::sync::OnceLock;
-
 /// Set of active `AZ_PROFILE` tokens. Parsed once from the env var.
 // independent profile toggles parsed from the env var; a bitflags type would
 // not improve this flat set of named booleans.
@@ -63,7 +61,7 @@ pub struct ProfileFlags {
 }
 
 impl ProfileFlags {
-    fn parse(value: &str) -> Self {
+    pub(crate) fn parse(value: &str) -> Self {
         let mut f = Self::default();
         for tok in value.split(',') {
             let t = tok.trim();
@@ -85,82 +83,77 @@ impl ProfileFlags {
     }
 }
 
+/// What the environment asked of the profiling gate.
+///
+/// The tokens of `AZ_PROFILE`, the destination of the JSONL heap probes (`AZ_PROFILE_OUT`), and
+/// the lines worth saying about them. [`ProfileSettings::from_lookup`] (module
+/// `crate::settings`) reads it; [`install`] puts it where [`flags`] and [`out_path`] find it.
+/// `Default` is the empty environment's: everything off, no destination.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProfileSettings {
+    /// The active modes.
+    pub flags: ProfileFlags,
+    /// `AZ_PROFILE_OUT`: where the JSONL heap probes go. `None`: nowhere.
+    pub out_path: Option<alloc::string::String>,
+    /// What [`install`] says on stderr once: an unknown token, a mode that would emit nothing.
+    pub warnings: alloc::vec::Vec<alloc::string::String>,
+}
+
+// The profiling gate of the process: installed once at the start, then only read. It is asked
+// from per-property and per-frame code that carries no window (`prop_cache::get_property`), which
+// is why it is not a field of one.
+#[cfg(feature = "std")]
+use std::sync::OnceLock;
+
+#[cfg(feature = "std")]
+static SETTINGS: OnceLock<ProfileSettings> = OnceLock::new();
+
+/// Installs the settings of this process and says what is worth saying about them, once.
+///
+/// The words go to stderr. The first install wins: the gate never changes while the process
+/// runs. Without `std` profiling is always off and nothing is kept.
+pub fn install(settings: ProfileSettings) {
+    #[cfg(feature = "std")]
+    {
+        for line in &settings.warnings {
+            eprintln!("{line}");
+        }
+        drop(SETTINGS.set(settings));
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        drop(settings);
+    }
+}
+
 #[cfg(feature = "std")]
 #[inline]
+#[must_use]
 pub fn flags() -> ProfileFlags {
-    // `AZ_PROFILE`, read once: the process's configuration.
-    static FLAGS: OnceLock<ProfileFlags> = OnceLock::new();
-    *FLAGS.get_or_init(|| {
-        let raw = std::env::var("AZ_PROFILE").ok();
-        let f = raw
-            .as_deref()
-            .map(ProfileFlags::parse)
-            .unwrap_or_default();
-        // A typo'd token must WARN and keep running, never silently parse to
-        // nothing - AZ_PROFILE=phases looked exactly like AZ_PROFILE unset,
-        // and "a zero is not a measurement".
-        if let Some(raw) = &raw {
-            let known = |t: &str| {
-                matches!(
-                    t.to_ascii_lowercase().as_str(),
-                    "memory" | "mem" | "cpu" | "perf" | "cascade" | "css" | "heap" | "jsonl"
-                        | "detail" | ""
-                )
-            };
-            let mut unknown: Vec<&str> =
-                raw.split(',').map(str::trim).filter(|t| !known(t)).collect();
-            unknown.truncate(8); // a garbage value must not flood stderr
-            if !unknown.is_empty() {
-                eprintln!(
-                    "[azul][profile] AZ_PROFILE={raw:?}: unknown token(s) {unknown:?} ignored -                      valid values are cpu (perf), memory (mem), cascade (css), heap, jsonl,                      detail; combine with commas, e.g. AZ_PROFILE=cpu,memory"
-                );
-            }
-        }
-        // The announce table: a profile mode that silently emits NOTHING
-        // reads as "not looking" and has repeatedly burned real debugging
-        // time ("a zero is not a measurement"). One line, once, at the
-        // single point every mode resolves through.
-        if f.heap && !f.jsonl {
-            eprintln!(
-                "[azul][profile] AZ_PROFILE=heap alone emits nothing: use \
-                 AZ_PROFILE=heap,jsonl with AZ_PROFILE_OUT=<file> for the \
-                 per-phase heap table (and note builds without the `probe` \
-                 feature report heap as 0)."
-            );
-        }
-        if f.heap && f.jsonl && std::env::var("AZ_PROFILE_OUT").is_err() {
-            eprintln!(
-                "[azul][profile] AZ_PROFILE=heap,jsonl is set but \
-                 AZ_PROFILE_OUT is not — no destination, nothing will be \
-                 written."
-            );
-        }
-        f
-    })
+    SETTINGS.get().map_or_else(ProfileFlags::default, |s| s.flags)
 }
 
 /// `no_std` builds have no environment; profiling is always off.
 #[cfg(not(feature = "std"))]
 #[inline]
+#[must_use]
 pub fn flags() -> ProfileFlags {
-    let _ = ProfileFlags::parse;
     ProfileFlags::default()
 }
 
 /// `AZ_PROFILE_OUT=<path>` — destination for JSONL heap probes.
-/// Returns `None` if unset. Cached on first access.
+/// Returns `None` if unset.
 #[cfg(feature = "std")]
 #[inline]
+#[must_use]
 pub fn out_path() -> Option<&'static str> {
-    // `AZ_PROFILE_OUT`, read once: the process's configuration.
-    static PATH: OnceLock<Option<String>> = OnceLock::new();
-    PATH.get_or_init(|| std::env::var("AZ_PROFILE_OUT").ok())
-        .as_deref()
+    SETTINGS.get().and_then(|s| s.out_path.as_deref())
 }
 
 /// `no_std` builds have no environment; no output path.
 #[cfg(not(feature = "std"))]
 #[inline]
+#[must_use]
 pub fn out_path() -> Option<&'static str> {
     None
 }

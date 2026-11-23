@@ -49,7 +49,7 @@ use azul_srcgate::{
     Rule,
 };
 
-const ROOTS: &[Root] = &[
+static ROOTS: &[Root] = &[
     Root {
         dir: "core/src",
         min_files: 20,
@@ -84,7 +84,7 @@ const NAME: &str = "az-name";
 
 /// The names of the variables that are not `AZ_*` / `AZUL_*` but are read by the engine, the
 /// tools or the platform layers (ledger section 2.4).
-const PLATFORM_NAMES: &[&str] = &[
+static PLATFORM_NAMES: &[&str] = &[
     "ANDROID_AVD_HOME",
     "ANDROID_NDK_HOME",
     "ANTHROPIC_API_KEY",
@@ -367,7 +367,7 @@ fn rules() -> Vec<Rule> {
 // ---------------------------------------------------------------------------------------------
 
 /// W0: css, core, webrender (the shared seam, `AppConfig::create`, the log gate, the test hooks).
-const W0: &[Allow] = &[
+static W0: &[Allow] = &[
     Allow::exactly(
         "core/src/custom_property_cascade.rs",
         NAME,
@@ -544,7 +544,7 @@ const W0: &[Allow] = &[
     ),
 ];
 /// W1: layout solver3, text3, glyph_cache, lib.rs (the `env_flag!` macro).
-const W1: &[Allow] = &[
+static W1: &[Allow] = &[
     Allow::exactly(
         "layout/src/glyph_cache.rs",
         NAME,
@@ -715,7 +715,7 @@ const W1: &[Allow] = &[
     ),
 ];
 /// W2: layout window, cpu_backend, cpurender, managers, widgets, scroll_timer, callbacks.
-const W2: &[Allow] = &[
+static W2: &[Allow] = &[
     Allow::exactly(
         "layout/src/callbacks.rs",
         NAME,
@@ -928,7 +928,7 @@ const W2: &[Allow] = &[
     ),
 ];
 /// W3: layout e2e, telemetry, request, probe, updater, icon_remap, file_picker, file, dialogs.
-const W3: &[Allow] = &[
+static W3: &[Allow] = &[
     Allow::exactly(
         "layout/src/desktop/file_picker.rs",
         NAME,
@@ -1117,7 +1117,7 @@ const W3: &[Allow] = &[
     ),
 ];
 /// W4: dll app start, compositor, wr_translate, shell2 common, macos, windows, android, headless.
-const W4: &[Allow] = &[
+static W4: &[Allow] = &[
     Allow::exactly(
         "dll/src/desktop/app.rs",
         NAME,
@@ -1516,7 +1516,7 @@ const W4: &[Allow] = &[
     ),
 ];
 /// W5: dll linux shell and extras.
-const W5: &[Allow] = &[
+static W5: &[Allow] = &[
     Allow::exactly(
         "dll/src/desktop/extra/map/mod.rs",
         NAME,
@@ -1765,7 +1765,7 @@ const W5: &[Allow] = &[
     ),
 ];
 /// W6: tools: doc and the web-lift transpiler (`dll/src/web`).
-const W6: &[Allow] = &[
+static W6: &[Allow] = &[
     Allow::exactly(
         "dll/src/web/classify.rs",
         NAME,
@@ -2020,7 +2020,7 @@ const W6: &[Allow] = &[
     ),
 ];
 /// W7: what stays for good: the reader, the facades, the process-level proofs.
-const W7: &[Allow] = &[Allow::exactly(
+static W7: &[Allow] = &[Allow::exactly(
     "dll/src/env.rs",
     READ,
     2,
@@ -2153,7 +2153,7 @@ fn base_with(name: &str, tree: &[(&str, &str)]) -> PathBuf {
     base
 }
 
-const SMALL: &[Root] = &[Root {
+static SMALL: &[Root] = &[Root {
     dir: "core/src",
     min_files: 1,
 }];

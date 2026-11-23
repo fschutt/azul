@@ -7019,14 +7019,14 @@ impl TextAaSettings {
         }
     }
 
-    /// The settings the process environment asks for: the reading is
-    /// [`TextAntialiasing::from_env`](azul_core::resources::TextAntialiasing::from_env),
-    /// the one place these variables are looked up. A window does not call
-    /// this; it takes [`AppConfig::text_antialiasing`](azul_core::resources::AppConfig),
-    /// which `AppConfig::create` filled the same way, once.
+    /// The settings the process environment asks for, for a tool that has no app to take them
+    /// from ([`TextAntialiasing::from_vars`](azul_core::resources::TextAntialiasing::from_vars)
+    /// over the process's variables). A window does not call this; it takes
+    /// [`AppConfig::text_antialiasing`](azul_core::resources::AppConfig), which the dll's
+    /// `AppConfig::create` filled from the environment it read at the start.
     #[must_use]
     pub fn from_env() -> Self {
-        azul_core::resources::TextAntialiasing::from_env().into()
+        azul_core::resources::TextAntialiasing::from_vars(|name| std::env::var(name).ok()).into()
     }
 
     /// [`Self::from_env`] with the variables looked up by `var`.

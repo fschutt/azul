@@ -624,24 +624,16 @@ fn inline_state_variants(
 #[cfg(feature = "std")]
 fn warn_undefined_without_fallback(names: &BTreeSet<String>) {
     use core::hash::{Hash, Hasher};
-    use std::sync::OnceLock;
-
-    // The environment's `AZ_SUPPRESS`, read once: it is configuration of the process, as it is
-    // for every lint.
-    static SUPPRESSED: OnceLock<bool> = OnceLock::new();
 
     if names.is_empty() {
         return;
     }
-    if *SUPPRESSED.get_or_init(|| {
-        let v = std::env::var("AZ_SUPPRESS")
-            .or_else(|_| std::env::var("AZ_SUPRESS"))
-            .unwrap_or_default();
-        v.split(',').any(|t| {
-            let t = t.trim();
-            t.eq_ignore_ascii_case(VAR_FALLBACK_SUPPRESS_TAG) || t.eq_ignore_ascii_case("all")
-        })
-    }) {
+    // The environment's `AZ_SUPPRESS` (installed once at the start): it is configuration of the
+    // process, as it is for every lint.
+    if crate::diagnostics::settings()
+        .suppress
+        .contains_or_all(VAR_FALLBACK_SUPPRESS_TAG)
+    {
         return;
     }
     for name in names {

@@ -65,7 +65,7 @@ use alloc::{
 use core::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-pub use crate::system::{ricing_mode, ricing_mode_from, RicingMode};
+pub use crate::system::{ricing_mode_from, RicingMode};
 use crate::{
     corety::{AzString, StringVec},
     css::{rule_priority, Css, CssRuleBlock},
@@ -728,8 +728,10 @@ pub fn chain_directories(root: &Path, kind: &str, chain: &[String]) -> Vec<(Stri
 // where the files are
 // ---------------------------------------------------------------------------------------------
 
-/// Where the rice loader looks, and for whom. [`Self::from_process`] for the
-/// real home directory; [`Self::with_root`] for anything else (every test).
+/// Where the rice loader looks, and for whom.
+///
+/// [`Self::from_lookup`] for the home directory of an environment; [`Self::with_root`] for
+/// anything else (every test).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RiceEnv {
     /// The rice root (`~/.azul`), holding `css/<theme>/` and `icons/<theme>/`.
@@ -756,9 +758,10 @@ impl RiceEnv {
         }
     }
 
-    /// The real one: `~/.azul`, the legacy file of this executable, its name.
+    /// The one of the environment `env`: `~/.azul` under its home directory, the legacy file of
+    /// this executable, its name.
     #[must_use]
-    pub fn from_process() -> Self {
+    pub fn from_lookup(env: &dyn crate::env::EnvSource) -> Self {
         let app = std::env::current_exe()
             .ok()
             .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
@@ -766,10 +769,10 @@ impl RiceEnv {
         let legacy_file = if app.is_empty() {
             None
         } else {
-            legacy_stylesheet_path(&app)
+            legacy_stylesheet_path(&app, env)
         };
         Self {
-            root: default_rice_root(),
+            root: default_rice_root(env),
             legacy_file,
             app,
             azul_version: crate::AZUL_VERSION.to_string(),
@@ -777,39 +780,37 @@ impl RiceEnv {
     }
 }
 
-fn env_path(var: &str) -> Option<PathBuf> {
-    std::env::var_os(var)
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
+fn env_path(env: &dyn crate::env::EnvSource, var: &str) -> Option<PathBuf> {
+    env.var_os(var).filter(|v| !v.is_empty()).map(PathBuf::from)
 }
 
-fn home_dir() -> Option<PathBuf> {
+fn home_dir(env: &dyn crate::env::EnvSource) -> Option<PathBuf> {
     if cfg!(target_os = "windows") {
-        env_path("USERPROFILE")
+        env_path(env, "USERPROFILE")
     } else {
-        env_path("HOME")
+        env_path(env, "HOME")
     }
 }
 
-/// `~/.azul` (`%USERPROFILE%\.azul` on Windows).
+/// `~/.azul` (`%USERPROFILE%\.azul` on Windows) of the environment `env`.
 #[must_use]
-pub fn default_rice_root() -> Option<PathBuf> {
-    home_dir().map(|home| home.join(".azul"))
+pub fn default_rice_root(env: &dyn crate::env::EnvSource) -> Option<PathBuf> {
+    home_dir(env).map(|home| home.join(".azul"))
 }
 
-/// The legacy per-app stylesheet of `app`.
+/// The legacy per-app stylesheet of `app`, under the directories the environment `env` names.
 ///
 /// `$XDG_CONFIG_HOME` (else `~/.config`) `/azul/styles/<app>.css` on Linux and
 /// the BSDs, `~/Library/Application Support/azul/styles/<app>.css` on macOS,
 /// `%APPDATA%\azul\styles\<app>.css` on Windows.
 #[must_use]
-pub fn legacy_stylesheet_path(app: &str) -> Option<PathBuf> {
+pub fn legacy_stylesheet_path(app: &str, env: &dyn crate::env::EnvSource) -> Option<PathBuf> {
     let config = if cfg!(target_os = "windows") {
-        env_path("APPDATA")?
+        env_path(env, "APPDATA")?
     } else if cfg!(target_os = "macos") {
-        home_dir()?.join("Library").join("Application Support")
+        home_dir(env)?.join("Library").join("Application Support")
     } else {
-        env_path("XDG_CONFIG_HOME").or_else(|| home_dir().map(|h| h.join(".config")))?
+        env_path(env, "XDG_CONFIG_HOME").or_else(|| home_dir(env).map(|h| h.join(".config")))?
     };
     Some(
         config
@@ -1688,15 +1689,11 @@ fn with_process<R>(f: impl FnOnce(&mut Option<ProcessRice>) -> R) -> R {
     f(&mut guard)
 }
 
-/// Start this process's rice: read from `env`, in the `AZ_RICING` mode.
-/// `App::create` calls it with [`RiceEnv::from_process`]. Nothing is read
-/// until a window asks ([`rice_for_theme`]).
-pub fn install(env: RiceEnv) {
-    install_with_mode(env, ricing_mode());
-}
-
-/// [`install`] with an explicit mode.
-pub fn install_with_mode(env: RiceEnv, mode: RicingMode) {
+/// Start this process's rice: read from `env`, in the `AZ_RICING` mode `mode`.
+///
+/// `App::create` calls it with [`RiceEnv::from_lookup`] and the mode of
+/// [`RicingMode::from_lookup`]. Nothing is read until a window asks ([`rice_for_theme`]).
+pub fn install(env: RiceEnv, mode: RicingMode) {
     with_process(|p| {
         *p = Some(ProcessRice {
             env,
@@ -1833,7 +1830,7 @@ pub fn take_pending_status(ctx: &DynamicSelectorContext) -> Option<RiceStatus> {
 pub fn rice_status(ctx: Option<&DynamicSelectorContext>) -> RiceStatus {
     let (loaded, mode, env) = with_process(|p| {
         p.as_ref().map_or_else(
-            || (None, ricing_mode(), None),
+            || (None, RicingMode::Default, None),
             |p| (p.loaded.as_ref().map(|(_, l)| l.clone()), p.mode, Some(p.env.clone())),
         )
     });

@@ -1830,18 +1830,14 @@ impl ImageChurn {
     /// frame rate. `carried`: the previous frame was carried forward.
     #[cfg(feature = "std")]
     fn note(&mut self, node_index: usize, carried: bool) {
-        use std::{sync::OnceLock, time::Instant};
+        use std::time::Instant;
 
-        // The environment's `AZ_SUPPRESS`, read once: it is the configuration of the process, as
-        // it is for every lint.
-        static SUPPRESSED: OnceLock<bool> = OnceLock::new();
-        if *SUPPRESSED.get_or_init(|| {
-            let v = std::env::var("AZ_SUPPRESS")
-                .or_else(|_| std::env::var("AZ_SUPRESS"))
-                .unwrap_or_default();
-            v.split(',')
-                .any(|t| t.trim().eq_ignore_ascii_case(IMAGE_CHURN_SUPPRESS_TAG))
-        }) {
+        // The environment's `AZ_SUPPRESS` (installed once at the start): it is the configuration
+        // of the process, as it is for every lint.
+        if crate::diagnostics::settings()
+            .suppress
+            .contains(IMAGE_CHURN_SUPPRESS_TAG)
+        {
             return;
         }
 

@@ -23,7 +23,8 @@
 //!
 //! # Configuring it
 //!
-//! Parsed once from `AZ_LOG` on first use, then mutable at runtime:
+//! Parsed once from `AZ_LOG` by the dll at the start ([`install`], with
+//! `LogSettings::from_lookup`; this crate reads no environment), then mutable at runtime:
 //!
 //! ```text
 //! (unset)                       errors only: a run that asked for nothing prints nothing else
@@ -238,8 +239,10 @@ impl LogFilter {
     }
 }
 
-/// What an environment asks of a [`LogFilter`]: [`LogSettings::from_environment`] reads it off the
-/// variables it is given, [`LogFilter::apply`] puts it on a filter.
+/// What an environment asks of a [`LogFilter`].
+///
+/// [`LogSettings::from_lookup`] (module `crate::settings`) reads it off the variables it is
+/// given, [`LogFilter::apply`] puts it on a filter. `Default` is the empty environment's.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LogSettings {
     /// The minimum level; `None` is "off".
@@ -259,39 +262,6 @@ impl LogSettings {
             level: Some(Level::Debug),
             overrides: Vec::new(),
             stderr_echo: None,
-        }
-    }
-
-    /// What the environment `var` (a variable's value, `None` where it is not set) asks for:
-    /// `AZ_LOG` and `AZ_LOG_STDERR`, and which of [`LOG_REQUEST_VARS`] are set at all.
-    #[cfg(feature = "std")]
-    #[must_use]
-    pub fn from_environment(var: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Self {
-        let raw = var("AZ_LOG")
-            .and_then(|value| value.into_string().ok())
-            .unwrap_or_default();
-        // Setting AZ_LOG AT ALL is a request to see logs, so it turns the echo on. Leaving it unset
-        // is not, which is what keeps an ordinary app run quiet. (`log_gate` additionally treats an
-        // active debug server as such a request; it can see `log_active()` and this crate cannot.)
-        let mut stderr_echo = (!raw.trim().is_empty()).then_some(true);
-        let (parsed, overrides) = parse(&raw);
-        let level = level_for(asked_for_logs_in(var), parsed);
-        // Explicit override only. The default is ON (see `LogFilter::stderr_echo`) — this exists so a
-        // build that genuinely wants the queue and nothing else can say so, not as the switch that
-        // makes logging work.
-        if let Some(value) = var("AZ_LOG_STDERR").and_then(|value| value.into_string().ok()) {
-            let value = value.trim().to_ascii_lowercase();
-            let off = matches!(value.as_str(), "0" | "off" | "false" | "no" | "none");
-            stderr_echo = Some(!off);
-        }
-        // AZ_LOG=off means off, including the echo.
-        if level.is_none() {
-            stderr_echo = Some(false);
-        }
-        Self {
-            level,
-            overrides,
-            stderr_echo,
         }
     }
 }
@@ -331,7 +301,7 @@ pub fn category_enabled(category: Category) -> bool {
 #[must_use]
 pub fn enabled(category: Category, level: Level) -> bool {
     if !PROCESS.initialised.load(Ordering::Relaxed) {
-        init_from_env();
+        init_default();
     }
     PROCESS.enabled(category, level)
 }
@@ -340,25 +310,24 @@ pub fn enabled(category: Category, level: Level) -> bool {
 #[must_use]
 pub fn level_enabled(level: Level) -> bool {
     if !PROCESS.initialised.load(Ordering::Relaxed) {
-        init_from_env();
+        init_default();
     }
     PROCESS.level_enabled(level)
 }
 
 /// Whether passing records should also be echoed to stderr.
 ///
-/// Lazily initialises from the environment like [`enabled`] and
-/// [`level_enabled`] do. It used to be a bare load, which made the answer
-/// depend on whether something had already gone through the level gate: a
+/// Lazily initialises like [`enabled`] and [`level_enabled`] do. It used to be a bare load, which
+/// made the answer depend on whether something had already gone through the level gate: a
 /// caller that reaches `log_gate::emit` directly rather than through a
-/// `log_*!` macro never triggers `init_from_env`, so `AZ_LOG=debug` had not
-/// been read yet, the echo was still its `false` default, and the record
+/// `log_*!` macro never triggers `init_default`, so `AZ_LOG=debug` had not
+/// been installed yet, the echo was still its `false` default, and the record
 /// was written to NO sink at all. That is what
 /// `a_record_reaches_stderr_exactly_once` catches ("got 0").
 #[must_use]
 pub fn stderr_echo() -> bool {
     if !PROCESS.initialised.load(Ordering::Relaxed) {
-        init_from_env();
+        init_default();
     }
     PROCESS.stderr_echo()
 }
@@ -392,7 +361,7 @@ pub fn category_from_name(name: &str) -> Option<Category> {
 
 /// Parse one `AZ_LOG` value into (min level, category overrides).
 ///
-/// Split out from [`init_from_env`] so it is testable without touching the
+/// Split out from [`LogSettings::from_lookup`] so it is testable without touching the
 /// process environment.
 #[must_use]
 pub fn parse(raw: &str) -> (Option<Level>, Vec<(Category, bool)>) {
@@ -431,9 +400,10 @@ pub fn parse(raw: &str) -> (Option<Level>, Vec<(Category, bool)>) {
     (level, overrides)
 }
 
-/// The level of a process that set none of the variables that ask for logs
-/// ([`LOG_REQUEST_VARS`]): errors, as the log facade's own default and
-/// `AppConfig::log_level` are.
+/// The level of a process that set none of the variables that ask for logs: errors.
+///
+/// Those are the [`LOG_REQUEST_VARS`]; errors are the log facade's own default and
+/// `AppConfig::log_level`.
 ///
 /// It used to be Debug: with `AZ_LOG` unset an
 /// ordinary run of a lean build echoed every Debug record to stderr (the
@@ -443,17 +413,10 @@ pub fn parse(raw: &str) -> (Option<Level>, Vec<(Category, bool)>) {
 /// had asked for no logging).
 pub const LEVEL_WHEN_NOT_ASKED: Level = Level::Error;
 
-/// The variables that ask for logs: setting one of them is a request to see
-/// more than errors (`AZ_LOG` itself, a file or stderr to write to, a debug
-/// server, a scripted run, a recording).
-pub const LOG_REQUEST_VARS: [&str; 6] =
-    ["AZ_LOG", "AZ_LOG_FILE", "AZ_LOG_STDERR", "AZ_DEBUG", "AZ_E2E", "AZ_RECORD"];
-
 /// The level to use for what `AZ_LOG` parsed to: the parsed one when logs were
-/// asked for, [`LEVEL_WHEN_NOT_ASKED`] when none of [`LOG_REQUEST_VARS`] is set.
+/// asked for, [`LEVEL_WHEN_NOT_ASKED`] when none of the [`LOG_REQUEST_VARS`] is set.
 ///
-/// Split out from [`init_from_env`] so it is testable without touching the
-/// process environment.
+/// Split out from [`LogSettings::from_lookup`] so it is testable without an environment.
 #[must_use]
 pub const fn level_for(asked: bool, parsed: Option<Level>) -> Option<Level> {
     if asked {
@@ -463,52 +426,43 @@ pub const fn level_for(asked: bool, parsed: Option<Level>) -> Option<Level> {
     }
 }
 
-/// The variable `name` of the process's environment: what the settings are read from.
-#[cfg(feature = "std")]
-fn environment_var(name: &str) -> Option<std::ffi::OsString> {
-    std::env::var_os(name)
-}
+pub use crate::settings::LOG_REQUEST_VARS;
 
-/// Whether the environment asks for logs: one of [`LOG_REQUEST_VARS`] is set.
-#[cfg(feature = "std")]
-#[must_use]
-pub fn asked_for_logs() -> bool {
-    asked_for_logs_in(&environment_var)
-}
-
-/// [`asked_for_logs`] of the environment `var` describes (a variable's value, `None` where it
-/// is not set).
-#[cfg(feature = "std")]
-#[must_use]
-pub fn asked_for_logs_in(var: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> bool {
-    LOG_REQUEST_VARS.iter().any(|name| var(name).is_some())
-}
-
-/// The level the environment asks for, `None` for "off": what `AZ_LOG` parses
-/// to when [`asked_for_logs`], errors otherwise ([`LEVEL_WHEN_NOT_ASKED`]).
+/// The level the filter of this process is configured to, `None` for "off".
 ///
-/// THE one reading of the environment that both log sinks of azul-dll use - the
-/// shell's gate (through [`init_from_env`]) and the `log` facade's built-in
-/// stderr logger - so a process cannot be at Error for one and at Debug for the
-/// other (they used to parse `AZ_LOG` separately: unset was Debug for the gate
-/// and Error for the facade, `AZ_LOG=1` the other way round).
-#[cfg(feature = "std")]
+/// What the dll's settings asked at the start ([`install`]), errors before that
+/// ([`LEVEL_WHEN_NOT_ASKED`]).
+///
+/// THE one level both log sinks of azul-dll use - the shell's gate and the `log` facade's built-in
+/// stderr logger - so a process cannot be at Error for one and at Debug for the other (they used
+/// to parse `AZ_LOG` separately: unset was Debug for the gate and Error for the facade, `AZ_LOG=1`
+/// the other way round).
 #[must_use]
-pub fn level_from_env() -> Option<Level> {
-    let raw = std::env::var("AZ_LOG").unwrap_or_default();
-    level_for(asked_for_logs(), parse(&raw).0)
+pub fn configured_level() -> Option<Level> {
+    if !PROCESS.initialised.load(Ordering::Relaxed) {
+        init_default();
+    }
+    PROCESS.min_level()
 }
 
-/// Configure the process's filter from `AZ_LOG` (and `AZ_LOG_STDERR`).
+/// Configure the process's filter as `settings` say.
 ///
-/// Idempotent; the first caller wins and later ones are no-ops, so an explicit
-/// [`set_min_level`] made before any logging is not clobbered.
-pub fn init_from_env() {
+/// The dll builds them from the environment, once, at the start (`LogSettings::from_lookup`).
+/// Whatever was configured before is replaced, so it belongs before the first log record.
+pub fn install(settings: &LogSettings) {
+    PROCESS.apply(settings);
+}
+
+/// Configures the process's filter as an empty environment would, when nothing has.
+///
+/// Errors only, or Debug in a build without `std` (an embedder that installs a sink still gets
+/// records). The first question asked of the filter does it.
+fn init_default() {
     if PROCESS.initialised.swap(true, Ordering::SeqCst) {
         return;
     }
     #[cfg(feature = "std")]
-    PROCESS.apply(&LogSettings::from_environment(&environment_var));
+    PROCESS.apply(&LogSettings::default());
     #[cfg(not(feature = "std"))]
     PROCESS.apply(&LogSettings::without_environment());
 }

@@ -18,7 +18,7 @@
 //! decides: `azul_core::log_filter` starts at Error unless one of its
 //! `LOG_REQUEST_VARS` (`AZ_LOG`, `AZ_LOG_FILE`, `AZ_LOG_STDERR`, `AZ_DEBUG`,
 //! `AZ_E2E`, `AZ_RECORD`) is set, and the `log` facade's built-in logger takes
-//! its level from the same function (`log_filter::level_from_env`). It used to
+//! its level from the same function (`log_filter::configured_level`). It used to
 //! start at Debug: an ordinary run of an app printed every Debug record to stderr,
 //! 3.4 million lines (612 MB, half the wall time) in two minutes of the map editor.
 //!

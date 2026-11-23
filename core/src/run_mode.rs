@@ -13,7 +13,8 @@
 //! So they are asked for in ONE place. [`test_hooks`] is the hooks of this process:
 //!
 //! - in a build with the cargo feature `test-hooks` (the unit tests of the crates that need it and
-//!   the E2E builds: `--features build-dll,test-hooks`), what the environment asks for -
+//!   the E2E builds: `--features build-dll,test-hooks`), what the environment the dll read at the
+//!   start asks for ([`install`] with [`TestHooks::from_lookup`]) -
 //!   `AZ_BACKEND=headless` as a STAND-IN switch (everywhere else it stays what it always was: a
 //!   windowing choice), `AZ_E2E_TEST`, `AZ_E2E`, `AZ_KEYRING`, `AZ_KEYRING_FILE` and
 //!   `AZ_AUTH_SESSION_REDIRECT`;
@@ -21,12 +22,15 @@
 //!   not even read.
 //!
 //! A consumer asks the hook it needs (`test_hooks().open_nothing`, ...) and never reads one of
-//! those variables itself; `dll/tests/run_mode_gate.rs` fails when one does. The hooks are read
-//! once, at the first question: a test that must see another environment builds its own
-//! [`TestHooks`] ([`TestHooks::from_env`] takes the environment as a function) and hands it to
-//! the pure function behind the consumer.
+//! those variables itself; `dll/tests/run_mode_gate.rs` fails when one does. This crate reads no
+//! environment: the dll installs the hooks once, at the start ([`install`]), and until then the
+//! hooks are none. A test that must see another environment builds its own [`TestHooks`]
+//! ([`TestHooks::from_lookup`] takes the environment as a value) and hands it to the pure
+//! function behind the consumer.
 
 use std::ffi::OsString;
+
+use azul_css::env::EnvSource;
 
 /// The variable that picks a test run's keyring: `system`, `file` or `memory`.
 pub const KEYRING_CHOICE_VAR: &str = "AZ_KEYRING";
@@ -91,6 +95,13 @@ pub struct TestHooks {
     pub scripted: bool,
 }
 
+impl Default for TestHooks {
+    /// No hook: the empty environment's, and what every shipped build has.
+    fn default() -> Self {
+        Self::NONE
+    }
+}
+
 impl TestHooks {
     /// No hook: what every shipped build has.
     pub const NONE: Self = Self {
@@ -122,6 +133,13 @@ impl TestHooks {
         mocks: true,
         scripted: false,
     };
+
+    /// The hooks a run asks for whose environment is `env` ([`Self::from_env`] over an
+    /// [`EnvSource`]). A path keeps its bytes.
+    #[must_use]
+    pub fn from_lookup(env: &dyn EnvSource) -> Self {
+        Self::from_env(&|name| env.var_os(name))
+    }
 
     /// The hooks a run asks for whose environment is `var`. Pure: this is the one place that
     /// knows which variable means what, and a test hands it an environment of its own.
@@ -171,17 +189,15 @@ pub const TEST_HOOKS_MARKER: &str =
 #[used]
 static TEST_HOOKS_IN_THIS_BINARY: &str = TEST_HOOKS_MARKER;
 
-/// The hooks of this process: [`TestHooks::from_env`] of its environment, read at the first call,
-/// in a build with the cargo feature `test-hooks`.
+/// The hooks of this process: what [`install`] put there in a build with the cargo feature
+/// `test-hooks`, [`TestHooks::NONE`] before that.
 #[cfg(feature = "test-hooks")]
 #[must_use]
 pub fn test_hooks() -> &'static TestHooks {
-    // The test switches of the environment, read once: the process's configuration.
-    static HOOKS: std::sync::OnceLock<TestHooks> = std::sync::OnceLock::new();
     // Every binary that asks for a hook keeps the marker (a linker that drops what nothing reads
     // would drop it otherwise).
     std::hint::black_box(TEST_HOOKS_IN_THIS_BINARY);
-    HOOKS.get_or_init(|| TestHooks::from_env(&|name| std::env::var_os(name)))
+    HOOKS.get().unwrap_or(&TestHooks::NONE)
 }
 
 /// The hooks of this process: none. This build has no cargo feature `test-hooks`, so no variable
@@ -190,6 +206,28 @@ pub fn test_hooks() -> &'static TestHooks {
 #[must_use]
 pub const fn test_hooks() -> &'static TestHooks {
     &TestHooks::NONE
+}
+
+// The hooks of the process: the test switches of the environment, installed once at the start
+// (`install`), then only read. The consumers are public context-free functions (`Url::open`, the
+// keyring, the request mocks), which carry nothing to ask.
+#[cfg(feature = "test-hooks")]
+static HOOKS: std::sync::OnceLock<TestHooks> = std::sync::OnceLock::new();
+
+/// Installs the hooks of this process, once, at the start.
+///
+/// The dll builds them from the environment it read ([`TestHooks::from_lookup`]); the first
+/// install wins and the hooks never change while the process runs. A build without the cargo
+/// feature `test-hooks` keeps none.
+pub fn install(hooks: TestHooks) {
+    #[cfg(feature = "test-hooks")]
+    {
+        drop(HOOKS.set(hooks));
+    }
+    #[cfg(not(feature = "test-hooks"))]
+    {
+        drop(hooks);
+    }
 }
 
 #[cfg(test)]
@@ -340,11 +378,34 @@ mod tests {
         assert_eq!(test_hooks(), &TestHooks::NONE);
     }
 
-    /// A build with the cargo feature reads its environment once and hands out the same hooks.
+    /// A build with the cargo feature hands out the same hooks every time (none until the dll
+    /// installs them; `tests/run_mode_hooks.rs` installs some, in a process of its own).
     #[cfg(feature = "test-hooks")]
     #[test]
-    fn a_build_with_the_feature_reads_its_environment_once() {
+    fn a_build_with_the_feature_hands_out_the_same_hooks() {
         assert!(AVAILABLE);
         assert!(std::ptr::eq(test_hooks(), test_hooks()));
+    }
+
+    /// The environment is an `EnvSource`: a map, nothing, and a path that is not text.
+    #[test]
+    fn the_hooks_of_an_env_source_are_those_of_its_variables() {
+        use azul_css::env::{MapEnv, NoEnv};
+        assert_eq!(TestHooks::from_lookup(&NoEnv), TestHooks::NONE);
+        assert_eq!(TestHooks::default(), TestHooks::NONE);
+        let env = MapEnv::new()
+            .with("AZ_BACKEND", "headless")
+            .with("AZ_KEYRING", "memory")
+            .with_os("AZ_KEYRING_FILE", "/tmp/a-stack/keyring.json");
+        let hooks = TestHooks::from_lookup(&env);
+        assert!(hooks.fake_sign_in && hooks.mocks && !hooks.scripted);
+        assert_eq!(hooks.keyring_choice, Some(OsString::from("memory")));
+        assert_eq!(
+            hooks.keyring_file,
+            Some(OsString::from("/tmp/a-stack/keyring.json"))
+        );
+        let env = MapEnv::new().with("AZ_E2E", "/tmp/script.json");
+        let hooks = TestHooks::from_lookup(&env);
+        assert!(hooks.mocks && hooks.scripted && !hooks.fake_sign_in);
     }
 }

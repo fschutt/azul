@@ -25,3 +25,26 @@ impl EnvSource for ProcessEnv {
         std::env::var_os(name)
     }
 }
+
+/// Reads what azul-css and azul-core ask of the environment `env`, once, and installs what their
+/// context-free code needs: the theme and mode pins, the log filter, the profiling gate, the
+/// diagnostic dials and the test hooks. `App::create` calls it first, before the first log
+/// record, with a [`ProcessEnv`] (and installs the user's rice from the same environment).
+///
+/// What a library crate keeps for itself is read-only after this call and the first install of
+/// a process wins, so a change of the environment later is not seen.
+pub fn install_settings(env: &dyn EnvSource) {
+    azul_css::settings::CssSettings::from_lookup(env).install();
+    azul_core::settings::CoreSettings::from_lookup(env).install();
+}
+
+/// `AppConfig::create` of the C API and of the `azul` crate (api.json names this function): the
+/// config of `azul_core::resources::AppConfig::create`, which reads no environment, with the
+/// default text anti-aliasing replaced by what `AZ_TEXT_AA` and the `AZ_LCD_*` variables of
+/// the process environment ask for. An app that sets it afterwards decides for itself.
+#[must_use]
+pub fn app_config_create() -> azul_core::resources::AppConfig {
+    let mut config = azul_core::resources::AppConfig::create();
+    config.text_antialiasing = azul_core::resources::TextAntialiasing::from_lookup(&ProcessEnv);
+    config
+}

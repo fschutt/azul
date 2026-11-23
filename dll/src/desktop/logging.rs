@@ -313,14 +313,14 @@ pub(super) fn set_up_panic_hooks() {
 /// The built-in logger's maximum level from the environment. `None` means
 /// "logging disabled".
 ///
-/// The SAME reading the shell's gate uses (`azul_core::log_filter::level_from_env`):
+/// The SAME reading the shell's gate uses (`azul_core::log_filter::configured_level`):
 /// the two used to parse `AZ_LOG` separately and disagreed (unset was Debug for
 /// the gate and Error here; `AZ_LOG=1` the other way round), so a process could
 /// not say what its level was. Unset (no variable that asks for logs set) is
 /// Error; `AZ_LOG=trace` prints everything, including the per-frame firehose.
 pub(super) fn az_log_level() -> Option<LevelFilter> {
     use azul_core::log_filter::Level;
-    azul_core::log_filter::level_from_env().map(|level| match level {
+    azul_core::log_filter::configured_level().map(|level| match level {
         Level::Trace => LevelFilter::Trace,
         Level::Debug => LevelFilter::Debug,
         Level::Info => LevelFilter::Info,
