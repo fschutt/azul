@@ -34,6 +34,7 @@ use super::scratch::{PaintScratch, SaidOnce};
 use crate::{
     font::parsed::ParsedFont,
     glyph_cache::GlyphCache,
+    settings::render::PaintSwitches,
     solver3::display_list::{
         BorderRadius, DisplayList, DisplayListItem, LocalScrollId,
     },
@@ -1795,13 +1796,14 @@ pub(crate) fn set_walk_test_flags((cull_off, grid_off): (bool, bool)) {
 }
 
 /// Does a walk ask the grids of a list's levels which children can paint (`item_grid`; the
-/// default), or test every item (`AZ_CPU_GRID=off`)?
-fn walk_uses_grids() -> bool {
+/// default), or test every item (`AZ_CPU_GRID=off`, `PaintSwitches::item_grid`)?
+#[allow(clippy::missing_const_for_fn)] // the test build asks a thread-local first
+fn walk_uses_grids(render_state: &CpuRenderState) -> bool {
     #[cfg(test)]
     if GRID_OFF.with(std::cell::Cell::get) {
         return false;
     }
-    item_grid::grid_is_used()
+    render_state.switches.item_grid
 }
 
 /// The rect outside which a walk culls every direct child of the level it is entering, in the
@@ -2647,6 +2649,11 @@ pub struct CpuRenderState {
     /// `None` (every caller but a backend asked for the layer present): no frame is treated
     /// differently and every pixel is the one painted before this field existed.
     pub promote: Option<PromoteFrame>,
+    /// The knobs of the walks and the damage passes (`RenderSettings::paint`: the item grid, the
+    /// turned text path, the debug fill and the traces). The default is the shipping paths and
+    /// no trace, the behaviour of an empty environment; a window's backend sets what the
+    /// window's settings say ([`Self::with_switches`]).
+    pub switches: PaintSwitches,
 }
 
 /// A reference frame the shell shows as a layer of its own (A10-06, `present_layer`): the
@@ -2685,7 +2692,15 @@ impl CpuRenderState {
             retained: None,
             root_display_list: None,
             promote: None,
+            switches: PaintSwitches::default(),
         }
+    }
+
+    /// Paint with the knobs `switches` (see the field).
+    #[must_use]
+    pub const fn with_switches(mut self, switches: PaintSwitches) -> Self {
+        self.switches = switches;
+        self
     }
 
     /// The window's own list, shared (see the field).
@@ -2769,6 +2784,7 @@ impl CpuRenderState {
             retained: None,
             root_display_list: None,
             promote: None,
+            switches: PaintSwitches::default(),
         }
     }
 }
@@ -3081,7 +3097,7 @@ pub(crate) fn walk_range(
     // where this walk is in each level it has entered: the children that can paint under its
     // cull there. The walk steps from one of them to the next; everything it visits goes
     // through the tests below as before.
-    let grid = (list.items.len() > item_grid::MIN_GRID_CHILDREN && walk_uses_grids())
+    let grid = (list.items.len() > item_grid::MIN_GRID_CHILDREN && walk_uses_grids(render_state))
         .then(|| {
             let index = frames.get_or_insert_with(|| list.frame_index());
             item_grid::ItemGrid::of_list(list, index)
@@ -4031,15 +4047,15 @@ thread_local! {
 }
 
 /// Are turned text frames drawn through their matrix (the default), or into a surface that is
-/// composited (`AZ_CPU_TURNED_TEXT=group`: the path before, for comparing the two)?
-fn turned_text_is_drawn_directly() -> bool {
+/// composited (`AZ_CPU_TURNED_TEXT=group`, `PaintSwitches::turned_text_direct`: the path
+/// before, for comparing the two)?
+#[allow(clippy::missing_const_for_fn)] // the test build asks a thread-local first
+fn turned_text_is_drawn_directly(render_state: &CpuRenderState) -> bool {
     #[cfg(test)]
     if TURNED_TEXT_IN_GROUPS.with(std::cell::Cell::get) {
         return false;
     }
-    // Process-wide configuration, read once from the environment (`AZ_CPU_TURNED_TEXT`).
-    static DIRECT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *DIRECT.get_or_init(|| std::env::var("AZ_CPU_TURNED_TEXT").map_or(true, |v| v != "group"))
+    render_state.switches.turned_text_direct
 }
 
 /// Where a reference frame's matrix puts a point of the surface the frame is painted into:
@@ -4106,7 +4122,7 @@ fn paint_turned_text_frame(
     else {
         return false;
     };
-    if !turned_text_is_drawn_directly()
+    if !turned_text_is_drawn_directly(render_state)
         || !frame.self_contained
         || !frame.leaf
         || !(dpi_factor > 0.0)
@@ -4994,45 +5010,6 @@ const fn probe_label_for_item(item: &DisplayListItem) -> &'static str {
 /// # Errors
 ///
 /// Returns an error string if rendering fails.
-/// Colour the damaged region is cleared to before it is repainted.
-///
-/// Opaque white normally — the same base a full repaint starts from. Set
-/// `AZ_DEBUG_FILL=RRGGBB` (or `1` for red) to clear to something loud
-/// instead: whatever is still that colour at the end of the frame was
-/// CLEARED BUT NEVER REPAINTED, and whatever kept its old content was never
-/// in a damage rect at all. That distinction is otherwise invisible — a
-/// region that repaints to the wrong colour and a region that never repaints
-/// look identical on screen.
-fn damage_clear_color() -> (u8, u8, u8, u8) {
-    use std::sync::OnceLock;
-    // Process-wide configuration, read once from the environment (`AZ_DEBUG_FILL`).
-    static C: OnceLock<(u8, u8, u8, u8)> = OnceLock::new();
-    *C.get_or_init(|| parse_damage_fill(std::env::var("AZ_DEBUG_FILL").ok().as_deref()))
-}
-
-/// `AZ_DEBUG_FILL` -> clear colour. Split out from [`damage_clear_color`]
-/// because that one latches its answer in a `OnceLock`, so a test can only
-/// ever observe one branch of it per process.
-fn parse_damage_fill(v: Option<&str>) -> (u8, u8, u8, u8) {
-    const WHITE: (u8, u8, u8, u8) = (255, 255, 255, 255);
-    const RED: (u8, u8, u8, u8) = (255, 0, 0, 255);
-    match v {
-        None => WHITE,
-        // Unset is the shipping default; "0" turns the knob off explicitly
-        // without having to unset it.
-        Some("0" | "") => WHITE,
-        Some("1") => RED,
-        Some(v) => u32::from_str_radix(v.trim_start_matches('#'), 16).map_or(RED, |n| {
-            (
-                ((n >> 16) & 0xff) as u8,
-                ((n >> 8) & 0xff) as u8,
-                (n & 0xff) as u8,
-                255,
-            )
-        }),
-    }
-}
-
 /// Physical-pixel damage boxes `[x0, y0, x1, y1]` made pairwise disjoint, so a
 /// repaint pass per box paints every damaged pixel once. Two overlapping boxes
 /// whose bounding box is barely larger than what they cover become that one
@@ -5098,14 +5075,6 @@ pub(crate) fn box_minus(p: [i32; 4], d: [i32; 4]) -> Vec<[i32; 4]> {
         out.push([d[2], y0, p[2], y1]);
     }
     out
-}
-
-/// `AZ_DEBUG_DAMAGE=1` — log what each damaged repaint actually touched.
-fn damage_logging_enabled() -> bool {
-    use std::sync::OnceLock;
-    // Process-wide configuration, read once from the environment (`AZ_DEBUG_DAMAGE`).
-    static E: OnceLock<bool> = OnceLock::new();
-    *E.get_or_init(|| std::env::var_os("AZ_DEBUG_DAMAGE").is_some())
 }
 
 /// A damage rect snapped to physical pixels, carried both ways so the clear,
@@ -5270,7 +5239,7 @@ pub fn render_display_list_damaged(
     // damage rects (e.g. window background + scroll strip + scrollbar column:
     // the background repainted the entire union = whole window, while all the
     // rows in the middle were skipped → visually wiped).
-    if damage_logging_enabled() {
+    if render_state.switches.debug_damage {
         let total: i64 = rects
             .iter()
             .map(|r| i64::from(r.x1 - r.x0) * i64::from(r.y1 - r.y0))
@@ -5291,10 +5260,15 @@ pub fn render_display_list_damaged(
     }
 
     // What a rect is cleared to before it is repainted (the same for every rect of the frame).
-    // Process-wide configuration, read once from the environment (`AZ_DEBUG_FILL`).
-    static DEBUG_FILL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    let clear = if *DEBUG_FILL.get_or_init(|| std::env::var_os("AZ_DEBUG_FILL").is_some()) {
-        damage_clear_color()
+    //
+    // Opaque white normally - the same base a full repaint starts from. With `AZ_DEBUG_FILL`
+    // (`PaintSwitches::debug_fill`: `RRGGBB`, or `1` for red) a loud colour instead: whatever
+    // is still that colour at the end of the frame was CLEARED BUT NEVER REPAINTED, and
+    // whatever kept its old content was never in a damage rect at all. That distinction is
+    // otherwise invisible - a region that repaints to the wrong colour and a region that never
+    // repaints look identical on screen.
+    let clear = if let Some(fill) = render_state.switches.debug_fill {
+        fill
     } else {
         // Explicit destructure, NOT `.into()`: the array→tuple conversion
         // resolved to the wrong thing and painted damage rects with a bad
@@ -5315,7 +5289,7 @@ pub fn render_display_list_damaged(
             sr,
             Some(clear),
         )?;
-        if damage_logging_enabled() {
+        if render_state.switches.debug_damage {
             eprintln!(
                 "[damage]   rect {}x{} @ ({}, {}) phys — painted {painted} item(s), skipped \
                  {skipped}",
@@ -6179,7 +6153,7 @@ pub fn render_single_item(
                 clip_stack.pop();
             } else {
                 #[cfg(feature = "std")]
-                if std::env::var("AZ_CLIP_DEBUG").is_ok() {
+                if render_state.switches.clip_debug {
                     eprintln!(
                         "[CpuBackend] PopClip with no matching PushClip — clamping to base clip"
                     );
@@ -6242,7 +6216,7 @@ pub fn render_single_item(
                 .get(child_dom_id)
                 .cloned();
             #[cfg(feature = "std")]
-            if map_debug() {
+            if render_state.switches.map_debug {
                 eprintln!(
                     "[cpu-vview] VirtualView item: child_dom_id={} found={} items={} bounds={:?} \
                      avail_ids={:?}",
@@ -6311,7 +6285,7 @@ pub fn render_single_item(
         DisplayListItem::VirtualViewPlaceholder { .. } =>
         {
             #[cfg(feature = "std")]
-            if map_debug() {
+            if render_state.switches.map_debug {
                 eprintln!(
                     "[cpu-vview] VirtualViewPlaceholder hit (NOT swapped to a VirtualView item — \
                      nothing composites)"
@@ -17053,39 +17027,6 @@ mod autotest_generated {
                 .is_some(),
             "unicode input must not panic or bail out"
         );
-    }
-}
-
-#[cfg(test)]
-mod damage_debug_tests {
-    use super::*;
-
-    /// The damaged-repaint clear colour is white unless asked otherwise, and
-    /// the knob really produces a DIFFERENT colour — a debug fill that
-    /// silently stayed white would make the "cleared but never repainted"
-    /// experiment look like a clean frame.
-    ///
-    /// NEGATIVE CONTROL: making `parse_damage_fill` return WHITE for every
-    /// input fails the "1" and hex cases — run and seen.
-    #[test]
-    fn the_damage_fill_knob_changes_the_clear_colour() {
-        const WHITE: (u8, u8, u8, u8) = (255, 255, 255, 255);
-        assert_eq!(parse_damage_fill(None), WHITE, "unset ships as white");
-        assert_eq!(parse_damage_fill(Some("0")), WHITE, "0 turns it off");
-        assert_eq!(parse_damage_fill(Some("")), WHITE);
-
-        assert_eq!(parse_damage_fill(Some("1")), (255, 0, 0, 255), "1 is red");
-        assert_ne!(
-            parse_damage_fill(Some("1")),
-            WHITE,
-            "the debug fill must not be white, or nothing is visible"
-        );
-
-        assert_eq!(parse_damage_fill(Some("00ff00")), (0, 255, 0, 255));
-        assert_eq!(parse_damage_fill(Some("#0000ff")), (0, 0, 255, 255));
-        // Garbage falls back to red rather than to white: the user asked for
-        // a debug fill, so give them a visible one.
-        assert_eq!(parse_damage_fill(Some("nonsense")), (255, 0, 0, 255));
     }
 }
 

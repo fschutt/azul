@@ -5433,6 +5433,7 @@ impl WaylandWindow {
                 };
 
                 azul_layout::scroll_timer::trace_scroll_input(
+                    layout_window.settings.window.scroll_debug,
                     "wayland",
                     delta_x,
                     delta_y,

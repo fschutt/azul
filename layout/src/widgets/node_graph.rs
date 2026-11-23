@@ -3586,20 +3586,16 @@ fn get_rect(
 enum PanMode {
     /// On the two containers: the default.
     Containers,
-    /// On every node box and wire, as before A3-solver-35b: the environment
-    /// variable `AZ_NODEGRAPH_PAN=nodes`.
+    /// On every node box and wire, as before A3-solver-35b: built by
+    /// `NodeGraph::dom_in_view_as`, for the tests that compare the two.
     Nodes,
 }
 
-/// The [`PanMode`] of this process: `Containers`, unless the environment
-/// says `AZ_NODEGRAPH_PAN=nodes` (read once).
-fn pan_mode() -> PanMode {
-    #[cfg(feature = "std")]
-    {
-        if env_flag!("AZ_NODEGRAPH_PAN" == "nodes") {
-            return PanMode::Nodes;
-        }
-    }
+/// The [`PanMode`] of a graph built by [`NodeGraph::dom_in_view`]: `Containers`. The
+/// environment variable that asked for `Nodes` (`AZ_NODEGRAPH_PAN=nodes`) is gone: a widget
+/// builder has no window to ask for the process's settings, and a switch that no builder can
+/// reach is dead.
+const fn pan_mode() -> PanMode {
     PanMode::Containers
 }
 

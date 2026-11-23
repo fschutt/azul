@@ -531,6 +531,8 @@ pub(crate) fn shape_placeholder_text<T: ParsedFontTrait>(
     font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
     fc_cache: &FcFontCache,
     loaded_fonts: &LoadedFonts<T>,
+    // What the shaping runs under (`FontManager::settings`): the basis of the advances.
+    settings: &crate::settings::TextSettings,
 ) -> Vec<Glyph> {
     if text.is_empty() {
         return Vec::new();
@@ -539,7 +541,7 @@ pub(crate) fn shape_placeholder_text<T: ParsedFontTrait>(
     let language = script_to_language(script, text);
     match &style.font_stack {
         FontStack::Ref(font_ref) => font_ref
-            .shape_text(text, script, language, BidiDirection::Ltr, style)
+            .shape_text_with(text, script, language, BidiDirection::Ltr, style, settings)
             .unwrap_or_default(),
         FontStack::Stack(selectors) => {
             let cache_key = FontChainKey::from_selectors(selectors);
@@ -574,7 +576,7 @@ pub(crate) fn shape_placeholder_text<T: ParsedFontTrait>(
             else {
                 return Vec::new();
             };
-            font.shape_text(text, script, language, BidiDirection::Ltr, style)
+            font.shape_text_with(text, script, language, BidiDirection::Ltr, style, settings)
                 .unwrap_or_default()
         }
     }
@@ -592,6 +594,8 @@ pub(crate) fn shape_ellipsis<T: ParsedFontTrait>(
     font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
     fc_cache: &FcFontCache,
     loaded_fonts: &LoadedFonts<T>,
+    // What the shaping runs under (`FontManager::settings`): the basis of the advances.
+    settings: &crate::settings::TextSettings,
 ) -> Vec<Glyph> {
     let ellipsis = shape_placeholder_text(
         "\u{2026}",
@@ -599,11 +603,12 @@ pub(crate) fn shape_ellipsis<T: ParsedFontTrait>(
         font_chain_cache,
         fc_cache,
         loaded_fonts,
+        settings,
     );
     if !ellipsis.is_empty() && ellipsis.iter().all(|g| g.glyph_id != 0) {
         return ellipsis;
     }
-    shape_placeholder_text("...", style, font_chain_cache, fc_cache, loaded_fonts)
+    shape_placeholder_text("...", style, font_chain_cache, fc_cache, loaded_fonts, settings)
 }
 
 pub(super) fn shape_with_font_fallback<T: ParsedFontTrait>(

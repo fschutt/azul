@@ -39,7 +39,7 @@
 //!
 //! # Bounds
 //!
-//! ONE surface of up to [`DEFAULT_MAX_BYTES`] (`AZ_CPU_RETAINED_MB`; `0` keeps nothing) is
+//! ONE surface of up to [`DEFAULT_MAX_BYTES`] (`AZ_CPU_RETAINED_MB`, `RenderSettings::retained_bytes`; `0` keeps nothing) is
 //! always kept: the picture of the view being zoomed. A second one ([`MAX_ENTRIES`]) is kept
 //! only where the two together are cheap, at most [`PAIR_MAX_BYTES`]. Sizes are the surfaces'
 //! full sizes, although a page of a surface costs memory only once it is painted.
@@ -212,12 +212,6 @@ impl Default for RetainedFrames {
     }
 }
 
-/// `AZ_CPU_RETAINED_MB` as a byte count: unset, empty or not a number is `None`.
-fn parse_megabytes(v: Option<&str>) -> Option<usize> {
-    v.and_then(|s| s.trim().parse::<usize>().ok())
-        .map(|mb| mb.saturating_mul(1024 * 1024))
-}
-
 /// Does the union of `boxes` cover `needed`? (What of `needed` no box covers is empty.)
 fn covers(boxes: &[[i32; 4]], needed: [i32; 4]) -> bool {
     let mut left = vec![needed];
@@ -318,14 +312,21 @@ fn copy_part(from: &AzulPixmap, to: &mut AzulPixmap, part: [i32; 4]) {
 }
 
 impl RetainedFrames {
-    /// A cache that keeps nothing yet, with the bound of the environment
-    /// (`AZ_CPU_RETAINED_MB`) or [`DEFAULT_MAX_BYTES`].
+    /// A cache that keeps nothing yet, with the bound [`DEFAULT_MAX_BYTES`]. A window's backend
+    /// sets the bound its settings ask for (`RenderSettings::retained_bytes`, from
+    /// `AZ_CPU_RETAINED_MB`) with [`Self::set_max_bytes`].
     #[must_use]
     pub fn new() -> Self {
-        Self::with_max_bytes(
-            parse_megabytes(std::env::var("AZ_CPU_RETAINED_MB").ok().as_deref())
-                .unwrap_or(DEFAULT_MAX_BYTES),
-        )
+        Self::with_max_bytes(DEFAULT_MAX_BYTES)
+    }
+
+    /// Bounds the surfaces this cache keeps together to `max_bytes` from now on (`0` keeps
+    /// nothing). The surfaces already kept stay until the next frame's commit drops what does
+    /// not fit.
+    pub fn set_max_bytes(&self, max_bytes: usize) {
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.max_bytes = max_bytes;
+        }
     }
 
     /// A cache whose surfaces hold at most `max_bytes` together.
@@ -763,9 +764,11 @@ mod tests {
         none.offer(keys[0], Arc::clone(&list), surface(whole, 9), whole, PLACED);
         none.commit();
         assert!(none.is_empty(), "a surface larger than the bound is not kept");
-        assert_eq!(parse_megabytes(Some("0")), Some(0), "AZ_CPU_RETAINED_MB=0 keeps nothing");
-        assert_eq!(parse_megabytes(Some("64")), Some(64 << 20));
-        assert_eq!(parse_megabytes(None), None);
+        // the bound of a window that asked for another one (`RenderSettings::retained_bytes`)
+        none.set_max_bytes(6000);
+        none.offer(keys[0], Arc::clone(&list), surface(whole, 9), whole, PLACED);
+        none.commit();
+        assert_eq!(none.len(), 1, "the bound that was set is the bound that holds");
     }
 
     /// A1-28 (A9): the bound at the user's display. A view of the whole 1470 x 956 pt Retina
