@@ -45,6 +45,9 @@ pub use text::TextSettings;
 /// builds it with `LayoutSettings::from_lookup(&env)` once; one that wants one switch writes a
 /// field (`settings.solver.patching = false`). `Default` is the behaviour of an empty
 /// environment.
+// Not `Copy`: the groups of the other clusters of the env pass hold paths and strings, and a
+// `Copy` that is taken away again would break whoever copies the aggregate.
+#[allow(missing_copy_implementations)]
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct LayoutSettings {
     /// The layout solver ([`SolverSettings`]).
