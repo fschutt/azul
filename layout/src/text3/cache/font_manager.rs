@@ -348,6 +348,15 @@ pub struct FontManager<T> {
     /// [`Self::with_registered_fonts`] and [`Self::set_registered_fonts`] hand a manager one that
     /// others hold too. Not [`Self::registry`], rust-fontconfig's scanner of the system's fonts.
     pub registered_fonts: Arc<RegisteredFonts>,
+    /// What this manager's text is shaped, traced and drawn under
+    /// ([`crate::settings::TextSettings`]): the traces of the font resolution and its garbage
+    /// collection, the shaping switches, hinting and sub-pixel glyph placement. The shaping
+    /// cache of a pass takes a copy from here (`TextShapingCache::set_settings`) and so does
+    /// the window's glyph cache. Starts as the defaults, the behaviour of an empty
+    /// environment (a PDF writer gets the shipped text); the host sets what the environment
+    /// asked for ([`Self::with_settings`], `LayoutWindow::set_settings`). Copied, not shared,
+    /// by [`Self::clone_shared`]: a window's own manager is set by the window.
+    pub settings: crate::settings::TextSettings,
     /// The key of the font stack [`Self::first_available_font_metrics`] was last asked for
     /// ([`Self::with_chain_key`]). Not shared by [`Self::clone_shared`]: what a manager was last
     /// asked is its own.
@@ -394,6 +403,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
             loaded_fonts_memo: Arc::clone(&self.loaded_fonts_memo),
             // SHARED: the faces registered for the app are the app's, whichever window asks.
             registered_fonts: Arc::clone(&self.registered_fonts),
+            settings: self.settings,
             chain_key_memo: Mutex::default(),
         }
     }
@@ -452,6 +462,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
             vf_bake_cache: HashMap::new(),
             loaded_fonts_memo: Arc::new(Mutex::new(None)),
             registered_fonts,
+            settings: crate::settings::TextSettings::default(),
             chain_key_memo: Mutex::default(),
         };
         fm.register_builtin_mock_fonts();
@@ -882,6 +893,14 @@ impl<T: ParsedFontTrait> FontManager<T> {
         registry: Arc<rust_fontconfig::registry::FcFontRegistry>,
     ) -> Self {
         self.registry = Some(registry);
+        self
+    }
+
+    /// This manager with the text settings `settings` ([`Self::settings`]): what the
+    /// environment of the process asked for, built once by the host.
+    #[must_use]
+    pub const fn with_settings(mut self, settings: crate::settings::TextSettings) -> Self {
+        self.settings = settings;
         self
     }
 
