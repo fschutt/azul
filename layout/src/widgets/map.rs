@@ -3814,6 +3814,11 @@ const fn widget_settings(info: &CallbackInfo) -> crate::settings::widgets::Widge
 /// Whether the map prints its counters on stdout - `AZ_MAP_STATS=1` (`AzMaps`
 /// sets it for its `--stats` switch). Read once.
 ///
+/// SUPERSEDED by `WidgetSettings::map_stats` (the callbacks read it from their window, the
+/// render callback from [`MapTileCache::stats`]) and by [`TileFetchInit::stats`] (the worker).
+/// This function stays only until the dll's `tile_fetch_worker` reads `TileFetchInit::stats`
+/// instead of asking it; then it goes with its environment read.
+///
 /// - `AZ_MAP_TILES <ready> <pending> <fetching> <failed> <drawn>` after every
 ///   tile that arrives: the cache's entries by state, and the drawings held;
 /// - `AZ_MAP_RENDER <micros> <tiles> <labels>` after every render of the tile
@@ -3829,7 +3834,7 @@ pub fn map_stats_enabled() -> bool {
     })
 }
 
-/// The `AZ_MAP_TILES` line (see [`map_stats_enabled`]).
+/// The `AZ_MAP_TILES` line (see [`map_stats_enabled`] for the three lines of `AZ_MAP_STATS`).
 fn print_tile_stats(cache: &MapTileCache) {
     let (mut ready, mut pending, mut fetching, mut failed) = (0usize, 0usize, 0usize, 0usize);
     for entry in cache.tiles.values() {
