@@ -221,7 +221,7 @@ fn main() -> anyhow::Result<()> {
         ["assemble-context", rest @ ..] => {
             // Fact-check + source-excerpt bundles for every SHIPPING guide
             // page, so the model that rewrites the prose needs no tools.
-            let mut cfg = assemble_context::Config::new(project_root.clone());
+            let mut cfg = assemble_context::Config::new(project_root.clone(), &settings);
             for arg in rest {
                 match *arg {
                     "--dry-run" => cfg.dry_run = true,

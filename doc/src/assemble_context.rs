@@ -72,11 +72,13 @@ pub struct Config {
     pub no_agent: bool,
     /// Re-run pages whose previous agent run failed.
     pub retry_failed: bool,
+    /// The environment the tool was started with (what the agent pass hands the review config).
+    pub settings: crate::settings::ToolSettings,
 }
 
 impl Config {
     #[must_use]
-    pub fn new(project_root: PathBuf) -> Self {
+    pub fn new(project_root: PathBuf, settings: &crate::settings::ToolSettings) -> Self {
         Self {
             project_root,
             filter: None,
@@ -86,6 +88,7 @@ impl Config {
             dry_run: false,
             no_agent: false,
             retry_failed: false,
+            settings: settings.clone(),
         }
     }
 }
@@ -1127,6 +1130,7 @@ pub fn run(cfg: &Config) -> Result<(), String> {
         effort: None,
         out: None,
         coverage: None,
+        settings: cfg.settings.clone(),
     };
     crate::reftest::autodoc::dispatch_prompt_agents(&ar, &pdir, "CTX")?;
 
