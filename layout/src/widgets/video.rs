@@ -131,6 +131,10 @@ pub struct VideoWidgetState {
     /// frame is then an image update, not a re-render of the view. Kept
     /// across rebuilds (the view renders from the surviving allocation).
     pub frame_marker: AzString,
+    /// Log the widget's renders and decode steps on stderr (`AZ_VIDEO_FRAMELOG`,
+    /// `WidgetSettings::video_framelog`). Set on mount from the window's settings, which is where
+    /// a render callback (it has no window to ask) finds it; kept across rebuilds.
+    pub framelog: bool,
 }
 
 /// The runtime-installed streaming decode worker every video picks up when it
@@ -157,6 +161,9 @@ pub struct VideoDecodeInit {
     pub config: VideoConfig,
     /// From the widget's [`VideoSetup`]. `None` opens a connection of its own.
     pub client: OptionHttpClient,
+    /// Log the decode steps on stderr (`AZ_VIDEO_FRAMELOG`, `WidgetSettings::video_framelog` of
+    /// the window the widget is mounted in): the worker has no window to ask.
+    pub framelog: bool,
 }
 
 /// A video-playback widget. `create(config).dom()` yields an `<img>` the
@@ -335,6 +342,7 @@ impl VideoWidget {
             setup: VideoSetup::new(),
             theme,
             frame_marker: super::capture_common::next_capture_marker("video-frame"),
+            framelog: false,
         };
         let dataset = RefAny::new(state);
         let vv_data = dataset.clone();
@@ -416,7 +424,10 @@ extern "C" fn video_widget_render(
     info: VirtualViewCallbackInfo,
 ) -> VirtualViewReturn {
     let bounds = info.get_bounds().get_logical_size();
-    if std::env::var("AZ_VIDEO_FRAMELOG").is_ok() {
+    if data
+        .downcast_ref::<VideoWidgetState>()
+        .is_some_and(|s| s.framelog)
+    {
         eprintln!("[vrender] bounds {}x{}", bounds.width, bounds.height);
     }
     // Defensive (like map_widget_render): a non-finite / non-positive box (layout
@@ -569,6 +580,9 @@ fn mount_video(data: &mut RefAny, info: &CallbackInfo) {
         if !s.started && !replays && s.decode_callback.is_none() {
             s.decode_callback = VIDEO_DECODER.get().cloned();
         }
+        // The window's switch for the log of renders and decode steps: the render callback and
+        // the worker have no window to ask.
+        s.framelog = info.get_layout_window().settings.widgets.video_framelog;
         (s.on_mount.clone(), s.setup.clone())
     };
     let OptionVideoMount::Some(hook) = hook else {
@@ -618,6 +632,7 @@ extern "C" fn video_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> 
         let init = RefAny::new(VideoDecodeInit {
             config,
             client: setup.http_client.clone(),
+            framelog: info.get_layout_window().settings.widgets.video_framelog,
         });
         let tid = ThreadId::unique();
         let thread = spawn(init, data.clone(), cb);
@@ -1593,6 +1608,7 @@ mod autotest_generated {
             setup: VideoSetup::new(),
             theme: crate::widgets::themes::UiTheme::Flat,
             frame_marker: "azul-video-frame-test".into(),
+            framelog: false,
         }
     }
 

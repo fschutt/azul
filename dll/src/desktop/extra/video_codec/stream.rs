@@ -747,6 +747,7 @@ mod stream_tests {
         let init = RefAny::new(VideoDecodeInit {
             config: VideoConfig::new(VideoSource::Bytes(vec![0xde_u8, 0xad, 0xbe, 0xef].into())),
             client: OptionHttpClient::None,
+            framelog: false,
         });
 
         super::video_decode_worker(init, sender, recv);
@@ -915,6 +916,7 @@ mod stream_tests {
         let init = RefAny::new(VideoDecodeInit {
             config,
             client: OptionHttpClient::None,
+            framelog: false,
         });
 
         super::video_decode_worker(init, sender, recv);

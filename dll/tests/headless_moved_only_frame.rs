@@ -77,14 +77,13 @@ struct Frames {
 /// Lay the page out, paint it, write `change` to the flex row as a callback does,
 /// paint again - and paint the same layout from scratch.
 fn paint_around(change: CssProperty) -> Frames {
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
     // Honest (refined) damage is REQUIRED: with full-strength damage the whole
     // frame repaints and a skipped move is unfalsifiable.
     assert!(
-        azul_layout::cpurender::dl_diff_refinements_enabled(),
-        "premise: honest (refined) damage (AZ_DL_DIFF_REFINE=0 turns it off)"
+        lw.settings.render.paint.dl_diff_refine,
+        "premise: honest (refined) damage (a window's settings turn it off with AZ_DL_DIFF_REFINE=0)"
     );
-
-    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
     lw.display_list_options.patching = true;
     let rr = RendererResources::default();
     let cb = ExternalSystemCallbacks::rust_internal();

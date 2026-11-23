@@ -48,7 +48,8 @@
 //! is: the frames that only draw more halos send no list and build no scene. When
 //! the ink does not fit the rect the picture is cut to its ink as ever, gets a slot
 //! of its own, and the list goes again for that frame. `AZ_HALO_SLOTS=0` in the
-//! environment turns the whole of it off ([`TextHaloStore::slots_on`]): every picture
+//! environment (`RenderSettings::halo_slots`) turns the whole of it off
+//! ([`TextHaloStore::slots_on`]): every picture
 //! then has its own slot and its own rect, and a list is sent again whenever a halo
 //! was drawn.
 //!
@@ -265,6 +266,8 @@ pub struct TextHalosReleased {
 }
 
 /// What a [`TextHaloStore`] keeps behind its lock.
+// The bools are independent latches and switches, not the states of one machine.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug)]
 struct StoreState {
     /// The halos drawn so far.
@@ -276,9 +279,13 @@ struct StoreState {
     budget: Option<Budget>,
     /// Whether the next scan is one with [`Budget::every_small`].
     every_small_next: bool,
-    /// The store's own answer to [`TextHaloStore::slots_on`], when a host or its tests gave one
-    /// ([`TextHaloStore::text_halo_slots`]).
-    slots: Option<bool>,
+    /// The store's answer to [`TextHaloStore::slots_on`]: on, until the window's settings or a
+    /// host or its tests say otherwise ([`TextHaloStore::apply_settings`],
+    /// [`TextHaloStore::text_halo_slots`]).
+    slots: bool,
+    /// Whether every scan that drew, dropped, left or stood in for a halo says so on stderr
+    /// (`AZ_HALO_STATS`, [`TextHaloStore::apply_settings`]).
+    log_scans: bool,
     /// Whether halos were drawn since the glyph cache last gave up its older generation
     /// ([`TextHaloStore::within_halo_budget`]).
     glyphs_used: bool,
@@ -333,18 +340,32 @@ impl TextHaloStore {
     /// ([`MAX_HALOS`] pictures, [`MAX_HALO_BYTES`] bytes of them).
     #[must_use]
     pub fn new() -> Self {
+        // What an empty environment asks for: slots on, no log line per scan.
+        let defaults = crate::settings::render::RenderSettings::default();
         Self {
             state: std::sync::Mutex::new(StoreState {
                 halos: HaloCache::new(MAX_HALOS, MAX_HALO_BYTES),
                 drawn: 0,
                 budget: None,
                 every_small_next: false,
-                slots: None,
+                slots: defaults.halo_slots,
+                log_scans: defaults.halo_stats,
                 glyphs_used: false,
                 list_shadows: Vec::new(),
             }),
             glyphs: std::sync::Mutex::new(GlyphCache::new()),
         }
+    }
+
+    /// Takes what the window's settings ask of its text halos: whether a halo's picture takes
+    /// the place of its stand-in (`AZ_HALO_SLOTS`) and whether every scan that did something
+    /// says so on stderr (`AZ_HALO_STATS`). What the store was told before
+    /// ([`Self::text_halo_slots`]) is replaced.
+    pub fn apply_settings(&self, settings: &crate::settings::render::RenderSettings) {
+        self.with_state(|state| {
+            state.slots = settings.halo_slots;
+            state.log_scans = settings.halo_stats;
+        });
     }
 
     /// Runs `f` on the state under its lock. A lock that a panic poisoned is taken all
@@ -681,30 +702,25 @@ impl TextHaloStore {
     /// environment, and for the tests of both.
     #[doc(hidden)]
     pub fn text_halo_slots(&self, on: bool) {
-        self.with_state(|state| state.slots = Some(on));
+        self.with_state(|state| state.slots = on);
     }
 
     /// Whether a halo's own picture takes the PLACE of the picture that stood in for
     /// it - its slot and the rect it was painted in ([`slot_rect`], [`cropped`]) - so
     /// that the display list which paints the stand-in paints the own picture without
-    /// being sent again. On unless the environment says `AZ_HALO_SLOTS=0` (read once)
-    /// or the store was told otherwise. Off, a stand-in is painted where its picture,
-    /// stretched, lies to the fraction of a pixel, every picture is cut to its ink and
-    /// has a slot of its own, and each halo drawn changes what a list paints.
+    /// being sent again. On unless the window's settings say `AZ_HALO_SLOTS=0`
+    /// ([`Self::apply_settings`]) or the store was told otherwise. Off, a stand-in is
+    /// painted where its picture, stretched, lies to the fraction of a pixel, every picture
+    /// is cut to its ink and has a slot of its own, and each halo drawn changes what a list
+    /// paints.
     fn slots_on(&self) -> bool {
-        self.with_state(|state| state.slots).unwrap_or_else(|| {
-            // Process-wide configuration read once from the environment, not state of a window.
-            static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-            *ON.get_or_init(|| !std::env::var("AZ_HALO_SLOTS").is_ok_and(|v| v == "0"))
-        })
+        self.with_state(|state| state.slots)
     }
 
     /// `AZ_HALO_STATS=1`: one line on stderr for every scan that drew, dropped, left or
     /// stood in for a halo - what a run on a real window shows without a recorder.
     fn log_scan(&self) {
-        // Process-wide configuration read once from the environment, not state of a window.
-        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        if !*ON.get_or_init(|| std::env::var("AZ_HALO_STATS").is_ok_and(|v| !v.is_empty() && v != "0")) {
+        if !self.with_state(|state| state.log_scans) {
             return;
         }
         let s = self.text_halo_stats();

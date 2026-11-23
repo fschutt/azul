@@ -543,235 +543,24 @@ const W0: &[Allow] = &[
         "css, core, webrender: wired by cluster W0",
     ),
 ];
-/// W1: layout solver3, text3, glyph_cache, lib.rs (the `env_flag!` macro).
+/// W1: layout solver3, text3, glyph_cache, lib.rs: nothing left.
 ///
 /// Every site of solver3, text3 and glyph_cache is wired (the settings are in
-/// `layout/src/settings/{solver,text}.rs`). What is left is the macro itself: it goes when the
-/// four uses of cluster W2 (window.rs x3, widgets/node_graph.rs x1) are wired.
-const W1: &[Allow] = &[
-    Allow::exactly(
-        "layout/src/lib.rs",
-        FLAG,
-        1,
-        "the env_flag! macro: goes when the four uses of cluster W2 are wired",
-    ),
-    Allow::exactly(
-        "layout/src/lib.rs",
-        READ,
-        2,
-        "the env_flag! macro: goes when the four uses of cluster W2 are wired",
-    ),
-];
+/// `layout/src/settings/{solver,text}.rs`), and the `env_flag!` macro of lib.rs went with its
+/// last use (cluster W2: window.rs x3, widgets/node_graph.rs x1).
+const W1: &[Allow] = &[];
 /// W2: layout window, cpu_backend, cpurender, managers, widgets, scroll_timer, callbacks.
 const W2: &[Allow] = &[
     Allow::exactly(
-        "layout/src/callbacks.rs",
+        "layout/src/widgets/map.rs",
         NAME,
-        1,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/callbacks.rs",
-        READ,
-        1,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/cpu_backend.rs",
-        NAME,
-        4,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/cpu_backend.rs",
-        READ,
-        4,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/cpurender/bands.rs",
-        NAME,
-        1,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/cpurender/bands.rs",
-        READ,
-        1,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/cpurender/compositor.rs",
-        NAME,
-        4,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/cpurender/compositor.rs",
-        READ,
-        4,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/cpurender/item_grid.rs",
-        NAME,
-        1,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/cpurender/item_grid.rs",
-        READ,
-        1,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/cpurender/raster.rs",
-        NAME,
-        5,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/cpurender/raster.rs",
-        READ,
-        5,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/cpurender/retained.rs",
-        NAME,
-        1,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/cpurender/retained.rs",
-        READ,
-        1,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/cpurender/text_halo.rs",
-        NAME,
-        2,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/cpurender/text_halo.rs",
-        READ,
-        2,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/headless.rs",
-        NAME,
-        1,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/headless.rs",
-        READ,
-        1,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/managers/gpu_state.rs",
-        NAME,
-        1,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/managers/gpu_state.rs",
-        READ,
-        1,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/managers/scroll_state.rs",
-        NAME,
-        2,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/managers/scroll_state.rs",
-        READ,
-        2,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/scroll_timer.rs",
-        NAME,
-        1,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/scroll_timer.rs",
-        READ,
-        1,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/widgets/color_input.rs",
-        NAME,
-        1,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/widgets/color_input.rs",
-        READ,
         1,
         "window, render, widgets: wired by cluster W2",
     ),
     Allow::exactly(
         "layout/src/widgets/map.rs",
-        NAME,
-        2,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/widgets/map.rs",
-        READ,
-        2,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/widgets/node_graph.rs",
-        NAME,
-        1,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/widgets/node_graph.rs",
-        FLAG,
-        1,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/widgets/video.rs",
-        NAME,
-        1,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/widgets/video.rs",
         READ,
         1,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/window.rs",
-        NAME,
-        16,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/window.rs",
-        FLAG,
-        3,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/window.rs",
-        READ,
-        13,
         "window, render, widgets: wired by cluster W2",
     ),
 ];
