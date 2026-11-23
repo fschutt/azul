@@ -498,6 +498,28 @@ mod render_selector_tests {
         assert_eq!(AzBackend::default(), AzBackend::Cpu);
     }
 
+    /// `resolve` takes the `AZ_BACKEND` value the app's environment asked for as an argument
+    /// (`ShellSettings::backend`): it reads nothing, the environment decides before the
+    /// config, and a windowing word or an unknown word leaves the decision to the config.
+    #[test]
+    fn the_backend_the_environment_asked_for_decides_before_the_config() {
+        use azul_core::window::HwAcceleration::{Disabled, Enabled};
+
+        assert_eq!(AzBackend::resolve(None, None), AzBackend::Cpu);
+        assert_eq!(AzBackend::resolve(None, Some(Enabled)), AzBackend::Gpu);
+        assert_eq!(AzBackend::resolve(None, Some(Disabled)), AzBackend::Cpu);
+        // the environment wins over the config, in any case
+        assert_eq!(AzBackend::resolve(Some("headless"), Some(Enabled)), AzBackend::Headless);
+        assert_eq!(AzBackend::resolve(Some("GPU"), Some(Disabled)), AzBackend::Gpu);
+        assert_eq!(AzBackend::resolve(Some("auto"), Some(Disabled)), AzBackend::Auto);
+        assert_eq!(AzBackend::resolve(Some("cpu"), Some(Enabled)), AzBackend::Cpu);
+        // a windowing selector is no render mode: the config decides
+        assert_eq!(AzBackend::resolve(Some("x11"), Some(Enabled)), AzBackend::Gpu);
+        assert_eq!(AzBackend::resolve(Some("wayland"), None), AzBackend::Cpu);
+        // and so is a word nobody knows
+        assert_eq!(AzBackend::resolve(Some("quantum"), Some(Enabled)), AzBackend::Gpu);
+    }
+
     /// A capability probe that runs BEFORE `App::run` - an app building its state: AzClock asks
     /// `PlatformCapability::notifications()` whether to hand its alarms to the OS - must know
     /// the run will be headless. The run loop's own switch (`use_headless_backend`) comes too

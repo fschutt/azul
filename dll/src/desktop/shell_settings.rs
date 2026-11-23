@@ -16,6 +16,8 @@ const BACKEND: &str = "AZ_BACKEND";
 const WINDOW: &str = "AZ_WINDOW";
 /// `AZ_E2E`: the script (a file or a directory) of an end-to-end run.
 const E2E: &str = "AZ_E2E";
+/// `NO_COLOR` (https://no-color.org/): no colour in the built-in stderr logger.
+const NO_COLOR: &str = "NO_COLOR";
 /// `AZ_E2E_RUNTIME`: the JavaScript runtime of the embedded web end-to-end runner.
 const E2E_RUNTIME: &str = "AZ_E2E_RUNTIME";
 /// `AZ_E2E_TEST`: the scenario file of a scripted resize / tick test run.
@@ -174,6 +176,9 @@ pub struct ShellSettings {
     /// `AZ_E2E`: the script (a file, or a directory of them) of an end-to-end run; `None` when it
     /// is unset, empty or not UTF-8.
     pub e2e_script: Option<String>,
+    /// `AZ_E2E` is set at all (empty too): a script drives this run, so nothing may wait on a
+    /// dialog a person would have to dismiss (the fatal-panic modal).
+    pub e2e_run: bool,
     /// `AZ_E2E_TEST`: the scenario file of a scripted resize / tick test run; `None` when it is
     /// unset, empty or not UTF-8.
     pub e2e_scenario: Option<String>,
@@ -187,6 +192,8 @@ pub struct ShellSettings {
     /// `AZ_HEADLESS_SNAPSHOT_PATH`: the PNG the first rendered frame of a headless run is written
     /// to; `None` when it is unset or not UTF-8.
     pub headless_snapshot_path: Option<String>,
+    /// `NO_COLOR` is set (to anything): the built-in stderr logger does not colour its lines.
+    pub no_color: bool,
     /// `AZ_HIT_DEBUG` is set (to a UTF-8 value): trace every hit test.
     pub hit_debug: bool,
     /// `AZ_FOCUS_TRACE` is set (to a UTF-8 value): one line per focus or popup decision.
@@ -241,10 +248,12 @@ impl ShellSettings {
             backend: env.var(BACKEND),
             window: env.var(WINDOW),
             e2e_script: not_empty(E2E),
+            e2e_run: env.is_set(E2E),
             e2e_scenario: not_empty(E2E_TEST),
             e2e_runtime: not_empty(E2E_RUNTIME),
             exit_after_first_frame: env.var(EXIT_AFTER_FIRST_FRAME).is_some(),
             headless_snapshot_path: env.var(HEADLESS_SNAPSHOT_PATH),
+            no_color: env.is_set(NO_COLOR),
             hit_debug: env.var(HIT_DEBUG).is_some(),
             focus_trace: env.var(FOCUS_TRACE).is_some(),
             reconcile_debug: env.is_set(RECONCILE_DEBUG),

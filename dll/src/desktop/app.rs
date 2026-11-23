@@ -175,7 +175,7 @@ impl App {
         // like a silent quit. Doing it here means it is live before any window,
         // event-loop or font work runs. No-op if the host already set a logger.
         #[cfg(feature = "logging")]
-        crate::desktop::logging::init_default_logger();
+        crate::desktop::logging::init_default_logger(settings.shell.no_color);
 
         // The app's own id (`AppConfig::app_id`), HERE: every run path -
         // `run`, `run_tray_only`, the crash reporter, iOS's
@@ -822,7 +822,7 @@ impl AppInternal {
         #[cfg(feature = "logging")]
         {
             if app_config.enable_logging_on_panic {
-                crate::desktop::logging::set_up_panic_hooks();
+                crate::desktop::logging::set_up_panic_hooks(settings.shell.e2e_run);
             }
 
             if app_config.enable_visual_panic_hook {

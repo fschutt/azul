@@ -15,6 +15,8 @@ fn an_empty_environment_asks_for_nothing_and_default_is_that() {
     assert_eq!(none.e2e_script, None);
     assert_eq!(none.e2e_scenario, None);
     assert_eq!(none.e2e_runtime, None);
+    assert!(!none.e2e_run);
+    assert!(!none.no_color);
     assert_eq!(none.headless_snapshot_path, None);
     assert!(!none.focus_trace);
     assert!(!none.reconcile_debug);
@@ -227,4 +229,17 @@ fn the_android_present_report_comes_from_the_variable_or_the_older_property() {
         assert_eq!(settings.dump_present, on, "AZ_PRESENT={value:?}");
     }
     assert!(!ShellSettings::default().dump_present);
+}
+
+#[test]
+fn a_scripted_run_and_the_colour_switch_are_on_when_the_variable_is_set_at_all() {
+    for value in ["", "0", "/tmp/x.json"] {
+        let settings = ShellSettings::from_lookup(&MapEnv::new().with("AZ_E2E", value));
+        assert!(settings.e2e_run, "AZ_E2E={value:?}");
+        let settings = ShellSettings::from_lookup(&MapEnv::new().with("NO_COLOR", value));
+        assert!(settings.no_color, "NO_COLOR={value:?}");
+    }
+    // an empty script is no script, but the run is still a scripted one for the panic modal
+    let settings = ShellSettings::from_lookup(&MapEnv::new().with("AZ_E2E", ""));
+    assert_eq!(settings.e2e_script, None);
 }

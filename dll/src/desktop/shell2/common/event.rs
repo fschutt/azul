@@ -15761,6 +15761,19 @@ mod tests {
         check_input_delta_consumed(true, Some(&previous), &current, "test.not-event-bearing");
     }
 
+    /// A layout pass is handed the settings of the app its window belongs to: what
+    /// `regenerate_layout` reads (the reconcile trace) and what the shells ask for the layout
+    /// trace is the app's, not a process-wide answer.
+    #[test]
+    fn the_layout_pass_borrows_the_settings_of_the_app_of_its_window() {
+        let mut window = headless_stub();
+        let of_the_app = window.get_app_shared().settings().clone();
+        assert!(of_the_app.shell.validate, "the stub's app asked for the validation gate");
+        assert_eq!(*window.common.layout_borrows().settings, of_the_app);
+        assert_eq!(window.app_settings(), &of_the_app);
+        assert!(!window.focus_trace(), "nothing asked for the focus trace");
+    }
+
     fn headless_stub() -> HeadlessWindow {
         HeadlessWindow::with_app_shared(
             WindowCreateOptions::default(),

@@ -700,7 +700,7 @@ mod tests {
     fn a_record_reaches_stderr_exactly_once() {
         // --- child half: install the logger, emit one record, exit ---
         if std::env::var_os("AZ_DUP_LOG_PROBE_CHILD").is_some() {
-            crate::desktop::logging::init_default_logger();
+            crate::desktop::logging::init_default_logger(false);
             emit(
                 LogLevel::Debug,
                 LogCategory::Input,
@@ -742,7 +742,7 @@ mod tests {
     #[test]
     fn at_most_one_stderr_writer_claims_a_record() {
         let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-        crate::desktop::logging::init_default_logger();
+        crate::desktop::logging::init_default_logger(false);
         log_filter::set_stderr_echo(true);
         for level in [
             LogLevel::Trace,
@@ -813,7 +813,7 @@ mod tests {
     #[test]
     fn a_record_is_handed_to_stderr_as_one_line() {
         let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-        crate::desktop::logging::init_default_logger();
+        crate::desktop::logging::init_default_logger(false);
         log_filter::set_min_level(Some(Level::Trace));
         log_filter::set_stderr_echo(true);
         let capture = stderr_capture::Capture::start();
@@ -862,7 +862,7 @@ mod tests {
     fn a_run_that_asked_for_nothing_prints_its_errors_and_no_more() {
         // --- child half: the logger as App::create installs it, one record per level ---
         if std::env::var_os("AZ_QUIET_PROBE_CHILD").is_some() {
-            crate::desktop::logging::init_default_logger();
+            crate::desktop::logging::init_default_logger(false);
             crate::log_trace!(LogCategory::Layout, "{QUIET_PROBE} trace");
             crate::log_debug!(LogCategory::Layout, "{QUIET_PROBE} debug");
             crate::log_info!(LogCategory::Layout, "{QUIET_PROBE} info");

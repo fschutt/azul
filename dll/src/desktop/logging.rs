@@ -111,13 +111,14 @@ pub fn set_up_logging(log_level: LevelFilter) {
 }
 
 /// In the (rare) case of a panic, print it to the stdout, log it to the file and
-/// prompt the user with a message box.
-pub(super) fn set_up_panic_hooks() {
+/// prompt the user with a message box (not in a scripted run, `ShellSettings::e2e_run`: nobody
+/// would dismiss it).
+pub(super) fn set_up_panic_hooks(scripted_run: bool) {
     use std::panic::{self, PanicInfo};
 
     use backtrace::{Backtrace, BacktraceFrame};
 
-    fn panic_fn(panic_info: &PanicInfo) {
+    fn panic_fn(panic_info: &PanicInfo, scripted_run: bool) {
         use std::thread;
 
         let payload = panic_info.payload();
@@ -189,7 +190,7 @@ pub(super) fn set_up_panic_hooks() {
         let telemetry_owns_crash = false;
         if SHOULD_ENABLE_PANIC_HOOK.load(Ordering::SeqCst)
             && !telemetry_owns_crash
-            && std::env::var_os("AZ_E2E").is_none()
+            && !scripted_run
         {
             // tfd (tinyfiledialogs) is desktop-only; Android/iOS have no
             // equivalent modal API from a Rust dep. Log to stderr instead;
@@ -285,7 +286,7 @@ pub(super) fn set_up_panic_hooks() {
             .join("\r\n")
     }
 
-    panic::set_hook(Box::new(panic_fn));
+    panic::set_hook(Box::new(move |panic_info| panic_fn(panic_info, scripted_run)));
 }
 
 // ============================================================================
@@ -428,8 +429,9 @@ impl log::Log for StderrLogger {
 
 /// Install azul's built-in stderr logger unless `AZ_LOG` disables it (default
 /// ON). Idempotent and safe to call from every `App::create`: if a logger is
-/// already installed (by the host or a previous call) this is a no-op.
-pub(super) fn init_default_logger() {
+/// already installed (by the host or a previous call) this is a no-op. `no_color`: `NO_COLOR`
+/// is set (`ShellSettings::no_color`).
+pub(super) fn init_default_logger(no_color: bool) {
     use std::sync::atomic::{AtomicBool, Ordering};
     // Only attempt the install once per process.
     static TRIED: AtomicBool = AtomicBool::new(false);
@@ -443,7 +445,7 @@ pub(super) fn init_default_logger() {
     let color = {
         use std::io::IsTerminal;
         // Honor NO_COLOR (https://no-color.org/) and only colorize a real TTY.
-        std::env::var_os("NO_COLOR").is_none() && std::io::stderr().is_terminal()
+        !no_color && std::io::stderr().is_terminal()
     };
     // Stash install-time state for the zero-field static logger.
     let _ = LOG_START.set(std::time::Instant::now());
