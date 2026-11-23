@@ -117,10 +117,11 @@ const ALLOWED: &[Allow] = &[
     ),
     // ---- C. AZ_BACKEND as the windowing / rendering choice; e2e runners' own reads ----
     Allow::exactly(
-        "dll/src/desktop/app.rs",
+        "dll/src/desktop/shell_settings.rs",
         READ,
         1,
-        "App::run logs the backend it starts with",
+        "ShellSettings::from_lookup: the one place of the dll that names AZ_BACKEND (the windowing \
+         and rendering choice); the shells read the field",
     ),
     Allow::exactly(
         "dll/src/desktop/shell2/common/compositor.rs",
