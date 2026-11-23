@@ -272,13 +272,13 @@ impl WebLiftSettings {
     }
 
     /// The settings of THIS process, read once: the variables through the dll's one reader
-    /// ([`crate::env::ProcessEnv`]) and the scratch directory the platform names (`TMPDIR` on
-    /// Unix, `TMP`/`TEMP` and the profile on Windows).
+    /// ([`crate::env::ProcessEnv`], made once here) and the scratch directory the platform names
+    /// (`TMPDIR` on Unix, `TMP`/`TEMP` and the profile on Windows).
     #[must_use]
     pub fn from_process() -> Self {
         Self {
             temp_dir: std::env::temp_dir(),
-            ..Self::from_lookup(&crate::env::ProcessEnv)
+            ..Self::from_lookup(&crate::env::ProcessEnv::new())
         }
     }
 
