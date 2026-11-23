@@ -24,12 +24,18 @@ fn an_empty_environment_asks_for_nothing_and_default_is_that() {
     assert!(!none.reconcile_debug);
     assert!(!none.layout_trace);
     assert!(!none.validate);
-    assert!(none.native_backbuffer, "the native back buffer is ON by default");
+    assert!(
+        none.native_backbuffer,
+        "the native back buffer is ON by default"
+    );
     assert!(none.inert_knobs().is_empty());
     assert!(!none.pace_trace);
     assert_eq!(none.cpu_present, None);
     assert!(!none.keep_caches_minimized);
-    assert!(none.halo_release_full, "a hidden window gives the halos back by default");
+    assert!(
+        none.halo_release_full,
+        "a hidden window gives the halos back by default"
+    );
     assert_eq!(none.a11y_eager, None);
     assert!(!none.cursor_set_always);
     assert_eq!(ShellSettings::from_lookup(&MapEnv::new()), none);
@@ -54,7 +60,10 @@ fn the_macos_switches_read_what_they_always_read() {
     // only `lists` keeps the halo pictures
     for (value, full) in [("lists", false), ("Lists", true), ("all", true), ("", true)] {
         let settings = ShellSettings::from_lookup(&MapEnv::new().with("AZ_HALO_RELEASE", value));
-        assert_eq!(settings.halo_release_full, full, "AZ_HALO_RELEASE={value:?}");
+        assert_eq!(
+            settings.halo_release_full, full,
+            "AZ_HALO_RELEASE={value:?}"
+        );
     }
     // the words are the macOS shell's to parse
     let env = MapEnv::new()
@@ -105,7 +114,10 @@ fn the_telemetry_channel_and_the_style_dump() {
     for (value, on) in [("1", true), ("0", false), ("", false), ("true", false)] {
         let settings =
             ShellSettings::from_lookup(&MapEnv::new().with("AZ_DUMP_SYSTEM_STYLE", value));
-        assert_eq!(settings.dump_system_style, on, "AZ_DUMP_SYSTEM_STYLE={value:?}");
+        assert_eq!(
+            settings.dump_system_style, on,
+            "AZ_DUMP_SYSTEM_STYLE={value:?}"
+        );
     }
 }
 
@@ -120,7 +132,10 @@ fn the_scripts_are_paths_that_are_not_empty() {
     assert_eq!(settings.e2e_runtime.as_deref(), Some("/usr/bin/bun"));
     assert_eq!(settings.e2e_script.as_deref(), Some("/tmp/tests"));
     assert_eq!(settings.e2e_scenario.as_deref(), Some("/tmp/scenario.json"));
-    assert_eq!(settings.headless_snapshot_path.as_deref(), Some("/tmp/out.png"));
+    assert_eq!(
+        settings.headless_snapshot_path.as_deref(),
+        Some("/tmp/out.png")
+    );
     // an empty script is none; an empty snapshot path stays what it was (a path to fail on)
     let env = MapEnv::new()
         .with("AZ_E2E", "")
@@ -137,8 +152,7 @@ fn the_scripts_are_paths_that_are_not_empty() {
 #[test]
 fn the_reconcile_debug_is_on_when_the_variable_is_set_at_all() {
     for value in ["", "0", "1"] {
-        let settings =
-            ShellSettings::from_lookup(&MapEnv::new().with("AZ_RECONCILE_DEBUG", value));
+        let settings = ShellSettings::from_lookup(&MapEnv::new().with("AZ_RECONCILE_DEBUG", value));
         assert!(settings.reconcile_debug, "AZ_RECONCILE_DEBUG={value:?}");
     }
     for value in ["", "0", "1"] {
@@ -160,7 +174,10 @@ fn the_native_back_buffer_goes_off_for_a_zero_and_only_for_a_zero() {
     for (value, on) in [("0", false), ("1", true), ("", true), ("off", true)] {
         let settings =
             ShellSettings::from_lookup(&MapEnv::new().with("AZ_NATIVE_BACKBUFFER", value));
-        assert_eq!(settings.native_backbuffer, on, "AZ_NATIVE_BACKBUFFER={value:?}");
+        assert_eq!(
+            settings.native_backbuffer, on,
+            "AZ_NATIVE_BACKBUFFER={value:?}"
+        );
     }
 }
 
@@ -220,13 +237,18 @@ fn a_knob_that_needs_a_feature_this_build_lacks_is_reported_when_it_is_set() {
 fn the_android_present_report_comes_from_the_variable_or_the_older_property() {
     // the variable: set at all
     for value in ["", "0", "1"] {
-        let settings =
-            ShellSettings::from_lookup(&MapEnv::new().with("AZ_DUMP_PRESENT", value));
+        let settings = ShellSettings::from_lookup(&MapEnv::new().with("AZ_DUMP_PRESENT", value));
         assert!(settings.dump_present, "AZ_DUMP_PRESENT={value:?}");
     }
     // the property `debug.az.present`, which the Android reader answers as AZ_PRESENT: neither
     // empty, nor `0`, nor `false`
-    for (value, on) in [("1", true), ("yes", true), ("", false), ("0", false), ("false", false)] {
+    for (value, on) in [
+        ("1", true),
+        ("yes", true),
+        ("", false),
+        ("0", false),
+        ("false", false),
+    ] {
         let settings = ShellSettings::from_lookup(&MapEnv::new().with("AZ_PRESENT", value));
         assert_eq!(settings.dump_present, on, "AZ_PRESENT={value:?}");
     }

@@ -220,8 +220,10 @@ static FILE: std::sync::OnceLock<Option<std::sync::Mutex<std::fs::File>>> =
 /// itself. A process that never calls it is an app that asked for nothing.
 #[cfg(feature = "std")]
 pub fn install(shell: &crate::desktop::shell_settings::ShellSettings) {
-    let _ = STDERR_OFF.set(shell.log_stderr_off);
-    let _ = FILE.set(shell.log_file.as_deref().and_then(open_log_file));
+    // `get_or_init`, not `set`: the file is created and announced by the FIRST install only (a
+    // second app in the process must not truncate the file the first one writes to).
+    let _ = STDERR_OFF.get_or_init(|| shell.log_stderr_off);
+    let _ = FILE.get_or_init(|| shell.log_file.as_deref().and_then(open_log_file));
 }
 
 /// Nothing to install without `std`.

@@ -1687,7 +1687,8 @@ pub enum WindowStateSource {
 /// as a lost event. `ime_position` is the one that fires in practice: all four
 /// backends write it after `process_window_events` has consumed the delta,
 /// because it needs the post-layout caret rect. A debug build (where
-/// [`validation_enabled`] is unconditionally true) therefore panicked on the
+/// [`ShellSettings::validation_enabled`](crate::desktop::shell_settings::ShellSettings::validation_enabled)
+/// is unconditionally true) therefore panicked on the
 /// next poll as soon as the user typed into a contenteditable.
 ///
 /// A field no event is derived from cannot encode a LOST event, which is the
@@ -1787,7 +1788,8 @@ fn first_differing_state_field(a: &FullWindowState, b: &FullWindowState) -> Opti
 /// for good. Nothing crashes and nothing logs; the callback simply never
 /// fires, which is exactly how it stayed unnoticed on four backends.
 ///
-/// Gated on [`validation_enabled`]; panics rather than logs, because a
+/// Gated on `validation_enabled` (the flag it is handed, `ShellSettings::validation_enabled`);
+/// panics rather than logs, because a
 /// diagnostic that only logs in a loop of 60 frames per second is a diagnostic
 /// nobody reads.
 /// What [`PlatformWindow::request_window_close`] decided.
@@ -4730,7 +4732,7 @@ pub trait PlatformWindow {
         self.get_app_shared().settings()
     }
 
-    /// `AZ_FOCUS_TRACE`: one line per focus or popup decision ([`focus_trace!`]).
+    /// `AZ_FOCUS_TRACE`: one line per focus or popup decision (the `focus_trace!` macro).
     fn focus_trace(&self) -> bool {
         self.app_settings().shell.focus_trace
     }
