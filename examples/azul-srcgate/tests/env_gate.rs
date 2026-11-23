@@ -1770,49 +1770,15 @@ const W6: &[Allow] = &[
         "dll/src/web/classify.rs",
         NAME,
         1,
-        "tool code (doc, web-lift): wired by cluster W6",
+        "not a read of the process: AZ_CODEGEN_DIR_RESOLVED is the compile-time env! (set by \
+         dll/build.rs) that names the directory of the generated bindings",
     ),
     Allow::exactly(
-        "dll/src/web/mod.rs",
-        NAME,
-        2,
-        "tool code (doc, web-lift): wired by cluster W6",
-    ),
-    Allow::exactly(
-        "dll/src/web/mod.rs",
-        READ,
-        2,
-        "tool code (doc, web-lift): wired by cluster W6",
-    ),
-    Allow::exactly(
-        "dll/src/web/symbol_table.rs",
-        NAME,
-        2,
-        "tool code (doc, web-lift): wired by cluster W6",
-    ),
-    Allow::exactly(
-        "dll/src/web/symbol_table.rs",
-        READ,
-        2,
-        "tool code (doc, web-lift): wired by cluster W6",
-    ),
-    Allow::exactly(
-        "dll/src/web/transpiler_remill.rs",
-        NAME,
-        73,
-        "tool code (doc, web-lift): wired by cluster W6",
-    ),
-    Allow::exactly(
-        "dll/src/web/transpiler_remill.rs",
+        "dll/src/web/lift_settings.rs",
         DIR,
-        4,
-        "tool code (doc, web-lift): wired by cluster W6",
-    ),
-    Allow::exactly(
-        "dll/src/web/transpiler_remill.rs",
-        READ,
-        67,
-        "tool code (doc, web-lift): wired by cluster W6",
+        1,
+        "the web-lift reader of the platform: the temp dir, asked once by run_web into \
+         WebLiftSettings::temp_dir (the variables go through azul_dll::env::ProcessEnv)",
     ),
     Allow::exactly(
         "doc/src/codegen/v2/abi_guard.rs",

@@ -16,6 +16,8 @@
 //!   `third_party/remill-rs` submodule). Lifts x86-64 → LLVM IR → WASM. Lives in a sibling file
 //!   (`transpiler_remill.rs`) so the remill toolchain only links when the feature is on.
 
+use super::lift_settings::WebLiftSettings;
+
 /// Error returned when a function cannot be transpiled.
 #[derive(Debug, Clone)]
 pub struct TranspileError {
@@ -156,15 +158,19 @@ impl Transpiler for StubTranspiler {
 
 /// Get the default transpiler for the current build.
 ///
-/// With the `web-transpiler` feature ON, returns [`RemillTranspiler`].
-/// Otherwise returns the pure-Rust [`StubTranspiler`] fallback.
-pub fn default_transpiler() -> Box<dyn Transpiler> {
+/// With the `web-transpiler` feature ON, returns [`RemillTranspiler`] holding `settings` (the
+/// environment of the lift, read once by `run_web`). Otherwise returns the pure-Rust
+/// [`StubTranspiler`] fallback.
+pub fn default_transpiler(settings: &WebLiftSettings) -> Box<dyn Transpiler> {
     #[cfg(feature = "web-transpiler")]
     {
-        Box::new(crate::web::transpiler_remill::RemillTranspiler::new())
+        Box::new(crate::web::transpiler_remill::RemillTranspiler::new(
+            settings.clone(),
+        ))
     }
     #[cfg(not(feature = "web-transpiler"))]
     {
+        let _ = settings;
         Box::new(StubTranspiler)
     }
 }

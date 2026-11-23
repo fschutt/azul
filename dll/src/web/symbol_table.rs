@@ -73,17 +73,20 @@ pub fn get() -> Option<&'static SymbolTable> {
     SYMBOL_TABLE.get()
 }
 
-/// M10-D rollout knob. When the env var `AZ_ENABLE_SHARDS` is set,
-/// `api.json::Framework` symbols classify as [`FnClass::BoundaryImport`]
-/// instead of [`FnClass::Recursable`] — the lift BFS then stops at
+/// The api.json class of every `Az*` symbol, and the M10-D rollout knob that says what the
+/// Framework class means.
+///
+/// When `shards` is set (`WebLiftSettings::shards`: `AZ_ENABLE_SHARDS` set and
+/// `AZ_BUNDLED_LEGACY` not), `api.json::Framework` symbols classify as
+/// [`FnClass::BoundaryImport`] instead of [`FnClass::Recursable`] - the lift BFS then stops at
 /// every boundary and a separate pass produces per-fn wasm shards.
 ///
-/// Once the sharded path is verified end-to-end the polarity will
-/// flip: default = sharded; `AZ_BUNDLED_LEGACY=1` keeps the old
-/// behavior.
-pub fn shards_enabled() -> bool {
-    std::env::var_os("AZ_ENABLE_SHARDS").is_some()
-        && std::env::var_os("AZ_BUNDLED_LEGACY").is_none()
+/// Once the sharded path is verified end-to-end the polarity will flip: default = sharded;
+/// `AZ_BUNDLED_LEGACY=1` keeps the old behavior.
+#[derive(Debug, Clone, Default)]
+struct ApiClasses {
+    by_name: HashMap<String, ApiFnClass>,
+    shards: bool,
 }
 
 /// Kind of symbol entry. The lift pipeline switches on this to decide
@@ -579,7 +582,13 @@ impl SymbolTable {
     /// declarations (Framework / ServerEntryPoint / ReplaceWithDomPatcher).
     /// Non-Az symbols are classified via name pattern matching
     /// (see `classify_by_name`).
-    pub fn build_from_loaded_image(api: &ApiClassification) -> Result<Self, BuildError> {
+    ///
+    /// `shards` is `WebLiftSettings::shards`: whether the Framework class lifts as boundary
+    /// shards (see [`ApiClasses`]).
+    pub fn build_from_loaded_image(
+        api: &ApiClassification,
+        shards: bool,
+    ) -> Result<Self, BuildError> {
         let images = enumerate_loaded_images()?;
         if images.is_empty() {
             return Err(BuildError {
@@ -588,8 +597,10 @@ impl SymbolTable {
             });
         }
 
-        let api_class_by_name: HashMap<String, ApiFnClass> =
-            api.functions.iter().map(|(n, c)| (n.clone(), *c)).collect();
+        let api_class_by_name = ApiClasses {
+            by_name: api.functions.iter().map(|(n, c)| (n.clone(), *c)).collect(),
+            shards,
+        };
 
         let mut by_addr: BTreeMap<usize, SymbolEntry> = BTreeMap::new();
         let mut by_name: HashMap<String, usize> = HashMap::new();
@@ -1382,7 +1393,7 @@ fn ingest_pe(
     file_bytes: &[u8],
     slide: usize,
     path: &std::path::Path,
-    api: &HashMap<String, ApiFnClass>,
+    api: &ApiClasses,
     by_addr: &mut BTreeMap<usize, SymbolEntry>,
     by_name: &mut HashMap<String, usize>,
     chain: &mut HashMap<usize, usize>,
@@ -1746,7 +1757,7 @@ fn ingest_macho(
     macho: &goblin::mach::MachO<'_>,
     file_bytes: &[u8],
     slide: usize,
-    api: &HashMap<String, ApiFnClass>,
+    api: &ApiClasses,
     by_addr: &mut BTreeMap<usize, SymbolEntry>,
     by_name: &mut HashMap<String, usize>,
     chain: &mut HashMap<usize, usize>,
@@ -2028,7 +2039,7 @@ fn ingest_macho_stubs(
     file_bytes: &[u8],
     slide: usize,
     stubs: MachOStubsInfo,
-    api: &HashMap<String, ApiFnClass>,
+    api: &ApiClasses,
     by_addr: &mut BTreeMap<usize, SymbolEntry>,
     by_name: &mut HashMap<String, usize>,
     chain: &mut HashMap<usize, usize>,
@@ -2306,7 +2317,7 @@ fn ingest_elf(
     elf: &goblin::elf::Elf<'_>,
     file_bytes: &[u8],
     slide: usize,
-    api: &HashMap<String, ApiFnClass>,
+    api: &ApiClasses,
     by_addr: &mut BTreeMap<usize, SymbolEntry>,
     by_name: &mut HashMap<String, usize>,
     chain: &mut HashMap<usize, usize>,
@@ -2434,7 +2445,7 @@ fn strip_leading_underscore(name: &str) -> String {
 /// api.json; bump / call_indirect / resolve_callback names hardcode
 /// to the relevant FnClass; everything else gets Leaf or Recursable
 /// based on coarse name patterns.
-fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
+fn classify_for_name(name: &str, api: &ApiClasses) -> FnClass {
     // 1) Special bridge symbols emitted by remill helper IR or the Rust runtime. The Rust allocator
     //    API has three layers of alias each with their own name: __rust_alloc — top-level public C
     //    ABI shim __rg_alloc   — global allocator wrapper (when `#[global_allocator]` is set)
@@ -2643,10 +2654,10 @@ fn classify_for_name(name: &str, api: &HashMap<String, ApiFnClass>) -> FnClass {
     // sharded path is end-to-end green, the polarity flips:
     // default = BoundaryImport; `AZ_BUNDLED_LEGACY=1` keeps the old
     // Recursable behavior.
-    if let Some(api_class) = api.get(name) {
+    if let Some(api_class) = api.by_name.get(name) {
         return match api_class {
             ApiFnClass::Framework => {
-                if shards_enabled() {
+                if api.shards {
                     FnClass::BoundaryImport
                 } else {
                     FnClass::Recursable
@@ -3464,7 +3475,7 @@ mod tests {
 
     #[test]
     fn classify_bump_alloc_variants() {
-        let api: HashMap<String, ApiFnClass> = HashMap::new();
+        let api = ApiClasses::default();
         for n in &["__rust_alloc", "___rust_alloc", "_rust_alloc", "rust_alloc"] {
             assert_eq!(
                 classify_for_name(n, &api),
@@ -3485,9 +3496,11 @@ mod tests {
 
     #[test]
     fn classify_az_via_api() {
-        let mut api: HashMap<String, ApiFnClass> = HashMap::new();
-        api.insert("AzApp_create".to_string(), ApiFnClass::Framework);
-        api.insert("AzApp_run".to_string(), ApiFnClass::ServerEntryPoint);
+        let mut api = ApiClasses::default();
+        api.by_name
+            .insert("AzApp_create".to_string(), ApiFnClass::Framework);
+        api.by_name
+            .insert("AzApp_run".to_string(), ApiFnClass::ServerEntryPoint);
         assert_eq!(classify_for_name("AzApp_create", &api), FnClass::Recursable);
         assert_eq!(classify_for_name("AzApp_run", &api), FnClass::NeverLift);
         // Bare Az* not in api.json → Recursable (transitively reachable
@@ -3497,7 +3510,7 @@ mod tests {
 
     #[test]
     fn classify_runtime_crates() {
-        let api: HashMap<String, ApiFnClass> = HashMap::new();
+        let api = ApiClasses::default();
         // Diverging panic helpers must TRAP, not return (M12.5y).
         assert_eq!(
             classify_for_name("_ZN4core9panicking5panicE", &api),
@@ -3523,7 +3536,7 @@ mod tests {
 
     #[test]
     fn classify_own_crate_as_recursable() {
-        let api: HashMap<String, ApiFnClass> = HashMap::new();
+        let api = ApiClasses::default();
         // _ZN9azul_core3dom3DomE
         assert_eq!(
             classify_for_name("_ZN9azul_core3dom3DomE", &api),
@@ -3531,3 +3544,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "symbol_table_test.rs"]
+mod shard_tests;
