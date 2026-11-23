@@ -5494,6 +5494,10 @@ impl CallbackInfo {
                 .collect();
 
         let render_state = CpuRenderState::new(scroll_offsets)
+            .with_switches(layout_window.settings.render.paint)
+            .with_paint_threads(crate::cpurender::bands::max_threads_for(
+                layout_window.settings.render.threads,
+            ))
             .with_gpu_values(crate::cpurender::WindowGpuValues::of_doms(
                 &layout_window.gpu_state_manager,
                 layout_window.layout_results.keys().copied(),
@@ -5502,7 +5506,7 @@ impl CallbackInfo {
             .with_virtual_view_display_lists(vview_dls);
 
         #[cfg(feature = "std")]
-        if std::env::var_os("AZ_ANIM_DEBUG").is_some() {
+        if layout_window.display_list_options.trace_animation {
             let refs = display_list
                 .items
                 .iter()

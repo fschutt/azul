@@ -113,6 +113,9 @@ pub struct CpuHitTester {
     /// what the frame is hit with then ([`painted_or_baked`]). Not in
     /// [`HitChainLink`]: a link is a key of the chain table.
     baked_frames: std::collections::HashMap<(DomId, NodeId), azul_core::transform::ComputedTransform3D>,
+    /// Print every query's hits, front to back: which node a click lands on, without a
+    /// debugger (`WindowSettings::trace_hit`, `AZ_TRACE_HIT`; [`Self::set_trace`]).
+    trace: bool,
 }
 
 /// Where a child dom's `VirtualView` item is, and how far it has moved the
@@ -2147,7 +2150,16 @@ impl CpuHitTester {
             view_items: BTreeMap::new(),
             index: BTreeMap::new(),
             baked_frames: std::collections::HashMap::new(),
+            trace: false,
         }
+    }
+
+    /// Whether every query of this tester prints its hits, front to back
+    /// (`WindowSettings::trace_hit`, from `AZ_TRACE_HIT`): which node a click lands on, without
+    /// a debugger. Off by default; whoever makes the tester for a window sets what the window's
+    /// settings say.
+    pub const fn set_trace(&mut self, on: bool) {
+        self.trace = on;
     }
 
     /// The links of an interned chain, outermost first.
@@ -2792,12 +2804,11 @@ impl CpuHitTester {
             .filter(|hit| hit.scrollbar.is_none())
             .map(|hit| (hit.dom_id, hit.node_id, hit.local))
             .collect();
-        // `AZ_TRACE_HIT=1`: every query's hits, front to back - which node a
+        // `AZ_TRACE_HIT=1` ([`Self::set_trace`]): every query's hits, front to back - which node a
         // click lands on, without a debugger.
         #[cfg(feature = "std")]
         {
-            static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-            if *TRACE.get_or_init(|| std::env::var_os("AZ_TRACE_HIT").is_some()) {
+            if self.trace {
                 let front: Vec<(usize, usize)> = results
                     .iter()
                     .take(12)

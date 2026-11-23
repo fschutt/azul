@@ -79,6 +79,7 @@ use crate::{
         gpu_state::GpuStateManager, scroll_state::ScrollManager, selection::ClipboardExtract,
         virtual_view::VirtualViewManager,
     },
+    settings::window::WindowSettings,
     solver3::{
         self,
         cache::LayoutCache as Solver3LayoutCache,
@@ -3887,40 +3888,48 @@ pub fn diff_first_steps_of(value: &str) -> u16 {
     }
 }
 
-/// The steps `AZ_DIFF_FIRST` switches on, read from the environment ONCE: the switch is process
-/// configuration, and [`WindowSwitches`] is where a window chooses otherwise.
-fn diff_first_steps_from_environment() -> u16 {
-    static FROM_ENVIRONMENT: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
-    *FROM_ENVIRONMENT.get_or_init(|| {
-        std::env::var_os("AZ_DIFF_FIRST").map_or(DiffFirstStep::EVERY_BIT, |value| {
-            diff_first_steps_of(&value.to_string_lossy())
-        })
-    })
+/// The three switches of [`WindowSwitches`] as the settings of the window give them
+/// (`WindowSettings`): what the window answers until it chooses otherwise.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SwitchBase {
+    /// One bit per [`DiffFirstStep`].
+    diff_first: u16,
+    state_colors_from_the_build: bool,
+    move_in_place: bool,
 }
 
-/// `AZ_EAGER_STATE_COLORS`, read from the environment once.
-fn state_colors_from_the_build_from_environment() -> bool {
-    static FROM_ENVIRONMENT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *FROM_ENVIRONMENT.get_or_init(|| {
-        std::env::var_os("AZ_EAGER_STATE_COLORS").is_none_or(|value| value != "0")
-    })
+impl SwitchBase {
+    /// The answers `settings` give: the steps `AZ_DIFF_FIRST` names (every step when unset), and
+    /// the two switches that are on unless their variable says `0`.
+    fn of(settings: &WindowSettings) -> Self {
+        Self {
+            diff_first: settings
+                .diff_first
+                .as_deref()
+                .map_or(DiffFirstStep::EVERY_BIT, diff_first_steps_of),
+            state_colors_from_the_build: settings.eager_state_colors,
+            move_in_place: settings.move_in_place,
+        }
+    }
 }
 
-/// `AZ_MOVE_IN_PLACE`, read from the environment once.
-fn move_in_place_from_environment() -> bool {
-    static FROM_ENVIRONMENT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *FROM_ENVIRONMENT
-        .get_or_init(|| std::env::var_os("AZ_MOVE_IN_PLACE").is_none_or(|value| value != "0"))
+impl Default for SwitchBase {
+    /// The behaviour of an empty environment: every path on.
+    fn default() -> Self {
+        Self::of(&WindowSettings::default())
+    }
 }
 
-/// What one window chooses for the switches the environment sets for the whole process
-/// (`AZ_DIFF_FIRST`, `AZ_EAGER_STATE_COLORS`, `AZ_MOVE_IN_PLACE`): `None` is the environment's
+/// What one window chooses for the switches its settings set for the whole process
+/// (`AZ_DIFF_FIRST`, `AZ_EAGER_STATE_COLORS`, `AZ_MOVE_IN_PLACE`): `None` is the settings'
 /// answer. For a test that runs one rebuild down both paths of a switch and compares what they
-/// leave - the tests of a process share its environment and run side by side, so the choice
-/// cannot be the environment's, and it must not be another test's either: it belongs to the
-/// window under test ([`LayoutWindow::switches`]).
+/// leave - the tests of a process run side by side, so the choice cannot be a process-wide one,
+/// and it must not be another test's either: it belongs to the window under test
+/// ([`LayoutWindow::switches`]).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct WindowSwitches {
+    /// What the window's settings say ([`Self::adopt`]).
+    base: SwitchBase,
     /// One bit per [`DiffFirstStep`].
     diff_first: Option<u16>,
     state_colors_from_the_build: Option<bool>,
@@ -3928,10 +3937,19 @@ pub struct WindowSwitches {
 }
 
 impl WindowSwitches {
-    /// The steps that are on for this window: its own choice, else the environment's.
-    fn diff_first_steps(self) -> u16 {
-        self.diff_first
-            .unwrap_or_else(diff_first_steps_from_environment)
+    /// Takes the answers of `settings` for every switch this window has not chosen itself: what
+    /// `LayoutWindow::set_settings` does when the window is given the settings the environment
+    /// asked for.
+    pub fn adopt(&mut self, settings: &WindowSettings) {
+        self.base = SwitchBase::of(settings);
+    }
+
+    /// The steps that are on for this window: its own choice, else the settings'.
+    const fn diff_first_steps(self) -> u16 {
+        match self.diff_first {
+            Some(steps) => steps,
+            None => self.base.diff_first,
+        }
     }
 
     /// Whether a rebuild of a DOM is diffed against the build before it BEFORE it is styled, and
@@ -3940,24 +3958,24 @@ impl WindowSwitches {
     /// the full path (the cascade, the reconciliation, the equivalence check), which is the path
     /// the diff-first one must agree with.
     #[must_use]
-    pub fn diff_first_enabled(&self) -> bool {
+    pub const fn diff_first_enabled(&self) -> bool {
         self.diff_first_steps() != 0
     }
 
     /// Whether `step` of the diff-first pipeline is on ([`DiffFirstStep`]).
     #[must_use]
-    pub fn diff_first_step(&self, step: DiffFirstStep) -> bool {
+    pub const fn diff_first_step(&self, step: DiffFirstStep) -> bool {
         self.diff_first_steps() & step.bit() != 0
     }
 
     /// Chooses the path of [`Self::diff_first_enabled`] for this window, whatever the
-    /// environment says: every step or none (`None`: the environment's again).
+    /// settings say: every step or none (`None`: the settings' again).
     pub fn set_diff_first(&mut self, on: Option<bool>) {
         self.diff_first = on.map(|on| if on { DiffFirstStep::EVERY_BIT } else { 0 });
     }
 
     /// [`Self::set_diff_first`] step by step: exactly `steps` are on for this window (`None`:
-    /// the environment's again).
+    /// the settings' again).
     pub fn set_diff_first_steps(&mut self, steps: Option<&[DiffFirstStep]>) {
         self.diff_first =
             steps.map(|steps| steps.iter().fold(0_u16, |bits, step| bits | step.bit()));
@@ -3966,17 +3984,19 @@ impl WindowSwitches {
     /// Whether a build of a display list binds the background of every node that has a
     /// `:hover` / `:active` / `:focus` background to a colour key from the start (audit A4-23,
     /// the eager binding: [`LayoutWindow::bind_state_colors`]), so that the FIRST enter of such
-    /// a node is a value already. On unless the environment says `AZ_EAGER_STATE_COLORS=0`:
+    /// a node is a value already. On unless the settings say `AZ_EAGER_STATE_COLORS=0`:
     /// then a node is bound when a state first paints it (one patched list per node and list
     /// build), as before.
     #[must_use]
-    pub fn state_colors_from_the_build(&self) -> bool {
-        self.state_colors_from_the_build
-            .unwrap_or_else(state_colors_from_the_build_from_environment)
+    pub const fn state_colors_from_the_build(&self) -> bool {
+        match self.state_colors_from_the_build {
+            Some(on) => on,
+            None => self.base.state_colors_from_the_build,
+        }
     }
 
     /// Chooses the answer of [`Self::state_colors_from_the_build`] for this window, whatever
-    /// the environment says (`None`: the environment's again). For a test of one of the two
+    /// the settings say (`None`: the settings' again). For a test of one of the two
     /// bindings.
     pub const fn set_state_colors_from_the_build(&mut self, on: Option<bool>) {
         self.state_colors_from_the_build = on;
@@ -3984,7 +4004,7 @@ impl WindowSwitches {
 
     /// Whether a write of `left` / `top` alone moves the node's boxes and items WHERE THEY LIE
     /// (`LayoutWindow::move_node_in_place`, A3-window-49) instead of laying its document out.
-    /// ON unless the environment says `AZ_MOVE_IN_PLACE=0`.
+    /// ON unless the settings say `AZ_MOVE_IN_PLACE=0`.
     ///
     /// The move writes `old + delta`, which is not, in the last bit of an `f32`, the position
     /// a solve from the new insets gives nor the item a paint from that position gives. That
@@ -3999,12 +4019,15 @@ impl WindowSwitches {
     /// why that copy is exact and this move need not be.) The exact move is designed in
     /// `audit/A3-window.md`, row 49.
     #[must_use]
-    pub fn move_in_place_enabled(&self) -> bool {
-        self.move_in_place.unwrap_or_else(move_in_place_from_environment)
+    pub const fn move_in_place_enabled(&self) -> bool {
+        match self.move_in_place {
+            Some(on) => on,
+            None => self.base.move_in_place,
+        }
     }
 
     /// Chooses the answer of [`Self::move_in_place_enabled`] for this window, whatever the
-    /// environment says (`None`: the environment's again). For the tests of the move.
+    /// settings say (`None`: the settings' again). For the tests of the move.
     pub const fn set_move_in_place(&mut self, on: Option<bool>) {
         self.move_in_place = on;
     }
@@ -4462,6 +4485,14 @@ impl LayoutWindow {
         };
         self.font_manager.settings = settings.text;
         self.text_cache.set_settings(settings.text);
+        // The window's own groups: what the switches of this window answer until a test or a
+        // host chooses otherwise, the direction the environment pins for scrolling, the walk of
+        // every scroll-driven box, and what the window's text halos do.
+        self.switches.adopt(&settings.window);
+        self.scroll_manager.pin_natural_scroll(settings.window.natural_scroll);
+        self.gpu_state_manager.walk_every_frame = settings.window.walk_scroll_boxes;
+        #[cfg(feature = "cpurender")]
+        self.text_halo_store.apply_settings(&settings.render);
         self.settings = settings;
     }
 
@@ -5363,9 +5394,9 @@ impl LayoutWindow {
         // whole contract. The two builders producing different pictures for
         // one tree is how a hover made a placeholder jump (AzWidgets, report
         // 3.5-1). Off by default (it doubles display-list work); the e2e
-        // suites and the headless widget tests turn it on.
+        // suites and the headless widget tests turn it on (`settings.window.patch_verify`).
         #[cfg(feature = "std")]
-        if result.is_ok() && std::env::var_os("AZ_PATCH_VERIFY").is_some() {
+        if result.is_ok() && self.settings.window.patch_verify {
             let mismatches = self.verify_patched_display_list(DomId::ROOT_ID);
             assert!(
                 mismatches.is_empty(),
@@ -9888,26 +9919,22 @@ impl LayoutWindow {
     ) -> Result<(), solver3::LayoutError> {
         // Optional memory-breakdown print for the CSS property cache and
         // the layout tree. Gated on `AZ_PROFILE=memory` (the flag word is
-        // parsed by `azul_core::profile::flags`); off costs one env-var
-        // read on the first call (`OnceLock`-cached) and nothing after.
+        // parsed once, at the start, into `azul_core::profile::flags`); a
+        // check is a read of what was parsed.
         //
         // It is NOT `AZ_MEM_BREAKDOWN=1`, which is what this comment used
         // to say — that variable has never existed, and setting it prints
         // nothing at all.
-        // KEEP: an environment flag, read once (a fact of the process, not state of a window).
-        static MEM_BREAKDOWN_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        //
         // Optional AZ_PROFILE=cpu dump: per-phase wall-clock timings from
         // `Probe::span` spans (layout, style, cascade, paint, text-shape,
         // callbacks, …). Drains the thread-local buffer once per pass so
         // the printout reflects ONE layout/relayout frame — which makes it
         // easy to see which phase spiked during a stuttering frame.
-        // KEEP: an environment flag, read once.
-        static CPU_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        //
         // Optional AZ_PROFILE=cascade dump: top-N CSS properties by
         // cascade-walk count per layout pass. Narrow diagnostic for
         // prop-cache triage — not a general CPU profile.
-        // KEEP: an environment flag, read once.
-        static CASCADE_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
         let dom_id = if styled_dom.dom_id.inner == 0 {
             DomId::ROOT_ID
@@ -10660,7 +10687,7 @@ impl LayoutWindow {
             return Ok(());
         }
 
-        if *MEM_BREAKDOWN_ENABLED.get_or_init(azul_core::profile::memory_enabled) {
+        if azul_core::profile::memory_enabled() {
             // ACROSS FRAMES. A single snapshot says where memory is; the DELTA
             // says whether a change helped, and whether the process is still
             // growing after it should have settled. Steady-state growth per
@@ -11170,7 +11197,7 @@ impl LayoutWindow {
             }
         }
 
-        if *CPU_ENABLED.get_or_init(azul_core::profile::cpu_enabled) {
+        if azul_core::profile::cpu_enabled() {
             let events = crate::probe::Probe::drain();
             crate::probe::print_drained_events("layout pass", &events);
         } else if !crate::probe::Probe::drained_by_its_caller() {
@@ -11190,7 +11217,7 @@ impl LayoutWindow {
             crate::probe::Probe::drop_events();
         }
 
-        if *CASCADE_ENABLED.get_or_init(azul_core::profile::cascade_enabled) {
+        if azul_core::profile::cascade_enabled() {
             // The walks the cache of the DOM this pass laid out counted. The DOM is still
             // this function's own here; `layout_results` takes it at the end of the pass.
             let counts = styled_dom.get_css_property_cache().drain_css_prop_counts();
@@ -11331,7 +11358,8 @@ impl LayoutWindow {
             &self.layout_cache.calculated_positions,
         );
 
-        if env_flag!("AZ_MAP_DEBUG") {
+        let map_debug = self.settings.window.map_debug;
+        if map_debug {
             eprintln!(
                 "[vview] scan found {} VirtualView node(s): {:?}",
                 vviews.len(),
@@ -11375,7 +11403,7 @@ impl LayoutWindow {
                             clip_rect: placeholder_clip,
                             ..
                         } if *placeholder_nid == node_id => {
-                            if env_flag!("AZ_MAP_DEBUG") {
+                            if map_debug {
                                 eprintln!(
                                     "[vview] placeholder swap: node={} placeholder_bounds={:?} \
                                      scan_bounds={:?}",
@@ -11509,9 +11537,7 @@ impl LayoutWindow {
         // window where the main [MEM] block runs is one where the map is empty
         // BY CONSTRUCTION. Measuring it there printed a confident 0 DOMs that
         // said nothing about the map and everything about the placement.
-        // KEEP: an environment flag, read once.
-        static MEM_LR_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        if *MEM_LR_ENABLED.get_or_init(azul_core::profile::memory_enabled) {
+        if azul_core::profile::memory_enabled() {
             let mut lr_styled = 0usize;
             let mut lr_tree = 0usize;
             for res in self.layout_results.values() {
@@ -11540,14 +11566,10 @@ impl LayoutWindow {
         // madvise()s pages back; that costs time on a path that just finished
         // a relayout, and the pages are likely to be wanted again on the next
         // one. Whether the trade is worth it is a measurement, not a default,
-        // and the env gate is what makes the A/B possible at all.
-        // KEEP: an environment flag (`AZ_MALLOC_TRIM`), read once.
-        static MEM_TRIM: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        if *MEM_TRIM.get_or_init(|| std::env::var("AZ_MALLOC_TRIM").as_deref() == Ok("1")) {
+        // and the setting (`AZ_MALLOC_TRIM=1`) is what makes the A/B possible at all.
+        if self.settings.window.malloc_trim {
             let released = crate::probe::malloc_trim();
-            // KEEP: an environment flag, read once.
-            static MEM_TRIM_LOG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-            if *MEM_TRIM_LOG.get_or_init(azul_core::profile::memory_enabled) {
+            if azul_core::profile::memory_enabled() {
                 // rss_census(), not current_rss_bytes(): the latter is behind
                 // `#[cfg(feature = "probe")]` and this path must report in any
                 // build where the trim itself runs.
@@ -15224,7 +15246,7 @@ impl LayoutWindow {
         // question behind "this view renders N times a second while idle" (a new
         // generation of its host, a queued re-render, an edge, a box that moved).
         #[cfg(feature = "std")]
-        if virtual_view_trace() {
+        if self.settings.window.vv_trace {
             eprintln!(
                 "[vv] render ({parent_dom_id:?}, {node_id:?}) reason={reason:?} carried={carried} \
                  box={:.1}x{:.1}",
@@ -18128,7 +18150,7 @@ impl LayoutWindow {
             },
             affinity: CursorAffinity::Leading,
         });
-        if std::env::var_os("AZ_FOCUS_DEBUG").is_some() {
+        if self.settings.window.focus_debug {
             eprintln!(
                 "[finalize_pending_focus] editing initialized: node {:?} cursor {:?} \
                  (had_layout={})",
@@ -18469,6 +18491,7 @@ impl LayoutWindow {
         }
         let cursor = self.text_edit_manager.get_primary_cursor()?;
         Some(Self::resolve_step_with(
+            self.dense_text_verify(),
             text_target.dense.as_deref(),
             &text_target.layout,
             &cursor,
@@ -18477,13 +18500,24 @@ impl LayoutWindow {
         ))
     }
 
+    /// Whether every dense cursor step is compared with the sparse one
+    /// (`AZ_DENSE_TEXT=verify`, [`crate::settings::SolverSettings::dense_text`]).
+    const fn dense_text_verify(&self) -> bool {
+        matches!(
+            self.display_list_options.dense_text,
+            crate::settings::DenseTextMode::Verify
+        )
+    }
+
     /// (d6f) Dense-first step resolution: the dense dispatcher when the
-    /// view is retained (verify-A/B'd against the sparse one under
-    /// `AZ_DENSE_TEXT=verify`), sparse fallback otherwise. Associated (no
+    /// view is retained (verify-A/B'd against the sparse one when `verify` is
+    /// set: [`Self::dense_text_verify`]),
+    /// sparse fallback otherwise. Associated (no
     /// `&self`) because the call sites run inside `move_all_cursors`
     /// closures that hold `self.text_edit_manager` mutably — the dense
-    /// Arc is hoisted out of `self` before that borrow starts.
+    /// Arc and the flag are hoisted out of `self` before that borrow starts.
     fn resolve_step_with(
+        verify: bool,
         dense: Option<&crate::text3::dense::DenseText>,
         layout: &UnifiedLayout,
         cursor: &TextCursor,
@@ -18492,7 +18526,7 @@ impl LayoutWindow {
     ) -> TextCursor {
         if let Some(d) = dense {
             let dense_result = d.resolve_step(cursor, direction, step);
-            if std::env::var("AZ_DENSE_TEXT").as_deref() == Ok("verify") {
+            if verify {
                 let sparse = Self::resolve_step_static(layout, cursor, direction, step);
                 assert_eq!(
                     dense_result, sparse,
@@ -18854,6 +18888,7 @@ impl LayoutWindow {
         }
         let target = self.text_target(focus.0)?;
         let stepped = Self::resolve_step_with(
+            self.dense_text_verify(),
             target.dense.as_deref(),
             &target.layout,
             &focus.1,
@@ -19463,10 +19498,12 @@ impl LayoutWindow {
                 // (the Left/Right rule). Word, visual-line, Home/End and
                 // document jumps are movements and must actually be performed.
                 let collapse = matches!(op.step, SelectionStep::Character);
+                let verify = self.dense_text_verify();
                 if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
                     for _ in 0..op.repeat.max(1) {
                         mc.move_all_cursors_with(extend, collapse, |c| {
                             Self::resolve_step_with(
+                                verify,
                                 dense.as_deref(),
                                 &layout,
                                 c,
@@ -19482,10 +19519,12 @@ impl LayoutWindow {
             SelectionMode::Delete => {
                 // Step 1: if step > Character, expand cursors to ranges first
                 if !matches!(op.step, SelectionStep::Character) {
+                    let verify = self.dense_text_verify();
                     if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
                         for _ in 0..op.repeat.max(1) {
                             mc.move_all_cursors(true, |c| {
                                 Self::resolve_step_with(
+                                    verify,
                                     dense.as_deref(),
                                     &layout,
                                     c,
@@ -19690,8 +19729,10 @@ impl LayoutWindow {
                 cursor: end,
                 anchor: None,
             });
-        let step =
-            |c: &TextCursor| Self::resolve_step_with(dense, layout, c, op.direction, op.step);
+        let verify = self.dense_text_verify();
+        let step = |c: &TextCursor| {
+            Self::resolve_step_with(verify, dense, layout, c, op.direction, op.step)
+        };
 
         match op.mode {
             SelectionMode::Move => {
@@ -22222,6 +22263,8 @@ impl LayoutWindow {
         }
         let finished = self.animations.tick(dt);
         self.tracks_sampled_since_tick = false;
+        // `AZ_ANIM_DEBUG`: read here, where `self` is whole, for the borrows below.
+        let anim_debug = self.display_list_options.trace_animation;
 
         // Solved bounds for every transitioning node, read BEFORE the GPU
         // cache borrow below (get_node_bounds needs `&self` whole).
@@ -22643,7 +22686,7 @@ impl LayoutWindow {
                             restyle_fonts |= tr.prop_type.can_trigger_relayout()
                                 || tr.prop_type.is_inheritable();
                         }
-                        if std::env::var_os("AZ_ANIM_DEBUG").is_some() {
+                        if anim_debug {
                             eprintln!(
                                 "[tween] restyle path: node {:?} {:?} scope {:?} compact {patched} \
                                  shown {shown:?} from {:?} to {:?}",
@@ -30188,7 +30231,7 @@ impl LayoutWindow {
                 .extend_chains_for_content(&new_inline_content, |bytes, index| {
                     loader.load_font_shared(bytes, index)
                 });
-            if added > 0 && std::env::var_os("AZ_FONT_FALLBACK_DEBUG").is_some() {
+            if added > 0 && self.font_manager.settings.trace_font_fallback {
                 eprintln!("[FONT FALLBACK] edit-time chain extension: {added} face(s) added");
             }
         }
@@ -30496,7 +30539,7 @@ impl LayoutWindow {
                     })
                 });
 
-            if plan.is_none() && std::env::var("AZ_SCROLL_CONTRACT_TRACE").is_ok() {
+            if plan.is_none() && self.settings.window.scroll_contract_trace {
                 eprintln!("[contract] NO PLAN (no scroll host / missing geometry)");
             }
             if let Some(plan) = plan {
@@ -30508,7 +30551,7 @@ impl LayoutWindow {
                         warm.overflow_content_size = Some(plan.merged_extent);
                     }
                 }
-                if std::env::var("AZ_SCROLL_CONTRACT_TRACE").is_ok() {
+                if self.settings.window.scroll_contract_trace {
                     eprintln!(
                         "[contract] host={:?} extent={:?} port={:?} was_reflow={} now={:?} \
                          trans={}",
@@ -30855,11 +30898,10 @@ impl LayoutWindow {
         // to diagnose one item inserted near the top).
         #[cfg(feature = "std")]
         if patched != wholesale {
-            if let Some(dir) = std::env::var_os("AZ_PATCH_VERIFY_DUMP") {
-                let dir = std::path::PathBuf::from(dir);
+            if let Some(dir) = self.settings.window.patch_verify_dump.as_deref() {
                 // Best effort: a dump that cannot be written must not fail
                 // the verification it documents.
-                drop(std::fs::create_dir_all(&dir));
+                drop(std::fs::create_dir_all(dir));
                 drop(std::fs::write(dir.join("patched.txt"), patched.join("\n")));
                 drop(std::fs::write(
                     dir.join("wholesale.txt"),
@@ -34546,7 +34588,7 @@ impl LayoutWindow {
             // in the root DOM: a page that appears in a view takes the keys.
             let entered_autofocus = first_entered_autofocus(new_node_data, entered.iter().copied());
             #[cfg(feature = "std")]
-            if env_flag!("AZ_VV_RECONCILE_TRACE") {
+            if self.settings.window.vv_reconcile_trace {
                 eprintln!(
                     "[vv-reconcile] dom={child_dom_id:?} old_n={} new_n={} moves={} sample={:?}",
                     old_node_data.len(),
@@ -39178,14 +39220,6 @@ pub struct PendingReconciliation {
     pub compared_properties: usize,
 }
 
-/// Whether `AZ_VV_TRACE` asks for a line per `VirtualView` render, read once.
-#[cfg(feature = "std")]
-fn virtual_view_trace() -> bool {
-    // KEEP: an environment flag, read once.
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("AZ_VV_TRACE").is_some())
-}
-
 /// The first of `entered` (new nodes with no counterpart in the old tree, in
 /// ascending order, which is tree order) that has the `autofocus` attribute.
 fn first_entered_autofocus(
@@ -43654,3 +43688,7 @@ mod hover_tooltip_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "window_test.rs"]
+mod settings_tests;
