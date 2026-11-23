@@ -46,8 +46,9 @@ use std::{
 };
 
 /// The variable naming the file whose words a headless / E2E run's network is
-/// ([`NetworkState::from_words`]; ignored by every other run).
-pub const NETWORK_STATE_FILE_VAR: &str = "AZ_NETWORK_STATE_FILE";
+/// ([`NetworkState::from_words`]; ignored by every other run). The installed
+/// `azul_core::run_mode::TestHooks` hold its value; the name is `extra_settings`'.
+pub use crate::desktop::extra::extra_settings::NETWORK_STATE_FILE_VAR;
 
 /// What carries the connection.
 #[repr(C)]
@@ -217,8 +218,8 @@ fn hotspot_guess(kind: NetworkKind, system_says_costly: bool) -> bool {
 
 /// A headless run's network: the switch file's words, else [`NetworkState::HEADLESS`].
 fn headless_reading() -> NetworkState {
-    let path = std::env::var_os(NETWORK_STATE_FILE_VAR);
-    reading_of_file(path.as_deref().map(Path::new))
+    let hooks = azul_core::run_mode::test_hooks();
+    reading_of_file(hooks.network_state_file.as_deref().map(Path::new))
 }
 
 /// The network the file at `path` says ([`NetworkState::from_words`]); without a file, or one

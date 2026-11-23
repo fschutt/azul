@@ -293,17 +293,14 @@ fn decode_stream(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadRec
     use azul_css::{AzString, U8Vec};
     use azul_layout::widgets::video::{VideoDecodeInit, VideoTransport};
 
-    let log = std::env::var("AZ_VIDEO_FRAMELOG").is_ok();
-
     // 1. The thread-init is the `VideoConfig`; match its typed source → MP4 bytes (URL via range
     //    request / local file / in-memory bytes). No RefAny downcast ambiguity — the source is
-    //    strongly typed.
-    let (config, client) = match init.downcast_ref::<VideoDecodeInit>() {
-        Some(i) => (i.config.clone(), i.client.clone()),
+    //    strongly typed. `log` is the video frame trace the widget decided when it built the job
+    //    (`VideoDecodeInit::framelog`).
+    let (config, client, log) = match init.downcast_ref::<VideoDecodeInit>() {
+        Some(i) => (i.config.clone(), i.client.clone(), i.framelog),
         None => {
-            if log {
-                eprintln!("[vstream] init is not a VideoDecodeInit");
-            }
+            crate::plog_warn!("[vstream] init is not a VideoDecodeInit");
             return;
         }
     };

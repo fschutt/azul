@@ -7,7 +7,7 @@ use std::{
     sync::{Mutex, PoisonError},
 };
 
-use super::{HeardStatus, SpeechHeard, SPEECH_HEARD_VAR, SPEECH_LOG_VAR};
+use super::{HeardStatus, SpeechHeard};
 
 /// What this process was asked to say.
 static SPOKEN: Mutex<Vec<Utterance>> = Mutex::new(Vec::new());
@@ -33,7 +33,9 @@ pub(super) fn say(text: &str, language: &str, interrupt: bool) {
         text.replace(['\n', '\r'], " ")
     );
     println!("{line}");
-    if let Some(path) = std::env::var_os(SPEECH_LOG_VAR).filter(|p| !p.is_empty()) {
+    // `AZ_SPEECH_LOG`, as the installed test hooks hold it (a blank name is none).
+    let hooks = azul_core::run_mode::test_hooks();
+    if let Some(path) = hooks.speech_log.as_deref().filter(|p| !p.is_empty()) {
         // A log that cannot be written only loses the record: the run goes on.
         if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
             let _ = writeln!(file, "{line}");
@@ -60,7 +62,9 @@ pub(super) fn heard() -> SpeechHeard {
     let scripted = HEARD.lock().unwrap_or_else(PoisonError::into_inner).clone();
     #[cfg(not(test))]
     let scripted: Option<String> = None;
-    let text = scripted.or_else(|| std::env::var(SPEECH_HEARD_VAR).ok()).unwrap_or_default();
+    let text = scripted
+        .or_else(|| azul_core::run_mode::test_hooks().speech_heard.clone())
+        .unwrap_or_default();
     if text.trim().is_empty() {
         SpeechHeard::none(HeardStatus::NothingHeard, "nothing was said")
     } else {

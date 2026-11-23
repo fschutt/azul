@@ -218,6 +218,8 @@ pub fn tile_coords_to_urls(
 /// # Arguments
 /// * `tile_data` - A `Vec<u8>` containing the raw PBF data of the MVT.
 /// * `tile_coord` - The `TileCoord` (Z/X/Y) of the tile being parsed.
+/// * `dbg` - Print one line about the parse to stderr: the map debug trace, which the tile worker
+///   carries in its init (`TileFetchInit::debug`).
 ///
 /// # Returns
 /// A `Result` containing a `Vec<Feature>` on success, or an error if the PBF data
@@ -229,6 +231,7 @@ pub fn tile_coords_to_urls(
 pub fn parse_mvt_tile(
     tile_data: Vec<u8>,
     tile_coord: &TileCoord,
+    dbg: bool,
 ) -> Result<Vec<Feature>, ParserError> {
     trace!("Parsing MVT tile at {:?}", tile_coord);
     let reader = TileReader::new(tile_data)?;
@@ -236,7 +239,6 @@ pub fn parse_mvt_tile(
 
     let layers = reader.get_layer_metadata().unwrap_or_default();
     trace!("Found {} layers in tile {:?}", layers.len(), tile_coord);
-    let dbg = std::env::var("AZ_MAP_DEBUG").is_ok();
     let layer_count = layers.len();
     let mut raw_count = 0usize;
 
