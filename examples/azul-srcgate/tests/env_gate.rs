@@ -419,19 +419,13 @@ static W1: &[Allow] = &[
     Allow::exactly(
         "layout/src/solver3/cache.rs",
         NAME,
-        7,
+        5,
         "solver3 and text3: wired by cluster W1",
     ),
     Allow::exactly(
         "layout/src/solver3/cache.rs",
         FLAG,
         5,
-        "solver3 and text3: wired by cluster W1",
-    ),
-    Allow::exactly(
-        "layout/src/solver3/cache.rs",
-        READ,
-        2,
         "solver3 and text3: wired by cluster W1",
     ),
     Allow::exactly(

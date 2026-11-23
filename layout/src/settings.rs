@@ -1,0 +1,72 @@
+//! The settings of azul-layout: the switches the process environment used to flip from inside
+//! the engine, as plain values that the owner of a layout window, a font manager or a cache
+//! hands down.
+//!
+//! The library crates never read `std::env`. Each group of settings is a struct with a pure
+//! `from_lookup(&dyn EnvSource)` that names its variables in ONE place (a file of this directory),
+//! and a `Default` that is the behaviour of an EMPTY environment (`from_lookup(&NoEnv)`), so a
+//! program that never configured anything, or a test, gets the shipped behaviour. The one reader
+//! of the process is the dll (`azul_dll::env::ProcessEnv`); it builds a [`LayoutSettings`] once
+//! at the start and installs it (`LayoutWindow::set_settings`).
+//!
+//! One file per group, so two clusters of the env pass never edit the same lines:
+//!
+//! - [`solver`]: the layout solver (`solver3`): the display-list options, the storage form of
+//!   text, the switches back to the old behaviour and the traces of the passes.
+//! - [`text`]: text shaping, fonts and glyph rendering (`text3`, `glyph_cache`).
+//!
+//! A group is added by a `pub mod` line, a `pub` field of [`LayoutSettings`] and a line in
+//! [`LayoutSettings::from_lookup`], each in the slot of its cluster below.
+#![allow(clippy::module_name_repetitions)]
+
+use azul_css::env::EnvSource;
+
+pub mod solver;
+pub mod text;
+
+// Cluster W2 (window, render, widgets): its `pub mod` lines go here.
+
+// Cluster W3 (e2e, telemetry, services): its `pub mod` lines go here.
+
+pub use solver::{DenseTextMode, MovedRunPolicy, SolverSettings};
+pub use text::TextSettings;
+
+/// Every group of settings of azul-layout.
+///
+/// A plain struct with one `pub` field per group: a host that wants the process environment
+/// builds it with `LayoutSettings::from_lookup(&env)` once; one that wants one switch writes a
+/// field (`settings.solver.patching = false`). `Default` is the behaviour of an empty
+/// environment.
+// Not `Copy`: the groups of the other clusters of the env pass hold paths and strings, and a
+// `Copy` that is taken away again would break whoever copies the aggregate.
+#[allow(missing_copy_implementations)]
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LayoutSettings {
+    /// The layout solver ([`SolverSettings`]).
+    pub solver: SolverSettings,
+    /// Text shaping, fonts and glyph rendering ([`TextSettings`]).
+    pub text: TextSettings,
+
+    // Cluster W2 (window, render, widgets): its fields go here.
+
+    // Cluster W3 (e2e, telemetry, services): its fields go here.
+}
+
+impl LayoutSettings {
+    /// The settings `env` asks for: each group reads its own variables.
+    #[must_use]
+    pub fn from_lookup(env: &dyn EnvSource) -> Self {
+        Self {
+            solver: SolverSettings::from_lookup(env),
+            text: TextSettings::from_lookup(env),
+
+            // Cluster W2 (window, render, widgets): its groups go here.
+
+            // Cluster W3 (e2e, telemetry, services): its groups go here.
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "settings_test.rs"]
+mod tests;
