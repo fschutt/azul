@@ -115,6 +115,44 @@ fn a_seeded_window_starts_in_what_its_app_chose() {
     assert_eq!(stranger.scroll_manager.system_natural_scroll(), None);
 }
 
+/// What the environment asked of the layout engine reaches every window of the app through the
+/// ONE place that seeds a window (`seed_window`): the layout passes' options, the window's own
+/// copy and its font manager's text settings. A window of an app that asked for nothing has the
+/// defaults, which is the behaviour of an empty environment.
+#[test]
+fn a_window_is_seeded_with_the_layout_settings_its_app_read_from_the_environment() {
+    use azul_css::env::MapEnv;
+    use azul_layout::settings::{DenseTextMode, LayoutSettings};
+
+    let asked = AppSettings::from_lookup(
+        &MapEnv::new()
+            .with("AZ_NO_DL_PATCH", "1")
+            .with("AZ_DENSE_TEXT", "verify")
+            .with("AZ_TEXT_HINTING", "0")
+            .with("AZ_FONT_GC_TRACE", "1"),
+    );
+    assert_ne!(asked.layout, LayoutSettings::default());
+    let config = AppConfig::default();
+
+    let mut window = LayoutWindow::new(rust_fontconfig::FcFontCache::default()).expect("a window");
+    assert!(window.display_list_options.patching, "an unseeded window patches its lists");
+    AppShared::with_settings(&config, asked.clone()).seed_window(&mut window, &config);
+    assert_eq!(window.settings, asked.layout);
+    assert!(!window.display_list_options.patching, "AZ_NO_DL_PATCH reached the layout passes");
+    assert_eq!(window.display_list_options.dense_text, DenseTextMode::Verify);
+    assert!(!window.font_manager.settings.hinting, "AZ_TEXT_HINTING=0 reached the font manager");
+    assert!(window.font_manager.settings.trace_font_gc, "so did the font trace");
+
+    // the window of an app that asked for nothing, and of one made for a test
+    for shared in [AppShared::new(&config), AppShared::for_app(&config, AppSettings::default())] {
+        let mut other =
+            LayoutWindow::new(rust_fontconfig::FcFontCache::default()).expect("a window");
+        shared.seed_window(&mut other, &config);
+        assert_eq!(other.settings, LayoutSettings::default());
+        assert!(other.display_list_options.patching);
+    }
+}
+
 /// An app that never read the process holds the empty environment's settings; a running app holds
 /// what its environment asked, and a window reads it through the app it was built for.
 #[test]

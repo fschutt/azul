@@ -184,12 +184,13 @@ impl AppShared {
     }
 
     /// Everything a window takes from its app when it is built, in one place for every shell:
-    /// the settings of the config (localization, system animations, natural-scroll mode, the
-    /// snapshot the engine services read, E2E hooks, node identity), the GPU hooks, and the
-    /// app's choices as they stand now (the mode, the language, the natural-scrolling
-    /// preference).
+    /// the layout settings the environment asked for, the settings of the config (localization,
+    /// system animations, natural-scroll mode, the snapshot the engine services read, E2E hooks,
+    /// node identity), the GPU hooks, and the app's choices as they stand now (the mode, the
+    /// language, the natural-scrolling preference).
     pub fn seed_window(&self, layout_window: &mut LayoutWindow, config: &AppConfig) {
-        // What the environment asked of the layout engine, read once at the app's start.
+        // What the environment asked of the layout engine (the solver's switches, the text's,
+        // the traces), once for every window the app builds: before its first pass.
         layout_window.set_settings(self.settings.layout.clone());
         layout_window.set_app_localization(config);
         layout_window.set_app_settings(config);
