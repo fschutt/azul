@@ -51,7 +51,7 @@ use crate::impl_platform_window_getters;
 /// variable against `"debug"`, so `AZ_LOG=debug,-layout` (the invocation that
 /// makes the log readable) silently produced no platform trace at all.
 ///
-/// `AZ_WL_TRACE=1` (`forced`, [`LinuxSettings::wl_trace`]) forces it on
+/// `AZ_WL_TRACE=1` (`forced`, `LinuxSettings::wl_trace`) forces it on
 /// regardless of level, for the case where you want ONLY this trace and
 /// nothing else.
 pub(super) fn wl_trace_enabled(forced: bool) -> bool {
@@ -288,11 +288,11 @@ use self::{
 };
 use super::{
     common::{compose::ComposeAction, gl::GlFunctions},
-    linux_settings::LinuxSettings,
     x11::{accessibility::LinuxAccessibilityAdapter, dlopen::Gtk3Im},
 };
 use crate::{
     desktop::{
+        app_settings::AppSettings,
         shell2::common::{
             debug_server::LogCategory,
             event::{
@@ -344,8 +344,7 @@ struct ShmSlot {
 pub(crate) static SHM_ABGR8888_ADVERTISED: core::sync::atomic::AtomicBool =
     core::sync::atomic::AtomicBool::new(false);
 
-// #27 master switch (shared across platform shells — see its doc there).
-use crate::desktop::shell2::headless::native_backbuffer_enabled;
+// #27 master switch: `ShellSettings::native_backbuffer`, carried by the app's `AppSettings`.
 
 struct CpuFallbackState {
     wayland: Rc<Wayland>,
@@ -385,6 +384,9 @@ struct CpuFallbackState {
     wl_trace: bool,
     /// `AZ_BB_DEBUG` as the app read it: the pool traces its catch-up copies.
     bb_debug: bool,
+    /// The native back buffer is on (`ShellSettings::native_backbuffer`, `AZ_NATIVE_BACKBUFFER`
+    /// is not `0`): the renderer targets a slot directly.
+    native_backbuffer: bool,
 }
 
 /// `wl_buffer.release`: compositor is done with the buffer — mark reusable.
@@ -2870,7 +2872,7 @@ impl WaylandWindow {
                 width,
                 height,
                 1,
-                resources.linux(),
+                resources.app_shared.settings(),
             )?))
         } else {
             match gl::GlContext::new(&wayland, display, window.surface, width, height) {
@@ -2896,7 +2898,7 @@ impl WaylandWindow {
                                 width,
                                 height,
                                 1,
-                                resources.linux(),
+                                resources.app_shared.settings(),
                             )?));
                         }
                     };
@@ -2929,7 +2931,7 @@ impl WaylandWindow {
                             width,
                             height,
                             1,
-                            resources.linux(),
+                            resources.app_shared.settings(),
                         )?))
                     } else {
                         RenderMode::Gpu(gl_context, gl_functions)
@@ -2947,7 +2949,7 @@ impl WaylandWindow {
                         width,
                         height,
                         1,
-                        resources.linux(),
+                        resources.app_shared.settings(),
                     )?))
                 }
             }
@@ -2983,7 +2985,7 @@ impl WaylandWindow {
                 width,
                 height,
                 1,
-                resources.linux(),
+                resources.app_shared.settings(),
             )?));
         }
 
@@ -8637,7 +8639,7 @@ impl WaylandWindow {
                         buf_w,
                         buf_h,
                         scale,
-                        self.resources.linux(),
+                        self.resources.app_shared.settings(),
                     ) {
                         Ok(cpu_state) => {
                             self.render_mode = RenderMode::Cpu(Some(cpu_state));
@@ -9393,8 +9395,10 @@ impl CpuFallbackState {
         physical_width: i32,
         physical_height: i32,
         scale: i32,
-        linux: &LinuxSettings,
+        settings: &AppSettings,
     ) -> Result<Self, WindowError> {
+        let linux = &settings.linux;
+        let native_backbuffer = settings.shell.native_backbuffer;
         let scale = scale.max(1);
         let width = physical_width.max(1);
         let height = physical_height.max(1);
@@ -9437,7 +9441,7 @@ impl CpuFallbackState {
         // the renderer can draw directly into a slot. ARGB8888 is the
         // mandatory fallback and keeps the R↔B swizzle.
         let format = if SHM_ABGR8888_ADVERTISED.load(core::sync::atomic::Ordering::Relaxed)
-            && native_backbuffer_enabled()
+            && native_backbuffer
         {
             WL_SHM_FORMAT_ABGR8888
         } else {
@@ -9496,7 +9500,7 @@ impl CpuFallbackState {
             height,
             if format == WL_SHM_FORMAT_ABGR8888 {
                 "ABGR8888 — renderer targets the slot directly"
-            } else if !native_backbuffer_enabled() {
+            } else if !native_backbuffer {
                 "ARGB8888 (AZ_NATIVE_BACKBUFFER=0)"
             } else {
                 "ARGB8888 + commit-swizzle — renderer targets the slot; damage rects converted in \
@@ -9522,6 +9526,7 @@ impl CpuFallbackState {
             damage_rects: Vec::new(),
             wl_trace: linux.wl_trace,
             bb_debug: linux.bb_debug,
+            native_backbuffer,
         })
     }
 
@@ -9669,7 +9674,7 @@ impl CpuFallbackState {
     /// depths). Slot bytes are ALWAYS in pool format after a commit,
     /// whichever path (native+swizzle or legacy copy) produced them.
     fn needs_commit_swizzle(&self) -> bool {
-        self.format == WL_SHM_FORMAT_ARGB8888 && native_backbuffer_enabled()
+        self.format == WL_SHM_FORMAT_ARGB8888 && self.native_backbuffer
     }
 
     /// One row of a slot in pixels, the 256-byte padding included (shm.rs) -
@@ -9830,7 +9835,7 @@ impl WaylandWindow {
                         buf_w,
                         buf_h,
                         scale,
-                        self.resources.linux(),
+                        self.resources.app_shared.settings(),
                     ) {
                         Ok(new_state) => {
                             *cpu_opt = Some(new_state);
@@ -10430,7 +10435,7 @@ impl WaylandPopup {
                 phys_w,
                 phys_h,
                 scale,
-                self.resources.linux(),
+                self.resources.app_shared.settings(),
             ) {
                 Ok(state) => self.render_mode = RenderMode::Cpu(Some(state)),
                 Err(e) => {
