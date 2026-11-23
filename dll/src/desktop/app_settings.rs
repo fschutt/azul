@@ -19,7 +19,11 @@
 
 use azul_css::env::{EnvSource, NoEnv};
 
-use super::{render_settings::RenderSettings, shell_settings::ShellSettings};
+#[cfg(az_x11)]
+use super::shell2::linux::linux_settings::LinuxSettings;
+use super::{
+    platform_settings::PlatformEnv, render_settings::RenderSettings, shell_settings::ShellSettings,
+};
 
 /// Everything the environment asks of an app, read once at its start.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,6 +32,11 @@ pub struct AppSettings {
     pub shell: ShellSettings,
     /// The WebRender path.
     pub render: RenderSettings,
+    /// The platform lookups: the session, the desktop, the user's directories.
+    pub platform: PlatformEnv,
+    /// The Linux shell's switches (X11 and Wayland); where the X11 backend is built.
+    #[cfg(az_x11)]
+    pub linux: LinuxSettings,
 }
 
 impl AppSettings {
@@ -37,6 +46,9 @@ impl AppSettings {
         Self {
             shell: ShellSettings::from_lookup(env),
             render: RenderSettings::from_lookup(env),
+            platform: PlatformEnv::from_lookup(env),
+            #[cfg(az_x11)]
+            linux: LinuxSettings::from_lookup(env),
         }
     }
 }
