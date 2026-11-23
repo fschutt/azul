@@ -696,7 +696,7 @@ fn the_macos_shell_gives_memory_back_when_hidden_and_under_pressure() {
     );
     let release = body(MACOS_RS, "pub(crate) fn release_regenerable_memory(");
     for call in [
-        "release_plan(reason, keep_caches())",
+        "release_plan(reason, self.keep_caches())",
         // The compositor goes with everything else the CPU backend keeps (A1-29).
         "self.cpu_backend.release_caches();",
         "self.cpu_backend.glyph_cache.gc();",

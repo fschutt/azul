@@ -235,23 +235,13 @@ define_class!(
 /// Leaked on purpose: a tick may still be inside the callback when the
 /// window goes away, and a freed context would be the same bug one level
 /// up. A few dozen bytes per window is the price.
-/// `AZ_PACE_TRACE=1`: stderr timeline of the frame-pacing pipeline —
-/// display-link fire (its own thread), the main-queue dirty-marking, drawRect
+/// `AZ_PACE_TRACE=1` (`ShellSettings::pace_trace`, `on`): stderr timeline of the frame-pacing
+/// pipeline — display-link fire (its own thread), the main-queue dirty-marking, drawRect
 /// entry/exit, and explicit redraw requests. Timestamps are monotonic µs from
 /// process start so the four stations can be correlated into one timeline.
-/// Costs one relaxed atomic load when off.
+/// Costs one branch on a flag when off.
 #[inline]
-fn pace_trace(station: &str) {
-    use std::sync::atomic::{AtomicU8, Ordering};
-    static ON: AtomicU8 = AtomicU8::new(2); // 2 = unknown, 1 = on, 0 = off
-    let on = match ON.load(Ordering::Relaxed) {
-        2 => {
-            let v = u8::from(std::env::var_os("AZ_PACE_TRACE").is_some());
-            ON.store(v, Ordering::Relaxed);
-            v == 1
-        }
-        v => v == 1,
-    };
+fn pace_trace(on: bool, station: &str) {
     if on {
         static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
         let t0 = START.get_or_init(std::time::Instant::now);
@@ -259,10 +249,20 @@ fn pace_trace(station: &str) {
     }
 }
 
+/// `AZ_PACE_TRACE` of the window a view draws for: a view only knows the pointer back to it.
+fn pace_trace_of_window(window_ptr: Option<*mut std::ffi::c_void>) -> bool {
+    // SAFETY: the pointer is set while its MacOSWindow lives (the window takes it back before it
+    // closes or is freed), and a view draws on the main thread.
+    window_ptr.is_some_and(|ptr| unsafe { (*(ptr as *const MacOSWindow)).pace_trace_on() })
+}
+
 struct DisplayLinkTarget {
     lock: Mutex<()>,
     alive: std::sync::atomic::AtomicBool,
     window: *mut std::ffi::c_void,
+    /// `AZ_PACE_TRACE` of the window's app: the tick runs on CoreVideo's thread, which has no
+    /// window to ask.
+    pace_trace: bool,
 }
 
 // SAFETY: the raw window pointer is only dereferenced under `lock` while
@@ -1346,7 +1346,7 @@ define_class!(
     impl GLView {
         #[unsafe(method(drawRect:))]
         fn draw_rect(&self, _rect: NSRect) {
-            pace_trace("drawrect-gl-enter");
+            pace_trace(pace_trace_of_window(self.get_window_ptr()), "drawrect-gl-enter");
             log_trace!(LogCategory::Rendering, "[GLView] drawRect: called - this is where ALL rendering happens");
 
             // Get the back-pointer to our MacOSWindow
@@ -2339,14 +2339,14 @@ pub(crate) fn view_frame_buffers(options: CpuPresentOptions) -> usize {
     }
 }
 
-/// The process's [`CpuPresentOptions`], read once.
-fn cpu_present_options() -> CpuPresentOptions {
-    static OPTIONS: std::sync::OnceLock<CpuPresentOptions> = std::sync::OnceLock::new();
-    *OPTIONS.get_or_init(|| {
-        std::env::var("AZ_CPU_PRESENT")
-            .map(|value| parse_cpu_present_options(&value))
-            .unwrap_or_default()
-    })
+/// The [`CpuPresentOptions`] of an app: `AZ_CPU_PRESENT` as its environment asked at its start
+/// (`ShellSettings::cpu_present`), parsed once for each window it opens.
+fn cpu_present_options_of(shell: &crate::desktop::shell_settings::ShellSettings) -> CpuPresentOptions {
+    shell
+        .cpu_present
+        .as_deref()
+        .map(parse_cpu_present_options)
+        .unwrap_or_default()
 }
 
 /// The rows and columns that lie WHOLLY inside a rect in backing pixels
@@ -2573,20 +2573,39 @@ pub(crate) fn memory_release_for_pressure(flags: usize) -> Option<MemoryRelease>
     }
 }
 
-/// `AZ_KEEP_CACHES_MINIMIZED=1`: A9-09's switch, for every release (the Dock,
-/// Cmd-H, memory pressure).
-fn keep_caches() -> bool {
-    static KEEP: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *KEEP.get_or_init(|| std::env::var_os("AZ_KEEP_CACHES_MINIMIZED").is_some_and(|v| v != "0"))
-}
+impl MacOSWindow {
+    /// What the environment asked of this window's app, read once at its start
+    /// (`AppShared::settings`).
+    fn shell_settings(&self) -> &crate::desktop::shell_settings::ShellSettings {
+        &self.common.app.settings().shell
+    }
 
-/// `AZ_HALO_RELEASE=lists`: a window nobody sees keeps the text halo pictures
-/// its display lists paint (A5-18's release: only what no list paints goes).
-/// Anything else, or unset: such a window gives those back too - the renderer's
-/// keys are deleted - and gets them again when it is shown (A5-20). Read once.
-fn halo_release_is_full() -> bool {
-    static FULL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *FULL.get_or_init(|| !std::env::var("AZ_HALO_RELEASE").is_ok_and(|v| v == "lists"))
+    /// `AZ_PACE_TRACE=1`: the timeline of the frame-pacing pipeline ([`pace_trace`]).
+    fn pace_trace_on(&self) -> bool {
+        self.shell_settings().pace_trace
+    }
+
+    /// `AZ_KEEP_CACHES_MINIMIZED=1`: A9-09's switch, for every release (the Dock,
+    /// Cmd-H, memory pressure).
+    fn keep_caches(&self) -> bool {
+        self.shell_settings().keep_caches_minimized
+    }
+
+    /// `AZ_HALO_RELEASE=lists`: a window nobody sees keeps the text halo pictures
+    /// its display lists paint (A5-18's release: only what no list paints goes).
+    /// Anything else, or unset: such a window gives those back too - the renderer's
+    /// keys are deleted - and gets them again when it is shown (A5-20).
+    fn halo_release_is_full(&self) -> bool {
+        self.shell_settings().halo_release_full
+    }
+
+    /// `AZ_CURSOR_SET_ALWAYS=1`: `MacOSWindow::set_cursor` sends `-[NSCursor set]`
+    /// on every call (every pointer move), as it did before audit A6-12, instead
+    /// of only when AppKit's current cursor is another one. For a machine where
+    /// the cursor is found stale after it left and re-entered the content.
+    fn cursor_is_set_on_every_call(&self) -> bool {
+        self.shell_settings().cursor_set_always
+    }
 }
 
 /// Every open window gives back what `reason` asks for. Main thread.
@@ -2668,11 +2687,13 @@ mod memory_pressure {
 /// server or an E2E script attached (they read the layout side's tree,
 /// `a11y_manager.full_tree()`, without an adapter).
 #[cfg(feature = "a11y")]
-fn a11y_eager() -> bool {
-    a11y_eager_for(
-        std::env::var("AZ_A11Y_EAGER").ok().as_deref(),
-        crate::desktop::shell2::common::debug_server::is_debug_enabled(),
-    )
+impl MacOSWindow {
+    fn a11y_eager(&self) -> bool {
+        a11y_eager_for(
+            self.shell_settings().a11y_eager.as_deref(),
+            crate::desktop::shell2::common::debug_server::is_debug_enabled(),
+        )
+    }
 }
 
 /// The rule of [`a11y_eager`]: `AZ_A11Y_EAGER` set to anything but `0`, or a
@@ -3333,7 +3354,7 @@ define_class!(
     impl CPUView {
         #[unsafe(method(drawRect:))]
         fn draw_rect(&self, dirty_rect: NSRect) {
-            pace_trace("drawrect-cpu-enter");
+            pace_trace(pace_trace_of_window(self.get_window_ptr()), "drawrect-cpu-enter");
             // The whole draw of a CPU frame (AZ_PROFILE=cpu), next to its relayout.
             let _probe = azul_layout::probe::Probe::span("draw_rect_cpu");
             let bounds = unsafe { self.bounds() };
@@ -3408,7 +3429,14 @@ define_class!(
 
             // What this very pass draws (A10-13): a frame rendered below does
             // not have to mark it as needing display again.
-            let present = cpu_present_options();
+            // The window this view draws for says how it presents (`AZ_CPU_PRESENT`).
+            let present = ivars
+                .window_ptr
+                .get()
+                // SAFETY: as `pace_trace_of_window`.
+                .map_or_else(CpuPresentOptions::default, |ptr| unsafe {
+                    (*(ptr as *const MacOSWindow)).cpu_present
+                });
             if !present.twice {
                 *ivars.drawing_spans.borrow_mut() = self.spans_being_drawn(dirty_rect, width, height);
             }
@@ -6150,6 +6178,8 @@ pub struct MacOSWindow {
     /// `common::frame_schedule`): a transaction with a display list is sent
     /// without the wait and drawn by the pass the renderer's wake brings.
     frame_schedule: crate::desktop::shell2::common::frame_schedule::FrameSchedule,
+    /// How the CPU view presents (`AZ_CPU_PRESENT`, parsed once from the app's settings).
+    cpu_present: CpuPresentOptions,
     /// The physical size of the last frame the GPU path drew. A pass at
     /// another size (a resize, another screen's factor) is drawn in step with
     /// its transaction, whatever it sends.
@@ -6686,16 +6716,20 @@ impl MacOSWindow {
 
     /// Determine which rendering backend to use.
     ///
-    /// Delegates to `AzBackend::resolve()` for env-var / config priority,
-    /// then maps `Auto` → try OpenGL, fall back on blacklist/failure.
-    fn determine_backend(options: &WindowCreateOptions) -> RenderBackend {
+    /// Delegates to `AzBackend::resolve()` for env-var / config priority (`shell`: what the
+    /// app's environment asked, `AZ_BACKEND` among it), then maps `Auto` → try OpenGL, fall back
+    /// on blacklist/failure.
+    fn determine_backend(
+        options: &WindowCreateOptions,
+        shell: &crate::desktop::shell_settings::ShellSettings,
+    ) -> RenderBackend {
         use crate::desktop::shell2::AzBackend;
         let hw_accel = options
             .renderer
             .as_option()
             .map(|r| r.hw_accel)
             .or(Some(options.window_state.renderer_options.hw_accel));
-        match AzBackend::resolve(hw_accel) {
+        match AzBackend::resolve(shell.backend.as_deref(), hw_accel) {
             AzBackend::Gpu => RenderBackend::OpenGL,
             AzBackend::Cpu | AzBackend::Headless => RenderBackend::CPU,
             #[cfg(feature = "web")]
@@ -6965,11 +6999,11 @@ impl MacOSWindow {
             unsafe {
                 if !context.is_null() {
                     let ns_window = context as *const NSWindow;
-                    pace_trace("mark-dirty-on-main");
                     if let Some(win) =
                         registry::get_window(ns_window as *mut objc2::runtime::AnyObject)
                     {
                         let win = &mut *win;
+                        pace_trace(win.pace_trace_on(), "mark-dirty-on-main");
                         let pending = win.frame_pending();
                         // THE PACER decides: render what is owed, idle, or
                         // stop the link after a couple of empty ticks - the
@@ -6990,19 +7024,19 @@ impl MacOSWindow {
                                 // cycle, and drawRect degenerates to the pure
                                 // blit its own pending-work check already makes
                                 // it. One frame per vsync, no self-chain.
-                                pace_trace("vsync-render");
+                                pace_trace(win.pace_trace_on(), "vsync-render");
                                 let _ = win.render_and_present_in_draw_rect();
                             }
                             TickAction::Render => {
                                 // GL (and any backend that must render inside
                                 // drawRect): deliver the invalidation and let
                                 // drawRect do the work, still vsync-aligned.
-                                pace_trace("vsync-deliver");
+                                pace_trace(win.pace_trace_on(), "vsync-deliver");
                                 win.deliver_invalidation_now();
                             }
                             TickAction::Idle => {}
                             TickAction::Stop => {
-                                pace_trace("display-link-stop");
+                                pace_trace(win.pace_trace_on(), "display-link-stop");
                                 win.stop_display_link();
                                 // The frames are over: what their layouts
                                 // freed goes back to the system now.
@@ -7038,7 +7072,7 @@ impl MacOSWindow {
                 if target.alive.load(std::sync::atomic::Ordering::Acquire)
                     && !target.window.is_null()
                 {
-                    pace_trace("cvdisplaylink-fire");
+                    pace_trace(target.pace_trace, "cvdisplaylink-fire");
                     objc2::ffi::objc_retain(target.window.cast());
                     vsync_ticks::deliver(target.window, mark_views_dirty_on_main);
                 }
@@ -7051,6 +7085,7 @@ impl MacOSWindow {
             lock: Mutex::new(()),
             alive: std::sync::atomic::AtomicBool::new(true),
             window: &*self.window as *const NSWindow as *mut std::ffi::c_void,
+            pace_trace: self.pace_trace_on(),
         }));
         self.display_link_target = Some(target);
         let result = display_link
@@ -7218,7 +7253,7 @@ impl MacOSWindow {
             LogCategory::Window,
             "[MacOSWindow::new] Determining rendering backend..."
         );
-        let requested_backend = Self::determine_backend(&options);
+        let requested_backend = Self::determine_backend(&options, &app_shared.settings().shell);
         log_debug!(
             LogCategory::Window,
             "[MacOSWindow::new] Backend: {:?}",
@@ -7754,7 +7789,7 @@ impl MacOSWindow {
             // any more - `resolve()` was a blocking round trip to the render
             // backend at every window creation. `AZ_WR_HIT_TESTER=1` requests
             // it as before (audit A6-17).
-            let hit_tester = std::env::var_os("AZ_WR_HIT_TESTER").is_some().then(|| {
+            let hit_tester = app_shared.settings().render.hit_tester.then(|| {
                 AsyncHitTester::Resolved(
                     render_api
                         .request_hit_tester(wr_translate_document_id(document_id))
@@ -7993,6 +8028,7 @@ impl MacOSWindow {
         common.gl_context_ptr = gl_context_ptr;
         common.regen = event::RegenerationState::idle_initial();
 
+        let cpu_present = cpu_present_options_of(&common.app.settings().shell);
         let mut window = Self {
             window,
             window_delegate,
@@ -8041,6 +8077,7 @@ impl MacOSWindow {
             blank_first_draws: 0,
             frame_waiting: false,
             frame_schedule: crate::desktop::shell2::common::frame_schedule::FrameSchedule::new(),
+            cpu_present,
             last_gpu_frame_size: None, // the first frame is drawn in step
             os_drag_running: false,
             released: false,
@@ -8341,7 +8378,9 @@ impl MacOSWindow {
         }
 
         // Collect debug messages if debug server is enabled
-        let debug_enabled = crate::desktop::shell2::common::debug_server::layout_trace_enabled();
+        let debug_enabled = crate::desktop::shell2::common::debug_server::layout_trace_enabled(
+            &borrows.settings.shell,
+        );
         let mut debug_messages = if debug_enabled {
             Some(Vec::new())
         } else {
@@ -8361,6 +8400,7 @@ impl MacOSWindow {
             &self.icon_provider,
             &mut debug_messages,
             relayout_reason,
+            borrows.settings,
         )?;
 
         // Forward layout debug messages to the debug server's log queue
@@ -9740,7 +9780,7 @@ impl MacOSWindow {
     /// What is given back is made again by the frames that follow; the frame
     /// on screen (the view's framebuffer, AppKit's backing store) stays.
     pub(crate) fn release_regenerable_memory(&mut self, reason: MemoryRelease) {
-        let plan = release_plan(reason, keep_caches());
+        let plan = release_plan(reason, self.keep_caches());
         #[cfg(feature = "cpurender")]
         {
             if plan.compositor {
@@ -9756,7 +9796,7 @@ impl MacOSWindow {
                 // the next frame to be a full one): a window that may be on
                 // screen gets that frame now, one that is not shown when it is
                 // shown again (`frame_pending` at `set_display_link_paused`).
-                if cpu_present_options().layer {
+                if self.cpu_present.layer {
                     if let Some(ref cpu_view) = self.cpu_view {
                         cpu_view.hide_present_layer();
                     }
@@ -9771,7 +9811,7 @@ impl MacOSWindow {
                 self.cpu_backend.glyph_cache.gc();
             }
         }
-        if !keep_caches() {
+        if !self.keep_caches() {
             // A5-18: the GPU backend's kept text halos (up to 96 MB of pictures) are
             // this window's own (`LayoutWindow::text_halo_store`), and its lists paint
             // from them. What no list paints goes: the pictures of labels that left
@@ -9787,7 +9827,7 @@ impl MacOSWindow {
             // (which is what frees them), then the store forgets this window's
             // use, so that nothing is marked and everything it keeps goes. No
             // other window is involved: the pictures of every window are its own.
-            let full = reason == MemoryRelease::NotShown && halo_release_is_full();
+            let full = reason == MemoryRelease::NotShown && self.halo_release_is_full();
             if full {
                 self.release_halo_images_of_a_hidden_window();
                 if let Some(layout_window) = self.common.layout_window.as_ref() {
@@ -10419,7 +10459,7 @@ impl MacOSWindow {
             // resize cursor at the window's edge), so nothing is remembered
             // here that could go stale. `AZ_CURSOR_SET_ALWAYS=1`: `set` on
             // every call, as before.
-            if !cursor_is_set_on_every_call()
+            if !self.cursor_is_set_on_every_call()
                 && core::ptr::eq::<NSCursor>(&*NSCursor::currentCursor(), &*cursor)
             {
                 return;
@@ -10996,7 +11036,8 @@ impl MacOSWindow {
                         cpu_view.set_transparent(self.cpu_backend.transparent);
                     }
 
-                    if crate::desktop::shell2::headless::native_backbuffer_enabled() {
+                    // (a field path: `layout_window` borrows `self.common.layout_window`)
+                    if self.common.app.settings().shell.native_backbuffer {
                         if let Some(ref cpu_view) = self.cpu_view {
                             if let Some(ptr) =
                                 cpu_view.native_target_ptr(native_pw as usize, native_ph as usize)
@@ -11021,7 +11062,7 @@ impl MacOSWindow {
                     // frame and reports it as a layer, when the view can show
                     // one over a frame of this size. Off (the default): false,
                     // and the renderer does nothing of it.
-                    self.cpu_backend.promote_for_present = cpu_present_options().layer
+                    self.cpu_backend.promote_for_present = self.cpu_present.layer
                         && self.cpu_view.as_ref().is_some_and(|cpu_view| {
                             cpu_view.layer_present_usable(native_pw as usize, native_ph as usize)
                         });
@@ -11127,7 +11168,7 @@ impl MacOSWindow {
                     // commits the layer's move and the view's redraw together.
                     // With no layer reported the layers are hidden (the
                     // renderer repainted their clip into the frame above).
-                    if cpu_present_options().layer {
+                    if self.cpu_present.layer {
                         if let Some(ref cpu_view) = self.cpu_view {
                             let backend = &self.cpu_backend;
                             let layer = backend.last_present_layer.as_ref().map(|layer| {
@@ -11260,7 +11301,7 @@ impl MacOSWindow {
             let size = self.common.current_window_state().size.get_physical_size();
             (size.width, size.height)
         };
-        let forced_sync = crate::desktop::shell2::common::frame_schedule::sync_scene_always()
+        let forced_sync = self.common.app.settings().render.sync_scene
             || !display_list_initialized_at_entry
             || self.last_gpu_frame_size != Some(frame_size)
             || halos_return_in_this_pass
@@ -11539,7 +11580,7 @@ impl MacOSWindow {
         }
 
         // CI testing: Exit successfully after first frame render if env var is set
-        if std::env::var("AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
+        if self.common.app.settings().shell.exit_after_first_frame {
             log_info!(
                 LogCategory::General,
                 "[CI] AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting"
@@ -12020,7 +12061,7 @@ impl MacOSWindow {
     }
 
     pub fn request_redraw(&mut self) {
-        pace_trace("request-redraw");
+        pace_trace(self.pace_trace_on(), "request-redraw");
         log_trace!(
             LogCategory::Rendering,
             "[request_redraw] Marking view as needing display"
@@ -12051,14 +12092,14 @@ impl MacOSWindow {
         use crate::desktop::shell2::common::frame_pacer::FrameRequest;
         match self.frame_pacer.on_request() {
             FrameRequest::AlreadyRunning => {
-                pace_trace("request-redraw-deferred");
+                pace_trace(self.pace_trace_on(), "request-redraw-deferred");
             }
             FrameRequest::Start => {
                 let started = self.display_link.as_ref().is_some_and(|link| {
                     link.is_running() || link.start() == corevideo::K_CV_RETURN_SUCCESS
                 });
                 if started {
-                    pace_trace("display-link-start");
+                    pace_trace(self.pace_trace_on(), "display-link-start");
                 } else {
                     self.frame_pacer.reset();
                     self.deliver_invalidation_now();
@@ -12337,7 +12378,7 @@ impl MacOSWindow {
         // is active. `AZ_A11Y_EAGER=1`, and any run with the debug server or
         // an E2E script attached (they read the layout side's tree without an
         // adapter), keep the eager path below.
-        let on_demand = !a11y_eager();
+        let on_demand = !self.a11y_eager();
         let window_token = if on_demand {
             core::ptr::addr_of_mut!(*self) as usize
         } else {
@@ -12985,15 +13026,6 @@ pub fn play_haptic(request: &azul_core::haptics::HapticRequest) {
             performanceTime: PERFORM_NOW
         ];
     }
-}
-
-/// `AZ_CURSOR_SET_ALWAYS=1`: `MacOSWindow::set_cursor` sends `-[NSCursor set]`
-/// on every call (every pointer move), as it did before audit A6-12, instead
-/// of only when AppKit's current cursor is another one. For a machine where
-/// the cursor is found stale after it left and re-entered the content.
-fn cursor_is_set_on_every_call() -> bool {
-    static ALWAYS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ALWAYS.get_or_init(|| std::env::var_os("AZ_CURSOR_SET_ALWAYS").is_some_and(|v| v != "0"))
 }
 
 #[cfg(test)]

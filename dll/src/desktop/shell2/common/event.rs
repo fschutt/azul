@@ -178,15 +178,13 @@ use crate::{
 /// lines only exist in a `debug-server` build - which is not the build a device
 /// report comes from. This is the one dial that makes "did the popup open, did
 /// it autofocus, with which modality" answerable from a normal run.
-pub(crate) fn focus_trace_enabled() -> bool {
-    use std::sync::OnceLock;
-    static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| std::env::var("AZ_FOCUS_TRACE").is_ok())
-}
-
+///
+/// The dial is `ShellSettings::focus_trace`, read once at the app's start: the macro takes it
+/// as its first argument (`self.focus_trace()` of a window, a local copy where a borrow of the
+/// window is live).
 macro_rules! focus_trace {
-    ($($t:tt)*) => {
-        if crate::desktop::shell2::common::event::focus_trace_enabled() {
+    ($on:expr, $($t:tt)*) => {
+        if $on {
             eprintln!("[focus] {}", format_args!($($t)*));
         }
     };
@@ -1636,6 +1634,8 @@ pub struct LayoutPassBorrows<'a> {
     pub system_style: &'a Arc<azul_css::system::SystemStyle>,
     /// Shared application data
     pub app_data: &'a Arc<RefCell<RefAny>>,
+    /// What the environment asked of the app, read once at its start
+    pub settings: &'a crate::desktop::app_settings::AppSettings,
 }
 
 /// Common window state shared across all platform window implementations.
@@ -1669,68 +1669,12 @@ pub enum WindowStateSource {
 
 // Input-delta validation (R2)
 
-/// Is the window-state validation gate on?
-///
-/// Diagnostics here are runtime env / atomics, never cargo features (the same
-/// ruling `AZ_LOG` / `AZ_PROFILE` / `AZ_BACKEND` / `AZ_E2E_TEST` follow), read
-/// once. A debug build validates unconditionally; a release build — which is
-/// what the battery and every shipped binary are — has to opt in with
-/// `AZ_VALIDATE=1`.
-/// Does this `AZ_VALIDATE` value turn the gate on?
-///
-/// Split out of [`validation_enabled`] so it can be tested WITHOUT touching
-/// the process environment: a test that sets `AZ_VALIDATE` races every other
-/// test in the binary that reads it, which is the class of problem this whole
-/// area already had.
-///
-/// Unset is off. An empty or explicitly-negative value is off, so
-/// `AZ_VALIDATE=` and `AZ_VALIDATE=0` both mean what they look like. Anything
-/// else is on, because a user who typed the variable at all meant to enable
-/// it.
-#[must_use]
-pub fn validation_from_value(value: Option<&str>) -> bool {
-    match value {
-        None => false,
-        Some(v) => {
-            let v = v.trim().to_ascii_lowercase();
-            !matches!(v.as_str(), "" | "0" | "off" | "false" | "no" | "none")
-        }
-    }
-}
-
-pub fn validation_enabled() -> bool {
-    if cfg!(debug_assertions) {
-        return true;
-    }
-    #[cfg(feature = "std")]
-    {
-        fn read_env() -> bool {
-            validation_from_value(std::env::var("AZ_VALIDATE").ok().as_deref())
-        }
-        // NO LATCH IN A TEST BINARY. The `OnceLock` below is right for the
-        // product - this is read once per input pass and the variable cannot
-        // change - and WRONG under `cargo test`, where the tests run in
-        // parallel and `require_validation_gate` sets the variable from
-        // whichever test reaches it first. Any unrelated test that happened to
-        // read this earlier latched it OFF, and the whole validation suite
-        // then failed loudly with "the gate is OFF in this test binary".
-        //
-        // That was a real intermittent failure, not a theoretical one: the
-        // same command passed twice and failed once. Re-reading in tests costs
-        // one `getenv` on a path no benchmark touches, and removes the
-        // ordering dependency entirely rather than papering it over by
-        // demanding the caller export the variable.
-        #[cfg(test)]
-        return read_env();
-        #[cfg(not(test))]
-        {
-            static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-            return *ON.get_or_init(read_env);
-        }
-    }
-    #[cfg(not(feature = "std"))]
-    false
-}
+// Is the window-state validation gate on? `ShellSettings::validation_enabled`: diagnostics here
+// are runtime settings, never cargo features (the same ruling `AZ_LOG` / `AZ_PROFILE` /
+// `AZ_BACKEND` / `AZ_E2E_TEST` follow), read once at the app's start. A debug build validates
+// unconditionally; a release build - which is what the battery and every shipped binary are -
+// has to opt in with `AZ_VALIDATE=1`. The parsing of the variable is
+// [`crate::desktop::shell_settings::validation_from_value`].
 
 /// The first event-bearing field on which two window states disagree, for the
 /// validation message.
@@ -1886,11 +1830,12 @@ pub enum MenuInvocation {
 }
 
 pub fn check_input_delta_consumed(
+    validation_enabled: bool,
     previous: Option<&FullWindowState>,
     current: &FullWindowState,
     site: &str,
 ) {
-    if !validation_enabled() {
+    if !validation_enabled {
         return;
     }
     let Some(previous) = previous else {
@@ -3947,6 +3892,7 @@ impl CommonWindowState {
             fc_cache: &self.fc_cache,
             system_style: &self.system_style,
             app_data: &self.app_data,
+            settings: self.app.settings(),
         }
     }
 
@@ -4166,7 +4112,12 @@ impl CommonWindowState {
     /// decision, so under the validation gate that is an assertion, not a
     /// convention.
     pub fn update_unsynced_state<R>(&mut self, apply: impl FnOnce(&mut FullWindowState) -> R) -> R {
-        let before = validation_enabled().then(|| os_synced_fields(&self.current_window_state));
+        let before = self
+            .app
+            .settings()
+            .shell
+            .validation_enabled()
+            .then(|| os_synced_fields(&self.current_window_state));
         let out = apply(&mut self.current_window_state);
         if let Some(before) = before {
             assert!(
@@ -4187,6 +4138,7 @@ impl CommonWindowState {
     /// serves every window on the backend).
     pub fn snapshot_window_state_baseline(&mut self, site: &str) {
         check_input_delta_consumed(
+            self.app.settings().shell.validation_enabled(),
             self.previous_window_state.as_ref(),
             &self.current_window_state,
             site,
@@ -4635,6 +4587,7 @@ pub trait PlatformWindow {
     /// live input being consumed, and the check would rightly object.
     fn snapshot_window_state_baseline(&mut self, site: &str) {
         check_input_delta_consumed(
+            self.app_settings().shell.validation_enabled(),
             self.get_previous_window_state().as_ref(),
             self.get_current_window_state(),
             site,
@@ -4770,6 +4723,17 @@ pub trait PlatformWindow {
     /// language, the natural-scrolling preference, the two config flags
     /// ([`CommonWindowState::app`]).
     fn get_app_shared(&self) -> &Arc<super::app_shared::AppShared>;
+
+    /// What the environment asked of this window's app, read once at the app's start
+    /// ([`super::app_shared::AppShared::settings`]).
+    fn app_settings(&self) -> &crate::desktop::app_settings::AppSettings {
+        self.get_app_shared().settings()
+    }
+
+    /// `AZ_FOCUS_TRACE`: one line per focus or popup decision ([`focus_trace!`]).
+    fn focus_trace(&self) -> bool {
+        self.app_settings().shell.focus_trace
+    }
 
     // Scrollbar State
 
@@ -5713,12 +5677,14 @@ pub trait PlatformWindow {
         let parent_id = self.registry_window_id();
         let parent_state = self.get_current_window_state().clone();
         let mapping = self.window_to_screen();
+        let focus_trace = self.focus_trace();
         let Some(lw) = self.get_layout_window_mut() else {
             return;
         };
         // What the next layout pass measures its popups' room against.
         lw.screen_mapping = mapping;
-        let outcome = super::transient::sync_parent(parent_id, &parent_state, lw, mapping);
+        let outcome =
+            super::transient::sync_parent(parent_id, &parent_state, lw, mapping, focus_trace);
         for options in outcome.create {
             self.queue_window_create(options);
         }
@@ -5928,7 +5894,10 @@ pub trait PlatformWindow {
             ),
         ];
         let (_, update, _, _) = self.dispatch_events_propagated(&events);
-        focus_trace!("closing popup blurred {focused:?} (callback update {update:?})");
+        focus_trace!(
+            self.focus_trace(),
+            "closing popup blurred {focused:?} (callback update {update:?})"
+        );
         if matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
             self.request_regeneration_all_windows();
         }
@@ -6205,6 +6174,7 @@ pub trait PlatformWindow {
             },
         );
         focus_trace!(
+            self.focus_trace(),
             "key {key:?} reached window {} while a popup holds the keyboard: forwarded={taken}",
             self.registry_window_id()
         );
@@ -7804,6 +7774,7 @@ pub trait PlatformWindow {
                     .get_layout_window_mut()
                     .is_some_and(|lw| lw.transient_windows.set_forced_open(node_id, *open));
                 focus_trace!(
+                    self.focus_trace(),
                     "set_transient_window_open node={node_id:?} open={open} changed={changed} \
                      focus_now={focus_now:?}"
                 );
@@ -10055,7 +10026,7 @@ pub trait PlatformWindow {
     fn drag_source_node(&mut self) -> Option<azul_core::dom::DomNodeId> {
         let start = self.drag_press_position()?;
         let hit = self.get_common_mut().perform_hit_test(start);
-        if std::env::var("AZ_HIT_DEBUG").is_ok() {
+        if self.app_settings().shell.hit_debug {
             for (dom_id, h) in &hit.hovered_nodes {
                 let mut nodes: Vec<_> = h
                     .regular_hit_test_nodes
@@ -11776,6 +11747,7 @@ pub trait PlatformWindow {
             let focus_moved_away = old_focus.is_some_and(|f| f != target);
             if focus_moved_away {
                 focus_trace!(
+                    self.focus_trace(),
                     "dismissal did NOT return focus to {target:?}: the user moved it to \
                      {old_focus:?}"
                 );
@@ -11797,7 +11769,10 @@ pub trait PlatformWindow {
                     restored =
                         restored.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
                 }
-                focus_trace!("dismissal returned focus to {target:?} (ring={was_visible})");
+                focus_trace!(
+                    self.focus_trace(),
+                    "dismissal returned focus to {target:?} (ring={was_visible})"
+                );
                 log_debug!(
                     super::debug_server::LogCategory::Window,
                     "[transient] dismissal returned focus to {:?} (ring={})",
@@ -11864,7 +11839,7 @@ pub trait PlatformWindow {
                         }
                     })
                 });
-                focus_trace!("popup autofocus: target={target:?}");
+                focus_trace!(self.focus_trace(), "popup autofocus: target={target:?}");
                 if let Some(target) = target {
                     // MODALITY INHERITANCE. A popup the user CLICKED open must
                     // not ring what it autofocuses; one opened with Enter/Space
@@ -11875,7 +11850,10 @@ pub trait PlatformWindow {
                     let inherit = super::transient::opened_with_visible_focus(
                         self.get_current_window_state(),
                     );
-                    focus_trace!("popup autofocus: ring inherited={inherit}");
+                    focus_trace!(
+                        self.focus_trace(),
+                        "popup autofocus: ring inherited={inherit}"
+                    );
                     let r = self.apply_system_change(&SystemChange::SetFocus {
                         new_focus: Some(target),
                         old_focus: None,
@@ -11911,6 +11889,7 @@ pub trait PlatformWindow {
                 spent.keyboard_state.current_virtual_keycode = key.previous_key;
                 self.set_previous_window_state(spent);
                 focus_trace!(
+                    self.focus_trace(),
                     "popup {} replays a forwarded key {:?} (text {:?})",
                     self.registry_window_id(),
                     key.keyboard.current_virtual_keycode.into_option(),
@@ -12172,6 +12151,8 @@ pub trait PlatformWindow {
 
     /// The real body of [`Self::process_window_events`] — see that method.
     fn process_window_events_inner(&mut self, depth: usize) -> ProcessEventResult {
+        // `AZ_FOCUS_TRACE`, asked once: the layout window is borrowed for most of this pass.
+        let focus_trace_on = self.focus_trace();
         if depth >= MAX_EVENT_RECURSION_DEPTH {
             log_warn!(
                 super::debug_server::LogCategory::EventLoop,
@@ -12695,6 +12676,7 @@ pub trait PlatformWindow {
                     .get_layout_window_mut()
                     .is_some_and(|lw| lw.apply_window_activation(window_focused, has_focus));
                 focus_trace!(
+                    self.focus_trace(),
                     "window activation: focused={window_focused} has_focus={has_focus} \
                      rebuilt={rebuilt}"
                 );
@@ -13101,7 +13083,7 @@ pub trait PlatformWindow {
         // callback claimed it. "Arrows do nothing in the picker" was not
         // answerable from a device log without this: the popup/autofocus
         // lines said where focus WAS, not where the key WENT.
-        if focus_trace_enabled() {
+        if self.focus_trace() {
             let is_popup =
                 super::transient::mailbox_of(self.get_current_window_state()).is_some();
             let key = self
@@ -13679,6 +13661,7 @@ pub trait PlatformWindow {
                             editing_state.as_ref(),
                         );
                         focus_trace!(
+                            focus_trace_on,
                             "key default action (seat {key_seat}, focused {focused_node:?}): {:?}",
                             default_action_result.action
                         );
@@ -14549,6 +14532,7 @@ pub trait PlatformWindow {
         // delta some platform handler left unconsumed is still observable
         // before the next handler's snapshot erases it.
         check_input_delta_consumed(
+            self.app_settings().shell.validation_enabled(),
             self.get_previous_window_state().as_ref(),
             self.get_current_window_state(),
             "process_timers_and_threads",
@@ -15660,42 +15644,25 @@ mod tests {
 
     // R2: the unconsumed-input-delta guard
 
-    /// Turn the validation gate on, or fail LOUDLY.
-    ///
-    /// [`validation_enabled`] is unconditionally true in a debug build; a
-    /// release test binary reads `AZ_VALIDATE` through a `OnceLock`, so the
-    /// variable has to be set before the first read anywhere in the process.
-    /// If some earlier reader already latched it off, every test below would
-    /// pass VACUOUSLY — the guard would simply return. Assert instead: a
-    /// `#[should_panic]` test then fails on the wrong message, and the negative
-    /// controls fail outright.
-    fn require_validation_gate() {
-        // A debug build validates unconditionally, so touching the environment
-        // there is unnecessary (and racy in a threaded test binary).
-        #[cfg(not(debug_assertions))]
-        {
-            std::env::set_var("AZ_VALIDATE", "1");
-        }
-        assert!(
-            validation_enabled(),
-            "the validation gate is OFF in this test binary, so check_input_delta_consumed cannot \
-             fire and this suite proves nothing"
+    /// The settings of an app whose environment asked for the validation gate (`AZ_VALIDATE=1`):
+    /// a debug build validates anyway, a release test binary only with this. The gate lives in
+    /// the app's settings, so a test that needs it ON builds its window for these - nothing
+    /// reads the process, nothing latches, and no other test can switch it off.
+    fn validating_app() -> Arc<crate::desktop::shell2::common::app_shared::AppShared> {
+        let settings = crate::desktop::app_settings::AppSettings::from_lookup(
+            &azul_css::env::MapEnv::new().with("AZ_VALIDATE", "1"),
         );
-    }
-
-    /// The gate's PARSING, tested without touching the environment - a test
-    /// that sets `AZ_VALIDATE` races every other test in this binary that
-    /// reads it, which is exactly the failure that made this whole suite go
-    /// red intermittently.
-    #[test]
-    fn the_validate_variable_is_off_unless_it_says_otherwise() {
-        assert!(!validation_from_value(None), "unset must be off");
-        for off in ["", "  ", "0", "off", "false", "no", "none", "OFF", "False"] {
-            assert!(!validation_from_value(Some(off)), "`{off}` must be off");
-        }
-        for on in ["1", "yes", "true", "on", "  1 ", "anything"] {
-            assert!(validation_from_value(Some(on)), "`{on}` must be on");
-        }
+        assert!(
+            settings.shell.validation_enabled(),
+            "the gate of these settings is OFF, so check_input_delta_consumed cannot fire and \
+             this suite proves nothing"
+        );
+        Arc::new(
+            crate::desktop::shell2::common::app_shared::AppShared::with_settings(
+                &AppConfig::default(),
+                settings,
+            ),
+        )
     }
 
     fn state_pair() -> (FullWindowState, FullWindowState) {
@@ -15707,11 +15674,10 @@ mod tests {
         expected = "unconsumed input delta at test.cursor: previous_window_state.mouse_state"
     )]
     fn check_input_delta_consumed_panics_on_an_unconsumed_cursor_move() {
-        require_validation_gate();
         let (previous, mut current) = state_pair();
         current.mouse_state.cursor_position =
             CursorPosition::InWindow(LogicalPosition::new(12.0, 34.0));
-        check_input_delta_consumed(Some(&previous), &current, "test.cursor");
+        check_input_delta_consumed(true, Some(&previous), &current, "test.cursor");
     }
 
     #[test]
@@ -15719,10 +15685,9 @@ mod tests {
         expected = "unconsumed input delta at test.resize: previous_window_state.size.dimensions"
     )]
     fn check_input_delta_consumed_panics_on_an_unconsumed_resize() {
-        require_validation_gate();
         let (previous, mut current) = state_pair();
         current.size.dimensions = LogicalSize::new(1234.0, 567.0);
-        check_input_delta_consumed(Some(&previous), &current, "test.resize");
+        check_input_delta_consumed(true, Some(&previous), &current, "test.resize");
     }
 
     #[test]
@@ -15730,31 +15695,28 @@ mod tests {
         expected = "unconsumed input delta at test.move: previous_window_state.position"
     )]
     fn check_input_delta_consumed_panics_on_an_unconsumed_window_move() {
-        require_validation_gate();
         let (previous, mut current) = state_pair();
         current.position = WindowPosition::Initialized(PhysicalPositionI32::new(400, 300));
-        check_input_delta_consumed(Some(&previous), &current, "test.move");
+        check_input_delta_consumed(true, Some(&previous), &current, "test.move");
     }
 
     #[test]
     #[should_panic(expected = "unconsumed input delta at test.dpi: previous_window_state.size.dpi")]
     fn check_input_delta_consumed_panics_on_an_unconsumed_dpi_change() {
-        require_validation_gate();
         let (previous, mut current) = state_pair();
         current.size.dpi = 192;
-        check_input_delta_consumed(Some(&previous), &current, "test.dpi");
+        check_input_delta_consumed(true, Some(&previous), &current, "test.dpi");
     }
 
     #[test]
     #[should_panic(expected = "unconsumed input delta at test.theme: previous_window_state.theme")]
     fn check_input_delta_consumed_panics_on_an_unconsumed_theme_change() {
-        require_validation_gate();
         let (previous, mut current) = state_pair();
         current.mode = match current.mode {
             DarkLightMode::Dark => DarkLightMode::Light,
             DarkLightMode::Light => DarkLightMode::Dark,
         };
-        check_input_delta_consumed(Some(&previous), &current, "test.theme");
+        check_input_delta_consumed(true, Some(&previous), &current, "test.theme");
     }
 
     /// Negative control: without this the panicking tests above could pass for
@@ -15762,23 +15724,21 @@ mod tests {
     /// match).
     #[test]
     fn check_input_delta_consumed_is_silent_on_a_consumed_delta() {
-        require_validation_gate();
         let (mut previous, mut current) = state_pair();
         current.mouse_state.cursor_position =
             CursorPosition::InWindow(LogicalPosition::new(12.0, 34.0));
         current.size.dimensions = LogicalSize::new(1234.0, 567.0);
         // What the end of a pass does: advance the event baseline.
         previous.clone_from(&current);
-        check_input_delta_consumed(Some(&previous), &current, "test.consumed");
+        check_input_delta_consumed(true, Some(&previous), &current, "test.consumed");
     }
 
     /// The first frame has no baseline to consume.
     #[test]
     fn check_input_delta_consumed_is_silent_without_a_baseline() {
-        require_validation_gate();
         let (_, mut current) = state_pair();
         current.size.dimensions = LogicalSize::new(1234.0, 567.0);
-        check_input_delta_consumed(None, &current, "test.first-frame");
+        check_input_delta_consumed(true, None, &current, "test.first-frame");
     }
 
     /// The allow-list is STRICT, not a deny-list over `PartialEq`: a field no
@@ -15787,7 +15747,6 @@ mod tests {
     /// A catch-all here panicked on the next poll as soon as the user typed.
     #[test]
     fn check_input_delta_consumed_ignores_fields_no_event_is_derived_from() {
-        require_validation_gate();
         let (previous, mut current) = state_pair();
         current.title = "a different title".to_string().into();
         current.ime_position =
@@ -15799,14 +15758,15 @@ mod tests {
         // from it now, so it belongs with the event-bearing fields. The rest of
         // `flags` is still pushed to the OS against a different baseline.
         current.flags.is_always_on_top = !previous.flags.is_always_on_top;
-        check_input_delta_consumed(Some(&previous), &current, "test.not-event-bearing");
+        check_input_delta_consumed(true, Some(&previous), &current, "test.not-event-bearing");
     }
 
     fn headless_stub() -> HeadlessWindow {
-        HeadlessWindow::new(
+        HeadlessWindow::with_app_shared(
             WindowCreateOptions::default(),
             Arc::new(RefCell::new(RefAny::new(()))),
             SharedUndoManager::new(),
+            validating_app(),
             AppConfig::default(),
             SharedIconProvider::from_handle(IconProviderHandle::default()),
             Arc::new(FcFontCache::default()),
@@ -15864,7 +15824,6 @@ mod tests {
     /// handler ran next to be blamed for.
     #[test]
     fn the_close_protocol_leaves_no_unconsumed_delta() {
-        require_validation_gate();
         let mut window = headless_stub();
 
         let _ = window.request_window_close("test.close.consumed");
@@ -15879,7 +15838,6 @@ mod tests {
     #[test]
     #[should_panic(expected = "unconsumed input delta at test.next-handler")]
     fn snapshot_window_state_baseline_trips_on_a_delta_the_previous_handler_left_live() {
-        require_validation_gate();
         let mut window = headless_stub();
         window.snapshot_window_state_baseline("test.seed");
         // A handler that mutates and returns without running a pass.
@@ -15895,7 +15853,6 @@ mod tests {
     /// baseline so the next snapshot does not read its mutation as a lost event.
     #[test]
     fn discard_input_delta_suppresses_the_guard_for_a_swallowed_input() {
-        require_validation_gate();
         let mut window = headless_stub();
         window.snapshot_window_state_baseline("test.seed");
         window.common.update_unsynced_state(|ws| {
@@ -16476,7 +16433,6 @@ mod tests {
     /// pointer state disagrees with the hardware until the user lets go.
     #[test]
     fn a_scrollbar_press_records_the_button_and_swallows_the_delta() {
-        require_validation_gate();
         let mut window = headless_stub();
         let at = seed_a_scroll_box_thumb(&mut window);
         window.snapshot_window_state_baseline("test.seed");
@@ -16518,7 +16474,6 @@ mod tests {
     /// alone: the caller's normal path writes it and runs the pass.
     #[test]
     fn a_press_beside_the_scrollbar_is_left_to_the_caller() {
-        require_validation_gate();
         let mut window = headless_stub();
         let _ = seed_a_scroll_box_thumb(&mut window);
         window.snapshot_window_state_baseline("test.seed");
@@ -16538,7 +16493,6 @@ mod tests {
     /// follows the hardware, and the delta is swallowed (no MouseMove).
     #[test]
     fn a_move_while_the_thumb_is_held_records_the_cursor_and_swallows_the_delta() {
-        require_validation_gate();
         let mut window = headless_stub();
         let at = seed_a_scroll_box_thumb(&mut window);
         window.snapshot_window_state_baseline("test.seed");
@@ -16574,7 +16528,6 @@ mod tests {
     /// press latched, or the button stays down forever after the first drag.
     #[test]
     fn ending_a_scrollbar_drag_releases_the_button_the_press_latched() {
-        require_validation_gate();
         let mut window = headless_stub();
         let down_at = seed_a_scroll_box_thumb(&mut window);
         window.snapshot_window_state_baseline("test.seed");

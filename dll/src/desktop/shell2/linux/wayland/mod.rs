@@ -2835,6 +2835,7 @@ impl WaylandWindow {
         //    avoids desktop-GLSL shader issues.
         use crate::desktop::shell2::common::compositor::{AzBackend, GpuCheckResult};
         let backend = AzBackend::resolve(
+            resources.app_shared.settings().shell.backend.as_deref(),
             options
                 .renderer
                 .as_option()
@@ -6888,7 +6889,9 @@ impl WaylandWindow {
         let layout_window = borrows.layout_window.ok_or("No layout window")?;
 
         // Collect debug messages if debug server is enabled
-        let debug_enabled = crate::desktop::shell2::common::debug_server::layout_trace_enabled();
+        let debug_enabled = crate::desktop::shell2::common::debug_server::layout_trace_enabled(
+            &borrows.settings.shell,
+        );
         let mut debug_messages = if debug_enabled {
             Some(Vec::new())
         } else {
@@ -6908,6 +6911,7 @@ impl WaylandWindow {
             &self.resources.icon_provider,
             &mut debug_messages,
             relayout_reason,
+            borrows.settings,
         )?;
 
         // Forward layout debug messages to the debug server's log queue
@@ -10794,6 +10798,7 @@ impl PlatformWindow for WaylandPopup {
             &resources.icon_provider,
             &mut debug_messages,
             relayout_reason,
+            borrows.settings,
         )?;
         // The popup has no WebRender hit-tester; the CPU one answers clicks.
         if let Some(ref mut cpu_ht) = self.common.cpu_hit_tester {
@@ -11978,6 +11983,7 @@ fn measure_popup_content(
         &resources.icon_provider,
         &mut debug_messages,
         relayout_reason,
+        borrows.settings,
     )
     .ok()?;
     let natural = common

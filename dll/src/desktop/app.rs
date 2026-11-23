@@ -158,6 +158,14 @@ impl App {
         let env = crate::env::ProcessEnv::new();
         let settings = AppSettings::from_lookup(&env);
 
+        // `AZ_BACKEND=headless` is known before `App::run` starts the headless loop, for what an
+        // app asks while it builds its state (`PlatformCapability::notifications()`).
+        if crate::desktop::shell2::common::compositor::AzBackend::headless_selected_by(
+            settings.shell.backend.as_deref(),
+        ) {
+            crate::desktop::notifications::use_headless_backend();
+        }
+
         // Initialize AZ_RECORD file logging before anything else
         debug_server::init_recording();
 
@@ -444,7 +452,7 @@ impl App {
         // with the harness's status (desktop-parity semantics; the
         // AZ_BACKEND=headless runner below keeps its own path).
         #[cfg(feature = "web-e2e-runner")]
-        crate::e2e_web_runner::maybe_run_and_exit();
+        crate::e2e_web_runner::maybe_run_and_exit(&settings.shell);
         let data = self.ptr.data.clone();
         let config = self.ptr.config.clone();
         let fc_cache = (*self.ptr.fc_cache).clone();

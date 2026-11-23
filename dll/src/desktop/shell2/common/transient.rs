@@ -799,6 +799,7 @@ pub fn sync_parent(
     parent_state: &FullWindowState,
     lw: &mut LayoutWindow,
     window: Option<WindowToScreen>,
+    focus_trace: bool,
 ) -> SyncOutcome {
     let mut out = SyncOutcome::default();
 
@@ -998,7 +999,7 @@ pub fn sync_parent(
                 if let Some(slot) = lw.transient_windows.get_mut(w.content_dom) {
                     slot.surface = OptionRefAny::Some(mailbox);
                 }
-                if super::event::focus_trace_enabled() {
+                if focus_trace {
                     eprintln!(
                         "[focus] transient window created: node={:?} dom={:?} size={:?} \
                          opener_ring={focus_visible}",
