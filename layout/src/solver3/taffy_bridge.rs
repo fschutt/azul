@@ -946,12 +946,6 @@ fn keep_inline_answers(
 /// served from the per-node caches of a very large subtree, which this bounds.
 const JOURNALED_NODES_AT_MOST: usize = 2048;
 
-/// Whether measures are journaled ([`MeasureJournal`]): unless
-/// `AZ_NO_TAFFY_MEASURE_JOURNAL` is set.
-fn measure_journal_on() -> bool {
-    !env_flag!("AZ_NO_TAFFY_MEASURE_JOURNAL")
-}
-
 /// How many measures were journaled on this thread ([`MeasureJournal`]), and
 /// how many layouts of a box were computed in `RunMode::PerformLayout` by a
 /// bridge (`TaffyBridge::compute_child_layout`: a final layout served from
@@ -2443,7 +2437,7 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
             // one of those answers was found or taken back
             // (`MeasureJournal`): then the row holds what it held.
             let untouched = was_current
-                && measure_journal_on()
+                && self.measure_journal_on()
                 && self.unrestored_writes() == writes_before;
             self.set_final_layout_current(node_idx, untouched);
             self.keep_width_only_answer(node_idx, &inputs, output.size.width);
@@ -2566,7 +2560,7 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
             let writes_before = self.unrestored_writes();
             self.set_final_layout_current(node_idx, false);
             let output = compute_flexbox_layout(self, node_id, inputs);
-            if was_current && measure_journal_on() && self.unrestored_writes() == writes_before
+            if was_current && self.measure_journal_on() && self.unrestored_writes() == writes_before
             {
                 self.set_final_layout_current(node_idx, true);
             }
@@ -2622,7 +2616,7 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
                 tree.end_measure_journal(journal);
             } else if container {
                 if was_current
-                    && measure_journal_on()
+                    && tree.measure_journal_on()
                     && tree.unrestored_writes() == writes_before
                 {
                     tree.set_final_layout_current(node_idx, true);
@@ -2727,6 +2721,12 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
 }
 
 impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
+    /// Whether measures are journaled ([`MeasureJournal`]): unless the pass runs under
+    /// `SolverSettings::taffy_measure_journal` off (`AZ_NO_TAFFY_MEASURE_JOURNAL`).
+    const fn measure_journal_on(&self) -> bool {
+        self.ctx.settings().taffy_measure_journal
+    }
+
     /// Does the subtree of `node_idx` still hold what its last final layout
     /// wrote? See `NodeCache::final_layout_current`. `false` for a node the
     /// per-node cache does not cover (a context without one): its final
@@ -2763,7 +2763,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
     /// inside a journaled one), for a subtree above
     /// [`JOURNALED_NODES_AT_MOST`], or when journals are off.
     fn begin_measure_journal(&mut self, node_idx: usize) -> Option<MeasureJournal> {
-        if !measure_journal_on()
+        if !self.measure_journal_on()
             || self.ctx.pass_memo.taffy.measure_journal.is_some()
             || !self.final_layout_current(node_idx)
         {
@@ -3918,7 +3918,7 @@ impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
         // Diffing two passes' lines for the same node names WHICH component
         // (known_dimensions / available_space / run_mode) moved and broke
         // the key — aggregates can't tell that.
-        if env_flag!("AZ_TAFFY_DEBUG") {
+        if self.ctx.settings().trace_taffy {
             eprintln!(
                 "[taffy] {} n{} kd=({:?},{:?}) avail=({:?},{:?}) mode={:?}",
                 if hit.is_some() { "HIT " } else { "MISS" },

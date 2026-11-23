@@ -60,6 +60,26 @@ pub trait ParsedFontTrait: Send + Clone + ShallowClone {
         style: &StyleProperties,
     ) -> Result<Vec<Glyph>, LayoutError>;
 
+    /// [`Self::shape_text`] under the text `settings` of the font manager the caller shapes
+    /// for: the basis of the advances follows the hinting switches (`TextSettings::hinting`
+    /// and `hint_light`). A face that has no use for them (a mock, a test font) shapes as
+    /// [`Self::shape_text`] does, which is the default.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `LayoutError` if the text cannot be shaped.
+    fn shape_text_with(
+        &self,
+        text: &str,
+        script: Script,
+        language: Language,
+        direction: BidiDirection,
+        style: &StyleProperties,
+        _settings: &crate::settings::TextSettings,
+    ) -> Result<Vec<Glyph>, LayoutError> {
+        self.shape_text(text, script, language, direction, style)
+    }
+
     /// Hash of the font, necessary for breaking layouted glyphs into glyph runs
     fn get_hash(&self) -> u64;
 

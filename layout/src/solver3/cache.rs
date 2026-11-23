@@ -1485,6 +1485,10 @@ pub struct ReconciliationResult {
     /// (LAYOUTPERF8 bug B: a block whose stylesheet margin changed kept the
     /// old one).
     pub css_relayout: BTreeSet<NodeId>,
+    /// INPUT of the walk, set with `css_relayout`: print the reconcile's
+    /// decisions to stderr (`SolverSettings::trace_reconcile`). The walk has
+    /// no context to ask, so the result it fills carries the switch.
+    pub trace: bool,
 }
 
 impl ReconciliationResult {
@@ -2247,6 +2251,7 @@ pub fn reconcile_and_invalidate_restyled<T: ParsedFontTrait>(
             .filter(|(_, scope)| *scope != azul_css::props::property::RelayoutScope::None)
             .map(|(node, _)| *node)
             .collect(),
+        trace: ctx.settings().trace_reconcile,
         ..Default::default()
     };
     // A viewport SIZE change invalidates every VIEWPORT-DEPENDENT computed
@@ -3273,7 +3278,7 @@ pub fn reconcile_recursive(
                         // paragraph's parent on every reconcile (see
                         // try_reuse_anon_wrapper).
                         if !anon_reused {
-                            if env_flag!("AZ_RECON_DEBUG") {
+                            if recon.trace {
                                 eprintln!(
                                     "[recon] mid-loop wrapper ord {} NOT reused (run len {})",
                                     anon_ordinal - 1,
@@ -3327,7 +3332,7 @@ pub fn reconcile_recursive(
                     .get(reconciled_child_idx)
                     .map(|n| n.subtree_hash)
                 {
-                    if env_flag!("AZ_RECON_DEBUG") {
+                    if recon.trace {
                         eprintln!(
                             "[recon] block child dom {:?} under parent dom {:?} hash MISMATCH \
                              warm_pass={} old_idx={:?} (old {:?} vs new {:?})",
@@ -3430,7 +3435,7 @@ pub fn reconcile_recursive(
                 // children's own mark_dirty to propagate upward rather
                 // than invalidating the whole wrapper each reconcile.
                 if !anon_reused {
-                    if env_flag!("AZ_RECON_DEBUG") {
+                    if recon.trace {
                         eprintln!(
                             "[recon] trailing wrapper ord {} NOT reused",
                             anon_ordinal - 1
@@ -4023,7 +4028,7 @@ fn reconcile_node(
     let new_layout_relevant_count =
         layout_relevant_child_count(styled_dom, &new_children_dom_ids, new_dom_id);
 
-    if env_flag!("AZ_RECON_DEBUG")
+    if recon.trace
         && old_tree.is_some()
         && new_layout_relevant_count != old_layout_relevant_count
     {
@@ -4082,7 +4087,7 @@ fn classify_reconciled_node(
     if dirty_flag >= DirtyFlag::Layout || children_are_different {
         // Runtime-gated classification trace: names WHY a node went dirty,
         // which is the question every reconcile investigation starts with.
-        if env_flag!("AZ_RECON_DEBUG") {
+        if recon.trace {
             eprintln!(
                 "[recon] intrinsic_dirty += layout_idx {} (dom {:?}, flag {:?}, children_diff {})",
                 new_node_idx,

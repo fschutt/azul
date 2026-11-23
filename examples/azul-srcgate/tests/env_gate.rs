@@ -544,168 +544,22 @@ const W0: &[Allow] = &[
     ),
 ];
 /// W1: layout solver3, text3, glyph_cache, lib.rs (the `env_flag!` macro).
+///
+/// Every site of solver3, text3 and glyph_cache is wired (the settings are in
+/// `layout/src/settings/{solver,text}.rs`). What is left is the macro itself: it goes when the
+/// four uses of cluster W2 (window.rs x3, widgets/node_graph.rs x1) are wired.
 const W1: &[Allow] = &[
     Allow::exactly(
-        "layout/src/glyph_cache.rs",
-        NAME,
-        3,
-        "solver3 and text3: wired by cluster W1",
-    ),
-    Allow::exactly(
-        "layout/src/glyph_cache.rs",
-        READ,
-        3,
-        "solver3 and text3: wired by cluster W1",
-    ),
-    Allow::exactly(
         "layout/src/lib.rs",
         FLAG,
         1,
-        "solver3 and text3: wired by cluster W1",
+        "the env_flag! macro: goes when the four uses of cluster W2 are wired",
     ),
     Allow::exactly(
         "layout/src/lib.rs",
         READ,
         2,
-        "solver3 and text3: wired by cluster W1",
-    ),
-    Allow::exactly(
-        "layout/src/solver3/cache.rs",
-        NAME,
-        5,
-        "solver3 and text3: wired by cluster W1",
-    ),
-    Allow::exactly(
-        "layout/src/solver3/cache.rs",
-        FLAG,
-        5,
-        "solver3 and text3: wired by cluster W1",
-    ),
-    Allow::exactly(
-        "layout/src/solver3/display_list.rs",
-        NAME,
-        6,
-        "solver3 and text3: wired by cluster W1",
-    ),
-    Allow::exactly(
-        "layout/src/solver3/display_list.rs",
-        FLAG,
-        6,
-        "solver3 and text3: wired by cluster W1",
-    ),
-    Allow::exactly(
-        "layout/src/solver3/getters.rs",
-        NAME,
-        5,
-        "solver3 and text3: wired by cluster W1",
-    ),
-    Allow::exactly(
-        "layout/src/solver3/getters.rs",
-        FLAG,
-        4,
-        "solver3 and text3: wired by cluster W1",
-    ),
-    Allow::exactly(
-        "layout/src/solver3/getters.rs",
-        READ,
-        1,
-        "solver3 and text3: wired by cluster W1",
-    ),
-    Allow::exactly(
-        "layout/src/solver3/layout_tree.rs",
-        NAME,
-        1,
-        "solver3 and text3: wired by cluster W1",
-    ),
-    Allow::exactly(
-        "layout/src/solver3/layout_tree.rs",
-        READ,
-        1,
-        "solver3 and text3: wired by cluster W1",
-    ),
-    Allow::exactly(
-        "layout/src/solver3/mod.rs",
-        NAME,
-        7,
-        "solver3 and text3: wired by cluster W1",
-    ),
-    Allow::exactly(
-        "layout/src/solver3/mod.rs",
-        FLAG,
-        7,
-        "solver3 and text3: wired by cluster W1",
-    ),
-    Allow::exactly(
-        "layout/src/solver3/paged_layout.rs",
-        NAME,
-        1,
-        "solver3 and text3: wired by cluster W1",
-    ),
-    Allow::exactly(
-        "layout/src/solver3/paged_layout.rs",
-        READ,
-        1,
-        "solver3 and text3: wired by cluster W1",
-    ),
-    Allow::exactly(
-        "layout/src/solver3/positioning.rs",
-        NAME,
-        2,
-        "solver3 and text3: wired by cluster W1",
-    ),
-    Allow::exactly(
-        "layout/src/solver3/positioning.rs",
-        FLAG,
-        2,
-        "solver3 and text3: wired by cluster W1",
-    ),
-    Allow::exactly(
-        "layout/src/solver3/taffy_bridge.rs",
-        NAME,
-        2,
-        "solver3 and text3: wired by cluster W1",
-    ),
-    Allow::exactly(
-        "layout/src/solver3/taffy_bridge.rs",
-        FLAG,
-        2,
-        "solver3 and text3: wired by cluster W1",
-    ),
-    Allow::exactly(
-        "layout/src/text3/cache/font_manager.rs",
-        NAME,
-        2,
-        "solver3 and text3: wired by cluster W1",
-    ),
-    Allow::exactly(
-        "layout/src/text3/cache/font_manager.rs",
-        FLAG,
-        2,
-        "solver3 and text3: wired by cluster W1",
-    ),
-    Allow::exactly(
-        "layout/src/text3/cache/shaping.rs",
-        NAME,
-        2,
-        "solver3 and text3: wired by cluster W1",
-    ),
-    Allow::exactly(
-        "layout/src/text3/cache/shaping.rs",
-        FLAG,
-        2,
-        "solver3 and text3: wired by cluster W1",
-    ),
-    Allow::exactly(
-        "layout/src/text3/cache/shaping_cache.rs",
-        NAME,
-        1,
-        "solver3 and text3: wired by cluster W1",
-    ),
-    Allow::exactly(
-        "layout/src/text3/cache/shaping_cache.rs",
-        FLAG,
-        1,
-        "solver3 and text3: wired by cluster W1",
+        "the env_flag! macro: goes when the four uses of cluster W2 are wired",
     ),
 ];
 /// W2: layout window, cpu_backend, cpurender, managers, widgets, scroll_timer, callbacks.

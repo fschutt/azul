@@ -188,6 +188,19 @@ impl ParsedFontTrait for FontRef {
         parsed.shape_text_for_font_ref(self, text, script, language, direction, style)
     }
 
+    fn shape_text_with(
+        &self,
+        text: &str,
+        script: Script,
+        language: crate::text3::script::Language,
+        direction: BidiDirection,
+        style: &StyleProperties,
+        settings: &crate::settings::TextSettings,
+    ) -> Result<Vec<Glyph>, LayoutError> {
+        let parsed = crate::font_ref_to_parsed_font(self);
+        parsed.shape_text_for_font_ref_with(self, text, script, language, direction, style, settings)
+    }
+
     fn get_hash(&self) -> u64 {
         crate::font_ref_to_parsed_font(self).hash
     }
@@ -382,6 +395,21 @@ impl ParsedFont {
         // and `font_metrics` derived from `self`, which is the same
         // `ParsedFont` backing `_font_ref`, so no per-glyph rewrite is needed.
         shape_text_internal(self, text, script, language, direction, style)
+    }
+
+    /// [`Self::shape_text_for_font_ref`] under the text `settings` of the font manager the
+    /// caller shapes for.
+    fn shape_text_for_font_ref_with(
+        &self,
+        _font_ref: &FontRef,
+        text: &str,
+        script: Script,
+        language: crate::text3::script::Language,
+        direction: BidiDirection,
+        style: &StyleProperties,
+        settings: &crate::settings::TextSettings,
+    ) -> Result<Vec<Glyph>, LayoutError> {
+        shape_text_internal_with(self, text, script, language, direction, style, settings)
     }
 
     const fn get_hash(&self) -> u64 {
@@ -1167,13 +1195,16 @@ fn attach_marks(
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
                                  // (one branch per case)
-fn shape_text_internal(
+fn shape_text_internal_with(
     parsed_font: &ParsedFont,
     text: &str,
     script: Script,
     language: crate::text3::script::Language,
     direction: BidiDirection,
     style: &StyleProperties,
+    // What the shaping runs under: the basis of the advances follows `hinting` and
+    // `hint_light`.
+    settings: &crate::settings::TextSettings,
 ) -> Result<Vec<Glyph>, LayoutError> {
     let script_tag = to_opentype_script_tag(script);
     #[cfg(feature = "text_layout_hyphenation")]
@@ -1353,16 +1384,15 @@ fn shape_text_internal(
         // rescaled from the integer hinting ppem back to the exact
         // fractional font size to stay on the same basis as the GPOS
         // offsets and kerning below.
-        // `hint_light_enabled` lives in glyph_cache, which is `cpurender`-
-        // gated; text layout itself is not. Without cpurender there is no
-        // rasterizer to stay consistent WITH, so the light (linear-advance)
-        // basis — also the default when the module IS present — is the only
-        // sensible answer. Reading the same env var here keeps a
-        // cpurender-less build honest about AZ_HINT_LIGHT=0 being a
-        // raster-side knob it cannot honor.
+        // The rasterizer (`glyph_cache`) is `cpurender`-gated; text layout
+        // itself is not. Without cpurender there is no rasterizer to stay
+        // consistent WITH, so the light (linear-advance) basis — also the
+        // default when the module IS present — is the only sensible answer.
+        // Reading the same settings here keeps a cpurender-less build honest
+        // about `hint_light` off (`AZ_HINT_LIGHT=0`) being a raster-side knob
+        // it cannot honor.
         #[cfg(feature = "cpurender")]
-        let hint_light =
-            crate::glyph_cache::hint_light_enabled() || !crate::glyph_cache::text_hinting_enabled();
+        let hint_light = settings.hint_light || !settings.hinting;
         #[cfg(not(feature = "cpurender"))]
         let hint_light = true;
         let advance = if hint_light {
@@ -1453,6 +1483,44 @@ pub fn shape_text_for_parsed_font(
 ) -> Result<Vec<Glyph>, LayoutError> {
     // Delegate to the single internal implementation
     shape_text_internal(parsed_font, text, script, language, direction, style)
+}
+
+/// [`shape_text_for_parsed_font`] under the text `settings` of the font manager the caller
+/// shapes for: the basis of the advances follows `hinting` and `hint_light`.
+/// # Errors
+///
+/// Returns a `LayoutError` if the text cannot be shaped.
+pub fn shape_text_for_parsed_font_with(
+    parsed_font: &ParsedFont,
+    text: &str,
+    script: Script,
+    language: crate::text3::script::Language,
+    direction: BidiDirection,
+    style: &StyleProperties,
+    settings: &crate::settings::TextSettings,
+) -> Result<Vec<Glyph>, LayoutError> {
+    shape_text_internal_with(parsed_font, text, script, language, direction, style, settings)
+}
+
+/// [`shape_text_internal_with`] under the default settings: what a caller without a font
+/// manager (a test, a text image) shapes under.
+fn shape_text_internal(
+    parsed_font: &ParsedFont,
+    text: &str,
+    script: Script,
+    language: crate::text3::script::Language,
+    direction: BidiDirection,
+    style: &StyleProperties,
+) -> Result<Vec<Glyph>, LayoutError> {
+    shape_text_internal_with(
+        parsed_font,
+        text,
+        script,
+        language,
+        direction,
+        style,
+        &crate::settings::TextSettings::default(),
+    )
 }
 
 #[cfg(test)]

@@ -3952,6 +3952,7 @@ pub fn get_layout_scrollbar_width_px<T: ParsedFontTrait>(
         dom_id,
         styled_node_state,
         ctx.system_style.as_deref(),
+        ctx.settings().dump_scrollbar_os,
     );
     style.reserve_width_px
 }
@@ -6532,7 +6533,14 @@ pub fn resolve_font_chains(
     fc_cache: &FcFontCache,
     scripts_hint: Option<&[UnicodeRange]>,
 ) -> ResolvedFontChains {
-    resolve_font_chains_with_registry(collected, fc_cache, None, scripts_hint, &HashMap::new())
+    resolve_font_chains_with_registry(
+        collected,
+        fc_cache,
+        None,
+        scripts_hint,
+        &HashMap::new(),
+        &crate::settings::TextSettings::default(),
+    )
 }
 
 /// Split a CSS font stack into (a) the groups that resolve to an in-memory
@@ -6962,12 +6970,12 @@ pub fn resolve_font_chains_with_registry(
     registry: Option<&rust_fontconfig::registry::FcFontRegistry>,
     scripts_hint: Option<&[UnicodeRange]>,
     memory_families: &HashMap<String, Vec<crate::text3::cache::MemoryFace>>,
+    // What the resolution is traced under (`FontManager::settings`).
+    settings: &crate::settings::TextSettings,
 ) -> ResolvedFontChains {
     let _probe = crate::probe::Probe::span("font_chain_resolve");
     let mut chains = HashMap::new();
-    let trace_t0 = std::env::var_os("AZ_PAGINATE_TRACE")
-        .is_some()
-        .then(std::time::Instant::now);
+    let trace_t0 = settings.trace_paginate.then(std::time::Instant::now);
     let mut unresolved: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
 
     // Resolve system/file font stacks via fontconfig
@@ -6995,7 +7003,7 @@ pub fn resolve_font_chains_with_registry(
             optical_size: canonical_key.optical_size,
         });
 
-        if env_flag!("TEXTDBG") {
+        if settings.trace_text {
             eprintln!("[TEXTDBG] CHAIN STORE key={cache_key:?}");
         }
         // Skip if already resolved
@@ -7121,7 +7129,7 @@ pub fn resolve_font_chains_with_registry(
         select_variable_instances(&mut chain, weight, canonical_key.optical_size, fc_cache);
 
         // Which face each family of the stack came to, under TEXTDBG.
-        if env_flag!("TEXTDBG") {
+        if settings.trace_text {
             for group in &chain.css_fallbacks {
                 let faces: Vec<String> = group
                     .fonts
@@ -7409,7 +7417,13 @@ fn resolve_collected_stacks_covering<T: ParsedFontTrait>(
             // The registry's cache loads what the probe resolves.
             drop(font_manager.registered_fonts.ensure_in(&registry.shared_cache()));
             let mut fast =
-                resolve_font_chains_fast(collected, registry, &used_chars, &memory_families);
+                resolve_font_chains_fast(
+                    collected,
+                    registry,
+                    &used_chars,
+                    &memory_families,
+                    &font_manager.settings,
+                );
             extend_chains_to_cover(&mut fast, &used_chars, fc_cache, Some(registry));
             return fast;
         }
@@ -7425,6 +7439,7 @@ fn resolve_collected_stacks_covering<T: ParsedFontTrait>(
         font_manager.registry.as_deref(),
         Some(&scripts),
         &memory_families,
+        &font_manager.settings,
     );
 
     let used_chars = prune_chars();
@@ -7465,10 +7480,12 @@ pub fn resolve_font_chains_fast(
     registry: &rust_fontconfig::registry::FcFontRegistry,
     codepoints: &std::collections::BTreeSet<char>,
     memory_families: &HashMap<String, Vec<crate::text3::cache::MemoryFace>>,
+    // What the resolution is traced under (`FontManager::settings`).
+    settings: &crate::settings::TextSettings,
 ) -> ResolvedFontChains {
     use rust_fontconfig::PatternMatch;
 
-    let dbg = env_flag!("AZ_FAST_RESOLVE_DEBUG");
+    let dbg = settings.trace_font_resolve;
 
     let mut chains: HashMap<FontChainKeyOrRef, FontFallbackChain> = HashMap::new();
     let mut unresolved: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
@@ -8150,7 +8167,7 @@ pub fn get_scrollbar_style(
     node_state: &StyledNodeState,
     system_style: Option<&azul_css::system::SystemStyle>,
 ) -> ComputedScrollbarStyle {
-    get_scrollbar_style_with(None, styled_dom, node_id, node_state, system_style)
+    get_scrollbar_style_with(None, styled_dom, node_id, node_state, system_style, false)
 }
 
 /// [`get_scrollbar_style`] with the memo of the part of the answer that reads
@@ -8164,6 +8181,8 @@ pub fn get_scrollbar_style_with(
     node_id: NodeId,
     node_state: &StyledNodeState,
     system_style: Option<&azul_css::system::SystemStyle>,
+    // Print, once, which OS the UA cascade resolved against (`SolverSettings::dump_scrollbar_os`).
+    dump_os: bool,
 ) -> ComputedScrollbarStyle {
     #[cfg(test)]
     SCROLLBAR_STYLE_ASKS.with(|n| n.set(n.get() + 1));
@@ -8189,14 +8208,14 @@ pub fn get_scrollbar_style_with(
         );
         &fallback_ctx
     };
-    // AZ_DUMP_SCROLLBAR_OS=1 prints, once, which OS the UA cascade actually
+    // `SolverSettings::dump_scrollbar_os` (`AZ_DUMP_SCROLLBAR_OS`) prints, once, which OS the UA cascade actually
     // resolved against. `DynamicSelectorContext::default()` carries
     // `OsCondition::Any`, which matches NO `@os(...)` arm — so a window built
     // from `SystemStyle::default()` silently takes every fallback branch and
     // there is no way to tell from the rendering alone whether you are looking
     // at "the platform's scrollbars" or "the fallback that happens to render".
     #[cfg(feature = "std")]
-    if env_flag!("AZ_DUMP_SCROLLBAR_OS") {
+    if dump_os {
         // Once: the sink remembers the key it printed.
         azul_core::diagnostics::emit_once(0x5c20_11ba_a205_0001, || {
             alloc::format!(
@@ -8425,6 +8444,7 @@ pub fn get_scrollbar_style_cached<T: ParsedFontTrait>(
         node_id,
         node_state,
         ctx.system_style.as_deref(),
+        ctx.settings().dump_scrollbar_os,
     );
     ctx.scrollbar_style_cache
         .borrow_mut()
@@ -12886,6 +12906,7 @@ mod memory_font_tier_tests {
             None,
             Some(&[]),
             &fonts.memory_families,
+            &fonts.settings,
         );
         let chain = resolved.chains.values().next().expect("the stack's chain");
         let first = chain
@@ -13004,7 +13025,13 @@ mod memory_font_tier_tests {
         };
         let used: std::collections::BTreeSet<char> = ['a', '#'].into_iter().collect();
         let resolved =
-            resolve_font_chains_fast(&collected, &registry, &used, &fonts.memory_families);
+            resolve_font_chains_fast(
+                &collected,
+                &registry,
+                &used,
+                &fonts.memory_families,
+                &fonts.settings,
+            );
         let chain = resolved.chains.values().next().expect("the stack's chain");
         assert!(
             chain
@@ -13063,7 +13090,13 @@ mod memory_font_tier_tests {
         };
         let used: std::collections::BTreeSet<char> = ['a'].into_iter().collect();
         let resolved =
-            resolve_font_chains_fast(&collected, &registry, &used, &fonts.memory_families);
+            resolve_font_chains_fast(
+                &collected,
+                &registry,
+                &used,
+                &fonts.memory_families,
+                &fonts.settings,
+            );
         let chain = resolved.chains.values().next().expect("the stack's chain");
         let a = covering_font(chain, 'a');
         assert!(a.is_some(), "premise: the stack covers 'a'");
@@ -13109,7 +13142,13 @@ mod memory_font_tier_tests {
         };
         let used: std::collections::BTreeSet<char> = ['a'].into_iter().collect();
         let resolved =
-            resolve_font_chains_fast(&collected, &registry, &used, &fonts.memory_families);
+            resolve_font_chains_fast(
+                &collected,
+                &registry,
+                &used,
+                &fonts.memory_families,
+                &fonts.settings,
+            );
         let chain = resolved.chains.values().next().expect("the stack's chain");
         let first = chain
             .css_fallbacks
