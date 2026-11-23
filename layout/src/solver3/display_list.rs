@@ -11441,6 +11441,7 @@ where
             &self.ctx.font_manager.font_chain_cache,
             &self.ctx.font_manager.fc_cache,
             &loaded_fonts,
+            &self.ctx.font_manager.settings,
         );
 
         if glyphs.is_empty() {
@@ -12241,6 +12242,7 @@ where
             &self.ctx.font_manager.font_chain_cache,
             &self.ctx.font_manager.fc_cache,
             &loaded_fonts,
+            &self.ctx.font_manager.settings,
         );
         if glyphs.is_empty() {
             return None;

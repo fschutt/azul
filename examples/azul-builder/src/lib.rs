@@ -82,11 +82,14 @@ pub fn run_app() {
     app.run(options);
 }
 
-// Android entry point
+// Android entry point: libazul provides `android_main` (the android-activity glue) and `App::run`
+// on Android only stashes the window options for it to read, so the setup runs from a load-time
+// constructor, before `ANativeActivity_onCreate` - as in the other demos (azul-maps, azul-paint, ...;
+// doc/guide/en/deploying/mobile.md). The shim this replaces named `azul::dll::AndroidApp` and
+// `azul::dll::android_main_glue`, which no azul version has had.
 #[cfg(target_os = "android")]
-#[no_mangle]
-pub extern "C" fn android_main(app: azul::dll::AndroidApp) {
-    azul::dll::android_main_glue(app);
+#[ctor::ctor]
+fn azul_android_init() {
     run_app();
 }
 
