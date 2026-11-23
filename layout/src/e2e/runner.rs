@@ -4971,6 +4971,11 @@ fn run_e2e_tests_in_one_window(
     };
     let mut runner = Runner::new(w, h, dpi, animations);
     runner.layout_window.set_settings(settings.clone());
+    // The window's own hit tester traces its queries when the settings say so (`AZ_TRACE_HIT`), as
+    // the shells' do.
+    runner
+        .cpu_hit_tester
+        .set_trace(runner.layout_window.settings.window.trace_hit);
     if let Some(services) = services {
         runner.layout_window.join_app(services);
     }
