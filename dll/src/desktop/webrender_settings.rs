@@ -2,10 +2,10 @@
 //! texture cache and the transaction), and the one place of the dll that names those variables
 //! (the group D2 of the env pass).
 //!
-//! Nothing here reads the process: [`RenderSettings::from_lookup`] takes a `&dyn EnvSource`. The
+//! Nothing here reads the process: [`WebRenderSettings::from_lookup`] takes a `&dyn EnvSource`. The
 //! app start builds it once, inside [`super::app_settings::AppSettings`], and the code that builds
 //! the renderer and translates the display lists reads a plain field of it.
-//! [`RenderSettings::default`] is the behaviour of an EMPTY environment: the switches that are on
+//! [`WebRenderSettings::default`] is the behaviour of an EMPTY environment: the switches that are on
 //! unless the variable says `0` are on, the numbers have the defaults the variables name.
 
 use azul_css::env::EnvSource;
@@ -46,7 +46,7 @@ const MAX_BUDGET_MB: usize = 1024;
 // Each flag is its own switch of a debugging session: a set of enums would only rename them.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RenderSettings {
+pub struct WebRenderSettings {
     /// `AZ_WR_HIT_TEST=1`: the hit-test areas of a display list are translated and handed to
     /// WebRender (nothing in azul asks its hit tester any more; off by default).
     pub hit_test_items: bool,
@@ -92,7 +92,7 @@ fn megabytes(env: &dyn EnvSource, name: &str, default: usize) -> usize {
         .min(MAX_BUDGET_MB)
 }
 
-impl RenderSettings {
+impl WebRenderSettings {
     /// What the environment `env` asks for; an empty one asks for nothing.
     #[must_use]
     pub fn from_lookup(env: &dyn EnvSource) -> Self {
@@ -113,7 +113,7 @@ impl RenderSettings {
     }
 }
 
-impl Default for RenderSettings {
+impl Default for WebRenderSettings {
     /// The empty environment's.
     fn default() -> Self {
         Self::from_lookup(&azul_css::env::NoEnv)
@@ -121,5 +121,5 @@ impl Default for RenderSettings {
 }
 
 #[cfg(test)]
-#[path = "render_settings_test.rs"]
+#[path = "webrender_settings_test.rs"]
 mod tests;

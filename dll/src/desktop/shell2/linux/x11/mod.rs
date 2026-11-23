@@ -4090,6 +4090,7 @@ impl X11Window {
         // compilation on software / weak GPUs such as nouveau.)
         let force_cpu = matches!(
             crate::desktop::shell2::common::compositor::AzBackend::resolve(
+                resources.app_shared.settings().shell.backend.as_deref(),
                 options
                     .renderer
                     .as_option()
@@ -6680,7 +6681,9 @@ impl X11Window {
         let layout_window = borrows.layout_window.ok_or("No layout window")?;
 
         // Collect debug messages if debug server is enabled
-        let debug_enabled = crate::desktop::shell2::common::debug_server::layout_trace_enabled();
+        let debug_enabled = crate::desktop::shell2::common::debug_server::layout_trace_enabled(
+            &borrows.settings.shell,
+        );
         let mut debug_messages = if debug_enabled {
             Some(Vec::new())
         } else {
@@ -6700,6 +6703,7 @@ impl X11Window {
             &self.resources.icon_provider,
             &mut debug_messages,
             relayout_reason,
+            borrows.settings,
         )?;
 
         // Forward layout debug messages to the debug server's log queue

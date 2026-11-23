@@ -246,6 +246,7 @@ pub fn regenerate_layout(
     icon_provider: &SharedIconProvider,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     relayout_reason: azul_core::callbacks::RelayoutReason,
+    settings: &crate::desktop::app_settings::AppSettings,
 ) -> Result<LayoutRegenerateResult, String> {
     log_debug!(LogCategory::Layout, "[regenerate_layout] START");
     // Engine observability: the whole produce side (callback + solve + DL)
@@ -1586,7 +1587,7 @@ pub fn regenerate_layout(
     // `AZ_RECONCILE_DEBUG=1`: name every NEW node the reconcile could not
     // match to an old one (it is a fresh mount: state, focus and scroll on
     // its old counterpart are dropped). Diagnostic only.
-    if std::env::var_os("AZ_RECONCILE_DEBUG").is_some() {
+    if settings.shell.reconcile_debug {
         let describe = |nd: &azul_core::dom::NodeData| {
             let classes: Vec<String> = nd
                 .get_ids_and_classes()

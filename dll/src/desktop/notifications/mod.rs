@@ -99,8 +99,8 @@ mod windows;
 #[cfg(test)]
 mod platform_invariants;
 
-/// Set by the headless run loop (`AZ_BACKEND=headless`): no notification is
-/// shown, every post is RECORDED for tests and `assert_notification`.
+/// Set by `App::create` when `AZ_BACKEND=headless` asked for it, and by the headless run loop:
+/// no notification is shown, every post is RECORDED for tests and `assert_notification`.
 static HEADLESS: AtomicBool = AtomicBool::new(false);
 
 /// Why a target without a backend cannot show a notification.
@@ -791,11 +791,9 @@ fn cap(available: bool, backend: String, reason: String) -> PlatformCapability {
 /// `UNUserNotificationCenter` before the bundle check has passed).
 #[must_use]
 pub fn probe() -> PlatformCapability {
-    // `AZ_BACKEND=headless`, asked before the run loop set the switch: an app
-    // probes while it builds its state, before `App::run` (AzClock).
-    if HEADLESS.load(Ordering::Relaxed)
-        || crate::desktop::shell2::common::compositor::AzBackend::headless_selected()
-    {
+    // `AZ_BACKEND=headless`: `App::create` already set the switch from the app's settings, so an
+    // app that probes while it builds its state, before `App::run` (AzClock), is told too.
+    if HEADLESS.load(Ordering::Relaxed) {
         return cap(
             false,
             "headless (recorded)".to_string(),

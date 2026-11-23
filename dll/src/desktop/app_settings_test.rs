@@ -8,7 +8,7 @@ fn the_default_is_the_empty_environment_of_every_part() {
     assert_eq!(none, AppSettings::default());
     assert_eq!(none.layout, LayoutSettings::default());
     assert_eq!(none.shell, ShellSettings::default());
-    assert_eq!(none.render, RenderSettings::default());
+    assert_eq!(none.webrender, WebRenderSettings::default());
 }
 
 /// The layout engine's switches are read from the SAME environment as the shell's: a variable of
@@ -38,11 +38,11 @@ fn every_part_is_built_from_the_one_environment() {
         .with("AZ_WR_ZOOM_TILES", "0");
     let settings = AppSettings::from_lookup(&env);
     assert_eq!(settings.shell.backend.as_deref(), Some("cpu"));
-    assert!(!settings.render.zoom_tiles);
+    assert!(!settings.webrender.zoom_tiles);
     // the rest stays what an empty environment says
     let mut expected = AppSettings::default();
     expected.shell.backend = Some(String::from("cpu"));
-    expected.render.zoom_tiles = false;
+    expected.webrender.zoom_tiles = false;
     assert_eq!(settings, expected);
 }
 

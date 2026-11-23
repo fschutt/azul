@@ -816,24 +816,6 @@ const W4: &[Allow] = &[
         "dll app start and shells: wired by cluster W4",
     ),
     Allow::exactly(
-        "dll/src/desktop/logging.rs",
-        NAME,
-        2,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/logging.rs",
-        READ,
-        2,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/material_icons.rs",
-        NAME,
-        1,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
         "dll/src/desktop/native_screenshot.rs",
         NAME,
         1,
@@ -842,12 +824,6 @@ const W4: &[Allow] = &[
     Allow::exactly(
         "dll/src/desktop/native_screenshot.rs",
         READ,
-        1,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/notifications/apple.rs",
-        DIR,
         1,
         "dll app start and shells: wired by cluster W4",
     ),
@@ -876,24 +852,6 @@ const W4: &[Allow] = &[
         "dll app start and shells: wired by cluster W4",
     ),
     Allow::exactly(
-        "dll/src/desktop/shell2/android/mod.rs",
-        NAME,
-        1,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/android/mod.rs",
-        READ,
-        1,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/android/mod.rs",
-        WRITE,
-        1,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
         "dll/src/desktop/shell2/common/clipboard.rs",
         NAME,
         2,
@@ -903,30 +861,6 @@ const W4: &[Allow] = &[
         "dll/src/desktop/shell2/common/clipboard.rs",
         READ,
         2,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/common/compositor.rs",
-        NAME,
-        2,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/common/compositor.rs",
-        READ,
-        2,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/common/debug_server/mod.rs",
-        NAME,
-        1,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/common/debug_server/mod.rs",
-        READ,
-        1,
         "dll app start and shells: wired by cluster W4",
     ),
     Allow::exactly(
@@ -942,123 +876,27 @@ const W4: &[Allow] = &[
         "dll app start and shells: wired by cluster W4",
     ),
     Allow::exactly(
-        "dll/src/desktop/shell2/common/e2e_test.rs",
-        NAME,
-        1,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/common/e2e_test.rs",
-        READ,
-        1,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/common/event.rs",
-        NAME,
-        3,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/common/event.rs",
-        READ,
-        3,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/common/frame_schedule.rs",
-        NAME,
-        1,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/common/frame_schedule.rs",
-        READ,
-        1,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/common/layout.rs",
-        NAME,
-        1,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/common/layout.rs",
-        READ,
-        1,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/common/log_gate.rs",
-        NAME,
-        2,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/common/log_gate.rs",
-        READ,
-        2,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/common/x11_host.rs",
-        NAME,
-        2,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/common/x11_host.rs",
-        READ,
-        2,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
         "dll/src/desktop/shell2/headless/mod.rs",
         NAME,
-        3,
+        1,
         "dll app start and shells: wired by cluster W4",
     ),
     Allow::exactly(
         "dll/src/desktop/shell2/headless/mod.rs",
         READ,
-        3,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/macos/mod.rs",
-        NAME,
-        8,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/macos/mod.rs",
-        READ,
-        8,
+        1,
         "dll app start and shells: wired by cluster W4",
     ),
     Allow::exactly(
         "dll/src/desktop/shell2/run.rs",
         NAME,
-        15,
+        6,
         "dll app start and shells: wired by cluster W4",
     ),
     Allow::exactly(
         "dll/src/desktop/shell2/run.rs",
         READ,
-        9,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/windows/mod.rs",
-        NAME,
-        2,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/windows/mod.rs",
-        READ,
-        2,
+        5,
         "dll app start and shells: wired by cluster W4",
     ),
     Allow::exactly(
@@ -1107,36 +945,6 @@ const W4: &[Allow] = &[
         "dll/src/desktop/wr_translate2.rs",
         READ,
         3,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/e2e_web_runner.rs",
-        NAME,
-        3,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/e2e_web_runner.rs",
-        DIR,
-        1,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/e2e_web_runner.rs",
-        READ,
-        3,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/lib.rs",
-        NAME,
-        4,
-        "dll app start and shells: wired by cluster W4",
-    ),
-    Allow::exactly(
-        "dll/src/php_extension.rs",
-        NAME,
-        1,
         "dll app start and shells: wired by cluster W4",
     ),
 ];
@@ -1407,13 +1215,54 @@ const W6: &[Allow] = &[
     ),
 ];
 /// W7: what stays for good: the reader, the facades, the process-level proofs.
-const W7: &[Allow] = &[Allow::exactly(
-    "dll/src/env.rs",
-    READ,
-    2,
-    "ProcessEnv: the one reader of the process environment (var and var_os); the rest of the \
+const W7: &[Allow] = &[
+    Allow::exactly(
+        "dll/src/env.rs",
+        READ,
+        2,
+        "ProcessEnv: the one reader of the process environment (var and var_os); the rest of the \
          workspace asks an EnvSource",
-)];
+    ),
+    // The codegen directory is a COMPILE-TIME value (`env!`, set by dll/build.rs): not a read of
+    // the process environment, so it is no setting. The literal stays where the `include!` is.
+    Allow::exactly(
+        "dll/src/lib.rs",
+        NAME,
+        4,
+        "compile-time env!(\"AZ_CODEGEN_DIR_RESOLVED\") of the generated bindings (build.rs), not a \
+         run-time read",
+    ),
+    Allow::exactly(
+        "dll/src/php_extension.rs",
+        NAME,
+        1,
+        "compile-time env!(\"AZ_CODEGEN_DIR_RESOLVED\") of the generated bindings (build.rs), not a \
+         run-time read",
+    ),
+    Allow::exactly(
+        "dll/src/desktop/material_icons.rs",
+        NAME,
+        1,
+        "compile-time env!(\"AZ_CODEGEN_DIR_RESOLVED\") of the generated bindings (build.rs), not a \
+         run-time read",
+    ),
+    // The platform's temporary directory is a lookup the OS owns (TMPDIR, GetTempPath, the
+    // per-user directory of macOS): a facade, as `layout/src/file.rs` is for the user folders.
+    Allow::exactly(
+        "dll/src/e2e_web_runner.rs",
+        DIR,
+        1,
+        "std::env::temp_dir: where the embedded web harness is extracted (the platform's temporary \
+         directory, which the OS owns)",
+    ),
+    Allow::exactly(
+        "dll/src/desktop/notifications/apple.rs",
+        DIR,
+        1,
+        "std::env::temp_dir: the platform's temporary directory, which the OS owns (the copy of \
+         the notification attachment)",
+    ),
+];
 
 fn allowed() -> Vec<Allow> {
     [W0, W1, W2, W3, W4, W5, W6, W7].concat()

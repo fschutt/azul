@@ -43,7 +43,7 @@ pub mod app_settings;
 /// New compositor integration for shell2 - WebRender bridge
 pub mod compositor2;
 /// What the environment asks of the WebRender path (the group D2 of the env pass)
-pub mod render_settings;
+pub mod webrender_settings;
 /// What the environment asks of the app start and the shells (the group D1 of the env pass)
 pub mod shell_settings;
 /// Client-Side Decorations (CSD) - Custom window titlebar

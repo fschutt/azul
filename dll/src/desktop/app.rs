@@ -158,6 +158,17 @@ impl App {
         let env = crate::env::ProcessEnv::new();
         let settings = AppSettings::from_lookup(&env);
 
+        // `AZ_BACKEND=headless` is known before `App::run` starts the headless loop, for what an
+        // app asks while it builds its state (`PlatformCapability::notifications()`).
+        if crate::desktop::shell2::common::compositor::AzBackend::headless_selected_by(
+            settings.shell.backend.as_deref(),
+        ) {
+            crate::desktop::notifications::use_headless_backend();
+        }
+
+        // What the log gate is told (the stderr copy, the log file) before the first record.
+        crate::desktop::shell2::common::log_gate::install(&settings.shell);
+
         // Initialize AZ_RECORD file logging before anything else
         debug_server::init_recording();
 
@@ -167,7 +178,7 @@ impl App {
         // like a silent quit. Doing it here means it is live before any window,
         // event-loop or font work runs. No-op if the host already set a logger.
         #[cfg(feature = "logging")]
-        crate::desktop::logging::init_default_logger();
+        crate::desktop::logging::init_default_logger(settings.shell.no_color);
 
         // The app's own id (`AppConfig::app_id`), HERE: every run path -
         // `run`, `run_tray_only`, the crash reporter, iOS's
@@ -448,7 +459,7 @@ impl App {
         // with the harness's status (desktop-parity semantics; the
         // AZ_BACKEND=headless runner below keeps its own path).
         #[cfg(feature = "web-e2e-runner")]
-        crate::e2e_web_runner::maybe_run_and_exit();
+        crate::e2e_web_runner::maybe_run_and_exit(&settings.shell);
         let data = self.ptr.data.clone();
         let config = self.ptr.config.clone();
         let fc_cache = (*self.ptr.fc_cache).clone();
@@ -818,7 +829,7 @@ impl AppInternal {
         #[cfg(feature = "logging")]
         {
             if app_config.enable_logging_on_panic {
-                crate::desktop::logging::set_up_panic_hooks();
+                crate::desktop::logging::set_up_panic_hooks(settings.shell.e2e_run);
             }
 
             if app_config.enable_visual_panic_hook {

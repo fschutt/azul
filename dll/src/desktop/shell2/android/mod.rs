@@ -489,7 +489,9 @@ impl AndroidWindow {
         let borrows = self.common.layout_borrows();
         let layout_window = borrows.layout_window.ok_or("No layout window")?;
 
-        let debug_enabled = crate::desktop::shell2::common::debug_server::layout_trace_enabled();
+        let debug_enabled = crate::desktop::shell2::common::debug_server::layout_trace_enabled(
+            &borrows.settings.shell,
+        );
         let mut debug_messages = if debug_enabled {
             Some(Vec::new())
         } else {
@@ -508,6 +510,7 @@ impl AndroidWindow {
             &self.icon_provider,
             &mut debug_messages,
             relayout_reason,
+            borrows.settings,
         )?;
 
         if let Some(msgs) = debug_messages {
@@ -720,25 +723,12 @@ impl PlatformWindow for AndroidWindow {
 pub fn android_main(app: AndroidApp) {
     log_info!(LogCategory::EventLoop, "[Android] android_main entered");
 
-    // Make the AZ_* knobs reachable at all on this platform.
-    //
-    // An activity cannot be handed environment variables: `am start` builds an
-    // Intent and the process inherits the ZYGOTE's environment, not the
-    // shell's. There are ~128 distinct `AZ_*` variables across the engine —
-    // every trace flag, dump path and diagnostic — and ALL of them were dead on
-    // Android, the platform where debugging is hardest. `AZ_E2E` got a bespoke
-    // property alias earlier; adding 127 more would be absurd.
-    //
-    // So one property carries them all, and they are injected into the real
-    // environment so every existing `std::env::var` call site works unchanged:
-    //
-    //     adb shell setprop debug.az.env
-    // 'AZ_E2E=/data/local/tmp/x.json;AZWRITER_SCREEN=backstage-info'
-    //
-    // Called FIRST in android_main, before any other thread exists — `set_var`
-    // is not thread-safe, and this is the only point where that is guaranteed.
-    inject_env_from_property();
-
+    // The AZ_* knobs are reachable on this platform through the process reader
+    // (`crate::env::ProcessEnv`): an activity cannot be handed environment variables (`am start`
+    // builds an Intent and the process inherits the ZYGOTE's environment, not the shell's), so it
+    // answers from the system properties too - `debug.az.<name>` is the variable `AZ_<NAME>`,
+    // `debug.az.env` carries `KEY=VALUE;KEY=VALUE` pairs - read once when `App::create` builds
+    // the app's settings. Nothing is written into the environment.
     // Retrieve initial options stashed by `run()`
     let (app_data, undo_manager, app_shared, config, fc_cache, font_registry, root_window) = unsafe {
         match crate::desktop::shell2::run::ANDROID_INITIAL_OPTIONS.take() {
@@ -2270,7 +2260,7 @@ fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
     // Bookkeeping that always falls back to a full copy is worse than no
     // bookkeeping, and the two are indistinguishable from the rendering.
     #[cfg(feature = "std")]
-    if android_debug_flag("AZ_DUMP_PRESENT", "debug.az.present") {
+    if window.common.app.settings().shell.dump_present {
         let (kind, rows) = match &rows_to_copy {
             Some(r) => ("partial", r.iter().map(|(a, b)| b - a).sum::<usize>()),
             None => ("full", guard_height_for_log),
@@ -2418,70 +2408,6 @@ pub fn wake_event_loop() {}
 fn publish_jni_context(app: &AndroidApp) {
     ANDROID_JAVA_VM.store(app.vm_as_ptr(), core::sync::atomic::Ordering::SeqCst);
     ANDROID_ACTIVITY.store(app.activity_as_ptr(), core::sync::atomic::Ordering::SeqCst);
-}
-
-/// Inject `debug.az.env` into the process environment.
-///
-/// Format: `KEY=VALUE` pairs separated by `;`. A pair with no `=`, or an empty
-/// key, is skipped rather than setting a nonsense variable.
-///
-/// SAFETY / ORDERING: `std::env::set_var` is not thread-safe. This runs as the
-/// first statement of `android_main`, before the window, the JNI publish, any
-/// timer or any worker exists, which is the only place that is sound.
-#[cfg(target_os = "android")]
-fn inject_env_from_property() {
-    let Ok(out) = std::process::Command::new("getprop")
-        .arg("debug.az.env")
-        .output()
-    else {
-        return;
-    };
-    let raw = String::from_utf8_lossy(&out.stdout);
-    let raw = raw.trim();
-    if raw.is_empty() {
-        return;
-    }
-    for pair in raw.split(';') {
-        let Some((k, v)) = pair.split_once('=') else {
-            continue;
-        };
-        let (k, v) = (k.trim(), v.trim());
-        if k.is_empty() {
-            continue;
-        }
-        log_info!(
-            LogCategory::EventLoop,
-            "[Android] env from debug.az.env: {}={}",
-            k,
-            v
-        );
-        std::env::set_var(k, v);
-    }
-}
-
-/// A debug knob, from the env or from a `debug.az.*` system property.
-///
-/// An activity cannot be given an environment variable — `am start` builds an
-/// Intent and the process inherits the zygote's environment, not the shell's —
-/// so every `AZ_*` knob is unreachable on Android unless it has a property
-/// alias. Same mechanism `AZ_E2E` uses (`debug.az.e2e`).
-///
-///     adb shell setprop debug.az.present 1
-#[cfg(target_os = "android")]
-pub(crate) fn android_debug_flag(env_name: &str, prop: &str) -> bool {
-    if std::env::var_os(env_name).is_some() {
-        return true;
-    }
-    std::process::Command::new("getprop")
-        .arg(prop)
-        .output()
-        .ok()
-        .map(|o| {
-            let v = String::from_utf8_lossy(&o.stdout);
-            let v = v.trim();
-            !v.is_empty() && v != "0" && v != "false"
-        })
-        .unwrap_or(false)
 }
 
 /// Ask Android to show or hide the on-screen keyboard.
