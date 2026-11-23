@@ -41,6 +41,7 @@ use azul_css::AzString;
 use serde_json::{json, Value};
 
 use super::builder::{self, BuilderDocument, BuilderReply, BuilderSession, Remount};
+use crate::settings::PlatformEnv;
 
 /// The manifest file at the project root.
 pub const MANIFEST: &str = "azul-project.json";
@@ -120,6 +121,7 @@ pub fn handle(
     builder: &mut BuilderSession,
     map: &mut ComponentMap,
     live: Option<&StyledDom>,
+    platform: &PlatformEnv,
 ) -> Result<BuilderReply, String> {
     let keep = |json: Value| BuilderReply {
         json,
@@ -128,7 +130,7 @@ pub fn handle(
     match op {
         ProjectOp::Info => Ok(keep(project.info_json())),
         ProjectOp::Open { path, create } => {
-            let created = project.open(path, create)?;
+            let created = project.open(path, create, platform)?;
             let remount = project.apply_stylesheets(builder, map);
             let mut json = project.info_json();
             json["created"] = json!(created);
@@ -264,10 +266,10 @@ impl ProjectSession {
         info
     }
 
-    /// Open `path` (absolute, `~/…`, or relative to the working directory).
-    /// `create`: make the folder if it is missing and give it the project
+    /// Open `path` (absolute, `~/…`, or relative to the working directory). `~` is the home folder
+    /// `platform` names. `create`: make the folder if it is missing and give it the project
     /// skeleton. Answers whether the manifest was written now.
-    fn open(&mut self, path: &str, create: bool) -> Result<bool, String> {
+    fn open(&mut self, path: &str, create: bool, platform: &PlatformEnv) -> Result<bool, String> {
         let raw = path.trim();
         if raw.is_empty() {
             return Err("name the project folder to open".to_string());
@@ -275,7 +277,7 @@ impl ProjectSession {
         if raw.contains('\0') {
             return Err(format!("{raw:?} contains a NUL byte"));
         }
-        let mut p = expand_home(raw);
+        let mut p = expand_home(raw, platform);
         if !p.is_absolute() {
             let cwd = std::env::current_dir()
                 .map_err(|e| format!("cannot read the working directory: {e}"))?;
@@ -818,9 +820,9 @@ fn is_safe_segment(s: &str) -> bool {
     !s.is_empty() && s != "." && s != ".." && !s.contains(['/', '\\', '\0', ':'])
 }
 
-fn expand_home(p: &str) -> PathBuf {
+fn expand_home(p: &str, platform: &PlatformEnv) -> PathBuf {
     if let Some(rest) = p.strip_prefix("~/").or_else(|| (p == "~").then_some("")) {
-        if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+        if let Some(home) = platform.home_dir() {
             return PathBuf::from(home).join(rest);
         }
     }

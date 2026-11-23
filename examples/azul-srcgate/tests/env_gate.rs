@@ -948,42 +948,6 @@ const W3: &[Allow] = &[
         "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
     ),
     Allow::exactly(
-        "layout/src/e2e/full.rs",
-        NAME,
-        3,
-        "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
-    ),
-    Allow::exactly(
-        "layout/src/e2e/full.rs",
-        READ,
-        3,
-        "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
-    ),
-    Allow::exactly(
-        "layout/src/e2e/project.rs",
-        NAME,
-        2,
-        "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
-    ),
-    Allow::exactly(
-        "layout/src/e2e/project.rs",
-        READ,
-        2,
-        "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
-    ),
-    Allow::exactly(
-        "layout/src/e2e/runner.rs",
-        NAME,
-        2,
-        "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
-    ),
-    Allow::exactly(
-        "layout/src/e2e/runner.rs",
-        READ,
-        2,
-        "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
-    ),
-    Allow::exactly(
         "layout/src/file.rs",
         DIR,
         20,

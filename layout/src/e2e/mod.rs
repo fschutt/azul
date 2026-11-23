@@ -51,7 +51,7 @@ pub use mount_views::{
 };
 
 mod runner;
-pub use runner::run_e2e_test;
+pub use runner::{run_e2e_test, run_e2e_test_with_settings};
 
 mod report;
 #[cfg(feature = "std")]
