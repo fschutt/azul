@@ -7789,7 +7789,7 @@ impl MacOSWindow {
             // any more - `resolve()` was a blocking round trip to the render
             // backend at every window creation. `AZ_WR_HIT_TESTER=1` requests
             // it as before (audit A6-17).
-            let hit_tester = app_shared.settings().render.hit_tester.then(|| {
+            let hit_tester = app_shared.settings().webrender.hit_tester.then(|| {
                 AsyncHitTester::Resolved(
                     render_api
                         .request_hit_tester(wr_translate_document_id(document_id))
@@ -11301,7 +11301,7 @@ impl MacOSWindow {
             let size = self.common.current_window_state().size.get_physical_size();
             (size.width, size.height)
         };
-        let forced_sync = self.common.app.settings().render.sync_scene
+        let forced_sync = self.common.app.settings().webrender.sync_scene
             || !display_list_initialized_at_entry
             || self.last_gpu_frame_size != Some(frame_size)
             || halos_return_in_this_pass

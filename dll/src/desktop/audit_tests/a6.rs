@@ -262,7 +262,7 @@ mod one_hit_tester {
 
         let request = MACOS_RS.find(".request_hit_tester(").expect("the request is kept");
         let before = &MACOS_RS[..request];
-        let switch = before.rfind("render.hit_tester").expect("behind the switch");
+        let switch = before.rfind("webrender.hit_tester").expect("behind the switch");
         assert!(request - switch < 400, "the request follows its switch");
         assert_eq!(MACOS_RS.matches(".request_hit_tester(").count(), 1);
     }
