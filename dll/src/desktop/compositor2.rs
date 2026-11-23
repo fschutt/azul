@@ -181,7 +181,7 @@ fn push_text_decoration_rect(
 /// `getenv` per item would be a real cost in a large DOM.
 fn show_hit_test_overlay() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| azul_core::window::DebugState::from_lookup(&crate::env::ProcessEnv).show_hit_test_areas)
+    *ON.get_or_init(|| azul_core::window::DebugState::from_lookup(&crate::env::ProcessEnv::new()).show_hit_test_areas)
 }
 
 /// Whether the hit-test areas of a display list are handed to WebRender

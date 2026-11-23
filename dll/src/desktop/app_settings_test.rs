@@ -8,6 +8,8 @@ fn the_default_is_the_empty_environment_of_every_part() {
     assert_eq!(none, AppSettings::default());
     assert_eq!(none.shell, ShellSettings::default());
     assert_eq!(none.render, RenderSettings::default());
+    assert_eq!(none.css, azul_css::settings::CssSettings::default());
+    assert_eq!(none.core, azul_core::settings::CoreSettings::default());
 }
 
 #[test]
@@ -23,6 +25,21 @@ fn every_part_is_built_from_the_one_environment() {
     expected.shell.backend = Some(String::from("cpu"));
     expected.render.zoom_tiles = false;
     assert_eq!(settings, expected);
+}
+
+#[test]
+fn the_css_and_core_parts_are_built_from_the_same_environment() {
+    let env = MapEnv::new()
+        .with("AZ_RICING", "off")
+        .with("AZ_MODE", "dark")
+        .with("AZ_SUPPRESS", "var_fallback");
+    let settings = AppSettings::from_lookup(&env);
+    assert_eq!(settings.css.ricing, azul_css::system::RicingMode::Off);
+    assert_eq!(
+        settings.css.theme.mode,
+        Some(azul_css::system::DarkLightMode::Dark)
+    );
+    assert!(settings.core.diag.suppress.contains("var_fallback"));
 }
 
 #[test]

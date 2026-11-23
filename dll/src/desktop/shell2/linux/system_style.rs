@@ -708,7 +708,7 @@ fn discover_linux_extras(style: &mut SystemStyle) {
     // gsettings, and a machine that once ran KDE or GNOME still has THEIR
     // schemas populated - reading those is how an XFCE desktop themed
     // Mint-Y-Aqua ended up rendering as Breeze dark with breeze-dark icons.
-    let source = linux_settings_source(&azul_css::system::detect_linux_desktop_env(&crate::env::ProcessEnv));
+    let source = linux_settings_source(&azul_css::system::detect_linux_desktop_env(&crate::env::ProcessEnv::new()));
     let de_answered = match source {
         LinuxSettingsSource::Xfconf => xfce_extras(style),
         LinuxSettingsSource::KdeConfig => kde_extras(style),
@@ -2491,7 +2491,7 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
         found.unwrap_or_else(|_| defaults::gnome_adwaita_light())
     } else {
         // Normal priority: KDE > GNOME > riced > defaults
-        let desktop_env = azul_css::system::detect_linux_desktop_env(&crate::env::ProcessEnv);
+        let desktop_env = azul_css::system::detect_linux_desktop_env(&crate::env::ProcessEnv::new());
         // The desktop's OWN store leads. Everything after it is a fallback
         // for a desktop that did not answer - never a different desktop's
         // settings winning over one that did. A machine that once ran KDE
@@ -2557,7 +2557,7 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
     // above reported for the window title now reaches the metrics a CSD
     // titlebar is built from.
     adopt_desktop_titlebar_font(&mut style);
-    style.platform = Platform::Linux(azul_css::system::detect_linux_desktop_env(&crate::env::ProcessEnv));
+    style.platform = Platform::Linux(azul_css::system::detect_linux_desktop_env(&crate::env::ProcessEnv::new()));
     style.language = azul_css::system::SystemLanguage::resolve(
         detect_language_linux().as_str(),
         known_languages,
@@ -2583,7 +2583,7 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
     // follows the session: a KDE desktop pinned light gets Breeze Light, not
     // Adwaita, so the capture still looks like the desktop it was taken on.
     let kde_session = matches!(
-        linux_settings_source(&azul_css::system::detect_linux_desktop_env(&crate::env::ProcessEnv)),
+        linux_settings_source(&azul_css::system::detect_linux_desktop_env(&crate::env::ProcessEnv::new())),
         LinuxSettingsSource::KdeConfig
     );
     azul_css::system::apply_env_mode_pin(
@@ -3284,7 +3284,7 @@ pub fn dump_discovered_style() -> String {
     // Which desktop-settings family actually answered. A Cinnamon/MATE
     // session answers on its OWN schemas; probing with a key that exists in
     // only one of them is what distinguishes "detected" from "fell back".
-    let resolved = linux_settings_source(&azul_css::system::detect_linux_desktop_env(&crate::env::ProcessEnv));
+    let resolved = linux_settings_source(&azul_css::system::detect_linux_desktop_env(&crate::env::ProcessEnv::new()));
     let settings_source = match resolved {
         LinuxSettingsSource::KdeConfig => "kdeglobals".to_string(),
         LinuxSettingsSource::Xfconf => {
