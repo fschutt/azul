@@ -33,7 +33,7 @@ pub mod timer;
 #[cfg(not(target_os = "linux"))]
 pub(crate) mod system_style {
     /// No portal watcher, so nothing to put in a poll set.
-    pub(crate) fn theme_wake_fd() -> i32 {
+    pub(crate) fn theme_wake_fd(_env: &crate::desktop::platform_settings::PlatformEnv) -> i32 {
         -1
     }
 

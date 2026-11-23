@@ -7081,6 +7081,7 @@ unsafe extern "system" fn window_proc(
             let held_language = window.common.system_style.language.clone();
             let new_style = std::sync::Arc::new(crate::desktop::app::discover_system_style(
                 core::slice::from_ref(&held_language),
+                &window.common.app.settings().platform,
             ));
             let desktop_theme = new_style.mode;
             // The DESKTOP's light / dark: the window takes it only while the
