@@ -107,7 +107,7 @@ fn a_frame_follows_the_settings_of_its_window() {
     use crate::settings::LayoutSettings;
 
     let dir = std::env::temp_dir().join(format!("azul-cpu-frame-settings-{}", std::process::id()));
-    drop(std::fs::remove_dir_all(&dir));
+    drop(std::fs::remove_dir_all(dir.as_path()));
     let resources = RendererResources::default();
 
     // A window nobody gave settings: nothing is dumped, the defaults hold.
@@ -135,5 +135,5 @@ fn a_frame_follows_the_settings_of_its_window() {
     assert!(backend.retained_frames.can_keep(7 << 20), "the bound of the settings holds");
     assert!(!backend.retained_frames.can_keep((7 << 20) + 1), "and no more than it");
     assert_eq!(backend.glyph_cache.scratch.threads, 1, "one thread paints everything");
-    drop(std::fs::remove_dir_all(&dir));
+    drop(std::fs::remove_dir_all(dir.as_path()));
 }
