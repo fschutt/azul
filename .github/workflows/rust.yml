@@ -1891,6 +1891,10 @@ jobs:
       - name: Build azul with rust9x (i686, WinXP+)
         working-directory: azul
         shell: bash
+        # Two crates at a time: with the runner's default (one per core) rustc could not even load three proc-macro DLLs
+        # (LoadLibraryExW "Not enough memory resources", os error 8, run 45178260225): the commit limit, not a code error.
+        env:
+          CARGO_BUILD_JOBS: "2"
         run: |
           cargo +rust9x build --release \
             --target i686-rust9x-windows-msvc \
