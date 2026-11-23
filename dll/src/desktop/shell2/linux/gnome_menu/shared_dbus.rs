@@ -5,7 +5,7 @@
 
 use std::sync::{Arc, OnceLock};
 
-use super::debug_log;
+use super::MenuTrace;
 use crate::desktop::shell2::linux::dbus::DBusLib;
 
 /// Global shared DBus library instance, initialized once
@@ -16,17 +16,23 @@ static DBUS_LIB: OnceLock<Option<Arc<DBusLib>>> = OnceLock::new();
 /// This function is thread-safe and will load the library only once.
 /// Returns `None` if the library cannot be loaded.
 pub fn get_shared_dbus_lib() -> Option<Arc<DBusLib>> {
+    get_shared_dbus_lib_traced(MenuTrace::OFF)
+}
+
+/// [`get_shared_dbus_lib`] for the GNOME menu integration: when this call is the one that
+/// loads the library, `trace` logs the attempt and its outcome.
+pub fn get_shared_dbus_lib_traced(trace: MenuTrace) -> Option<Arc<DBusLib>> {
     DBUS_LIB
         .get_or_init(|| {
-            debug_log("Attempting to load libdbus-1.so");
+            trace.log("Attempting to load libdbus-1.so");
 
             match DBusLib::new() {
                 Ok(lib) => {
-                    debug_log("Successfully loaded libdbus-1.so");
+                    trace.log("Successfully loaded libdbus-1.so");
                     Some(lib)
                 }
                 Err(e) => {
-                    debug_log(&format!("Failed to load libdbus-1.so: {}", e));
+                    trace.log(&format!("Failed to load libdbus-1.so: {}", e));
                     None
                 }
             }

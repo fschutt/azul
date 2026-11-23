@@ -42,6 +42,8 @@ use azul_layout::managers::webview::{
     WebViewId, WebViewInput, WebViewOp, WebViewPlacement, WebViewReport, WebViewTransform,
 };
 
+use crate::desktop::platform_settings::PlatformEnv;
+
 use super::{
     webview::{
         bgra_from_shm, device_point, is_quiet_failure, unavailable_reason, wheel_axes, wpe_button,
@@ -113,13 +115,16 @@ const SETUP_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Start the thread (once per process) and wait until WPE is set up on it:
 /// `Err(reason)` - for every web view of the process - when it cannot be.
-pub(super) fn start() -> Result<(), String> {
+///
+/// `directories` are the app's persistent web data and cache directories
+/// ([`persistent_directories`]); the first window that starts the thread decides them.
+pub(super) fn start(directories: (CString, CString)) -> Result<(), String> {
     STARTED
         .get_or_init(|| {
             let (ready, wait) = mpsc::channel();
             let spawned = std::thread::Builder::new()
                 .name("azul-webview".to_string())
-                .spawn(move || run(&ready));
+                .spawn(move || run(&ready, directories));
             match spawned {
                 Ok(_) => wait.recv_timeout(SETUP_DEADLINE).unwrap_or_else(|e| {
                     Err(match e {
@@ -162,7 +167,7 @@ pub(super) fn send(mailbox: &Mailbox, command: Command) {
 }
 
 /// The thread: set WPE up, say whether that worked, run the main context.
-fn run(ready: &mpsc::Sender<Result<(), String>>) {
+fn run(ready: &mpsc::Sender<Result<(), String>>, directories: (CString, CString)) {
     let wpe = match wpe::wpe() {
         Ok(wpe) => wpe,
         Err(e) => {
@@ -186,6 +191,7 @@ fn run(ready: &mpsc::Sender<Result<(), String>>) {
         }
     }
     crate::plog_info!("[webview] WPE WebKit {} runs the web views", wpe.version());
+    STATE.with(|state| state.borrow_mut().directories = directories);
     let _ = ready.send(Ok(()));
     unsafe {
         let main_loop = (wpe.glib.g_main_loop_new)(ptr::null_mut(), 0);
@@ -225,6 +231,8 @@ struct ThreadState {
     ephemeral: Option<*mut c_void>,
     /// The app's persistent store, under its own data directory.
     persistent: Option<*mut c_void>,
+    /// The data and cache directories of the persistent store ([`persistent_directories`]).
+    directories: (CString, CString),
 }
 
 /// One window's views.
@@ -319,7 +327,7 @@ impl ThreadState {
                     new_ephemeral()
                 }
                 (WebKitStoreApi::NetworkSession { new, .. }, WebViewStorage::Persistent) => {
-                    let (data, cache) = persistent_directories();
+                    let (data, cache) = &self.directories;
                     new(data.as_ptr(), cache.as_ptr())
                 }
                 (WebKitStoreApi::WebContext { new, .. }, WebViewStorage::Persistent) => new(),
@@ -331,21 +339,25 @@ impl ThreadState {
 }
 
 /// The app's own web data and cache directories (never the system
-/// browser's): `$XDG_DATA_HOME/<app>/webview`, `$XDG_CACHE_HOME/<app>/webview`.
-fn persistent_directories() -> (CString, CString) {
+/// browser's): `$XDG_DATA_HOME/<app>/webview`, `$XDG_CACHE_HOME/<app>/webview`,
+/// from the platform lookups the app read at its start.
+pub(super) fn persistent_directories(env: &PlatformEnv) -> (CString, CString) {
     let app = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.file_stem().map(|s| s.to_string_lossy().into_owned()))
         .unwrap_or_else(|| String::from("azul-app"));
-    let home = std::env::var("HOME").unwrap_or_else(|_| String::from("/tmp"));
-    let base = |var: &str, fallback: &str| {
-        std::env::var(var)
-            .ok()
-            .filter(|dir| !dir.is_empty())
-            .unwrap_or_else(|| format!("{home}/{fallback}"))
+    persistent_directories_of(&app, env)
+}
+
+/// [`persistent_directories`] for the app named `app`.
+fn persistent_directories_of(app: &str, env: &PlatformEnv) -> (CString, CString) {
+    let home = env.home().unwrap_or("/tmp");
+    let base = |dir: Option<&str>, fallback: &str| {
+        dir.filter(|dir| !dir.is_empty())
+            .map_or_else(|| format!("{home}/{fallback}"), str::to_string)
     };
-    let data = format!("{}/{app}/webview", base("XDG_DATA_HOME", ".local/share"));
-    let cache = format!("{}/{app}/webview", base("XDG_CACHE_HOME", ".cache"));
+    let data = format!("{}/{app}/webview", base(env.xdg_data_home(), ".local/share"));
+    let cache = format!("{}/{app}/webview", base(env.xdg_cache_home(), ".cache"));
     (
         CString::new(data).unwrap_or_default(),
         CString::new(cache).unwrap_or_default(),

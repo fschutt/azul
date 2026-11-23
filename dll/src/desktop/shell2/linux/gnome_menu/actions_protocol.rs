@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex};
 
 use azul_core::menu::CoreMenuCallback;
 
-use super::debug_log;
+use super::MenuTrace;
 
 /// Pending menu callback to be processed in the main event loop.
 ///
@@ -43,9 +43,9 @@ static PENDING_MENU_CALLBACKS: std::sync::LazyLock<Mutex<Vec<PendingMenuCallback
     std::sync::LazyLock::new(|| Mutex::new(Vec::new()));
 
 /// Add a pending menu callback to the queue
-pub fn queue_menu_callback(callback: PendingMenuCallback) {
+pub fn queue_menu_callback(callback: PendingMenuCallback, trace: MenuTrace) {
     if let Ok(mut queue) = PENDING_MENU_CALLBACKS.lock() {
-        debug_log(&format!(
+        trace.log(&format!(
             "Queuing menu callback for action: {}",
             callback.action_name
         ));

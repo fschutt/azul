@@ -12,7 +12,7 @@
 
 use std::ffi::CString;
 
-use super::{debug_log, GnomeMenuError};
+use super::{GnomeMenuError, MenuTrace};
 
 /// X11 window properties for GNOME menu integration
 #[derive(Copy, Clone)]
@@ -26,8 +26,9 @@ impl X11Properties {
         app_name: &str,
         bus_name: &str,
         object_path: &str,
+        trace: MenuTrace,
     ) -> Result<(), GnomeMenuError> {
-        debug_log("Setting X11 window properties");
+        trace.log("Setting X11 window properties");
 
         #[cfg(all(target_os = "linux", feature = "gnome-menus"))]
         {
@@ -44,6 +45,7 @@ impl X11Properties {
                 window_id,
                 "_GTK_APPLICATION_ID",
                 app_name.as_bytes(),
+                trace,
             )?;
 
             // 2. _GTK_UNIQUE_BUS_NAME
@@ -53,6 +55,7 @@ impl X11Properties {
                 window_id,
                 "_GTK_UNIQUE_BUS_NAME",
                 bus_name.as_bytes(),
+                trace,
             )?;
 
             // 3. _GTK_APPLICATION_OBJECT_PATH
@@ -62,6 +65,7 @@ impl X11Properties {
                 window_id,
                 "_GTK_APPLICATION_OBJECT_PATH",
                 object_path.as_bytes(),
+                trace,
             )?;
 
             // 4. _GTK_APP_MENU_OBJECT_PATH
@@ -72,6 +76,7 @@ impl X11Properties {
                 window_id,
                 "_GTK_APP_MENU_OBJECT_PATH",
                 app_menu_path.as_bytes(),
+                trace,
             )?;
 
             // 5. _GTK_MENUBAR_OBJECT_PATH
@@ -82,9 +87,10 @@ impl X11Properties {
                 window_id,
                 "_GTK_MENUBAR_OBJECT_PATH",
                 menubar_path.as_bytes(),
+                trace,
             )?;
 
-            debug_log("All X11 properties set successfully");
+            trace.log("All X11 properties set successfully");
             Ok(())
         }
 
@@ -100,6 +106,7 @@ impl X11Properties {
         window_id: u64,
         property_name: &str,
         value: &[u8],
+        trace: MenuTrace,
     ) -> Result<(), GnomeMenuError> {
         use std::os::raw::{c_int, c_ulong};
 
@@ -149,7 +156,7 @@ impl X11Properties {
             )));
         }
 
-        debug_log(&format!(
+        trace.log(&format!(
             "Set property: {} = {:?}",
             property_name,
             String::from_utf8_lossy(value)
@@ -173,6 +180,7 @@ mod tests {
             "test.app",
             "org.gtk.test_app",
             "/org/gtk/test/app",
+            MenuTrace::OFF,
         );
 
         assert!(result.is_err());

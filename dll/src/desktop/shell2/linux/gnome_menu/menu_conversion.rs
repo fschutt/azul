@@ -9,9 +9,8 @@ use std::sync::Arc;
 
 use super::{
     actions_protocol::DbusAction,
-    debug_log,
     menu_protocol::{DbusMenuGroup, DbusMenuItem},
-    GnomeMenuError,
+    GnomeMenuError, MenuTrace,
 };
 
 /// Converts an Azul `Menu` tree into flat `DbusMenuGroup` and `DbusAction`
@@ -28,15 +27,16 @@ impl MenuConversion {
     /// Transforms the Menu tree into flat groups that DBus can understand.
     pub fn convert_menu(
         menu: &azul_core::menu::Menu,
+        trace: MenuTrace,
     ) -> Result<Vec<DbusMenuGroup>, GnomeMenuError> {
-        debug_log("Converting Menu to DBus format");
+        trace.log("Converting Menu to DBus format");
 
         let mut groups = Vec::new();
         let mut next_group_id = 0u32;
 
         Self::convert_menu_recursive(&menu.items, &mut groups, &mut next_group_id, 0)?;
 
-        debug_log(&format!(
+        trace.log(&format!(
             "Menu conversion complete: {} groups",
             groups.len()
         ));
@@ -48,13 +48,14 @@ impl MenuConversion {
     /// Collects all menu item callbacks and converts them to DBus actions.
     pub fn extract_actions(
         menu: &azul_core::menu::Menu,
+        trace: MenuTrace,
     ) -> Result<Vec<DbusAction>, GnomeMenuError> {
-        debug_log("Extracting actions from Menu");
+        trace.log("Extracting actions from Menu");
 
         let mut actions = Vec::new();
-        Self::extract_actions_recursive(&menu.items, "app", &mut actions)?;
+        Self::extract_actions_recursive(&menu.items, "app", &mut actions, trace)?;
 
-        debug_log(&format!(
+        trace.log(&format!(
             "Action extraction complete: {} actions",
             actions.len()
         ));
@@ -143,6 +144,7 @@ impl MenuConversion {
         items: &azul_core::menu::MenuItemVec,
         prefix: &str,
         actions: &mut Vec<DbusAction>,
+        trace: MenuTrace,
     ) -> Result<(), GnomeMenuError> {
         for item in items.as_ref().iter() {
             if let azul_core::menu::MenuItem::String(string_item) = item {
@@ -169,10 +171,13 @@ impl MenuConversion {
                         // for processing in the main event loop where we have
                         // access to the full window state (CallbackInfo)
                         callback: Arc::new(move |_param| {
-                            super::queue_menu_callback(super::PendingMenuCallback {
-                                action_name: action_name_for_closure.clone(),
-                                menu_callback: menu_callback_for_closure.clone(),
-                            });
+                            super::queue_menu_callback(
+                                super::PendingMenuCallback {
+                                    action_name: action_name_for_closure.clone(),
+                                    menu_callback: menu_callback_for_closure.clone(),
+                                },
+                                trace,
+                            );
                         }),
                         menu_callback: Some(menu_callback),
                     });
@@ -180,7 +185,7 @@ impl MenuConversion {
 
                 // Recursively extract from children
                 if !string_item.children.as_ref().is_empty() {
-                    Self::extract_actions_recursive(&string_item.children, prefix, actions)?;
+                    Self::extract_actions_recursive(&string_item.children, prefix, actions, trace)?;
                 }
             }
         }
@@ -265,7 +270,7 @@ mod tests {
     #[test]
     fn test_convert_empty_menu() {
         let menu = azul_core::menu::Menu::create(azul_core::menu::MenuItemVec::from_vec(vec![]));
-        let result = MenuConversion::convert_menu(&menu).unwrap();
+        let result = MenuConversion::convert_menu(&menu, MenuTrace::OFF).unwrap();
 
         // Should have at least the root group
         assert_eq!(result.len(), 1);

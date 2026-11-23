@@ -51,11 +51,11 @@ use crate::impl_platform_window_getters;
 /// variable against `"debug"`, so `AZ_LOG=debug,-layout` (the invocation that
 /// makes the log readable) silently produced no platform trace at all.
 ///
-/// `AZ_WL_TRACE=1` forces it on regardless of level, for the case where you
-/// want ONLY this trace and nothing else.
-pub(super) fn wl_trace_enabled() -> bool {
-    static FORCED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    if *FORCED.get_or_init(|| std::env::var_os("AZ_WL_TRACE").is_some()) {
+/// `AZ_WL_TRACE=1` (`forced`, [`LinuxSettings::wl_trace`]) forces it on
+/// regardless of level, for the case where you want ONLY this trace and
+/// nothing else.
+pub(super) fn wl_trace_enabled(forced: bool) -> bool {
+    if forced {
         return true;
     }
     azul_core::log_filter::enabled(
@@ -65,10 +65,11 @@ pub(super) fn wl_trace_enabled() -> bool {
 }
 
 /// Wayland/OS-level trace line. Prefixed `[WL]` so a run log can be filtered
-/// down to the platform layer with a single grep.
+/// down to the platform layer with a single grep. The first argument is
+/// `AZ_WL_TRACE` as the app read it (`LinuxSettings::wl_trace`).
 macro_rules! wl_trace {
-    ($($arg:tt)*) => {
-        if $crate::desktop::shell2::linux::wayland::wl_trace_enabled() {
+    ($forced:expr, $($arg:tt)*) => {
+        if $crate::desktop::shell2::linux::wayland::wl_trace_enabled($forced) {
             // Through the shared sink, so this trace gets the same timestamp
             // and the same `AZ_LOG_FILE` destination as everything else. It
                 // used to `eprintln!` directly, which is why the mouse-resize
@@ -287,6 +288,7 @@ use self::{
 };
 use super::{
     common::{compose::ComposeAction, gl::GlFunctions},
+    linux_settings::LinuxSettings,
     x11::{accessibility::LinuxAccessibilityAdapter, dlopen::Gtk3Im},
 };
 use crate::{
@@ -379,6 +381,10 @@ struct CpuFallbackState {
     /// `wl_surface_damage_buffer` (or scale-divided `wl_surface_damage`) at
     /// commit. Empty = nothing changed on screen.
     damage_rects: Vec<(i32, i32, i32, i32)>,
+    /// `AZ_WL_TRACE` as the app read it: the pool traces its life whatever `AZ_LOG` says.
+    wl_trace: bool,
+    /// `AZ_BB_DEBUG` as the app read it: the pool traces its catch-up copies.
+    bb_debug: bool,
 }
 
 /// `wl_buffer.release`: compositor is done with the buffer — mark reusable.
@@ -1620,7 +1626,12 @@ impl PlatformWindow for WaylandWindow {
             .get();
         let views = self
             .webviews
-            .get_or_insert_with(|| super::webview::WpeWebViews::new(scale));
+            .get_or_insert_with(|| {
+                super::webview::WpeWebViews::new(
+                    scale,
+                    &self.resources.app_shared.settings().platform,
+                )
+            });
         views.set_scale(scale);
         Some(views as &mut dyn crate::desktop::shell2::common::webview::WebViewBackend)
     }
@@ -1945,12 +1956,16 @@ impl PlatformWindow for WaylandWindow {
         let seat = self.seat;
         let serial = self.pointer_state.serial;
         if !toplevel.is_null() && !seat.is_null() && serial != 0 {
-            wl_trace!("xdg_toplevel.move serial={serial} — compositor takes the grab");
+            wl_trace!(
+                self.resources.linux().wl_trace,
+                "xdg_toplevel.move serial={serial} — compositor takes the grab"
+            );
             unsafe {
                 (self.wayland.xdg_toplevel_move)(toplevel, seat, serial);
             }
         } else {
             wl_trace!(
+                self.resources.linux().wl_trace,
                 "xdg_toplevel.move NOT sent: toplevel={:?} seat={:?} serial={serial}",
                 toplevel,
                 seat
@@ -2850,7 +2865,12 @@ impl WaylandWindow {
                 "[Wayland] AZ_BACKEND=cpu -> CPU rendering (no GL context created)"
             );
             RenderMode::Cpu(Some(CpuFallbackState::new(
-                &wayland, window.shm, width, height, 1,
+                &wayland,
+                window.shm,
+                width,
+                height,
+                1,
+                resources.linux(),
             )?))
         } else {
             match gl::GlContext::new(&wayland, display, window.surface, width, height) {
@@ -2871,7 +2891,12 @@ impl WaylandWindow {
                             );
                             drop(gl_context);
                             break 'gpu RenderMode::Cpu(Some(CpuFallbackState::new(
-                                &wayland, window.shm, width, height, 1,
+                                &wayland,
+                                window.shm,
+                                width,
+                                height,
+                                1,
+                                resources.linux(),
                             )?));
                         }
                     };
@@ -2899,7 +2924,12 @@ impl WaylandWindow {
                         );
                         drop(gl_context);
                         RenderMode::Cpu(Some(CpuFallbackState::new(
-                            &wayland, window.shm, width, height, 1,
+                            &wayland,
+                            window.shm,
+                            width,
+                            height,
+                            1,
+                            resources.linux(),
                         )?))
                     } else {
                         RenderMode::Gpu(gl_context, gl_functions)
@@ -2912,7 +2942,12 @@ impl WaylandWindow {
                         e
                     );
                     RenderMode::Cpu(Some(CpuFallbackState::new(
-                        &wayland, window.shm, width, height, 1,
+                        &wayland,
+                        window.shm,
+                        width,
+                        height,
+                        1,
+                        resources.linux(),
                     )?))
                 }
             }
@@ -2943,7 +2978,12 @@ impl WaylandWindow {
             };
         if webrender_failed {
             window.render_mode = RenderMode::Cpu(Some(CpuFallbackState::new(
-                &wayland, window.shm, width, height, 1,
+                &wayland,
+                window.shm,
+                width,
+                height,
+                1,
+                resources.linux(),
             )?));
         }
 
@@ -2965,13 +3005,15 @@ impl WaylandWindow {
 
         // Initialize GNOME menu integration V2 (dlopen-based, no compile-time dependency)
         if options.window_state.flags.use_native_menus
-            && super::gnome_menu::should_use_gnome_menus()
+            && super::gnome_menu::should_use_gnome_menus(resources.linux(), resources.platform())
         {
+            let menu_trace =
+                super::gnome_menu::MenuTrace::new(resources.linux().gnome_menu_debug);
             // Get shared DBus library instance (loaded once, shared across all windows)
-            if let Some(dbus_lib) = super::gnome_menu::get_shared_dbus_lib() {
+            if let Some(dbus_lib) = super::gnome_menu::get_shared_dbus_lib_traced(menu_trace) {
                 let app_name = &options.window_state.title;
 
-                match super::gnome_menu::GnomeMenuManager::new(app_name, dbus_lib) {
+                match super::gnome_menu::GnomeMenuManager::new(app_name, dbus_lib, menu_trace) {
                     Ok(manager) => {
                         // Register window with GNOME Shell
                         // Note: We don't have direct access to wl_surface handle as XID,
@@ -3410,7 +3452,9 @@ impl WaylandWindow {
             // unrelated compositor event woke us, which on an idle window is
             // never: the timeout below is `-1`.
             let theme_wake_idx = pollfds.len();
-            let theme_wake_fd = super::system_style::theme_wake_fd();
+            let theme_wake_fd = super::system_style::theme_wake_fd(
+                &self.resources.app_shared.settings().platform,
+            );
             if theme_wake_fd >= 0 {
                 pollfds.push(libc::pollfd {
                     fd: theme_wake_fd,
@@ -3674,7 +3718,8 @@ impl WaylandWindow {
 
         if let Some(menu) = menu_opt {
             if let Err(e) = manager.sync_menu(&menu) {
-                super::gnome_menu::debug_log(&format!("Failed to sync GNOME menu: {}", e));
+                super::gnome_menu::MenuTrace::new(self.resources.linux().gnome_menu_debug)
+                    .log(&format!("Failed to sync GNOME menu: {}", e));
             }
         }
     }
@@ -8037,6 +8082,7 @@ impl WaylandWindow {
                                             {
                                                 let stride = cpu_state.stride.max(0) as usize;
                                                 bb_probe(
+                                                    self.resources.linux().bb_probe.as_deref(),
                                                     "after-catch-up",
                                                     slot,
                                                     cpu_state.slot_buffer_mut(slot),
@@ -8133,7 +8179,7 @@ impl WaylandWindow {
                                 // dies on resize.
                                 self.cpu_backend.native_target = None;
 
-                                if std::env::var("AZ_BB_DEBUG").is_ok() {
+                                if self.resources.linux().bb_debug {
                                     eprintln!(
                                         "[bb] native={} slot={:?} frame_damage={:?} present_damage_rects={:?}",
                                         self.cpu_backend.rendered_native,
@@ -8227,6 +8273,7 @@ impl WaylandWindow {
                                             let stride = cpu_state.stride.max(0) as usize;
                                             let h = cpu_state.height.max(0) as usize;
                                             bb_probe(
+                                                self.resources.linux().bb_probe.as_deref(),
                                                 "after-render",
                                                 slot,
                                                 cpu_state.slot_buffer_mut(slot),
@@ -8262,7 +8309,7 @@ impl WaylandWindow {
                                                         (*x as i32, *y as i32, *w as i32, *h as i32)
                                                     })
                                                     .collect();
-                                            if std::env::var("AZ_BB_DEBUG").is_ok() {
+                                            if self.resources.linux().bb_debug {
                                                 eprintln!(
                                                     "[bb] SWIZZLE slot={slot} rects={int_rects:?}"
                                                 );
@@ -8274,6 +8321,7 @@ impl WaylandWindow {
                                                 &int_rects,
                                             );
                                             bb_probe(
+                                                self.resources.linux().bb_probe.as_deref(),
                                                 "after-swizzle",
                                                 slot,
                                                 cpu_state.slot_buffer_mut(slot),
@@ -8374,7 +8422,7 @@ impl WaylandWindow {
                                             // staleness the catch-up missed —
                                             // the definitive live diagnostic
                                             // for "flapping" chrome (task #19).
-                                            if std::env::var_os("AZ_PRESENT_VERIFY").is_some() {
+                                            if self.resources.linux().present_verify {
                                                 let mut bad = 0usize;
                                                 let mut first: Option<(usize, usize)> = None;
                                                 'rows: for y in 0..clamp_h as usize {
@@ -8583,7 +8631,14 @@ impl WaylandWindow {
                     let width = self.common.current_window_state().size.dimensions.width as i32;
                     let height = self.common.current_window_state().size.dimensions.height as i32;
                     let (buf_w, buf_h, scale) = self.cpu_buffer_spec(width, height);
-                    match CpuFallbackState::new(&self.wayland, self.shm, buf_w, buf_h, scale) {
+                    match CpuFallbackState::new(
+                        &self.wayland,
+                        self.shm,
+                        buf_w,
+                        buf_h,
+                        scale,
+                        self.resources.linux(),
+                    ) {
                         Ok(cpu_state) => {
                             self.render_mode = RenderMode::Cpu(Some(cpu_state));
                             self.os_present_requested = true; // fresh buffer
@@ -8657,7 +8712,7 @@ impl WaylandWindow {
         // backend by hand.) With this in place a CI job can run weston/sway
         // headless and assert exit 0 — a real present-path test on the backend
         // where most of the redraw bugs lived. See #56.
-        if std::env::var("AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
+        if self.common.app.settings().shell.exit_after_first_frame {
             log_info!(
                 LogCategory::Rendering,
                 "[Wayland] AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER: a buffer was committed to the \
@@ -9338,6 +9393,7 @@ impl CpuFallbackState {
         physical_width: i32,
         physical_height: i32,
         scale: i32,
+        linux: &LinuxSettings,
     ) -> Result<Self, WindowError> {
         let scale = scale.max(1);
         let width = physical_width.max(1);
@@ -9421,6 +9477,7 @@ impl CpuFallbackState {
             )
         });
         wl_trace!(
+            linux.wl_trace,
             "shm pool CREATE pool={pool:p} {width}x{height} stride={stride} scale={scale} \
              bytes={size} fd={fd} fmt={} udmabuf={} pitch256={} — {}",
             if format == WL_SHM_FORMAT_ABGR8888 {
@@ -9463,6 +9520,8 @@ impl CpuFallbackState {
             slot_bytes: layout.slot_bytes,
             last_attach: std::time::Instant::now(),
             damage_rects: Vec::new(),
+            wl_trace: linux.wl_trace,
+            bb_debug: linux.bb_debug,
         })
     }
 
@@ -9523,6 +9582,7 @@ impl CpuFallbackState {
         s.stale.clear();
         s.stale_overflow = true;
         wl_trace!(
+            self.wl_trace,
             "shm pool slot {slot} RELEASED (idle) - {} bytes punched out",
             self.slot_bytes
         );
@@ -9552,7 +9612,7 @@ impl CpuFallbackState {
         s.valid = false;
         s.stale.clear();
         s.stale_overflow = true;
-        wl_trace!("shm pool slot {slot} RE-CREATED on demand");
+        wl_trace!(self.wl_trace, "shm pool slot {slot} RE-CREATED on demand");
         true
     }
 
@@ -9631,7 +9691,7 @@ impl CpuFallbackState {
     /// buffer violate the protocol), and the slots never overlap.
     fn catch_up_slot(&mut self, slot: usize) {
         let other = 1 - slot;
-        if std::env::var("AZ_BB_DEBUG").is_ok() {
+        if self.bb_debug {
             eprintln!(
                 "[bb] catch_up slot={} valid={} overflow={} stale={:?} other_valid={}",
                 slot,
@@ -9709,6 +9769,7 @@ impl Drop for CpuFallbackState {
     fn drop(&mut self) {
         POOLS_DESTROYED.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         wl_trace!(
+            self.wl_trace,
             "shm pool DESTROY pool={:p} {}x{} bytes={} — {}",
             self.pool,
             self.width,
@@ -9763,7 +9824,14 @@ impl WaylandWindow {
             RenderMode::Cpu(cpu_opt) => {
                 if !self.shm.is_null() {
                     drop(cpu_opt.take());
-                    match CpuFallbackState::new(&self.wayland, self.shm, buf_w, buf_h, scale) {
+                    match CpuFallbackState::new(
+                        &self.wayland,
+                        self.shm,
+                        buf_w,
+                        buf_h,
+                        scale,
+                        self.resources.linux(),
+                    ) {
                         Ok(new_state) => {
                             *cpu_opt = Some(new_state);
                             // Fresh buffer = undefined content: the next
@@ -9788,6 +9856,7 @@ impl WaylandWindow {
             }
         }
         wl_trace!(
+            self.resources.linux().wl_trace,
             "resize_surface logical={width}x{height} buffer={buf_w}x{buf_h} scale={scale} \
              took={:.2}ms — {}",
             t0.elapsed().as_secs_f64() * 1000.0,
@@ -9819,7 +9888,11 @@ impl WaylandWindow {
             // breeze-dark as two directories, and the tint comes from the
             // palette. Re-read them BEFORE the relayout that repaints with
             // them, or the new palette is drawn around the old glyphs.
-            super::system_icons::refresh_system_icons(&self.resources.icon_provider, &new_style);
+            super::system_icons::refresh_system_icons(
+                &self.resources.icon_provider,
+                &new_style,
+                &self.resources.app_shared.settings().platform,
+            );
             // Full rebuild or restyle, decided from what the app's `layout()`
             // declared it reads — see `PlatformWindow::adopt_system_style`.
             self.adopt_system_style(new_style);
@@ -10351,7 +10424,14 @@ impl WaylandPopup {
                     ((buf_h + scale - 1) / scale) * scale,
                 )
             };
-            match CpuFallbackState::new(&self.wayland, self.shm, phys_w, phys_h, scale) {
+            match CpuFallbackState::new(
+                &self.wayland,
+                self.shm,
+                phys_w,
+                phys_h,
+                scale,
+                self.resources.linux(),
+            ) {
                 Ok(state) => self.render_mode = RenderMode::Cpu(Some(state)),
                 Err(e) => {
                     log_error!(
@@ -12156,8 +12236,8 @@ mod decoration_mode_tests {
 /// at a named stage of the native-backbuffer frame (after catch-up, after
 /// the render, after the commit swizzle). A pool-order (ARGB8888) slot holds
 /// B,G,R,A; the renderer writes R,G,B,A. Diagnostic only.
-fn bb_probe(stage: &str, slot: usize, buf: &[u8], stride: usize) {
-    let Ok(spec) = std::env::var("AZ_BB_PROBE") else {
+fn bb_probe(spec: Option<&str>, stage: &str, slot: usize, buf: &[u8], stride: usize) {
+    let Some(spec) = spec else {
         return;
     };
     let mut it = spec.split(',').filter_map(|v| v.trim().parse::<usize>().ok());

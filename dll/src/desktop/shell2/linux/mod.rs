@@ -16,6 +16,8 @@
 //! soname only.
 
 pub mod common;
+/// The switches of the Linux shell, typed (read once at the start of the app).
+pub mod linux_settings;
 pub mod registry;
 pub mod resources;
 pub(crate) mod system_icons;
@@ -74,7 +76,7 @@ use azul_layout::window_state::WindowCreateOptions;
 pub use resources::AppResources;
 
 use super::common::{debug_server::LogCategory, event::SharedUndoManager, WindowError};
-use crate::{log_info, log_warn};
+use crate::{desktop::platform_settings::PlatformEnv, log_info, log_warn};
 
 /// Linux window - supports both X11 and Wayland
 pub enum LinuxWindow {
@@ -300,7 +302,12 @@ impl LinuxWindow {
         updated.undo_manager = undo_manager;
         let resources = Arc::new(updated);
 
-        match Self::select_backend()? {
+        let settings = resources.app_shared.settings();
+        match Self::select_backend(
+            settings.shell.window.as_deref(),
+            settings.shell.backend.as_deref(),
+            &settings.platform,
+        )? {
             BackendType::X11 => Ok(LinuxWindow::X11(x11::X11Window::new_with_resources(
                 options, resources,
             )?)),
@@ -313,10 +320,12 @@ impl LinuxWindow {
                 match wayland::WaylandWindow::new(options.clone(), resources.clone()) {
                     Ok(w) => Ok(LinuxWindow::Wayland(w)),
                     Err(e) => {
-                        let forced = std::env::var("AZ_WINDOW")
-                            .or_else(|_| std::env::var("AZ_BACKEND"))
-                            .map(|b| b.eq_ignore_ascii_case("wayland"))
-                            .unwrap_or(false);
+                        let forced = settings
+                            .shell
+                            .window
+                            .as_deref()
+                            .or(settings.shell.backend.as_deref())
+                            .is_some_and(|b| b.eq_ignore_ascii_case("wayland"));
                         if forced {
                             return Err(e);
                         }
@@ -349,12 +358,17 @@ impl LinuxWindow {
     ///   - Otherwise auto-detect: Wayland if `WAYLAND_DISPLAY`, else X11 if `DISPLAY`.
     ///
     /// e.g. `AZ_WINDOW=x11 AZ_BACKEND=cpu` → X11 windowing + CPU rendering.
-    pub fn select_backend() -> Result<BackendType, WindowError> {
+    ///
+    /// `window` and `backend` are `AZ_WINDOW` and `AZ_BACKEND` as typed (`ShellSettings::window`,
+    /// `ShellSettings::backend`); `env` holds the session variables the app read at its start.
+    pub fn select_backend(
+        window: Option<&str>,
+        backend: Option<&str>,
+        env: &PlatformEnv,
+    ) -> Result<BackendType, WindowError> {
         // Windowing preference: AZ_WINDOW first, then legacy AZ_BACKEND=x11|wayland.
-        let win_pref = std::env::var("AZ_WINDOW").ok().or_else(|| {
-            std::env::var("AZ_BACKEND")
-                .ok()
-                .filter(|b| matches!(b.to_lowercase().as_str(), "x11" | "wayland"))
+        let win_pref = window.or_else(|| {
+            backend.filter(|b| matches!(b.to_lowercase().as_str(), "x11" | "wayland"))
         });
         if let Some(pref) = win_pref {
             match pref.to_lowercase().as_str() {
@@ -370,7 +384,7 @@ impl LinuxWindow {
         }
 
         // Try Wayland first (check for WAYLAND_DISPLAY)
-        if std::env::var("WAYLAND_DISPLAY").is_ok() {
+        if env.wayland_display.is_some() {
             log_info!(
                 LogCategory::Platform,
                 "[Linux] Detected Wayland session, using Wayland backend"
@@ -379,7 +393,7 @@ impl LinuxWindow {
         }
 
         // Use X11
-        if std::env::var("DISPLAY").is_ok() {
+        if env.display.is_some() {
             log_info!(LogCategory::Platform, "[Linux] Using X11 backend");
             return Ok(BackendType::X11);
         }

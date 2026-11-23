@@ -3315,10 +3315,18 @@ pub(super) extern "C" fn keyboard_keymap_handler(
     // throw away a sequence in flight.
     if window.keyboard_state.compose.is_none() {
         let library: std::rc::Rc<dyn std::any::Any> = window.xkb.clone();
+        // The locale the session names, read once at the start of the app.
+        let locale = window
+            .resources
+            .app_shared
+            .settings()
+            .platform
+            .compose_locale()
+            .to_string();
         window.keyboard_state.compose = window
             .xkb
             .compose_fns()
-            .and_then(|fns| ComposeSequencer::new(fns, library));
+            .and_then(|fns| ComposeSequencer::new(fns, library, &locale));
     }
 }
 
@@ -3539,6 +3547,7 @@ pub(super) extern "C" fn xdg_surface_configure_handler(
     if !first_configure && !size_changed_batch {
         unsafe { (window.wayland.wl_surface_commit)(window.surface) };
         super::wl_trace!(
+            window.resources.linux().wl_trace,
             "xdg_surface.ack_configure serial={serial}: state-only — completed with an              empty commit"
         );
     }
@@ -3654,6 +3663,7 @@ pub(super) extern "C" fn xdg_toplevel_configure_handler(
         let current_height = window.common.current_window_state().size.dimensions.height as i32;
 
         super::wl_trace!(
+            window.resources.linux().wl_trace,
             "xdg_toplevel.configure {}x{} (current {}x{}) changed={} — configures={} {}",
             width,
             height,
@@ -3695,6 +3705,7 @@ pub(super) extern "C" fn xdg_toplevel_configure_handler(
                 azul_core::geom::LogicalSize::new(width as f32, height as f32),
             );
             super::wl_trace!(
+                window.resources.linux().wl_trace,
                 "xdg_toplevel.configure resize {}x{} -> {}x{}: {}",
                 current_width,
                 current_height,

@@ -14,7 +14,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use super::{debug_log, DbusAction, DbusMenuGroup, GnomeMenuError};
+use super::{DbusAction, DbusMenuGroup, GnomeMenuError, MenuTrace};
 use crate::desktop::shell2::linux::dbus::{
     DBusConnection, DBusLib, DBusMessage, DBusMessageIter, DBusObjectPathVTable,
     DBUS_HANDLER_RESULT_HANDLED, DBUS_HANDLER_RESULT_NEED_MEMORY,
@@ -26,6 +26,8 @@ struct HandlerState {
     dbus_lib: Arc<DBusLib>,
     menu_groups: Arc<Mutex<HashMap<u32, DbusMenuGroup>>>,
     actions: Arc<Mutex<HashMap<String, DbusAction>>>,
+    /// Whether the handlers log what they do (`AZ_GNOME_MENU_DEBUG=1`).
+    trace: MenuTrace,
 }
 
 /// Register org.gtk.Menus interface with DBus using dlopen API
@@ -34,8 +36,9 @@ pub fn register_menus_interface(
     connection: *mut DBusConnection,
     object_path: &str,
     menu_groups: Arc<Mutex<HashMap<u32, DbusMenuGroup>>>,
+    trace: MenuTrace,
 ) -> Result<(), GnomeMenuError> {
-    debug_log("Registering org.gtk.Menus interface with dlopen DBus");
+    trace.log("Registering org.gtk.Menus interface with dlopen DBus");
 
     let path_cstr = CString::new(object_path)
         .map_err(|e| GnomeMenuError::DbusConnectionFailed(e.to_string()))?;
@@ -45,6 +48,7 @@ pub fn register_menus_interface(
         dbus_lib: dbus_lib.clone(),
         menu_groups,
         actions: Arc::new(Mutex::new(HashMap::new())), // Not used for menus
+        trace,
     });
 
     // Create vtable with message handler
@@ -73,7 +77,7 @@ pub fn register_menus_interface(
         ));
     }
 
-    debug_log("org.gtk.Menus interface registered successfully");
+    trace.log("org.gtk.Menus interface registered successfully");
     Ok(())
 }
 
@@ -83,8 +87,9 @@ pub fn register_actions_interface(
     connection: *mut DBusConnection,
     object_path: &str,
     actions: Arc<Mutex<HashMap<String, DbusAction>>>,
+    trace: MenuTrace,
 ) -> Result<(), GnomeMenuError> {
-    debug_log("Registering org.gtk.Actions interface with dlopen DBus");
+    trace.log("Registering org.gtk.Actions interface with dlopen DBus");
 
     let path_cstr = CString::new(object_path)
         .map_err(|e| GnomeMenuError::DbusConnectionFailed(e.to_string()))?;
@@ -94,6 +99,7 @@ pub fn register_actions_interface(
         dbus_lib: dbus_lib.clone(),
         menu_groups: Arc::new(Mutex::new(HashMap::new())), // Not used for actions
         actions,
+        trace,
     });
 
     // Create vtable with message handler
@@ -122,7 +128,7 @@ pub fn register_actions_interface(
         ));
     }
 
-    debug_log("org.gtk.Actions interface registered successfully");
+    trace.log("org.gtk.Actions interface registered successfully");
     Ok(())
 }
 
@@ -133,8 +139,8 @@ unsafe extern "C" fn menus_unregister_handler(
 ) {
     if !user_data.is_null() {
         // Reconstruct Box and drop it
-        let _state = Box::from_raw(user_data as *mut HandlerState);
-        debug_log("org.gtk.Menus unregistered");
+        let state = Box::from_raw(user_data as *mut HandlerState);
+        state.trace.log("org.gtk.Menus unregistered");
     }
 }
 
@@ -165,7 +171,7 @@ unsafe extern "C" fn menus_message_handler(
         return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
     }
 
-    debug_log(&format!("org.gtk.Menus method called: {}", member_str));
+    state.trace.log(&format!("org.gtk.Menus method called: {}", member_str));
 
     match member_str.as_ref() {
         "Start" => handle_menus_start(state, connection, message),
@@ -180,7 +186,7 @@ unsafe fn handle_menus_start(
     connection: *mut DBusConnection,
     message: *mut DBusMessage,
 ) -> c_int {
-    debug_log("Handling Start() method");
+    state.trace.log("Handling Start() method");
 
     // Parse input: array of uint32 (subscriptions)
     let mut iter = std::mem::zeroed::<DBusMessageIter>();
@@ -219,7 +225,7 @@ unsafe fn handle_menus_start(
         }
     }
 
-    debug_log(&format!("Start() subscriptions: {:?}", subscriptions));
+    state.trace.log(&format!("Start() subscriptions: {:?}", subscriptions));
 
     // Build response: array of (uuaa{sv})
     let reply = (state.dbus_lib.dbus_message_new_method_return)(message);
@@ -251,7 +257,7 @@ unsafe fn handle_menus_start(
             // TODO: Serialize menu group to DBus format
             // This requires building nested structs and dictionaries
             // For now, we add empty groups
-            debug_log(&format!("Adding menu group {}", group_id));
+            state.trace.log(&format!("Adding menu group {}", group_id));
         }
     }
 
@@ -275,7 +281,7 @@ unsafe fn handle_menus_end(
     connection: *mut DBusConnection,
     message: *mut DBusMessage,
 ) -> c_int {
-    debug_log("Handling End() method");
+    state.trace.log("Handling End() method");
 
     // End() just acknowledges unsubscription, no data needed
     let reply = (state.dbus_lib.dbus_message_new_method_return)(message);
@@ -296,8 +302,8 @@ unsafe extern "C" fn actions_unregister_handler(
     user_data: *mut c_void,
 ) {
     if !user_data.is_null() {
-        let _state = Box::from_raw(user_data as *mut HandlerState);
-        debug_log("org.gtk.Actions unregistered");
+        let state = Box::from_raw(user_data as *mut HandlerState);
+        state.trace.log("org.gtk.Actions unregistered");
     }
 }
 
@@ -327,7 +333,7 @@ unsafe extern "C" fn actions_message_handler(
         return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
     }
 
-    debug_log(&format!("org.gtk.Actions method called: {}", member_str));
+    state.trace.log(&format!("org.gtk.Actions method called: {}", member_str));
 
     match member_str.as_ref() {
         "List" => handle_actions_list(state, connection, message),
@@ -344,7 +350,7 @@ unsafe fn handle_actions_list(
     connection: *mut DBusConnection,
     message: *mut DBusMessage,
 ) -> c_int {
-    debug_log("Handling List() method");
+    state.trace.log("Handling List() method");
 
     let actions = state.actions.lock().unwrap_or_else(|e| e.into_inner());
     let action_names: Vec<String> = actions.keys().cloned().collect();
@@ -396,7 +402,7 @@ unsafe fn handle_actions_describe(
     connection: *mut DBusConnection,
     message: *mut DBusMessage,
 ) -> c_int {
-    debug_log("Handling Describe() method");
+    state.trace.log("Handling Describe() method");
 
     // Parse action name from message
     let mut iter = std::mem::zeroed::<DBusMessageIter>();
@@ -473,7 +479,7 @@ unsafe fn handle_actions_describe_all(
     connection: *mut DBusConnection,
     message: *mut DBusMessage,
 ) -> c_int {
-    debug_log("Handling DescribeAll() method");
+    state.trace.log("Handling DescribeAll() method");
 
     let reply = (state.dbus_lib.dbus_message_new_method_return)(message);
     if reply.is_null() {
@@ -496,7 +502,7 @@ unsafe fn handle_actions_activate(
     connection: *mut DBusConnection,
     message: *mut DBusMessage,
 ) -> c_int {
-    debug_log("Handling Activate() method");
+    state.trace.log("Handling Activate() method");
 
     // Parse action name
     let mut iter = std::mem::zeroed::<DBusMessageIter>();
@@ -546,7 +552,7 @@ unsafe fn handle_actions_activate(
     };
 
     if let Some(callback) = callback {
-        debug_log(&format!("Invoking callback for action: {}", action_name));
+        state.trace.log(&format!("Invoking callback for action: {}", action_name));
         callback(None); // TODO: Parse parameter from message
     }
 
@@ -568,7 +574,7 @@ unsafe fn send_error_reply(
     message: *mut DBusMessage,
     error_msg: &str,
 ) -> c_int {
-    debug_log(&format!("Sending error reply: {}", error_msg));
+    state.trace.log(&format!("Sending error reply: {}", error_msg));
 
     let error_name = CString::new("org.gtk.Error").unwrap();
     let error_text = CString::new(error_msg).unwrap();
