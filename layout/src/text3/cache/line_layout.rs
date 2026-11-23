@@ -2914,29 +2914,35 @@ fn below_every_shape(line_top: f32, constraints: &UnifiedConstraints) -> bool {
 /// Every paragraph in a language breaks its words with the same patterns,
 /// and the line breakers and the intrinsic sizes of each ask for them: they
 /// are read from the embedded dictionary once and shared after that.
+///
+/// The build embeds the English (US) patterns, and every language with
+/// `text_layout_hyphenation_all`. A language without an embedded dictionary is
+/// an `Err` - the callers (`hyphenator_for`) read it as "no hyphenation" - and
+/// is remembered as missing, so a paragraph in it does not look the resource up
+/// again.
 #[cfg(feature = "text_layout_hyphenation")]
 pub(super) fn get_hyphenator(language: HyphenationLanguage) -> Result<Arc<Standard>, LayoutError> {
-    // KEPT: the embedded hyphenation dictionaries, one per language, each a pure function of
-    // constants read on first use (bounded by the number of languages, shared by every window:
-    // `hyphenator_for` is called from the line breakers that take no cache).
-    static DICTIONARIES: std::sync::OnceLock<Mutex<HashMap<HyphenationLanguage, Arc<Standard>>>> =
-        std::sync::OnceLock::new();
+    // KEPT: the embedded hyphenation dictionaries, one per language (`None`: the build embeds none
+    // for it), each a pure function of constants read on first use (bounded by the number of
+    // languages, shared by every window: `hyphenator_for` is called from the line breakers that
+    // take no cache).
+    static DICTIONARIES: std::sync::OnceLock<
+        Mutex<HashMap<HyphenationLanguage, Option<Arc<Standard>>>>,
+    > = std::sync::OnceLock::new();
     let mut dictionaries = DICTIONARIES
         .get_or_init(Mutex::default)
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let dictionary = if let Some(dictionary) = dictionaries.get(&language) {
-        Arc::clone(dictionary)
-    } else {
-        let dictionary = Arc::new(
-            Standard::from_embedded(language)
-                .map_err(|e| LayoutError::HyphenationError(e.to_string()))?,
-        );
-        dictionaries.insert(language, Arc::clone(&dictionary));
-        dictionary
-    };
+    let dictionary = dictionaries
+        .entry(language)
+        .or_insert_with(|| Standard::from_embedded(language).ok().map(Arc::new))
+        .clone();
     drop(dictionaries);
-    Ok(dictionary)
+    dictionary.ok_or_else(|| {
+        LayoutError::HyphenationError(format!(
+            "no hyphenation dictionary embedded for {language:?}"
+        ))
+    })
 }
 
 /// Stub when hyphenation is disabled - always returns an error
@@ -2962,3 +2968,7 @@ pub(super) fn hyphenator_for(constraints: &UnifiedConstraints) -> Option<Arc<Sta
         None
     }
 }
+
+#[cfg(test)]
+#[path = "line_layout_test.rs"]
+mod line_layout_test;
