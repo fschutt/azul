@@ -27,8 +27,13 @@ use crate::{
     font_traits::{ParsedFontTrait, TextLayoutCache},
     paged::FragmentationContext,
     solver3::{
-        cache, cache::LayoutCache, display_list::DisplayList, layout_tree::LayoutNodeId,
-        multicol, pagination::FakePageConfig, LayoutContext, LayoutError, Result,
+        cache,
+        cache::LayoutCache,
+        display_list::{DisplayList, PageSlicingReport},
+        layout_tree::LayoutNodeId,
+        multicol,
+        pagination::FakePageConfig,
+        LayoutContext, LayoutError, Result,
     },
 };
 
@@ -122,6 +127,13 @@ pub struct PagedLayoutResult {
     pub breaks: Vec<crate::solver3::page_breaks::PageBreakPosition>,
     /// Total document-space content height of the un-sliced document.
     pub total_content_height: f32,
+    /// The document needs more pages than `FakePageConfig::max_pages` allows:
+    /// the pages end at the cap, `breaks` with the break that ends the last of
+    /// them, and the layout said so in its debug messages (a warning).
+    pub truncated: bool,
+    /// What the slicing did (how many pages it cut, how many it handed on empty
+    /// without cutting).
+    pub slicing: PageSlicingReport,
 }
 
 /// Layout a document with integrated pagination and custom page configuration.
@@ -267,6 +279,13 @@ pub struct StreamingLayoutResult {
     pub total_content_height: f32,
     /// How many pages the sink was called with (always at least 1).
     pub page_count: usize,
+    /// The document needs more pages than `FakePageConfig::max_pages` allows:
+    /// the pages end at the cap, `breaks` with the break that ends the last of
+    /// them, and the layout said so in its debug messages (a warning).
+    pub truncated: bool,
+    /// What the slicing did (how many pages it cut, how many it handed on empty
+    /// without cutting).
+    pub slicing: PageSlicingReport,
 }
 
 /// [`layout_document_paged_v2`], but each page is handed to `on_page` as soon
@@ -345,6 +364,8 @@ where
         breaks: result.breaks,
         total_content_height: result.total_content_height,
         page_count,
+        truncated: result.truncated,
+        slicing: result.slicing,
     })
 }
 
@@ -563,6 +584,8 @@ where
             pages: Vec::new(),
             breaks: Vec::new(),
             total_content_height,
+            truncated: false,
+            slicing: PageSlicingReport::default(),
         });
     }
 
@@ -586,7 +609,7 @@ where
             )
         });
 
-    let (full_display_list, slicer_config, breaks, total_content_height) = loop {
+    let (full_display_list, slicer_config, breaks, total_content_height, truncated) = loop {
         // Perform layout with fragmentation context (layout only, no display list)
         let p_layout = crate::probe::Probe::span("paged_layout_pass");
         compute_layout_with_fragmentation(
@@ -724,6 +747,7 @@ where
             break_policy: page_config.break_policy,
             page_sequence: page_config.page_sequence.clone().into_option(),
             footnotes,
+            max_pages: page_config.max_pages as usize,
         };
 
         // Step 3: Analyze the breaks, THEN paginate against them — the analysis
@@ -737,6 +761,9 @@ where
             table_headers: Some(&slicer_config.table_headers),
         };
         let breaks = page_breaks::compute_page_breaks_for_slicer(&break_input, &slicer_config);
+        // The analysis stops after as many breaks as the cap has pages: the
+        // last of them ends the last page made, and the document goes on after it.
+        let truncated = page_breaks::needs_more_pages(&breaks, slicer_config.max_pages);
         // The flow's height: the notes are parked on the canvas, they are
         // not part of what the pages are cut from.
         let total_content_height =
@@ -764,11 +791,28 @@ where
                 continue;
             }
         }
-        break (full_display_list, slicer_config, breaks, total_content_height);
+        break (
+            full_display_list,
+            slicer_config,
+            breaks,
+            total_content_height,
+            truncated,
+        );
     };
 
+    if truncated {
+        if let Some(msgs) = debug_messages {
+            msgs.push(LayoutDebugMessage::warning(format!(
+                "[PagedLayout] The document needs more than the {} pages a paged layout may \
+                 produce (FakePageConfig::max_pages): the pages end there and the rest of the \
+                 document ({total_content_height} px of content) is left out",
+                slicer_config.max_pages
+            )));
+        }
+    }
+
     let mut page_count = 0usize;
-    if materialize_pages {
+    let slicing = if materialize_pages {
         // The text of the headers, the footers and the page numbers is set
         // with the font manager the document was shaped with: its fonts are
         // resolved and loaded there, whether the caller registered any font
@@ -793,8 +837,10 @@ where
                 page_count += 1;
                 on_page(page)
             },
-        )?;
-    }
+        )?
+    } else {
+        PageSlicingReport::default()
+    };
 
     if let Some(msgs) = debug_messages {
         msgs.push(LayoutDebugMessage::info(format!(
@@ -806,6 +852,8 @@ where
         pages: Vec::new(),
         breaks,
         total_content_height,
+        truncated,
+        slicing,
     })
 }
 
@@ -870,9 +918,13 @@ where
         false, // NO page is materialized — the acceptance criterion of this entry
         &mut |_page| Ok(()),
     )?;
-    let page_count = page_breaks::page_spans(&result.breaks, result.total_content_height)
-        .len()
-        .max(1);
+    // A truncated analysis ends with the break that ends the last page made.
+    let page_count = if result.truncated {
+        result.breaks.len()
+    } else {
+        page_breaks::page_spans(&result.breaks, result.total_content_height).len()
+    }
+    .max(1);
     Ok(page_breaks::PaginationInfo {
         page_count,
         breaks: result.breaks.into(),

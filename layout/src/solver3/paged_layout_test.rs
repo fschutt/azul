@@ -64,14 +64,31 @@ where
         usize,
     ) -> std::result::Result<FontRef, crate::text3::cache::LayoutError>,
 {
+    lay_out_in_sized(font_manager, html, PAGE, config, font_loader)
+}
+
+/// [`lay_out_in`] on pages of `page` size.
+fn lay_out_in_sized<L>(
+    font_manager: &mut FontManager<FontRef>,
+    html: &str,
+    page: LogicalSize,
+    config: FakePageConfig,
+    font_loader: L,
+) -> (PagedLayoutResult, Vec<LayoutDebugMessage>)
+where
+    L: Fn(
+        Arc<rust_fontconfig::FontBytes>,
+        usize,
+    ) -> std::result::Result<FontRef, crate::text3::cache::LayoutError>,
+{
     let styled_dom = Dom::from_xml_string(html);
     let mut messages = Some(Vec::new());
     let result = layout_document_paged_v2(
         &mut LayoutCache::default(),
         &mut TextLayoutCache::new(),
-        FragmentationContext::new_paged(PAGE),
+        FragmentationContext::new_paged(page),
         &styled_dom,
-        LogicalRect::new(LogicalPosition::zero(), PAGE),
+        LogicalRect::new(LogicalPosition::zero(), page),
         font_manager,
         &BTreeMap::new(),
         &mut messages,
@@ -725,4 +742,321 @@ fn the_process_is_told_each_kind_of_finding_once_and_each_layout_its_own() {
     assert_eq!(in_the_process("of the header and footer matches"), 1, "{lines:?}");
     assert_eq!(in_the_process("was not drawn: no face of"), 1, "{lines:?}");
     assert_eq!(in_the_process("failed to load the font"), 1, "{lines:?}");
+}
+
+// ---------------------------------------------------------------------------
+// The page cap: a box of an absurd height is one page of text and a bounded
+// number of empty ones, not a billion pages.
+// ---------------------------------------------------------------------------
+
+/// A4 in CSS px: the page of the document a PDF caller lays out.
+const A4: LogicalSize = LogicalSize {
+    width: 595.0,
+    height: 842.0,
+};
+
+/// `html` on A4 pages under `config`, laid out in a font manager that holds the
+/// faces azul bundles.
+fn lay_out_a4(
+    html: &str,
+    config: FakePageConfig,
+) -> (PagedLayoutResult, Vec<LayoutDebugMessage>) {
+    let loader = PathLoader::new();
+    let mut font_manager = FontManager::<FontRef>::new(FcFontCache::default()).expect("manager");
+    lay_out_in_sized(&mut font_manager, html, A4, config, move |bytes, index| {
+        loader.load_font_shared(bytes, index)
+    })
+}
+
+/// One `<p>x</p>` with `style`.
+fn one_box(style: &str) -> String {
+    format!("<html><body><p style=\"{style}\">x</p></body></html>")
+}
+
+/// How many of the pages carry an item.
+fn pages_with_items(result: &PagedLayoutResult) -> usize {
+    result.pages.iter().filter(|p| !p.items.is_empty()).count()
+}
+
+/// How many of the pages show something: have an item that paints (the hit-test
+/// areas and the markers around them paint nothing).
+fn painted_pages(result: &PagedLayoutResult) -> usize {
+    result
+        .pages
+        .iter()
+        .filter(|page| {
+            page.items.iter().any(|item| {
+                !matches!(item, DisplayListItem::HitTestArea { .. })
+                    && !item.is_push_marker()
+                    && !item.is_pop_marker()
+            })
+        })
+        .count()
+}
+
+/// `n` paragraphs of text: the long document of the tests below.
+fn paragraphs(n: usize) -> String {
+    let mut body = String::new();
+    for i in 0..n {
+        body.push_str(&format!(
+            "<p>Paragraph {i}: the quick brown fox jumps over the lazy dog, again and again, \
+             until the line wraps and the page fills up with text.</p>"
+        ));
+    }
+    format!("<html><body>{body}</body></html>")
+}
+
+/// The page counts of the documents below on the commit before the cap.
+const PAGES_OF_1E5PX: usize = 119;
+const PAGES_OF_1E6PX: usize = 1188;
+const PAGES_OF_3000_PARAGRAPHS: usize = 172;
+const PAGES_OF_3000_SECTIONS: usize = 3108;
+const PAGES_OF_THE_GAP: usize = 119;
+
+/// A box of 1e5px and one of 1e6px are the pages they were before the cap: it
+/// is far above them. (The counts were taken on the commit before the cap.)
+#[test]
+fn a_box_of_1e5px_and_one_of_1e6px_have_the_pages_they_always_had() {
+    for (style, pages) in [
+        ("height:1e5px", PAGES_OF_1E5PX),
+        ("height:1e6px", PAGES_OF_1E6PX),
+    ] {
+        let (result, _) = lay_out_a4(&one_box(style), FakePageConfig::new());
+        assert_eq!(result.pages.len(), pages, "{style}");
+        assert_eq!(painted_pages(&result), 1, "{style}: only the page of the text shows anything");
+        assert!(!result.pages[0].items.is_empty(), "{style}: the text is on the first page");
+    }
+}
+
+/// A real long document is cut into the pages it always was: its page count is
+/// the one of the commit before the cap.
+#[test]
+fn a_long_document_of_text_has_the_pages_it_always_had() {
+    let (result, messages) = lay_out_a4(&paragraphs(3000), FakePageConfig::new());
+    assert_eq!(result.pages.len(), PAGES_OF_3000_PARAGRAPHS);
+    assert_eq!(painted_pages(&result), result.pages.len(), "every page has text");
+    assert!(
+        !messages.iter().any(|m| m.message.contains("max_pages")),
+        "a document under the cap is not told about it"
+    );
+}
+
+/// Three thousand sections, each ended by a page break: the pages of the commit
+/// before the cap, three thousand of them and more, every one with its text.
+#[test]
+fn three_thousand_sections_have_the_pages_they_always_had() {
+    let mut body = String::new();
+    for i in 0..3000 {
+        body.push_str(&format!("<div style=\"break-after: page\"><p>Section {i}</p></div>"));
+    }
+    let (result, _) = lay_out_a4(
+        &format!("<html><body>{body}</body></html>"),
+        FakePageConfig::new(),
+    );
+    assert_eq!(result.pages.len(), PAGES_OF_3000_SECTIONS);
+    assert!(painted_pages(&result) >= 3000, "{} pages with text", painted_pages(&result));
+}
+
+/// A box of 1e5px between two paragraphs: the pages between them are empty pages
+/// and stay pages; the two paragraphs are on the first and on the last page.
+#[test]
+fn a_gap_between_two_pages_of_content_keeps_its_pages() {
+    let html = "<html><body><p>first</p><div style=\"height:1e5px\"></div><p>last</p></body></html>";
+    let (result, _) = lay_out_a4(html, FakePageConfig::new());
+    let n = result.pages.len();
+    assert_eq!(n, PAGES_OF_THE_GAP);
+    assert_eq!(painted_pages(&result), 2);
+    assert!(!result.pages[0].items.is_empty());
+    assert!(!result.pages[n - 1].items.is_empty());
+}
+
+/// The document of `height:1e12px` is its one page with the text, and no more
+/// pages than the cap lets a layout have.
+#[test]
+fn a_box_of_1e12px_is_the_page_of_its_text_and_a_bounded_number_of_empty_ones() {
+    let (result, _) = lay_out_a4(&one_box("height:1e12px"), FakePageConfig::new());
+    assert!(result.pages.len() <= 10_000, "{} pages", result.pages.len());
+    assert!(!result.pages[0].items.is_empty(), "the text is on the first page");
+    assert_eq!(painted_pages(&result), 1, "the page of the text is the only one that shows anything");
+}
+
+/// [`lay_out`] on the 600 x 400 pages of this file: the result and the messages.
+fn lay_out_plain(html: &str, config: FakePageConfig) -> (PagedLayoutResult, Vec<LayoutDebugMessage>) {
+    let laid = lay_out(html, config);
+    (laid.result, laid.messages)
+}
+
+/// The page cap is the default of a config, and a builder sets it.
+#[test]
+fn the_page_cap_is_ten_thousand_unless_set() {
+    assert_eq!(FakePageConfig::new().max_pages, 10_000);
+    assert_eq!(FakePageConfig::default().max_pages, 10_000);
+    assert_eq!(FakePageConfig::new().with_max_pages(7).max_pages, 7);
+    assert_eq!(FakePageConfig::new().with_unlimited_pages().max_pages, 0);
+    // The other fields are where they were.
+    let plain = FakePageConfig::new().with_footer_page_numbers();
+    let mut capped = plain.clone().with_max_pages(3);
+    capped.max_pages = plain.max_pages;
+    assert_eq!(capped, plain);
+}
+
+/// A box of 1e12px has its one page with the text, the pages end at the cap, and
+/// the layout says so: a warning, `truncated`.
+#[test]
+fn a_box_of_1e12px_is_cut_at_the_cap_with_a_warning() {
+    let (result, messages) = lay_out_a4(&one_box("height:1e12px"), FakePageConfig::new());
+    assert_eq!(result.pages.len(), 10_000);
+    assert_eq!(
+        result.breaks.len(),
+        10_000,
+        "the breaks end with the one that ends the last page made"
+    );
+    assert!(result.truncated);
+    assert_eq!(pages_with_items(&result), 1);
+    assert!(!result.pages[0].items.is_empty());
+    assert!(result.total_content_height > 1.0e11, "the height of the document is still said");
+    let warnings: Vec<&LayoutDebugMessage> = messages
+        .iter()
+        .filter(|m| m.message.contains("max_pages") && m.message.contains("10000"))
+        .collect();
+    assert_eq!(warnings.len(), 1, "{messages:?}");
+    assert!(
+        matches!(
+            warnings[0].message_type,
+            azul_css::LayoutDebugMessageType::Warning
+        ),
+        "a warning, not an info"
+    );
+}
+
+/// The pages built are bounded by the cap, and of them only the page of the text
+/// is cut from the canvas: the empty ones are handed on without that pass.
+#[test]
+fn the_display_lists_built_are_bounded_and_the_empty_pages_are_not_cut() {
+    for style in ["height:1e12px", "height:1e39px", "min-height:1e39px"] {
+        let (result, _) = lay_out_a4(&one_box(style), FakePageConfig::new());
+        let slicing = result.slicing;
+        assert_eq!(slicing.sliced + slicing.skipped, result.pages.len(), "{style}");
+        assert!(result.pages.len() <= 10_000, "{style}: {} pages", result.pages.len());
+        assert!(slicing.sliced <= 3, "{style}: {} pages cut from the canvas", slicing.sliced);
+    }
+    // Whatever the box, a page that is cut or handed on is one of the pages, and
+    // there are never more than the cap's.
+    for style in [
+        "font-size:1e30px",
+        "line-height:1e39px",
+        "position:absolute;top:1e39px",
+    ] {
+        let (result, _) = lay_out_a4(&one_box(style), FakePageConfig::new());
+        let slicing = result.slicing;
+        assert_eq!(slicing.sliced + slicing.skipped, result.pages.len(), "{style}");
+        assert!(result.pages.len() <= 10_000, "{style}: {} pages", result.pages.len());
+    }
+}
+
+/// The pages between two pages of content are empty pages: they stay pages (the
+/// count is the one it was, `a_gap_between_two_pages_of_content_keeps_its_pages`)
+/// and are handed on without being cut from the canvas.
+#[test]
+fn the_empty_pages_between_two_pages_of_content_are_not_cut_from_the_canvas() {
+    let html = "<html><body><p>first</p><div style=\"height:1e5px\"></div><p>last</p></body></html>";
+    let (result, _) = lay_out_a4(html, FakePageConfig::new());
+    let n = result.pages.len();
+    assert_eq!(n, PAGES_OF_THE_GAP);
+    // The two pages with content, and at most the page before each (an item on
+    // the edge of a page may be on it).
+    assert!(result.slicing.sliced <= 4, "{:?}", result.slicing);
+    assert_eq!(result.slicing.skipped, n - result.slicing.sliced);
+    assert!(!result.truncated);
+}
+
+/// A page with a footer is not an empty page: nothing is skipped, whatever the
+/// body says.
+#[test]
+fn a_page_with_a_footer_is_not_skipped() {
+    let (result, _) = lay_out_a4(
+        &one_box("height:1e5px"),
+        FakePageConfig::new().with_footer_page_numbers(),
+    );
+    assert_eq!(result.slicing.skipped, 0);
+    assert_eq!(result.slicing.sliced, result.pages.len());
+    assert!(result.pages.iter().all(|p| !p.items.is_empty()), "every page has its footer");
+}
+
+/// The cap cuts a long document after the pages it allows, those pages are the
+/// first pages of the document without the cap, and the layout says so.
+#[test]
+fn a_document_over_the_cap_ends_with_the_pages_the_cap_allows() {
+    let html = "<html><body style=\"margin: 0\"><div style=\"height:5000px; background:#ccc\"></div></body></html>";
+    let (full, _) = lay_out_a4(html, FakePageConfig::new().with_unlimited_pages());
+    assert!(full.pages.len() > 5);
+    assert!(!full.truncated);
+    let (capped, messages) = lay_out_a4(html, FakePageConfig::new().with_max_pages(3));
+    assert_eq!(capped.pages.len(), 3);
+    assert!(capped.truncated);
+    assert_eq!(capped.breaks, full.breaks[..3].to_vec());
+    for (page, whole) in capped.pages.iter().zip(&full.pages) {
+        assert_eq!(
+            format!("{:?}", page.items),
+            format!("{:?}", whole.items),
+            "a page of the cut document is its page of the whole"
+        );
+    }
+    assert!(messages
+        .iter()
+        .any(|m| m.message.contains("max_pages") && m.message.contains("3 pages")));
+}
+
+/// A document of exactly the cap's pages is not cut and is not told about it;
+/// one page more is.
+#[test]
+fn a_document_of_exactly_the_cap_is_not_truncated() {
+    let (exact, messages) = lay_out_plain(THREE_PAGES, FakePageConfig::new().with_max_pages(3));
+    assert_eq!(exact.pages.len(), 3);
+    assert!(!exact.truncated);
+    assert!(!messages.iter().any(|m| m.message.contains("max_pages")), "{messages:?}");
+
+    let (cut, messages) = lay_out_plain(THREE_PAGES, FakePageConfig::new().with_max_pages(2));
+    assert_eq!(cut.pages.len(), 2);
+    assert!(cut.truncated);
+    assert!(messages.iter().any(|m| m.message.contains("max_pages")));
+
+    let (one, _) = lay_out_plain(THREE_PAGES, FakePageConfig::new().with_max_pages(1));
+    assert_eq!(one.pages.len(), 1);
+    assert_eq!(one.breaks.len(), 1);
+    assert!(one.truncated);
+
+    let (all, _) = lay_out_plain(THREE_PAGES, FakePageConfig::new().with_unlimited_pages());
+    assert_eq!(all.pages.len(), 3);
+    assert!(!all.truncated);
+}
+
+/// The precalculation-only entry has the cap too: its page count is the cap's.
+#[test]
+fn the_pagination_without_pages_is_capped_too() {
+    let styled_dom = Dom::from_xml_string(one_box("height:1e12px"));
+    let loader = PathLoader::new();
+    let mut font_manager = FontManager::<FontRef>::new(FcFontCache::default()).expect("manager");
+    let info = compute_document_pagination(
+        &mut LayoutCache::default(),
+        &mut TextLayoutCache::new(),
+        FragmentationContext::new_paged(A4),
+        &styled_dom,
+        LogicalRect::new(LogicalPosition::zero(), A4),
+        &mut font_manager,
+        &BTreeMap::new(),
+        &mut Some(Vec::new()),
+        None,
+        &RendererResources::default(),
+        IdNamespace(0),
+        DomId::ROOT_ID,
+        move |bytes, index| loader.load_font_shared(bytes, index),
+        FakePageConfig::new(),
+        &ImageCache::default(),
+        GetSystemTimeCallback {
+            cb: azul_core::task::get_system_time_libstd,
+        },
+    )
+    .expect("the pagination");
+    assert_eq!(info.page_count, 10_000);
 }

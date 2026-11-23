@@ -200274,6 +200274,9 @@
                                 "font_size": {
                                     "type": "f32"
                                 },
+                                "max_pages": {
+                                    "type": "u32"
+                                },
                                 "number_format": {
                                     "type": "CounterFormat"
                                 },

@@ -15086,9 +15086,27 @@ pub struct SlicerConfig {
     /// (`footnotes::collect_footnotes`): each is drawn at the bottom of the
     /// page its anchor lands on. Empty = no footnotes.
     pub footnotes: crate::solver3::footnotes::Footnotes,
+    /// The most pages the slicing produces (`0` = no limit; `simple` and
+    /// `with_gap` set [`crate::solver3::pagination::DEFAULT_MAX_PAGES`]): the
+    /// break analysis stops looking for breaks after that many pages
+    /// (`page_breaks::needs_more_pages`), and the slicer drops the pages after
+    /// them.
+    pub max_pages: usize,
 }
 
 impl SlicerConfig {
+    /// How many breaks the analysis looks for under [`Self::max_pages`].
+    pub(crate) const fn max_breaks(&self) -> usize {
+        page_breaks::max_breaks_for(self.max_pages)
+    }
+
+    /// Set the most pages the slicing produces (`0` = no limit).
+    #[must_use]
+    pub const fn with_max_pages(mut self, max_pages: usize) -> Self {
+        self.max_pages = max_pages;
+        self
+    }
+
     /// Create a simple slicer config with no gaps between pages.
     #[must_use]
     pub fn simple(page_height: f32) -> Self {
@@ -15102,6 +15120,7 @@ impl SlicerConfig {
             break_policy: BreakPolicy::default(),
             page_sequence: None,
             footnotes: crate::solver3::footnotes::Footnotes::default(),
+            max_pages: crate::solver3::pagination::DEFAULT_MAX_PAGES as usize,
         }
     }
 
@@ -15118,6 +15137,7 @@ impl SlicerConfig {
             break_policy: BreakPolicy::default(),
             page_sequence: None,
             footnotes: crate::solver3::footnotes::Footnotes::default(),
+            max_pages: crate::solver3::pagination::DEFAULT_MAX_PAGES as usize,
         }
     }
 
@@ -15207,8 +15227,20 @@ pub fn paginate_display_list_with_slicer_and_breaks(
     // Step 1: Calculate page break positions based on CSS properties
     // (forced break-before/after positions + regular interval breaks).
     let constraints = page_breaks::PageConstraints::from_slicer_config(config);
-    let breaks =
-        page_breaks::compute_page_breaks_from_display_list(&full_display_list, &constraints);
+    let breaks = page_breaks::compute_page_breaks_from_display_list_capped(
+        &full_display_list,
+        &constraints,
+        config.max_breaks(),
+    );
+    if page_breaks::needs_more_pages(&breaks, config.max_pages) {
+        report_once("page-cap-slicer", || {
+            format!(
+                "[azul][pagination] the document needs more than the {} pages a paged layout \
+                 may produce: the pages end there (SlicerConfig::max_pages)",
+                config.max_pages
+            )
+        });
+    }
 
     paginate_display_list_with_breaks(full_display_list, config, &breaks, renderer_resources)
 }
@@ -15269,6 +15301,7 @@ pub fn paginate_display_list_with_breaks_streaming(
         None,
         on_page,
     )
+    .map(|_| ())
 }
 
 /// [`paginate_display_list_with_breaks_streaming`] with the text of the pages'
@@ -15281,7 +15314,7 @@ pub(crate) fn paginate_streaming_with_running_text(
     breaks: &[page_breaks::PageBreakPosition],
     running_text: &mut dyn RunningTextSetter,
     on_page: impl FnMut(DisplayList) -> Result<()>,
-) -> Result<()> {
+) -> Result<PageSlicingReport> {
     paginate_pages_impl(
         full_display_list,
         config,
@@ -15335,9 +15368,11 @@ fn paginate_pages_impl(
     running_text: &mut dyn RunningTextSetter,
     only_page: Option<usize>,
     mut on_page: impl FnMut(DisplayList) -> Result<()>,
-) -> Result<()> {
+) -> Result<PageSlicingReport> {
+    let mut report = PageSlicingReport::default();
     if config.page_content_height <= 0.0 || config.page_content_height >= f32::MAX {
-        return on_page(full_display_list);
+        on_page(full_display_list)?;
+        return Ok(report);
     }
 
     // The pages are cut from the flow; the footnotes are drawn onto them.
@@ -15366,6 +15401,15 @@ fn paginate_pages_impl(
         )
     };
 
+    // The page cap (`SlicerConfig::max_pages`): the analysis stops looking for
+    // breaks after that many pages, with the break that ends the last of them;
+    // what follows it is the span of a page that is not made.
+    let cap = config.max_pages;
+    if cap > 0 && page_spans.len() > cap {
+        page_spans.truncate(cap);
+        report.truncated = true;
+    }
+
     // The parts of footnotes every page draws (`Footnotes::fragments_for_page`):
     // a note that does not fit goes on on the next page, so the pages are
     // planned in order, whichever of them is asked for. What is left over
@@ -15384,7 +15428,9 @@ fn paginate_pages_impl(
                 .iter()
                 .map(|t| t.thead_height)
                 .sum();
-            let notes_end = if page_idx + 1 == flow_pages {
+            // The last page of the flow takes every note that is left; the last
+            // page of a document cut at the cap is not that.
+            let notes_end = if page_idx + 1 == flow_pages && !report.truncated {
                 f32::INFINITY
             } else {
                 end
@@ -15397,8 +15443,12 @@ fn paginate_pages_impl(
                 &mut rest,
             ));
         }
-        // Bounded: a page of footnotes only always takes a piece.
-        while !rest.is_empty() && note_plan.len() < flow_pages + 10_000 {
+        // Bounded: a page of footnotes only always takes a piece, and the pages
+        // of the cap are the last pages there are.
+        while !rest.is_empty()
+            && note_plan.len() < flow_pages + 10_000
+            && (cap == 0 || page_spans.len() < cap)
+        {
             let page_idx = note_plan.len();
             let before = rest.clone();
             let fragments = config.footnotes.fragments_for_page(
@@ -15417,6 +15467,38 @@ fn paginate_pages_impl(
     }
 
     let num_pages = page_spans.len();
+
+    // Where the canvas has anything to draw: a page of the canvas where it has
+    // not, and which has no header, footer, repeated table head, footnote or
+    // fixed-position box either, is an empty page, and is handed on as one
+    // (a page like any other: the page count is the same) without the slicing
+    // pass over every item of the canvas.
+    //
+    // The hit-test areas of the canvas do not count as something to draw: they
+    // paint nothing, and the one of `<body>` spans every page of the document.
+    // So a page that only hit-test areas reach is an empty page too, and the
+    // hit-test areas it would have had are not drawn onto it. Nothing reads them
+    // from a paged layout (a PDF has no hit testing, and a raster of the page
+    // paints nothing for them); `paginate_single_page` - what a document editor
+    // asks for - slices the page whatever it holds.
+    let content_index = (num_pages > 1
+        && only_page.is_none()
+        && full_display_list.fixed_position_item_ranges.is_empty())
+    .then(|| ContentRows::of(&full_display_list));
+    let empty_page = || DisplayList {
+        items: Vec::new(),
+        node_mapping: Vec::new(),
+        forced_page_breaks: Vec::new(),
+        fixed_position_item_ranges: Vec::new(),
+        layout_node_mapping: Vec::new(),
+        uniform_text_bgs: Vec::new(),
+        text_ink: Vec::new(),
+        text_selection_colors: Vec::new(),
+        color_bindings: Vec::new(),
+        carets: Vec::new(),
+        frame_index: FrameIndexCell::default(),
+        translated_since_painted: std::collections::BTreeSet::new(),
+    };
 
     // Pages are handed to `on_page` as they are built, so nothing accumulates
     // here. `emitted` only drives the "always at least one page" fallback.
@@ -15453,6 +15535,27 @@ fn paginate_pages_impl(
         };
 
         let _ = footer_space; // Currently unused but reserved for future
+
+        if let Some(rows) = &content_index {
+            let says_something = (hf.show_header
+                && !skip_this_page
+                && !hf.header_text(page_info).is_empty())
+                || (hf.show_footer && !skip_this_page && !hf.footer_text(page_info).is_empty());
+            if !says_something
+                && note_plan.get(page_idx).is_none_or(Vec::is_empty)
+                && config
+                    .table_headers
+                    .straddling_tables_for_page(page_idx, content_start_y, content_end_y)
+                    .is_empty()
+                && !rows.reach(content_start_y, content_end_y)
+            {
+                report.skipped += 1;
+                on_page(empty_page())?;
+                emitted += 1;
+                continue;
+            }
+        }
+        report.sliced += 1;
 
         let mut page_items = Vec::new();
         let mut page_node_mapping = Vec::new();
@@ -15867,21 +15970,13 @@ fn paginate_pages_impl(
             materialize_text_payload(item);
         }
 
+        // (`fixed_position_item_ranges`: already handled during pagination.
+        // Page slices are consumed by renderers only - patching operates on
+        // the WINDOWED cached DL, never on page slices.)
         on_page(DisplayList {
             items: page_items,
             node_mapping: page_node_mapping,
-            forced_page_breaks: Vec::new(),
-            fixed_position_item_ranges: Vec::new(), // Already handled during pagination
-            // Page slices are consumed by renderers only — patching operates
-            // on the WINDOWED cached DL, never on page slices.
-            layout_node_mapping: Vec::new(),
-            uniform_text_bgs: Vec::new(),
-            text_ink: Vec::new(),
-            text_selection_colors: Vec::new(),
-            color_bindings: Vec::new(),
-            carets: Vec::new(),
-            frame_index: FrameIndexCell::default(),
-            translated_since_painted: std::collections::BTreeSet::new(),
+            ..empty_page()
         })?;
         emitted += 1;
     }
@@ -15891,7 +15986,128 @@ fn paginate_pages_impl(
         on_page(DisplayList::default())?;
     }
 
-    Ok(())
+    Ok(report)
+}
+
+/// What a slicing pass did: how many pages it cut from the canvas, how many it
+/// handed on as empty without cutting, and whether it stopped at the page cap
+/// (`SlicerConfig::max_pages`) with the document going on.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PageSlicingReport {
+    /// Pages cut from the canvas: every item of it was clipped against the page.
+    pub sliced: usize,
+    /// Empty pages handed on without that pass: no item that paints reaches
+    /// them (a hit-test area that spans them does not count, it is not drawn
+    /// onto them).
+    pub skipped: usize,
+    /// The document needs more pages than the cap allows.
+    pub truncated: bool,
+}
+
+/// The vertical extents of what the canvas draws, to tell a page that shows
+/// none of it without clipping every item against that page.
+///
+/// Conservative: every item is clipped against a page by its `bounds()` first
+/// (`clip_and_offset_display_item`), so a page that no item's bounds reach has
+/// no item on it (a text run: by its glyphs' baselines, which cut it).
+/// Left out are the push/pop markers (a marker is only emitted
+/// with an item under it), the items clipping drops whatever the page and the
+/// hit-test areas (`is_no_fragment_of_a_page`): a page they alone reach shows
+/// nothing and is handed on empty. An item whose bounds are NaN, or that has
+/// none, is reached by every page.
+struct ContentRows {
+    /// `(top, bottom)` sorted by top.
+    rows: Vec<(f32, f32)>,
+    /// `reach_below[i]`: the largest bottom of `rows[..=i]`.
+    reach_below: Vec<f32>,
+    /// An item that every page reaches.
+    everywhere: bool,
+}
+
+/// Items that are no fragment of a page's content: clipping never puts them on
+/// a page (`clip_and_offset_display_item` returns `None` for them whatever the
+/// page: the state of the renderer the slicer does not carry over, a web view,
+/// the placeholder of a virtual view), or they paint nothing (the hit-test area
+/// of a box: the one of `<body>` spans every page of the document, and a page
+/// that shows nothing else is an empty page).
+const fn is_no_fragment_of_a_page(item: &DisplayListItem) -> bool {
+    matches!(
+        item,
+        DisplayListItem::HitTestArea { .. }
+            | DisplayListItem::PushFilter { .. }
+            | DisplayListItem::PopFilter
+            | DisplayListItem::PushBackdropFilter { .. }
+            | DisplayListItem::PopBackdropFilter
+            | DisplayListItem::PushOpacity { .. }
+            | DisplayListItem::PopOpacity
+            | DisplayListItem::PushReferenceFrame { .. }
+            | DisplayListItem::PopReferenceFrame
+            | DisplayListItem::VirtualViewPlaceholder { .. }
+            | DisplayListItem::WebView { .. }
+    )
+}
+
+impl ContentRows {
+    fn of(list: &DisplayList) -> Self {
+        let mut rows = Vec::new();
+        let mut everywhere = false;
+        for item in &list.items {
+            if item.is_push_marker() || item.is_pop_marker() || is_no_fragment_of_a_page(item) {
+                continue;
+            }
+            if let DisplayListItem::Text { glyphs, .. } = item {
+                // A run is cut by the baselines of its glyphs (`clip_text_item`),
+                // and its line box can be as tall as the paragraph it is in.
+                let (mut first, mut last) = (f32::INFINITY, f32::NEG_INFINITY);
+                for glyph in glyphs {
+                    // A glyph with no position is on no page.
+                    if !glyph.point.y.is_nan() {
+                        first = first.min(glyph.point.y);
+                        last = last.max(glyph.point.y);
+                    }
+                }
+                if first <= last {
+                    rows.push((first, last));
+                }
+                continue;
+            }
+            match item.bounds() {
+                Some(b) => {
+                    let (top, bottom) = (b.origin.y, b.origin.y + b.size.height);
+                    if top.is_nan() || bottom.is_nan() {
+                        everywhere = true;
+                    } else {
+                        rows.push((top, bottom));
+                    }
+                }
+                None => everywhere = true,
+            }
+        }
+        rows.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut largest = f32::NEG_INFINITY;
+        let reach_below = rows
+            .iter()
+            .map(|&(_, bottom)| {
+                largest = largest.max(bottom);
+                largest
+            })
+            .collect();
+        Self {
+            rows,
+            reach_below,
+            everywhere,
+        }
+    }
+
+    /// Whether any item of the canvas may show on a page that takes the canvas
+    /// from `page_top` to `page_bottom`.
+    fn reach(&self, page_top: f32, page_bottom: f32) -> bool {
+        if self.everywhere || page_top.is_nan() || page_bottom.is_nan() {
+            return true;
+        }
+        let tops_above = self.rows.partition_point(|&(top, _)| top <= page_bottom);
+        tops_above > 0 && self.reach_below[tops_above - 1] >= page_top
+    }
 }
 
 /// Calculate page break positions respecting CSS forced page breaks.
