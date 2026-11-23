@@ -48,8 +48,8 @@ pub struct TextSettings {
 /// Whether the TrueType hinting bytecode runs when nothing says: CoreText never executes
 /// TrueType instructions (no macOS browser hints text), and running the untuned programs of the
 /// Apple system fonts snapped single glyphs' stems and x-heights to other pixel rows than their
-/// neighbours. FreeType and ClearType conventions expect grid-fitting, so Linux and Windows keep
-/// it.
+/// neighbours. `FreeType` and `ClearType` conventions expect grid-fitting, so Linux and Windows
+/// keep it.
 const PLATFORM_HINTING: bool = cfg!(not(target_os = "macos"));
 
 /// The value of a switch that is on unless it says `0` or `false` (in any case).
