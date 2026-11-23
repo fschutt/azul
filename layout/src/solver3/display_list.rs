@@ -6344,6 +6344,8 @@ pub fn compute_patch_move_summary(
     // clipped by it, and that content did not change (a `VirtualView` whose
     // document stayed): in `reemit` for a new size only.
     riders: &[bool],
+    // Print why no summary is made to stderr (`SolverSettings::trace_patch`).
+    trace: bool,
 ) -> Option<PatchMoveSummary> {
     const EPS: f32 = 0.01;
     const MAX_EXCEPTIONS: usize = 64;
@@ -6540,14 +6542,14 @@ pub fn compute_patch_move_summary(
     mover_rects_old.extend(backed_regions.into_values());
     if mover_rects_old.len() > MAX_MOVERS {
         #[cfg(feature = "std")]
-        if env_flag!("AZ_PATCH_DEBUG") {
+        if trace {
             eprintln!("[MOVESUMMARY] {} blits, over {MAX_MOVERS}", mover_rects_old.len());
         }
         return None; // too many independent blits — full repaint
     }
     let Some(moved_region_old) = moved_region else {
         #[cfg(feature = "std")]
-        if env_flag!("AZ_PATCH_DEBUG") {
+        if trace {
             let movers = is_dominant_mover.iter().filter(|m| **m).count();
             eprintln!("[MOVESUMMARY] {movers} movers by {dominant:?}, none can blit");
         }
@@ -6624,7 +6626,7 @@ pub fn compute_patch_move_summary(
                 exceptions.push(r);
                 if exceptions.len() > MAX_EXCEPTIONS {
                     #[cfg(feature = "std")]
-                    if env_flag!("AZ_PATCH_DEBUG") {
+                    if trace {
                         eprintln!("[MOVESUMMARY] over {MAX_EXCEPTIONS} exceptions");
                     }
                     return None; // too fragmented — full repaint is cheaper
@@ -9450,6 +9452,7 @@ where
                 self.positioned_tree
                     .tree
                     .warm(LayoutNodeId::new(node_index)),
+                self.ctx.settings().dense_text == crate::settings::DenseTextMode::Verify,
             );
             builder.push_scroll_frame(clip_rect, content_size, scroll_id);
         }
@@ -10987,7 +10990,11 @@ where
                 let lines = cached_layout.materialized().bounds();
                 LogicalSize::new(lines.x + lines.width, lines.y + lines.height)
             } else {
-                get_scroll_content_size(node, node_warm)
+                get_scroll_content_size(
+                    node,
+                    node_warm,
+                    self.ctx.settings().dense_text == crate::settings::DenseTextMode::Verify,
+                )
             };
             if content_size.height > content_box_rect.size.height {
                 content_box_rect.size.height = content_size.height;
@@ -11601,7 +11608,7 @@ where
         // built, and the layout pass that precedes this one has already
         // recomputed `warm.scrollbar_info` from the laid-out sizes.
         if let Some(nid) = node_id {
-            if env_flag!("AZ_VV_BAR_TRACE")
+            if self.ctx.settings().trace_virtual_view_bars
                 && self
                     .ctx
                     .styled_dom
@@ -11631,7 +11638,7 @@ where
                     padding_box_size,
                     &mut scrollbar_info,
                 );
-                if env_flag!("AZ_VV_BAR_TRACE") {
+                if self.ctx.settings().trace_virtual_view_bars {
                     eprintln!(
                         "[vv-bar] nid={nid:?} raised={raised} virt={:?} \
                          padbox={padding_box_size:?} reqs_after={scrollbar_info:?}",
@@ -13709,7 +13716,12 @@ fn get_scroll_id(id: Option<NodeId>) -> LocalScrollId {
 /// This is used to determine if scrollbars should appear for overflow: auto.
 // +spec:overflow:c2ed94 - replaced element overflow is ink overflow (not scrollable);
 // replaced elements (images) don't contribute scrollable overflow here
-fn get_scroll_content_size(node: &LayoutNodeHot, warm: Option<&LayoutNodeWarm>) -> LogicalSize {
+fn get_scroll_content_size(
+    node: &LayoutNodeHot,
+    warm: Option<&LayoutNodeWarm>,
+    // Compare the dense extent with the sparse walk (`DenseTextMode::Verify`).
+    verify_dense: bool,
+) -> LogicalSize {
     // The stored `overflow_content_size` participates but does NOT
     // early-return: it is a snapshot from some earlier pass, and for a node
     // whose IFC laid out after it was written (the absolutely positioned
@@ -13762,7 +13774,7 @@ fn get_scroll_content_size(node: &LayoutNodeHot, warm: Option<&LayoutNodeWarm>) 
             Some((max_x, max_y))
         });
         let (max_x, max_y) = if let Some((dx, dy)) = dense_extent {
-            if env_flag!("AZ_DENSE_TEXT" == "verify") {
+            if verify_dense {
                 let mut sx: f32 = 0.0;
                 let mut sy: f32 = 0.0;
                 for positioned_item in &text_layout.items {

@@ -399,6 +399,34 @@ fn app_startup_persists_the_font_cache() {
 // 4. The faces an app ships are in the font manager of its App
 // ---------------------------------------------------------------------------
 
+/// The text settings the environment asked for (`AZ_TEXT_SUBPIXEL`, `AZ_TEXT_HINTING`, the font
+/// traces) are on the font manager of the app, and on the manager of every window made from it;
+/// an app that asked for nothing has the defaults. (The solver's settings reach each window
+/// through `AppShared::seed_window`.)
+#[test]
+fn an_apps_font_manager_carries_the_text_settings_its_environment_asked_for() {
+    use azul::desktop::{app::AppInternal, app_settings::AppSettings};
+    use azul_css::env::MapEnv;
+    use azul_layout::settings::TextSettings;
+
+    let settings = AppSettings::from_lookup(
+        &MapEnv::new()
+            .with("AZ_TEXT_SUBPIXEL", "0")
+            .with("AZ_FONT_FALLBACK_DEBUG", "1"),
+    );
+    assert_ne!(settings.layout.text, TextSettings::default());
+    let app = AppInternal::create_with_settings(RefAny::new(0u32), AppConfig::default(), settings.clone());
+    let manager = app.font_manager.as_ref().expect("the app's font manager");
+    assert_eq!(manager.settings, settings.layout.text);
+    assert!(!manager.settings.subpixel && manager.settings.trace_font_fallback);
+    assert_eq!(manager.clone_shared().settings, settings.layout.text, "so is a window's");
+    assert_eq!(*app.app_shared.settings(), settings, "the app owns what it was given");
+
+    let other = AppInternal::create(RefAny::new(0u32), AppConfig::default());
+    let other_manager = other.font_manager.as_ref().expect("the font manager of another app");
+    assert_eq!(other_manager.settings, TextSettings::default());
+}
+
 /// `AppConfig::add_font` puts a face in the registered fonts `AppInternal::create` builds the
 /// app's font manager on: the family is indexed in it (in the tier of the faces azul bundles), and
 /// a window made from that manager (`clone_shared`, as every shell does) draws with the very same

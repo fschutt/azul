@@ -234,6 +234,12 @@ use crate::{
 /// `cache::LayoutCache`) or that another pass could read by mistake: a slot is
 /// empty at the start of every pass by construction.
 pub struct PassMemo<T> {
+    /// What this pass runs under ([`crate::settings::SolverSettings`]): the switches back to the
+    /// old behaviour and the traces. Copied from the document's cache
+    /// (`LayoutCache::display_list_options`, which the window writes before every pass) when
+    /// the context is made ([`Self::with_settings`]); a context made by hand has the defaults,
+    /// the behaviour of an empty environment.
+    pub settings: crate::settings::SolverSettings,
     /// `fc::layout_bfc`'s slot.
     pub bfc: fc::BfcPassMemo,
     /// The taffy bridge's slot.
@@ -268,6 +274,7 @@ pub struct PassMemo<T> {
 impl<T> Default for PassMemo<T> {
     fn default() -> Self {
         Self {
+            settings: crate::settings::SolverSettings::default(),
             bfc: fc::BfcPassMemo::default(),
             taffy: taffy_bridge::TaffyPassMemo::default(),
             measured: sizing::MeasuredParagraphs::default(),
@@ -276,6 +283,17 @@ impl<T> Default for PassMemo<T> {
             svg_masks: core::cell::RefCell::default(),
             ifc_ids: layout_tree::IfcIdSequence::default(),
             loaded_fonts: Default::default(),
+        }
+    }
+}
+
+impl<T> PassMemo<T> {
+    /// The memo of a pass that runs under `settings`: every other slot is empty.
+    #[must_use]
+    pub fn with_settings(settings: crate::settings::SolverSettings) -> Self {
+        Self {
+            settings,
+            ..Self::default()
         }
     }
 }
@@ -420,6 +438,12 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
 }
 
 impl<T: ParsedFontTrait> LayoutContext<'_, T> {
+    /// What this pass runs under ([`PassMemo::settings`]).
+    #[must_use]
+    pub const fn settings(&self) -> &crate::settings::SolverSettings {
+        &self.pass_memo.settings
+    }
+
     /// The fonts the font manager holds (`FontManager::get_loaded_fonts`),
     /// asked for ONCE per pass and kept.
     ///
@@ -819,13 +843,18 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         )));
     }
 
+    // What this pass runs under: the options the window wrote into the document's cache. The
+    // switches and the traces below read this copy, and the contexts carry it to the solver
+    // (`PassMemo::settings`).
+    let solver_settings = cache.display_list_options;
+
     // Create temporary context without counters for tree generation
     let mut counter_values = HashMap::new();
     let mut ctx_temp = LayoutContext {
         style_cache: Default::default(),
         virtual_view_sizes: Some(virtual_view_sizes),
         scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
-        pass_memo: Default::default(),
+        pass_memo: PassMemo::with_settings(solver_settings),
         styled_dom: new_dom,
         font_manager,
         text_selections,
@@ -894,6 +923,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // text cache shapes under it from here on.
     let font_epoch = font_manager.registered_fonts.generation();
     text_cache.set_fonts_generation(font_epoch);
+    // ... and under the font manager's text settings (the traces, the shaping switches).
+    text_cache.set_settings(font_manager.settings);
     if cache.font_epoch != font_epoch {
         cache.font_epoch = font_epoch;
         cache.tree = None;
@@ -1124,7 +1155,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         {
             let _p = crate::probe::Probe::span("display_list_cache_hit");
             #[cfg(feature = "std")]
-            if env_flag!("AZ_ANIM_DEBUG") {
+            if solver_settings.trace_animation {
                 eprintln!(
                     "[dlcache] HIT fp={gpu_fp:x} items={}",
                     cached_dl.items.len()
@@ -1450,7 +1481,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // view was ever sized by what it returned - it stayed 300x150.
         virtual_view_sizes: Some(virtual_view_sizes),
         scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
-        pass_memo: Default::default(),
+        pass_memo: PassMemo::with_settings(solver_settings),
         styled_dom: new_dom,
         font_manager,
         text_selections,
@@ -2234,7 +2265,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 .dynamic_context
                 .as_deref();
             #[cfg(feature = "std")]
-            if env_flag!("AZ_PATCH_DEBUG") {
+            if solver_settings.trace_patch {
                 match (cur, cache.last_dynamic_context.as_ref()) {
                     (Some(a), Some(b)) if a != b => {
                         eprintln!(
@@ -2323,7 +2354,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             std::collections::BTreeSet::new()
         };
         #[cfg(feature = "std")]
-        if env_flag!("AZ_PATCH_DEBUG") {
+        if solver_settings.trace_patch {
             eprintln!(
                 "[PATCHGATE] skipped={} preserved={} css_dirty={} structure_ok={} disabled={} \
                  prev_sizes={} nodes={} prev_pos={} pos={} ctx_same={} reflowed_ifcs={:?} \
@@ -2615,12 +2646,13 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 &parents,
                 &opaque_bg,
                 &riders,
+                solver_settings.trace_patch,
             );
         } else {
             cache.last_patch_move = None;
         }
         #[cfg(feature = "std")]
-        if env_flag!("AZ_PATCH_DEBUG") {
+        if solver_settings.trace_patch {
             eprintln!(
                 "[MOVESUMMARY] pass: patched={} same_nodes={} hint={:?}",
                 patch.is_some(),
@@ -2683,7 +2715,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // correctly misses once and re-seeds.
     let gpu_fp = gpu_value_cache.map_or(0, azul_core::gpu::GpuValueCache::dl_emission_fingerprint);
     #[cfg(feature = "std")]
-    if env_flag!("AZ_ANIM_DEBUG") {
+    if solver_settings.trace_animation {
         eprintln!(
             "[dlcache] STORE fp={gpu_fp:x} items={}",
             display_list.items.len()
@@ -2717,7 +2749,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                         .all(|(a, b)| display_list::same_item_kind(a, b))
             });
         #[cfg(feature = "std")]
-        if env_flag!("AZ_PATCH_DEBUG") {
+        if solver_settings.trace_patch {
             let why = cache.cached_display_list.as_ref().map(|(_, _, _, _, _, old_dl)| {
                 (
                     old_dl.items.len(),
@@ -2768,7 +2800,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             ));
         }
         #[cfg(feature = "std")]
-        if env_flag!("AZ_PATCH_DEBUG") {
+        if solver_settings.trace_patch {
             eprintln!("[PATCHDMG] rects={rects:?}");
         }
         // Onto the LOG, not just the slot: a second patched build before the

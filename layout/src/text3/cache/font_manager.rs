@@ -1016,7 +1016,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
             .map(|(id, _)| *id)?;
         let (font, _) = condemned.faces.remove(&id)?;
         drop(condemned);
-        if env_flag!("AZ_FONT_GC_TRACE") {
+        if self.settings.trace_font_gc {
             eprintln!("[azul][font][gc] RESURRECT id={id} face_hash={font_hash}");
         }
         self.parsed_fonts.lock().unwrap().insert(id, font.clone());
@@ -1485,7 +1485,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
         keep_ids: &HashSet<FontId>,
         keep_hashes: &HashSet<u64>,
     ) -> usize {
-        let trace = env_flag!("AZ_FONT_GC_TRACE");
+        let trace = self.settings.trace_font_gc;
         let mut condemned = self.condemned_fonts.lock().unwrap();
         condemned.generation = condemned.generation.saturating_add(1);
         let generation = condemned.generation;

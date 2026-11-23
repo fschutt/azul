@@ -1082,7 +1082,8 @@ pub(super) fn position_table_cells<T: ParsedFontTrait>(
                     };
 
                     // Keep the same constraint type from the cached layout
-                    let mut cil = CachedInlineLayout::new(
+                    let mut cil = CachedInlineLayout::new_in(
+                        ctx.settings().dense_text,
                         Arc::new(adjusted_layout),
                         available_width,
                         has_floats,

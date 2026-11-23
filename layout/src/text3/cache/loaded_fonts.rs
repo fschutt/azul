@@ -165,6 +165,21 @@ impl<T: ParsedFontTrait> ParsedFontTrait for FontOrRef<T> {
         }
     }
 
+    fn shape_text_with(
+        &self,
+        text: &str,
+        script: Script,
+        language: Language,
+        direction: BidiDirection,
+        style: &StyleProperties,
+        settings: &crate::settings::TextSettings,
+    ) -> Result<Vec<Glyph>, LayoutError> {
+        match self {
+            Self::Font(f) => f.shape_text_with(text, script, language, direction, style, settings),
+            Self::Ref(r) => r.shape_text_with(text, script, language, direction, style, settings),
+        }
+    }
+
     fn get_hash(&self) -> u64 {
         match self {
             Self::Font(f) => f.get_hash(),
