@@ -1,7 +1,7 @@
 //! Pins for the 2026-08-31 TextInput repaint seam - its OWN test binary
-//! because it forces the macOS glyph mode (`AZ_TEXT_HINTING=0`, hinting
-//! off => hinting ppem 0) process-wide before the first glyph is rendered,
-//! which must not leak into the shared `all` binary.
+//! since it was written to force the macOS glyph mode (hinting off => hinting ppem 0)
+//! process-wide through the environment; the window of each test now gets that mode as a
+//! setting (`TextSettings::hinting`).
 //!
 //! - A. An incremental repaint of the CARET BAND (1 logical px wide, the damage a caret move /
 //!   blink produces) must be pixel-identical to a full repaint. The LCD per-glyph cull used the
@@ -42,9 +42,16 @@ fn dnid(node: usize) -> DomNodeId {
     }
 }
 
-/// Must run before ANY glyph is rendered in this process (read-once caches).
-fn force_macos_glyph_mode() {
-    std::env::set_var("AZ_TEXT_HINTING", "0");
+/// The settings of the macOS glyph mode: hinting off (hinting ppem 0). A window takes them
+/// before its first pass.
+fn macos_glyph_mode() -> azul_layout::settings::LayoutSettings {
+    azul_layout::settings::LayoutSettings {
+        text: azul_layout::settings::TextSettings {
+            hinting: false,
+            ..azul_layout::settings::TextSettings::default()
+        },
+        ..azul_layout::settings::LayoutSettings::default()
+    }
 }
 
 struct Harness {
@@ -60,6 +67,7 @@ impl Harness {
             .with_child(TextInput::create().with_text(AzString::from(text)).dom());
         let styled_dom = StyledDom::create(&mut dom, azul_css::css::Css::empty());
         let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
+        lw.set_settings(macos_glyph_mode());
         lw.system_animations_override = Some(azul_core::resources::SystemAnimations::disabled());
         let mut window_state = FullWindowState::default();
         window_state.size.dimensions = LogicalSize::new(width, height);
@@ -172,7 +180,6 @@ fn pixel_diff_count(a: &AzulPixmap, b: &AzulPixmap) -> usize {
 
 #[test]
 fn a_caret_band_repaint_is_pixel_identical_to_a_full_repaint() {
-    force_macos_glyph_mode();
     let dpi = 2.0;
     let mut h = Harness::new(300.0, 60.0, "asdfasdfasdfasdf");
     h.start_editing_at_end();
@@ -197,7 +204,6 @@ fn a_caret_band_repaint_is_pixel_identical_to_a_full_repaint() {
 
 #[test]
 fn the_caret_paints_over_the_last_glyph() {
-    force_macos_glyph_mode();
     let dpi = 2.0;
     let mut h = Harness::new(300.0, 60.0, "ljölkjöljöljölk");
     h.start_editing_at_end();

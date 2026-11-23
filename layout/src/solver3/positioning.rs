@@ -250,10 +250,11 @@ fn flow_static_position(
 
 /// Whether a reused interior (`cache::AbsInterior`) is laid out anyway and
 /// compared with what the reuse kept: in this crate's tests always, elsewhere
-/// when `AZ_CHECK_ABS_INTERIOR_REUSE` is set. A difference panics: the reuse
+/// when the pass runs under `SolverSettings::check_abs_interior_reuse`
+/// (`AZ_CHECK_ABS_INTERIOR_REUSE`). A difference panics: the reuse
 /// kept something a run would have changed.
-fn checks_interior_reuse() -> bool {
-    cfg!(test) || env_flag!("AZ_CHECK_ABS_INTERIOR_REUSE")
+const fn checks_interior_reuse(settings: &crate::settings::SolverSettings) -> bool {
+    cfg!(test) || settings.check_abs_interior_reuse
 }
 
 /// The used size and the offset from its parent of every box below
@@ -351,9 +352,9 @@ pub fn position_out_of_flow_elements_with_sticky<T: ParsedFontTrait>(
     // entry's bookkeeping does not see: a paged pass (fragments, footnote
     // bodies), named flows (laid out through their regions after this
     // function), content the overlay holds in place of the DOM's. And not
-    // with `AZ_NO_ABS_INTERIOR_REUSE` set - the switch back to a run per box
-    // per pass.
-    let reuse_interiors = !env_flag!("AZ_NO_ABS_INTERIOR_REUSE")
+    // with `SolverSettings::abs_interior_reuse` off (`AZ_NO_ABS_INTERIOR_REUSE`) -
+    // the switch back to a run per box per pass.
+    let reuse_interiors = ctx.pass_memo.settings.abs_interior_reuse
         && ctx.fragmentation_context.is_none()
         && !ctx.styled_dom.css_property_cache.ptr.paged_footnotes.get()
         && !super::regions::document_has_named_flows(ctx.styled_dom)
@@ -557,7 +558,7 @@ pub fn position_out_of_flow_elements_with_sticky<T: ParsedFontTrait>(
             if let Some(kept) = kept_placement {
                 #[cfg(test)]
                 ABS_BOXES_PLACED_AS_KEPT.with(|n| n.set(n.get() + 1));
-                if !checks_interior_reuse() {
+                if !checks_interior_reuse(&ctx.pass_memo.settings) {
                     let final_pos = kept.final_position();
                     super::pos_set(calculated_positions, node_index, final_pos);
                     if let Some(node_mut) = tree.get_mut(LayoutNodeId::new(node_index)) {
@@ -1121,7 +1122,7 @@ pub fn position_out_of_flow_elements_with_sticky<T: ParsedFontTrait>(
                     .filter(|run| interior_is_tracked && run.is_for(solved_size, &laid_out_in));
                 // The content height of the interior, where a run gave one.
                 let interior_height: Option<f32> = if let (Some(run), false) =
-                    (kept_run, checks_interior_reuse())
+                    (kept_run, checks_interior_reuse(&ctx.pass_memo.settings))
                 {
                     #[cfg(test)]
                     ABS_INTERIORS_REUSED.with(|n| n.set(n.get() + 1));
