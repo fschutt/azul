@@ -34,7 +34,7 @@ fn only_a_running_app_reads_the_platform_and_gets_the_hooks() {
     assert_eq!(AppShared::new(&config).system_natural_scroll(), None);
 
     config.natural_scroll = NaturalScroll::Enabled;
-    let running = AppShared::for_app(&config);
+    let running = AppShared::for_app(&config, AppSettings::default());
     assert_eq!(running.system_natural_scroll(), None, "only System asks the platform");
     assert!(running.gpu_provision.is_some(), "a running app's dialogs can provision the GPU");
 }
@@ -113,4 +113,23 @@ fn a_seeded_window_starts_in_what_its_app_chose() {
     assert_eq!(stranger.mode, OptionDarkLightMode::Some(DarkLightMode::Light));
     assert_ne!(stranger.active_language().id.as_str(), "de-DE");
     assert_eq!(stranger.scroll_manager.system_natural_scroll(), None);
+}
+
+/// An app that never read the process holds the empty environment's settings; a running app holds
+/// what its environment asked, and a window reads it through the app it was built for.
+#[test]
+fn the_app_owns_what_its_environment_asked_and_a_test_app_holds_the_empty_one() {
+    use azul_css::env::MapEnv;
+
+    assert_eq!(*AppShared::new(&AppConfig::default()).settings(), AppSettings::default());
+
+    let asked = AppSettings::from_lookup(&MapEnv::new().with("AZ_HIT_DEBUG", "1"));
+    let running = AppShared::for_app(&AppConfig::default(), asked.clone());
+    assert!(running.settings().shell.hit_debug);
+    assert_eq!(*running.settings(), asked);
+
+    // two apps share no settings either
+    assert!(!AppShared::new(&AppConfig::default()).settings().shell.hit_debug);
+    let tested = AppShared::with_settings(&AppConfig::default(), asked);
+    assert!(tested.settings().shell.hit_debug);
 }

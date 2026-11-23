@@ -37,8 +37,15 @@
 /// Manages application state (`App` / `AppState` / `AppResources`), wrapping resources and app
 /// state
 pub mod app;
+/// What the environment asks of an app, read once at its start: the one carrier of the settings
+/// of every layer ([`app::App::create`] builds it, the app's `AppShared` owns it)
+pub mod app_settings;
 /// New compositor integration for shell2 - WebRender bridge
 pub mod compositor2;
+/// What the environment asks of the WebRender path (the group D2 of the env pass)
+pub mod render_settings;
+/// What the environment asks of the app start and the shells (the group D1 of the env pass)
+pub mod shell_settings;
 /// Client-Side Decorations (CSD) - Custom window titlebar
 pub(crate) mod csd;
 /// CSS type definitions / CSS parsing functions
