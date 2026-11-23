@@ -460,7 +460,7 @@ impl Win32Window {
                 .map(|r| r.hw_accel)
                 .or(Some(options.window_state.renderer_options.hw_accel));
             !matches!(
-                AzBackend::resolve(hw_accel),
+                AzBackend::resolve(app_shared.settings().shell.backend.as_deref(), hw_accel),
                 AzBackend::Cpu | AzBackend::Headless
             )
         };
