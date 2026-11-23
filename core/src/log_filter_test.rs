@@ -119,6 +119,50 @@ mod tests {
         }
     }
 
+    /// A question that comes before anything configured the filter is answered as an empty
+    /// environment would, and that is no configuration: the install that follows takes effect,
+    /// and the first install is the one that stays.
+    #[test]
+    fn a_default_answer_is_no_configuration_and_the_first_install_wins() {
+        let filter = LogFilter::new();
+        filter.ensure_configured();
+        assert_eq!(filter.min_level(), Some(LEVEL_WHEN_NOT_ASKED));
+        assert!(!filter.stderr_echo());
+        assert!(filter.enabled(Category::Layout, Level::Error));
+        assert!(!filter.enabled(Category::Layout, Level::Debug));
+
+        let debug = LogSettings {
+            level: Some(Level::Debug),
+            overrides: vec![(Category::Layout, false)],
+            stderr_echo: Some(true),
+        };
+        filter.install(&debug);
+        assert_eq!(filter.min_level(), Some(Level::Debug));
+        assert!(filter.stderr_echo());
+        assert!(!filter.category_enabled(Category::Layout));
+
+        // a second install (another `App::create` of the process) changes nothing
+        filter.install(&LogSettings {
+            level: None,
+            ..LogSettings::default()
+        });
+        assert_eq!(filter.min_level(), Some(Level::Debug));
+        // and a question after the install does not default it again
+        filter.ensure_configured();
+        assert_eq!(filter.min_level(), Some(Level::Debug));
+    }
+
+    /// A level set at run time before the install is the configuration: the install and the
+    /// default leave it alone.
+    #[test]
+    fn a_level_set_at_run_time_is_not_clobbered_by_the_install() {
+        let filter = LogFilter::new();
+        filter.set_min_level(Some(Level::Trace));
+        filter.ensure_configured();
+        filter.install(&LogSettings::default());
+        assert_eq!(filter.min_level(), Some(Level::Trace));
+    }
+
     /// A filter configured by settings that leave the echo open (`None`) keeps the echo it had.
     #[test]
     fn settings_that_name_no_echo_leave_the_echo_as_it_is() {

@@ -102,9 +102,13 @@ pub struct LogFilter {
     category_mask: AtomicU32,
     /// Mirror of `min_level != u8::MAX`, so the hot path is a single bool load.
     any_enabled: AtomicBool,
-    /// Whether the filter has been configured (the process's by `AZ_LOG`, on the first
-    /// question, unless something set a level before).
+    /// Whether the filter has been configured: by [`LogFilter::install`] (the process's, from the
+    /// environment the dll read), by [`LogFilter::apply`] or by a level set at run time. The first
+    /// configuration wins.
     initialised: AtomicBool,
+    /// Whether a question came before anything configured the filter, so it answers as an empty
+    /// environment would. That is no configuration: a later install still takes effect.
+    defaulted: AtomicBool,
     /// Echo every passing record to stderr, in addition to whatever sink the build
     /// has.
     ///
@@ -144,6 +148,7 @@ impl LogFilter {
             category_mask: AtomicU32::new(u32::MAX),
             any_enabled: AtomicBool::new(false),
             initialised: AtomicBool::new(false),
+            defaulted: AtomicBool::new(false),
             stderr_echo: AtomicBool::new(false),
         }
     }
@@ -226,6 +231,22 @@ impl LogFilter {
     /// Configure the filter as `settings` say, and count it configured (so the process's is not
     /// configured from the environment again).
     pub fn apply(&self, settings: &LogSettings) {
+        self.configure(settings);
+        self.initialised.store(true, Ordering::Relaxed);
+    }
+
+    /// Configures the filter once: the first configuration wins, so a level set at run time
+    /// before it (or an earlier install) is not clobbered, and a second `App::create` of a
+    /// process does not undo a change made while it ran.
+    pub fn install(&self, settings: &LogSettings) {
+        if self.initialised.load(Ordering::SeqCst) {
+            return;
+        }
+        self.apply(settings);
+    }
+
+    /// Puts `settings` on the filter without counting it configured.
+    fn configure(&self, settings: &LogSettings) {
         let min = settings.level.map_or(u8::MAX, |l| l as u8);
         self.min_level.store(min, Ordering::Relaxed);
         self.any_enabled.store(min != u8::MAX, Ordering::Relaxed);
@@ -235,7 +256,27 @@ impl LogFilter {
         if let Some(echo) = settings.stderr_echo {
             self.stderr_echo.store(echo, Ordering::Relaxed);
         }
-        self.initialised.store(true, Ordering::Relaxed);
+    }
+
+    /// Answers as an empty environment would when nothing has configured the filter: errors
+    /// only, or Debug in a build without `std` (an embedder that installs a sink still gets
+    /// records). The first question asked of the process's filter does it; it does not count as
+    /// the filter's configuration.
+    #[inline]
+    fn ensure_configured(&self) {
+        if !self.initialised.load(Ordering::Relaxed) && !self.defaulted.load(Ordering::Relaxed) {
+            self.configure_default();
+        }
+    }
+
+    fn configure_default(&self) {
+        if self.defaulted.swap(true, Ordering::SeqCst) || self.initialised.load(Ordering::SeqCst) {
+            return;
+        }
+        #[cfg(feature = "std")]
+        self.configure(&LogSettings::default());
+        #[cfg(not(feature = "std"))]
+        self.configure(&LogSettings::without_environment());
     }
 }
 
@@ -300,18 +341,14 @@ pub fn category_enabled(category: Category) -> bool {
 /// `log_*!` call sites, so it must stay two relaxed loads and no allocation.
 #[must_use]
 pub fn enabled(category: Category, level: Level) -> bool {
-    if !PROCESS.initialised.load(Ordering::Relaxed) {
-        init_default();
-    }
+    PROCESS.ensure_configured();
     PROCESS.enabled(category, level)
 }
 
 /// Level-only test, for call sites that have no category.
 #[must_use]
 pub fn level_enabled(level: Level) -> bool {
-    if !PROCESS.initialised.load(Ordering::Relaxed) {
-        init_default();
-    }
+    PROCESS.ensure_configured();
     PROCESS.level_enabled(level)
 }
 
@@ -320,15 +357,13 @@ pub fn level_enabled(level: Level) -> bool {
 /// Lazily initialises like [`enabled`] and [`level_enabled`] do. It used to be a bare load, which
 /// made the answer depend on whether something had already gone through the level gate: a
 /// caller that reaches `log_gate::emit` directly rather than through a
-/// `log_*!` macro never triggers `init_default`, so `AZ_LOG=debug` had not
+/// `log_*!` macro never triggers the lazy default, so `AZ_LOG=debug` had not
 /// been installed yet, the echo was still its `false` default, and the record
 /// was written to NO sink at all. That is what
 /// `a_record_reaches_stderr_exactly_once` catches ("got 0").
 #[must_use]
 pub fn stderr_echo() -> bool {
-    if !PROCESS.initialised.load(Ordering::Relaxed) {
-        init_default();
-    }
+    PROCESS.ensure_configured();
     PROCESS.stderr_echo()
 }
 
@@ -439,32 +474,17 @@ pub use crate::settings::LOG_REQUEST_VARS;
 /// the other way round).
 #[must_use]
 pub fn configured_level() -> Option<Level> {
-    if !PROCESS.initialised.load(Ordering::Relaxed) {
-        init_default();
-    }
+    PROCESS.ensure_configured();
     PROCESS.min_level()
 }
 
 /// Configure the process's filter as `settings` say.
 ///
-/// The dll builds them from the environment, once, at the start (`LogSettings::from_lookup`).
-/// Whatever was configured before is replaced, so it belongs before the first log record.
+/// The dll builds them from the environment, once, at the start (`LogSettings::from_lookup`). The
+/// first configuration of a process wins ([`LogFilter::install`]); log records asked for before
+/// it were answered as an empty environment would.
 pub fn install(settings: &LogSettings) {
-    PROCESS.apply(settings);
-}
-
-/// Configures the process's filter as an empty environment would, when nothing has.
-///
-/// Errors only, or Debug in a build without `std` (an embedder that installs a sink still gets
-/// records). The first question asked of the filter does it.
-fn init_default() {
-    if PROCESS.initialised.swap(true, Ordering::SeqCst) {
-        return;
-    }
-    #[cfg(feature = "std")]
-    PROCESS.apply(&LogSettings::default());
-    #[cfg(not(feature = "std"))]
-    PROCESS.apply(&LogSettings::without_environment());
+    PROCESS.install(settings);
 }
 
 #[cfg(test)]
