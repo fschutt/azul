@@ -862,6 +862,9 @@ mod tests {
     fn a_run_that_asked_for_nothing_prints_its_errors_and_no_more() {
         // --- child half: the logger as App::create installs it, one record per level ---
         if std::env::var_os("AZ_QUIET_PROBE_CHILD").is_some() {
+            // What `App::create` installs from the environment before the logger.
+            crate::desktop::app_settings::AppSettings::from_lookup(&crate::env::ProcessEnv::new())
+                .install_libraries();
             crate::desktop::logging::init_default_logger();
             crate::log_trace!(LogCategory::Layout, "{QUIET_PROBE} trace");
             crate::log_debug!(LogCategory::Layout, "{QUIET_PROBE} debug");

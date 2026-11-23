@@ -50,6 +50,17 @@ impl AppSettings {
             core: CoreSettings::from_lookup(env),
         }
     }
+
+    /// Puts what azul-css and azul-core ask of the environment where their context-free code
+    /// finds it: the theme and mode pins, the log filter, the profiling gate, the diagnostic
+    /// dials, the test hooks. The first install of a process wins.
+    ///
+    /// `App::create` does it before the first log record; a test that re-runs its binary under
+    /// an environment of its own does it first thing in the child, as `App::create` would.
+    pub fn install_libraries(&self) {
+        self.css.install();
+        self.core.install();
+    }
 }
 
 impl Default for AppSettings {

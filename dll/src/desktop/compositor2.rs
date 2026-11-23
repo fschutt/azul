@@ -4883,6 +4883,9 @@ mod log_volume_tests {
         if std::env::var_os("AZ_TRANSLATE_PROBE_CHILD").is_none() {
             return;
         }
+        // What `App::create` installs from the environment (the log filter, among others).
+        crate::desktop::app_settings::AppSettings::from_lookup(&crate::env::ProcessEnv::new())
+            .install_libraries();
         let items = (0..ITEMS)
             .map(|i| DisplayListItem::Rect {
                 bounds: LogicalRect::new(

@@ -164,8 +164,7 @@ impl App {
         // profiling gate, the diagnostic dials, the test hooks) is installed where their
         // context-free code finds it, before the first log record and before the system style is
         // discovered. The first install of a process wins.
-        settings.css.install();
-        settings.core.install();
+        settings.install_libraries();
         // The end user's rice (`~/.azul/css/<theme>/*.css` and the legacy per-app file,
         // `azul_css::rice`), in the `AZ_RICING` mode, with the real home directory: installed
         // HERE (a test or a tool that never creates an App never reads it), and before the system
