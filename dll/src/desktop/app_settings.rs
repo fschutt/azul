@@ -19,10 +19,10 @@
 //!
 //! The settings of azul-layout ([`LayoutSettings`]: the solver, the text, and the groups of the
 //! window, the render path, the services and the E2E engine) reach every window through
-//! [`AppShared::seed_window`](super::shell2::common::app_shared::AppShared::seed_window) (they
-//! are `LayoutWindow::set_settings`), and the app's font manager is made with the text group
-//! (`FontManager::with_settings`): until that happens the solver and text switches
-//! (`AZ_NO_DL_PATCH`, `AZ_DENSE_TEXT`, `AZ_TEXT_HINTING`, the traces) have no effect.
+//! [`AppShared::seed_window`](super::shell2::common::app_shared::AppShared::seed_window) (it
+//! calls `LayoutWindow::set_settings` for each window before its first pass), and the app's font
+//! manager is made with the text group (`FontManager::with_settings`). A window that is not
+//! seeded runs on the defaults, which is the behaviour of an empty environment.
 
 use azul_css::env::{EnvSource, NoEnv};
 use azul_layout::settings::LayoutSettings;
