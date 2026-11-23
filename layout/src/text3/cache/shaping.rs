@@ -186,12 +186,12 @@ pub fn shape_bidi_runs_with_per_item_cache<T: ParsedFontTrait>(
             // is sound and keeps the reuse. Clusters map back to their item
             // through `source_content_index`.
             let group = group_items(&bidi_runs[idx..coalesce_end]);
-            // NEGATIVE-CONTROL KNOB (T2, plan §2.3): AZ_T2_SKIP_RESTAMP=1
-            // hands back the cached entry UNMODIFIED — the exact defect
-            // 8ec9f387d fixed. The identity gate
+            // NEGATIVE-CONTROL KNOB (T2, plan §2.3): `TextSettings::skip_restamp`
+            // (`AZ_T2_SKIP_RESTAMP=1`) hands back the cached entry UNMODIFIED — the
+            // exact defect 8ec9f387d fixed. The identity gate
             // (tests/text3_shaping_cache_identity.rs) runs once with this
             // set and requires itself to FAIL; production never sets it.
-            let t2_skip_restamp = env_flag!("AZ_T2_SKIP_RESTAMP");
+            let t2_skip_restamp = tally.settings.skip_restamp;
             // (d7) Materialize from the compact store — the fat path
             // cloned every item here anyway, so this is cost-neutral.
             shaped.extend(cached.compact.expand().into_iter().map(|c| {
@@ -248,7 +248,7 @@ pub fn shape_bidi_runs_with_per_item_cache<T: ParsedFontTrait>(
             {
                 tally.groups_shaped += 1;
             }
-            let mut group_tally = ShapingTally::default();
+            let mut group_tally = ShapingTally::under(tally.settings);
             let group_items = shape_bidi_runs_tallied(
                 &bidi_runs[idx..coalesce_end],
                 font_chain_cache,
@@ -442,7 +442,14 @@ pub(super) fn measure_run_advance<T: ParsedFontTrait>(
     match &style.font_stack {
         FontStack::Ref(font_ref) => {
             let glyphs = font_ref
-                .shape_text(text, script, language, BidiDirection::Ltr, style.as_ref())
+                .shape_text_with(
+                    text,
+                    script,
+                    language,
+                    BidiDirection::Ltr,
+                    style.as_ref(),
+                    &tally.settings,
+                )
                 .ok()?;
             Some(glyphs.iter().map(|g| g.advance + g.kerning).sum())
         }
@@ -473,6 +480,11 @@ pub(super) fn measure_run_advance<T: ParsedFontTrait>(
 /// tallies that window's text, so no other window and no other test adds to it.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ShapingTally {
+    /// The switches the shaping runs under ([`crate::settings::TextSettings`], from the font
+    /// manager through the cache that owns this tally): the traces and the negative control
+    /// of the identity test. Every function the shaping passes the tally down to reads them
+    /// here.
+    pub(crate) settings: crate::settings::TextSettings,
     /// Shaping calls that produced ZERO clusters, or lost a segment, because the resolved font
     /// was not loaded (or no font in the chain covered any character) - the "success, zero
     /// glyphs" channel that made the first character typed into a blank document invisible for
@@ -486,6 +498,15 @@ pub struct ShapingTally {
 }
 
 impl ShapingTally {
+    /// A tally with nothing noted yet, for shaping under `settings`.
+    #[must_use]
+    pub(crate) fn under(settings: crate::settings::TextSettings) -> Self {
+        Self {
+            settings,
+            ..Self::default()
+        }
+    }
+
     /// Notes one shaping that came up short of a font (its face not loaded, or no face for any
     /// of its characters).
     const fn note_font_deficit(&mut self) {
@@ -598,14 +619,12 @@ pub(super) fn shape_with_font_fallback<T: ParsedFontTrait>(
     loaded_fonts: &LoadedFonts<T>,
     tally: &mut ShapingTally,
 ) -> Result<Vec<ShapedCluster>, LayoutError> {
-    // The debug flag is read once (`env_flag!`) — reading it per-shape
-    // (this function fires once per text segment, ~hundreds of times
-    // per render of a real DOM) costs ~100 ns per `std::env::var_os`
-    // call on macOS (env-lock + hashmap lookup), and even before the
-    // lookup finishes the `eprintln!` machinery takes a stderr lock
-    // and allocates the formatted string. Both are invisible in
-    // release unless `AZ_FONT_FALLBACK_DEBUG=1` is set.
-    let dbg = env_flag!("AZ_FONT_FALLBACK_DEBUG");
+    // The debug flag is a field of the settings the shaping runs under: this
+    // function fires once per text segment, ~hundreds of times per render of a
+    // real DOM, and the `eprintln!` machinery takes a stderr lock and
+    // allocates the formatted string. Invisible in release unless
+    // `TextSettings::trace_font_fallback` (`AZ_FONT_FALLBACK_DEBUG=1`) is set.
+    let dbg = tally.settings.trace_font_fallback;
 
     let segments = split_text_by_font_coverage(text, font_chain, loaded_fonts, tally);
 
@@ -675,6 +694,7 @@ pub(super) fn shape_with_font_fallback<T: ParsedFontTrait>(
                 style,
                 source_index,
                 source_node_id,
+                &tally.settings,
             );
         }
         let mut clusters = shape_text_with_caps(
@@ -686,6 +706,7 @@ pub(super) fn shape_with_font_fallback<T: ParsedFontTrait>(
             style,
             source_index,
             source_node_id,
+            &tally.settings,
         )?;
         if *seg_start > 0 {
             for cluster in &mut clusters {
@@ -726,6 +747,7 @@ pub(super) fn shape_with_font_fallback<T: ParsedFontTrait>(
             style,
             source_index,
             source_node_id,
+            &tally.settings,
         )?;
         // Fix byte offsets: shape_text_correctly produces offsets relative to
         // segment_text, but callers expect offsets relative to the full text.
@@ -905,6 +927,7 @@ fn shape_bidi_runs_tallied<T: ParsedFontTrait>(
                                 style,
                                 *source,
                                 *source_node_id,
+                                &tally.settings,
                             ),
                             FontStack::Stack(selectors) => {
                                 let cache_key = FontChainKey::from_selectors(selectors);
@@ -1008,6 +1031,7 @@ fn shape_bidi_runs_tallied<T: ParsedFontTrait>(
                                 style,
                                 *source,
                                 *source_node_id,
+                                &tally.settings,
                             )
                         }
                         FontStack::Stack(selectors) => {
@@ -1282,12 +1306,13 @@ fn shape_bidi_runs_tallied<T: ParsedFontTrait>(
                                 text.chars().take(30).collect::<String>()
                             )));
                         }
-                        font_ref.shape_text(
+                        font_ref.shape_text_with(
                             &text,
                             item.script,
                             language,
                             BidiDirection::Ltr,
                             style.as_ref(),
+                            &tally.settings,
                         )?
                     }
                     FontStack::Stack(selectors) => {
@@ -1311,12 +1336,13 @@ fn shape_bidi_runs_tallied<T: ParsedFontTrait>(
                                 continue;
                             };
                             let segment_text = &text[*seg_start..*seg_end];
-                            let mut seg_glyphs = font.shape_text(
+                            let mut seg_glyphs = font.shape_text_with(
                                 segment_text,
                                 item.script,
                                 language,
                                 BidiDirection::Ltr,
                                 style.as_ref(),
+                                &tally.settings,
                             )?;
                             // Fix byte offsets for glyphs
                             if *seg_start > 0 {
@@ -1567,6 +1593,8 @@ pub(super) fn shape_text_with_caps<T: ParsedFontTrait>(
     style: &Arc<StyleProperties>,
     source_index: ContentIndex,
     source_node_id: Option<NodeId>,
+    // What the shaping runs under (the advance basis follows the hinting switches).
+    settings: &crate::settings::TextSettings,
 ) -> Result<Vec<ShapedCluster>, LayoutError> {
     let Some((small, all)) = synthesized_small_caps(style, font, script) else {
         return shape_text_correctly(
@@ -1578,6 +1606,7 @@ pub(super) fn shape_text_with_caps<T: ParsedFontTrait>(
             style,
             source_index,
             source_node_id,
+            settings,
         );
     };
     let mut clusters = Vec::new();
@@ -1597,6 +1626,7 @@ pub(super) fn shape_text_with_caps<T: ParsedFontTrait>(
                 &small,
                 source_index,
                 source_node_id,
+                settings,
             )?
         } else {
             shape_text_correctly(
@@ -1608,6 +1638,7 @@ pub(super) fn shape_text_with_caps<T: ParsedFontTrait>(
                 style,
                 source_index,
                 source_node_id,
+                settings,
             )?
         };
         if start > 0 {
@@ -1629,12 +1660,14 @@ pub(super) fn shape_text_correctly<T: ParsedFontTrait>(
     style: &Arc<StyleProperties>,
     source_index: ContentIndex,
     source_node_id: Option<NodeId>,
+    // What the shaping runs under (the advance basis follows the hinting switches).
+    settings: &crate::settings::TextSettings,
 ) -> Result<Vec<ShapedCluster>, LayoutError> {
     unsafe {
         crate::az_mark(0x60864_u32, 0xC0DE_0864_u32);
     } // [g123] shape_text_correctly ENTERED
     let direction = bidi_level.direction();
-    let glyphs = font.shape_text(text, script, language, direction, style.as_ref())?;
+    let glyphs = font.shape_text_with(text, script, language, direction, style.as_ref(), settings)?;
     unsafe {
         crate::az_mark(0x60868_u32, (glyphs.len() as u32) | 0x8000_0000_u32);
     } // [g123] font.shape_text returned (high bit set); low bits = glyph count
