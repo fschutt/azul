@@ -11,8 +11,8 @@
 #
 # The sets: the bare crate, single features, and printpdf's own feature lists
 # (printpdf/Cargo.toml `text_layout`, `text_layout_hyphenation`, `html`,
-# `html_multithreaded`, `svg`). Keep the printpdf rows in sync with it. Every
-# set is checked even after one fails, so one run names every broken set.
+# `html_multithreaded`, `svg`), and the all-languages hyphenation feature. Keep the printpdf rows
+# in sync with it. Every set is checked even after one fails, so one run names every broken set.
 #
 # Usage: scripts/check_layout_features.sh [cargo check flags, e.g. --release]
 #        (from the repository root; locally --release shares the release build's
@@ -31,6 +31,7 @@ SETS=(
   "std,text_layout,text_layout_hyphenation,font_loading,xml,pdf"
   "std,text_layout,text_layout_hyphenation,font_loading,xml,pdf,font_loading_multithreaded"
   "std,text_layout,text_layout_hyphenation,font_loading,xml,pdf,svg,cpurender"
+  "std,text_layout,text_layout_hyphenation_all,font_loading"
 )
 
 failed=()

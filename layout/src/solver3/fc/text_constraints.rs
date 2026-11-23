@@ -136,6 +136,9 @@ pub(super) fn content_language(styled_dom: &StyledDom, node: NodeId) -> Option<&
 /// `en`, RFC 4647 lookup). Tags compare without case. `None` for a language
 /// without one (and in a build without `text_layout_hyphenation`). The one
 /// reading of a language tag, for `-azul-hyphenation-language` and `lang`.
+/// Whether the build embeds that language's patterns is another question: only
+/// English (US) without `text_layout_hyphenation_all`, and a paragraph in a
+/// language the build lacks is not hyphenated (`get_hyphenator`).
 pub(super) fn hyphenation_language_of_tag(tag: &str) -> Option<crate::text3::script::Language> {
     #[cfg(feature = "text_layout_hyphenation")]
     {
