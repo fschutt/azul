@@ -2962,3 +2962,7 @@ pub(super) fn hyphenator_for(constraints: &UnifiedConstraints) -> Option<Arc<Sta
         None
     }
 }
+
+#[cfg(test)]
+#[path = "line_layout_test.rs"]
+mod line_layout_test;
