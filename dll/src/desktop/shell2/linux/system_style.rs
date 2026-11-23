@@ -3470,6 +3470,10 @@ pub fn dump_discovered_style(env: &PlatformEnv) -> String {
 }
 
 #[cfg(test)]
+#[path = "system_style_test.rs"]
+mod env_tests;
+
+#[cfg(test)]
 mod kde_ini_tests {
     use super::*;
 

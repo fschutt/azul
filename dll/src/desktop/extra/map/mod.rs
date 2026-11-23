@@ -126,7 +126,7 @@ pub extern "C" fn tile_fetch_worker(
         thread::{ThreadReceiveMsg, ThreadWriteBackMsg, WriteBackCallback},
         widgets::map::{
             disk_cache::{cache_policy, unix_now, TileDiskCache},
-            draw_tile_svg, map_stats_enabled, map_tile_writeback, DrawnTile, TileFetchInit,
+            draw_tile_svg, map_tile_writeback, DrawnTile, TileFetchInit,
             TileReadyMsg,
         },
     };
@@ -135,7 +135,7 @@ pub extern "C" fn tile_fetch_worker(
         since.elapsed().as_secs_f64() * 1000.0
     }
 
-    let Some((tile, url, mapcss, look, cached_bytes, client, disk, language, dbg)) =
+    let Some((tile, url, mapcss, look, cached_bytes, client, disk, language, dbg, stats)) =
         init.downcast_ref::<TileFetchInit>().map(|i| {
             (
                 i.tile,
@@ -146,8 +146,10 @@ pub extern "C" fn tile_fetch_worker(
                 i.client.clone(),
                 TileDiskCache::open(i.cache_dir.as_str(), i.cache_max_bytes, &i.disk_usage),
                 i.language.as_str().to_string(),
-                // the map debug trace, decided when the map built this job
+                // the map debug trace and the tile statistics (`AZ_MAP_STATS`), decided when the
+                // map built this job
                 i.debug,
+                i.stats,
             )
         })
     else {
@@ -199,7 +201,7 @@ pub extern "C" fn tile_fetch_worker(
         if dbg {
             eprintln!("[map] worker FAILED tile=({z},{x},{y}): {why}");
         }
-        if map_stats_enabled() {
+        if stats {
             println!("AZ_MAP_TILE {z}/{x}/{y} {:.1} - - 0 failed", millis(since));
         }
         send_back(sender, AzString::from(why), Vec::new(), None);
@@ -261,7 +263,7 @@ pub extern "C" fn tile_fetch_worker(
                 drawn.labels.len()
             );
         }
-        if map_stats_enabled() {
+        if stats {
             println!(
                 "AZ_MAP_TILE {z}/{x}/{y} {fetch_ms:.1} {decode_ms:.1} {draw_ms:.1} {payload_len} \
                  {source}"
@@ -347,7 +349,7 @@ pub extern "C" fn tile_fetch_worker(
                     if dbg {
                         eprintln!("[map] worker revalidated tile=({z},{x},{y}): unchanged");
                     }
-                    if map_stats_enabled() {
+                    if stats {
                         println!("AZ_MAP_TILE_REVALIDATED {z}/{x}/{y} {:.1}", millis(asked));
                     }
                 }
