@@ -31,7 +31,10 @@ fn a_set_of_suppressed_tags_is_a_list_without_case_or_blanks() {
     assert!(!set.contains_or_all("other"));
     let all = SuppressSet::from_list("all");
     assert!(all.contains_or_all("anything"));
-    assert!(!all.contains("anything"), "only the var fallback honours `all`");
+    assert!(
+        !all.contains("anything"),
+        "only the var fallback honours `all`"
+    );
     assert!(!SuppressSet::new().contains_or_all("anything"));
 }
 
@@ -104,7 +107,8 @@ fn the_text_antialiasing_of_the_environment_keeps_its_defaults_and_overrides() {
     let no_tiles = TextAntialiasing::from_lookup(&env(&[("AZ_NO_LCD_PRETILE", "")]));
     assert!(!no_tiles.lcd_pretile);
     // a closure of the old shape is still an environment
-    let by_closure = TextAntialiasing::from_vars(|name| (name == "AZ_TEXT_AA").then(|| "none".into()));
+    let by_closure =
+        TextAntialiasing::from_vars(|name| (name == "AZ_TEXT_AA").then(|| "none".into()));
     assert_eq!(by_closure.mode, TextAntialiasMode::Aliased);
 }
 
@@ -112,7 +116,10 @@ fn the_text_antialiasing_of_the_environment_keeps_its_defaults_and_overrides() {
 fn the_overlay_verbs_come_from_az_overlay() {
     let overlay = DebugState::from_lookup(&env(&[("AZ_OVERLAY", "hit-test, overdraw")]));
     assert!(overlay.show_hit_test_areas && overlay.show_overdraw && !overlay.profiler_dbg);
-    assert_eq!(DebugState::from_lookup(&env(&[("AZ_OVERLAY", "")])), DebugState::default());
+    assert_eq!(
+        DebugState::from_lookup(&env(&[("AZ_OVERLAY", "")])),
+        DebugState::default()
+    );
 }
 
 #[test]

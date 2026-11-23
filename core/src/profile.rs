@@ -46,6 +46,8 @@
 //!   clock) and `libc::getrusage` isn't available. The probe module detects WASM at compile time
 //!   and forces the no-op impl.
 
+use alloc::{string::String, vec::Vec};
+
 /// Set of active `AZ_PROFILE` tokens. Parsed once from the env var.
 // independent profile toggles parsed from the env var; a bitflags type would
 // not improve this flat set of named booleans.
@@ -94,9 +96,9 @@ pub struct ProfileSettings {
     /// The active modes.
     pub flags: ProfileFlags,
     /// `AZ_PROFILE_OUT`: where the JSONL heap probes go. `None`: nowhere.
-    pub out_path: Option<alloc::string::String>,
+    pub out_path: Option<String>,
     /// What [`install`] says on stderr once: an unknown token, a mode that would emit nothing.
-    pub warnings: alloc::vec::Vec<alloc::string::String>,
+    pub warnings: Vec<String>,
 }
 
 // The profiling gate of the process: installed once at the start, then only read. It is asked

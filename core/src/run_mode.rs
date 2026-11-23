@@ -52,6 +52,18 @@ pub const FAKE_REDIRECT_VAR: &str = "AZ_AUTH_SESSION_REDIRECT";
 /// The windowing choice. `headless` is a stand-in switch here and nowhere else.
 const BACKEND_VAR: &str = "AZ_BACKEND";
 
+/// The file a test's battery reading is taken from (read at every query, so a test drains it).
+const BATTERY_STATE_FILE_VAR: &str = "AZ_BATTERY_STATE_FILE";
+
+/// The file a test's network reading is taken from (read at every query).
+const NETWORK_STATE_FILE_VAR: &str = "AZ_NETWORK_STATE_FILE";
+
+/// The file a test's utterances are appended to.
+const SPEECH_LOG_VAR: &str = "AZ_SPEECH_LOG";
+
+/// What a headless run hears, as text.
+const SPEECH_HEARD_VAR: &str = "AZ_SPEECH_HEARD";
+
 /// Whether this build can have hooks at all: the cargo feature `test-hooks`. A shipped build
 /// (`dist`) is built without it.
 pub const AVAILABLE: bool = cfg!(feature = "test-hooks");
@@ -78,6 +90,18 @@ pub struct TestHooks {
     pub fake_sign_in: bool,
     /// `AZ_AUTH_SESSION_REDIRECT` as typed; read only in a run with `fake_sign_in`.
     pub fake_redirect: Option<String>,
+    /// `AZ_BATTERY_STATE_FILE` as typed: the switch file of a test's battery reading, meaningful
+    /// in a run with `no_sensors` (a blank name is none).
+    pub battery_state_file: Option<OsString>,
+    /// `AZ_NETWORK_STATE_FILE` as typed: the switch file of a test's network reading, meaningful
+    /// in a run with `no_sensors` (a blank name is none).
+    pub network_state_file: Option<OsString>,
+    /// `AZ_SPEECH_LOG` as typed: the file a run with `no_speech` appends its utterances to (a
+    /// blank name is none).
+    pub speech_log: Option<OsString>,
+    /// `AZ_SPEECH_HEARD` as text (a value that is not UTF-8 is none): what a run with `no_speech`
+    /// hears.
+    pub speech_heard: Option<String>,
     /// `Url::open` starts nothing and answers "opened".
     pub open_nothing: bool,
     /// The biometric prompt answers "unavailable" and shows no sheet. `presence::decide` of
@@ -110,6 +134,10 @@ impl TestHooks {
         keyring_headless: false,
         fake_sign_in: false,
         fake_redirect: None,
+        battery_state_file: None,
+        network_state_file: None,
+        speech_log: None,
+        speech_heard: None,
         open_nothing: false,
         no_biometric: false,
         no_sensors: false,
@@ -126,6 +154,10 @@ impl TestHooks {
         keyring_headless: true,
         fake_sign_in: true,
         fake_redirect: None,
+        battery_state_file: None,
+        network_state_file: None,
+        speech_log: None,
+        speech_heard: None,
         open_nothing: true,
         no_biometric: true,
         no_sensors: true,
@@ -161,6 +193,10 @@ impl TestHooks {
             keyring_headless: stand_in,
             fake_sign_in: stand_in,
             fake_redirect: var(FAKE_REDIRECT_VAR).and_then(|value| value.into_string().ok()),
+            battery_state_file: var(BATTERY_STATE_FILE_VAR),
+            network_state_file: var(NETWORK_STATE_FILE_VAR),
+            speech_log: var(SPEECH_LOG_VAR),
+            speech_heard: var(SPEECH_HEARD_VAR).and_then(|value| value.into_string().ok()),
             open_nothing: stand_in,
             no_biometric: stand_in,
             no_sensors: stand_in,
@@ -385,6 +421,38 @@ mod tests {
     fn a_build_with_the_feature_hands_out_the_same_hooks() {
         assert!(AVAILABLE);
         assert!(std::ptr::eq(test_hooks(), test_hooks()));
+    }
+
+    /// The switch files and the heard text of the sensors and the speech stand-ins are read as
+    /// typed, whatever else is set; the heard text is text, a path is not.
+    #[test]
+    fn the_files_and_the_text_of_the_sensor_and_speech_stand_ins_are_read_as_typed() {
+        let none = hooks(&[]);
+        assert!(none.battery_state_file.is_none() && none.network_state_file.is_none());
+        assert!(none.speech_log.is_none() && none.speech_heard.is_none());
+        let asked = hooks(&[
+            ("AZ_BATTERY_STATE_FILE", "/tmp/battery"),
+            ("AZ_NETWORK_STATE_FILE", "/tmp/network"),
+            ("AZ_SPEECH_LOG", "/tmp/speech.log"),
+            ("AZ_SPEECH_HEARD", "hello there"),
+        ]);
+        assert_eq!(asked.battery_state_file, Some(OsString::from("/tmp/battery")));
+        assert_eq!(asked.network_state_file, Some(OsString::from("/tmp/network")));
+        assert_eq!(asked.speech_log, Some(OsString::from("/tmp/speech.log")));
+        assert_eq!(asked.speech_heard.as_deref(), Some("hello there"));
+        // they are values, not switches: no stand-in is turned on by them
+        assert!(!asked.no_sensors && !asked.no_speech && !asked.mocks);
+        // an empty value is passed on as typed (the consumer treats a blank name as none)
+        let blank = hooks(&[("AZ_SPEECH_LOG", ""), ("AZ_SPEECH_HEARD", "")]);
+        assert_eq!(blank.speech_log, Some(OsString::new()));
+        assert_eq!(blank.speech_heard.as_deref(), Some(""));
+        // text that is not UTF-8 is no text
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStringExt;
+            let raw = |name: &str| (name == "AZ_SPEECH_HEARD").then(|| OsString::from_vec(vec![0xff, b'x']));
+            assert_eq!(TestHooks::from_env(&raw).speech_heard, None);
+        }
     }
 
     /// The environment is an `EnvSource`: a map, nothing, and a path that is not text.

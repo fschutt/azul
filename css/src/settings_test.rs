@@ -47,5 +47,9 @@ fn the_session_variables_are_data() {
     assert_eq!(sys.desktop_session.as_deref(), Some("plasma"));
     assert!(sys.sway, "a marker that is set to an empty value is set");
     assert!(!sys.i3 && !sys.hyprland && !sys.gnome_session && !sys.kde_session);
-    assert_eq!(sys.languages, ["fr_FR", "de_DE.UTF-8"], "LC_ALL before LANG");
+    assert_eq!(
+        sys.languages,
+        ["fr_FR", "de_DE.UTF-8"],
+        "LC_ALL before LANG"
+    );
 }

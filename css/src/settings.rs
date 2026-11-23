@@ -8,11 +8,7 @@
 
 use alloc::{string::String, vec::Vec};
 
-use crate::{
-    env::EnvSource,
-    system::RicingMode,
-    theme_chain::ThemeEnv,
-};
+use crate::{env::EnvSource, system::RicingMode, theme_chain::ThemeEnv};
 
 /// `AZ_RICING`, `AZ_THEME` and `AZ_MODE`: what the environment asks of the user's rice and of the
 /// theme chain.
