@@ -4484,6 +4484,14 @@ impl LayoutWindow {
             ..settings.solver
         };
         self.font_manager.settings = settings.text;
+        // The window's own groups: what the switches of this window answer until a test or a
+        // host chooses otherwise, the direction the environment pins for scrolling, the walk of
+        // every scroll-driven box, and what the window's text halos do.
+        self.switches.adopt(&settings.window);
+        self.scroll_manager.pin_natural_scroll(settings.window.natural_scroll);
+        self.gpu_state_manager.walk_every_frame = settings.window.walk_scroll_boxes;
+        #[cfg(feature = "cpurender")]
+        self.text_halo_store.apply_settings(&settings.render);
         self.settings = settings;
     }
 
@@ -18490,7 +18498,7 @@ impl LayoutWindow {
         }
         let cursor = self.text_edit_manager.get_primary_cursor()?;
         Some(Self::resolve_step_with(
-            self.settings.window.dense_text_verify,
+            self.dense_text_verify(),
             text_target.dense.as_deref(),
             &text_target.layout,
             &cursor,
@@ -18499,9 +18507,18 @@ impl LayoutWindow {
         ))
     }
 
+    /// Whether every dense cursor step is compared with the sparse one
+    /// (`AZ_DENSE_TEXT=verify`, [`crate::settings::SolverSettings::dense_text`]).
+    const fn dense_text_verify(&self) -> bool {
+        matches!(
+            self.display_list_options.dense_text,
+            crate::settings::DenseTextMode::Verify
+        )
+    }
+
     /// (d6f) Dense-first step resolution: the dense dispatcher when the
     /// view is retained (verify-A/B'd against the sparse one when `verify` is
-    /// set: `WindowSettings::dense_text_verify`, `AZ_DENSE_TEXT=verify`),
+    /// set: [`Self::dense_text_verify`]),
     /// sparse fallback otherwise. Associated (no
     /// `&self`) because the call sites run inside `move_all_cursors`
     /// closures that hold `self.text_edit_manager` mutably — the dense
@@ -18878,7 +18895,7 @@ impl LayoutWindow {
         }
         let target = self.text_target(focus.0)?;
         let stepped = Self::resolve_step_with(
-            self.settings.window.dense_text_verify,
+            self.dense_text_verify(),
             target.dense.as_deref(),
             &target.layout,
             &focus.1,
@@ -19488,7 +19505,7 @@ impl LayoutWindow {
                 // (the Left/Right rule). Word, visual-line, Home/End and
                 // document jumps are movements and must actually be performed.
                 let collapse = matches!(op.step, SelectionStep::Character);
-                let verify = self.settings.window.dense_text_verify;
+                let verify = self.dense_text_verify();
                 if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
                     for _ in 0..op.repeat.max(1) {
                         mc.move_all_cursors_with(extend, collapse, |c| {
@@ -19509,7 +19526,7 @@ impl LayoutWindow {
             SelectionMode::Delete => {
                 // Step 1: if step > Character, expand cursors to ranges first
                 if !matches!(op.step, SelectionStep::Character) {
-                    let verify = self.settings.window.dense_text_verify;
+                    let verify = self.dense_text_verify();
                     if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
                         for _ in 0..op.repeat.max(1) {
                             mc.move_all_cursors(true, |c| {
@@ -19719,7 +19736,7 @@ impl LayoutWindow {
                 cursor: end,
                 anchor: None,
             });
-        let verify = self.settings.window.dense_text_verify;
+        let verify = self.dense_text_verify();
         let step = |c: &TextCursor| {
             Self::resolve_step_with(verify, dense, layout, c, op.direction, op.step)
         };
@@ -22254,7 +22271,7 @@ impl LayoutWindow {
         let finished = self.animations.tick(dt);
         self.tracks_sampled_since_tick = false;
         // `AZ_ANIM_DEBUG`: read here, where `self` is whole, for the borrows below.
-        let anim_debug = self.settings.window.anim_debug;
+        let anim_debug = self.display_list_options.trace_animation;
 
         // Solved bounds for every transitioning node, read BEFORE the GPU
         // cache borrow below (get_node_bounds needs `&self` whole).
@@ -30221,7 +30238,7 @@ impl LayoutWindow {
                 .extend_chains_for_content(&new_inline_content, |bytes, index| {
                     loader.load_font_shared(bytes, index)
                 });
-            if added > 0 && self.settings.window.font_fallback_debug {
+            if added > 0 && self.font_manager.settings.trace_font_fallback {
                 eprintln!("[FONT FALLBACK] edit-time chain extension: {added} face(s) added");
             }
         }
@@ -43677,3 +43694,7 @@ mod hover_tooltip_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "window_test.rs"]
+mod settings_tests;

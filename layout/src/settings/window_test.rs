@@ -29,9 +29,6 @@ fn an_empty_environment_is_the_default_and_ships_the_production_paths() {
     assert!(!none.malloc_trim);
     assert!(!none.map_debug);
     assert!(!none.focus_debug);
-    assert!(!none.dense_text_verify);
-    assert!(!none.anim_debug);
-    assert!(!none.font_fallback_debug);
     assert!(!none.scroll_contract_trace);
     assert!(!none.vv_reconcile_trace);
     assert!(!none.vv_trace);
@@ -89,12 +86,10 @@ fn a_natural_scroll_value_that_is_not_text_still_pins_the_traditional_direction(
 #[test]
 fn a_trace_switch_is_on_when_its_variable_is_set_to_anything() {
     type Read = fn(&WindowSettings) -> bool;
-    let switches: [(&str, Read); 9] = [
+    let switches: [(&str, Read); 7] = [
         ("AZ_PATCH_VERIFY", |s| s.patch_verify),
         ("AZ_MAP_DEBUG", |s| s.map_debug),
         ("AZ_FOCUS_DEBUG", |s| s.focus_debug),
-        ("AZ_ANIM_DEBUG", |s| s.anim_debug),
-        ("AZ_FONT_FALLBACK_DEBUG", |s| s.font_fallback_debug),
         ("AZ_VV_RECONCILE_TRACE", |s| s.vv_reconcile_trace),
         ("AZ_VV_TRACE", |s| s.vv_trace),
         ("AZ_TRACE_HIT", |s| s.trace_hit),
@@ -118,11 +113,6 @@ fn a_switch_that_wants_one_exact_value_takes_nothing_else() {
     assert!(!asked("AZ_MALLOC_TRIM", "0").malloc_trim);
     assert!(!asked("AZ_MALLOC_TRIM", "yes").malloc_trim);
     assert!(!asked("AZ_MALLOC_TRIM", "").malloc_trim);
-
-    assert!(asked("AZ_DENSE_TEXT", "verify").dense_text_verify);
-    assert!(!asked("AZ_DENSE_TEXT", "1").dense_text_verify);
-    assert!(!asked("AZ_DENSE_TEXT", "VERIFY").dense_text_verify);
-    assert!(!asked("AZ_DENSE_TEXT", "").dense_text_verify);
 
     assert!(asked("AZ_SCROLL_DEBUG", "1").scroll_debug);
     assert!(!asked("AZ_SCROLL_DEBUG", "0").scroll_debug);

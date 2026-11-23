@@ -133,18 +133,14 @@ pub fn present_by_moves(
     }
 }
 
-/// The debug dumps one backend writes: what `AZ_DUMP_DL_DIR` (the first display lists as JSON:
-/// splits "the list's clip is collapsed" from "the list is fine, the renderer clips wrong") and
-/// `AZ_DUMP_FRAME_DIR` (every rendered frame as a numbered PNG: splits "rendered wrong" from
-/// "presented wrong") ask of it, and how many it has written. The environment is read when the
-/// backend is made, and the counts are this backend's: a dump is limited to the first few frames
-/// of a window, not of the process.
-#[derive(Debug)]
+/// How many of the debug dumps one backend has written: what `AZ_DUMP_DL_DIR` (the first display
+/// lists as JSON: splits "the list's clip is collapsed" from "the list is fine, the renderer
+/// clips wrong") and `AZ_DUMP_FRAME_DIR` (every rendered frame as a numbered PNG: splits
+/// "rendered wrong" from "presented wrong") ask of it. WHERE they go is the window's setting
+/// (`RenderSettings::dump_display_lists`, `RenderSettings::dump_frames`); the counts are this
+/// backend's: a dump is limited to the first few frames of a window, not of the process.
+#[derive(Debug, Clone, Copy, Default)]
 pub struct DebugDumps {
-    /// `AZ_DUMP_DL_DIR`: where the first display lists go.
-    dl_dir: Option<String>,
-    /// `AZ_DUMP_FRAME_DIR`: where the rendered frames go.
-    frame_dir: Option<String>,
     /// Display lists dumped so far.
     lists: usize,
     /// Frames dumped so far.
@@ -159,12 +155,10 @@ impl DebugDumps {
     /// Most frames a backend dumps.
     const MAX_FRAMES: usize = 40;
 
-    /// The dumps the environment asks for: none unless a variable is set.
+    /// A backend that has dumped nothing yet.
     #[must_use]
-    pub fn from_env() -> Self {
+    pub const fn new() -> Self {
         Self {
-            dl_dir: std::env::var("AZ_DUMP_DL_DIR").ok(),
-            frame_dir: std::env::var("AZ_DUMP_FRAME_DIR").ok(),
             lists: 0,
             frames: 0,
             items_printed: false,
@@ -372,7 +366,8 @@ pub struct CpuBackend {
     /// (A10-06) Frames to pass before a frame is promoted again, after a promoted frame's
     /// surface was not complete when its frame was painted.
     pub present_layer_backoff: u32,
-    /// The debug dumps this backend writes (`AZ_DUMP_DL_DIR`, `AZ_DUMP_FRAME_DIR`).
+    /// How many of the debug dumps this backend has written (`AZ_DUMP_DL_DIR`,
+    /// `AZ_DUMP_FRAME_DIR`; where they go is the window's `RenderSettings`).
     pub debug_dumps: DebugDumps,
     /// How many bound GPU values (transforms, opacities and colours) this backend's frames have
     /// collected from the window's caches for their own use: a frame whose values and lists are
@@ -443,7 +438,7 @@ impl CpuBackend {
             last_present_layer: None,
             promoted: None,
             present_layer_backoff: 0,
-            debug_dumps: DebugDumps::from_env(),
+            debug_dumps: DebugDumps::new(),
             gpu_values_collected: 0,
         }
     }
@@ -613,6 +608,17 @@ impl CpuBackend {
             return Vec::new();
         };
         let display_list = &result.display_list;
+        // What the window's settings ask of this frame: the paint switches (which travel with
+        // the render state and the damage passes), the traces of the display-list patching, the
+        // thread budget, the kept surfaces' bound, the layered full repaint and the dumps.
+        let render = &layout_window.settings.render;
+        let paint = render.paint;
+        self.hit_tester.set_trace(layout_window.settings.window.trace_hit);
+        let trace_patch = layout_window.display_list_options.trace_patch;
+        self.retained_frames
+            .set_max_bytes(render.retained_bytes.unwrap_or(cpurender::retained::DEFAULT_MAX_BYTES));
+        let paint_threads = cpurender::bands::max_threads_for(render.threads);
+        self.glyph_cache.scratch.threads = paint_threads;
 
         // The frame's size is the shells' formula (`present_geometry::frame_size_px`, A10):
         // a shell makes its buffer with the same function from the same three numbers, so the
@@ -996,6 +1002,7 @@ impl CpuBackend {
                                 .transforms,
                         ),
                         new: Some(&self.previous_gpu_values.transforms),
+                        switches: paint,
                     },
                 )
                 .map(|(rects, moved)| {
@@ -1058,6 +1065,7 @@ impl CpuBackend {
                         .transforms,
                 ),
                 new: Some(&self.previous_gpu_values.transforms),
+                switches: paint,
             },
         );
         let has_vview_damage = !vview_damage.is_empty();
@@ -1082,7 +1090,7 @@ impl CpuBackend {
         let diff_path_ran = self.previous_display_list.is_some()
             && can_reuse_previous_frame
             && !gpu_damage.needs_full;
-        if cpurender::patch_debug() {
+        if trace_patch {
             eprintln!(
                 "[HLDMG-HINT] move_summary={:?} hint={:?} scroll_nonzero={} moved={:?}",
                 layout_window
@@ -1155,7 +1163,7 @@ impl CpuBackend {
         } else {
             dl_damage
         };
-        if cpurender::patch_debug() {
+        if trace_patch {
             eprintln!(
                 "[HLDMG] dl_damage={:?} can_reuse={} patched={} patch_damage={:?} resize={:?}",
                 dl_damage,
@@ -1279,7 +1287,7 @@ impl CpuBackend {
             }
         }
 
-        if cpurender::patch_debug() {
+        if trace_patch {
             eprintln!(
                 "[HLDMG-PATH] incremental={} all_damage={}",
                 is_incremental,
@@ -1306,7 +1314,7 @@ impl CpuBackend {
                     .previous_display_list
                     .as_deref()
                     .is_some_and(cpurender::full_repaint_needs_layers)
-                || std::env::var("AZ_CPU_FULL").is_ok_and(|v| v == "layers"))
+                || render.full_in_layers)
             {
                 // The state the frame is painted with (the offsets, the values, the lists),
                 // for the plan and for the repair of kept surfaces whose list was replaced:
@@ -1317,6 +1325,8 @@ impl CpuBackend {
                     &scroll_offsets
                 };
                 let probe = cpurender::CpuRenderState::new(offsets.clone())
+                    .with_switches(paint)
+                    .with_paint_threads(paint_threads)
                     .with_gpu_values(core::mem::take(&mut self.previous_gpu_values))
                     .with_system_style(layout_window.system_style.clone())
                     .with_virtual_view_display_lists(vview_dls.clone())
@@ -1493,7 +1503,7 @@ impl CpuBackend {
                 // twin executes the IDENTICAL path — it used to be inlined
                 // here only, making every mover-blit bug untestable in the
                 // harness.
-                let blit = cpurender::execute_translate_blit(
+                let blit = cpurender::execute_translate_blit_switched(
                     &mut output,
                     hint,
                     exceptions,
@@ -1501,6 +1511,7 @@ impl CpuBackend {
                     &rider_rects,
                     display_list,
                     dpi_factor,
+                    paint,
                 );
                 all_damage.extend(blit.damage);
                 present_unmoved.extend(blit.present_extra.iter().copied());
@@ -1539,7 +1550,7 @@ impl CpuBackend {
                     }
                     continue;
                 }
-                let out = cpurender::execute_virtual_view_shift_with(
+                let out = cpurender::execute_virtual_view_shift_switched(
                     &mut output,
                     display_list,
                     &vview_dls,
@@ -1550,6 +1561,7 @@ impl CpuBackend {
                     &next_scroll_baseline,
                     // The matrices this frame paints with.
                     &self.previous_gpu_values.transforms,
+                    paint,
                 );
                 all_damage.extend(out.damage);
                 present_extra.extend(out.present_extra);
@@ -1593,7 +1605,7 @@ impl CpuBackend {
                 pixel_w as f32 / dpi_factor,
                 pixel_h as f32 / dpi_factor,
             );
-            if cpurender::patch_debug() {
+            if trace_patch {
                 eprintln!("[HLDMG-FINAL] before merge {all_damage:?}");
             }
             cpurender::coalesce_damage_rects(&mut all_damage);
@@ -1621,7 +1633,7 @@ impl CpuBackend {
         // MapWidget's tile grid) was built earlier for the child-DOM damage diff;
         // it's handed to the renderer here so the CPU `VirtualView` arm can
         // composite them. Without this the CPU backend only drew a placeholder.
-        if cpurender::map_debug() {
+        if paint.map_debug {
             let summary: Vec<(usize, usize)> = vview_dls
                 .iter()
                 .map(|(id, dl)| (id.inner, dl.items.len()))
@@ -1713,6 +1725,8 @@ impl CpuBackend {
         // values it could use again.
         let painted_generation = self.previous_gpu_values_generation.take();
         let mut render_state = cpurender::CpuRenderState::new(render_offsets.clone())
+            .with_switches(paint)
+            .with_paint_threads(paint_threads)
             .with_gpu_values(core::mem::take(&mut self.previous_gpu_values))
             .with_system_style(layout_window.system_style.clone())
             .with_clear_color(clear_color)
@@ -1810,7 +1824,7 @@ impl CpuBackend {
             // compositor is for a list whose filters only it applies (a blur), and for
             // `AZ_CPU_FULL=layers` (the path before, for comparing the two).
             let layered = cpurender::full_repaint_needs_layers(display_list)
-                || std::env::var("AZ_CPU_FULL").is_ok_and(|v| v == "layers");
+                || render.full_in_layers;
             if layered {
                 let compositor = self
                     .compositor
@@ -1910,13 +1924,13 @@ impl CpuBackend {
         // AZ_DUMP_DL_DIR=/tmp/dls dumps the first display lists as JSON —
         // splits "the DL's clip is collapsed" (layout/reconcile bug) from
         // "the DL is fine, the renderer clips wrong" (cpurender bug).
-        if let Some(dir) = self.debug_dumps.dl_dir.as_deref() {
+        if let Some(dir) = render.dump_display_lists.as_deref() {
             let n = self.debug_dumps.lists;
             if n < DebugDumps::MAX_LISTS {
                 self.debug_dumps.lists += 1;
                 let _unused = std::fs::create_dir_all(dir);
                 let _unused = std::fs::write(
-                    format!("{dir}/dl_{n:03}.json"),
+                    dir.join(format!("dl_{n:03}.json")),
                     display_list.to_debug_json(),
                 );
             }
@@ -1924,19 +1938,18 @@ impl CpuBackend {
         // AZ_DUMP_FRAME_DIR=/tmp/frames dumps every rendered CPU frame as a
         // numbered PNG — splits "rendered wrong" from "presented wrong" when a
         // backend shows pixels that contradict the display list.
-        if let Some(dir) = self.debug_dumps.frame_dir.as_deref() {
+        if let Some(dir) = render.dump_frames.as_deref() {
             let n = self.debug_dumps.frames;
             if n < DebugDumps::MAX_FRAMES {
                 self.debug_dumps.frames += 1;
                 if let Ok(bytes) = output.encode_png() {
                     let _unused = std::fs::create_dir_all(dir);
                     let _unused = std::fs::write(
-                        format!(
-                            "{}/frame_{:03}_{}.png",
-                            dir,
+                        dir.join(format!(
+                            "frame_{:03}_{}.png",
                             n,
                             if is_incremental { "inc" } else { "full" }
-                        ),
+                        )),
                         bytes,
                     );
                 }

@@ -78,8 +78,6 @@ pub struct PaintSwitches {
     pub clip_debug: bool,
     /// `AZ_BLIT_DEBUG` is set: trace the blits of moved pixels and the display-list diff.
     pub blit_debug: bool,
-    /// `AZ_PATCH_DEBUG` is set: trace the patching of display lists.
-    pub patch_debug: bool,
     /// `AZ_MAP_DEBUG` is set: trace the layers and the view items a map paints.
     pub map_debug: bool,
 }
@@ -101,7 +99,6 @@ impl PaintSwitches {
             debug_damage: env.is_set("AZ_DEBUG_DAMAGE"),
             clip_debug: env.var("AZ_CLIP_DEBUG").is_some(),
             blit_debug: env.is_set("AZ_BLIT_DEBUG"),
-            patch_debug: env.is_set("AZ_PATCH_DEBUG"),
             map_debug: env.var("AZ_MAP_DEBUG").is_some(),
         }
     }

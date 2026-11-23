@@ -34,7 +34,6 @@ fn an_empty_environment_is_the_default_and_ships_the_production_paths() {
     assert!(!none.paint.debug_damage);
     assert!(!none.paint.clip_debug);
     assert!(!none.paint.blit_debug);
-    assert!(!none.paint.patch_debug);
     assert!(!none.paint.map_debug);
     assert!(!none.full_in_layers);
     assert_eq!(none.threads, None);
@@ -72,11 +71,10 @@ fn a_switch_that_is_on_by_default_goes_off_with_its_own_values_only() {
 #[test]
 fn a_trace_switch_is_on_when_its_variable_is_set_to_anything() {
     type Read = fn(&RenderSettings) -> bool;
-    let traces: [(&str, Read); 5] = [
+    let traces: [(&str, Read); 4] = [
         ("AZ_DEBUG_DAMAGE", |s| s.paint.debug_damage),
         ("AZ_CLIP_DEBUG", |s| s.paint.clip_debug),
         ("AZ_BLIT_DEBUG", |s| s.paint.blit_debug),
-        ("AZ_PATCH_DEBUG", |s| s.paint.patch_debug),
         ("AZ_MAP_DEBUG", |s| s.paint.map_debug),
     ];
     for (name, read) in traces {

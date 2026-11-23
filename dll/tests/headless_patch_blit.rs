@@ -44,14 +44,14 @@ fn page_dom() -> StyledDom {
 /// Cold layout @640x480, render; hinted resize @680x480, render.
 /// Returns (second frame's pixels, whether the blit was applied).
 fn run(patching: bool) -> (Vec<u8>, bool) {
+    let font_cache = FcFontCache::build();
+    let mut lw = LayoutWindow::new(font_cache).unwrap();
     // Honest (refined) damage is REQUIRED here: with full-strength damage
     // the whole frame repaints and the blit is unfalsifiable.
     assert!(
-        azul_layout::cpurender::dl_diff_refinements_enabled(),
-        "premise: honest (refined) damage (AZ_DL_DIFF_REFINE=0 turns it off)"
+        lw.settings.render.paint.dl_diff_refine,
+        "premise: honest (refined) damage (a window's settings turn it off with AZ_DL_DIFF_REFINE=0)"
     );
-    let font_cache = FcFontCache::build();
-    let mut lw = LayoutWindow::new(font_cache).unwrap();
     lw.display_list_options.patching = patching;
     let rr = RendererResources::default();
     let cb = ExternalSystemCallbacks::rust_internal();

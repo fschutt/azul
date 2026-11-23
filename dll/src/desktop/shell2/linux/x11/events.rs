@@ -980,6 +980,7 @@ impl X11Window {
                 };
 
                 azul_layout::scroll_timer::trace_scroll_input(
+                    layout_window.settings.window.scroll_debug,
                     "x11",
                     delta_x,
                     delta_y,

@@ -43,12 +43,6 @@ pub struct WindowSettings {
     pub map_debug: bool,
     /// `AZ_FOCUS_DEBUG` is set: trace the finalisation of focus changes.
     pub focus_debug: bool,
-    /// `AZ_DENSE_TEXT=verify`: every dense cursor step is compared with the sparse one.
-    pub dense_text_verify: bool,
-    /// `AZ_ANIM_DEBUG` is set: trace animation and tween steps.
-    pub anim_debug: bool,
-    /// `AZ_FONT_FALLBACK_DEBUG` is set: trace the font-fallback segmentation at edit time.
-    pub font_fallback_debug: bool,
     /// `AZ_SCROLL_CONTRACT_TRACE` is set: trace the planning of scroll contracts.
     pub scroll_contract_trace: bool,
     /// `AZ_VV_RECONCILE_TRACE` is set: trace the reconcile of a re-rendered virtual view.
@@ -84,9 +78,6 @@ impl WindowSettings {
             malloc_trim: env.var("AZ_MALLOC_TRIM").as_deref() == Some("1"),
             map_debug: env.is_set("AZ_MAP_DEBUG"),
             focus_debug: env.is_set("AZ_FOCUS_DEBUG"),
-            dense_text_verify: env.var("AZ_DENSE_TEXT").as_deref() == Some("verify"),
-            anim_debug: env.is_set("AZ_ANIM_DEBUG"),
-            font_fallback_debug: env.is_set("AZ_FONT_FALLBACK_DEBUG"),
             scroll_contract_trace: env.var("AZ_SCROLL_CONTRACT_TRACE").is_some(),
             vv_reconcile_trace: env.is_set("AZ_VV_RECONCILE_TRACE"),
             vv_trace: env.is_set("AZ_VV_TRACE"),

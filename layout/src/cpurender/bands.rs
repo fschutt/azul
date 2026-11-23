@@ -82,24 +82,24 @@ fn machine_threads() -> usize {
     *THREADS.get_or_init(|| std::thread::available_parallelism().map_or(1, usize::from))
 }
 
-/// `AZ_CPU_THREADS` as a thread count: unset, empty, zero or not a number is `None`.
-fn parse_threads(v: Option<&str>) -> Option<usize> {
-    v.and_then(|s| s.trim().parse::<usize>().ok()).filter(|n| *n > 0)
-}
-
-/// The most threads one repaint (and one composite) may use on this machine: `AZ_CPU_THREADS`
-/// when it is set (`1` paints everything on the calling thread), else
-/// [`DEFAULT_MAX_PAINT_THREADS`]; never more than the machine has.
+/// The most threads one repaint (and one composite) may use on this machine when the window's
+/// settings say `configured` (`RenderSettings::threads`, from `AZ_CPU_THREADS`: `Some(1)` paints
+/// everything on the calling thread), else [`DEFAULT_MAX_PAINT_THREADS`]; never more than the
+/// machine has.
 #[must_use]
-pub fn max_threads() -> usize {
-    // Process-wide configuration, read once from the environment (`AZ_CPU_THREADS`).
-    static CONFIGURED: OnceLock<Option<usize>> = OnceLock::new();
-    let configured =
-        *CONFIGURED.get_or_init(|| parse_threads(std::env::var("AZ_CPU_THREADS").ok().as_deref()));
+pub fn max_threads_for(configured: Option<usize>) -> usize {
     configured
         .unwrap_or(DEFAULT_MAX_PAINT_THREADS)
         .min(machine_threads())
         .max(1)
+}
+
+/// The most threads one repaint (and one composite) may use on this machine when nothing was
+/// configured: [`DEFAULT_MAX_PAINT_THREADS`], never more than the machine has
+/// ([`max_threads_for`] of the window's configured budget).
+#[must_use]
+pub fn max_threads() -> usize {
+    max_threads_for(None)
 }
 
 /// The threads a repaint asked for with `requested` (`CpuRenderState::paint_threads`) may use:
@@ -465,14 +465,12 @@ mod tests {
     }
 
     #[test]
-    fn the_thread_count_of_the_environment_is_a_positive_number_or_nothing() {
-        assert_eq!(parse_threads(None), None);
-        assert_eq!(parse_threads(Some("")), None);
-        assert_eq!(parse_threads(Some("0")), None);
-        assert_eq!(parse_threads(Some("four")), None);
-        assert_eq!(parse_threads(Some("1")), Some(1));
-        assert_eq!(parse_threads(Some(" 3 ")), Some(3));
+    fn the_thread_budget_is_at_least_one_and_never_more_than_the_machine_has() {
         assert!(max_threads() >= 1);
+        assert_eq!(max_threads_for(None), max_threads());
+        assert_eq!(max_threads_for(Some(1)), 1, "AZ_CPU_THREADS=1 is one thread");
+        assert!(max_threads_for(Some(10_000)) <= machine_threads(), "never more than the machine");
+        assert!(max_threads_for(Some(0)) >= 1, "a zero budget still paints");
         assert_eq!(threads_for(7), 7, "a count that was asked for is taken as it is");
         assert_eq!(threads_for(0), max_threads());
     }

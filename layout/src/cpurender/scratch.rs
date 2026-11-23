@@ -190,6 +190,9 @@ pub(crate) struct PaintScratch {
     /// Whether this cache belongs to a thread that paints a band of a repaint: a composite inside
     /// a band does not start threads of its own.
     pub(crate) in_band: bool,
+    /// The most threads a composite painted with this cache may use, as the window's settings
+    /// say (`CpuRenderState::paint_threads`; `0` is the default, `bands::max_threads`).
+    pub(crate) threads: usize,
     /// The rasteriser and scanline the text runs of this thread sweep their glyph cells with.
     pub(crate) text_raster: TextRasterPool,
     /// The colour [`blit_tinted_coverage`](super::pixmap::blit_tinted_coverage) tinted with last.
@@ -209,6 +212,7 @@ impl PaintScratch {
         Self {
             counts: FrameCounts::new(),
             in_band: true,
+            threads: 1,
             text_raster: TextRasterPool::default(),
             tint: TintTable::default(),
             shadows: SharedOrOwn::Shared(Arc::clone(&share.shadows)),
@@ -218,13 +222,13 @@ impl PaintScratch {
     }
 
     /// The most threads a composite painted with this scratch may use: one inside a band of a
-    /// repaint (the band's thread is the composite's), else up to
-    /// [`max_threads`](super::bands::max_threads).
+    /// repaint (the band's thread is the composite's), else up to what the window's settings
+    /// say ([`Self::threads`], `0`: [`max_threads`](super::bands::max_threads)).
     pub(crate) fn composite_threads(&self) -> usize {
         if self.in_band {
             1
         } else {
-            super::bands::max_threads()
+            super::bands::threads_for(self.threads)
         }
     }
 

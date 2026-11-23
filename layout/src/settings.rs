@@ -14,6 +14,11 @@
 //! - [`solver`]: the layout solver (`solver3`): the display-list options, the storage form of
 //!   text, the switches back to the old behaviour and the traces of the passes.
 //! - [`text`]: text shaping, fonts and glyph rendering (`text3`, `glyph_cache`).
+//! - [`window`]: the layout window (`window`, the managers, `scroll_timer`, `headless`): the
+//!   alternative paths of a rebuild, the traces and the verifications.
+//! - [`render`]: the CPU renderer (`cpu_backend`, `cpurender`): the paint switches, the thread
+//!   budget, the kept surfaces, the text halos and the dumps.
+//! - [`widgets`]: the widgets: the alternative builds and the traces.
 //!
 //! A group is added by a `pub mod` line, a `pub` field of [`LayoutSettings`] and a line in
 //! [`LayoutSettings::from_lookup`], each in the slot of its cluster below.
@@ -25,11 +30,17 @@ pub mod solver;
 pub mod text;
 
 // Cluster W2 (window, render, widgets): its `pub mod` lines go here.
+pub mod render;
+pub mod widgets;
+pub mod window;
 
 // Cluster W3 (e2e, telemetry, services): its `pub mod` lines go here.
 
+pub use render::{PaintSwitches, RenderSettings};
 pub use solver::{DenseTextMode, MovedRunPolicy, SolverSettings};
 pub use text::TextSettings;
+pub use widgets::WidgetSettings;
+pub use window::WindowSettings;
 
 /// Every group of settings of azul-layout.
 ///
@@ -45,6 +56,14 @@ pub struct LayoutSettings {
     pub text: TextSettings,
 
     // Cluster W2 (window, render, widgets): its fields go here.
+    /// The layout window: the alternative paths of a rebuild, the traces and the verifications
+    /// ([`WindowSettings`]).
+    pub window: WindowSettings,
+    /// The CPU renderer: the paint switches, the thread budget, the kept surfaces, the text
+    /// halos and the dumps ([`RenderSettings`]).
+    pub render: RenderSettings,
+    /// The widgets: the alternative builds and the traces ([`WidgetSettings`]).
+    pub widgets: WidgetSettings,
 
     // Cluster W3 (e2e, telemetry, services): its fields go here.
 }
@@ -58,6 +77,9 @@ impl LayoutSettings {
             text: TextSettings::from_lookup(env),
 
             // Cluster W2 (window, render, widgets): its groups go here.
+            window: WindowSettings::from_lookup(env),
+            render: RenderSettings::from_lookup(env),
+            widgets: WidgetSettings::from_lookup(env),
 
             // Cluster W3 (e2e, telemetry, services): its groups go here.
         }
