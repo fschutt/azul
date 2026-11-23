@@ -243,6 +243,11 @@ const DEFAULT_HEADER_FOOTER_HEIGHT: f32 = 30.0;
 /// Default font size for header/footer text (in points).
 const DEFAULT_HEADER_FOOTER_FONT_SIZE: f32 = 10.0;
 
+/// The most pages a paged layout produces unless the caller says otherwise
+/// ([`FakePageConfig::max_pages`]): a box of `height: 1e12px` is the page its text
+/// is on and a billion empty ones after it.
+pub const DEFAULT_MAX_PAGES: u32 = 10_000;
+
 /// Configuration for page headers and footers.
 ///
 /// This is a simplified interface for the common case of adding
@@ -478,6 +483,13 @@ pub struct FakePageConfig {
     pub footer_height: f32,
     /// Font size for header/footer text
     pub font_size: f32,
+    /// The most pages the layout produces ([`DEFAULT_MAX_PAGES`] by default;
+    /// `0` = no limit). A document that needs more is cut after this many
+    /// pages: the pages after them are not made, the layout says so in its debug
+    /// messages (a warning) and sets `truncated` in its result. Empty pages count:
+    /// the limit is what keeps one box of an absurd height (`height: 1e12px`,
+    /// `font-size: 1e30px`) from costing a billion of them.
+    pub max_pages: u32,
     /// Number format for page counters
     pub number_format: CounterFormat,
     /// Break-awareness policy for pagination (all-off default = plain
@@ -518,6 +530,7 @@ impl Default for FakePageConfig {
             header_height: DEFAULT_HEADER_FOOTER_HEIGHT,
             footer_height: DEFAULT_HEADER_FOOTER_HEIGHT,
             font_size: DEFAULT_HEADER_FOOTER_FONT_SIZE,
+            max_pages: DEFAULT_MAX_PAGES,
             text_color: ColorU {
                 r: 0,
                 g: 0,
@@ -614,6 +627,21 @@ impl FakePageConfig {
     pub const fn with_font_size(mut self, size: f32) -> Self {
         self.font_size = size;
         self
+    }
+
+    /// Set the most pages the layout produces (see [`Self::max_pages`]; `0` = no
+    /// limit).
+    #[must_use]
+    pub const fn with_max_pages(mut self, max_pages: u32) -> Self {
+        self.max_pages = max_pages;
+        self
+    }
+
+    /// Produce as many pages as the document needs, however many that is: no
+    /// limit on the page count ([`Self::max_pages`] = `0`).
+    #[must_use]
+    pub const fn with_unlimited_pages(self) -> Self {
+        self.with_max_pages(0)
     }
 
     /// Set text color for header/footer.
