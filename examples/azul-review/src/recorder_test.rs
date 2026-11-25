@@ -230,6 +230,23 @@ fn a_changed_window_is_encoded_with_its_settle_repeats_and_an_idle_one_costs_not
 }
 
 #[test]
+fn a_window_captured_by_the_system_is_recorded_like_the_taps_frames_and_says_where_it_came_from() {
+    let mut r = rig();
+    let started = r.start();
+    let frame = |fill: u8| RawFrame { width: 320, height: 200, format: PixelFormat::Bgra8, bytes: vec![fill; 320 * 200 * 4] };
+    assert!(r.rec.screen_frame(frame(1), 2.0).is_some());
+    r.run(1_500, 100);
+    assert!(r.rec.screen_frame(RawFrame { width: 321, height: 200, format: PixelFormat::Bgra8, bytes: vec![0; 321 * 200 * 4] }, 2.0).is_some(), "an odd one is reported ignored, not a crash");
+    r.rec.stop("user").unwrap();
+    let m = r.manifest(&started);
+    let screen = m.tracks.screen.as_ref().unwrap();
+    assert_eq!((screen.source.as_str(), screen.width, screen.height, screen.vfr), ("screencapturekit", 320, 200, true));
+    assert!((screen.scale - 2.0).abs() < f32::EPSILON);
+    assert_eq!(screen.segments[0].samples, 4, "the change and its three repeats");
+    assert!(m.problems().is_empty(), "{:?}", m.problems());
+}
+
+#[test]
 fn only_the_changed_rows_of_the_window_are_copied_and_a_pen_stroke_is_one_frame_in_the_file() {
     let mut r = rig();
     r.start();
@@ -603,4 +620,130 @@ fn a_recorder_that_is_dropped_without_a_stop_leaves_files_that_play() {
     assert_eq!(m.state, SessionState::Complete);
     let seg = &m.tracks.screen.as_ref().unwrap().segments[0];
     assert!(scan_file(&started.dir.join(&seg.file)).finished);
+}
+
+#[test]
+fn the_voice_meter_falls_while_the_recording_is_paused_too() {
+    let mut r = rig();
+    r.start();
+    r.advance(100);
+    voice(&mut r.rec, 960, 0.9);
+    r.rec.toggle_pause();
+    voice(&mut r.rec, 960, 0.9); // the meter still shows the voice
+    let loud = r.rec.indicator().level;
+    assert!(loud > 0.8, "{loud}");
+    r.run(4_000, 100);
+    assert!(r.rec.indicator().level < 0.01, "it fell: {}", r.rec.indicator().level);
+    r.rec.stop("user");
+}
+
+#[test]
+fn an_input_that_runs_slow_or_fast_against_the_session_clock_is_kept_in_step_with_the_picture() {
+    // 20 ms of voice arrives every 20.02 ms (slow) or 19.98 ms (fast): 1000 ppm, ten times what a sound
+    // card does, for five minutes. The voice's timeline must stay within a tenth of a second of the
+    // session clock, or the voice and the picture of the exported video part.
+    for (interval_us, what) in [(20_020_u64, "slow"), (19_980, "fast")] {
+        let mut r = rig();
+        let started = r.start();
+        let mut t = 0;
+        for _ in 0..15_100 {
+            t += interval_us;
+            r.clock.set_us(t);
+            voice(&mut r.rec, 960, 0.1);
+        }
+        let (last, max) = r.rec.audio_drift().unwrap();
+        assert!(last.unsigned_abs() < 100_000 && max < 100_000, "{what}: drift {last} us now, {max} us at most");
+        r.rec.stop("user").unwrap();
+        let m = r.manifest(&started);
+        let segs = &m.tracks.audio.as_ref().unwrap().segments;
+        assert_eq!(segs.len(), 2, "{what}: five minutes make a second segment");
+        // The voice's timeline is in step with the clock, so the second segment begins where the
+        // voice's 300 s are: its packets are in order and the segments do not overlap.
+        assert!(segs[1].start_us >= segs[0].end_us.unwrap().saturating_sub(100_000), "{what}: the segments are in order: {segs:?}");
+        assert!(segs[1].start_us > 299_000_000 && segs[1].start_us < 302_000_000, "{what}: {}", segs[1].start_us);
+    }
+}
+
+// ---- what it costs: a measurement, not a check ----
+
+/// The CPU seconds this process has used (user and system) and the most memory it has held, in bytes:
+/// the system's own account of it, to price a stand-in session in the units of RECORDER.md section 9.
+#[cfg(target_os = "macos")]
+fn process_cost() -> (f64, u64) {
+    #[repr(C)]
+    struct TimeVal {
+        sec: i64,
+        usec: i32,
+    }
+    #[repr(C)]
+    struct RUsage {
+        utime: TimeVal,
+        stime: TimeVal,
+        maxrss: i64,
+        others: [i64; 13],
+    }
+    extern "C" {
+        fn getrusage(who: i32, usage: *mut RUsage) -> i32;
+    }
+    let mut u = RUsage { utime: TimeVal { sec: 0, usec: 0 }, stime: TimeVal { sec: 0, usec: 0 }, maxrss: 0, others: [0; 13] };
+    // SAFETY: `RUsage` is the layout of macOS's `struct rusage` (two timevals and fourteen longs), and
+    // `getrusage(RUSAGE_SELF = 0)` only writes into it.
+    let status = unsafe { getrusage(0, &mut u) };
+    assert_eq!(status, 0, "getrusage");
+    let secs = |t: &TimeVal| t.sec as f64 + f64::from(t.usec) / 1e6;
+    (secs(&u.utime) + secs(&u.stime), u.maxrss.max(0) as u64)
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+#[ignore = "a measurement: cargo test --release -p AzReview --lib -- --ignored --nocapture a_simulated_session"]
+fn a_simulated_session_of_ten_minutes_is_priced_in_cpu_seconds_per_hour_and_memory() {
+    // A 2880 x 1800 window, a 720p camera at 15 pictures a second and the voice in 20 ms chunks, ten
+    // minutes at a clock the loop moves as fast as it can, with stand-in encoders that keep no picture:
+    // the cost of the recorder's own code (the shadow frame, the pacing, the muxer, the writer thread).
+    const SECONDS: u64 = 600;
+    let (w, h) = (2880_u32, 1800_u32);
+    let pixels = window(w, h, 7);
+    let stroke = [Rect { x: 1000, y: 600, w: 400, h: 300 }];
+    for scenario in ["idle", "typical", "busy"] {
+        let factory = MockFactory { script: VideoScript { keep: 0, ..VideoScript::default() }, ..MockFactory::default() };
+        let mut r = rig_with(quiet(), factory);
+        let (cpu0, _) = process_cost();
+        r.start();
+        let mut next_camera = 0_u64;
+        for tick in 0..SECONDS * 10 {
+            let t = tick * 100;
+            r.clock.set_us(t * 1_000);
+            let damage = match scenario {
+                "busy" => Some(Damage::Full),
+                "typical" if tick % 10 < 2 => Some(Damage::Rects(&stroke)),
+                _ if tick == 0 => Some(Damage::Full),
+                _ => None,
+            };
+            if let Some(damage) = damage {
+                r.rec.tap(&TapFrame { width: w, height: h, stride: w as usize * 4, scale: 2.0, damage, pixels: &pixels });
+            }
+            while next_camera <= t + 100 {
+                r.clock.set_us(next_camera.max(t) * 1_000);
+                r.rec.camera_frame(RawFrame { width: 1280, height: 720, format: PixelFormat::Nv12, bytes: vec![0; 1280 * 720 * 3 / 2] });
+                next_camera += 66;
+            }
+            for k in 0..5 {
+                r.clock.set_us((t + k * 20 + 20) * 1_000);
+                voice(&mut r.rec, 960, 0.1);
+            }
+            r.rec.tick();
+        }
+        let done = r.rec.stop("measured").unwrap();
+        let (cpu1, peak) = process_cost();
+        let cpu = cpu1 - cpu0;
+        assert!(done.clean, "{scenario}: {done:?}");
+        eprintln!(
+            "{scenario:8} {SECONDS} simulated s: CPU {cpu:.2} s = {:.1} CPU-s per hour = {:.2}% of one core; peak memory so far {} MB; media {} bytes",
+            cpu / SECONDS as f64 * 3600.0,
+            cpu / SECONDS as f64 * 100.0,
+            peak / 1_000_000,
+            done.media_bytes
+        );
+    }
 }

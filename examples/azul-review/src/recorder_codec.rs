@@ -159,6 +159,8 @@ pub struct VideoScript {
     pub refuse_every: usize,
     /// It reports itself as hardware.
     pub hardware: bool,
+    /// How many of the latest pictures it keeps for a test to look at (a long soak keeps none).
+    pub keep: usize,
 }
 
 impl Default for VideoScript {
@@ -167,6 +169,7 @@ impl Default for VideoScript {
             latency: 0,
             refuse_every: 0,
             hardware: true,
+            keep: usize::MAX,
         }
     }
 }
@@ -179,9 +182,11 @@ pub struct MockVideoCodec {
     height: u32,
     script: VideoScript,
     submitted: usize,
+    /// The pictures taken so far (the numbers of the packets), whether kept or not.
+    accepted: usize,
     ready: VecDeque<Vec<u8>>,
     waiting: VecDeque<Vec<u8>>,
-    /// The pictures taken so far, newest last, for the test to look at.
+    /// The latest pictures taken (as many as the script keeps), newest last, for the test to look at.
     pub taken: Vec<RawFrame>,
 }
 
@@ -194,6 +199,7 @@ impl MockVideoCodec {
             height,
             script,
             submitted: 0,
+            accepted: 0,
             ready: VecDeque::new(),
             waiting: VecDeque::new(),
             taken: Vec::new(),
@@ -225,9 +231,12 @@ impl VideoCodec for MockVideoCodec {
             return false;
         }
         // The first picture of a stream is a keyframe whatever was asked.
-        let keyframe = keyframe || self.taken.is_empty();
-        let unit = self.unit(self.taken.len(), keyframe);
+        let keyframe = keyframe || self.accepted == 0;
+        let unit = self.unit(self.accepted, keyframe);
+        self.accepted += 1;
         self.taken.push(frame);
+        let extra = self.taken.len().saturating_sub(self.script.keep);
+        self.taken.drain(..extra);
         self.waiting.push_back(unit);
         while self.waiting.len() > self.script.latency {
             if let Some(u) = self.waiting.pop_front() {

@@ -284,3 +284,57 @@ fn the_pace_is_the_frame_rate_cap() {
     assert_eq!(Pace::at_fps(1).min_gap_us, 1_000_000);
     assert_eq!(Pace::at_fps(0).min_gap_us, 1_000_000, "zero is not a rate");
 }
+
+// ---- the system's own capture of the window ----
+
+fn external(w: u32, h: u32, format: PixelFormat, fill: u8) -> RawFrame {
+    let len = match format {
+        PixelFormat::Nv12 => w as usize * h as usize * 3 / 2,
+        _ => w as usize * h as usize * 4,
+    };
+    RawFrame { width: w, height: h, format, bytes: vec![fill; len] }
+}
+
+#[test]
+fn a_frame_of_the_systems_capture_is_the_picture_with_the_same_pace_and_repeats() {
+    let mut c = capture();
+    assert!(!c.is_external());
+    assert_eq!(c.push_external(external(320, 200, PixelFormat::Nv12, 5), 2.0, 0), Tapped::Resized);
+    assert!(c.is_external());
+    assert_eq!((c.window_size(), c.picture_size()), ((320, 200), (320, 200)));
+    assert!((c.scale() - 2.0).abs() < f32::EPSILON);
+    let (f, key) = c.take_frame(0).unwrap();
+    assert!(key);
+    assert_eq!((f.format, f.width, f.height, f.bytes.len()), (PixelFormat::Nv12, 320, 200, 320 * 200 * 3 / 2), "the frame as it came, no conversion");
+    assert_eq!(c.due(50 * MS), Due::Nothing);
+    assert_eq!(c.due(120 * MS), Due::Settle(0), "the same sharpening repeats");
+    assert_eq!(c.take_frame(120 * MS).unwrap().0.bytes[0], 5, "the repeat is the newest frame again");
+    // A newer frame replaces it and is a change.
+    assert_eq!(c.push_external(external(320, 200, PixelFormat::Nv12, 9), 2.0, 300 * MS), Tapped::Copied { rows: 200 });
+    assert_eq!(c.take_frame(300 * MS).unwrap().0.bytes[0], 9);
+}
+
+#[test]
+fn a_captured_frame_that_cannot_be_a_pictures_is_ignored() {
+    let mut c = capture();
+    for bad in [
+        external(321, 200, PixelFormat::Nv12, 0),
+        external(320, 201, PixelFormat::Bgra8, 0),
+        external(0, 0, PixelFormat::Bgra8, 0),
+        RawFrame { width: 320, height: 200, format: PixelFormat::Bgra8, bytes: vec![0; 100] },
+    ] {
+        assert!(matches!(c.push_external(bad, 1.0, 0), Tapped::Ignored(_)));
+    }
+    assert_eq!(c.stats().ignored, 4);
+    assert!(!c.is_external() && c.take_frame(10 * MS).is_none());
+}
+
+#[test]
+fn the_systems_capture_replaces_the_shadow_and_a_resize_is_seen() {
+    let mut c = capture();
+    c.tap(&frame(64, 48, 256, Damage::Full, &full(64, 48, 1)), 0);
+    c.push_external(external(128, 96, PixelFormat::Bgra8, 2), 1.0, 10 * MS);
+    let (f, _) = c.take_frame(500 * MS).unwrap();
+    assert_eq!((f.width, f.height, f.format), (128, 96, PixelFormat::Bgra8));
+    assert_eq!(c.push_external(external(256, 192, PixelFormat::Bgra8, 3), 1.0, 600 * MS), Tapped::Resized);
+}

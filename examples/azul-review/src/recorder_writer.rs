@@ -425,7 +425,7 @@ pub fn spawn<W: Write + Send + 'static>(
     let status = Arc::new(Mutex::new(Status::default()));
     let shared = Arc::clone(&status);
     let join = std::thread::Builder::new()
-        .name(String::from("azreview-recorder-writer"))
+        .name(String::from("recorder-writer"))
         .spawn(move || {
             let mut last_t = 0_u64;
             let mut stopped = false;

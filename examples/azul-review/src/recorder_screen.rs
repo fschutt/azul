@@ -18,7 +18,12 @@
 //!   when two seconds have gone by since the last one while frames are being sent.
 //!
 //! The pictures are the shadow's pixels as the CPU renderer made them (RGBA, premultiplied: the
-//! window is opaque), cropped to an even size because H.264 wants one. Plain `std`, no azul.
+//! window is opaque), cropped to an even size because H.264 wants one.
+//!
+//! The same pacing serves the OTHER source of the screen, the system's own capture of the window
+//! (ScreenCaptureKit, for a window on the GPU path, which has no CPU frame to tap): its frames come
+//! whole, in the format the system made them ([`ScreenCapture::push_external`]); there is no shadow, the
+//! newest frame is kept and sent on the same pace with the same sharpening repeats. Plain `std`, no azul.
 
 use crate::recorder_codec::{PixelFormat, RawFrame};
 
@@ -126,6 +131,8 @@ pub struct ScreenCapture {
     last_key_us: Option<u64>,
     force_key: bool,
     last_taken: Due,
+    /// The newest whole frame of the system's capture; when there is one it is the picture.
+    external: Option<RawFrame>,
     stats: ScreenStats,
 }
 
@@ -146,6 +153,7 @@ impl ScreenCapture {
             last_key_us: None,
             force_key: true,
             last_taken: Due::Nothing,
+            external: None,
             stats: ScreenStats { taps: 0, rows_copied: 0, changes_sent: 0, settles_sent: 0, ignored: 0 },
         }
     }
@@ -191,9 +199,47 @@ impl ScreenCapture {
         self.last_taken
     }
 
+    /// Whether the picture comes from the system's capture (not from the engine's tap).
+    #[must_use]
+    pub const fn is_external(&self) -> bool {
+        self.external.is_some()
+    }
+
+    /// The system's capture delivered a whole frame of the window (NV12 or BGRA, as it came).
+    pub fn push_external(&mut self, frame: RawFrame, scale: f32, now_us: u64) -> Tapped {
+        self.stats.taps += 1;
+        let (w, h) = (frame.width, frame.height);
+        let need = match frame.format {
+            PixelFormat::Nv12 => (w as usize) * (h as usize) * 3 / 2,
+            PixelFormat::Rgba8 | PixelFormat::Bgra8 => (w as usize) * (h as usize) * 4,
+        };
+        if w < 2 || h < 2 || w > MAX_SIDE || h > MAX_SIDE || w % 2 != 0 || h % 2 != 0 {
+            self.stats.ignored += 1;
+            return Tapped::Ignored("the captured window's size is out of range or odd");
+        }
+        if frame.bytes.len() < need {
+            self.stats.ignored += 1;
+            return Tapped::Ignored("the captured frame's pixels are shorter than its size says");
+        }
+        let resized = (w, h) != (self.width, self.height);
+        self.width = w;
+        self.height = h;
+        self.scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
+        // Frames of the system's capture are the picture from now on: the shadow is not needed.
+        self.shadow = Vec::new();
+        self.external = Some(frame);
+        self.dirty = true;
+        self.last_change_us = now_us;
+        if resized {
+            Tapped::Resized
+        } else {
+            Tapped::Copied { rows: h }
+        }
+    }
+
     /// A resumed recording starts with the picture as it is now.
     pub fn mark_changed(&mut self, now_us: u64) {
-        if !self.shadow.is_empty() {
+        if !self.shadow.is_empty() || self.external.is_some() {
             self.dirty = true;
             self.last_change_us = now_us;
             self.force_key = true;
@@ -258,7 +304,7 @@ impl ScreenCapture {
     /// What the timer should send now.
     #[must_use]
     pub fn due(&self, now_us: u64) -> Due {
-        if self.shadow.is_empty() {
+        if self.shadow.is_empty() && self.external.is_none() {
             return Due::Nothing;
         }
         let gap_ok = self.last_sent_us.is_none_or(|t| now_us.saturating_sub(t) >= self.pace.min_gap_us);
@@ -280,12 +326,17 @@ impl ScreenCapture {
             return None;
         }
         let (w, h) = self.picture_size();
-        let row = self.width as usize * 4;
-        let tight = w as usize * 4;
-        let mut bytes = Vec::with_capacity(tight * h as usize);
-        for y in 0..h as usize {
-            bytes.extend_from_slice(&self.shadow[y * row..y * row + tight]);
-        }
+        let picture = if let Some(frame) = &self.external {
+            frame.clone()
+        } else {
+            let row = self.width as usize * 4;
+            let tight = w as usize * 4;
+            let mut bytes = Vec::with_capacity(tight * h as usize);
+            for y in 0..h as usize {
+                bytes.extend_from_slice(&self.shadow[y * row..y * row + tight]);
+            }
+            RawFrame { width: w, height: h, format: PixelFormat::Rgba8, bytes }
+        };
         let keyframe = self.force_key || self.last_key_us.is_none_or(|k| now_us.saturating_sub(k) >= self.pace.keyframe_every_us);
         if keyframe {
             self.last_key_us = Some(now_us);
@@ -305,7 +356,7 @@ impl ScreenCapture {
         }
         self.last_sent_us = Some(now_us);
         self.last_taken = due;
-        Some((RawFrame { width: w, height: h, format: PixelFormat::Rgba8, bytes }, keyframe))
+        Some((picture, keyframe))
     }
 }
 

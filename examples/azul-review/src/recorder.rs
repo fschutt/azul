@@ -263,12 +263,23 @@ struct AudioPipe {
     taken_us: u64,
     level: f32,
     off: Option<String>,
+    /// The session time of the last packet sent: the timeline never goes back past it.
+    last_pts: Option<u64>,
+    /// How far the input was from the session clock at its last chunk, microseconds (positive: behind), and
+    /// the most it has been.
+    drift_us: i64,
+    max_drift_us: u64,
+    /// Audio dropped to keep the input from running ahead of the session clock, microseconds.
+    dropped_us: u64,
 }
 
 /// One packet of Opus is 20 ms.
 const PACKET_US: u64 = 20_000;
-/// An input that is this far behind the clock lost audio: the pipe starts again at the new time.
-const RESYNC_US: u64 = 300_000;
+/// An input that is this far from the session clock is put right: behind, the voice is placed at the
+/// time it was said; a little ahead, a chunk is left out.
+const DRIFT_US: i64 = 60_000;
+/// An input this far ahead of the session clock starts again (never back past the last packet).
+const RESYNC_US: i64 = 300_000;
 
 impl AudioPipe {
     const fn new() -> Self {
@@ -279,6 +290,10 @@ impl AudioPipe {
             taken_us: 0,
             level: 0.0,
             off: None,
+            last_pts: None,
+            drift_us: 0,
+            max_drift_us: 0,
+            dropped_us: 0,
         }
     }
 
@@ -289,6 +304,7 @@ impl AudioPipe {
         while let Some(packet) = codec.poll() {
             let pts = anchor + self.packets * PACKET_US;
             self.packets += 1;
+            self.last_pts = Some(pts);
             writer.send(Cmd::Audio { pts_us: pts, packet });
         }
     }
@@ -641,6 +657,24 @@ impl Recorder {
         Some(outcome)
     }
 
+    /// A whole frame of the window from the system's own capture (ScreenCaptureKit), for a window on
+    /// the GPU path that the engine's tap cannot see; `scale` is the display's device pixels to a point.
+    pub fn screen_frame(&mut self, frame: RawFrame, scale: f32) -> Option<Tapped> {
+        if self.state != State::Recording {
+            return None;
+        }
+        let session = self.session.as_mut()?;
+        if session.screen_pipe.off.is_some() {
+            return None;
+        }
+        let now = session.clock.now_us();
+        let outcome = session.screen.push_external(frame, scale, now);
+        if matches!(outcome, Tapped::Resized | Tapped::Copied { rows: 1.. }) {
+            session.idle.activity(now);
+        }
+        Some(outcome)
+    }
+
     /// A picture of the camera.
     pub fn camera_frame(&mut self, frame: RawFrame) {
         if self.state != State::Recording {
@@ -689,16 +723,34 @@ impl Recorder {
                 pipe.anchor_us = Some(first);
                 pipe.packets = 0;
                 pipe.taken_us = 0;
+                pipe.drift_us = 0;
             }
             Some(anchor) => {
+                // Where the audio's own count says this chunk starts, against where the session clock
+                // says it does: the two clocks of one machine drift apart by tens of parts per million,
+                // a few hundred milliseconds in an hour. The voice is kept within [`DRIFT_US`] of the
+                // session clock, or the exported video's voice and picture part.
                 let expected = anchor + pipe.taken_us;
-                if first > expected + RESYNC_US {
-                    // The input lost time: start again at the new time, so what is said later is
-                    // placed where it was said.
-                    pipe.anchor_us = Some(first);
+                let drift = i64::try_from(first).unwrap_or(i64::MAX) - i64::try_from(expected).unwrap_or(i64::MAX);
+                let floor = pipe.last_pts.map_or(0, |p| p + PACKET_US);
+                if drift >= DRIFT_US || drift <= -RESYNC_US {
+                    // The input is behind (or far ahead): what is said next is placed where it is said
+                    // (never before the last packet: the timeline does not go back).
+                    pipe.anchor_us = Some(first.max(floor));
                     pipe.packets = 0;
                     pipe.taken_us = 0;
+                    pipe.drift_us = i64::try_from(first).unwrap_or(i64::MAX) - i64::try_from(first.max(floor)).unwrap_or(i64::MAX);
+                } else if drift <= -DRIFT_US {
+                    // A little ahead: this chunk is left out (20 ms now and then, not heard) and the
+                    // session clock catches up with the voice.
+                    pipe.dropped_us += chunk_us;
+                    pipe.drift_us = drift;
+                    pipe.max_drift_us = pipe.max_drift_us.max(drift.unsigned_abs());
+                    return;
+                } else {
+                    pipe.drift_us = drift;
                 }
+                pipe.max_drift_us = pipe.max_drift_us.max(pipe.drift_us.unsigned_abs());
             }
         }
         if let Some(codec) = pipe.codec.as_mut() {
@@ -710,6 +762,13 @@ impl Recorder {
 
     fn reopen(factory: &dyn CodecFactory, session: &mut Session, camera: bool, size: (u32, u32), kbps: u32, dir: &'static str, fps: u32) {
         let scale = if camera { 1.0 } else { session.screen.scale() };
+        let source = if camera {
+            "camera"
+        } else if session.screen.is_external() {
+            "screencapturekit"
+        } else {
+            "frame-tap"
+        };
         let writer = &session.writer;
         let pipe = if camera { &mut session.camera_pipe } else { &mut session.screen_pipe };
         pipe.flush(writer);
@@ -718,7 +777,7 @@ impl Recorder {
         match factory.video(size.0, size.1, kbps) {
             Ok(codec) => {
                 let first = pipe.size == (0, 0);
-                let meta = video_track(&codec.name(), codec.hardware(), size, kbps, fps, camera, scale);
+                let meta = video_track(&codec.name(), codec.hardware(), size, kbps, fps, source, scale);
                 pipe.size = size;
                 pipe.codec = Some(codec);
                 if first {
@@ -782,8 +841,6 @@ impl Recorder {
             session.screen_pipe.drain(&session.writer);
             session.camera_pipe.drain(&session.writer);
             session.audio_pipe.drain(&session.writer);
-            // The voice's meter falls.
-            session.audio_pipe.level *= 0.85;
             // The idle watch.
             if let IdleChange::Paused { idle_us } = session.idle.check(now) {
                 let _ = session.events.event_at(now, "session.idle_pause", &format!("{{\"idle_ms\":{}}}", idle_us / 1_000));
@@ -793,6 +850,8 @@ impl Recorder {
         let Some(session) = self.session.as_mut() else {
             return notices;
         };
+        // The voice's meter falls, whatever the recording is doing.
+        session.audio_pipe.level *= 0.85;
         // The rate.
         if now.saturating_sub(session.last_rate_us) >= RATE_SAMPLE_US {
             session.last_rate_us = now;
@@ -912,6 +971,14 @@ impl Recorder {
         }
     }
 
+    /// How far the voice's own clock is from the session clock: `(at the last chunk, the most so far)`
+    /// in microseconds, positive when the input is behind; `None` before any voice.
+    #[must_use]
+    pub fn audio_drift(&self) -> Option<(i64, u64)> {
+        let p = &self.session.as_ref()?.audio_pipe;
+        p.anchor_us.map(|_| (p.drift_us, p.max_drift_us))
+    }
+
     /// What the screen capture has done.
     #[must_use]
     pub fn screen_stats(&self) -> Option<crate::recorder_screen::ScreenStats> {
@@ -925,9 +992,9 @@ impl Recorder {
     }
 }
 
-fn video_track(encoder: &str, hardware: bool, size: (u32, u32), kbps: u32, fps: u32, camera: bool, scale: f32) -> Track {
+fn video_track(encoder: &str, hardware: bool, size: (u32, u32), kbps: u32, fps: u32, source: &str, scale: f32) -> Track {
     Track {
-        source: String::from(if camera { "camera" } else { "frame-tap" }),
+        source: source.to_string(),
         device: None,
         codec: String::from("h264"),
         encoder: encoder.to_string(),
@@ -936,7 +1003,7 @@ fn video_track(encoder: &str, hardware: bool, size: (u32, u32), kbps: u32, fps: 
         height: size.1,
         scale,
         fps,
-        vfr: !camera,
+        vfr: source != "camera",
         bitrate_kbps: kbps,
         sample_rate: 0,
         channels: 0,
@@ -973,7 +1040,7 @@ fn audio_track(encoder: &str, device: Option<String>) -> Track {
 fn off_track(dir: &str, width: u32, height: u32, device: Option<String>, status: TrackStatus, why: &str) -> Track {
     let video = dir != "audio";
     let mut t = if video {
-        video_track("none", false, (width.max(2), height.max(2)), 0, 0, dir == "camera", 1.0)
+        video_track("none", false, (width.max(2), height.max(2)), 0, 0, if dir == "camera" { "camera" } else { "frame-tap" }, 1.0)
     } else {
         audio_track("none", device.clone())
     };

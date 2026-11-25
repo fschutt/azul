@@ -68,6 +68,25 @@ fn an_encoder_that_is_behind_refuses_every_nth_picture() {
 }
 
 #[test]
+fn a_stand_in_keeps_only_as_many_pictures_as_it_is_told_to_and_numbers_them_all() {
+    // A long soak must not hold every picture it ever took; the packets still follow the pictures.
+    let mut c = MockVideoCodec::new(64, 64, VideoScript { keep: 2, ..VideoScript::default() });
+    for i in 0..5 {
+        assert!(c.submit(frame(i), false));
+    }
+    assert_eq!(c.taken.len(), 2, "the last two");
+    assert_eq!((c.taken[0].bytes[0], c.taken[1].bytes[0]), (3, 4), "the newest ones, in order");
+    let tags: Vec<u8> = std::iter::from_fn(|| c.poll()).map(|au| au[au.len() - 7]).collect();
+    assert_eq!(tags, vec![0, 1, 2, 3, 4], "every picture made its packet, numbered from the first");
+    let mut none = MockVideoCodec::new(64, 64, VideoScript { keep: 0, ..VideoScript::default() });
+    assert!(none.submit(frame(0), false) && none.submit(frame(1), false));
+    assert!(none.taken.is_empty(), "none kept");
+    let first = annexb_to_avcc(&none.poll().unwrap());
+    let second = annexb_to_avcc(&none.poll().unwrap());
+    assert!(first.keyframe && !second.keyframe, "the first picture is still the keyframe when none are kept");
+}
+
+#[test]
 fn the_stand_in_says_what_it_is() {
     let c = MockVideoCodec::new(1, 1, VideoScript { hardware: false, ..VideoScript::default() });
     assert_eq!(c.name(), "mock H.264");
