@@ -55,7 +55,7 @@ fn story_member_claims_a_restore_epoch_from_the_future() -> R {
 
 /// Prints what follows an entry that raised the epoch: the next honest entries.
 #[test]
-#[ignore = "probe: prints what follows an entry with a far restore epoch"]
+#[ignore = "X-DELTA-W1S47A-3: probe: prints what follows an entry with a far restore epoch"]
 fn probe_far_epoch_consequences() {
     let mut w = World::team().expect("the world");
     let (m, o) = (w.member, w.owner);
@@ -267,7 +267,7 @@ fn story_a_delegation_ends_at_its_stamp() -> R {
 /// Prints what the production does with the same entry delivered twice: to the metadata group, and in the
 /// log a device replays.
 #[test]
-#[ignore = "probe: prints what a duplicate delivery does"]
+#[ignore = "X-DELTA-W1S47A-22: probe: prints what a duplicate delivery does"]
 fn probe_a_duplicate_in_the_log() {
     let mut w = World::team().expect("the world");
     let (o, m) = (w.owner, w.member);
@@ -302,7 +302,7 @@ fn probe_a_duplicate_in_the_log() {
 /// `replay`, and nothing in the entry binds them. A delegate key that is live at the true stamp of its
 /// entry is expired at a later stamp, and the device stops at that entry.
 #[test]
-#[ignore = "probe: prints what other stamps do to a device's replay"]
+#[ignore = "X-DELTA-W1S47A-15: probe: prints what other stamps do to a device's replay"]
 fn probe_the_stamps_a_device_replays_with_decide_what_it_accepts() {
     let mut w = World::team().expect("the world");
     let (o, m) = (w.owner, w.member);

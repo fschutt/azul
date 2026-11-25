@@ -21,7 +21,7 @@ fn fixture_path() -> PathBuf {
 }
 
 #[test]
-#[ignore = "S5 fixture not landed: azlin-contract/fixtures/c4/team_log_entries.json (CHAIN-GLUE runs this golden)"]
+#[ignore = "X-DELTA-W1SIM-9: S5 fixture not landed: azlin-contract/fixtures/c4/team_log_entries.json (CHAIN-GLUE runs this golden)"]
 fn team_log_entry_hash_matches_azlin_contract_fixture() {
     let path = fixture_path();
     let fixture = std::fs::read_to_string(&path).unwrap_or_else(|error| {

@@ -211,7 +211,7 @@ fn bytes_of(v: &[u8]) -> azul::vec::U8Vec {
 /// Not a check: `cargo test -p AzReview --release -- --ignored --nocapture archive_timing` says what the
 /// archive of a long session costs on the window's thread every time the pen lifts.
 #[test]
-#[ignore = "a measurement, not a check"]
+#[ignore = "X-EDGE-C-2: a measurement, not a check (run by hand, see the doc comment)"]
 fn archive_timing() {
     use std::time::Instant;
     for (strokes, per) in [(10usize, 300usize), (40, 300), (100, 300)] {
