@@ -547,6 +547,7 @@ fn the_sentences_of_the_notices_say_what_to_do() {
         Notice::PicturesTooBig { limit_px: 40_000_000 },
         Notice::PictureTooBig { px: 2_000_000, limit_px: 1_500_000 },
         Notice::PictureInvalid,
+        Notice::ScaleLowered { wanted_pct: 200, used_pct: 140 },
         Notice::LabelShortened { limit: 120 },
         Notice::NoSuchItem { id: 4 },
         Notice::ArrowToItself,

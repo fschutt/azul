@@ -89,6 +89,8 @@ pub enum Notice {
     PicturesTooBig { limit_px: u64 },
     PictureTooBig { px: u64, limit_px: u64 },
     PictureInvalid,
+    /// The picture of a large cutout is drawn at a lower scale than the screen's to fit in memory.
+    ScaleLowered { wanted_pct: u32, used_pct: u32 },
     LabelShortened { limit: usize },
     NoSuchItem { id: ItemId },
     ArrowToItself,
@@ -116,6 +118,9 @@ impl Notice {
             Self::PictureInvalid => {
                 "The cutout's picture could not be used: its bytes do not match its size.".to_string()
             }
+            Self::ScaleLowered { wanted_pct, used_pct } => format!(
+                "This cutout is large: its picture is drawn at {used_pct}% scale instead of {wanted_pct}% so that it fits in memory, so it is a little less sharp."
+            ),
             Self::LabelShortened { limit } => {
                 format!("A label holds {limit} characters at most: the rest was cut off.")
             }
@@ -139,6 +144,7 @@ impl Notice {
             Self::PicturesTooBig { .. } => "azreview-whiteboard-notice-pictures-too-big",
             Self::PictureTooBig { .. } => "azreview-whiteboard-notice-picture-too-big",
             Self::PictureInvalid => "azreview-whiteboard-notice-picture-invalid",
+            Self::ScaleLowered { .. } => "azreview-whiteboard-notice-scale-lowered",
             Self::LabelShortened { .. } => "azreview-whiteboard-notice-label-shortened",
             Self::NoSuchItem { .. } => "azreview-whiteboard-notice-no-such-item",
             Self::ArrowToItself => "azreview-whiteboard-notice-arrow-to-itself",
@@ -155,6 +161,9 @@ impl Notice {
             Self::TooManyItems { limit } | Self::LabelShortened { limit } => vec![("limit", *limit as u64)],
             Self::PicturesTooBig { limit_px } => vec![("limit", *limit_px)],
             Self::PictureTooBig { px, limit_px } => vec![("px", *px), ("limit", *limit_px)],
+            Self::ScaleLowered { wanted_pct, used_pct } => {
+                vec![("wanted", u64::from(*wanted_pct)), ("used", u64::from(*used_pct))]
+            }
             Self::NoSuchItem { id } => vec![("id", *id)],
             Self::BoardRepaired { dropped } => vec![("dropped", *dropped as u64)],
             Self::PictureInvalid | Self::ArrowToItself | Self::ArrowNeedsACutout | Self::ArrowRepeated => {
