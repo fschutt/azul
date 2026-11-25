@@ -349,6 +349,10 @@ impl AppState {
         if let Some(live) = self.live.as_mut() {
             live.id += stroke_base;
         }
+        // What could be taken back before the archive came kept its old ids: the archive's ink is
+        // no history, and the list starts afresh.
+        self.history.clear();
+        self.redo_stack.clear();
         self.next_stroke_id += stroke_base;
         self.next_note_id += note_base;
         self.epoch = self.epoch.max(epoch_after);

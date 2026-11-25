@@ -32,7 +32,9 @@
        neither ends it nor cycles the nib; the note is saved in the archive and can be deleted.
        Without the test hooks the real recogniser is asked and refuses (an unbundled binary has no
        Info.plist): the message is told over the pages, the empty note is not kept, a second rest
-       starts nothing. No `[azul][a11y]` lint line may print in either run.
+       starts nothing. No `[azul][a11y]` lint line may print in either run;
+   10. the restart: a second AzReview on the same folder and data folder gets the saved session back
+       when it opens the file (`AZREVIEW_LOADED 1 0`) and adds its next stroke to it.
 
 Run ONE app at a time, through the capped runner:
 
@@ -367,6 +369,48 @@ def dictation(args, logs, out, binary, fake):
                                        if fake else "the real recogniser refused, and said so"))
 
 
+def restore(args, logs, out, binary):
+    """A second AzReview on the folder and the data folder of the first: the saved session comes back
+    when its file is opened (`AZREVIEW_LOADED 1 0`: the stroke), and a stroke drawn now is added to it -
+    the archive is not written over (the first launch after a session used to lose it)."""
+    data_dir = os.path.join(logs, "data")
+    folder = os.path.join(logs, "folder")
+    path = os.path.join(data_dir, ARCHIVE)
+    before = len(read_session(path).get("strokes", []))
+    if before != 1:
+        raise Failure("the first run left %d stroke(s) in its archive, expected 1" % before)
+    app = e2e.App("review-restore", binary,
+                  [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en",
+                   "--dwell-input", "off"],
+                  args.debug_port + 2, logs, args.timeout)
+    try:
+        app.until("AzReview's window", lambda: app.has_id(STRIP))
+        app.frame(2)
+        app.click(text="lib.rs")
+        app.until("the files folded away", lambda: not app.has_id(FLYOUT))
+        app.until("the saved session back", lambda: app.count("AZREVIEW_LOADED", r"1 0") > 0)
+        strip = app.rect(STRIP)
+        x0, y0 = strip["x"] + 200.0, strip["y"] + 220.0
+        app.must("mouse_move", x=x0, y=y0)
+        app.must("mouse_down", x=x0, y=y0)
+        for i in range(1, 12):
+            app.must("mouse_move", x=x0 + i * 14.0, y=y0 + (i % 4) * 3.0)
+            app.frame(1)
+        app.must("mouse_up", x=x0 + 12 * 14.0, y=y0)
+        app.frame(2)
+        app.until("the archive with both strokes", lambda: len(read_session(path).get("strokes", [])) == 2)
+        ids = [st["id"] for st in read_session(path)["strokes"]]
+        if len(set(ids)) != len(ids):
+            raise Failure("the two strokes share an id: %s" % ids)
+        no_lint(app, "the restored session")
+    except Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
+        raise
+    finally:
+        app.stop()
+    app.log("PASS: the saved session came back and a new stroke was added to it (ids %s)" % ids)
+
+
 def notes_in(path):
     with zipfile.ZipFile(path) as z:
         return json.loads(z.read("session.json").decode("utf-8")).get("notes", [])
@@ -376,6 +420,7 @@ def run_all(args, logs, out):
     binary = e2e.find_binary("AzReview", args.bin, "AZREVIEW_BIN")
     body(args, logs, out)
     dictation(args, logs, out, binary, fake_speech())
+    restore(args, logs, out, binary)
     return True
 
 

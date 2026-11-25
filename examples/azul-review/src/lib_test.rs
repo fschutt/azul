@@ -244,3 +244,76 @@ fn the_meaning_lit_in_the_title_row_is_the_one_the_ink_will_have() {
     s.tool = Tool::Pen;
     assert_eq!(s.ink_meaning(), Semantic::Praise, "and the pen takes the meaning back up");
 }
+
+// ---- a saved session comes back ----
+
+fn archive_of(file: &str, strokes: Vec<Stroke>, notes: Vec<crate::model::Note>) -> session::Loaded {
+    session::Loaded {
+        file: file.to_string(),
+        strokes,
+        notes,
+    }
+}
+
+fn note(id: u64) -> crate::model::Note {
+    crate::model::Note {
+        id,
+        page: 0,
+        x: 10.0,
+        y: 20.0,
+        text: "from before".to_string(),
+        language: String::new(),
+        state: crate::model::NoteState::Done,
+    }
+}
+
+#[test]
+fn a_saved_session_comes_back_into_the_open_file_and_the_next_ids_follow_it() {
+    let mut s = app_with_file();
+    let back = archive_of("f.rs", vec![kept(1, 0), kept(2, 1)], vec![note(5)]);
+    assert!(s.adopt(back));
+    assert_eq!(s.strokes.len(), 2);
+    assert_eq!(s.notes.len(), 1);
+    assert_eq!(s.next_stroke_id, 3, "after the archive's ids");
+    assert_eq!(s.next_note_id, 6);
+    assert!(!s.findings.is_empty(), "the findings follow the ink that came back");
+}
+
+#[test]
+fn an_archive_of_another_file_is_not_taken() {
+    let mut s = app_with_file();
+    assert!(!s.adopt(archive_of("other.rs", vec![kept(1, 0)], vec![note(1)])));
+    assert!(s.strokes.is_empty() && s.notes.is_empty());
+}
+
+#[test]
+fn what_was_drawn_before_the_session_came_back_is_kept_under_ids_of_its_own() {
+    // The read is on a Thread and a pen is quick: a stroke (id 1) is drawn before the archive
+    // (strokes 1 and 2) lands. Both survive, nothing shares an id, and the next stroke is a new id.
+    let mut s = app_with_file();
+    s.keep(kept(1, 0));
+    s.next_stroke_id = 2;
+    assert!(s.adopt(archive_of("f.rs", vec![kept(1, 0), kept(2, 0)], Vec::new())));
+    let ids: Vec<u64> = s.strokes.iter().map(|st| st.id).collect();
+    assert_eq!(ids, vec![1, 2, 3], "the archive's first, then what was drawn since, renumbered");
+    assert_eq!(s.next_stroke_id, 4);
+    assert!(!s.undo(), "the history before the archive came held the old ids: it starts afresh, no wrong stroke goes");
+    assert_eq!(s.strokes.len(), 3);
+}
+
+#[test]
+fn a_stroke_drawn_after_the_session_came_back_is_not_merged_into_its_burst() {
+    let mut s = app_with_file();
+    let mut old = kept(1, 0);
+    old.epoch = 3;
+    assert!(s.adopt(archive_of("f.rs", vec![old], Vec::new())));
+    assert!(s.epoch > 3, "a new burst of ink: {}", s.epoch);
+}
+
+#[test]
+fn the_pages_of_the_ink_that_came_back_are_drawn_anew() {
+    let mut s = app_with_file();
+    let before = s.ink.key(1, (10, 10));
+    assert!(s.adopt(archive_of("f.rs", vec![kept(1, 1)], Vec::new())));
+    assert_ne!(s.ink.key(1, (10, 10)), before);
+}
