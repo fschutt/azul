@@ -39,7 +39,10 @@ jobs:
           URL: ${{ github.event.workflow_run.html_url }}
         run: |
           set -euo pipefail
-          pr=$(gh pr list -R "$REPO" --head "$BRANCH" --state open --json number -q '.[0].number // empty')
+          # Only a pull request from a branch of this repository: `--head master` also finds the open pull
+          # request of a fork whose branch is called master (it got a comment per build of master).
+          pr=$(gh pr list -R "$REPO" --head "$BRANCH" --state open --json number,isCrossRepository \
+            -q 'map(select(.isCrossRepository | not)) | .[0].number // empty')
           if [ -z "$pr" ]; then
             echo "no open pull request for $BRANCH"
             exit 0
