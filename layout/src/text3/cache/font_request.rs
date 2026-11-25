@@ -230,10 +230,10 @@ impl FontRequest {
             Vec::with_capacity(settings.len().min(Self::MAX_SETTINGS));
         for (tag, value) in settings {
             let value = FontCoord::from_f32(*value);
-            match sorted.iter_mut().find(|(known, _)| known == tag) {
-                Some(slot) => slot.1 = value,
-                None if sorted.len() < Self::MAX_SETTINGS => sorted.push((*tag, value)),
-                None => {}
+            if let Some(slot) = sorted.iter_mut().find(|(known, _)| known == tag) {
+                slot.1 = value;
+            } else if sorted.len() < Self::MAX_SETTINGS {
+                sorted.push((*tag, value));
             }
         }
         sorted.sort_by_key(|(tag, _)| *tag);
