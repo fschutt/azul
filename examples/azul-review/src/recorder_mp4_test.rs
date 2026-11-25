@@ -338,6 +338,26 @@ fn a_colour_description_in_the_sps_becomes_a_colr_box() {
 }
 
 #[test]
+fn a_default_colour_is_written_when_the_sps_has_none_and_the_sps_colour_wins() {
+    let colr_of = |config: VideoConfig| {
+        let (_w, head) = FragmentWriter::new(TrackConfig::Video(config), 0, Limits::default());
+        let boxes = top_boxes(&head);
+        let moov = &head[boxes[1].1 + 8..boxes[1].1 + boxes[1].2];
+        let stsd = find(moov, &[b"trak", b"mdia", b"minf", b"stbl", b"stsd"]).unwrap();
+        let (_, entry) = children(&stsd[8..]).into_iter().next().unwrap();
+        child(&entry[78..], b"colr").map(|c| (u16::from_be_bytes([c[4], c[5]]), u16::from_be_bytes([c[8], c[9]]), c[10]))
+    };
+    // VideoToolbox's SPS has no VUI: no tags, unless the track is given a default.
+    assert_eq!(colr_of(video_config()), None);
+    assert_eq!(colr_of(video_config().with_default_colour(Colour::bt709())), Some((1, 1, 0)));
+    assert_eq!(colr_of(video_config().with_default_colour(Colour::bt601())), Some((6, 6, 0)));
+    // An SPS that says its colour keeps it.
+    let au = annexb(&[&made_sps(100, 1280, 720, Some((9, 16, 9, true))), &pps(), &[0x65, 1, 2, 3]]);
+    let own = VideoConfig::from_keyframe(&au).unwrap().with_default_colour(Colour::bt709());
+    assert_eq!(colr_of(own), Some((9, 9, 0x80)));
+}
+
+#[test]
 fn an_opus_file_describes_a_sound_track_at_48_khz() {
     let (_w, head) = FragmentWriter::new(TrackConfig::Opus(OpusConfig::mono_48k()), 0, Limits::default());
     let boxes = top_boxes(&head);
@@ -481,6 +501,51 @@ fn a_fragment_that_never_meets_a_keyframe_is_closed_by_its_length() {
     let s = scan(&mut Cursor::new(&file)).unwrap();
     assert!(s.fragments >= 3, "three seconds in one-second fragments, got {}", s.fragments);
     assert_eq!(s.samples, 90);
+}
+
+/// Every fragment of a file: the `(duration, size, flags)` of each of its samples and its media.
+fn read_fragments(file: &[u8]) -> Vec<(Vec<(u32, u32, u32)>, Vec<u8>)> {
+    let boxes = top_boxes(file);
+    let moofs: Vec<_> = boxes.iter().filter(|b| &b.0 == b"moof").collect();
+    let mdats: Vec<_> = boxes.iter().filter(|b| &b.0 == b"mdat").collect();
+    moofs
+        .iter()
+        .zip(&mdats)
+        .map(|(moof, mdat)| {
+            let trun = find(&file[moof.1 + 8..moof.1 + moof.2], &[b"traf", b"trun"]).unwrap();
+            let n = be32(trun, 4).unwrap() as usize;
+            let entries = (0..n)
+                .map(|i| {
+                    let at = 12 + i * 12;
+                    (be32(trun, at).unwrap(), be32(trun, at + 4).unwrap(), be32(trun, at + 8).unwrap())
+                })
+                .collect();
+            (entries, file[mdat.1 + 8..mdat.1 + mdat.2].to_vec())
+        })
+        .collect()
+}
+
+#[test]
+fn every_sample_comes_back_out_of_its_fragment_with_its_size_flags_and_duration() {
+    let (file, _) = video_file(150, 60, 33_333);
+    let mut samples = Vec::new();
+    for (entries, media) in read_fragments(&file) {
+        let mut at = 0_usize;
+        for (duration, size, flags) in entries {
+            samples.push((duration, media[at..at + size as usize].to_vec(), flags));
+            at += size as usize;
+        }
+        assert_eq!(at, media.len(), "the sizes add up to the media of the fragment");
+    }
+    assert_eq!(samples.len(), 150);
+    for (i, (duration, bytes, flags)) in samples.iter().enumerate() {
+        let key = i % 60 == 0;
+        let au = if key { keyframe(i as u8, 300) } else { delta(i as u8, 100) };
+        assert_eq!(bytes, &annexb_to_avcc(&au).bytes, "sample {i}'s bytes");
+        assert_eq!(*flags, if key { 0x0200_0000 } else { 0x0101_0000 }, "sample {i}'s flags");
+        let end = if i + 1 < 150 { us_to_ticks((i as u64 + 1) * 33_333, 90_000) } else { us_to_ticks(150 * 33_333, 90_000) };
+        assert_eq!(u64::from(*duration), end - us_to_ticks(i as u64 * 33_333, 90_000), "sample {i}'s duration");
+    }
 }
 
 #[test]
