@@ -974,11 +974,11 @@ pub extern "C" fn on_ink_up(mut data: RefAny, mut info: CallbackInfo) -> Update 
         let Some(done) = s.live.take() else {
             return Update::DoNothing;
         };
-        // Kept or dropped (a click cycles the nib), the page's frame no
-        // longer shows a stroke being drawn.
-        s.ink.touch(done.page);
         let layer = ink::Layer::of(done.semantic);
         if done.points.len() < CLICK_POINT_LIMIT {
+            // Dropped (a click cycles the nib): the page's frame no longer shows the dab that was
+            // drawn. A kept stroke is told to the page by `keep`: the frame already shows it.
+            s.ink.touch(done.page);
             // A touch that rests the pen on the page while a dictation listens is no click: it must
             // not change the nib under the user's hand.
             let up = if s.voice.running.is_some() { Up::Dab } else { Up::Click };

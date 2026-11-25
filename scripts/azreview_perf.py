@@ -248,6 +248,7 @@ def body(args, logs, out):
 
         # a session growing: S strokes of 300 points, the archive built after each
         archives_before = len(app.printed("AZREVIEW_ARCHIVE", r".*"))
+        perf_before = len(app.printed("AZREVIEW_PERF", r".*"))
         grow_from = time.perf_counter()
         for k in range(args.strokes):
             stroke(app, origin, 300, per_row=300, per_frame=6)
@@ -262,6 +263,13 @@ def body(args, logs, out):
         result["archive_growth"] = [{"strokes": r["strokes"], "bytes": r["bytes"], "ms": round(r["us"] / 1000.0, 2)}
                                     for r in rows[:: max(1, len(rows) // 8)] + rows[-1:]]
         result["archive_ms"] = quantiles([r["us"] / 1000.0 for r in rows])
+        # the slowest frame of the ink layer in each stroke: what the pen's lift costs as the page fills
+        draws = []
+        for text in app.printed("AZREVIEW_PERF", r".*")[perf_before:]:
+            d = {k: int(v) for k, v in re.findall(r"(\w+)=(\d+)", text)}
+            draws.append(round(d.get("draw_us_max", 0) / 1000.0, 2))
+        result["slowest_ink_frame_ms_per_stroke"] = {"first_5": draws[:5], "middle_5": draws[len(draws) // 2 - 2:len(draws) // 2 + 3],
+                                                       "last_5": draws[-5:], "max": max(draws) if draws else 0}
         app.frame(5)
         grow_lines = [(t, l) for t, l in list(tail.lines) if t >= grow_from]
         relayouts = layouts_between(grow_lines, grow_from, time.perf_counter())
