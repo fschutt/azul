@@ -183,7 +183,7 @@ text-decoration: underline;
 - `font-weight` accepts any number from `1` to `1000` (`350`, `650.5`), `normal` (400), `bold` (700), `bolder`, or `lighter`. Type `StyleFontWeight`.
 - `font-style` accepts `normal`, `italic`, or `oblique` with an optional angle from `-90deg` to `90deg` (`oblique 12deg`; a bare `oblique` is `14deg`). Type `StyleFontStyle`.
 - `font-stretch` (also spelled `font-width`) accepts a percentage from `0%` (`87.5%`) or a keyword from `ultra-condensed` (50%) to `ultra-expanded` (200%). Type `StyleFontStretch`.
-- `font-variation-settings` accepts `normal` or a comma-separated list of `"tag" <number>` (`"wght" 650, "wdth" 87.5`). A tag given twice keeps its last value. Type `StyleFontVariationSettings`.
+- `font-variation-settings` accepts `normal` or a comma-separated list of `"tag" <number>` (`"wght" 650, "wdth" 87.5`). A tag given twice keeps its last value. A value keeps its first 64 distinct tags (`MAX_VARIATION_AXES`; the widest real font has about a dozen axes) and the stylesheet parser warns about more. Type `StyleFontVariationSettings`.
 - `font-optical-sizing` accepts `auto` or `none`. Type `StyleFontOpticalSizing`.
 - `font-kerning` accepts `auto`, `normal`, or `none`. Type `StyleFontKerning`.
 - `font-variant-ligatures` accepts `normal`, `none`, or any combination of `common-ligatures` / `no-common-ligatures`, `discretionary-ligatures` / `no-discretionary-ligatures`, `historical-ligatures` / `no-historical-ligatures`, `contextual` / `no-contextual`. Type `StyleFontVariantLigatures`.

@@ -176,7 +176,8 @@ pub fn parse_style_font_stretch(input: &str) -> Result<StyleFontStretch, Invalid
 /// `"wght" 650`, `"wdth" 87.5`, `"opsz" 14`. Inherited. Held as its canonical CSS text (`normal`,
 /// or each axis as its tag in double quotes and its number, separated by `, `): one string keeps
 /// the value a single C struct. [`Self::variations`] reads the axes back; a tag given twice keeps
-/// only its last value, where it last stands. An axis a font does not have is ignored.
+/// only its last value, where it last stands. An axis a font does not have is ignored. A value
+/// keeps its first [`MAX_VARIATION_AXES`] distinct tags.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleFontVariationSettings {
@@ -258,9 +259,15 @@ fn variation_text(tag: [u8; 4], value: f32) -> String {
 }
 
 /// Puts one axis into `kept`: a tag that is kept already takes the new value, at the end of the
-/// list (where it last stands).
+/// list (where it last stands); a new tag is appended while `kept` holds fewer than
+/// [`MAX_VARIATION_AXES`] axes and dropped after that. The scan is over at most
+/// [`MAX_VARIATION_AXES`] entries, so a list of any length is read in linear time.
 fn keep_variation(kept: &mut Vec<([u8; 4], f32)>, tag: [u8; 4], value: f32) {
-    kept.retain(|(other, _)| *other != tag);
+    if let Some(at) = kept.iter().position(|(other, _)| *other == tag) {
+        kept.remove(at);
+    } else if kept.len() >= MAX_VARIATION_AXES {
+        return;
+    }
     kept.push((tag, value));
 }
 
@@ -341,7 +348,8 @@ impl FormatAsRustCode for StyleFontVariationSettings {
 ///
 /// A tag is four printable ASCII characters in double or single quotes; the number is required
 /// and plain decimal (`"wght" 650`, `'wdth' -12.5`, `"opsz" .5`, `"slnt" +3`): no exponent, no
-/// `inf`, no `NaN`, no `on` / `off`. A tag given twice keeps its last value.
+/// `inf`, no `NaN`, no `on` / `off`. A tag given twice keeps its last value; the value keeps its
+/// first [`MAX_VARIATION_AXES`] distinct tags (the stylesheet parser warns about more).
 ///
 /// # Errors
 ///

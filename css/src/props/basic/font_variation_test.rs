@@ -858,7 +858,7 @@ fn variation_list_text(variations: &[([u8; 4], f32)]) -> String {
 
 #[test]
 fn a_font_variation_settings_value_keeps_at_most_64_axes() {
-    // the widest real variable font has about a dozen axes; fontconfig-side requests keep 64 too
+    // the widest real variable font has about a dozen axes; the font request of the layout keeps 64 too
     assert_eq!(MAX_VARIATION_AXES, 64);
 }
 

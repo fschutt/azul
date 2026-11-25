@@ -2538,6 +2538,11 @@ fn css_blocks_to_stylesheet<'a>(
                     {
                         warnings.push(CssParseWarnMsg { warning, location });
                     }
+                    if let Some(warning) =
+                        too_many_variation_axes(unparsed_css_key, unparsed_css_value, css_key_map)
+                    {
+                        warnings.push(CssParseWarnMsg { warning, location });
+                    }
                     declarations.extend(decls);
                 }
                 Err(e) => {
