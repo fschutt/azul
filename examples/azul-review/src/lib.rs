@@ -136,14 +136,21 @@ pub fn window_renderer() -> RendererOptions {
 }
 
 /// The keys AzReview answers (the kit adds Mod+, / F1 / Escape).
-pub const SHORTCUTS: [Shortcut; 6] = [
+pub const SHORTCUTS: [Shortcut; 8] = [
     Shortcut::new("azreview-shortcuts-review", "Mod+S", "azreview-shortcut-save"),
     Shortcut::new("azreview-shortcuts-review", "Mod+O", "azreview-shortcut-open-folder"),
+    Shortcut::new("azreview-shortcuts-review", "Mod+B", "azreview-shortcut-files"),
+    Shortcut::new("azreview-shortcuts-review", "Mod+Shift+B", "azreview-shortcut-whiteboard"),
     Shortcut::new("azreview-shortcuts-review", "Mod+Z", "azreview-shortcut-undo"),
     Shortcut::new("azreview-shortcuts-review", "Pen rest", "azreview-shortcut-dictate"),
     Shortcut::new("azreview-shortcuts-review", "1 to 9", "azreview-shortcut-meaning"),
     Shortcut::new("azreview-shortcuts-review", "Right click", "azreview-shortcut-previous-nib"),
 ];
+
+/// The window's size when no `--size` says otherwise, and the least it may be shrunk to (it is narrow enough for
+/// the file tree to cover the pages instead of pushing them: `layout::OVERLAY_BELOW_W`).
+pub const WINDOW_DEFAULT: (f32, f32) = (1280.0, 820.0);
+pub const WINDOW_MIN: (f32, f32) = (560.0, 420.0);
 
 /// The sample rate of a voice clip, Hz (the microphone widget is asked for it).
 pub const CLIP_RATE: u32 = 48_000;
@@ -194,9 +201,16 @@ pub struct AppState {
     pub epoch: u64,
     pub idle_timer: TimerId,
     pub root: PathBuf,
-    /// The files fly out over the pages (the title row's switch; a picked
-    /// file and Escape fold them away).
-    pub sidebar_open: bool,
+    /// What is open and how wide: the file tree (the whole height of the window, it pushes the pages to the
+    /// right) and the right panel; remembered in the settings.
+    pub panels: layout::Panels,
+    /// How far each panel has slid.
+    pub slide: layout::Slide,
+    /// A drag of a panel's edge.
+    pub grip: Option<layout::Grip>,
+    /// The slide's timer runs, and the clock (ms) of its last tick.
+    pub sliding: bool,
+    pub slide_at_ms: u64,
     /// What went wrong and is told over the pages until dismissed: a session
     /// not written, an archive folder that would not open.
     pub problem: Option<String>,
@@ -210,8 +224,8 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// AzReview on the `files` of `root`, the first open and the files folded away (the page is what
-    /// one sees first, not the list over it); `kit` and `data_root` are azul-appkit's.
+    /// AzReview on the `files` of `root`, the first open and the file tree beside the pages; `kit` and
+    /// `data_root` are azul-appkit's.
     #[must_use]
     pub fn create(root: PathBuf, files: Vec<code::SourceFile>, kit: RefAny, data_root: PathBuf) -> Self {
         Self {
@@ -243,7 +257,11 @@ impl AppState {
             epoch: 0,
             idle_timer: TimerId::unique(),
             root,
-            sidebar_open: false,
+            panels: layout::Panels::default(),
+            slide: layout::Slide::settled(&layout::Panels::default()),
+            grip: None,
+            sliding: false,
+            slide_at_ms: 0,
             problem: None,
             last_pad_keys: 0,
             kit,
@@ -267,27 +285,23 @@ impl AppState {
         self.choosing_folder = false;
     }
 
-    /// Opens file `index` (its pages start without ink) and folds the files
-    /// away, out of the pages' way.
+    /// Opens file `index` (its pages start without ink); the tree stays as it is (a pick does not fold it).
     pub fn open_file(&mut self, index: usize) {
         if index >= self.files.len() {
             return;
         }
         self.begin_file(Some(index));
-        self.sidebar_open = false;
         self.rederive();
     }
 
-    /// Reviews another folder: its files replace the files, the first is open and the files are folded
-    /// away (the way to the others is the title row's switch; a folder without files shows the empty
-    /// page, which has the button).
+    /// Reviews another folder: its files replace the files and the first is open (a folder without files
+    /// shows the empty page, which has the button).
     pub fn open_folder(&mut self, root: PathBuf, files: Vec<code::SourceFile>) {
         self.root = root;
         self.current = None;
         self.files = files;
         let first = if self.files.is_empty() { None } else { Some(0) };
         self.begin_file(first);
-        self.sidebar_open = false;
         self.rederive();
     }
 
@@ -520,6 +534,8 @@ pub fn run() {
         }
     };
     let named_root = args.files.first().cloned();
+    // The width the window starts at (`--size`, else the default): whether the file tree starts open depends on it.
+    let start_w = args.size.map_or(WINDOW_DEFAULT.0, |size| size.0);
     // A `--shot` run is a fixture: it never takes the folder the user last reviewed.
     let remember = args.shot.is_none();
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &["dictation"], args);
@@ -560,6 +576,17 @@ pub fn run() {
     let remembered = named_root.filter(|_| remember && !root.as_os_str().is_empty());
     let mut state = AppState::create(root, files, kit_ref.clone(), data_root);
     state.remember_folder = remembered;
+    let (panels, panel_notes) = layout::Panels::remembered(&|key| values.get(key).cloned());
+    for note in &panel_notes {
+        eprintln!("[AzReview] {note}");
+    }
+    let remembered_open = values.contains_key(layout::KEY_TREE_OPEN).then_some(panels.tree_open);
+    state.panels = layout::Panels {
+        tree_open: layout::initial_tree_open(remembered_open, start_w)
+            && !state.files.is_empty(),
+        ..panels
+    };
+    state.slide = layout::Slide::settled(&state.panels);
     let resolved = switches::resolve(&values, &own);
     for note in &resolved.notes {
         eprintln!("[AzReview] {note}");
@@ -582,7 +609,7 @@ pub fn run() {
     }
     let app = App::create(RefAny::new(state), config);
     let mut window =
-        kit::window_options(&kit_ref, ui::layout, (1280.0, 820.0), (800.0, 520.0), on_window_created);
+        kit::window_options(&kit_ref, ui::layout, WINDOW_DEFAULT, WINDOW_MIN, on_window_created);
     window.renderer = OptionRendererOptions::Some(window_renderer());
     app.run(window);
 }
@@ -846,15 +873,25 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     if matches!(key, VirtualKeyCode::Escape) {
+        let overlay = layout::is_overlay(window_width(&info));
+        let mut folded = false;
         let acted = data.downcast_mut::<AppState>().is_some_and(|mut s| {
-            // What listens stops first; the files fold away on the next Escape.
+            // What listens stops first; a tree that covers the pages folds away on the next Escape (one that
+            // pushes them is part of the layout and stays).
             if s.voice.request_stop(dictation::Cause::Key) {
                 return true;
             }
-            let was = s.sidebar_open;
-            s.sidebar_open = false;
-            was
+            if overlay && s.panels.tree_open {
+                s.panels.tree_open = false;
+                folded = true;
+                return true;
+            }
+            false
         });
+        if folded {
+            persist_panels(&mut data, &mut info);
+            start_slide(&data, &mut info);
+        }
         return if acted { Update::RefreshDom } else { Update::DoNothing };
     }
     if matches!(key, VirtualKeyCode::S) && info.get_key_modifiers().primary_down() {
@@ -866,6 +903,12 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     if matches!(key, VirtualKeyCode::O) && mods.primary_down() {
         info.prevent_default();
         return on_open_folder(data, info);
+    }
+    // Mod+B shows or hides the file tree, Mod+Shift+B the right panel.
+    if matches!(key, VirtualKeyCode::B) && mods.primary_down() {
+        info.prevent_default();
+        let panel = if mods.shift { layout::Panel::Right } else { layout::Panel::Tree };
+        return toggle_panel(&mut data, &mut info, panel);
     }
     // Typing in a note: the letters and digits are the note's, and Mod+Z undoes its text, not the ink.
     let typing = info.get_focused_node().into_option().is_some_and(|node| {
@@ -900,13 +943,146 @@ pub extern "C" fn on_save_button(data: RefAny, mut info: CallbackInfo) -> Update
     Update::RefreshDom
 }
 
-/// The title row's switch: the files fly out over the pages, or fold away.
-pub extern "C" fn on_toggle_sidebar(mut data: RefAny, _info: CallbackInfo) -> Update {
+/// The window's width now, logical px.
+fn window_width(info: &CallbackInfo) -> f32 {
+    info.get_current_window_state().size.dimensions.width
+}
+
+/// The switch next to the traffic lights (and Mod+B): the file tree slides out or in.
+pub extern "C" fn on_toggle_sidebar(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    toggle_panel(&mut data, &mut info, layout::Panel::Tree)
+}
+
+/// The right bar (and Mod+Shift+B): the right panel slides out or in.
+pub extern "C" fn on_toggle_right(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    toggle_panel(&mut data, &mut info, layout::Panel::Right)
+}
+
+/// Opens or closes `panel`: what is chosen is remembered, and the slide begins.
+fn toggle_panel(data: &mut RefAny, info: &mut CallbackInfo, panel: layout::Panel) -> Update {
+    {
+        let Some(mut s) = data.downcast_mut::<AppState>() else {
+            return Update::DoNothing;
+        };
+        match panel {
+            layout::Panel::Tree => s.panels.tree_open = !s.panels.tree_open,
+            layout::Panel::Right => s.panels.right_open = !s.panels.right_open,
+        }
+    }
+    persist_panels(data, info);
+    start_slide(data, info);
+    Update::RefreshDom
+}
+
+/// What the panels are, into the settings (what is open and how wide comes back at the next start).
+fn persist_panels(data: &mut RefAny, info: &mut CallbackInfo) {
+    let Some((kit_ref, values)) = data.downcast_ref::<AppState>().map(|s| (s.kit.clone(), s.panels.to_values()))
+    else {
+        return;
+    };
+    for (key, value) in values {
+        kit::set_value(&kit_ref, info, &key, &value);
+    }
+}
+
+/// How often the slide of a panel is drawn, ms.
+const SLIDE_TICK_MS: u64 = 16;
+
+/// A panel is on its way and nothing draws it yet: one timer ticks until it has arrived.
+fn start_slide(data: &RefAny, info: &mut CallbackInfo) {
+    let mut handle = data.clone();
+    let arm = {
+        let Some(mut s) = handle.downcast_mut::<AppState>() else {
+            return;
+        };
+        if s.slide.moving(&s.panels) && !s.sliding {
+            s.sliding = true;
+            s.slide_at_ms = s.voice.now_ms();
+            true
+        } else {
+            false
+        }
+    };
+    if arm {
+        let timer = Timer::create(data.clone(), on_slide_tick, info.get_system_time_fn())
+            .with_interval(Duration::System(SystemTimeDiff::from_millis(SLIDE_TICK_MS)));
+        info.add_timer(TimerId::unique(), timer);
+    }
+}
+
+/// One step of a slide, by the time that has passed: the window is built again at the new width.
+extern "C" fn on_slide_tick(mut data: RefAny, _info: TimerCallbackInfo) -> TimerCallbackReturn {
+    let Some(mut s) = data.downcast_mut::<AppState>() else {
+        return TimerCallbackReturn::terminate_unchanged();
+    };
+    let now = s.voice.now_ms();
+    #[allow(clippy::cast_precision_loss)]
+    let passed = now.saturating_sub(s.slide_at_ms) as f32;
+    s.slide_at_ms = now;
+    let panels = s.panels;
+    s.slide = s.slide.step(&panels, passed);
+    if s.slide.moving(&panels) {
+        TimerCallbackReturn::continue_and_refresh_dom()
+    } else {
+        s.sliding = false;
+        TimerCallbackReturn::terminate_and_refresh_dom()
+    }
+}
+
+/// A press on a panel's edge: its width follows the pointer until the button is up (the node takes the pointer,
+/// so a drag that leaves the grip goes on).
+pub extern "C" fn on_grip_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(panel) = ui::grip_of(&mut info) else {
+        return Update::DoNothing;
+    };
+    let Some(x) = info.get_cursor_position().into_option().map(|p| p.x) else {
+        return Update::DoNothing;
+    };
+    let width = window_width(&info);
+    {
+        let Some(mut s) = data.downcast_mut::<AppState>() else {
+            return Update::DoNothing;
+        };
+        let solved = layout::solve(width, &s.panels, &s.slide, 0.0);
+        let start_w = match panel {
+            layout::Panel::Tree => solved.tree_full_w,
+            layout::Panel::Right => s.panels.right_w,
+        };
+        s.grip = Some(layout::Grip { panel, start_w, grab_x: x });
+    }
+    let node = info.get_hit_node();
+    info.capture_pointer(node);
+    Update::DoNothing
+}
+
+/// The pointer moves while an edge is held: the panel takes the width the pointer makes of it.
+pub extern "C" fn on_grip_move(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some(x) = info.get_cursor_position().into_option().map(|p| p.x) else {
+        return Update::DoNothing;
+    };
+    let width = window_width(&info);
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
-    s.sidebar_open = !s.sidebar_open;
+    let Some(grip) = s.grip else {
+        return Update::DoNothing;
+    };
+    let solved = layout::solve(width, &s.panels, &s.slide, 0.0);
+    let new_w = grip.width_at(x, width, solved.tree_full_w);
+    match grip.panel {
+        layout::Panel::Tree => s.panels.tree_w = new_w,
+        layout::Panel::Right => s.panels.right_w = new_w,
+    }
     Update::RefreshDom
+}
+
+/// The button is up: the edge is let go and the width is remembered.
+pub extern "C" fn on_grip_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let held = data.downcast_mut::<AppState>().is_some_and(|mut s| s.grip.take().is_some());
+    if held {
+        persist_panels(&mut data, &mut info);
+    }
+    Update::DoNothing
 }
 
 /// Dismiss on the bar that told what went wrong.
@@ -1394,8 +1570,7 @@ pub extern "C" fn on_pick_file(mut data: RefAny, mut info: CallbackInfo) -> Upda
         return Update::DoNothing;
     };
     if open == Some(index) {
-        s.sidebar_open = false;
-        return Update::RefreshDom;
+        return Update::DoNothing;
     }
     let Some(file) = s.files.get(index) else {
         return Update::DoNothing;

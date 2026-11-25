@@ -36,6 +36,9 @@ pub const RIGHT_BAR_W: f32 = 22.0;
 pub const PAGES_MIN_W: f32 = 360.0;
 /// The grip on a panel's inner edge that is dragged to resize it.
 pub const GRIP_W: f32 = 6.0;
+/// The top bar's height (the macOS traffic lights' bar) and the bottom bar's.
+pub const TOP_H: f32 = 28.0;
+pub const BOTTOM_H: f32 = 30.0;
 /// How long a panel takes to slide in or out, ms.
 pub const TREE_SLIDE_MS: f32 = 180.0;
 /// What a covering tree leaves uncovered at the other edge of a narrow window.

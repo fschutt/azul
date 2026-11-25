@@ -175,7 +175,7 @@ fn opening_a_folder_replaces_the_files_and_starts_afresh() {
     let mut s = app_with_file();
     s.keep(kept(1, 0));
     s.notes.push(crate::model::Note::listening(1, 0, 10.0, 10.0, "en-US"));
-    s.sidebar_open = false;
+    s.panels.tree_open = false;
     let other = code::SourceFile {
         path: PathBuf::from("/other/a.rs"),
         display: "a.rs".to_string(),
@@ -189,7 +189,7 @@ fn opening_a_folder_replaces_the_files_and_starts_afresh() {
     assert_eq!(s.current, Some(0), "its first file is open");
     assert!(s.strokes.is_empty() && s.notes.is_empty(), "nothing of the folder left behind");
     assert!(!s.undo(), "nothing to take back from what was left");
-    assert!(!s.sidebar_open, "the page is what one sees first: the files are a click away, not over it");
+    assert!(!s.panels.tree_open, "a new folder leaves the tree as the person had it");
     assert!(s.findings.is_empty());
 }
 
@@ -199,7 +199,8 @@ fn a_folder_without_files_leaves_no_file_open() {
     s.open_folder(PathBuf::from("/empty"), Vec::new());
     assert_eq!(s.current, None);
     assert!(s.file().is_none());
-    assert!(!s.sidebar_open, "the way out (Open folder) is in the empty page itself");
+    assert!(s.panels.tree_open == AppState::create(PathBuf::new(), Vec::new(), RefAny::new(0u8), PathBuf::new()).panels.tree_open,
+        "the way out (Open folder) is in the empty page itself; the tree is as it was");
 }
 
 #[test]
@@ -321,9 +322,12 @@ fn the_pages_of_the_ink_that_came_back_are_drawn_anew() {
 // ---- the first screen ----
 
 #[test]
-fn a_new_window_shows_the_page_and_not_the_files_over_it() {
-    assert!(!app_with_file().sidebar_open);
-    assert!(!AppState::create(PathBuf::new(), Vec::new(), RefAny::new(0u8), PathBuf::new()).sidebar_open);
+fn a_new_window_has_the_tree_beside_the_page_not_over_it() {
+    let s = app_with_file();
+    assert!(s.panels.tree_open, "the files are there to pick from");
+    assert!(!s.panels.right_open, "the whiteboard's panel is a click away");
+    assert_eq!(s.slide, crate::layout::Slide::settled(&s.panels), "nothing slides at the start");
+    assert!(!s.sliding && s.grip.is_none());
 }
 
 #[test]

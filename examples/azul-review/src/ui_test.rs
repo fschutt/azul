@@ -64,7 +64,7 @@ fn reviewing(root: &str) -> AppState {
 
 #[test]
 fn the_title_row_has_a_button_that_says_open_folder() {
-    let row = title_row(&reviewing("/work/proj"), &RefAny::new(0u8));
+    let row = top_bar(&reviewing("/work/proj"), &RefAny::new(0u8), 0.0);
     assert!(has_id(&row, "__azreview_open-folder-bar"), "the button is in the bar the pen and the pages are in");
     assert!(
         texts(&row).iter().any(|t| t.contains("Open folder")),
@@ -75,7 +75,7 @@ fn the_title_row_has_a_button_that_says_open_folder() {
 
 #[test]
 fn the_title_row_names_the_folder_and_the_file_under_review() {
-    let row = title_row(&reviewing("/work/proj"), &RefAny::new(0u8));
+    let row = top_bar(&reviewing("/work/proj"), &RefAny::new(0u8), 0.0);
     assert!(has_id(&row, "__azreview_folder-chip"));
     let said = texts(&row);
     assert!(said.iter().any(|t| t == "proj"), "the folder's own name: {said:?}");
@@ -84,7 +84,7 @@ fn the_title_row_names_the_folder_and_the_file_under_review() {
 
 #[test]
 fn with_no_folder_the_title_row_names_none_but_still_offers_to_open_one() {
-    let row = title_row(&empty(""), &RefAny::new(0u8));
+    let row = top_bar(&empty(""), &RefAny::new(0u8), 0.0);
     assert!(!has_id(&row, "__azreview_folder-chip"));
     assert!(has_id(&row, "__azreview_open-folder-bar"));
 }

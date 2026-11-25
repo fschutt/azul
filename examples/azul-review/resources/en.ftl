@@ -172,3 +172,14 @@ azreview-agent-problem-arg-forbidden = { $field }: { $arg } is not allowed here 
 azreview-agent-problem-model-required = { $field }: name a model
 azreview-agent-problem-url-invalid = { $field }: { $text } is no http:// or https:// address
 azreview-agent-problem-unknown-field = { $field }: no such setting ({ $word })
+
+## The layout: the file tree, the right bar, the bottom bar
+
+azreview-right-bar = Show or hide the whiteboard
+azreview-whiteboard-placeholder = The whiteboard: circle code with the pen, drag it here and draw arrows between the cutouts.
+azreview-agents-none = No agents are working.
+azreview-resize-tree = Change the width of the file tree
+azreview-resize-panel = Change the width of the whiteboard
+azreview-menu-view = View
+azreview-shortcut-files = Show or hide the files
+azreview-shortcut-whiteboard = Show or hide the whiteboard

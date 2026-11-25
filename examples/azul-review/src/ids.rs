@@ -42,3 +42,13 @@ pub const MICROPHONE: AzString = AzString::from_const_str("__azreview_microphone
 /// The title row's labeled "Open folder..." button, and the chip that names the folder under review.
 pub const OPEN_FOLDER_BAR: AzString = AzString::from_const_str("__azreview_open-folder-bar");
 pub const FOLDER_CHIP: AzString = AzString::from_const_str("__azreview_folder-chip");
+/// The file tree (the whole window's height, it pushes the pages) and the grip on its right edge.
+pub const TREE: AzString = AzString::from_const_str("__azreview_tree");
+pub const TREE_GRIP: AzString = AzString::from_const_str("__azreview_tree-grip");
+/// The right bar, its key, the panel it opens (the whiteboard's place) and the grip on the panel's left edge.
+pub const RIGHT_BAR: AzString = AzString::from_const_str("__azreview_right-bar");
+pub const RIGHT_TOGGLE: AzString = AzString::from_const_str("__azreview_right-toggle");
+pub const RIGHT_PANEL: AzString = AzString::from_const_str("__azreview_right-panel");
+pub const RIGHT_GRIP: AzString = AzString::from_const_str("__azreview_right-grip");
+/// The bottom bar of the agents at work.
+pub const BOTTOM_BAR: AzString = AzString::from_const_str("__azreview_agents-bar");
