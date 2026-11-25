@@ -596,6 +596,36 @@ macro_rules! css_property_from_type {
             CssPropertyType::FontFeatureSettings => {
                 CssProperty::FontFeatureSettings(CssPropertyValue::$content_type)
             }
+            CssPropertyType::FontStretch => {
+                CssProperty::FontStretch(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::FontVariationSettings => {
+                CssProperty::FontVariationSettings(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::FontOpticalSizing => {
+                CssProperty::FontOpticalSizing(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::FontKerning => {
+                CssProperty::FontKerning(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::FontVariantLigatures => {
+                CssProperty::FontVariantLigatures(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::FontVariantEastAsian => {
+                CssProperty::FontVariantEastAsian(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::FontSynthesisWeight => {
+                CssProperty::FontSynthesisWeight(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::FontSynthesisStyle => {
+                CssProperty::FontSynthesisStyle(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::FontSynthesisSmallCaps => {
+                CssProperty::FontSynthesisSmallCaps(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::FontSynthesisPosition => {
+                CssProperty::FontSynthesisPosition(CssPropertyValue::$content_type)
+            }
             CssPropertyType::CounterSet => {
                 CssProperty::CounterSet(CssPropertyValue::$content_type)
             }

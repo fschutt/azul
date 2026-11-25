@@ -352,7 +352,7 @@ static MARGIN_BOTTOM_2_33EM: CssProperty =
 
 /// font-weight: bold (for headings)
 static FONT_WEIGHT_BOLD: CssProperty =
-    CssProperty::FontWeight(CssPropertyValue::Exact(StyleFontWeight::Bold));
+    CssProperty::FontWeight(CssPropertyValue::Exact(StyleFontWeight::BOLD));
 
 /// font-weight: bolder
 static FONT_WEIGHT_BOLDER: CssProperty =

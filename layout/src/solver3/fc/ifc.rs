@@ -1938,6 +1938,9 @@ pub(super) fn hash_resolved_style<H: core::hash::Hasher>(
         (
             t.text_color,
             t.font_family_hash,
+            t.font_weight,
+            t.font_stretch,
+            t.font_oblique,
             t.line_height,
             t.letter_spacing,
             t.word_spacing,

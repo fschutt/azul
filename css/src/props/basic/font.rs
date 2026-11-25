@@ -31,6 +31,7 @@ use crate::{
     props::{
         basic::{
             error::{InvalidValueErr, InvalidValueErrOwned},
+            length::FloatValue,
             pixel::{
                 parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned,
                 PixelValue,
@@ -43,77 +44,136 @@ use crate::{
 
 // --- Font Weight ---
 
-/// Represents the `font-weight` property.
+/// Represents the `font-weight` property (CSS Fonts 4 section 2.2): a number
+/// from 1 to 1000, or `lighter` / `bolder`, which are relative to the parent's
+/// weight.
+///
+/// `normal` is 400 and `bold` is 700 ([`Self::NORMAL`], [`Self::BOLD`]); the
+/// hundreds are constants too ([`Self::W100`] to [`Self::W900`]). The number
+/// is a [`FloatValue`], so `350` and `650.5` are weights like any other: a
+/// variable font draws them exactly, a static family picks the face nearest
+/// to them.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-#[derive(Default)]
+#[repr(C, u8)]
 pub enum StyleFontWeight {
+    /// A weight from 1 to 1000.
+    Number(FloatValue),
+    /// One step lighter than the parent's weight.
     Lighter,
-    W100,
-    W200,
-    W300,
-    #[default]
-    Normal,
-    W500,
-    W600,
-    Bold,
-    W800,
-    W900,
+    /// One step bolder than the parent's weight.
     Bolder,
+}
+
+impl Default for StyleFontWeight {
+    fn default() -> Self {
+        Self::NORMAL
+    }
 }
 
 impl PrintAsCssValue for StyleFontWeight {
     fn print_as_css_value(&self) -> String {
         match self {
             Self::Lighter => "lighter".to_string(),
-            Self::W100 => "100".to_string(),
-            Self::W200 => "200".to_string(),
-            Self::W300 => "300".to_string(),
-            Self::Normal => "normal".to_string(),
-            Self::W500 => "500".to_string(),
-            Self::W600 => "600".to_string(),
-            Self::Bold => "bold".to_string(),
-            Self::W800 => "800".to_string(),
-            Self::W900 => "900".to_string(),
             Self::Bolder => "bolder".to_string(),
+            Self::Number(weight) => {
+                if *weight == FloatValue::const_new(400) {
+                    "normal".to_string()
+                } else if *weight == FloatValue::const_new(700) {
+                    "bold".to_string()
+                } else {
+                    weight.to_string()
+                }
+            }
         }
     }
 }
 
 impl StyleFontWeight {
+    /// `font-weight: 100` (thin).
+    pub const W100: Self = Self::Number(FloatValue::const_new(100));
+    /// `font-weight: 200` (extra light).
+    pub const W200: Self = Self::Number(FloatValue::const_new(200));
+    /// `font-weight: 300` (light).
+    pub const W300: Self = Self::Number(FloatValue::const_new(300));
+    /// `font-weight: normal`, the initial value.
+    pub const NORMAL: Self = Self::Number(FloatValue::const_new(400));
+    /// `font-weight: 500` (medium).
+    pub const W500: Self = Self::Number(FloatValue::const_new(500));
+    /// `font-weight: 600` (semi bold).
+    pub const W600: Self = Self::Number(FloatValue::const_new(600));
+    /// `font-weight: bold`.
+    pub const BOLD: Self = Self::Number(FloatValue::const_new(700));
+    /// `font-weight: 800` (extra bold).
+    pub const W800: Self = Self::Number(FloatValue::const_new(800));
+    /// `font-weight: 900` (black).
+    pub const W900: Self = Self::Number(FloatValue::const_new(900));
+
+    /// The weight `weight` (clamped to 1 to 1000, `NaN` is `normal`).
+    #[must_use]
+    pub fn from_number(weight: f32) -> Self {
+        if weight.is_nan() {
+            return Self::NORMAL;
+        }
+        Self::Number(FloatValue::new(weight.clamp(1.0, 1000.0)))
+    }
+
+    /// The weight as a number. A relative keyword (`lighter`, `bolder`) is only
+    /// known against the parent's weight and counts as 400 here.
+    #[must_use]
+    pub fn number(&self) -> f32 {
+        match self {
+            Self::Number(weight) => weight.get(),
+            Self::Lighter | Self::Bolder => 400.0,
+        }
+    }
+
     /// The computed weight of a node that declares `self` and whose parent's
     /// computed weight is `parent`: `bolder` / `lighter` are RELATIVE to the
     /// parent (CSS Fonts 4 section 2.2, the relative-weight table), every
     /// other value is its own computed value. A `parent` that is itself still
     /// a keyword counts as 400.
     ///
-    /// | parent    | bolder | lighter |
-    /// |-----------|--------|---------|
-    /// | 100 - 300 | 400    | 100     |
-    /// | 400, 500  | 700    | 100     |
-    /// | 600, 700  | 900    | 400     |
-    /// | 800       | 900    | 700     |
-    /// | 900       | 900    | 700     |
+    /// | parent `w`        | bolder    | lighter   |
+    /// |-------------------|-----------|-----------|
+    /// | `w < 100`         | 400       | unchanged |
+    /// | `100 <= w < 350`  | 400       | 100       |
+    /// | `350 <= w < 550`  | 700       | 100       |
+    /// | `550 <= w < 750`  | 900       | 400       |
+    /// | `750 <= w < 900`  | 900       | 700       |
+    /// | `900 <= w`        | unchanged | 700       |
     ///
     /// The descendants inherit the result (a number), never the keyword.
     #[must_use]
     pub const fn computed(self, parent: Self) -> Self {
-        let parent = match parent {
-            Self::Lighter | Self::Bolder => Self::Normal,
-            other => other,
+        // In thousandths, as the `FloatValue` holds it.
+        let (parent, parent_thousandths) = match parent {
+            Self::Number(weight) => (parent, weight.number()),
+            Self::Lighter | Self::Bolder => (Self::NORMAL, 400_000),
         };
         match self {
-            Self::Bolder => match parent {
-                Self::W100 | Self::W200 | Self::W300 => Self::Normal,
-                Self::Normal | Self::W500 => Self::Bold,
-                _ => Self::W900,
-            },
-            Self::Lighter => match parent {
-                Self::W600 | Self::Bold => Self::Normal,
-                Self::W800 | Self::W900 => Self::Bold,
-                _ => Self::W100,
-            },
-            other => other,
+            Self::Bolder => {
+                if parent_thousandths < 350_000 {
+                    Self::NORMAL
+                } else if parent_thousandths < 550_000 {
+                    Self::BOLD
+                } else if parent_thousandths < 900_000 {
+                    Self::W900
+                } else {
+                    parent
+                }
+            }
+            Self::Lighter => {
+                if parent_thousandths < 100_000 {
+                    parent
+                } else if parent_thousandths < 550_000 {
+                    Self::W100
+                } else if parent_thousandths < 750_000 {
+                    Self::NORMAL
+                } else {
+                    Self::BOLD
+                }
+            }
+            Self::Number(_) => self,
         }
     }
 
@@ -127,39 +187,65 @@ impl StyleFontWeight {
 #[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleFontWeight {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
-        use StyleFontWeight::{
-            Bold, Bolder, Lighter, Normal, W100, W200, W300, W500, W600, W800, W900,
-        };
-        format!(
-            "StyleFontWeight::{}",
-            match self {
-                Lighter => "Lighter",
-                W100 => "W100",
-                W200 => "W200",
-                W300 => "W300",
-                Normal => "Normal",
-                W500 => "W500",
-                W600 => "W600",
-                Bold => "Bold",
-                W800 => "W800",
-                W900 => "W900",
-                Bolder => "Bolder",
+        match self {
+            Self::Lighter => "StyleFontWeight::Lighter".to_string(),
+            Self::Bolder => "StyleFontWeight::Bolder".to_string(),
+            Self::Number(weight) => {
+                for (name, constant) in [
+                    ("W100", Self::W100),
+                    ("W200", Self::W200),
+                    ("W300", Self::W300),
+                    ("NORMAL", Self::NORMAL),
+                    ("W500", Self::W500),
+                    ("W600", Self::W600),
+                    ("BOLD", Self::BOLD),
+                    ("W800", Self::W800),
+                    ("W900", Self::W900),
+                ] {
+                    if constant == *self {
+                        return format!("StyleFontWeight::{name}");
+                    }
+                }
+                format!(
+                    "StyleFontWeight::Number({})",
+                    crate::codegen::format::format_float_value(weight)
+                )
             }
-        )
+        }
     }
 }
 
 // --- Font Style ---
 
-/// Represents the `font-style` property.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
-#[derive(Default)]
+/// Represents the `font-style` property: `normal`, `italic`, or `oblique` with
+/// an optional angle (CSS Fonts 4 section 2.3).
+///
+/// The angle is the slant in degrees, from -90 to 90, a positive angle leaning
+/// to the right (the `slnt` axis of a variable font runs the other way). A bare
+/// `oblique` is `oblique 14deg` ([`Self::OBLIQUE`]).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C, u8)]
 pub enum StyleFontStyle {
     #[default]
     Normal,
     Italic,
-    Oblique,
+    /// Slanted by this many degrees.
+    Oblique(FloatValue),
+}
+
+impl StyleFontStyle {
+    /// A bare `oblique`: 14 degrees.
+    pub const OBLIQUE: Self = Self::Oblique(FloatValue::const_new(14));
+
+    /// The slant in degrees: the angle of an `oblique`, 0 for `normal` and
+    /// `italic`.
+    #[must_use]
+    pub fn oblique_degrees(&self) -> f32 {
+        match self {
+            Self::Oblique(degrees) => degrees.get(),
+            Self::Normal | Self::Italic => 0.0,
+        }
+    }
 }
 
 impl PrintAsCssValue for StyleFontStyle {
@@ -167,7 +253,13 @@ impl PrintAsCssValue for StyleFontStyle {
         match self {
             Self::Normal => "normal".to_string(),
             Self::Italic => "italic".to_string(),
-            Self::Oblique => "oblique".to_string(),
+            Self::Oblique(degrees) => {
+                if *degrees == FloatValue::const_new(14) {
+                    "oblique".to_string()
+                } else {
+                    format!("oblique {degrees}deg")
+                }
+            }
         }
     }
 }
@@ -175,15 +267,14 @@ impl PrintAsCssValue for StyleFontStyle {
 #[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleFontStyle {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
-        use StyleFontStyle::{Italic, Normal, Oblique};
-        format!(
-            "StyleFontStyle::{}",
-            match self {
-                Normal => "Normal",
-                Italic => "Italic",
-                Oblique => "Oblique",
-            }
-        )
+        match self {
+            Self::Normal => "StyleFontStyle::Normal".to_string(),
+            Self::Italic => "StyleFontStyle::Italic".to_string(),
+            Self::Oblique(degrees) => format!(
+                "StyleFontStyle::Oblique({})",
+                crate::codegen::format::format_float_value(degrees)
+            ),
+        }
     }
 }
 
@@ -935,23 +1026,43 @@ impl CssFontWeightParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// A CSS `<number>` the way the font properties take it: an optional sign,
+/// digits with an optional fraction (`350`, `-0.5`, `.5`), no exponent. Finite.
+fn parse_plain_number(text: &str) -> Option<f32> {
+    let body = text.strip_prefix(['+', '-']).unwrap_or(text);
+    let (whole, fraction) = match body.split_once('.') {
+        Some((whole, fraction)) => (whole, Some(fraction)),
+        None => (body, None),
+    };
+    let whole_ok = whole.bytes().all(|b| b.is_ascii_digit());
+    let fraction_ok = fraction.is_none_or(|digits| {
+        !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
+    });
+    if !whole_ok || !fraction_ok || (whole.is_empty() && fraction.is_none()) {
+        return None;
+    }
+    text.parse::<f32>().ok().filter(|value| value.is_finite())
+}
+
+#[cfg(feature = "parser")]
+/// Parses a `font-weight` value: `normal`, `bold`, `bolder`, `lighter`, or a
+/// number from 1 to 1000 (`350`, `650.5`; no exponent). A number outside the
+/// range is invalid.
+///
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `font-weight` value.
 pub fn parse_font_weight(input: &str) -> Result<StyleFontWeight, CssFontWeightParseError<'_>> {
     let input = input.trim();
     match input {
-        "lighter" => Ok(StyleFontWeight::Lighter),
-        "normal" | "400" => Ok(StyleFontWeight::Normal),
-        "bold" | "700" => Ok(StyleFontWeight::Bold),
-        "bolder" => Ok(StyleFontWeight::Bolder),
-        "100" => Ok(StyleFontWeight::W100),
-        "200" => Ok(StyleFontWeight::W200),
-        "300" => Ok(StyleFontWeight::W300),
-        "500" => Ok(StyleFontWeight::W500),
-        "600" => Ok(StyleFontWeight::W600),
-        "800" => Ok(StyleFontWeight::W800),
-        "900" => Ok(StyleFontWeight::W900),
+        "lighter" => return Ok(StyleFontWeight::Lighter),
+        "bolder" => return Ok(StyleFontWeight::Bolder),
+        "normal" => return Ok(StyleFontWeight::NORMAL),
+        "bold" => return Ok(StyleFontWeight::BOLD),
+        _ => {}
+    }
+    match parse_plain_number(input) {
+        Some(weight) if (1.0..=1000.0).contains(&weight) => Ok(StyleFontWeight::from_number(weight)),
         _ => Err(InvalidValueErr(input).into()),
     }
 }
@@ -991,16 +1102,51 @@ impl CssFontStyleParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
+/// The angle of `oblique <angle>` in degrees: a number with `deg`, `grad`,
+/// `rad` or `turn` (no `%`, no bare number), from -90 to 90 degrees.
+fn parse_oblique_angle(text: &str) -> Option<FloatValue> {
+    // `grad` ends in `rad`: it is asked first.
+    let degrees = if let Some(number) = text.strip_suffix("deg") {
+        parse_plain_number(number)?
+    } else if let Some(number) = text.strip_suffix("grad") {
+        parse_plain_number(number)? * 360.0 / 400.0
+    } else if let Some(number) = text.strip_suffix("rad") {
+        parse_plain_number(number)? * 180.0 / core::f32::consts::PI
+    } else if let Some(number) = text.strip_suffix("turn") {
+        parse_plain_number(number)? * 360.0
+    } else {
+        return None;
+    };
+    // The range is checked on the stored thousandths, so a boundary written in
+    // another unit (`100grad`) is not lost to float noise.
+    let degrees = FloatValue::new(degrees);
+    (-90_000..=90_000)
+        .contains(&degrees.number())
+        .then_some(degrees)
+}
+
+#[cfg(feature = "parser")]
+/// Parses a `font-style` value: `normal`, `italic`, `oblique`, or `oblique`
+/// with an angle from -90 to 90 degrees (`oblique 20deg`; `deg`, `grad`,
+/// `rad` and `turn` are accepted). A bare `oblique` is 14 degrees.
+///
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `font-style` value.
 pub fn parse_font_style(input: &str) -> Result<StyleFontStyle, CssFontStyleParseError<'_>> {
-    match input.trim() {
-        "normal" => Ok(StyleFontStyle::Normal),
-        "italic" => Ok(StyleFontStyle::Italic),
-        "oblique" => Ok(StyleFontStyle::Oblique),
-        other => Err(InvalidValueErr(other).into()),
+    let input = input.trim();
+    match input {
+        "normal" => return Ok(StyleFontStyle::Normal),
+        "italic" => return Ok(StyleFontStyle::Italic),
+        "oblique" => return Ok(StyleFontStyle::OBLIQUE),
+        _ => {}
     }
+    input
+        .strip_prefix("oblique")
+        .filter(|rest| rest.starts_with(char::is_whitespace))
+        .and_then(|rest| parse_oblique_angle(rest.trim()))
+        .map(StyleFontStyle::Oblique)
+        .ok_or_else(|| InvalidValueErr(input).into())
 }
 
 // -- Font Size Parser --
@@ -1518,9 +1664,9 @@ mod tests {
     fn test_parse_font_weight_keywords() {
         assert_eq!(
             parse_font_weight("normal").unwrap(),
-            StyleFontWeight::Normal
+            StyleFontWeight::NORMAL
         );
-        assert_eq!(parse_font_weight("bold").unwrap(), StyleFontWeight::Bold);
+        assert_eq!(parse_font_weight("bold").unwrap(), StyleFontWeight::BOLD);
         assert_eq!(
             parse_font_weight("lighter").unwrap(),
             StyleFontWeight::Lighter
@@ -1534,16 +1680,22 @@ mod tests {
     #[test]
     fn test_parse_font_weight_numbers() {
         assert_eq!(parse_font_weight("100").unwrap(), StyleFontWeight::W100);
-        assert_eq!(parse_font_weight("400").unwrap(), StyleFontWeight::Normal);
-        assert_eq!(parse_font_weight("700").unwrap(), StyleFontWeight::Bold);
+        assert_eq!(parse_font_weight("400").unwrap(), StyleFontWeight::NORMAL);
+        assert_eq!(parse_font_weight("700").unwrap(), StyleFontWeight::BOLD);
         assert_eq!(parse_font_weight("900").unwrap(), StyleFontWeight::W900);
+        // Any number from 1 to 1000 is a weight (a variable font draws it exactly).
+        assert_eq!(
+            parse_font_weight("450").unwrap(),
+            StyleFontWeight::from_number(450.0)
+        );
     }
 
     #[test]
     fn test_parse_font_weight_invalid() {
         assert!(parse_font_weight("thin").is_err());
         assert!(parse_font_weight("").is_err());
-        assert!(parse_font_weight("450").is_err());
+        assert!(parse_font_weight("0").is_err());
+        assert!(parse_font_weight("1001").is_err());
         assert!(parse_font_weight("boldest").is_err());
     }
 
@@ -1553,7 +1705,7 @@ mod tests {
         assert_eq!(parse_font_style("italic").unwrap(), StyleFontStyle::Italic);
         assert_eq!(
             parse_font_style("oblique").unwrap(),
-            StyleFontStyle::Oblique
+            StyleFontStyle::OBLIQUE
         );
         assert_eq!(
             parse_font_style("  italic  ").unwrap(),
@@ -2052,7 +2204,7 @@ mod autotest_generated {
     fn parse_font_weight_valid_minimal_and_full_roundtrip() {
         assert_eq!(
             parse_font_weight("normal").unwrap(),
-            StyleFontWeight::Normal
+            StyleFontWeight::NORMAL
         );
 
         for weight in [
@@ -2060,13 +2212,17 @@ mod autotest_generated {
             StyleFontWeight::W100,
             StyleFontWeight::W200,
             StyleFontWeight::W300,
-            StyleFontWeight::Normal,
+            StyleFontWeight::NORMAL,
             StyleFontWeight::W500,
             StyleFontWeight::W600,
-            StyleFontWeight::Bold,
+            StyleFontWeight::BOLD,
             StyleFontWeight::W800,
             StyleFontWeight::W900,
             StyleFontWeight::Bolder,
+            StyleFontWeight::from_number(350.0),
+            StyleFontWeight::from_number(650.5),
+            StyleFontWeight::from_number(1.0),
+            StyleFontWeight::from_number(1000.0),
         ] {
             let css = weight.print_as_css_value();
             assert_eq!(
@@ -2082,10 +2238,10 @@ mod autotest_generated {
     fn parse_font_weight_numeric_aliases_collapse_onto_keywords() {
         // 400/700 are accepted but re-print as keywords, so the *string* round-trip
         // is deliberately lossy in one direction.
-        assert_eq!(parse_font_weight("400").unwrap(), StyleFontWeight::Normal);
-        assert_eq!(parse_font_weight("700").unwrap(), StyleFontWeight::Bold);
-        assert_eq!(StyleFontWeight::Normal.print_as_css_value(), "normal");
-        assert_eq!(StyleFontWeight::Bold.print_as_css_value(), "bold");
+        assert_eq!(parse_font_weight("400").unwrap(), StyleFontWeight::NORMAL);
+        assert_eq!(parse_font_weight("700").unwrap(), StyleFontWeight::BOLD);
+        assert_eq!(StyleFontWeight::NORMAL.print_as_css_value(), "normal");
+        assert_eq!(StyleFontWeight::BOLD.print_as_css_value(), "bold");
     }
 
     #[cfg(feature = "parser")]
@@ -2134,11 +2290,7 @@ mod autotest_generated {
         for input in [
             "0",
             "-0",
-            "450",
-            "1000",
-            "0400",
-            "+400",
-            "400.0",
+            "1001",
             "4e2",
             "9223372036854775807",
             "-9223372036854775808",
@@ -2163,11 +2315,11 @@ mod autotest_generated {
         // stricter CSS tokenisers would not do this.
         assert_eq!(
             parse_font_weight("\u{00A0}bold\u{00A0}").unwrap(),
-            StyleFontWeight::Bold
+            StyleFontWeight::BOLD
         );
         assert_eq!(
             parse_font_weight("\u{2028}400").unwrap(),
-            StyleFontWeight::Normal
+            StyleFontWeight::NORMAL
         );
     }
 
@@ -2214,7 +2366,9 @@ mod autotest_generated {
         for style in [
             StyleFontStyle::Normal,
             StyleFontStyle::Italic,
-            StyleFontStyle::Oblique,
+            StyleFontStyle::OBLIQUE,
+            StyleFontStyle::Oblique(FloatValue::const_new(20)),
+            StyleFontStyle::Oblique(FloatValue::const_new(-10)),
         ] {
             let css = style.print_as_css_value();
             assert_eq!(
@@ -2239,7 +2393,8 @@ mod autotest_generated {
             "italics",
             "ITALIC",
             "italic;garbage",
-            "oblique 14deg",
+            "oblique 91deg",
+            "italic 10deg",
             "0",
             "-0",
             "NaN",
@@ -2896,74 +3051,79 @@ mod autotest_generated {
 
     #[test]
     fn font_enum_defaults_and_ordering() {
-        assert_eq!(StyleFontWeight::default(), StyleFontWeight::Normal);
+        assert_eq!(StyleFontWeight::default(), StyleFontWeight::NORMAL);
         assert_eq!(StyleFontStyle::default(), StyleFontStyle::Normal);
         assert_eq!(StyleFontSize::default().inner, PixelValue::const_pt(12));
 
-        // Derived Ord follows declaration order (numeric weights are ordered).
+        // Derived Ord follows declaration order: the numbers (ordered by
+        // value), then `lighter`, then `bolder`.
         assert!(StyleFontWeight::W100 < StyleFontWeight::W900);
-        assert!(StyleFontWeight::Normal < StyleFontWeight::Bold);
-        assert!(StyleFontWeight::Lighter < StyleFontWeight::W100);
-        assert!(StyleFontWeight::Bolder > StyleFontWeight::W900);
+        assert!(StyleFontWeight::NORMAL < StyleFontWeight::BOLD);
+        assert!(StyleFontWeight::W900 < StyleFontWeight::Lighter);
+        assert!(StyleFontWeight::Lighter < StyleFontWeight::Bolder);
     }
 
     #[test]
     fn bolder_and_lighter_follow_the_relative_weight_table() {
         use StyleFontWeight::{
-            Bold, Bolder, Lighter, Normal, W100, W200, W300, W500, W600, W800, W900,
+            Bolder, Lighter, BOLD, NORMAL, W100, W200, W300, W500, W600, W800, W900,
         };
         // CSS Fonts 4 s2.2: (parent, bolder, lighter).
         for (parent, bolder, lighter) in [
-            (W100, Normal, W100),
-            (W200, Normal, W100),
-            (W300, Normal, W100),
-            (Normal, Bold, W100),
-            (W500, Bold, W100),
-            (W600, W900, Normal),
-            (Bold, W900, Normal),
-            (W800, W900, Bold),
-            (W900, W900, Bold),
+            (W100, NORMAL, W100),
+            (W200, NORMAL, W100),
+            (W300, NORMAL, W100),
+            (NORMAL, BOLD, W100),
+            (W500, BOLD, W100),
+            (W600, W900, NORMAL),
+            (BOLD, W900, NORMAL),
+            (W800, W900, BOLD),
+            (W900, W900, BOLD),
             // a parent still a keyword counts as 400
-            (Bolder, Bold, W100),
+            (Bolder, BOLD, W100),
         ] {
             assert_eq!(Bolder.computed(parent), bolder, "bolder than {parent:?}");
             assert_eq!(Lighter.computed(parent), lighter, "lighter than {parent:?}");
         }
         // Any other weight is its own computed value.
         assert_eq!(W300.computed(W900), W300);
-        assert!(Bolder.is_relative() && Lighter.is_relative() && !Bold.is_relative());
+        assert!(Bolder.is_relative() && Lighter.is_relative() && !BOLD.is_relative());
     }
 
     #[cfg(feature = "codegen")]
     #[test]
-    fn format_as_rust_code_matches_the_debug_variant_names() {
-        for weight in [
-            StyleFontWeight::Lighter,
-            StyleFontWeight::W100,
-            StyleFontWeight::W200,
-            StyleFontWeight::W300,
-            StyleFontWeight::Normal,
-            StyleFontWeight::W500,
-            StyleFontWeight::W600,
-            StyleFontWeight::Bold,
-            StyleFontWeight::W800,
-            StyleFontWeight::W900,
-            StyleFontWeight::Bolder,
+    fn format_as_rust_code_names_the_constants_and_spells_the_numbers() {
+        for (weight, name) in [
+            (StyleFontWeight::Lighter, "Lighter"),
+            (StyleFontWeight::W100, "W100"),
+            (StyleFontWeight::W200, "W200"),
+            (StyleFontWeight::W300, "W300"),
+            (StyleFontWeight::NORMAL, "NORMAL"),
+            (StyleFontWeight::W500, "W500"),
+            (StyleFontWeight::W600, "W600"),
+            (StyleFontWeight::BOLD, "BOLD"),
+            (StyleFontWeight::W800, "W800"),
+            (StyleFontWeight::W900, "W900"),
+            (StyleFontWeight::Bolder, "Bolder"),
         ] {
             assert_eq!(
                 weight.format_as_rust_code(0),
-                format!("StyleFontWeight::{weight:?}")
+                format!("StyleFontWeight::{name}")
             );
         }
-        for style in [
-            StyleFontStyle::Normal,
-            StyleFontStyle::Italic,
-            StyleFontStyle::Oblique,
+        assert_eq!(
+            StyleFontWeight::from_number(350.0).format_as_rust_code(0),
+            "StyleFontWeight::Number(FloatValue::const_new_fractional(350, 0))"
+        );
+        for (style, text) in [
+            (StyleFontStyle::Normal, "StyleFontStyle::Normal"),
+            (StyleFontStyle::Italic, "StyleFontStyle::Italic"),
+            (
+                StyleFontStyle::Oblique(FloatValue::const_new(20)),
+                "StyleFontStyle::Oblique(FloatValue::const_new_fractional(20, 0))",
+            ),
         ] {
-            assert_eq!(
-                style.format_as_rust_code(0),
-                format!("StyleFontStyle::{style:?}")
-            );
+            assert_eq!(style.format_as_rust_code(0), text);
         }
         assert_eq!(
             StyleFontFamily::SystemType(SystemFontType::Ui).format_as_rust_code(0),
@@ -3122,3 +3282,7 @@ mod autotest_generated {
         assert!(!m.use_typo_metrics());
     }
 }
+
+#[cfg(test)]
+#[path = "font_test.rs"]
+mod font_test;

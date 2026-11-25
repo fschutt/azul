@@ -907,7 +907,7 @@
             crate::font_traits::FontStyle::Italic
         );
         assert_eq!(
-            convert_font_style(StyleFontStyle::Oblique),
+            convert_font_style(StyleFontStyle::OBLIQUE),
             crate::font_traits::FontStyle::Oblique
         );
     }
@@ -925,7 +925,7 @@
             FcWeight::Light
         );
         assert_eq!(
-            convert_font_weight(StyleFontWeight::Normal),
+            convert_font_weight(StyleFontWeight::NORMAL),
             FcWeight::Normal
         );
         assert_eq!(convert_font_weight(StyleFontWeight::W500), FcWeight::Medium);
@@ -933,7 +933,24 @@
             convert_font_weight(StyleFontWeight::W600),
             FcWeight::SemiBold
         );
-        assert_eq!(convert_font_weight(StyleFontWeight::Bold), FcWeight::Bold);
+        assert_eq!(convert_font_weight(StyleFontWeight::BOLD), FcWeight::Bold);
+        // A number between two buckets goes to the nearer one, halfway to the heavier.
+        assert_eq!(
+            convert_font_weight(StyleFontWeight::from_number(349.0)),
+            FcWeight::Light
+        );
+        assert_eq!(
+            convert_font_weight(StyleFontWeight::from_number(350.0)),
+            FcWeight::Normal
+        );
+        assert_eq!(
+            convert_font_weight(StyleFontWeight::from_number(1.0)),
+            FcWeight::Thin
+        );
+        assert_eq!(
+            convert_font_weight(StyleFontWeight::from_number(1000.0)),
+            FcWeight::Black
+        );
         assert_eq!(
             convert_font_weight(StyleFontWeight::W800),
             FcWeight::ExtraBold
