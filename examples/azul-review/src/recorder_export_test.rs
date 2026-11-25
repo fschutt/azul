@@ -461,7 +461,7 @@ mod e2e {
 
     use super::*;
     use crate::{
-        recorder::{Deps, Perm, Recorder, StartRequest},
+        recorder::{Deps, Perm, Recorder, StartRequest, Started},
         recorder_clock::{Clock, MockClock},
         recorder_codec::{AudioCodec, CodecFactory, PixelFormat, RawFrame, VideoCodec},
         recorder_edl::{file_changes, identity_edl},
@@ -613,30 +613,47 @@ mod e2e {
         }
     }
 
-    #[test]
-    fn a_recorded_session_becomes_a_playable_video_with_chapters() {
+    /// What the end-to-end tests need: the tools, what ffmpeg can encode, real H.264 of two sizes and real Opus
+    /// (what the encoders would have made), and a folder of their own.
+    struct Rig {
+        ffmpeg: PathBuf,
+        ffprobe: PathBuf,
+        encoders: Encoders,
+        screen: Vec<Vec<u8>>,
+        camera: Vec<Vec<u8>>,
+        voice: Vec<Vec<u8>>,
+        tmp: Tmp,
+    }
+
+    /// The rig, or `None` (said, and a failure under `AZ_REQUIRE_FFMPEG=1`) where ffmpeg cannot do it.
+    fn rig(name: &str) -> Option<Rig> {
         let (Some(ffmpeg), Some(ffprobe)) = (find_tool("ffmpeg"), find_tool("ffprobe")) else {
             skipped("there is no ffmpeg and ffprobe in /opt/homebrew/bin, /usr/local/bin or /usr/bin");
-            return;
+            return None;
         };
         let encoders = parse_encoders(&String::from_utf8_lossy(&Process::new(&ffmpeg).args(["-hide_banner", "-encoders"]).output().unwrap().stdout));
         if !(encoders.aac && (encoders.libx264 || encoders.videotoolbox)) {
             skipped("this ffmpeg lacks aac or an H.264 encoder");
-            return;
+            return None;
         }
-        // Real H.264 of two sizes and real Opus: what the encoders would have made.
         let h264 = |size: &str| ffmpeg_bytes(&ffmpeg, &["-f", "lavfi", "-i", &format!("testsrc2=size={size}:rate=30"), "-t", "6", "-c:v", "libx264", "-g", "30", "-bf", "0", "-pix_fmt", "yuv420p", "-f", "h264", "-"]);
         let opus = ffmpeg_bytes(&ffmpeg, &["-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "6", "-c:a", "libopus", "-b:a", "32k", "-frame_duration", "20", "-f", "ogg", "-"]);
         let (Some(screen), Some(camera), Some(opus)) = (h264("640x360"), h264("320x240"), opus) else {
             skipped("this ffmpeg cannot make the test streams (it needs libx264 and libopus)");
-            return;
+            return None;
         };
         eprintln!("ffmpeg: {}", String::from_utf8_lossy(&Process::new(&ffmpeg).arg("-version").output().unwrap().stdout).lines().next().unwrap_or(""));
-        let factory = ReplayFactory { screen: split_aus(&screen), camera: split_aus(&camera), voice: ogg_packets(&opus) };
-
-        let tmp = Tmp(std::env::temp_dir().join(format!("azreview-e2e-{}", std::process::id())));
+        let tmp = Tmp(std::env::temp_dir().join(format!("azreview-e2e-{name}-{}", std::process::id())));
         let _ = fs::remove_dir_all(&tmp.0);
         fs::create_dir_all(&tmp.0).unwrap();
+        Some(Rig { ffmpeg, ffprobe, encoders, screen: split_aus(&screen), camera: split_aus(&camera), voice: ogg_packets(&opus), tmp })
+    }
+
+    /// A session of six seconds recorded through the recorder with the rig's encoders: the window changes ten
+    /// times a second, the camera sends 15 pictures a second and the voice 50 packets; three seconds, then (when
+    /// `with_pause`) a pause of two seconds, then three seconds more.
+    fn record(rig: &Rig, with_pause: bool) -> Started {
+        let factory = ReplayFactory { screen: rig.screen.clone(), camera: rig.camera.clone(), voice: rig.voice.clone() };
         let clock = MockClock::at(0);
         let c = clock.clone();
         let deps = Deps {
@@ -648,7 +665,7 @@ mod e2e {
         let mut rec = Recorder::new(RecorderSettings { idle_pause_us: None, ..RecorderSettings::default() }, deps);
         let started = rec
             .start(StartRequest {
-                recordings_dir: tmp.0.join("recordings"),
+                recordings_dir: rig.tmp.0.join("recordings"),
                 app: AppInfo { name: String::from("AzReview"), version: String::from("0.1.0") },
                 workspace: Workspace { root: String::from("/w"), name: String::from("azul") },
                 host: HostInfo { os: String::from("macos"), arch: String::from("aarch64") },
@@ -661,9 +678,6 @@ mod e2e {
                 screen_device: None,
             })
             .unwrap();
-
-        // Three seconds, a pause of two, three seconds more: the window changes ten times a second, the
-        // camera sends 15 pictures a second and the voice 50 packets.
         let window = vec![9_u8; 640 * 360 * 4];
         let second = |rec: &mut Recorder, from_ms: u64, events: &[(u64, &str)]| {
             for i in 0..30_u64 {
@@ -682,13 +696,25 @@ mod e2e {
             }
         };
         second(&mut rec, 0, &[(0, "src/lib.rs"), (15, "src/ink.rs")]);
-        clock.set_us(3_050_000);
-        rec.toggle_pause();
-        clock.set_us(5_000_000);
-        rec.toggle_pause();
-        second(&mut rec, 5_000, &[(0, "README.md")]);
+        if with_pause {
+            clock.set_us(3_050_000);
+            rec.toggle_pause();
+            clock.set_us(5_000_000);
+            rec.toggle_pause();
+            second(&mut rec, 5_000, &[(0, "README.md")]);
+        } else {
+            second(&mut rec, 3_000, &[(0, "README.md")]);
+        }
         let done = rec.stop("user").unwrap();
         assert!(done.clean, "{done:?}");
+        started
+    }
+
+    #[test]
+    fn a_recorded_session_becomes_a_playable_video_with_chapters() {
+        let Some(rig) = rig("export") else { return };
+        let (ffmpeg, ffprobe, encoders, tmp) = (rig.ffmpeg.clone(), rig.ffprobe.clone(), rig.encoders, &rig.tmp);
+        let started = record(&rig, true);
 
         // The cut list and the export.
         let manifest = Manifest::parse(&fs::read_to_string(started.dir.join("manifest.json")).unwrap()).unwrap();
@@ -718,5 +744,74 @@ mod e2e {
         assert!(decode.status.success() && decode.stderr.is_empty(), "{}", String::from_utf8_lossy(&decode.stderr));
         eprintln!("exported {} bytes, {duration:.2} s, {} chapters", report.bytes, chapters.lines().count());
         eprintln!("ffprobe streams (codec, type, size):\n{streams}ffprobe duration: {duration:.3} s\nffprobe chapters (id, time base, start, start s, end, end s):\n{chapters}");
+    }
+
+    /// One frame of `file` at `at` seconds as grey bytes, `w` x `h`.
+    fn grey_frame(rig: &Rig, file: &Path, at: &str, w: usize, h: usize) -> Vec<u8> {
+        let out = Process::new(&rig.ffmpeg)
+            .args(["-v", "error", "-ss", at, "-i"])
+            .arg(file)
+            .args(["-frames:v", "1", "-vf", &format!("scale={w}:{h}"), "-pix_fmt", "gray", "-f", "rawvideo", "-"])
+            .output()
+            .unwrap();
+        assert!(out.status.success() && out.stdout.len() == w * h, "{}", String::from_utf8_lossy(&out.stderr));
+        out.stdout
+    }
+
+    /// The mean difference between two grey frames inside the block `x0..x1` x `y0..y1`.
+    fn block_diff(a: &[u8], b: &[u8], w: usize, (x0, x1, y0, y1): (usize, usize, usize, usize)) -> f64 {
+        let mut sum = 0_u64;
+        for y in y0..y1 {
+            for x in x0..x1 {
+                sum += u64::from(a[y * w + x].abs_diff(b[y * w + x]));
+            }
+        }
+        sum as f64 / ((x1 - x0) * (y1 - y0)) as f64
+    }
+
+    /// The command of RECORDER.md section 10, the block a person copies, run as it stands on a recorded
+    /// session (the hardware encoder only where this ffmpeg has none: `libx264` is what is said for "elsewhere"):
+    /// it makes one video with a picture and a voice of the session's length that decodes clean, and the
+    /// camera is in the bottom right corner on top of the screen, the top left corner untouched.
+    ///
+    /// Mutation: the overlay at the top left instead of the bottom right; no `-map 2:a` (no voice).
+    #[test]
+    fn the_command_of_the_doc_combines_the_tracks_by_hand_into_a_valid_video() {
+        let Some(rig) = rig("byhand") else { return };
+        let started = record(&rig, false);
+        let doc = include_str!("../RECORDER.md");
+        let head = doc.find("### By hand: the screen with the camera in the bottom right corner and the voice").expect("the doc has the command");
+        let from = doc[head..].find("```sh\n").map(|i| head + i + 6).expect("the command is a block");
+        let to = doc[from..].find("```").map(|i| from + i).expect("the block ends");
+        let mut script = doc[from..to].to_string();
+        assert!(script.contains("h264_videotoolbox"), "the doc names the Mac's encoder");
+        if !rig.encoders.videotoolbox {
+            script = script.replace("h264_videotoolbox -b:v 4M", "libx264 -preset veryfast -crf 23");
+        }
+        let path = format!("{}:{}", rig.ffmpeg.parent().unwrap().display(), std::env::var("PATH").unwrap_or_default());
+        let out = Process::new("sh").arg("-c").arg(&script).env("SESSION", &started.dir).env("PATH", path).output().unwrap();
+        assert!(out.status.success(), "the command failed: {}", String::from_utf8_lossy(&out.stderr).lines().rev().take(8).collect::<Vec<_>>().join("\n"));
+        let combined = started.dir.join("combined.mp4");
+        // A picture and a voice, six seconds.
+        let probe = |args: &[&str]| {
+            let o = Process::new(&rig.ffprobe).args(["-v", "error"]).args(args).arg(&combined).output().unwrap();
+            assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+            String::from_utf8_lossy(&o.stdout).into_owned()
+        };
+        let streams = probe(&["-show_entries", "stream=codec_name,codec_type", "-of", "csv=p=0"]);
+        assert!(streams.contains("h264") && streams.contains("aac"), "{streams}");
+        let duration: f64 = probe(&["-show_entries", "format=duration", "-of", "csv=p=0"]).trim().parse().unwrap();
+        assert!((duration - 6.0).abs() < 0.8, "six seconds recorded: {duration}");
+        let decode = Process::new(&rig.ffmpeg).args(["-v", "error", "-i"]).arg(&combined).args(["-f", "null", "-"]).output().unwrap();
+        assert!(decode.status.success() && decode.stderr.is_empty(), "{}", String::from_utf8_lossy(&decode.stderr));
+        // Where the camera is: the bottom right block differs from the screen alone, the top left does not.
+        let (w, h) = (640, 360);
+        let with = grey_frame(&rig, &combined, "1.0", w, h);
+        let alone = grey_frame(&rig, &started.dir.join("screen/0001.mp4"), "1.0", w, h);
+        let bottom_right = block_diff(&with, &alone, w, (400, 600, 100, 330));
+        let top_left = block_diff(&with, &alone, w, (10, 50, 10, 50));
+        eprintln!("the doc's command: {} bytes, {duration:.2} s, streams {}; the camera's corner differs by {bottom_right:.1}, the top left by {top_left:.1}", fs::metadata(&combined).unwrap().len(), streams.replace('\n', " "));
+        assert!(bottom_right > 12.0, "the camera is on the screen at the bottom right: {bottom_right}");
+        assert!(top_left < 8.0, "the rest of the screen is the screen: {top_left}");
     }
 }
