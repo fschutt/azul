@@ -19,9 +19,7 @@ use azul_layout::{
 };
 use rust_fontconfig::FcFontCache;
 
-use crate::variable_fonts::{
-    cache_with_file, chain_of, mock_variable_path, page, resolve,
-};
+use crate::variable_fonts::{cache_with_file, mock_variable_path, resolve};
 
 /// One block of "DDDD" per entry of `css`, all in the family.
 fn paragraphs(family: &str, css: &[&str]) -> Dom {
@@ -228,5 +226,4 @@ fn requests_that_differ_only_in_one_coordinate_have_different_chain_keys() {
         1,
         "the same settings in another order are one request"
     );
-    let _ = (page, chain_of);
 }
