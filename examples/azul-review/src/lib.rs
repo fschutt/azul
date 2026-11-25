@@ -10,9 +10,19 @@
 //! (Mod+,) and About. Every session is an archive in the data tree,
 //! `review/<file>.azreview.zip`, written on a Thread (one writer).
 //!
+//! Dictation: the pen at rest on a page (hovering, or touching without moving after a stroke) for
+//! `--dwell-ms` (default 1.2 s; Settings > Dictation) starts a note that listens
+//! ([`voice`], [`dwell`], [`dictation`]): a marker on the page, the words live in the side column
+//! ([`column`]), kept in the session archive. Drawing, moving away, resting again, Escape, the stop
+//! button or a stretch of quiet (`--silence-ms`) ends it. `--dwell-input off|pen|any` says which pointers
+//! may start one (default: a pen).
+//!
 //! stdout, for scripts (`scripts/azreview_e2e.py`): `AZREVIEW_FILE <path>`
-//! when a file is opened, `AZREVIEW_STROKES <n>` when a stroke is kept,
-//! `AZREVIEW_SAVED <key>` / `AZREVIEW_SAVE_ERROR <why>` per write.
+//! when a file is opened, `AZREVIEW_FOLDER <path> <files>` when another folder is, `AZREVIEW_LOADED
+//! <strokes> <notes>` when a saved session came back, `AZREVIEW_STROKES <n>` when a stroke is kept,
+//! `AZREVIEW_SAVED <key>` / `AZREVIEW_SAVE_ERROR <why>` per write, `AZREVIEW_DICTATION started|text|
+//! ended|refused ...` for the dictation; `AZREVIEW_PROFILE=1` adds `AZREVIEW_PERF` and `AZREVIEW_ARCHIVE`
+//! lines (`scripts/azreview_perf.py`).
 
 use std::path::{Path, PathBuf};
 
@@ -216,6 +226,24 @@ impl AppState {
         self.live = None;
         self.ink.open();
         self.visible_page = 0;
+    }
+
+    /// Picks the meaning the ink will have. The marker only highlights (scope) and the pen writes the
+    /// rest, so picking one the nib cannot write changes the nib: the key lit in the title row is what
+    /// the next stroke is.
+    pub fn pick(&mut self, sem: Semantic) {
+        self.active = sem;
+        if sem.is_highlighter() {
+            self.tool = Tool::Marker;
+        } else if self.tool == Tool::Marker {
+            self.tool = Tool::Pen;
+        }
+    }
+
+    /// The meaning the next stroke has: the nib's, over the one picked.
+    #[must_use]
+    pub fn ink_meaning(&self) -> Semantic {
+        self.tool.semantic_for(self.active)
     }
 
     /// Keeps a finished stroke (what Mod+Z takes back); a new stroke ends what Mod+Shift+Z would have
@@ -754,7 +782,7 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     if let Some(mut s) = data.downcast_mut::<AppState>() {
-        s.active = sem;
+        s.pick(sem);
     }
     Update::RefreshDom
 }
@@ -901,6 +929,16 @@ fn ink_move(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     if s.live.is_none() {
+        // The pen's eraser end dragged over the page takes every stroke it crosses (a press takes the
+        // one under it, `on_ink_down`).
+        if let Some((p, true)) = ui::sample(info) {
+            if let Some(page) = ui::page_of(info) {
+                if let Some(gone) = s.eraser_target(page, p.x, p.y).and_then(|i| s.erase(i)) {
+                    drop(s);
+                    ui::redraw_ink(info, ink::Layer::of(gone.semantic));
+                }
+            }
+        }
         return ended;
     }
     let Some((p, _)) = ui::sample(info) else {
@@ -1049,7 +1087,7 @@ pub extern "C" fn on_pad(mut data: RefAny, info: CallbackInfo) -> Update {
     }
     let index = pressed.trailing_zeros() as usize;
     if let Some(&sem) = Semantic::ALL.get(index) {
-        s.active = sem;
+        s.pick(sem);
         return Update::RefreshDom;
     }
     Update::DoNothing
@@ -1102,7 +1140,7 @@ pub extern "C" fn on_menu_semantic(mut data: RefAny, mut info: CallbackInfo) -> 
     let Some(mut s) = app.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
-    s.active = sem;
+    s.pick(sem);
     Update::RefreshDom
 }
 
@@ -1135,7 +1173,7 @@ pub extern "C" fn on_pick_semantic(mut data: RefAny, mut info: CallbackInfo) -> 
         return Update::DoNothing;
     };
     if let Some(&sem) = Semantic::ALL.get(index) {
-        s.active = sem;
+        s.pick(sem);
     }
     Update::RefreshDom
 }

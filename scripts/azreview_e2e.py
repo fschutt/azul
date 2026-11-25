@@ -146,6 +146,12 @@ def body(args, logs, out):
         app.click(selector="#__azreview_save")
         app.until("Save writes", lambda: len(saves(app)) > before)
 
+        # A meaning the marker cannot write (key 3, a question) takes the pen; scope (key 1) the marker again.
+        app.key("3")
+        app.until("the pen for a question", lambda: "pen" in app.texts())
+        app.key("1")
+        app.until("the marker for scope", lambda: "marker" in app.texts())
+
         # Mod+Z takes the stroke back, Mod+Shift+Z brings it again; each is written to the archive.
         app.key("z", primary=True)
         app.until("the archive without the stroke",

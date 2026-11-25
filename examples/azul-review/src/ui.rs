@@ -242,7 +242,7 @@ fn title_row(s: &AppState, data: &RefAny) -> Dom {
     row.add_child(sidebar_switch(s, data));
     row.add_child(Dom::create_div().with_css("width: 8px; flex-shrink: 0;"));
     for (i, sem) in Semantic::ALL.iter().enumerate() {
-        row.add_child(meaning_key(i, *sem, *sem == s.active, data));
+        row.add_child(meaning_key(i, *sem, *sem == s.ink_meaning(), data));
     }
     row.add_child(Dom::create_div().with_css("width: 8px; flex-shrink: 0;"));
     row.add_child(nib_key(s, data));
@@ -828,7 +828,7 @@ fn page_sheet(
     let mut col = Dom::create_div().with_css(
         format!(
             "position: relative; display: flex; flex-direction: column; width: {}px; overflow: \
-             hidden;",
+             hidden; user-select: none;",
             (PAGE_W - MARGIN_GUTTER_W - PAGE_PAD) as isize,
         )
         .as_str(),

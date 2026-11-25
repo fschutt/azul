@@ -212,3 +212,35 @@ fn opening_a_folder_ends_the_dictation_that_listens() {
         "what listens writes into the file being left: it is asked to stop"
     );
 }
+
+// ---- the meanings and the nib ----
+
+#[test]
+fn picking_a_meaning_the_marker_cannot_write_takes_the_pen() {
+    let mut s = app_with_file();
+    assert_eq!(s.tool, Tool::Marker);
+    s.pick(Semantic::Question);
+    assert_eq!(s.active, Semantic::Question);
+    assert_eq!(s.tool, Tool::Pen, "the marker only highlights: the meaning is written with the pen");
+    assert_eq!(s.ink_meaning(), Semantic::Question);
+}
+
+#[test]
+fn picking_scope_takes_the_marker_and_the_audio_pen_stays_when_it_can_write_the_meaning() {
+    let mut s = app_with_file();
+    s.tool = Tool::AudioPen;
+    s.pick(Semantic::Issue);
+    assert_eq!(s.tool, Tool::AudioPen, "the audio pen writes any meaning");
+    s.pick(Semantic::Scope);
+    assert_eq!(s.tool, Tool::Marker, "scope is the highlighter's");
+}
+
+#[test]
+fn the_meaning_lit_in_the_title_row_is_the_one_the_ink_will_have() {
+    let mut s = app_with_file();
+    s.pick(Semantic::Praise);
+    s.tool = Tool::Marker;
+    assert_eq!(s.ink_meaning(), Semantic::Scope, "the marker writes scope whatever was picked before");
+    s.tool = Tool::Pen;
+    assert_eq!(s.ink_meaning(), Semantic::Praise, "and the pen takes the meaning back up");
+}
