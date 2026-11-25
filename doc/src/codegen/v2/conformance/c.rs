@@ -228,11 +228,16 @@ pub fn render(plan: &ConformancePlan) -> String {
          #define az_sleep_ms(ms) usleep((ms) * 1000)\n\
          #endif\n\n\
          // libazul's process-wide bytes once its background threads (a font\n\
-         // scan, a logger) have gone quiet: unchanged for 50 ms, at most 5 s.\n\
+         // scan, a logger) have gone quiet: unchanged for 500 ms, at most 20 s.\n\
+         // An App starts a font scan that goes on after the App is gone (a\n\
+         // pause of 95 ms was measured on a runner), and the thread that saves\n\
+         // its result looks every 50 ms whether it is done: a quiet of 50 ms took\n\
+         // a pause of the scan for its end, and the scan's memory, finished a\n\
+         // moment later, was counted as a leak of the case.\n\
          static int64_t settled_live_bytes(void) {{\n\
              int64_t last = AzDebug_liveBytes();\n\
              int stable = 0;\n\
-             for (int i = 0; i < 1000 && stable < 10; i++) {{\n\
+             for (int i = 0; i < 4000 && stable < 100; i++) {{\n\
                  az_sleep_ms(5);\n\
                  int64_t now = AzDebug_liveBytes();\n\
                  if (now == last) stable++; else {{ stable = 0; last = now; }}\n\
