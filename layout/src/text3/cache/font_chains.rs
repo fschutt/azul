@@ -42,14 +42,13 @@ use super::*;
 
 pub struct FontChainKey {
     pub font_families: Vec<String>,
-    pub weight: FcWeight,
-    pub italic: bool,
-    pub oblique: bool,
-    /// The optical size the chain's variable faces are drawn at: the used
-    /// font size in whole CSS px (`font-optical-sizing: auto`, as Chrome
-    /// and CoreText do it), 0 for "the face's default". See
-    /// [`FontSelector::optical_size`].
-    pub optical_size: u16,
+    /// What the chain's faces are asked for: the exact weight, stretch, style
+    /// and slant, the optical size and the explicit `font-variation-settings`.
+    /// The key holds all of it, so two requests that differ in any coordinate
+    /// never share a chain (a variable face of one is drawn at other
+    /// coordinates than a variable face of the other, see
+    /// [`crate::solver3::getters::select_variable_instances`]).
+    pub request: FontRequest,
 }
 
 /// Either a `FontChainKey` (resolved via fontconfig) or a direct `FontRef` hash.
@@ -125,22 +124,29 @@ impl FontChainKey {
             font_families
         };
 
-        let weight = font_stack.first().map_or(FcWeight::Normal, |s| s.weight);
-        let is_italic = font_stack
+        let request = font_stack
             .first()
-            .is_some_and(|s| s.style == FontStyle::Italic);
-        let is_oblique = font_stack
-            .first()
-            .is_some_and(|s| s.style == FontStyle::Oblique);
-        let optical_size = font_stack.first().map_or(0, |s| s.optical_size);
+            .map_or_else(FontRequest::default, |s| s.request.clone());
 
         Self {
             font_families,
-            weight,
-            italic: is_italic,
-            oblique: is_oblique,
-            optical_size,
+            request,
         }
+    }
+
+    /// The `italic` and `oblique` flags of the request, as rust-fontconfig's
+    /// resolver takes them: `False` (not `DontCare`) for what is not asked, so
+    /// an upright request never matches an italic face.
+    #[must_use]
+    pub fn style_matches(&self) -> (PatternMatch, PatternMatch) {
+        let flag = |on: bool| {
+            if on {
+                PatternMatch::True
+            } else {
+                PatternMatch::False
+            }
+        };
+        (flag(self.request.is_italic()), flag(self.request.is_oblique()))
     }
 }
 
@@ -161,29 +167,17 @@ pub(crate) fn resolve_chain_on_miss(
     fc_cache: &FcFontCache,
 ) -> rust_fontconfig::FontFallbackChain {
     let mut trace = Vec::new();
+    let (italic, oblique) = key.style_matches();
     let mut chain = fc_cache.resolve_font_chain_with_scripts(
         &key.font_families,
-        key.weight,
-        if key.italic {
-            PatternMatch::True
-        } else {
-            PatternMatch::False
-        },
-        if key.oblique {
-            PatternMatch::True
-        } else {
-            PatternMatch::False
-        },
+        key.request.fc_weight(),
+        italic,
+        oblique,
         None,
         &mut trace,
     );
     // Same instance selection as the pre-pass, so a miss draws what a hit would.
-    crate::solver3::getters::select_variable_instances(
-        &mut chain,
-        key.weight,
-        key.optical_size,
-        fc_cache,
-    );
+    crate::solver3::getters::select_variable_instances(&mut chain, &key.request, fc_cache);
     chain
 }
 
@@ -381,16 +375,8 @@ pub fn faces_covering(
     }
     let mut known: HashSet<FontId> = chain.fonts().map(|f| f.id).collect();
     let ranges = fallback_ranges_for(&uncovered);
-    let italic = if key.italic {
-        PatternMatch::True
-    } else {
-        PatternMatch::False
-    };
-    let oblique = if key.oblique {
-        PatternMatch::True
-    } else {
-        PatternMatch::False
-    };
+    let (italic, oblique) = key.style_matches();
+    let weight = key.request.fc_weight();
     let mut added: Vec<FontMatch> = Vec::new();
 
     let mut consider = |fm: &FontMatch, uncovered: &mut BTreeSet<char>| {
@@ -420,7 +406,7 @@ pub fn faces_covering(
         let stack = fc_cache
             .fallback_config()
             .candidate_families(&key.font_families, &ranges);
-        let probed = registry.request_fonts_fast(&[(stack, uncovered.clone())], key.weight, italic);
+        let probed = registry.request_fonts_fast(&[(stack, uncovered.clone())], weight, italic);
         for fm in probed
             .iter()
             .flat_map(|c| c.css_fallbacks.iter())
@@ -434,7 +420,7 @@ pub fn faces_covering(
         let mut trace = Vec::new();
         let resolved = fc_cache.resolve_font_chain_with_scripts(
             &key.font_families,
-            key.weight,
+            weight,
             italic,
             oblique,
             Some(&ranges),

@@ -9,7 +9,10 @@ type Manager = FontManager<azul_css::props::basic::FontRef>;
 fn stack(family: &str, optical_size: u16) -> Vec<FontSelector> {
     vec![FontSelector {
         family: family.to_string(),
-        optical_size,
+        request: FontRequest {
+            optical_size,
+            ..FontRequest::default()
+        },
         ..FontSelector::default()
     }]
 }
@@ -159,4 +162,64 @@ fn the_style_of_a_face_is_read_from_its_patterns_alone() {
         assert_eq!(patterns.len(), records.len());
         assert_eq!(format!("{:?}", patterns[0]), format!("{:?}", records[0].0));
     }
+}
+
+/// A chain names its faces by id, and a variable face is drawn as a static instance that only the
+/// cache which made it holds. After a swap to ANOTHER cache the chain names faces nothing can load
+/// (the text would be shaped with a fallback's metrics): it is dropped, and resolved again at the
+/// next layout. A clone of the same cache shares its state, instances included: its chains stay.
+#[test]
+fn a_replaced_font_cache_forgets_the_chains_that_name_faces_it_does_not_hold() {
+    let file = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../doc/fonts/RedHatMono-VariableFont_wght.ttf"
+    ))
+    .expect("the face is checked in");
+    let mut fonts = Manager::new(FcFontCache::default()).expect("font manager");
+    let _ = fonts.register_named_font("Azul Swapped Variable", &file, cmap_coverage(&file));
+    let selectors = vec![FontSelector {
+        family: "Azul Swapped Variable".to_string(),
+        request: FontRequest::default().with_weight(650.0),
+        ..FontSelector::default()
+    }];
+    let key = FontChainKey::from_selectors(&selectors);
+    let chain = resolve_chain_on_miss(&key, &fonts.fc_cache);
+    let instance = chain
+        .css_fallbacks
+        .iter()
+        .find_map(|group| group.fonts.first())
+        .expect("the family matched")
+        .id;
+    assert!(
+        fonts.fc_cache.get_metadata_by_id(&instance).is_some(),
+        "premise: the chain names a face this cache holds"
+    );
+    assert!(
+        rust_fontconfig::FcReadVariation(
+            fonts.fc_cache.get_font_bytes(&instance).expect("bytes").as_slice(),
+            0
+        )
+        .is_none(),
+        "premise: that face is a static instance of the variable font"
+    );
+    fonts.font_chain_cache.insert(key.clone(), chain);
+    fonts.last_resolved_font_stacks_sig = Some(7);
+
+    let same = fonts.fc_cache.clone();
+    fonts.replace_fc_cache(same);
+    assert!(
+        fonts.font_chain_cache.contains_key(&key),
+        "a clone of the same cache holds the same faces: the chain stays"
+    );
+    assert_eq!(fonts.last_resolved_font_stacks_sig, Some(7), "and so does the signature");
+
+    fonts.replace_fc_cache(FcFontCache::default());
+    assert!(
+        !fonts.font_chain_cache.contains_key(&key),
+        "another cache does not hold the instance: the chain is dropped"
+    );
+    assert_eq!(
+        fonts.last_resolved_font_stacks_sig, None,
+        "and the stacks count as unresolved, so the next layout resolves them again"
+    );
 }
