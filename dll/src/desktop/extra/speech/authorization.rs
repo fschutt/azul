@@ -18,6 +18,9 @@
 //! | undecided | undecided or authorized | the undecided ones have their text | ask, then listen |
 //! | undecided | undecided or authorized | one is missing | refuse (`Unavailable`) WITHOUT asking: the system would stop the process |
 
+// The items are `pub` for the tests and for the parts of the module that are re-exported.
+#![allow(unreachable_pub)]
+
 /// One permission's answer, the platforms' different scales on one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Access {
@@ -183,6 +186,17 @@ pub fn decide(gates: &Gates) -> Decision {
             missing.join(", ")
         ),
     }
+}
+
+/// What the permissions allow for a recognizer that listens to the microphone and needs no
+/// speech recognition of the system (the built-in model): only the microphone counts.
+#[must_use]
+pub fn decide_microphone(gates: &Gates) -> Decision {
+    decide(&Gates {
+        speech: Access::Authorized,
+        speech_key: true,
+        ..gates.clone()
+    })
 }
 
 /// Which of the two permissions.
