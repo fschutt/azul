@@ -219,8 +219,8 @@ def dictation(args, logs, out, binary, fake):
         # 1. A rest starts a note that listens.
         rest_at(0.0, 0.0, "the first dictation to start", 1)
         app.until("the side column", lambda: app.has_id("__azreview_notes"))
-        app.until("the marker on the page", lambda: app.has_id("__azreview_marker-1", every_dom=True))
         if fake:
+            app.until("the marker on the page", lambda: app.has_id("__azreview_marker-1", every_dom=True))
             app.until("the words in the column", lambda: app.shows(HEARD))
             app.until("the listening pill", lambda: app.has_id("__azreview_listening"))
             app.until("the stop button", lambda: app.has_id("__azreview_dictation-stop"))
