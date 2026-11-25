@@ -69,11 +69,19 @@ pub mod whiteboard;
 pub mod whiteboard_cutout;
 pub mod whiteboard_drag;
 pub mod whiteboard_geom;
+pub mod whiteboard_jump;
+pub mod whiteboard_json;
 pub mod whiteboard_lasso;
+pub mod whiteboard_store;
 
 #[cfg(test)]
 #[path = "lib_test.rs"]
 mod lib_test;
+
+/// The whole of the whiteboard without a window: loop, lift, drop, picture, arrow, file, jump.
+#[cfg(test)]
+#[path = "whiteboard_flow_test.rs"]
+mod whiteboard_flow_test;
 
 use model::{Finding, Note, Semantic, Stroke, Tool, VoiceClip};
 

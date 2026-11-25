@@ -50,6 +50,13 @@ azreview-whiteboard-notice-arrow-to-itself = An arrow needs two different cutout
 azreview-whiteboard-notice-arrow-needs-a-cutout = An arrow has to start or end on a cutout.
 azreview-whiteboard-notice-arrow-repeated = There is an arrow like this one already.
 azreview-whiteboard-notice-board-repaired = { $dropped } items of the saved whiteboard could not be used and were left out.
+azreview-whiteboard-jump-file-changed = The file has changed since this was circled; these lines are as they were.
+azreview-whiteboard-jump-lines-moved = These lines moved: they are now at lines { $first } to { $last }.
+azreview-whiteboard-jump-lines-changed = These lines have changed since they were circled.
+azreview-whiteboard-jump-file-missing = The file is no longer there.
+azreview-whiteboard-store-not-a-board = This file is not a whiteboard AzReview can open ({ $why }). It is kept as it is and the whiteboard starts empty.
+azreview-whiteboard-store-too-new = This whiteboard was saved by a newer AzReview (its format is { $found }). It is left as it is and the whiteboard starts empty.
+azreview-whiteboard-store-too-large = This whiteboard's file is far larger than a whiteboard is ({ $bytes } bytes). It is kept as it is and the whiteboard starts empty.
 
 ## Dictation and the side column of notes
 

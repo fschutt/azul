@@ -260,14 +260,21 @@ impl Source {
             shape,
             file_hash: self.file_hash,
             range_hash: self.range_hash,
-            lines: self
-                .lines
-                .iter()
-                .take(limits.max_source_lines)
-                .map(|l| l.chars().take(limits.max_source_line_chars).collect())
-                .collect(),
+            lines: kept_lines(&self.lines, limits),
         }
     }
+}
+
+/// `lines` as a board keeps them with a cutout: at most `max_source_lines` of them, each cut to
+/// `max_source_line_chars` characters. What the hash of a cutout's lines ([`Source::range_hash`]) is of,
+/// at the capture and at the jump alike.
+#[must_use]
+pub fn kept_lines(lines: &[String], limits: &Limits) -> Vec<String> {
+    lines
+        .iter()
+        .take(limits.max_source_lines)
+        .map(|l| l.chars().take(limits.max_source_line_chars).collect())
+        .collect()
 }
 
 /// FNV-1a over the lines, each followed by a newline: a number that tells whether lines are what they
@@ -1178,6 +1185,11 @@ impl Board {
                 self.revision += 1;
             }
         }
+    }
+
+    /// The app went to the lines of cutout `id`: the observer hears it.
+    pub fn note_jump(&mut self, id: ItemId, file: &str, first_line: u32, last_line: u32) {
+        self.emit(&BoardEvent::Jumped { id, file: file.to_string(), first_line, last_line });
     }
 
     // ---- where an arrow is
