@@ -40,7 +40,7 @@ fn the_answer_says_who_gave_it_with_the_words_and_when_the_audio_began() {
             outcome: Outcome::Denied,
             message: "the microphone is turned off for Terminal".to_string(),
         }],
-        vec![say(400, "move the label")],
+        vec![say(400, "move the label"), say(400, "and delete it")],
     );
     let heard = session.listen_blocking(AzString::from("en-US".to_string()), 5_000);
     assert_eq!(heard.status, HeardStatus::Heard);
@@ -48,7 +48,7 @@ fn the_answer_says_who_gave_it_with_the_words_and_when_the_audio_began() {
     assert_eq!(heard.text.as_str(), "move the label");
     assert_eq!(heard.language.as_str(), "en");
     assert_eq!(heard.started_unix_ms, ORIGIN);
-    let words = heard.words.as_ref();
+    let words = heard.words.as_slice();
     assert_eq!(words.len(), 3);
     assert_eq!(words[0].text.as_str(), "move");
     assert_eq!((words[0].start_ms, words[0].end_ms), (0, 300));
@@ -68,7 +68,7 @@ fn the_status_lines_name_each_recognizer_and_why_one_is_not_used() {
         }],
         vec![say(100, "hello")],
     );
-    let lines = |s: &SpeechSession| -> Vec<String> { s.recognizers().as_ref().iter().map(|l| l.as_str().to_string()).collect() };
+    let lines = |s: &SpeechSession| -> Vec<String> { s.recognizers().as_slice().iter().map(|l| l.as_str().to_string()).collect() };
     let before = lines(&session);
     assert_eq!(before.len(), 2);
     assert!(before[0].starts_with("native | ") && before[0].ends_with("| unavailable: no usage text"), "{before:?}");
@@ -98,7 +98,7 @@ fn a_clone_is_another_handle_on_the_same_session() {
     let heard = closed.listen_blocking(AzString::from("en".to_string()), 1_000);
     assert_eq!(heard.status, HeardStatus::Unavailable);
     assert!(heard.message.as_str().contains("closed"), "{}", heard.message.as_str());
-    assert!(closed.recognizers().as_ref().is_empty());
+    assert!(closed.recognizers().as_slice().is_empty());
     closed.cancel();
     closed.reset();
     let _ = closed.clone();
@@ -213,5 +213,5 @@ fn a_headless_run_without_a_script_hears_the_old_variable_as_the_scripted_recogn
     assert_eq!(heard.status, HeardStatus::Heard);
     assert_eq!(heard.recognizer, SpeechRecognizer::Scripted);
     assert_eq!(heard.text.as_str(), "open the file");
-    assert_eq!(heard.words.as_ref().len(), 3);
+    assert_eq!(heard.words.as_slice().len(), 3);
 }

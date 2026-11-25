@@ -6,7 +6,7 @@
 //! `Unavailable`.
 
 #[cfg(any(target_arch = "wasm32", az_engine_stubs))]
-use azul_css::{AzString, StringVec};
+use azul_css::{impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_partialeq, AzString, StringVec};
 
 #[cfg(az_desktop)]
 pub use crate::desktop::extra::speech::{
@@ -94,9 +94,9 @@ pub struct SpeechWord {
 }
 
 #[cfg(any(target_arch = "wasm32", az_engine_stubs))]
-azul_css::impl_option!(SpeechWord, OptionSpeechWord, copy = false, [Debug, Clone, PartialEq]);
+impl_option!(SpeechWord, OptionSpeechWord, copy = false, [Debug, Clone, PartialEq]);
 #[cfg(any(target_arch = "wasm32", az_engine_stubs))]
-azul_css::impl_vec!(
+impl_vec!(
     SpeechWord,
     SpeechWordVec,
     SpeechWordVecDestructor,
@@ -105,11 +105,11 @@ azul_css::impl_vec!(
     OptionSpeechWord
 );
 #[cfg(any(target_arch = "wasm32", az_engine_stubs))]
-azul_css::impl_vec_debug!(SpeechWord, SpeechWordVec);
+impl_vec_debug!(SpeechWord, SpeechWordVec);
 #[cfg(any(target_arch = "wasm32", az_engine_stubs))]
-azul_css::impl_vec_clone!(SpeechWord, SpeechWordVec, SpeechWordVecDestructor);
+impl_vec_clone!(SpeechWord, SpeechWordVec, SpeechWordVecDestructor);
 #[cfg(any(target_arch = "wasm32", az_engine_stubs))]
-azul_css::impl_vec_partialeq!(SpeechWord, SpeechWordVec);
+impl_vec_partialeq!(SpeechWord, SpeechWordVec);
 
 /// wasm stub of the desktop `SpeechHeard`; `#[repr(C)]` layout MUST match: the desktop
 /// type's fields in the desktop type's order (the C ABI transmutes between this and

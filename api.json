@@ -179245,6 +179245,64 @@
                             ],
                             "returns": null
                         }
+                    },
+                    "SpeechWordVec": {
+                        "external": "azul_dll::unified::speech::SpeechWordVec",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "SpeechWord",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "SpeechWordVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechWordVecDestructor": {
+                        "external": "azul_dll::unified::speech::SpeechWordVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "SpeechWordVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "SpeechWordVecDestructorType": {
+                        "external": "azul_dll::unified::speech::SpeechWordVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "SpeechWordVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -218194,11 +218252,23 @@
                                 "message": {
                                     "type": "String"
                                 },
-                                "status": {
-                                    "type": "HeardStatus"
+                                "language": {
+                                    "type": "String"
+                                },
+                                "words": {
+                                    "type": "SpeechWordVec"
+                                },
+                                "started_unix_ms": {
+                                    "type": "u64"
                                 },
                                 "confidence": {
                                     "type": "f32"
+                                },
+                                "status": {
+                                    "type": "HeardStatus"
+                                },
+                                "recognizer": {
+                                    "type": "SpeechRecognizer"
                                 }
                             }
                         ],
@@ -218239,6 +218309,51 @@
                                 "Denied": {},
                                 "Unavailable": {},
                                 "Failed": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechRecognizer": {
+                        "external": "azul_dll::unified::speech::SpeechRecognizer",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Native": {},
+                                "Builtin": {},
+                                "Scripted": {},
+                                "None": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechWord": {
+                        "external": "azul_dll::unified::speech::SpeechWord",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "text": {
+                                    "type": "String"
+                                },
+                                "start_ms": {
+                                    "type": "u32"
+                                },
+                                "end_ms": {
+                                    "type": "u32"
+                                },
+                                "probability": {
+                                    "type": "f32"
+                                }
                             }
                         ],
                         "repr": "C"

@@ -45,7 +45,7 @@ use std::{
     },
 };
 
-use azul_css::{AzString, StringVec};
+use azul_css::{impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_partialeq, AzString, StringVec};
 
 #[cfg(target_os = "android")]
 pub mod android;
@@ -191,8 +191,8 @@ pub struct SpeechWord {
     pub probability: f32,
 }
 
-azul_css::impl_option!(SpeechWord, OptionSpeechWord, copy = false, [Debug, Clone, PartialEq]);
-azul_css::impl_vec!(
+impl_option!(SpeechWord, OptionSpeechWord, copy = false, [Debug, Clone, PartialEq]);
+impl_vec!(
     SpeechWord,
     SpeechWordVec,
     SpeechWordVecDestructor,
@@ -200,9 +200,9 @@ azul_css::impl_vec!(
     SpeechWordVecSlice,
     OptionSpeechWord
 );
-azul_css::impl_vec_debug!(SpeechWord, SpeechWordVec);
-azul_css::impl_vec_clone!(SpeechWord, SpeechWordVec, SpeechWordVecDestructor);
-azul_css::impl_vec_partialeq!(SpeechWord, SpeechWordVec);
+impl_vec_debug!(SpeechWord, SpeechWordVec);
+impl_vec_clone!(SpeechWord, SpeechWordVec, SpeechWordVecDestructor);
+impl_vec_partialeq!(SpeechWord, SpeechWordVec);
 
 impl From<&Word> for SpeechWord {
     fn from(word: &Word) -> Self {
@@ -632,7 +632,7 @@ impl SpeechSession {
         let Some(inner) = self.inner() else {
             return AzString::from(String::new());
         };
-        let words: Vec<String> = words.as_ref().iter().map(|w| w.as_str().to_string()).collect();
+        let words: Vec<String> = words.as_slice().iter().map(|w| w.as_str().to_string()).collect();
         let note = inner.chain.lock().unwrap_or_else(PoisonError::into_inner).set_vocabulary(&words);
         *inner.vocabulary.lock().unwrap_or_else(PoisonError::into_inner) = words;
         AzString::from(note.unwrap_or_default())
