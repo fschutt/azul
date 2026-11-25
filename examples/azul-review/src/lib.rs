@@ -614,7 +614,7 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     }
     let mods = info.get_key_modifiers();
     let undo_key = matches!(key, VirtualKeyCode::Z) && mods.primary_down();
-    let redo_key = (undo_key && mods.shift_down()) || (matches!(key, VirtualKeyCode::Y) && mods.primary_down());
+    let redo_key = (undo_key && mods.shift) || (matches!(key, VirtualKeyCode::Y) && mods.primary_down());
     if undo_key || redo_key {
         info.prevent_default();
         let changed = data
