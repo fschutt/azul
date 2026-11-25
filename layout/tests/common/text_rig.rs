@@ -11,25 +11,35 @@
 
 #![allow(dead_code)] // shared test helper: not every test uses every function
 
+use std::{collections::BTreeMap, sync::Arc};
+
 use azul_core::{
     dom::{Dom, DomId},
-    geom::LogicalSize,
+    geom::{LogicalPosition, LogicalRect, LogicalSize},
     resources::RendererResources,
     styled_dom::StyledDom,
 };
 use azul_css::props::basic::FontRef;
 use azul_layout::{
     callbacks::ExternalSystemCallbacks,
+    font::loading::build_font_cache,
+    font_traits::{FontManager, TextLayoutCache},
+    paged::FragmentationContext,
     solver3::{
         display_list::{DisplayList, DisplayListItem},
         layout_tree::TextPayload,
+        paged_layout::layout_document_paged_with_config,
+        pagination::FakePageConfig,
     },
     text3::{
         cache::UnifiedLayout,
+        default::PathLoader,
         glyphs::{get_glyph_runs_pdf, PdfGlyphRun},
     },
     window::LayoutWindow,
     window_state::FullWindowState,
+    xml::DomXmlExt,
+    Solver3LayoutCache,
 };
 use rust_fontconfig::FcFontCache;
 
@@ -237,14 +247,84 @@ pub fn text_layouts(dl: &DisplayList) -> Vec<UnifiedLayout> {
         .collect()
 }
 
-/// The glyph runs the PDF writer is handed for the page, in order: what `printpdf` draws its text
-/// from.
-pub fn pdf_runs(lw: &LayoutWindow, dl: &DisplayList) -> Vec<PdfGlyphRun<FontRef>> {
-    let fonts = lw.font_manager.get_loaded_fonts();
-    text_layouts(dl)
-        .iter()
-        .flat_map(|layout| get_glyph_runs_pdf(layout, &fonts))
-        .collect()
+/// A document laid out the way a PDF export lays it out (`layout_document_paged_with_config`, the
+/// entry point of `printpdf`), and the font manager that did it. The display list of a window has
+/// no `TextLayout` items - they are the paged targets' - so what the PDF writer is handed, the
+/// glyph runs of `PdfGlyphRun`, is read from here.
+pub struct Exported {
+    /// The pages, in order.
+    pub pages: Vec<DisplayList>,
+    /// The font manager that laid them out: it holds the faces the text was shaped with.
+    pub fonts: FontManager<FontRef>,
+}
+
+/// `html` laid out into 800 x 600 pages, the rig's faces known to the font manager.
+pub fn export(html: &str) -> Exported {
+    let styled_dom = Dom::from_xml_string(html);
+    let mut fonts = FontManager::new(build_font_cache()).expect("a font manager");
+    for (family, file) in &FACES {
+        assert!(
+            fonts.registered_fonts.register_font(family, &face_bytes(file)),
+            "premise: {file} is a font"
+        );
+    }
+    drop(fonts.registered_fonts.ensure_in(&fonts.fc_cache));
+    let mut layout_cache = Solver3LayoutCache::default();
+    let mut text_cache = TextLayoutCache::new();
+    let content_size = LogicalSize::new(800.0, 600.0);
+    let loader = PathLoader::new();
+    let font_loader = |bytes: Arc<rust_fontconfig::FontBytes>, index: usize| {
+        loader.load_font_shared(bytes, index)
+    };
+    let pages = layout_document_paged_with_config(
+        &mut layout_cache,
+        &mut text_cache,
+        FragmentationContext::new_paged(content_size),
+        &styled_dom,
+        LogicalRect::new(LogicalPosition::zero(), content_size),
+        &mut fonts,
+        &BTreeMap::new(),
+        &mut Some(Vec::new()),
+        None,
+        &RendererResources::default(),
+        azul_core::resources::IdNamespace(0),
+        DomId::ROOT_ID,
+        font_loader,
+        FakePageConfig::new(),
+        &azul_core::resources::ImageCache::default(),
+        azul_core::task::GetSystemTimeCallback {
+            cb: azul_core::task::get_system_time_libstd,
+        },
+        false,
+    )
+    .expect("the document lays out");
+    Exported { pages, fonts }
+}
+
+/// A page whose one block is set in `family` at 20 px under the declarations `css`, holding `body`
+/// (text and inline elements, as HTML), exported.
+pub fn export_page(family: &str, css: &str, body: &str) -> Exported {
+    export(&format!(
+        "<html><head><style>* {{ margin: 0; padding: 0; }} \
+         .t {{ font-family: \"{family}\"; font-size: 20px; color: #000000; {css} }}</style></head>\
+         <body><div class=\"t\">{body}</div></body></html>"
+    ))
+}
+
+impl Exported {
+    /// Every layout of text of the export, as the PDF writer reads it.
+    pub fn layouts(&self) -> Vec<UnifiedLayout> {
+        self.pages.iter().flat_map(text_layouts).collect()
+    }
+
+    /// The glyph runs the PDF writer is handed, in order: what `printpdf` draws its text from.
+    pub fn pdf_runs(&self) -> Vec<PdfGlyphRun<FontRef>> {
+        let fonts = self.fonts.get_loaded_fonts();
+        self.layouts()
+            .iter()
+            .flat_map(|layout| get_glyph_runs_pdf(layout, &fonts))
+            .collect()
+    }
 }
 
 /// A fresh window, a page of `text` set in `family` under `css` laid out in it, and the display

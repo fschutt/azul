@@ -9,7 +9,7 @@
 //! The face is `Azul Mock Mono`: its weight class is 400 and it has no GSUB table, so a bold text
 //! is thickened and `smcp` is missing. The glyph id of an ASCII character is `code point - 0x1F`.
 
-use crate::text_rig::{block, laid_out, lay_out, painted, pdf_runs, span, text, window, MONO};
+use crate::text_rig::{block, export_page, laid_out, lay_out, painted, span, text, window, MONO};
 
 /// Whether every glyph of `input` set in the mono face under `css` is drawn thickened.
 fn thickened(css: &str, input: &str) -> bool {
@@ -19,10 +19,10 @@ fn thickened(css: &str, input: &str) -> bool {
     glyphs.iter().all(|g| g.synthetic_bold)
 }
 
-/// What the PDF writer is told of the same text: whether its glyph runs are drawn thickened.
+/// What the PDF writer is told of the same text (exported the way `printpdf` lays a document
+/// out): whether its glyph runs are drawn thickened.
 fn pdf_thickened(css: &str, input: &str) -> bool {
-    let (lw, dl) = laid_out(MONO, css, input, 800.0);
-    let runs = pdf_runs(&lw, &dl);
+    let runs = export_page(MONO, css, input).pdf_runs();
     assert!(!runs.is_empty(), "`{css}`: the PDF writer is given the text");
     runs.iter().all(|run| run.synthetic_bold)
 }

@@ -21,7 +21,7 @@ use crate::{
     text3::{
         cache::{
             BidiDirection, BidiLevel, FontManager, FontSelector, FontVariantCaps,
-            FontVariantLigatures, Glyph, GlyphOrientation, GlyphSource,
+            Glyph, GlyphOrientation, GlyphSource,
             LayoutError, LayoutFontMetrics, ParsedFontTrait, Point, ShallowClone, StyleProperties,
             TextCombineUpright, TextDecoration, TextOrientation, VerticalMetrics, WritingMode,
         },
@@ -654,30 +654,56 @@ struct FeatureSelection {
     kerning: bool,
 }
 
+/// The most `font-feature-settings` entries a run reads. The stylesheet parser keeps the first 64
+/// distinct tags of a value (`azul_css::props::basic::font::MAX_FONT_FEATURES`) and the style
+/// builder adds at most one (`font-kerning`), so only a style made by hand has more: the entries
+/// after these are not read, and a run's features cost a bounded amount of work.
+const MAX_FEATURE_ENTRIES: usize = 128;
+
 /// The features a run in `script` under `style` is shaped with, the way
 /// Chrome stacks them: the script's defaults, without the optional
 /// ligatures (`liga`, `clig`) where the text is tracked (CSS Text 3 s8.2: a
-/// non-zero letter-spacing should not join letters), then the
-/// `font-variant-*` features, then `font-feature-settings`, which has the
-/// last word - `0` turns a feature off, one the script turns on by default
-/// or `kern` included, `1` or more turns it on (more picks an alternate).
+/// non-zero letter-spacing should not join letters), without the groups
+/// `font-variant-ligatures` turns off, then the `font-variant-*` features,
+/// then `font-feature-settings` (and `font-kerning`, which the style builder
+/// puts in front of them), which has the last word - `0` turns a feature
+/// off, one the script turns on by default or `kern` included, `1` or more
+/// turns it on (more picks the alternate of that number, counted from 1).
 fn select_features(script: Script, style: &StyleProperties) -> FeatureSelection {
     let mut mask = build_feature_mask_for_script(script);
     if style.letter_spacing.resolve_px(style.font_size_px) != 0.0 {
         mask.remove(Feature::LIGA | Feature::CLIG);
     }
+    // `font-variant-ligatures`: a group it turns off takes its features out of the script's own
+    // (`liga` and `clig`, `calt`), `none` all of them but `rlig`, which a script needs.
+    for tag in style.font_variant_ligatures.opentype_off() {
+        mask.remove(FeatureMask::from_tag(u32::from_be_bytes(tag)));
+    }
     let mut features = Vec::new();
     add_variant_features(style, &mut features);
     let mut kerning = true;
-    for (tag, value) in style.font_features.iter().filter_map(|s| parse_font_feature(s)) {
+    let entries = style
+        .font_features
+        .iter()
+        .filter_map(|s| parse_font_feature(s))
+        .take(MAX_FEATURE_ENTRIES);
+    for (tag, value) in entries {
+        if tag == u32::from_be_bytes(*b"kern") {
+            // `kern` is the shaper's kerning switch, not a feature to add: the script's own
+            // features ask for it already, and its lookups applied a second time would add every
+            // pair adjustment twice.
+            kerning = value != 0;
+            continue;
+        }
         features.retain(|f: &FeatureInfo| f.feature_tag != tag);
         if value == 0 {
             mask.remove(FeatureMask::from_tag(tag));
-            kerning &= tag != u32::from_be_bytes(*b"kern");
         } else {
             features.push(FeatureInfo {
                 feature_tag: tag,
-                alternate: (value > 1).then_some(value as usize),
+                // The alternate of a value counted from 1: `"salt" 1` is the first of the set (no
+                // index), `"salt" 2` the second.
+                alternate: (value > 1).then(|| (value - 1) as usize),
             });
         }
     }
@@ -698,18 +724,10 @@ fn add_variant_features(style: &StyleProperties, features: &mut Vec<FeatureInfo>
         });
     };
 
-    // Note on disabling features: The CSS properties `font-variant-ligatures: none` or
-    // `no-common-ligatures` are meant to disable features that may be on by default for a
-    // given script. The `allsorts` API for applying custom features is additive and does not
-    // currently support disabling default features. This implementation only handles enabling
-    // non-default features.
-
-    // Ligatures
-    match style.font_variant_ligatures {
-        FontVariantLigatures::Discretionary => add_on(b"dlig"),
-        FontVariantLigatures::Historical => add_on(b"hlig"),
-        FontVariantLigatures::Contextual => add_on(b"calt"),
-        _ => {} // Other cases are either default-on or require disabling.
+    // Ligatures: the groups `font-variant-ligatures` turns ON. A group it turns off was taken out of
+    // the script's features by `select_features`.
+    for tag in style.font_variant_ligatures.opentype_on() {
+        add_on(&tag);
     }
 
     // Caps
@@ -732,6 +750,11 @@ fn add_variant_features(style: &StyleProperties, features: &mut Vec<FeatureInfo>
     // Numeric: every feature the value asks for - it combines groups
     // (`tabular-nums slashed-zero` is `tnum` AND `zero`).
     for tag in style.font_variant_numeric.opentype_features() {
+        add_on(&tag);
+    }
+
+    // East Asian forms: every feature the value asks for (`jis78 full-width` is `jp78` AND `fwid`).
+    for tag in style.font_variant_east_asian.opentype_features() {
         add_on(&tag);
     }
 }
@@ -1529,7 +1552,7 @@ mod autotest_generated {
     use rust_fontconfig::{FcFontCache, FontBytes, FontId};
 
     use super::*;
-    use crate::text3::script::Language;
+    use crate::text3::{cache::FontVariantLigatures, script::Language};
 
     /// Positive control: the built-in `Azul Mock Mono` TrueType face.
     const MOCK_MONO: &[u8] = crate::text3::mock_fonts::MOCK_MONO_TTF;
@@ -2752,8 +2775,12 @@ mod autotest_generated {
             vec![u32::from_be_bytes(*b"c2sc"), u32::from_be_bytes(*b"smcp")]
         );
 
+        use azul_css::props::basic::font_variation::StyleFontLigatureChoice;
         let combined = StyleProperties {
-            font_variant_ligatures: FontVariantLigatures::Discretionary,
+            font_variant_ligatures: FontVariantLigatures {
+                discretionary: StyleFontLigatureChoice::On,
+                ..Default::default()
+            },
             font_variant_numeric: crate::text3::cache::FontVariantNumeric {
                 tabular_nums: true,
                 ..Default::default()
@@ -2774,17 +2801,26 @@ mod autotest_generated {
 
     #[test]
     fn add_variant_features_is_additive_and_never_panics_for_any_variant() {
+        use azul_css::props::basic::font_variation::StyleFontLigatureChoice::{Off, On, Unset};
+        let ligature = |common, discretionary, historical, contextual| FontVariantLigatures {
+            common,
+            discretionary,
+            historical,
+            contextual,
+        };
         let ligatures = [
-            FontVariantLigatures::Normal,
-            FontVariantLigatures::None,
-            FontVariantLigatures::Common,
-            FontVariantLigatures::NoCommon,
-            FontVariantLigatures::Discretionary,
-            FontVariantLigatures::NoDiscretionary,
-            FontVariantLigatures::Historical,
-            FontVariantLigatures::NoHistorical,
-            FontVariantLigatures::Contextual,
-            FontVariantLigatures::NoContextual,
+            FontVariantLigatures::NORMAL,
+            FontVariantLigatures::NONE,
+            ligature(On, Unset, Unset, Unset),
+            ligature(Off, Unset, Unset, Unset),
+            ligature(Unset, On, Unset, Unset),
+            ligature(Unset, Off, Unset, Unset),
+            ligature(Unset, Unset, On, Unset),
+            ligature(Unset, Unset, Off, Unset),
+            ligature(Unset, Unset, Unset, On),
+            ligature(Unset, Unset, Unset, Off),
+            // the widest value the grammar allows: every group on
+            ligature(On, On, On, On),
         ];
         let caps = [
             FontVariantCaps::Normal,

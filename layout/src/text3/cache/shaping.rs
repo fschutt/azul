@@ -1402,6 +1402,7 @@ fn shape_bidi_runs_tallied<T: ParsedFontTrait>(
                 shaped.push(ShapedItem::CombinedBlock {
                     style: style.clone(),
                     source: *source,
+                    text: Arc::from(text.as_str()),
                     glyphs: shaped_glyphs,
                     bounds,
                     baseline_offset: em_size / 2.0,
@@ -1489,7 +1490,7 @@ const SYNTHESIZED_SMALL_CAPS_SCALE: f32 = 0.7;
 /// caps feature (the face has none), with its letter and word spacing
 /// resolved at the full size: an `em` of tracking is the element's, not the
 /// small capital's. `None` where nothing is synthesized - no small capitals
-/// asked for, or the face has its own.
+/// asked for, the face has its own, or `font-synthesis-small-caps` is `none`.
 fn synthesized_small_caps<T: ParsedFontTrait>(
     style: &StyleProperties,
     font: &T,
@@ -1504,7 +1505,7 @@ fn synthesized_small_caps<T: ParsedFontTrait>(
         Caps::AllPetiteCaps => (true, has(b"pcap") && has(b"c2pc")),
         Caps::Normal | Caps::Unicase | Caps::TitlingCaps => return None,
     };
-    if own {
+    if own || !style.font_synthesis.small_caps {
         return None;
     }
     Some((Arc::new(small_capitals_style(style)), all))
@@ -1586,7 +1587,8 @@ fn small_caps_pieces(text: &str, all: bool) -> Vec<(usize, usize, bool)> {
 /// Shapes `text` like [`shape_text_correctly`], synthesizing the small
 /// capitals `font-variant-caps` asks for where `font` has none, as Chrome
 /// does: a piece that takes them is set in capitals and shaped in the small
-/// style ([`synthesized_small_caps`]), the rest as it is.
+/// style ([`synthesized_small_caps`]), the rest as it is. Where `font-synthesis-small-caps` is
+/// `none` nothing is synthesized: a face without small capitals sets the text as it is.
 #[allow(clippy::too_many_arguments)] // shape_text_correctly's arguments, passed through
 #[allow(clippy::cast_possible_truncation)] // a byte offset within one text run fits a u32
 pub(super) fn shape_text_with_caps<T: ParsedFontTrait>(
