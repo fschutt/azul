@@ -125,6 +125,13 @@ fn header(s: &AppState, data: &RefAny) -> Dom {
         Dom::create_span_with_text(label("azreview-notes"))
             .with_css("font-size: 11px; color: system:secondary-text; flex-grow: 1;"),
     );
+    // The column's own way out: the top bar no longer has a key for it.
+    let close = label("azreview-notes-switch");
+    row.add_child(
+        ui::with_tip(ui::key(ui::QUIET, close.clone(), data.clone(), voice::on_toggle_notes), &close)
+            .with_id(ids::NOTES_TOGGLE)
+            .with_child(Dom::create_icon("close").with_css("font-size: 14px;")),
+    );
     if s.voice.running.is_some() {
         let listening = s.voice.is_listening();
         row.add_child(
@@ -259,24 +266,6 @@ pub fn column(s: &AppState, data: &RefAny) -> Dom {
         .with_accessibility_name(label("azreview-notes"))
         .with_child(header(s, data))
         .with_child(list)
-}
-
-/// The title row's switch for the column: its icon, and how many notes the open file has.
-#[must_use]
-pub fn switch(s: &AppState, data: &RefAny) -> Dom {
-    let name = label("azreview-notes-switch");
-    let face = if s.voice.notes_open {
-        "padding: 0px 3px; background: system:control-background; border: 1px solid \
-         system:separator; color: system:text;"
-    } else {
-        ui::QUIET
-    };
-    ui::with_tip(
-        ui::key(face, name.clone(), data.clone(), voice::on_toggle_notes),
-        &name,
-    )
-    .with_id(ids::NOTES_TOGGLE)
-    .with_child(Dom::create_icon("speaker_notes").with_css("font-size: 15px;"))
 }
 
 // ==== The settings page's dictation section ====

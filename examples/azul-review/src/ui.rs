@@ -414,17 +414,14 @@ fn top_bar(s: &AppState, data: &RefAny, left_pad: f32) -> Dom {
     let mut centre = Dom::create_div().with_css(
         "display: flex; flex-direction: row; align-items: center; gap: 3px; flex-shrink: 0;",
     );
-    for (i, sem) in Semantic::ALL.iter().enumerate() {
-        centre.add_child(meaning_key(i, *sem, *sem == s.ink_meaning(), data));
+    for (i, spec) in crate::pens::PENS.iter().enumerate() {
+        centre.add_child(pen_key(i, spec.semantic, i == s.pens.selected(), s.pens.nib_of(i), data));
     }
-    centre.add_child(Dom::create_div().with_css("width: 8px; flex-shrink: 0;"));
-    centre.add_child(nib_key(s, data));
     row.add_child(centre);
     let mut right = Dom::create_div().with_css(
         "display: flex; flex-direction: row; align-items: center; gap: 4px; flex: 1 1 0px; min-width: 0px; \
          justify-content: flex-end;",
     );
-    right.add_child(column::switch(s, data));
     for tool in tools(s, data) {
         right.add_child(tool);
     }
@@ -495,11 +492,11 @@ fn tree_switch(s: &AppState, data: &RefAny, left: f32) -> Dom {
         .with_child(Dom::create_icon("view_sidebar").with_css("font-size: 15px;"))
 }
 
-/// Meaning `sem` (key `i + 1`): its icon and digit on a tint of its colour,
-/// filled while it is the meaning the pen writes.
-fn meaning_key(i: usize, sem: Semantic, active: bool, data: &RefAny) -> Dom {
+/// Pen `i` (key `i + 1`): the icon of its meaning and its digit on a tint of its colour, filled while it is the pen in
+/// hand, and then also the icon of its nib. A click takes the pen, a double click (or its key again) takes its next nib.
+fn pen_key(i: usize, sem: Semantic, selected: bool, nib: Option<crate::model::Tool>, data: &RefAny) -> Dom {
     let c = sem.color();
-    let face = if active {
+    let face = if selected {
         format!(
             "background: rgba({0},{1},{2},1.0); color: #ffffff; border: 1px solid \
              rgba({0},{1},{2},1.0);",
@@ -512,27 +509,20 @@ fn meaning_key(i: usize, sem: Semantic, active: bool, data: &RefAny) -> Dom {
             c.r, c.g, c.b
         )
     };
-    let name = AzString::from(crate::l10n::word("meaning", sem.label()));
-    with_tip(key(&face, name.clone(), data.clone(), crate::on_pick_semantic), &name)
+    let meaning = crate::l10n::word("meaning", sem.label());
+    let name = match nib {
+        Some(nib) => AzString::from(format!("{meaning}: {}", crate::l10n::word("nib", nib.label()))),
+        None => AzString::from(meaning),
+    };
+    let mut dom = with_tip(key(&face, name.clone(), data.clone(), crate::on_pick_semantic), &name)
         .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: i })))
+        .with_callback(EventFilter::Hover(HoverEventFilter::DoubleClick), data.clone(), crate::on_pen_double_click)
         .with_child(Dom::create_icon(sem.icon()).with_css("font-size: 13px;"))
-        .with_child(Dom::create_span_with_text(format!("{}", i + 1).as_str()).with_css("font-size: 10px;"))
-}
-
-/// The nib the pen draws with (marker, pen, audio pen); a click takes the
-/// next one.
-fn nib_key(s: &AppState, data: &RefAny) -> Dom {
-    let nib = crate::l10n::word("nib", s.tool.label());
-    let name = AzString::from(format!("{}: {nib}", t("azreview-cycle-nib")));
-    key(
-        "background: transparent; border: 1px dashed system:separator; color: system:text; \
-         :hover { background: system:control-background; }",
-        name,
-        data.clone(),
-        crate::on_cycle_tool,
-    )
-    .with_child(Dom::create_icon(s.tool.icon()).with_css("font-size: 14px;"))
-    .with_child(Dom::create_span_with_text(nib.as_str()))
+        .with_child(Dom::create_span_with_text(format!("{}", i + 1).as_str()).with_css("font-size: 10px;"));
+    if let (true, Some(nib)) = (selected, nib) {
+        dom.add_child(Dom::create_icon(nib.icon()).with_css("font-size: 12px; opacity: 0.9;"));
+    }
+    dom
 }
 
 /// The files, as the rows of the tree: the folders as headings, the files as buttons, the open one lit. A pick opens

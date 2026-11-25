@@ -140,3 +140,57 @@ fn the_empty_page_explains_what_the_app_does_and_has_a_large_open_folder_button(
     assert!(said.iter().any(|t| t.contains("Open folder")), "the button says so: {said:?}");
     assert!(has_id(&page, "__azreview_open-folder-empty"));
 }
+
+// ---- the pens in the top bar ----
+
+fn pen_keys(dom: &Dom) -> Vec<&Dom> {
+    nodes(dom)
+        .into_iter()
+        .filter(|n| {
+            n.root.callbacks.as_slice().iter().any(|c| c.callback.cb == crate::on_pick_semantic as usize)
+        })
+        .collect()
+}
+
+#[test]
+fn the_top_bar_has_one_key_per_pen_and_no_button_for_the_marker_or_the_comments() {
+    let row = top_bar(&reviewing("/work/proj"), &RefAny::new(0u8), 0.0);
+    assert_eq!(pen_keys(&row).len(), crate::pens::PENS.len(), "a key for each pen");
+    let said = texts(&row);
+    assert!(!said.iter().any(|t| t == "marker" || t == "pen" || t == "audio pen"), "no nib button: {said:?}");
+    assert!(!has_id(&row, "__azreview_notes-toggle"), "no comment button");
+}
+
+#[test]
+fn a_pen_key_takes_the_pen_on_a_click_and_the_next_nib_on_a_double_click() {
+    let row = top_bar(&reviewing("/work/proj"), &RefAny::new(0u8), 0.0);
+    for key in pen_keys(&row) {
+        let handlers: Vec<(EventFilter, usize)> =
+            key.root.callbacks.as_slice().iter().map(|c| (c.event, c.callback.cb)).collect();
+        assert!(
+            handlers.contains(&(EventFilter::Hover(HoverEventFilter::Click), crate::on_pick_semantic as usize)),
+            "a click takes the pen: {handlers:?}"
+        );
+        assert!(
+            handlers.contains(&(
+                EventFilter::Hover(HoverEventFilter::DoubleClick),
+                crate::on_pen_double_click as usize
+            )),
+            "a double click cycles its nib: {handlers:?}"
+        );
+    }
+}
+
+#[test]
+fn only_the_pen_in_hand_shows_its_nib_and_every_key_is_named_with_its_meaning_and_nib() {
+    let mut s = reviewing("/work/proj");
+    s.pens.double_click(2);
+    let row = top_bar(&s, &RefAny::new(0u8), 0.0);
+    let keys = pen_keys(&row);
+    // a pen's key is its meaning's icon and its digit; the pen in hand has the icon of its nib besides
+    let parts: Vec<usize> = keys.iter().map(|k| k.children.as_slice().len()).collect();
+    assert_eq!(parts, vec![2, 2, 3, 2, 2], "only the question pen, in hand, shows its nib");
+    for key in keys {
+        assert!(!key.root.accessibility.is_null(), "a pen key without a name");
+    }
+}

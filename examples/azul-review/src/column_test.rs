@@ -133,7 +133,7 @@ fn every_button_of_the_column_is_named_for_the_screen_reader() {
         .into_iter()
         .filter(|n| matches!(n.root.node_type, NodeType::Button))
         .collect();
-    assert_eq!(buttons.len(), 2, "a delete button per note");
+    assert_eq!(buttons.len(), 3, "a delete button per note and the column's own close key");
     for b in buttons {
         assert!(!b.root.accessibility.is_null(), "a button without a name: {:?}", texts(b));
     }

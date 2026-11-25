@@ -169,8 +169,8 @@ pub struct AppState {
     /// frame anew when its page's changes (`ink::InkRevisions`).
     pub ink: ink::InkRevisions,
     pub next_stroke_id: u64,
-    pub active: Semantic,
-    pub tool: Tool,
+    /// The five pens: which is in hand and the nib each has.
+    pub pens: pens::Pens,
     pub findings: Vec<Finding>,
     /// The notes dictated at spots of the open file (the side column, the markers on the pages).
     pub notes: Vec<Note>,
@@ -236,8 +236,7 @@ impl AppState {
             live: None,
             ink: ink::InkRevisions::default(),
             next_stroke_id: 1,
-            active: Semantic::Scope,
-            tool: Tool::Marker,
+            pens: pens::Pens::new(),
             findings: Vec::new(),
             notes: Vec::new(),
             next_note_id: 1,
@@ -321,22 +320,34 @@ impl AppState {
         self.visible_page = 0;
     }
 
-    /// Picks the meaning the ink will have. The marker only highlights (scope) and the pen writes the
-    /// rest, so picking one the nib cannot write changes the nib: the key lit in the title row is what
-    /// the next stroke is.
+    /// Takes the pen that writes `sem`: the pen lit in the top bar is what the next stroke is (each pen
+    /// has the nib it was left with).
     pub fn pick(&mut self, sem: Semantic) {
-        self.active = sem;
-        if sem.is_highlighter() {
-            self.tool = Tool::Marker;
-        } else if self.tool == Tool::Marker {
-            self.tool = Tool::Pen;
+        if let Some(index) = pens::pen_of(sem) {
+            self.pens.select(index);
+            self.nib_changed();
         }
     }
 
-    /// The meaning the next stroke has: the nib's, over the one picked.
+    /// The meaning the next stroke has: the meaning of the pen in hand.
     #[must_use]
     pub fn ink_meaning(&self) -> Semantic {
-        self.tool.semantic_for(self.active)
+        self.pens.semantic()
+    }
+
+    /// The nib of the pen in hand.
+    #[must_use]
+    pub fn tool(&self) -> Tool {
+        self.pens.tool()
+    }
+
+    /// What follows from the nib in hand being another: a clip that records leaves with the audio nib.
+    pub fn nib_changed(&mut self) {
+        if !self.pens.tool().records_audio() {
+            if let Some(clip) = self.recording.take() {
+                self.clips.push(clip);
+            }
+        }
     }
 
     /// Keeps a finished stroke (what Mod+Z takes back); a new stroke ends what Mod+Shift+Z would have
@@ -929,11 +940,12 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(index) = DIGITS.iter().position(|d| *d == key) else {
         return Update::DoNothing;
     };
-    let Some(&sem) = Semantic::ALL.get(index) else {
-        return Update::DoNothing;
-    };
+    // The key of a pen takes it; the key of the pen in hand takes its next nib.
     if let Some(mut s) = data.downcast_mut::<AppState>() {
-        s.pick(sem);
+        if s.pens.press_key(index) == pens::Pressed::Ignored {
+            return Update::DoNothing;
+        }
+        s.nib_changed();
     }
     Update::RefreshDom
 }
@@ -1158,16 +1170,8 @@ fn cycle_tool(data: &mut RefAny, backward: bool) -> Update {
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
-    s.tool = if backward {
-        s.tool.prev()
-    } else {
-        s.tool.next()
-    };
-    if !s.tool.records_audio() {
-        if let Some(clip) = s.recording.take() {
-            s.clips.push(clip);
-        }
-    }
+    s.pens.cycle(backward);
+    s.nib_changed();
     Update::RefreshDom
 }
 
@@ -1550,9 +1554,21 @@ pub extern "C" fn on_pick_semantic(mut data: RefAny, mut info: CallbackInfo) -> 
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
-    if let Some(&sem) = Semantic::ALL.get(index) {
-        s.pick(sem);
-    }
+    s.pens.select(index);
+    s.nib_changed();
+    Update::RefreshDom
+}
+
+/// A double click on a pen: it is taken and has its next nib.
+pub extern "C" fn on_pen_double_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(index) = ui::index_of(&mut info) else {
+        return Update::DoNothing;
+    };
+    let Some(mut s) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    s.pens.double_click(index);
+    s.nib_changed();
     Update::RefreshDom
 }
 

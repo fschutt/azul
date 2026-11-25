@@ -217,33 +217,44 @@ fn opening_a_folder_ends_the_dictation_that_listens() {
 // ---- the meanings and the nib ----
 
 #[test]
-fn picking_a_meaning_the_marker_cannot_write_takes_the_pen() {
+fn picking_a_pen_takes_its_meaning_and_the_nib_it_starts_with() {
     let mut s = app_with_file();
-    assert_eq!(s.tool, Tool::Marker);
+    assert_eq!(s.tool(), Tool::Marker, "the scope pen with the marker is in hand at the start");
     s.pick(Semantic::Question);
-    assert_eq!(s.active, Semantic::Question);
-    assert_eq!(s.tool, Tool::Pen, "the marker only highlights: the meaning is written with the pen");
     assert_eq!(s.ink_meaning(), Semantic::Question);
+    assert_eq!(s.tool(), Tool::Pen, "the marker only highlights: the question pen writes with the pen");
 }
 
 #[test]
-fn picking_scope_takes_the_marker_and_the_audio_pen_stays_when_it_can_write_the_meaning() {
+fn each_pen_keeps_its_nib_while_another_is_in_hand() {
     let mut s = app_with_file();
-    s.tool = Tool::AudioPen;
     s.pick(Semantic::Issue);
-    assert_eq!(s.tool, Tool::AudioPen, "the audio pen writes any meaning");
+    s.pens.cycle(false);
+    assert_eq!(s.tool(), Tool::AudioPen);
     s.pick(Semantic::Scope);
-    assert_eq!(s.tool, Tool::Marker, "scope is the highlighter's");
+    assert_eq!(s.tool(), Tool::Marker, "scope is the highlighter's");
+    s.pick(Semantic::Issue);
+    assert_eq!(s.tool(), Tool::AudioPen, "the issue pen still has its audio nib");
 }
 
 #[test]
-fn the_meaning_lit_in_the_title_row_is_the_one_the_ink_will_have() {
+fn the_pen_lit_in_the_top_bar_is_the_one_the_ink_will_have() {
     let mut s = app_with_file();
     s.pick(Semantic::Praise);
-    s.tool = Tool::Marker;
-    assert_eq!(s.ink_meaning(), Semantic::Scope, "the marker writes scope whatever was picked before");
-    s.tool = Tool::Pen;
-    assert_eq!(s.ink_meaning(), Semantic::Praise, "and the pen takes the meaning back up");
+    assert_eq!(s.ink_meaning(), Semantic::Praise);
+    s.pick(Semantic::Scope);
+    assert_eq!(s.ink_meaning(), Semantic::Scope);
+}
+
+#[test]
+fn leaving_the_audio_nib_ends_the_clip_that_records() {
+    let mut s = app_with_file();
+    s.pick(Semantic::Issue);
+    s.pens.cycle(false);
+    s.recording = Some(crate::model::VoiceClip::default());
+    s.pick(Semantic::Scope);
+    assert!(s.recording.is_none(), "the scope pen's marker does not record");
+    assert_eq!(s.clips.len(), 1, "what was recorded is kept");
 }
 
 // ---- a saved session comes back ----

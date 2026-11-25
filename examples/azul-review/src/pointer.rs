@@ -312,7 +312,7 @@ impl AppState {
         self.live_pen = pen;
         let id = self.next_stroke_id;
         self.next_stroke_id += 1;
-        let semantic = self.tool.semantic_for(self.active);
+        let semantic = self.pens.semantic();
         let epoch = self.epoch;
         self.live = Some(Stroke {
             page,
@@ -321,7 +321,7 @@ impl AppState {
             id,
             epoch,
         });
-        if self.tool.records_audio() && self.recording.is_none() {
+        if self.pens.tool().records_audio() && self.recording.is_none() {
             self.recording = Some(VoiceClip {
                 sample_rate: CLIP_RATE,
                 ..VoiceClip::default()
