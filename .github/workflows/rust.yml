@@ -2416,15 +2416,15 @@ jobs:
           AZ_E2E: ${{ github.workspace }}/tests/e2e/routing_components.json
         run: ${{ matrix.timeout_cmd }} 60 ./routing-components
 
+      # The FFI memory tests (memtest: one generated test per type of api.json) and the ABI guard. The audits
+      # (desktop::audit_tests) lay out whole windows: under Miri one of them took 3 hours and the run was cut at
+      # 4 h 20 min (run 45178260225); they run natively in the DLL tests job.
       - name: Run Miri on azul-dll
         env:
           MIRIFLAGS: -Zmiri-disable-isolation
         run: |
           cargo +nightly-2026-09-03 miri test --lib -p azul-dll -- --nocapture \
-            --skip desktop::extra \
-            --skip desktop::shell2 \
-            --skip desktop::display \
-            --skip desktop::native_screenshot
+            memtest:: abi_guard_tests::
 
   icu_parity:
     # Cross-backend ICU parity checks.
@@ -8009,7 +8009,7 @@ jobs:
           out=target/package/maven/target
           jna="$(find "$HOME/.m2/repository/net/java/dev/jna/jna/5.14.0" -name 'jna-5.14.0.jar' | head -1)"
           [ -n "$jna" ] || { echo "::error::jna-5.14.0.jar not in ~/.m2 after the Java build"; exit 1; }
-          kotlinc -J-Xmx4g -cp "$jna" target/codegen/kotlin/Azul.kt -d "$out/azul-kotlin-$V.jar"
+          kotlinc -J-Xmx8g -cp "$jna" target/codegen/kotlin/Azul.kt -d "$out/azul-kotlin-$V.jar"
           jar uf "$out/azul-kotlin-$V.jar" -C target/package/maven/src/main/resources .
           classes="$(unzip -l "$out/azul-kotlin-$V.jar" | grep -cE '\.class$')"
           [ "$classes" -gt 1000 ] || { echo "::error::azul-kotlin-$V.jar has $classes classes"; exit 1; }
