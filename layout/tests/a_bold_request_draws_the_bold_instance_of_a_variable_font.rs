@@ -7,17 +7,20 @@
 //! had been routed to Helvetica Neue, and why the titlebar's bold title came
 //! out in a different typeface from everything around it.
 //!
-//! The resolver swaps a variable face whose `wght` axis spans the request
-//! for a static instance baked at that weight.
+//! The resolver swaps a variable face for the static instance of the file at
+//! the weight asked for (rust-fontconfig's `FcFontCache::variable_instance`):
+//! a variable font is never drawn as the variable file, the default instance
+//! included.
 
 use std::collections::HashMap;
 
 use azul_layout::{
-    font::parsed::bake_weight_instance,
     solver3::getters::{resolve_font_chains, CollectedFontStacks},
-    text3::cache::{FontChainKeyOrRef, FontSelector, FontStyle},
+    text3::cache::{FontChainKeyOrRef, FontRequest, FontSelector},
 };
-use rust_fontconfig::{FcFontCache, FcFontPath, FcWeight, FontFallbackChain};
+use rust_fontconfig::{
+    FcCreateVariableInstance, FcFontCache, FcFontPath, FcReadVariation, FcWeight, FontFallbackChain,
+};
 
 /// A real `wght`-variable TrueType face checked into this repository
 /// (axis 300-700, default 400), so the test runs on every host.
@@ -31,10 +34,8 @@ fn chain_for(fc_cache: &FcFontCache, family: &str, weight: FcWeight) -> FontFall
     let collected = CollectedFontStacks {
         font_stacks: vec![vec![FontSelector {
             family: family.to_string(),
-            weight,
-            style: FontStyle::Normal,
+            request: FontRequest::default().with_weight_bucket(weight),
             unicode_ranges: Vec::new(),
-            optical_size: 0,
         }]],
         hash_to_index: HashMap::new(),
         font_refs: HashMap::new(),
@@ -43,7 +44,7 @@ fn chain_for(fc_cache: &FcFontCache, family: &str, weight: FcWeight) -> FontFall
         .chains
         .into_iter()
         .find_map(|(key, chain)| match key {
-            FontChainKeyOrRef::Chain(key) if key.weight == weight => Some(chain),
+            FontChainKeyOrRef::Chain(key) if key.request.fc_weight() == weight => Some(chain),
             _ => None,
         })
         .expect("the stack resolves to a chain")
@@ -52,7 +53,7 @@ fn chain_for(fc_cache: &FcFontCache, family: &str, weight: FcWeight) -> FontFall
 /// The variable font is registered as a FILE, exactly as a system scan
 /// registers `SFNS.ttf`, and asked for at 700. The face the chain draws must
 /// be the file's 700 instance: registered at Bold, and byte for byte what
-/// baking the file at `wght = 700` produces.
+/// creating an instance of the file at `wght = 700` produces.
 #[test]
 fn a_bold_request_on_a_variable_font_file_draws_its_700_instance() {
     let path = red_hat_mono();
@@ -99,7 +100,8 @@ fn a_bold_request_on_a_variable_font_file_draws_its_700_instance() {
     let drawn = fc_cache
         .get_font_bytes(&face.id)
         .expect("the face drawn has bytes");
-    let bold = bake_weight_instance(&file, 0, 700.0).expect("the file bakes at wght 700");
+    let bold = FcCreateVariableInstance(&file, 0, &[(*b"wght", 700.0)])
+        .expect("the file has an instance at wght 700");
     assert!(
         drawn.as_slice() == bold.as_slice(),
         "the face drawn ({} bytes) is not the file's 700 instance ({} bytes)",
@@ -107,7 +109,7 @@ fn a_bold_request_on_a_variable_font_file_draws_its_700_instance() {
         bold.len()
     );
 
-    // A regular request keeps the file itself: nothing to bake.
+    // A regular request draws the default instance: a static face, not the variable file.
     let regular = chain_for(&fc_cache, &family, FcWeight::Normal);
     let face = regular
         .css_fallbacks
@@ -118,11 +120,18 @@ fn a_bold_request_on_a_variable_font_file_draws_its_700_instance() {
         fc_cache.get_metadata_by_id(&face.id).map(|m| m.weight),
         Some(FcWeight::Normal)
     );
+    let drawn = fc_cache
+        .get_font_bytes(&face.id)
+        .expect("the face drawn has bytes");
     assert!(
-        fc_cache
-            .get_font_bytes(&face.id)
-            .is_some_and(|b| b.as_slice() == file.as_slice()),
-        "a regular request must draw the file as it is"
+        FcReadVariation(drawn.as_slice(), 0).is_none(),
+        "a regular request must draw a static face, not the variable file"
+    );
+    let default_instance =
+        FcCreateVariableInstance(&file, 0, &[]).expect("the file has a default instance");
+    assert!(
+        drawn.as_slice() == default_instance.as_slice(),
+        "a regular request draws the default instance of the file"
     );
 }
 
@@ -158,7 +167,7 @@ fn the_bold_system_title_face_on_macos_is_the_system_font_at_700() {
         .iter()
         .find_map(|(key, chain)| match key {
             FontChainKeyOrRef::Chain(key)
-                if key.weight == FcWeight::Bold
+                if key.request.fc_weight() == FcWeight::Bold
                     && key
                         .font_families
                         .iter()

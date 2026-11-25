@@ -1065,6 +1065,27 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
                 let dom_id_opt = tree.get(LayoutNodeId::new(idx)).and_then(|n| n.dom_node_id);
                 if let (Some(cc), Some(dom_id)) = (compact, dom_id_opt) {
                     hash_resolved_style(cc, dom_id.index(), &mut h);
+                    // `font-variation-settings` and `font-optical-sizing` have no compact slot:
+                    // a document that declares one adds the value of the node, so that a
+                    // stylesheet restyle that moves only it does not reuse the old content.
+                    if cc.dom_declared(
+                        azul_css::compact_cache::DOM_HAS_FONT_VARIATION_SETTINGS
+                            | azul_css::compact_cache::DOM_HAS_FONT_OPTICAL_SIZING,
+                    ) {
+                        let state = ctx
+                            .styled_dom
+                            .styled_nodes
+                            .as_container()
+                            .get(dom_id)
+                            .map(|node| node.styled_node_state)
+                            .unwrap_or_default();
+                        crate::solver3::getters::font_variation_inputs_hash(
+                            ctx.styled_dom,
+                            dom_id,
+                            &state,
+                        )
+                        .hash(&mut h);
+                    }
                 }
             }
             idx.hash(&mut h);

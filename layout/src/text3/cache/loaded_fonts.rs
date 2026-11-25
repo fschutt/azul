@@ -427,7 +427,6 @@ impl FontContext {
             registry: self.registry.clone(),
             last_resolved_font_stacks_sig: None,
             memory_families: HashMap::new(),
-            vf_bake_cache: HashMap::new(),
             loaded_fonts_memo: Arc::new(Mutex::new(None)),
             // A context holds no registered fonts: the manager made of it has a registry of its
             // own, as `FontManager::new` makes.

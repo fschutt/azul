@@ -19,10 +19,10 @@
 //! 1.1 - the licence sits next to the bundle), cut by
 //! `scripts/make_ebgaramond_ui_fonts.py`, which checks the sources' SHA-256.
 //! Static, because azul measures a WOFF2's decompressed tables as zero-width
-//! and registering a variable font bakes one instance per weight bucket in
-//! every `FontManager`; brotli at quality 11 - about 112 KB for the four
-//! faces (the two variable fonts would be 96 KB, and a baked instance per
-//! weight in every window on top) - decompressed once per process.
+//! and a variable font is drawn as a static instance made for each weight
+//! the text asks for (`FcFontCache::variable_instance`); brotli at quality 11 -
+//! about 112 KB for the four faces (the two variable fonts would be 96 KB, and
+//! an instance per weight on top) - decompressed once per process.
 //!
 //! Registered in every `FontManager` (next to the mock fonts, the same four
 //! constructors) in the FALLBACK tier: an installed EB Garamond - a full one,

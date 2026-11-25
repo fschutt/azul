@@ -71,7 +71,11 @@ fn weight(sd: &StyledDom, node: usize, state: &StyledNodeState) -> FcWeight {
         state,
     );
     match &props.font_stack {
-        FontStack::Stack(selectors) => selectors.first().expect("a font selector").weight,
+        FontStack::Stack(selectors) => selectors
+            .first()
+            .expect("a font selector")
+            .request
+            .fc_weight(),
         FontStack::Ref(_) => panic!("node {node}: premise, a font-family stack"),
     }
 }
