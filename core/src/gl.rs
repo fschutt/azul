@@ -2867,6 +2867,63 @@ impl GlStateSave {
     }
 }
 
+/// What a brush stroke changes beyond the bindings [`GlStateSave`] keeps: the viewport, the scissor and blend
+/// switches and the blend function. Saved before the stroke, put back after it.
+struct PaintState {
+    bindings: GlStateSave,
+    viewport: [i32; 4],
+    blend: bool,
+    scissor: bool,
+    blend_func: [i32; 4],
+}
+
+impl PaintState {
+    fn save(gl: &GlContextPtr) -> Self {
+        let bindings = GlStateSave::save(gl);
+        let mut viewport = [0_i32; 4];
+        gl.get_integer_v(gl::VIEWPORT, (&mut viewport[..]).into());
+        let mut blend = [0_u8];
+        gl.get_boolean_v(gl::BLEND, (&mut blend[..]).into());
+        let mut scissor = [0_u8];
+        gl.get_boolean_v(gl::SCISSOR_TEST, (&mut scissor[..]).into());
+        let mut blend_func = [0_i32; 4];
+        for (slot, name) in blend_func.iter_mut().zip([
+            gl::BLEND_SRC_RGB,
+            gl::BLEND_DST_RGB,
+            gl::BLEND_SRC_ALPHA,
+            gl::BLEND_DST_ALPHA,
+        ]) {
+            gl.get_integer_v(name, (&mut core::slice::from_mut(slot)[..]).into());
+        }
+        Self {
+            bindings,
+            viewport,
+            blend: blend[0] != 0,
+            scissor: scissor[0] != 0,
+            blend_func,
+        }
+    }
+
+    // OpenGL binding: the blend function's names come back from the driver as GLint.
+    #[allow(clippy::cast_sign_loss)]
+    fn restore(&self, gl: &GlContextPtr) {
+        if self.scissor {
+            gl.enable(gl::SCISSOR_TEST);
+        }
+        if !self.blend {
+            gl.disable(gl::BLEND);
+        }
+        gl.blend_func_separate(
+            self.blend_func[0] as u32,
+            self.blend_func[1] as u32,
+            self.blend_func[2] as u32,
+            self.blend_func[3] as u32,
+        );
+        gl.viewport(self.viewport[0], self.viewport[1], self.viewport[2], self.viewport[3]);
+        self.bindings.restore(gl);
+    }
+}
+
 /// AUDIT: RAII guard that deletes a transient framebuffer + renderbuffer on
 /// scope exit. Used by `Texture::clear` and `GlShader::draw` so that a panic
 /// mid-path (e.g. an `.unwrap()` on an empty gen-list, or any GL step that
@@ -3252,22 +3309,7 @@ impl Texture {
         // and set: put back at the end, as `clear` and `draw` do. A stroke that left its own
         // framebuffer, program, vertex array, viewport and blend state behind drew every frame
         // after it wrong: the window showed nothing but its background.
-        let saved = GlStateSave::save(&gl);
-        let mut viewport = [0_i32; 4];
-        gl.get_integer_v(gl::VIEWPORT, (&mut viewport[..]).into());
-        let mut blend = [0_u8];
-        gl.get_boolean_v(gl::BLEND, (&mut blend[..]).into());
-        let mut scissor = [0_u8];
-        gl.get_boolean_v(gl::SCISSOR_TEST, (&mut scissor[..]).into());
-        let mut blend_func = [0_i32; 4];
-        for (slot, name) in blend_func.iter_mut().zip([
-            gl::BLEND_SRC_RGB,
-            gl::BLEND_DST_RGB,
-            gl::BLEND_SRC_ALPHA,
-            gl::BLEND_DST_ALPHA,
-        ]) {
-            gl.get_integer_v(name, (&mut core::slice::from_mut(slot)[..]).into());
-        }
+        let before = PaintState::save(&gl);
 
         gl.bind_vertex_array(vao);
         gl.bind_framebuffer(gl::FRAMEBUFFER, fbo);
@@ -3344,22 +3386,7 @@ impl Texture {
 
         gl.disable_vertex_attrib_array(0);
         gl.disable_vertex_attrib_array(1);
-        // The renderer's state back: the blend and scissor switches, the blend function, the viewport,
-        // then its bindings.
-        if scissor[0] != 0 {
-            gl.enable(gl::SCISSOR_TEST);
-        }
-        if blend[0] == 0 {
-            gl.disable(gl::BLEND);
-        }
-        gl.blend_func_separate(
-            blend_func[0] as u32,
-            blend_func[1] as u32,
-            blend_func[2] as u32,
-            blend_func[3] as u32,
-        );
-        gl.viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
-        saved.restore(&gl);
+        before.restore(&gl);
         gl.delete_buffers((&[vbo][..]).into());
         gl.delete_framebuffers((&[fbo][..]).into());
         gl.delete_vertex_arrays((&[vao][..]).into());
