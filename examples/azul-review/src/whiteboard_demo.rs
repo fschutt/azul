@@ -65,6 +65,9 @@ struct Demo {
     flash: Option<(u32, u32, u64)>,
     board_path: PathBuf,
     timer: Option<TimerId>,
+    /// `WBDEMO_PROFILE`: the frame times are printed every two seconds.
+    profile: bool,
+    ticks: u32,
 }
 
 fn demo_text() -> (String, Vec<String>) {
@@ -440,6 +443,12 @@ extern "C" fn on_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbac
         if d.panel.wb.expire(now) {
             update = Update::RefreshDom;
         }
+        d.ticks += 1;
+        if d.profile && d.ticks % 20 == 0 {
+            if let Some(line) = d.panel.perf.take_summary() {
+                say(&format!("WBDEMO_PERF items={} {line}", d.panel.wb.board.len()));
+            }
+        }
         if d.flash.is_some_and(|(_, _, until)| now >= until) {
             d.flash = None;
             update = Update::RefreshDom;
@@ -475,10 +484,15 @@ pub fn run() {
         let mut k = kit_ref.clone();
         k.downcast_ref::<kit::Kit>().map(|k| k.data_root.clone()).unwrap_or_default()
     };
+    // The environment is read once, here: `WBDEMO_PROFILE=1` prints the frame times, `WBDEMO_FILL=n` puts `n`
+    // small cutouts and the arrows between them on a fresh board (a full board to time).
+    let profile = std::env::var_os("WBDEMO_PROFILE").is_some();
+    let fill = std::env::var("WBDEMO_FILL").ok().and_then(|v| v.parse::<usize>().ok()).unwrap_or(0);
     let (file, lines) = demo_text();
     let board_path = data_root.join("review").join(whiteboard_store::board_name("whiteboard-demo"));
     let mut panel = Panel::new("whiteboard-demo");
     panel.wb.set_bar(true, BAR_W, 1_280.0);
+    panel.perf_on = profile;
     match std::fs::read(&board_path) {
         Ok(bytes) => {
             let loaded = whiteboard_archive::load(&bytes, &crate::whiteboard::LIMITS);
@@ -493,6 +507,10 @@ pub fn run() {
             panel.wb.loaded_none();
         }
     }
+    if fill > 0 {
+        fill_board(&mut panel, fill);
+        say(&format!("WBDEMO_FILLED {}", panel.wb.board.len()));
+    }
     let state = Demo {
         kit: kit_ref.clone(),
         panel,
@@ -504,10 +522,44 @@ pub fn run() {
         flash: None,
         board_path,
         timer: None,
+        profile,
+        ticks: 0,
     };
     let app = App::create(RefAny::new(state), config);
     let window = kit::window_options(&kit_ref, layout, (1_400.0, 800.0), (900.0, 500.0), on_window_created);
     app.run(window);
+}
+
+/// `n` small cutouts in a grid, each of a flat colour with a few lines of text behind it, and an arrow from each
+/// to the next: a full board to time.
+fn fill_board(panel: &mut Panel, n: usize) {
+    use std::sync::Arc;
+
+    use crate::whiteboard::{CutoutDraft, CutoutImage, End, Source};
+    let mut ids = Vec::new();
+    for i in 0..n {
+        let (w, h) = (160_u32, 100_u32);
+        let tint = [180 + (i * 7 % 70) as u8, 190 + (i * 13 % 60) as u8, 200 + (i * 5 % 50) as u8];
+        let rgba: Vec<u8> = (0..w * h).flat_map(|_| [tint[0], tint[1], tint[2], 255]).collect();
+        let image = Arc::new(CutoutImage { width: w, height: h, scale: 2.0, rgba, png: Vec::new() });
+        let source = Source {
+            file: "whiteboard_demo.rs".to_string(),
+            page: 0,
+            first_line: 1,
+            last_line: 2,
+            shape: Vec::new(),
+            file_hash: 0,
+            range_hash: 0,
+            lines: vec!["a piece of the board".to_string()],
+        };
+        let at = Pt::new((i % 12) as f32 * 100.0, (i / 12) as f32 * 70.0);
+        if let Ok(id) = panel.wb.board.add_cutout(CutoutDraft::ready(at, image, source)) {
+            ids.push(id);
+        }
+    }
+    for w in ids.windows(2) {
+        let _ = panel.wb.board.add_arrow(End::item(w[0]), End::item(w[1]), 0.1, "");
+    }
 }
 
 /// The surface's id for scripts.

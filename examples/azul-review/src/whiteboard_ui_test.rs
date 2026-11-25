@@ -284,3 +284,20 @@ fn what_the_board_told_is_shown_in_the_panel_until_the_next_press() {
     });
     assert!(!texts(&quiet.expect("a panel")).iter().any(|t| t.contains("arrow like this one")));
 }
+
+#[test]
+fn the_frame_times_are_kept_for_a_line_of_numbers_and_forgotten_once_told() {
+    let mut perf = Perf::default();
+    assert_eq!(perf.take_summary(), None);
+    for us in [100, 300, 200] {
+        perf.surface(us);
+    }
+    perf.layout(1_000);
+    let line = perf.take_summary().expect("numbers");
+    assert!(line.contains("surface n=3 mean=200 max=300 us") && line.contains("layout n=1 mean=1000 max=1000 us"), "{line}");
+    assert_eq!(perf.take_summary(), None, "told once");
+    for us in 0..1_000 {
+        perf.surface(us);
+    }
+    assert!(perf.take_summary().is_some_and(|l| l.contains(&format!("n={}", Perf::KEEP))), "only the last ones are kept");
+}

@@ -31,6 +31,50 @@ use crate::{
 /// The id of the node that takes the pointer (and the window's text of it for a script).
 pub const SURFACE_ID: &str = "__azreview_whiteboard-surface";
 
+/// How long the panel's frames took, kept for a line of numbers (`AZREVIEW_PROFILE`-style): the last
+/// [`Perf::KEEP`] of the surface's draws and of the panel's layouts, in microseconds.
+#[derive(Debug, Clone, Default)]
+pub struct Perf {
+    surface_us: Vec<u32>,
+    layout_us: Vec<u32>,
+}
+
+impl Perf {
+    pub const KEEP: usize = 240;
+
+    fn push(v: &mut Vec<u32>, us: u32) {
+        if v.len() >= Self::KEEP {
+            v.remove(0);
+        }
+        v.push(us);
+    }
+
+    pub fn surface(&mut self, us: u32) {
+        Self::push(&mut self.surface_us, us);
+    }
+
+    pub fn layout(&mut self, us: u32) {
+        Self::push(&mut self.layout_us, us);
+    }
+
+    /// `surface n=.. mean=.. max=.. us layout n=.. mean=.. max=.. us` over what was kept since the last call
+    /// (and forgets it); `None` when nothing was drawn.
+    pub fn take_summary(&mut self) -> Option<String> {
+        let stats = |v: &[u32]| -> String {
+            let n = v.len().max(1);
+            let mean = v.iter().map(|x| u64::from(*x)).sum::<u64>() / n as u64;
+            format!("n={} mean={mean} max={}", v.len(), v.iter().copied().max().unwrap_or(0))
+        };
+        if self.surface_us.is_empty() && self.layout_us.is_empty() {
+            return None;
+        }
+        let line = format!("surface {} us, layout {} us", stats(&self.surface_us), stats(&self.layout_us));
+        self.surface_us.clear();
+        self.layout_us.clear();
+        Some(line)
+    }
+}
+
 /// The panel and what it keeps between frames.
 pub struct Panel {
     pub wb: Whiteboard,
@@ -46,6 +90,9 @@ pub struct Panel {
     pub hint: Option<String>,
     /// The item whose label is being typed.
     pub editing: Option<ItemId>,
+    /// How long the frames took (asked for by `perf_on`).
+    pub perf: Perf,
+    pub perf_on: bool,
 }
 
 impl Panel {
@@ -60,6 +107,8 @@ impl Panel {
             drag_over: false,
             hint: None,
             editing: None,
+            perf: Perf::default(),
+            perf_on: false,
         }
     }
 
@@ -259,6 +308,7 @@ pub fn cutout_name(c: &Cutout) -> String {
 
 /// The panel: the cutouts, and over them the surface that takes the pointer.
 pub fn panel_dom(panel: &mut Panel, host: &Host) -> Dom {
+    let began = Instant::now();
     let selected = panel.wb.input.selection();
     let cutouts: Vec<Cutout> = panel.wb.board.cutouts().cloned().collect();
     let mut root = Dom::create_div().with_css(
@@ -286,6 +336,9 @@ pub fn panel_dom(panel: &mut Panel, host: &Host) -> Dom {
         ));
     }
     root.add_child(surface(host));
+    if panel.perf_on {
+        panel.perf.layout(u32::try_from(began.elapsed().as_micros()).unwrap_or(u32::MAX));
+    }
     root
 }
 
@@ -430,9 +483,14 @@ extern "C" fn render_surface(mut data: RefAny, info: RenderImageCallbackInfo) ->
     };
     let k = if logical.width > 0.0 { w as f32 / logical.width } else { 1.0 };
     host.run(|p| {
+        let began = Instant::now();
         p.viewport = Size::new(logical.width, logical.height);
         p.dpr = k;
-        ImageRef::create_rawimage(paint_surface(p, w, h, k)).into_option()
+        let image = ImageRef::create_rawimage(paint_surface(p, w, h, k)).into_option();
+        if p.perf_on {
+            p.perf.surface(u32::try_from(began.elapsed().as_micros()).unwrap_or(u32::MAX));
+        }
+        image
     })
     .flatten()
     .unwrap_or_else(blank)
