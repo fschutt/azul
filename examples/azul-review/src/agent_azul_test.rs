@@ -343,7 +343,7 @@ fn a_wrong_key_comes_back_as_the_services_own_words_not_as_a_crash() {
 // for a password; azul-storage's tests keep their own keyring in memory for the same reason): this
 // one is for a person to run on purpose, `cargo test -- --ignored`.
 #[test]
-#[ignore = "reads the real keychain of this machine: run it by hand"]
+#[ignore = "X-EDGE-C-2: reads the real keychain of this machine, run by hand: cargo test -p AzReview --lib -- --ignored reading_an_item"]
 fn reading_an_item_that_is_not_there_never_gives_a_secret_and_never_panics() {
     // joined at run time: a literal that starts with the app's prefix and a hyphen would be taken for
     // a localization key by the check of the sources
