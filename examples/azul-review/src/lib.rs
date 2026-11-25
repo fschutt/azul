@@ -68,6 +68,7 @@ mod l10n;
 mod l10n_tests;
 pub mod model;
 pub mod perf;
+pub mod pens;
 pub mod pointer;
 pub mod recorder_clock;
 pub mod recorder_events;
