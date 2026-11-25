@@ -10,6 +10,6 @@ public func styleBtn() -> [CssPropertyWithConditions] {
         CssPropertyWithConditions.simple(CssProperty.flexGrow(LayoutFlexGrow(inner: FloatValue(1.0)))),
         CssPropertyWithConditions.simple(CssProperty.inherit(CssPropertyType.minWidth)),
         CssPropertyWithConditions.simple(CssProperty.whiteSpace(StyleWhiteSpaceValue.exact(StyleWhiteSpace.nowrap))),
-        CssPropertyWithConditions.onHover(CssProperty.fontWeight(StyleFontWeight.bold)),
+        CssPropertyWithConditions.onHover(CssProperty.fontWeight(StyleFontWeight.number(FloatValue(700.0)))),
     ]
 }

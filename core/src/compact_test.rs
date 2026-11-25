@@ -632,11 +632,11 @@ mod autotest_generated {
 
     #[test]
     fn dom_flags_set_the_right_bit_from_zero() {
-        let mut flags = 0u32;
+        let mut flags = 0u64;
         update_dom_declared_flags(&text_indent_prop(), &mut flags);
         assert_eq!(flags, DOM_HAS_TEXT_INDENT);
 
-        let mut flags2 = 0u32;
+        let mut flags2 = 0u64;
         update_dom_declared_flags(&line_height_prop(150.0), &mut flags2);
         assert_eq!(flags2, DOM_HAS_LINE_HEIGHT);
     }
@@ -644,19 +644,19 @@ mod autotest_generated {
     #[test]
     fn dom_flags_only_ever_or_never_clear() {
         // Starting from all-ones, the function must not clear a single bit.
-        let mut flags = u32::MAX;
+        let mut flags = u64::MAX;
         update_dom_declared_flags(&text_indent_prop(), &mut flags);
         update_dom_declared_flags(&line_height_prop(150.0), &mut flags);
         update_dom_declared_flags(
             &CssProperty::Width(CssPropertyValue::Exact(LayoutWidth::px(10.0))),
             &mut flags,
         );
-        assert_eq!(flags, u32::MAX);
+        assert_eq!(flags, u64::MAX);
     }
 
     #[test]
     fn dom_flags_accumulate_and_are_idempotent() {
-        let mut flags = 0u32;
+        let mut flags = 0u64;
         update_dom_declared_flags(&text_indent_prop(), &mut flags);
         update_dom_declared_flags(&line_height_prop(150.0), &mut flags);
         let after_two = flags;
@@ -671,7 +671,7 @@ mod autotest_generated {
     fn dom_flags_are_not_set_for_a_valueless_property() {
         // `line-height: initial` / `text-indent: auto` carry no Exact payload, so the
         // "declared" fast-path bit must stay clear (the slow walk would find nothing).
-        let mut flags = 0u32;
+        let mut flags = 0u64;
         update_dom_declared_flags(
             &CssProperty::LineHeight(CssPropertyValue::Initial),
             &mut flags,
@@ -686,7 +686,7 @@ mod autotest_generated {
 
     #[test]
     fn dom_flags_ignore_unrelated_properties() {
-        let mut flags = 0u32;
+        let mut flags = 0u64;
         update_dom_declared_flags(
             &CssProperty::Width(CssPropertyValue::Exact(LayoutWidth::px(10.0))),
             &mut flags,
@@ -1586,11 +1586,6 @@ mod inheritance_mask_tests {
         ),
         (CssPropertyType::Clear, CLEAR_SHIFT, CLEAR_MASK),
         (
-            CssPropertyType::FontWeight,
-            FONT_WEIGHT_SHIFT,
-            FONT_WEIGHT_MASK,
-        ),
-        (
             CssPropertyType::FontStyle,
             FONT_STYLE_SHIFT,
             FONT_STYLE_MASK,
@@ -1730,7 +1725,10 @@ mod css_wide_reset_tests {
         (T::WritingMode, "vertical-rl"),
         (T::Clear, "both"),
         (T::FontWeight, "bold"),
+        (T::FontWeight, "350"),
         (T::FontStyle, "italic"),
+        (T::FontStyle, "oblique 10deg"),
+        (T::FontStretch, "87.5%"),
         (T::TextAlign, "center"),
         (T::Visibility, "hidden"),
         (T::WhiteSpace, "pre"),

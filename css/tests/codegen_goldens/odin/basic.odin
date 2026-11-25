@@ -12,6 +12,6 @@ style_btn :: proc() -> azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_flexGrow(azul.AzLayoutFlexGrow{inner = azul.AzFloatValue_create(1.0)})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_inherit(azul.AzCssPropertyType.MinWidth)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_whiteSpace(azul.AzStyleWhiteSpaceValue{Exact = {tag = 6, payload = azul.AzStyleWhiteSpace.Nowrap}})),
-		azul.AzCssPropertyWithConditions_onHover(azul.AzCssProperty_fontWeight(azul.AzStyleFontWeight.Bold)),
+		azul.AzCssPropertyWithConditions_onHover(azul.AzCssProperty_fontWeight(azul.AzStyleFontWeight_number(azul.AzFloatValue_create(700.0)))),
 	}[0], 7)
 }

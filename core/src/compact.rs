@@ -14,7 +14,10 @@ use azul_css::compact_cache::*;
 use azul_css::{
     css::CssPropertyValue,
     props::{
-        basic::length::SizeMetric,
+        basic::{
+            font_variation::{StyleFontKerning, StyleFontOpticalSizing, StyleFontSynthesis},
+            length::SizeMetric,
+        },
         layout::{
             dimensions::{LayoutHeight, LayoutWidth},
             flex::LayoutFlexBasis,
@@ -133,6 +136,10 @@ impl CssPropertyCache {
                 .get_font_style(nd, &node_id, &default_state)
                 .and_then(|v| v.get_property().copied())
                 .unwrap_or_default();
+            let font_stretch = self
+                .get_font_stretch(nd, &node_id, &default_state)
+                .and_then(|v| v.get_property().copied())
+                .unwrap_or_default();
             let text_align = self
                 .get_text_align(nd, &node_id, &default_state)
                 .and_then(|v| v.get_property().copied())
@@ -173,7 +180,6 @@ impl CssPropertyCache {
                 align_content,
                 writing_mode,
                 clear,
-                font_weight,
                 font_style,
                 text_align,
                 visibility,
@@ -389,6 +395,11 @@ impl CssPropertyCache {
                         | u32::from(c.a);
                 }
             }
+
+            // Font weight, stretch and oblique angle (1/64 steps in the padding of the slot)
+            result.tier2b_text[i].font_weight = encode_font_weight_slot(font_weight);
+            result.tier2b_text[i].font_stretch = encode_font_stretch_slot(font_stretch);
+            result.tier2b_text[i].font_oblique = encode_font_oblique_slot(font_style);
 
             // Font-family (hash the whole StyleFontFamilyVec for fast comparison)
             if let Some(val) = self.get_font_family(nd, &node_id, &default_state) {
@@ -643,7 +654,7 @@ impl CssPropertyCache {
             .and_then(|(_, dims, _, _)| decode_pixel_value_u32(dims.font_size))
             .filter(|pv| pv.metric == SizeMetric::Px)
             .map_or(16.0, |pv| pv.number.get());
-        let root_parent_tier1 = host_parent.as_ref().map(|(tier1, _, _, _)| *tier1);
+        let root_parent_weight = host_parent.as_ref().map(|(_, _, _, text)| text.font_weight);
 
         // Pre-encode global CSS properties (from `*` rules) into compact form.
         // These are applied as baseline for every node before inheritance.
@@ -740,12 +751,6 @@ impl CssPropertyCache {
                     WRITING_MODE_SHIFT,
                     WRITING_MODE_MASK,
                     layout_writing_mode_to_u8
-                );
-                global_tier1_enum!(
-                    FontWeight,
-                    FONT_WEIGHT_SHIFT,
-                    FONT_WEIGHT_MASK,
-                    style_font_weight_to_u8
                 );
                 global_tier1_enum!(
                     FontStyle,
@@ -1329,10 +1334,10 @@ impl CssPropertyCache {
             // inherit the number, not the keyword (which made every `<b>` and
             // its text ask for 900, and a `<b>` in a `<b>` no bolder).
             resolve_relative_font_weight(
-                &mut result.tier1_enums,
+                &mut result.tier2b_text,
                 i,
                 parent_id,
-                root_parent_tier1,
+                root_parent_weight,
             );
 
             // A `line-height` in `em` / `%` computes to a length against THIS
@@ -1467,8 +1472,7 @@ fn note_px_overflow(
 /// `every_inheritable_tier1_property_is_actually_inherited` checks the
 /// correspondence slot by slot against `CssPropertyType::is_inheritable`, so a
 /// slot added later cannot quietly omit itself.
-pub const INHERITABLE_TIER1_MASK: u64 = (FONT_WEIGHT_MASK << FONT_WEIGHT_SHIFT)
-    | (FONT_STYLE_MASK << FONT_STYLE_SHIFT)
+pub const INHERITABLE_TIER1_MASK: u64 = (FONT_STYLE_MASK << FONT_STYLE_SHIFT)
     | (TEXT_ALIGN_MASK << TEXT_ALIGN_SHIFT)
     | (VISIBILITY_MASK << VISIBILITY_SHIFT)
     | (WHITE_SPACE_MASK << WHITE_SPACE_SHIFT)
@@ -1498,7 +1502,7 @@ fn apply_ua_css_to_compact(
         u64,
         azul_css::props::basic::font::StyleFontFamilyVec,
     >,
-    dom_declared_flags: &mut u32,
+    dom_declared_flags: &mut u64,
 ) {
     // The ONE property-type list both cascade passes walk (`ua_css.rs`); the
     // per-pass copies this replaced had drifted apart (see its doc). The
@@ -1520,37 +1524,35 @@ fn apply_ua_css_to_compact(
 /// Resolve a node's font-size from relative units (em, %, rem, pt) to absolute px.
 /// CSS 2.1: inherited font-size is the COMPUTED (px) value, not the specified value.
 /// Pre-order traversal guarantees parent's `font_size` is already resolved.
-/// Node `node_idx`'s tier-1 `font-weight` slot holding `bolder` / `lighter`
-/// becomes the weight it computes to against its parent's slot
-/// (`StyleFontWeight::computed`). A slot copied from the parent is already a
-/// number (the parent was computed first: pre-order arena), so a keyword here
-/// is always the node's OWN declaration.
 ///
-/// `root_parent` is the tier-1 word a node WITHOUT a parent computes against:
-/// `None` (the `normal` weight) for a document's root, the host's slots for
-/// a hosted root (`CssPropertyCache::inherited_from_host`).
+/// Node `node_idx`'s `font-weight` slot holding `bolder` / `lighter` becomes the
+/// weight it computes to against its parent's slot (`StyleFontWeight::computed`).
+/// A slot copied from the parent is already a number (the parent was computed
+/// first: pre-order arena), so a keyword here is always the node's OWN
+/// declaration.
+///
+/// `root_parent` is the weight slot a node WITHOUT a parent computes against:
+/// `None` (the `normal` weight) for a document's root, the host's slot for a
+/// hosted root (`CssPropertyCache::inherited_from_host`).
 fn resolve_relative_font_weight(
-    tier1: &mut [u64],
+    text: &mut [CompactTextProps],
     node_idx: usize,
     parent_id: Option<NodeId>,
-    root_parent: Option<u64>,
+    root_parent: Option<u16>,
 ) {
-    let own = decode_font_weight(tier1[node_idx]);
+    let own = decode_font_weight_slot(text[node_idx].font_weight);
     if !own.is_relative() {
         return;
     }
-    let parent = parent_id
+    let parent_slot = parent_id
         .map_or(root_parent, |pid| {
-            Some(pid.index()).filter(|&pi| pi < node_idx).map(|pi| tier1[pi])
+            Some(pid.index())
+                .filter(|&pi| pi < node_idx)
+                .map(|pi| text[pi].font_weight)
         })
-        .map_or(
-            azul_css::props::basic::font::StyleFontWeight::Normal,
-            decode_font_weight,
-        );
-    let encoded = u64::from(style_font_weight_to_u8(own.computed(parent)));
-    let mask = FONT_WEIGHT_MASK << FONT_WEIGHT_SHIFT;
-    tier1[node_idx] =
-        (tier1[node_idx] & !mask) | ((encoded & FONT_WEIGHT_MASK) << FONT_WEIGHT_SHIFT);
+        .unwrap_or(0);
+    text[node_idx].font_weight =
+        encode_font_weight_slot(own.computed(decode_font_weight_slot(parent_slot)));
 }
 
 fn resolve_font_size_to_px(
@@ -2026,14 +2028,12 @@ fn apply_css_property_to_compact(
             layout_writing_mode_to_u8
         ),
         CssProperty::Clear(v) => set_tier1!(v, CLEAR_SHIFT, CLEAR_MASK, layout_clear_to_u8),
-        CssProperty::FontWeight(v) => set_tier1!(
-            v,
-            FONT_WEIGHT_SHIFT,
-            FONT_WEIGHT_MASK,
-            style_font_weight_to_u8
-        ),
         CssProperty::FontStyle(v) => {
             set_tier1!(v, FONT_STYLE_SHIFT, FONT_STYLE_MASK, style_font_style_to_u8);
+            // An oblique angle (and a reset to 0 by `normal` / `italic`) goes to the text tier.
+            if let Some(exact) = v.get_property() {
+                text.font_oblique = encode_font_oblique_slot(*exact);
+            }
         }
         CssProperty::TextAlign(v) => {
             set_tier1!(v, TEXT_ALIGN_SHIFT, TEXT_ALIGN_MASK, style_text_align_to_u8);
@@ -2287,6 +2287,18 @@ fn apply_css_property_to_compact(
         }
 
         // Tier 2b text
+        // The weight (a `bolder` / `lighter` as its sentinel until the builder resolves it
+        // against the parent's), the width and the slant of the font.
+        CssProperty::FontWeight(v) => {
+            if let Some(exact) = v.get_property() {
+                text.font_weight = encode_font_weight_slot(*exact);
+            }
+        }
+        CssProperty::FontStretch(v) => {
+            if let Some(exact) = v.get_property() {
+                text.font_stretch = encode_font_stretch_slot(*exact);
+            }
+        }
         CssProperty::TextColor(v) => {
             // A CSS-wide keyword (`initial`, `inherit`) is no colour this tier
             // can hold: 0 sends the reader to the cascade, which resolves it,
@@ -2596,8 +2608,10 @@ fn reset_compact_property(
         T::AlignContent => clear(ALIGN_CONTENT_SHIFT, ALIGN_MASK),
         T::WritingMode => clear(WRITING_MODE_SHIFT, WRITING_MODE_MASK),
         T::Clear => clear(CLEAR_SHIFT, CLEAR_MASK),
-        T::FontWeight => clear(FONT_WEIGHT_SHIFT, FONT_WEIGHT_MASK),
-        T::FontStyle => clear(FONT_STYLE_SHIFT, FONT_STYLE_MASK),
+        T::FontStyle => {
+            clear(FONT_STYLE_SHIFT, FONT_STYLE_MASK);
+            text.font_oblique = initial_text.font_oblique;
+        }
         T::TextAlign => clear(TEXT_ALIGN_SHIFT, TEXT_ALIGN_MASK),
         T::Visibility => clear(VISIBILITY_SHIFT, VISIBILITY_MASK),
         T::WhiteSpace => clear(WHITE_SPACE_SHIFT, WHITE_SPACE_MASK),
@@ -2681,6 +2695,8 @@ fn reset_compact_property(
         T::ScrollbarGutter => cold.hot_flags &= !HOT_FLAG_SCROLLBAR_GUTTER_MASK,
 
         T::TextColor => text.text_color = initial_text.text_color,
+        T::FontWeight => text.font_weight = initial_text.font_weight,
+        T::FontStretch => text.font_stretch = initial_text.font_stretch,
         T::FontFamily => text.font_family_hash = initial_text.font_family_hash,
         T::LineHeight => text.line_height = initial_text.line_height,
         T::LetterSpacing => text.letter_spacing = initial_text.letter_spacing,
@@ -2697,7 +2713,7 @@ fn reset_compact_property(
 /// (e.g. `translate_to_text3_constraints`) can skip the cascade walk and use
 /// the default value — the slow walk would never find a declaration anyway.
 #[allow(clippy::too_many_lines)] // large but cohesive: one arm per declared-flag property
-const fn update_dom_declared_flags(prop: &CssProperty, flags: &mut u32) {
+fn update_dom_declared_flags(prop: &CssProperty, flags: &mut u64) {
     // Only mark if the property value is actually "set" (not Auto/Initial/etc.).
     // Using `get_property().is_some()` mirrors the pattern used elsewhere in
     // this builder for has-X bits.
@@ -2785,6 +2801,48 @@ const fn update_dom_declared_flags(prop: &CssProperty, flags: &mut u32) {
         CssProperty::FontFeatureSettings(v) => {
             if v.get_property().is_some() {
                 *flags |= DOM_HAS_FONT_FEATURE_SETTINGS;
+            }
+        }
+        // The rarely used font properties below flag a DOM only for a value other than
+        // their initial one: the `font` shorthand resets them all, and a document that
+        // only resets must keep the fast paths.
+        CssProperty::FontVariationSettings(v) => {
+            if v.get_property().is_some_and(|settings| !settings.is_normal()) {
+                *flags |= DOM_HAS_FONT_VARIATION_SETTINGS;
+            }
+        }
+        CssProperty::FontOpticalSizing(v) => {
+            if v.get_property()
+                .is_some_and(|sizing| *sizing != StyleFontOpticalSizing::Auto)
+            {
+                *flags |= DOM_HAS_FONT_OPTICAL_SIZING;
+            }
+        }
+        CssProperty::FontKerning(v) => {
+            if v.get_property()
+                .is_some_and(|kerning| *kerning != StyleFontKerning::Auto)
+            {
+                *flags |= DOM_HAS_FONT_KERNING;
+            }
+        }
+        CssProperty::FontVariantLigatures(v) => {
+            if v.get_property().is_some_and(|ligatures| !ligatures.is_normal()) {
+                *flags |= DOM_HAS_FONT_VARIANT_LIGATURES;
+            }
+        }
+        CssProperty::FontVariantEastAsian(v) => {
+            if v.get_property().is_some_and(|east_asian| !east_asian.is_normal()) {
+                *flags |= DOM_HAS_FONT_VARIANT_EAST_ASIAN;
+            }
+        }
+        CssProperty::FontSynthesisWeight(v)
+        | CssProperty::FontSynthesisStyle(v)
+        | CssProperty::FontSynthesisSmallCaps(v)
+        | CssProperty::FontSynthesisPosition(v) => {
+            if v.get_property()
+                .is_some_and(|synthesis| *synthesis != StyleFontSynthesis::Auto)
+            {
+                *flags |= DOM_HAS_FONT_SYNTHESIS;
             }
         }
         CssProperty::FlowInto(v) => {

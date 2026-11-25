@@ -16,6 +16,16 @@ sub css_str {
 # dropped a value these bindings cannot build: the Perl bindings cannot build a StyleFontFamilyVec of 2+ items (only create() / fromItem())
 # dropped a value these bindings cannot build: `StyleFontVariantCapsValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `StyleFontFeatureSettingsValue` is a fake-layout record in the Perl bindings (tag + byte blob)
+# dropped a value these bindings cannot build: `StyleFontStretchValue` is a fake-layout record in the Perl bindings (tag + byte blob)
+# dropped a value these bindings cannot build: `StyleFontVariationSettingsValue` is a fake-layout record in the Perl bindings (tag + byte blob)
+# dropped a value these bindings cannot build: `StyleFontOpticalSizingValue` is a fake-layout record in the Perl bindings (tag + byte blob)
+# dropped a value these bindings cannot build: `StyleFontKerningValue` is a fake-layout record in the Perl bindings (tag + byte blob)
+# dropped a value these bindings cannot build: `StyleFontVariantLigaturesValue` is a fake-layout record in the Perl bindings (tag + byte blob)
+# dropped a value these bindings cannot build: `StyleFontVariantEastAsianValue` is a fake-layout record in the Perl bindings (tag + byte blob)
+# dropped a value these bindings cannot build: `StyleFontSynthesisValue` is a fake-layout record in the Perl bindings (tag + byte blob)
+# dropped a value these bindings cannot build: `StyleFontSynthesisValue` is a fake-layout record in the Perl bindings (tag + byte blob)
+# dropped a value these bindings cannot build: `StyleFontSynthesisValue` is a fake-layout record in the Perl bindings (tag + byte blob)
+# dropped a value these bindings cannot build: `StyleFontSynthesisValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `StyleInitialLetterValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `StyleLineClampValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `StyleHangingPunctuationValue` is a fake-layout record in the Perl bindings (tag + byte blob)
@@ -43,13 +53,12 @@ sub css_str {
 # dropped a value these bindings cannot build: `StyleExclusionMarginValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `CaretWidthValue` is a fake-layout record in the Perl bindings (tag + byte blob)
 # dropped a value these bindings cannot build: `SelectionRadiusValue` is a fake-layout record in the Perl bindings (tag + byte blob)
-# dropped a value these bindings cannot build: the Perl bindings cannot build a StyleFontFamilyVec of 2+ items (only create() / fromItem())
 sub style_text {
     return [
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_textColor(Azul::AzStyleTextColor->new(inner => ${ Azul::AzColorU->new(r => 51, g => 102, b => 153, a => 255) }))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_fontSize(Azul::AzStyleFontSize->new(inner => ${ Azul::FFI::AzPixelValue_px(14.0) }))),
-        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_fontWeight(Azul::AzStyleFontWeight::W600())),
-        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_fontStyle(Azul::AzStyleFontStyle::Italic())),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_fontWeight(Azul::FFI::AzStyleFontWeight_number(Azul::FFI::AzFloatValue_create(600.0)))),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_fontStyle(Azul::FFI::AzStyleFontStyle_italic())),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_fontVariantNumeric(Azul::AzStyleFontVariantNumeric->new(lining_nums => 0, oldstyle_nums => 0, proportional_nums => 0, tabular_nums => 1, diagonal_fractions => 0, stacked_fractions => 0, ordinal => 0, slashed_zero => 0))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_textAlign(Azul::AzStyleTextAlign::Center())),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_textJustify(Azul::AzLayoutTextJustify::InterWord())),
@@ -65,6 +74,39 @@ sub style_text {
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_caretAnimationDuration(Azul::AzCaretAnimationDuration->new(inner => ${ Azul::AzCssDuration->new(inner => 500, unit => Azul::AzCssDurationUnit::Milliseconds()) }))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_selectionBackgroundColor(Azul::AzSelectionBackgroundColor->new(inner => ${ Azul::AzColorU->new(r => 51, g => 153, b => 255, a => 255) }))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_selectionColor(Azul::AzSelectionColor->new(inner => ${ Azul::AzColorU->new(r => 255, g => 255, b => 255, a => 255) }))),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_font(Azul::FFI::AzStyleFontFamilyVec_fromItem(Azul::FFI::AzStyleFontFamily_system(css_str("caption"))))),
+    ];
+}
+
+# CSS: .shorthands
+# dropped a value these bindings cannot build: `StyleFontVariantCapsValue` is a fake-layout record in the Perl bindings (tag + byte blob)
+# dropped a value these bindings cannot build: `StyleFontStretchValue` is a fake-layout record in the Perl bindings (tag + byte blob)
+# dropped a value these bindings cannot build: the Perl bindings cannot build a StyleFontFamilyVec of 2+ items (only create() / fromItem())
+# dropped a value these bindings cannot build: `StyleFontVariantCapsValue` is a fake-layout record in the Perl bindings (tag + byte blob)
+# dropped a value these bindings cannot build: `StyleFontVariantLigaturesValue` is a fake-layout record in the Perl bindings (tag + byte blob)
+# dropped a value these bindings cannot build: `StyleFontVariantEastAsianValue` is a fake-layout record in the Perl bindings (tag + byte blob)
+# dropped a value these bindings cannot build: `StyleFontSynthesisValue` is a fake-layout record in the Perl bindings (tag + byte blob)
+# dropped a value these bindings cannot build: `StyleFontSynthesisValue` is a fake-layout record in the Perl bindings (tag + byte blob)
+# dropped a value these bindings cannot build: `StyleFontSynthesisValue` is a fake-layout record in the Perl bindings (tag + byte blob)
+# dropped a value these bindings cannot build: `StyleFontSynthesisValue` is a fake-layout record in the Perl bindings (tag + byte blob)
+sub style_shorthands {
+    return [
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_fontStyle(Azul::FFI::AzStyleFontStyle_italic())),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_fontWeight(Azul::FFI::AzStyleFontWeight_number(Azul::FFI::AzFloatValue_create(350.0)))),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_fontSize(Azul::AzStyleFontSize->new(inner => ${ Azul::FFI::AzPixelValue_px(14.0) }))),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_lineHeight(Azul::FFI::AzStyleLineHeight_number(Azul::FFI::AzFloatValue_create(1.5)))),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_initial(Azul::AzCssPropertyType::FontVariantNumeric())),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_initial(Azul::AzCssPropertyType::FontVariantLigatures())),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_initial(Azul::AzCssPropertyType::FontVariantEastAsian())),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_initial(Azul::AzCssPropertyType::FontKerning())),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_initial(Azul::AzCssPropertyType::FontOpticalSizing())),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_initial(Azul::AzCssPropertyType::FontVariationSettings())),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_initial(Azul::AzCssPropertyType::FontFeatureSettings())),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_initial(Azul::AzCssPropertyType::FontSynthesisWeight())),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_initial(Azul::AzCssPropertyType::FontSynthesisStyle())),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_initial(Azul::AzCssPropertyType::FontSynthesisSmallCaps())),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_initial(Azul::AzCssPropertyType::FontSynthesisPosition())),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_fontVariantNumeric(Azul::AzStyleFontVariantNumeric->new(lining_nums => 0, oldstyle_nums => 1, proportional_nums => 0, tabular_nums => 0, diagonal_fractions => 0, stacked_fractions => 0, ordinal => 0, slashed_zero => 0))),
     ];
 }
 

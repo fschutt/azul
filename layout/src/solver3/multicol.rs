@@ -135,13 +135,13 @@ pub fn dom_declares_columns(styled_dom: &StyledDom) -> bool {
     dom_declared_flags(styled_dom) & (DOM_HAS_COLUMN_COUNT | DOM_HAS_COLUMN_WIDTH) != 0
 }
 
-fn dom_declared_flags(styled_dom: &StyledDom) -> u32 {
+fn dom_declared_flags(styled_dom: &StyledDom) -> u64 {
     styled_dom
         .css_property_cache
         .ptr
         .compact_cache
         .as_ref()
-        .map_or(!0u32, |cc| cc.dom_declared_flags)
+        .map_or(!0u64, |cc| cc.dom_declared_flags)
 }
 
 /// The declared `column-count` and (unresolved) `column-width` of `dom_id`

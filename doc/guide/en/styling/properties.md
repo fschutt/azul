@@ -180,8 +180,19 @@ text-decoration: underline;
 - `color` accepts a color. Type `StyleTextColor`.
 - `font-family` accepts a comma-separated list of names, a generic family (`sans-serif`, `serif`, `monospace`, `cursive`, `fantasy`), or `system:ui`. Type `StyleFontFamilyVec`.
 - `font-size` accepts a length or percentage. Type `StyleFontSize`.
-- `font-weight` accepts `100`-`900`, `normal`, `bold`, `bolder`, or `lighter`. Type `StyleFontWeight`.
-- `font-style` accepts `normal`, `italic`, or `oblique`. Type `StyleFontStyle`.
+- `font-weight` accepts any number from `1` to `1000` (`350`, `650.5`), `normal` (400), `bold` (700), `bolder`, or `lighter`. Type `StyleFontWeight`.
+- `font-style` accepts `normal`, `italic`, or `oblique` with an optional angle from `-90deg` to `90deg` (`oblique 12deg`; a bare `oblique` is `14deg`). Type `StyleFontStyle`.
+- `font-stretch` (also spelled `font-width`) accepts a percentage from `0%` (`87.5%`) or a keyword from `ultra-condensed` (50%) to `ultra-expanded` (200%). Type `StyleFontStretch`.
+- `font-variation-settings` accepts `normal` or a comma-separated list of `"tag" <number>` (`"wght" 650, "wdth" 87.5`). A tag given twice keeps its last value. A value keeps its first 64 distinct tags (`MAX_VARIATION_AXES`; the widest real font has about a dozen axes) and the stylesheet parser warns about more. Type `StyleFontVariationSettings`.
+- `font-optical-sizing` accepts `auto` or `none`. Type `StyleFontOpticalSizing`.
+- `font-kerning` accepts `auto`, `normal`, or `none`. Type `StyleFontKerning`.
+- `font-variant-ligatures` accepts `normal`, `none`, or any combination of `common-ligatures` / `no-common-ligatures`, `discretionary-ligatures` / `no-discretionary-ligatures`, `historical-ligatures` / `no-historical-ligatures`, `contextual` / `no-contextual`. Type `StyleFontVariantLigatures`.
+- `font-variant-east-asian` accepts `normal`, or `jis78`, `jis83`, `jis90`, `jis04`, `simplified`, `traditional` (one), `full-width`, `proportional-width` (one), and `ruby`. Type `StyleFontVariantEastAsian`.
+- `font-variant-numeric`, `font-variant-caps`, and `font-feature-settings` accept the CSS Fonts 4 values. Types `StyleFontVariantNumeric`, `StyleFontVariantCaps`, `StyleFontFeatureSettings`.
+- `font-synthesis-weight`, `font-synthesis-style`, `font-synthesis-small-caps`, and `font-synthesis-position` accept `auto` or `none`. Type `StyleFontSynthesis`.
+- `font-synthesis` (shorthand) accepts `none` or any of `weight`, `style`, `small-caps`, `position`; the ones not listed are `none`.
+- `font-variant` (shorthand) sets `font-variant-caps`, `-numeric`, `-ligatures`, and `-east-asian`; `none` is `font-variant-ligatures: none`.
+- `font` (shorthand) accepts `[<font-style> || small-caps || <font-weight> || <font-stretch keyword>]? <font-size> [/ <line-height>]? <font-family>`, or a system font keyword. It sets every font property above; the ones the value does not name are reset to their initial value.
 - `line-height` accepts a unitless number, length, or percentage. Type `StyleLineHeight`.
 - `letter-spacing` accepts a length. Type `StyleLetterSpacing`.
 - `word-spacing` accepts a length. Type `StyleWordSpacing`.

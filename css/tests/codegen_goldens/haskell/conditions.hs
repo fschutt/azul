@@ -35,7 +35,7 @@ styleListLiNthChild2 = sequence
 styleMainTitle :: IO [CssPropertyWithConditions]
 styleMainTitle = sequence
   [
-    (CssPropertyWithConditions.simple (T.CssProperty_FontWeight (T.StyleFontWeightValue_Exact T.StyleFontWeight_Bold)))
+    (CssPropertyWithConditions.simple (T.CssProperty_FontWeight (T.StyleFontWeightValue_Exact (T.StyleFontWeight_Number (T.FloatValue 700000)))))
   ]
 
 -- CSS: div .note:first

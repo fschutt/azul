@@ -2,7 +2,7 @@
 //!
 //! Replaces BTreeMap-based CSS property lookups with cache-friendly arrays.
 //!
-//! - **Tier 1**: `Vec<u64>` — ALL 21 enum properties bitpacked (8 B/node)
+//! - **Tier 1**: `Vec<u64>` — ALL 20 enum properties bitpacked (8 B/node)
 //! - **Tier 2 hot**: `Vec<CompactNodeProps>` — layout-critical numeric dimensions (108 B/node)
 //! - **Tier 2 cold**: `Vec<CompactNodePropsCold>` — paint-only properties (28 B/node)
 //! - **Tier 2b**: `Vec<CompactTextProps>` — text/IFC properties (32 B/node)
@@ -26,7 +26,8 @@ use crate::{
         basic::{
             color::ColorU,
             font::{StyleFontStyle, StyleFontWeight},
-            length::{FloatValue, SizeMetric},
+            font_variation::StyleFontStretch,
+            length::{FloatValue, PercentageValue, SizeMetric},
             pixel::PixelValue,
         },
         layout::{
@@ -116,8 +117,8 @@ pub const U32_SENTINEL_THRESHOLD: u32 = 0xFFFF_FFF9;
 //   [29:27]  align_content    3 bits  (6 variants)
 //   [31:30]  writing_mode     2 bits  (3 variants)
 //   [33:32]  clear            2 bits  (4 variants)
-//   [37:34]  font_weight      4 bits  (11 variants)
-//   [39:38]  font_style       2 bits  (3 variants)
+//   [37:34]  (free: the weight lives in `CompactTextProps::font_weight`, 1..1000 in 1/64 steps)
+//   [39:38]  font_style       2 bits  (3 variants; an oblique angle lives in `CompactTextProps::font_oblique`)
 //   [42:40]  text_align       3 bits  (6 variants)
 //   [44:43]  visibility       2 bits  (3 variants)
 //   [47:45]  white_space      3 bits  (6 variants)
@@ -140,7 +141,6 @@ pub const ALIGN_ITEMS_SHIFT: u32 = 24;
 pub const ALIGN_CONTENT_SHIFT: u32 = 27;
 pub const WRITING_MODE_SHIFT: u32 = 30;
 pub const CLEAR_SHIFT: u32 = 32;
-pub const FONT_WEIGHT_SHIFT: u32 = 34;
 pub const FONT_STYLE_SHIFT: u32 = 38;
 pub const TEXT_ALIGN_SHIFT: u32 = 40;
 pub const VISIBILITY_SHIFT: u32 = 43;
@@ -173,7 +173,6 @@ pub const JUSTIFY_MASK: u64 = 0x07; // 3 bits
 pub const ALIGN_MASK: u64 = 0x07; // 3 bits
 pub const WRITING_MODE_MASK: u64 = 0x03; // 2 bits
 pub const CLEAR_MASK: u64 = 0x03; // 2 bits
-pub const FONT_WEIGHT_MASK: u64 = 0x0F; // 4 bits
 pub const FONT_STYLE_MASK: u64 = 0x03; // 2 bits
 pub const TEXT_ALIGN_MASK: u64 = 0x07; // 3 bits
 pub const VISIBILITY_MASK: u64 = 0x03; // 2 bits
@@ -648,63 +647,155 @@ pub const fn layout_clear_to_u8(v: LayoutClear) -> u8 {
     }
 }
 
+/// The slot value of a `font-weight: lighter` that is not resolved yet.
+///
+/// The `font-weight` slot of [`CompactTextProps`] holds the weight in 1/64 steps
+/// (1 -> 64, 400 -> 25600, 1000 -> 64000); `0` is "not declared", which reads as
+/// 400, and the declared 400 is stored as 0 too, so one weight has one encoding.
+/// `bolder` and `lighter` are stored as two sentinels until the builder
+/// resolves them against the parent's weight (CSS Fonts 4 s2.2), so a node's
+/// children always copy a number.
+pub const FONT_WEIGHT_SLOT_LIGHTER: u16 = 0xFFFD;
+/// The slot value of a `font-weight: bolder` that is not resolved yet (see
+/// [`FONT_WEIGHT_SLOT_LIGHTER`]).
+pub const FONT_WEIGHT_SLOT_BOLDER: u16 = 0xFFFE;
+/// The slot of the declared weight 400, which is stored as 0.
+const FONT_WEIGHT_SLOT_400: u16 = 25_600;
+/// The slot of the weight 1000.
+const FONT_WEIGHT_SLOT_MAX: u16 = 64_000;
+
+/// The `font-weight` slot of `weight`: clamped to 1..=1000, in 1/64 steps, 400 as 0.
+///
+/// A weight is held in thousandths, so every value a stylesheet writes with up
+/// to six binary fraction digits is exact.
 #[inline]
-/// 0 = Normal/400 (CSS initial value for font-weight)
 #[must_use]
-pub const fn style_font_weight_from_u8(v: u8) -> StyleFontWeight {
-    match v {
-        0 => StyleFontWeight::Normal, // CSS initial (400)
-        1 => StyleFontWeight::W100,
-        2 => StyleFontWeight::W200,
-        3 => StyleFontWeight::W300,
-        4 => StyleFontWeight::W500,
-        5 => StyleFontWeight::W600,
-        6 => StyleFontWeight::Bold, // 700
-        7 => StyleFontWeight::W800,
-        8 => StyleFontWeight::W900,
-        9 => StyleFontWeight::Lighter,
-        10 => StyleFontWeight::Bolder,
-        _ => StyleFontWeight::Normal,
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped to 64..=64000 first
+pub const fn encode_font_weight_slot(weight: StyleFontWeight) -> u16 {
+    match weight {
+        StyleFontWeight::Lighter => FONT_WEIGHT_SLOT_LIGHTER,
+        StyleFontWeight::Bolder => FONT_WEIGHT_SLOT_BOLDER,
+        StyleFontWeight::Number(number) => {
+            let thousandths = number.number();
+            let clamped = if thousandths < 1_000 {
+                1_000
+            } else if thousandths > 1_000_000 {
+                1_000_000
+            } else {
+                thousandths
+            };
+            let slot = ((clamped * 64 + 500) / 1000) as u16;
+            if slot == FONT_WEIGHT_SLOT_400 {
+                0
+            } else {
+                slot
+            }
+        }
     }
 }
 
+/// The weight a `font-weight` slot stands for (0 is 400).
 #[inline]
-/// 0 = Normal/400 (CSS initial value for font-weight)
 #[must_use]
-pub const fn style_font_weight_to_u8(v: StyleFontWeight) -> u8 {
-    match v {
-        StyleFontWeight::Normal => 0, // CSS initial (400)
-        StyleFontWeight::W100 => 1,
-        StyleFontWeight::W200 => 2,
-        StyleFontWeight::W300 => 3,
-        StyleFontWeight::W500 => 4,
-        StyleFontWeight::W600 => 5,
-        StyleFontWeight::Bold => 6, // 700
-        StyleFontWeight::W800 => 7,
-        StyleFontWeight::W900 => 8,
-        StyleFontWeight::Lighter => 9,
-        StyleFontWeight::Bolder => 10,
+pub fn decode_font_weight_slot(slot: u16) -> StyleFontWeight {
+    match slot {
+        0 => StyleFontWeight::NORMAL,
+        FONT_WEIGHT_SLOT_LIGHTER => StyleFontWeight::Lighter,
+        FONT_WEIGHT_SLOT_BOLDER => StyleFontWeight::Bolder,
+        slot if slot > FONT_WEIGHT_SLOT_MAX => StyleFontWeight::NORMAL,
+        slot => StyleFontWeight::Number(FloatValue::new(f32::from(slot) / 64.0)),
     }
 }
 
+/// The slot of a declared `font-stretch` of 100%, which is stored as 0 ("not declared").
+const FONT_STRETCH_SLOT_100: u16 = 6_400;
+/// The largest slot a declared stretch takes (about 1023%).
+const FONT_STRETCH_SLOT_MAX: i32 = 0xFFF0;
+
+/// The `font-stretch` slot of `stretch`: percent in 1/64 steps, 100% as 0.
+///
+/// A declared `0%` is 1 (0 means "not declared"); the slot saturates at about 1023%.
 #[inline]
 #[must_use]
-pub const fn style_font_style_from_u8(v: u8) -> StyleFontStyle {
-    match v {
-        0 => StyleFontStyle::Normal,
-        1 => StyleFontStyle::Italic,
-        2 => StyleFontStyle::Oblique,
-        _ => StyleFontStyle::Normal,
+pub fn encode_font_stretch_slot(stretch: StyleFontStretch) -> u16 {
+    let scaled = crate::cast::f32_to_i32(libm::roundf(stretch.inner.normalized() * 100.0 * 64.0));
+    let slot = u16::try_from(scaled.clamp(1, FONT_STRETCH_SLOT_MAX)).unwrap_or(1);
+    if slot == FONT_STRETCH_SLOT_100 {
+        0
+    } else {
+        slot
     }
 }
 
+/// The stretch a `font-stretch` slot stands for (0 is 100%).
+#[inline]
+#[must_use]
+pub fn decode_font_stretch_slot(slot: u16) -> StyleFontStretch {
+    if slot == 0 {
+        return StyleFontStretch::NORMAL;
+    }
+    StyleFontStretch {
+        inner: PercentageValue::new(f32::from(slot) / 64.0),
+    }
+}
+
+/// The oblique angle slot of [`CompactTextProps`]: the slant in 1/64 degrees.
+///
+/// 14 degrees is 896, `normal` and `italic` are 0. The slot only means something
+/// where the tier-1 style code says oblique.
+#[inline]
+#[must_use]
+#[allow(clippy::cast_possible_truncation)] // clamped to -5760..=5760 first
+pub const fn encode_font_oblique_slot(style: StyleFontStyle) -> i16 {
+    match style {
+        StyleFontStyle::Oblique(degrees) => {
+            let thousandths = degrees.number();
+            let rounding = if thousandths < 0 { -500 } else { 500 };
+            let slot = (thousandths * 64 + rounding) / 1000;
+            let clamped = if slot < -5_760 {
+                -5_760
+            } else if slot > 5_760 {
+                5_760
+            } else {
+                slot
+            };
+            clamped as i16
+        }
+        StyleFontStyle::Normal | StyleFontStyle::Italic => 0,
+    }
+}
+
+/// The 2-bit tier-1 code of a font style, 0 for `normal`, 1 for `italic`, 2 for
+/// any `oblique` (the angle goes to the oblique slot).
 #[inline]
 #[must_use]
 pub const fn style_font_style_to_u8(v: StyleFontStyle) -> u8 {
     match v {
         StyleFontStyle::Normal => 0,
         StyleFontStyle::Italic => 1,
-        StyleFontStyle::Oblique => 2,
+        StyleFontStyle::Oblique(_) => 2,
+    }
+}
+
+/// The style of a tier-1 code alone: `oblique` is the bare one, 14 degrees.
+#[inline]
+#[must_use]
+pub const fn style_font_style_from_u8(v: u8) -> StyleFontStyle {
+    match v {
+        1 => StyleFontStyle::Italic,
+        2 => StyleFontStyle::OBLIQUE,
+        _ => StyleFontStyle::Normal,
+    }
+}
+
+/// The style of a tier-1 code and the oblique slot of the same node.
+#[inline]
+#[must_use]
+pub fn style_font_style_from_slots(code: u8, oblique_slot: i16) -> StyleFontStyle {
+    match code {
+        1 => StyleFontStyle::Italic,
+        2 => StyleFontStyle::Oblique(FloatValue::new(f32::from(oblique_slot) / 64.0)),
+        _ => StyleFontStyle::Normal,
     }
 }
 
@@ -1046,7 +1137,7 @@ pub const fn decode_color_u32(v: u32) -> Option<ColorU> {
 // Tier 1: Encode / Decode
 // =============================================================================
 
-/// Pack all 21 enum properties into a single u64.
+/// Pack all 20 enum properties into a single u64.
 #[inline]
 #[must_use]
 pub const fn encode_tier1(
@@ -1063,7 +1154,6 @@ pub const fn encode_tier1(
     align_content: LayoutAlignContent,
     writing_mode: LayoutWritingMode,
     clear: LayoutClear,
-    font_weight: StyleFontWeight,
     font_style: StyleFontStyle,
     text_align: StyleTextAlign,
     visibility: StyleVisibility,
@@ -1086,7 +1176,6 @@ pub const fn encode_tier1(
     v |= (layout_align_content_to_u8(align_content) as u64) << ALIGN_CONTENT_SHIFT;
     v |= (layout_writing_mode_to_u8(writing_mode) as u64) << WRITING_MODE_SHIFT;
     v |= (layout_clear_to_u8(clear) as u64) << CLEAR_SHIFT;
-    v |= (style_font_weight_to_u8(font_weight) as u64) << FONT_WEIGHT_SHIFT;
     v |= (style_font_style_to_u8(font_style) as u64) << FONT_STYLE_SHIFT;
     v |= (style_text_align_to_u8(text_align) as u64) << TEXT_ALIGN_SHIFT;
     v |= (style_visibility_to_u8(visibility) as u64) << VISIBILITY_SHIFT;
@@ -1178,12 +1267,9 @@ pub const fn decode_clear(t1: u64) -> LayoutClear {
     layout_clear_from_u8(((t1 >> CLEAR_SHIFT) & CLEAR_MASK) as u8)
 }
 
-#[inline]
-#[must_use]
-pub const fn decode_font_weight(t1: u64) -> StyleFontWeight {
-    style_font_weight_from_u8(((t1 >> FONT_WEIGHT_SHIFT) & FONT_WEIGHT_MASK) as u8)
-}
-
+/// The style code of a tier-1 word alone: an `oblique` reads as the bare one (the
+/// angle is in [`CompactTextProps::font_oblique`], see
+/// [`CompactLayoutCache::get_font_style`]).
 #[inline]
 #[must_use]
 pub const fn decode_font_style(t1: u64) -> StyleFontStyle {
@@ -1669,46 +1755,59 @@ pub const EXTRA_FLAG_HAS_MIX_BLEND_MODE: u8 = 1 << 7;
 // necessarily return None → callers can skip the walk and use
 // the default value. Eliminates ~N × IFC-count walks per layout
 // in typical pages where these props are never declared.
-pub const DOM_HAS_SHAPE_INSIDE: u32 = 1 << 0;
-pub const DOM_HAS_SHAPE_OUTSIDE: u32 = 1 << 1;
-pub const DOM_HAS_TEXT_JUSTIFY: u32 = 1 << 2;
-pub const DOM_HAS_TEXT_INDENT: u32 = 1 << 3;
-pub const DOM_HAS_COLUMN_COUNT: u32 = 1 << 4;
-pub const DOM_HAS_COLUMN_GAP: u32 = 1 << 5;
-pub const DOM_HAS_INITIAL_LETTER: u32 = 1 << 6;
-pub const DOM_HAS_INITIAL_LETTER_ALIGN: u32 = 1 << 7;
-pub const DOM_HAS_LINE_CLAMP: u32 = 1 << 8;
-pub const DOM_HAS_HANGING_PUNCTUATION: u32 = 1 << 9;
-pub const DOM_HAS_TEXT_COMBINE_UPRIGHT: u32 = 1 << 10;
-pub const DOM_HAS_EXCLUSION_MARGIN: u32 = 1 << 11;
-pub const DOM_HAS_HYPHENATION_LANGUAGE: u32 = 1 << 12;
-pub const DOM_HAS_UNICODE_BIDI: u32 = 1 << 13;
-pub const DOM_HAS_TEXT_BOX_TRIM: u32 = 1 << 14;
-pub const DOM_HAS_HYPHENS: u32 = 1 << 15;
-pub const DOM_HAS_WORD_BREAK: u32 = 1 << 16;
-pub const DOM_HAS_OVERFLOW_WRAP: u32 = 1 << 17;
-pub const DOM_HAS_LINE_BREAK: u32 = 1 << 18;
-pub const DOM_HAS_TEXT_ALIGN_LAST: u32 = 1 << 19;
-pub const DOM_HAS_LINE_HEIGHT: u32 = 1 << 20;
-pub const DOM_HAS_COLUMN_WIDTH: u32 = 1 << 21;
-pub const DOM_HAS_SHAPE_MARGIN: u32 = 1 << 22;
-pub const DOM_HAS_FONT_VARIANT_NUMERIC: u32 = 1 << 23;
-pub const DOM_HAS_TEXT_OVERFLOW: u32 = 1 << 24;
-pub const DOM_HAS_FONT_VARIANT_CAPS: u32 = 1 << 25;
-pub const DOM_HAS_FONT_FEATURE_SETTINGS: u32 = 1 << 26;
-pub const DOM_HAS_FLOW_INTO: u32 = 1 << 27;
-pub const DOM_HAS_FLOW_FROM: u32 = 1 << 28;
+pub const DOM_HAS_SHAPE_INSIDE: u64 = 1 << 0;
+pub const DOM_HAS_SHAPE_OUTSIDE: u64 = 1 << 1;
+pub const DOM_HAS_TEXT_JUSTIFY: u64 = 1 << 2;
+pub const DOM_HAS_TEXT_INDENT: u64 = 1 << 3;
+pub const DOM_HAS_COLUMN_COUNT: u64 = 1 << 4;
+pub const DOM_HAS_COLUMN_GAP: u64 = 1 << 5;
+pub const DOM_HAS_INITIAL_LETTER: u64 = 1 << 6;
+pub const DOM_HAS_INITIAL_LETTER_ALIGN: u64 = 1 << 7;
+pub const DOM_HAS_LINE_CLAMP: u64 = 1 << 8;
+pub const DOM_HAS_HANGING_PUNCTUATION: u64 = 1 << 9;
+pub const DOM_HAS_TEXT_COMBINE_UPRIGHT: u64 = 1 << 10;
+pub const DOM_HAS_EXCLUSION_MARGIN: u64 = 1 << 11;
+pub const DOM_HAS_HYPHENATION_LANGUAGE: u64 = 1 << 12;
+pub const DOM_HAS_UNICODE_BIDI: u64 = 1 << 13;
+pub const DOM_HAS_TEXT_BOX_TRIM: u64 = 1 << 14;
+pub const DOM_HAS_HYPHENS: u64 = 1 << 15;
+pub const DOM_HAS_WORD_BREAK: u64 = 1 << 16;
+pub const DOM_HAS_OVERFLOW_WRAP: u64 = 1 << 17;
+pub const DOM_HAS_LINE_BREAK: u64 = 1 << 18;
+pub const DOM_HAS_TEXT_ALIGN_LAST: u64 = 1 << 19;
+pub const DOM_HAS_LINE_HEIGHT: u64 = 1 << 20;
+pub const DOM_HAS_COLUMN_WIDTH: u64 = 1 << 21;
+pub const DOM_HAS_SHAPE_MARGIN: u64 = 1 << 22;
+pub const DOM_HAS_FONT_VARIANT_NUMERIC: u64 = 1 << 23;
+pub const DOM_HAS_TEXT_OVERFLOW: u64 = 1 << 24;
+pub const DOM_HAS_FONT_VARIANT_CAPS: u64 = 1 << 25;
+pub const DOM_HAS_FONT_FEATURE_SETTINGS: u64 = 1 << 26;
+pub const DOM_HAS_FLOW_INTO: u64 = 1 << 27;
+pub const DOM_HAS_FLOW_FROM: u64 = 1 << 28;
 /// `text-transform` (read for every text style built).
-pub const DOM_HAS_TEXT_TRANSFORM: u32 = 1 << 29;
+pub const DOM_HAS_TEXT_TRANSFORM: u64 = 1 << 29;
 /// `vertical-align`, a UA default included (table parts, `sub`, `sup`): read
 /// for every inline item, and its tier-1 slot cannot hold a length.
-pub const DOM_HAS_VERTICAL_ALIGN: u32 = 1 << 30;
+pub const DOM_HAS_VERTICAL_ALIGN: u64 = 1 << 30;
 /// `zoom` OR `aspect-ratio`.
 ///
-/// One bit for the two (the word is full): both are rare and author-only, a DOM that declares
+/// One bit for the two: both are rare and author-only, a DOM that declares
 /// either reads both from the cascade as before. `zoom` is asked of every node of a new DOM,
 /// `aspect-ratio` in every used-size computation.
-pub const DOM_HAS_ZOOM_OR_ASPECT_RATIO: u32 = 1 << 31;
+pub const DOM_HAS_ZOOM_OR_ASPECT_RATIO: u64 = 1 << 31;
+/// `font-variation-settings` with a value other than `normal`.
+pub const DOM_HAS_FONT_VARIATION_SETTINGS: u64 = 1 << 32;
+/// `font-optical-sizing` with a value other than `auto`.
+pub const DOM_HAS_FONT_OPTICAL_SIZING: u64 = 1 << 33;
+/// `font-kerning` with a value other than `auto`.
+pub const DOM_HAS_FONT_KERNING: u64 = 1 << 34;
+/// `font-variant-ligatures` with a value other than `normal`.
+pub const DOM_HAS_FONT_VARIANT_LIGATURES: u64 = 1 << 35;
+/// `font-variant-east-asian` with a value other than `normal`.
+pub const DOM_HAS_FONT_VARIANT_EAST_ASIAN: u64 = 1 << 36;
+/// ONE bit for `font-synthesis-weight`, `-style`, `-small-caps` and `-position`: any of
+/// them with a value other than `auto`.
+pub const DOM_HAS_FONT_SYNTHESIS: u64 = 1 << 37;
 pub const SCROLLBAR_GUTTER_AUTO: u8 = 0;
 pub const SCROLLBAR_GUTTER_STABLE: u8 = 1;
 pub const SCROLLBAR_GUTTER_BOTH_EDGES: u8 = 2;
@@ -1802,6 +1901,12 @@ impl Default for CompactNodePropsCold {
 #[repr(C)]
 pub struct CompactTextProps {
     pub text_color: u32,       // RGBA as 0xRRGGBBAA (0 = transparent/unset)
+    /// `font-weight`, 1/64 steps (weight x 64), 0 = not declared = 400; two sentinels hold
+    /// `lighter` / `bolder` until the builder resolves them: [`encode_font_weight_slot`].
+    pub font_weight: u16,
+    /// `font-stretch`, percent in 1/64 steps (percent x 64), 0 = not declared = 100%:
+    /// [`encode_font_stretch_slot`].
+    pub font_stretch: u16,
     pub font_family_hash: u64, // FxHash of font-family list (0 = sentinel/unset)
     /// Split scale by SIGN, see [`decode_line_height`]: zero or negative =
     /// absolute px x -100 (line-height: 40px -> -4000; an `em` or a
@@ -1811,6 +1916,9 @@ pub struct CompactTextProps {
     /// `I16_SENTINEL` = unset ("normal"), `I16_AUTO` = not encodable here
     /// (viewport units, out of range): read the cascade.
     pub line_height: i16,
+    /// The slant of an `oblique` font style in 1/64 degrees (degrees x 64), 0 otherwise:
+    /// [`encode_font_oblique_slot`]. Only read where the tier-1 style code says oblique.
+    pub font_oblique: i16,
     /// The three spacings are px lengths in thousandths ([`PxSlot`]), the
     /// number a declared length has. As tenths in an `i16` a
     /// `letter-spacing: 0.25px` was set at 0.3 px at rest - 0.05 px off per
@@ -1825,8 +1933,11 @@ impl Default for CompactTextProps {
     fn default() -> Self {
         Self {
             text_color: 0,
+            font_weight: 0,
+            font_stretch: 0,
             font_family_hash: 0,
             line_height: I16_SENTINEL, // "normal" → sentinel
+            font_oblique: 0,
             letter_spacing: 0,
             word_spacing: 0,
             text_indent: 0,
@@ -1915,7 +2026,7 @@ pub struct CompactLayoutCache {
     /// clear, callers (e.g. `translate_to_text3_constraints`) can skip the
     /// cascade walk for that property — its slow path would always return
     /// `None` and fall back to the default. See `DOM_HAS_*` constants.
-    pub dom_declared_flags: u32,
+    pub dom_declared_flags: u64,
     /// Viewport WIDTH thresholds harvested from every inline conditional
     /// property in the DOM — where a `ViewportWidth` condition can flip.
     /// Stored as `f32::to_bits` (this struct derives `Eq`); sorted +
@@ -2088,13 +2199,20 @@ impl CompactLayoutCache {
     #[inline]
     #[must_use]
     pub fn get_font_weight(&self, node_idx: usize) -> StyleFontWeight {
-        decode_font_weight(self.tier1_enums[node_idx])
+        decode_font_weight_slot(self.tier2b_text[node_idx].font_weight)
     }
 
     #[inline]
     #[must_use]
     pub fn get_font_style(&self, node_idx: usize) -> StyleFontStyle {
-        decode_font_style(self.tier1_enums[node_idx])
+        let code = style_font_style_to_u8(decode_font_style(self.tier1_enums[node_idx]));
+        style_font_style_from_slots(code, self.tier2b_text[node_idx].font_oblique)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn get_font_stretch(&self, node_idx: usize) -> StyleFontStretch {
+        decode_font_stretch_slot(self.tier2b_text[node_idx].font_stretch)
     }
 
     #[inline]
@@ -2631,7 +2749,7 @@ impl CompactLayoutCache {
     /// (some node in this DOM declared the corresponding property).
     #[inline]
     #[must_use]
-    pub const fn dom_declared(&self, flag: u32) -> bool {
+    pub const fn dom_declared(&self, flag: u64) -> bool {
         self.dom_declared_flags & flag != 0
     }
 
@@ -2745,7 +2863,6 @@ mod tests {
             LayoutAlignContent::End,
             LayoutWritingMode::VerticalRl,
             LayoutClear::Both,
-            StyleFontWeight::Bold,
             StyleFontStyle::Italic,
             StyleTextAlign::Center,
             StyleVisibility::Hidden,
@@ -2772,7 +2889,6 @@ mod tests {
         assert_eq!(decode_align_content(t1), LayoutAlignContent::End);
         assert_eq!(decode_writing_mode(t1), LayoutWritingMode::VerticalRl);
         assert_eq!(decode_clear(t1), LayoutClear::Both);
-        assert_eq!(decode_font_weight(t1), StyleFontWeight::Bold);
         assert_eq!(decode_font_style(t1), StyleFontStyle::Italic);
         assert_eq!(decode_text_align(t1), StyleTextAlign::Center);
         assert_eq!(decode_visibility(t1), StyleVisibility::Hidden);
@@ -2798,7 +2914,6 @@ mod tests {
             LayoutAlignContent::Stretch,
             LayoutWritingMode::HorizontalTb,
             LayoutClear::None,
-            StyleFontWeight::Normal,
             StyleFontStyle::Normal,
             StyleTextAlign::Left,
             StyleVisibility::Visible,
@@ -2907,7 +3022,7 @@ mod tests {
     // ========================================================================
     // Tier1 enum 0-sentinel contract
     //
-    // Tier1 packs 21 enums into a single u64. A bit run that is all zeros
+    // Tier1 packs 20 enums into a single u64. A bit run that is all zeros
     // must decode to the CSS initial value of that property, because an
     // unpopulated tier1 field is all zeros. If any encoder shifts so that
     // `0 -> something-other-than-initial`, every node that didn't explicitly
@@ -2953,7 +3068,7 @@ mod tests {
             LayoutWritingMode::HorizontalTb
         );
         assert_eq!(layout_clear_from_u8(0), LayoutClear::None);
-        assert_eq!(style_font_weight_from_u8(0), StyleFontWeight::Normal);
+        assert_eq!(decode_font_weight_slot(0), StyleFontWeight::NORMAL);
         assert_eq!(style_font_style_from_u8(0), StyleFontStyle::Normal);
         // text-align initial is `start`; we collapse `start` → `left` on
         // LTR runs at encode time, so the 0 slot decodes to Left.
@@ -2996,7 +3111,7 @@ mod tests {
             0
         );
         assert_eq!(layout_clear_to_u8(LayoutClear::None), 0);
-        assert_eq!(style_font_weight_to_u8(StyleFontWeight::Normal), 0);
+        assert_eq!(encode_font_weight_slot(StyleFontWeight::NORMAL), 0);
         assert_eq!(style_font_style_to_u8(StyleFontStyle::Normal), 0);
         assert_eq!(style_text_align_to_u8(StyleTextAlign::Left), 4);
         assert_eq!(style_visibility_to_u8(StyleVisibility::Visible), 0);
@@ -3245,16 +3360,16 @@ mod tests {
 
     roundtrip_all!(
         rt_font_weight,
-        style_font_weight_to_u8,
-        style_font_weight_from_u8,
+        encode_font_weight_slot,
+        decode_font_weight_slot,
         [
-            StyleFontWeight::Normal,
+            StyleFontWeight::NORMAL,
             StyleFontWeight::W100,
             StyleFontWeight::W200,
             StyleFontWeight::W300,
             StyleFontWeight::W500,
             StyleFontWeight::W600,
-            StyleFontWeight::Bold,
+            StyleFontWeight::BOLD,
             StyleFontWeight::W800,
             StyleFontWeight::W900,
             StyleFontWeight::Lighter,
@@ -3269,7 +3384,7 @@ mod tests {
         [
             StyleFontStyle::Normal,
             StyleFontStyle::Italic,
-            StyleFontStyle::Oblique,
+            StyleFontStyle::OBLIQUE,
         ]
     );
 
@@ -3432,13 +3547,8 @@ mod tests {
         );
         assert_fits("clear", layout_clear_to_u8(LayoutClear::Both), CLEAR_MASK);
         assert_fits(
-            "font_weight",
-            style_font_weight_to_u8(StyleFontWeight::Bolder),
-            FONT_WEIGHT_MASK,
-        );
-        assert_fits(
             "font_style",
-            style_font_style_to_u8(StyleFontStyle::Oblique),
+            style_font_style_to_u8(StyleFontStyle::OBLIQUE),
             FONT_STYLE_MASK,
         );
         assert_fits(
@@ -3498,7 +3608,6 @@ mod tests {
         assert_eq!(decode_align_content(t1), LayoutAlignContent::Stretch);
         assert_eq!(decode_writing_mode(t1), LayoutWritingMode::HorizontalTb);
         assert_eq!(decode_clear(t1), LayoutClear::None);
-        assert_eq!(decode_font_weight(t1), StyleFontWeight::Normal);
         assert_eq!(decode_font_style(t1), StyleFontStyle::Normal);
         assert_eq!(decode_text_align(t1), StyleTextAlign::Start);
         assert_eq!(decode_visibility(t1), StyleVisibility::Visible);
@@ -3606,7 +3715,6 @@ mod autotest_generated {
         align_content: LayoutAlignContent,
         writing_mode: LayoutWritingMode,
         clear: LayoutClear,
-        font_weight: StyleFontWeight,
         font_style: StyleFontStyle,
         text_align: StyleTextAlign,
         visibility: StyleVisibility,
@@ -3633,7 +3741,6 @@ mod autotest_generated {
                 align_content: LayoutAlignContent::Stretch,
                 writing_mode: LayoutWritingMode::HorizontalTb,
                 clear: LayoutClear::None,
-                font_weight: StyleFontWeight::Normal,
                 font_style: StyleFontStyle::Normal,
                 text_align: StyleTextAlign::Start,
                 visibility: StyleVisibility::Visible,
@@ -3661,8 +3768,7 @@ mod autotest_generated {
                 align_content: LayoutAlignContent::SpaceAround,
                 writing_mode: LayoutWritingMode::VerticalLr,
                 clear: LayoutClear::Both,
-                font_weight: StyleFontWeight::Bolder,
-                font_style: StyleFontStyle::Oblique,
+                font_style: StyleFontStyle::OBLIQUE,
                 text_align: StyleTextAlign::End,
                 visibility: StyleVisibility::Collapse,
                 white_space: StyleWhiteSpace::BreakSpaces,
@@ -3687,7 +3793,6 @@ mod autotest_generated {
                 self.align_content,
                 self.writing_mode,
                 self.clear,
-                self.font_weight,
                 self.font_style,
                 self.text_align,
                 self.visibility,
@@ -3713,7 +3818,6 @@ mod autotest_generated {
                 align_content: decode_align_content(t1),
                 writing_mode: decode_writing_mode(t1),
                 clear: decode_clear(t1),
-                font_weight: decode_font_weight(t1),
                 font_style: decode_font_style(t1),
                 text_align: decode_text_align(t1),
                 visibility: decode_visibility(t1),
@@ -3836,12 +3940,6 @@ mod autotest_generated {
             LayoutWritingMode::HorizontalTb,
         );
         assert_u8_fallback("clear", layout_clear_from_u8, 4, LayoutClear::None);
-        assert_u8_fallback(
-            "font_weight",
-            style_font_weight_from_u8,
-            11,
-            StyleFontWeight::Normal,
-        );
         assert_u8_fallback(
             "font_style",
             style_font_style_from_u8,
@@ -4059,24 +4157,9 @@ mod autotest_generated {
             fits("clear", layout_clear_to_u8(v), CLEAR_MASK);
         }
         for v in [
-            StyleFontWeight::Normal,
-            StyleFontWeight::W100,
-            StyleFontWeight::W200,
-            StyleFontWeight::W300,
-            StyleFontWeight::W500,
-            StyleFontWeight::W600,
-            StyleFontWeight::Bold,
-            StyleFontWeight::W800,
-            StyleFontWeight::W900,
-            StyleFontWeight::Lighter,
-            StyleFontWeight::Bolder,
-        ] {
-            fits("font_weight", style_font_weight_to_u8(v), FONT_WEIGHT_MASK);
-        }
-        for v in [
             StyleFontStyle::Normal,
             StyleFontStyle::Italic,
-            StyleFontStyle::Oblique,
+            StyleFontStyle::OBLIQUE,
         ] {
             fits("font_style", style_font_style_to_u8(v), FONT_STYLE_MASK);
         }
@@ -4210,7 +4293,6 @@ mod autotest_generated {
         case!(align_content);
         case!(writing_mode);
         case!(clear);
-        case!(font_weight);
         case!(font_style);
         case!(text_align);
         case!(visibility);
@@ -4219,7 +4301,7 @@ mod autotest_generated {
         case!(vertical_align);
         case!(border_collapse);
 
-        assert_eq!(cases.len(), 21, "every tier1 field must be covered");
+        assert_eq!(cases.len(), 20, "every tier1 field must be covered");
 
         for (name, expected) in cases {
             let decoded = T1::decode(expected.encode());
@@ -4324,7 +4406,6 @@ mod autotest_generated {
                 align_content: LayoutAlignContent::Stretch,         // 7 → fallback
                 writing_mode: LayoutWritingMode::HorizontalTb,      // 3 → fallback
                 clear: LayoutClear::Both,                           // 3  → real variant
-                font_weight: StyleFontWeight::Normal,               // 15 → fallback
                 font_style: StyleFontStyle::Normal,                 // 3  → fallback
                 text_align: StyleTextAlign::Start,                  // 7  → fallback
                 visibility: StyleVisibility::Visible,               // 3  → fallback
@@ -4885,7 +4966,7 @@ mod autotest_generated {
             assert_eq!(c.get_align_content(i), LayoutAlignContent::Stretch);
             assert_eq!(c.get_writing_mode(i), LayoutWritingMode::HorizontalTb);
             assert_eq!(c.get_clear(i), LayoutClear::None);
-            assert_eq!(c.get_font_weight(i), StyleFontWeight::Normal);
+            assert_eq!(c.get_font_weight(i), StyleFontWeight::NORMAL);
             assert_eq!(c.get_font_style(i), StyleFontStyle::Normal);
             assert_eq!(c.get_text_align(i), StyleTextAlign::Start);
             assert_eq!(c.get_visibility(i), StyleVisibility::Visible);
@@ -5141,10 +5222,16 @@ mod autotest_generated {
             DOM_HAS_TEXT_TRANSFORM,
             DOM_HAS_VERTICAL_ALIGN,
             DOM_HAS_ZOOM_OR_ASPECT_RATIO,
+            DOM_HAS_FONT_VARIATION_SETTINGS,
+            DOM_HAS_FONT_OPTICAL_SIZING,
+            DOM_HAS_FONT_KERNING,
+            DOM_HAS_FONT_VARIANT_LIGATURES,
+            DOM_HAS_FONT_VARIANT_EAST_ASIAN,
+            DOM_HAS_FONT_SYNTHESIS,
         ];
-        assert_eq!(flags.len(), 32, "the word is full: a 33rd flag needs another word");
+        assert_eq!(flags.len(), 38, "the word has 38 of its 64 bits taken");
 
-        let mut seen = 0u32;
+        let mut seen = 0u64;
         for f in flags {
             assert_eq!(f.count_ones(), 1, "{f:#X} is not a single-bit flag");
             assert_eq!(seen & f, 0, "two DOM_HAS_* flags share bit {f:#X}");
@@ -5157,7 +5244,7 @@ mod autotest_generated {
             assert!(!c.dom_declared(f));
         }
         assert!(!c.dom_declared(0));
-        assert!(!c.dom_declared(u32::MAX));
+        assert!(!c.dom_declared(u64::MAX));
 
         // One flag declared: only that query is true.
         c.dom_declared_flags = DOM_HAS_LINE_HEIGHT;
@@ -5168,10 +5255,10 @@ mod autotest_generated {
             !c.dom_declared(0),
             "an empty flag query must never report declared"
         );
-        assert!(c.dom_declared(u32::MAX));
+        assert!(c.dom_declared(u64::MAX));
 
         // Everything declared: every query is true.
-        c.dom_declared_flags = u32::MAX;
+        c.dom_declared_flags = u64::MAX;
         for f in flags {
             assert!(c.dom_declared(f));
         }
@@ -5338,7 +5425,6 @@ mod autotest_generated {
             ("align_content", ALIGN_CONTENT_SHIFT, ALIGN_MASK),
             ("writing_mode", WRITING_MODE_SHIFT, WRITING_MODE_MASK),
             ("clear", CLEAR_SHIFT, CLEAR_MASK),
-            ("font_weight", FONT_WEIGHT_SHIFT, FONT_WEIGHT_MASK),
             ("font_style", FONT_STYLE_SHIFT, FONT_STYLE_MASK),
             ("text_align", TEXT_ALIGN_SHIFT, TEXT_ALIGN_MASK),
             ("visibility", VISIBILITY_SHIFT, VISIBILITY_MASK),
@@ -5385,3 +5471,7 @@ mod autotest_generated {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "compact_cache_font_test.rs"]
+mod compact_cache_font_test;

@@ -166,7 +166,7 @@ module AzulStyles
               N.az_css_path_selector_class(Azul._az_string("title"))
             )
           ),
-          declarations: AzulCodegen.vec(:az_css_declaration_vec_copy_from_ptr, N::AzCssDeclaration, N.az_css_declaration_static(N.az_css_property_font_weight(N::AzStyleFontWeight::Bold))),
+          declarations: AzulCodegen.vec(:az_css_declaration_vec_copy_from_ptr, N::AzCssDeclaration, N.az_css_declaration_static(N.az_css_property_font_weight(N.az_style_font_weight_number(N.az_float_value_create(700.0))))),
           conditions: N.az_dynamic_selector_vec_create(),
           priority: 20
         ),
@@ -183,7 +183,7 @@ module AzulStyles
               N.az_css_path_selector_pseudo_selector(N.az_css_path_pseudo_selector_first())
             )
           ),
-          declarations: AzulCodegen.vec(:az_css_declaration_vec_copy_from_ptr, N::AzCssDeclaration, N.az_css_declaration_static(N.az_css_property_font_style(N::AzStyleFontStyle::Italic))),
+          declarations: AzulCodegen.vec(:az_css_declaration_vec_copy_from_ptr, N::AzCssDeclaration, N.az_css_declaration_static(N.az_css_property_font_style(N.az_style_font_style_italic()))),
           conditions: N.az_dynamic_selector_vec_create(),
           priority: 20
         )

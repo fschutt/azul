@@ -37,6 +37,19 @@ azreview-nib-marker = Marker
 azreview-nib-pen = Stift
 azreview-nib-audio-pen = Audiostift
 
+## Whiteboard
+
+azreview-whiteboard-notice-too-many-items = Das Whiteboard fasst { $limit } Elemente, mehr hat nicht Platz: nimm zuerst eines weg.
+azreview-whiteboard-notice-pictures-too-big = Die Bilder auf dem Whiteboard belegen so viel Speicher wie erlaubt ({ $limit } Pixel): nimm zuerst einen Ausschnitt weg.
+azreview-whiteboard-notice-picture-too-big = Das Bild dieses Ausschnitts hat { $px } Pixel, mehr als die { $limit }, die ein Ausschnitt haben darf: kreise weniger Code ein.
+azreview-whiteboard-notice-picture-invalid = Das Bild des Ausschnitts ließ sich nicht verwenden: seine Bytes passen nicht zu seiner Größe.
+azreview-whiteboard-notice-label-shortened = Eine Beschriftung hat höchstens { $limit } Zeichen: der Rest wurde abgeschnitten.
+azreview-whiteboard-notice-no-such-item = Auf dem Whiteboard gibt es kein Element { $id }.
+azreview-whiteboard-notice-arrow-to-itself = Ein Pfeil braucht zwei verschiedene Ausschnitte: er kann nicht am selben beginnen und enden.
+azreview-whiteboard-notice-arrow-needs-a-cutout = Ein Pfeil muss an einem Ausschnitt beginnen oder enden.
+azreview-whiteboard-notice-arrow-repeated = Es gibt schon einen solchen Pfeil.
+azreview-whiteboard-notice-board-repaired = { $dropped } Elemente des gespeicherten Whiteboards waren nicht brauchbar und wurden ausgelassen.
+
 ## Diktieren und die Seitenspalte der Notizen
 
 azreview-shortcut-dictate = Den Stift auf dem Code ruhen lassen, um eine Notiz zu diktieren; erneutes Ruhen, Wegbewegen oder Zeichnen beendet es

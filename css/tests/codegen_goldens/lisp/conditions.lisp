@@ -74,7 +74,7 @@
     #'azul-internal::%az-css-property-with-conditions-vec-copy-from-ptr
     'azul-internal::az-css-property-with-conditions
     (list
-      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-font-weight :bold))
+      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-font-weight (azul-internal::%az-style-font-weight-number (azul-internal::%az-float-value-create 700.0))))
     )
   ))
 
@@ -84,6 +84,6 @@
     #'azul-internal::%az-css-property-with-conditions-vec-copy-from-ptr
     'azul-internal::az-css-property-with-conditions
     (list
-      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-font-style :italic))
+      (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-font-style (azul-internal::%az-style-font-style-italic)))
     )
   ))

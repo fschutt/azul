@@ -18,7 +18,7 @@ contains
     t1(3) = az_css_property_with_conditions_simple(az_css_property_display(LayoutDisplay_Flex))
     t1(4) = az_css_property_with_conditions_simple(az_css_property_flex_grow(AzLayoutFlexGrow(inner=az_float_value_create(1.0_c_float))))
     t1(5) = az_css_property_with_conditions_simple(az_css_property_inherit(CssPropertyType_MinWidth))
-    t1(6) = az_css_property_with_conditions_on_hover(az_css_property_font_weight(StyleFontWeight_Bold))
+    t1(6) = az_css_property_with_conditions_on_hover(az_css_property_font_weight(az_style_font_weight_number(az_float_value_create(700.0_c_float))))
     r = az_css_property_with_conditions_vec_copy_from_ptr(c_loc(t1(1)), 6_c_size_t)
   end function style_btn
 

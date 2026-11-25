@@ -5,6 +5,7 @@ module azul_styles
   implicit none
   private
   public :: style_text
+  public :: style_shorthands
   public :: style_box
   public :: style_flex
   public :: style_grid
@@ -24,6 +25,13 @@ contains
   ! CSS: .text
   ! dropped a value these bindings cannot build: `StyleFontVariantCapsValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
   ! dropped a value these bindings cannot build: `StyleFontFeatureSettingsValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
+  ! dropped a value these bindings cannot build: `StyleFontStretchValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
+  ! dropped a value these bindings cannot build: `StyleFontVariationSettingsValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
+  ! dropped a value these bindings cannot build: `StyleFontOpticalSizingValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
+  ! dropped a value these bindings cannot build: `StyleFontKerningValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
+  ! dropped a value these bindings cannot build: `StyleFontVariantLigaturesValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
+  ! dropped a value these bindings cannot build: `StyleFontVariantEastAsianValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
+  ! dropped a value these bindings cannot build: `StyleFontSynthesisValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
   ! dropped a value these bindings cannot build: `StyleInitialLetterValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
   ! dropped a value these bindings cannot build: `StyleLineClampValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
   ! dropped a value these bindings cannot build: `StyleHangingPunctuationValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
@@ -54,17 +62,16 @@ contains
   function style_text() result(r)
     type(AzCssPropertyWithConditionsVec) :: r
     type(AzStyleFontFamily), target :: t1(2)
-    type(AzStyleFontFamily), target :: t2(2)
+    type(AzStyleFontFamily), target :: t2(1)
     type(AzCssPropertyWithConditions), target :: t3(21)
     t1(1) = az_style_font_family_system(azul_string('Arial'))
     t1(2) = az_style_font_family_system(azul_string('sans-serif'))
-    t2(1) = az_style_font_family_system(azul_string('Georgia'))
-    t2(2) = az_style_font_family_system(azul_string('serif'))
+    t2(1) = az_style_font_family_system(azul_string('caption'))
     t3(1) = az_css_property_with_conditions_simple(az_css_property_text_color(AzStyleTextColor(inner=AzColorU(r_=51_c_int8_t, g=102_c_int8_t, b=-103_c_int8_t, a=-1_c_int8_t))))
     t3(2) = az_css_property_with_conditions_simple(az_css_property_font_size(AzStyleFontSize(inner=az_pixel_value_px(14.0_c_float))))
     t3(3) = az_css_property_with_conditions_simple(az_css_property_font_family(az_style_font_family_vec_copy_from_ptr(c_loc(t1(1)), 2_c_size_t)))
-    t3(4) = az_css_property_with_conditions_simple(az_css_property_font_weight(StyleFontWeight_W600))
-    t3(5) = az_css_property_with_conditions_simple(az_css_property_font_style(StyleFontStyle_Italic))
+    t3(4) = az_css_property_with_conditions_simple(az_css_property_font_weight(az_style_font_weight_number(az_float_value_create(600.0_c_float))))
+    t3(5) = az_css_property_with_conditions_simple(az_css_property_font_style(az_style_font_style_italic()))
     t3(6) = az_css_property_with_conditions_simple(az_css_property_font_variant_numeric(AzStyleFontVariantNumeric(lining_nums=.false._c_bool, oldstyle_nums=.false._c_bool, proportional_nums=.false._c_bool, tabular_nums=.true._c_bool, diagonal_fractions=.false._c_bool, stacked_fractions=.false._c_bool, ordinal=.false._c_bool, slashed_zero=.false._c_bool)))
     t3(7) = az_css_property_with_conditions_simple(az_css_property_text_align(StyleTextAlign_Center))
     t3(8) = az_css_property_with_conditions_simple(az_css_property_text_justify(LayoutTextJustify_InterWord))
@@ -80,9 +87,41 @@ contains
     t3(18) = az_css_property_with_conditions_simple(az_css_property_caret_animation_duration(AzCaretAnimationDuration(inner=AzCssDuration(inner=500_c_int32_t, unit=CssDurationUnit_Milliseconds))))
     t3(19) = az_css_property_with_conditions_simple(az_css_property_selection_background_color(AzSelectionBackgroundColor(inner=AzColorU(r_=51_c_int8_t, g=-103_c_int8_t, b=-1_c_int8_t, a=-1_c_int8_t))))
     t3(20) = az_css_property_with_conditions_simple(az_css_property_selection_color(AzSelectionColor(inner=AzColorU(r_=-1_c_int8_t, g=-1_c_int8_t, b=-1_c_int8_t, a=-1_c_int8_t))))
-    t3(21) = az_css_property_with_conditions_simple(az_css_property_font(az_style_font_family_vec_copy_from_ptr(c_loc(t2(1)), 2_c_size_t)))
+    t3(21) = az_css_property_with_conditions_simple(az_css_property_font(az_style_font_family_vec_copy_from_ptr(c_loc(t2(1)), 1_c_size_t)))
     r = az_css_property_with_conditions_vec_copy_from_ptr(c_loc(t3(1)), 21_c_size_t)
   end function style_text
+
+  ! CSS: .shorthands
+  ! dropped a value these bindings cannot build: `StyleFontVariantCapsValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
+  ! dropped a value these bindings cannot build: `StyleFontStretchValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
+  ! dropped a value these bindings cannot build: `StyleFontVariantLigaturesValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
+  ! dropped a value these bindings cannot build: `StyleFontVariantEastAsianValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
+  ! dropped a value these bindings cannot build: `StyleFontSynthesisValue` is an ABI-opaque blob in the Fortran bindings (no constructor)
+  function style_shorthands() result(r)
+    type(AzCssPropertyWithConditionsVec) :: r
+    type(AzStyleFontFamily), target :: t1(2)
+    type(AzCssPropertyWithConditions), target :: t2(17)
+    t1(1) = az_style_font_family_system(azul_string('Georgia'))
+    t1(2) = az_style_font_family_system(azul_string('serif'))
+    t2(1) = az_css_property_with_conditions_simple(az_css_property_font_style(az_style_font_style_italic()))
+    t2(2) = az_css_property_with_conditions_simple(az_css_property_font_weight(az_style_font_weight_number(az_float_value_create(350.0_c_float))))
+    t2(3) = az_css_property_with_conditions_simple(az_css_property_font_size(AzStyleFontSize(inner=az_pixel_value_px(14.0_c_float))))
+    t2(4) = az_css_property_with_conditions_simple(az_css_property_line_height(az_style_line_height_number(az_float_value_create(1.5_c_float))))
+    t2(5) = az_css_property_with_conditions_simple(az_css_property_font_family(az_style_font_family_vec_copy_from_ptr(c_loc(t1(1)), 2_c_size_t)))
+    t2(6) = az_css_property_with_conditions_simple(az_css_property_initial(CssPropertyType_FontVariantNumeric))
+    t2(7) = az_css_property_with_conditions_simple(az_css_property_initial(CssPropertyType_FontVariantLigatures))
+    t2(8) = az_css_property_with_conditions_simple(az_css_property_initial(CssPropertyType_FontVariantEastAsian))
+    t2(9) = az_css_property_with_conditions_simple(az_css_property_initial(CssPropertyType_FontKerning))
+    t2(10) = az_css_property_with_conditions_simple(az_css_property_initial(CssPropertyType_FontOpticalSizing))
+    t2(11) = az_css_property_with_conditions_simple(az_css_property_initial(CssPropertyType_FontVariationSettings))
+    t2(12) = az_css_property_with_conditions_simple(az_css_property_initial(CssPropertyType_FontFeatureSettings))
+    t2(13) = az_css_property_with_conditions_simple(az_css_property_initial(CssPropertyType_FontSynthesisWeight))
+    t2(14) = az_css_property_with_conditions_simple(az_css_property_initial(CssPropertyType_FontSynthesisStyle))
+    t2(15) = az_css_property_with_conditions_simple(az_css_property_initial(CssPropertyType_FontSynthesisSmallCaps))
+    t2(16) = az_css_property_with_conditions_simple(az_css_property_initial(CssPropertyType_FontSynthesisPosition))
+    t2(17) = az_css_property_with_conditions_simple(az_css_property_font_variant_numeric(AzStyleFontVariantNumeric(lining_nums=.false._c_bool, oldstyle_nums=.true._c_bool, proportional_nums=.false._c_bool, tabular_nums=.false._c_bool, diagonal_fractions=.false._c_bool, stacked_fractions=.false._c_bool, ordinal=.false._c_bool, slashed_zero=.false._c_bool)))
+    r = az_css_property_with_conditions_vec_copy_from_ptr(c_loc(t2(1)), 17_c_size_t)
+  end function style_shorthands
 
   ! CSS: .box
   ! dropped a value these bindings cannot build: `LayoutFloatValue` is an ABI-opaque blob in the Fortran bindings (no constructor)

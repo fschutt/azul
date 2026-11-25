@@ -12,6 +12,6 @@ fn style_btn() azul.AzCssPropertyWithConditionsVec {
 	t1[3] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_flexGrow(azul.AzLayoutFlexGrow{ inner: C.AzFloatValue_create(1.0) }))
 	t1[4] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_inherit(azul.AzCssPropertyType.MinWidth))
 	t1[5] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_whiteSpace(azul.AzStyleWhiteSpaceValue{ Exact: azul.AzStyleWhiteSpaceValueVariant_Exact{ tag: 6, payload: azul.AzStyleWhiteSpace.Nowrap } }))
-	t1[6] = C.AzCssPropertyWithConditions_onHover(C.AzCssProperty_fontWeight(azul.AzStyleFontWeight.Bold))
+	t1[6] = C.AzCssPropertyWithConditions_onHover(C.AzCssProperty_fontWeight(C.AzStyleFontWeight_number(C.AzFloatValue_create(700.0))))
 	return C.AzCssPropertyWithConditionsVec_copyFromPtr(unsafe { &t1[0] }, 7)
 }

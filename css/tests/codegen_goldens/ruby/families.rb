@@ -67,11 +67,21 @@ module AzulStyles
           )
         )
       ),
-      N.az_css_property_with_conditions_simple(N.az_css_property_font_weight(N::AzStyleFontWeight::W600)),
-      N.az_css_property_with_conditions_simple(N.az_css_property_font_style(N::AzStyleFontStyle::Italic)),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_weight(N.az_style_font_weight_number(N.az_float_value_create(600.0)))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_style(N.az_style_font_style_italic())),
       N.az_css_property_with_conditions_simple(N.az_css_property_font_variant_numeric(AzulCodegen.struct(N::AzStyleFontVariantNumeric, lining_nums: false, oldstyle_nums: false, proportional_nums: false, tabular_nums: true, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false))),
       N.az_css_property_with_conditions_simple(N.az_css_property_font_variant_caps(AzulCodegen.union(N::AzStyleFontVariantCapsValue, :Exact, 6, N::AzStyleFontVariantCaps::SmallCaps))),
       N.az_css_property_with_conditions_simple(N.az_css_property_font_feature_settings(AzulCodegen.union(N::AzStyleFontFeatureSettingsValue, :Exact, 6, AzulCodegen.struct(N::AzStyleFontFeatureSettings, inner: Azul._az_string("\"liga\" 0, \"tnum\""))))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_stretch(AzulCodegen.union(N::AzStyleFontStretchValue, :Exact, 6, AzulCodegen.struct(N::AzStyleFontStretch, inner: AzulCodegen.struct(N::AzPercentageValue, number: N.az_float_value_create(87.5)))))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_variation_settings(AzulCodegen.union(N::AzStyleFontVariationSettingsValue, :Exact, 6, AzulCodegen.struct(N::AzStyleFontVariationSettings, inner: Azul._az_string("\"wght\" 650, \"wdth\" 87.5"))))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_optical_sizing(AzulCodegen.union(N::AzStyleFontOpticalSizingValue, :Exact, 6, N::AzStyleFontOpticalSizing::None))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_kerning(AzulCodegen.union(N::AzStyleFontKerningValue, :Exact, 6, N::AzStyleFontKerning::None))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_variant_ligatures(AzulCodegen.union(N::AzStyleFontVariantLigaturesValue, :Exact, 6, AzulCodegen.struct(N::AzStyleFontVariantLigatures, common: N::AzStyleFontLigatureChoice::Off, discretionary: N::AzStyleFontLigatureChoice::On, historical: N::AzStyleFontLigatureChoice::Unset, contextual: N::AzStyleFontLigatureChoice::Unset)))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_variant_east_asian(AzulCodegen.union(N::AzStyleFontVariantEastAsianValue, :Exact, 6, AzulCodegen.struct(N::AzStyleFontVariantEastAsian, jis78: true, jis83: false, jis90: false, jis04: false, simplified: false, traditional: false, full_width: true, proportional_width: false, ruby: true)))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_synthesis_weight(AzulCodegen.union(N::AzStyleFontSynthesisValue, :Exact, 6, N::AzStyleFontSynthesis::None))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_synthesis_style(AzulCodegen.union(N::AzStyleFontSynthesisValue, :Exact, 6, N::AzStyleFontSynthesis::None))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_synthesis_small_caps(AzulCodegen.union(N::AzStyleFontSynthesisValue, :Exact, 6, N::AzStyleFontSynthesis::Auto))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_synthesis_position(AzulCodegen.union(N::AzStyleFontSynthesisValue, :Exact, 6, N::AzStyleFontSynthesis::None))),
       N.az_css_property_with_conditions_simple(N.az_css_property_text_align(N::AzStyleTextAlign::Center)),
       N.az_css_property_with_conditions_simple(N.az_css_property_text_justify(N::AzLayoutTextJustify::InterWord)),
       N.az_css_property_with_conditions_simple(N.az_css_property_vertical_align(N.az_style_vertical_align_middle())),
@@ -113,8 +123,23 @@ module AzulStyles
       N.az_css_property_with_conditions_simple(N.az_css_property_selection_background_color(AzulCodegen.struct(N::AzSelectionBackgroundColor, inner: AzulCodegen.struct(N::AzColorU, r: 51, g: 153, b: 255, a: 255)))),
       N.az_css_property_with_conditions_simple(N.az_css_property_selection_color(AzulCodegen.struct(N::AzSelectionColor, inner: AzulCodegen.struct(N::AzColorU, r: 255, g: 255, b: 255, a: 255)))),
       N.az_css_property_with_conditions_simple(N.az_css_property_selection_radius(AzulCodegen.union(N::AzSelectionRadiusValue, :Exact, 6, AzulCodegen.struct(N::AzSelectionRadius, inner: N.az_pixel_value_px(3.0))))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font(AzulCodegen.vec(:az_style_font_family_vec_copy_from_ptr, N::AzStyleFontFamily, N.az_style_font_family_system(Azul._az_string("caption")))))
+    )
+  end
+
+  # CSS: .shorthands
+  def self.style_shorthands
+    AzulCodegen.vec(
+      :az_css_property_with_conditions_vec_copy_from_ptr,
+      N::AzCssPropertyWithConditions,
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_style(N.az_style_font_style_italic())),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_variant_caps(AzulCodegen.union(N::AzStyleFontVariantCapsValue, :Exact, 6, N::AzStyleFontVariantCaps::SmallCaps))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_weight(N.az_style_font_weight_number(N.az_float_value_create(350.0)))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_stretch(AzulCodegen.union(N::AzStyleFontStretchValue, :Exact, 6, AzulCodegen.struct(N::AzStyleFontStretch, inner: AzulCodegen.struct(N::AzPercentageValue, number: N.az_float_value_create(75.0)))))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_size(AzulCodegen.struct(N::AzStyleFontSize, inner: N.az_pixel_value_px(14.0)))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_line_height(N.az_style_line_height_number(N.az_float_value_create(1.5)))),
       N.az_css_property_with_conditions_simple(
-        N.az_css_property_font(
+        N.az_css_property_font_family(
           AzulCodegen.vec(
             :az_style_font_family_vec_copy_from_ptr,
             N::AzStyleFontFamily,
@@ -122,7 +147,26 @@ module AzulStyles
             N.az_style_font_family_system(Azul._az_string("serif"))
           )
         )
-      )
+      ),
+      N.az_css_property_with_conditions_simple(N.az_css_property_initial(N::AzCssPropertyType::FontVariantNumeric)),
+      N.az_css_property_with_conditions_simple(N.az_css_property_initial(N::AzCssPropertyType::FontVariantLigatures)),
+      N.az_css_property_with_conditions_simple(N.az_css_property_initial(N::AzCssPropertyType::FontVariantEastAsian)),
+      N.az_css_property_with_conditions_simple(N.az_css_property_initial(N::AzCssPropertyType::FontKerning)),
+      N.az_css_property_with_conditions_simple(N.az_css_property_initial(N::AzCssPropertyType::FontOpticalSizing)),
+      N.az_css_property_with_conditions_simple(N.az_css_property_initial(N::AzCssPropertyType::FontVariationSettings)),
+      N.az_css_property_with_conditions_simple(N.az_css_property_initial(N::AzCssPropertyType::FontFeatureSettings)),
+      N.az_css_property_with_conditions_simple(N.az_css_property_initial(N::AzCssPropertyType::FontSynthesisWeight)),
+      N.az_css_property_with_conditions_simple(N.az_css_property_initial(N::AzCssPropertyType::FontSynthesisStyle)),
+      N.az_css_property_with_conditions_simple(N.az_css_property_initial(N::AzCssPropertyType::FontSynthesisSmallCaps)),
+      N.az_css_property_with_conditions_simple(N.az_css_property_initial(N::AzCssPropertyType::FontSynthesisPosition)),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_variant_numeric(AzulCodegen.struct(N::AzStyleFontVariantNumeric, lining_nums: false, oldstyle_nums: true, proportional_nums: false, tabular_nums: false, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_variant_caps(AzulCodegen.union(N::AzStyleFontVariantCapsValue, :Exact, 6, N::AzStyleFontVariantCaps::Normal))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_variant_ligatures(AzulCodegen.union(N::AzStyleFontVariantLigaturesValue, :Exact, 6, AzulCodegen.struct(N::AzStyleFontVariantLigatures, common: N::AzStyleFontLigatureChoice::Unset, discretionary: N::AzStyleFontLigatureChoice::Unset, historical: N::AzStyleFontLigatureChoice::Unset, contextual: N::AzStyleFontLigatureChoice::Unset)))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_variant_east_asian(AzulCodegen.union(N::AzStyleFontVariantEastAsianValue, :Exact, 6, AzulCodegen.struct(N::AzStyleFontVariantEastAsian, jis78: true, jis83: false, jis90: false, jis04: false, simplified: false, traditional: false, full_width: false, proportional_width: false, ruby: false)))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_synthesis_weight(AzulCodegen.union(N::AzStyleFontSynthesisValue, :Exact, 6, N::AzStyleFontSynthesis::Auto))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_synthesis_style(AzulCodegen.union(N::AzStyleFontSynthesisValue, :Exact, 6, N::AzStyleFontSynthesis::Auto))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_synthesis_small_caps(AzulCodegen.union(N::AzStyleFontSynthesisValue, :Exact, 6, N::AzStyleFontSynthesis::None))),
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_synthesis_position(AzulCodegen.union(N::AzStyleFontSynthesisValue, :Exact, 6, N::AzStyleFontSynthesis::None)))
     )
   end
 

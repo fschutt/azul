@@ -61,7 +61,7 @@ module AzulStyles
       N.az_css_property_with_conditions_simple(N.az_css_property_flex_grow(AzulCodegen.struct(N::AzLayoutFlexGrow, inner: N.az_float_value_create(1.0)))),
       N.az_css_property_with_conditions_simple(N.az_css_property_inherit(N::AzCssPropertyType::MinWidth)),
       N.az_css_property_with_conditions_simple(N.az_css_property_white_space(AzulCodegen.union(N::AzStyleWhiteSpaceValue, :Exact, 6, N::AzStyleWhiteSpace::Nowrap))),
-      N.az_css_property_with_conditions_on_hover(N.az_css_property_font_weight(N::AzStyleFontWeight::Bold))
+      N.az_css_property_with_conditions_on_hover(N.az_css_property_font_weight(N.az_style_font_weight_number(N.az_float_value_create(700.0))))
     )
   end
 end

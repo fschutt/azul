@@ -112,7 +112,7 @@ inline AzCss stylesheet() {
                             3
                         ),
                     },
-                    AzCssDeclarationVec_copyFromPtr(std::vector<AzCssDeclaration>{ AzCssDeclaration_static(AzCssProperty_fontWeight(AzStyleFontWeight_Bold)) }.data(), 1),
+                    AzCssDeclarationVec_copyFromPtr(std::vector<AzCssDeclaration>{ AzCssDeclaration_static(AzCssProperty_fontWeight(AzStyleFontWeight_number(AzFloatValue_create(700.0f)))) }.data(), 1),
                     AzDynamicSelectorVec_create(),
                     20,
                 },
@@ -128,7 +128,7 @@ inline AzCss stylesheet() {
                             4
                         ),
                     },
-                    AzCssDeclarationVec_copyFromPtr(std::vector<AzCssDeclaration>{ AzCssDeclaration_static(AzCssProperty_fontStyle(AzStyleFontStyle_Italic)) }.data(), 1),
+                    AzCssDeclarationVec_copyFromPtr(std::vector<AzCssDeclaration>{ AzCssDeclaration_static(AzCssProperty_fontStyle(AzStyleFontStyle_italic())) }.data(), 1),
                     AzDynamicSelectorVec_create(),
                     20,
                 },

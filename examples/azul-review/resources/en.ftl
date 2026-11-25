@@ -37,6 +37,19 @@ azreview-nib-marker = marker
 azreview-nib-pen = pen
 azreview-nib-audio-pen = audio pen
 
+## Whiteboard
+
+azreview-whiteboard-notice-too-many-items = The whiteboard holds { $limit } items, as many as it has room for: remove one first.
+azreview-whiteboard-notice-pictures-too-big = The pictures on the whiteboard take as much memory as they may ({ $limit } pixels): remove a cutout first.
+azreview-whiteboard-notice-picture-too-big = This cutout's picture has { $px } pixels, more than the { $limit } a cutout may have: circle less code.
+azreview-whiteboard-notice-picture-invalid = The cutout's picture could not be used: its bytes do not match its size.
+azreview-whiteboard-notice-label-shortened = A label holds { $limit } characters at most: the rest was cut off.
+azreview-whiteboard-notice-no-such-item = There is no item { $id } on the whiteboard.
+azreview-whiteboard-notice-arrow-to-itself = An arrow needs two different cutouts: it cannot start and end on the same one.
+azreview-whiteboard-notice-arrow-needs-a-cutout = An arrow has to start or end on a cutout.
+azreview-whiteboard-notice-arrow-repeated = There is an arrow like this one already.
+azreview-whiteboard-notice-board-repaired = { $dropped } items of the saved whiteboard could not be used and were left out.
+
 ## Dictation and the side column of notes
 
 azreview-shortcut-dictate = Rest the pen on the code to dictate a note; resting again, moving away or drawing ends it
