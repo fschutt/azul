@@ -108,6 +108,12 @@ mod fakefont;
 #[path = "common/variable_fonts.rs"]
 mod variable_fonts;
 
+/// The mock faces and the helpers the tests of the text properties share (`tests/common/text_rig.rs`):
+/// a page of one block of text under some CSS, and the glyphs its layout hands the renderers.
+#[cfg(feature = "text_layout")]
+#[path = "common/text_rig.rs"]
+mod text_rig;
+
 // --- the registered integration tests, alphabetically ---
 
 #[path = "a_bold_request_draws_the_bold_instance_of_a_variable_font.rs"]
@@ -140,6 +146,8 @@ mod a_variable_font_has_at_most_so_many_instances;
 mod a_variable_font_never_reaches_shaping_as_a_variable_file;
 #[path = "a_variable_font_registered_in_memory_is_drawn_at_the_exact_weight.rs"]
 mod a_variable_font_registered_in_memory_is_drawn_at_the_exact_weight;
+#[path = "a_vertical_block_gives_its_runs_the_writing_mode_and_combines_its_digits.rs"]
+mod a_vertical_block_gives_its_runs_the_writing_mode_and_combines_its_digits;
 #[path = "abs_pos_anomalies.rs"]
 mod abs_pos_anomalies;
 #[path = "abspos_in_flex_containing_block.rs"]
@@ -212,6 +220,12 @@ mod embedded_font_renders;
 mod font_optical_sizing_sets_opsz_to_the_font_size_unless_it_is_none;
 #[path = "font_stretch_and_font_style_reach_the_wdth_slnt_and_ital_axes.rs"]
 mod font_stretch_and_font_style_reach_the_wdth_slnt_and_ital_axes;
+#[path = "font_synthesis_switches_off_the_faked_bold_and_the_faked_small_capitals.rs"]
+mod font_synthesis_switches_off_the_faked_bold_and_the_faked_small_capitals;
+#[path = "font_variant_east_asian_asks_the_font_for_its_east_asian_forms.rs"]
+mod font_variant_east_asian_asks_the_font_for_its_east_asian_forms;
+#[path = "font_variant_ligatures_and_font_kerning_turn_the_features_off.rs"]
+mod font_variant_ligatures_and_font_kerning_turn_the_features_off;
 #[path = "font_variation_settings_win_over_the_properties_they_overlap.rs"]
 mod font_variation_settings_win_over_the_properties_they_overlap;
 #[path = "text_ink_is_not_cut_at_its_line_box.rs"]
