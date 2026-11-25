@@ -8,6 +8,8 @@
 //! of them: the key map and the categories, the parser, the constructors and accessors, the
 //! CSS-wide keywords, the shorthands.
 
+#![allow(clippy::type_complexity)] // a table of parse cases holds tuples of tuples
+
 use super::*;
 use crate::css::CssWideKeyword;
 

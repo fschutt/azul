@@ -944,6 +944,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("DocumentTextEditVecDestructorType", "vec"),
     ("DocumentTextEditVecSlice", "css"),
     ("Dom", "dom"),
+    ("DomBuilder", "dom"),
     ("DomId", "dom"),
     ("DomIdVec", "vec"),
     ("DomIdVecDestructor", "vec"),
@@ -2765,7 +2766,7 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("ShapePosition", "css"),
     ("ShapeRadius", "css"),
     ("ShapeRendering", "css"),
-    ("SharedBytes", "font"),
+    ("SharedBytes", "css"),
     ("ShellBottomTab", "shells"),
     ("ShellBottomTabVec", "vec"),
     ("ShellBottomTabVecDestructor", "vec"),
@@ -3381,8 +3382,8 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("TessellatedGPUSvgNode", "svg"),
     ("TessellatedSvgNode", "svg"),
     ("TessellatedSvgNodeVecRef", "vec"),
-    ("TextAntialiasMode", "app"),
-    ("TextAntialiasing", "app"),
+    ("TextAntialiasMode", "css"),
+    ("TextAntialiasing", "css"),
     ("TextArea", "widgets"),
     ("TextAreaOnFocusLost", "widgets"),
     ("TextAreaOnFocusLostCallback", "dom"),
@@ -3587,6 +3588,8 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("TouchState", "dom"),
     ("TouchToolType", "window"),
     ("TransientAnchor", "misc"),
+    ("TransientContentCallback", "dom"),
+    ("TransientContentCallbackType", "callbacks"),
     ("TransientDismiss", "misc"),
     ("TransientDock", "misc"),
     ("TransientTearoff", "misc"),
@@ -7301,70 +7304,6 @@ impl Lower for crate::props::basic::font::StyleFontFeatureSettings {
     }
 }
 
-impl Lower for crate::props::basic::font::StyleFontSize {
-    fn lower(&self) -> Expr {
-        Expr::strukt(
-            "StyleFontSize",
-            vec![
-                ("inner", self.inner.lower()),
-            ],
-        )
-    }
-}
-
-impl Lower for crate::props::basic::font::StyleFontStyle {
-    fn lower(&self) -> Expr {
-        match self {
-            Self::Normal => Expr::unit("StyleFontStyle", EnumShape::Tagged, "Normal"),
-            Self::Italic => Expr::unit("StyleFontStyle", EnumShape::Tagged, "Italic"),
-            Self::Oblique(v) => Expr::variant("StyleFontStyle", EnumShape::Tagged, "Oblique", vec![v.lower()]),
-        }
-    }
-}
-
-impl Lower for crate::props::basic::font::StyleFontVariantCaps {
-    fn lower(&self) -> Expr {
-        let variant = match self {
-            Self::Normal => "Normal",
-            Self::SmallCaps => "SmallCaps",
-            Self::AllSmallCaps => "AllSmallCaps",
-            Self::PetiteCaps => "PetiteCaps",
-            Self::AllPetiteCaps => "AllPetiteCaps",
-            Self::Unicase => "Unicase",
-            Self::TitlingCaps => "TitlingCaps",
-        };
-        Expr::unit("StyleFontVariantCaps", EnumShape::CLike, variant)
-    }
-}
-
-impl Lower for crate::props::basic::font::StyleFontVariantNumeric {
-    fn lower(&self) -> Expr {
-        Expr::strukt(
-            "StyleFontVariantNumeric",
-            vec![
-                ("lining_nums", self.lining_nums.lower()),
-                ("oldstyle_nums", self.oldstyle_nums.lower()),
-                ("proportional_nums", self.proportional_nums.lower()),
-                ("tabular_nums", self.tabular_nums.lower()),
-                ("diagonal_fractions", self.diagonal_fractions.lower()),
-                ("stacked_fractions", self.stacked_fractions.lower()),
-                ("ordinal", self.ordinal.lower()),
-                ("slashed_zero", self.slashed_zero.lower()),
-            ],
-        )
-    }
-}
-
-impl Lower for crate::props::basic::font::StyleFontWeight {
-    fn lower(&self) -> Expr {
-        match self {
-            Self::Number(v) => Expr::variant("StyleFontWeight", EnumShape::Tagged, "Number", vec![v.lower()]),
-            Self::Lighter => Expr::unit("StyleFontWeight", EnumShape::Tagged, "Lighter"),
-            Self::Bolder => Expr::unit("StyleFontWeight", EnumShape::Tagged, "Bolder"),
-        }
-    }
-}
-
 impl Lower for crate::props::basic::font_variation::StyleFontKerning {
     fn lower(&self) -> Expr {
         let variant = match self {
@@ -7397,6 +7336,17 @@ impl Lower for crate::props::basic::font_variation::StyleFontOpticalSizing {
     }
 }
 
+impl Lower for crate::props::basic::font::StyleFontSize {
+    fn lower(&self) -> Expr {
+        Expr::strukt(
+            "StyleFontSize",
+            vec![
+                ("inner", self.inner.lower()),
+            ],
+        )
+    }
+}
+
 impl Lower for crate::props::basic::font_variation::StyleFontStretch {
     fn lower(&self) -> Expr {
         Expr::strukt(
@@ -7408,6 +7358,16 @@ impl Lower for crate::props::basic::font_variation::StyleFontStretch {
     }
 }
 
+impl Lower for crate::props::basic::font::StyleFontStyle {
+    fn lower(&self) -> Expr {
+        match self {
+            Self::Normal => Expr::unit("StyleFontStyle", EnumShape::Tagged, "Normal"),
+            Self::Italic => Expr::unit("StyleFontStyle", EnumShape::Tagged, "Italic"),
+            Self::Oblique(v) => Expr::variant("StyleFontStyle", EnumShape::Tagged, "Oblique", vec![v.lower()]),
+        }
+    }
+}
+
 impl Lower for crate::props::basic::font_variation::StyleFontSynthesis {
     fn lower(&self) -> Expr {
         let variant = match self {
@@ -7415,6 +7375,21 @@ impl Lower for crate::props::basic::font_variation::StyleFontSynthesis {
             Self::None => "None",
         };
         Expr::unit("StyleFontSynthesis", EnumShape::CLike, variant)
+    }
+}
+
+impl Lower for crate::props::basic::font::StyleFontVariantCaps {
+    fn lower(&self) -> Expr {
+        let variant = match self {
+            Self::Normal => "Normal",
+            Self::SmallCaps => "SmallCaps",
+            Self::AllSmallCaps => "AllSmallCaps",
+            Self::PetiteCaps => "PetiteCaps",
+            Self::AllPetiteCaps => "AllPetiteCaps",
+            Self::Unicase => "Unicase",
+            Self::TitlingCaps => "TitlingCaps",
+        };
+        Expr::unit("StyleFontVariantCaps", EnumShape::CLike, variant)
     }
 }
 
@@ -7451,6 +7426,24 @@ impl Lower for crate::props::basic::font_variation::StyleFontVariantLigatures {
     }
 }
 
+impl Lower for crate::props::basic::font::StyleFontVariantNumeric {
+    fn lower(&self) -> Expr {
+        Expr::strukt(
+            "StyleFontVariantNumeric",
+            vec![
+                ("lining_nums", self.lining_nums.lower()),
+                ("oldstyle_nums", self.oldstyle_nums.lower()),
+                ("proportional_nums", self.proportional_nums.lower()),
+                ("tabular_nums", self.tabular_nums.lower()),
+                ("diagonal_fractions", self.diagonal_fractions.lower()),
+                ("stacked_fractions", self.stacked_fractions.lower()),
+                ("ordinal", self.ordinal.lower()),
+                ("slashed_zero", self.slashed_zero.lower()),
+            ],
+        )
+    }
+}
+
 impl Lower for crate::props::basic::font_variation::StyleFontVariationSettings {
     fn lower(&self) -> Expr {
         Expr::strukt(
@@ -7459,6 +7452,16 @@ impl Lower for crate::props::basic::font_variation::StyleFontVariationSettings {
                 ("inner", self.inner.lower()),
             ],
         )
+    }
+}
+
+impl Lower for crate::props::basic::font::StyleFontWeight {
+    fn lower(&self) -> Expr {
+        match self {
+            Self::Number(v) => Expr::variant("StyleFontWeight", EnumShape::Tagged, "Number", vec![v.lower()]),
+            Self::Lighter => Expr::unit("StyleFontWeight", EnumShape::Tagged, "Lighter"),
+            Self::Bolder => Expr::unit("StyleFontWeight", EnumShape::Tagged, "Bolder"),
+        }
     }
 }
 
