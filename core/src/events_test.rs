@@ -4726,9 +4726,11 @@ fn planning_and_matching_agree_for_every_event_and_filter() {
         EventType::TextChanged,
     ];
 
+    // The window itself: the root node. A window-level MouseEnter / MouseLeave is heard only for an event
+    // aimed there (see `window_leave_tests`), and planning does not know a target.
     let target = DomNodeId {
         dom: DomId::ROOT_ID,
-        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
+        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::ZERO)),
     };
 
     let mut desyncs: Vec<String> = Vec::new();

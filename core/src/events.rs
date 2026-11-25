@@ -2543,6 +2543,15 @@ const fn matches_external_filter(
     )
 }
 
+/// Whether `target` is the window itself.
+///
+/// The window is the root node of the root DOM: what the window-level events (the pointer entering or leaving
+/// the OS window) are aimed at. An element of the page (a node of any DOM) is not the window.
+#[must_use]
+pub fn is_window_target(target: &DomNodeId) -> bool {
+    target.dom.inner == 0 && target.node.into_crate_internal() == Some(NodeId::ZERO)
+}
+
 /// Check if a window filter matches the event.
 // Exhaustive (filter, event-type) truth table — see matches_hover_filter.
 #[allow(clippy::match_same_arms, clippy::too_many_lines)]
@@ -2578,8 +2587,12 @@ fn matches_window_filter(
         (LeftMouseUp, EventType::MouseUp) => check_mouse_button(&event.data, MouseButton::Left),
         (RightMouseUp, EventType::MouseUp) => check_mouse_button(&event.data, MouseButton::Right),
         (MiddleMouseUp, EventType::MouseUp) => check_mouse_button(&event.data, MouseButton::Middle),
-        (MouseEnter, EventType::MouseEnter) => true,
-        (MouseLeave, EventType::MouseLeave) => true,
+        // The window's own enter and leave: the pointer entering or leaving the OS window. An element that
+        // lost the hover has its MouseLeave too (one per node of the hover chain that changed, as the pointer
+        // crosses the page): those are not the window's, or a window handler hears one every few hundred
+        // milliseconds of movement.
+        (MouseEnter, EventType::MouseEnter) => is_window_target(&event.target),
+        (MouseLeave, EventType::MouseLeave) => is_window_target(&event.target),
         (Scroll, EventType::Scroll) => true,
         (ScrollStart, EventType::ScrollStart) => true,
         (ScrollEnd, EventType::ScrollEnd) => true,
