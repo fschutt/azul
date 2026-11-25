@@ -15,11 +15,21 @@ pub fn styleText() C.AzCssPropertyWithConditionsVec {
                 }, 2)
             )
         ),
-        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontWeight(C.AzStyleFontWeight_W600)),
-        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontStyle(C.AzStyleFontStyle_Italic)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontWeight(C.AzStyleFontWeight_number(C.AzFloatValue_create(600.0)))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontStyle(C.AzStyleFontStyle_italic())),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantNumeric(C.AzStyleFontVariantNumeric{ .lining_nums = false, .oldstyle_nums = false, .proportional_nums = false, .tabular_nums = true, .diagonal_fractions = false, .stacked_fractions = false, .ordinal = false, .slashed_zero = false })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantCaps(C.AzStyleFontVariantCapsValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontVariantCaps_SmallCaps } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontFeatureSettings(C.AzStyleFontFeatureSettingsValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontFeatureSettings{ .inner = C.AzString_copyFromBytes("\"liga\" 0, \"tnum\"", 0, 16) } } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontStretch(C.AzStyleFontStretchValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontStretch{ .inner = C.AzPercentageValue{ .number = C.AzFloatValue_create(87.5) } } } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariationSettings(C.AzStyleFontVariationSettingsValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontVariationSettings{ .inner = C.AzString_copyFromBytes("\"wght\" 650, \"wdth\" 87.5", 0, 23) } } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontOpticalSizing(C.AzStyleFontOpticalSizingValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontOpticalSizing_None } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontKerning(C.AzStyleFontKerningValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontKerning_None } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantLigatures(C.AzStyleFontVariantLigaturesValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontVariantLigatures{ .common = C.AzStyleFontLigatureChoice_Off, .discretionary = C.AzStyleFontLigatureChoice_On, .historical = C.AzStyleFontLigatureChoice_Unset, .contextual = C.AzStyleFontLigatureChoice_Unset } } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantEastAsian(C.AzStyleFontVariantEastAsianValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontVariantEastAsian{ .jis78 = true, .jis83 = false, .jis90 = false, .jis04 = false, .simplified = false, .traditional = false, .full_width = true, .proportional_width = false, .ruby = true } } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisWeight(C.AzStyleFontSynthesisValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontSynthesis_None } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisStyle(C.AzStyleFontSynthesisValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontSynthesis_None } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisSmallCaps(C.AzStyleFontSynthesisValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontSynthesis_Auto } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisPosition(C.AzStyleFontSynthesisValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontSynthesis_None } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textAlign(C.AzStyleTextAlign_Center)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textJustify(C.AzLayoutTextJustify_InterWord)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_verticalAlign(C.AzStyleVerticalAlign_middle())),
@@ -61,15 +71,47 @@ pub fn styleText() C.AzCssPropertyWithConditionsVec {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_selectionBackgroundColor(C.AzSelectionBackgroundColor{ .inner = C.AzColorU{ .r = 51, .g = 153, .b = 255, .a = 255 } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_selectionColor(C.AzSelectionColor{ .inner = C.AzColorU{ .r = 255, .g = 255, .b = 255, .a = 255 } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_selectionRadius(C.AzSelectionRadiusValue{ .Exact = .{ .tag = 6, .payload = C.AzSelectionRadius{ .inner = C.AzPixelValue_px(3.0) } } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_font(C.AzStyleFontFamilyVec_copyFromPtr(&[_]C.AzStyleFontFamily{ C.AzStyleFontFamily_system(C.AzString_copyFromBytes("caption", 0, 7)) }, 1))),
+    }, 60);
+}
+
+// CSS: .shorthands
+pub fn styleShorthands() C.AzCssPropertyWithConditionsVec {
+    return C.AzCssPropertyWithConditionsVec_copyFromPtr(&[_]C.AzCssPropertyWithConditions{
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontStyle(C.AzStyleFontStyle_italic())),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantCaps(C.AzStyleFontVariantCapsValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontVariantCaps_SmallCaps } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontWeight(C.AzStyleFontWeight_number(C.AzFloatValue_create(350.0)))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontStretch(C.AzStyleFontStretchValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontStretch{ .inner = C.AzPercentageValue{ .number = C.AzFloatValue_create(75.0) } } } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSize(C.AzStyleFontSize{ .inner = C.AzPixelValue_px(14.0) })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_lineHeight(C.AzStyleLineHeight_number(C.AzFloatValue_create(1.5)))),
         C.AzCssPropertyWithConditions_simple(
-            C.AzCssProperty_font(
+            C.AzCssProperty_fontFamily(
                 C.AzStyleFontFamilyVec_copyFromPtr(&[_]C.AzStyleFontFamily{
                     C.AzStyleFontFamily_system(C.AzString_copyFromBytes("Georgia", 0, 7)),
                     C.AzStyleFontFamily_system(C.AzString_copyFromBytes("serif", 0, 5)),
                 }, 2)
             )
         ),
-    }, 50);
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontVariantNumeric)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontVariantLigatures)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontVariantEastAsian)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontKerning)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontOpticalSizing)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontVariationSettings)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontFeatureSettings)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontSynthesisWeight)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontSynthesisStyle)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontSynthesisSmallCaps)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontSynthesisPosition)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantNumeric(C.AzStyleFontVariantNumeric{ .lining_nums = false, .oldstyle_nums = true, .proportional_nums = false, .tabular_nums = false, .diagonal_fractions = false, .stacked_fractions = false, .ordinal = false, .slashed_zero = false })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantCaps(C.AzStyleFontVariantCapsValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontVariantCaps_Normal } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantLigatures(C.AzStyleFontVariantLigaturesValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontVariantLigatures{ .common = C.AzStyleFontLigatureChoice_Unset, .discretionary = C.AzStyleFontLigatureChoice_Unset, .historical = C.AzStyleFontLigatureChoice_Unset, .contextual = C.AzStyleFontLigatureChoice_Unset } } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantEastAsian(C.AzStyleFontVariantEastAsianValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontVariantEastAsian{ .jis78 = true, .jis83 = false, .jis90 = false, .jis04 = false, .simplified = false, .traditional = false, .full_width = false, .proportional_width = false, .ruby = false } } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisWeight(C.AzStyleFontSynthesisValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontSynthesis_Auto } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisStyle(C.AzStyleFontSynthesisValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontSynthesis_Auto } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisSmallCaps(C.AzStyleFontSynthesisValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontSynthesis_None } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisPosition(C.AzStyleFontSynthesisValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontSynthesis_None } })),
+    }, 26);
 }
 
 // CSS: .box

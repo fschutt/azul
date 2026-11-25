@@ -11,7 +11,7 @@ static AzCssPropertyWithConditionsVec style_btn(void) {
             AzCssPropertyWithConditions_simple(AzCssProperty_flexGrow((AzLayoutFlexGrow){ .inner = AzFloatValue_create(1.0f) })),
             AzCssPropertyWithConditions_simple(AzCssProperty_inherit(AzCssPropertyType_MinWidth)),
             AzCssPropertyWithConditions_simple(AzCssProperty_whiteSpace((AzStyleWhiteSpaceValue){ .Exact = { .tag = AzStyleWhiteSpaceValue_Tag_Exact, .payload = AzStyleWhiteSpace_Nowrap } })),
-            AzCssPropertyWithConditions_onHover(AzCssProperty_fontWeight(AzStyleFontWeight_Bold)),
+            AzCssPropertyWithConditions_onHover(AzCssProperty_fontWeight(AzStyleFontWeight_number(AzFloatValue_create(700.0f)))),
         },
         7
     );

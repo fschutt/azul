@@ -48,13 +48,13 @@ func StyleListLiNthChild2() azul.AzCssPropertyWithConditionsVec {
 // CSS: #main>.title
 func StyleMainTitle() azul.AzCssPropertyWithConditionsVec {
 	return azul.AzCssPropertyWithConditionsVec_copyFromPtr(&[]azul.AzCssPropertyWithConditions{
-		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontWeight(azul.StyleFontWeight_Bold)),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontWeight(azul.AzStyleFontWeight_Number(azul.AzFloatValue_create(700.0)))),
 	}[0], 1)
 }
 
 // CSS: div .note:first
 func StyleDivNoteFirst() azul.AzCssPropertyWithConditionsVec {
 	return azul.AzCssPropertyWithConditionsVec_copyFromPtr(&[]azul.AzCssPropertyWithConditions{
-		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontStyle(azul.StyleFontStyle_Italic)),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontStyle(azul.AzStyleFontStyle_Italic())),
 	}[0], 1)
 }

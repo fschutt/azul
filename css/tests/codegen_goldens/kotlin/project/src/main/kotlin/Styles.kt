@@ -15,7 +15,7 @@ fun styleBtn(): AzCssPropertyWithConditionsVec.ByValue {
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_flexGrow(AzLayoutFlexGrow.ByValue().apply { inner = AzulNativeCss.AzFloatValue_create(1.0f) })),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_inherit(CssPropertyType.MinWidth.value)),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_whiteSpace(AzStyleWhiteSpaceValue.ByValue().apply { Exact.tag = AzStyleWhiteSpaceValue_Tag.Exact.value.toByte(); Exact.payload = StyleWhiteSpace.Nowrap.value; setType("Exact") })),
-        AzulNativeCss.AzCssPropertyWithConditions_onHover(AzulNativeCss.AzCssProperty_fontWeight(StyleFontWeight.Bold.value))
+        AzulNativeCss.AzCssPropertyWithConditions_onHover(AzulNativeCss.AzCssProperty_fontWeight(AzulNativeCss.AzStyleFontWeight_number(AzulNativeCss.AzFloatValue_create(700.0f))))
     )
 }
 

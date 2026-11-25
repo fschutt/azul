@@ -33,10 +33,12 @@ var
   t17: TAzStyleWhiteSpaceValue;
   t18: TAzCssProperty;
   t19: TAzCssPropertyWithConditions;
-  t20: TAzCssProperty;
-  t21: TAzCssPropertyWithConditions;
-  t22: array[0..6] of TAzCssPropertyWithConditions;
-  t23: TAzCssPropertyWithConditionsVec;
+  t20: TAzFloatValue;
+  t21: TAzStyleFontWeight;
+  t22: TAzCssProperty;
+  t23: TAzCssPropertyWithConditions;
+  t24: array[0..6] of TAzCssPropertyWithConditions;
+  t25: TAzCssPropertyWithConditionsVec;
 begin
   t1 := AzPixelValuePx(100.0);
   t2 := AzLayoutWidthPx(t1);
@@ -62,17 +64,19 @@ begin
   t17.Payload_Exact := TAzStyleWhiteSpace.Nowrap;
   t18 := AzCssPropertyWhiteSpace(t17);
   t19 := AzCssPropertyWithConditionsSimple(t18);
-  t20 := AzCssPropertyFontWeight(TAzStyleFontWeight.Bold);
-  t21 := AzCssPropertyWithConditionsOnHover(t20);
-  t22[0] := t4;
-  t22[1] := t8;
-  t22[2] := t10;
-  t22[3] := t14;
-  t22[4] := t16;
-  t22[5] := t19;
-  t22[6] := t21;
-  t23 := AzCssPropertyWithConditionsVecCopyFromPtr(@t22[0], 7);
-  Result := t23;
+  t20 := AzFloatValueCreate(700.0);
+  t21 := AzStyleFontWeightNumber(t20);
+  t22 := AzCssPropertyFontWeight(t21);
+  t23 := AzCssPropertyWithConditionsOnHover(t22);
+  t24[0] := t4;
+  t24[1] := t8;
+  t24[2] := t10;
+  t24[3] := t14;
+  t24[4] := t16;
+  t24[5] := t19;
+  t24[6] := t23;
+  t25 := AzCssPropertyWithConditionsVecCopyFromPtr(@t24[0], 7);
+  Result := t25;
 end;
 
 end.

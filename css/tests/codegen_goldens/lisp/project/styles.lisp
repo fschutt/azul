@@ -33,6 +33,6 @@
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-display :flex))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-flex-grow (list 'azul-internal::inner (azul-internal::%az-float-value-create 1.0))))
       (azul-internal::%az-css-property-with-conditions-simple (azul-internal::%az-css-property-inherit :min-width))
-      (azul-internal::%az-css-property-with-conditions-on-hover (azul-internal::%az-css-property-font-weight :bold))
+      (azul-internal::%az-css-property-with-conditions-on-hover (azul-internal::%az-css-property-font-weight (azul-internal::%az-style-font-weight-number (azul-internal::%az-float-value-create 700.0))))
     )
   ))

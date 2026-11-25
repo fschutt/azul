@@ -57,7 +57,7 @@ public final class AzulStyles {
     public static AzCssPropertyWithConditionsVec.ByValue styleMainTitle() {
         return AzulCodegen.vec(
             AzulNativeVec::AzCssPropertyWithConditionsVec_copyFromPtr,
-            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontWeight(StyleFontWeight.Bold.value))
+            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontWeight(AzulNativeCss.AzStyleFontWeight_number(AzulNativeCss.AzFloatValue_create(700.0f))))
         );
     }
 
@@ -65,7 +65,7 @@ public final class AzulStyles {
     public static AzCssPropertyWithConditionsVec.ByValue styleDivNoteFirst() {
         return AzulCodegen.vec(
             AzulNativeVec::AzCssPropertyWithConditionsVec_copyFromPtr,
-            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontStyle(StyleFontStyle.Italic.value))
+            AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontStyle(AzulNativeCss.AzStyleFontStyle_italic()))
         );
     }
 }

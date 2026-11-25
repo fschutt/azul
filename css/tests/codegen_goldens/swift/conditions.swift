@@ -42,7 +42,7 @@ public func styleListLiNthChild2() -> [CssPropertyWithConditions] {
 // CSS: #main>.title
 public func styleMainTitle() -> [CssPropertyWithConditions] {
     return [
-        CssPropertyWithConditions.simple(CssProperty.fontWeight(StyleFontWeight.bold)),
+        CssPropertyWithConditions.simple(CssProperty.fontWeight(StyleFontWeight.number(FloatValue(700.0)))),
     ]
 }
 

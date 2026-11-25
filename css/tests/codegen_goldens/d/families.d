@@ -17,11 +17,21 @@ CssPropertyWithConditions[] styleText()
                 ]
             )
         ),
-        CssPropertyWithConditions.simple(CssProperty.fontWeight(StyleFontWeight.w600)),
-        CssPropertyWithConditions.simple(CssProperty.fontStyle(StyleFontStyle.italic)),
+        CssPropertyWithConditions.simple(CssProperty.fontWeight(StyleFontWeight.number(FloatValue(600.0f)))),
+        CssPropertyWithConditions.simple(CssProperty.fontStyle(StyleFontStyle.italic())),
         CssPropertyWithConditions.simple(CssProperty.fontVariantNumeric(StyleFontVariantNumeric(false, false, false, true, false, false, false, false))),
         CssPropertyWithConditions.simple(CssProperty.fontVariantCaps(StyleFontVariantCapsValue.exact(StyleFontVariantCaps.smallCaps))),
         CssPropertyWithConditions.simple(CssProperty.fontFeatureSettings(StyleFontFeatureSettingsValue.exact(StyleFontFeatureSettings("\"liga\" 0, \"tnum\"")))),
+        CssPropertyWithConditions.simple(CssProperty.fontStretch(StyleFontStretchValue.exact(StyleFontStretch(PercentageValue(FloatValue(87.5f)))))),
+        CssPropertyWithConditions.simple(CssProperty.fontVariationSettings(StyleFontVariationSettingsValue.exact(StyleFontVariationSettings("\"wght\" 650, \"wdth\" 87.5")))),
+        CssPropertyWithConditions.simple(CssProperty.fontOpticalSizing(StyleFontOpticalSizingValue.exact(StyleFontOpticalSizing.none))),
+        CssPropertyWithConditions.simple(CssProperty.fontKerning(StyleFontKerningValue.exact(StyleFontKerning.none))),
+        CssPropertyWithConditions.simple(CssProperty.fontVariantLigatures(StyleFontVariantLigaturesValue.exact(StyleFontVariantLigatures(StyleFontLigatureChoice.off, StyleFontLigatureChoice.on, StyleFontLigatureChoice.unset, StyleFontLigatureChoice.unset)))),
+        CssPropertyWithConditions.simple(CssProperty.fontVariantEastAsian(StyleFontVariantEastAsianValue.exact(StyleFontVariantEastAsian(true, false, false, false, false, false, true, false, true)))),
+        CssPropertyWithConditions.simple(CssProperty.fontSynthesisWeight(StyleFontSynthesisValue.exact(StyleFontSynthesis.none))),
+        CssPropertyWithConditions.simple(CssProperty.fontSynthesisStyle(StyleFontSynthesisValue.exact(StyleFontSynthesis.none))),
+        CssPropertyWithConditions.simple(CssProperty.fontSynthesisSmallCaps(StyleFontSynthesisValue.exact(StyleFontSynthesis.auto_))),
+        CssPropertyWithConditions.simple(CssProperty.fontSynthesisPosition(StyleFontSynthesisValue.exact(StyleFontSynthesis.none))),
         CssPropertyWithConditions.simple(CssProperty.textAlign(StyleTextAlign.center)),
         CssPropertyWithConditions.simple(CssProperty.textJustify(LayoutTextJustify.interWord)),
         CssPropertyWithConditions.simple(CssProperty.verticalAlign(StyleVerticalAlign.middle())),
@@ -63,14 +73,47 @@ CssPropertyWithConditions[] styleText()
         CssPropertyWithConditions.simple(CssProperty.selectionBackgroundColor(SelectionBackgroundColor(ColorU(51, 153, 255, 255)))),
         CssPropertyWithConditions.simple(CssProperty.selectionColor(SelectionColor(ColorU(255, 255, 255, 255)))),
         CssPropertyWithConditions.simple(CssProperty.selectionRadius(SelectionRadiusValue.exact(SelectionRadius(PixelValue.px(3.0f))))),
+        CssPropertyWithConditions.simple(CssProperty.font([StyleFontFamily.system("caption")])),
+    ];
+}
+
+// CSS: .shorthands
+CssPropertyWithConditions[] styleShorthands()
+{
+    return [
+        CssPropertyWithConditions.simple(CssProperty.fontStyle(StyleFontStyle.italic())),
+        CssPropertyWithConditions.simple(CssProperty.fontVariantCaps(StyleFontVariantCapsValue.exact(StyleFontVariantCaps.smallCaps))),
+        CssPropertyWithConditions.simple(CssProperty.fontWeight(StyleFontWeight.number(FloatValue(350.0f)))),
+        CssPropertyWithConditions.simple(CssProperty.fontStretch(StyleFontStretchValue.exact(StyleFontStretch(PercentageValue(FloatValue(75.0f)))))),
+        CssPropertyWithConditions.simple(CssProperty.fontSize(StyleFontSize(PixelValue.px(14.0f)))),
+        CssPropertyWithConditions.simple(CssProperty.lineHeight(StyleLineHeight.number(FloatValue(1.5f)))),
         CssPropertyWithConditions.simple(
-            CssProperty.font(
+            CssProperty.fontFamily(
                 [
                     StyleFontFamily.system("Georgia"),
                     StyleFontFamily.system("serif"),
                 ]
             )
         ),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.fontVariantNumeric)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.fontVariantLigatures)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.fontVariantEastAsian)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.fontKerning)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.fontOpticalSizing)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.fontVariationSettings)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.fontFeatureSettings)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.fontSynthesisWeight)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.fontSynthesisStyle)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.fontSynthesisSmallCaps)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.fontSynthesisPosition)),
+        CssPropertyWithConditions.simple(CssProperty.fontVariantNumeric(StyleFontVariantNumeric(false, true, false, false, false, false, false, false))),
+        CssPropertyWithConditions.simple(CssProperty.fontVariantCaps(StyleFontVariantCapsValue.exact(StyleFontVariantCaps.normal))),
+        CssPropertyWithConditions.simple(CssProperty.fontVariantLigatures(StyleFontVariantLigaturesValue.exact(StyleFontVariantLigatures(StyleFontLigatureChoice.unset, StyleFontLigatureChoice.unset, StyleFontLigatureChoice.unset, StyleFontLigatureChoice.unset)))),
+        CssPropertyWithConditions.simple(CssProperty.fontVariantEastAsian(StyleFontVariantEastAsianValue.exact(StyleFontVariantEastAsian(true, false, false, false, false, false, false, false, false)))),
+        CssPropertyWithConditions.simple(CssProperty.fontSynthesisWeight(StyleFontSynthesisValue.exact(StyleFontSynthesis.auto_))),
+        CssPropertyWithConditions.simple(CssProperty.fontSynthesisStyle(StyleFontSynthesisValue.exact(StyleFontSynthesis.auto_))),
+        CssPropertyWithConditions.simple(CssProperty.fontSynthesisSmallCaps(StyleFontSynthesisValue.exact(StyleFontSynthesis.none))),
+        CssPropertyWithConditions.simple(CssProperty.fontSynthesisPosition(StyleFontSynthesisValue.exact(StyleFontSynthesis.none))),
     ];
 }
 
