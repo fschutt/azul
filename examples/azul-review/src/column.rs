@@ -218,7 +218,7 @@ fn card(s: &AppState, data: &RefAny, number: usize, note: &Note) -> Dom {
             .with_on_focus_lost(tag, voice::on_note_blur as TextAreaOnFocusLostCallbackType)
             .dom()
             .with_id(format!("__azreview_note-text-{}", note.id).as_str())
-            .with_css("min-height: 56px;")
+            .with_css("min-height: 84px;")
     };
     Dom::create_div()
         .with_id(format!("__azreview_note-{}", note.id).as_str())

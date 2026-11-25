@@ -8,7 +8,7 @@ use azul::{
     shells::{ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
     vec::MenuItemVec,
-    widgets::{AlertKind, Button, InfoBar, MicrophoneWidget},
+    widgets::{AlertKind, Button, InfoBar, LevelMeter, MicrophoneWidget},
 };
 use azul_appkit::{
     l10n::{label, t, t_args, Arg},
@@ -36,7 +36,6 @@ const PAGE_GAP: f32 = 24.0;
 
 pub const METER_PACKET_SAMPLES: usize = 4096;
 
-const METER_SPAN_PACKETS: usize = 240;
 
 /// The line of a page's code (0 for its first) under `y`, in the page's own coordinates: the code
 /// starts under the page's padding.
@@ -496,19 +495,22 @@ fn finder_row(
     }
 }
 
+/// The recording's meter: how long the clip is and the level of the last packet of voice, a level
+/// meter that tells a screen reader its name.
 fn meter(s: &AppState) -> Dom {
-    let packets = s.level_samples / METER_PACKET_SAMPLES;
-    let filled = (packets % METER_SPAN_PACKETS) as f32 / METER_SPAN_PACKETS as f32;
+    let seconds = s.level_samples / crate::CLIP_RATE as usize;
     let mut wrap = Dom::create_div()
         .with_css("display: flex; flex-direction: row; align-items: center; gap: 6px;");
     wrap.add_child(
-        Dom::create_span_with_text(format!("{packets} pkt").as_str())
+        Dom::create_span_with_text(format!("{}:{:02}", seconds / 60, seconds % 60).as_str())
             .with_css("font-size: 11px; color: system:secondary-text; font-family: monospace;"),
     );
     let mut holder = Dom::create_div().with_css("width: 160px;");
-    holder.add_child(ProgressBar::create(filled * 100.0).dom().with_accessibility_info(
-        AccessibilityInfo::named(label("azreview-recording-level"), AccessibilityRole::ProgressBar),
-    ));
+    holder.add_child(
+        LevelMeter::create(s.level)
+            .with_accessibility_name(label("azreview-recording-level"))
+            .dom(),
+    );
     wrap.add_child(holder);
     wrap
 }

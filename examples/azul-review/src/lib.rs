@@ -131,6 +131,8 @@ pub struct AppState {
     pub recording: Option<VoiceClip>,
     pub clips: Vec<VoiceClip>,
     pub level_samples: usize,
+    /// The level of the last packet of voice, 0 to 1 (the recording's meter).
+    pub level: f32,
     pub visible_page: usize,
     pub epoch: u64,
     pub idle_timer: TimerId,
@@ -176,6 +178,7 @@ impl AppState {
             recording: None,
             clips: Vec::new(),
             level_samples: 0,
+            level: 0.0,
             visible_page: 0,
             epoch: 0,
             idle_timer: TimerId::unique(),
@@ -1246,8 +1249,10 @@ pub extern "C" fn on_audio_frame(
     let Some(clip) = s.recording.as_mut() else {
         return Update::DoNothing;
     };
+    let peak = frame.samples.as_ref().iter().fold(0.0_f32, |m, v| m.max(v.abs()));
     clip.samples.extend(frame.samples.as_ref().iter().copied());
     let total = clip.samples.len();
+    s.level = azul::widgets::LevelMeter::peak_level(peak);
 
     let step = ui::METER_PACKET_SAMPLES;
     if total / step > s.level_samples / step {
