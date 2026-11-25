@@ -84,9 +84,14 @@ keychain item, never the key in the settings file). Everything mockable: agent, 
 | Ink rasterised at the window's device pixel ratio, drawn by the GPU with an automatic fallback to the CPU renderer | built |
 | A stroke ends with any release, a move that finds the pointer not pressed, the pointer leaving, the focus lost; the last 200 pointer events can be saved (Session menu, `AZREVIEW_EVENTS`, the debug op `azreview_pointer_log`) | built |
 | A tap by a mouse or a trackpad changes no nib and selects no audio pen; a pen's tap still cycles the nib | built |
-| Open folder (button in the title row, Mod+O), the folder named in the title row, the last folder remembered, an empty page with a large button; the files folded away at the start | built |
+| Open folder (button in the top bar, Mod+O), the folder named in the top bar, the last folder remembered, an empty page with a large button | built |
 | Dictation by the pen at rest (a note in the side column, a marker on the page) | built |
-| Top edge in the title-bar row, vertical page strip, sliding full-height file tree, bottom agents bar, right whiteboard bar | planned (the layout refactor) |
+| The file tree: the first column, the whole height of the window, no heading, pushing the pages to the right (covering them below 700 px, Escape folds it then), sliding in 180 ms, its right edge dragged to resize, shown with Mod+B or the switch next to the traffic lights, open or closed and its width remembered; a pick of a file leaves it as it is | built |
+| The vertical page strip at the left of the pages, without a scrollbar | built |
+| The top bar in the title-bar row: the folder at the left, the five pens centred (a click takes a pen, a double click or its key again takes its next nib; each pen keeps its own nib and the pen in hand shows it; the scope pen has the marker, the others the pen and the audio pen), record, save and the gear at the right; no marker button, no comment button | built |
+| The right bar and its panel (Mod+Shift+B, its left edge dragged, open or closed and the width remembered), a placeholder until the whiteboard is mounted in it | built |
+| The bottom bar: a chip per conversation of the open file (blue spinner working, yellow a suggestion waits, green done; a click goes to its page; many chips scroll without a bar); the tree marks each file the same way; mock conversations until the agents answer | built |
+| The page's code column and measures shared with the whiteboard's cutouts (`ui::page_code_column`, `PAGE_W`, `GUTTER_W`, `LINE_H`, `PAGE_PAD`) | built |
 | Slash deletion, conversations in the page's sidebar, suggestions with accept, stable page breaks, stroke samples to the agent | planned |
 | Whiteboard, presenter, agents and models panels | other modules, plugged in by the layout |
 

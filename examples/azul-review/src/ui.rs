@@ -716,7 +716,7 @@ fn finder_row(
             crate::chips::State::Suggested => ids::FILE_MARK_SUGGESTED,
             crate::chips::State::Done => ids::FILE_MARK_DONE,
         };
-        row.add_child(state_mark(state, 10).with_id(id).with_accessibility_name(state_word(state)));
+        row.add_child(state_mark(state, 13).with_id(id).with_accessibility_name(state_word(state)));
     }
     match index {
         Some(i) => row
@@ -925,7 +925,7 @@ fn chip_key(i: usize, chip: &crate::chips::Chip, data: &RefAny) -> Dom {
         &name,
     )
     .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: i })))
-    .with_child(state_mark(chip.state, 12))
+    .with_child(state_mark(chip.state, 14))
     .with_child(Dom::create_span_with_text(title.as_str()).with_css("overflow: hidden; white-space: nowrap;"))
 }
 
