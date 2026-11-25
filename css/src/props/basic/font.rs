@@ -1045,9 +1045,10 @@ fn parse_plain_number(text: &str) -> Option<f32> {
 }
 
 #[cfg(feature = "parser")]
-/// Parses a `font-weight` value: `normal`, `bold`, `bolder`, `lighter`, or a
-/// number from 1 to 1000 (`350`, `650.5`; no exponent). A number outside the
-/// range is invalid.
+/// Parses a `font-weight` value: a keyword or a number from 1 to 1000.
+///
+/// The keywords are `normal`, `bold`, `bolder` and `lighter`; the number is
+/// `350` or `650.5` (no exponent). A number outside the range is invalid.
 ///
 /// # Errors
 ///
@@ -1126,9 +1127,10 @@ fn parse_oblique_angle(text: &str) -> Option<FloatValue> {
 }
 
 #[cfg(feature = "parser")]
-/// Parses a `font-style` value: `normal`, `italic`, `oblique`, or `oblique`
-/// with an angle from -90 to 90 degrees (`oblique 20deg`; `deg`, `grad`,
-/// `rad` and `turn` are accepted). A bare `oblique` is 14 degrees.
+/// Parses a `font-style` value: `normal`, `italic`, `oblique` or `oblique <angle>`.
+///
+/// The angle is from -90 to 90 degrees (`oblique 20deg`; `deg`, `grad`, `rad` and
+/// `turn` are accepted). A bare `oblique` is 14 degrees.
 ///
 /// # Errors
 ///

@@ -28,6 +28,7 @@ pub mod error;
 pub mod font;
 /// The `font`, `font-variant` and `font-synthesis` shorthands - not glob-re-exported because
 /// its items are meant to be used via qualified paths.
+///
 pub mod font_shorthand;
 pub mod font_variation;
 pub mod geometry;
