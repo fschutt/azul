@@ -103,20 +103,6 @@ impl Answer {
         }
     }
 
-    /// What was understood, as text only (a recognizer that does not give words).
-    #[must_use]
-    pub fn heard_text(text: &str, confidence: f32) -> Self {
-        Self {
-            outcome: Outcome::Heard,
-            text: text.trim().to_string(),
-            message: String::new(),
-            confidence: clamp01(confidence),
-            words: Vec::new(),
-            language: String::new(),
-            started_unix_ms: 0,
-        }
-    }
-
     /// What was understood, as words: the text is the words with single spaces, the confidence
     /// their mean probability.
     #[must_use]

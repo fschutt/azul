@@ -21,8 +21,12 @@
 //! LibriSpeech (depth 8, no keywords); Moonshine tiny 12.00 % and small de 7.5 % (average of the
 //! open leaderboard's eight sets / 400 German clips); Whisper tiny 12.81 % (same average); Vosk
 //! small en 9.85 % (LibriSpeech clean), small de 13.75 % (Tuda); Parakeet v3 1.93 % (LibriSpeech
-//! clean), German FLEURS 5.04 %. On this Mac a synthetic German sentence of 21 s came out with one
-//! wrong word of 38 (Tonnen for Tunnel); the system's recognizer got the same sentence right.
+//! clean), German FLEURS 5.04 %. Measured on this Mac (24 clips of real read speech, no number
+//! normalisation, so a spoken "zwei" against a written "2" counts as an error: indicative, not a
+//! benchmark): 12 German Multilingual LibriSpeech test clips (185.6 s, 309 words) Whistle 12.6 %,
+//! the system's recognizer 7.8 %; 12 English LibriSpeech clips (47.7 s, 120 words) Whistle 5.8 %,
+//! the system's 10.0 %. Whistle needed 0.022 of the audio's length on one thread (a 15 s clip
+//! 345 ms, 333 ms of CPU); the system's recognizer 0.9 to 1.5 s a clip with its set-up.
 //!
 //! The alternative is Moonshine streaming (German small: 7.5 %, MIT, streaming) when its C++ core
 //! gets a C ABI that does not carry ONNX Runtime; whisper.cpp base (q5_1, 59.7 MB, MIT) is the
