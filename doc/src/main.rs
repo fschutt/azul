@@ -649,7 +649,7 @@ fn main() -> anyhow::Result<()> {
             std::env::set_current_dir(&project_root)
                 .with_context(|| format!("cannot enter project root {}", project_root.display()))?;
             let opts = e2erun::E2eRunOptions::parse(rest)?;
-            let code = e2erun::run(&opts)?;
+            let code = e2erun::run(&opts, &settings.layout)?;
             std::process::exit(code);
         }
         ["gen-e2e", rest @ ..] => {
@@ -668,7 +668,10 @@ fn main() -> anyhow::Result<()> {
             // and STOP. The operator then edits `build_prompt` in gene2e.rs and
             // REBUILDS — a deliberate gate, so a prompt change is a reviewed,
             // committed act rather than a runtime side effect.
-            let opts = gene2e::GenE2eOptions::parse(rest)?;
+            let mut opts = gene2e::GenE2eOptions::parse(rest)?;
+            // The scenarios it runs (`--review-batch`) run under the engine's settings the tool read
+            // from its environment at its start.
+            opts.layout = settings.layout.clone();
             gene2e::run(&project_root, &opts)?;
             return Ok(());
         }
