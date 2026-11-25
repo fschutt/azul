@@ -30,12 +30,16 @@ use crate::{
 const COLUMN: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
                       min-width: 0px;";
 
+/// The measures of a page, one place for them: the whiteboard's cutouts are laid out by the same numbers, so a
+/// cutout is as wide and as high per line as the page it was taken from.
 pub const LINE_H: f32 = 15.0;
-const PAGE_W: f32 = 1000.0;
-const GUTTER_W: f32 = 52.0;
+pub(crate) const PAGE_W: f32 = 1000.0;
+pub(crate) const GUTTER_W: f32 = 52.0;
 
-const MARGIN_GUTTER_W: f32 = 260.0;
+pub(crate) const MARGIN_GUTTER_W: f32 = 260.0;
 pub const PAGE_PAD: f32 = 32.0;
+/// How wide the code column of a page is (the page, less the notes' margin and the padding).
+pub(crate) const CODE_W: f32 = PAGE_W - MARGIN_GUTTER_W - PAGE_PAD;
 const PAGE_GAP: f32 = 24.0;
 
 pub const METER_PACKET_SAMPLES: usize = 4096;
@@ -1135,24 +1139,32 @@ fn page_sheet(
         ),
     );
 
-    let mut col = Dom::create_div().with_css(
-        format!(
-            "position: relative; display: flex; flex-direction: column; width: {}px; overflow: \
-             hidden; user-select: none;",
-            (PAGE_W - MARGIN_GUTTER_W - PAGE_PAD) as isize,
-        )
-        .as_str(),
-    );
-    for (i, line) in lines.iter().enumerate() {
-        col.add_child(code_row(first_line + i, line.as_str()));
-    }
-    sheet.add_child(col);
+    sheet.add_child(page_code_column(first_line, lines));
     // The markers of the dictated notes: over the code, under the pen layer (they take no stroke).
     for marker in column::markers(notes, page, listening) {
         sheet.add_child(marker);
     }
     sheet.add_child(ink_layer(data, page, Layer::Pen));
     sheet
+}
+
+/// The code of a page as the page shows it: a row per line, its number in the gutter and then the line, a column
+/// `CODE_W` wide whose rows are `LINE_H` tall. The whiteboard's cutout renders this same column for the lines it holds,
+/// so that it looks like the page it was taken from.
+#[must_use]
+pub fn page_code_column(first_line: usize, lines: &[String]) -> Dom {
+    let mut col = Dom::create_div().with_css(
+        format!(
+            "position: relative; display: flex; flex-direction: column; width: {}px; overflow: \
+             hidden; user-select: none;",
+            CODE_W as isize,
+        )
+        .as_str(),
+    );
+    for (i, line) in lines.iter().enumerate() {
+        col.add_child(code_row(first_line + i, line.as_str()));
+    }
+    col
 }
 
 /// One line of code: its number in the gutter, then the line.

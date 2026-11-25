@@ -194,3 +194,24 @@ fn only_the_pen_in_hand_shows_its_nib_and_every_key_is_named_with_its_meaning_an
         assert!(!key.root.accessibility.is_null(), "a pen key without a name");
     }
 }
+
+// ---- the code column the whiteboard's cutouts share with the page ----
+
+#[test]
+fn the_code_column_is_a_row_per_line_numbered_from_the_pages_first_line() {
+    let lines = vec!["fn a() {}".to_string(), "fn b() {}".to_string(), "fn c() {}".to_string()];
+    let col = page_code_column(41, &lines);
+    assert_eq!(col.children.as_slice().len(), 3, "a row for each line");
+    let said = texts(&col);
+    assert_eq!(said, vec!["41", "fn a() {}", "42", "fn b() {}", "43", "fn c() {}"], "the number, then the line");
+}
+
+#[test]
+fn the_numbers_the_cutout_renderer_lays_out_by_are_the_pages() {
+    // One place for the page's measures: a cutout is as wide and as high per line as the page it was taken from.
+    assert_eq!(LINE_H, 15.0);
+    assert_eq!(PAGE_W, 1000.0);
+    assert_eq!(GUTTER_W, 52.0);
+    assert_eq!(PAGE_PAD, 32.0);
+    assert_eq!(CODE_W, PAGE_W - MARGIN_GUTTER_W - PAGE_PAD);
+}
