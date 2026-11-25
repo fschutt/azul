@@ -30,7 +30,7 @@ const PAGE_W: f32 = 1000.0;
 const GUTTER_W: f32 = 52.0;
 
 const MARGIN_GUTTER_W: f32 = 260.0;
-const PAGE_PAD: f32 = 32.0;
+pub const PAGE_PAD: f32 = 32.0;
 const PAGE_GAP: f32 = 24.0;
 
 pub const METER_PACKET_SAMPLES: usize = 4096;

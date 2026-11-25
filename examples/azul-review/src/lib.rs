@@ -40,7 +40,7 @@ pub mod model;
 pub mod session;
 pub mod ui;
 
-use model::{Finding, Semantic, Stroke, Tool, VoiceClip};
+use model::{Finding, Note, Semantic, Stroke, Tool, VoiceClip};
 
 /// What azul-appkit's switches know about AzReview.
 pub const SPEC: AppSpec = AppSpec {
@@ -83,6 +83,9 @@ pub struct AppState {
     pub active: Semantic,
     pub tool: Tool,
     pub findings: Vec<Finding>,
+    /// The notes dictated at spots of the open file (the side column, the markers on the pages).
+    pub notes: Vec<Note>,
+    pub next_note_id: u64,
     pub recording: Option<VoiceClip>,
     pub clips: Vec<VoiceClip>,
     pub level_samples: usize,
@@ -121,6 +124,8 @@ impl AppState {
             active: Semantic::Scope,
             tool: Tool::Marker,
             findings: Vec::new(),
+            notes: Vec::new(),
+            next_note_id: 1,
             recording: None,
             clips: Vec::new(),
             level_samples: 0,
@@ -146,6 +151,7 @@ impl AppState {
         }
         self.current = Some(index);
         self.strokes.clear();
+        self.notes.clear();
         self.live = None;
         self.ink.open();
         self.visible_page = 0;

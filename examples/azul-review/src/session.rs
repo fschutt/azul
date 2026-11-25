@@ -5,7 +5,7 @@ use azul::{
 };
 
 use crate::{
-    model::{Finding, Stroke, VoiceClip},
+    model::{Finding, Note, Stroke, VoiceClip},
     AppState,
 };
 
@@ -155,6 +155,41 @@ pub fn archive_name(display: Option<&str>) -> String {
         .map_or_else(|| "session".to_string(), |d| d.replace(['/', '\\'], "_"));
     format!("{stem}.azreview.zip")
 }
+
+/// What an archive holds, as the app takes it back.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Loaded {
+    /// The file under review, as the archive names it.
+    pub file: String,
+    pub strokes: Vec<Stroke>,
+    pub notes: Vec<Note>,
+}
+
+impl Loaded {
+    /// The id the next stroke takes (after the archive's own).
+    #[must_use]
+    pub fn next_stroke_id(&self) -> u64 {
+        0
+    }
+
+    /// The id the next note takes (after the archive's own).
+    #[must_use]
+    pub fn next_note_id(&self) -> u64 {
+        0
+    }
+}
+
+/// Reads an archive [`archive`] wrote (or an older one).
+///
+/// # Errors
+/// A sentence for the user when the bytes are no archive of this app.
+pub fn load(_archive: &[u8]) -> Result<Loaded, String> {
+    Err("not read yet".to_string())
+}
+
+#[cfg(test)]
+#[path = "session_test.rs"]
+mod session_test;
 
 #[cfg(test)]
 mod tests {

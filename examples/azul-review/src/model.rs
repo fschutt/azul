@@ -28,6 +28,12 @@ impl Semantic {
         }
     }
 
+    /// The meaning a session file's English name stands for.
+    #[must_use]
+    pub fn from_label(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|s| s.label() == name)
+    }
+
     pub const fn color(self) -> ColorU {
         match self {
             Self::Scope => ColorU {
@@ -78,7 +84,7 @@ impl Semantic {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InkPoint {
     pub x: f32,
     pub y: f32,
@@ -87,7 +93,7 @@ pub struct InkPoint {
     pub tilt_y: f32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Stroke {
     pub page: usize,
     pub semantic: Semantic,
@@ -122,6 +128,48 @@ pub struct Finding {
     pub voice_note: Option<String>,
     pub stroke_count: usize,
     pub epoch: u64,
+}
+
+/// Where a note's dictation stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoteState {
+    /// Speech is being recognised into it: the text grows, the pen's rest is its anchor.
+    Listening,
+    /// The dictation is over: the text is the user's to edit.
+    Done,
+}
+
+/// A note dictated at a spot of a page: the spot is its anchor (a marker on the page), the text
+/// is what was said (live while it is heard, editable afterwards), and it is kept in the session
+/// archive with the strokes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Note {
+    pub id: u64,
+    /// The page of the open file the anchor is on.
+    pub page: usize,
+    /// The anchor, in the page's own coordinates (the pen layer's), px.
+    pub x: f32,
+    pub y: f32,
+    pub text: String,
+    /// The language the speech was recognised in (a BCP 47 tag; empty: the system's).
+    pub language: String,
+    pub state: NoteState,
+}
+
+impl Note {
+    /// A note that begins listening at (`x`, `y`) of `page`.
+    #[must_use]
+    pub fn listening(id: u64, page: usize, x: f32, y: f32, language: &str) -> Self {
+        Self {
+            id,
+            page,
+            x,
+            y,
+            text: String::new(),
+            language: language.to_string(),
+            state: NoteState::Listening,
+        }
+    }
 }
 
 #[derive(Debug, Default)]
