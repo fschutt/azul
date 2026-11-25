@@ -146,6 +146,13 @@ impl TrackWriter {
         }
     }
 
+    /// When this track's fragments close (a camera cut in chunks: [`Limits::chunked`]).
+    #[must_use]
+    pub const fn with_limits(mut self, limits: Limits) -> Self {
+        self.limits = limits;
+        self
+    }
+
     /// The colour tags to write when the encoder's stream has none (video).
     #[must_use]
     pub const fn with_default_colour(mut self, colour: Colour) -> Self {

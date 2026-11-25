@@ -503,6 +503,43 @@ fn a_fragment_that_never_meets_a_keyframe_is_closed_by_its_length() {
     assert_eq!(s.samples, 90);
 }
 
+/// A chunked track: 15 pictures a second for 30 s with a keyframe every 5 s, the keyframes a few
+/// milliseconds early as a clock that is read in steps makes them. With the limits of a chunk (`chunked`:
+/// a fragment of the chunk's length, closing at its keyframe) every chunk is one fragment, six of them;
+/// with the limits of the other tracks the 4-second cap cuts the chunks at pictures that begin nothing.
+///
+/// Mutation: a minimum fragment of the whole chunk (the keyframe stamped 40 ms early does not close its
+/// fragment, and the fragments come out at pictures that begin nothing: not six); a maximum of the default
+/// four seconds (the chunk is cut in two).
+#[test]
+fn a_chunked_track_has_one_fragment_for_each_chunk_closed_at_its_keyframe() {
+    let write = |limits: Limits| {
+        let (mut w, mut file) = FragmentWriter::new(TrackConfig::Video(video_config()), 0, limits);
+        let mut keyframes_at = Vec::new();
+        for i in 0..450_u64 {
+            let key = i % 75 == 0;
+            // 66.667 ms a picture; a keyframe is stamped 40 ms before its time.
+            let pts = i * 66_667 - if key && i > 0 { 40_000 } else { 0 };
+            if key {
+                keyframes_at.push(pts);
+            }
+            let au = if key { keyframe(i as u8, 200) } else { delta(i as u8, 60) };
+            file.extend(w.push(pts, annexb_to_avcc(&au).bytes, key).unwrap());
+        }
+        file.extend(w.finish(450 * 66_667));
+        (w.stats().fragments, scan(&mut Cursor::new(&file)).unwrap().fragments, keyframes_at.len())
+    };
+    let (made, scanned, keyframes) = write(Limits::chunked(5_000_000));
+    assert_eq!((made, scanned, keyframes), (6, 6, 6), "a fragment for each chunk");
+    let (made, _, _) = write(Limits::default());
+    assert!(made >= 8, "the 4-second cap cuts a 5-second chunk in two: {made} fragments");
+    // The numbers of the limits themselves: three quarters of a chunk to close at a keyframe, one and a
+    // half to close at any picture.
+    let l = Limits::chunked(5_000_000);
+    assert_eq!((l.min_fragment_us, l.max_fragment_us), (3_750_000, 7_500_000));
+    assert_eq!((l.max_fragment_bytes, l.max_fragment_samples), (Limits::default().max_fragment_bytes, Limits::default().max_fragment_samples));
+}
+
 /// Every fragment of a file: the `(duration, size, flags)` of each of its samples and its media.
 fn read_fragments(file: &[u8]) -> Vec<(Vec<(u32, u32, u32)>, Vec<u8>)> {
     let boxes = top_boxes(file);

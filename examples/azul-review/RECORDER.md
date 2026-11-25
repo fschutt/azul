@@ -1,9 +1,11 @@
 # AzReview's session recorder
 
-AzReview can record a whole review session: the screen (its own window, pixel for pixel), the
+AzReview can record a whole review session: the screen (the whole display by default, so the video can
+show the browser the person switched to; or one window; or AzReview's own frames, pixel for pixel), the
 camera, the voice, and everything the review did (the pen, the navigation, the conversations, the
 diffs, the whiteboard), all on ONE clock, to disk, so that a later step can cut them into a video
-to share. This file is the contract between the recorder (`recorder*.rs`), the exporter and an
+to share. The video is the supplement: the review's data is the record, and a session without the screen
+is a complete session. This file is the contract between the recorder (`recorder*.rs`), the exporter and an
 editing agent: the files, the schemas, the events, the cut list.
 
 The code is std-only where it can be (`recorder_clock.rs`, `recorder_mp4.rs`,
@@ -31,13 +33,14 @@ system's is bounded by one segment (100 ppm over 5 minutes is 30 ms).
     manifest.json        the clock, the tracks and their segments, the runs, the diagnostics
     events.jsonl         what the review did, one JSON object a line
     transcript.jsonl     what was said, with the time of every word
-    screen/0001.mp4 ...  H.264, AzReview's own frames, a frame only when the screen changed
-    camera/0001.mp4 ...  H.264, the camera
+    screen/0001.mp4 ...  H.264, the display (or a window, or AzReview's own frames), a frame only when it changed
+    camera/0001.mp4 ...  H.264, the camera, in chunks of five seconds
     audio/0001.mp4  ...  Opus, the microphone
 ```
 
 The recordings folder is a setting (an external disk is fine). Nothing is written to the source files
-of the review and no other window or desktop content is ever captured by the default screen track.
+of the review. The default screen track is the whole display and records everything on it (section 8 says
+what is left out and how to pause); the `own` source records nothing but the review.
 
 ### Segment files
 
@@ -47,7 +50,16 @@ A track is a list of **segment** files, each about five minutes. A segment is a 
 than four), and, when the segment was closed properly, an `mfra` index at the end. After a crash a
 file is whole up to its last complete fragment: the recorder cuts it there at the next start
 (`state: "recovered"`, `segments[].recovered: true`) and loses at most the last two seconds of each
-track. Each segment starts at a keyframe and has its own `start_us` on the session clock.
+track (the last chunk of the camera). Each segment starts at a keyframe and has its own `start_us` on the
+session clock.
+
+**The camera is recorded in chunks** (`recorder-camera-chunk-secs`, five seconds by default): the camera's
+pictures go to the hardware H.264 encoder as they arrive (the way AzMeet sends them over the wire: packets
+leave, raw pictures never do), a keyframe is asked for every chunk, and every chunk is one fragment of the
+file (a fragment closes at the keyframe once it spans three quarters of a chunk, and at any picture once it
+spans a chunk and a half). A crash costs at most one chunk, and the file is cut at chunks; the camera file
+is ordinary fragmented MP4 that ffmpeg and HandBrake read as it is, so combining it with the screen track
+is a cheap overlay and not a re-encode of the camera (section 10).
 
 * **H.264** (`avc1`, `avcC`; the parameter sets of the first keyframe; the SPS's colour description
   becomes a `colr` box). Encoded by azul's `VideoEncoder` (VideoToolbox, in hardware; no B-frames, so
@@ -120,8 +132,8 @@ Lines are 1-based, pages and indices 0-based.
 | --- | --- | --- |
 | `session.start` | 5 | `app`, `version`, `workspace` |
 | `session.stop` | 5 | `reason` (`user`, `quit`, `error`) |
-| `session.pause` | 5 | `reason` (`user`, `hotkey`) |
-| `session.resume` | 5 | `reason` (`user`, `hotkey`, `activity`) |
+| `session.pause` | 5 | `reason` (`user`, `hotkey`, `locked`) |
+| `session.resume` | 5 | `reason` (`user`, `hotkey`, `activity`, `unlocked`) |
 | `session.idle_pause` | 5 | `idle_ms` |
 | `session.quota_pause` | 5 | `free_bytes`, `min_free_bytes` |
 | `layout.window` | 2 | `w`, `h`, `scale`: the logical size and the device scale |
@@ -131,6 +143,8 @@ Lines are 1-based, pages and indices 0-based.
 | `nav.page` | 10 | `file`, `page`, `of` |
 | `nav.lines` | 5 | `file`, `first`, `last`: the lines in view |
 | `pointer.move` | 20 | `x`, `y` (window), `page`, `px`, `py` (on the page), `pen`, `down`: for zooming to the cursor |
+| `pointer.global` | 20 | `x`, `y`: points on the desktop from the top left of the primary display, whatever app the pointer is over (at most `recorder-pointer-hz` a second, 10 by default; not when it moved less than a point) |
+| `app.front` | 2 | `bundle`, `name`: the app in front changed (so the export can cut chapters at app switches) |
 | `pen.select` | 10 | `meaning` (`scope`, `issue`, `question`, `duplicate`, `praise`), `nib` (`marker`, `pen`, `audio`) |
 | `pen.stroke.begin` | 30 | `id`, `file`, `page`, `x`, `y` |
 | `pen.stroke` | 30 | `id`, `file`, `page`, `meaning`, `nib`, `n`, `t0_us`, `bbox` `[x0,y0,x1,y1]`, `s` `[[dt_ms,x,y,pressure],...]` (at most 2000, decimated) |
@@ -155,6 +169,7 @@ Lines are 1-based, pages and indices 0-based.
 | `marker` | 5 | `label`: a chapter the user marked with the hotkey |
 | `recorder.track` | 5 | `track`, `status`, `note` |
 | `recorder.segment` | 5 | `track`, `file`, `start_us` |
+| `recorder.screen_gap` | 2 | `reason`: the screen track's segment ended here (the display slept, was unplugged) and the next picture begins another |
 | `recorder.drop` | 2 | `kind`, `n`, `why` (`rate`, `queue`, `size`, `invalid`, `capped`) |
 | `recorder.events_capped` | 1 | `bytes` |
 | `recorder.note` | 5 | `text` |
@@ -284,33 +299,72 @@ An editing task in the agent settings (next to exploration and editing; the back
 choice) reads manifest + transcript + event summary and returns an EDL: highlights, structure,
 titles, zooms to where the pen worked. The same schema, the same renderer.
 
-## 7. Getting the screen: the frame tap and the system's capture
+## 7. Getting the screen: three sources, one track
 
-Two sources feed the same screen track (`recorder_screen.rs`), with the same pacing: a change is sent at
-most 10 times a second, the same picture three more times after it for sharpness, a keyframe every two
-seconds, nothing while the window is still.
+The screen is a track of the session like the others, and the review's data (the events, the strokes, the
+transcript, the diffs) never depends on it: a session whose screen was refused, or failed halfway, is still
+a complete session. The setting `recorder-screen-source` picks where the pictures come from; all three feed
+the same track (`recorder_screen.rs`) with the same pacing: a change is sent at most 10 times a second, the
+same picture three more times after it for sharpness, a keyframe every two seconds, nothing while the
+picture is still. The manifest's `source` says which it was.
 
-* **The engine's frame tap** (designed, NOT built yet): what the window presented, not what the OS shows:
-  no screen-recording permission, nothing else on the desktop, pixel-perfect at device scale. An additive
-  azul API, `CallbackInfo::set_frame_tap`, registers a callback that the CPU renderer
-  (`CpuBackend::render_frame`, one implementation for macOS, X11, Wayland, Windows and headless) calls when
-  a frame changed, with the size in device pixels, the stride, the format (RGBA8), the scale, the damaged
-  rectangles (or "everything") and the pixels, borrowed for the call. It is not called when nothing changed.
-  The recorder copies only the damaged rows into a shadow frame (`Recorder::tap`) and snapshots it to the
-  encoder from its 100 ms timer. Measured on this Mac (Apple M2, loaded): a 400 x 300 damage rectangle
-  0.013 ms, a whole 2880 x 1800 window 0.5 ms (into a reused buffer; 1.2 ms into a fresh allocation). On the
-  UI thread a frame costs about 0 when idle, 0.01 ms while inking, at most 1 ms when the whole window
-  changes. A window on the GPU renderer has no CPU frame to tap; a pixel-buffer readback before the buffers
-  swap is the engine work that would cover it.
-* **The system's capture of the window** (built: `Recorder::screen_frame`): azul's `ScreenCaptureWidget`
-  (ScreenCaptureKit) delivers whole frames of AzReview's own window, NV12 or BGRA, only when the window
-  changed; the recorder keeps the newest as the picture. It works for a window on the GPU path and needs the
-  Screen Recording permission (Terminal holds it on the user's Mac). The manifest says which source made the
-  track (`frame-tap` or `screencapturekit`).
+* **`display`, the default: the whole display.** What the person sees, whatever app is in front (the video
+  is the supplement; the person switches to a browser to show something), the cursor in it. The system's
+  capture (ScreenCaptureKit; azul's `ScreenCaptureWidget`); it needs the Screen Recording permission (a
+  bare binary started from Terminal is attributed to Terminal, an `.app` to the app, and macOS 15 asks again
+  from time to time). The display is the one AzReview's window is on when the session starts, or the one
+  named by `recorder-screen-display` (the system's display id), and its name is the track's `device`. The
+  picture is scaled by the system to at most `recorder-screen-width` pixels wide (1920 by default) at the
+  display's own aspect, so a Retina display's 2560 x 1664 is recorded as 1920 x 1248. Apps in
+  `recorder-screen-exclude` (bundle ids; the Notification Center by default, so other people's messages are
+  not in the video) and the recorder's own preview window are left out of the capture.
+* **`window`**: one window, AzReview's own, from the same capture; nothing else on the desktop is in it.
+* **`own`**: AzReview's own presented frames, what the window painted and not what the OS shows: no
+  permission of the system, nothing else on the desktop, pixel-perfect at device scale. The engine's frame
+  tap (built: `layout/src/frame_tap.rs`, `CallbackInfo::set_frame_tap`) is called by the CPU renderer
+  (`CpuBackend::render_frame`, one implementation for macOS, X11, Wayland, Windows and headless) for every
+  frame that changed, with the size in device pixels, the stride, the scale, the damaged rectangles (or "the
+  whole frame") and the pixels, borrowed for the call; the first frame of a size is told whole, a tap
+  registered on a window at rest makes the next frame, a frame that changed nothing is not told. The
+  recorder copies only the damaged rows into a shadow frame (`Recorder::tap`) and snapshots it to the encoder
+  from its 100 ms timer. Measured on this Mac (Apple M2, loaded): a 400 x 300 damage rectangle 0.013 ms, a
+  whole 2880 x 1800 window 0.5 ms. It exists for a window on the CPU renderer only (a window on the GPU has
+  no CPU frame; AzReview's window is on the GPU by default on a Mac, so `display` and `window` are the
+  sources there).
+
+**The preset** of a display or window capture is modest on purpose: at most 10 frames a second, only when the
+picture changed, the same picture three more times for sharpness, a keyframe every two seconds, a target of
+2.5 Mbit/s at 1920 x 1200 (`Standard`; 1.25 `Low`, 5 `High`; scaled by the number of pixels, between a quarter
+and double), which comes to 2.6 Mbit/s for the 1920 x 1248 picture of a 2560 x 1664 display and 0.7-0.9 GB an
+hour of a busy desktop (section 9).
+
+**When the screen goes away.** A display that sleeps or is unplugged is a *gap*, not the end of the track:
+`Recorder::screen_gap(reason)` ends the screen track's open segment at that moment, the next picture begins
+another at a keyframe, a `recorder.screen_gap` event says why, and the export shows the hole as time that was
+not recorded. The other tracks never notice. A screen whose stream stops for good (the permission was
+withdrawn, the stream died) is `Recorder::track_failed(Screen, reason)`: the segment ends, the manifest says
+`failed` with the reason, a `recorder.track` event and a notice say it, pictures that still come are not
+taken, and the camera, the voice and the events go on to the end of the session.
+
+**What the desktop is doing** is polled by the app a few times a second (`Recorder::desktop_sample`) and
+needs no permission of the system: the app in front (`app.front`, once for each change, so the export can cut
+chapters at app switches), the pointer on the desktop (`pointer.global`, at most `recorder-pointer-hz` times a
+second, 10 by default, and not when it moved less than a point, so the export can zoom to the cursor outside
+AzReview), whether the screen is locked (a lock pauses the recording, `session.pause` with reason `locked`,
+and the unlock goes on, but only after a pause the lock made), and whether the display is asleep (a gap).
 
 ## 8. Permissions, quota, privacy
 
-* The screen track from the frame tap needs no permission.
+* **The default screen track records everything on the display** while it runs: every app in front, every
+  window, whatever is on it. The recorder panel says so in those words; the indicator is always visible; a
+  hotkey pauses the recording while another app is in front; a locked screen pauses it by itself
+  (`recorder-pause-on-lock`); apps in `recorder-screen-exclude` and the recorder's own camera preview are not
+  in the picture (the preview is a window of its own that the capture leaves out, so the camera is not in
+  the picture twice). The `own` source records only the review.
+* **Screen Recording** (TCC) is attributed to Terminal for a bare binary and to the app for an `.app`; the
+  panel's status words name which. A refused or pending permission does not stop anything else: the track is
+  `denied` (or `failed` when it was withdrawn later) with the words that say what to do, in the manifest, the
+  indicator and a `recorder.track` event, and the review goes on without the video.
 * The camera and the microphone are the system's (TCC). A binary started from Terminal is attributed to
   Terminal (the prompt names it); an `.app` needs `NSCameraUsageDescription` and
   `NSMicrophoneUsageDescription` in its Info.plist (`[package.metadata.bundle].usage` in
@@ -353,3 +407,82 @@ first thing to do if these numbers have to go down. With the hardware encoder's 
 the worst case on top, a recording costs about 6% of a core when the whole window changes all the time
 and 1-2% when it is used as a review is used. The peak memory is the test's own window (21 MB), the
 recorder's shadow frame (21 MB) and one picture in flight.
+
+**The display capture** (the default screen source), measured on this Mac with a small native
+ScreenCaptureKit probe (not azul's widget: nothing recorded or saved, no pixel read, the frames dropped or
+handed to VideoToolbox as the sample buffers came), the built-in display of 2560 x 1664 pixels, cursor shown,
+15 frames a second at most, 30 s each (15 s capturing alone, 15 s capturing and encoding). **The desktop was
+busy** (other builds were scrolling and about 12 frames a second changed), so these are the numbers of a busy
+desktop, one run each, not of a quiet review:
+
+| the picture | the probe: capture alone, with VideoToolbox | WindowServer, against 16.5% of a core without any capture | replayd | encoded |
+| --- | --- | --- | --- | --- |
+| 2560 x 1664, the display's own size | 0.1%, 0.5% of a core | +8% of a core | +1.1% | 2.0 Mbit/s, 0.92 GB an hour |
+| 1920 x 1248, the default | 0.2%, 0.4% | +4% | +1.0% | 1.5 Mbit/s, 0.67 GB an hour |
+
+So the capture costs about 9-10% of a core at the display's own size and 5-6% scaled, mostly in
+WindowServer, not in AzReview. ScreenCaptureKit's sample buffer (an IOSurface-backed NV12 pixel buffer) went
+straight into `VTCompressionSessionEncodeFrame` with no copy at all: 192 pictures, none refused, 7 keyframes in
+15.7 s. azul's own path copies it three times (the capture slot, a `Vec`, the encoder's buffer): about 10 MB a
+picture at 1920 x 1200, about 1% of a core at 15 frames a second.
+
+azul's own encoders on this Mac (VideoToolbox in hardware, AudioToolbox's Opus), fed a made-up moving picture
+and a made-up tone and nothing from any device: 640 x 360 H.264, 60 pictures, 2.00 s, 127,719 bytes
+(511 kbit/s); Opus, 48 kHz mono, 2.00 s, 10,107 bytes (40 kbit/s with the container). `avmediainfo` on both
+files: "Movie analyzed with 0 error", "System support for decoding this track: Yes"; ffprobe agrees; the
+VideoToolbox stream carries its colour tags itself.
+
+## 10. Combining the tracks by hand (ffmpeg, HandBrake)
+
+The exporter (section 6) puts a session together by itself. This is the same thing by hand, for a session of
+one run without pauses (a pause is time that was not recorded: concatenating the files drops it from every
+track alike, but the tracks then differ from what the app's export makes, which cuts at the session clock).
+The three tracks begin together only when they were started together; otherwise put `-itsoffset SECONDS`
+before the input that began later (a track's start is `tracks.<name>.segments[0].start_us` in
+`manifest.json`, in microseconds).
+
+### By hand: the screen with the camera in the bottom right corner and the voice
+
+```sh
+cd "$SESSION"          # the folder of one session, e.g. .../review/recordings/2026-11-26_10-00-00
+printf "file '%s'\n" screen/*.mp4 > screen.txt
+printf "file '%s'\n" camera/*.mp4 > camera.txt
+printf "file '%s'\n" audio/*.mp4 > audio.txt
+ffmpeg -f concat -safe 0 -i screen.txt -f concat -safe 0 -i camera.txt -f concat -safe 0 -i audio.txt \
+  -filter_complex "[1:v]scale=384:-2[cam];[0:v][cam]overlay=W-w-24:H-h-24[v]" \
+  -map "[v]" -map 2:a -c:v h264_videotoolbox -b:v 4M -c:a aac -b:a 128k -movflags +faststart combined.mp4
+```
+
+The camera is scaled to 384 pixels wide (a fifth of a 1920-wide screen), put 24 pixels from the bottom and
+right edges, and encoded once with the Mac's hardware encoder (`h264_videotoolbox`; elsewhere use `-c:v
+libx264 -preset veryfast -crf 23`); the voice becomes AAC. Without the camera there is nothing to overlay, and
+the screen files join without re-encoding: `ffmpeg -f concat -safe 0 -i screen.txt -c copy screen.mp4`. A test
+(`recorder_export_test.rs`) runs this exact block on a recorded session and checks the result.
+
+### HandBrake
+
+HandBrakeCLI is installed on this Mac (`/opt/homebrew/bin/HandBrakeCLI`). It reads the recorded files, the
+H.264 and the Opus audio, but only where a picture is in the file: it opens a file with video and lists its
+audio tracks, and it does not open an audio-only MP4 at all ("unrecognized file type", Opus or AAC). So
+`screen/NNNN.mp4` and `camera/NNNN.mp4` open, `audio/NNNN.mp4` does not. A scan of a picture and an Opus track
+in one MP4 lists the track as "Opus, 1.0 ch, 32 kbps", and a transcode of it decoded every Opus packet and
+every picture with 0 decoder errors (output H.264 and AAC). HandBrake transcodes one file; it does not put one
+video over another, so the overlay is ffmpeg's. To give HandBrake the camera with the voice:
+`ffmpeg -i camera/0001.mp4 -i audio/0001.mp4 -c copy camera-with-voice.mp4` (no re-encoding). The voice inside
+the camera file as recorded (one two-track file) is a later slice.
+
+Why Opus and not AAC in the recorded files: ffprobe, ffmpeg (decodes clean), `avmediainfo` ("System support
+for decoding this track: Yes", macOS 15.5) and HandBrakeCLI read Opus in MP4, and azul has no AAC encoder (its
+`AudioEncoder` is AudioToolbox's Opus). Some players and older systems do not read Opus in MP4, which is why
+the export writes AAC.
+
+## 11. Follow-ups (not built)
+
+* The encoder takes a `RawFrame` that owns its bytes, so every picture sent is a copy of the shadow frame
+  (20.7 MB at 2880 x 1800). Lending it a borrowed slice removes it (section 9 prices it: most of the recorder's
+  own cost when the whole window changes).
+* The capture's sample buffer goes into VideoToolbox without a copy (section 9, measured); azul's path copies it
+  three times. An `encode` that takes the capture slot's pixel buffer straight, inside the dll, removes them.
+* The voice inside the camera file as recorded: a joint two-track fragmented MP4 (H.264 and Opus in one file,
+  the audio's fragments interleaved with the picture's at the chunk boundaries), with its crash recovery.
+* A readback of the GL window's framebuffer for the `own` source on a window that is on the GPU.

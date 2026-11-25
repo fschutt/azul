@@ -756,6 +756,17 @@ pub struct Limits {
     pub max_sample_bytes: usize,
 }
 
+impl Limits {
+    /// The limits of a track cut in chunks of `chunk_us` (the camera): a fragment closes at the first
+    /// keyframe once it spans three quarters of a chunk, so a keyframe stamped a little early by a clock
+    /// that is read in steps still closes its chunk, and at the first picture of any kind once it spans a
+    /// chunk and a half, so a stream that gives no keyframe is cut anyway. Bytes and samples as the others.
+    #[must_use]
+    pub fn chunked(chunk_us: u64) -> Self {
+        Self { min_fragment_us: chunk_us - chunk_us / 4, max_fragment_us: chunk_us + chunk_us / 2, ..Self::default() }
+    }
+}
+
 impl Default for Limits {
     /// Fragments of one to two seconds that start at a keyframe; at most 4 s, 32 MB or 20 000
     /// samples; a sample may be 24 MB (a keyframe of 4K screen content is a few MB).

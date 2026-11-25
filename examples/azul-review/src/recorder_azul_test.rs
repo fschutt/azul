@@ -44,6 +44,19 @@ fn the_audio_encoder_opens_and_makes_opus_packets_of_20_ms_or_says_why_not() {
 /// Where a macOS machine keeps the tool that asks AVFoundation about a file.
 const AVMEDIAINFO: &str = "/usr/bin/avmediainfo";
 
+/// The test below needs the machine's real encoders. Where they do not open it says so and goes (a test
+/// that passed without testing anything is no test), and a run that sets `AZ_REQUIRE_ENCODERS=1` (the
+/// one on a Mac that checks the adapters does) fails instead of going.
+fn skipped(why: &str) {
+    assert!(std::env::var("AZ_REQUIRE_ENCODERS").as_deref() != Ok("1"), "AZ_REQUIRE_ENCODERS=1, and {why}");
+    eprintln!("SKIPPED the real encoders through the track writer: {why}");
+}
+
+/// Where ffprobe is, when it is anywhere.
+fn ffprobe() -> Option<std::path::PathBuf> {
+    ["/opt/homebrew/bin/ffprobe", "/usr/local/bin/ffprobe", "/usr/bin/ffprobe"].iter().map(std::path::PathBuf::from).find(|p| p.is_file())
+}
+
 #[test]
 fn what_the_real_encoders_make_goes_through_the_track_writer_into_files_the_system_reads() {
     use std::{fs::File, process::Command};
@@ -54,10 +67,17 @@ fn what_the_real_encoders_make_goes_through_the_track_writer_into_files_the_syst
         recorder_track::{Kind, TrackWriter},
     };
 
-    let (Ok(mut video), Ok(mut voice)) = (AzulFactory.video(640, 360, 2_000), AzulFactory.audio(48_000, 1, 32)) else {
-        return; // no hardware encoders here: the two tests above checked the words
+    let (video, voice) = (AzulFactory.video(640, 360, 2_000), AzulFactory.audio(48_000, 1, 32));
+    let (mut video, mut voice) = match (video, voice) {
+        (Ok(video), Ok(voice)) => (video, voice),
+        (v, a) => {
+            skipped(&format!("no encoders open here (video: {}; audio: {})", v.err().unwrap_or_else(|| String::from("opens")), a.err().unwrap_or_else(|| String::from("opens"))));
+            return;
+        }
     };
-    // Two seconds of a moving picture and of a tone, through the real encoders.
+    eprintln!("encoders: {} (hardware: {}), {}", video.name(), video.hardware(), voice.name());
+    // Two seconds of a moving picture and of a tone, made up, through the real encoders: nothing here
+    // comes from a camera, a microphone or a screen.
     for i in 0..60_u32 {
         let mut bytes = vec![0_u8; 640 * 360 * 4];
         for (n, px) in bytes.chunks_exact_mut(4).enumerate() {
@@ -101,13 +121,41 @@ fn what_the_real_encoders_make_goes_through_the_track_writer_into_files_the_syst
     let a = scan(&mut File::open(dir.join("audio/0001.mp4")).unwrap()).unwrap();
     assert!(a.finished && a.samples as usize == packets.len() && a.codec == Some(*b"Opus"), "{a:?}");
 
+    // What they cost in bytes: size and bitrate of what the encoders made, for the seconds they were given.
+    let (video_secs, audio_secs) = (aus.len() as f64 * 0.033_333, packets.len() as f64 * 0.02);
+    for (file, secs, what) in [("screen/0001.mp4", video_secs, "H.264"), ("audio/0001.mp4", audio_secs, "Opus")] {
+        let bytes = std::fs::metadata(dir.join(file)).unwrap().len();
+        eprintln!("{file}: {what}, {bytes} bytes for {secs:.2} s = {:.0} kbit/s", bytes as f64 * 8.0 / secs / 1000.0);
+    }
+
     // AVFoundation, which QuickTime Player is made of, reads both.
     if std::path::Path::new(AVMEDIAINFO).exists() {
         for file in ["screen/0001.mp4", "audio/0001.mp4"] {
             let out = Command::new(AVMEDIAINFO).arg(dir.join(file)).output().unwrap();
             let text = String::from_utf8_lossy(&out.stdout);
+            eprintln!("avmediainfo {file}:\n{}", text.lines().take(40).collect::<Vec<_>>().join("\n"));
             assert!(text.contains("Movie analyzed with 0 error"), "{file}: {text}");
             assert!(text.contains("System support for decoding this track: Yes"), "{file}: {text}");
+        }
+    }
+    if let Some(ffprobe) = ffprobe() {
+        for file in ["screen/0001.mp4", "audio/0001.mp4"] {
+            let out = Command::new(&ffprobe)
+                .args(["-v", "error", "-show_entries", "stream=codec_name,codec_type,width,height,r_frame_rate,sample_rate,channels,bit_rate:format=duration,size,bit_rate", "-of", "default=nw=1"])
+                .arg(dir.join(file))
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "ffprobe {file}: {}", String::from_utf8_lossy(&out.stderr));
+            eprintln!("ffprobe {file}:\n{}", String::from_utf8_lossy(&out.stdout));
+        }
+    }
+    // One small clip may be kept to look at, where the caller names a folder for it.
+    if let Ok(keep) = std::env::var("AZREVIEW_KEEP_CLIP") {
+        std::fs::create_dir_all(&keep).unwrap();
+        for (file, name) in [("screen/0001.mp4", "synthetic-picture.mp4"), ("audio/0001.mp4", "synthetic-tone.mp4")] {
+            let to = std::path::Path::new(&keep).join(name);
+            std::fs::copy(dir.join(file), &to).unwrap();
+            eprintln!("kept: {}", to.display());
         }
     }
     let _ = std::fs::remove_dir_all(&dir);

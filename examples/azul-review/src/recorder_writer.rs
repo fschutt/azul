@@ -29,7 +29,7 @@ use crate::{
     recorder_manifest::{
         FileInfo, Manifest, Run, SessionState, Track, TrackStatus, TranscriptLine, TRACK_DIRS,
     },
-    recorder_mp4::Colour,
+    recorder_mp4::{Colour, Limits},
     recorder_track::{Change, Kind, SegmentStore, TrackWriter},
 };
 
@@ -40,6 +40,8 @@ pub struct WriterConfig {
     pub segment_us: u64,
     /// The wall-clock time the files' headers say, seconds since 1970 UTC.
     pub created_unix_s: u64,
+    /// The camera's chunk, microseconds: a fragment of the camera file for each.
+    pub camera_chunk_us: u64,
 }
 
 /// What the writer says back, for the recorder's log and indicator.
@@ -106,7 +108,10 @@ impl Writer {
         // The screen is RGB made YCbCr as Rec. 709; a camera as HD is 709 and below it 601.
         let colour = if name == "screen" || track.height >= 720 { Colour::bt709() } else { Colour::bt601() };
         *slot = Some(track);
-        let writer = TrackWriter::new(name, kind, self.cfg.segment_us, 1, self.cfg.created_unix_s).with_default_colour(colour);
+        let mut writer = TrackWriter::new(name, kind, self.cfg.segment_us, 1, self.cfg.created_unix_s).with_default_colour(colour);
+        if name == "camera" {
+            writer = writer.with_limits(Limits::chunked(self.cfg.camera_chunk_us));
+        }
         self.tracks.insert(name, writer);
         self.dirty = true;
         Ok(())
@@ -252,6 +257,20 @@ impl Writer {
         notes
     }
 
+    /// The open segment of the track in `dir` ends at `t_us`; the track goes on, and its next keyframe opens
+    /// another segment.
+    pub fn end_segment(&mut self, dir: &str, t_us: u64) -> Vec<Note> {
+        let name: Option<&'static str> = self.tracks.keys().copied().find(|k| *k == dir);
+        let Some(name) = name else {
+            return Vec::new();
+        };
+        let result = match self.tracks.get_mut(name) {
+            Some(tw) => tw.finish(t_us),
+            None => return Vec::new(),
+        };
+        self.after(name, result)
+    }
+
     /// The recording stopped at `t_us` (`ended_unix_ms` on the wall clock, when it is known): every
     /// file is finished and the manifest says `complete`.
     pub fn stop(&mut self, t_us: u64, ended_unix_ms: Option<u64>) -> Vec<Note> {
@@ -330,6 +349,8 @@ pub enum Cmd {
     Video { dir: &'static str, pts_us: u64, annexb: Vec<u8> },
     Audio { pts_us: u64, packet: Vec<u8> },
     TrackStatus { dir: &'static str, status: TrackStatus, note: Option<String> },
+    /// The open segment of one track ends at `t_us` and the track goes on (a gap of the screen).
+    EndSegment { dir: &'static str, t_us: u64 },
     Transcript(Box<TranscriptLine>),
     RunEnd { t_us: u64, reason: &'static str },
     RunStart { t_us: u64 },
@@ -467,6 +488,10 @@ pub fn spawn<W: Write + Send + 'static>(
                             Cmd::TrackStatus { dir, status, note } => {
                                 writer.track_status(dir, status, note);
                                 Vec::new()
+                            }
+                            Cmd::EndSegment { dir, t_us } => {
+                                last_t = last_t.max(t_us);
+                                writer.end_segment(dir, t_us)
                             }
                             Cmd::Transcript(line) => {
                                 last_t = last_t.max(line.t1_us);

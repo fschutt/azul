@@ -190,7 +190,7 @@ fn audio_track() -> Track {
 
 fn writer(store: &MemStore, transcript: Option<MemLines>) -> Writer {
     Writer::new(
-        WriterConfig { segment_us: 300 * SEC, created_unix_s: 1_764_108_000 },
+        WriterConfig { segment_us: 300 * SEC, created_unix_s: 1_764_108_000, camera_chunk_us: 5 * SEC },
         manifest(),
         Box::new(store.clone()),
         transcript.map(|t| Box::new(t) as Box<dyn Write + Send>),
@@ -290,6 +290,38 @@ fn a_pause_closes_the_segments_and_the_run_and_a_resume_begins_a_new_run() {
     assert_eq!((m.runs[1].start_us, m.runs[1].end_us), (60 * SEC, None));
     assert_eq!(m.tracks.screen.as_ref().unwrap().segments.len(), 2, "a new segment after the pause");
     assert_eq!(m.tracks.screen.as_ref().unwrap().segments[1].start_us, 60 * SEC);
+    assert!(m.problems().is_empty(), "{:?}", m.problems());
+}
+
+/// One track's segment ends while the run goes on (a gap of the screen): its file is finished, the next
+/// keyframe opens another file, the other tracks do not notice, and the manifest stays true. A track that
+/// is not there, or has no segment open, has nothing to end.
+///
+/// Mutation: an end that finishes every track; one that does not finish the file (the next keyframe goes
+/// on in the same segment).
+#[test]
+fn one_tracks_segment_ends_while_the_others_go_on_and_the_next_keyframe_opens_another() {
+    let store = MemStore::default();
+    let mut w = with_tracks(&store);
+    for i in 0..10_u64 {
+        w.video("screen", i * 100_000, &if i == 0 { key(0) } else { delta(i as u8) });
+        w.audio(i * 100_000, opus(i as u8));
+    }
+    assert!(w.end_segment("camera", SEC).is_empty(), "no such track");
+    let notes = w.end_segment("screen", SEC);
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert!(matches!(notes[0], Note::SegmentClosed { end_us: 1_000_000, .. }));
+    assert!(scan(&mut Cursor::new(store.file("screen/0001.mp4"))).unwrap().finished);
+    assert!(w.end_segment("screen", 2 * SEC).is_empty(), "nothing is open: nothing to end");
+    // A delta picture opens nothing; the next keyframe does.
+    w.video("screen", 5 * SEC, &delta(1));
+    w.video("screen", 6 * SEC, &key(2));
+    w.audio(6 * SEC, opus(9));
+    let m = w.manifest().clone();
+    let screen = m.tracks.screen.as_ref().unwrap();
+    assert_eq!(screen.segments.len(), 2);
+    assert_eq!((screen.segments[0].end_us, screen.segments[1].start_us), (Some(SEC), 6 * SEC));
+    assert_eq!(m.tracks.audio.as_ref().unwrap().segments.len(), 1, "the voice went on in its one segment");
     assert!(m.problems().is_empty(), "{:?}", m.problems());
 }
 

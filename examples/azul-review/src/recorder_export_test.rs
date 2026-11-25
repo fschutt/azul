@@ -470,6 +470,14 @@ mod e2e {
         recorder_settings::RecorderSettings,
     };
 
+    /// The end-to-end test needs a real ffmpeg. Where there is none it says so and goes (a test that passed
+    /// without testing anything is no test), and a run that sets `AZ_REQUIRE_FFMPEG=1` (the gate's does,
+    /// after it installed ffmpeg) fails instead of going.
+    fn skipped(why: &str) {
+        assert!(std::env::var("AZ_REQUIRE_FFMPEG").as_deref() != Ok("1"), "AZ_REQUIRE_FFMPEG=1, and {why}");
+        eprintln!("SKIPPED the end-to-end export: {why}");
+    }
+
     /// A tool of the ffmpeg family, where it is usually installed.
     fn find_tool(name: &str) -> Option<PathBuf> {
         ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"].iter().map(|d| Path::new(d).join(name)).find(|p| p.is_file())
@@ -608,21 +616,22 @@ mod e2e {
     #[test]
     fn a_recorded_session_becomes_a_playable_video_with_chapters() {
         let (Some(ffmpeg), Some(ffprobe)) = (find_tool("ffmpeg"), find_tool("ffprobe")) else {
-            eprintln!("no ffmpeg here: the end-to-end export is not run");
+            skipped("there is no ffmpeg and ffprobe in /opt/homebrew/bin, /usr/local/bin or /usr/bin");
             return;
         };
         let encoders = parse_encoders(&String::from_utf8_lossy(&Process::new(&ffmpeg).args(["-hide_banner", "-encoders"]).output().unwrap().stdout));
         if !(encoders.aac && (encoders.libx264 || encoders.videotoolbox)) {
-            eprintln!("this ffmpeg lacks aac or an H.264 encoder: not run");
+            skipped("this ffmpeg lacks aac or an H.264 encoder");
             return;
         }
         // Real H.264 of two sizes and real Opus: what the encoders would have made.
         let h264 = |size: &str| ffmpeg_bytes(&ffmpeg, &["-f", "lavfi", "-i", &format!("testsrc2=size={size}:rate=30"), "-t", "6", "-c:v", "libx264", "-g", "30", "-bf", "0", "-pix_fmt", "yuv420p", "-f", "h264", "-"]);
         let opus = ffmpeg_bytes(&ffmpeg, &["-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "6", "-c:a", "libopus", "-b:a", "32k", "-frame_duration", "20", "-f", "ogg", "-"]);
         let (Some(screen), Some(camera), Some(opus)) = (h264("640x360"), h264("320x240"), opus) else {
-            eprintln!("this ffmpeg cannot make the test streams (libx264 and libopus): not run");
+            skipped("this ffmpeg cannot make the test streams (it needs libx264 and libopus)");
             return;
         };
+        eprintln!("ffmpeg: {}", String::from_utf8_lossy(&Process::new(&ffmpeg).arg("-version").output().unwrap().stdout).lines().next().unwrap_or(""));
         let factory = ReplayFactory { screen: split_aus(&screen), camera: split_aus(&camera), voice: ogg_packets(&opus) };
 
         let tmp = Tmp(std::env::temp_dir().join(format!("azreview-e2e-{}", std::process::id())));
@@ -646,8 +655,10 @@ mod e2e {
                 utc_offset_minutes: 0,
                 camera: Perm::Granted,
                 microphone: Perm::Granted,
+                screen: Perm::Granted,
                 camera_device: None,
                 microphone_device: None,
+                screen_device: None,
             })
             .unwrap();
 
@@ -706,5 +717,6 @@ mod e2e {
         let decode = Process::new(&ffmpeg).args(["-v", "error", "-i"]).arg(&report.output).args(["-f", "null", "-"]).output().unwrap();
         assert!(decode.status.success() && decode.stderr.is_empty(), "{}", String::from_utf8_lossy(&decode.stderr));
         eprintln!("exported {} bytes, {duration:.2} s, {} chapters", report.bytes, chapters.lines().count());
+        eprintln!("ffprobe streams (codec, type, size):\n{streams}ffprobe duration: {duration:.3} s\nffprobe chapters (id, time base, start, start s, end, end s):\n{chapters}");
     }
 }
