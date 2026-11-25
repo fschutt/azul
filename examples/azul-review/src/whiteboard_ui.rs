@@ -290,7 +290,7 @@ fn surface(host: &Host) -> Dom {
     ))
     .with_id(AzString::from_const_str(SURFACE_ID))
     .with_accessibility_info(AccessibilityInfo::named(label("azreview-whiteboard-surface"), AccessibilityRole::Graphic))
-    .with_css("position: absolute; left: 0px; top: 0px; right: 0px; bottom: 0px;")
+    .with_css("position: absolute; left: 0px; top: 0px; width: 100%; height: 100%;")
     .with_callback(EventFilter::Hover(HoverEventFilter::MouseDown), RefAny::new(host.clone()), on_down)
     // Movement is `MouseMove` (W3C `mouseover` fires once, on entry).
     .with_callback(EventFilter::Hover(HoverEventFilter::MouseMove), RefAny::new(host.clone()), on_move)
