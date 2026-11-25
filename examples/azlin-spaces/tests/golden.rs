@@ -11,7 +11,7 @@ use std::fs;
 use std::path::PathBuf;
 
 #[test]
-#[ignore = "S5 fixture not landed"]
+#[ignore = "X-DELTA-W1S16B-16: S5 fixture not landed"]
 fn space_chain_entries_match_azlin_contract_fixture() {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../azlin-contract/fixtures/c4");
     let fixture = fs::read_to_string(dir.join("space_chain_entries.json")).expect(
