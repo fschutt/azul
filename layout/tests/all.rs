@@ -134,6 +134,8 @@ mod a_selection_drag_autoscrolls_the_box_its_text_scrolls_in;
 mod a_selection_reveal_shows_its_focus_end;
 #[path = "a_screen_reader_reads_a_host_with_paragraphs.rs"]
 mod a_screen_reader_reads_a_host_with_paragraphs;
+#[path = "a_variable_font_has_at_most_so_many_instances.rs"]
+mod a_variable_font_has_at_most_so_many_instances;
 #[path = "a_variable_font_never_reaches_shaping_as_a_variable_file.rs"]
 mod a_variable_font_never_reaches_shaping_as_a_variable_file;
 #[path = "a_variable_font_registered_in_memory_is_drawn_at_the_exact_weight.rs"]

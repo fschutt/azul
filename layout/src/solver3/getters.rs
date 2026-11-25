@@ -13502,3 +13502,7 @@ mod audit_a3_solver_tests {
         assert_eq!(under_the_pointer.word_spacing, at_rest.word_spacing);
     }
 }
+
+#[cfg(test)]
+#[path = "getters_test.rs"]
+mod getters_test;
