@@ -122,6 +122,21 @@ fn variant_case(o: &mut String, v: &VariantCase, n: usize) {
     let _ = writeln!(o, "static void check_variant_{n}(void) {{ /* {}::{} */", v.ty, v.variant);
     let args: Vec<String> = match (&v.payload_check, v.args.as_slice()) {
         (Some(PayloadCheck::Primitive { ty }), [_]) => vec![distinct(ty)],
+        // The payload is made first and a copy of it kept: the constructor takes the one,
+        // the read-back is compared with the other. A second value made the same way is
+        // not the value that went in - two separately made values of a type with an
+        // identity (a `RefAny` handle: every `Timer`) are never equal.
+        (Some(PayloadCheck::PartialEq { clone, copy, .. }), [r]) => {
+            let pt = c_type(r.ty());
+            let _ = writeln!(o, "    {pt} arg = {};", make(r));
+            let expected = match (clone, copy) {
+                (_, true) => "arg".to_string(),
+                (Some(clone), false) => format!("{clone}(&arg)"),
+                (None, false) => make(r),
+            };
+            let _ = writeln!(o, "    {pt} expected = {expected};");
+            vec!["arg".to_string()]
+        }
         _ => v.args.iter().map(make).collect(),
     };
     let _ = writeln!(o, "    {t} v = {}({});", v.c_fn, args.join(", "));
@@ -136,14 +151,11 @@ fn variant_case(o: &mut String, v: &VariantCase, n: usize) {
         (Some(PayloadCheck::Primitive { ty }), [_]) => {
             let _ = writeln!(o, "    CHECK(v.{}.payload == {}, {read_back});", v.variant, distinct(ty));
         }
-        (Some(PayloadCheck::PartialEq { eq, delete }), [r]) => {
-            let _ = writeln!(o, "    {{");
-            let _ = writeln!(o, "        {} expected = {};", c_type(r.ty()), make(r));
-            let _ = writeln!(o, "        CHECK({eq}(&v.{}.payload, &expected), {read_back});", v.variant);
+        (Some(PayloadCheck::PartialEq { eq, delete, .. }), [_]) => {
+            let _ = writeln!(o, "    CHECK({eq}(&v.{}.payload, &expected), {read_back});", v.variant);
             if let Some(del) = delete {
-                let _ = writeln!(o, "        {del}(&expected);");
+                let _ = writeln!(o, "    {del}(&expected);");
             }
-            let _ = writeln!(o, "    }}");
         }
         _ => {}
     }

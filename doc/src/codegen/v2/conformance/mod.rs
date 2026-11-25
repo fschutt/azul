@@ -1,13 +1,15 @@
 //! The conformance plan: one language-neutral list of checks, derived from the
-//! IR, that every binding's generated conformance program renders in its own
-//! language. The program doubles as that binding's memtest: libazul built
+//! IR, that a binding's generated conformance program renders in its own
+//! language. Only the C rendering exists so far ([`c`], "C first"); the other
+//! shipped bindings are the ledger `scripts/conformance_pending.txt` until their
+//! renderer lands. The program doubles as that binding's memtest: libazul built
 //! with `--features alloc-stats` counts the bytes it holds, and every case
 //! runs once to warm up, then `AZ_MEMTEST_N` more times (default 1), and must
 //! leave that count unchanged - a leak fails as exactly the case that leaks.
 //! A crash or double free fails the run itself (`scripts/conformance.sh
 //! --memtest` also runs it under a debugger).
 //!
-//! Because every binding runs the SAME plan, a defect shows up as a class:
+//! Because every binding will run the SAME plan, a defect shows up as a class:
 //! "hash is never surfaced in Lua" is one failing check per hashable type, in
 //! one language, next to the same checks passing in C.
 //!
@@ -20,8 +22,9 @@
 //!   both copies drop;
 //! * every enum variant constructor whose payload can be built, and - for one
 //!   by-value payload that can be compared - that payload read back through
-//!   the binding's union (`v.<Variant>.payload`), which pins the payload
-//!   offset the binding declares against the one libazul wrote;
+//!   the binding's union (`v.<Variant>.payload`) and compared with a copy of
+//!   the value that went in, which pins the payload offset the binding
+//!   declares against the one libazul wrote;
 //! * every Vec whose element can be built: three elements in, three out;
 //! * every host-invokable callback kind: a wrapper around a host handle is
 //!   created and dropped.
@@ -123,9 +126,20 @@ pub enum PayloadCheck {
     /// could match the padding it would read at a wrong offset) and
     /// compares with `==`.
     Primitive { ty: String },
-    /// Compared with a fresh value of the same recipe through
-    /// `Az<Payload>_partialEq`; `delete` frees that fresh value.
-    PartialEq { eq: String, delete: Option<String> },
+    /// Compared through `Az<Payload>_partialEq` with the value that went into the
+    /// constructor, which the program keeps a copy of first: a clone (`clone` is
+    /// `Az<Payload>_clone`), or a plain copy when the payload is `Copy`. A payload
+    /// that can be neither is compared with a fresh value of the same recipe, the
+    /// weaker check: two separately made values of a type with an identity (a
+    /// `RefAny` handle, so every `Timer`) are never equal, which a fresh value
+    /// cannot tell from a payload read at the wrong offset. `delete` frees the
+    /// expected value.
+    PartialEq {
+        eq: String,
+        delete: Option<String>,
+        clone: Option<String>,
+        copy: bool,
+    },
 }
 
 /// A Vec filled with three elements from `element`, read back.
@@ -271,6 +285,8 @@ impl ConformancePlan {
                     fns.get(r.ty(), FunctionKind::PartialEq).map(|eq| PayloadCheck::PartialEq {
                         eq,
                         delete: fns.get(r.ty(), FunctionKind::Delete),
+                        clone: fns.get(r.ty(), FunctionKind::DeepCopy),
+                        copy: is_copy(ir, r.ty()),
                     })
                 }
                 _ => None,
