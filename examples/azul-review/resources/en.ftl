@@ -43,12 +43,20 @@ azreview-whiteboard-notice-too-many-items = The whiteboard holds { $limit } item
 azreview-whiteboard-notice-pictures-too-big = The pictures on the whiteboard take as much memory as they may ({ $limit } pixels): remove a cutout first.
 azreview-whiteboard-notice-picture-too-big = This cutout's picture has { $px } pixels, more than the { $limit } a cutout may have: circle less code.
 azreview-whiteboard-notice-picture-invalid = The cutout's picture could not be used: its bytes do not match its size.
+azreview-whiteboard-notice-scale-lowered = This cutout is large: its picture is drawn at { $used }% scale instead of { $wanted }% so that it fits in memory, so it is a little less sharp.
 azreview-whiteboard-notice-label-shortened = A label holds { $limit } characters at most: the rest was cut off.
 azreview-whiteboard-notice-no-such-item = There is no item { $id } on the whiteboard.
 azreview-whiteboard-notice-arrow-to-itself = An arrow needs two different cutouts: it cannot start and end on the same one.
 azreview-whiteboard-notice-arrow-needs-a-cutout = An arrow has to start or end on a cutout.
 azreview-whiteboard-notice-arrow-repeated = There is an arrow like this one already.
 azreview-whiteboard-notice-board-repaired = { $dropped } items of the saved whiteboard could not be used and were left out.
+azreview-whiteboard-jump-file-changed = The file has changed since this was circled; these lines are as they were.
+azreview-whiteboard-jump-lines-moved = These lines moved: they are now at lines { $first } to { $last }.
+azreview-whiteboard-jump-lines-changed = These lines have changed since they were circled.
+azreview-whiteboard-jump-file-missing = The file is no longer there.
+azreview-whiteboard-store-not-a-board = This file is not a whiteboard AzReview can open ({ $why }). It is kept as it is and the whiteboard starts empty.
+azreview-whiteboard-store-too-new = This whiteboard was saved by a newer AzReview (its format is { $found }). It is left as it is and the whiteboard starts empty.
+azreview-whiteboard-store-too-large = This whiteboard's file is far larger than a whiteboard is ({ $bytes } bytes). It is kept as it is and the whiteboard starts empty.
 
 ## Dictation and the side column of notes
 
