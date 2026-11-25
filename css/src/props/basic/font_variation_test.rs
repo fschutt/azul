@@ -828,6 +828,161 @@ fn a_font_variation_settings_error_carries_the_trimmed_input() {
 }
 
 // ---------------------------------------------------------------------------
+// the cap on the axes of one font-variation-settings value
+// ---------------------------------------------------------------------------
+
+/// `count` distinct tags of four characters of `[a-zA-Z0-9]`, each with a number, in order.
+fn distinct_variations(count: usize) -> Vec<([u8; 4], f32)> {
+    const DIGITS: &[u8; 62] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    (0..count)
+        .map(|index| {
+            let tag = [
+                DIGITS[(index / (62 * 62 * 62)) % 62],
+                DIGITS[(index / (62 * 62)) % 62],
+                DIGITS[(index / 62) % 62],
+                DIGITS[index % 62],
+            ];
+            (tag, f32::from(u16::try_from(index % 1000).unwrap()))
+        })
+        .collect()
+}
+
+/// The CSS text of `variations`: each tag in double quotes and its number, joined by `, `.
+fn variation_list_text(variations: &[([u8; 4], f32)]) -> String {
+    variations
+        .iter()
+        .map(|(tag, value)| format!("\"{}\" {value}", String::from_utf8_lossy(tag)))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+#[test]
+fn a_font_variation_settings_value_keeps_at_most_64_axes() {
+    // the widest real variable font has about a dozen axes; fontconfig-side requests keep 64 too
+    assert_eq!(MAX_VARIATION_AXES, 64);
+}
+
+/// The hostile list this guards against: tens of thousands of distinct tags. The first 64 are
+/// kept, in order, however the value is made, and it is read in time proportional to its length
+/// (a scan of everything kept for every tag, without the cap, is a quadratic hang: a hundred
+/// thousand tags are ten billion steps).
+#[cfg(feature = "parser")]
+#[test]
+fn a_list_of_fifty_thousand_distinct_axes_is_capped_at_the_first_64_in_bounded_time() {
+    let all = distinct_variations(50_000);
+    let text = variation_list_text(&all);
+
+    let start = std::time::Instant::now();
+    let parsed = parse_style_font_variation_settings(&text).unwrap();
+    let built = StyleFontVariationSettings::from_variations(&all);
+    let read = parsed.variations();
+    let elapsed = start.elapsed();
+
+    assert!(
+        elapsed < std::time::Duration::from_secs(2),
+        "50,000 axes took {elapsed:?}"
+    );
+    assert_eq!(read.len(), MAX_VARIATION_AXES);
+    assert_eq!(read, all[..MAX_VARIATION_AXES]);
+    assert_eq!(built, parsed, "the parser and the constructor keep the same axes");
+    // the value stays small: 64 axes of at most 16 bytes
+    assert!(
+        parsed.inner.as_str().len() <= MAX_VARIATION_AXES * 16,
+        "{} bytes",
+        parsed.inner.as_str().len()
+    );
+}
+
+/// The cap is on DISTINCT tags: a tag written many times is one axis, so a long list of a few
+/// tags is no hostile list and keeps what the last values say.
+#[cfg(feature = "parser")]
+#[test]
+fn a_long_list_of_a_few_tags_keeps_the_last_value_of_each() {
+    let tags = [*b"wght", *b"wdth", *b"opsz"];
+    let list: Vec<([u8; 4], f32)> = (0..30_000_u16)
+        .map(|index| (tags[usize::from(index) % 3], f32::from(index)))
+        .collect();
+    let text = variation_list_text(&list);
+
+    let start = std::time::Instant::now();
+    let parsed = parse_style_font_variation_settings(&text).unwrap();
+    let elapsed = start.elapsed();
+
+    assert!(
+        elapsed < std::time::Duration::from_secs(2),
+        "30,000 entries took {elapsed:?}"
+    );
+    assert_eq!(
+        parsed.variations(),
+        [(*b"wght", 29_997.0), (*b"wdth", 29_998.0), (*b"opsz", 29_999.0)]
+    );
+    assert_eq!(StyleFontVariationSettings::from_variations(&list), parsed);
+}
+
+/// A tag that is kept takes a later value even when the list is full; a tag past the 64th is
+/// not kept, not even when it is written again.
+#[test]
+fn a_kept_tag_takes_its_later_value_where_it_last_stands_when_the_list_is_full() {
+    let mut list = distinct_variations(MAX_VARIATION_AXES + 6);
+    let first = list[0].0;
+    let dropped = list[MAX_VARIATION_AXES].0;
+    list.push((first, 999.0));
+    list.push((dropped, 998.0));
+
+    let read = StyleFontVariationSettings::from_variations(&list).variations();
+
+    assert_eq!(read.len(), MAX_VARIATION_AXES);
+    assert_eq!(read[..MAX_VARIATION_AXES - 1], list[1..MAX_VARIATION_AXES]);
+    assert_eq!(read[MAX_VARIATION_AXES - 1], (first, 999.0));
+    assert!(read.iter().all(|(tag, _)| *tag != dropped), "{read:?}");
+}
+
+/// A list of exactly 64 distinct tags is whole.
+#[test]
+fn a_list_of_exactly_64_axes_is_kept_whole() {
+    let list = distinct_variations(MAX_VARIATION_AXES);
+    let value = StyleFontVariationSettings::from_variations(&list);
+    assert_eq!(value.variations(), list);
+    #[cfg(feature = "parser")]
+    assert_eq!(
+        parse_style_font_variation_settings(&variation_list_text(&list)),
+        Ok(value)
+    );
+}
+
+#[test]
+fn count_variation_axes_counts_the_distinct_tags_a_value_writes() {
+    assert_eq!(count_variation_axes("normal"), Some(0));
+    assert_eq!(count_variation_axes("  NORMAL "), Some(0));
+    assert_eq!(count_variation_axes(r#""wght" 1"#), Some(1));
+    assert_eq!(count_variation_axes(r#""wght" 1, "wght" 2"#), Some(1));
+    assert_eq!(
+        count_variation_axes(r#"'wght' 1, "wdth" 2, "wght" 3"#),
+        Some(2)
+    );
+    let hundred = variation_list_text(&distinct_variations(100));
+    assert_eq!(count_variation_axes(&hundred), Some(100));
+    assert_eq!(count_variation_axes(&format!("  {hundred}\n")), Some(100));
+}
+
+#[test]
+fn count_variation_axes_is_none_for_a_value_that_is_not_valid() {
+    for bad in [
+        "",
+        " ",
+        r#""wght""#,
+        r#""wght" on"#,
+        r#""wght" 1,"#,
+        r#""wght" 1, , "wdth" 2"#,
+        r#"wght 400"#,
+        "var(--axes)",
+        "inherit",
+    ] {
+        assert_eq!(count_variation_axes(bad), None, "{bad:?}");
+    }
+}
+
+// ---------------------------------------------------------------------------
 // font-optical-sizing, font-kerning, font-synthesis-*
 // ---------------------------------------------------------------------------
 
