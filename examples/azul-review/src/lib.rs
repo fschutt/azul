@@ -68,15 +68,30 @@ pub mod recorder_policy;
 pub mod recorder_settings;
 pub mod recorder_track;
 pub mod session;
+/// The pen strokes every gesture is tested on (a loop, a slash, an underline, a scribble): shared by the
+/// whiteboard's lasso and the quick slash that deletes a word.
+#[cfg(test)]
+pub(crate) mod stroke_fixtures;
 pub mod switches;
 pub mod ui;
 pub mod voice;
 pub mod whiteboard;
+pub mod whiteboard_cutout;
+pub mod whiteboard_drag;
 pub mod whiteboard_geom;
+pub mod whiteboard_jump;
+pub mod whiteboard_json;
+pub mod whiteboard_lasso;
+pub mod whiteboard_store;
 
 #[cfg(test)]
 #[path = "lib_test.rs"]
 mod lib_test;
+
+/// The whole of the whiteboard without a window: loop, lift, drop, picture, arrow, file, jump.
+#[cfg(test)]
+#[path = "whiteboard_flow_test.rs"]
+mod whiteboard_flow_test;
 
 use model::{Finding, Note, Semantic, Stroke, Tool, VoiceClip};
 

@@ -43,12 +43,20 @@ azreview-whiteboard-notice-too-many-items = Das Whiteboard fasst { $limit } Elem
 azreview-whiteboard-notice-pictures-too-big = Die Bilder auf dem Whiteboard belegen so viel Speicher wie erlaubt ({ $limit } Pixel): nimm zuerst einen Ausschnitt weg.
 azreview-whiteboard-notice-picture-too-big = Das Bild dieses Ausschnitts hat { $px } Pixel, mehr als die { $limit }, die ein Ausschnitt haben darf: kreise weniger Code ein.
 azreview-whiteboard-notice-picture-invalid = Das Bild des Ausschnitts ließ sich nicht verwenden: seine Bytes passen nicht zu seiner Größe.
+azreview-whiteboard-notice-scale-lowered = Dieser Ausschnitt ist groß: sein Bild wird mit { $used } % Maßstab statt { $wanted } % gezeichnet, damit es in den Speicher passt, und ist deshalb etwas weniger scharf.
 azreview-whiteboard-notice-label-shortened = Eine Beschriftung hat höchstens { $limit } Zeichen: der Rest wurde abgeschnitten.
 azreview-whiteboard-notice-no-such-item = Auf dem Whiteboard gibt es kein Element { $id }.
 azreview-whiteboard-notice-arrow-to-itself = Ein Pfeil braucht zwei verschiedene Ausschnitte: er kann nicht am selben beginnen und enden.
 azreview-whiteboard-notice-arrow-needs-a-cutout = Ein Pfeil muss an einem Ausschnitt beginnen oder enden.
 azreview-whiteboard-notice-arrow-repeated = Es gibt schon einen solchen Pfeil.
 azreview-whiteboard-notice-board-repaired = { $dropped } Elemente des gespeicherten Whiteboards waren nicht brauchbar und wurden ausgelassen.
+azreview-whiteboard-jump-file-changed = Die Datei hat sich seit dem Einkreisen geändert; diese Zeilen sind unverändert.
+azreview-whiteboard-jump-lines-moved = Diese Zeilen sind verschoben: sie stehen jetzt in den Zeilen { $first } bis { $last }.
+azreview-whiteboard-jump-lines-changed = Diese Zeilen haben sich seit dem Einkreisen geändert.
+azreview-whiteboard-jump-file-missing = Die Datei gibt es nicht mehr.
+azreview-whiteboard-store-not-a-board = Diese Datei ist kein Whiteboard, das AzReview öffnen kann ({ $why }). Sie bleibt, wie sie ist, und das Whiteboard beginnt leer.
+azreview-whiteboard-store-too-new = Dieses Whiteboard wurde von einem neueren AzReview gespeichert (Format { $found }). Es bleibt, wie es ist, und das Whiteboard beginnt leer.
+azreview-whiteboard-store-too-large = Die Datei dieses Whiteboards ist weit größer, als ein Whiteboard sein kann ({ $bytes } Bytes). Sie bleibt, wie sie ist, und das Whiteboard beginnt leer.
 
 ## Diktieren und die Seitenspalte der Notizen
 
