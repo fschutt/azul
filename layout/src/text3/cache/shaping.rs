@@ -92,6 +92,10 @@ pub fn shape_bidi_runs_with_per_item_cache<T: ParsedFontTrait>(
     // (the next group's first item): `(index, hash)`, so it is not hashed again
     // (A8-35).
     let mut carried: Option<(usize, u64)> = None;
+    // How far the line the shaped items end on has gone: what a tab asks of the items before it
+    // (a tab shaped alone sees none), kept as the items come so that a line of any number of tabs
+    // is read once.
+    let mut line_advance = 0.0_f32;
 
     while idx < bidi_runs.len() {
         let item = &bidi_runs[idx];
@@ -107,7 +111,7 @@ pub fn shape_bidi_runs_with_per_item_cache<T: ParsedFontTrait>(
             }
             _ => {
                 // Non-text items: shape individually (no coalescing)
-                let single = shape_bidi_runs_tallied(
+                let mut single = shape_bidi_runs_tallied(
                     &bidi_runs[idx..=idx],
                     font_chain_cache,
                     fc_cache,
@@ -115,6 +119,16 @@ pub fn shape_bidi_runs_with_per_item_cache<T: ParsedFontTrait>(
                     debug_messages,
                     tally,
                 )?;
+                // Shaped alone, a tab saw no text before it: it ends at the next tab stop of
+                // ITS LINE, which is known here.
+                if let LogicalItem::Tab { style, .. } = &item.logical_source {
+                    for shaped_item in &mut single {
+                        if let ShapedItem::Tab { bounds, .. } = shaped_item {
+                            bounds.width = tab_width_after(style, line_advance);
+                        }
+                    }
+                }
+                advance_line(&single, &mut line_advance);
                 shaped.extend(single);
                 idx += 1;
                 continue;
@@ -194,6 +208,7 @@ pub fn shape_bidi_runs_with_per_item_cache<T: ParsedFontTrait>(
             let t2_skip_restamp = tally.settings.skip_restamp;
             // (d7) Materialize from the compact store — the fat path
             // cloned every item here anyway, so this is cost-neutral.
+            let first_new = shaped.len();
             shaped.extend(cached.compact.expand().into_iter().map(|c| {
                 if t2_skip_restamp {
                     return c;
@@ -242,6 +257,7 @@ pub fn shape_bidi_runs_with_per_item_cache<T: ParsedFontTrait>(
                 }
                 c
             }));
+            advance_line(&shaped[first_new..], &mut line_advance);
         } else {
             // Cache miss — shape this group
             #[cfg(test)]
@@ -283,6 +299,7 @@ pub fn shape_bidi_runs_with_per_item_cache<T: ParsedFontTrait>(
                     }),
                 );
             }
+            advance_line(&group_items, &mut line_advance);
             shaped.extend(group_items);
         }
 
@@ -790,6 +807,62 @@ pub fn shape_bidi_runs<T: ParsedFontTrait>(
     )
 }
 
+/// `line_advance` after `items` are put on its line: a break starts the next line.
+fn advance_line(items: &[ShapedItem], line_advance: &mut f32) {
+    for item in items {
+        if matches!(item, ShapedItem::Break { .. }) {
+            *line_advance = 0.0;
+        } else {
+            *line_advance += tab_advance_of(item);
+        }
+    }
+}
+
+/// How far an item moves the pen of its line, as far as a tab after it is concerned.
+const fn tab_advance_of(item: &ShapedItem) -> f32 {
+    match item {
+        ShapedItem::Cluster(c) => c.advance,
+        ShapedItem::Tab { bounds, .. }
+        | ShapedItem::Object { bounds, .. }
+        | ShapedItem::CombinedBlock { bounds, .. } => bounds.width,
+        ShapedItem::Break { .. } => 0.0,
+    }
+}
+
+/// The width of a tab of `style` that follows `current_advance` px of its line: the distance to
+/// the next tab stop, the stops being the multiples of `tab-size` space widths from the start of
+/// the line (CSS Text 3 s5.2; a space is approximated, see [`tab_stop_unit_px`]). A tab that is
+/// less than half a space from its stop goes on to the next one; `tab-size: 0` draws no tab.
+fn tab_width_after(style: &StyleProperties, current_advance: f32) -> f32 {
+    // +spec:display-property:df076b - tab-size rendering and inline-level line breaking
+    // "If the tab size is zero, preserved tabs are not rendered."
+    if style.tab_size == 0.0 {
+        return 0.0;
+    }
+    // TODO: use actual font's space_width via ParsedFontTrait::get_space_width() once we thread
+    // font resolution into the shaping phase for tab stops. For now, approximate the space advance
+    // as 0.5 * font_size (typical for Latin fonts).
+    let space_advance_approx = style.font_size_px * SPACE_WIDTH_RATIO;
+    // +spec:text-alignment-spacing:5a5efd - tab-size includes letter-spacing and word-spacing
+    let ls = style.letter_spacing.resolve_px(style.font_size_px);
+    let ws = style.word_spacing.resolve_px(style.font_size_px);
+    // Tab stop interval: tab_size * (space advance + letter-spacing + word-spacing)
+    let tab_interval = style.tab_size * tab_stop_unit_px(style.font_size_px, ls, ws);
+    if !(tab_interval > 0.0 && tab_interval.is_finite()) {
+        // a spacing that takes the space away (or a size that is not a number): no stops
+        return 0.0;
+    }
+    // Next tab stop = next multiple of tab_interval from the content edge
+    let next_tab_stop = ((current_advance / tab_interval).floor() + 1.0) * tab_interval;
+    let mut tab_width = next_tab_stop - current_advance;
+    // "If this distance is less than 0.5ch, then the subsequent tab stop is used instead."
+    let half_ch = space_advance_approx * 0.5;
+    if tab_width < half_ch {
+        tab_width += tab_interval;
+    }
+    tab_width
+}
+
 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
 #[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
 #[allow(clippy::match_same_arms)]
@@ -1129,59 +1202,23 @@ fn shape_bidi_runs_tallied<T: ParsedFontTrait>(
             // "Tab stops occur at points that are multiples of the tab size from the starting
             //  content edge of the preserved tab's nearest block container ancestor."
             LogicalItem::Tab { source, style } => {
-                if style.tab_size == 0.0 {
-                    // Tab size zero: tab is not rendered (zero width)
-                    shaped.push(ShapedItem::Tab {
-                        source: *source,
-                        bounds: Rect {
-                            x: 0.0,
-                            y: 0.0,
-                            width: 0.0,
-                            height: 0.0,
-                        },
-                    });
-                } else {
-                    // TODO: use actual font's space_width via ParsedFontTrait::get_space_width()
-                    // once we thread font resolution into the shaping phase for tab stops.
-                    // For now, approximate space advance as 0.5 * font_size (typical for Latin
-                    // fonts).
-                    let space_advance_approx = style.font_size_px * SPACE_WIDTH_RATIO;
-                    // +spec:text-alignment-spacing:5a5efd - tab-size includes letter-spacing and
-                    // word-spacing
-                    let ls = style.letter_spacing.resolve_px(style.font_size_px);
-                    let ws = style.word_spacing.resolve_px(style.font_size_px);
-                    // Tab stop interval: tab_size * (space advance + letter-spacing + word-spacing)
-                    let tab_interval = style.tab_size * (space_advance_approx + ls + ws);
-                    // Calculate current advance to find next tab stop
-                    let current_advance: f32 = shaped
-                        .iter()
-                        .map(|item| match item {
-                            ShapedItem::Cluster(c) => c.advance,
-                            ShapedItem::Tab { bounds, .. } => bounds.width,
-                            ShapedItem::Object { bounds, .. } => bounds.width,
-                            _ => 0.0,
-                        })
-                        .sum();
-                    // Next tab stop = next multiple of tab_interval from content edge
-                    let next_tab_stop =
-                        ((current_advance / tab_interval).floor() + 1.0) * tab_interval;
-                    let mut tab_width = next_tab_stop - current_advance;
-                    // "If this distance is less than 0.5ch, then the subsequent tab stop is used
-                    // instead."
-                    let half_ch = space_advance_approx * 0.5;
-                    if tab_width < half_ch {
-                        tab_width += tab_interval;
+                // The advance of the line the tab ends: everything since the last break.
+                let mut current_advance = 0.0_f32;
+                for item in shaped.iter().rev() {
+                    if matches!(item, ShapedItem::Break { .. }) {
+                        break;
                     }
-                    shaped.push(ShapedItem::Tab {
-                        source: *source,
-                        bounds: Rect {
-                            x: 0.0,
-                            y: 0.0,
-                            width: tab_width,
-                            height: 0.0,
-                        },
-                    });
+                    current_advance += tab_advance_of(item);
                 }
+                shaped.push(ShapedItem::Tab {
+                    source: *source,
+                    bounds: Rect {
+                        x: 0.0,
+                        y: 0.0,
+                        width: tab_width_after(style, current_advance),
+                        height: 0.0,
+                    },
+                });
             }
             LogicalItem::Ruby {
                 source,

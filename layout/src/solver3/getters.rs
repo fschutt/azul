@@ -2243,14 +2243,13 @@ pub(crate) const RARE_TEXT_FLAGS: u64 = azul_css::compact_cache::DOM_HAS_FONT_VA
     | azul_css::compact_cache::DOM_HAS_FONT_VARIANT_CAPS
     | azul_css::compact_cache::DOM_HAS_FONT_FEATURE_SETTINGS
     | azul_css::compact_cache::DOM_HAS_FONT_SYNTHESIS
-    | azul_css::compact_cache::DOM_HAS_TEXT_COMBINE_UPRIGHT
-    | azul_css::compact_cache::DOM_HAS_TEXT_TRANSFORM;
+    | azul_css::compact_cache::DOM_HAS_TEXT_COMBINE_UPRIGHT;
 
 /// A hash of what a node asks through the text properties that have no compact slot (the
 /// [`RARE_TEXT_FLAGS`]): the variation settings and the optical sizing
 /// ([`font_variation_inputs_hash`]), the kerning, the ligatures, the East Asian forms, the
-/// numeric and caps variants, the feature settings, the synthesis switches, the combining of
-/// digits and the case transform. The cache of the collected inline content of a formatting
+/// numeric and caps variants, the feature settings, the synthesis switches and the combining of
+/// digits. The cache of the collected inline content of a formatting
 /// context folds it in for a document that declares one of them (it keys on the nodes and on the
 /// compact cache, which holds none of these), so that a restyle that moves only one - another
 /// stylesheet over the same nodes - collects the text in its new style. A property the document
@@ -2331,12 +2330,6 @@ pub(crate) fn rare_text_inputs_hash(
     }
     if declared(flags::DOM_HAS_TEXT_COMBINE_UPRIGHT) {
         get_text_combine_upright(styled_dom, node_id, node_state).hash(&mut hasher);
-    }
-    if declared(flags::DOM_HAS_TEXT_TRANSFORM) {
-        cache
-            .get_text_transform(node_data, &node_id, node_state)
-            .and_then(|v| v.get_property())
-            .hash(&mut hasher);
     }
     hasher.finish()
 }
@@ -4521,7 +4514,8 @@ struct StyleInputs {
 ///   colour, a line height or a spacing the slot cannot hold;
 /// - `bolder` / `lighter` (resolved against the parent's weight), a
 ///   `text-decoration` of its own, a colour an ancestor's runtime override
-///   hands down, a `vertical-align` length or percentage;
+///   hands down, a `vertical-align` length or percentage, a `tab-size` that
+///   is a length;
 /// - an inline box that paints or moves something: a background, a border,
 ///   padding, a horizontal margin (all of it is in the box's style).
 ///
@@ -4590,6 +4584,7 @@ fn style_inputs_of(
         || text.letter_spacing >= compact::PX_SLOT_THRESHOLD
         || text.word_spacing >= compact::PX_SLOT_THRESHOLD
         || cold.hot_flags & compact::HOT_FLAG_HAS_TEXT_DECORATION != 0
+        || cold.tab_size == compact::I16_AUTO
         || compact::decode_font_weight_slot(text.font_weight).is_relative()
     {
         return None;
@@ -5296,17 +5291,40 @@ pub fn get_style_properties_for_state_with(
                 let raw = cc.get_tab_size_raw(dom_id.index());
                 if raw < azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
                     fast_tab = Some(f32::from(raw) / 10.0);
-                } else {
+                } else if raw != azul_css::compact_cache::I16_AUTO {
                     // Sentinel / Inherit / Initial → spec default is 8.
                     fast_tab = Some(8.0);
                 }
+                // `auto`: a length (`tab-size: 30px`), which the slot cannot hold: the cascade
+                // answers it below.
             }
         }
         fast_tab.unwrap_or_else(|| {
             cache
                 .get_tab_size(node_data, &dom_id, node_state)
                 .and_then(|v| v.get_property().copied())
-                .map_or(DEFAULT_TAB_SIZE, |v| v.inner.number.get())
+                .map_or(DEFAULT_TAB_SIZE, |v| {
+                    if v.inner.metric == azul_css::props::basic::length::SizeMetric::Em {
+                        // a count of spaces (`tab-size: 4` is kept as `4em`)
+                        v.inner.number.get()
+                    } else {
+                        // a length is the distance between the stops: in units of the tab
+                        // size the shaper measures them in (`tab_stop_unit_px`)
+                        let length = v
+                            .inner
+                            .resolve_with_context(&font_size_context, PropertyContext::FontSize);
+                        let unit = crate::text3::cache::tab_stop_unit_px(
+                            font_size,
+                            letter_spacing.resolve_px(font_size),
+                            word_spacing.resolve_px(font_size),
+                        );
+                        if unit > 0.0 {
+                            length / unit
+                        } else {
+                            DEFAULT_TAB_SIZE
+                        }
+                    }
+                })
         })
     };
 

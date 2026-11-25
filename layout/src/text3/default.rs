@@ -2876,10 +2876,11 @@ mod autotest_generated {
                     add_variant_features(&style, &mut features);
                     assert_eq!(features[0].feature_tag, sentinel.feature_tag);
                     assert_eq!(features[0].alternate, Some(7));
-                    // at most 2 (caps) + 1 (ligature) + 5 (numeric: one per
-                    // group, ordinal, slashed-zero) new tags
+                    // at most 5 (ligatures: liga, clig, dlig, hlig, calt) + 2 (caps) + 5
+                    // (numeric: one per group, ordinal, slashed-zero) new tags, and the
+                    // sentinel
                     assert!(
-                        features.len() <= 9,
+                        features.len() <= 13,
                         "{l:?}/{c:?}/{n:?} emitted too many features"
                     );
                     for f in &features[1..] {

@@ -1067,7 +1067,7 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
                     hash_resolved_style(cc, dom_id.index(), &mut h);
                     // The text properties that have no compact slot (`font-variation-settings`,
                     // `font-optical-sizing`, `font-kerning`, the `font-variant-*`, the feature
-                    // settings, `font-synthesis*`, `text-combine-upright`, `text-transform`): a
+                    // settings, `font-synthesis*`, `text-combine-upright`): a
                     // document that declares one adds the values of the node, so that a
                     // stylesheet restyle that moves only it does not reuse the old content.
                     if cc.dom_declared(crate::solver3::getters::RARE_TEXT_FLAGS) {
