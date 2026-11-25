@@ -1,0 +1,39 @@
+# The LEDGER of the SHIPPED bindings that have no generated conformance program yet.
+#
+# WHY THERE IS A LIST. `azul-doc codegen all` renders ONE conformance plan (every constant, derive
+# round-trip, enum variant constructor, Vec and host-invokable callback kind), but into C ONLY:
+# "C first" (20eadd85b5, 2026-09-19) gave the plan one renderer, doc/src/codegen/v2/conformance/c.rs,
+# and no other binding got one since. scripts/conformance.sh used to fail every shipped binding
+# (SHIPPED_LANGS of scripts/e2e_language_matrix.sh) that has no program, which is every one of them
+# but C. The CI step sits after the language gate, no full run reached it between 2026-10-17 and
+# 2026-11-25, and the first one that did failed it in every family.
+#
+# WHAT IT DOES. scripts/conformance.sh reads this file. A language listed here is reported
+#     [<lang>] PENDING (no generated conformance program yet)
+# and does not fail. The ledger is exact and can only shrink: the script fails when a shipped
+# binding has neither a program nor a line here, when a line names a language that has a program
+# now (it goes in the commit that adds the program: the renderer in doc/src/codegen/v2/conformance/
+# and the conf_<lang> function of the script come together) or one that is not shipped, and when a
+# program fails. The ledger never excuses a program. examples/azul-srcgate/tests/conformance_gate.rs
+# holds the rules and reads this file too.
+#
+# FORMAT. One lower-case language name per line, as in SHIPPED_LANGS; `#` starts a comment.
+cpp
+rust
+csharp
+java
+kotlin
+lua
+ruby
+node
+ocaml
+zig
+go
+pascal
+scala
+fortran
+haskell
+python
+d
+crystal
+swift

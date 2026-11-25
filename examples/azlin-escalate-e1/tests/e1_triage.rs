@@ -86,7 +86,7 @@ fn show(mismatches: &[Mismatch], hard: &[String]) {
 }
 
 #[test]
-#[ignore = "triage view: run with -- --ignored --nocapture"]
+#[ignore = "X-DELTA-W1S47A-13: triage view: run with -- --ignored --nocapture"]
 fn e1_triage() {
     let seeds: u64 = std::env::var("AZLIN_ESCALATE_TRIAGE_SEEDS")
         .ok()

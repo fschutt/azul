@@ -18,7 +18,7 @@ use azlin_enroll::PATHS;
 use common::root;
 
 #[test]
-#[ignore = "S5 fixture not landed"]
+#[ignore = "X-DELTA-W1S17E-17: S5 fixture not landed"]
 fn enrollment_request_matches_azlin_contract_fixture() {
     // The fixture of S5: `examples/azlin-contract/fixtures/c4/enrollment.json`.
     let path = root().join("../azlin-contract/fixtures/c4/enrollment.json");

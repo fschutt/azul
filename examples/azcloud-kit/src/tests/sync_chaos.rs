@@ -14,7 +14,7 @@ use azul_storage::{testing::TempDir, DriveError, ServiceError};
 
 use super::{
     fake_s3::S3Bucket,
-    sync::{index_of, Device, PREFIX},
+    sync::{aged, index_of, Device, PREFIX},
 };
 use crate::{
     error::{CloudError, CloudResult},
@@ -563,6 +563,14 @@ fn a_folder_changed_while_it_is_read_is_read_again_once_it_is_quiet() {
     for i in 0..10 {
         fs::write(folder.path().join(format!("f{i}.txt")), b"a file").unwrap();
     }
+    // The read below is told of the delete by the folder's time moving. That time is the host
+    // clock's tick (milliseconds) for every write made within it, the files above and the removals
+    // below among them: with the times of now the delete can leave the newest time as it was.
+    // Dated an hour back, any write made while the folder is read moves it.
+    for i in 0..10 {
+        aged(&folder.path().join(format!("f{i}.txt")));
+    }
+    aged(folder.path());
     let rules = Rules::base();
     let mut reads = 0;
     let scan = local::scan_unchanged(
@@ -626,6 +634,13 @@ fn a_folder_changed_while_it_is_read_is_read_again_once_it_is_quiet() {
 fn a_file_unlinked_and_renamed_back_while_the_folder_is_read_is_held_by_the_second_read() {
     let folder = TempDir::new("azcloud-chaos-unlink-then-rename");
     fs::write(folder.path().join("x"), b"old bytes").unwrap();
+    // The folder and its file are dated an hour back: the unlink and the rename below move the
+    // newest time under the folder whatever the tick of the host's clock for file times. Dated
+    // now, the whole of this - the file, the unlink, the temp, the rename - can fall in one tick
+    // (a few milliseconds on Linux), the newest time is the same before and after, and the pass
+    // takes the torn read for a quiet folder.
+    aged(&folder.path().join("x"));
+    aged(folder.path());
     let rules = Rules::base();
     let read = || {
         local::scan(
