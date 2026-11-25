@@ -303,7 +303,10 @@ impl JobMessage {
         let key = task.key();
         match &self.event {
             JobEvent::Started => {
-                format!("AZREVIEW_AGENT started {} {key} job={}", self.conversation, self.job)
+                format!(
+                    "AZREVIEW_AGENT started {} {key} job={}",
+                    self.conversation, self.job
+                )
             }
             JobEvent::Done(result) => match result.as_ref() {
                 Ok(response) => {

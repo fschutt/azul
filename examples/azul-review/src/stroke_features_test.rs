@@ -427,3 +427,64 @@ fn every_hint_has_a_word() {
         assert!(!hint.word().is_empty());
     }
 }
+
+// ==== in one call ====
+
+fn pinned_stroke(id: u64, points: &[(f32, f32)]) -> StrokeInput {
+    StrokeInput {
+        pinned: true,
+        meaning: Some(Meaning::Praise),
+        ..stroke(id, points, 0.5, 15)
+    }
+}
+
+#[test]
+fn the_offline_default_of_some_strokes_is_the_best_guess_of_those_the_reviewer_did_not_choose() {
+    let underline = stroke(1, &line_pts((174.0, 130.4), (202.0, 130.4), 20), 0.5, 15);
+    let strike = stroke(2, &line_pts((174.0, 124.0), (202.0, 124.0), 20), 0.5, 15);
+    let intent = offline_intent_for(&[underline, strike], &context(true), &Limits::default())
+        .expect("a rule fits");
+    assert_eq!(
+        intent.meaning,
+        Some(Meaning::Scope),
+        "the underline's rule is the stronger"
+    );
+    // the reviewer chose a meaning for the underline: only the strike-through is guessed at
+    let chosen = pinned_stroke(1, &line_pts((174.0, 130.4), (202.0, 130.4), 20));
+    let strike = stroke(2, &line_pts((174.0, 124.0), (202.0, 124.0), 20), 0.5, 15);
+    let intent = offline_intent_for(&[chosen, strike], &context(true), &Limits::default())
+        .expect("a rule fits");
+    assert_eq!(intent.meaning, Some(Meaning::Issue));
+}
+
+#[test]
+fn nothing_to_guess_at_is_no_guess() {
+    let ctx = context(true);
+    assert_eq!(offline_intent_for(&[], &ctx, &Limits::default()), None);
+    let chosen = pinned_stroke(1, &line_pts((174.0, 130.4), (202.0, 130.4), 20));
+    assert_eq!(
+        offline_intent_for(&[chosen], &ctx, &Limits::default()),
+        None
+    );
+    // a slanted stroke is no shape of the table
+    let slanted = stroke(3, &line_pts((100.0, 100.0), (140.0, 150.0), 20), 0.5, 15);
+    assert_eq!(
+        offline_intent_for(&[slanted], &ctx, &Limits::default()),
+        None
+    );
+}
+
+#[test]
+fn only_the_newest_strokes_are_read_as_a_request_sends_them() {
+    let strike = |id| stroke(id, &line_pts((174.0, 124.0), (202.0, 124.0), 20), 0.5, 15);
+    let slanted = |id| stroke(id, &line_pts((100.0, 100.0), (140.0, 150.0), 20), 0.5, 15);
+    let limits = Limits {
+        max_strokes: 2,
+        ..Limits::default()
+    };
+    // the strike-through is the oldest of three: left out
+    let strokes = [strike(1), slanted(2), slanted(3)];
+    assert_eq!(offline_intent_for(&strokes, &context(true), &limits), None);
+    let strokes = [slanted(1), slanted(2), strike(3)];
+    assert!(offline_intent_for(&strokes, &context(true), &limits).is_some());
+}

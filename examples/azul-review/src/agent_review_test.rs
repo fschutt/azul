@@ -246,7 +246,10 @@ fn without_the_pages_grid_the_line_has_the_shape_but_no_words_and_no_lines() {
 #[test]
 fn both_system_prompts_tell_the_agent_what_the_shape_features_are() {
     for system in [EDITING_SYSTEM, EXPLORATION_SYSTEM] {
-        assert!(system.contains("\"Shape features\"") && system.contains("can be wrong"), "{system}");
+        assert!(
+            system.contains("\"Shape features\"") && system.contains("can be wrong"),
+            "{system}"
+        );
     }
 }
 

@@ -15,8 +15,9 @@
 //! ([`crate::agent_review::Context`]: a page of code is a grid of lines and columns).
 
 use crate::{
+    agent_limits::{Limits, Notes},
     agent_review::{Context, Intent, PageGrid},
-    agent_stroke::{Meaning, Shape, StrokeInput},
+    agent_stroke::{shape, Meaning, Shape, StrokeInput},
 };
 
 /// What a stroke may look like.
@@ -621,6 +622,30 @@ pub fn offline_intent(features: &[Features], pinned: &[u64]) -> Option<Intent> {
             confidence: rule.confidence,
             rationale: format!("a rule of shape: stroke {stroke}, {}", rule.hint.word()),
         })
+}
+
+/// The offline default for `strokes` on the page of `ctx`, in one call (what the window uses when no
+/// agent is set up, and what the mock answers with): the shapes of the newest strokes
+/// (`limits.max_strokes`, as a request sends them) through [`offline_intent`], without the strokes
+/// whose meaning the reviewer chose on purpose (a pinned stroke that has one).
+#[must_use]
+pub fn offline_intent_for(
+    strokes: &[StrokeInput],
+    ctx: &Context,
+    limits: &Limits,
+) -> Option<Intent> {
+    let newest = &strokes[strokes.len().saturating_sub(limits.max_strokes)..];
+    let mut notes = Notes::new();
+    let features: Vec<Features> = newest
+        .iter()
+        .map(|s| analyze(s, &shape(s, limits, &mut notes), ctx))
+        .collect();
+    let chosen: Vec<u64> = newest
+        .iter()
+        .filter(|s| s.pinned && s.meaning.is_some())
+        .map(|s| s.id)
+        .collect();
+    offline_intent(&features, &chosen)
 }
 
 #[cfg(test)]

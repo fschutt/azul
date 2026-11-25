@@ -451,8 +451,8 @@ mod through_a_program {
         );
         let response = run_with(program, Task::Editing, 30).expect("answers");
         let Body::Review(reply) = &response.body else {
-        panic!("a review answer")
-    };
+            panic!("a review answer")
+        };
         assert!(
             reply.answer.contains("Connection test received"),
             "{}",

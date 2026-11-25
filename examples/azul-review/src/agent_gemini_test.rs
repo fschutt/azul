@@ -392,8 +392,8 @@ mod through_a_program {
         std::fs::create_dir_all(&scratch).expect("a folder");
         let response = run_with(program, Some(scratch.clone())).expect("answers");
         let Body::Review(reply) = &response.body else {
-        panic!("a review answer")
-    };
+            panic!("a review answer")
+        };
         assert_eq!(reply.answer, "ok");
         assert_eq!(response.identity.kind, BackendKind::GeminiCli);
         assert_eq!(response.usage.output_tokens, Some(14));

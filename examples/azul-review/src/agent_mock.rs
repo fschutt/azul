@@ -21,10 +21,10 @@ use crate::{
         AgentError, Backend, BackendKind, Call, Completion, Control, Identity, Request, Task, Usage,
     },
     agent_export::{cut_list_text, Chapter, CutList, CutSegment, ExportRequest},
-    agent_limits::{Limits, Notes},
+    agent_limits::Limits,
     agent_review::{reply_text, Intent, Pos, Reply, ReviewRequest, Suggestion},
-    agent_stroke::{shape, Meaning},
-    stroke_features::{analyze, offline_intent},
+    agent_stroke::Meaning,
+    stroke_features::offline_intent_for,
 };
 
 /// How often a wait looks at the cancel check, ms.
@@ -185,19 +185,6 @@ fn auto_reply(review: &ReviewRequest) -> Reply {
     let any = |words: &[&str]| words.iter().any(|w| lower.contains(w));
     // what the words say, when they say it plainly; else what the shapes of the strokes the reviewer
     // did not choose a meaning for say (the rule table of the features); else the plain default
-    let limits = Limits::default();
-    let mut shape_notes = Notes::new();
-    let features: Vec<_> = review
-        .strokes
-        .iter()
-        .map(|s| analyze(s, &shape(s, &limits, &mut shape_notes), &review.context))
-        .collect();
-    let chosen: Vec<u64> = review
-        .strokes
-        .iter()
-        .filter(|s| s.pinned && s.meaning.is_some())
-        .map(|s| s.id)
-        .collect();
     let by_words = if lower.contains('?') || any(&["why", "what", "warum", "was "]) {
         Some(Meaning::Question)
     } else if any(&[
@@ -216,10 +203,10 @@ fn auto_reply(review: &ReviewRequest) -> Reply {
         .strokes
         .iter()
         .any(|s| !s.pinned || s.meaning.is_none())
-        .then(|| match (by_words, offline_intent(&features, &chosen)) {
-            (Some(meaning), _) => rule_of_thumb(meaning),
-            (None, Some(by_shape)) => by_shape,
-            (None, None) => rule_of_thumb(Meaning::Scope),
+        .then(|| match by_words {
+            Some(meaning) => rule_of_thumb(meaning),
+            None => offline_intent_for(&review.strokes, &review.context, &Limits::default())
+                .unwrap_or_else(|| rule_of_thumb(Meaning::Scope)),
         });
     if review.task == Task::Exploration {
         return Reply {

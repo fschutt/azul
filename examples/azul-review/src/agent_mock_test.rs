@@ -390,11 +390,20 @@ fn auto_reads_the_shape_when_the_words_say_nothing_plain() {
     .expect("answers");
     let intent = intent_of(&response);
     assert_eq!(intent.meaning, Some(Meaning::Issue));
-    assert!(intent.rationale.contains("rule of shape") && intent.rationale.contains("strike-through"), "{}", intent.rationale);
+    assert!(
+        intent.rationale.contains("rule of shape") && intent.rationale.contains("strike-through"),
+        "{}",
+        intent.rationale
+    );
     assert!(intent.confidence > 0.0 && intent.confidence <= 0.5);
     // and under it: an underline, which means scope
     let under = drawn(1, false, (92.0, 114.4), (124.0, 114.4));
-    let response = run(&mut mock, &on_the_grid("this looks odd", vec![under]), &mut clock).expect("answers");
+    let response = run(
+        &mut mock,
+        &on_the_grid("this looks odd", vec![under]),
+        &mut clock,
+    )
+    .expect("answers");
     assert_eq!(intent_of(&response).meaning, Some(Meaning::Scope));
 }
 
@@ -419,7 +428,12 @@ fn auto_never_reads_the_shape_of_a_stroke_the_reviewer_chose_a_meaning_for() {
     let mut mock = MockBackend::auto(0);
     let mut clock = ManualClock::new();
     let pinned = drawn(1, true, (92.0, 108.0), (124.0, 108.0));
-    let response = run(&mut mock, &on_the_grid("this looks odd", vec![pinned]), &mut clock).expect("answers");
+    let response = run(
+        &mut mock,
+        &on_the_grid("this looks odd", vec![pinned]),
+        &mut clock,
+    )
+    .expect("answers");
     assert!(reply_of(&response).intent.is_none());
     // two strokes: the one that is pinned is left out of the guess, the other one is guessed at
     let pinned_underline = drawn(1, true, (92.0, 114.4), (124.0, 114.4));
@@ -439,7 +453,12 @@ fn auto_falls_back_to_scope_when_neither_the_words_nor_the_shape_say_anything() 
     let mut clock = ManualClock::new();
     // a short slanted line: no rule fits
     let slanted = drawn(1, false, (92.0, 100.0), (124.0, 140.0));
-    let response = run(&mut mock, &on_the_grid("this looks odd", vec![slanted]), &mut clock).expect("answers");
+    let response = run(
+        &mut mock,
+        &on_the_grid("this looks odd", vec![slanted]),
+        &mut clock,
+    )
+    .expect("answers");
     let intent = intent_of(&response);
     assert_eq!(intent.meaning, Some(Meaning::Scope));
     assert_eq!(intent.rationale, "the mock's rule of thumb");

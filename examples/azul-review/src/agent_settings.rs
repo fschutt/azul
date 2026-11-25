@@ -581,9 +581,9 @@ pub enum FieldKind {
 pub struct FieldSpec {
     /// The row's word in the settings file and in [`AgentSettings::get`] and [`AgentSettings::set`].
     pub key: &'static str,
-    /// The localization key of its label.
+    /// The localization key of its label: also the accessibility name of the row's control.
     pub label: &'static str,
-    /// The localization key of its hint.
+    /// The localization key of its hint: also the control's accessibility description.
     pub hint: &'static str,
     pub kind: FieldKind,
     /// The backends it matters to.
