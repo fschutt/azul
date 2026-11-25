@@ -60,10 +60,19 @@ mod l10n_tests;
 pub mod model;
 pub mod perf;
 pub mod pointer;
+pub mod recorder_clock;
+pub mod recorder_events;
+pub mod recorder_manifest;
+pub mod recorder_mp4;
+pub mod recorder_policy;
+pub mod recorder_settings;
+pub mod recorder_track;
 pub mod session;
 pub mod switches;
 pub mod ui;
 pub mod voice;
+pub mod whiteboard;
+pub mod whiteboard_geom;
 
 #[cfg(test)]
 #[path = "lib_test.rs"]

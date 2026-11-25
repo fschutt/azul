@@ -269,3 +269,99 @@ fn a_font_cache_holds_the_registrys_allocation_of_a_runtime_face() {
     };
     assert!(Arc::ptr_eq(&held, b), "the cache shares the registry's allocation");
 }
+
+/// Path C of a variable face entering a chain: registered at runtime (`CallbackInfo::register_font`).
+/// It was never made static - the raw variable file reached shaping and the PDF - and now keeps its
+/// `wght` range in its index entry and is drawn as the static instance at the weight the CSS asks.
+#[test]
+fn a_variable_face_registered_at_runtime_is_drawn_as_a_static_instance() {
+    use azul_core::{dom::Dom, styled_dom::StyledDom};
+
+    use crate::{
+        solver3::getters::{collect_font_stacks_from_styled_dom, resolve_font_chains_with_registry},
+        text3::cache::{FontChainKeyOrRef, FontManager},
+    };
+
+    const FAMILY: &str = "Azul Runtime Variable";
+    let file = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../doc/fonts/RedHatMono-VariableFont_wght.ttf"
+    ))
+    .expect("the face is checked in");
+    let registered = Arc::new(RegisteredFonts::default());
+    assert!(registered.register_font(FAMILY, &file));
+    let fonts = FontManager::<azul_css::props::basic::FontRef>::with_registered_fonts(
+        FcFontCache::default(),
+        Arc::clone(&registered),
+    )
+    .expect("font manager");
+
+    let norm = rust_fontconfig::utils::normalize_family_name(FAMILY);
+    let faces = fonts
+        .memory_families
+        .get(&norm)
+        .expect("the runtime face is indexed");
+    assert_eq!(faces.len(), 1);
+    assert_eq!(
+        faces[0].weight_axis,
+        Some((300.0, 700.0)),
+        "the face says which weights it covers"
+    );
+
+    let drawn_at = |css: &str| -> Vec<u8> {
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_css(&format!("font-family: \"{FAMILY}\"; font-size: 16px; {css}"))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("W")),
+        );
+        let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+        let collected =
+            collect_font_stacks_from_styled_dom(&styled, &azul_css::system::Platform::current());
+        let resolved = resolve_font_chains_with_registry(
+            &collected,
+            &fonts.fc_cache,
+            None,
+            Some(&[]),
+            &fonts.memory_families,
+            &fonts.settings,
+        );
+        let chain = resolved
+            .chains
+            .iter()
+            .find_map(|(key, chain)| match key {
+                FontChainKeyOrRef::Chain(key)
+                    if key.font_families.first().map(String::as_str) == Some(FAMILY) =>
+                {
+                    Some(chain)
+                }
+                _ => None,
+            })
+            .expect("the family's chain");
+        let face = chain
+            .css_fallbacks
+            .iter()
+            .find_map(|group| group.fonts.first())
+            .expect("the family matched")
+            .id;
+        fonts
+            .fc_cache
+            .get_font_bytes(&face)
+            .expect("the face drawn has bytes")
+            .as_slice()
+            .to_vec()
+    };
+    for (css, coordinates) in [
+        ("font-weight: 400", Vec::new()),
+        ("font-weight: 700", vec![(*b"wght", 700.0)]),
+        ("font-weight: 650", vec![(*b"wght", 650.0)]),
+    ] {
+        let drawn = drawn_at(css);
+        assert!(
+            rust_fontconfig::FcReadVariation(&drawn, 0).is_none(),
+            "`{css}`: the face drawn is still a variable font"
+        );
+        let expected = rust_fontconfig::FcCreateVariableInstance(&file, 0, &coordinates)
+            .expect("the file has an instance");
+        assert!(drawn == expected, "`{css}`: not the instance of the file at {coordinates:?}");
+    }
+}

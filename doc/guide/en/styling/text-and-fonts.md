@@ -29,7 +29,7 @@ default-search-keys:
 
 ## Overview
 
-*WIP.* Font fallback and the text shaper are stable; some advanced typography (`font-feature-settings`, variable axes) is not yet wired through from CSS to the layout engine. The properties below all parse and apply.
+Font fallback, the text shaper and variable fonts are stable: the axes of a variable font are driven from CSS (see "Variable fonts" below). The properties below all parse and apply.
 
 Text rendering is driven by four font properties (`font-family`,
 `font-size`, `font-weight`, `font-style`) and modulated by alignment,
@@ -114,6 +114,32 @@ StyleFontStyle::Oblique(angle)       // slanted by `angle` degrees, -90 to 90 (`
 ```
 
 A bare `oblique` is `oblique 14deg`.
+
+## Variable fonts
+
+A variable font is drawn at the exact coordinates the CSS asks of its axes. For each axis the face
+has:
+
+| axis | set by | value |
+|------|--------|-------|
+| `wght` | `font-weight` | the weight, any number from 1 to 1000 |
+| `wdth` | `font-stretch` (alias `font-width`) | the stretch in percent |
+| `slnt` | `font-style: oblique <angle>` | minus the angle (CSS leans to the right, `slnt` counts counter-clockwise); 0 for `normal` and `italic` |
+| `ital` | `font-style` | 1 for `italic`, 0 for `normal` and `oblique` |
+| `opsz` | `font-optical-sizing: auto` (the initial value) | the used font size in CSS px, rounded to a whole number; `none` leaves the axis at its default |
+| any tag | `font-variation-settings` | the value written, applied last: it wins over every property above |
+
+Every value is clamped to the range of the axis, `font-variation-settings` tags the face does not
+have are ignored, and a tag written twice keeps its last value. A face without an axis ignores the
+part of the request that is for it, and a family of separate static faces is chosen by the nearest
+weight bucket (`font-stretch` is not used to choose among static faces).
+
+The face a text is shaped, drawn and embedded in a PDF with is never the variable font itself but
+a STATIC instance of it, made once for the coordinates (rounded to 1/64) and shared by every
+window, every paragraph and every spelling of the family name that asks for them. The cache keeps
+at most 32 instances per font file (and 128 MiB of them); a request beyond that is drawn with the
+nearest instance made. The system font of macOS is such a face: its `opsz` follows the font size
+and its `wght` the weight, as in Chrome and CoreText.
 
 ## text-align
 

@@ -11,6 +11,10 @@ publish = false
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
 # The shared app skeleton: switches, data root, settings.json, About, file jobs on a Thread.
 azul-appkit = { path = "../azul-appkit", features = ["azul"] }
+# The recorder's manifest, transcript and events: strict JSON schemas (recorder_manifest.rs,
+# recorder_events.rs). Both are in Cargo.lock already through azul-appkit, the same specs.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [lib]
 name = "azul_review"
