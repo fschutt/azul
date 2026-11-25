@@ -192,6 +192,20 @@ pub struct Colour {
     pub full_range: bool,
 }
 
+impl Colour {
+    /// Rec. 709, limited range: what VideoToolbox makes of RGB frames and of HD camera frames.
+    #[must_use]
+    pub const fn bt709() -> Self {
+        Self { primaries: 1, transfer: 1, matrix: 1, full_range: false }
+    }
+
+    /// Rec. 601, limited range: a standard-definition camera.
+    #[must_use]
+    pub const fn bt601() -> Self {
+        Self { primaries: 6, transfer: 6, matrix: 6, full_range: false }
+    }
+}
+
 /// The bits of a NAL unit's payload with the emulation-prevention bytes taken out.
 struct Bits {
     data: Vec<u8>,
@@ -431,6 +445,10 @@ pub struct VideoConfig {
     pub sps: Vec<u8>,
     pub pps: Vec<u8>,
     pub info: Sps,
+    /// The tags written when the SPS carries none (VideoToolbox puts them in the container, not in
+    /// the stream; without them AVFoundation warns that primaries, transfer and matrix are not
+    /// specified and players guess).
+    pub default_colour: Option<Colour>,
 }
 
 impl VideoConfig {
@@ -447,7 +465,14 @@ impl VideoConfig {
             ));
         };
         let info = parse_sps(&sps)?;
-        Ok(Self { sps, pps, info })
+        Ok(Self { sps, pps, info, default_colour: None })
+    }
+
+    /// The same description with `colour` written when the SPS has none of its own.
+    #[must_use]
+    pub const fn with_default_colour(mut self, colour: Colour) -> Self {
+        self.default_colour = Some(colour);
+        self
     }
 }
 
@@ -558,7 +583,7 @@ fn visual_sample_entry(video: &VideoConfig) -> Vec<u8> {
     put_u16(&mut b, 0x0018); // depth
     put_u16(&mut b, 0xffff); // pre_defined
     b.extend_from_slice(&avcc_box(video));
-    if let Some(c) = video.info.colour {
+    if let Some(c) = video.info.colour.or(video.default_colour) {
         let mut colr = Vec::new();
         colr.extend_from_slice(b"nclx");
         put_u16(&mut colr, u16::from(c.primaries));

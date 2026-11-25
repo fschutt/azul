@@ -64,7 +64,7 @@ pub const DEFAULT_MAX_LINE: usize = 8 * 1024;
 pub static UNKNOWN_KIND: KindSpec = kind("unknown", 10, 20, DEFAULT_MAX_LINE, "anything");
 
 /// Every kind of event the app records.
-pub static KINDS: [KindSpec; 39] = [
+pub static KINDS: [KindSpec; 40] = [
     kind("session.start", 5, 10, DEFAULT_MAX_LINE, "app (string), version (string), workspace (string)"),
     kind("session.stop", 5, 10, DEFAULT_MAX_LINE, "reason (string: user, quit, error)"),
     kind("session.pause", 5, 10, DEFAULT_MAX_LINE, "reason (string: user, hotkey)"),
@@ -96,7 +96,8 @@ pub static KINDS: [KindSpec; 39] = [
     kind("wb.close", 5, 10, DEFAULT_MAX_LINE, "width (number)"),
     kind("wb.resize", 10, 20, DEFAULT_MAX_LINE, "width (number)"),
     kind("wb.cutout", 20, 40, DEFAULT_MAX_LINE, "id (number), file (string), first (number), last (number)"),
-    kind("wb.arrow", 20, 40, DEFAULT_MAX_LINE, "id (number), from (number), to (number)"),
+    kind("wb.arrow", 20, 40, DEFAULT_MAX_LINE, "id (number), from (number, absent when it hangs on nothing), to (number, likewise)"),
+    kind("wb.edit", 20, 40, DEFAULT_MAX_LINE, "op (string: arrow, moved, resized, labelled, removed, undone, redone), id (number), ids ([number], for removed)"),
     kind("wb.jump", 10, 20, DEFAULT_MAX_LINE, "id (number), file (string), first (number), last (number)"),
     kind("marker", 5, 10, DEFAULT_MAX_LINE, "label (string): a chapter the user marked"),
     kind("recorder.track", 5, 10, DEFAULT_MAX_LINE, "track (string: screen, camera, audio), status (string), note (string)"),
