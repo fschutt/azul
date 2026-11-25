@@ -19,7 +19,7 @@ namespace AzulStyles
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_flexGrow(new AzLayoutFlexGrow { inner = NativeMethods.AzFloatValue_create(1.0f) })),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_inherit(CssPropertyType.MinWidth)),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_whiteSpace(new AzStyleWhiteSpaceValue { Exact = new AzStyleWhiteSpaceValueVariant_Exact { tag = AzStyleWhiteSpaceValue_Tag.Exact, payload = StyleWhiteSpace.Nowrap } })),
-                NativeMethods.AzCssPropertyWithConditions_onHover(NativeMethods.AzCssProperty_fontWeight(StyleFontWeight.Bold))
+                NativeMethods.AzCssPropertyWithConditions_onHover(NativeMethods.AzCssProperty_fontWeight(NativeMethods.AzStyleFontWeight_number(NativeMethods.AzFloatValue_create(700.0f))))
             );
         }
     }

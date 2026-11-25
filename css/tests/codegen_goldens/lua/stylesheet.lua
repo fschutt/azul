@@ -131,7 +131,7 @@ function M.stylesheet()
                                 }), 3),
                             }
                         ),
-                        declarations = C.AzCssDeclarationVec_copyFromPtr(ffi.new('AzCssDeclaration[1]', { C.AzCssDeclaration_static(C.AzCssProperty_fontWeight(C.AzStyleFontWeight_Bold)) }), 1),
+                        declarations = C.AzCssDeclarationVec_copyFromPtr(ffi.new('AzCssDeclaration[1]', { C.AzCssDeclaration_static(C.AzCssProperty_fontWeight(C.AzStyleFontWeight_number(C.AzFloatValue_create(700.0)))) }), 1),
                         conditions = C.AzDynamicSelectorVec_create(),
                         priority = 20,
                     }
@@ -150,7 +150,7 @@ function M.stylesheet()
                                 }), 4),
                             }
                         ),
-                        declarations = C.AzCssDeclarationVec_copyFromPtr(ffi.new('AzCssDeclaration[1]', { C.AzCssDeclaration_static(C.AzCssProperty_fontStyle(C.AzStyleFontStyle_Italic)) }), 1),
+                        declarations = C.AzCssDeclarationVec_copyFromPtr(ffi.new('AzCssDeclaration[1]', { C.AzCssDeclaration_static(C.AzCssProperty_fontStyle(C.AzStyleFontStyle_italic())) }), 1),
                         conditions = C.AzDynamicSelectorVec_create(),
                         priority = 20,
                     }

@@ -74,13 +74,13 @@ function Get-StyleListLiNthChild2 {
 # CSS: #main>.title
 function Get-StyleMainTitle {
     return (New-CssVec 'AzCssPropertyWithConditionsVec_copyFromPtr' ([Azul.AzCssPropertyWithConditions]) @(
-        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontWeight([Azul.StyleFontWeight]::Bold))
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontWeight([Azul.NativeMethods]::AzStyleFontWeight_number([Azul.NativeMethods]::AzFloatValue_create([float]700.0))))
     ))
 }
 
 # CSS: div .note:first
 function Get-StyleDivNoteFirst {
     return (New-CssVec 'AzCssPropertyWithConditionsVec_copyFromPtr' ([Azul.AzCssPropertyWithConditions]) @(
-        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontStyle([Azul.StyleFontStyle]::Italic))
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontStyle([Azul.NativeMethods]::AzStyleFontStyle_italic()))
     ))
 }

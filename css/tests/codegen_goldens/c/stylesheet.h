@@ -110,7 +110,7 @@ static AzCss stylesheet(void) {
                             3
                         ),
                     },
-                    .declarations = AzCssDeclarationVec_copyFromPtr((AzCssDeclaration[]){ AzCssDeclaration_static(AzCssProperty_fontWeight(AzStyleFontWeight_Bold)) }, 1),
+                    .declarations = AzCssDeclarationVec_copyFromPtr((AzCssDeclaration[]){ AzCssDeclaration_static(AzCssProperty_fontWeight(AzStyleFontWeight_number(AzFloatValue_create(700.0f)))) }, 1),
                     .conditions = AzDynamicSelectorVec_create(),
                     .priority = 20,
                 },
@@ -126,7 +126,7 @@ static AzCss stylesheet(void) {
                             4
                         ),
                     },
-                    .declarations = AzCssDeclarationVec_copyFromPtr((AzCssDeclaration[]){ AzCssDeclaration_static(AzCssProperty_fontStyle(AzStyleFontStyle_Italic)) }, 1),
+                    .declarations = AzCssDeclarationVec_copyFromPtr((AzCssDeclaration[]){ AzCssDeclaration_static(AzCssProperty_fontStyle(AzStyleFontStyle_italic())) }, 1),
                     .conditions = AzDynamicSelectorVec_create(),
                     .priority = 20,
                 },

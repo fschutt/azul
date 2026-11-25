@@ -120,8 +120,10 @@ use azul_css::{
             StyleTransformOriginValue, StyleTransformVecValue, StyleUnicodeBidiValue,
             StyleUserSelectValue, StyleVerticalAlignValue, StyleVisibilityValue,
             StyleWhiteSpaceValue, StyleWordBreakValue, StyleWordSpacingValue, StyleZoomValue, StyleBackgroundClipVecValue,
-            StyleFontFeatureSettingsValue, StyleFontVariantCapsValue,
-            StyleFontVariantNumericValue, WidowsValue,
+            StyleFontFeatureSettingsValue, StyleFontKerningValue, StyleFontOpticalSizingValue,
+            StyleFontStretchValue, StyleFontSynthesisValue, StyleFontVariantCapsValue,
+            StyleFontVariantEastAsianValue, StyleFontVariantLigaturesValue,
+            StyleFontVariantNumericValue, StyleFontVariationSettingsValue, WidowsValue,
         },
         style::{StyleCursor, StyleTextColor, StyleTransformOrigin},
     },
@@ -5351,6 +5353,66 @@ impl CssPropertyCache {
         as_font_feature_settings
     );
     impl_get_prop!(
+        get_font_stretch,
+        StyleFontStretchValue,
+        FontStretch,
+        as_font_stretch
+    );
+    impl_get_prop!(
+        get_font_variation_settings,
+        StyleFontVariationSettingsValue,
+        FontVariationSettings,
+        as_font_variation_settings
+    );
+    impl_get_prop!(
+        get_font_optical_sizing,
+        StyleFontOpticalSizingValue,
+        FontOpticalSizing,
+        as_font_optical_sizing
+    );
+    impl_get_prop!(
+        get_font_kerning,
+        StyleFontKerningValue,
+        FontKerning,
+        as_font_kerning
+    );
+    impl_get_prop!(
+        get_font_variant_ligatures,
+        StyleFontVariantLigaturesValue,
+        FontVariantLigatures,
+        as_font_variant_ligatures
+    );
+    impl_get_prop!(
+        get_font_variant_east_asian,
+        StyleFontVariantEastAsianValue,
+        FontVariantEastAsian,
+        as_font_variant_east_asian
+    );
+    impl_get_prop!(
+        get_font_synthesis_weight,
+        StyleFontSynthesisValue,
+        FontSynthesisWeight,
+        as_font_synthesis_weight
+    );
+    impl_get_prop!(
+        get_font_synthesis_style,
+        StyleFontSynthesisValue,
+        FontSynthesisStyle,
+        as_font_synthesis_style
+    );
+    impl_get_prop!(
+        get_font_synthesis_small_caps,
+        StyleFontSynthesisValue,
+        FontSynthesisSmallCaps,
+        as_font_synthesis_small_caps
+    );
+    impl_get_prop!(
+        get_font_synthesis_position,
+        StyleFontSynthesisValue,
+        FontSynthesisPosition,
+        as_font_synthesis_position
+    );
+    impl_get_prop!(
         get_transform,
         StyleTransformVecValue,
         Transform,
@@ -7095,7 +7157,7 @@ impl CssPropertyCache {
                 CssProperty::FontWeight(v) => v.get_property().copied(),
                 _ => None,
             })
-            .unwrap_or(StyleFontWeight::Normal);
+            .unwrap_or(StyleFontWeight::NORMAL);
         CssProperty::FontWeight(CssPropertyValue::Exact(weight.computed(parent_weight)))
     }
 

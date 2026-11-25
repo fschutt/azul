@@ -14,11 +14,21 @@ public func styleText() -> [CssPropertyWithConditions] {
                 ]
             )
         ),
-        CssPropertyWithConditions.simple(CssProperty.fontWeight(StyleFontWeight.w600)),
+        CssPropertyWithConditions.simple(CssProperty.fontWeight(StyleFontWeight.number(FloatValue(600.0)))),
         CssPropertyWithConditions.simple(CssProperty.fontStyle(StyleFontStyle.italic)),
         CssPropertyWithConditions.simple(CssProperty.fontVariantNumeric(StyleFontVariantNumeric(liningNums: false, oldstyleNums: false, proportionalNums: false, tabularNums: true, diagonalFractions: false, stackedFractions: false, ordinal: false, slashedZero: false))),
         CssPropertyWithConditions.simple(CssProperty.fontVariantCaps(StyleFontVariantCapsValue.exact(StyleFontVariantCaps.smallCaps))),
         CssPropertyWithConditions.simple(CssProperty.fontFeatureSettings(StyleFontFeatureSettingsValue.exact(StyleFontFeatureSettings(inner: "\"liga\" 0, \"tnum\"")))),
+        CssPropertyWithConditions.simple(CssProperty.fontStretch(StyleFontStretchValue.exact(StyleFontStretch(inner: PercentageValue(number: FloatValue(87.5)))))),
+        CssPropertyWithConditions.simple(CssProperty.fontVariationSettings(StyleFontVariationSettingsValue.exact(StyleFontVariationSettings(inner: "\"wght\" 650, \"wdth\" 87.5")))),
+        CssPropertyWithConditions.simple(CssProperty.fontOpticalSizing(StyleFontOpticalSizingValue.exact(StyleFontOpticalSizing.none))),
+        CssPropertyWithConditions.simple(CssProperty.fontKerning(StyleFontKerningValue.exact(StyleFontKerning.none))),
+        CssPropertyWithConditions.simple(CssProperty.fontVariantLigatures(StyleFontVariantLigaturesValue.exact(StyleFontVariantLigatures(common: StyleFontLigatureChoice.off, discretionary: StyleFontLigatureChoice.on, historical: StyleFontLigatureChoice.unset, contextual: StyleFontLigatureChoice.unset)))),
+        CssPropertyWithConditions.simple(CssProperty.fontVariantEastAsian(StyleFontVariantEastAsianValue.exact(StyleFontVariantEastAsian(jis78: true, jis83: false, jis90: false, jis04: false, simplified: false, traditional: false, fullWidth: true, proportionalWidth: false, ruby: true)))),
+        CssPropertyWithConditions.simple(CssProperty.fontSynthesisWeight(StyleFontSynthesisValue.exact(StyleFontSynthesis.none))),
+        CssPropertyWithConditions.simple(CssProperty.fontSynthesisStyle(StyleFontSynthesisValue.exact(StyleFontSynthesis.none))),
+        CssPropertyWithConditions.simple(CssProperty.fontSynthesisSmallCaps(StyleFontSynthesisValue.exact(StyleFontSynthesis.auto))),
+        CssPropertyWithConditions.simple(CssProperty.fontSynthesisPosition(StyleFontSynthesisValue.exact(StyleFontSynthesis.none))),
         CssPropertyWithConditions.simple(CssProperty.textAlign(StyleTextAlign.center)),
         CssPropertyWithConditions.simple(CssProperty.textJustify(LayoutTextJustify.interWord)),
         CssPropertyWithConditions.simple(CssProperty.verticalAlign(StyleVerticalAlign.middle)),
@@ -60,14 +70,46 @@ public func styleText() -> [CssPropertyWithConditions] {
         CssPropertyWithConditions.simple(CssProperty.selectionBackgroundColor(SelectionBackgroundColor(inner: ColorU(r: 51, g: 153, b: 255, a: 255)))),
         CssPropertyWithConditions.simple(CssProperty.selectionColor(SelectionColor(inner: ColorU(r: 255, g: 255, b: 255, a: 255)))),
         CssPropertyWithConditions.simple(CssProperty.selectionRadius(SelectionRadiusValue.exact(SelectionRadius(inner: PixelValue.px(3.0))))),
+        CssPropertyWithConditions.simple(CssProperty.font([StyleFontFamily.system("caption")])),
+    ]
+}
+
+// CSS: .shorthands
+public func styleShorthands() -> [CssPropertyWithConditions] {
+    return [
+        CssPropertyWithConditions.simple(CssProperty.fontStyle(StyleFontStyle.italic)),
+        CssPropertyWithConditions.simple(CssProperty.fontVariantCaps(StyleFontVariantCapsValue.exact(StyleFontVariantCaps.smallCaps))),
+        CssPropertyWithConditions.simple(CssProperty.fontWeight(StyleFontWeight.number(FloatValue(350.0)))),
+        CssPropertyWithConditions.simple(CssProperty.fontStretch(StyleFontStretchValue.exact(StyleFontStretch(inner: PercentageValue(number: FloatValue(75.0)))))),
+        CssPropertyWithConditions.simple(CssProperty.fontSize(StyleFontSize(inner: PixelValue.px(14.0)))),
+        CssPropertyWithConditions.simple(CssProperty.lineHeight(StyleLineHeight.number(FloatValue(1.5)))),
         CssPropertyWithConditions.simple(
-            CssProperty.font(
+            CssProperty.fontFamily(
                 [
                     StyleFontFamily.system("Georgia"),
                     StyleFontFamily.system("serif"),
                 ]
             )
         ),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.fontVariantNumeric)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.fontVariantLigatures)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.fontVariantEastAsian)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.fontKerning)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.fontOpticalSizing)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.fontVariationSettings)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.fontFeatureSettings)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.fontSynthesisWeight)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.fontSynthesisStyle)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.fontSynthesisSmallCaps)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.fontSynthesisPosition)),
+        CssPropertyWithConditions.simple(CssProperty.fontVariantNumeric(StyleFontVariantNumeric(liningNums: false, oldstyleNums: true, proportionalNums: false, tabularNums: false, diagonalFractions: false, stackedFractions: false, ordinal: false, slashedZero: false))),
+        CssPropertyWithConditions.simple(CssProperty.fontVariantCaps(StyleFontVariantCapsValue.exact(StyleFontVariantCaps.normal))),
+        CssPropertyWithConditions.simple(CssProperty.fontVariantLigatures(StyleFontVariantLigaturesValue.exact(StyleFontVariantLigatures(common: StyleFontLigatureChoice.unset, discretionary: StyleFontLigatureChoice.unset, historical: StyleFontLigatureChoice.unset, contextual: StyleFontLigatureChoice.unset)))),
+        CssPropertyWithConditions.simple(CssProperty.fontVariantEastAsian(StyleFontVariantEastAsianValue.exact(StyleFontVariantEastAsian(jis78: true, jis83: false, jis90: false, jis04: false, simplified: false, traditional: false, fullWidth: false, proportionalWidth: false, ruby: false)))),
+        CssPropertyWithConditions.simple(CssProperty.fontSynthesisWeight(StyleFontSynthesisValue.exact(StyleFontSynthesis.auto))),
+        CssPropertyWithConditions.simple(CssProperty.fontSynthesisStyle(StyleFontSynthesisValue.exact(StyleFontSynthesis.auto))),
+        CssPropertyWithConditions.simple(CssProperty.fontSynthesisSmallCaps(StyleFontSynthesisValue.exact(StyleFontSynthesis.none))),
+        CssPropertyWithConditions.simple(CssProperty.fontSynthesisPosition(StyleFontSynthesisValue.exact(StyleFontSynthesis.none))),
     ]
 }
 

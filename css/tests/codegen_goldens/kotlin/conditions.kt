@@ -51,7 +51,7 @@ fun styleListLiNthChild2(): AzCssPropertyWithConditionsVec.ByValue {
 fun styleMainTitle(): AzCssPropertyWithConditionsVec.ByValue {
     return azVec(
         AzulNativeVec::AzCssPropertyWithConditionsVec_copyFromPtr,
-        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontWeight(StyleFontWeight.Bold.value))
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontWeight(AzulNativeCss.AzStyleFontWeight_number(AzulNativeCss.AzFloatValue_create(700.0f))))
     )
 }
 
@@ -59,7 +59,7 @@ fun styleMainTitle(): AzCssPropertyWithConditionsVec.ByValue {
 fun styleDivNoteFirst(): AzCssPropertyWithConditionsVec.ByValue {
     return azVec(
         AzulNativeVec::AzCssPropertyWithConditionsVec_copyFromPtr,
-        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontStyle(StyleFontStyle.Italic.value))
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontStyle(AzulNativeCss.AzStyleFontStyle_italic()))
     )
 }
 

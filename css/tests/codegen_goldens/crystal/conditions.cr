@@ -43,14 +43,14 @@ module AzulStyles
   # CSS: #main>.title
   def self.style_main_title : Array(Azul::CssPropertyWithConditions)
     [
-      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_weight(Azul::StyleFontWeight::Bold)),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_weight(Azul::StyleFontWeight.number(Azul::FloatValue.new(700.0_f32)))),
     ] of Azul::CssPropertyWithConditions
   end
 
   # CSS: div .note:first
   def self.style_div_note_first : Array(Azul::CssPropertyWithConditions)
     [
-      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_style(Azul::StyleFontStyle::Italic)),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_style(Azul::StyleFontStyle.italic)),
     ] of Azul::CssPropertyWithConditions
   end
 end

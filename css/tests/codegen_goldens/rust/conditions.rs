@@ -46,7 +46,7 @@ pub fn style_list_li_nth_child_2() -> CssPropertyWithConditionsVec {
 /// CSS: #main>.title
 pub fn style_main_title() -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from(vec![
-        CssPropertyWithConditions::simple(CssProperty::font_weight(StyleFontWeight::Bold)),
+        CssPropertyWithConditions::simple(CssProperty::font_weight(StyleFontWeight::Number(FloatValue::create(700.0)))),
     ])
 }
 

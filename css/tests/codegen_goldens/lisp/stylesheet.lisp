@@ -160,7 +160,7 @@
             )
           )
           'azul-internal::declarations
-          (css-vec #'azul-internal::%az-css-declaration-vec-copy-from-ptr 'azul-internal::az-css-declaration (list (azul-internal::%az-css-declaration-static (azul-internal::%az-css-property-font-weight :bold))))
+          (css-vec #'azul-internal::%az-css-declaration-vec-copy-from-ptr 'azul-internal::az-css-declaration (list (azul-internal::%az-css-declaration-static (azul-internal::%az-css-property-font-weight (azul-internal::%az-style-font-weight-number (azul-internal::%az-float-value-create 700.0))))))
           'azul-internal::conditions
           (azul-internal::%az-dynamic-selector-vec-create)
           'azul-internal::priority
@@ -182,7 +182,7 @@
             )
           )
           'azul-internal::declarations
-          (css-vec #'azul-internal::%az-css-declaration-vec-copy-from-ptr 'azul-internal::az-css-declaration (list (azul-internal::%az-css-declaration-static (azul-internal::%az-css-property-font-style :italic))))
+          (css-vec #'azul-internal::%az-css-declaration-vec-copy-from-ptr 'azul-internal::az-css-declaration (list (azul-internal::%az-css-declaration-static (azul-internal::%az-css-property-font-style (azul-internal::%az-style-font-style-italic)))))
           'azul-internal::conditions
           (azul-internal::%az-dynamic-selector-vec-create)
           'azul-internal::priority

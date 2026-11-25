@@ -36,13 +36,13 @@ End Function
 ' CSS: #main>.title
 Function StyleMainTitle() As AzCssPropertyWithConditionsVec
     Dim t1(0 To 0) As AzCssPropertyWithConditions
-    t1(0) = AzCssPropertyWithConditions_simple(AzCssProperty_fontWeight(AzStyleFontWeight_Bold))
+    t1(0) = AzCssPropertyWithConditions_simple(AzCssProperty_fontWeight(AzStyleFontWeight_number(AzFloatValue_create(700.0))))
     Return AzCssPropertyWithConditionsVec_copyFromPtr(@t1(0), 1)
 End Function
 
 ' CSS: div .note:first
 Function StyleDivNoteFirst() As AzCssPropertyWithConditionsVec
     Dim t1(0 To 0) As AzCssPropertyWithConditions
-    t1(0) = AzCssPropertyWithConditions_simple(AzCssProperty_fontStyle(AzStyleFontStyle_Italic))
+    t1(0) = AzCssPropertyWithConditions_simple(AzCssProperty_fontStyle(AzStyleFontStyle_italic()))
     Return AzCssPropertyWithConditionsVec_copyFromPtr(@t1(0), 1)
 End Function

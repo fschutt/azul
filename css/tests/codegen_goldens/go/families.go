@@ -16,11 +16,21 @@ func StyleText() azul.AzCssPropertyWithConditionsVec {
 				}[0], 2),
 			),
 		),
-		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontWeight(azul.StyleFontWeight_W600)),
-		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontStyle(azul.StyleFontStyle_Italic)),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontWeight(azul.AzStyleFontWeight_Number(azul.AzFloatValue_create(600.0)))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontStyle(azul.AzStyleFontStyle_Italic())),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontVariantNumeric(azul.AzStyleFontVariantNumeric{LiningNums: false, OldstyleNums: false, ProportionalNums: false, TabularNums: true, DiagonalFractions: false, StackedFractions: false, Ordinal: false, SlashedZero: false})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontVariantCaps(azul.AzStyleFontVariantCapsValue_Exact(azul.StyleFontVariantCaps_SmallCaps))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontFeatureSettings(azul.AzStyleFontFeatureSettingsValue_Exact(azul.AzStyleFontFeatureSettings{Inner: azul.Str("\"liga\" 0, \"tnum\"").Raw()}))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontStretch(azul.AzStyleFontStretchValue_Exact(azul.AzStyleFontStretch{Inner: azul.AzPercentageValue{Number: azul.AzFloatValue_create(87.5)}}))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontVariationSettings(azul.AzStyleFontVariationSettingsValue_Exact(azul.AzStyleFontVariationSettings{Inner: azul.Str("\"wght\" 650, \"wdth\" 87.5").Raw()}))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontOpticalSizing(azul.AzStyleFontOpticalSizingValue_Exact(azul.StyleFontOpticalSizing_None))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontKerning(azul.AzStyleFontKerningValue_Exact(azul.StyleFontKerning_None))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontVariantLigatures(azul.AzStyleFontVariantLigaturesValue_Exact(azul.AzStyleFontVariantLigatures{Common: azul.StyleFontLigatureChoice_Off, Discretionary: azul.StyleFontLigatureChoice_On, Historical: azul.StyleFontLigatureChoice_Unset, Contextual: azul.StyleFontLigatureChoice_Unset}))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontVariantEastAsian(azul.AzStyleFontVariantEastAsianValue_Exact(azul.AzStyleFontVariantEastAsian{Jis78: true, Jis83: false, Jis90: false, Jis04: false, Simplified: false, Traditional: false, FullWidth: true, ProportionalWidth: false, Ruby: true}))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontSynthesisWeight(azul.AzStyleFontSynthesisValue_Exact(azul.StyleFontSynthesis_None))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontSynthesisStyle(azul.AzStyleFontSynthesisValue_Exact(azul.StyleFontSynthesis_None))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontSynthesisSmallCaps(azul.AzStyleFontSynthesisValue_Exact(azul.StyleFontSynthesis_Auto))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontSynthesisPosition(azul.AzStyleFontSynthesisValue_Exact(azul.StyleFontSynthesis_None))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_textAlign(azul.StyleTextAlign_Center)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_textJustify(azul.LayoutTextJustify_InterWord)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_verticalAlign(azul.AzStyleVerticalAlign_Middle())),
@@ -62,15 +72,47 @@ func StyleText() azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_selectionBackgroundColor(azul.AzSelectionBackgroundColor{Inner: azul.AzColorU{R: 51, G: 153, B: 255, A: 255}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_selectionColor(azul.AzSelectionColor{Inner: azul.AzColorU{R: 255, G: 255, B: 255, A: 255}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_SelectionRadius(azul.AzSelectionRadiusValue_Exact(azul.AzSelectionRadius{Inner: azul.AzPixelValue_px(3.0)}))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_font(azul.AzStyleFontFamilyVec_copyFromPtr(&[]azul.AzStyleFontFamily{azul.AzStyleFontFamily_System(azul.Str("caption").Raw())}[0], 1))),
+	}[0], 60)
+}
+
+// CSS: .shorthands
+func StyleShorthands() azul.AzCssPropertyWithConditionsVec {
+	return azul.AzCssPropertyWithConditionsVec_copyFromPtr(&[]azul.AzCssPropertyWithConditions{
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontStyle(azul.AzStyleFontStyle_Italic())),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontVariantCaps(azul.AzStyleFontVariantCapsValue_Exact(azul.StyleFontVariantCaps_SmallCaps))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontWeight(azul.AzStyleFontWeight_Number(azul.AzFloatValue_create(350.0)))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontStretch(azul.AzStyleFontStretchValue_Exact(azul.AzStyleFontStretch{Inner: azul.AzPercentageValue{Number: azul.AzFloatValue_create(75.0)}}))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontSize(azul.AzStyleFontSize{Inner: azul.AzPixelValue_px(14.0)})),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_lineHeight(azul.AzStyleLineHeight_Number(azul.AzFloatValue_create(1.5)))),
 		azul.AzCssPropertyWithConditions_simple(
-			azul.AzCssProperty_font(
+			azul.AzCssProperty_fontFamily(
 				azul.AzStyleFontFamilyVec_copyFromPtr(&[]azul.AzStyleFontFamily{
 					azul.AzStyleFontFamily_System(azul.Str("Georgia").Raw()),
 					azul.AzStyleFontFamily_System(azul.Str("serif").Raw()),
 				}[0], 2),
 			),
 		),
-	}[0], 50)
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.CssPropertyType_FontVariantNumeric)),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.CssPropertyType_FontVariantLigatures)),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.CssPropertyType_FontVariantEastAsian)),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.CssPropertyType_FontKerning)),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.CssPropertyType_FontOpticalSizing)),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.CssPropertyType_FontVariationSettings)),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.CssPropertyType_FontFeatureSettings)),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.CssPropertyType_FontSynthesisWeight)),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.CssPropertyType_FontSynthesisStyle)),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.CssPropertyType_FontSynthesisSmallCaps)),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.CssPropertyType_FontSynthesisPosition)),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontVariantNumeric(azul.AzStyleFontVariantNumeric{LiningNums: false, OldstyleNums: true, ProportionalNums: false, TabularNums: false, DiagonalFractions: false, StackedFractions: false, Ordinal: false, SlashedZero: false})),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontVariantCaps(azul.AzStyleFontVariantCapsValue_Exact(azul.StyleFontVariantCaps_Normal))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontVariantLigatures(azul.AzStyleFontVariantLigaturesValue_Exact(azul.AzStyleFontVariantLigatures{Common: azul.StyleFontLigatureChoice_Unset, Discretionary: azul.StyleFontLigatureChoice_Unset, Historical: azul.StyleFontLigatureChoice_Unset, Contextual: azul.StyleFontLigatureChoice_Unset}))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontVariantEastAsian(azul.AzStyleFontVariantEastAsianValue_Exact(azul.AzStyleFontVariantEastAsian{Jis78: true, Jis83: false, Jis90: false, Jis04: false, Simplified: false, Traditional: false, FullWidth: false, ProportionalWidth: false, Ruby: false}))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontSynthesisWeight(azul.AzStyleFontSynthesisValue_Exact(azul.StyleFontSynthesis_Auto))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontSynthesisStyle(azul.AzStyleFontSynthesisValue_Exact(azul.StyleFontSynthesis_Auto))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontSynthesisSmallCaps(azul.AzStyleFontSynthesisValue_Exact(azul.StyleFontSynthesis_None))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontSynthesisPosition(azul.AzStyleFontSynthesisValue_Exact(azul.StyleFontSynthesis_None))),
+	}[0], 26)
 }
 
 // CSS: .box

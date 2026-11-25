@@ -96,12 +96,12 @@ fn stylesheet() azul.AzCss {
 	t38[0] = C.AzCssPathSelector_id(azul.az_str('main'))
 	t38[1] = C.AzCssPathSelector_directChildren()
 	t38[2] = C.AzCssPathSelector_class(azul.az_str('title'))
-	t39[0] = C.AzCssDeclaration_static(C.AzCssProperty_fontWeight(azul.AzStyleFontWeight.Bold))
+	t39[0] = C.AzCssDeclaration_static(C.AzCssProperty_fontWeight(C.AzStyleFontWeight_number(C.AzFloatValue_create(700.0))))
 	t40[0] = C.AzCssPathSelector_type(azul.AzNodeTypeTag.Div)
 	t40[1] = C.AzCssPathSelector_children()
 	t40[2] = C.AzCssPathSelector_class(azul.az_str('note'))
 	t40[3] = C.AzCssPathSelector_pseudoSelector(C.AzCssPathPseudoSelector_first())
-	t41[0] = C.AzCssDeclaration_static(C.AzCssProperty_fontStyle(azul.AzStyleFontStyle.Italic))
+	t41[0] = C.AzCssDeclaration_static(C.AzCssProperty_fontStyle(C.AzStyleFontStyle_italic()))
 	t42[0] = azul.AzCssRuleBlock{ path: azul.AzCssPath{ selectors: C.AzCssPathSelectorVec_copyFromPtr(unsafe { &t1[0] }, 1) }, declarations: C.AzCssDeclarationVec_copyFromPtr(unsafe { &t2[0] }, 1), conditions: C.AzDynamicSelectorVec_create(), priority: 20 }
 	t42[1] = azul.AzCssRuleBlock{ path: azul.AzCssPath{ selectors: C.AzCssPathSelectorVec_copyFromPtr(unsafe { &t3[0] }, 2) }, declarations: C.AzCssDeclarationVec_copyFromPtr(unsafe { &t4[0] }, 1), conditions: C.AzDynamicSelectorVec_create(), priority: 20 }
 	t42[2] = azul.AzCssRuleBlock{ path: azul.AzCssPath{ selectors: C.AzCssPathSelectorVec_copyFromPtr(unsafe { &t5[0] }, 2) }, declarations: C.AzCssDeclarationVec_copyFromPtr(unsafe { &t6[0] }, 1), conditions: C.AzDynamicSelectorVec_create(), priority: 20 }

@@ -196,7 +196,7 @@ pub fn get_element_font_size_in_viewport(
 /// "nothing declared" for every node, in every state, and need not be asked.
 /// `false` without a compact cache (nothing is known).
 #[must_use]
-pub(crate) fn dom_declares_nothing_of(styled_dom: &StyledDom, flag: u32) -> bool {
+pub(crate) fn dom_declares_nothing_of(styled_dom: &StyledDom, flag: u64) -> bool {
     styled_dom
         .css_property_cache
         .ptr
@@ -2078,7 +2078,7 @@ pub fn get_computed_font_weight(
 ) -> StyleFontWeight {
     let own = match get_font_weight_property(styled_dom, node_id, node_state) {
         MultiValue::Exact(weight) => weight,
-        _ => StyleFontWeight::Normal,
+        _ => StyleFontWeight::NORMAL,
     };
     if !own.is_relative() {
         return own;
@@ -2088,7 +2088,7 @@ pub fn get_computed_font_weight(
         .as_container()
         .get(node_id)
         .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
-        .map_or(StyleFontWeight::Normal, |parent_id| {
+        .map_or(StyleFontWeight::NORMAL, |parent_id| {
             let parent_state = &styled_dom.styled_nodes.as_container()[parent_id].styled_node_state;
             get_computed_font_weight(styled_dom, parent_id, parent_state)
         });
@@ -4221,7 +4221,7 @@ struct StyleInputs {
     /// The system style the platform's font names come from, by the address
     /// of its `Arc` (0: none). The pass that owns the memo holds the `Arc`.
     system_style: usize,
-    /// The tier-1 enums, whole: `font-weight`, `font-style`, `display`.
+    /// The tier-1 enums, whole: `font-style`, `display`.
     tier1: u64,
     /// `CompactNodeProps::font_size`, as encoded.
     font_size: u32,
@@ -4229,10 +4229,14 @@ struct StyleInputs {
     /// inherited size, an `em` and a `rem` resolve against.
     parent_font_size_px: u32,
     root_font_size_px: u32,
-    /// `CompactTextProps`: the colour, the family list, the line height and
-    /// the two spacings, as encoded.
+    /// `CompactTextProps`: the colour, the family list, the weight, the width
+    /// and the slant of the font, the line height and the two spacings, as
+    /// encoded.
     text_color: u32,
     font_family_hash: u64,
+    font_weight: u16,
+    font_stretch: u16,
+    font_oblique: i16,
     line_height: i16,
     letter_spacing: azul_css::compact_cache::PxSlot,
     word_spacing: azul_css::compact_cache::PxSlot,
@@ -4320,7 +4324,7 @@ fn style_inputs_of(
         || text.letter_spacing >= compact::PX_SLOT_THRESHOLD
         || text.word_spacing >= compact::PX_SLOT_THRESHOLD
         || cold.hot_flags & compact::HOT_FLAG_HAS_TEXT_DECORATION != 0
-        || compact::decode_font_weight(tier1).is_relative()
+        || compact::decode_font_weight_slot(text.font_weight).is_relative()
     {
         return None;
     }
@@ -4391,6 +4395,9 @@ fn style_inputs_of(
         root_font_size_px: get_root_font_size(styled_dom, node_state).to_bits(),
         text_color: text.text_color,
         font_family_hash: text.font_family_hash,
+        font_weight: text.font_weight,
+        font_stretch: text.font_stretch,
+        font_oblique: text.font_oblique,
         line_height: text.line_height,
         letter_spacing: text.letter_spacing,
         word_spacing: text.word_spacing,
@@ -5085,7 +5092,7 @@ pub fn get_style_properties_for_state_with(
 
     // `font-variant-caps` and `font-feature-settings` (both inherited), each
     // read only on a DOM that declares it somewhere, like font-variant-numeric.
-    let declared = |flag: u32| {
+    let declared = |flag: u64| {
         cache
             .compact_cache
             .as_ref()

@@ -15,5 +15,5 @@ styleBtn = sequence
     (CssPropertyWithConditions.simple (T.CssProperty_FlexGrow (T.LayoutFlexGrowValue_Exact (T.LayoutFlexGrow (T.FloatValue 1000))))),
     (CssPropertyWithConditions.simple (T.CssProperty_MinWidth T.LayoutMinWidthValue_Inherit)),
     (CssPropertyWithConditions.simple (T.CssProperty_WhiteSpace (T.StyleWhiteSpaceValue_Exact T.StyleWhiteSpace_Nowrap))),
-    (CssPropertyWithConditions.onHover (T.CssProperty_FontWeight (T.StyleFontWeightValue_Exact T.StyleFontWeight_Bold)))
+    (CssPropertyWithConditions.onHover (T.CssProperty_FontWeight (T.StyleFontWeightValue_Exact (T.StyleFontWeight_Number (T.FloatValue 700000)))))
   ]

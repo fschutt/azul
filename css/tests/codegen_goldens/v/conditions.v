@@ -39,13 +39,13 @@ fn style_list_li_nth_child_2() azul.AzCssPropertyWithConditionsVec {
 // CSS: #main>.title
 fn style_main_title() azul.AzCssPropertyWithConditionsVec {
 	mut t1 := [1]azul.AzCssPropertyWithConditions{}
-	t1[0] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontWeight(azul.AzStyleFontWeight.Bold))
+	t1[0] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontWeight(C.AzStyleFontWeight_number(C.AzFloatValue_create(700.0))))
 	return C.AzCssPropertyWithConditionsVec_copyFromPtr(unsafe { &t1[0] }, 1)
 }
 
 // CSS: div .note:first
 fn style_div_note_first() azul.AzCssPropertyWithConditionsVec {
 	mut t1 := [1]azul.AzCssPropertyWithConditions{}
-	t1[0] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontStyle(azul.AzStyleFontStyle.Italic))
+	t1[0] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontStyle(C.AzStyleFontStyle_italic()))
 	return C.AzCssPropertyWithConditionsVec_copyFromPtr(unsafe { &t1[0] }, 1)
 }

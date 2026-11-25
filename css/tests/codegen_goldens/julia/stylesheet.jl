@@ -129,7 +129,7 @@ function stylesheet()
                         Azul.AzCssPathSelector_class(Azul.az_string("title"))
                     )
                 ),
-                az_vec(Azul.AzCssDeclarationVec_copyFromPtr, Azul.AzCssDeclaration, Azul.AzCssDeclaration_static(Azul.AzCssProperty_fontWeight(Azul.AzStyleFontWeight_Bold))),
+                az_vec(Azul.AzCssDeclarationVec_copyFromPtr, Azul.AzCssDeclaration, Azul.AzCssDeclaration_static(Azul.AzCssProperty_fontWeight(Azul.AzStyleFontWeight_number(Azul.AzFloatValue_create(700.0f0))))),
                 Azul.AzDynamicSelectorVec_create(),
                 20
             ),
@@ -144,7 +144,7 @@ function stylesheet()
                         Azul.AzCssPathSelector_pseudoSelector(Azul.AzCssPathPseudoSelector_first())
                     )
                 ),
-                az_vec(Azul.AzCssDeclarationVec_copyFromPtr, Azul.AzCssDeclaration, Azul.AzCssDeclaration_static(Azul.AzCssProperty_fontStyle(Azul.AzStyleFontStyle_Italic))),
+                az_vec(Azul.AzCssDeclarationVec_copyFromPtr, Azul.AzCssDeclaration, Azul.AzCssDeclaration_static(Azul.AzCssProperty_fontStyle(Azul.AzStyleFontStyle_italic()))),
                 Azul.AzDynamicSelectorVec_create(),
                 20
             )

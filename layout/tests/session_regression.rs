@@ -490,11 +490,11 @@ fn test_global_star_font_weight_applied() {
 
     // nodes: 0=body, 1=div
     let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
-    let div_fw = (cc.tier1_enums[1] >> azul_css::compact_cache::FONT_WEIGHT_SHIFT)
-        & azul_css::compact_cache::FONT_WEIGHT_MASK;
-    assert!(
-        div_fw != 0,
-        "div should be bold from *, got encoded {div_fw}"
+    let div_fw = cc.get_font_weight(1);
+    assert_eq!(
+        div_fw,
+        azul_css::props::basic::font::StyleFontWeight::BOLD,
+        "div should be bold from *, got {div_fw:?}"
     );
 }
 

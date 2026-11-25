@@ -18,5 +18,5 @@ proc styleBtn*(): AzCssPropertyWithConditionsVec =
     AzCssPropertyWithConditions_simple(AzCssProperty_flexGrow(AzLayoutFlexGrow(inner: AzFloatValue_create(1.0)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_inherit(AzCssPropertyType.MinWidth)),
     AzCssPropertyWithConditions_simple(AzCssProperty_whiteSpace(AzStyleWhiteSpaceValue(Exact: AzStyleWhiteSpaceValueVariant_Exact(tag: 6, payload: AzStyleWhiteSpace.Nowrap)))),
-    AzCssPropertyWithConditions_onHover(AzCssProperty_fontWeight(AzStyleFontWeight.Bold)),
+    AzCssPropertyWithConditions_onHover(AzCssProperty_fontWeight(AzStyleFontWeight_number(AzFloatValue_create(700.0)))),
   ])

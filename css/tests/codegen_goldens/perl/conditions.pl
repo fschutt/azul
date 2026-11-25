@@ -41,14 +41,14 @@ sub style_list_li_nth_child_2 {
 # CSS: #main>.title
 sub style_main_title {
     return [
-        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_fontWeight(Azul::AzStyleFontWeight::Bold())),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_fontWeight(Azul::FFI::AzStyleFontWeight_number(Azul::FFI::AzFloatValue_create(700.0)))),
     ];
 }
 
 # CSS: div .note:first
 sub style_div_note_first {
     return [
-        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_fontStyle(Azul::AzStyleFontStyle::Italic())),
+        Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_fontStyle(Azul::FFI::AzStyleFontStyle_italic())),
     ];
 }
 

@@ -69,7 +69,7 @@
     css-property-with-conditions-vec-copy-from-ptr
     _AzCssPropertyWithConditions
     (list
-      (css-property-with-conditions-simple (css-property-font-weight AzStyleFontWeight_Bold))
+      (css-property-with-conditions-simple (css-property-font-weight (style-font-weight-number (float-value-create 700.0))))
     )
   ))
 
@@ -79,6 +79,6 @@
     css-property-with-conditions-vec-copy-from-ptr
     _AzCssPropertyWithConditions
     (list
-      (css-property-with-conditions-simple (css-property-font-style AzStyleFontStyle_Italic))
+      (css-property-with-conditions-simple (css-property-font-style (style-font-style-italic)))
     )
   ))

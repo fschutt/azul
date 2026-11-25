@@ -44,14 +44,14 @@ function styleListLiNthChild2() {
 // CSS: #main>.title
 function styleMainTitle() {
     return new azul.CssPropertyWithConditionsVec(lib.AzCssPropertyWithConditionsVec_copyFromPtr([
-        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontWeight(azul.StyleFontWeight.Bold)),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontWeight(lib.AzStyleFontWeight_number(lib.AzFloatValue_create(700.0)))),
     ], 1));
 }
 
 // CSS: div .note:first
 function styleDivNoteFirst() {
     return new azul.CssPropertyWithConditionsVec(lib.AzCssPropertyWithConditionsVec_copyFromPtr([
-        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontStyle(azul.StyleFontStyle.Italic)),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontStyle(lib.AzStyleFontStyle_italic())),
     ], 1));
 }
 

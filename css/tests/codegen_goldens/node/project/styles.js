@@ -12,7 +12,7 @@ function styleBtn() {
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_flexGrow({ inner: lib.AzFloatValue_create(1.0) })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_inherit(azul.CssPropertyType.MinWidth)),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_whiteSpace({ Exact: { tag: 6, payload: azul.StyleWhiteSpace.Nowrap } })),
-        lib.AzCssPropertyWithConditions_onHover(lib.AzCssProperty_fontWeight(azul.StyleFontWeight.Bold)),
+        lib.AzCssPropertyWithConditions_onHover(lib.AzCssProperty_fontWeight(lib.AzStyleFontWeight_number(lib.AzFloatValue_create(700.0)))),
     ], 7));
 }
 

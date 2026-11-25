@@ -45,7 +45,7 @@ contains
   function style_main_title() result(r)
     type(AzCssPropertyWithConditionsVec) :: r
     type(AzCssPropertyWithConditions), target :: t1(1)
-    t1(1) = az_css_property_with_conditions_simple(az_css_property_font_weight(StyleFontWeight_Bold))
+    t1(1) = az_css_property_with_conditions_simple(az_css_property_font_weight(az_style_font_weight_number(az_float_value_create(700.0_c_float))))
     r = az_css_property_with_conditions_vec_copy_from_ptr(c_loc(t1(1)), 1_c_size_t)
   end function style_main_title
 
@@ -53,7 +53,7 @@ contains
   function style_div_note_first() result(r)
     type(AzCssPropertyWithConditionsVec) :: r
     type(AzCssPropertyWithConditions), target :: t1(1)
-    t1(1) = az_css_property_with_conditions_simple(az_css_property_font_style(StyleFontStyle_Italic))
+    t1(1) = az_css_property_with_conditions_simple(az_css_property_font_style(az_style_font_style_italic()))
     r = az_css_property_with_conditions_vec_copy_from_ptr(c_loc(t1(1)), 1_c_size_t)
   end function style_div_note_first
 

@@ -46,11 +46,21 @@ function Get-StyleText {
                 ))
             )
         ),
-        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontWeight([Azul.StyleFontWeight]::W600)),
-        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontStyle([Azul.StyleFontStyle]::Italic)),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontWeight([Azul.NativeMethods]::AzStyleFontWeight_number([Azul.NativeMethods]::AzFloatValue_create([float]600.0)))),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontStyle([Azul.NativeMethods]::AzStyleFontStyle_italic())),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontVariantNumeric([Azul.AzStyleFontVariantNumeric]@{ lining_nums = $false; oldstyle_nums = $false; proportional_nums = $false; tabular_nums = $true; diagonal_fractions = $false; stacked_fractions = $false; ordinal = $false; slashed_zero = $false })),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontVariantCaps([Azul.AzStyleFontVariantCapsValue]@{ Exact = [Azul.AzStyleFontVariantCapsValueVariant_Exact]@{ tag = [Azul.AzStyleFontVariantCapsValue_Tag]::Exact; payload = [Azul.StyleFontVariantCaps]::SmallCaps } })),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontFeatureSettings([Azul.AzStyleFontFeatureSettingsValue]@{ Exact = [Azul.AzStyleFontFeatureSettingsValueVariant_Exact]@{ tag = [Azul.AzStyleFontFeatureSettingsValue_Tag]::Exact; payload = [Azul.AzStyleFontFeatureSettings]@{ inner = (New-CssString '"liga" 0, "tnum"') } } })),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontStretch([Azul.AzStyleFontStretchValue]@{ Exact = [Azul.AzStyleFontStretchValueVariant_Exact]@{ tag = [Azul.AzStyleFontStretchValue_Tag]::Exact; payload = [Azul.AzStyleFontStretch]@{ inner = [Azul.AzPercentageValue]@{ number = [Azul.NativeMethods]::AzFloatValue_create([float]87.5) } } } })),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontVariationSettings([Azul.AzStyleFontVariationSettingsValue]@{ Exact = [Azul.AzStyleFontVariationSettingsValueVariant_Exact]@{ tag = [Azul.AzStyleFontVariationSettingsValue_Tag]::Exact; payload = [Azul.AzStyleFontVariationSettings]@{ inner = (New-CssString '"wght" 650, "wdth" 87.5') } } })),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontOpticalSizing([Azul.AzStyleFontOpticalSizingValue]@{ Exact = [Azul.AzStyleFontOpticalSizingValueVariant_Exact]@{ tag = [Azul.AzStyleFontOpticalSizingValue_Tag]::Exact; payload = [Azul.StyleFontOpticalSizing]::None } })),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontKerning([Azul.AzStyleFontKerningValue]@{ Exact = [Azul.AzStyleFontKerningValueVariant_Exact]@{ tag = [Azul.AzStyleFontKerningValue_Tag]::Exact; payload = [Azul.StyleFontKerning]::None } })),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontVariantLigatures([Azul.AzStyleFontVariantLigaturesValue]@{ Exact = [Azul.AzStyleFontVariantLigaturesValueVariant_Exact]@{ tag = [Azul.AzStyleFontVariantLigaturesValue_Tag]::Exact; payload = [Azul.AzStyleFontVariantLigatures]@{ common = [Azul.StyleFontLigatureChoice]::Off; discretionary = [Azul.StyleFontLigatureChoice]::On; historical = [Azul.StyleFontLigatureChoice]::Unset; contextual = [Azul.StyleFontLigatureChoice]::Unset } } })),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontVariantEastAsian([Azul.AzStyleFontVariantEastAsianValue]@{ Exact = [Azul.AzStyleFontVariantEastAsianValueVariant_Exact]@{ tag = [Azul.AzStyleFontVariantEastAsianValue_Tag]::Exact; payload = [Azul.AzStyleFontVariantEastAsian]@{ jis78 = $true; jis83 = $false; jis90 = $false; jis04 = $false; simplified = $false; traditional = $false; full_width = $true; proportional_width = $false; ruby = $true } } })),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontSynthesisWeight([Azul.AzStyleFontSynthesisValue]@{ Exact = [Azul.AzStyleFontSynthesisValueVariant_Exact]@{ tag = [Azul.AzStyleFontSynthesisValue_Tag]::Exact; payload = [Azul.StyleFontSynthesis]::None } })),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontSynthesisStyle([Azul.AzStyleFontSynthesisValue]@{ Exact = [Azul.AzStyleFontSynthesisValueVariant_Exact]@{ tag = [Azul.AzStyleFontSynthesisValue_Tag]::Exact; payload = [Azul.StyleFontSynthesis]::None } })),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontSynthesisSmallCaps([Azul.AzStyleFontSynthesisValue]@{ Exact = [Azul.AzStyleFontSynthesisValueVariant_Exact]@{ tag = [Azul.AzStyleFontSynthesisValue_Tag]::Exact; payload = [Azul.StyleFontSynthesis]::Auto } })),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontSynthesisPosition([Azul.AzStyleFontSynthesisValue]@{ Exact = [Azul.AzStyleFontSynthesisValueVariant_Exact]@{ tag = [Azul.AzStyleFontSynthesisValue_Tag]::Exact; payload = [Azul.StyleFontSynthesis]::None } })),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_textAlign([Azul.StyleTextAlign]::Center)),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_textJustify([Azul.LayoutTextJustify]::InterWord)),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_verticalAlign([Azul.NativeMethods]::AzStyleVerticalAlign_middle())),
@@ -92,14 +102,46 @@ function Get-StyleText {
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_selectionBackgroundColor([Azul.AzSelectionBackgroundColor]@{ inner = [Azul.AzColorU]@{ r = [byte]51; g = [byte]153; b = [byte]255; a = [byte]255 } })),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_selectionColor([Azul.AzSelectionColor]@{ inner = [Azul.AzColorU]@{ r = [byte]255; g = [byte]255; b = [byte]255; a = [byte]255 } })),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_selectionRadius([Azul.AzSelectionRadiusValue]@{ Exact = [Azul.AzSelectionRadiusValueVariant_Exact]@{ tag = [Azul.AzSelectionRadiusValue_Tag]::Exact; payload = [Azul.AzSelectionRadius]@{ inner = [Azul.NativeMethods]::AzPixelValue_px([float]3.0) } } })),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_font((New-CssVec 'AzStyleFontFamilyVec_copyFromPtr' ([Azul.AzStyleFontFamily]) @([Azul.NativeMethods]::AzStyleFontFamily_system((New-CssString 'caption'))))))
+    ))
+}
+
+# CSS: .shorthands
+function Get-StyleShorthands {
+    return (New-CssVec 'AzCssPropertyWithConditionsVec_copyFromPtr' ([Azul.AzCssPropertyWithConditions]) @(
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontStyle([Azul.NativeMethods]::AzStyleFontStyle_italic())),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontVariantCaps([Azul.AzStyleFontVariantCapsValue]@{ Exact = [Azul.AzStyleFontVariantCapsValueVariant_Exact]@{ tag = [Azul.AzStyleFontVariantCapsValue_Tag]::Exact; payload = [Azul.StyleFontVariantCaps]::SmallCaps } })),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontWeight([Azul.NativeMethods]::AzStyleFontWeight_number([Azul.NativeMethods]::AzFloatValue_create([float]350.0)))),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontStretch([Azul.AzStyleFontStretchValue]@{ Exact = [Azul.AzStyleFontStretchValueVariant_Exact]@{ tag = [Azul.AzStyleFontStretchValue_Tag]::Exact; payload = [Azul.AzStyleFontStretch]@{ inner = [Azul.AzPercentageValue]@{ number = [Azul.NativeMethods]::AzFloatValue_create([float]75.0) } } } })),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontSize([Azul.AzStyleFontSize]@{ inner = [Azul.NativeMethods]::AzPixelValue_px([float]14.0) })),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_lineHeight([Azul.NativeMethods]::AzStyleLineHeight_number([Azul.NativeMethods]::AzFloatValue_create([float]1.5)))),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple(
-            [Azul.NativeMethods]::AzCssProperty_font(
+            [Azul.NativeMethods]::AzCssProperty_fontFamily(
                 (New-CssVec 'AzStyleFontFamilyVec_copyFromPtr' ([Azul.AzStyleFontFamily]) @(
                     [Azul.NativeMethods]::AzStyleFontFamily_system((New-CssString 'Georgia')),
                     [Azul.NativeMethods]::AzStyleFontFamily_system((New-CssString 'serif'))
                 ))
             )
-        )
+        ),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_initial([Azul.CssPropertyType]::FontVariantNumeric)),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_initial([Azul.CssPropertyType]::FontVariantLigatures)),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_initial([Azul.CssPropertyType]::FontVariantEastAsian)),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_initial([Azul.CssPropertyType]::FontKerning)),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_initial([Azul.CssPropertyType]::FontOpticalSizing)),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_initial([Azul.CssPropertyType]::FontVariationSettings)),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_initial([Azul.CssPropertyType]::FontFeatureSettings)),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_initial([Azul.CssPropertyType]::FontSynthesisWeight)),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_initial([Azul.CssPropertyType]::FontSynthesisStyle)),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_initial([Azul.CssPropertyType]::FontSynthesisSmallCaps)),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_initial([Azul.CssPropertyType]::FontSynthesisPosition)),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontVariantNumeric([Azul.AzStyleFontVariantNumeric]@{ lining_nums = $false; oldstyle_nums = $true; proportional_nums = $false; tabular_nums = $false; diagonal_fractions = $false; stacked_fractions = $false; ordinal = $false; slashed_zero = $false })),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontVariantCaps([Azul.AzStyleFontVariantCapsValue]@{ Exact = [Azul.AzStyleFontVariantCapsValueVariant_Exact]@{ tag = [Azul.AzStyleFontVariantCapsValue_Tag]::Exact; payload = [Azul.StyleFontVariantCaps]::Normal } })),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontVariantLigatures([Azul.AzStyleFontVariantLigaturesValue]@{ Exact = [Azul.AzStyleFontVariantLigaturesValueVariant_Exact]@{ tag = [Azul.AzStyleFontVariantLigaturesValue_Tag]::Exact; payload = [Azul.AzStyleFontVariantLigatures]@{ common = [Azul.StyleFontLigatureChoice]::Unset; discretionary = [Azul.StyleFontLigatureChoice]::Unset; historical = [Azul.StyleFontLigatureChoice]::Unset; contextual = [Azul.StyleFontLigatureChoice]::Unset } } })),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontVariantEastAsian([Azul.AzStyleFontVariantEastAsianValue]@{ Exact = [Azul.AzStyleFontVariantEastAsianValueVariant_Exact]@{ tag = [Azul.AzStyleFontVariantEastAsianValue_Tag]::Exact; payload = [Azul.AzStyleFontVariantEastAsian]@{ jis78 = $true; jis83 = $false; jis90 = $false; jis04 = $false; simplified = $false; traditional = $false; full_width = $false; proportional_width = $false; ruby = $false } } })),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontSynthesisWeight([Azul.AzStyleFontSynthesisValue]@{ Exact = [Azul.AzStyleFontSynthesisValueVariant_Exact]@{ tag = [Azul.AzStyleFontSynthesisValue_Tag]::Exact; payload = [Azul.StyleFontSynthesis]::Auto } })),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontSynthesisStyle([Azul.AzStyleFontSynthesisValue]@{ Exact = [Azul.AzStyleFontSynthesisValueVariant_Exact]@{ tag = [Azul.AzStyleFontSynthesisValue_Tag]::Exact; payload = [Azul.StyleFontSynthesis]::Auto } })),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontSynthesisSmallCaps([Azul.AzStyleFontSynthesisValue]@{ Exact = [Azul.AzStyleFontSynthesisValueVariant_Exact]@{ tag = [Azul.AzStyleFontSynthesisValue_Tag]::Exact; payload = [Azul.StyleFontSynthesis]::None } })),
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_fontSynthesisPosition([Azul.AzStyleFontSynthesisValue]@{ Exact = [Azul.AzStyleFontSynthesisValueVariant_Exact]@{ tag = [Azul.AzStyleFontSynthesisValue_Tag]::Exact; payload = [Azul.StyleFontSynthesis]::None } }))
     ))
 }
 

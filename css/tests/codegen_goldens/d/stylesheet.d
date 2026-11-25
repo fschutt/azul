@@ -90,7 +90,7 @@ Css stylesheet()
                         CssPathSelector.class_("title"),
                     ]
                 ),
-                [CssDeclaration.static_(CssProperty.fontWeight(StyleFontWeight.bold))],
+                [CssDeclaration.static_(CssProperty.fontWeight(StyleFontWeight.number(FloatValue(700.0f))))],
                 [],
                 20
             ),
@@ -103,7 +103,7 @@ Css stylesheet()
                         CssPathSelector.pseudoSelector(CssPathPseudoSelector.first()),
                     ]
                 ),
-                [CssDeclaration.static_(CssProperty.fontStyle(StyleFontStyle.italic))],
+                [CssDeclaration.static_(CssProperty.fontStyle(StyleFontStyle.italic()))],
                 [],
                 20
             ),

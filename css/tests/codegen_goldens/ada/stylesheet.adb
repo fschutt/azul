@@ -100,12 +100,12 @@ package body Styles is
       t32 (0) := Az_CssPathSelector_Id (To_Az_String ("main"));
       t32 (1) := Az_CssPathSelector_Direct_Children;
       t32 (2) := Az_CssPathSelector_Class (To_Az_String ("title"));
-      t33 (0) := Az_CssDeclaration_Static (Az_CssProperty_Font_Weight (Az_StyleFontWeight'(Bold)));
+      t33 (0) := Az_CssDeclaration_Static (Az_CssProperty_Font_Weight (Az_StyleFontWeight_Number (Az_FloatValue_Create (700.0))));
       t34 (0) := Az_CssPathSelector_Type_K (Az_NodeTypeTag'(Div));
       t34 (1) := Az_CssPathSelector_Children;
       t34 (2) := Az_CssPathSelector_Class (To_Az_String ("note"));
       t34 (3) := Az_CssPathSelector_Pseudo_Selector (Az_CssPathPseudoSelector_First);
-      t35 (0) := Az_CssDeclaration_Static (Az_CssProperty_Font_Style (Az_StyleFontStyle'(Italic)));
+      t35 (0) := Az_CssDeclaration_Static (Az_CssProperty_Font_Style (Az_StyleFontStyle_Italic));
       t36 (0) := Az_CssRuleBlock'(Path => Az_CssPath'(Selectors => Az_CssPathSelectorVec_Copy_From_Ptr (t1 (0)'Address, 1)), Declarations => Az_CssDeclarationVec_Copy_From_Ptr (t2 (0)'Address, 1), Conditions => Az_DynamicSelectorVec_Create, Priority => 20);
       t36 (1) := Az_CssRuleBlock'(Path => Az_CssPath'(Selectors => Az_CssPathSelectorVec_Copy_From_Ptr (t3 (0)'Address, 2)), Declarations => Az_CssDeclarationVec_Copy_From_Ptr (t4 (0)'Address, 1), Conditions => Az_DynamicSelectorVec_Create, Priority => 20);
       t36 (2) := Az_CssRuleBlock'(Path => Az_CssPath'(Selectors => Az_CssPathSelectorVec_Copy_From_Ptr (t5 (0)'Address, 2)), Declarations => Az_CssDeclarationVec_Copy_From_Ptr (t6 (0)'Address, 1), Conditions => Az_DynamicSelectorVec_Create, Priority => 20);

@@ -36,6 +36,16 @@ pub const FAMILIES: &str = r#"
     font-variant-numeric: tabular-nums;
     font-variant-caps: small-caps;
     font-feature-settings: "liga" 0, "tnum";
+    font-stretch: 87.5%;
+    font-variation-settings: "wght" 650, "wdth" 87.5;
+    font-optical-sizing: none;
+    font-kerning: none;
+    font-variant-ligatures: no-common-ligatures discretionary-ligatures;
+    font-variant-east-asian: jis78 full-width ruby;
+    font-synthesis-weight: none;
+    font-synthesis-style: none;
+    font-synthesis-small-caps: auto;
+    font-synthesis-position: none;
     text-align: center;
     text-justify: inter-word;
     vertical-align: middle;
@@ -77,7 +87,12 @@ pub const FAMILIES: &str = r#"
     -azul-selection-background-color: #3399ff;
     -azul-selection-color: #ffffff;
     -azul-selection-radius: 3px;
-    font: Georgia, serif;
+    font: caption;
+}
+.shorthands {
+    font: italic small-caps 350 condensed 14px/1.5 Georgia, serif;
+    font-variant: oldstyle-nums jis78;
+    font-synthesis: weight style;
 }
 .box {
     display: block;

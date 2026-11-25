@@ -11,7 +11,7 @@ module AzulStyles
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.flex_grow(Azul::LayoutFlexGrow.__own(LibAzul::AzLayoutFlexGrow.new(inner: Azul::FloatValue.new(1.0_f32).__take)))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.inherit(Azul::CssPropertyType::MinWidth)),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.white_space(Azul::StyleWhiteSpaceValue::Exact.new(Azul::StyleWhiteSpace::Nowrap))),
-      Azul::CssPropertyWithConditions.on_hover(Azul::CssProperty.font_weight(Azul::StyleFontWeight::Bold)),
+      Azul::CssPropertyWithConditions.on_hover(Azul::CssProperty.font_weight(Azul::StyleFontWeight.number(Azul::FloatValue.new(700.0_f32)))),
     ] of Azul::CssPropertyWithConditions
   end
 end
