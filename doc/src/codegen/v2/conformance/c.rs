@@ -313,3 +313,7 @@ pub fn render(plan: &ConformancePlan) -> String {
     );
     o
 }
+
+#[cfg(test)]
+#[path = "c_test.rs"]
+mod tests;
