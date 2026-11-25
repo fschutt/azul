@@ -3318,13 +3318,17 @@ impl Texture {
             let t = if n == 0 { 1.0 } else { i as f32 / n as f32 };
             let px = x0 + dx * t;
             let py = y0 + dy * t;
-            // dab bbox -> NDC; y is flipped so (0,0) is top-left like the CPU path.
+            // dab bbox -> NDC. The texture's y runs down as the rows of its memory do (row 0 is
+            // the top, as the SVG shader and the compositor read it): (0, 0) is the top-left like
+            // the CPU path. The picture a stroke made showed upside down in a window drawn by
+            // WebRender when y was flipped here.
             let nx = |x: f32| (x / tw) * 2.0 - 1.0;
-            let ny = |y: f32| 1.0 - (y / th) * 2.0;
+            let ny = |y: f32| (y / th) * 2.0 - 1.0;
             let (l, rr, tp, bt) = (nx(px - r), nx(px + r), ny(py - r), ny(py + r));
-            // TRIANGLE_STRIP: TL, BL, TR, BR -- interleaved (pos.x, pos.y, uv.x, uv.y).
+            // TRIANGLE_STRIP, counter-clockwise in NDC (y up): row-0 side first -- interleaved
+            // (pos.x, pos.y, uv.x, uv.y).
             let verts: [f32; 16] = [
-                l, tp, -1.0, -1.0, l, bt, -1.0, 1.0, rr, tp, 1.0, -1.0, rr, bt, 1.0, 1.0,
+                l, tp, -1.0, -1.0, rr, tp, 1.0, -1.0, l, bt, -1.0, 1.0, rr, bt, 1.0, 1.0,
             ];
             gl.buffer_data_untyped(
                 gl::ARRAY_BUFFER,
@@ -3362,7 +3366,8 @@ impl Texture {
     }
 
     /// Read this texture's pixels back into an RGBA8 `RawImage` (top-left origin)
-    /// -- for exporting the painted canvas to disk. Binds an FBO + glReadPixels.
+    /// -- for exporting the painted canvas to disk. Binds an FBO + glReadPixels,
+    /// and puts the framebuffer binding back as it found it.
     #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // OpenGL/graphics binding: GL-bounded numeric casts
     #[must_use]
     pub fn copy_to_raw_image(&self) -> RawImage {
@@ -3375,6 +3380,7 @@ impl Texture {
         if fbo == 0 {
             return RawImage::null_image();
         }
+        let saved = GlStateSave::save(&gl);
         gl.bind_framebuffer(gl::FRAMEBUFFER, fbo);
         gl.framebuffer_texture_2d(
             gl::FRAMEBUFFER,
@@ -3384,22 +3390,12 @@ impl Texture {
             0,
         );
         let pixels = gl.read_pixels(0, 0, w, h, gl::RGBA, gl::UNSIGNED_BYTE);
-        gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
+        saved.restore(&gl);
         gl.delete_framebuffers((&[fbo][..]).into());
 
-        // glReadPixels uses a bottom-left origin; flip rows to top-left for saving.
-        let mut bytes = pixels.into_library_owned_vec();
-        let row = (w as usize) * 4;
-        let hh = h as usize;
-        if row > 0 && bytes.len() >= row * hh {
-            for y in 0..hh / 2 {
-                let yi = y * row;
-                let yo = (hh - 1 - y) * row;
-                for k in 0..row {
-                    bytes.swap(yi + k, yo + k);
-                }
-            }
-        }
+        // The rows come in the order of the texture's memory: row 0 is the top (the order
+        // `paint_stroke` paints in and the compositor shows), so there is nothing to flip.
+        let bytes = pixels.into_library_owned_vec();
         RawImage {
             pixels: RawImageData::U8(bytes.into()),
             width: w as usize,
