@@ -57,6 +57,13 @@ mod l10n;
 mod l10n_tests;
 pub mod model;
 pub mod perf;
+pub mod recorder_clock;
+pub mod recorder_events;
+pub mod recorder_manifest;
+pub mod recorder_mp4;
+pub mod recorder_policy;
+pub mod recorder_settings;
+pub mod recorder_track;
 pub mod session;
 /// The pen strokes every gesture is tested on (a loop, a slash, an underline, a scribble): shared by the
 /// whiteboard's lasso and the quick slash that deletes a word.
