@@ -71,6 +71,6 @@ rustls-rustcrypto = { package = "rustls-rustcrypto-azul", version = "0.1.0" }
 webpki-roots = "1.0"
 libc = "0.2"
 nanospinner = "0.3"
-rust-fontconfig = { version = "5.1", default-features = false, features = ["std", "parsing", "async-registry"] }
+rust-fontconfig = { version = "5.2", default-features = false, features = ["std", "parsing", "async-registry"] }
 tungstenite = "0.24"
 sha2 = "0.10"
