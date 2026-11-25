@@ -244,6 +244,9 @@ pub fn upload_rgba(gl: &GlContextPtr, texture_id: u32, frame: &VideoFrame) {
 pub struct CaptureRequest {
     /// Camera device index / display index (0 = default).
     pub index: u32,
+    /// Screens: the display by the system's own id (`0`: by `index`). On macOS the
+    /// `CGDirectDisplayID`; a backend that cannot tell displays by id uses the primary display.
+    pub display_id: u32,
     /// A specific window to capture by platform id (`0` = the whole source).
     /// Screens only; cameras ignore it.
     pub window: u64,
@@ -259,6 +262,8 @@ pub struct CaptureRequest {
     /// repaint is a screen change, which emits a frame, which repaints the
     /// tile, ... — a steady 30 fps on an idle desktop.
     pub exclude_self: bool,
+    /// Screens: whether the cursor is in the picture (cameras ignore it).
+    pub show_cursor: bool,
     /// The pixel format the widget asked for (its config's
     /// `output_format`). A backend that can produce it without a conversion
     /// delivers it ([`CaptureRead::FrameIn`]: BGRA8 or NV12 on Apple); one
@@ -273,11 +278,13 @@ impl CaptureRequest {
     pub const fn new(index: u32, width: u32, height: u32) -> Self {
         Self {
             index,
+            display_id: 0,
             window: 0,
             width,
             height,
             fps: 0,
             exclude_self: true,
+            show_cursor: true,
             format: azul_core::resources::RawImageFormat::RGBA8,
         }
     }

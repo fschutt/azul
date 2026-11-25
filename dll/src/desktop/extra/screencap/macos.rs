@@ -364,13 +364,14 @@ unsafe fn make_config(
     height: usize,
     fps: u32,
     format: RawImageFormat,
+    show_cursor: bool,
 ) -> Option<Retained<AnyObject>> {
     let config: *mut AnyObject = msg_send![sc_config, new];
     let config = unsafe { Retained::from_raw(config)? };
     let _: () = msg_send![&*config, setWidth: width];
     let _: () = msg_send![&*config, setHeight: height];
     let _: () = msg_send![&*config, setPixelFormat: cv_pixel_format_for(format)];
-    let _: () = msg_send![&*config, setShowsCursor: true];
+    let _: () = msg_send![&*config, setShowsCursor: show_cursor];
     let _: () = msg_send![&*config, setQueueDepth: 5isize];
     let fps = if fps > 0 { fps } else { DEFAULT_SCREEN_FPS };
     let interval = CMTime {
@@ -457,7 +458,23 @@ pub(super) fn open(request: &CaptureRequest) -> u64 {
             crate::plog_warn!("[screencap] no shareable displays");
             return 0;
         }
-        let idx = (index as usize).min(count - 1);
+        // The display by the system's own id when one is asked for (a display that is gone: the primary
+        // display, said), else by index.
+        let mut idx = (index as usize).min(count - 1);
+        if request.display_id != 0 {
+            let found = (0..count).find(|&i| {
+                let d: *mut AnyObject = msg_send![displays, objectAtIndex: i];
+                let id: u32 = msg_send![&*d, displayID];
+                id == request.display_id
+            });
+            match found {
+                Some(i) => idx = i,
+                None => {
+                    crate::plog_warn!("[screencap] display {} is not shareable (unplugged?) - capturing the first display instead", request.display_id);
+                    idx = 0;
+                }
+            }
+        }
         let display: *mut AnyObject = msg_send![displays, objectAtIndex: idx];
 
         // Display size in points; SCK scales output to the config size.
@@ -546,7 +563,7 @@ pub(super) fn open(request: &CaptureRequest) -> u64 {
             None => return 0,
         };
 
-        let config = match make_config(sc_config, out_w, out_h, request.fps, request.format) {
+        let config = match make_config(sc_config, out_w, out_h, request.fps, request.format, request.show_cursor) {
             Some(c) => c,
             None => return 0,
         };
@@ -692,7 +709,7 @@ pub(super) fn reconfigure(handle: u64, request: &CaptureRequest) -> bool {
         scr.source_size.1
     };
     unsafe {
-        let Some(config) = make_config(sc_config, out_w, out_h, request.fps, request.format) else {
+        let Some(config) = make_config(sc_config, out_w, out_h, request.fps, request.format, request.show_cursor) else {
             return false;
         };
         let (tx, rx) = mpsc::channel::<String>();

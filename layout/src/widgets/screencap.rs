@@ -238,21 +238,24 @@ impl ScreenCaptureWidget {
     }
 }
 
-/// The backend request for a config: `source` -> display index / window id,
-/// `fps`, and this app's own windows excluded (the feedback-loop fix).
+/// The backend request for a config: `source` -> display index / display id / window id, `fps`, the
+/// cursor, and this app's own windows excluded unless the config wants them in (the feedback-loop fix).
 const fn capture_request(config: &ScreenCaptureConfig) -> CaptureRequest {
-    let (index, window) = match config.source {
-        ScreenCaptureSource::PrimaryDisplay => (0, 0),
-        ScreenCaptureSource::Display(i) => (i, 0),
-        ScreenCaptureSource::Window(id) => (0, id),
+    let (index, window, display_id) = match config.source {
+        ScreenCaptureSource::PrimaryDisplay => (0, 0, 0),
+        ScreenCaptureSource::Display(i) => (i, 0, 0),
+        ScreenCaptureSource::Window(id) => (0, id, 0),
+        ScreenCaptureSource::DisplayId(id) => (0, 0, id),
     };
     CaptureRequest {
         index,
+        display_id,
         window,
         width: 0,
         height: 0,
         fps: config.fps,
-        exclude_self: true,
+        exclude_self: !config.include_own_windows,
+        show_cursor: config.show_cursor,
         format: config.output_format,
     }
 }
@@ -490,6 +493,8 @@ mod autotest_generated {
             source,
             fps,
             output_format,
+            show_cursor: true,
+            include_own_windows: false,
         }
     }
 
@@ -1259,6 +1264,29 @@ mod autotest_generated {
             "no hook: the tile + consumers size the stream"
         );
         assert_eq!(capture_floor(true), Some((DEFAULT_W, DEFAULT_H)));
+    }
+
+    /// A display by the system's id, the cursor and the app's own windows reach the request: the
+    /// display by id is not an index (the backend finds the display with that id), the cursor is
+    /// shown unless the config says no, and the app's own windows are left out unless the config
+    /// wants them in (an app that records its own review from the display).
+    ///
+    /// Mutation: the id taken as an index; the own-windows switch ignored (`exclude_self` always set);
+    /// the cursor always on.
+    #[test]
+    fn a_display_by_id_the_cursor_and_the_apps_own_windows_reach_the_backend_request() {
+        let by_id = ScreenCaptureConfig {
+            source: ScreenCaptureSource::DisplayId(69_733_382),
+            show_cursor: false,
+            include_own_windows: true,
+            ..ScreenCaptureConfig::default()
+        };
+        let r = capture_request(&by_id);
+        assert_eq!((r.index, r.display_id, r.window), (0, 69_733_382, 0));
+        assert!(!r.show_cursor && !r.exclude_self, "no cursor, the app's own windows in the picture");
+        let plain = capture_request(&ScreenCaptureConfig::default());
+        assert!(plain.show_cursor && plain.exclude_self && plain.display_id == 0, "the defaults: cursor shown, own windows left out");
+        assert_eq!(capture_request(&ScreenCaptureConfig::new(ScreenCaptureSource::Display(3))).display_id, 0);
     }
 
     // ------------------------------------------------------------------

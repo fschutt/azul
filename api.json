@@ -208515,6 +208515,18 @@
                                 },
                                 "output_format": {
                                     "type": "RawImageFormat"
+                                },
+                                "show_cursor": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "Whether the cursor is in the picture. Default: yes."
+                                    ]
+                                },
+                                "include_own_windows": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "Whether this app's own windows are in the picture. Default: no - a shared desktop that shows the sharing app loops (every repaint of the tile is a change of the screen); an app that records its own review from the display wants them in."
+                                    ]
                                 }
                             }
                         ],
@@ -208538,6 +208550,12 @@
                                 },
                                 "Window": {
                                     "type": "u64"
+                                },
+                                "DisplayId": {
+                                    "type": "u32",
+                                    "doc": [
+                                        "A specific display by the system's own id (macOS: its CGDirectDisplayID; 0 is the primary display). Unlike an index it names the same display while others come and go."
+                                    ]
                                 }
                             }
                         ],

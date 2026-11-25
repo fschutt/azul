@@ -398,6 +398,8 @@ fn camera_session(
             height: 0,
             fps,
             exclude_self: false,
+            display_id: 0,
+            show_cursor: true,
             format,
         },
         floor,
