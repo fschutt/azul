@@ -189,6 +189,33 @@ pub fn dragged_right_w(start_w: f32, grab_x: f32, now_x: f32, window_w: f32, tre
     clamp_right_w(start_w + (grab_x - now_x), window_w, tree_w)
 }
 
+/// The panels that slide and are resized by their inner edge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Panel {
+    Tree,
+    Right,
+}
+
+/// A drag of a panel's edge: the width the panel had at the grab and where the pointer was.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Grip {
+    pub panel: Panel,
+    pub start_w: f32,
+    pub grab_x: f32,
+}
+
+impl Grip {
+    /// The panel's width with the pointer at `now_x` in a window of `window_w`; `tree_w` is the tree's width beside
+    /// the right panel.
+    #[must_use]
+    pub fn width_at(&self, now_x: f32, window_w: f32, tree_w: f32) -> f32 {
+        match self.panel {
+            Panel::Tree => dragged_tree_w(self.start_w, self.grab_x, now_x, window_w),
+            Panel::Right => dragged_right_w(self.start_w, self.grab_x, now_x, window_w, tree_w),
+        }
+    }
+}
+
 /// A slide's progress (0 to 1, in time) as the distance it has covered: fast at first, slow at its end.
 #[must_use]
 pub fn ease_out(t: f32) -> f32 {

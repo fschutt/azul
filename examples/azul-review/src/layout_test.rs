@@ -210,3 +210,20 @@ fn the_tree_starts_closed_where_it_would_cover_the_pages_unless_it_was_remembere
     assert!(initial_tree_open(Some(true), 600.0), "but what the person chose stays");
     assert!(!initial_tree_open(Some(false), 1280.0));
 }
+
+// ---- a drag of an edge ----
+
+#[test]
+fn a_grip_on_the_trees_edge_gives_the_width_the_pointer_makes_of_it() {
+    let grip = Grip { panel: Panel::Tree, start_w: 260.0, grab_x: 260.0 };
+    assert_eq!(grip.width_at(310.0, 1280.0, 260.0), 310.0);
+    assert_eq!(grip.width_at(-50.0, 1280.0, 260.0), TREE_W_MIN);
+}
+
+#[test]
+fn a_grip_on_the_right_panels_edge_gives_the_width_the_pointer_makes_of_it() {
+    let grip = Grip { panel: Panel::Right, start_w: 360.0, grab_x: 900.0 };
+    assert_eq!(grip.width_at(850.0, 1280.0, 0.0), 410.0);
+    // beside an open tree the panel has less room
+    assert_eq!(grip.width_at(0.0, 1280.0, 300.0), 1280.0 - 300.0 - STRIP_W - RIGHT_BAR_W - PAGES_MIN_W);
+}
