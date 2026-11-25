@@ -318,6 +318,8 @@ version = "0.1.0"
 dependencies = [
  "azul-appkit",
  "azul-dll",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
