@@ -17,7 +17,7 @@ use std::{fmt, io};
 use crate::{
     recorder_manifest::{segment_file, Segment},
     recorder_mp4::{
-        annexb_to_avcc, FragmentWriter, Limits, MuxError, OpusConfig, TrackConfig, VideoConfig,
+        annexb_to_avcc, Colour, FragmentWriter, Limits, MuxError, OpusConfig, TrackConfig, VideoConfig,
     },
 };
 
@@ -32,8 +32,8 @@ pub trait SegmentStore {
     fn create(&mut self, rel_path: &str) -> io::Result<Box<dyn SegmentFile>>;
 }
 
-/// A segment file that is being written.
-pub trait SegmentFile {
+/// A segment file that is being written. `Send`: the writer thread owns it.
+pub trait SegmentFile: Send {
     /// Appends `bytes`.
     ///
     /// # Errors
@@ -123,6 +123,7 @@ pub struct TrackWriter {
     done: Vec<Segment>,
     dropped_before_keyframe: u64,
     failed: Option<String>,
+    default_colour: Option<Colour>,
 }
 
 impl TrackWriter {
@@ -141,7 +142,15 @@ impl TrackWriter {
             done: Vec::new(),
             dropped_before_keyframe: 0,
             failed: None,
+            default_colour: None,
         }
+    }
+
+    /// The colour tags to write when the encoder's stream has none (video).
+    #[must_use]
+    pub const fn with_default_colour(mut self, colour: Colour) -> Self {
+        self.default_colour = Some(colour);
+        self
     }
 
     /// Whether the track broke: why, in words. A broken track takes nothing more.
@@ -221,7 +230,10 @@ impl TrackWriter {
                 changes.extend(self.close(pts_us)?);
             }
             if self.open.is_none() && !key.is_empty() {
-                let config = VideoConfig::from_keyframe(annexb).map_err(TrackError::Config)?;
+                let mut config = VideoConfig::from_keyframe(annexb).map_err(TrackError::Config)?;
+                if let Some(colour) = self.default_colour {
+                    config = config.with_default_colour(colour);
+                }
                 let (w, h) = (config.info.width, config.info.height);
                 changes.push(self.open_segment(store, pts_us, TrackConfig::Video(config), key, (w, h))?);
             }
