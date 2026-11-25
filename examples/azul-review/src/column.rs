@@ -414,3 +414,7 @@ pub fn reload_settings(app: &mut RefAny, _info: &mut CallbackInfo, settings: &Ap
     });
     s.voice.silence_ms = resolved.silence_ms;
 }
+
+#[cfg(test)]
+#[path = "column_test.rs"]
+mod column_test;
