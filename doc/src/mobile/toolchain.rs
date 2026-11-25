@@ -13,10 +13,13 @@
 //! when it does not.
 
 use std::{
+    ffi::OsStr,
     io::Write as _,
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
+
+use crate::settings::{self, ToolSettings};
 
 /// Android API level the whole toolchain pins to. Matches
 /// `scripts/build-android.sh` (`platforms/android-34`) and the manifest
@@ -55,6 +58,9 @@ pub struct Toolchain {
     pub iphonesimulator_sdk: Option<PathBuf>,
     /// Major version from `xcodebuild -version`, when Xcode is present.
     pub xcode_major: Option<u32>,
+    /// The environment the tool was started with: `ANDROID_NDK_HOME`, `ANDROID_AVD_HOME`, `HOME`
+    /// and `PATH` are answered from it, not asked from the process again.
+    pub settings: ToolSettings,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy)]
@@ -65,7 +71,7 @@ pub enum HostOs {
 }
 
 impl Toolchain {
-    pub fn probe() -> Self {
+    pub fn probe(settings: &ToolSettings) -> Self {
         let host_os = if cfg!(target_os = "macos") {
             HostOs::MacOs
         } else if cfg!(target_os = "linux") {
@@ -82,8 +88,8 @@ impl Toolchain {
             .map(|s| PathBuf::from(s.trim()))
             .filter(|p| p.is_dir());
 
-        let java_home = resolve_java_home(brew_prefix.as_deref());
-        let android_home = resolve_android_home(brew_prefix.as_deref());
+        let java_home = resolve_java_home(settings, brew_prefix.as_deref());
+        let android_home = resolve_android_home(settings, brew_prefix.as_deref());
         let android_home_exists = android_home.is_dir();
 
         let rust_targets = capture("rustup", &["target", "list", "--installed"])
@@ -127,6 +133,7 @@ impl Toolchain {
             xcode_developer_dir,
             iphonesimulator_sdk,
             xcode_major,
+            settings: settings.clone(),
         }
     }
 
@@ -143,8 +150,9 @@ impl Toolchain {
     }
 
     pub fn ndk_home(&self) -> PathBuf {
-        std::env::var_os("ANDROID_NDK_HOME")
-            .map(PathBuf::from)
+        self.settings
+            .android_ndk_home
+            .clone()
             .unwrap_or_else(|| self.android_home.join("ndk").join(NDK_VERSION))
     }
 
@@ -209,9 +217,15 @@ impl Toolchain {
     /// Where `avdmanager` writes AVD definitions. Honours `ANDROID_AVD_HOME`
     /// because the emulator does.
     pub fn avd_home(&self) -> PathBuf {
-        std::env::var_os("ANDROID_AVD_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| home_dir().join(".android").join("avd"))
+        self.settings
+            .android_avd_home
+            .clone()
+            .unwrap_or_else(|| home_dir(&self.settings).join(".android").join("avd"))
+    }
+
+    /// `program` on the `PATH` the tool was started with.
+    pub fn which(&self, program: &str) -> Option<PathBuf> {
+        which(self.settings.path.as_deref(), program)
     }
 
     pub fn avd_exists(&self, name: &str) -> bool {
@@ -235,12 +249,12 @@ impl Toolchain {
                 self.android_home.display().to_string(),
             ),
             (
-                "ANDROID_NDK_HOME".to_string(),
+                settings::ANDROID_NDK_HOME.to_string(),
                 self.ndk_home().display().to_string(),
             ),
         ];
         if let Some(jh) = &self.java_home {
-            env.push(("JAVA_HOME".to_string(), jh.display().to_string()));
+            env.push((settings::JAVA_HOME.to_string(), jh.display().to_string()));
         }
         // Prepend the SDK bins so `aapt2`/`zipalign`/`keytool` resolve without
         // the caller having arranged a PATH first.
@@ -254,17 +268,15 @@ impl Toolchain {
         if let Some(jh) = &self.java_home {
             prefix.push(jh.join("bin").display().to_string());
         }
-        let existing = std::env::var("PATH").unwrap_or_default();
+        let existing = self.settings.path_utf8().to_string();
         prefix.push(existing);
-        env.push(("PATH".to_string(), prefix.join(":")));
+        env.push((settings::PATH.to_string(), prefix.join(":")));
         env
     }
 }
 
-fn home_dir() -> PathBuf {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
+fn home_dir(settings: &ToolSettings) -> PathBuf {
+    settings.home_dir().unwrap_or_else(|| PathBuf::from("."))
 }
 
 /// A JDK home must contain `bin/java` **and** `lib/` — Homebrew's
@@ -273,8 +285,8 @@ fn home_dir() -> PathBuf {
 /// `sdkmanager` (it only runs `$JAVA_HOME/bin/java`) and breaks anything that
 /// looks for the real home. Prefer the `libexec/openjdk.jdk/Contents/Home`
 /// bundle path, fall back to the shim, then ask macOS.
-fn resolve_java_home(brew_prefix: Option<&Path>) -> Option<PathBuf> {
-    if let Some(jh) = std::env::var_os("JAVA_HOME").map(PathBuf::from) {
+fn resolve_java_home(settings: &ToolSettings, brew_prefix: Option<&Path>) -> Option<PathBuf> {
+    if let Some(jh) = settings.java_home.clone() {
         if jh.join("bin").join("java").is_file() {
             return Some(jh);
         }
@@ -298,12 +310,12 @@ fn resolve_java_home(brew_prefix: Option<&Path>) -> Option<PathBuf> {
         .filter(|p| p.join("bin").join("java").is_file())
 }
 
-fn resolve_android_home(brew_prefix: Option<&Path>) -> PathBuf {
-    for var in ["ANDROID_HOME", "ANDROID_SDK_ROOT"] {
-        if let Some(v) = std::env::var_os(var) {
-            let p = PathBuf::from(v);
+fn resolve_android_home(settings: &ToolSettings, brew_prefix: Option<&Path>) -> PathBuf {
+    // `ANDROID_HOME`, then `ANDROID_SDK_ROOT`: the first that names a directory
+    for v in [&settings.android_home, &settings.android_sdk_root] {
+        if let Some(p) = v {
             if p.is_dir() {
-                return p;
+                return p.clone();
             }
         }
     }
@@ -312,8 +324,8 @@ fn resolve_android_home(brew_prefix: Option<&Path>) -> PathBuf {
         candidates.push(prefix.join("share").join("android-commandlinetools"));
     }
     // Android Studio defaults, in case the SDK came from there.
-    candidates.push(home_dir().join("Library").join("Android").join("sdk"));
-    candidates.push(home_dir().join("Android").join("Sdk"));
+    candidates.push(home_dir(settings).join("Library").join("Android").join("sdk"));
+    candidates.push(home_dir(settings).join("Android").join("Sdk"));
     for c in &candidates {
         if c.is_dir() {
             return c.clone();
@@ -355,7 +367,7 @@ pub fn capture_env(program: &Path, args: &[&str], env: &[(String, String)]) -> O
     Some(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-pub fn on_path(program: &str) -> bool {
+pub fn on_path(path: Option<&OsStr>, program: &str) -> bool {
     Command::new(program)
         .arg("--version")
         .stdin(Stdio::null())
@@ -364,12 +376,13 @@ pub fn on_path(program: &str) -> bool {
         .status()
         .map(|s| s.success())
         .unwrap_or(false)
-        || which(program).is_some()
+        || which(path, program).is_some()
 }
 
-pub fn which(program: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
+/// `program` in one of the directories of `path` (the `PATH` of [`ToolSettings`]).
+pub fn which(path: Option<&OsStr>, program: &str) -> Option<PathBuf> {
+    let path = path?;
+    std::env::split_paths(path)
         .map(|d| d.join(program))
         .find(|p| p.is_file())
 }
@@ -433,7 +446,7 @@ impl Cmd {
     pub fn display(&self) -> String {
         let mut s = String::new();
         for (k, v) in &self.env {
-            if k == "PATH" {
+            if k == settings::PATH {
                 continue;
             }
             s.push_str(&format!("{k}={} ", shell_quote(v)));

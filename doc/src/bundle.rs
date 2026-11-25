@@ -684,9 +684,13 @@ fn parse_args(args: &[&str]) -> anyhow::Result<BundleArgs> {
 }
 
 /// `azul-doc bundle ...`
-pub fn handle_bundle_command(project_root: &Path, args: &[&str]) -> anyhow::Result<()> {
+pub fn handle_bundle_command(
+    project_root: &Path,
+    settings: &crate::settings::ToolSettings,
+    args: &[&str],
+) -> anyhow::Result<()> {
     match args {
-        ["macos", rest @ ..] => bundle_macos(project_root, rest),
+        ["macos", rest @ ..] => bundle_macos(project_root, settings, rest),
         _ => {
             print_usage();
             Ok(())
@@ -695,10 +699,10 @@ pub fn handle_bundle_command(project_root: &Path, args: &[&str]) -> anyhow::Resu
 }
 
 /// `CARGO_TARGET_DIR` (relative to the workspace), else `<workspace>/target`.
-fn cargo_target_dir(workspace_root: &Path) -> PathBuf {
-    match std::env::var_os("CARGO_TARGET_DIR") {
+fn cargo_target_dir(settings: &crate::settings::ToolSettings, workspace_root: &Path) -> PathBuf {
+    match &settings.cargo_target_dir {
         Some(dir) => {
-            let dir = PathBuf::from(dir);
+            let dir = dir.clone();
             if dir.is_absolute() {
                 dir
             } else {
@@ -823,7 +827,11 @@ fn icon_bytes(sources: &[PathBuf]) -> Option<Vec<u8>> {
     }
 }
 
-fn bundle_macos(project_root: &Path, args: &[&str]) -> anyhow::Result<()> {
+fn bundle_macos(
+    project_root: &Path,
+    settings: &crate::settings::ToolSettings,
+    args: &[&str],
+) -> anyhow::Result<()> {
     use std::{fs, process::Command};
 
     let a = parse_args(args)?;
@@ -861,7 +869,7 @@ fn bundle_macos(project_root: &Path, args: &[&str]) -> anyhow::Result<()> {
             .collect(),
     };
     let icon = icon_bytes(&icon_sources);
-    let target_dir = cargo_target_dir(&target.workspace_root);
+    let target_dir = cargo_target_dir(settings, &target.workspace_root);
     let profile = a.profile.clone().unwrap_or_else(|| "release".to_string());
     let bin = a.bin.clone().unwrap_or_else(|| target.crate_name.clone());
     let exe_src = match &a.exe {
@@ -904,11 +912,10 @@ fn bundle_macos(project_root: &Path, args: &[&str]) -> anyhow::Result<()> {
     };
     let out_dir = match &a.out {
         Some(p) => user_path(project_root, p),
-        None => PathBuf::from(
-            std::env::var_os("HOME")
-                .ok_or_else(|| anyhow::anyhow!("HOME is not set; pass --out <dir>"))?,
-        )
-        .join("Applications"),
+        None => settings
+            .home_dir()
+            .ok_or_else(|| anyhow::anyhow!("HOME is not set; pass --out <dir>"))?
+            .join("Applications"),
     };
     if is_refused_location(&out_dir) {
         anyhow::bail!(

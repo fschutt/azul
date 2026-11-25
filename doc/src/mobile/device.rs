@@ -202,7 +202,7 @@ pub fn boot_simulator(
         );
     }
 
-    let have_baguette = super::toolchain::which("baguette").is_some();
+    let have_baguette = tc.which("baguette").is_some();
 
     // An already-booted simulator is reused, exactly like the Android path.
     let listed = super::toolchain::capture("xcrun", &["simctl", "list", "devices", "booted"])

@@ -25,6 +25,8 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::settings::ToolSettings;
+
 /// Bumped whenever an embedded file changes in a way that must invalidate an
 /// already-materialized cache. Cheap insurance: the directory name carries it,
 /// so a stale cache is never read, only orphaned.
@@ -143,16 +145,16 @@ const ASSETS: &[(&str, &str, bool)] = &[
 ];
 
 /// `$XDG_CACHE_HOME` / `~/.cache` / `~/Library/Caches`, plus our own subdir.
-fn cache_root() -> PathBuf {
-    if let Some(dir) = std::env::var_os("AZUL_DOC_CACHE") {
-        return PathBuf::from(dir);
+fn cache_root(settings: &ToolSettings) -> PathBuf {
+    if let Some(dir) = &settings.doc_cache {
+        return dir.clone();
     }
-    if let Some(dir) = std::env::var_os("XDG_CACHE_HOME") {
-        return PathBuf::from(dir).join("azul-doc");
+    if let Some(dir) = &settings.xdg_cache_home {
+        return dir.join("azul-doc");
     }
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir);
+    let home = settings
+        .home_dir()
+        .unwrap_or_else(|| settings.temp_dir.clone());
     if cfg!(target_os = "macos") {
         home.join("Library").join("Caches").join("azul-doc")
     } else {
@@ -166,14 +168,14 @@ fn cache_root() -> PathBuf {
 /// Prefers the live repo when we are running inside one: an in-tree edit to
 /// `build-android.sh` should take effect without recompiling azul-doc, which is
 /// how it was developed and how it will keep being debugged.
-pub fn ensure(project_root: Option<&Path>) -> anyhow::Result<PathBuf> {
+pub fn ensure(project_root: Option<&Path>, settings: &ToolSettings) -> anyhow::Result<PathBuf> {
     if let Some(root) = project_root {
         if root.join("scripts").join("build-android.sh").is_file() {
             return Ok(root.to_path_buf());
         }
     }
 
-    let dir = cache_root().join(format!("{}-{ASSET_REVISION}", env!("CARGO_PKG_VERSION")));
+    let dir = cache_root(settings).join(format!("{}-{ASSET_REVISION}", env!("CARGO_PKG_VERSION")));
     for (rel, contents, exec) in ASSETS {
         let path = dir.join(rel);
         // Content-compare rather than blindly rewriting: several azul-doc

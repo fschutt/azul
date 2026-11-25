@@ -27,6 +27,7 @@ use serde_derive::{Deserialize, Serialize};
 use ureq::Agent;
 
 use super::make_https_agent;
+use crate::settings::ToolSettings;
 
 // ── Config ────────────────────────────────────────────────────────────────
 
@@ -37,19 +38,17 @@ pub struct TelegramConfig {
 }
 
 impl TelegramConfig {
-    pub fn from_env() -> Option<Self> {
-        let token = std::env::var("AZ_DOC_TG_TOKEN")
-            .or_else(|_| std::env::var("TELEGRAM_BOT_TOKEN"))
-            .ok()?;
-        let chat_id = std::env::var("AZ_DOC_TG_CHAT_ID")
-            .or_else(|_| std::env::var("TELEGRAM_CHAT_ID"))
-            .ok()?;
+    /// The bot the environment names (`AZ_DOC_TG_TOKEN` / `AZ_DOC_TG_CHAT_ID`, else the standard
+    /// `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`), as read once into the tool's settings.
+    pub fn from_settings(settings: &ToolSettings) -> Option<Self> {
+        let token = settings.telegram_token.clone()?;
+        let chat_id = settings.telegram_chat_id.as_deref()?;
         let chat_id = chat_id.parse::<i64>().ok()?;
         Some(Self { token, chat_id })
     }
 
-    pub fn load_from_file() -> Result<Option<Self>, String> {
-        let path = config_path();
+    pub fn load_from_file(settings: &ToolSettings) -> Result<Option<Self>, String> {
+        let path = config_path(settings);
         if !path.exists() {
             return Ok(None);
         }
@@ -60,8 +59,8 @@ impl TelegramConfig {
         Ok(Some(cfg))
     }
 
-    pub fn save_to_file(&self) -> Result<PathBuf, String> {
-        let path = config_path();
+    pub fn save_to_file(&self, settings: &ToolSettings) -> Result<PathBuf, String> {
+        let path = config_path(settings);
         let dir = path.parent().ok_or("no parent dir for config_path")?;
         fs::create_dir_all(dir).map_err(|e| format!("mkdir {}: {}", dir.display(), e))?;
         let toml_str =
@@ -80,8 +79,8 @@ impl TelegramConfig {
     }
 }
 
-fn config_path() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_default();
+fn config_path(settings: &ToolSettings) -> PathBuf {
+    let home = settings.home_utf8().unwrap_or_default();
     PathBuf::from(home)
         .join(".config")
         .join("azul-doc")
@@ -108,11 +107,11 @@ impl TelegramBridge {
     /// Returns `Some(Ok(...))` if a token + chat_id are available (env or
     /// file). `None` if no configuration exists. `Some(Err)` only on
     /// malformed config.
-    pub fn from_env_or_config() -> Option<Result<Self, String>> {
-        if let Some(cfg) = TelegramConfig::from_env() {
+    pub fn from_env_or_config(settings: &ToolSettings) -> Option<Result<Self, String>> {
+        if let Some(cfg) = TelegramConfig::from_settings(settings) {
             return Some(Ok(Self::from_config(cfg)));
         }
-        match TelegramConfig::load_from_file() {
+        match TelegramConfig::load_from_file(settings) {
             Ok(Some(cfg)) => Some(Ok(Self::from_config(cfg))),
             Ok(None) => None,
             Err(e) => Some(Err(e)),
@@ -389,7 +388,7 @@ impl InputChannel {
 
 // ── Setup wizard (telegram-setup subcommand) ──────────────────────────────
 
-pub fn setup_interactive() -> Result<(), String> {
+pub fn setup_interactive(settings: &ToolSettings) -> Result<(), String> {
     println!("azul-doc Telegram setup");
     println!("=======================");
     println!();
@@ -397,7 +396,7 @@ pub fn setup_interactive() -> Result<(), String> {
     println!("apply-midlevel (and other interactive) prompts from your phone.");
     println!();
 
-    let existing = TelegramConfig::load_from_file().ok().flatten();
+    let existing = TelegramConfig::load_from_file(settings).ok().flatten();
     if let Some(ref c) = existing {
         let preview: String = c.token.chars().take(10).collect();
         println!(
@@ -511,7 +510,7 @@ pub fn setup_interactive() -> Result<(), String> {
         token: token.clone(),
         chat_id,
     };
-    let path = cfg.save_to_file()?;
+    let path = cfg.save_to_file(settings)?;
     println!();
     println!("Step 3: Save");
     println!("------------");

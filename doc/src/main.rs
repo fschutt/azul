@@ -26,7 +26,9 @@ pub mod live_templates;
 pub mod mobile;
 pub mod patch;
 pub mod print;
+pub mod process_env;
 pub mod reftest;
+pub mod settings;
 pub mod spec;
 pub mod utils;
 
@@ -42,9 +44,9 @@ pub mod utils;
 /// `mobile` deliberately does not depend on this: its scripts and templates are
 /// compiled into the binary (see `mobile::assets`), which is what lets a
 /// downloaded azul-doc build an APK for a crate outside the azul tree.
-fn resolve_project_root() -> PathBuf {
-    if let Some(dir) = env::var_os("AZUL_ROOT") {
-        return PathBuf::from(dir);
+fn resolve_project_root(settings: &settings::ToolSettings) -> PathBuf {
+    if let Some(dir) = &settings.azul_root {
+        return dir.clone();
     }
     let looks_like_azul = |p: &std::path::Path| {
         p.join("api.json").is_file() && p.join("Cargo.toml").is_file() && p.join("doc").is_dir()
@@ -98,6 +100,10 @@ fn pending_patches_dir(project_root: &std::path::Path, tag: &str) -> anyhow::Res
 }
 
 fn main() -> anyhow::Result<()> {
+    // The process environment is read ONCE, here; every command takes what it needs from
+    // `settings` (see `settings.rs` for the variables, `process_env.rs` for the reader).
+    let settings = process_env::read_settings();
+
     // The azul checkout we operate on, resolved AT RUNTIME.
     //
     // This used to be `env!("CARGO_MANIFEST_DIR")` alone — an absolute path
@@ -106,7 +112,7 @@ fn main() -> anyhow::Result<()> {
     // a downloaded CI artifact: it names a directory on somebody else's disk.
     // Search order: an explicit override, then upward from the working
     // directory, then the compile-time path IF it still exists.
-    let project_root = resolve_project_root();
+    let project_root = resolve_project_root(&settings);
     let manifest_path = project_root.join("doc");
     let api_path = project_root.join("api.json");
 
@@ -215,7 +221,7 @@ fn main() -> anyhow::Result<()> {
         ["assemble-context", rest @ ..] => {
             // Fact-check + source-excerpt bundles for every SHIPPING guide
             // page, so the model that rewrites the prose needs no tools.
-            let mut cfg = assemble_context::Config::new(project_root.clone());
+            let mut cfg = assemble_context::Config::new(project_root.clone(), &settings);
             for arg in rest {
                 match *arg {
                     "--dry-run" => cfg.dry_run = true,
@@ -1538,7 +1544,7 @@ fn main() -> anyhow::Result<()> {
             let output_dir = PathBuf::from("target").join("reftest_headless");
             let test_dir = manifest_path.clone().join("working");
 
-            reftest::run_single_reftest_headless(test_name, &test_dir, &output_dir)?;
+            reftest::run_single_reftest_headless(test_name, &test_dir, &output_dir, &settings)?;
 
             println!("\nHeadless reftest for '{}' complete.", test_name);
             println!("   Debug information has been printed to the console.");
@@ -1580,6 +1586,7 @@ fn main() -> anyhow::Result<()> {
                 add_working_diff,
                 dry_run,
                 no_screenshots,
+                settings: settings.clone(),
             };
 
             reftest::debug::run_debug_analysis(config)?;
@@ -1598,6 +1605,7 @@ fn main() -> anyhow::Result<()> {
                 refs: vec![],
                 test_dir: manifest_path.clone().join("working"),
                 output_dir: PathBuf::from("target").join("reftest"),
+                settings: settings.clone(),
             };
             reftest::regression::run_statistics(config)?;
             return Ok(());
@@ -1609,6 +1617,7 @@ fn main() -> anyhow::Result<()> {
                 refs: vec![],
                 test_dir: manifest_path.clone().join("working"),
                 output_dir: PathBuf::from("target").join("reftest"),
+                settings: settings.clone(),
             };
             reftest::regression::run_visual_report(config)?;
 
@@ -1636,6 +1645,7 @@ fn main() -> anyhow::Result<()> {
                 refs: vec![],
                 test_dir: manifest_path.clone().join("working"),
                 output_dir: PathBuf::from("target").join("reftest"),
+                settings: settings.clone(),
             };
             reftest::regression::run_statistics_prompt(config)?;
             return Ok(());
@@ -1647,6 +1657,7 @@ fn main() -> anyhow::Result<()> {
                 refs: vec![],
                 test_dir: manifest_path.clone().join("working"),
                 output_dir: PathBuf::from("target").join("reftest"),
+                settings: settings.clone(),
             };
             reftest::regression::run_statistics_send(config, None)?;
             return Ok(());
@@ -1658,6 +1669,7 @@ fn main() -> anyhow::Result<()> {
                 refs: vec![],
                 test_dir: manifest_path.clone().join("working"),
                 output_dir: PathBuf::from("target").join("reftest"),
+                settings: settings.clone(),
             };
             reftest::regression::run_statistics_send(config, Some(PathBuf::from(output_path)))?;
             return Ok(());
@@ -1672,6 +1684,7 @@ fn main() -> anyhow::Result<()> {
                     refs: vec![],
                     test_dir: manifest_path.clone().join("working"),
                     output_dir: PathBuf::from("target").join("reftest"),
+                    settings: settings.clone(),
                 };
                 reftest::regression::run_regression_analysis(config)?;
             } else {
@@ -1683,6 +1696,7 @@ fn main() -> anyhow::Result<()> {
                     refs: vec![file_path.to_string()],
                     test_dir: manifest_path.clone().join("working"),
                     output_dir: PathBuf::from("target").join("reftest"),
+                    settings: settings.clone(),
                 };
                 reftest::regression::run_regression_analysis(config)?;
             }
@@ -1735,6 +1749,7 @@ fn main() -> anyhow::Result<()> {
                 test_dir: manifest_path.clone().join("working"),
                 output_dir: output_dir.clone(),
                 output_filename: "index.html",
+                settings: settings.clone(),
             };
 
             reftest::run_single_reftest(test_name, config)?;
@@ -1754,7 +1769,7 @@ fn main() -> anyhow::Result<()> {
             return Ok(());
         }
         ["autodebug", rest @ ..] | ["autodebug", "claude-exec", rest @ ..] => {
-            let config = reftest::autodebug::parse_autodebug_args(rest, &project_root)
+            let config = reftest::autodebug::parse_autodebug_args(rest, &project_root, &settings)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
             reftest::autodebug::run_autodebug(config).map_err(|e| anyhow::anyhow!("{}", e))?;
             return Ok(());
@@ -1765,7 +1780,7 @@ fn main() -> anyhow::Result<()> {
             let mut all_args: Vec<String> = vec!["--triage".to_string()];
             all_args.extend(rest.iter().map(|s| s.to_string()));
             let arg_refs: Vec<&str> = all_args.iter().map(|s| s.as_str()).collect();
-            let config = reftest::apply_midlevel::parse_args(&arg_refs, &project_root)
+            let config = reftest::apply_midlevel::parse_args(&arg_refs, &project_root, &settings)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
             reftest::apply_midlevel::run(config).map_err(|e| anyhow::anyhow!("{}", e))?;
             return Ok(());
@@ -1776,7 +1791,7 @@ fn main() -> anyhow::Result<()> {
             let mut all_args: Vec<String> = vec!["--pending-only".to_string()];
             all_args.extend(rest.iter().map(|s| s.to_string()));
             let arg_refs: Vec<&str> = all_args.iter().map(|s| s.as_str()).collect();
-            let config = reftest::apply_midlevel::parse_args(&arg_refs, &project_root)
+            let config = reftest::apply_midlevel::parse_args(&arg_refs, &project_root, &settings)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
             reftest::apply_midlevel::run(config).map_err(|e| anyhow::anyhow!("{}", e))?;
             return Ok(());
@@ -1788,7 +1803,7 @@ fn main() -> anyhow::Result<()> {
             let mut all_args: Vec<String> = vec!["--auto-apply".to_string()];
             all_args.extend(rest.iter().map(|s| s.to_string()));
             let arg_refs: Vec<&str> = all_args.iter().map(|s| s.as_str()).collect();
-            let config = reftest::apply_midlevel::parse_args(&arg_refs, &project_root)
+            let config = reftest::apply_midlevel::parse_args(&arg_refs, &project_root, &settings)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
             reftest::apply_midlevel::run(config).map_err(|e| anyhow::anyhow!("{}", e))?;
             return Ok(());
@@ -1800,30 +1815,33 @@ fn main() -> anyhow::Result<()> {
             let mut all_args: Vec<String> = vec!["--refresh-pending".to_string()];
             all_args.extend(rest.iter().map(|s| s.to_string()));
             let arg_refs: Vec<&str> = all_args.iter().map(|s| s.as_str()).collect();
-            let config = reftest::apply_midlevel::parse_args(&arg_refs, &project_root)
+            let config = reftest::apply_midlevel::parse_args(&arg_refs, &project_root, &settings)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
             reftest::apply_midlevel::run(config).map_err(|e| anyhow::anyhow!("{}", e))?;
             return Ok(());
         }
         ["autoreview", "apply-midlevel", rest @ ..] => {
-            let config = reftest::apply_midlevel::parse_args(rest, &project_root)
+            let config = reftest::apply_midlevel::parse_args(rest, &project_root, &settings)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
             reftest::apply_midlevel::run(config).map_err(|e| anyhow::anyhow!("{}", e))?;
             return Ok(());
         }
         ["telegram-setup"] | ["autoreview", "telegram-setup"] => {
-            reftest::telegram::setup_interactive().map_err(|e| anyhow::anyhow!("{}", e))?;
+            reftest::telegram::setup_interactive(&settings)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
             return Ok(());
         }
         ["autoreview", rest @ ..] => {
-            let config = reftest::autoreview::parse_autoreview_args(rest, &project_root)
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
+            let config =
+                reftest::autoreview::parse_autoreview_args(rest, &project_root, &settings)
+                    .map_err(|e| anyhow::anyhow!("{}", e))?;
             reftest::autoreview::run_autoreview(config).map_err(|e| anyhow::anyhow!("{}", e))?;
             return Ok(());
         }
         ["spec", rest @ ..] => {
             let args: Vec<String> = rest.iter().map(|s| s.to_string()).collect();
-            spec::run_spec_command(&args, &project_root).map_err(|e| anyhow::anyhow!("{}", e))?;
+            spec::run_spec_command(&args, &project_root, &settings)
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
             return Ok(());
         }
         ["reftest"] | ["reftest", "open"] => {
@@ -1836,6 +1854,7 @@ fn main() -> anyhow::Result<()> {
                 test_dir: manifest_path.clone().join("working"),
                 output_dir: output_dir.clone(),
                 output_filename: "index.html",
+                settings: settings.clone(),
             };
 
             // This subcommand IS the `Run reftests` CI step, and that step is in
@@ -1936,12 +1955,12 @@ fn main() -> anyhow::Result<()> {
         ["mobile", rest @ ..] => {
             // Install / inspect / drive the iOS + Android toolchains. Takes no
             // api.json, so it works in a tree that has never been codegen'd.
-            return mobile::handle_mobile_command(&project_root, rest);
+            return mobile::handle_mobile_command(&project_root, &settings, rest);
         }
         ["bundle", rest @ ..] => {
             // A cargo-built binary as a signed, registered macOS .app - what
             // native notifications need. Takes no api.json either.
-            return bundle::handle_bundle_command(&project_root, rest);
+            return bundle::handle_bundle_command(&project_root, &settings, rest);
         }
         ["codegen"] | ["codegen", "all"] => {
             let api_data = load_api_json(&api_path)?;
@@ -2065,7 +2084,7 @@ fn main() -> anyhow::Result<()> {
             // whole set is 5.9s; see render_all_screenshots for why there is no
             // longer a cache. A failure is FATAL: these figures are part of the
             // page, and a docs site with missing ones is worse than a late one.
-            match reftest::autodoc::render_all_screenshots(&project_root) {
+            match reftest::autodoc::render_all_screenshots(&project_root, &settings) {
                 Ok((ok, 0)) => {
                     println!("  [OK] Rendered {} guide screenshot(s)", ok);
                 }
@@ -2191,6 +2210,7 @@ fn main() -> anyhow::Result<()> {
                     test_dir: manifest_path.clone().join("working"),
                     output_dir: reftest_output_dir.clone(),
                     output_filename: "index.html",
+                    settings: settings.clone(),
                 };
 
                 match reftest::run_reftests(reftest_config) {
@@ -2223,7 +2243,11 @@ fn main() -> anyhow::Result<()> {
             } else {
                 println!("Generating reftest page (placeholder, no live tests)...");
                 let test_dir = manifest_path.clone().join("working");
-                match reftest::generate_reftest_page(&reftest_output_dir, Some(&test_dir)) {
+                match reftest::generate_reftest_page(
+                    &reftest_output_dir,
+                    Some(&test_dir),
+                    &settings,
+                ) {
                     Ok(_) => {
                         if reftest_output_dir.join("index.html").exists() {
                             reftest::copy_report_html(

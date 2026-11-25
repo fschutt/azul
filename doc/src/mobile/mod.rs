@@ -152,7 +152,11 @@ impl Opts {
     }
 }
 
-pub fn handle_mobile_command(project_root: &Path, args: &[&str]) -> anyhow::Result<()> {
+pub fn handle_mobile_command(
+    project_root: &Path,
+    settings: &crate::settings::ToolSettings,
+    args: &[&str],
+) -> anyhow::Result<()> {
     let mut opts = Opts::parse(args)?;
     let verb = opts.positional.first().cloned().unwrap_or_default();
     let verb = verb.as_str();
@@ -161,7 +165,7 @@ pub fn handle_mobile_command(project_root: &Path, args: &[&str]) -> anyhow::Resu
         .map(String::as_str)
         .collect();
 
-    let tc = Toolchain::probe();
+    let tc = Toolchain::probe(settings);
 
     // `--e2e` is relative to where the user typed it, not to doc/ (which
     // main() chdirs into before dispatching).
@@ -196,7 +200,7 @@ pub fn handle_mobile_command(project_root: &Path, args: &[&str]) -> anyhow::Resu
             // invocation: the checkout when we are in one, else the copy
             // written out of the binary. Worth being able to ask, because
             // "which build-android.sh actually ran" is otherwise invisible.
-            let dir = assets::ensure(Some(project_root))?;
+            let dir = assets::ensure(Some(project_root), settings)?;
             let in_repo = dir == project_root;
             println!(
                 "{}\n  {}",
@@ -271,7 +275,7 @@ pub fn handle_mobile_command(project_root: &Path, args: &[&str]) -> anyhow::Resu
             // One definition of "the mobile compile gate", so CI and a laptop
             // run the same one. It checks azul-dll itself, so unlike
             // build/run it genuinely needs the azul checkout.
-            let assets = assets::ensure(Some(project_root))?;
+            let assets = assets::ensure(Some(project_root), settings)?;
             toolchain::Cmd::new("bash")
                 .arg(
                     assets
@@ -281,7 +285,7 @@ pub fn handle_mobile_command(project_root: &Path, args: &[&str]) -> anyhow::Resu
                         .to_string(),
                 )
                 .envs(vec![(
-                    "AZ_WORKSPACE_ROOT".to_string(),
+                    crate::settings::WORKSPACE_ROOT.to_string(),
                     project_root.display().to_string(),
                 )])
                 .cwd(project_root)
@@ -316,7 +320,7 @@ pub fn handle_mobile_command(project_root: &Path, args: &[&str]) -> anyhow::Resu
             // The repo when we are in one, else the embedded copy written to
             // a cache dir — which is what lets a DOWNLOADED azul-doc build a
             // crate that lives nowhere near the azul tree.
-            let assets = assets::ensure(Some(project_root))?;
+            let assets = assets::ensure(Some(project_root), settings)?;
             let artifact = run::build(&assets, &tc, platform, &target, &opts)?;
             println!("\n\x1b[32mbuilt:\x1b[0m {}", artifact.display());
             if verb == "build" {
@@ -384,7 +388,7 @@ fn print_env(tc: &Toolchain) {
     println!("\n\x1b[1m==> environment\x1b[0m");
     println!("  \x1b[90m# eval \"$(cargo run -q -p azul-doc -- mobile env)\"\x1b[0m");
     for (k, v) in tc.android_env() {
-        if k == "PATH" {
+        if k == crate::settings::PATH {
             // Printing the whole inherited PATH back is noise; print the
             // prepend instead, which is what actually needs to happen.
             println!(

@@ -23,6 +23,7 @@ use super::{
     toolchain::{Cmd, Toolchain},
     E2eDriver, Opts,
 };
+use crate::settings;
 
 /// What we know about the crate being deployed.
 pub struct Target {
@@ -174,7 +175,7 @@ pub fn build(
             let abi = opts.abi.as_deref().unwrap_or(tc.host_abi);
             let triple = android_triple(abi);
             let mut env = tc.android_env();
-            env.push(("AZ_ANDROID_NO_DEPLOY".into(), "1".into()));
+            env.push((settings::ANDROID_NO_DEPLOY.into(), "1".into()));
             // An `--e2e` run needs the op dispatcher IN the APK, and a demo
             // crate pins its own azul features in Cargo.toml — so the only way
             // in is cargo's `--features <dep>/<feature>` spelling. Adding it
@@ -182,14 +183,14 @@ pub fn build(
             // enough. An explicit AZ_ANDROID_EXTRA_FEATURES still wins.
             if opts.e2e.is_some()
                 && opts.driver != E2eDriver::Host
-                && std::env::var_os("AZ_ANDROID_EXTRA_FEATURES").is_none()
+                && !tc.settings.android_extra_features
             {
                 println!(
                     "  \x1b[90m--e2e: adding azul/debug-server so the APK carries the op \
                      dispatcher\x1b[0m"
                 );
                 env.push((
-                    "AZ_ANDROID_EXTRA_FEATURES".into(),
+                    settings::ANDROID_EXTRA_FEATURES.into(),
                     "azul/debug-server".into(),
                 ));
             }
@@ -198,7 +199,7 @@ pub fn build(
                 target.crate_name
             );
             env.push((
-                "AZ_WORKSPACE_ROOT".into(),
+                settings::WORKSPACE_ROOT.into(),
                 target.workspace_root.display().to_string(),
             ));
             Cmd::new("bash")
@@ -251,11 +252,11 @@ pub fn build(
                 .arg(triple)
                 .arg(&target.crate_name)
                 .envs(vec![
-                    ("AZ_IOS_DRYRUN".into(), "1".into()),
+                    (settings::IOS_DRYRUN.into(), "1".into()),
                     ("APP_NAME".into(), target.app_name.clone()),
                     ("BUNDLE_ID".into(), target.bundle_id.clone()),
                     (
-                        "AZ_WORKSPACE_ROOT".into(),
+                        settings::WORKSPACE_ROOT.into(),
                         target.workspace_root.display().to_string(),
                     ),
                 ])
@@ -347,7 +348,7 @@ pub fn deploy_and_run(
         // a dead process. One transport per run, always.
         if opts.driver != E2eDriver::Host {
             device.set_e2e_scenario(&remote)?;
-            extras.push(("AZ_E2E".to_string(), remote));
+            extras.push((settings::E2E.to_string(), remote));
         }
     }
 
