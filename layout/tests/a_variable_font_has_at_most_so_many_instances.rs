@@ -164,3 +164,55 @@ fn an_instance_is_smaller_than_its_file_and_made_in_a_moment() {
         assert!(second < first.max(std::time::Duration::from_millis(50)), "the second ask is a lookup");
     }
 }
+
+/// The same for the larger variable faces the website ships (`doc/fonts`: EB Garamond and Grenze,
+/// WOFF2 on disk, unpacked to the plain font a font cache holds): what an instance of each costs
+/// at a weight between two buckets. Printed for the record, loose bounds.
+#[test]
+fn an_instance_of_a_larger_face_is_made_in_a_moment() {
+    for name in [
+        "EBGaramond-Variable.woff2",
+        "EBGaramond-Variable-Italic.woff2",
+        "Grenze-Variable.woff2",
+    ] {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../doc/fonts")
+            .join(name);
+        let woff = std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        let file = azul_layout::text3::fontreg::sfnt_of(&woff).expect("the web font unpacks");
+        let cache = FcFontCache::default();
+        cache.with_memory_fonts(vec![(
+            rust_fontconfig::FcPattern {
+                family: Some(name.to_string()),
+                ..Default::default()
+            },
+            rust_fontconfig::FcFont {
+                bytes: file.clone().into(),
+                font_index: 0,
+                id: name.to_string(),
+            },
+        )]);
+        let source = cache.list()[0].1;
+        let variation = cache.variation(&source).expect("a variable font");
+        let axes: Vec<String> = variation
+            .axes
+            .iter()
+            .map(|a| format!("{} {}..{} (default {})", String::from_utf8_lossy(&a.tag), a.min, a.max, a.default))
+            .collect();
+        let started = std::time::Instant::now();
+        let face = face_for(&cache, source, &FontRequest::default().with_weight(650.0));
+        let made = started.elapsed();
+        let size = cache.get_font_bytes(&face).expect("bytes").as_slice().len();
+        eprintln!(
+            "[instance] {name}: axes [{}], file {} bytes (unpacked), instance at 650 {size} bytes, made in {made:?}",
+            axes.join(", "),
+            file.len()
+        );
+        assert!(
+            rust_fontconfig::FcReadVariation(cache.get_font_bytes(&face).expect("bytes").as_slice(), 0)
+                .is_none(),
+            "{name}: the instance is a static face"
+        );
+        assert!(made < std::time::Duration::from_secs(30), "{name}: an instance takes {made:?}");
+    }
+}
