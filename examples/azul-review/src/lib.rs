@@ -28,6 +28,7 @@ use azul_appkit::{
 };
 
 pub mod code;
+pub mod dictation;
 pub mod dwell;
 pub mod ids;
 pub mod ink;
