@@ -138,8 +138,8 @@ The face a text is shaped, drawn and embedded in a PDF with is never the variabl
 a STATIC instance of it, made once for the coordinates (rounded to 1/64) and shared by every
 window, every paragraph and every spelling of the family name that asks for them. The cache keeps
 at most 32 instances per font file (and 128 MiB of them); a request beyond that is drawn with the
-nearest instance made. The system font of macOS (`SFNS.ttf`) is such a face: its `opsz` follows
-the font size and its `wght` the weight, as in Chrome and CoreText.
+nearest instance made. The system font of macOS is such a face: its `opsz` follows the font size
+and its `wght` the weight, as in Chrome and CoreText.
 
 ## text-align
 
