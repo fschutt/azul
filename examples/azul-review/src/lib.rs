@@ -16,13 +16,20 @@
 
 use std::path::PathBuf;
 
-use azul::{dom::VirtualKeyCode, prelude::*, task::TerminateTimer, time::SystemTimeDiff};
+use azul::{
+    dialog::{FileDialog, FileOpenResult},
+    dom::VirtualKeyCode,
+    option::OptionString,
+    prelude::*,
+    task::TerminateTimer,
+    time::SystemTimeDiff,
+};
 use azul_appkit::{
     about::AboutInfo,
     args::{AppArgs, AppSpec},
     data::app_key,
     files::{FileJob, FileOutcome},
-    l10n::{t_args, Arg},
+    l10n::{t, t_args, Arg},
     shortcuts::Shortcut,
     ui as kit,
 };
@@ -71,15 +78,23 @@ pub const ABOUT: AboutInfo = AboutInfo {
 };
 
 /// The keys AzReview answers (the kit adds Mod+, / F1 / Escape).
-pub const SHORTCUTS: [Shortcut; 4] = [
+pub const SHORTCUTS: [Shortcut; 6] = [
     Shortcut::new("azreview-shortcuts-review", "Mod+S", "azreview-shortcut-save"),
+    Shortcut::new("azreview-shortcuts-review", "Mod+O", "azreview-shortcut-open-folder"),
+    Shortcut::new("azreview-shortcuts-review", "Mod+Z", "azreview-shortcut-undo"),
     Shortcut::new("azreview-shortcuts-review", "Pen rest", "azreview-shortcut-dictate"),
     Shortcut::new("azreview-shortcuts-review", "1 to 9", "azreview-shortcut-meaning"),
     Shortcut::new("azreview-shortcuts-review", "Right click", "azreview-shortcut-previous-nib"),
 ];
 
+/// The sample rate of a voice clip, Hz (the microphone widget is asked for it).
+pub const CLIP_RATE: u32 = 48_000;
+
 /// The write-back tag of a session write.
 const TAG_SAVE: u64 = 1;
+
+/// The settings file's value: the folder reviewed last.
+const KEY_FOLDER: &str = "last-folder";
 
 pub struct AppState {
     pub files: Vec<code::SourceFile>,
@@ -170,10 +185,29 @@ impl AppState {
         if index >= self.files.len() {
             return;
         }
-        // What listens writes into the file being left: it ends, and its words are kept there.
+        self.begin_file(Some(index));
+        self.sidebar_open = false;
+        self.rederive();
+    }
+
+    /// Reviews another folder: its files replace the files, the first is open and the files are out
+    /// (they are what one picks from first).
+    pub fn open_folder(&mut self, root: PathBuf, files: Vec<code::SourceFile>) {
+        self.root = root;
+        self.current = None;
+        self.files = files;
+        let first = if self.files.is_empty() { None } else { Some(0) };
+        self.begin_file(first);
+        self.sidebar_open = true;
+        self.rederive();
+    }
+
+    /// What starts afresh with another file: no ink, no notes, nothing to undo, no dictation (what
+    /// listens writes into the file being left: it ends, and its words are kept there).
+    fn begin_file(&mut self, index: Option<usize>) {
         self.voice.request_stop(dictation::Cause::File);
         self.voice.pending = None;
-        self.current = Some(index);
+        self.current = index;
         self.strokes.clear();
         self.notes.clear();
         self.history.clear();
@@ -181,8 +215,6 @@ impl AppState {
         self.live = None;
         self.ink.open();
         self.visible_page = 0;
-        self.sidebar_open = false;
-        self.rederive();
     }
 
     /// Keeps a finished stroke (what Mod+Z takes back); a new stroke ends what Mod+Shift+Z would have
@@ -376,11 +408,9 @@ pub fn run() {
             std::process::exit(2);
         }
     };
-    let root = args
-        .files
-        .first()
-        .cloned()
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let named_root = args.files.first().cloned();
+    // A `--shot` run is a fixture: it never takes the folder the user last reviewed.
+    let remember = args.shot.is_none();
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &["dictation"], args);
     // The words first: everything from here is said in the language chosen (Settings,
     // `--language`; the system's otherwise).
@@ -403,6 +433,16 @@ pub fn run() {
             .map(|k| k.settings.values.clone())
             .unwrap_or_default()
     };
+    // The folder named on the command line; else the one reviewed last (an app started from the
+    // Finder has the root of the disk as its folder); else the current one.
+    let root = named_root
+        .or_else(|| {
+            values
+                .get(KEY_FOLDER)
+                .map(PathBuf::from)
+                .filter(|p| remember && p.is_dir())
+        })
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
     let files = code::load_tree(&root, 400);
     if let Some(first) = files.first() {
         println!("AZREVIEW_FILE {}", first.display);
@@ -567,6 +607,67 @@ extern "C" fn on_loaded(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo
     Update::DoNothing
 }
 
+/// "Open folder": a folder dialog; the folder's files replace the files, and the folder is remembered
+/// for the next start (an app started from the Finder has no folder of its own).
+pub extern "C" fn on_open_folder(data: RefAny, _info: CallbackInfo) -> Update {
+    let _request = FileDialog::open_directory(
+        t("azreview-choose-folder"),
+        OptionString::None,
+        data,
+        on_folder_chosen,
+    );
+    Update::DoNothing
+}
+
+extern "C" fn on_folder_chosen(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
+    let Some(picked) = FileOpenResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    let Some(path) = picked.path.into_option() else {
+        return Update::DoNothing;
+    };
+    let folder = PathBuf::from(path.inner.as_str());
+    // The file being left is kept first (its archive is built now).
+    save_session(&data, &mut info);
+    let files = code::load_tree(&folder, 400);
+    println!("AZREVIEW_FOLDER {} {}", folder.display(), files.len());
+    let kit_ref = {
+        let Some(mut s) = data.downcast_mut::<AppState>() else {
+            return Update::DoNothing;
+        };
+        s.open_folder(folder.clone(), files);
+        s.kit.clone()
+    };
+    kit::set_value(&kit_ref, &mut info, KEY_FOLDER, &folder.to_string_lossy());
+    if let Some(first) = data.downcast_ref::<AppState>().and_then(|s| s.files.first().map(|f| f.display.clone())) {
+        println!("AZREVIEW_FILE {first}");
+    }
+    load_session(&data, &mut info);
+    info.trigger_all_virtual_view_rerender();
+    Update::RefreshDom
+}
+
+/// The Ink menu's Undo and Redo.
+pub extern "C" fn on_menu_undo(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    step_history(&mut data, &mut info, false)
+}
+
+pub extern "C" fn on_menu_redo(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    step_history(&mut data, &mut info, true)
+}
+
+/// Takes the last edit back (or brings it again), and keeps the session.
+fn step_history(data: &mut RefAny, info: &mut CallbackInfo, redo: bool) -> Update {
+    let changed = data
+        .downcast_mut::<AppState>()
+        .is_some_and(|mut s| if redo { s.redo() } else { s.undo() });
+    if changed {
+        save_session(data, info);
+        info.trigger_all_virtual_view_rerender();
+    }
+    Update::RefreshDom
+}
+
 /// The keys 1 to 9, in the order of [`Semantic::ALL`].
 const DIGITS: [VirtualKeyCode; 9] = [
     VirtualKeyCode::Key1,
@@ -613,18 +714,15 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::RefreshDom;
     }
     let mods = info.get_key_modifiers();
+    if matches!(key, VirtualKeyCode::O) && mods.primary_down() {
+        info.prevent_default();
+        return on_open_folder(data, info);
+    }
     let undo_key = matches!(key, VirtualKeyCode::Z) && mods.primary_down();
     let redo_key = (undo_key && mods.shift) || (matches!(key, VirtualKeyCode::Y) && mods.primary_down());
     if undo_key || redo_key {
         info.prevent_default();
-        let changed = data
-            .downcast_mut::<AppState>()
-            .is_some_and(|mut s| if redo_key { s.redo() } else { s.undo() });
-        if changed {
-            save_session(&data, &mut info);
-            info.trigger_all_virtual_view_rerender();
-        }
-        return Update::RefreshDom;
+        return step_history(&mut data, &mut info, redo_key);
     }
     let Some(index) = DIGITS.iter().position(|d| *d == key) else {
         return Update::DoNothing;
@@ -710,7 +808,7 @@ pub extern "C" fn on_ink_down(mut data: RefAny, mut info: CallbackInfo) -> Updat
 
     if s.tool.records_audio() && s.recording.is_none() {
         s.recording = Some(VoiceClip {
-            sample_rate: 48_000,
+            sample_rate: CLIP_RATE,
             ..VoiceClip::default()
         });
     }
@@ -1039,7 +1137,7 @@ pub extern "C" fn on_toggle_record(mut data: RefAny, mut info: CallbackInfo) -> 
         return Update::DoNothing;
     };
     s.recording = Some(VoiceClip {
-        sample_rate: 48_000,
+        sample_rate: CLIP_RATE,
         ..VoiceClip::default()
     });
     Update::RefreshDom

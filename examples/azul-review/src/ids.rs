@@ -34,3 +34,8 @@ pub const DICTATION_STOP: AzString = AzString::from_const_str("__azreview_dictat
 pub const SETTING_INPUT: AzString = AzString::from_const_str("__azreview_setting-input");
 pub const SETTING_REST: AzString = AzString::from_const_str("__azreview_setting-rest");
 pub const SETTING_QUIET: AzString = AzString::from_const_str("__azreview_setting-quiet");
+/// The flyout's "Open folder" button.
+pub const OPEN_FOLDER: AzString = AzString::from_const_str("__azreview_open-folder");
+/// The empty page's "Open folder" button, and the microphone widget that records a clip.
+pub const OPEN_FOLDER_EMPTY: AzString = AzString::from_const_str("__azreview_open-folder-empty");
+pub const MICROPHONE: AzString = AzString::from_const_str("__azreview_microphone");

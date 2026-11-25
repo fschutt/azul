@@ -73,3 +73,14 @@ azreview-quiet-5 = 5 s
 azreview-quiet-10 = 10 s
 azreview-quiet-20 = 20 s
 azreview-quiet-40 = 40 s
+
+## Open a folder, undo, the pages
+
+azreview-open-folder = Open folder...
+azreview-choose-folder = Choose the folder to review
+azreview-undo = Undo
+azreview-redo = Redo
+azreview-pages = Pages of the file
+azreview-shortcut-open-folder = Open another folder to review
+azreview-shortcut-undo = Undo the last stroke or erase (Mod+Shift+Z brings it again)
+azreview-ink-surface = Drawing surface of page { $n }

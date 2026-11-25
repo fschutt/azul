@@ -1,13 +1,14 @@
 use azul::{
+    audio::AudioConfig,
     callbacks::{ButtonOnClickCallbackType, CallbackType},
-    dom::{DomNodeId, NodeId, RenderImageCallback},
+    dom::{AccessibilityInfo, AccessibilityRole, DomNodeId, NodeId, RenderImageCallback},
     image::ImageRef,
     menu::{Menu, MenuItem, StringMenuItem},
     prelude::*,
     shells::{ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
     vec::MenuItemVec,
-    widgets::{AlertKind, InfoBar},
+    widgets::{AlertKind, Button, InfoBar, MicrophoneWidget},
 };
 use azul_appkit::{
     l10n::{label, t, t_args, Arg},
@@ -348,11 +349,27 @@ fn flyout(s: &AppState, data: &RefAny) -> Dom {
              system:separator; border-radius: 8px; box-shadow: 0px 6px 20px rgba(0,0,0,0.28); \
              overflow: hidden;",
         )
-        .with_child(Dom::create_span_with_text(label("azreview-files")).with_css(
-            "font-size: 11px; padding: 7px 10px; color: system:secondary-text; flex-shrink: 0; \
-             border-bottom: 1px solid system:separator;",
-        ))
+        .with_child(
+            Dom::create_div()
+                .with_css(
+                    "display: flex; flex-direction: row; align-items: center; padding: 4px 6px 4px \
+                     10px; flex-shrink: 0; border-bottom: 1px solid system:separator;",
+                )
+                .with_child(
+                    Dom::create_span_with_text(label("azreview-files"))
+                        .with_css("font-size: 11px; color: system:secondary-text; flex-grow: 1;"),
+                )
+                .with_child(open_folder_key(data)),
+        )
         .with_child(list)
+}
+
+/// The flyout's "Open folder": a folder dialog, the folder's files in the flyout.
+fn open_folder_key(data: &RefAny) -> Dom {
+    let name = label("azreview-open-folder");
+    with_tip(key(QUIET, name.clone(), data.clone(), crate::on_open_folder), &name)
+        .with_id(ids::OPEN_FOLDER)
+        .with_child(Dom::create_icon("folder_open").with_css("font-size: 15px;"))
 }
 
 fn menu_bar(data: &RefAny) -> Menu {
@@ -367,6 +384,13 @@ fn menu_bar(data: &RefAny) -> Menu {
     }
     ink = ink.with_child(MenuItem::Separator);
     ink = ink.with_child(MenuItem::String(
+        StringMenuItem::create(label("azreview-undo")).with_callback(data.clone(), crate::on_menu_undo),
+    ));
+    ink = ink.with_child(MenuItem::String(
+        StringMenuItem::create(label("azreview-redo")).with_callback(data.clone(), crate::on_menu_redo),
+    ));
+    ink = ink.with_child(MenuItem::Separator);
+    ink = ink.with_child(MenuItem::String(
         StringMenuItem::create(label("azreview-cycle-nib")).with_callback(data.clone(), crate::on_cycle_tool),
     ));
     ink = ink.with_child(MenuItem::String(
@@ -376,6 +400,9 @@ fn menu_bar(data: &RefAny) -> Menu {
     items.push(MenuItem::String(ink));
 
     let mut session = StringMenuItem::create(label("azreview-menu-session"));
+    session = session.with_child(MenuItem::String(
+        StringMenuItem::create(label("azreview-open-folder")).with_callback(data.clone(), crate::on_open_folder),
+    ));
     session = session.with_child(MenuItem::String(
         StringMenuItem::create(label("azreview-save-now")).with_callback(data.clone(), crate::on_menu_save),
     ));
@@ -484,6 +511,18 @@ fn meter(s: &AppState) -> Dom {
     wrap
 }
 
+/// The microphone, a capture widget without a picture (1 px): mounted while a clip records.
+fn microphone(data: &RefAny) -> Dom {
+    MicrophoneWidget::create(AudioConfig {
+        sample_rate: crate::CLIP_RATE,
+        channels: 1,
+    })
+    .with_on_frame(data.clone(), crate::on_audio_frame)
+    .dom()
+    .with_id(ids::MICROPHONE)
+    .with_css("width: 1px; height: 1px; overflow: hidden; flex-shrink: 0;")
+}
+
 pub const STRIP_ID: &str = ids::STRIP_NAME;
 
 /// The page numbers - the one in view lit, a click scrolls the strip to its
@@ -508,6 +547,8 @@ fn page_rail(s: &AppState, data: &RefAny) -> Dom {
     let rec = s.recording.is_some();
     if rec {
         rail.add_child(meter(s));
+        // The capture runs while it is mounted: its frames are the clip's samples.
+        rail.add_child(microphone(data));
     }
     let (icon, name) = if rec {
         ("fiber_manual_record", "azreview-stop-recording")
@@ -646,7 +687,18 @@ fn sheet(s: &AppState, data: &RefAny) -> Dom {
         };
         area.add_child(
             Dom::create_p_with_text(says)
-                .with_css("margin: 0px; color: system:secondary-text; padding: 40px;"),
+                .with_css("margin: 0px; color: system:secondary-text; padding: 40px 40px 12px 40px;"),
+        );
+        // Nothing to review here (an app started from the Finder has the root of the disk as its
+        // folder): the way out is in the empty page itself.
+        area.add_child(
+            Dom::create_div().with_css("padding: 0px 40px;").with_child(
+                Button::create(label("azreview-open-folder"))
+                    .with_icon("folder_open")
+                    .with_on_click(data.clone(), crate::on_open_folder as ButtonOnClickCallbackType)
+                    .dom()
+                    .with_id(ids::OPEN_FOLDER_EMPTY),
+            ),
         );
         return area;
     }
@@ -656,6 +708,10 @@ fn sheet(s: &AppState, data: &RefAny) -> Dom {
             sheets_virtual_view,
         )
         .with_id(ids::STRIP)
+        .with_accessibility_info(AccessibilityInfo::named(
+            label("azreview-pages"),
+            AccessibilityRole::Document,
+        ))
         .with_css("flex-grow: 1; min-height: 0px; width: 100%;")
         // A wheel or a trackpad scrolling the sheets lights the number of the
         // page that comes into view.
@@ -807,6 +863,14 @@ fn code_row(number: usize, line: &str) -> Dom {
     row
 }
 
+/// What the screen reader is told of a picture that only decorates: nothing.
+fn decorative() -> AccessibilityInfo {
+    AccessibilityInfo {
+        role: AccessibilityRole::Nothing,
+        ..AccessibilityInfo::create_default()
+    }
+}
+
 /// The `layer` of page `page`'s ink: an [`InkCanvas`] drawn by
 /// [`ink::render_ink`], its frame kept over a DOM rebuild. The pen layer, on
 /// top, takes the pointer for the app (`data`).
@@ -826,10 +890,16 @@ fn ink_layer(data: &RefAny, page: usize, layer: Layer) -> Dom {
         )
         .as_str(),
     );
+    // The marker's layer lies under the code and takes nothing: it only decorates the page. The pen's is
+    // the page's drawing surface, which a screen reader is told by name.
     if layer == Layer::Marker {
-        return dom;
+        return dom.with_accessibility_info(decorative());
     }
-    dom.with_callback(
+    dom.with_accessibility_info(AccessibilityInfo::named(
+        t_args("azreview-ink-surface", &[("n", Arg::from(page + 1))]),
+        AccessibilityRole::Graphic,
+    ))
+    .with_callback(
         EventFilter::Hover(HoverEventFilter::MouseDown),
         data.clone(),
         crate::on_ink_down,

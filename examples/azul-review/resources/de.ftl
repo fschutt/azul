@@ -73,3 +73,14 @@ azreview-quiet-5 = 5 s
 azreview-quiet-10 = 10 s
 azreview-quiet-20 = 20 s
 azreview-quiet-40 = 40 s
+
+## Ordner öffnen, Rückgängig, die Seiten
+
+azreview-open-folder = Ordner öffnen ...
+azreview-choose-folder = Den Ordner zum Prüfen wählen
+azreview-undo = Rückgängig
+azreview-redo = Wiederholen
+azreview-pages = Seiten der Datei
+azreview-shortcut-open-folder = Einen anderen Ordner zum Prüfen öffnen
+azreview-shortcut-undo = Den letzten Strich oder das letzte Radieren zurücknehmen (Mod+Umschalt+Z holt es zurück)
+azreview-ink-surface = Zeichenfläche der Seite { $n }
