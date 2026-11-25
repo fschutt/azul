@@ -88,8 +88,8 @@ pub struct MemoryFace {
     pub weight_axis: Option<(f32, f32)>,
 }
 
-/// Style attributes parsed from a font's bytes (OS/2 + `head`), used to index a
-/// registered face in [`FontManager::memory_families`].
+/// Style attributes parsed from a font's bytes (OS/2 + `head`, and the `wght` axis of a
+/// variable font), used to index a registered face in [`FontManager::memory_families`].
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FaceStyle {
     weight: FcWeight,
@@ -126,12 +126,16 @@ pub(crate) fn parse_face_style(bytes: &[u8], family: &str) -> FaceStyle {
     let Some(pat) = faces.into_iter().next() else {
         return FaceStyle::default();
     };
+    // A variable face says which weights it covers: its `wght` axis. A request for a weight in it
+    // is a request for this face, drawn at that weight (`select_variable_instances`).
+    let weight_axis = rust_fontconfig::FcReadVariation(bytes, 0)
+        .and_then(|variation| variation.axis(*b"wght").map(|axis| (axis.min, axis.max)));
     FaceStyle {
         weight: pat.weight,
         italic: pat.italic == PatternMatch::True,
         oblique: pat.oblique == PatternMatch::True,
         stretch: pat.stretch,
-        weight_axis: None,
+        weight_axis,
     }
 }
 
@@ -327,11 +331,6 @@ pub struct FontManager<T> {
     /// FIRST, before the disk probe, so a memory-registered family wins
     /// exactly as CSS says it should.
     pub memory_families: HashMap<String, Vec<MemoryFace>>,
-    /// Baked static instances of variable fonts, keyed by a hash of the original
-    /// VF bytes. A variable font is expanded into one static face per weight
-    /// bucket (see `register_named_font`); this caches the minted faces so the
-    /// several spelling registrations of the same VF don't re-bake it.
-    pub(super) vf_bake_cache: HashMap<u64, Vec<(FontId, FaceStyle)>>,
     /// [`Self::get_loaded_fonts`]' snapshot, with the size and fingerprint of
     /// the pool it was taken from. Shared like `parsed_fonts`: a face added
     /// through any handle - the managers sharing the pool, the rasterizer
@@ -399,7 +398,6 @@ impl<T: ParsedFontTrait> FontManager<T> {
             // only valid against THIS manager's font_chain_cache history.
             last_resolved_font_stacks_sig: None,
             memory_families: self.memory_families.clone(),
-            vf_bake_cache: self.vf_bake_cache.clone(),
             loaded_fonts_memo: Arc::clone(&self.loaded_fonts_memo),
             // SHARED: the faces registered for the app are the app's, whichever window asks.
             registered_fonts: Arc::clone(&self.registered_fonts),
@@ -459,7 +457,6 @@ impl<T: ParsedFontTrait> FontManager<T> {
             registry: None,
             last_resolved_font_stacks_sig: None,
             memory_families: HashMap::new(),
-            vf_bake_cache: HashMap::new(),
             loaded_fonts_memo: Arc::new(Mutex::new(None)),
             registered_fonts,
             settings: crate::settings::TextSettings::default(),
@@ -531,11 +528,12 @@ impl<T: ParsedFontTrait> FontManager<T> {
     }
 
     /// [`Self::register_named_font_in_tier`] with the face's style from
-    /// `style_of` (called when the face is not a variable font, where it was
-    /// parsed before): a face whose style is known already - a bundled or
-    /// mock face, whose style is declared ([`bundled_face_style`]); an app
-    /// face, parsed when the app set it - is not parsed again by every
-    /// manager made.
+    /// `style_of`: a face whose style is known already - a bundled or mock
+    /// face, whose style is declared ([`bundled_face_style`]); an app face,
+    /// parsed when the app set it - is not parsed again by every manager
+    /// made. A variable font is registered once, like any face: its `wght`
+    /// range is part of its style, and a chain draws it as the static
+    /// instance at the weight a style asks ([`crate::solver3::getters::select_variable_instances`]).
     fn register_named_font_styled(
         &mut self,
         family: &str,
@@ -546,20 +544,6 @@ impl<T: ParsedFontTrait> FontManager<T> {
         style_of: impl FnOnce() -> FaceStyle,
     ) -> FontId {
         let norm = rust_fontconfig::utils::normalize_family_name(family);
-
-        // Variable fonts: expand into one STATIC instance per weight bucket so the
-        // ordinary static weight-selection path (see `split_memory_matches` /
-        // `pick_memory_face`) picks the right one, with NO changes to shaping,
-        // glyph decode, or PDF embedding — each baked instance is an ordinary
-        // static font. Falls through to the static path below if the font is not a
-        // bakeable variable font (baking failed / no glyf variations).
-        if let Some((min, def, max)) = crate::font::parsed::read_wght_axis(bytes, 0) {
-            if let Some(id) = self
-                .register_variable_instances(&norm, family, bytes, &coverage, min, def, max, tier)
-            {
-                return id;
-            }
-        }
 
         // The weight/style come from the font BYTES (OS/2), not the registration
         // name: registering `Helvetica-Bold.ttf` under either "Helvetica-Bold" or
@@ -636,118 +620,6 @@ impl<T: ParsedFontTrait> FontManager<T> {
         } else {
             faces.push(face);
         }
-    }
-
-    /// Expand a variable font (with a `wght` axis over `[min, max]`, default
-    /// `def`) into one baked STATIC instance per standard weight bucket and
-    /// register each as an in-memory face under `norm`. Returns the face nearest
-    /// the fvar default, or `None` if no instance could be baked (caller then
-    /// falls back to registering the raw bytes as a single static face).
-    ///
-    /// Baking is done once per unique VF bytes and cached (`vf_bake_cache`) so the
-    /// several spelling registrations of the same font don't re-bake it.
-    // Weight axis values are clamped to [1, 1000] and rounded before the cast, so
-    // the f32 -> u16 conversion is bounded and sign-safe.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    fn register_variable_instances(
-        &mut self,
-        norm: &str,
-        family: &str,
-        bytes: &[u8],
-        coverage: &[UnicodeRange],
-        min: f32,
-        def: f32,
-        max: f32,
-        tier: MemoryFontTier,
-    ) -> Option<FontId> {
-        let base = parse_face_style(bytes, family);
-        let hash = {
-            use core::hash::Hasher;
-            let mut h = DefaultHasher::new();
-            h.write(bytes);
-            h.finish()
-        };
-        let def_bucket = FcWeight::from_u16(def.round().clamp(1.0, 1000.0) as u16);
-
-        // Same VF already baked under another spelling: re-index, don't re-bake.
-        if let Some(cached) = self.vf_bake_cache.get(&hash).cloned() {
-            for (id, style) in &cached {
-                self.index_memory_face(norm, *id, coverage.to_vec(), style, tier);
-            }
-            return cached
-                .iter()
-                .find(|(_, s)| s.weight == def_bucket)
-                .or_else(|| cached.first())
-                .map(|(id, _)| *id);
-        }
-
-        let lo = min.round().clamp(1.0, 1000.0) as u16;
-        let hi = max.round().clamp(1.0, 1000.0) as u16;
-        let mut baked: Vec<(FontId, FaceStyle)> = Vec::new();
-        for w in [100u16, 200, 300, 400, 500, 600, 700, 800, 900] {
-            if w < lo || w > hi {
-                continue;
-            }
-            let Some(inst_bytes) =
-                crate::font::parsed::bake_weight_instance(bytes, 0, f32::from(w))
-            else {
-                continue;
-            };
-            let style = FaceStyle {
-                weight: FcWeight::from_u16(w),
-                italic: base.italic,
-                oblique: base.oblique,
-                stretch: base.stretch,
-                weight_axis: None,
-            };
-            let pattern = rust_fontconfig::FcPattern {
-                name: Some(family.to_string()),
-                family: Some(family.to_string()),
-                italic: if style.italic {
-                    PatternMatch::True
-                } else {
-                    PatternMatch::False
-                },
-                oblique: if style.oblique {
-                    PatternMatch::True
-                } else {
-                    PatternMatch::False
-                },
-                bold: if style.weight >= FcWeight::Bold {
-                    PatternMatch::True
-                } else {
-                    PatternMatch::False
-                },
-                weight: style.weight,
-                stretch: style.stretch,
-                unicode_ranges: coverage.to_vec(),
-                ..Default::default()
-            };
-            let id = FontId::new();
-            self.fc_cache.with_memory_font_with_id(
-                id,
-                pattern,
-                rust_fontconfig::FcFont {
-                    bytes: inst_bytes.into(),
-                    font_index: 0,
-                    id: family.to_string(),
-                },
-            );
-            self.index_memory_face(norm, id, coverage.to_vec(), &style, tier);
-            baked.push((id, style));
-        }
-
-        if baked.is_empty() {
-            return None;
-        }
-        let default_id = baked
-            .iter()
-            .find(|(_, s)| s.weight == def_bucket)
-            .or_else(|| baked.first())
-            .map(|(id, _)| *id)
-            .unwrap();
-        self.vf_bake_cache.insert(hash, baked);
-        Some(default_id)
     }
 
     /// Register the built-in mock test fonts (see
@@ -1413,11 +1285,32 @@ impl<T: ParsedFontTrait> FontManager<T> {
     pub fn replace_fc_cache(&mut self, fc_cache: FcFontCache) {
         self.fc_cache = fc_cache;
         self.drop_dangling_memory_faces();
+        self.drop_dangling_chains();
         self.register_builtin_mock_fonts();
     }
 
-    /// Evict every entry of the memory-font INDEX (`memory_families`,
-    /// `vf_bake_cache`) whose `FontId` the *current* `fc_cache` does not know.
+    /// Forget every cached font chain that names a face the current `fc_cache` does not hold.
+    ///
+    /// A chain names its faces by `FontId`, and a variable face is drawn as a static instance the
+    /// cache that made it holds under an id of its own: after a swap to another cache (not a clone
+    /// of the same state, which keeps them) such a chain would name faces nothing can load, and
+    /// text would be shaped with the fallback's metrics. The chains are resolved again at the next
+    /// layout, and the signature that says "these stacks were resolved" is cleared with them.
+    fn drop_dangling_chains(&mut self) {
+        let fc_cache = &self.fc_cache;
+        let before = self.font_chain_cache.len();
+        self.font_chain_cache.retain(|_, chain| {
+            chain
+                .fonts()
+                .all(|face| fc_cache.get_metadata_by_id(&face.id).is_some())
+        });
+        if self.font_chain_cache.len() != before {
+            self.last_resolved_font_stacks_sig = None;
+        }
+    }
+
+    /// Evict every entry of the memory-font INDEX (`memory_families`) whose
+    /// `FontId` the *current* `fc_cache` does not know.
     ///
     /// `memory_families` is not a font store, it is an index INTO the cache: the
     /// bytes live in `fc_cache`, the index only remembers which `FontId` a
@@ -1442,10 +1335,6 @@ impl<T: ParsedFontTrait> FontManager<T> {
             faces.retain(|f| fc_cache.is_memory_font(&f.font_match.id));
             !faces.is_empty()
         });
-        // Same reasoning for the variable-font bake cache: its ids are handed
-        // straight back to `index_memory_face` on the "already baked" path.
-        self.vf_bake_cache
-            .retain(|_, baked| baked.iter().all(|(id, _)| fc_cache.is_memory_font(id)));
     }
 
     /// Remove a font from the cache

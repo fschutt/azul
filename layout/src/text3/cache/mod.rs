@@ -61,6 +61,8 @@ pub use crate::font_traits::{ParsedFontTrait, ShallowClone};
 // `pub use` would publish.
 mod metrics;
 pub use metrics::*;
+mod font_request;
+pub use font_request::*;
 #[allow(clippy::redundant_pub_crate)]
 mod font_chains;
 pub use font_chains::*;

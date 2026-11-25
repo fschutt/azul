@@ -85,31 +85,6 @@ pub const fn convert_font_style(style: StyleFontStyle) -> crate::font_traits::Fo
     }
 }
 
-/// Helper: Convert `StyleFontWeight` to `FcWeight`: the bucket nearest to the weight (a number
-/// halfway between two buckets goes to the heavier one). The exact number is what a variable
-/// font draws; the bucket is what asks for a face of a family of static fonts.
-#[must_use]
-pub const fn convert_font_weight(weight: StyleFontWeight) -> FcWeight {
-    match weight {
-        StyleFontWeight::Lighter => FcWeight::Light,
-        StyleFontWeight::Bolder => FcWeight::Black,
-        StyleFontWeight::Number(number) => {
-            // The weight in thousandths, rounded to the nearest hundred.
-            match (number.number() + 50_000) / 100_000 {
-                ..=1 => FcWeight::Thin,
-                2 => FcWeight::ExtraLight,
-                3 => FcWeight::Light,
-                4 => FcWeight::Normal,
-                5 => FcWeight::Medium,
-                6 => FcWeight::SemiBold,
-                7 => FcWeight::Bold,
-                8 => FcWeight::ExtraBold,
-                _ => FcWeight::Black,
-            }
-        }
-    }
-}
-
 /// The content language of DOM node `node` (HTML's "language of a node"):
 /// the nearest `lang` attribute on it or an ancestor (`xml:lang` lands as the
 /// same attribute, after `lang`, so the node's LAST one is read). `None`

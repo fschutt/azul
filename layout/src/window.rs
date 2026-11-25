@@ -37826,7 +37826,7 @@ mod autotest_generated {
             .font_manager
             .font_chain_cache
             .keys()
-            .map(|k| k.optical_size)
+            .map(|k| k.request.optical_size)
             .collect();
         assert!(
             sizes.contains(&40),
@@ -37866,7 +37866,7 @@ mod autotest_generated {
             .font_manager
             .font_chain_cache
             .keys()
-            .map(|k| k.optical_size)
+            .map(|k| k.request.optical_size)
             .collect();
         assert!(
             sizes.contains(&20),

@@ -9,7 +9,10 @@ type Manager = FontManager<azul_css::props::basic::FontRef>;
 fn stack(family: &str, optical_size: u16) -> Vec<FontSelector> {
     vec![FontSelector {
         family: family.to_string(),
-        optical_size,
+        request: FontRequest {
+            optical_size,
+            ..FontRequest::default()
+        },
         ..FontSelector::default()
     }]
 }

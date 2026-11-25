@@ -200,7 +200,7 @@ mod set {
         text3::{
             cache::{
                 needs_own_glyph, resolve_chain_on_miss, BidiDirection, FontChainKey, FontHash,
-                FontManager, StyleProperties,
+                FontManager, FontRequest, FontStyle, StyleProperties,
             },
             default::shape_text_for_parsed_font,
             script::{detect_script, Language, Script},
@@ -230,12 +230,18 @@ mod set {
     /// standing for the faces the platform sets it in, then the faces that
     /// cover the scripts the families do not.
     fn chain_of(fc: &FcFontCache, families: &str, bold: bool, italic: bool) -> FontFallbackChain {
+        let request = FontRequest::default().with_weight_bucket(if bold {
+            FcWeight::Bold
+        } else {
+            FcWeight::Normal
+        });
         let key = FontChainKey {
             font_families: family_names(families),
-            weight: if bold { FcWeight::Bold } else { FcWeight::Normal },
-            italic,
-            oblique: false,
-            optical_size: 0,
+            request: if italic {
+                request.with_style(FontStyle::Italic)
+            } else {
+                request
+            },
         };
         resolve_chain_on_miss(&key, fc)
     }

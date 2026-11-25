@@ -2103,6 +2103,129 @@ get_css_property!(
     compact = get_font_style
 );
 
+/// The `font-stretch` of a node in percent (100 is `normal`): the compact
+/// slot in the normal state, the cascade in any other (as the weight and the
+/// style are read), inherited, the initial value 100.
+#[must_use]
+pub fn get_font_stretch_percent(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> f32 {
+    let cache = &styled_dom.css_property_cache.ptr;
+    if node_state.is_normal() {
+        if let Some(cc) = cache.compact_cache.as_ref() {
+            return cc.get_font_stretch(node_id.index()).percent();
+        }
+    }
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    cache
+        .get_font_stretch(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property().copied())
+        .map_or(100.0, |stretch| stretch.percent())
+}
+
+/// Whether the node draws a variable face at its used font size
+/// (`font-optical-sizing: auto`, the initial value) and not at the face's
+/// own optical size (`none`). Rare to declare: a DOM that declares no
+/// `font-optical-sizing` anywhere (`DOM_HAS_FONT_OPTICAL_SIZING` clear) skips
+/// the cascade walk.
+#[must_use]
+pub fn font_optical_sizing_is_auto(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> bool {
+    let cache = &styled_dom.css_property_cache.ptr;
+    if cache.compact_cache.as_ref().is_some_and(|cc| {
+        !cc.dom_declared(azul_css::compact_cache::DOM_HAS_FONT_OPTICAL_SIZING)
+    }) {
+        return true;
+    }
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    cache
+        .get_font_optical_sizing(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property().copied())
+        .is_none_or(|sizing| {
+            sizing == azul_css::props::basic::font_variation::StyleFontOpticalSizing::Auto
+        })
+}
+
+/// The explicit `font-variation-settings` of a node, `(tag, value)` in the
+/// order written (a tag written twice keeps its last value, which the request
+/// applies); empty for `normal`. Rare to declare: a DOM that declares none
+/// anywhere (`DOM_HAS_FONT_VARIATION_SETTINGS` clear) skips the cascade walk.
+#[must_use]
+pub fn get_font_variation_settings_list(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> Vec<([u8; 4], f32)> {
+    let cache = &styled_dom.css_property_cache.ptr;
+    if cache.compact_cache.as_ref().is_some_and(|cc| {
+        !cc.dom_declared(azul_css::compact_cache::DOM_HAS_FONT_VARIATION_SETTINGS)
+    }) {
+        return Vec::new();
+    }
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    cache
+        .get_font_variation_settings(node_data, &node_id, node_state)
+        .and_then(|v| v.get_property())
+        .map(azul_css::props::basic::font_variation::StyleFontVariationSettings::variations)
+        .unwrap_or_default()
+}
+
+/// What the node asks of its faces - the exact weight (`bolder` and
+/// `lighter` resolved against the parent's), the stretch, the style with the
+/// angle of an `oblique`, and the explicit `font-variation-settings` - and
+/// nothing of its font size: the optical size is added where the size is
+/// known ([`font_optical_sizing_is_auto`], [`FontRequest::at_font_size`]).
+///
+/// THE one place a node's request is read: the style a run shapes with
+/// ([`get_style_properties_for_state_with`]) and the font-stack collector
+/// ([`collect_font_stacks_from_styled_dom_in_viewport`]) both go through it, so
+/// the key a run shapes with is the key the collector resolved.
+#[must_use]
+pub fn font_request_of_node(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> FontRequest {
+    let weight = get_computed_font_weight(styled_dom, node_id, node_state);
+    let request = FontRequest::default()
+        .with_weight(weight.number())
+        .with_stretch(get_font_stretch_percent(styled_dom, node_id, node_state));
+    let request = match get_font_style_property(styled_dom, node_id, node_state) {
+        MultiValue::Exact(StyleFontStyle::Italic) => request.with_style(FontStyle::Italic),
+        MultiValue::Exact(StyleFontStyle::Oblique(degrees)) => request.with_oblique(degrees.get()),
+        _ => request,
+    };
+    let settings = get_font_variation_settings_list(styled_dom, node_id, node_state);
+    if settings.is_empty() {
+        request
+    } else {
+        request.with_settings(&settings)
+    }
+}
+
+/// [`font_request_of_node`] at the node's used font size `font_size_px`:
+/// the optical size is the size in whole CSS px unless the node says
+/// `font-optical-sizing: none`.
+#[must_use]
+pub fn font_request_of_node_at_size(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+    font_size_px: f32,
+) -> FontRequest {
+    let request = font_request_of_node(styled_dom, node_id, node_state);
+    if font_optical_sizing_is_auto(styled_dom, node_id, node_state) {
+        request.at_font_size(font_size_px)
+    } else {
+        request
+    }
+}
+
 get_css_property!(
     get_visibility,
     get_visibility,
@@ -4256,8 +4379,9 @@ struct StyleInputs {
 ///   cascade, tier by tier);
 /// - a document that uses a viewport unit (the font-size memo is off) or a
 ///   CSS `zoom` (every length takes its node's zoom), or that declares
-///   `font-variant-numeric`, `font-variant-caps` or `font-feature-settings`
-///   anywhere (the build then asks the cascade for them);
+///   `font-variant-numeric`, `font-variant-caps`, `font-feature-settings`,
+///   `font-variation-settings` or `font-optical-sizing` anywhere (the build
+///   then asks the cascade for them);
 /// - a compact slot that sends the build to the cascade: a `font-size`, a
 ///   colour, a line height or a spacing the slot cannot hold;
 /// - `bolder` / `lighter` (resolved against the parent's weight), a
@@ -4296,7 +4420,9 @@ fn style_inputs_of(
         || cc.dom_declared(
             compact::DOM_HAS_FONT_VARIANT_NUMERIC
                 | compact::DOM_HAS_FONT_VARIANT_CAPS
-                | compact::DOM_HAS_FONT_FEATURE_SETTINGS,
+                | compact::DOM_HAS_FONT_FEATURE_SETTINGS
+                | compact::DOM_HAS_FONT_VARIATION_SETTINGS
+                | compact::DOM_HAS_FONT_OPTICAL_SIZING,
         )
     {
         return None;
@@ -4902,18 +5028,12 @@ pub fn get_style_properties_for_state_with(
             (None, Vec::new(), None)
         };
 
-    // Query font-weight from CSS cache (computed: bolder / lighter resolved)
-    let font_weight = get_computed_font_weight(styled_dom, dom_id, node_state);
-
-    // Query font-style from CSS cache
-    let font_style = match get_font_style_property(styled_dom, dom_id, node_state) {
-        MultiValue::Exact(v) => v,
-        _ => StyleFontStyle::Normal,
-    };
-
-    // Convert StyleFontWeight/StyleFontStyle to fontconfig types
-    let fc_weight = super::fc::convert_font_weight(font_weight);
-    let fc_style = super::fc::convert_font_style(font_style);
+    // What the node asks of its faces: the exact weight (`bolder` / `lighter`
+    // resolved), the stretch, the style and the angle of an oblique one, and
+    // the explicit variation settings. The font size is added below, where
+    // the stack is made (it is not part of the memo's key).
+    let request = font_request_of_node(styled_dom, dom_id, node_state);
+    let optical_sizing_auto = font_optical_sizing_is_auto(styled_dom, dom_id, node_state);
 
     // Check if any font family is a FontRef - if so, use FontStack::Ref
     // This allows embedded fonts (like Material Icons) to bypass fontconfig
@@ -4930,17 +5050,18 @@ pub fn get_style_properties_for_state_with(
                 // build_font_selector_stack then resolves via Platform::current() so
                 // the names stay in lock-step with the font-loading pass.
                 let platform = system_style.map(|ss| &ss.platform);
-                FontStack::Stack(at_optical_size(
-                    build_font_selector_stack_memo_themed(
-                        memo,
-                        &font_families,
-                        platform,
-                        structural_theme_of(styled_dom),
-                        fc_weight,
-                        fc_style,
-                    ),
-                    font_size,
-                ))
+                let stack = build_font_selector_stack_memo_themed(
+                    memo,
+                    &font_families,
+                    platform,
+                    structural_theme_of(styled_dom),
+                    &request,
+                );
+                FontStack::Stack(if optical_sizing_auto {
+                    at_optical_size(stack, font_size)
+                } else {
+                    stack
+                })
             },
             FontStack::Ref,
         )
@@ -5144,7 +5265,7 @@ pub fn get_style_properties_for_state_with(
         font_variant_caps,
         font_features,
         // These still use defaults - could be extended in future:
-        // font_variations, writing_mode, text_orientation,
+        // writing_mode, text_orientation,
         // text_combine_upright, font_variant_ligatures / _east_asian
         ..Default::default()
     }
@@ -5502,7 +5623,18 @@ use rust_fontconfig::{
     UnicodeRange, DEFAULT_UNICODE_FALLBACK_SCRIPTS,
 };
 
-use crate::text3::cache::{FontChainKey, FontChainKeyOrRef, FontSelector, FontStack, FontStyle};
+use crate::text3::cache::{
+    FontChainKey, FontChainKeyOrRef, FontRequest, FontSelector, FontStack, FontStyle,
+};
+
+/// The request of the weight bucket `fc_weight` and the style `fc_style`: what
+/// the tests ask of a stack.
+#[cfg(test)]
+fn request_of_bucket(fc_weight: FcWeight, fc_style: FontStyle) -> FontRequest {
+    FontRequest::default()
+        .with_weight_bucket(fc_weight)
+        .with_style(fc_style)
+}
 
 /// The themed memo outside every theme (the tests' spelling).
 #[cfg(test)]
@@ -5518,8 +5650,7 @@ fn build_font_selector_stack_memo(
         font_families,
         platform,
         None,
-        fc_weight,
-        fc_style,
+        &request_of_bucket(fc_weight, fc_style),
     )
 }
 
@@ -5537,7 +5668,7 @@ pub struct FontStackMemo {
 /// decides the hand of the `system:` text roles.
 ///
 /// Building the stack is PURE — the same (families, platform, theme,
-/// weight, style) always yields the same selectors — but it was being
+/// request) always yields the same selectors — but it was being
 /// rebuilt for every text node during intrinsic sizing and again during
 /// inline layout. On a document whose body sets one `font-family` that
 /// every block inherits, that is the identical eight-selector stack
@@ -5558,8 +5689,7 @@ fn build_font_selector_stack_memo_themed(
     font_families: &StyleFontFamilyVec,
     platform: Option<&azul_css::system::Platform>,
     theme: Option<&str>,
-    fc_weight: FcWeight,
-    fc_style: FontStyle,
+    request: &FontRequest,
 ) -> Vec<FontSelector> {
     use core::hash::{Hash, Hasher};
 
@@ -5569,7 +5699,7 @@ fn build_font_selector_stack_memo_themed(
     const MAX_ENTRIES: usize = 256;
 
     let Some(memo) = memo else {
-        return build_font_selector_stack_themed(font_families, platform, theme, fc_weight, fc_style);
+        return build_font_selector_stack_themed(font_families, platform, theme, request);
     };
 
     let key = {
@@ -5593,8 +5723,7 @@ fn build_font_selector_stack_memo_themed(
                 }
             }
         }
-        core::mem::discriminant(&fc_weight).hash(&mut h);
-        core::mem::discriminant(&fc_style).hash(&mut h);
+        request.hash(&mut h);
         // The theme decides what the `system:` text roles expand to.
         theme.hash(&mut h);
         h.finish()
@@ -5603,17 +5732,18 @@ fn build_font_selector_stack_memo_themed(
     // An entry answers only for the inputs it was built from: the key is a
     // 64-bit hash of them, and two inputs with one hash would otherwise be
     // served each other's stack (another family's fonts, silently).
-    if let Some(hit) = memo.by_key.get(&key).and_then(|entry| {
-        font_stack_memo_answer(entry, font_families, platform, theme, &fc_weight, &fc_style)
-    }) {
+    if let Some(hit) = memo
+        .by_key
+        .get(&key)
+        .and_then(|entry| font_stack_memo_answer(entry, font_families, platform, theme, request))
+    {
         drop(crate::probe::Probe::span("font_stack_memo_hit"));
         return hit;
     }
 
     let _p = crate::probe::Probe::span("font_stack_build");
-    let inputs = font_stack_memo_inputs(font_families, platform, theme, &fc_weight, &fc_style);
-    let built =
-        build_font_selector_stack_themed(font_families, platform, theme, fc_weight, fc_style);
+    let inputs = font_stack_memo_inputs(font_families, platform, theme, request);
+    let built = build_font_selector_stack_themed(font_families, platform, theme, request);
     if memo.by_key.len() >= MAX_ENTRIES {
         memo.by_key.clear();
     }
@@ -5628,64 +5758,55 @@ type FontStackMemoInputs = (
     Vec<StyleFontFamily>,
     Option<azul_css::system::Platform>,
     Option<String>,
-    core::mem::Discriminant<FcWeight>,
-    core::mem::Discriminant<FontStyle>,
+    FontRequest,
 );
 
 /// The inputs of one stack, as the memo keeps them.
-// the references are the style's own fields, as its callers (and the tests) hold them
-#[allow(clippy::trivially_copy_pass_by_ref)]
 fn font_stack_memo_inputs(
     font_families: &StyleFontFamilyVec,
     platform: Option<&azul_css::system::Platform>,
     theme: Option<&str>,
-    fc_weight: &FcWeight,
-    fc_style: &FontStyle,
+    request: &FontRequest,
 ) -> FontStackMemoInputs {
     (
         font_families.as_slice().to_vec(),
         platform.cloned(),
         theme.map(str::to_owned),
-        core::mem::discriminant(fc_weight),
-        core::mem::discriminant(fc_style),
+        request.clone(),
     )
 }
 
 /// The stack of the memo entry `entry`, if the entry was built from exactly
 /// these inputs (`None`: its key is another input's hash too).
-// the references are the style's own fields, as its callers (and the tests) hold them
-#[allow(clippy::trivially_copy_pass_by_ref)]
 fn font_stack_memo_answer(
     entry: &(FontStackMemoInputs, Vec<FontSelector>),
     font_families: &StyleFontFamilyVec,
     platform: Option<&azul_css::system::Platform>,
     theme: Option<&str>,
-    fc_weight: &FcWeight,
-    fc_style: &FontStyle,
+    request: &FontRequest,
 ) -> Option<Vec<FontSelector>> {
     let (inputs, stack) = entry;
     (inputs.0.as_slice() == font_families.as_slice()
         && inputs.1.as_ref() == platform
         && inputs.2.as_deref() == theme
-        && inputs.3 == core::mem::discriminant(fc_weight)
-        && inputs.4 == core::mem::discriminant(fc_style))
-    .then(|| stack.clone())
+        && inputs.3 == *request)
+        .then(|| stack.clone())
 }
 
 /// `stack` with every selector at the optical size of text of `font_size_px`
 /// ([`crate::text3::cache::optical_size_for`]): its chain then draws a variable
 /// face with an `opsz` axis at that size, as Chrome and CoreText do
-/// (`font-optical-sizing: auto`). THE one place a stack gets its optical size:
-/// the style of a run ([`get_style_properties`]) and the font-stack collector
-/// ([`collect_font_stacks_from_styled_dom`]) both go through it, so the key a
-/// run shapes with is the key the collector resolved.
+/// (`font-optical-sizing: auto`). The one place a STACK gets its optical size
+/// (the request of a node gets it from [`font_request_of_node_at_size`]): the
+/// style of a run ([`get_style_properties`]) and the text painters that draw
+/// into images both go through it.
 pub(crate) fn at_optical_size(
     mut stack: Vec<FontSelector>,
     font_size_px: f32,
 ) -> Vec<FontSelector> {
     let optical_size = crate::text3::cache::optical_size_for(font_size_px);
     for selector in &mut stack {
-        selector.optical_size = optical_size;
+        selector.request.optical_size = optical_size;
     }
     stack
 }
@@ -5708,8 +5829,7 @@ pub(crate) fn font_stack_for_families(
             families,
             None,
             structural_theme_of(styled_dom),
-            FcWeight::Normal,
-            FontStyle::Normal,
+            &FontRequest::default(),
         ),
         font_size_px,
     )
@@ -5738,7 +5858,12 @@ fn build_font_selector_stack(
     fc_weight: FcWeight,
     fc_style: FontStyle,
 ) -> Vec<FontSelector> {
-    build_font_selector_stack_themed(font_families, platform, None, fc_weight, fc_style)
+    build_font_selector_stack_themed(
+        font_families,
+        platform,
+        None,
+        &request_of_bucket(fc_weight, fc_style),
+    )
 }
 
 /// The structural app theme `styled_dom` was cascaded under (`flora` for
@@ -5797,8 +5922,7 @@ fn build_font_selector_stack_themed(
     font_families: &StyleFontFamilyVec,
     platform: Option<&azul_css::system::Platform>,
     theme: Option<&str>,
-    fc_weight: FcWeight,
-    fc_style: FontStyle,
+    request: &FontRequest,
 ) -> Vec<FontSelector> {
     let mut stack = Vec::with_capacity(font_families.len() + 3);
     let current;
@@ -5827,25 +5951,22 @@ fn build_font_selector_stack_themed(
             _ => None,
         };
         if let Some(system_type) = system_type {
-            let system_weight = if system_type.is_bold() {
-                FcWeight::Bold
-            } else {
-                fc_weight
-            };
-            let system_style = if system_type.is_italic() {
-                FontStyle::Italic
-            } else {
-                fc_style
-            };
+            // A bold role forces the weight 700, an italic one the italic style;
+            // every other coordinate is the node's.
+            let mut system_request = request.clone();
+            if system_type.is_bold() {
+                system_request = system_request.with_weight_bucket(FcWeight::Bold);
+            }
+            if system_type.is_italic() {
+                system_request = system_request.with_style(FontStyle::Italic);
+            }
             if let Some(hand) = crate::text3::ui_fonts::theme_font_families(theme, system_type) {
                 // The theme's own hand for this role (flora: Garamond).
                 for font_name in hand {
                     stack.push(FontSelector {
                         family: (*font_name).to_string(),
-                        weight: system_weight,
-                        style: system_style,
+                        request: system_request.clone(),
                         unicode_ranges: Vec::new(),
-                        optical_size: 0,
                     });
                 }
             } else if matches!(
@@ -5859,19 +5980,15 @@ fn build_font_selector_stack_themed(
                 // a document's `system-ui` draw the same face (SYSUI8).
                 stack.push(FontSelector {
                     family: system_ui.to_string(),
-                    weight: system_weight,
-                    style: system_style,
+                    request: system_request.clone(),
                     unicode_ranges: Vec::new(),
-                    optical_size: 0,
                 });
             } else {
                 for font_name in system_type.get_fallback_chain(platform) {
                     stack.push(FontSelector {
                         family: font_name.to_string(),
-                        weight: system_weight,
-                        style: system_style,
+                        request: system_request.clone(),
                         unicode_ranges: Vec::new(),
-                        optical_size: 0,
                     });
                 }
             }
@@ -5890,20 +6007,16 @@ fn build_font_selector_stack_themed(
                 for font_name in hand {
                     stack.push(FontSelector {
                         family: (*font_name).to_string(),
-                        weight: fc_weight,
-                        style: fc_style,
+                        request: request.clone(),
                         unicode_ranges: Vec::new(),
-                        optical_size: 0,
                     });
                 }
                 continue;
             }
             stack.push(FontSelector {
                 family: name,
-                weight: fc_weight,
-                style: fc_style,
+                request: request.clone(),
                 unicode_ranges: Vec::new(),
-                optical_size: 0,
             });
         }
     }
@@ -5915,10 +6028,8 @@ fn build_font_selector_stack_themed(
         {
             stack.push(FontSelector {
                 family: (*fallback).to_string(),
-                weight: FcWeight::Normal,
-                style: FontStyle::Normal,
+                request: FontRequest::default(),
                 unicode_ranges: Vec::new(),
-                optical_size: 0,
             });
         }
     }
@@ -6091,14 +6202,14 @@ pub fn collect_font_stacks_from_styled_dom_in_viewport(
     };
 
     // Phase 1: Scan the text nodes (compact-cache reads) to find unique
-    // (font_family_hash, weight, style) tuples. Record one representative
+    // (font_family_hash, request) tuples. Record one representative
     // node index per unique tuple for the expensive CSS lookup in Phase 2.
-    // Key: (font_family_hash, fontconfig weight, fontconfig style) → representative node index
+    // Key: (font_family_hash, the node's whole font request at its font size) → representative node index
     // (2026-06-10: reverted to HashMap — the historic g81/g47 empty-hashbrown mis-lift was the
     // un-mirrored EMPTY_GROUP static, fixed transpiler-side in symbol_table.rs::
     // compute_hashbrown_empty_group_ranges. std HashMap lifts correctly now; RandomState seeds
     // via the transpiler's HashmapRandomKeys fixed-seed body.)
-    let mut unique_font_keys: HashMap<(u64, u16, u8, u16), usize> = HashMap::new();
+    let mut unique_font_keys: HashMap<(u64, FontRequest), usize> = HashMap::new();
     let node_count = node_data.internal.len();
 
     // WEB-LIFT: probe node_type bytes (NodeType #[repr(C,u8)], Text=177 per AzDom_createText).
@@ -6164,12 +6275,14 @@ pub fn collect_font_stacks_from_styled_dom_in_viewport(
             continue;
         };
         let fh = compact.tier2b_text[i].font_family_hash;
-        // Key on the weight and style THIS text node resolves to - the very
-        // reads `get_style_properties` makes when its runs are shaped (O(1)
-        // compact reads in the normal state), in ONE encoding (the fontconfig
-        // weight, the CSS style). Two text nodes that resolve alike share a
-        // representative; any that differ get their own chain, or the face
-        // their runs ask for is never loaded and they shape to nothing.
+        // Key on the request THIS text node resolves to - the very reads
+        // `get_style_properties` makes when its runs are shaped (O(1) compact
+        // reads in the normal state), in ONE encoding (`font_request_of_node`:
+        // the exact weight, stretch, style and angle, the variation settings,
+        // and the optical size of the node's font size). Two text nodes that
+        // resolve alike share a representative; any that differ get their own
+        // chain, or the face their runs ask for is never loaded and they
+        // shape to nothing.
         //
         // `i` is a plain 0-based arena index: it is `NodeId::new(i)`. It was
         // `NodeId::from_usize(i)` - the 1-based FFI DECODER (0 = None, n =
@@ -6179,24 +6292,17 @@ pub fn collect_font_stacks_from_styled_dom_in_viewport(
         // was dropped (TABLES' OPEN font bug, MAILENG6 item 1).
         let dom_id = NodeId::new(i);
         let node_state = &styled_nodes_phase1[dom_id].styled_node_state;
-        let weight = get_computed_font_weight(styled_dom, dom_id, node_state);
-        let style = match get_font_style_property(styled_dom, dom_id, node_state) {
-            MultiValue::Exact(v) => v,
-            _ => StyleFontStyle::Normal,
-        };
-        // And on the optical size of the node's font size: a variable face
-        // with an `opsz` axis (macOS's system font) is a different instance
-        // per size, and each needs its chain resolved and its face loaded.
-        let optical_size = crate::text3::cache::optical_size_for(
+        // The optical size of the node's font size is part of it: a variable
+        // face with an `opsz` axis (macOS's system font) is a different
+        // instance per size, and each needs its chain resolved and its face
+        // loaded.
+        let request = font_request_of_node_at_size(
+            styled_dom,
+            dom_id,
+            node_state,
             get_element_font_size_in_viewport(styled_dom, dom_id, node_state, viewport),
         );
-        let key = (
-            fh,
-            super::fc::convert_font_weight(weight) as u16,
-            super::fc::convert_font_style(style) as u8,
-            optical_size,
-        );
-        unique_font_keys.entry(key).or_insert(i);
+        unique_font_keys.entry((fh, request)).or_insert(i);
     }
 
     // WASM-ONLY PROBE (REVERT): why 0 chains? 0x406C0=tag(5E5E0003), C4=node_count,
@@ -6229,14 +6335,12 @@ pub fn collect_font_stacks_from_styled_dom_in_viewport(
         }
     }
 
-    // Phase 2: For each unique tuple, do ONE expensive CSS lookup on the
-    // representative node to get the actual font-family names.
-    let styled_nodes = styled_dom.styled_nodes.as_container();
-
-    for (&(fh, _wb, _sb, optical_size), &repr_idx) in &unique_font_keys {
-        // A 0-based arena index, like the key's (see Phase 1).
-        let dom_id = NodeId::new(repr_idx);
-        let node_state = &styled_nodes[dom_id].styled_node_state;
+    // Phase 2: For each unique tuple, build the stack of the family list the
+    // tuple's hash stands for, asked for the tuple's request. (The
+    // representative node of a tuple is the node whose request it is; the
+    // request itself is all that is read of it now.)
+    for ((fh, request), _representative) in &unique_font_keys {
+        let fh = *fh;
 
         // Use reverse map from compact cache: hash → actual font families.
         // This works for ALL nodes including text nodes that inherit font-family
@@ -6256,14 +6360,12 @@ pub fn collect_font_stacks_from_styled_dom_in_viewport(
             continue;
         }
 
-        let font_weight = get_computed_font_weight(styled_dom, dom_id, node_state);
-        let font_style = match get_font_style_property(styled_dom, dom_id, node_state) {
-            MultiValue::Exact(v) => v,
-            _ => StyleFontStyle::Normal,
-        };
-
-        let fc_weight = super::fc::convert_font_weight(font_weight);
-        let fc_style = super::fc::convert_font_style(font_style);
+        // The request the key was collected under (see Phase 1), without its
+        // optical size: the stack is built as `get_style_properties` builds
+        // it (the size is added to every selector below).
+        let optical_size = request.optical_size;
+        let mut stack_request = request.clone();
+        stack_request.optical_size = 0;
 
         // Under the DOM's theme, as `get_style_properties` builds it: flora's
         // `system:` text roles load flora's hand.
@@ -6271,14 +6373,13 @@ pub fn collect_font_stacks_from_styled_dom_in_viewport(
             &font_families,
             Some(platform),
             structural_theme_of(styled_dom),
-            fc_weight,
-            fc_style,
+            &stack_request,
         );
         // The optical size the key was collected under (see Phase 1): the
         // stack carries it into its chain key, as `get_style_properties`'s
         // stack does (`at_optical_size`, the same rounding).
         for selector in &mut font_stack {
-            selector.optical_size = optical_size;
+            selector.request.optical_size = optical_size;
         }
 
         if font_stack.is_empty() {
@@ -6564,9 +6665,7 @@ pub fn resolve_font_chains(
 fn split_memory_matches(
     font_families: &[String],
     memory_families: &HashMap<String, Vec<crate::text3::cache::MemoryFace>>,
-    weight: FcWeight,
-    italic: bool,
-    oblique: bool,
+    request: &FontRequest,
 ) -> (
     Vec<rust_fontconfig::CssFallbackGroup>,
     Vec<String>,
@@ -6582,8 +6681,7 @@ fn split_memory_matches(
         let faces = memory_families.get(&norm);
 
         // A primary face IS the family: it wins outright, disk never consulted.
-        if let Some(face) = faces
-            .and_then(|f| pick_memory_face(f, weight, italic, oblique, MemoryFontTier::Primary))
+        if let Some(face) = faces.and_then(|f| pick_memory_face(f, request, MemoryFontTier::Primary))
         {
             groups.push(rust_fontconfig::CssFallbackGroup {
                 css_name: family.clone(),
@@ -6596,8 +6694,7 @@ fn split_memory_matches(
         // Otherwise the disk gets first refusal, and a fallback face - if the
         // caller registered one - waits behind whatever the disk turns up.
         disk.push(family.clone());
-        if let Some(face) = faces
-            .and_then(|f| pick_memory_face(f, weight, italic, oblique, MemoryFontTier::Fallback))
+        if let Some(face) = faces.and_then(|f| pick_memory_face(f, request, MemoryFontTier::Fallback))
         {
             fallback.push(rust_fontconfig::CssFallbackGroup {
                 css_name: family.clone(),
@@ -6654,28 +6751,26 @@ fn place_fallback_tier_groups(
     }
 }
 
-/// Choose the registered in-memory face that best matches a CSS
-/// `(weight, italic/oblique)` query. Prefers faces whose slant matches the
-/// request, then the nearest weight via [`rust_fontconfig::FcWeight::find_best_match`]
-/// (the CSS weight-fallback order). A variable face whose `wght` axis spans the
-/// requested weight is treated as an exact match.
+/// Choose the registered in-memory face that best matches a CSS request.
+/// Prefers faces whose slant matches the request, then the nearest weight
+/// via [`rust_fontconfig::FcWeight::find_best_match`] (the CSS weight-fallback
+/// order, over the bucket of the requested weight). A variable face whose
+/// `wght` axis spans the EXACT requested weight is treated as an exact match.
 ///
 /// This is what makes `font-weight: bold` actually select a registered bold
 /// face: several faces (regular, bold, oblique…) share one family name, and this
 /// picks among them instead of taking whichever registered last.
-fn pick_memory_face(
-    faces: &[crate::text3::cache::MemoryFace],
-    weight: FcWeight,
-    italic: bool,
-    oblique: bool,
+fn pick_memory_face<'a>(
+    faces: &'a [crate::text3::cache::MemoryFace],
+    request: &FontRequest,
     tier: crate::text3::cache::MemoryFontTier,
-) -> Option<&crate::text3::cache::MemoryFace> {
+) -> Option<&'a crate::text3::cache::MemoryFace> {
     let faces: Vec<&crate::text3::cache::MemoryFace> =
         faces.iter().filter(|f| f.tier == tier).collect();
     if faces.is_empty() {
         return None;
     }
-    let want_slanted = italic || oblique;
+    let want_slanted = request.is_italic() || request.is_oblique();
     // Prefer faces matching the requested slant; fall back to all faces so a
     // family with only an upright face still resolves for `font-style: italic`.
     let slant_pool: Vec<&crate::text3::cache::MemoryFace> = faces
@@ -6689,7 +6784,7 @@ fn pick_memory_face(
         slant_pool
     };
     // A variable face whose wght axis covers the request satisfies it exactly.
-    let req = f32::from(weight as u16);
+    let req = request.weight.to_f32();
     if let Some(vf) = pool.iter().copied().find(|f| {
         f.weight_axis
             .is_some_and(|(min, max)| req >= min && req <= max)
@@ -6697,6 +6792,7 @@ fn pick_memory_face(
         return Some(vf);
     }
     // Otherwise pick the nearest static weight (CSS fallback order).
+    let weight = request.fc_weight();
     let avail: Vec<FcWeight> = pool.iter().map(|f| f.weight).collect();
     let best = weight.find_best_match(&avail).unwrap_or(weight);
     pool.iter()
@@ -6705,254 +6801,116 @@ fn pick_memory_face(
         .or_else(|| pool.first().copied())
 }
 
-/// Draw each CSS family of `chain` at the weight and the optical size the
-/// chain asked for, where its best face is a variable font FILE matched at
-/// its default instance.
+/// Draw each CSS family of `chain` at the coordinates `request` asks of it,
+/// where its best face is a variable font.
 ///
 /// Only the first face of each CSS group is looked at: it is the one the
 /// resolver ranked best for the requested style, and the one that draws every
-/// character it covers. See [`variable_instance`].
+/// character it covers. A VARIABLE face - a file the system scan found, a face
+/// registered from memory or at runtime - is replaced by the static instance of
+/// it at the request's coordinates ([`font_coordinates`]), made by
+/// rust-fontconfig ([`FcFontCache::variable_instance`]); the default instance
+/// included, so that a variable font never reaches shaping, glyph decode or the
+/// PDF writer as a variable font. A static face stays as it is.
+///
+/// rust-fontconfig indexes a variable font ONCE, at its default instance.
+/// macOS draws its whole UI from one such file, `SFNS.ttf` ("System Font",
+/// `wght` 1-1000, `opsz` 17-96 with 28 the default), so a bold request matched
+/// a face registered at 400 and drew it regular, and every size drew the
+/// opsz-28 "Display" design: 16px `system-ui` text 128.29px wide where
+/// CoreText and Chrome set it at opsz 17, "SF Pro Text", 139.15px (with its
+/// tracking, [`crate::font::parsed::Tracking`]; SYSUI8).
+///
+/// The instance is a face of its own in the cache (reachable by its id only:
+/// no family query finds it), made once per coordinates and shared by every
+/// chain, every manager and every spelling of the family that asks for them;
+/// the cache keeps at most a bounded number of them per font file
+/// (`FC_MAX_INSTANCES_PER_FACE`) and answers with the nearest beyond. The
+/// faces a chain only falls back to (a script's fonts, the last resort) stay
+/// as they are.
 pub fn select_variable_instances(
     chain: &mut FontFallbackChain,
-    weight: FcWeight,
-    optical_size: u16,
+    request: &FontRequest,
     fc_cache: &FcFontCache,
 ) {
     for group in &mut chain.css_fallbacks {
         let Some(face) = group.fonts.first() else {
             continue;
         };
-        if let Some(instance) = variable_instance(fc_cache, face, weight, optical_size) {
+        if let Some(instance) = variable_instance_of(fc_cache, face, request) {
             group.fonts[0] = instance;
         }
     }
 }
 
-/// The face to draw instead of `face` when a chain asks for `weight` at
-/// `optical_size` (a `FontChainKey::optical_size`, whole CSS px, 0 = the
-/// default): the static instance of a variable font file at that weight and
-/// optical size.
-///
-/// rust-fontconfig indexes a variable font ONCE, at its default instance.
-/// macOS draws its whole UI from one such file, `SFNS.ttf` ("System Font",
-/// `wght` 1-1000, `opsz` 17-96 with 28 the default), so a bold request matched
-/// a face registered at 400 and drew it regular - which is why the macOS bold
-/// chain had been routed to Helvetica Neue - and every size drew the opsz-28
-/// "Display" design: 16px `system-ui` text 128.29px wide where CoreText and
-/// Chrome set it at opsz 17, "SF Pro Text", 139.15px (with its tracking,
-/// [`crate::font::parsed::Tracking`]; SYSUI8).
-///
-/// The optical size is the font size (CSS Fonts 4 `font-optical-sizing:
-/// auto`, as Chrome and CoreText do it), clamped to the face's `opsz` axis.
-/// This bakes the file at those coordinates
-/// ([`crate::font::parsed::bake_instance`], the same bake
-/// `FontManager::register_named_font` does for a variable font registered
-/// from memory) and registers the instance in `fc_cache` as an in-memory
-/// font under a name of its own, so a family query never returns it in place
-/// of the file: an instance is reached only through the chain that asked for
-/// it.
-///
-/// `None` - keep `face` - when it already is what was asked for, is a memory
-/// font (those were baked when they were registered), has no `wght` axis
-/// spanning the request and no `opsz` axis, or cannot be baked.
-///
-/// Each `(face, weight, optical size)` is baked at most ONCE per process, by
-/// the coordinates it bakes to (every size up to SF's 17 shares one
-/// instance). rust-fontconfig memoises its chains, so the source face keeps
-/// coming back on every later resolution; the answer - an instance, or "no
-/// instance" - is memoised here and handed back without touching the font
-/// again. `FontId`s come from a process-wide counter, so a source id never
-/// names a face of another cache.
-#[must_use]
-pub fn variable_instance(
+/// The face to draw instead of `face` for `request`: its static instance when
+/// `face` is a variable font, `None` - keep `face` - when it is static, when
+/// the cache does not hold it, or when it cannot be instanced.
+fn variable_instance_of(
     fc_cache: &FcFontCache,
     face: &rust_fontconfig::FontMatch,
-    weight: FcWeight,
-    optical_size: u16,
+    request: &FontRequest,
 ) -> Option<rust_fontconfig::FontMatch> {
-    use std::{collections::BTreeMap, sync::Mutex};
-
-    // OPEN, the owner's question (see the report of refactor/statics-solver): the font manager
-    // owns the faces this memo is about, but `select_variable_instances` is reached through
-    // `resolve_chain_on_miss(key, fc_cache)` from ~15 call sites of three clusters that pass
-    // the `FcFontCache` alone.
-    /// `(source face, wght baked or 0, opsz baked as f32 bits or 0)` -> the
-    /// baked instance, or `None` when the source has no such instance.
-    static INSTANCES: Mutex<BTreeMap<(FontId, u16, u32), Option<FontId>>> =
-        Mutex::new(BTreeMap::new());
-
-    // A face registered from memory was expanded into static instances when
-    // it was registered (`FontManager::register_named_font`); only a FILE is
-    // still variable here.
-    if fc_cache.is_memory_font(&face.id) {
-        return None;
-    }
-    let axes = variation_axes(fc_cache, face.id)?;
-    if axes.wght.is_none() && axes.opsz.is_none() {
-        return None;
-    }
-    let meta = fc_cache.get_metadata_by_id(&face.id)?;
-    let wght = axes.wght.and_then(|(min, _default, max)| {
-        let requested = f32::from(weight as u16);
-        (meta.weight != weight && requested >= min && requested <= max).then_some(weight as u16)
-    });
-    let opsz = axes.opsz.and_then(|(min, default, max)| {
-        // An inverted or NaN range would make `clamp` panic.
-        if optical_size == 0 || min > max || min.is_nan() || max.is_nan() {
-            return None;
-        }
-        let at = f32::from(optical_size).clamp(min, max);
-        ((at - default).abs() > f32::EPSILON).then_some(at)
-    });
-    if wght.is_none() && opsz.is_none() {
-        return None;
-    }
-
-    let as_match = |id: FontId| rust_fontconfig::FontMatch {
+    let variation = fc_cache.variation(&face.id)?;
+    let coordinates = font_coordinates(request, &variation);
+    let id = fc_cache.variable_instance(&face.id, &coordinates)?;
+    Some(rust_fontconfig::FontMatch {
         id,
         // An instance draws the same characters as its source.
         unicode_ranges: face.unicode_ranges.clone(),
         fallbacks: Vec::new(),
-    };
-
-    let key = (face.id, wght.unwrap_or(0), opsz.map_or(0, f32::to_bits));
-    let known = INSTANCES
-        .lock()
-        .ok()
-        .and_then(|memo| memo.get(&key).copied());
-    match known {
-        Some(None) => return None,
-        // An instance is a memory font: still there means the same cache, or
-        // a clone sharing its state.
-        Some(Some(id)) if fc_cache.is_memory_font(&id) => return Some(as_match(id)),
-        _ => {}
-    }
-
-    let remembered = bake_instance_into(fc_cache, face.id, axes.index, meta, wght, opsz);
-    if let Ok(mut memo) = INSTANCES.lock() {
-        memo.insert(key, remembered);
-    }
-    remembered.map(as_match)
+    })
 }
 
-/// The variation axes of a face file that [`variable_instance`] instances.
-#[derive(Debug, Clone, Copy)]
-struct VariationAxes {
-    /// The face's index in its file.
-    index: usize,
-    /// `wght` `(min, default, max)`.
-    wght: Option<(f32, f32, f32)>,
-    /// `opsz` `(min, default, max)`.
-    opsz: Option<(f32, f32, f32)>,
-}
+/// The coordinates `request` asks of the axes of a face that has `variation`,
+/// in the order of its `fvar` table, as CSS Fonts 4 (7.2) orders them:
+///
+/// | axis | from | value |
+/// |------|------|-------|
+/// | `wght` | `font-weight` | the weight |
+/// | `wdth` | `font-stretch` | the stretch in percent |
+/// | `slnt` | `font-style` | `oblique <angle>`: minus the angle (CSS leans to the right, `slnt` counts counter-clockwise); 0 for `normal` and `italic` |
+/// | `ital` | `font-style` | 1 for `italic`, 0 for `normal` and `oblique` |
+/// | `opsz` | `font-optical-sizing: auto` | the optical size of the request (CSS px) |
+/// | any | `font-variation-settings` | the author's value, applied LAST: it wins over every one above |
+///
+/// Only the axes the face has are used. Each value is clamped to the range of
+/// its axis (CSS: "clamped to the closest value supported by the font"),
+/// rounded to the 1/64 step the cache keeps instances by, and dropped when it
+/// equals the default of its axis: what is left is the canonical set of
+/// coordinates of the instance, and it may be empty (the default instance). A
+/// face without an axis ignores that part of the request.
+#[must_use]
+pub fn font_coordinates(
+    request: &FontRequest,
+    variation: &rust_fontconfig::FcVariation,
+) -> Vec<(rust_fontconfig::FcAxisTag, f32)> {
+    use crate::text3::cache::FontCoord;
 
-/// The `wght` / `opsz` axes of the face `source`, read from its bytes once
-/// per process (both `None` for a static face). `None` when the cache does not
-/// hold the face or its bytes: nothing is known about it then, so nothing is
-/// remembered - the cache that does hold it gets its own answer.
-fn variation_axes(fc_cache: &FcFontCache, source: FontId) -> Option<VariationAxes> {
-    use std::{collections::BTreeMap, sync::Mutex};
-
-    // OPEN: the same question as `INSTANCES` in `variable_instance`.
-    static AXES: Mutex<BTreeMap<FontId, VariationAxes>> = Mutex::new(BTreeMap::new());
-
-    if let Some(known) = AXES.lock().ok().and_then(|memo| memo.get(&source).copied()) {
-        return Some(known);
-    }
-    let index = match fc_cache.get_font_by_id(&source)? {
-        rust_fontconfig::OwnedFontSource::Disk(path) => path.font_index,
-        rust_fontconfig::OwnedFontSource::Memory(font) => font.font_index,
-    };
-    let bytes = fc_cache.get_font_bytes(&source)?;
-    let axes = VariationAxes {
-        index,
-        wght: crate::font::parsed::read_variation_axis(
-            bytes.as_slice(),
-            index,
-            crate::font::parsed::WGHT_AXIS,
-        ),
-        opsz: crate::font::parsed::read_variation_axis(
-            bytes.as_slice(),
-            index,
-            crate::font::parsed::OPSZ_AXIS,
-        ),
-    };
-    if let Ok(mut memo) = AXES.lock() {
-        memo.insert(source, axes);
-    }
-    Some(axes)
-}
-
-/// Bake the variable font file behind `source` (face `index`, pattern `meta`)
-/// at `wght` and `opsz` (`None`: the axis default) and register the instance
-/// in `fc_cache`. `None` when it does not bake.
-fn bake_instance_into(
-    fc_cache: &FcFontCache,
-    source: FontId,
-    index: usize,
-    meta: rust_fontconfig::FcPattern,
-    wght: Option<u16>,
-    opsz: Option<f32>,
-) -> Option<FontId> {
-    let bytes = fc_cache.get_font_bytes(&source)?;
-    let mut coordinates: Vec<(u32, f32)> = Vec::with_capacity(2);
-    if let Some(w) = wght {
-        coordinates.push((crate::font::parsed::WGHT_AXIS, f32::from(w)));
-    }
-    if let Some(o) = opsz {
-        coordinates.push((crate::font::parsed::OPSZ_AXIS, o));
-    }
-    let baked = crate::font::parsed::bake_instance(bytes.as_slice(), index, &coordinates)?;
-
-    let mut pattern = meta;
-    if let Some(w) = wght {
-        let weight = FcWeight::from_u16(w);
-        pattern.weight = weight;
-        pattern.bold = if weight >= FcWeight::Bold {
-            PatternMatch::True
-        } else {
-            PatternMatch::False
+    let mut coordinates = Vec::new();
+    for axis in &variation.axes {
+        let derived = match &axis.tag {
+            b"wght" => Some(request.weight.to_f32()),
+            b"wdth" => Some(request.stretch.to_f32()),
+            b"slnt" => Some(if request.is_oblique() {
+                -request.oblique_degrees.to_f32()
+            } else {
+                0.0
+            }),
+            b"ital" => Some(if request.is_italic() { 1.0 } else { 0.0 }),
+            b"opsz" => (request.optical_size != 0).then_some(f32::from(request.optical_size)),
+            _ => None,
         };
-    }
-    // A name of its own: the instance must never answer a family query in
-    // place of the file (a later chain for another optical size would get
-    // this one, already "an instance", and keep it), and it must differ from
-    // every other instance of the file, so the twin search below is exact.
-    let base = pattern
-        .family
-        .clone()
-        .or_else(|| pattern.name.clone())
-        .unwrap_or_default();
-    let label = format!(
-        "{base} @ wght {} opsz {}",
-        wght.map_or_else(|| String::from("default"), |w| w.to_string()),
-        opsz.map_or_else(|| String::from("default"), |o| o.to_string()),
-    );
-    pattern.family = Some(label.clone());
-    pattern.name = Some(label.clone());
-    let registered = pattern.clone();
-    let id = FontId::new();
-    fc_cache.with_memory_font_with_id(
-        id,
-        pattern,
-        rust_fontconfig::FcFont {
-            bytes: baked.into(),
-            font_index: 0,
-            id: label,
-        },
-    );
-    if fc_cache.is_memory_font(&id) {
-        return Some(id);
-    }
-    // rust-fontconfig files an identical (pattern, bytes) pair under the id it
-    // already has and does not register ours: draw that one.
-    let mut twins: Vec<FontId> = Vec::new();
-    fc_cache.for_each_pattern(|pattern, pattern_id| {
-        if *pattern == registered {
-            twins.push(*pattern_id);
+        let explicit = request.setting(axis.tag).map(FontCoord::to_f32);
+        let Some(wanted) = explicit.or(derived) else {
+            continue;
+        };
+        let value = FontCoord::from_f32(axis.clamp(wanted));
+        if value != FontCoord::from_f32(axis.default) {
+            coordinates.push((axis.tag, value.to_f32()));
         }
-    });
-    twins.into_iter().find(|twin| fc_cache.is_memory_font(twin))
+    }
+    coordinates
 }
 
 /// Registry-aware variant of [`resolve_font_chains`].
@@ -6998,17 +6956,13 @@ pub fn resolve_font_chains_with_registry(
         let canonical_key = FontChainKey::from_selectors(font_stack);
         let font_families = canonical_key.font_families.clone();
 
-        let weight = font_stack[0].weight;
-        let is_italic = font_stack[0].style == FontStyle::Italic;
-        let is_oblique = font_stack[0].style == FontStyle::Oblique;
+        // The weight BUCKET picks the static files of the family; the whole
+        // request is what a variable face is drawn at (below).
+        let weight = canonical_key.request.fc_weight();
+        let is_italic = canonical_key.request.is_italic();
+        let is_oblique = canonical_key.request.is_oblique();
 
-        let cache_key = FontChainKeyOrRef::Chain(FontChainKey {
-            font_families: font_families.clone(),
-            weight,
-            italic: is_italic,
-            oblique: is_oblique,
-            optical_size: canonical_key.optical_size,
-        });
+        let cache_key = FontChainKeyOrRef::Chain(canonical_key.clone());
 
         if settings.trace_text {
             eprintln!("[TEXTDBG] CHAIN STORE key={cache_key:?}");
@@ -7022,27 +6976,13 @@ pub fn resolve_font_chains_with_registry(
         // IMPORTANT: Use False (not DontCare) when style is Normal.
         // DontCare means "accept italic too" which can match italic fonts.
         // False means "must NOT be italic" which correctly prefers Normal.
-        let italic = if is_italic {
-            PatternMatch::True
-        } else {
-            PatternMatch::False
-        };
-        let oblique = if is_oblique {
-            PatternMatch::True
-        } else {
-            PatternMatch::False
-        };
+        let (italic, oblique) = canonical_key.style_matches();
 
         // MEMORY FONTS FIRST (see `split_memory_matches`): a family
         // registered by name into the cache's in-memory table wins over
         // anything on disk, exactly as CSS says.
-        let (mem_groups, disk_families, mem_fallbacks) = split_memory_matches(
-            &font_families,
-            memory_families,
-            weight,
-            is_italic,
-            is_oblique,
-        );
+        let (mem_groups, disk_families, mem_fallbacks) =
+            split_memory_matches(&font_families, memory_families, &canonical_key.request);
 
         // Registry-aware resolve: scout-on-demand path when available.
         // See `resolve_font_chains_with_registry` doc for rationale.
@@ -7130,10 +7070,11 @@ pub fn resolve_font_chains_with_registry(
             }
         }
 
-        // A variable font FILE matched at its default instance is drawn at
-        // the weight and optical size asked for (macOS's SFNS.ttf for every
-        // bold system face, and SF Pro Text below 17px).
-        select_variable_instances(&mut chain, weight, canonical_key.optical_size, fc_cache);
+        // A variable face a family matched is drawn as its static instance at
+        // the coordinates the request asks (macOS's SFNS.ttf for every bold
+        // system face, and SF Pro Text below 17px), the default instance
+        // included: shaping and the PDF never see a variable font.
+        select_variable_instances(&mut chain, &canonical_key.request, fc_cache);
 
         // Which face each family of the stack came to, under TEXTDBG.
         if settings.trace_text {
@@ -7511,17 +7452,12 @@ pub fn resolve_font_chains_fast(
         let canonical_key = FontChainKey::from_selectors(font_stack);
         let font_families = canonical_key.font_families.clone();
 
-        let weight = font_stack[0].weight;
-        let is_italic = font_stack[0].style == FontStyle::Italic;
-        let is_oblique = font_stack[0].style == FontStyle::Oblique;
+        // The weight BUCKET picks the static files of the family; the whole
+        // request is what a variable face is drawn at (below).
+        let weight = canonical_key.request.fc_weight();
+        let is_italic = canonical_key.request.is_italic();
 
-        let cache_key = FontChainKeyOrRef::Chain(FontChainKey {
-            font_families: font_families.clone(),
-            weight,
-            italic: is_italic,
-            oblique: is_oblique,
-            optical_size: canonical_key.optical_size,
-        });
+        let cache_key = FontChainKeyOrRef::Chain(canonical_key.clone());
 
         if chains.contains_key(&cache_key) {
             continue;
@@ -7543,13 +7479,8 @@ pub fn resolve_font_chains_fast(
         // (production always has a live registry, so it always took this
         // path). Match memory families by name here, in CSS order, and only
         // hand the remaining families to the disk probe.
-        let (mut css_fallbacks, disk_families, mem_fallbacks) = split_memory_matches(
-            &font_families,
-            memory_families,
-            weight,
-            is_italic,
-            is_oblique,
-        );
+        let (mut css_fallbacks, disk_families, mem_fallbacks) =
+            split_memory_matches(&font_families, memory_families, &canonical_key.request);
 
         let request = vec![(disk_families.clone(), codepoints.clone())];
         let mut chains_out = if disk_families.is_empty() {
@@ -7611,15 +7542,11 @@ pub fn resolve_font_chains_fast(
             }
         }
 
-        // A variable font FILE matched at its default instance is drawn at
-        // the weight and optical size asked for (macOS's SFNS.ttf for every
-        // bold system face, and SF Pro Text below 17px).
-        select_variable_instances(
-            &mut chain,
-            weight,
-            canonical_key.optical_size,
-            &shared_cache,
-        );
+        // A variable face a family matched is drawn as its static instance at
+        // the coordinates the request asks (macOS's SFNS.ttf for every bold
+        // system face, and SF Pro Text below 17px), the default instance
+        // included: shaping and the PDF never see a variable font.
+        select_variable_instances(&mut chain, &canonical_key.request, &shared_cache);
 
         chains.insert(cache_key, chain);
     }
@@ -10155,10 +10082,7 @@ mod autotest_generated {
     fn chain_key(family: &str) -> FontChainKey {
         FontChainKey {
             font_families: vec![family.to_string()],
-            weight: FcWeight::Normal,
-            italic: false,
-            oblique: false,
-            optical_size: 0,
+            request: FontRequest::default(),
         }
     }
 
@@ -11022,13 +10946,19 @@ mod autotest_generated {
         assert!(r.get(&FontChainKeyOrRef::Chain(key.clone())).is_some());
         // A key that differs only in weight is a different key.
         let heavier = FontChainKey {
-            weight: FcWeight::Bold,
+            request: key.request.clone().with_weight_bucket(FcWeight::Bold),
             ..key.clone()
         };
         assert!(r.get_by_chain_key(&heavier).is_none());
+        // …and so is one that differs only in the weight within a bucket (350 is not 400).
+        let between = FontChainKey {
+            request: key.request.clone().with_weight(350.0),
+            ..key.clone()
+        };
+        assert!(r.get_by_chain_key(&between).is_none());
         // …and so is one that differs only in the italic flag.
         let italic = FontChainKey {
-            italic: true,
+            request: key.request.clone().with_style(FontStyle::Italic),
             ..key
         };
         assert!(r.get_by_chain_key(&italic).is_none());
@@ -11071,10 +11001,8 @@ mod autotest_generated {
     fn resolved_font_chains_get_for_font_stack_uses_the_canonical_selector_key() {
         let selectors = vec![FontSelector {
             family: "Arial".to_string(),
-            weight: FcWeight::Normal,
-            style: FontStyle::Normal,
+            request: FontRequest::default(),
             unicode_ranges: Vec::new(),
-            optical_size: 0,
         }];
         let key = FontChainKey::from_selectors(&selectors);
         let mut chains = HashMap::new();
@@ -11337,8 +11265,8 @@ mod autotest_generated {
         let names: Vec<&str> = stack.iter().map(|s| s.family.as_str()).collect();
         assert_eq!(names, ["sans-serif", "serif", "monospace"]);
         for s in &stack {
-            assert_eq!(s.weight, FcWeight::Normal);
-            assert_eq!(s.style, FontStyle::Normal);
+            assert_eq!(s.request.fc_weight(), FcWeight::Normal);
+            assert_eq!(s.request.style, FontStyle::Normal);
         }
     }
 
@@ -11406,12 +11334,12 @@ mod autotest_generated {
         assert_eq!(stack[0].family, "Iosevka");
         assert_eq!(stack[1].family, "Menlo");
         // Authored families carry the requested weight/style…
-        assert_eq!(stack[0].weight, FcWeight::Bold);
-        assert_eq!(stack[0].style, FontStyle::Italic);
+        assert_eq!(stack[0].request.fc_weight(), FcWeight::Bold);
+        assert_eq!(stack[0].request.style, FontStyle::Italic);
         // …while the appended generics are always the neutral Normal/Normal.
         assert_eq!(stack[4].family, "monospace");
-        assert_eq!(stack[4].weight, FcWeight::Normal);
-        assert_eq!(stack[4].style, FontStyle::Normal);
+        assert_eq!(stack[4].request.fc_weight(), FcWeight::Normal);
+        assert_eq!(stack[4].request.style, FontStyle::Normal);
     }
 
     #[test]
@@ -11485,7 +11413,7 @@ mod autotest_generated {
             FontStyle::Normal,
         );
         assert_eq!(
-            bold[0].weight,
+            bold[0].request.fc_weight(),
             FcWeight::Bold,
             "weight is part of every FontSelector, so it must be part of the key"
         );
@@ -11499,7 +11427,7 @@ mod autotest_generated {
             FontStyle::Italic,
         );
         assert_eq!(
-            italic[0].style,
+            italic[0].request.style,
             FontStyle::Italic,
             "style is part of every FontSelector, so it must be part of the key"
         );
@@ -11566,7 +11494,7 @@ mod autotest_generated {
         )]);
         let bold_stack =
             build_font_selector_stack(&bold, None, FcWeight::Normal, FontStyle::Normal);
-        assert_eq!(bold_stack[0].weight, FcWeight::Bold);
+        assert_eq!(bold_stack[0].request.fc_weight(), FcWeight::Bold);
     }
 
     /// The OS UI font is ONE generic (SYSUI8): the widgets' `system:ui`
@@ -11598,7 +11526,7 @@ mod autotest_generated {
         ] {
             let stack = stack_of(name, &mac);
             assert_eq!(stack[0].family, "system-ui", "{name}: {stack:?}");
-            assert_eq!(stack[0].weight, FcWeight::Normal, "{name}");
+            assert_eq!(stack[0].request.fc_weight(), FcWeight::Normal, "{name}");
             assert!(
                 stack[1..].iter().all(|s| s.family != "system-ui"),
                 "{name}: one selector: {stack:?}"
@@ -11611,10 +11539,11 @@ mod autotest_generated {
             build_font_selector_stack(&typed, Some(&mac), FcWeight::Normal, FontStyle::Normal);
         assert_eq!(bold[0].family, "system-ui");
         assert_eq!(
-            bold[0].weight,
+            bold[0].request.fc_weight(),
             FcWeight::Bold,
             "system:ui:bold is the UI font at 700"
         );
+        assert_eq!(bold[0].request.weight.to_f32(), 700.0);
 
         let windows = azul_css::system::Platform::Windows;
         assert_eq!(stack_of("system:ui", &windows)[0].family, "system-ui");
@@ -12824,7 +12753,7 @@ mod memory_font_tier_tests {
         }
         let families: Vec<String> = stack.iter().map(|s| (*s).to_string()).collect();
         let (primary, disk, fallback) =
-            split_memory_matches(&families, &memory_families, FcWeight::Normal, false, false);
+            split_memory_matches(&families, &memory_families, &FontRequest::default());
         (
             primary.into_iter().map(|g| g.css_name).collect(),
             disk,
@@ -12899,7 +12828,7 @@ mod memory_font_tier_tests {
         );
         let stack = vec![FontSelector {
             family: "sans-serif".to_string(),
-            style: FontStyle::Italic,
+            request: FontRequest::default().with_style(FontStyle::Italic),
             ..FontSelector::default()
         }];
         let collected = CollectedFontStacks {
@@ -13351,7 +13280,7 @@ mod text_node_font_stack_tests {
         collect_font_stacks_from_styled_dom(sd, &platform)
             .font_stacks
             .iter()
-            .map(|stack| (stack[0].weight, stack[0].style))
+            .map(|stack| (stack[0].request.fc_weight(), stack[0].request.style))
             .collect()
     }
 
@@ -13435,7 +13364,7 @@ mod audit_a3_solver_tests {
     #[test]
     fn a_font_stack_memo_entry_answers_only_for_the_inputs_it_was_built_from() {
         let (iosevka, menlo) = (family("Iosevka"), family("Menlo"));
-        let (weight, style) = (FcWeight::Normal, FontStyle::Normal);
+        let request = FontRequest::default();
         let stack = build_font_selector_stack_memo(
             &mut FontStackMemo::default(),
             &iosevka,
@@ -13444,42 +13373,49 @@ mod audit_a3_solver_tests {
             FontStyle::Normal,
         );
         let entry = (
-            font_stack_memo_inputs(&iosevka, None, Some("dark"), &weight, &style),
+            font_stack_memo_inputs(&iosevka, None, Some("dark"), &request),
             stack.clone(),
         );
 
-        let same = font_stack_memo_answer(&entry, &iosevka, None, Some("dark"), &weight, &style);
+        let same = font_stack_memo_answer(&entry, &iosevka, None, Some("dark"), &request);
         assert_eq!(same.map(|s| s.len()), Some(stack.len()), "its own inputs: the stack");
 
         assert!(
-            font_stack_memo_answer(&entry, &menlo, None, Some("dark"), &weight, &style).is_none(),
+            font_stack_memo_answer(&entry, &menlo, None, Some("dark"), &request).is_none(),
             "another family behind the same key must not get this stack"
         );
         assert!(
-            font_stack_memo_answer(&entry, &iosevka, None, Some("light"), &weight, &style)
-                .is_none(),
+            font_stack_memo_answer(&entry, &iosevka, None, Some("light"), &request).is_none(),
             "nor another theme"
         );
         assert!(
-            font_stack_memo_answer(&entry, &iosevka, None, None, &weight, &style).is_none(),
+            font_stack_memo_answer(&entry, &iosevka, None, None, &request).is_none(),
             "nor no theme"
         );
+        let bolder = request.clone().with_weight_bucket(FcWeight::Bold);
         assert!(
-            font_stack_memo_answer(&entry, &iosevka, None, Some("dark"), &FcWeight::Bold, &style)
-                .is_none(),
+            font_stack_memo_answer(&entry, &iosevka, None, Some("dark"), &bolder).is_none(),
             "nor another weight"
         );
+        let between = request.clone().with_weight(350.0);
         assert!(
-            font_stack_memo_answer(
-                &entry,
-                &iosevka,
-                None,
-                Some("dark"),
-                &weight,
-                &FontStyle::Italic
-            )
-            .is_none(),
+            font_stack_memo_answer(&entry, &iosevka, None, Some("dark"), &between).is_none(),
+            "nor another weight of the same bucket"
+        );
+        let italic = request.clone().with_style(FontStyle::Italic);
+        assert!(
+            font_stack_memo_answer(&entry, &iosevka, None, Some("dark"), &italic).is_none(),
             "nor another style"
+        );
+        let wide = request.clone().with_stretch(125.0);
+        assert!(
+            font_stack_memo_answer(&entry, &iosevka, None, Some("dark"), &wide).is_none(),
+            "nor another stretch"
+        );
+        let settings = request.with_settings(&[(*b"wght", 650.0)]);
+        assert!(
+            font_stack_memo_answer(&entry, &iosevka, None, Some("dark"), &settings).is_none(),
+            "nor other variation settings"
         );
     }
 
