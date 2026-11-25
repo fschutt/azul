@@ -1,7 +1,13 @@
 use std::{ffi::OsString, path::PathBuf};
 
-use azul_core::resources::{TextAntialiasMode, TextAntialiasing};
-use azul_css::env::{MapEnv, NoEnv};
+use azul_core::{
+    resources::{TextAntialiasMode, TextAntialiasing},
+    settings::CoreSettings,
+};
+use azul_css::{
+    env::{MapEnv, NoEnv},
+    settings::CssSettings,
+};
 use azul_layout::settings::LayoutSettings;
 
 use super::*;
@@ -56,6 +62,8 @@ fn an_empty_environment_is_the_default_of_every_field() {
     assert_eq!(none.program_files_x86, None);
     assert_eq!(none.text_aa, TextAntialiasing::default());
     assert_eq!(none.layout, LayoutSettings::default());
+    assert_eq!(none.css, CssSettings::default());
+    assert_eq!(none.core, CoreSettings::default());
     assert!(!none.inside_claude_code);
     assert!(!none.anthropic_api_key_set);
     assert_eq!(none.telegram_token, None);
@@ -179,4 +187,20 @@ fn the_debug_output_hides_the_bot_token() {
     assert!(!shown.contains("doc-token"), "{shown}");
     assert!(!shown.contains("an-api-key-value"), "{shown}");
     assert!(shown.contains("<set>"), "{shown}");
+}
+
+#[test]
+fn the_switches_of_the_core_and_css_crates_are_what_their_own_constructors_read() {
+    let env = MapEnv::new()
+        .with("AZ_SUPPRESS", "div_as_text")
+        .with("AZ_LOG", "debug")
+        .with("AZ_THEME", "dark")
+        .with("AZ_RICING", "off");
+    let s = ToolSettings::from_lookup(&env);
+    assert_eq!(s.core, CoreSettings::from_lookup(&env));
+    assert_eq!(s.css, CssSettings::from_lookup(&env));
+    assert!(s.core.diag.suppress.contains("div_as_text"));
+    assert_eq!(s.css.ricing, azul_css::system::RicingMode::Off);
+    // and a switch of another crate is not read twice by the tool itself
+    assert_eq!(ToolSettings::from_lookup(&NoEnv).core, CoreSettings::default());
 }

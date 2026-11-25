@@ -19,8 +19,11 @@ use std::{
     path::PathBuf,
 };
 
-use azul_core::resources::TextAntialiasing;
-use azul_css::env::{EnvSource, NoEnv};
+use azul_core::{resources::TextAntialiasing, settings::CoreSettings};
+use azul_css::{
+    env::{EnvSource, NoEnv},
+    settings::CssSettings,
+};
 use azul_layout::settings::LayoutSettings;
 
 // ---------------------------------------------------------------------------------------------
@@ -124,6 +127,15 @@ pub struct ToolSettings {
     /// tool applies it to every `LayoutWindow` it makes (`LayoutWindow::set_settings`): a window
     /// nobody did that for runs with the defaults, the behaviour of an empty environment.
     pub layout: LayoutSettings,
+    /// What azul-css asks of the environment (the theme and mode pins, the rice mode), as its own
+    /// constructor reads it from the lookup. [`ToolSettings::install_libraries`] puts it where the
+    /// context-free style resolution finds it.
+    pub css: CssSettings,
+    /// What azul-core asks of the environment (the log filter, the profiling gate, the diagnostic
+    /// dials, the test hooks), as its own constructor reads it from the lookup.
+    /// [`ToolSettings::install_libraries`] puts it where the context-free code of the core finds
+    /// it, so `AZ_LOG`, `AZ_SUPPRESS` and `AZ_PROFILE` reach the engine that runs inside the tool.
+    pub core: CoreSettings,
     /// `CLAUDECODE` is set to a UTF-8 value: the tool runs inside a Claude Code session.
     pub inside_claude_code: bool,
     /// `ANTHROPIC_API_KEY` is set to a UTF-8 value (the key itself is not kept).
@@ -159,11 +171,22 @@ impl ToolSettings {
             program_files_x86: env.var(PROGRAMFILES_X86),
             text_aa: TextAntialiasing::from_vars(|name| env.var(name)),
             layout: LayoutSettings::from_lookup(env),
+            css: CssSettings::from_lookup(env),
+            core: CoreSettings::from_lookup(env),
             inside_claude_code: env.var(CLAUDECODE).is_some(),
             anthropic_api_key_set: env.var(ANTHROPIC_API_KEY).is_some(),
             telegram_token: env.var(DOC_TG_TOKEN).or_else(|| env.var(TELEGRAM_BOT_TOKEN)),
             telegram_chat_id: env.var(DOC_TG_CHAT_ID).or_else(|| env.var(TELEGRAM_CHAT_ID)),
         }
+    }
+
+    /// Puts what azul-css and azul-core ask of the environment where their context-free code finds
+    /// it (the theme and mode pins, the log filter, the profiling gate, the diagnostic dials, the
+    /// test hooks): what `App::create` of the dll does for an app. Call it once, first thing in
+    /// `main`; the first install of a process wins.
+    pub fn install_libraries(&self) {
+        self.css.install();
+        self.core.install();
     }
 
     /// `HOME` as a path.
@@ -215,6 +238,8 @@ impl fmt::Debug for ToolSettings {
             .field("program_files_x86", &self.program_files_x86)
             .field("text_aa", &self.text_aa)
             .field("layout", &self.layout)
+            .field("css", &self.css)
+            .field("core", &self.core)
             .field("inside_claude_code", &self.inside_claude_code)
             .field("anthropic_api_key_set", &self.anthropic_api_key_set)
             .field(

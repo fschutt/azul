@@ -103,6 +103,10 @@ fn main() -> anyhow::Result<()> {
     // The process environment is read ONCE, here; every command takes what it needs from
     // `settings` (see `settings.rs` for the variables, `process_env.rs` for the reader).
     let settings = process_env::read_settings();
+    // What the engine crates ask of the environment (`AZ_LOG`, `AZ_SUPPRESS`, `AZ_PROFILE`,
+    // `AZ_THEME`, ...), told to them once, as `App::create` does for an app: the engine that runs
+    // inside this tool reads no environment itself.
+    settings.install_libraries();
 
     // The azul checkout we operate on, resolved AT RUNTIME.
     //
