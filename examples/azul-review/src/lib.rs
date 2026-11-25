@@ -83,7 +83,8 @@ pub const SPEC: AppSpec = AppSpec {
 /// The About facts.
 pub const ABOUT: AboutInfo = AboutInfo {
     name: "AzReview",
-    version: env!("CARGO_PKG_VERSION"),
+    // The commit it is built from (`build.rs`): a report names its binary.
+    version: concat!(env!("CARGO_PKG_VERSION"), " (build ", env!("AZREVIEW_BUILD"), ")"),
     summary: "Ink-first code review: the files of a folder as pages, marked with a pen, with \
               voice clips. Sessions are kept in your data folder.",
     license: "MIT",

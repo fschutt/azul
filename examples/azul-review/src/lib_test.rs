@@ -341,3 +341,10 @@ fn the_window_asks_for_the_gpu_like_the_map_editor_does() {
     // The engine falls back to the CPU renderer by itself where there is no usable GPU.
     assert!(matches!(window_renderer().hw_accel, azul::window::HwAcceleration::Enabled));
 }
+
+#[test]
+fn the_about_box_names_the_build_the_binary_is_made_from() {
+    // `build.rs` puts the commit there (`unknown` without git): a report names its binary.
+    assert!(ABOUT.version.starts_with(env!("CARGO_PKG_VERSION")), "{}", ABOUT.version);
+    assert!(ABOUT.version.contains("(build ") && ABOUT.version.ends_with(')'), "{}", ABOUT.version);
+}
