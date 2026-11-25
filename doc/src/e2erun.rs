@@ -25,7 +25,10 @@
 use std::path::PathBuf;
 
 use anyhow::{bail, Context};
-use azul_layout::e2e::{load_e2e_tests, render_report, run_e2e_test, E2eTest, E2eTestResult};
+use azul_layout::{
+    e2e::{load_e2e_tests, render_report, run_e2e_test_with_settings, E2eTest, E2eTestResult},
+    settings::LayoutSettings,
+};
 use rayon::prelude::*;
 
 /// Parsed `e2e` subcommand options.
@@ -131,12 +134,18 @@ pub fn keep_going(tests: &mut [E2eTest]) {
 /// result to the FILE its test came from (`gen-e2e --review-batch`) pairs by
 /// this position - never by name, which two scenarios can share.
 ///
+/// `layout` is the engine's settings as the tool read them from its environment at its start
+/// (`ToolSettings::layout`): every scenario window runs under them, so `AZ_PATCH_VERIFY` and the
+/// other switches of the e2e gate reach the engine. `LayoutSettings::default()` is the behaviour of
+/// an empty environment.
+///
 /// # Errors
 ///
 /// Fails only when the thread pool cannot be built.
 pub fn run_tests_in_order(
     tests: &[E2eTest],
     jobs: Option<usize>,
+    layout: &LayoutSettings,
 ) -> anyhow::Result<Vec<E2eTestResult>> {
     let jobs = jobs.unwrap_or_else(|| {
         std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
@@ -153,7 +162,12 @@ pub fn run_tests_in_order(
         .thread_name(|i| format!("e2e-{i}"))
         .build()
         .context("failed to build the e2e thread pool")?;
-    Ok(pool.install(|| tests.par_iter().map(run_e2e_test).collect::<Vec<_>>()))
+    Ok(pool.install(|| {
+        tests
+            .par_iter()
+            .map(|test| run_e2e_test_with_settings(test, layout))
+            .collect::<Vec<_>>()
+    }))
 }
 
 /// Run `tests` in parallel on `jobs` threads (`None` = available parallelism)
@@ -169,8 +183,12 @@ pub fn run_tests_in_order(
 /// # Errors
 ///
 /// Fails only when the thread pool cannot be built.
-pub fn run_tests(tests: &[E2eTest], jobs: Option<usize>) -> anyhow::Result<Vec<E2eTestResult>> {
-    let mut results = run_tests_in_order(tests, jobs)?;
+pub fn run_tests(
+    tests: &[E2eTest],
+    jobs: Option<usize>,
+    layout: &LayoutSettings,
+) -> anyhow::Result<Vec<E2eTestResult>> {
+    let mut results = run_tests_in_order(tests, jobs, layout)?;
 
     // The report must not depend on how the run was scheduled.
     results.sort_by(|a, b| a.name.cmp(&b.name));
@@ -185,7 +203,7 @@ pub fn run_tests(tests: &[E2eTest], jobs: Option<usize>) -> anyhow::Result<Vec<E
 /// # Errors
 ///
 /// Fails when the path cannot be read or a fixture is not valid `E2eTest` JSON.
-pub fn run(opts: &E2eRunOptions) -> anyhow::Result<i32> {
+pub fn run(opts: &E2eRunOptions, layout: &LayoutSettings) -> anyhow::Result<i32> {
     let mut tests = load_e2e_tests(&opts.path).map_err(|e| anyhow::anyhow!(e))?;
 
     if let Some(f) = opts.filter.as_deref() {
@@ -234,7 +252,7 @@ pub fn run(opts: &E2eRunOptions) -> anyhow::Result<i32> {
     );
 
     let started = std::time::Instant::now();
-    let results = run_tests(&tests, Some(jobs))?;
+    let results = run_tests(&tests, Some(jobs), layout)?;
     let wall = started.elapsed();
 
     let (report, verdict) = render_report(&tests, &results);
@@ -308,7 +326,7 @@ mod tests {
     fn keep_going_reports_every_red_step_of_a_scenario() {
         let tests = vec![scenario("two_red", &[ABSENT_1, PRESENT, ABSENT_2])];
 
-        let first_only = run_tests_in_order(&tests, Some(1)).unwrap();
+        let first_only = run_tests_in_order(&tests, Some(1), &LayoutSettings::default()).unwrap();
         assert_eq!(first_only[0].status, "fail");
         assert_eq!(
             red_steps(&first_only[0]),
@@ -319,7 +337,7 @@ mod tests {
 
         let mut all = tests.clone();
         keep_going(&mut all);
-        let every = run_tests_in_order(&all, Some(1)).unwrap();
+        let every = run_tests_in_order(&all, Some(1), &LayoutSettings::default()).unwrap();
         assert_eq!(every[0].status, "fail", "the verdict is still red");
         assert_eq!(
             red_steps(&every[0]),
@@ -340,6 +358,19 @@ mod tests {
         assert!(!report.contains("step 3:"), "{report}");
     }
 
+    /// The engine's settings the tool read from its environment at its start are the ones every
+    /// scenario window runs under (`azul-doc e2e` with `AZ_PATCH_VERIFY=1` is the CI gate that
+    /// compares a patched display list with the wholesale build after every layout pass): a
+    /// scenario that patches nothing wrongly passes under them.
+    #[test]
+    fn the_scenarios_run_under_the_settings_the_tool_was_given() {
+        let mut verify = LayoutSettings::default();
+        verify.window.patch_verify = true;
+        let tests = vec![scenario("verified", &[PRESENT])];
+        let results = run_tests_in_order(&tests, Some(1), &verify).unwrap();
+        assert_eq!(results[0].status, "pass");
+    }
+
     /// G1's other half: results come back in the order of the tests, whatever
     /// the tests are called, so a caller can pair them with their FILES.
     #[test]
@@ -350,14 +381,14 @@ mod tests {
             scenario("same_name", &[ABSENT_1]),
             scenario("same_name", &[PRESENT, PRESENT]),
         ];
-        let results = run_tests_in_order(&tests, Some(3)).unwrap();
+        let results = run_tests_in_order(&tests, Some(3), &LayoutSettings::default()).unwrap();
         let status: Vec<&str> = results.iter().map(|r| r.status.as_str()).collect();
         assert_eq!(status, ["pass", "fail", "pass"]);
         let steps: Vec<usize> = results.iter().map(|r| r.step_count).collect();
         assert_eq!(steps, [3, 3, 4]);
 
         // ...while `run_tests` (the CLI) sorts them by name for a stable report.
-        let sorted = run_tests(&tests, Some(3)).unwrap();
+        let sorted = run_tests(&tests, Some(3), &LayoutSettings::default()).unwrap();
         assert_eq!(sorted.len(), 3);
     }
 }

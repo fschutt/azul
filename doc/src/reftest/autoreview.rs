@@ -53,6 +53,8 @@ pub struct AutoreviewConfig {
     /// `cargo llvm-cov --lcov`) whose untested functions and branches go into
     /// each file's context.
     pub coverage: Option<PathBuf>,
+    /// The environment the tool was started with (the checks of the agent preflight).
+    pub settings: crate::settings::ToolSettings,
 }
 
 pub enum AutoreviewSubcommand {
@@ -711,7 +713,7 @@ fn run_smallfixes_agent(
 
     let mut child = match Command::new("claude")
         .args(&cmd_args)
-        .env_remove("CLAUDECODE")
+        .env_remove(crate::settings::CLAUDECODE)
         .current_dir(project_root)
         .stdin(Stdio::piped())
         .stdout(result_file)
@@ -959,7 +961,7 @@ fn run_review_agent(
 
     let mut child = match Command::new("claude")
         .args(cli_args)
-        .env_remove("CLAUDECODE")
+        .env_remove(crate::settings::CLAUDECODE)
         .current_dir(project_root)
         .stdin(Stdio::piped())
         .stdout(result_file)
@@ -1434,7 +1436,7 @@ fn run_review(config: AutoreviewConfig) -> Result<(), String> {
         return show_status(&run, config.retry_failed);
     }
 
-    preflight_checks(&project_root, config.dry_run)?;
+    preflight_checks(&project_root, config.dry_run, &config.settings)?;
 
     // Ensure directories
     for d in &[run.clone(), prompts_dir(&run), reports_dir(&run), merge_dir(&run)] {
@@ -1667,7 +1669,7 @@ fn run_merge(config: AutoreviewConfig) -> Result<(), String> {
     }
     println!("Found {} report files to merge", n);
 
-    preflight_checks(project_root, config.dry_run)?;
+    preflight_checks(project_root, config.dry_run, &config.settings)?;
 
     let checklist_path = merge.join("checklist.md");
     let prompt_text = build_merge_prompt(&reports, &checklist_path);
@@ -1738,7 +1740,7 @@ fn run_process(config: AutoreviewConfig) -> Result<(), String> {
         return Err("No checklist found. Run `autoreview merge` first.".into());
     }
 
-    preflight_checks(&project_root, config.dry_run)?;
+    preflight_checks(&project_root, config.dry_run, &config.settings)?;
 
     let prompt_text = build_process_prompt(&checklist_path);
 
@@ -1803,7 +1805,7 @@ fn run_small_fixes(config: AutoreviewConfig) -> Result<(), String> {
         return Err("No reports directory. Run `autoreview` first.".into());
     }
 
-    preflight_checks(&project_root, config.dry_run)?;
+    preflight_checks(&project_root, config.dry_run, &config.settings)?;
 
     fs::create_dir_all(&sf_prompts)
         .map_err(|e| format!("Failed to create small-fixes dir: {}", e))?;
@@ -2175,7 +2177,7 @@ fn run_midlevel_agent(
 
     let mut child = match Command::new("claude")
         .args(&cmd_args)
-        .env_remove("CLAUDECODE")
+        .env_remove(crate::settings::CLAUDECODE)
         .current_dir(project_root)
         .stdin(Stdio::piped())
         .stdout(result_file)
@@ -2332,7 +2334,7 @@ fn run_midlevel_fixes(config: AutoreviewConfig) -> Result<(), String> {
         return Err("No reports directory. Run `autoreview` first.".into());
     }
 
-    preflight_checks(&project_root, config.dry_run)?;
+    preflight_checks(&project_root, config.dry_run, &config.settings)?;
 
     fs::create_dir_all(&ml_prompts)
         .map_err(|e| format!("Failed to create midlevel-fixes dir: {}", e))?;
@@ -2531,12 +2533,16 @@ fn show_status(run: &Path, retry_failed: bool) -> Result<(), String> {
 
 // ── Preflight ──────────────────────────────────────────────────────────
 
-fn preflight_checks(project_root: &Path, dry_run: bool) -> Result<(), String> {
+fn preflight_checks(
+    project_root: &Path,
+    dry_run: bool,
+    settings: &crate::settings::ToolSettings,
+) -> Result<(), String> {
     println!("Preflight checks");
     println!("================\n");
 
     if !dry_run {
-        if std::env::var("CLAUDECODE").is_ok() {
+        if settings.inside_claude_code {
             return Err(
                 "Cannot run inside a Claude Code session.\nRun from a regular \
                  terminal:\n\n./target/release/azul-doc autoreview"
@@ -2545,7 +2551,7 @@ fn preflight_checks(project_root: &Path, dry_run: bool) -> Result<(), String> {
         }
         println!("  [OK] Not running inside Claude Code");
 
-        if std::env::var("ANTHROPIC_API_KEY").is_ok() {
+        if settings.anthropic_api_key_set {
             return Err(
                 "ANTHROPIC_API_KEY is set.\nUnset it first: unset ANTHROPIC_API_KEY".into(),
             );
@@ -2908,7 +2914,7 @@ fn run_highlevel_agent(
 
     let mut child = Command::new("claude")
         .args(&cmd_args)
-        .env_remove("CLAUDECODE")
+        .env_remove(crate::settings::CLAUDECODE)
         .current_dir(project_root)
         .stdin(Stdio::piped())
         .stdout(result_file)
@@ -3040,6 +3046,7 @@ fn git_show_file(project_root: &Path, refname: &str, path: &str) -> Result<Strin
 pub fn parse_autoreview_args(
     args: &[&str],
     project_root: &Path,
+    settings: &crate::settings::ToolSettings,
 ) -> Result<AutoreviewConfig, String> {
     let mut config = AutoreviewConfig {
         project_root: project_root.to_path_buf(),
@@ -3060,6 +3067,7 @@ pub fn parse_autoreview_args(
         effort: None,
         out: None,
         coverage: None,
+        settings: settings.clone(),
     };
     let mut agents_given = false;
 

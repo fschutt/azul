@@ -116,7 +116,7 @@ fn skip_limits(b: &[u8], p: &mut usize) -> Option<()> {
 /// + boundary wiring). Anything NOT matched here resolves to the loader's
 /// Proxy zero-stub — a silent-garbage source, which is the point of F3.
 /// Keep in sync with loader_js.rs when adding real impls.
-fn import_is_provided(module: &str, name: &str) -> bool {
+fn import_is_provided(module: &str, name: &str, shards: bool) -> bool {
     if module != "env" {
         return false;
     }
@@ -131,7 +131,7 @@ fn import_is_provided(module: &str, name: &str) -> bool {
         let hex = &name[4..];
         let val = u64::from_str_radix(hex, 16).unwrap_or(u64::MAX);
         let plausible_synth = (0x1000..0x4000_0000).contains(&val);
-        return super::symbol_table::shards_enabled() && plausible_synth;
+        return shards && plausible_synth;
     }
     if name.starts_with("__remill_")       // intrinsics (read/write/atomic/cas/undef)
         || name.starts_with("__az")
@@ -195,7 +195,7 @@ fn import_is_provided(module: &str, name: &str) -> bool {
 /// Parse one wasm binary: imports (section 2), export count (section 7),
 /// active data segments (section 11) scanned for 8-aligned qwords inside
 /// `img` = the native image's [lo, hi) VA range.
-pub fn audit_wasm(bytes: &[u8], img: Option<(u64, u64)>) -> WasmAudit {
+pub fn audit_wasm(bytes: &[u8], img: Option<(u64, u64)>, shards: bool) -> WasmAudit {
     let mut out = WasmAudit {
         export_count: 0,
         import_count: 0,
@@ -232,7 +232,7 @@ pub fn audit_wasm(bytes: &[u8], img: Option<(u64, u64)>) -> WasmAudit {
                         let name = std::str::from_utf8(b.get(q..q + nl)?).ok()?;
                         q += nl;
                         out.import_count += 1;
-                        if !import_is_provided(module, name) {
+                        if !import_is_provided(module, name, shards) {
                             out.unknown_imports.push(format!("{module}.{name}"));
                         }
                         match *b.get(q)? {
@@ -406,11 +406,14 @@ fn allowlisted(fn_name: &str) -> bool {
 /// `artifacts`: (label, bytes) for every wasm the server is about to serve.
 /// `lift_failures`: count of remill/llc-crash Leaf stubs (transpiler total).
 /// `preflight`: per-fn `(name, __remill_error sites, missing_block sites)`.
+/// `shards`: the lift ran in sharded mode (`WebLiftSettings::shards`), the only mode in which a
+/// `sub_*` import is provided (by a boundary shard).
 pub fn run(
     artifacts: &[(&str, &[u8])],
     transpiler_available: bool,
     lift_failures: u32,
     preflight: &[(String, u32, u32)],
+    shards: bool,
 ) -> bool {
     let img = native_image_range(crate::web::eventloop::AzStartup_alloc as usize);
     if img.is_none() {
@@ -435,7 +438,7 @@ pub fn run(
             }
             continue;
         }
-        let a = audit_wasm(bytes, img);
+        let a = audit_wasm(bytes, img, shards);
         if !a.parse_ok {
             eprintln!(
                 "[azul-web][lift-audit] ⚠ {label}: wasm parse failed — audit incomplete (treating \

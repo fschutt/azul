@@ -35,6 +35,7 @@ use std::{
 };
 
 use super::{
+    lift_settings::WebLiftSettings,
     symbol_table::{self, FnClass as SymFnClass},
     transpiler::{TranspileError, Transpiler, WasmModule},
 };
@@ -853,30 +854,38 @@ pub struct RemillTranspiler {
     /// be exported under different names (root → `callback`, dep →
     /// `__az_dep_<addr>`) and the produced .o's export differs.
     object_cache: std::sync::Mutex<std::collections::HashMap<(usize, String), PathBuf>>,
+    /// The environment of the lift, read once by `run_web` ([`WebLiftSettings`]): the tool
+    /// overrides, the caches, the IR passes and the tracers below are all fields of it, so no
+    /// stage of the pipeline asks the process.
+    settings: WebLiftSettings,
+    /// Fingerprint of the `remill-lift-17` binary (the engine), folded into the cache keys so an
+    /// engine change invalidates them. Computed once, in [`RemillTranspiler::new`]; `0` when the
+    /// binary cannot be stat'd.
+    engine_fingerprint: u64,
 }
 
 impl RemillTranspiler {
-    pub fn new() -> Self {
-        let scratch_dir =
-            std::env::temp_dir().join(format!("azul-web-transpiler-{}", std::process::id()));
+    /// A transpiler that lifts with `settings`.
+    ///
+    /// `settings.keep_scratch` (`AZ_REMILL_KEEP_SCRATCH=1`) retains the per-fn .lifted.ll /
+    /// .patched.ll / .helper.ll / .o / .wasm files after the transpiler drops, for post-mortem
+    /// debugging. Default behavior wipes them — the build cycle of the M8.9 audit left ~95 MB of
+    /// stale scratch dirs around.
+    pub fn new(settings: WebLiftSettings) -> Self {
+        let scratch_dir = settings
+            .temp_dir
+            .join(format!("azul-web-transpiler-{}", std::process::id()));
         Self {
-            remill_lift: discover_remill_lift(),
-            llc: discover_llc(),
-            opt: discover_opt(),
-            llvm_link: discover_llvm_link(),
-            wasm_ld: discover_wasm_ld(),
+            remill_lift: discover_remill_lift(&settings),
+            llc: discover_llc(&settings),
+            opt: discover_opt(&settings),
+            llvm_link: discover_llvm_link(&settings),
+            wasm_ld: discover_wasm_ld(&settings),
             scratch_dir,
             object_cache: std::sync::Mutex::new(std::collections::HashMap::new()),
+            engine_fingerprint: engine_fingerprint(&settings),
+            settings,
         }
-    }
-
-    /// Whether to keep scratch artifacts after the transpiler drops.
-    /// `AZ_REMILL_KEEP_SCRATCH=1` retains the per-fn .lifted.ll /
-    /// .patched.ll / .helper.ll / .o / .wasm files for post-mortem
-    /// debugging. Default behavior wipes them — the build cycle of
-    /// the M8.9 audit left ~95 MB of stale scratch dirs around.
-    fn should_keep_scratch() -> bool {
-        std::env::var_os("AZ_REMILL_KEEP_SCRATCH").is_some()
     }
 
     /// Whether the in-process remill+LLVM+LLD pipeline should be used
@@ -902,7 +911,7 @@ impl RemillTranspiler {
     /// that lands + the triple/datalayout normalization is fixed, this
     /// can flip back to default. Until then subprocess is the default.
     fn use_native_remill(&self) -> bool {
-        cfg!(feature = "web-transpiler-static") && std::env::var_os("AZ_NATIVE_REMILL").is_some()
+        cfg!(feature = "web-transpiler-static") && self.settings.native_remill
     }
 
     /// Return the full toolchain or a structured TranspileError naming
@@ -1050,8 +1059,13 @@ impl RemillTranspiler {
         // default until web ships and the key is version-pinned; opt in (e.g. the
         // pre-lifted Docker base image, once its cache key is made deterministic)
         // when you accept that contract. `bytes` here is already post-rewrite.
-        let cache_path = if !use_native && std::env::var_os("AZ_LIFT_CACHE").is_some() {
-            Some(lift_cache_path(&bytes, lift_addr))
+        let cache_path = if !use_native && self.settings.lift_cache {
+            Some(lift_cache_path(
+                &self.settings,
+                self.engine_fingerprint,
+                &bytes,
+                lift_addr,
+            ))
         } else {
             None
         };
@@ -1067,7 +1081,7 @@ impl RemillTranspiler {
         };
         #[cfg(target_arch = "x86_64")]
         if let Some(ref rc) = reloc_canon {
-            let (irp, mp) = reloc_cache_paths(rc, fn_size);
+            let (irp, mp) = reloc_cache_paths(&self.settings, self.engine_fingerprint, rc, fn_size);
             if let (Ok(ir), Ok(man)) = (std::fs::read_to_string(&irp), std::fs::read_to_string(&mp))
             {
                 if let Some(translated) =
@@ -1081,7 +1095,7 @@ impl RemillTranspiler {
                     // FRESH result is used. This is the instrument that turns
                     // "which constants are addresses?" from hypothesis into
                     // measurement; expensive (full remill per fn), debug-only.
-                    if std::env::var_os("AZ_RELOC_VERIFY").is_some() {
+                    if self.settings.reloc_verify {
                         // fall through to the fresh lift below, then compare
                         let fresh = self.lift_fn_fresh(
                             fn_name,
@@ -1185,7 +1199,8 @@ impl RemillTranspiler {
                     fn_addr,
                     symbol_table::get(),
                 ) {
-                    let (irp, mp) = reloc_cache_paths(rc, fn_size);
+                    let (irp, mp) =
+                        reloc_cache_paths(&self.settings, self.engine_fingerprint, rc, fn_size);
                     if let Some(parent) = irp.parent() {
                         let _ = std::fs::create_dir_all(parent);
                     }
@@ -1243,7 +1258,7 @@ impl RemillTranspiler {
             args.push("--extra_data");
             args.push(&extra_data);
         }
-        run_tool(tools.remill_lift, &args, fn_name)?;
+        run_tool(tools.remill_lift, &args, fn_name, &self.settings.temp_dir)?;
         let ir = std::fs::read_to_string(lifted_ir_path).map_err(|e| TranspileError {
             fn_name: fn_name.to_string(),
             reason: format!("read lifted IR: {e}"),
@@ -1355,7 +1370,7 @@ impl RemillTranspiler {
         // body's State / local-alloca accesses don't alias the
         // helper IR's guest inttoptr accesses. SROA on the State
         // alloca becomes viable post-link → layout cb size drops.
-        let lifted_ir = tag_state_accesses(&lifted_ir);
+        let lifted_ir = tag_state_accesses(&lifted_ir, &self.settings);
 
         // M12.5d: retarget the AArch64 IR header to wasm32 BEFORE
         // opt/llc. Without this, LLVM uses AArch64 datalayout (i64
@@ -1490,7 +1505,7 @@ impl RemillTranspiler {
         // and the BumpAlloc/Realloc/Dealloc stub bodies' host accesses
         // with host metadata too. The memory intrinsics already carry
         // guest metadata from emission and are skipped by the tagger.
-        let helper_ir = tag_state_accesses(&helper_ir);
+        let helper_ir = tag_state_accesses(&helper_ir, &self.settings);
         let helper_ir_path = self.scratch_dir.join(format!("{}.helper.ll", stem));
         std::fs::write(&helper_ir_path, &helper_ir).map_err(|e| TranspileError {
             fn_name: fn_name.to_string(),
@@ -1513,7 +1528,15 @@ impl RemillTranspiler {
         // S0 cache-v2a: byte-identical (patched IR, helper IR) across bundle
         // walks → serve the previously produced object and skip the
         // link/opt/llc chain entirely.
-        let obj_cache_file = obj_cache_path(&patched_ir, &helper_ir, fn_name, &stem, use_native);
+        let obj_cache_file = obj_cache_path(
+            &self.settings,
+            self.engine_fingerprint,
+            &patched_ir,
+            &helper_ir,
+            fn_name,
+            &stem,
+            use_native,
+        );
         if let Some(cp) = obj_cache_file.as_deref() {
             if cp.exists() && std::fs::copy(cp, &obj_path).is_ok() {
                 return Ok(obj_path);
@@ -1560,6 +1583,7 @@ impl RemillTranspiler {
                     linked_ir_path.to_str().expect("scratch path is utf-8"),
                 ],
                 fn_name,
+                &self.settings.temp_dir,
             )?;
 
             // [WEB-LIFT FIX, DEFAULT; AZ_KEEP_ALIAS_SCOPE=1 to disable]
@@ -1579,7 +1603,7 @@ impl RemillTranspiler {
             // the metadata makes opt conservatively assume reg/mem may alias;
             // correctness over the lost forwarding. (strip_noalias_from_sub_args
             // only handled `noalias` on sub_ ARGS, not these per-access scopes.)
-            if std::env::var_os("AZ_KEEP_ALIAS_SCOPE").is_none() {
+            if !self.settings.keep_alias_scope {
                 if let Ok(ir) = std::fs::read_to_string(&linked_ir_path) {
                     let (stripped, n) = strip_alias_scope_metadata(&ir);
                     if n > 0 {
@@ -1594,8 +1618,9 @@ impl RemillTranspiler {
                 reason: "opt not found — set $LLVM_OPT or install LLVM 21".into(),
             })?;
             {
-                let mut opt_args: Vec<String> = vec![opt_flag_for(fn_name).to_string()];
-                if let Some(bisect) = opt_bisect_arg(fn_name) {
+                let mut opt_args: Vec<String> =
+                    vec![opt_flag_for(&self.settings, fn_name).to_string()];
+                if let Some(bisect) = opt_bisect_arg(&self.settings, fn_name) {
                     opt_args.push(bisect);
                 }
                 opt_args.push("-S".to_string());
@@ -1613,7 +1638,7 @@ impl RemillTranspiler {
                         .to_string(),
                 );
                 let arg_refs: Vec<&str> = opt_args.iter().map(|s| s.as_str()).collect();
-                run_tool(opt, &arg_refs, fn_name)?;
+                run_tool(opt, &arg_refs, fn_name, &self.settings.temp_dir)?;
             }
 
             // M12.6 FIX (now DEFAULT; set AZ_NO_FIX_SP=1 to disable): enforce
@@ -1623,9 +1648,9 @@ impl RemillTranspiler {
             // `add sp,#N` and leaks the guest SP into the caller's frame —
             // which cumulatively drifts create_from's SP-relative cache base
             // toward NULL (the M12 node_count-corruption / 768 MiB OOB).
-            if std::env::var_os("AZ_NO_FIX_SP").is_none() {
+            if !self.settings.no_fix_sp {
                 if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
-                    let (fixed, n) = enforce_sp_preservation(&opt_ir);
+                    let (fixed, n) = enforce_sp_preservation(&opt_ir, &self.settings);
                     if n > 0 {
                         let _ = std::fs::write(&opt_ir_path, &fixed);
                     }
@@ -1637,7 +1662,7 @@ impl RemillTranspiler {
             // memory-model break / LinkError, unlike instrumenting patched.ll's pre-opt __remill
             // calls). Logs (ptr,val) to the 0xD0000 ring (counter 0xCFFF0) → catches
             // the hashbrown ctrl write-back.
-            if let Ok(target) = std::env::var("AZ_WRITE_TRACE") {
+            if let Some(target) = self.settings.write_trace.as_deref() {
                 let matched = target == "ALL"
                     || target
                         .split(',')
@@ -1661,7 +1686,7 @@ impl RemillTranspiler {
             // ring (counter 0xDFFF0). The find spins on it → ring tail = the addr the
             // find reads ctrl from. Compare vs the AZ_WRITE_TRACE ctrl write-back
             // addr/value to prove the find reads a STALE/wrong self.table.ctrl (the deep bug).
-            if let Ok(target) = std::env::var("AZ_READ_TRACE") {
+            if let Some(target) = self.settings.read_trace.as_deref() {
                 let matched = target == "ALL"
                     || target
                         .split(',')
@@ -1687,14 +1712,14 @@ impl RemillTranspiler {
             // table base (X19) vs the find's (X26) + their input chain (X23, X20-X28) against a
             // native lldb dump at the same PCs → the first divergent reg brackets the mis-lifted
             // instruction.
-            if let Ok(target) = std::env::var("AZ_REG_TRACE") {
+            if let Some(target) = self.settings.reg_trace.as_deref() {
                 let matched = target == "ALL"
                     || target
                         .split(',')
                         .any(|s| !s.is_empty() && (fn_name.contains(s) || stem.contains(s)));
                 if matched {
                     if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
-                        let (traced, n) = instrument_reg_stores(&opt_ir);
+                        let (traced, n) = instrument_reg_stores(&opt_ir, &self.settings);
                         if n > 0 {
                             let _ = std::fs::write(&opt_ir_path, &traced);
                             eprintln!(
@@ -1718,7 +1743,7 @@ impl RemillTranspiler {
             // empty self-loops become traps, log the value `v` that routes INTO
             // each (the `icmp eq i64 %v, 0` operand) to 0x40078, so a post-trap
             // peek reveals WHAT non-zero value opt folded the loop-exit on.
-            if let Ok(target) = std::env::var("AZ_LOG_SELFLOOP_VAL") {
+            if let Some(target) = self.settings.log_selfloop_val.as_deref() {
                 let matched = target == "ALL"
                     || target
                         .split(',')
@@ -1736,7 +1761,7 @@ impl RemillTranspiler {
                     }
                 }
             }
-            if std::env::var_os("AZ_NO_TRAP_SELFLOOP").is_none() {
+            if !self.settings.no_trap_selfloop {
                 if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
                     let (fixed, n) = rewrite_empty_self_loops(&opt_ir);
                     if n > 0 {
@@ -1749,7 +1774,7 @@ impl RemillTranspiler {
             // comma-separated substring matching this dep's stem, instrument
             // the post-opt IR in place (then llc compiles the instrumented
             // version). See `inject_store_logging`.
-            if let Ok(target) = std::env::var("AZ_LOG_STORES") {
+            if let Some(target) = self.settings.log_stores.as_deref() {
                 let is_wrapper =
                     export_as.starts_with("AzStartup_") || export_as.contains("AzBoundary_");
                 let matched = if target == "ALL" {
@@ -1769,7 +1794,8 @@ impl RemillTranspiler {
                         .map(|v| v as u32)
                         .unwrap_or(0);
                     if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
-                        let (instrumented, n) = inject_store_logging(&opt_ir, deptag);
+                        let (instrumented, n) =
+                            inject_store_logging(&opt_ir, deptag, &self.settings);
                         let _ = std::fs::write(&opt_ir_path, &instrumented);
                         let _ = std::fs::write(
                             self.scratch_dir.join(format!("{}.instr.ll", stem)),
@@ -1790,7 +1816,7 @@ impl RemillTranspiler {
             // unreachable fired (the live opt-folded trap). Map id → the Nth
             // `unreachable` in the saved `.untag.ll`. See
             // `inject_unreachable_tagging`.
-            if let Ok(target) = std::env::var("AZ_TAG_UNREACHABLE") {
+            if let Some(target) = self.settings.tag_unreachable.as_deref() {
                 let matched = target == "ALL"
                     || target
                         .split(',')
@@ -1813,7 +1839,7 @@ impl RemillTranspiler {
             // that traps after AZ_FUEL_LIMIT block-executions. Run with
             // AZ_WASM_DEBUG=1 so the trap's named stack pinpoints the
             // looping fn. See `inject_fuel`.
-            if let Ok(target) = std::env::var("AZ_FUEL") {
+            if let Some(target) = self.settings.fuel.as_deref() {
                 let is_wrapper =
                     export_as.starts_with("AzStartup_") || export_as.contains("AzBoundary_");
                 let matched = (target == "ALL" && !is_wrapper)
@@ -1822,7 +1848,7 @@ impl RemillTranspiler {
                         .any(|s| !s.is_empty() && (fn_name.contains(s) || stem.contains(s)));
                 if matched {
                     if let Ok(opt_ir) = std::fs::read_to_string(&opt_ir_path) {
-                        let (fueled, n) = inject_fuel(&opt_ir);
+                        let (fueled, n) = inject_fuel(&opt_ir, &self.settings);
                         let _ = std::fs::write(&opt_ir_path, &fueled);
                         // Save for id->block mapping: the trap's 0x40070 = the
                         // Nth `call @__az_fuel(i32 N)` here = the looping block.
@@ -1835,7 +1861,7 @@ impl RemillTranspiler {
                 }
             }
 
-            let llc_opt: &str = opt_flag_for(fn_name);
+            let llc_opt: &str = opt_flag_for(&self.settings, fn_name);
             run_tool(
                 tools.llc,
                 &[
@@ -1847,6 +1873,7 @@ impl RemillTranspiler {
                     opt_ir_path.to_str().expect("scratch path is utf-8"),
                 ],
                 fn_name,
+                &self.settings.temp_dir,
             )?;
         }
 
@@ -1893,6 +1920,7 @@ impl RemillTranspiler {
                 obj_path.to_str().expect("scratch path is utf-8"),
             ],
             fn_name,
+            &self.settings.temp_dir,
         )?;
         let wasm_bytes = std::fs::read(&wasm_path).map_err(|e| TranspileError {
             fn_name: fn_name.to_string(),
@@ -1968,7 +1996,7 @@ impl RemillTranspiler {
         // per-layout (ImportMemory) and azul-mini.wasm (OwnMemory)
         // need this for __az_call_indirect to work.
         let import_table = true;
-        let debug_link = std::env::var_os("AZ_WASM_DEBUG").is_some();
+        let debug_link = self.settings.wasm_debug;
         if self.use_native_remill() {
             #[cfg(feature = "web-transpiler-static")]
             {
@@ -2000,7 +2028,8 @@ impl RemillTranspiler {
                         .scratch_dir
                         .join(format!("{}.pre-opt.wasm", output_stem));
                     let _ = std::fs::write(&pre_opt_path, &linked);
-                    postprocess_wasm_opt(&pre_opt_path, output_stem).unwrap_or(linked)
+                    postprocess_wasm_opt(&pre_opt_path, output_stem, &self.settings)
+                        .unwrap_or(linked)
                 };
                 relocate_stack_if_non_mini(&mut final_wasm, memory_mode, output_stem);
                 inject_user_binary_data_segments(
@@ -2008,6 +2037,7 @@ impl RemillTranspiler {
                     accessed_pages,
                     accessed_ranges,
                     output_stem,
+                    &self.settings,
                 );
                 return Ok(final_wasm);
             }
@@ -2037,9 +2067,10 @@ impl RemillTranspiler {
             // runs in C++ side via PassBuilder before this link step.
             // [g129 diag] AZ_LTO_LEVEL overrides the LTO opt level (default 3)
             // to isolate LTO-stage opt miscompiles without AZ_WASM_DEBUG (which crashes).
-            let lto_lvl = std::env::var("AZ_LTO_LEVEL")
-                .ok()
-                .filter(|s| !s.is_empty())
+            let lto_lvl = self
+                .settings
+                .lto_level
+                .clone()
                 .unwrap_or_else(|| "3".to_string());
             args.push(format!("--lto-O{}", lto_lvl));
         } else {
@@ -2050,7 +2081,7 @@ impl RemillTranspiler {
         }
         // [g129 diag] AZ_WASM_LD_MLLVM=<comma-sep flags> forwards `-mllvm <flag>` to the LTO
         // backend (e.g. "--enable-dse-partial-store-merging=false") to isolate LTO opt miscompiles.
-        if let Ok(mllvm) = std::env::var("AZ_WASM_LD_MLLVM") {
+        if let Some(mllvm) = self.settings.wasm_ld_mllvm.as_deref() {
             for f in mllvm.split(',').filter(|s| !s.is_empty()) {
                 args.push("-mllvm".to_string());
                 args.push(f.to_string());
@@ -2079,7 +2110,7 @@ impl RemillTranspiler {
             args.push(p.to_string_lossy().into_owned());
         }
         let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-        run_tool(tools.wasm_ld, &arg_refs, output_stem)?;
+        run_tool(tools.wasm_ld, &arg_refs, output_stem, &self.settings.temp_dir)?;
         // Post-process with binaryen wasm-opt -Oz when available.
         // wasm-ld already runs --gc-sections + --strip-all + --lto-O2,
         // but wasm-opt's `-Oz` passes (local-cse, vacuum, simplify-
@@ -2089,7 +2120,7 @@ impl RemillTranspiler {
         let opt_bytes = if debug_link {
             None
         } else {
-            postprocess_wasm_opt(&wasm_path, output_stem)
+            postprocess_wasm_opt(&wasm_path, output_stem, &self.settings)
         };
         let mut final_wasm = match opt_bytes {
             Some(b) => b,
@@ -2104,6 +2135,7 @@ impl RemillTranspiler {
             accessed_pages,
             accessed_ranges,
             output_stem,
+            &self.settings,
         );
         Ok(final_wasm)
     }
@@ -2137,7 +2169,13 @@ impl RemillTranspiler {
         &self,
         roots: Vec<TransitiveLiftRoot>,
     ) -> Result<WasmModule, TranspileError> {
-        self.lift_with_transitive_deps_ex(roots, LiftOpts::default())
+        self.lift_with_transitive_deps_ex(
+            roots,
+            LiftOpts {
+                max_recursive_depth: self.settings.cb_max_depth,
+                ..LiftOpts::default()
+            },
+        )
     }
 
     /// Like [`Self::lift_with_transitive_deps`] but exposes per-call
@@ -2202,15 +2240,11 @@ impl RemillTranspiler {
         let pool_results: std::sync::Mutex<
             std::collections::HashMap<usize, Result<PathBuf, TranspileError>>,
         > = std::sync::Mutex::new(std::collections::HashMap::new());
-        let n_workers = std::env::var("AZ_LIFT_JOBS")
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .filter(|n| *n >= 1)
-            .unwrap_or_else(|| {
-                std::thread::available_parallelism()
-                    .map(|n| n.get().saturating_sub(2).clamp(1, 10))
-                    .unwrap_or(4)
-            });
+        let n_workers = self.settings.lift_jobs.unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|n| n.get().saturating_sub(2).clamp(1, 10))
+                .unwrap_or(4)
+        });
         std::thread::scope(|__pool_sc| -> Result<WasmModule, TranspileError> {
             // Hard cap on the number of functions a single root's
             // transitive closure can pull in. Bumped from 64 → 256 in
@@ -2988,7 +3022,7 @@ impl RemillTranspiler {
             // web-transpiler-static; the dispatcher .o is plain wasm-linkable
             // and `visited` is populated on the sequential path, so it belongs
             // here too.) AZ_NO_INDIRECT_DISPATCH=1 disables.
-            if std::env::var_os("AZ_NO_INDIRECT_DISPATCH").is_none() {
+            if !self.settings.no_indirect_dispatch {
                 let cs = self.dispatcher_csynths(visited.iter().copied());
                 if let Some(o) = self.emit_indirect_dispatcher_obj(&cs) {
                     object_paths.push(o);
@@ -3214,9 +3248,7 @@ impl RemillTranspiler {
         // this whole hunt is measured against. Flip it on for the run you are
         // debugging. Once the known misses are routed this should become the
         // default, since returning as if a call succeeded is never right.
-        let unk_traps = std::env::var("AZ_UNK_TRAP")
-            .map(|v| v != "0")
-            .unwrap_or(false);
+        let unk_traps = self.settings.unk_trap;
         if unk_traps {
             ir.push_str(
                 "  %umt = call ptr @__remill_write_memory_32(ptr %umr, i64 262216, i32 %pclo)\n  \
@@ -3272,6 +3304,7 @@ impl RemillTranspiler {
                 opt,
                 &["-O2", "-S", ll.to_str()?, "-o", opt_ll.to_str()?],
                 "az_indirect_dispatch",
+                &self.settings.temp_dir,
             )
             .is_err()
             {
@@ -3288,6 +3321,7 @@ impl RemillTranspiler {
                     opt_ll.to_str()?,
                 ],
                 "az_indirect_dispatch",
+                &self.settings.temp_dir,
             )
             .is_err()
             {
@@ -3567,7 +3601,7 @@ impl RemillTranspiler {
         // Debug: verify all targets have unique addr — a duplicate
         // would explain "wasm-ld: error: duplicate symbol: sub_<X>"
         // (two .o files defining sub_<canonical_X>).
-        if std::env::var_os("AZ_REMILL_DEBUG").is_some() {
+        if self.settings.remill_debug {
             let mut seen_addrs: HashSet<usize> = HashSet::new();
             for t in &targets {
                 if !seen_addrs.insert(t.addr) {
@@ -3729,8 +3763,8 @@ impl RemillTranspiler {
             //   AZ_REMILL_MERGED_COMPILE=1 forces ON regardless of size.
             //   AZ_REMILL_DISABLE_AUTO_MERGE=1 forces OFF (regression-test path).
             const MERGED_AUTO_THRESHOLD: usize = 30;
-            let env_force_on = std::env::var_os("AZ_REMILL_MERGED_COMPILE").is_some();
-            let env_force_off = std::env::var_os("AZ_REMILL_DISABLE_AUTO_MERGE").is_some();
+            let env_force_on = self.settings.merged_compile;
+            let env_force_off = self.settings.disable_auto_merge;
             let auto_on = targets.len() <= MERGED_AUTO_THRESHOLD;
             let merged_mode =
                 self.use_native_remill() && !env_force_off && (env_force_on || auto_on);
@@ -3744,7 +3778,7 @@ impl RemillTranspiler {
                 // enable for cbs with ≤ MERGED_AUTO_THRESHOLD fns.
                 // Set AZ_REMILL_MERGED_ALWAYSINLINE=1 to force.
                 let alwaysinline_all =
-                    auto_on || std::env::var_os("AZ_REMILL_MERGED_ALWAYSINLINE").is_some();
+                    auto_on || self.settings.merged_alwaysinline;
                 eprintln!(
                     "[azul-web]   merged-mode: {} fns (alwaysinline_all={})",
                     targets.len(),
@@ -3846,7 +3880,7 @@ impl RemillTranspiler {
 
         // Debug: log any duplicate paths (same .o file in object_paths
         // twice would explain a wasm-ld "duplicate symbol" error).
-        if std::env::var_os("AZ_REMILL_DEBUG").is_some() {
+        if self.settings.remill_debug {
             let mut seen: HashSet<PathBuf> = HashSet::new();
             for p in &object_paths {
                 if !seen.insert(p.clone()) {
@@ -3868,12 +3902,12 @@ impl RemillTranspiler {
         // call them. Skipped via AZ_NO_INDIRECT_DISPATCH=1. See
         // [`Self::emit_indirect_dispatcher_obj`].
         {
-            let env_force_on_d = std::env::var_os("AZ_REMILL_MERGED_COMPILE").is_some();
-            let env_force_off_d = std::env::var_os("AZ_REMILL_DISABLE_AUTO_MERGE").is_some();
+            let env_force_on_d = self.settings.merged_compile;
+            let env_force_off_d = self.settings.disable_auto_merge;
             let merged_d = self.use_native_remill()
                 && !env_force_off_d
                 && (env_force_on_d || targets.len() <= 30);
-            if !merged_d && std::env::var_os("AZ_NO_INDIRECT_DISPATCH").is_none() {
+            if !merged_d && !self.settings.no_indirect_dispatch {
                 let cs = self.dispatcher_csynths(targets.iter().map(|t| t.addr));
                 if let Some(o) = self.emit_indirect_dispatcher_obj(&cs) {
                     object_paths.push(o);
@@ -3916,7 +3950,7 @@ impl Drop for RemillTranspiler {
         // .ll files + 1 .o per fn (146 fns for a layout-cb workload
         // ≈ 800 files ≈ 18 MiB). Without this, server restarts
         // accumulate ~18 MiB/process forever in $TMPDIR.
-        if RemillTranspiler::should_keep_scratch() {
+        if self.settings.keep_scratch {
             eprintln!(
                 "[azul-web] RemillTranspiler drop: keeping scratch dir {} \
                  (AZ_REMILL_KEEP_SCRATCH=1)",
@@ -4026,6 +4060,7 @@ fn inject_user_binary_data_segments(
     accessed_pages: &std::collections::HashSet<usize>,
     accessed_ranges: &std::collections::HashSet<(usize, usize)>,
     output_stem: &str,
+    settings: &WebLiftSettings,
 ) {
     // M9-review + per-page (post-review): the synth-addr lift means
     // every native page has a predictable wasm offset. Combined with
@@ -4080,7 +4115,7 @@ fn inject_user_binary_data_segments(
     // adrp-reached → un-mirrored) → "looks all-full" → RawIterRange loops → shaping HANGS.
     // AZ_FORCE_MIRROR_VMADDRS=<comma vmaddrs> mirrors each (dylib native_base + vmaddr) page so the
     // ctrl-scan reads 0xFF and terminates. (vmaddrs from the const-scan [0xFF;16] cluster.)
-    if let Ok(forced) = std::env::var("AZ_FORCE_MIRROR_VMADDRS") {
+    if let Some(forced) = settings.force_mirror_vmaddrs.as_deref() {
         let mut dylib_nb: Option<usize> = None;
         for r in table.image_rebases() {
             if r.path.contains("libazul") {
@@ -4118,8 +4153,12 @@ fn inject_user_binary_data_segments(
     // global symbol table wasn't initialized yet).
     let mut accessed_ranges_owned = accessed_ranges.clone();
     seed_tlv_mirror_ranges(table, &mut accessed_pages_owned, &mut accessed_ranges_owned);
-    let mut segments =
-        collect_synth_data_pages(table, &accessed_pages_owned, &accessed_ranges_owned);
+    let mut segments = collect_synth_data_pages(
+        table,
+        &accessed_pages_owned,
+        &accessed_ranges_owned,
+        settings,
+    );
     // [WEB-LIFT FIX] Permanently mirror hashbrown's EMPTY_GROUP
     // static(s) as PRECISE all-0xFF segments appended LAST (active data segments
     // are applied in order; last write wins, so this is idempotent over any
@@ -4136,7 +4175,7 @@ fn inject_user_binary_data_segments(
         // [g212 DIAG] When set, log native/synth/trunc for every EMPTY_GROUP run so we can
         // compare against the AZ_READ_TRACE ctrl-read address and learn WHICH offset the
         // lifted probe actually reads (synth-packed vs low-32 truncation).
-        let eg_trace = std::env::var_os("AZ_EMPTY_GROUP_TRACE").is_some();
+        let eg_trace = settings.empty_group_trace;
         for &(target, len) in eg {
             if let Some(synth) = table.native_to_synth(target) {
                 segments.push((synth as u32, vec![0xFFu8; len]));
@@ -4743,6 +4782,7 @@ fn collect_synth_data_pages(
     table: &super::symbol_table::SymbolTable,
     accessed_pages: &std::collections::HashSet<usize>,
     accessed_ranges: &std::collections::HashSet<(usize, usize)>,
+    settings: &WebLiftSettings,
 ) -> Vec<(u32, Vec<u8>)> {
     const PAGE_SIZE: usize = 4096;
     let mut out: Vec<(u32, Vec<u8>)> = Vec::new();
@@ -4777,7 +4817,7 @@ fn collect_synth_data_pages(
     // `scan_arm64_adrp_accesses` doesn't recognize — those addresses
     // read back zero under precise-only mirroring (0 whole-page
     // fallbacks observed in the cascade build).
-    let force_whole_page = std::env::var_os("AZ_FORCE_WHOLE_PAGE").is_some();
+    let force_whole_page = settings.force_whole_page;
     // M12.7: pages reached only INDIRECTLY via a mirrored pointer (never a
     // direct `adrp`) — e.g. hashbrown's static EMPTY_GROUP, pointed at by the
     // empty-table singleton's rebased `ctrl`. Such a page is not in
@@ -4791,7 +4831,7 @@ fn collect_synth_data_pages(
         // Find which image this page belongs to.
         let Some(synth_page) = table.native_to_synth(native_page) else {
             skipped += 1;
-            if std::env::var_os("AZ_WASM_MIRROR_TRACE").is_some() {
+            if settings.wasm_mirror_trace {
                 eprintln!(
                     "[azul-web] mirror SKIP native_page=0x{:x} — not in any tracked image",
                     native_page,
@@ -4896,7 +4936,7 @@ fn collect_synth_data_pages(
                         run[chunk_start..chunk_start + 8].copy_from_slice(&synth_bytes);
                         translated_in_run += 1;
                         pending_targets.push(value as usize & !0xFFF);
-                    } else if std::env::var_os("AZ_TRACE_STALE_PTR").is_some()
+                    } else if settings.trace_stale_ptr
                         && value >= 0x1_0000_0000
                         && value < 0x2_0000_0000_0000
                     {
@@ -4925,7 +4965,7 @@ fn collect_synth_data_pages(
         // No precise ranges for this page — fall back to whole-page
         // mirror (the legacy M9-after-review path).
         fallback_pages += 1;
-        if std::env::var_os("AZ_WASM_MIRROR_TRACE").is_some() {
+        if settings.wasm_mirror_trace {
             eprintln!(
                 "[azul-web] mirror native_page=0x{:x} → synth=0x{:x} (whole-page fallback)",
                 native_page, synth_page,
@@ -4972,7 +5012,7 @@ fn collect_synth_data_pages(
                 bytes[chunk_start..chunk_start + 8].copy_from_slice(&synth_bytes);
                 translated_in_page += 1;
                 pending_targets.push(value as usize & !0xFFF);
-            } else if std::env::var_os("AZ_TRACE_STALE_PTR").is_some()
+            } else if settings.trace_stale_ptr
                 && value >= 0x1_0000_0000
                 && value < 0x2_0000_0000_0000
             {
@@ -5073,7 +5113,7 @@ fn collect_synth_data_pages(
         );
     }
     let out = trimmed;
-    if skipped > 0 && std::env::var_os("AZ_WASM_MIRROR_TRACE").is_some() {
+    if skipped > 0 && settings.wasm_mirror_trace {
         eprintln!(
             "[azul-web] mirror: skipped {} accessed pages (not in any tracked image)",
             skipped,
@@ -6286,11 +6326,9 @@ impl Default for LiftOpts {
             // blew the cap and fell back to NO-OP STUBS, so calling the layout cb trapped
             // with "null function or function signature mismatch" at initLayoutCache.
             // Hitting the cap is fatal-by-fallback, not a graceful truncation, so it must
-            // sit above the real closure size. `AZ_CB_MAX_DEPTH` overrides.
-            max_recursive_depth: std::env::var("AZ_CB_MAX_DEPTH")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(8192),
+            // sit above the real closure size. `AZ_CB_MAX_DEPTH` overrides
+            // (`WebLiftSettings::cb_max_depth`).
+            max_recursive_depth: super::lift_settings::DEFAULT_CB_MAX_DEPTH,
             output_stem: "transitive-lift".to_string(),
         }
     }
@@ -6328,8 +6366,9 @@ enum TransitiveLiftTarget {
 }
 
 impl Default for RemillTranspiler {
+    /// A transpiler with the settings of an EMPTY environment.
     fn default() -> Self {
-        Self::new()
+        Self::new(WebLiftSettings::default())
     }
 }
 
@@ -6419,6 +6458,7 @@ impl Transpiler for RemillTranspiler {
                     ir_path.to_str().expect("scratch path is utf-8"),
                 ],
                 name,
+                &self.settings.temp_dir,
             )?;
             let obj_path = self.scratch_dir.join(format!("{}.o", stem));
             run_tool(
@@ -6432,6 +6472,7 @@ impl Transpiler for RemillTranspiler {
                     ir_path.to_str().expect("scratch path is utf-8"),
                 ],
                 name,
+                &self.settings.temp_dir,
             )?;
             exports.push(remill_export_symbol(lift_addr));
             object_paths.push(obj_path);
@@ -6451,7 +6492,7 @@ impl Transpiler for RemillTranspiler {
             wasm_ld_args.push(p.to_string_lossy().into_owned());
         }
         let arg_refs: Vec<&str> = wasm_ld_args.iter().map(String::as_str).collect();
-        run_tool(tools.wasm_ld, &arg_refs, "azul-mini")?;
+        run_tool(tools.wasm_ld, &arg_refs, "azul-mini", &self.settings.temp_dir)?;
 
         let wasm_bytes = std::fs::read(&wasm_path).map_err(|e| TranspileError {
             fn_name: "azul-mini".into(),
@@ -6554,10 +6595,7 @@ impl Transpiler for RemillTranspiler {
             // lift at N functions. Used to bisect which deep helper
             // introduces the hydrate trap; default 4096 absorbs the
             // full cascade tree.
-            max_recursive_depth: std::env::var("AZ_MINI_MAX_DEPTH")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(4096),
+            max_recursive_depth: self.settings.mini_max_depth,
             output_stem: "azul-mini".to_string(),
         };
 
@@ -6713,7 +6751,7 @@ impl RemillTranspiler {
             }
             None => raw_lifted_ir.to_string(),
         };
-        let lifted_ir = tag_state_accesses(&lifted_ir);
+        let lifted_ir = tag_state_accesses(&lifted_ir, &self.settings);
         // M12.5d: see notes at the other call site — retarget the
         // AArch64 IR header to wasm32 before opt/llc runs.
         let lifted_ir = retarget_to_wasm32(&lifted_ir);
@@ -6768,7 +6806,7 @@ impl RemillTranspiler {
             });
         }
         let helper_ir = emit_helper_ir(canonical_entry_addr, sig, &resolved_branches, export_as);
-        let helper_ir = tag_state_accesses(&helper_ir);
+        let helper_ir = tag_state_accesses(&helper_ir, &self.settings);
         let helper_ir_path = self.scratch_dir.join(format!("{}.helper.ll", stem));
         std::fs::write(&helper_ir_path, &helper_ir).map_err(|e| TranspileError {
             fn_name: fn_name.to_string(),
@@ -6916,6 +6954,7 @@ define void @AzStartup_resetBumpHeap(i32 %snapshot) {
                 opt_path.to_str().expect("scratch path is utf-8"),
             ],
             "bump_helpers",
+            &self.settings.temp_dir,
         )?;
         let llc = self.llc.as_deref().ok_or_else(|| TranspileError {
             fn_name: "bump_helpers".into(),
@@ -6932,6 +6971,7 @@ define void @AzStartup_resetBumpHeap(i32 %snapshot) {
                 opt_path.to_str().expect("scratch path is utf-8"),
             ],
             "bump_helpers",
+            &self.settings.temp_dir,
         )?;
         Ok(obj_path)
     }
@@ -6954,8 +6994,8 @@ fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")
 }
 
-fn discover_remill_lift() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("REMILL_LIFT_BIN") {
+fn discover_remill_lift(settings: &WebLiftSettings) -> Option<PathBuf> {
+    if let Some(p) = settings.remill_lift_bin_text() {
         let pb = PathBuf::from(p);
         if pb.is_file() {
             return Some(pb);
@@ -7000,8 +7040,8 @@ fn discover_remill_lift() -> Option<PathBuf> {
     None
 }
 
-fn discover_llc() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("LLC") {
+fn discover_llc(settings: &WebLiftSettings) -> Option<PathBuf> {
+    if let Some(p) = settings.llc.as_deref() {
         let pb = PathBuf::from(p);
         if pb.is_file() {
             return Some(pb);
@@ -7031,8 +7071,8 @@ fn discover_llc() -> Option<PathBuf> {
     None
 }
 
-fn discover_opt() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("LLVM_OPT") {
+fn discover_opt(settings: &WebLiftSettings) -> Option<PathBuf> {
+    if let Some(p) = settings.llvm_opt.as_deref() {
         let pb = PathBuf::from(p);
         if pb.is_file() {
             return Some(pb);
@@ -7061,8 +7101,8 @@ fn discover_opt() -> Option<PathBuf> {
     None
 }
 
-fn discover_llvm_link() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("LLVM_LINK") {
+fn discover_llvm_link(settings: &WebLiftSettings) -> Option<PathBuf> {
+    if let Some(p) = settings.llvm_link.as_deref() {
         let pb = PathBuf::from(p);
         if pb.is_file() {
             return Some(pb);
@@ -7091,8 +7131,8 @@ fn discover_llvm_link() -> Option<PathBuf> {
     None
 }
 
-fn discover_wasm_ld() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("WASM_LD") {
+fn discover_wasm_ld(settings: &WebLiftSettings) -> Option<PathBuf> {
+    if let Some(p) = settings.wasm_ld.as_deref() {
         let pb = PathBuf::from(p);
         if pb.is_file() {
             return Some(pb);
@@ -7121,8 +7161,8 @@ fn discover_wasm_ld() -> Option<PathBuf> {
     None
 }
 
-fn discover_wasm_opt() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("WASM_OPT") {
+fn discover_wasm_opt(settings: &WebLiftSettings) -> Option<PathBuf> {
+    if let Some(p) = settings.wasm_opt.as_deref() {
         let pb = PathBuf::from(p);
         if pb.is_file() {
             return Some(pb);
@@ -7151,11 +7191,15 @@ fn discover_wasm_opt() -> Option<PathBuf> {
 /// `AZ_REMILL_SKIP_WASM_OPT=1` short-circuits — useful when
 /// debugging codegen and you don't want wasm-opt's rewrites in
 /// the way.
-fn postprocess_wasm_opt(input_path: &Path, fn_name: &str) -> Option<Vec<u8>> {
-    if std::env::var_os("AZ_REMILL_SKIP_WASM_OPT").is_some() {
+fn postprocess_wasm_opt(
+    input_path: &Path,
+    fn_name: &str,
+    settings: &WebLiftSettings,
+) -> Option<Vec<u8>> {
+    if settings.skip_wasm_opt {
         return None;
     }
-    let wasm_opt = discover_wasm_opt()?;
+    let wasm_opt = discover_wasm_opt(settings)?;
     let out_path = input_path.with_extension("opt.wasm");
     let out_path_str = out_path.to_str()?;
     let in_path_str = input_path.to_str()?;
@@ -7185,7 +7229,7 @@ fn postprocess_wasm_opt(input_path: &Path, fn_name: &str) -> Option<Vec<u8>> {
         "-o",
         out_path_str,
     ];
-    match run_tool(&wasm_opt, args, fn_name) {
+    match run_tool(&wasm_opt, args, fn_name, &settings.temp_dir) {
         Ok(()) => {
             let bytes = std::fs::read(&out_path).ok()?;
             // Log the win so "did wasm-opt actually run" is observable per
@@ -7281,35 +7325,33 @@ const LIFT_CACHE_VERSION: u32 = 9;
 /// engine changes.") Cheap proxy = the binary's (len, mtime); computed once.
 /// `0` when the binary can't be stat'd (env unset / missing) → falls back to
 /// the version-only key, same as before.
-fn engine_fingerprint() -> u64 {
-    use std::sync::OnceLock;
-    static FP: OnceLock<u64> = OnceLock::new();
-    *FP.get_or_init(|| {
-        let path = std::env::var_os("REMILL_LIFT_BIN")
-            .map(std::path::PathBuf::from)
-            .or_else(|| {
-                // Mirror the default the subprocess path resolves to.
-                which_remill_lift()
-            });
-        let Some(path) = path else { return 0 };
-        let Ok(meta) = std::fs::metadata(&path) else {
-            return 0;
-        };
-        let len = meta.len();
-        let mtime = meta
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        // Fold len + mtime into one u64 (FNV-ish).
-        let mut h: u64 = super::FNV_OFFSET_BASIS;
-        for b in len.to_le_bytes().iter().chain(mtime.to_le_bytes().iter()) {
-            h ^= *b as u64;
-            h = h.wrapping_mul(super::FNV_PRIME);
-        }
-        h
-    })
+fn engine_fingerprint(settings: &WebLiftSettings) -> u64 {
+    let path = settings
+        .remill_lift_bin
+        .clone()
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            // Mirror the default the subprocess path resolves to.
+            which_remill_lift(settings)
+        });
+    let Some(path) = path else { return 0 };
+    let Ok(meta) = std::fs::metadata(&path) else {
+        return 0;
+    };
+    let len = meta.len();
+    let mtime = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    // Fold len + mtime into one u64 (FNV-ish).
+    let mut h: u64 = super::FNV_OFFSET_BASIS;
+    for b in len.to_le_bytes().iter().chain(mtime.to_le_bytes().iter()) {
+        h ^= *b as u64;
+        h = h.wrapping_mul(super::FNV_PRIME);
+    }
+    h
 }
 
 /// Best-effort resolution of the default `remill-lift-17` path when
@@ -7317,8 +7359,8 @@ fn engine_fingerprint() -> u64 {
 /// (→ 0 fingerprint) is harmless. Delegates to `discover_remill_lift` so it
 /// shares the same env-var + workspace-relative `third_party/` probe (no
 /// machine-local absolute paths).
-fn which_remill_lift() -> Option<PathBuf> {
-    discover_remill_lift()
+fn which_remill_lift(settings: &WebLiftSettings) -> Option<PathBuf> {
+    discover_remill_lift(settings)
 }
 
 // =====================================================================
@@ -7344,10 +7386,6 @@ static PREFLIGHT: std::sync::OnceLock<
 pub static PREFLIGHT_SNAN_SITES: std::sync::atomic::AtomicU32 =
     std::sync::atomic::AtomicU32::new(0);
 pub static PREFLIGHT_UD2_SITES: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-
-fn preflight_enabled() -> bool {
-    std::env::var_os("AZ_PREFLIGHT").is_some()
-}
 
 /// Count `call … @__remill_error(` and `call … @__remill_missing_block(`
 /// sites in `ir`, CLASSIFY the error sites, and record the unexplained
@@ -7497,8 +7535,8 @@ pub fn preflight_entries() -> Vec<(String, u32, u32)> {
 
 /// Print the accumulated preflight report. Call once at server startup (after
 /// all lifts). No-op unless `AZ_PREFLIGHT` is set.
-pub fn preflight_report() {
-    if !preflight_enabled() {
+pub fn preflight_report(settings: &WebLiftSettings) {
+    if !settings.preflight {
         return;
     }
     let Some(map) = PREFLIGHT.get() else {
@@ -7542,32 +7580,25 @@ pub fn preflight_report() {
 /// off or any fn-matched IR-mutating diagnostic is active for this fn —
 /// instrumented objects must never be served stale.
 fn obj_cache_path(
+    settings: &WebLiftSettings,
+    engine_fp: u64,
     patched_ir: &str,
     helper_ir: &str,
     fn_name: &str,
     stem: &str,
     use_native: bool,
 ) -> Option<PathBuf> {
-    if std::env::var_os("AZ_LIFT_CACHE").is_none() || std::env::var_os("AZ_NO_LIFT_CACHE").is_some()
-    {
+    if !settings.lift_cache || settings.no_lift_cache {
         return None;
     }
-    for var in [
-        "AZ_WRITE_TRACE",
-        "AZ_READ_TRACE",
-        "AZ_REG_TRACE",
-        "AZ_LOG_SELFLOOP_VAL",
-        "AZ_LOG_STORES",
-        "AZ_TAG_UNREACHABLE",
-        "AZ_FUEL",
-    ] {
-        if let Ok(t) = std::env::var(var) {
-            if t == "ALL"
-                || t.split(',')
-                    .any(|s| !s.is_empty() && (fn_name.contains(s) || stem.contains(s)))
-            {
-                return None;
-            }
+    // AZ_WRITE_TRACE, AZ_READ_TRACE, AZ_REG_TRACE, AZ_LOG_SELFLOOP_VAL, AZ_LOG_STORES,
+    // AZ_TAG_UNREACHABLE, AZ_FUEL: a fn one of them matches is instrumented, never cached.
+    for t in settings.instrumentation_targets().into_iter().flatten() {
+        if t == "ALL"
+            || t.split(',')
+                .any(|s| !s.is_empty() && (fn_name.contains(s) || stem.contains(s)))
+        {
+            return None;
         }
     }
     fn fold(mut h: u64, bytes: &[u8]) -> u64 {
@@ -7580,33 +7611,31 @@ fn obj_cache_path(
     let mut h: u64 = super::FNV_OFFSET_BASIS;
     h = fold(h, patched_ir.as_bytes());
     h = fold(h, helper_ir.as_bytes());
-    h = fold(h, opt_flag_for(fn_name).as_bytes());
+    h = fold(h, opt_flag_for(settings, fn_name).as_bytes());
     // Per-fn opt-bisect: the bisect limit changes this fn's opt output
     // → key it so each AZ_BISECT_LIMIT re-lifts the matched fn (others stay cached).
-    if let Some(b) = opt_bisect_arg(fn_name) {
+    if let Some(b) = opt_bisect_arg(settings, fn_name) {
         h = fold(h, b.as_bytes());
     }
     h = fold(
         h,
         &[
             use_native as u8,
-            std::env::var_os("AZ_NO_FIX_SP").is_some() as u8,
-            std::env::var_os("AZ_NO_TRAP_SELFLOOP").is_some() as u8,
+            settings.no_fix_sp as u8,
+            settings.no_trap_selfloop as u8,
             // AZ_KEEP_ALIAS_SCOPE toggles the post-link alias-metadata strip
             // (default-on); it changes the opt input → must key the object.
-            std::env::var_os("AZ_KEEP_ALIAS_SCOPE").is_some() as u8,
+            settings.keep_alias_scope as u8,
             // AZ_FULL_CS_RESTORE toggles unconditional X19-X28 restore in
             // enforce_sp_preservation → changes the post-opt IR → key it.
-            std::env::var_os("AZ_FULL_CS_RESTORE").is_some() as u8,
+            settings.full_cs_restore as u8,
         ],
     );
-    let dir = lift_cache_root();
+    let dir = lift_cache_root(settings);
     let _ = std::fs::create_dir_all(&dir);
     Some(dir.join(format!(
         "{:016x}_v{}_e{:x}.o",
-        h,
-        LIFT_CACHE_VERSION,
-        engine_fingerprint(),
+        h, LIFT_CACHE_VERSION, engine_fp,
     )))
 }
 
@@ -7615,10 +7644,10 @@ fn obj_cache_path(
 /// with an absolute path. The override is what lets the Docker base image ship
 /// a *warm* cache at a fixed, image-baked location (the container's $TMPDIR is
 /// ephemeral and per-run) — see `docker/README.md`.
-fn lift_cache_root() -> PathBuf {
-    match std::env::var_os("AZ_LIFT_CACHE_DIR") {
-        Some(p) if !p.is_empty() => PathBuf::from(p),
-        _ => std::env::temp_dir().join("az-lift-cache"),
+fn lift_cache_root(settings: &WebLiftSettings) -> PathBuf {
+    match &settings.lift_cache_dir {
+        Some(p) => p.clone(),
+        None => settings.temp_dir.join("az-lift-cache"),
     }
 }
 
@@ -7632,14 +7661,19 @@ fn lift_cache_root() -> PathBuf {
 /// `AZ_LIFT_CACHE_DIR=<abs path>`; persists across server restarts; clear with
 /// `rm -rf` or `AZ_LIFT_CACHE_CLEAR=1`). Disable entirely with
 /// `AZ_NO_LIFT_CACHE=1`.
-fn lift_cache_path(rewritten_bytes: &[u8], lift_addr: u64) -> PathBuf {
-    let dir = lift_cache_root();
+fn lift_cache_path(
+    settings: &WebLiftSettings,
+    engine_fp: u64,
+    rewritten_bytes: &[u8],
+    lift_addr: u64,
+) -> PathBuf {
+    let dir = lift_cache_root(settings);
     let key = format!(
         "{}_{:x}_v{}_e{:x}",
         super::fnv1a64_hex(rewritten_bytes),
         lift_addr,
         LIFT_CACHE_VERSION,
-        engine_fingerprint(),
+        engine_fp,
     );
     dir.join(format!("{key}.lifted.ll"))
 }
@@ -7849,8 +7883,13 @@ fn reloc_canonicalize(
 /// bytes + the ordered site identities (+ size/version/engine). The synth
 /// lift address is deliberately NOT part of the key.
 #[cfg(target_arch = "x86_64")]
-fn reloc_cache_paths(canon: &RelocCanon, fn_size: usize) -> (PathBuf, PathBuf) {
-    let dir = lift_cache_root();
+fn reloc_cache_paths(
+    settings: &WebLiftSettings,
+    engine_fp: u64,
+    canon: &RelocCanon,
+    fn_size: usize,
+) -> (PathBuf, PathBuf) {
+    let dir = lift_cache_root(settings);
     let mut idents = String::new();
     for s in &canon.sites {
         idents.push_str(&s.ident);
@@ -7862,7 +7901,7 @@ fn reloc_cache_paths(canon: &RelocCanon, fn_size: usize) -> (PathBuf, PathBuf) {
         super::fnv1a64_hex(idents.as_bytes()),
         fn_size,
         LIFT_CACHE_VERSION,
-        engine_fingerprint(),
+        engine_fp,
     );
     (
         dir.join(format!("{key}.lifted.ll")),
@@ -8179,44 +8218,21 @@ fn reloc_translate(
     Some(out)
 }
 
-/// LLVM `-O<level>` flag for the lift's `opt` + `llc` passes. Defaults to
-/// `-O2`; set `AZ_OPT_LEVEL=0` (or 1/s/z) for faster-but-larger lifting
-/// during debug iterations — the lift is still correct at `-O0` (only
-/// `alwaysinline` is mandatory; SROA/inlining are size/speed, not
-/// semantics), it just produces bigger wasm.
-fn llvm_opt_flag() -> &'static str {
-    use std::sync::OnceLock;
-    static FLAG: OnceLock<String> = OnceLock::new();
-    FLAG.get_or_init(|| match std::env::var("AZ_OPT_LEVEL").as_deref() {
-        Ok("0") => "-O0".to_string(),
-        Ok("1") => "-O1".to_string(),
-        Ok("s") | Ok("S") => "-Os".to_string(),
-        Ok("z") | Ok("Z") => "-Oz".to_string(),
-        _ => "-O2".to_string(),
-    })
-    .as_str()
-}
+// The LLVM `-O<level>` flag for the lift's `opt` + `llc` passes is `WebLiftSettings::opt_flag`:
+// `-O2` by default; `AZ_OPT_LEVEL=0` (or 1/s/z) for faster-but-larger lifting during debug
+// iterations — the lift is still correct at `-O0` (only `alwaysinline` is mandatory;
+// SROA/inlining are size/speed, not semantics), it just produces bigger wasm.
 
 /// Per-fn opt level. When `AZ_LOWOPT_FNS` (comma-separated stems) matches the
 /// fn, use `-O0` instead of the global level — so an over-aggressive opt fold
 /// (e.g. proving a lifted PC-threaded loop's exit unreachable and deleting its
 /// body → infinite self-loop) is avoided for that one fn, lifting it faithfully.
 /// Bigger/slower wasm for that fn, but correct. Empty/unset → global level.
-fn opt_flag_for(fn_name: &str) -> &'static str {
-    use std::sync::OnceLock;
-    static LOW: OnceLock<Vec<String>> = OnceLock::new();
-    let low = LOW.get_or_init(|| {
-        std::env::var("AZ_LOWOPT_FNS")
-            .unwrap_or_default()
-            .split(',')
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-            .collect()
-    });
-    if low.iter().any(|s| fn_name.contains(s)) {
+fn opt_flag_for(settings: &WebLiftSettings, fn_name: &str) -> &'static str {
+    if settings.lowopt_fns.iter().any(|s| fn_name.contains(s)) {
         "-O0"
     } else {
-        llvm_opt_flag()
+        settings.opt_flag
     }
 }
 
@@ -8224,12 +8240,12 @@ fn opt_flag_for(fn_name: &str) -> &'static str {
 /// return `-opt-bisect-limit=<AZ_BISECT_LIMIT>` for that function only. A
 /// binary search over the limit (the obj cache keys on it, so only the
 /// matched fn re-lifts) pinpoints the exact corrupting opt pass.
-fn opt_bisect_arg(fn_name: &str) -> Option<String> {
-    let pat = std::env::var("AZ_BISECT_FN").ok()?;
-    if pat.is_empty() || !fn_name.contains(&pat) {
+fn opt_bisect_arg(settings: &WebLiftSettings, fn_name: &str) -> Option<String> {
+    let pat = settings.bisect_fn.as_deref()?;
+    if pat.is_empty() || !fn_name.contains(pat) {
         return None;
     }
-    let n = std::env::var("AZ_BISECT_LIMIT").ok()?;
+    let n = settings.bisect_limit.as_deref()?;
     Some(format!("-opt-bisect-limit={}", n.trim()))
 }
 
@@ -8386,15 +8402,12 @@ fn rewrite_empty_self_loops(opt_ir: &str) -> (String, u32) {
 /// the fuel limit (default 200M, `AZ_FUEL_LIMIT` overrides), so an infinite
 /// loop becomes a named trap instead of a hang. Inserted before terminators
 /// and after block-leading PHIs, so it is CFG/SSA-safe.
-fn inject_fuel(opt_ir: &str) -> (String, u32) {
+fn inject_fuel(opt_ir: &str, settings: &WebLiftSettings) -> (String, u32) {
     // GLOBAL terminator id, unique across ALL fueled fns (AZ_FUEL=ALL). The
     // trap records this gid at 0x40070; grep the saved `*.fuel.ll` files for
     // `@__az_fuel(i32 <gid>)` to find WHICH fn+block looped.
     static FUEL_GID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-    let limit: u64 = std::env::var("AZ_FUEL_LIMIT")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(200_000_000);
+    let limit: u64 = settings.fuel_limit;
     let mut out = String::with_capacity(opt_ir.len() + opt_ir.len() / 4);
     let mut n: u32 = 0;
     for line in opt_ir.lines() {
@@ -8459,39 +8472,26 @@ fn inject_unreachable_tagging(opt_ir: &str) -> (String, u32) {
 /// [0x20000, 0x40000). Post-opt injection observes the real store without
 /// perturbing the lift itself; the id maps back to the exact `.instr.ll`
 /// line for SSA tracing.
-fn inject_store_logging(opt_ir: &str, deptag: u32) -> (String, u32) {
+fn inject_store_logging(
+    opt_ir: &str,
+    deptag: u32,
+    settings: &WebLiftSettings,
+) -> (String, u32) {
     let mut out = String::with_capacity(opt_ir.len() + (1 << 17));
     let mut id: u32 = 0;
     // Upper bound of the logged-address window (default 0x30000 = the self/cache
     // page). Widen via AZ_LSWIN_HI (hex `0x..` or decimal) to trace stores in the
     // layout heap/stack that sit above 0x30000.
-    let win_hi: u32 = std::env::var("AZ_LSWIN_HI")
-        .ok()
-        .and_then(|s| {
-            s.strip_prefix("0x")
-                .and_then(|h| u32::from_str_radix(h, 16).ok())
-                .or_else(|| s.parse().ok())
-        })
-        .unwrap_or(196608);
+    let win_hi: u32 = settings.lswin_hi;
     // optional LOW bound — lets a trace target ONE region (e.g.
     // a caller frame at 0x2exxx) without per-loop SP-region (0xffxx) or heap
     // writes flooding the 3500-entry ring.
-    let win_lo: u32 = std::env::var("AZ_LSWIN_LO")
-        .ok()
-        .and_then(|s| {
-            s.strip_prefix("0x")
-                .and_then(|h| u32::from_str_radix(h, 16).ok())
-                .or_else(|| s.parse().ok())
-        })
-        .unwrap_or(0);
+    let win_lo: u32 = settings.lswin_lo;
     // optional id floor — instrumentation ids follow static
     // program order, so `AZ_LSID_LO=N` traces only a function's TAIL (e.g.
     // an sret return-copy) regardless of target address, without the body's
     // thousands of loop stores flooding the ring.
-    let id_lo: u32 = std::env::var("AZ_LSID_LO")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
+    let id_lo: u32 = settings.lsid_lo;
     for line in opt_ir.lines() {
         // Log the destination + value of a `store`, OR the dest pointer + LENGTH
         // of a memset/memcpy/memmove (a bulk zero/copy can clobber many cache
@@ -8681,7 +8681,7 @@ fn parse_memintrinsic_len(line: &str) -> Option<String> {
 /// call and stores it back after — making SP preservation hold regardless of the
 /// callee's epilogue lift. This is the ABI-correct invariant (no callee may
 /// change its caller's SP), so it cannot mask a real bug; it only repairs leaks.
-fn enforce_sp_preservation(opt_ir: &str) -> (String, u32) {
+fn enforce_sp_preservation(opt_ir: &str, settings: &WebLiftSettings) -> (String, u32) {
     // remill AArch64 State byte offsets of the callee-preserved registers:
     // X19..X28 (848..992 step 16), X29/FP (1008), SP (1040). X30/LR (1024) is
     // NOT preserved (link register). Saving/restoring these around a call is the
@@ -8730,7 +8730,7 @@ fn enforce_sp_preservation(opt_ir: &str) -> (String, u32) {
     // `false` on x86 so the block is dead-code-eliminated rather than emitting wrong-offset
     // stores when toggled there.
     #[cfg(target_arch = "aarch64")]
-    let sp_trace = std::env::var_os("AZ_SP_TRACE").is_some();
+    let sp_trace = settings.sp_trace;
     #[cfg(not(target_arch = "aarch64"))]
     let sp_trace = false;
     let mut k: u32 = 0;
@@ -8838,7 +8838,7 @@ fn enforce_sp_preservation(opt_ir: &str) -> (String, u32) {
                 // callee-saved GPRs (indices 0..=9) UNCONDITIONALLY (snapshot), not
                 // leak-gated — a stronger diagnostic for clobbers that don't even leak
                 // SP; default off, may re-break shape_text's tail-jump path.
-                let full_gpr = j <= 9 && std::env::var_os("AZ_FULL_CS_RESTORE").is_some();
+                let full_gpr = j <= 9 && settings.full_cs_restore;
                 if full_gpr {
                     out.push_str(&format!(
                         "{indent}store i64 %azv_{k}_{j}, ptr %azg_{k}_{j}, align 8\n"
@@ -9092,14 +9092,14 @@ fn parse_volatile_double_load(line: &str) -> Option<String> {
 /// X19..X28, SP) to the 0xF0000 ring (8192 x 8B: reg_id@0, val_lo32@4; counter 0xEFFF0). Captures
 /// the runtime VALUES the lift assigns to the guest registers in program order → execution-differ
 /// vs a native lldb dump.
-fn instrument_reg_stores(opt_ir: &str) -> (String, u32) {
+fn instrument_reg_stores(opt_ir: &str, settings: &WebLiftSettings) -> (String, u32) {
     let mut out = String::with_capacity(opt_ir.len() + (1 << 14));
     // AZ_REG_TRACE_NOWRAP=1: clamp the ring index to [0,8191] instead of wrapping (`& 8191`),
     // so the FIRST 8191 reg-stores are preserved (slot 8191 absorbs the overflow). Use this to
     // capture a function's ENTRY + early blocks (e.g. an input-vec arg read + a loop preheader)
     // when a later runaway loop would otherwise overwrite the ring. Default = wrap (tail
     // trajectory).
-    let nowrap = std::env::var_os("AZ_REG_TRACE_NOWRAP").is_some();
+    let nowrap = settings.reg_trace_nowrap;
     let mut k: u32 = 0;
     for line in opt_ir.lines() {
         if let Some((reg_id, val_op)) = parse_reg_store(line) {
@@ -10795,7 +10795,7 @@ fn strip_alias_scope_metadata(ir: &str) -> (String, u32) {
     (out, n)
 }
 
-fn tag_state_accesses(ir: &str) -> String {
+fn tag_state_accesses(ir: &str, settings: &WebLiftSettings) -> String {
     let mut out = String::with_capacity(ir.len() + 4 * 1024);
     let host_tail = format!(
         ", !alias.scope !{}, !noalias !{}",
@@ -10813,7 +10813,7 @@ fn tag_state_accesses(ir: &str) -> String {
     // disabling the scope. NEXT: isolate AZ_FUEL-barrier-alone vs scope; a minimal barrier pass
     // (a volatile fence per guest store, like the write-tracer minus logging) is the likely
     // real fix. See handoff g189.
-    let disable_host_scope = std::env::var("AZ_NO_HOST_SCOPE").is_ok();
+    let disable_host_scope = settings.no_host_scope;
 
     for line in ir.lines() {
         if disable_host_scope {
@@ -11706,13 +11706,21 @@ pub struct ResolvedBranchExtern {
 /// retry, the eventloop-lift resilience would Leaf-stub the affected
 /// function — fine for a cold getter, but catastrophic if it lands on
 /// the load-bearing `on_click` cb (the whole click flow goes dead).
-fn run_tool(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), TranspileError> {
+///
+/// `flag_dir` is where Windows spills an argument set that is too long for the command line
+/// (`WebLiftSettings::temp_dir`; `<flag_dir>/azul-flagfiles`).
+fn run_tool(
+    prog: &Path,
+    args: &[&str],
+    fn_name: &str,
+    flag_dir: &Path,
+) -> Result<(), TranspileError> {
     #[cfg(target_os = "windows")]
     {
         const TRANSIENT: &[i64] = &[0xC000_0142u32 as i32 as i64, 0xC000_0017u32 as i32 as i64];
         let mut last_err = None;
         for attempt in 0..4 {
-            match run_tool_once(prog, args, fn_name) {
+            match run_tool_once(prog, args, fn_name, flag_dir) {
                 Ok(()) => return Ok(()),
                 Err(e) => {
                     let transient = TRANSIENT.iter().any(|c| {
@@ -11742,11 +11750,19 @@ fn run_tool(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), TranspileEr
     }
     #[cfg(not(target_os = "windows"))]
     {
-        run_tool_once(prog, args, fn_name)
+        run_tool_once(prog, args, fn_name, flag_dir)
     }
 }
 
-fn run_tool_once(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), TranspileError> {
+fn run_tool_once(
+    prog: &Path,
+    args: &[&str],
+    fn_name: &str,
+    flag_dir: &Path,
+) -> Result<(), TranspileError> {
+    // only Windows spills long argument sets into files
+    #[cfg(not(target_os = "windows"))]
+    let _ = flag_dir;
     // Windows: CreateProcess caps the command line at 32,767 chars,
     // but `--bytes <hex>` for a 64 KiB fn is ~128 K chars (macOS
     // ARG_MAX ~1 MiB never hit this). remill-lift uses gflags, whose
@@ -11780,7 +11796,7 @@ fn run_tool_once(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), Transp
                 }
                 content.push('\n');
             }
-            let dir = std::env::temp_dir().join("azul-flagfiles");
+            let dir = flag_dir.join("azul-flagfiles");
             let _ = std::fs::create_dir_all(&dir);
             let path = dir.join(format!(
                 "{}-{}.rsp",
@@ -11821,7 +11837,7 @@ fn run_tool_once(prog: &Path, args: &[&str], fn_name: &str) -> Result<(), Transp
                 content.push_str(c[1]);
                 content.push('\n');
             }
-            let dir = std::env::temp_dir().join("azul-flagfiles");
+            let dir = flag_dir.join("azul-flagfiles");
             let _ = std::fs::create_dir_all(&dir);
             let path = dir.join(format!(
                 "{}-{}.flags",

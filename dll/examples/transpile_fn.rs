@@ -13,7 +13,10 @@
 //! transpile step can be lifted out of the web.md flow at whatever phase
 //! (build-time, first-request, lazy-per-callback) the caller chooses.
 
-use azul::web::transpiler::{default_transpiler, Transpiler};
+use azul::web::{
+    lift_settings::WebLiftSettings,
+    transpiler::{default_transpiler, Transpiler},
+};
 
 /// Trivial leaf function — the minimum-viable lift target.
 ///
@@ -26,14 +29,17 @@ pub extern "C" fn azul_demo_add(a: i32, b: i32) -> i32 {
 }
 
 fn main() {
-    let t = default_transpiler();
+    // The environment of the lift (tool paths, caches, tracers), read ONCE here and handed down.
+    let settings = WebLiftSettings::from_process();
+    let t = default_transpiler(&settings);
     println!("Using transpiler: {}", t.name());
     println!("Available:        {}", t.is_available());
 
     let fn_addr = azul_demo_add as usize;
     let fn_size: usize = 64;
 
-    match t.lift_function("azul_demo_add", fn_addr, fn_size) {
+    // `Callback` is the canonical callback shape: `fn(AzRefAny, AzCallbackInfo) -> AzUpdate`.
+    match t.lift_function("azul_demo_add", fn_addr, fn_size, "Callback") {
         Ok(module) => {
             println!(
                 "Lifted azul_demo_add → {} WASM bytes (content hash {})",

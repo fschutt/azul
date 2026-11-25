@@ -47,7 +47,12 @@ fn non_white_pixels_in(
 
 #[test]
 fn a_scroll_container_with_direct_text_still_paints_after_scrolling_past_its_own_height() {
-    std::env::set_var("AZ_SUPPRESS", "div_as_text");
+    // The lint about the text right inside the scroller is silenced the way an app silences it: by
+    // the diagnostic dials installed once at its start (the first install of a process wins).
+    azul_core::diagnostics::install_settings(azul_core::settings::DiagSettings {
+        suppress: azul_core::settings::SuppressSet::from_list("div_as_text"),
+        ..azul_core::settings::DiagSettings::default()
+    });
     let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
     let mut ws = FullWindowState::default();
     ws.size.dimensions = LogicalSize::new(W, H);
