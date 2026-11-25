@@ -34,11 +34,21 @@ let style_text () =
         ])) (Unsigned.Size_t.of_int 2))
       )
     );
-    (azCssPropertyWithConditions_simple (azCssProperty_fontWeight (StyleFontWeight.to_int StyleFontWeight.W600)));
-    (azCssPropertyWithConditions_simple (azCssProperty_fontStyle (StyleFontStyle.to_int StyleFontStyle.Italic)));
+    (azCssPropertyWithConditions_simple (azCssProperty_fontWeight (azStyleFontWeight_number (azFloatValue_create 600.0))));
+    (azCssPropertyWithConditions_simple (azCssProperty_fontStyle (azStyleFontStyle_italic ())));
     (azCssPropertyWithConditions_simple (azCssProperty_fontVariantNumeric (az_struct az_style_font_variant_numeric [ (fun v -> Ctypes.setf v az_style_font_variant_numeric_field_lining_nums false); (fun v -> Ctypes.setf v az_style_font_variant_numeric_field_oldstyle_nums false); (fun v -> Ctypes.setf v az_style_font_variant_numeric_field_proportional_nums false); (fun v -> Ctypes.setf v az_style_font_variant_numeric_field_tabular_nums true); (fun v -> Ctypes.setf v az_style_font_variant_numeric_field_diagonal_fractions false); (fun v -> Ctypes.setf v az_style_font_variant_numeric_field_stacked_fractions false); (fun v -> Ctypes.setf v az_style_font_variant_numeric_field_ordinal false); (fun v -> Ctypes.setf v az_style_font_variant_numeric_field_slashed_zero false) ])));
     (azCssPropertyWithConditions_simple (azCssProperty_fontVariantCaps (az_union az_style_font_variant_caps_value 6 (Some (az_payload az_style_font_variant_caps (StyleFontVariantCaps.to_int StyleFontVariantCaps.SmallCaps))))));
     (azCssPropertyWithConditions_simple (azCssProperty_fontFeatureSettings (az_union az_style_font_feature_settings_value 6 (Some (az_payload az_style_font_feature_settings (az_struct az_style_font_feature_settings [ (fun v -> Ctypes.setf v az_style_font_feature_settings_field_inner (azul_az_string "\"liga\" 0, \"tnum\"")) ]))))));
+    (azCssPropertyWithConditions_simple (azCssProperty_fontStretch (az_union az_style_font_stretch_value 6 (Some (az_payload az_style_font_stretch (az_struct az_style_font_stretch [ (fun v -> Ctypes.setf v az_style_font_stretch_field_inner (az_struct az_percentage_value [ (fun v -> Ctypes.setf v az_percentage_value_field_number (azFloatValue_create 87.5)) ])) ]))))));
+    (azCssPropertyWithConditions_simple (azCssProperty_fontVariationSettings (az_union az_style_font_variation_settings_value 6 (Some (az_payload az_style_font_variation_settings (az_struct az_style_font_variation_settings [ (fun v -> Ctypes.setf v az_style_font_variation_settings_field_inner (azul_az_string "\"wght\" 650, \"wdth\" 87.5")) ]))))));
+    (azCssPropertyWithConditions_simple (azCssProperty_fontOpticalSizing (az_union az_style_font_optical_sizing_value 6 (Some (az_payload az_style_font_optical_sizing (StyleFontOpticalSizing.to_int StyleFontOpticalSizing.None))))));
+    (azCssPropertyWithConditions_simple (azCssProperty_fontKerning (az_union az_style_font_kerning_value 6 (Some (az_payload az_style_font_kerning (StyleFontKerning.to_int StyleFontKerning.None))))));
+    (azCssPropertyWithConditions_simple (azCssProperty_fontVariantLigatures (az_union az_style_font_variant_ligatures_value 6 (Some (az_payload az_style_font_variant_ligatures (az_struct az_style_font_variant_ligatures [ (fun v -> Ctypes.setf v az_style_font_variant_ligatures_field_common (StyleFontLigatureChoice.to_int StyleFontLigatureChoice.Off)); (fun v -> Ctypes.setf v az_style_font_variant_ligatures_field_discretionary (StyleFontLigatureChoice.to_int StyleFontLigatureChoice.On)); (fun v -> Ctypes.setf v az_style_font_variant_ligatures_field_historical (StyleFontLigatureChoice.to_int StyleFontLigatureChoice.Unset)); (fun v -> Ctypes.setf v az_style_font_variant_ligatures_field_contextual (StyleFontLigatureChoice.to_int StyleFontLigatureChoice.Unset)) ]))))));
+    (azCssPropertyWithConditions_simple (azCssProperty_fontVariantEastAsian (az_union az_style_font_variant_east_asian_value 6 (Some (az_payload az_style_font_variant_east_asian (az_struct az_style_font_variant_east_asian [ (fun v -> Ctypes.setf v az_style_font_variant_east_asian_field_jis78 true); (fun v -> Ctypes.setf v az_style_font_variant_east_asian_field_jis83 false); (fun v -> Ctypes.setf v az_style_font_variant_east_asian_field_jis90 false); (fun v -> Ctypes.setf v az_style_font_variant_east_asian_field_jis04 false); (fun v -> Ctypes.setf v az_style_font_variant_east_asian_field_simplified false); (fun v -> Ctypes.setf v az_style_font_variant_east_asian_field_traditional false); (fun v -> Ctypes.setf v az_style_font_variant_east_asian_field_full_width true); (fun v -> Ctypes.setf v az_style_font_variant_east_asian_field_proportional_width false); (fun v -> Ctypes.setf v az_style_font_variant_east_asian_field_ruby true) ]))))));
+    (azCssPropertyWithConditions_simple (azCssProperty_fontSynthesisWeight (az_union az_style_font_synthesis_value 6 (Some (az_payload az_style_font_synthesis (StyleFontSynthesis.to_int StyleFontSynthesis.None))))));
+    (azCssPropertyWithConditions_simple (azCssProperty_fontSynthesisStyle (az_union az_style_font_synthesis_value 6 (Some (az_payload az_style_font_synthesis (StyleFontSynthesis.to_int StyleFontSynthesis.None))))));
+    (azCssPropertyWithConditions_simple (azCssProperty_fontSynthesisSmallCaps (az_union az_style_font_synthesis_value 6 (Some (az_payload az_style_font_synthesis (StyleFontSynthesis.to_int StyleFontSynthesis.Auto))))));
+    (azCssPropertyWithConditions_simple (azCssProperty_fontSynthesisPosition (az_union az_style_font_synthesis_value 6 (Some (az_payload az_style_font_synthesis (StyleFontSynthesis.to_int StyleFontSynthesis.None))))));
     (azCssPropertyWithConditions_simple (azCssProperty_textAlign (StyleTextAlign.to_int StyleTextAlign.Center)));
     (azCssPropertyWithConditions_simple (azCssProperty_textJustify (LayoutTextJustify.to_int LayoutTextJustify.InterWord)));
     (azCssPropertyWithConditions_simple (azCssProperty_verticalAlign (azStyleVerticalAlign_middle ())));
@@ -80,17 +90,48 @@ let style_text () =
     (azCssPropertyWithConditions_simple (azCssProperty_selectionBackgroundColor (az_struct az_selection_background_color [ (fun v -> Ctypes.setf v az_selection_background_color_field_inner (az_struct az_color_u [ (fun v -> Ctypes.setf v az_color_u_field_r (Unsigned.UInt8.of_int 51)); (fun v -> Ctypes.setf v az_color_u_field_g (Unsigned.UInt8.of_int 153)); (fun v -> Ctypes.setf v az_color_u_field_b (Unsigned.UInt8.of_int 255)); (fun v -> Ctypes.setf v az_color_u_field_a (Unsigned.UInt8.of_int 255)) ])) ])));
     (azCssPropertyWithConditions_simple (azCssProperty_selectionColor (az_struct az_selection_color [ (fun v -> Ctypes.setf v az_selection_color_field_inner (az_struct az_color_u [ (fun v -> Ctypes.setf v az_color_u_field_r (Unsigned.UInt8.of_int 255)); (fun v -> Ctypes.setf v az_color_u_field_g (Unsigned.UInt8.of_int 255)); (fun v -> Ctypes.setf v az_color_u_field_b (Unsigned.UInt8.of_int 255)); (fun v -> Ctypes.setf v az_color_u_field_a (Unsigned.UInt8.of_int 255)) ])) ])));
     (azCssPropertyWithConditions_simple (azCssProperty_selectionRadius (az_union az_selection_radius_value 6 (Some (az_payload az_selection_radius (az_struct az_selection_radius [ (fun v -> Ctypes.setf v az_selection_radius_field_inner (azPixelValue_px 3.0)) ]))))));
+    (azCssPropertyWithConditions_simple (azCssProperty_font (azStyleFontFamilyVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_style_font_family [(azStyleFontFamily_system (azul_az_string "caption"))])) (Unsigned.Size_t.of_int 1))))
+  ])) (Unsigned.Size_t.of_int 60))
+
+(* CSS: .shorthands *)
+let style_shorthands () =
+  (azCssPropertyWithConditionsVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_css_property_with_conditions [
+    (azCssPropertyWithConditions_simple (azCssProperty_fontStyle (azStyleFontStyle_italic ())));
+    (azCssPropertyWithConditions_simple (azCssProperty_fontVariantCaps (az_union az_style_font_variant_caps_value 6 (Some (az_payload az_style_font_variant_caps (StyleFontVariantCaps.to_int StyleFontVariantCaps.SmallCaps))))));
+    (azCssPropertyWithConditions_simple (azCssProperty_fontWeight (azStyleFontWeight_number (azFloatValue_create 350.0))));
+    (azCssPropertyWithConditions_simple (azCssProperty_fontStretch (az_union az_style_font_stretch_value 6 (Some (az_payload az_style_font_stretch (az_struct az_style_font_stretch [ (fun v -> Ctypes.setf v az_style_font_stretch_field_inner (az_struct az_percentage_value [ (fun v -> Ctypes.setf v az_percentage_value_field_number (azFloatValue_create 75.0)) ])) ]))))));
+    (azCssPropertyWithConditions_simple (azCssProperty_fontSize (az_struct az_style_font_size [ (fun v -> Ctypes.setf v az_style_font_size_field_inner (azPixelValue_px 14.0)) ])));
+    (azCssPropertyWithConditions_simple (azCssProperty_lineHeight (azStyleLineHeight_number (azFloatValue_create 1.5))));
     (
       azCssPropertyWithConditions_simple
       (
-        azCssProperty_font
+        azCssProperty_fontFamily
         (azStyleFontFamilyVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_style_font_family [
           (azStyleFontFamily_system (azul_az_string "Georgia"));
           (azStyleFontFamily_system (azul_az_string "serif"))
         ])) (Unsigned.Size_t.of_int 2))
       )
-    )
-  ])) (Unsigned.Size_t.of_int 50))
+    );
+    (azCssPropertyWithConditions_simple (azCssProperty_initial (CssPropertyType.to_int CssPropertyType.FontVariantNumeric)));
+    (azCssPropertyWithConditions_simple (azCssProperty_initial (CssPropertyType.to_int CssPropertyType.FontVariantLigatures)));
+    (azCssPropertyWithConditions_simple (azCssProperty_initial (CssPropertyType.to_int CssPropertyType.FontVariantEastAsian)));
+    (azCssPropertyWithConditions_simple (azCssProperty_initial (CssPropertyType.to_int CssPropertyType.FontKerning)));
+    (azCssPropertyWithConditions_simple (azCssProperty_initial (CssPropertyType.to_int CssPropertyType.FontOpticalSizing)));
+    (azCssPropertyWithConditions_simple (azCssProperty_initial (CssPropertyType.to_int CssPropertyType.FontVariationSettings)));
+    (azCssPropertyWithConditions_simple (azCssProperty_initial (CssPropertyType.to_int CssPropertyType.FontFeatureSettings)));
+    (azCssPropertyWithConditions_simple (azCssProperty_initial (CssPropertyType.to_int CssPropertyType.FontSynthesisWeight)));
+    (azCssPropertyWithConditions_simple (azCssProperty_initial (CssPropertyType.to_int CssPropertyType.FontSynthesisStyle)));
+    (azCssPropertyWithConditions_simple (azCssProperty_initial (CssPropertyType.to_int CssPropertyType.FontSynthesisSmallCaps)));
+    (azCssPropertyWithConditions_simple (azCssProperty_initial (CssPropertyType.to_int CssPropertyType.FontSynthesisPosition)));
+    (azCssPropertyWithConditions_simple (azCssProperty_fontVariantNumeric (az_struct az_style_font_variant_numeric [ (fun v -> Ctypes.setf v az_style_font_variant_numeric_field_lining_nums false); (fun v -> Ctypes.setf v az_style_font_variant_numeric_field_oldstyle_nums true); (fun v -> Ctypes.setf v az_style_font_variant_numeric_field_proportional_nums false); (fun v -> Ctypes.setf v az_style_font_variant_numeric_field_tabular_nums false); (fun v -> Ctypes.setf v az_style_font_variant_numeric_field_diagonal_fractions false); (fun v -> Ctypes.setf v az_style_font_variant_numeric_field_stacked_fractions false); (fun v -> Ctypes.setf v az_style_font_variant_numeric_field_ordinal false); (fun v -> Ctypes.setf v az_style_font_variant_numeric_field_slashed_zero false) ])));
+    (azCssPropertyWithConditions_simple (azCssProperty_fontVariantCaps (az_union az_style_font_variant_caps_value 6 (Some (az_payload az_style_font_variant_caps (StyleFontVariantCaps.to_int StyleFontVariantCaps.Normal))))));
+    (azCssPropertyWithConditions_simple (azCssProperty_fontVariantLigatures (az_union az_style_font_variant_ligatures_value 6 (Some (az_payload az_style_font_variant_ligatures (az_struct az_style_font_variant_ligatures [ (fun v -> Ctypes.setf v az_style_font_variant_ligatures_field_common (StyleFontLigatureChoice.to_int StyleFontLigatureChoice.Unset)); (fun v -> Ctypes.setf v az_style_font_variant_ligatures_field_discretionary (StyleFontLigatureChoice.to_int StyleFontLigatureChoice.Unset)); (fun v -> Ctypes.setf v az_style_font_variant_ligatures_field_historical (StyleFontLigatureChoice.to_int StyleFontLigatureChoice.Unset)); (fun v -> Ctypes.setf v az_style_font_variant_ligatures_field_contextual (StyleFontLigatureChoice.to_int StyleFontLigatureChoice.Unset)) ]))))));
+    (azCssPropertyWithConditions_simple (azCssProperty_fontVariantEastAsian (az_union az_style_font_variant_east_asian_value 6 (Some (az_payload az_style_font_variant_east_asian (az_struct az_style_font_variant_east_asian [ (fun v -> Ctypes.setf v az_style_font_variant_east_asian_field_jis78 true); (fun v -> Ctypes.setf v az_style_font_variant_east_asian_field_jis83 false); (fun v -> Ctypes.setf v az_style_font_variant_east_asian_field_jis90 false); (fun v -> Ctypes.setf v az_style_font_variant_east_asian_field_jis04 false); (fun v -> Ctypes.setf v az_style_font_variant_east_asian_field_simplified false); (fun v -> Ctypes.setf v az_style_font_variant_east_asian_field_traditional false); (fun v -> Ctypes.setf v az_style_font_variant_east_asian_field_full_width false); (fun v -> Ctypes.setf v az_style_font_variant_east_asian_field_proportional_width false); (fun v -> Ctypes.setf v az_style_font_variant_east_asian_field_ruby false) ]))))));
+    (azCssPropertyWithConditions_simple (azCssProperty_fontSynthesisWeight (az_union az_style_font_synthesis_value 6 (Some (az_payload az_style_font_synthesis (StyleFontSynthesis.to_int StyleFontSynthesis.Auto))))));
+    (azCssPropertyWithConditions_simple (azCssProperty_fontSynthesisStyle (az_union az_style_font_synthesis_value 6 (Some (az_payload az_style_font_synthesis (StyleFontSynthesis.to_int StyleFontSynthesis.Auto))))));
+    (azCssPropertyWithConditions_simple (azCssProperty_fontSynthesisSmallCaps (az_union az_style_font_synthesis_value 6 (Some (az_payload az_style_font_synthesis (StyleFontSynthesis.to_int StyleFontSynthesis.None))))));
+    (azCssPropertyWithConditions_simple (azCssProperty_fontSynthesisPosition (az_union az_style_font_synthesis_value 6 (Some (az_payload az_style_font_synthesis (StyleFontSynthesis.to_int StyleFontSynthesis.None))))))
+  ])) (Unsigned.Size_t.of_int 26))
 
 (* CSS: .box *)
 let style_box () =

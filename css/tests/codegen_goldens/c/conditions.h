@@ -56,7 +56,7 @@ static AzCssPropertyWithConditionsVec style_list_li_nth_child_2(void) {
 static AzCssPropertyWithConditionsVec style_main_title(void) {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         (AzCssPropertyWithConditions[]){
-            AzCssPropertyWithConditions_simple(AzCssProperty_fontWeight(AzStyleFontWeight_Bold)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontWeight(AzStyleFontWeight_number(AzFloatValue_create(700.0f)))),
         },
         1
     );
@@ -66,7 +66,7 @@ static AzCssPropertyWithConditionsVec style_main_title(void) {
 static AzCssPropertyWithConditionsVec style_div_note_first(void) {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         (AzCssPropertyWithConditions[]){
-            AzCssPropertyWithConditions_simple(AzCssProperty_fontStyle(AzStyleFontStyle_Italic)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontStyle(AzStyleFontStyle_italic())),
         },
         1
     );

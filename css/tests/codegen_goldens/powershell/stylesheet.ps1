@@ -119,7 +119,7 @@ function Get-Stylesheet {
                         [Azul.NativeMethods]::AzCssPathSelector_class((New-CssString 'title'))
                     ))
                 };
-                declarations = (New-CssVec 'AzCssDeclarationVec_copyFromPtr' ([Azul.AzCssDeclaration]) @([Azul.NativeMethods]::AzCssDeclaration_static([Azul.NativeMethods]::AzCssProperty_fontWeight([Azul.StyleFontWeight]::Bold))));
+                declarations = (New-CssVec 'AzCssDeclarationVec_copyFromPtr' ([Azul.AzCssDeclaration]) @([Azul.NativeMethods]::AzCssDeclaration_static([Azul.NativeMethods]::AzCssProperty_fontWeight([Azul.NativeMethods]::AzStyleFontWeight_number([Azul.NativeMethods]::AzFloatValue_create([float]700.0))))));
                 conditions = [Azul.NativeMethods]::AzDynamicSelectorVec_create();
                 priority = [byte]20
             },
@@ -132,7 +132,7 @@ function Get-Stylesheet {
                         [Azul.NativeMethods]::AzCssPathSelector_pseudoSelector([Azul.NativeMethods]::AzCssPathPseudoSelector_first())
                     ))
                 };
-                declarations = (New-CssVec 'AzCssDeclarationVec_copyFromPtr' ([Azul.AzCssDeclaration]) @([Azul.NativeMethods]::AzCssDeclaration_static([Azul.NativeMethods]::AzCssProperty_fontStyle([Azul.StyleFontStyle]::Italic))));
+                declarations = (New-CssVec 'AzCssDeclarationVec_copyFromPtr' ([Azul.AzCssDeclaration]) @([Azul.NativeMethods]::AzCssDeclaration_static([Azul.NativeMethods]::AzCssProperty_fontStyle([Azul.NativeMethods]::AzStyleFontStyle_italic()))));
                 conditions = [Azul.NativeMethods]::AzDynamicSelectorVec_create();
                 priority = [byte]20
             }

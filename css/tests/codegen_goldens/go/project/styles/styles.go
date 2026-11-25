@@ -12,6 +12,6 @@ func StyleBtn() azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_flexGrow(azul.AzLayoutFlexGrow{Inner: azul.AzFloatValue_create(1.0)})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_inherit(azul.CssPropertyType_MinWidth)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_WhiteSpace(azul.AzStyleWhiteSpaceValue_Exact(azul.StyleWhiteSpace_Nowrap))),
-		azul.AzCssPropertyWithConditions_onHover(azul.AzCssProperty_fontWeight(azul.StyleFontWeight_Bold)),
+		azul.AzCssPropertyWithConditions_onHover(azul.AzCssProperty_fontWeight(azul.AzStyleFontWeight_Number(azul.AzFloatValue_create(700.0)))),
 	}[0], 7)
 }

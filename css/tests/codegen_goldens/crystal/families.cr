@@ -15,11 +15,21 @@ module AzulStyles
           ] of Azul::StyleFontFamily
         )
       ),
-      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_weight(Azul::StyleFontWeight::W600)),
-      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_style(Azul::StyleFontStyle::Italic)),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_weight(Azul::StyleFontWeight.number(Azul::FloatValue.new(600.0_f32)))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_style(Azul::StyleFontStyle.italic)),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_variant_numeric(Azul::StyleFontVariantNumeric.__own(LibAzul::AzStyleFontVariantNumeric.new(lining_nums: false, oldstyle_nums: false, proportional_nums: false, tabular_nums: true, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false)))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_variant_caps(Azul::StyleFontVariantCapsValue::Exact.new(Azul::StyleFontVariantCaps::SmallCaps))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_feature_settings(Azul::StyleFontFeatureSettingsValue::Exact.new(Azul::StyleFontFeatureSettings.__own(LibAzul::AzStyleFontFeatureSettings.new(inner: Azul::Native.az_string("\"liga\" 0, \"tnum\"")))))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_stretch(Azul::StyleFontStretchValue::Exact.new(Azul::StyleFontStretch.__own(LibAzul::AzStyleFontStretch.new(inner: LibAzul::AzPercentageValue.new(number: Azul::FloatValue.new(87.5_f32).__take)))))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_variation_settings(Azul::StyleFontVariationSettingsValue::Exact.new(Azul::StyleFontVariationSettings.__own(LibAzul::AzStyleFontVariationSettings.new(inner: Azul::Native.az_string("\"wght\" 650, \"wdth\" 87.5")))))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_optical_sizing(Azul::StyleFontOpticalSizingValue::Exact.new(Azul::StyleFontOpticalSizing::None))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_kerning(Azul::StyleFontKerningValue::Exact.new(Azul::StyleFontKerning::None))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_variant_ligatures(Azul::StyleFontVariantLigaturesValue::Exact.new(Azul::StyleFontVariantLigatures.__own(LibAzul::AzStyleFontVariantLigatures.new(common: Azul::StyleFontLigatureChoice::Off, discretionary: Azul::StyleFontLigatureChoice::On, historical: Azul::StyleFontLigatureChoice::Unset, contextual: Azul::StyleFontLigatureChoice::Unset))))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_variant_east_asian(Azul::StyleFontVariantEastAsianValue::Exact.new(Azul::StyleFontVariantEastAsian.__own(LibAzul::AzStyleFontVariantEastAsian.new(jis78: true, jis83: false, jis90: false, jis04: false, simplified: false, traditional: false, full_width: true, proportional_width: false, ruby: true))))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_synthesis_weight(Azul::StyleFontSynthesisValue::Exact.new(Azul::StyleFontSynthesis::None))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_synthesis_style(Azul::StyleFontSynthesisValue::Exact.new(Azul::StyleFontSynthesis::None))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_synthesis_small_caps(Azul::StyleFontSynthesisValue::Exact.new(Azul::StyleFontSynthesis::Auto))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_synthesis_position(Azul::StyleFontSynthesisValue::Exact.new(Azul::StyleFontSynthesis::None))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.text_align(Azul::StyleTextAlign::Center)),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.text_justify(Azul::LayoutTextJustify::InterWord)),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.vertical_align(Azul::StyleVerticalAlign.middle)),
@@ -61,14 +71,46 @@ module AzulStyles
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.selection_background_color(Azul::SelectionBackgroundColor.__own(LibAzul::AzSelectionBackgroundColor.new(inner: LibAzul::AzColorU.new(r: 51_u8, g: 153_u8, b: 255_u8, a: 255_u8))))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.selection_color(Azul::SelectionColor.__own(LibAzul::AzSelectionColor.new(inner: LibAzul::AzColorU.new(r: 255_u8, g: 255_u8, b: 255_u8, a: 255_u8))))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.selection_radius(Azul::SelectionRadiusValue::Exact.new(Azul::SelectionRadius.__own(LibAzul::AzSelectionRadius.new(inner: Azul::PixelValue.px(3.0_f32).__take))))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font([Azul::StyleFontFamily.system("caption")] of Azul::StyleFontFamily)),
+    ] of Azul::CssPropertyWithConditions
+  end
+
+  # CSS: .shorthands
+  def self.style_shorthands : Array(Azul::CssPropertyWithConditions)
+    [
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_style(Azul::StyleFontStyle.italic)),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_variant_caps(Azul::StyleFontVariantCapsValue::Exact.new(Azul::StyleFontVariantCaps::SmallCaps))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_weight(Azul::StyleFontWeight.number(Azul::FloatValue.new(350.0_f32)))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_stretch(Azul::StyleFontStretchValue::Exact.new(Azul::StyleFontStretch.__own(LibAzul::AzStyleFontStretch.new(inner: LibAzul::AzPercentageValue.new(number: Azul::FloatValue.new(75.0_f32).__take)))))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_size(Azul::StyleFontSize.__own(LibAzul::AzStyleFontSize.new(inner: Azul::PixelValue.px(14.0_f32).__take)))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.line_height(Azul::StyleLineHeight.number(Azul::FloatValue.new(1.5_f32)))),
       Azul::CssPropertyWithConditions.simple(
-        Azul::CssProperty.font(
+        Azul::CssProperty.font_family(
           [
             Azul::StyleFontFamily.system("Georgia"),
             Azul::StyleFontFamily.system("serif"),
           ] of Azul::StyleFontFamily
         )
       ),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.initial(Azul::CssPropertyType::FontVariantNumeric)),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.initial(Azul::CssPropertyType::FontVariantLigatures)),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.initial(Azul::CssPropertyType::FontVariantEastAsian)),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.initial(Azul::CssPropertyType::FontKerning)),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.initial(Azul::CssPropertyType::FontOpticalSizing)),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.initial(Azul::CssPropertyType::FontVariationSettings)),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.initial(Azul::CssPropertyType::FontFeatureSettings)),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.initial(Azul::CssPropertyType::FontSynthesisWeight)),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.initial(Azul::CssPropertyType::FontSynthesisStyle)),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.initial(Azul::CssPropertyType::FontSynthesisSmallCaps)),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.initial(Azul::CssPropertyType::FontSynthesisPosition)),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_variant_numeric(Azul::StyleFontVariantNumeric.__own(LibAzul::AzStyleFontVariantNumeric.new(lining_nums: false, oldstyle_nums: true, proportional_nums: false, tabular_nums: false, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false)))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_variant_caps(Azul::StyleFontVariantCapsValue::Exact.new(Azul::StyleFontVariantCaps::Normal))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_variant_ligatures(Azul::StyleFontVariantLigaturesValue::Exact.new(Azul::StyleFontVariantLigatures.__own(LibAzul::AzStyleFontVariantLigatures.new(common: Azul::StyleFontLigatureChoice::Unset, discretionary: Azul::StyleFontLigatureChoice::Unset, historical: Azul::StyleFontLigatureChoice::Unset, contextual: Azul::StyleFontLigatureChoice::Unset))))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_variant_east_asian(Azul::StyleFontVariantEastAsianValue::Exact.new(Azul::StyleFontVariantEastAsian.__own(LibAzul::AzStyleFontVariantEastAsian.new(jis78: true, jis83: false, jis90: false, jis04: false, simplified: false, traditional: false, full_width: false, proportional_width: false, ruby: false))))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_synthesis_weight(Azul::StyleFontSynthesisValue::Exact.new(Azul::StyleFontSynthesis::Auto))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_synthesis_style(Azul::StyleFontSynthesisValue::Exact.new(Azul::StyleFontSynthesis::Auto))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_synthesis_small_caps(Azul::StyleFontSynthesisValue::Exact.new(Azul::StyleFontSynthesis::None))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_synthesis_position(Azul::StyleFontSynthesisValue::Exact.new(Azul::StyleFontSynthesis::None))),
     ] of Azul::CssPropertyWithConditions
   end
 

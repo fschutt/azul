@@ -7,6 +7,13 @@ PROC css str = (STRING s) AZSTRING:
 # CSS: .text #
 # dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleFontVariantCapsValue` (CssPropertyValue<T>) #
 # dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleFontFeatureSettingsValue` (CssPropertyValue<T>) #
+# dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleFontStretchValue` (CssPropertyValue<T>) #
+# dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleFontVariationSettingsValue` (CssPropertyValue<T>) #
+# dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleFontOpticalSizingValue` (CssPropertyValue<T>) #
+# dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleFontKerningValue` (CssPropertyValue<T>) #
+# dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleFontVariantLigaturesValue` (CssPropertyValue<T>) #
+# dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleFontVariantEastAsianValue` (CssPropertyValue<T>) #
+# dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleFontSynthesisValue` (CssPropertyValue<T>) #
 # dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleInitialLetterValue` (CssPropertyValue<T>) #
 # dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleLineClampValue` (CssPropertyValue<T>) #
 # dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleHangingPunctuationValue` (CssPropertyValue<T>) #
@@ -46,7 +53,7 @@ BEGIN
    AZCARETANIMATIONDURATION t8;
    AZSELECTIONBACKGROUNDCOLOR t9;
    AZSELECTIONCOLOR t10;
-   [2] AZSTYLEFONTFAMILY t11;
+   [1] AZSTYLEFONTFAMILY t11;
    [21] AZCSSPROPERTYWITHCONDITIONS t12;
    inner OF t1 := AZCOLORU (REPR 51, REPR 102, REPR 153, REPR 255);
    inner OF t2 := az pixel value px (14.0);
@@ -59,13 +66,12 @@ BEGIN
    inner OF t8 := AZCSSDURATION (500, css duration unit milliseconds);
    inner OF t9 := AZCOLORU (REPR 51, REPR 153, REPR 255, REPR 255);
    inner OF t10 := AZCOLORU (REPR 255, REPR 255, REPR 255, REPR 255);
-   t11[1] := az style font family system (css str ("Georgia"));
-   t11[2] := az style font family system (css str ("serif"));
+   t11[1] := az style font family system (css str ("caption"));
    t12[1] := az css property with conditions simple (az css property text color (t1));
    t12[2] := az css property with conditions simple (az css property font size (t2));
    t12[3] := az css property with conditions simple (az css property font family (az style font family vec copy from ptr (t3[1], LENG 2)));
-   t12[4] := az css property with conditions simple (az css property font weight (style font weight w600));
-   t12[5] := az css property with conditions simple (az css property font style (style font style italic));
+   t12[4] := az css property with conditions simple (az css property font weight (az style font weight number (az float value create (600.0))));
+   t12[5] := az css property with conditions simple (az css property font style (az style font style italic));
    t12[6] := az css property with conditions simple (az css property font variant numeric (AZSTYLEFONTVARIANTNUMERIC (FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, FALSE, FALSE)));
    t12[7] := az css property with conditions simple (az css property text align (style text align center));
    t12[8] := az css property with conditions simple (az css property text justify (layout text justify inter word));
@@ -81,8 +87,42 @@ BEGIN
    t12[18] := az css property with conditions simple (az css property caret animation duration (t8));
    t12[19] := az css property with conditions simple (az css property selection background color (t9));
    t12[20] := az css property with conditions simple (az css property selection color (t10));
-   t12[21] := az css property with conditions simple (az css property font (az style font family vec copy from ptr (t11[1], LENG 2)));
+   t12[21] := az css property with conditions simple (az css property font (az style font family vec copy from ptr (t11[1], LENG 1)));
    az css property with conditions vec copy from ptr (t12[1], LENG 21)
+END;
+
+# CSS: .shorthands #
+# dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleFontVariantCapsValue` (CssPropertyValue<T>) #
+# dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleFontStretchValue` (CssPropertyValue<T>) #
+# dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleFontVariantLigaturesValue` (CssPropertyValue<T>) #
+# dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleFontVariantEastAsianValue` (CssPropertyValue<T>) #
+# dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleFontSynthesisValue` (CssPropertyValue<T>) #
+PROC style shorthands = AZCSSPROPERTYWITHCONDITIONSVEC:
+BEGIN
+   AZSTYLEFONTSIZE t1;
+   [2] AZSTYLEFONTFAMILY t2;
+   [17] AZCSSPROPERTYWITHCONDITIONS t3;
+   inner OF t1 := az pixel value px (14.0);
+   t2[1] := az style font family system (css str ("Georgia"));
+   t2[2] := az style font family system (css str ("serif"));
+   t3[1] := az css property with conditions simple (az css property font style (az style font style italic));
+   t3[2] := az css property with conditions simple (az css property font weight (az style font weight number (az float value create (350.0))));
+   t3[3] := az css property with conditions simple (az css property font size (t1));
+   t3[4] := az css property with conditions simple (az css property line height (az style line height number (az float value create (1.5))));
+   t3[5] := az css property with conditions simple (az css property font family (az style font family vec copy from ptr (t2[1], LENG 2)));
+   t3[6] := az css property with conditions simple (az css property initial (css property type font variant numeric));
+   t3[7] := az css property with conditions simple (az css property initial (css property type font variant ligatures));
+   t3[8] := az css property with conditions simple (az css property initial (css property type font variant east asian));
+   t3[9] := az css property with conditions simple (az css property initial (css property type font kerning));
+   t3[10] := az css property with conditions simple (az css property initial (css property type font optical sizing));
+   t3[11] := az css property with conditions simple (az css property initial (css property type font variation settings));
+   t3[12] := az css property with conditions simple (az css property initial (css property type font feature settings));
+   t3[13] := az css property with conditions simple (az css property initial (css property type font synthesis weight));
+   t3[14] := az css property with conditions simple (az css property initial (css property type font synthesis style));
+   t3[15] := az css property with conditions simple (az css property initial (css property type font synthesis small caps));
+   t3[16] := az css property with conditions simple (az css property initial (css property type font synthesis position));
+   t3[17] := az css property with conditions simple (az css property font variant numeric (AZSTYLEFONTVARIANTNUMERIC (FALSE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE)));
+   az css property with conditions vec copy from ptr (t3[1], LENG 17)
 END;
 
 # CSS: .box #

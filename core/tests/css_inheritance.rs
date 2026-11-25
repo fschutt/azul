@@ -179,7 +179,7 @@ fn test_font_weight_inheritance_multi_level() {
     let dom = Dom::create_div()
         .with_css_props(
             vec![CssPropertyWithConditions::simple(CssProperty::font_weight(
-                StyleFontWeight::Bold,
+                StyleFontWeight::BOLD,
             ))]
             .into(),
         )
@@ -211,7 +211,7 @@ fn test_font_weight_inheritance_multi_level() {
                 if let Some(font_weight) = font_weight_value.get_property() {
                     assert_eq!(
                         *font_weight,
-                        StyleFontWeight::Bold,
+                        StyleFontWeight::BOLD,
                         "{node_name} should inherit font-weight: bold from ancestor div"
                     );
                 } else {
@@ -239,7 +239,7 @@ fn test_mixed_inherited_and_explicit_properties() {
         .with_css_props(
             vec![
                 CssPropertyWithConditions::simple(CssProperty::font_size(StyleFontSize::px(20.0))),
-                CssPropertyWithConditions::simple(CssProperty::font_weight(StyleFontWeight::Bold)),
+                CssPropertyWithConditions::simple(CssProperty::font_weight(StyleFontWeight::BOLD)),
             ]
             .into(),
         )
@@ -285,7 +285,7 @@ fn test_mixed_inherited_and_explicit_properties() {
             if let Some(font_weight) = font_weight_value.get_property() {
                 assert_eq!(
                     *font_weight,
-                    StyleFontWeight::Bold,
+                    StyleFontWeight::BOLD,
                     "p should inherit font-weight: bold from div"
                 );
             }
@@ -415,7 +415,7 @@ fn test_deeply_nested_inheritance() {
     let dom = Dom::create_div()
         .with_css_props(
             vec![CssPropertyWithConditions::simple(CssProperty::font_weight(
-                StyleFontWeight::Bold,
+                StyleFontWeight::BOLD,
             ))]
             .into(),
         )
@@ -457,7 +457,7 @@ fn test_deeply_nested_inheritance() {
 
     assert_eq!(
         *font_weight,
-        StyleFontWeight::Bold,
+        StyleFontWeight::BOLD,
         "Deeply nested span should inherit font-weight: bold"
     );
 }

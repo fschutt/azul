@@ -38,6 +38,6 @@ function style_btn()
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_flexGrow(Azul.AzLayoutFlexGrow(Azul.AzFloatValue_create(1.0f0)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_inherit(Azul.AzCssPropertyType_MinWidth)),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_whiteSpace(az_union(Azul.AzStyleWhiteSpaceValue, Azul.AzStyleWhiteSpaceValueVariant_Exact, UInt8(6), Azul.AzStyleWhiteSpace_Nowrap))),
-        Azul.AzCssPropertyWithConditions_onHover(Azul.AzCssProperty_fontWeight(Azul.AzStyleFontWeight_Bold))
+        Azul.AzCssPropertyWithConditions_onHover(Azul.AzCssProperty_fontWeight(Azul.AzStyleFontWeight_number(Azul.AzFloatValue_create(700.0f0))))
     )
 end

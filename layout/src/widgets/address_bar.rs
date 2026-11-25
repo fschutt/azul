@@ -1433,7 +1433,7 @@ mod address_bar_tests {
         let bold = current.root.style.iter_inline_properties().any(|(p, conds)| {
             conds.as_ref().is_empty()
                 && matches!(p, CssProperty::FontWeight(w)
-                    if w.get_property().is_some_and(|w| *w == StyleFontWeight::Bold))
+                    if w.get_property().is_some_and(|w| *w == StyleFontWeight::BOLD))
         });
         assert!(bold, "the place's crumb is bold");
     }

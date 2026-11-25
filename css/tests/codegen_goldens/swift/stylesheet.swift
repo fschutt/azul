@@ -87,7 +87,7 @@ public func stylesheet() -> Css {
                         CssPathSelector.`class`("title"),
                     ]
                 ),
-                declarations: [CssDeclaration.`static`(CssProperty.fontWeight(StyleFontWeight.bold))],
+                declarations: [CssDeclaration.`static`(CssProperty.fontWeight(StyleFontWeight.number(FloatValue(700.0))))],
                 conditions: [],
                 priority: 20
             ),

@@ -95,7 +95,7 @@ proc stylesheet*(): AzCss =
             AzCssPathSelector_class(azStr("title")),
           ])
         ),
-        declarations: azVec(AzCssDeclarationVec_copyFromPtr, [AzCssDeclaration_static(AzCssProperty_fontWeight(AzStyleFontWeight.Bold))]),
+        declarations: azVec(AzCssDeclarationVec_copyFromPtr, [AzCssDeclaration_static(AzCssProperty_fontWeight(AzStyleFontWeight_number(AzFloatValue_create(700.0))))]),
         conditions: AzDynamicSelectorVec_create(),
         priority: 20'u8
       ),
@@ -108,7 +108,7 @@ proc stylesheet*(): AzCss =
             AzCssPathSelector_pseudoSelector(AzCssPathPseudoSelector_first()),
           ])
         ),
-        declarations: azVec(AzCssDeclarationVec_copyFromPtr, [AzCssDeclaration_static(AzCssProperty_fontStyle(AzStyleFontStyle.Italic))]),
+        declarations: azVec(AzCssDeclarationVec_copyFromPtr, [AzCssDeclaration_static(AzCssProperty_fontStyle(AzStyleFontStyle_italic()))]),
         conditions: AzDynamicSelectorVec_create(),
         priority: 20'u8
       ),

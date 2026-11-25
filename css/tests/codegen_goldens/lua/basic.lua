@@ -14,7 +14,7 @@ function M.style_btn()
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_flexGrow(ffi.new('AzLayoutFlexGrow', { inner = C.AzFloatValue_create(1.0) }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_inherit(C.AzCssPropertyType_MinWidth)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_whiteSpace(ffi.new('AzStyleWhiteSpaceValue', { Exact = { tag = 6, payload = C.AzStyleWhiteSpace_Nowrap } }))),
-        C.AzCssPropertyWithConditions_onHover(C.AzCssProperty_fontWeight(C.AzStyleFontWeight_Bold)),
+        C.AzCssPropertyWithConditions_onHover(C.AzCssProperty_fontWeight(C.AzStyleFontWeight_number(C.AzFloatValue_create(700.0)))),
     }), 7)
 end
 

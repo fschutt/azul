@@ -109,7 +109,7 @@ function style_main_title()
         'AzCssPropertyWithConditionsVec_copyFromPtr',
         'AzCssPropertyWithConditions',
         [
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontWeight($L->AzStyleFontWeight_Bold)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontWeight($L->AzStyleFontWeight_number($L->AzFloatValue_create(700.0)))),
         ]
     );
 }
@@ -122,7 +122,7 @@ function style_div_note_first()
         'AzCssPropertyWithConditionsVec_copyFromPtr',
         'AzCssPropertyWithConditions',
         [
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontStyle($L->AzStyleFontStyle_Italic)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontStyle($L->AzStyleFontStyle_italic())),
         ]
     );
 }

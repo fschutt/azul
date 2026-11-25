@@ -33,11 +33,11 @@ def style_list_li_nth_child_2():
 # CSS: #main>.title
 def style_main_title():
     return [
-        CssPropertyWithConditions.simple(CssProperty.font_weight(StyleFontWeight.Bold)),
+        CssPropertyWithConditions.simple(CssProperty.font_weight(StyleFontWeight.Number(FloatValue.create(700.0)))),
     ]
 
 # CSS: div .note:first
 def style_div_note_first():
     return [
-        CssPropertyWithConditions.simple(CssProperty.font_style(StyleFontStyle.Italic)),
+        CssPropertyWithConditions.simple(CssProperty.font_style(StyleFontStyle.Italic())),
     ]

@@ -397,7 +397,7 @@ fn test_font_weight_inheritance() {
         .with_css_props(
             vec![CssPropertyWithConditions::simple(CssProperty::FontWeight(
                 azul_css::css::CssPropertyValue::Exact(
-                    azul_css::props::basic::font::StyleFontWeight::Bold,
+                    azul_css::props::basic::font::StyleFontWeight::BOLD,
                 ),
             ))]
             .into(),
@@ -421,7 +421,7 @@ fn test_font_weight_inheritance() {
             if let Some(weight) = val.get_property() {
                 assert_eq!(
                     *weight,
-                    azul_css::props::basic::font::StyleFontWeight::Bold,
+                    azul_css::props::basic::font::StyleFontWeight::BOLD,
                     "Span should have inherited bold font-weight from parent"
                 );
             }
@@ -800,6 +800,7 @@ fn has_compact_encoding_covers_all_compact_properties() {
         Clear,
         FontWeight,
         FontStyle,
+        FontStretch,
         TextAlign,
         Visibility,
         WhiteSpace,
@@ -879,6 +880,16 @@ fn has_compact_encoding_covers_all_compact_properties() {
         GridTemplateColumns,
         GridTemplateRows,
         GridTemplateAreas,
+        // The other new font properties are flag-and-cascade: no compact slot.
+        FontVariationSettings,
+        FontOpticalSizing,
+        FontKerning,
+        FontVariantLigatures,
+        FontVariantEastAsian,
+        FontSynthesisWeight,
+        FontSynthesisStyle,
+        FontSynthesisSmallCaps,
+        FontSynthesisPosition,
     ];
     for pt in &non_compact {
         assert!(

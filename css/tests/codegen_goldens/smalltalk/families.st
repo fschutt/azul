@@ -29,6 +29,16 @@ AzulStyles class >> str: aString [
 "CSS: .text
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontVariantCapsValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontFeatureSettingsValue` or its CssPropertyValue<T> payload
+dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontStretchValue` or its CssPropertyValue<T> payload
+dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontVariationSettingsValue` or its CssPropertyValue<T> payload
+dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontOpticalSizingValue` or its CssPropertyValue<T> payload
+dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontKerningValue` or its CssPropertyValue<T> payload
+dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontVariantLigaturesValue` or its CssPropertyValue<T> payload
+dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontVariantEastAsianValue` or its CssPropertyValue<T> payload
+dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontSynthesisValue` or its CssPropertyValue<T> payload
+dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontSynthesisValue` or its CssPropertyValue<T> payload
+dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontSynthesisValue` or its CssPropertyValue<T> payload
+dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontSynthesisValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleInitialLetterValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleLineClampValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleHangingPunctuationValue` or its CssPropertyValue<T> payload
@@ -65,8 +75,8 @@ AzulStyles class >> styleText [
             (AzulNative azStyleFontFamilySystem: (self str: 'Arial')).
             (AzulNative azStyleFontFamilySystem: (self str: 'sans-serif'))
         }))).
-        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyFontWeight: (AzStyleFontWeight W600))).
-        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyFontStyle: (AzStyleFontStyle Italic))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyFontWeight: (AzulNative azStyleFontWeightNumber: (AzulNative azFloatValueCreate: 600.0)))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyFontStyle: (AzulNative azStyleFontStyleItalic))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyFontVariantNumeric: (AzStyleFontVariantNumeric new lining_nums: false; oldstyle_nums: false; proportional_nums: false; tabular_nums: true; diagonal_fractions: false; stacked_fractions: false; ordinal: false; slashed_zero: false; yourself))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyTextAlign: (AzStyleTextAlign Center))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyTextJustify: (AzLayoutTextJustify InterWord))).
@@ -82,10 +92,43 @@ AzulStyles class >> styleText [
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyCaretAnimationDuration: (AzCaretAnimationDuration new inner: (AzCssDuration new inner: 500; unit: (AzCssDurationUnit Milliseconds); yourself); yourself))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertySelectionBackgroundColor: (AzSelectionBackgroundColor new inner: (AzColorU new r: 51; g: 153; b: 255; a: 255; yourself); yourself))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertySelectionColor: (AzSelectionColor new inner: (AzColorU new r: 255; g: 255; b: 255; a: 255; yourself); yourself))).
-        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyFont: (self vec: [ :p :n | AzulNative azStyleFontFamilyVecCopyFromPtr: p len: n ] of: AzStyleFontFamily items: {
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyFont: (self vec: [ :p :n | AzulNative azStyleFontFamilyVecCopyFromPtr: p len: n ] of: AzStyleFontFamily items: { (AzulNative azStyleFontFamilySystem: (self str: 'caption')) })))
+    }
+]
+
+"CSS: .shorthands
+dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontVariantCapsValue` or its CssPropertyValue<T> payload
+dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontStretchValue` or its CssPropertyValue<T> payload
+dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontVariantCapsValue` or its CssPropertyValue<T> payload
+dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontVariantLigaturesValue` or its CssPropertyValue<T> payload
+dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontVariantEastAsianValue` or its CssPropertyValue<T> payload
+dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontSynthesisValue` or its CssPropertyValue<T> payload
+dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontSynthesisValue` or its CssPropertyValue<T> payload
+dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontSynthesisValue` or its CssPropertyValue<T> payload
+dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleFontSynthesisValue` or its CssPropertyValue<T> payload"
+{ #category : 'styles' }
+AzulStyles class >> styleShorthands [
+    ^ self vec: [ :p :n | AzulNative azCssPropertyWithConditionsVecCopyFromPtr: p len: n ] of: AzCssPropertyWithConditions items: {
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyFontStyle: (AzulNative azStyleFontStyleItalic))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyFontWeight: (AzulNative azStyleFontWeightNumber: (AzulNative azFloatValueCreate: 350.0)))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyFontSize: (AzStyleFontSize new inner: (AzulNative azPixelValuePx: 14.0); yourself))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyLineHeight: (AzulNative azStyleLineHeightNumber: (AzulNative azFloatValueCreate: 1.5)))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyFontFamily: (self vec: [ :p :n | AzulNative azStyleFontFamilyVecCopyFromPtr: p len: n ] of: AzStyleFontFamily items: {
             (AzulNative azStyleFontFamilySystem: (self str: 'Georgia')).
             (AzulNative azStyleFontFamilySystem: (self str: 'serif'))
-        })))
+        }))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyInitial: (AzCssPropertyType FontVariantNumeric))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyInitial: (AzCssPropertyType FontVariantLigatures))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyInitial: (AzCssPropertyType FontVariantEastAsian))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyInitial: (AzCssPropertyType FontKerning))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyInitial: (AzCssPropertyType FontOpticalSizing))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyInitial: (AzCssPropertyType FontVariationSettings))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyInitial: (AzCssPropertyType FontFeatureSettings))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyInitial: (AzCssPropertyType FontSynthesisWeight))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyInitial: (AzCssPropertyType FontSynthesisStyle))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyInitial: (AzCssPropertyType FontSynthesisSmallCaps))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyInitial: (AzCssPropertyType FontSynthesisPosition))).
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyFontVariantNumeric: (AzStyleFontVariantNumeric new lining_nums: false; oldstyle_nums: true; proportional_nums: false; tabular_nums: false; diagonal_fractions: false; stacked_fractions: false; ordinal: false; slashed_zero: false; yourself)))
     }
 ]
 

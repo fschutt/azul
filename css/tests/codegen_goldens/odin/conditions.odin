@@ -48,13 +48,13 @@ style_list_li_nth_child_2 :: proc() -> azul.AzCssPropertyWithConditionsVec {
 // CSS: #main>.title
 style_main_title :: proc() -> azul.AzCssPropertyWithConditionsVec {
 	return azul.AzCssPropertyWithConditionsVec_copyFromPtr(&[]azul.AzCssPropertyWithConditions{
-		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontWeight(azul.AzStyleFontWeight.Bold)),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontWeight(azul.AzStyleFontWeight_number(azul.AzFloatValue_create(700.0)))),
 	}[0], 1)
 }
 
 // CSS: div .note:first
 style_div_note_first :: proc() -> azul.AzCssPropertyWithConditionsVec {
 	return azul.AzCssPropertyWithConditionsVec_copyFromPtr(&[]azul.AzCssPropertyWithConditions{
-		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontStyle(azul.AzStyleFontStyle.Italic)),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontStyle(azul.AzStyleFontStyle_italic())),
 	}[0], 1)
 }

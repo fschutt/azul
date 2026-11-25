@@ -99,7 +99,7 @@ fun stylesheet(): AzCss.ByValue {
                         AzulNativeSvg.AzCssPathSelector_class(azStr("title"))
                     )
                 };
-                declarations = azVec(AzulNativeVec::AzCssDeclarationVec_copyFromPtr, AzulNativeCss.AzCssDeclaration_static(AzulNativeCss.AzCssProperty_fontWeight(StyleFontWeight.Bold.value)));
+                declarations = azVec(AzulNativeVec::AzCssDeclarationVec_copyFromPtr, AzulNativeCss.AzCssDeclaration_static(AzulNativeCss.AzCssProperty_fontWeight(AzulNativeCss.AzStyleFontWeight_number(AzulNativeCss.AzFloatValue_create(700.0f)))));
                 conditions = AzulNativeVec.AzDynamicSelectorVec_create();
                 priority = 20.toByte()
             },
@@ -113,7 +113,7 @@ fun stylesheet(): AzCss.ByValue {
                         AzulNativeSvg.AzCssPathSelector_pseudoSelector(AzulNativeSvg.AzCssPathPseudoSelector_first())
                     )
                 };
-                declarations = azVec(AzulNativeVec::AzCssDeclarationVec_copyFromPtr, AzulNativeCss.AzCssDeclaration_static(AzulNativeCss.AzCssProperty_fontStyle(StyleFontStyle.Italic.value)));
+                declarations = azVec(AzulNativeVec::AzCssDeclarationVec_copyFromPtr, AzulNativeCss.AzCssDeclaration_static(AzulNativeCss.AzCssProperty_fontStyle(AzulNativeCss.AzStyleFontStyle_italic())));
                 conditions = AzulNativeVec.AzDynamicSelectorVec_create();
                 priority = 20.toByte()
             }

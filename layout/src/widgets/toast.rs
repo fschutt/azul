@@ -778,7 +778,7 @@ pub(crate) static TOAST_ACTION_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
     CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
-    CssPropertyWithConditions::simple(CssProperty::font_weight(StyleFontWeight::Bold)),
+    CssPropertyWithConditions::simple(CssProperty::font_weight(StyleFontWeight::BOLD)),
     CssPropertyWithConditions::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(
         12,
     ))),

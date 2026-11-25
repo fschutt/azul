@@ -31,6 +31,6 @@ function Get-StyleBtn {
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_flexGrow([Azul.AzLayoutFlexGrow]@{ inner = [Azul.NativeMethods]::AzFloatValue_create([float]1.0) })),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_inherit([Azul.CssPropertyType]::MinWidth)),
         [Azul.NativeMethods]::AzCssPropertyWithConditions_simple([Azul.NativeMethods]::AzCssProperty_whiteSpace([Azul.AzStyleWhiteSpaceValue]@{ Exact = [Azul.AzStyleWhiteSpaceValueVariant_Exact]@{ tag = [Azul.AzStyleWhiteSpaceValue_Tag]::Exact; payload = [Azul.StyleWhiteSpace]::Nowrap } })),
-        [Azul.NativeMethods]::AzCssPropertyWithConditions_onHover([Azul.NativeMethods]::AzCssProperty_fontWeight([Azul.StyleFontWeight]::Bold))
+        [Azul.NativeMethods]::AzCssPropertyWithConditions_onHover([Azul.NativeMethods]::AzCssProperty_fontWeight([Azul.NativeMethods]::AzStyleFontWeight_number([Azul.NativeMethods]::AzFloatValue_create([float]700.0))))
     ))
 }

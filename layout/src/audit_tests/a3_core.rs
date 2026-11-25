@@ -836,7 +836,7 @@ fn a_dom_that_declares_no_zoom_ratio_alignment_or_transform_is_not_asked_for_the
             Dom::create_body().with_child(Dom::create_div().with_css(css).with_child(text("x"))),
         )
     };
-    let declared = |styled: &StyledDom, flag: u32| {
+    let declared = |styled: &StyledDom, flag: u64| {
         styled
             .css_property_cache
             .ptr

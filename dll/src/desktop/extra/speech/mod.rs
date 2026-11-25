@@ -3,7 +3,7 @@
 //!
 //! | Platform | Saying | Hearing |
 //! |----------|--------|---------|
-//! | macOS / iOS | `AVSpeechSynthesizer` (AVFoundation, dlopen'd) | `SFSpeechRecognizer` on the microphone through `AVAudioEngine` (Speech, dlopen'd); the app's Info.plist must carry `NSSpeechRecognitionUsageDescription` and `NSMicrophoneUsageDescription`, else hearing answers `Unavailable` instead of the process being stopped by the OS |
+//! | macOS / iOS | `AVSpeechSynthesizer` (AVFoundation, dlopen'd) | `SFSpeechRecognizer` on the microphone through `AVAudioEngine` (Speech, dlopen'd); the permissions are read first (`authorization`): a bare binary whose terminal holds them listens, a refused one answers `Denied` with where to change it, and one nobody decided yet is asked only when the app's Info.plist carries `NSSpeechRecognitionUsageDescription` and `NSMicrophoneUsageDescription` (else `Unavailable` that says so, instead of the process being stopped by the OS) |
 //! | Windows | SAPI 5 `ISpVoice` | WinRT `Windows.Media.SpeechRecognition.SpeechRecognizer` |
 //! | Linux | speech-dispatcher (`libspeechd.so.2`, dlopen'd) | not yet: `Unavailable` |
 //! | Android | `TextToSpeech` through the Java helper `AzulSpeech` | `SpeechRecognizer` through the same helper, on the main thread; the app declares `RECORD_AUDIO` (`AZ_ANDROID_PERMISSIONS`) and asks for it through the permission manager, else hearing answers `Denied` |
@@ -26,6 +26,9 @@ pub mod android;
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 pub mod apple;
 mod headless;
+// What the permissions allow (pure); the Apple recognizer is its only user, the tests run everywhere.
+#[cfg_attr(not(any(target_os = "ios", target_os = "macos")), allow(dead_code))]
+mod authorization;
 #[cfg(target_os = "linux")]
 pub mod linux;
 #[cfg(target_os = "windows")]

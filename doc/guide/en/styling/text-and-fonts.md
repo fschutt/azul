@@ -93,29 +93,27 @@ root. `%` resolves the same way as `em`.
 
 ## font-weight
 
-`StyleFontWeight`:
+`StyleFontWeight` is a number from 1 to 1000, or a relative keyword:
 
-- `lighter`. Lighter than parent.
-- `100` ... `300`. Maps to `W100` ... `W300`.
-- `normal`, `400`. Maps to `Normal`.
-- `500`, `600`. Maps to `W500`, `W600`.
-- `bold`, `700`. Maps to `Bold`.
-- `800`, `900`. Maps to `W800`, `W900`.
-- `bolder`. Heavier than parent.
+- `Number(weight)`: any number from 1 to 1000. `normal` is the number 400 and `bold` is 700; `350`
+  and `650.5` are weights like any other, and a number outside 1 to 1000 is invalid.
+- `Lighter` and `Bolder` are worked out against the parent's weight (CSS Fonts 4, section 2.2);
+  the descendants inherit the number.
 
-The numeric scale is the OpenType weight class. The parser maps standard
-numbers to enum variants. `450` and other in-between numbers are *not*
-accepted; use the named variant for the closest weight.
+A variable font with a `wght` axis is drawn at exactly the number; a family of separate faces
+picks the face nearest to it.
 
 ## font-style
 
 `StyleFontStyle`:
 
 ```rust,ignore
-StyleFontStyle::Normal   // upright (default)
-StyleFontStyle::Italic   // italic face
-StyleFontStyle::Oblique  // oblique (synthesised slant if no italic face)
+StyleFontStyle::Normal               // upright (default)
+StyleFontStyle::Italic               // italic face
+StyleFontStyle::Oblique(angle)       // slanted by `angle` degrees, -90 to 90 (`oblique 12deg`)
 ```
+
+A bare `oblique` is `oblique 14deg`.
 
 ## text-align
 

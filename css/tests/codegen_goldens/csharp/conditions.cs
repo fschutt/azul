@@ -57,7 +57,7 @@ namespace AzulStyles
         {
             return AzulCodegen.Vec<AzCssPropertyWithConditions, AzCssPropertyWithConditionsVec>(
                 NativeMethods.AzCssPropertyWithConditionsVec_copyFromPtr,
-                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontWeight(StyleFontWeight.Bold))
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontWeight(NativeMethods.AzStyleFontWeight_number(NativeMethods.AzFloatValue_create(700.0f))))
             );
         }
 
@@ -66,7 +66,7 @@ namespace AzulStyles
         {
             return AzulCodegen.Vec<AzCssPropertyWithConditions, AzCssPropertyWithConditionsVec>(
                 NativeMethods.AzCssPropertyWithConditionsVec_copyFromPtr,
-                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontStyle(StyleFontStyle.Italic))
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontStyle(NativeMethods.AzStyleFontStyle_italic()))
             );
         }
     }

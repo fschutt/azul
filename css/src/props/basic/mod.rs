@@ -9,6 +9,10 @@
 //! - `direction` — directional enums (LTR / RTL, writing modes)
 //! - `error` — CSS-parsing error types
 //! - `font` — font-family, font-weight, and related types
+//! - `font_variation` — font-stretch, font-variation-settings, font-optical-sizing, font-kerning,
+//!   font-variant-ligatures, font-variant-east-asian, font-synthesis
+//! - `font_shorthand` — the `font`, `font-variant` and `font-synthesis` shorthands (not
+//!   glob-re-exported; use qualified paths)
 //! - `geometry` — geometric primitives (points, sizes, rects)
 //! - `length` — CSS length units (`px`, `em`, `%`, …)
 //! - `parse` — shared low-level parsing helpers (not glob-re-exported; use qualified paths, e.g.
@@ -22,6 +26,11 @@ pub mod color;
 pub mod direction;
 pub mod error;
 pub mod font;
+/// The `font`, `font-variant` and `font-synthesis` shorthands - not glob-re-exported because
+/// its items are meant to be used via qualified paths.
+///
+pub mod font_shorthand;
+pub mod font_variation;
 pub mod geometry;
 pub mod length;
 /// Shared low-level parsing helpers — not glob-re-exported because its
@@ -37,6 +46,7 @@ pub use self::{
     direction::*,
     error::*,
     font::*,
+    font_variation::*,
     geometry::*,
     length::*,
     parse::{parse_image, CssImageParseError, CssImageParseErrorOwned},

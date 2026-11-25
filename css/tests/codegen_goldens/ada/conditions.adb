@@ -56,7 +56,7 @@ package body Styles is
    function Style_Main_Title return Az_CssPropertyWithConditionsVec is
       t1 : aliased array (0 .. 0) of Az_CssPropertyWithConditions;
    begin
-      t1 (0) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Weight (Az_StyleFontWeight'(Bold)));
+      t1 (0) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Weight (Az_StyleFontWeight_Number (Az_FloatValue_Create (700.0))));
       return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t1 (0)'Address, 1);
    end Style_Main_Title;
 
@@ -64,7 +64,7 @@ package body Styles is
    function Style_Div_Note_First return Az_CssPropertyWithConditionsVec is
       t1 : aliased array (0 .. 0) of Az_CssPropertyWithConditions;
    begin
-      t1 (0) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Style (Az_StyleFontStyle'(Italic)));
+      t1 (0) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Font_Style (Az_StyleFontStyle_Italic));
       return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t1 (0)'Address, 1);
    end Style_Div_Note_First;
 
