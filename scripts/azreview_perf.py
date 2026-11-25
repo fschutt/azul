@@ -182,7 +182,9 @@ def body(args, logs, out):
     with open(os.path.join(folder, "src", "lib.rs"), "w", encoding="utf-8") as f:
         for i in range(200):
             f.write("pub fn step_%d(x: u32) -> u32 { x + %d } // a line of code to review\n" % (i, i))
-    dwell = ["--dwell-input", "any", "--dwell-ms", "400" if args.notes else "10000"]
+    # A real window is the user's screen and may have a real pen over it: no dictation there, ever (the microphone).
+    # Headless, the mouse stands in for the pen (the rest is 10 s, which no run of this script reaches).
+    dwell = ["--dwell-input", "off" if args.window else "any", "--dwell-ms", "400" if args.notes else "10000"]
     env = {"AZREVIEW_PROFILE": "1", "AZ_DEBUG_DAMAGE": "1"}
     if args.az_profile:
         env["AZ_PROFILE"] = args.az_profile

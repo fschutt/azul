@@ -261,3 +261,36 @@ fn a_file_is_marked_in_the_tree_by_the_state_of_its_conversations() {
     let none = reviewing("/work/proj");
     assert!(!has_id(&file_list(&none, &RefAny::new(0u8)), "__azreview_file-mark-working"), "no conversation, no mark");
 }
+
+// ---- what the window as a whole listens to ----
+
+fn window_events(dom: &Dom, handler: usize) -> Vec<EventFilter> {
+    dom.root.callbacks.as_slice().iter().filter(|c| c.callback.cb == handler).map(|c| c.event).collect()
+}
+
+#[test]
+fn a_stroke_ends_when_the_window_loses_the_focus_not_when_an_element_does() {
+    // `FocusLost` of a window listener is the BLUR of the element that had the focus: a press on the page blurs the file
+    // that was picked in the tree, and ended the stroke at its first point. The window losing the focus is
+    // `WindowFocusLost`.
+    let body = with_window_listeners(Dom::create_body(), &RefAny::new(0u8));
+    let events = window_events(&body, crate::on_focus_lost as usize);
+    assert_eq!(events, vec![EventFilter::Window(WindowEventFilter::WindowFocusLost)], "{events:?}");
+}
+
+#[test]
+fn the_window_hears_the_keys_the_pointer_leaving_and_the_button_let_go_anywhere() {
+    let body = with_window_listeners(Dom::create_body(), &RefAny::new(0u8));
+    assert_eq!(
+        window_events(&body, crate::on_key as usize),
+        vec![EventFilter::Window(WindowEventFilter::VirtualKeyDown)]
+    );
+    assert_eq!(
+        window_events(&body, crate::on_window_up as usize),
+        vec![EventFilter::Window(WindowEventFilter::LeftMouseUp)]
+    );
+    assert_eq!(
+        window_events(&body, crate::on_window_left as usize),
+        vec![EventFilter::Window(WindowEventFilter::MouseLeave)]
+    );
+}
