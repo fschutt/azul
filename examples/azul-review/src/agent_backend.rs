@@ -20,6 +20,7 @@
 use std::{path::PathBuf, time::Instant};
 
 use crate::{
+    agent_export::{self, CutList, ExportRequest},
     agent_limits::{Limits, Notes},
     agent_review::{self, Reply, ReviewRequest},
 };
@@ -381,6 +382,8 @@ impl<'a> Control<'a> {
 pub enum Request {
     /// Exploration or editing, about strokes and the code around them.
     Review(ReviewRequest),
+    /// A cut list for a video of a recorded session.
+    Export(ExportRequest),
 }
 
 impl Request {
@@ -388,6 +391,7 @@ impl Request {
     pub fn task(&self) -> Task {
         match self {
             Self::Review(review) => review.task,
+            Self::Export(_) => Task::Export,
         }
     }
 
@@ -396,6 +400,25 @@ impl Request {
     pub fn conversation(&self) -> u64 {
         match self {
             Self::Review(review) => review.conversation,
+            Self::Export(export) => export.conversation,
+        }
+    }
+
+    /// The review request, when it is one.
+    #[must_use]
+    pub fn as_review(&self) -> Option<&ReviewRequest> {
+        match self {
+            Self::Review(review) => Some(review),
+            Self::Export(_) => None,
+        }
+    }
+
+    /// The export request, when it is one.
+    #[must_use]
+    pub fn as_export(&self) -> Option<&ExportRequest> {
+        match self {
+            Self::Export(export) => Some(export),
+            Self::Review(_) => None,
         }
     }
 }
@@ -444,6 +467,7 @@ pub struct Completion {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Body {
     Review(Reply),
+    Export(CutList),
 }
 
 /// The finished answer to a request.
@@ -457,10 +481,29 @@ pub struct Response {
 }
 
 impl Response {
+    /// The review answer, when it is one.
+    #[must_use]
+    pub fn reply(&self) -> Option<&Reply> {
+        match &self.body {
+            Body::Review(reply) => Some(reply),
+            Body::Export(_) => None,
+        }
+    }
+
+    /// The cut list, when it is one.
+    #[must_use]
+    pub fn cut_list(&self) -> Option<&CutList> {
+        match &self.body {
+            Body::Export(list) => Some(list),
+            Body::Review(_) => None,
+        }
+    }
+
     /// The first `max` characters of what the answer says (the "first words" of a backend test).
     #[must_use]
     pub fn first_words(&self, max: usize) -> String {
         let text = match &self.body {
+            Body::Export(list) => format!("{} segments: {}", list.segments.len(), list.title),
             Body::Review(reply) => {
                 if reply.answer.trim().is_empty() {
                     format!("{} suggestion(s)", reply.suggestions.len())
@@ -508,6 +551,7 @@ pub fn run_task(
     }
     let call = match request {
         Request::Review(review) => agent_review::build_call(request, review, limits)?,
+        Request::Export(export) => agent_export::build_call(request, export, limits)?,
     };
     let started = ctl.now_ms();
     let completion = backend.complete(&call, ctl)?;
@@ -518,6 +562,12 @@ pub fn run_task(
     let body = match request {
         Request::Review(review) => Body::Review(agent_review::parse_body(
             review,
+            &completion.text,
+            limits,
+            &mut notes,
+        )?),
+        Request::Export(export) => Body::Export(agent_export::parse_body(
+            export,
             &completion.text,
             limits,
             &mut notes,

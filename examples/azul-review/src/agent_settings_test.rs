@@ -761,7 +761,7 @@ fn a_problem_is_named_by_its_task_and_row() {
 fn the_test_request_is_a_tiny_editing_request_that_builds() {
     let request = test_request("de");
     assert_eq!(request.task(), Task::Editing);
-    let Request::Review(review) = &request;
+    let review = request.as_review().expect("a review request");
     let call =
         crate::agent_review::build_call(&request, review, &Limits::default()).expect("builds");
     assert!(call.prompt.len() < 800, "{}", call.prompt.len());

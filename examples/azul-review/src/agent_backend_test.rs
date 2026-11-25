@@ -538,9 +538,7 @@ fn the_three_steps_build_send_and_read_and_the_response_says_who_and_how_long() 
     );
     let response = result.expect("answered");
     assert_eq!(calls, 1);
-    match &response.body {
-        Body::Review(reply) => assert_eq!(reply.answer, "fine"),
-    }
+    assert_eq!(response.reply().map(|r| r.answer.as_str()), Some("fine"));
     assert_eq!(response.identity.kind, BackendKind::Mock);
     assert_eq!(response.usage.elapsed_ms, 2_500);
     assert_eq!(response.usage.input_tokens, Some(100));

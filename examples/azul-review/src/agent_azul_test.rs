@@ -255,7 +255,9 @@ fn the_anthropic_backend_runs_through_the_engines_client_against_a_local_server(
     let mut ctl = Control::new(&mut clock, &never_cancelled);
     let response =
         run_task(&mut backend, &request(), &Limits::default(), &mut ctl).expect("answers");
-    let Body::Review(reply) = &response.body;
+    let Body::Review(reply) = &response.body else {
+        panic!("a review answer")
+    };
     assert_eq!(reply.answer, "ok");
     assert_eq!(response.identity.kind, BackendKind::AnthropicApi);
     let got = server
@@ -289,7 +291,9 @@ fn the_gemini_backend_runs_through_the_engines_client_against_a_local_server() {
     let mut ctl = Control::new(&mut clock, &never_cancelled);
     let response =
         run_task(&mut backend, &request(), &Limits::default(), &mut ctl).expect("answers");
-    let Body::Review(reply) = &response.body;
+    let Body::Review(reply) = &response.body else {
+        panic!("a review answer")
+    };
     assert_eq!(reply.answer, "ok");
     let got = server
         .got

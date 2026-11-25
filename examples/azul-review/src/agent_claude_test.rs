@@ -57,7 +57,7 @@ fn request(task: Task) -> Request {
 
 fn with_call<T>(task: Task, f: impl FnOnce(&Call<'_>) -> T) -> T {
     let req = request(task);
-    let Request::Review(review) = &req;
+    let review = req.as_review().expect("a review request");
     let call = build_call(&req, review, &Limits::default()).expect("builds");
     f(&call)
 }
@@ -450,7 +450,9 @@ mod through_a_program {
             ),
         );
         let response = run_with(program, Task::Editing, 30).expect("answers");
-        let Body::Review(reply) = &response.body;
+        let Body::Review(reply) = &response.body else {
+        panic!("a review answer")
+    };
         assert!(
             reply.answer.contains("Connection test received"),
             "{}",

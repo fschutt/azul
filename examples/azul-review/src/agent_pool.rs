@@ -13,6 +13,26 @@
 //! or a search of the PATH never waits on the window), runs the request, and reports through a
 //! callback; the window's thread glue turns each [`JobMessage`] into the window's message, as the
 //! dictation worker does.
+//!
+//! # How the window uses the agents (in order)
+//!
+//! 1. At the start, once: the settings (`AgentSettings::from_values(&settings.values)`: its
+//!    problems are for the log), the environment (`Env::from_pairs(std::env::vars())`), a [`Pool`]
+//!    of `settings.max_concurrent`, and a `Wiring` (the keys with `AzulKeychain` as the keychain, a
+//!    `Host` of the PATH and the home folder, the limits `settings.limits()`, a scratch folder under
+//!    the data root, `AzulTransport` as the transport of the APIs).
+//! 2. A conversation asks: build the request from what the window knows (`agent_review`: the words
+//!    as timed utterances, the strokes as samples, the code around them), `pool.start(conversation,
+//!    task, now_ms, timeout_secs)` (a [`AgentError::Busy`] says so on the bottom bar), then a worker
+//!    thread that calls [`run_job`] with a [`JobSpec`] whose factory is
+//!    `agent_factory::factory(task, settings.task(task), wiring)`, and a `ThreadWriteBackMsg` for
+//!    every [`JobMessage`].
+//! 3. The window's message callback: `JobEvent::Done` gives `pool.finish(job, now_ms)` (`None`: a job
+//!    that was given up on, its message is ignored), then the `Response` (suggestions become the
+//!    yellow chips, the answer the conversation's text, `diagnostics` the log) or the failure
+//!    (`l10n_key()` and `l10n_args()` through the window's `t_args`; `kind_name()` for the e2e lines).
+//! 4. Cancel is `pool.cancel(id)` (the worker kills its process or drops its answer); a timer calls
+//!    `pool.reap(now_ms)` for the workers that never report.
 
 use std::{
     panic::{catch_unwind, AssertUnwindSafe},
@@ -273,6 +293,41 @@ pub struct JobMessage {
     pub job: u64,
     pub conversation: u64,
     pub event: JobEvent,
+}
+
+impl JobMessage {
+    /// The line the end-to-end scripts read on standard output (`AZREVIEW_AGENT started|done|failed
+    /// <conversation> <task> ...`), as the dictation has its `AZREVIEW_DICTATION` lines.
+    #[must_use]
+    pub fn log_line(&self, task: Task) -> String {
+        let key = task.key();
+        match &self.event {
+            JobEvent::Started => {
+                format!("AZREVIEW_AGENT started {} {key} job={}", self.conversation, self.job)
+            }
+            JobEvent::Done(result) => match result.as_ref() {
+                Ok(response) => {
+                    let items = response
+                        .reply()
+                        .map(|r| r.suggestions.len())
+                        .or_else(|| response.cut_list().map(|l| l.segments.len()))
+                        .unwrap_or(0);
+                    format!(
+                        "AZREVIEW_AGENT done {} {key} {} items={items} ms={}",
+                        self.conversation,
+                        response.identity.kind.key(),
+                        response.usage.elapsed_ms
+                    )
+                }
+                Err(error) => format!(
+                    "AZREVIEW_AGENT failed {} {key} {} {}",
+                    self.conversation,
+                    error.kind_name(),
+                    error.message().replace('\n', " ")
+                ),
+            },
+        }
+    }
 }
 
 /// Makes the backend on the worker.

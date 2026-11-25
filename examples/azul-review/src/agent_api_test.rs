@@ -77,7 +77,7 @@ fn request(task: Task) -> Request {
 
 fn with_call<T>(task: Task, f: impl FnOnce(&Call<'_>) -> T) -> T {
     let req = request(task);
-    let Request::Review(review) = &req;
+    let review = req.as_review().expect("a review request");
     let call = build_call(&req, review, &Limits::default()).expect("builds");
     f(&call)
 }
@@ -535,7 +535,9 @@ fn run_anthropic(
 fn the_whole_path_sends_one_request_and_reads_the_answer() {
     let transport = Recording::answering(vec![Ok(reply(200, ANTHROPIC_OK))]);
     let response = run_anthropic(transport.clone(), &never_cancelled).expect("answers");
-    let Body::Review(reviewed) = &response.body;
+    let Body::Review(reviewed) = &response.body else {
+        panic!("a review answer")
+    };
     assert_eq!(reviewed.answer, "ok");
     assert_eq!(
         response.identity,
@@ -607,7 +609,9 @@ fn the_gemini_path_goes_the_same_way() {
         &mut ctl,
     )
     .expect("answers");
-    let Body::Review(reviewed) = &response.body;
+    let Body::Review(reviewed) = &response.body else {
+        panic!("a review answer")
+    };
     assert_eq!(reviewed.answer, "ok");
     assert_eq!(response.identity.kind, BackendKind::GeminiApi);
     assert!(transport.requests()[0].url.ends_with(":generateContent"));

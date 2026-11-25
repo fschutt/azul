@@ -6,7 +6,7 @@ use std::{cell::Cell, rc::Rc};
 
 use super::*;
 use crate::{
-    agent_backend::{never_cancelled, run_task, Body, Clock, ManualClock, Response},
+    agent_backend::{never_cancelled, run_task, Clock, ManualClock, Response},
     agent_limits::Limits,
     agent_review::{Context, ReviewRequest, Speaker, Turn, Utterance, WordRef},
     agent_stroke::{Sample, StrokeInput},
@@ -92,9 +92,7 @@ fn run(
 }
 
 fn reply_of(response: &Response) -> &Reply {
-    match &response.body {
-        Body::Review(reply) => reply,
-    }
+    response.reply().expect("a review answer")
 }
 
 #[test]
@@ -343,7 +341,9 @@ fn a_mock_that_says_nothing_still_answers_something_readable() {
     let mut mock = MockBackend::auto(0);
     let mut clock = ManualClock::new();
     let mut req = request(Task::Editing, "", true);
-    let Request::Review(r) = &mut req;
+    let Request::Review(r) = &mut req else {
+        panic!("a review request")
+    };
     r.turns.clear();
     let response = run(&mut mock, &req, &mut clock).expect("answers");
     assert_eq!(

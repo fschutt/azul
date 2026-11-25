@@ -48,6 +48,7 @@ pub mod agent_api;
 pub mod agent_azul;
 pub mod agent_backend;
 pub mod agent_claude;
+pub mod agent_export;
 pub mod agent_factory;
 pub mod agent_gemini;
 pub mod agent_json;

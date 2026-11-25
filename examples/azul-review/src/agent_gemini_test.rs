@@ -57,7 +57,7 @@ fn request(task: Task) -> Request {
 
 fn with_call<T>(task: Task, f: impl FnOnce(&Call<'_>) -> T) -> T {
     let req = request(task);
-    let Request::Review(review) = &req;
+    let review = req.as_review().expect("a review request");
     let call = build_call(&req, review, &Limits::default()).expect("builds");
     f(&call)
 }
@@ -391,7 +391,9 @@ mod through_a_program {
         let scratch = dir.join("scratch");
         std::fs::create_dir_all(&scratch).expect("a folder");
         let response = run_with(program, Some(scratch.clone())).expect("answers");
-        let Body::Review(reply) = &response.body;
+        let Body::Review(reply) = &response.body else {
+        panic!("a review answer")
+    };
         assert_eq!(reply.answer, "ok");
         assert_eq!(response.identity.kind, BackendKind::GeminiCli);
         assert_eq!(response.usage.output_tokens, Some(14));
