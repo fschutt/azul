@@ -71,6 +71,40 @@ pub struct FrameKey {
     size: (u32, u32),
 }
 
+/// A page's picture grew by one stroke: its revision went from `from` to `to`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Append {
+    pub from: u64,
+    pub to: u64,
+    pub id: u64,
+}
+
+/// How a layer's frame gets to the picture its page has now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CatchUp {
+    /// It shows it already.
+    Same,
+    /// It shows the same as before: only its key moves.
+    KeyOnly,
+    /// It shows the page but for the last segments of the stroke just kept.
+    Tail,
+    /// Every kept stroke is painted again.
+    Whole,
+}
+
+/// How the frame that shows `had` gets to `now` (stub).
+#[must_use]
+pub fn catch_up(
+    _had: Option<FrameKey>,
+    _now: FrameKey,
+    _append: Option<Append>,
+    _appended_on: Option<Layer>,
+    _this: Layer,
+    _live_id: Option<u64>,
+) -> CatchUp {
+    CatchUp::Whole
+}
+
 /// The revisions of the pages' kept strokes, in [`AppState::ink`]: the
 /// handlers touch a page when its kept strokes change, the layers read the
 /// key to know whether their frame still shows them.
@@ -86,6 +120,17 @@ pub struct InkRevisions {
 }
 
 impl InkRevisions {
+    /// A stroke was kept on `page` (stub).
+    pub fn appended(&mut self, page: usize, _id: u64) {
+        self.touch(page);
+    }
+
+    /// The last growth of `page`'s picture (stub).
+    #[must_use]
+    pub fn append_of(&self, _page: usize) -> Option<Append> {
+        None
+    }
+
     /// The kept strokes of `page` changed.
     pub fn touch(&mut self, page: usize) {
         self.clock += 1;
@@ -120,6 +165,12 @@ pub struct LiveProgress {
 }
 
 impl LiveProgress {
+    /// What the frame has painted of a stroke in progress: its id and how many of its points (stub).
+    #[must_use]
+    pub const fn progress(&self) -> Option<(u64, usize)> {
+        None
+    }
+
     /// Paints what the frame lacks of `live` (`None`: no stroke is being
     /// drawn on this layer) with `paint`; whether anything was painted.
     pub fn paint(
@@ -414,3 +465,7 @@ pub fn point_from(x: f32, y: f32, pressure: f32, tilt_x: f32, tilt_y: f32) -> In
         tilt_y,
     }
 }
+
+#[cfg(test)]
+#[path = "ink_test.rs"]
+mod ink_test;

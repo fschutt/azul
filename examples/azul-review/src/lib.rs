@@ -249,7 +249,7 @@ impl AppState {
     /// Keeps a finished stroke (what Mod+Z takes back); a new stroke ends what Mod+Shift+Z would have
     /// brought back.
     pub fn keep(&mut self, stroke: Stroke) {
-        self.ink.touch(stroke.page);
+        self.ink.appended(stroke.page, stroke.id);
         self.history.push(Edit::Added(stroke.clone()));
         self.redo_stack.clear();
         self.strokes.push(stroke);
