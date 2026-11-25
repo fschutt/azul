@@ -8,6 +8,7 @@ use std::{
 
 use azul_storage::testing::TempDir;
 
+use super::sync::aged;
 use crate::sync::{
     problems::{Code, Severity},
     watcher::{
@@ -228,25 +229,6 @@ fn az_w10_the_polls_wait_grows_with_its_look_and_is_bounded() {
         let look = Duration::from_millis(millis);
         assert!(look * 20 <= poll_wait(look), "{millis}");
     }
-}
-
-/// Makes the modification time of `path` (a file or a folder) an hour old, so that what a test does
-/// to it next changes the time whatever the resolution of the host's clock for file times: a
-/// kernel's coarse clock gives every write within one tick (milliseconds) the same time, and a
-/// folder whose file is removed straight after the first look kept the time it had.
-fn aged(path: &Path) {
-    let mut open = std::fs::OpenOptions::new();
-    open.read(true);
-    #[cfg(windows)]
-    {
-        // A folder is opened for its times with write access and backup semantics.
-        use std::os::windows::fs::OpenOptionsExt;
-        open.write(true).custom_flags(0x0200_0000);
-    }
-    open.open(path)
-        .unwrap()
-        .set_modified(SystemTime::now() - Duration::from_secs(3600))
-        .unwrap();
 }
 
 /// The poll's own logic, built on every host: an entry that is new, gone or different names its
