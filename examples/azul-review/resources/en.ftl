@@ -84,3 +84,4 @@ azreview-pages = Pages of the file
 azreview-shortcut-open-folder = Open another folder to review
 azreview-shortcut-undo = Undo the last stroke or erase (Mod+Shift+Z brings it again)
 azreview-ink-surface = Drawing surface of page { $n }
+azreview-recording-level = Recording level

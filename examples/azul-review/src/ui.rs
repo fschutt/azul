@@ -506,7 +506,9 @@ fn meter(s: &AppState) -> Dom {
             .with_css("font-size: 11px; color: system:secondary-text; font-family: monospace;"),
     );
     let mut holder = Dom::create_div().with_css("width: 160px;");
-    holder.add_child(ProgressBar::create(filled * 100.0).dom());
+    holder.add_child(ProgressBar::create(filled * 100.0).dom().with_accessibility_info(
+        AccessibilityInfo::named(label("azreview-recording-level"), AccessibilityRole::ProgressBar),
+    ));
     wrap.add_child(holder);
     wrap
 }

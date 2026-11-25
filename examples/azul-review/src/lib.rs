@@ -521,11 +521,12 @@ extern "C" fn on_saved(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo)
     let Some(reply) = kit::take_reply(&mut msg) else {
         return Update::DoNothing;
     };
-    let again = {
+    let (again, told) = {
         let Some(mut s) = app.downcast_mut::<AppState>() else {
             return Update::DoNothing;
         };
         s.saving = false;
+        let mut told = false;
         for outcome in &reply.outcomes {
             match (outcome.error(), outcome) {
                 (None, FileOutcome::Put { key, .. }) => {
@@ -536,15 +537,22 @@ extern "C" fn on_saved(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo)
                     println!("AZREVIEW_SAVE_ERROR {why}");
                     s.problem =
                         Some(t_args("azreview-save-failed", &[("why", Arg::from(why.to_string()))]));
+                    told = true;
                 }
             }
         }
-        s.save_pending
+        (s.save_pending, told)
     };
     if again {
         save_session(&app, &mut info);
     }
-    Update::RefreshDom
+    // A save that worked changes nothing on the screen: the window is rebuilt only to say one failed
+    // (it was rebuilt after every stroke, in the middle of the next).
+    if told {
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
+    }
 }
 
 /// The write-back tag of a session read.
@@ -996,7 +1004,7 @@ pub extern "C" fn on_annotation_idle(
     mut data: RefAny,
     mut info: TimerCallbackInfo,
 ) -> TimerCallbackReturn {
-    {
+    let finished_clip = {
         let Some(mut s) = data.downcast_mut::<AppState>() else {
             return TimerCallbackReturn {
                 should_update: Update::DoNothing,
@@ -1004,14 +1012,23 @@ pub extern "C" fn on_annotation_idle(
             };
         };
         s.epoch += 1;
-        if let Some(clip) = s.recording.take() {
-            s.clips.push(clip);
-            s.level_samples = 0;
+        match s.recording.take() {
+            Some(clip) => {
+                s.clips.push(clip);
+                s.level_samples = 0;
+                true
+            }
+            None => false,
         }
+    };
+    // The strokes were kept when each ended; only a clip that just finished is news to the archive.
+    if finished_clip {
+        save_session(&data, &mut info.callback_info);
     }
-    save_session(&data, &mut info.callback_info);
     TimerCallbackReturn {
-        should_update: Update::RefreshDom,
+        // The window changes only when a recording ended (its meter goes): a rebuild of the whole window
+        // 1.8 s after every stroke would land in the middle of the next one.
+        should_update: if finished_clip { Update::RefreshDom } else { Update::DoNothing },
         should_terminate: TerminateTimer::Terminate,
     }
 }

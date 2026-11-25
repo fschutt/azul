@@ -17,6 +17,12 @@ Runs ONE AzReview on a folder of code (`AZ_BACKEND=headless`, the debug server, 
             (`AZREVIEW_ARCHIVE`, on the window's thread, after every stroke) as the session grows
   memory    the resident memory after all of it
 
+With `--notes` (a libazul built with the test hooks: its fake speech backend hears `AZ_SPEECH_HEARD`) the run is
+of the dictation instead: five notes are dictated (a rest of the pointer starts each), and what the indicator
+costs is read off three numbers - the window's relayout when words arrive (the engine's own
+`regenerate_layout` timing lines, while a note listens), the same long stroke drawn over a page that carries
+the five markers with the side column open (compare with a run without `--notes`), and the resident memory.
+
 What the numbers are NOT: the GPU path (a real window draws the ink into a texture; the headless backend
 has only the CPU renderer), the pen's own reports (this driver moves the cursor; the pen's pressure and tilt
 are read by `ui::sample` and cost nothing more), a display's vsync (frames here are driven by the runner's
@@ -132,6 +138,37 @@ def us_to_ms(d):
     return {k: (round(v / 1000.0, 3) if k.endswith(("p50", "p99", "max")) else v) for k, v in d.items()}
 
 
+LAYOUT = re.compile(r"\] ← regenerate_layout \(([0-9.]+)ms\)")
+
+
+def layouts_between(lines, since, until):
+    """The window's relayout times (ms) the engine logged between two instants."""
+    return [float(m.group(1)) for t, line in lines if since <= t <= until for m in [LAYOUT.search(line)] if m]
+
+
+def dictate(app, origin, tail, n):
+    """Five notes: the pointer rests, words arrive (the fake speech backend), a stroke far away ends it.
+    Returns the relayout times logged while a note listened."""
+    heard = []
+    for i in range(n):
+        x, y = origin[0] + 160.0, origin[1] + 80.0 + i * 120.0
+        app.must("mouse_move", x=x, y=y)
+        t0 = time.perf_counter()
+        app.until("note %d to start" % (i + 1),
+                  lambda i=i: (app.frame(1), app.count("AZREVIEW_DICTATION", r"started %d" % (i + 1)) > 0)[1])
+        app.until("words in note %d" % (i + 1),
+                  lambda i=i: (app.frame(1), app.count("AZREVIEW_DICTATION", r"text %d .*" % (i + 1)) > 0)[1])
+        time.sleep(1.5)
+        app.frame(1)
+        heard += layouts_between(list(tail.lines), t0, time.perf_counter())
+        # a stroke elsewhere ends it
+        app.must("mouse_move", x=origin[0] + 700.0, y=y)
+        app.frame(2)
+        app.until("note %d to end" % (i + 1),
+                  lambda i=i: (app.frame(1), app.count("AZREVIEW_DICTATION", r"ended %d .*" % (i + 1)) > 0)[1])
+    return heard
+
+
 def body(args, logs, out):
     binary = e2e.find_binary("AzReview", args.bin, "AZREVIEW_BIN")
     data_dir = os.path.join(logs, "data")
@@ -141,11 +178,16 @@ def body(args, logs, out):
     with open(os.path.join(folder, "src", "lib.rs"), "w", encoding="utf-8") as f:
         for i in range(200):
             f.write("pub fn step_%d(x: u32) -> u32 { x + %d } // a line of code to review\n" % (i, i))
+    dwell = ["--dwell-input", "any", "--dwell-ms", "400" if args.notes else "10000"]
+    env = {"AZREVIEW_PROFILE": "1", "AZ_DEBUG_DAMAGE": "1"}
+    if args.quiet:
+        # the debug server turns the engine's debug log on: a line per pointer move and per layout pass
+        env["AZ_LOG"] = "off"
+    if args.notes:
+        env["AZ_SPEECH_HEARD"] = "this loop is off by one and the bound is wrong"
     app = e2e.App("perf", binary,
-                  [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en",
-                   "--dwell-input", "any", "--dwell-ms", "10000"],
-                  args.debug_port, logs, args.timeout,
-                  extra_env={"AZREVIEW_PROFILE": "1", "AZ_DEBUG_DAMAGE": "1"})
+                  [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en"] + dwell,
+                  args.debug_port, logs, args.timeout, extra_env=env)
     tail = Tail(app.err_path)
     tail.start()
     result = {"points": args.points, "strokes": args.strokes, "window": "%dx%d" % (WIDTH, HEIGHT)}
@@ -158,6 +200,18 @@ def body(args, logs, out):
         origin = (strip["x"], strip["y"])
         app.frame(5)
         result["idle"] = rss_mb(app)
+
+        if args.notes:
+            before_notes = rss_mb(app)
+            relayouts = dictate(app, origin, tail, 5)
+            app.until("the five notes", lambda: all(app.has_id("__azreview_note-%d" % i) for i in range(1, 6)))
+            app.frame(3)
+            result["notes"] = {"rss_before": before_notes, "rss_after": rss_mb(app),
+                               "relayout_ms_while_a_note_listens": quantiles(relayouts)}
+            app.screenshot(os.path.join(out, "perf-notes.png") if out else os.path.join(logs, "perf-notes.png"))
+            # park the pointer where it rests on nothing that starts a note again
+            app.must("mouse_move", x=origin[0] + 950.0, y=origin[1] + 20.0)
+            app.frame(3)
 
         # hover: the dwell watches every move, nothing is drawn.
         before = len(app.printed("AZREVIEW_PERF", r".*"))
@@ -194,6 +248,7 @@ def body(args, logs, out):
 
         # a session growing: S strokes of 300 points, the archive built after each
         archives_before = len(app.printed("AZREVIEW_ARCHIVE", r".*"))
+        grow_from = time.perf_counter()
         for k in range(args.strokes):
             stroke(app, origin, 300, per_row=300, per_frame=6)
         kept = int(app.last("AZREVIEW_STROKES"))
@@ -208,6 +263,12 @@ def body(args, logs, out):
                                     for r in rows[:: max(1, len(rows) // 8)] + rows[-1:]]
         result["archive_ms"] = quantiles([r["us"] / 1000.0 for r in rows])
         app.frame(5)
+        grow_lines = [(t, l) for t, l in list(tail.lines) if t >= grow_from]
+        relayouts = layouts_between(grow_lines, grow_from, time.perf_counter())
+        # the window's own relayouts (the engine logs each; none with --quiet) while the strokes were drawn
+        result["relayouts_while_drawing"] = {"strokes": args.strokes, "passes": len(relayouts),
+                                             "per_stroke": round(len(relayouts) / max(1, args.strokes), 2),
+                                             "ms": quantiles(relayouts)}
         result["after"] = rss_mb(app)
     except Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
@@ -233,6 +294,8 @@ if __name__ == "__main__":
     parser.add_argument("--timeout", type=int, default=900)
     parser.add_argument("--points", type=int, default=1500)
     parser.add_argument("--strokes", type=int, default=40)
+    parser.add_argument("--quiet", action="store_true", help="AZ_LOG=off: no debug log lines (they cost time per move)")
+    parser.add_argument("--notes", action="store_true", help="dictate five notes first (a libazul with the test hooks)")
     parser.add_argument("--out")
     cli = parser.parse_args()
     logs = tempfile.mkdtemp(prefix="azreview-perf-")

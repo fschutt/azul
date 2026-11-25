@@ -303,6 +303,24 @@ def dictation(args, logs, out, binary, fake):
             app.must("mouse_move", x=base[0] + 400.0, y=base[1] + 300.0)
             app.frame(2)
             ended(5, "moved")
+            # The pointer stays where it moved to: that rest starts a sixth note by itself. Escape ends it.
+            app.until("the resting pointer's note", lambda: (app.frame(1), app.count("AZREVIEW_DICTATION", r"started 6") > 0)[1])
+            app.key("escape")
+            ended(6, "key")
+            # 6. Contact dwell: the tip stays down without moving after the move - a note starts; lifting it
+            #    in place neither ends it nor changes the nib (a tap would cycle the nib).
+            x, y = base[0] + 300.0, base[1] + 420.0
+            app.must("mouse_move", x=x, y=y)
+            app.must("mouse_down", x=x, y=y)
+            app.until("the contact dwell's note", lambda: (app.frame(1), app.count("AZREVIEW_DICTATION", r"started 7") > 0)[1])
+            app.must("mouse_up", x=x, y=y)
+            app.frame(3)
+            if "marker" not in app.texts():
+                raise Failure("lifting the tip in place after a contact dwell cycled the nib: %s" % [t for t in app.texts() if t in ("marker", "pen", "audio pen")])
+            if app.count("AZREVIEW_DICTATION", r"ended 7 .*") > 0:
+                raise Failure("lifting the tip in place ended the contact dwell's note")
+            app.key("escape")
+            ended(7, "key")
             # The notes: five cards (each said something), all editable.
             app.until("five notes", lambda: all(app.has_id("__azreview_note-%d" % i) for i in (1, 2, 3, 4, 5)))
             # Delete one with its button.

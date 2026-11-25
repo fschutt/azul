@@ -399,6 +399,8 @@ extern "C" fn on_message(mut app: RefAny, mut msg: RefAny, mut info: CallbackInf
                 println!("AZREVIEW_DICTATION text {note_id} {words}");
                 if let Some(note) = s.notes.iter_mut().find(|n| n.id == note_id) {
                     note.text = dictation::join_text(&note.text, &words);
+                    // What was said is kept at once: a window closed mid-dictation loses nothing.
+                    save = true;
                 }
                 Update::RefreshDom
             }
