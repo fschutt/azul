@@ -61,6 +61,8 @@ pub mod session;
 pub mod switches;
 pub mod ui;
 pub mod voice;
+pub mod whiteboard;
+pub mod whiteboard_geom;
 
 #[cfg(test)]
 #[path = "lib_test.rs"]
