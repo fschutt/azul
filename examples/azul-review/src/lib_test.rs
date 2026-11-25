@@ -189,7 +189,7 @@ fn opening_a_folder_replaces_the_files_and_starts_afresh() {
     assert_eq!(s.current, Some(0), "its first file is open");
     assert!(s.strokes.is_empty() && s.notes.is_empty(), "nothing of the folder left behind");
     assert!(!s.undo(), "nothing to take back from what was left");
-    assert!(s.sidebar_open, "the files are out: they are what one picks from first");
+    assert!(!s.sidebar_open, "the page is what one sees first: the files are a click away, not over it");
     assert!(s.findings.is_empty());
 }
 
@@ -199,7 +199,7 @@ fn a_folder_without_files_leaves_no_file_open() {
     s.open_folder(PathBuf::from("/empty"), Vec::new());
     assert_eq!(s.current, None);
     assert!(s.file().is_none());
-    assert!(s.sidebar_open, "the way out (Open folder) is in the files");
+    assert!(!s.sidebar_open, "the way out (Open folder) is in the empty page itself");
 }
 
 #[test]
@@ -316,4 +316,28 @@ fn the_pages_of_the_ink_that_came_back_are_drawn_anew() {
     let before = s.ink.key(1, (10, 10));
     assert!(s.adopt(archive_of("f.rs", vec![kept(1, 1)], Vec::new())));
     assert_ne!(s.ink.key(1, (10, 10)), before);
+}
+
+// ---- the first screen ----
+
+#[test]
+fn a_new_window_shows_the_page_and_not_the_files_over_it() {
+    assert!(!app_with_file().sidebar_open);
+    assert!(!AppState::create(PathBuf::new(), Vec::new(), RefAny::new(0u8), PathBuf::new()).sidebar_open);
+}
+
+#[test]
+fn the_folder_dialog_opens_once_at_a_time() {
+    // The menu's Mod+O and the key handler both hear the key: one dialog.
+    let mut s = app_with_file();
+    assert!(s.ask_for_folder(), "the first request opens it");
+    assert!(!s.ask_for_folder(), "a second one while it is open does not");
+    s.folder_dialog_closed();
+    assert!(s.ask_for_folder(), "after it was answered it can be opened again");
+}
+
+#[test]
+fn the_window_asks_for_the_gpu_like_the_map_editor_does() {
+    // The engine falls back to the CPU renderer by itself where there is no usable GPU.
+    assert!(matches!(window_renderer().hw_accel, azul::window::HwAcceleration::Enabled));
 }

@@ -27,10 +27,12 @@
 use std::path::{Path, PathBuf};
 
 use azul::{
+    app::RendererOptions,
     dialog::{FileDialog, FileOpenResult},
     dom::VirtualKeyCode,
-    option::OptionString,
+    option::{OptionRendererOptions, OptionString},
     prelude::*,
+    window::HwAcceleration,
     task::TerminateTimer,
     time::SystemTimeDiff,
 };
@@ -88,6 +90,15 @@ pub const ABOUT: AboutInfo = AboutInfo {
     app_folder: "review",
 };
 
+/// The window's renderer: the GPU (WebRender) draws it, as mapedit3's - a page is a big picture, the ink a
+/// texture, and the CPU renderer (the engine's default) paints the whole page again at every pen move. The
+/// engine falls back to the CPU renderer where no GL context can be made, where the driver is on its
+/// blacklist (a software GL) or WebRender cannot start; `AZ_BACKEND=cpu|gpu|auto` still wins.
+#[must_use]
+pub fn window_renderer() -> RendererOptions {
+    RendererOptions::create_default() // RED STUB
+}
+
 /// The keys AzReview answers (the kit adds Mod+, / F1 / Escape).
 pub const SHORTCUTS: [Shortcut; 6] = [
     Shortcut::new("azreview-shortcuts-review", "Mod+S", "azreview-shortcut-save"),
@@ -131,6 +142,11 @@ pub struct AppState {
     pub perf: perf::Perf,
     /// The last pointer events (`AZREVIEW_EVENTS=1`, the Session menu, the debug server).
     pub pointer_log: pointer::PointerLog,
+    /// The folder dialog is open: a second request (the menu's key and the key handler both hear Mod+O)
+    /// opens no second one.
+    pub choosing_folder: bool,
+    /// A folder named on the command line, to be remembered as the one reviewed last once the window exists.
+    pub remember_folder: Option<PathBuf>,
     pub recording: Option<VoiceClip>,
     pub clips: Vec<VoiceClip>,
     pub level_samples: usize,
@@ -179,6 +195,8 @@ impl AppState {
             switches: switches::Switches::default(),
             perf: perf::Perf::new(false),
             pointer_log: pointer::PointerLog::default(),
+            choosing_folder: false,
+            remember_folder: None,
             recording: None,
             clips: Vec::new(),
             level_samples: 0,
@@ -195,6 +213,16 @@ impl AppState {
             saving: false,
             save_pending: false,
         }
+    }
+
+    /// The folder dialog may open: `false` while one is open already. Pair with [`Self::folder_dialog_closed`].
+    pub fn ask_for_folder(&mut self) -> bool {
+        true // RED STUB
+    }
+
+    /// The folder dialog was answered (a folder, or none).
+    pub fn folder_dialog_closed(&mut self) {
+        self.choosing_folder = false;
     }
 
     /// Opens file `index` (its pages start without ink) and folds the files
@@ -473,20 +501,22 @@ pub fn run() {
             .map(|k| k.settings.values.clone())
             .unwrap_or_default()
     };
-    // The folder named on the command line; else the one reviewed last (an app started from the
-    // Finder has the root of the disk as its folder); else the current one.
+    // The folder named on the command line; else the one reviewed last; else none (the empty page offers
+    // Open folder). Never the folder the process happens to be started in.
     let root = switches::pick_root(
-        named_root,
+        named_root.clone(),
         values.get(switches::KEY_FOLDER).map(String::as_str),
         remember,
         Path::is_dir,
-        switches::usable_cwd(std::env::current_dir().unwrap_or_default()),
     );
     let files = code::load_tree(&root, 400);
     if let Some(first) = files.first() {
         println!("AZREVIEW_FILE {}", first.display);
     }
+    // A folder named on the command line is the one reviewed last from now on (not for a fixture run).
+    let remembered = named_root.filter(|_| remember && !root.as_os_str().is_empty());
     let mut state = AppState::create(root, files, kit_ref.clone(), data_root);
+    state.remember_folder = remembered;
     let resolved = switches::resolve(&values, &own);
     for note in &resolved.notes {
         eprintln!("[AzReview] {note}");
@@ -508,8 +538,9 @@ pub fn run() {
         pointer::register_ops(&mut config);
     }
     let app = App::create(RefAny::new(state), config);
-    let window =
+    let mut window =
         kit::window_options(&kit_ref, ui::layout, (1280.0, 820.0), (800.0, 520.0), on_window_created);
+    window.renderer = OptionRendererOptions::Some(window_renderer());
     app.run(window);
 }
 

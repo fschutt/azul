@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use azul::{prelude::*, str::String as AzString};
+use azul::{dom::VirtualKeyCode, menu::{MenuItem, StringMenuItem}, prelude::*, str::String as AzString};
 
 use super::*;
 
@@ -47,5 +47,92 @@ fn a_folder_without_reviewable_files_is_named_in_the_empty_page() {
     let page = sheet(&empty("/work/empty"), &RefAny::new(0u8));
     let said = texts(&page).join(" ");
     assert!(said.contains("No reviewable files under /work/empty"), "{said}");
+    assert!(has_id(&page, "__azreview_open-folder-empty"));
+}
+
+// ---- the title row: the way to a folder, and which folder it is ----
+
+fn reviewing(root: &str) -> AppState {
+    crate::l10n::in_english();
+    let file = crate::code::SourceFile {
+        path: PathBuf::from(root).join("src/lib.rs"),
+        display: "src/lib.rs".to_string(),
+        lines: vec!["fn a() {}".to_string()],
+    };
+    AppState::create(PathBuf::from(root), vec![file], RefAny::new(0u8), PathBuf::new())
+}
+
+#[test]
+fn the_title_row_has_a_button_that_says_open_folder() {
+    let row = title_row(&reviewing("/work/proj"), &RefAny::new(0u8));
+    assert!(has_id(&row, "__azreview_open-folder-bar"), "the button is in the bar the pen and the pages are in");
+    assert!(
+        texts(&row).iter().any(|t| t.contains("Open folder")),
+        "it says what it does, not only a folder icon: {:?}",
+        texts(&row)
+    );
+}
+
+#[test]
+fn the_title_row_names_the_folder_and_the_file_under_review() {
+    let row = title_row(&reviewing("/work/proj"), &RefAny::new(0u8));
+    assert!(has_id(&row, "__azreview_folder-chip"));
+    let said = texts(&row);
+    assert!(said.iter().any(|t| t == "proj"), "the folder's own name: {said:?}");
+    assert!(said.iter().any(|t| t.contains("src/lib.rs")), "the file open: {said:?}");
+}
+
+#[test]
+fn with_no_folder_the_title_row_names_none_but_still_offers_to_open_one() {
+    let row = title_row(&empty(""), &RefAny::new(0u8));
+    assert!(!has_id(&row, "__azreview_folder-chip"));
+    assert!(has_id(&row, "__azreview_open-folder-bar"));
+}
+
+#[test]
+fn a_folder_is_named_by_its_own_name_and_its_tooltip_is_the_whole_path() {
+    assert_eq!(
+        folder_names(std::path::Path::new("/work/proj")),
+        Some(("proj".to_string(), "/work/proj".to_string()))
+    );
+    assert_eq!(folder_names(std::path::Path::new("")), None, "no folder");
+    assert_eq!(
+        folder_names(std::path::Path::new("/")),
+        Some(("/".to_string(), "/".to_string())),
+        "a root has no name of its own: it is its own name"
+    );
+}
+
+#[test]
+fn the_session_menu_opens_a_folder_with_the_primary_modifier_and_o() {
+    let menu = menu_bar(&RefAny::new(0u8));
+    let item = find_item(menu.items.as_ref(), "Open folder...").expect("Session > Open folder...");
+    let keys = item.accelerator.as_ref().expect("the item shows its key").keys.as_ref().to_vec();
+    assert_eq!(keys.len(), 2, "{keys:?}");
+    assert!(matches!(keys[1], VirtualKeyCode::O), "{keys:?}");
+    let primary = if cfg!(target_os = "macos") { VirtualKeyCode::LWin } else { VirtualKeyCode::LControl };
+    assert_eq!(format!("{:?}", keys[0]), format!("{primary:?}"), "Cmd on a Mac, Ctrl elsewhere");
+}
+
+fn find_item<'a>(items: &'a [MenuItem], label: &str) -> Option<&'a StringMenuItem> {
+    for item in items {
+        if let MenuItem::String(s) = item {
+            if s.label.as_str() == label {
+                return Some(s);
+            }
+            if let Some(found) = find_item(s.children.as_ref(), label) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+#[test]
+fn the_empty_page_explains_what_the_app_does_and_has_a_large_open_folder_button() {
+    let page = sheet(&empty(""), &RefAny::new(0u8));
+    let said = texts(&page);
+    assert!(said.iter().any(|t| t.contains("pages")), "a word about what AzReview shows: {said:?}");
+    assert!(said.iter().any(|t| t.contains("Open folder")), "the button says so: {said:?}");
     assert!(has_id(&page, "__azreview_open-folder-empty"));
 }

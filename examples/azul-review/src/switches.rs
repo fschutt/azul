@@ -149,14 +149,14 @@ pub fn usable_cwd(cwd: PathBuf) -> PathBuf {
 }
 
 /// The folder to review: the one named on the command line; else the one reviewed last, when it is
-/// still a folder and this run may take it (an app started from the Finder has the root of the disk as
-/// its folder; a fixture run never takes what the user did); else the current folder.
+/// still a folder and this run may take it (a fixture run never takes what the user did); else none (the
+/// empty path: the window offers to open one). Never the current folder: an app started from a
+/// terminal, the Finder or a launcher reviews what the user chose, not wherever it happened to start.
 pub fn pick_root(
     named: Option<PathBuf>,
     last: Option<&str>,
     may_take_last: bool,
     is_dir: impl Fn(&Path) -> bool,
-    cwd: PathBuf,
 ) -> PathBuf {
     named
         .or_else(|| {
@@ -165,9 +165,5 @@ pub fn pick_root(
                 .map(PathBuf::from)
                 .filter(|p| is_dir(p))
         })
-        .unwrap_or(cwd)
+        .unwrap_or_else(|| usable_cwd(std::env::current_dir().unwrap_or_default())) // RED STUB
 }
-
-#[cfg(test)]
-#[path = "switches_test.rs"]
-mod switches_test;

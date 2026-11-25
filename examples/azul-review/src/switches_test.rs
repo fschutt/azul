@@ -104,40 +104,34 @@ fn the_folder_named_on_the_command_line_is_the_one_reviewed() {
         Some("/last"),
         true,
         is_dir_of(&["/last", "/named"]),
-        PathBuf::from("/cwd"),
     );
     assert_eq!(root, PathBuf::from("/named"));
 }
 
 #[test]
 fn without_one_the_folder_reviewed_last_comes_back_if_it_is_still_a_folder() {
-    let root = pick_root(None, Some("/last"), true, is_dir_of(&["/last"]), PathBuf::from("/cwd"));
+    let root = pick_root(None, Some("/last"), true, is_dir_of(&["/last"]));
     assert_eq!(root, PathBuf::from("/last"));
-    // An app started from the Finder has the root of the disk as its folder: the last one is better.
-    let gone = pick_root(None, Some("/last"), true, is_dir_of(&[]), PathBuf::from("/cwd"));
-    assert_eq!(gone, PathBuf::from("/cwd"), "a folder that is gone is not taken");
+}
+
+#[test]
+fn a_folder_that_is_gone_is_not_taken_and_the_current_folder_is_never_the_default() {
+    // The folder the process was started in (the terminal's, the Finder's `/`, a launcher's) is no choice of
+    // the user's: with nothing named and nothing remembered there is no folder, and the window says so.
+    let gone = pick_root(None, Some("/last"), true, is_dir_of(&[]));
+    assert_eq!(gone, PathBuf::new(), "a folder that is gone is not taken, and nothing takes its place");
+    assert_eq!(pick_root(None, None, true, |_| true), PathBuf::new());
+    assert_eq!(pick_root(None, None, false, |_| true), PathBuf::new());
 }
 
 #[test]
 fn a_fixture_run_never_takes_the_folder_the_user_reviewed_last() {
-    let root = pick_root(None, Some("/last"), false, is_dir_of(&["/last"]), PathBuf::from("/cwd"));
-    assert_eq!(root, PathBuf::from("/cwd"));
+    let root = pick_root(None, Some("/last"), false, is_dir_of(&["/last"]));
+    assert_eq!(root, PathBuf::new());
 }
 
 #[test]
 fn an_empty_remembered_folder_is_no_folder() {
-    let root = pick_root(None, Some("  "), true, |_| true, PathBuf::from("/cwd"));
-    assert_eq!(root, PathBuf::from("/cwd"));
-    assert_eq!(pick_root(None, None, true, |_| true, PathBuf::from("/cwd")), PathBuf::from("/cwd"));
-}
-
-#[test]
-fn a_filesystem_root_is_no_folder_to_review() {
-    // An app started from the Finder has `/` as its folder: a walk of the whole disk is no review.
-    assert_eq!(usable_cwd(PathBuf::from("/")), PathBuf::new());
-    assert_eq!(usable_cwd(PathBuf::new()), PathBuf::new());
-    assert_eq!(usable_cwd(PathBuf::from("/Users/someone/code")), PathBuf::from("/Users/someone/code"));
-    // With none to fall back on, the folder reviewed last still wins over it.
-    let root = pick_root(None, Some("/last"), true, is_dir_of(&["/last"]), usable_cwd(PathBuf::from("/")));
-    assert_eq!(root, PathBuf::from("/last"));
+    assert_eq!(pick_root(None, Some("  "), true, |_| true), PathBuf::new());
+    assert_eq!(pick_root(None, Some(""), true, |_| true), PathBuf::new());
 }

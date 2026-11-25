@@ -39,3 +39,6 @@ pub const OPEN_FOLDER: AzString = AzString::from_const_str("__azreview_open-fold
 /// The empty page's "Open folder" button, and the microphone widget that records a clip.
 pub const OPEN_FOLDER_EMPTY: AzString = AzString::from_const_str("__azreview_open-folder-empty");
 pub const MICROPHONE: AzString = AzString::from_const_str("__azreview_microphone");
+/// The title row's labeled "Open folder..." button, and the chip that names the folder under review.
+pub const OPEN_FOLDER_BAR: AzString = AzString::from_const_str("__azreview_open-folder-bar");
+pub const FOLDER_CHIP: AzString = AzString::from_const_str("__azreview_folder-chip");

@@ -269,6 +269,13 @@ fn problem_bar(problem: &str, data: &RefAny) -> Dom {
 /// (`-azul-app-region: drag`; macOS's traffic lights sit at its left, in the
 /// room `TabsInTitlebar` leaves them, and it is as tall as their bar) and
 /// holds the files' switch, the five meanings (keys 1 to 5) and the nib.
+/// The folder under review as the title row names it: the folder's own name, and the whole path (the chip's
+/// tooltip). None for no folder.
+fn folder_names(root: &std::path::Path) -> Option<(String, String)> {
+    let _ = root;
+    None // RED STUB
+}
+
 fn title_row(s: &AppState, data: &RefAny) -> Dom {
     let chrome = kit::tabs_in_titlebar();
     let mut row = Dom::create_div().with_css(
