@@ -78,16 +78,9 @@ test = false
 doc = false
 bench = false
 
-[[bin]]
-name = "index_shard"
-path = "fuzz_targets/index_shard.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
-name = "prune_journal"
-path = "fuzz_targets/prune_journal.rs"
-test = false
-doc = false
-bench = false
+# The two targets of lanes W1-S14e1 and W1-S14e2 are declared again when their parsers land: CI builds this
+# project now (srcgate's ci_storage_gate), and a [[bin]] whose file does not exist stops the whole build
+# ("can't find bin `index_shard`"). Their files and entries come together:
+#
+#     index_shard   W1-S14e1  fuzz_targets/index_shard.rs   `ChunkIndex::from_shards`
+#     prune_journal W1-S14e2  fuzz_targets/prune_journal.rs the prune journal's decoder

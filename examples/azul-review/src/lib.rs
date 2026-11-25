@@ -44,6 +44,21 @@ use azul_appkit::{
     ui as kit,
 };
 
+pub mod agent_api;
+pub mod agent_azul;
+pub mod agent_backend;
+pub mod agent_claude;
+pub mod agent_export;
+pub mod agent_factory;
+pub mod agent_gemini;
+pub mod agent_json;
+pub mod agent_limits;
+pub mod agent_mock;
+pub mod agent_pool;
+pub mod agent_process;
+pub mod agent_review;
+pub mod agent_settings;
+pub mod agent_stroke;
 pub mod code;
 pub mod column;
 pub mod dictation;
@@ -57,14 +72,24 @@ mod l10n;
 mod l10n_tests;
 pub mod model;
 pub mod perf;
+pub mod recorder;
+pub mod recorder_azul;
 pub mod recorder_clock;
+pub mod recorder_codec;
+pub mod recorder_edl;
 pub mod recorder_events;
+pub mod recorder_export;
+pub mod recorder_fs;
 pub mod recorder_manifest;
 pub mod recorder_mp4;
 pub mod recorder_policy;
+pub mod recorder_screen;
 pub mod recorder_settings;
 pub mod recorder_track;
+pub mod recorder_wb;
+pub mod recorder_writer;
 pub mod session;
+pub mod stroke_features;
 /// The pen strokes every gesture is tested on (a loop, a slash, an underline, a scribble): shared by the
 /// whiteboard's lasso and the quick slash that deletes a word.
 #[cfg(test)]

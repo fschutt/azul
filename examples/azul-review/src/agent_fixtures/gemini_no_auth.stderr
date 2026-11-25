@@ -1,0 +1,9 @@
+Approval mode overridden to "default" because the current folder is not trusted.
+{
+  "session_id": "00000000-0000-4000-8000-000000000003",
+  "error": {
+    "type": "Error",
+    "message": "Please set an Auth method in your ~/.gemini/settings.json or specify one of the following environment variables before running: GEMINI_API_KEY, GOOGLE_GENAI_USE_VERTEXAI, GOOGLE_GENAI_USE_GCA",
+    "code": 41
+  }
+}

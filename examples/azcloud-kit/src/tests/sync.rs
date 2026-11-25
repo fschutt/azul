@@ -5,6 +5,7 @@ use std::{
     collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
+    time::{Duration, SystemTime},
 };
 
 use azul_storage::testing::TempDir;
@@ -129,6 +130,27 @@ fn walk(dir: &Path, prefix: &str, out: &mut BTreeMap<String, Vec<u8>>) {
 
 pub(super) fn index_of(store: &S3Bucket) -> RemoteIndex {
     RemoteIndex::parse(&store.read(&index_key(PREFIX)).expect("an index")).unwrap()
+}
+
+/// Makes the modification time of `path` (a file or a folder) an hour old, so that what a test does
+/// to it next changes the time whatever the resolution of the host's clock for file times: a
+/// kernel's coarse clock gives every write within one tick (milliseconds) the same time, and a
+/// folder whose file is removed straight after the first look kept the time it had. The sync asks
+/// whether the newest time under a folder moved while it read it (`local::scan_unchanged`): a test
+/// of that makes the times old first, or it passes and fails with the tick it started in.
+pub(super) fn aged(path: &Path) {
+    let mut open = std::fs::OpenOptions::new();
+    open.read(true);
+    #[cfg(windows)]
+    {
+        // A folder is opened for its times with write access and backup semantics.
+        use std::os::windows::fs::OpenOptionsExt;
+        open.write(true).custom_flags(0x0200_0000);
+    }
+    open.open(path)
+        .unwrap()
+        .set_modified(SystemTime::now() - Duration::from_secs(3600))
+        .unwrap();
 }
 
 /// An upgrade of the app reads the sync state the old version left (state format 1, no
