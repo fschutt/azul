@@ -26,6 +26,6 @@ AzulStyles class >> styleBtn [
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyDisplay: (AzLayoutDisplay Flex))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyFlexGrow: (AzLayoutFlexGrow new inner: (AzulNative azFloatValueCreate: 1.0); yourself))).
         (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyInherit: (AzCssPropertyType MinWidth))).
-        (AzulNative azCssPropertyWithConditionsOnHover: (AzulNative azCssPropertyFontWeight: (AzStyleFontWeight Bold)))
+        (AzulNative azCssPropertyWithConditionsOnHover: (AzulNative azCssPropertyFontWeight: (AzulNative azStyleFontWeightNumber: (AzulNative azFloatValueCreate: 700.0))))
     }
 ]

@@ -177,9 +177,9 @@ fn mono_key(lw: &LayoutWindow) -> FontChainKey {
         .keys()
         .find(|key| {
             key.font_families.first().map(String::as_str) == Some("Azul Mock Mono")
-                && key.weight == rust_fontconfig::FcWeight::Normal
-                && !key.italic
-                && !key.oblique
+                && key.request.fc_weight() == rust_fontconfig::FcWeight::Normal
+                && !key.request.is_italic()
+                && !key.request.is_oblique()
         })
         .cloned()
         .unwrap_or_else(|| {

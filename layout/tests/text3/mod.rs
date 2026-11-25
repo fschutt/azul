@@ -570,7 +570,6 @@ pub fn default_style() -> Arc<StyleProperties> {
         line_height: LineHeight::Px(12.0),
         text_decoration: TextDecoration::default(),
         font_features: Vec::new(),
-        font_variations: Vec::new(),
         tab_size: 4.0,
         text_transform: TextTransform::default(),
         writing_mode: WritingMode::HorizontalTb,

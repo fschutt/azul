@@ -47,7 +47,7 @@ CssPropertyWithConditions[] styleListLiNthChild2()
 CssPropertyWithConditions[] styleMainTitle()
 {
     return [
-        CssPropertyWithConditions.simple(CssProperty.fontWeight(StyleFontWeight.bold)),
+        CssPropertyWithConditions.simple(CssProperty.fontWeight(StyleFontWeight.number(FloatValue(700.0f)))),
     ];
 }
 
@@ -55,6 +55,6 @@ CssPropertyWithConditions[] styleMainTitle()
 CssPropertyWithConditions[] styleDivNoteFirst()
 {
     return [
-        CssPropertyWithConditions.simple(CssProperty.fontStyle(StyleFontStyle.italic)),
+        CssPropertyWithConditions.simple(CssProperty.fontStyle(StyleFontStyle.italic())),
     ];
 }

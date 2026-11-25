@@ -64,7 +64,7 @@ AzulStyles class >> styleListLiNthChild2 [
 { #category : 'styles' }
 AzulStyles class >> styleMainTitle [
     ^ self vec: [ :p :n | AzulNative azCssPropertyWithConditionsVecCopyFromPtr: p len: n ] of: AzCssPropertyWithConditions items: {
-        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyFontWeight: (AzStyleFontWeight Bold)))
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyFontWeight: (AzulNative azStyleFontWeightNumber: (AzulNative azFloatValueCreate: 700.0))))
     }
 ]
 
@@ -72,6 +72,6 @@ AzulStyles class >> styleMainTitle [
 { #category : 'styles' }
 AzulStyles class >> styleDivNoteFirst [
     ^ self vec: [ :p :n | AzulNative azCssPropertyWithConditionsVecCopyFromPtr: p len: n ] of: AzCssPropertyWithConditions items: {
-        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyFontStyle: (AzStyleFontStyle Italic)))
+        (AzulNative azCssPropertyWithConditionsSimple: (AzulNative azCssPropertyFontStyle: (AzulNative azStyleFontStyleItalic)))
     }
 ]

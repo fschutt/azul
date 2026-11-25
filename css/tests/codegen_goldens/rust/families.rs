@@ -28,11 +28,21 @@ pub fn style_text() -> CssPropertyWithConditionsVec {
                 ])
             )
         ),
-        CssPropertyWithConditions::simple(CssProperty::font_weight(StyleFontWeight::W600)),
+        CssPropertyWithConditions::simple(CssProperty::font_weight(StyleFontWeight::Number(FloatValue::create(600.0)))),
         CssPropertyWithConditions::simple(CssProperty::font_style(StyleFontStyle::Italic)),
         CssPropertyWithConditions::simple(CssProperty::font_variant_numeric(StyleFontVariantNumeric { lining_nums: false, oldstyle_nums: false, proportional_nums: false, tabular_nums: true, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false })),
         CssPropertyWithConditions::simple(CssProperty::FontVariantCaps(StyleFontVariantCapsValue::Exact(StyleFontVariantCaps::SmallCaps))),
         CssPropertyWithConditions::simple(CssProperty::FontFeatureSettings(StyleFontFeatureSettingsValue::Exact(StyleFontFeatureSettings { inner: azul::str::String::from("\"liga\" 0, \"tnum\"") }))),
+        CssPropertyWithConditions::simple(CssProperty::FontStretch(StyleFontStretchValue::Exact(StyleFontStretch { inner: PercentageValue { number: FloatValue::create(87.5) } }))),
+        CssPropertyWithConditions::simple(CssProperty::FontVariationSettings(StyleFontVariationSettingsValue::Exact(StyleFontVariationSettings { inner: azul::str::String::from("\"wght\" 650, \"wdth\" 87.5") }))),
+        CssPropertyWithConditions::simple(CssProperty::FontOpticalSizing(StyleFontOpticalSizingValue::Exact(StyleFontOpticalSizing::None))),
+        CssPropertyWithConditions::simple(CssProperty::FontKerning(StyleFontKerningValue::Exact(StyleFontKerning::None))),
+        CssPropertyWithConditions::simple(CssProperty::FontVariantLigatures(StyleFontVariantLigaturesValue::Exact(StyleFontVariantLigatures { common: StyleFontLigatureChoice::Off, discretionary: StyleFontLigatureChoice::On, historical: StyleFontLigatureChoice::Unset, contextual: StyleFontLigatureChoice::Unset }))),
+        CssPropertyWithConditions::simple(CssProperty::FontVariantEastAsian(StyleFontVariantEastAsianValue::Exact(StyleFontVariantEastAsian { jis78: true, jis83: false, jis90: false, jis04: false, simplified: false, traditional: false, full_width: true, proportional_width: false, ruby: true }))),
+        CssPropertyWithConditions::simple(CssProperty::FontSynthesisWeight(StyleFontSynthesisValue::Exact(StyleFontSynthesis::None))),
+        CssPropertyWithConditions::simple(CssProperty::FontSynthesisStyle(StyleFontSynthesisValue::Exact(StyleFontSynthesis::None))),
+        CssPropertyWithConditions::simple(CssProperty::FontSynthesisSmallCaps(StyleFontSynthesisValue::Exact(StyleFontSynthesis::Auto))),
+        CssPropertyWithConditions::simple(CssProperty::FontSynthesisPosition(StyleFontSynthesisValue::Exact(StyleFontSynthesis::None))),
         CssPropertyWithConditions::simple(CssProperty::text_align(StyleTextAlign::Center)),
         CssPropertyWithConditions::simple(CssProperty::text_justify(LayoutTextJustify::InterWord)),
         CssPropertyWithConditions::simple(CssProperty::vertical_align(StyleVerticalAlign::Middle)),
@@ -74,14 +84,46 @@ pub fn style_text() -> CssPropertyWithConditionsVec {
         CssPropertyWithConditions::simple(CssProperty::selection_background_color(SelectionBackgroundColor { inner: ColorU { r: 51, g: 153, b: 255, a: 255 } })),
         CssPropertyWithConditions::simple(CssProperty::selection_color(SelectionColor { inner: ColorU { r: 255, g: 255, b: 255, a: 255 } })),
         CssPropertyWithConditions::simple(CssProperty::SelectionRadius(SelectionRadiusValue::Exact(SelectionRadius { inner: PixelValue::px(3.0) }))),
+        CssPropertyWithConditions::simple(CssProperty::font(StyleFontFamilyVec::from(vec![StyleFontFamily::System(azul::str::String::from("caption"))]))),
+    ])
+}
+
+/// CSS: .shorthands
+pub fn style_shorthands() -> CssPropertyWithConditionsVec {
+    CssPropertyWithConditionsVec::from(vec![
+        CssPropertyWithConditions::simple(CssProperty::font_style(StyleFontStyle::Italic)),
+        CssPropertyWithConditions::simple(CssProperty::FontVariantCaps(StyleFontVariantCapsValue::Exact(StyleFontVariantCaps::SmallCaps))),
+        CssPropertyWithConditions::simple(CssProperty::font_weight(StyleFontWeight::Number(FloatValue::create(350.0)))),
+        CssPropertyWithConditions::simple(CssProperty::FontStretch(StyleFontStretchValue::Exact(StyleFontStretch { inner: PercentageValue { number: FloatValue::create(75.0) } }))),
+        CssPropertyWithConditions::simple(CssProperty::font_size(StyleFontSize { inner: PixelValue::px(14.0) })),
+        CssPropertyWithConditions::simple(CssProperty::line_height(StyleLineHeight::Number(FloatValue::create(1.5)))),
         CssPropertyWithConditions::simple(
-            CssProperty::font(
+            CssProperty::font_family(
                 StyleFontFamilyVec::from(vec![
                     StyleFontFamily::System(azul::str::String::from("Georgia")),
                     StyleFontFamily::System(azul::str::String::from("serif")),
                 ])
             )
         ),
+        CssPropertyWithConditions::simple(CssProperty::initial(CssPropertyType::FontVariantNumeric)),
+        CssPropertyWithConditions::simple(CssProperty::initial(CssPropertyType::FontVariantLigatures)),
+        CssPropertyWithConditions::simple(CssProperty::initial(CssPropertyType::FontVariantEastAsian)),
+        CssPropertyWithConditions::simple(CssProperty::initial(CssPropertyType::FontKerning)),
+        CssPropertyWithConditions::simple(CssProperty::initial(CssPropertyType::FontOpticalSizing)),
+        CssPropertyWithConditions::simple(CssProperty::initial(CssPropertyType::FontVariationSettings)),
+        CssPropertyWithConditions::simple(CssProperty::initial(CssPropertyType::FontFeatureSettings)),
+        CssPropertyWithConditions::simple(CssProperty::initial(CssPropertyType::FontSynthesisWeight)),
+        CssPropertyWithConditions::simple(CssProperty::initial(CssPropertyType::FontSynthesisStyle)),
+        CssPropertyWithConditions::simple(CssProperty::initial(CssPropertyType::FontSynthesisSmallCaps)),
+        CssPropertyWithConditions::simple(CssProperty::initial(CssPropertyType::FontSynthesisPosition)),
+        CssPropertyWithConditions::simple(CssProperty::font_variant_numeric(StyleFontVariantNumeric { lining_nums: false, oldstyle_nums: true, proportional_nums: false, tabular_nums: false, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false })),
+        CssPropertyWithConditions::simple(CssProperty::FontVariantCaps(StyleFontVariantCapsValue::Exact(StyleFontVariantCaps::Normal))),
+        CssPropertyWithConditions::simple(CssProperty::FontVariantLigatures(StyleFontVariantLigaturesValue::Exact(StyleFontVariantLigatures { common: StyleFontLigatureChoice::Unset, discretionary: StyleFontLigatureChoice::Unset, historical: StyleFontLigatureChoice::Unset, contextual: StyleFontLigatureChoice::Unset }))),
+        CssPropertyWithConditions::simple(CssProperty::FontVariantEastAsian(StyleFontVariantEastAsianValue::Exact(StyleFontVariantEastAsian { jis78: true, jis83: false, jis90: false, jis04: false, simplified: false, traditional: false, full_width: false, proportional_width: false, ruby: false }))),
+        CssPropertyWithConditions::simple(CssProperty::FontSynthesisWeight(StyleFontSynthesisValue::Exact(StyleFontSynthesis::Auto))),
+        CssPropertyWithConditions::simple(CssProperty::FontSynthesisStyle(StyleFontSynthesisValue::Exact(StyleFontSynthesis::Auto))),
+        CssPropertyWithConditions::simple(CssProperty::FontSynthesisSmallCaps(StyleFontSynthesisValue::Exact(StyleFontSynthesis::None))),
+        CssPropertyWithConditions::simple(CssProperty::FontSynthesisPosition(StyleFontSynthesisValue::Exact(StyleFontSynthesis::None))),
     ])
 }
 

@@ -10,6 +10,6 @@ Function StyleBtn() As AzCssPropertyWithConditionsVec
     t1(2) = AzCssPropertyWithConditions_simple(AzCssProperty_display(AzLayoutDisplay_Flex))
     t1(3) = AzCssPropertyWithConditions_simple(AzCssProperty_flexGrow(Type<AzLayoutFlexGrow>(AzFloatValue_create(1.0))))
     t1(4) = AzCssPropertyWithConditions_simple(AzCssProperty_inherit(AzCssPropertyType_MinWidth))
-    t1(5) = AzCssPropertyWithConditions_onHover(AzCssProperty_fontWeight(AzStyleFontWeight_Bold))
+    t1(5) = AzCssPropertyWithConditions_onHover(AzCssProperty_fontWeight(AzStyleFontWeight_number(AzFloatValue_create(700.0))))
     Return AzCssPropertyWithConditionsVec_copyFromPtr(@t1(0), 6)
 End Function

@@ -68,12 +68,12 @@ AzulStyles class >> stylesheet [
             (AzulNative azCssPathSelectorId: (self str: 'main')).
             (AzulNative azCssPathSelectorDirectChildren).
             (AzulNative azCssPathSelectorClass: (self str: 'title'))
-        }); yourself); declarations: (self vec: [ :p :n | AzulNative azCssDeclarationVecCopyFromPtr: p len: n ] of: AzCssDeclaration items: { (AzulNative azCssDeclarationStatic: (AzulNative azCssPropertyFontWeight: (AzStyleFontWeight Bold))) }); conditions: (AzulNative azDynamicSelectorVecCreate); priority: 20; yourself).
+        }); yourself); declarations: (self vec: [ :p :n | AzulNative azCssDeclarationVecCopyFromPtr: p len: n ] of: AzCssDeclaration items: { (AzulNative azCssDeclarationStatic: (AzulNative azCssPropertyFontWeight: (AzulNative azStyleFontWeightNumber: (AzulNative azFloatValueCreate: 700.0)))) }); conditions: (AzulNative azDynamicSelectorVecCreate); priority: 20; yourself).
         (AzCssRuleBlock new path: (AzCssPath new selectors: (self vec: [ :p :n | AzulNative azCssPathSelectorVecCopyFromPtr: p len: n ] of: AzCssPathSelector items: {
             (AzulNative azCssPathSelectorType: (AzNodeTypeTag Div)).
             (AzulNative azCssPathSelectorChildren).
             (AzulNative azCssPathSelectorClass: (self str: 'note')).
             (AzulNative azCssPathSelectorPseudoSelector: (AzulNative azCssPathPseudoSelectorFirst))
-        }); yourself); declarations: (self vec: [ :p :n | AzulNative azCssDeclarationVecCopyFromPtr: p len: n ] of: AzCssDeclaration items: { (AzulNative azCssDeclarationStatic: (AzulNative azCssPropertyFontStyle: (AzStyleFontStyle Italic))) }); conditions: (AzulNative azDynamicSelectorVecCreate); priority: 20; yourself)
+        }); yourself); declarations: (self vec: [ :p :n | AzulNative azCssDeclarationVecCopyFromPtr: p len: n ] of: AzCssDeclaration items: { (AzulNative azCssDeclarationStatic: (AzulNative azCssPropertyFontStyle: (AzulNative azStyleFontStyleItalic))) }); conditions: (AzulNative azDynamicSelectorVecCreate); priority: 20; yourself)
     }); keyframes: (AzulNative azKeyframesVecCreate); yourself
 ]

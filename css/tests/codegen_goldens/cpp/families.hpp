@@ -20,11 +20,21 @@ inline AzCssPropertyWithConditionsVec style_text() {
                     )
                 )
             ),
-            AzCssPropertyWithConditions_simple(AzCssProperty_fontWeight(AzStyleFontWeight_W600)),
-            AzCssPropertyWithConditions_simple(AzCssProperty_fontStyle(AzStyleFontStyle_Italic)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontWeight(AzStyleFontWeight_number(AzFloatValue_create(600.0f)))),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontStyle(AzStyleFontStyle_italic())),
             AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantNumeric(AzStyleFontVariantNumeric{ false, false, false, true, false, false, false, false })),
             AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantCaps([]{ AzStyleFontVariantCapsValue v{}; v.Exact = AzStyleFontVariantCapsValueVariant_Exact{ AzStyleFontVariantCapsValue_Tag_Exact, AzStyleFontVariantCaps_SmallCaps }; return v; }())),
             AzCssPropertyWithConditions_simple(AzCssProperty_fontFeatureSettings([]{ AzStyleFontFeatureSettingsValue v{}; v.Exact = AzStyleFontFeatureSettingsValueVariant_Exact{ AzStyleFontFeatureSettingsValue_Tag_Exact, AzStyleFontFeatureSettings{ AzString_copyFromBytes(reinterpret_cast<const uint8_t*>("\"liga\" 0, \"tnum\""), 0, 16) } }; return v; }())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontStretch([]{ AzStyleFontStretchValue v{}; v.Exact = AzStyleFontStretchValueVariant_Exact{ AzStyleFontStretchValue_Tag_Exact, AzStyleFontStretch{ AzPercentageValue{ AzFloatValue_create(87.5f) } } }; return v; }())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontVariationSettings([]{ AzStyleFontVariationSettingsValue v{}; v.Exact = AzStyleFontVariationSettingsValueVariant_Exact{ AzStyleFontVariationSettingsValue_Tag_Exact, AzStyleFontVariationSettings{ AzString_copyFromBytes(reinterpret_cast<const uint8_t*>("\"wght\" 650, \"wdth\" 87.5"), 0, 23) } }; return v; }())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontOpticalSizing([]{ AzStyleFontOpticalSizingValue v{}; v.Exact = AzStyleFontOpticalSizingValueVariant_Exact{ AzStyleFontOpticalSizingValue_Tag_Exact, AzStyleFontOpticalSizing_None }; return v; }())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontKerning([]{ AzStyleFontKerningValue v{}; v.Exact = AzStyleFontKerningValueVariant_Exact{ AzStyleFontKerningValue_Tag_Exact, AzStyleFontKerning_None }; return v; }())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantLigatures([]{ AzStyleFontVariantLigaturesValue v{}; v.Exact = AzStyleFontVariantLigaturesValueVariant_Exact{ AzStyleFontVariantLigaturesValue_Tag_Exact, AzStyleFontVariantLigatures{ AzStyleFontLigatureChoice_Off, AzStyleFontLigatureChoice_On, AzStyleFontLigatureChoice_Unset, AzStyleFontLigatureChoice_Unset } }; return v; }())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantEastAsian([]{ AzStyleFontVariantEastAsianValue v{}; v.Exact = AzStyleFontVariantEastAsianValueVariant_Exact{ AzStyleFontVariantEastAsianValue_Tag_Exact, AzStyleFontVariantEastAsian{ true, false, false, false, false, false, true, false, true } }; return v; }())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontSynthesisWeight([]{ AzStyleFontSynthesisValue v{}; v.Exact = AzStyleFontSynthesisValueVariant_Exact{ AzStyleFontSynthesisValue_Tag_Exact, AzStyleFontSynthesis_None }; return v; }())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontSynthesisStyle([]{ AzStyleFontSynthesisValue v{}; v.Exact = AzStyleFontSynthesisValueVariant_Exact{ AzStyleFontSynthesisValue_Tag_Exact, AzStyleFontSynthesis_None }; return v; }())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontSynthesisSmallCaps([]{ AzStyleFontSynthesisValue v{}; v.Exact = AzStyleFontSynthesisValueVariant_Exact{ AzStyleFontSynthesisValue_Tag_Exact, AzStyleFontSynthesis_Auto }; return v; }())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontSynthesisPosition([]{ AzStyleFontSynthesisValue v{}; v.Exact = AzStyleFontSynthesisValueVariant_Exact{ AzStyleFontSynthesisValue_Tag_Exact, AzStyleFontSynthesis_None }; return v; }())),
             AzCssPropertyWithConditions_simple(AzCssProperty_textAlign(AzStyleTextAlign_Center)),
             AzCssPropertyWithConditions_simple(AzCssProperty_textJustify(AzLayoutTextJustify_InterWord)),
             AzCssPropertyWithConditions_simple(AzCssProperty_verticalAlign(AzStyleVerticalAlign_middle())),
@@ -66,8 +76,24 @@ inline AzCssPropertyWithConditionsVec style_text() {
             AzCssPropertyWithConditions_simple(AzCssProperty_selectionBackgroundColor(AzSelectionBackgroundColor{ AzColorU{ 51, 153, 255, 255 } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_selectionColor(AzSelectionColor{ AzColorU{ 255, 255, 255, 255 } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_selectionRadius([]{ AzSelectionRadiusValue v{}; v.Exact = AzSelectionRadiusValueVariant_Exact{ AzSelectionRadiusValue_Tag_Exact, AzSelectionRadius{ AzPixelValue_px(3.0f) } }; return v; }())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_font(AzStyleFontFamilyVec_copyFromPtr(std::vector<AzStyleFontFamily>{ AzStyleFontFamily_system(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>("caption"), 0, 7)) }.data(), 1))),
+        }.data(),
+        60
+    );
+}
+
+// CSS: .shorthands
+inline AzCssPropertyWithConditionsVec style_shorthands() {
+    return AzCssPropertyWithConditionsVec_copyFromPtr(
+        std::vector<AzCssPropertyWithConditions>{
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontStyle(AzStyleFontStyle_italic())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantCaps([]{ AzStyleFontVariantCapsValue v{}; v.Exact = AzStyleFontVariantCapsValueVariant_Exact{ AzStyleFontVariantCapsValue_Tag_Exact, AzStyleFontVariantCaps_SmallCaps }; return v; }())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontWeight(AzStyleFontWeight_number(AzFloatValue_create(350.0f)))),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontStretch([]{ AzStyleFontStretchValue v{}; v.Exact = AzStyleFontStretchValueVariant_Exact{ AzStyleFontStretchValue_Tag_Exact, AzStyleFontStretch{ AzPercentageValue{ AzFloatValue_create(75.0f) } } }; return v; }())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontSize(AzStyleFontSize{ AzPixelValue_px(14.0f) })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_lineHeight(AzStyleLineHeight_number(AzFloatValue_create(1.5f)))),
             AzCssPropertyWithConditions_simple(
-                AzCssProperty_font(
+                AzCssProperty_fontFamily(
                     AzStyleFontFamilyVec_copyFromPtr(
                         std::vector<AzStyleFontFamily>{
                             AzStyleFontFamily_system(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>("Georgia"), 0, 7)),
@@ -77,8 +103,27 @@ inline AzCssPropertyWithConditionsVec style_text() {
                     )
                 )
             ),
+            AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontVariantNumeric)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontVariantLigatures)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontVariantEastAsian)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontKerning)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontOpticalSizing)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontVariationSettings)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontFeatureSettings)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontSynthesisWeight)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontSynthesisStyle)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontSynthesisSmallCaps)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontSynthesisPosition)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantNumeric(AzStyleFontVariantNumeric{ false, true, false, false, false, false, false, false })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantCaps([]{ AzStyleFontVariantCapsValue v{}; v.Exact = AzStyleFontVariantCapsValueVariant_Exact{ AzStyleFontVariantCapsValue_Tag_Exact, AzStyleFontVariantCaps_Normal }; return v; }())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantLigatures([]{ AzStyleFontVariantLigaturesValue v{}; v.Exact = AzStyleFontVariantLigaturesValueVariant_Exact{ AzStyleFontVariantLigaturesValue_Tag_Exact, AzStyleFontVariantLigatures{ AzStyleFontLigatureChoice_Unset, AzStyleFontLigatureChoice_Unset, AzStyleFontLigatureChoice_Unset, AzStyleFontLigatureChoice_Unset } }; return v; }())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantEastAsian([]{ AzStyleFontVariantEastAsianValue v{}; v.Exact = AzStyleFontVariantEastAsianValueVariant_Exact{ AzStyleFontVariantEastAsianValue_Tag_Exact, AzStyleFontVariantEastAsian{ true, false, false, false, false, false, false, false, false } }; return v; }())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontSynthesisWeight([]{ AzStyleFontSynthesisValue v{}; v.Exact = AzStyleFontSynthesisValueVariant_Exact{ AzStyleFontSynthesisValue_Tag_Exact, AzStyleFontSynthesis_Auto }; return v; }())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontSynthesisStyle([]{ AzStyleFontSynthesisValue v{}; v.Exact = AzStyleFontSynthesisValueVariant_Exact{ AzStyleFontSynthesisValue_Tag_Exact, AzStyleFontSynthesis_Auto }; return v; }())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontSynthesisSmallCaps([]{ AzStyleFontSynthesisValue v{}; v.Exact = AzStyleFontSynthesisValueVariant_Exact{ AzStyleFontSynthesisValue_Tag_Exact, AzStyleFontSynthesis_None }; return v; }())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontSynthesisPosition([]{ AzStyleFontSynthesisValue v{}; v.Exact = AzStyleFontSynthesisValueVariant_Exact{ AzStyleFontSynthesisValue_Tag_Exact, AzStyleFontSynthesis_None }; return v; }())),
         }.data(),
-        50
+        26
     );
 }
 

@@ -105,7 +105,7 @@ public final class AzulStyles {
                             AzulNativeSvg.AzCssPathSelector_class(AzulCodegen.str("title"))
                         );
                     });
-                    cssRuleBlock.declarations = AzulCodegen.vec(AzulNativeVec::AzCssDeclarationVec_copyFromPtr, AzulNativeCss.AzCssDeclaration_static(AzulNativeCss.AzCssProperty_fontWeight(StyleFontWeight.Bold.value)));
+                    cssRuleBlock.declarations = AzulCodegen.vec(AzulNativeVec::AzCssDeclarationVec_copyFromPtr, AzulNativeCss.AzCssDeclaration_static(AzulNativeCss.AzCssProperty_fontWeight(AzulNativeCss.AzStyleFontWeight_number(AzulNativeCss.AzFloatValue_create(700.0f)))));
                     cssRuleBlock.conditions = AzulNativeVec.AzDynamicSelectorVec_create();
                     cssRuleBlock.priority = (byte) 20;
                 }),
@@ -119,7 +119,7 @@ public final class AzulStyles {
                             AzulNativeSvg.AzCssPathSelector_pseudoSelector(AzulNativeSvg.AzCssPathPseudoSelector_first())
                         );
                     });
-                    cssRuleBlock.declarations = AzulCodegen.vec(AzulNativeVec::AzCssDeclarationVec_copyFromPtr, AzulNativeCss.AzCssDeclaration_static(AzulNativeCss.AzCssProperty_fontStyle(StyleFontStyle.Italic.value)));
+                    cssRuleBlock.declarations = AzulCodegen.vec(AzulNativeVec::AzCssDeclarationVec_copyFromPtr, AzulNativeCss.AzCssDeclaration_static(AzulNativeCss.AzCssProperty_fontStyle(AzulNativeCss.AzStyleFontStyle_italic())));
                     cssRuleBlock.conditions = AzulNativeVec.AzDynamicSelectorVec_create();
                     cssRuleBlock.priority = (byte) 20;
                 })

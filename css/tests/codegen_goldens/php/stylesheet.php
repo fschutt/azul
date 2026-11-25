@@ -202,7 +202,7 @@ function stylesheet()
                                     ),
                                 ]
                             ),
-                            'declarations' => azul_vec('AzCssDeclarationVec_copyFromPtr', 'AzCssDeclaration', [$L->AzCssDeclaration_static($L->AzCssProperty_fontWeight($L->AzStyleFontWeight_Bold))]),
+                            'declarations' => azul_vec('AzCssDeclarationVec_copyFromPtr', 'AzCssDeclaration', [$L->AzCssDeclaration_static($L->AzCssProperty_fontWeight($L->AzStyleFontWeight_number($L->AzFloatValue_create(700.0))))]),
                             'conditions' => $L->AzDynamicSelectorVec_create(),
                             'priority' => 20,
                         ]
@@ -225,7 +225,7 @@ function stylesheet()
                                     ),
                                 ]
                             ),
-                            'declarations' => azul_vec('AzCssDeclarationVec_copyFromPtr', 'AzCssDeclaration', [$L->AzCssDeclaration_static($L->AzCssProperty_fontStyle($L->AzStyleFontStyle_Italic))]),
+                            'declarations' => azul_vec('AzCssDeclarationVec_copyFromPtr', 'AzCssDeclaration', [$L->AzCssDeclaration_static($L->AzCssProperty_fontStyle($L->AzStyleFontStyle_italic()))]),
                             'conditions' => $L->AzDynamicSelectorVec_create(),
                             'priority' => 20,
                         ]

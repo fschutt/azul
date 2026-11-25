@@ -44,13 +44,13 @@ pub fn styleListLiNthChild2() C.AzCssPropertyWithConditionsVec {
 // CSS: #main>.title
 pub fn styleMainTitle() C.AzCssPropertyWithConditionsVec {
     return C.AzCssPropertyWithConditionsVec_copyFromPtr(&[_]C.AzCssPropertyWithConditions{
-        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontWeight(C.AzStyleFontWeight_Bold)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontWeight(C.AzStyleFontWeight_number(C.AzFloatValue_create(700.0)))),
     }, 1);
 }
 
 // CSS: div .note:first
 pub fn styleDivNoteFirst() C.AzCssPropertyWithConditionsVec {
     return C.AzCssPropertyWithConditionsVec_copyFromPtr(&[_]C.AzCssPropertyWithConditions{
-        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontStyle(C.AzStyleFontStyle_Italic)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontStyle(C.AzStyleFontStyle_italic())),
     }, 1);
 }

@@ -207,31 +207,37 @@ end;
 { CSS: #main>.title }
 function StyleMainTitle: TAzCssPropertyWithConditionsVec;
 var
-  t1: TAzCssProperty;
-  t2: TAzCssPropertyWithConditions;
-  t3: array[0..0] of TAzCssPropertyWithConditions;
-  t4: TAzCssPropertyWithConditionsVec;
+  t1: TAzFloatValue;
+  t2: TAzStyleFontWeight;
+  t3: TAzCssProperty;
+  t4: TAzCssPropertyWithConditions;
+  t5: array[0..0] of TAzCssPropertyWithConditions;
+  t6: TAzCssPropertyWithConditionsVec;
 begin
-  t1 := AzCssPropertyFontWeight(TAzStyleFontWeight.Bold);
-  t2 := AzCssPropertyWithConditionsSimple(t1);
-  t3[0] := t2;
-  t4 := AzCssPropertyWithConditionsVecCopyFromPtr(@t3[0], 1);
-  Result := t4;
+  t1 := AzFloatValueCreate(700.0);
+  t2 := AzStyleFontWeightNumber(t1);
+  t3 := AzCssPropertyFontWeight(t2);
+  t4 := AzCssPropertyWithConditionsSimple(t3);
+  t5[0] := t4;
+  t6 := AzCssPropertyWithConditionsVecCopyFromPtr(@t5[0], 1);
+  Result := t6;
 end;
 
 { CSS: div .note:first }
 function StyleDivNoteFirst: TAzCssPropertyWithConditionsVec;
 var
-  t1: TAzCssProperty;
-  t2: TAzCssPropertyWithConditions;
-  t3: array[0..0] of TAzCssPropertyWithConditions;
-  t4: TAzCssPropertyWithConditionsVec;
+  t1: TAzStyleFontStyle;
+  t2: TAzCssProperty;
+  t3: TAzCssPropertyWithConditions;
+  t4: array[0..0] of TAzCssPropertyWithConditions;
+  t5: TAzCssPropertyWithConditionsVec;
 begin
-  t1 := AzCssPropertyFontStyle(TAzStyleFontStyle.Italic);
-  t2 := AzCssPropertyWithConditionsSimple(t1);
-  t3[0] := t2;
-  t4 := AzCssPropertyWithConditionsVecCopyFromPtr(@t3[0], 1);
-  Result := t4;
+  t1 := AzStyleFontStyleItalic;
+  t2 := AzCssPropertyFontStyle(t1);
+  t3 := AzCssPropertyWithConditionsSimple(t2);
+  t4[0] := t3;
+  t5 := AzCssPropertyWithConditionsVecCopyFromPtr(@t4[0], 1);
+  Result := t5;
 end;
 
 end.

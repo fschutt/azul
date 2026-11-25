@@ -7,7 +7,7 @@ local M = {}
 
 -- CSS: .text
 function M.style_text()
-    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[50]', {
+    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[60]', {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textColor(ffi.new('AzStyleTextColor', { inner = ffi.new('AzColorU', { r = 51, g = 102, b = 153, a = 255 }) }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSize(ffi.new('AzStyleFontSize', { inner = C.AzPixelValue_px(14.0) }))),
         C.AzCssPropertyWithConditions_simple(
@@ -18,11 +18,21 @@ function M.style_text()
                 }), 2)
             )
         ),
-        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontWeight(C.AzStyleFontWeight_W600)),
-        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontStyle(C.AzStyleFontStyle_Italic)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontWeight(C.AzStyleFontWeight_number(C.AzFloatValue_create(600.0)))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontStyle(C.AzStyleFontStyle_italic())),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantNumeric(ffi.new('AzStyleFontVariantNumeric', { lining_nums = false, oldstyle_nums = false, proportional_nums = false, tabular_nums = true, diagonal_fractions = false, stacked_fractions = false, ordinal = false, slashed_zero = false }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantCaps(ffi.new('AzStyleFontVariantCapsValue', { Exact = { tag = 6, payload = C.AzStyleFontVariantCaps_SmallCaps } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontFeatureSettings(ffi.new('AzStyleFontFeatureSettingsValue', { Exact = { tag = 6, payload = ffi.new('AzStyleFontFeatureSettings', { inner = azul._az_string("\"liga\" 0, \"tnum\"") }) } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontStretch(ffi.new('AzStyleFontStretchValue', { Exact = { tag = 6, payload = ffi.new('AzStyleFontStretch', { inner = ffi.new('AzPercentageValue', { number = C.AzFloatValue_create(87.5) }) }) } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariationSettings(ffi.new('AzStyleFontVariationSettingsValue', { Exact = { tag = 6, payload = ffi.new('AzStyleFontVariationSettings', { inner = azul._az_string("\"wght\" 650, \"wdth\" 87.5") }) } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontOpticalSizing(ffi.new('AzStyleFontOpticalSizingValue', { Exact = { tag = 6, payload = C.AzStyleFontOpticalSizing_None } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontKerning(ffi.new('AzStyleFontKerningValue', { Exact = { tag = 6, payload = C.AzStyleFontKerning_None } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantLigatures(ffi.new('AzStyleFontVariantLigaturesValue', { Exact = { tag = 6, payload = ffi.new('AzStyleFontVariantLigatures', { common = C.AzStyleFontLigatureChoice_Off, discretionary = C.AzStyleFontLigatureChoice_On, historical = C.AzStyleFontLigatureChoice_Unset, contextual = C.AzStyleFontLigatureChoice_Unset }) } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantEastAsian(ffi.new('AzStyleFontVariantEastAsianValue', { Exact = { tag = 6, payload = ffi.new('AzStyleFontVariantEastAsian', { jis78 = true, jis83 = false, jis90 = false, jis04 = false, simplified = false, traditional = false, full_width = true, proportional_width = false, ruby = true }) } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisWeight(ffi.new('AzStyleFontSynthesisValue', { Exact = { tag = 6, payload = C.AzStyleFontSynthesis_None } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisStyle(ffi.new('AzStyleFontSynthesisValue', { Exact = { tag = 6, payload = C.AzStyleFontSynthesis_None } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisSmallCaps(ffi.new('AzStyleFontSynthesisValue', { Exact = { tag = 6, payload = C.AzStyleFontSynthesis_Auto } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisPosition(ffi.new('AzStyleFontSynthesisValue', { Exact = { tag = 6, payload = C.AzStyleFontSynthesis_None } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textAlign(C.AzStyleTextAlign_Center)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textJustify(C.AzLayoutTextJustify_InterWord)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_verticalAlign(C.AzStyleVerticalAlign_middle())),
@@ -64,15 +74,47 @@ function M.style_text()
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_selectionBackgroundColor(ffi.new('AzSelectionBackgroundColor', { inner = ffi.new('AzColorU', { r = 51, g = 153, b = 255, a = 255 }) }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_selectionColor(ffi.new('AzSelectionColor', { inner = ffi.new('AzColorU', { r = 255, g = 255, b = 255, a = 255 }) }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_selectionRadius(ffi.new('AzSelectionRadiusValue', { Exact = { tag = 6, payload = ffi.new('AzSelectionRadius', { inner = C.AzPixelValue_px(3.0) }) } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_font(C.AzStyleFontFamilyVec_copyFromPtr(ffi.new('AzStyleFontFamily[1]', { C.AzStyleFontFamily_system(azul._az_string("caption")) }), 1))),
+    }), 60)
+end
+
+-- CSS: .shorthands
+function M.style_shorthands()
+    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[26]', {
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontStyle(C.AzStyleFontStyle_italic())),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantCaps(ffi.new('AzStyleFontVariantCapsValue', { Exact = { tag = 6, payload = C.AzStyleFontVariantCaps_SmallCaps } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontWeight(C.AzStyleFontWeight_number(C.AzFloatValue_create(350.0)))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontStretch(ffi.new('AzStyleFontStretchValue', { Exact = { tag = 6, payload = ffi.new('AzStyleFontStretch', { inner = ffi.new('AzPercentageValue', { number = C.AzFloatValue_create(75.0) }) }) } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSize(ffi.new('AzStyleFontSize', { inner = C.AzPixelValue_px(14.0) }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_lineHeight(C.AzStyleLineHeight_number(C.AzFloatValue_create(1.5)))),
         C.AzCssPropertyWithConditions_simple(
-            C.AzCssProperty_font(
+            C.AzCssProperty_fontFamily(
                 C.AzStyleFontFamilyVec_copyFromPtr(ffi.new('AzStyleFontFamily[2]', {
                     C.AzStyleFontFamily_system(azul._az_string("Georgia")),
                     C.AzStyleFontFamily_system(azul._az_string("serif")),
                 }), 2)
             )
         ),
-    }), 50)
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontVariantNumeric)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontVariantLigatures)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontVariantEastAsian)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontKerning)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontOpticalSizing)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontVariationSettings)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontFeatureSettings)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontSynthesisWeight)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontSynthesisStyle)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontSynthesisSmallCaps)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontSynthesisPosition)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantNumeric(ffi.new('AzStyleFontVariantNumeric', { lining_nums = false, oldstyle_nums = true, proportional_nums = false, tabular_nums = false, diagonal_fractions = false, stacked_fractions = false, ordinal = false, slashed_zero = false }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantCaps(ffi.new('AzStyleFontVariantCapsValue', { Exact = { tag = 6, payload = C.AzStyleFontVariantCaps_Normal } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantLigatures(ffi.new('AzStyleFontVariantLigaturesValue', { Exact = { tag = 6, payload = ffi.new('AzStyleFontVariantLigatures', { common = C.AzStyleFontLigatureChoice_Unset, discretionary = C.AzStyleFontLigatureChoice_Unset, historical = C.AzStyleFontLigatureChoice_Unset, contextual = C.AzStyleFontLigatureChoice_Unset }) } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantEastAsian(ffi.new('AzStyleFontVariantEastAsianValue', { Exact = { tag = 6, payload = ffi.new('AzStyleFontVariantEastAsian', { jis78 = true, jis83 = false, jis90 = false, jis04 = false, simplified = false, traditional = false, full_width = false, proportional_width = false, ruby = false }) } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisWeight(ffi.new('AzStyleFontSynthesisValue', { Exact = { tag = 6, payload = C.AzStyleFontSynthesis_Auto } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisStyle(ffi.new('AzStyleFontSynthesisValue', { Exact = { tag = 6, payload = C.AzStyleFontSynthesis_Auto } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisSmallCaps(ffi.new('AzStyleFontSynthesisValue', { Exact = { tag = 6, payload = C.AzStyleFontSynthesis_None } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisPosition(ffi.new('AzStyleFontSynthesisValue', { Exact = { tag = 6, payload = C.AzStyleFontSynthesis_None } }))),
+    }), 26)
 end
 
 -- CSS: .box

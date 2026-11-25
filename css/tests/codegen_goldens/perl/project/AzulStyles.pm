@@ -13,7 +13,7 @@ sub style_btn {
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_display(Azul::AzLayoutDisplay::Flex())),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_flexGrow(Azul::AzLayoutFlexGrow->new(inner => ${ Azul::FFI::AzFloatValue_create(1.0) }))),
         Azul::FFI::AzCssPropertyWithConditions_simple(Azul::FFI::AzCssProperty_inherit(Azul::AzCssPropertyType::MinWidth())),
-        Azul::FFI::AzCssPropertyWithConditions_onHover(Azul::FFI::AzCssProperty_fontWeight(Azul::AzStyleFontWeight::Bold())),
+        Azul::FFI::AzCssPropertyWithConditions_onHover(Azul::FFI::AzCssProperty_fontWeight(Azul::FFI::AzStyleFontWeight_number(Azul::FFI::AzFloatValue_create(700.0)))),
     ];
 }
 

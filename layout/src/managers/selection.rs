@@ -683,20 +683,20 @@ mod extract_tests {
     use rust_fontconfig::FcWeight;
 
     use super::*;
-    use crate::text3::cache::{FontSelector, FontStack, FontStyle, StyleProperties};
+    use crate::text3::cache::{FontRequest, FontSelector, FontStack, FontStyle, StyleProperties};
 
     fn style(family: &str, weight: FcWeight, italic: bool, size_px: f32) -> StyleProperties {
         StyleProperties {
             font_stack: FontStack::Stack(vec![FontSelector {
                 family: family.to_string(),
-                weight,
-                style: if italic {
-                    FontStyle::Italic
-                } else {
-                    FontStyle::Normal
-                },
+                request: FontRequest::default().with_weight_bucket(weight).with_style(
+                    if italic {
+                        FontStyle::Italic
+                    } else {
+                        FontStyle::Normal
+                    },
+                ),
                 unicode_ranges: Vec::new(),
-                optical_size: 0,
             }]),
             font_size_px: size_px,
             ..StyleProperties::default()
@@ -838,10 +838,8 @@ mod extract_tests {
         let mut oblique = plain_style();
         oblique.font_stack = FontStack::Stack(vec![FontSelector {
             family: "Helvetica".to_string(),
-            weight: FcWeight::Normal,
-            style: FontStyle::Oblique,
+            request: FontRequest::default().with_style(FontStyle::Oblique),
             unicode_ranges: Vec::new(),
-            optical_size: 0,
         }]);
         acc.push("slanted", &oblique);
         let content = acc.finish().expect("content");
