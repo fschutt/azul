@@ -69,6 +69,7 @@ pub mod whiteboard;
 pub mod whiteboard_app;
 pub mod whiteboard_archive;
 pub mod whiteboard_cutout;
+pub mod whiteboard_demo;
 pub mod whiteboard_drag;
 pub mod whiteboard_geom;
 pub mod whiteboard_input;
@@ -77,6 +78,7 @@ pub mod whiteboard_json;
 pub mod whiteboard_lasso;
 pub mod whiteboard_render;
 pub mod whiteboard_store;
+pub mod whiteboard_ui;
 
 #[cfg(test)]
 #[path = "lib_test.rs"]

@@ -429,3 +429,54 @@ fn what_the_pointer_is_over_says_which_cursor_to_show() {
     drag(&mut input, &mut board, mouse(), &[p(200.0, 150.0), p(200.0, 150.0)]);
     assert_eq!(input.hover(&board, p(295.0, 195.0)), Cursor::Resize);
 }
+
+// ---- a full board
+
+/// 250 cutouts in a grid and 250 arrows between neighbours: the biggest board the caps allow, nearly.
+fn full_board() -> Board {
+    let mut board = Board::new();
+    let mut ids = Vec::new();
+    for i in 0..250 {
+        let (col, row) = (i % 25, i / 25);
+        ids.push(put(&mut board, col as f32 * 260.0, row as f32 * 160.0));
+    }
+    for i in 0..249 {
+        board.add_arrow(End::item(ids[i]), End::item(ids[i + 1]), 0.1, "").expect("an arrow");
+    }
+    board
+}
+
+#[test]
+fn what_is_under_the_pointer_is_found_in_well_under_a_millisecond_on_a_full_board() {
+    let board = full_board();
+    assert!(board.len() >= 499);
+    let began = std::time::Instant::now();
+    let mut found = 0;
+    for i in 0..2_000 {
+        let p = p(50.0 + (i % 100) as f32 * 61.0, 40.0 + (i / 100) as f32 * 190.0);
+        if hit_test(&board, None, p, 1.0) != Hit::Empty {
+            found += 1;
+        }
+    }
+    let per = began.elapsed().as_secs_f64() * 1000.0 / 2_000.0;
+    eprintln!("hit test on {} items: {per:.4} ms, {found} of 2000 points over something", board.len());
+    assert!(per < 1.0, "{per} ms for one hit test");
+    assert!(found > 100);
+}
+
+#[test]
+fn a_gesture_on_a_full_board_costs_no_more_than_a_frame_of_it() {
+    let mut board = full_board();
+    let first = board.cutouts().next().map(|c| c.id).expect("a cutout");
+    let mut input = BoardInput::default();
+    let began = std::time::Instant::now();
+    input.press(&mut board, p(120.0, 140.0), mouse(), no_mods());
+    for i in 1..=60 {
+        input.motion(&mut board, p(120.0 + i as f32 * 3.0, 140.0 + i as f32), no_mods());
+    }
+    input.release(&mut board, p(300.0, 200.0), no_mods());
+    let per = began.elapsed().as_secs_f64() * 1000.0 / 62.0;
+    eprintln!("a drag on {} items: {per:.4} ms per event", board.len());
+    assert!(per < 2.0, "{per} ms per event");
+    assert!(board.cutout(first).is_some());
+}

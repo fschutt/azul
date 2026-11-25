@@ -30,6 +30,7 @@ use crate::{
     whiteboard::CutoutImage,
     whiteboard_archive::encode_png,
     whiteboard_cutout::{compose, CapturePlan, Raster},
+    whiteboard_geom::Pt,
 };
 
 /// The width of the line numbers' column, px (`ui`'s gutter).
@@ -54,7 +55,7 @@ pub struct RenderRequest {
 }
 
 /// One line of code as the page shows it: its number in the gutter, then the line.
-fn code_row(number: u32, line: &str) -> Dom {
+pub fn code_row(number: u32, line: &str) -> Dom {
     let mut row = Dom::create_div().with_css(format!("display: flex; flex-direction: row; height: {LINE_H}px;").as_str());
     row.add_child(
         Dom::create_span_with_text(format!("{number}").as_str()).with_css(
@@ -147,28 +148,35 @@ fn sharper(mut b: Brush, k: f32) -> Brush {
     b
 }
 
+/// Paints stroke `s` (in the page's px) into `image`, `scale` device pixels to a page px, the page's corner
+/// at `origin` of the picture's own px (the picture of a region has the region's corner there): the engine's
+/// brush as the page's ink layer paints it, its nib `scale` times as wide in pixels.
+pub fn paint_stroke(image: &mut RawImage, scale: f32, origin: Pt, s: &Stroke) {
+    let px = |x: f32, y: f32| ((x - origin.x) * scale, (y - origin.y) * scale);
+    match s.points.as_slice() {
+        [] => {}
+        [p] => {
+            let (x, y) = px(p.x, p.y);
+            image.paint_stroke(x, y, x, y, sharper(ink::brush(s.semantic, p.pressure), scale));
+        }
+        points => {
+            for w in points.windows(2) {
+                let ((x0, y0), (x1, y1)) = (px(w[0].x, w[0].y), px(w[1].x, w[1].y));
+                let b = ink::brush(s.semantic, (w[0].pressure + w[1].pressure) * 0.5);
+                image.paint_stroke(x0, y0, x1, y1, sharper(b, scale));
+            }
+        }
+    }
+}
+
 /// The strokes of one layer, painted with the engine's brush at the plan's scale on a clear picture.
 fn ink_layer(plan: &CapturePlan, strokes: &[&Stroke]) -> Result<Option<Raster>, String> {
     if strokes.is_empty() {
         return Ok(None);
     }
-    let px = |x: f32, y: f32| ((x - plan.region.x) * plan.scale, (y - plan.region.y) * plan.scale);
     let mut image = RawImage::create_rgba8(plan.px_w, plan.px_h, vec![0_u8; plan.px_w as usize * plan.px_h as usize * 4], true);
     for s in strokes {
-        match s.points.as_slice() {
-            [] => {}
-            [p] => {
-                let (x, y) = px(p.x, p.y);
-                image.paint_stroke(x, y, x, y, sharper(ink::brush(s.semantic, p.pressure), plan.scale));
-            }
-            points => {
-                for w in points.windows(2) {
-                    let ((x0, y0), (x1, y1)) = (px(w[0].x, w[0].y), px(w[1].x, w[1].y));
-                    let b = ink::brush(s.semantic, (w[0].pressure + w[1].pressure) * 0.5);
-                    image.paint_stroke(x0, y0, x1, y1, sharper(b, plan.scale));
-                }
-            }
-        }
+        paint_stroke(&mut image, plan.scale, plan.region.origin(), s);
     }
     raster_of(&image).map(Some)
 }
@@ -180,14 +188,16 @@ fn ink_layer(plan: &CapturePlan, strokes: &[&Stroke]) -> Result<Option<Raster>, 
 pub fn render(request: RenderRequest) -> Result<CutoutImage, String> {
     let mut request = request;
     let code = code_layer(&mut request)?;
-    let on = |layer: Layer| -> Vec<&Stroke> {
-        request.strokes.iter().filter(|s| Layer::of(s.semantic) == layer).collect()
-    };
-    let marker = ink_layer(&request.plan, &on(Layer::Marker))?;
-    let pen = ink_layer(&request.plan, &on(Layer::Pen))?;
+    let marker = ink_layer(&request.plan, &on_layer(&request.strokes, Layer::Marker))?;
+    let pen = ink_layer(&request.plan, &on_layer(&request.strokes, Layer::Pen))?;
     let picture = compose(&request.plan, PAPER, marker.as_ref(), &code, pen.as_ref())?;
     let png = encode_png(picture.w, picture.h, &picture.to_straight())?;
     Ok(picture.into_image(request.plan.scale, png))
+}
+
+/// The strokes of `layer`.
+fn on_layer(strokes: &[Stroke], layer: Layer) -> Vec<&Stroke> {
+    strokes.iter().filter(|s| Layer::of(s.semantic) == layer).collect()
 }
 
 /// What the Thread is given.
