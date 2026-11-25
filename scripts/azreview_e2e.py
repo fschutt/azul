@@ -12,10 +12,29 @@
     4. a stroke drawn with the mouse on the first page is kept (`AZREVIEW_STROKES 1`) and the
        session is written on a Thread to review/src_lib.rs.azreview.zip (`AZREVIEW_SAVED ...`):
        a zip whose session.json holds the stroke;
-    5. Mod+S and the Save button write it again;
-    6. the gear opens azul-appkit's settings page, About the standard About box
-       (`AZREVIEW_ABOUT open`), Escape closes the box, Escape the page;
-    7. flora / dark: a screenshot (the chrome follows, the pages stay paper).
+    5. Mod+S and the Save button write it again; a meaning the marker cannot write (key 3) takes the
+       pen, key 1 the marker again; Mod+Z takes the stroke back (the archive is written again, now
+       without it) and Mod+Shift+Z brings it again; the record button mounts the microphone widget
+       while a clip records and unmounts it on stop; the files have an Open folder button;
+    6. the window names every control to a screen reader: azul prints no `[azul][a11y]` lint line;
+    7. the gear opens azul-appkit's settings page (AzReview's own Dictation section: which pointers
+       start a note, how long the pen rests, how long the quiet lasts; a choice is saved in
+       settings.json), About the standard About box (`AZREVIEW_ABOUT open`), Escape closes the box,
+       Escape the page;
+    8. flora / dark: a screenshot (the chrome follows, the pages stay paper);
+    9. the dictation, on a second AzReview (`--dwell-ms 400 --dwell-input any`: the mouse stands in
+       for the pen, whose state this driver cannot inject): the pointer resting on a page starts a
+       note that listens - a marker on the page, the note and the "listening" pill in the side
+       column. A libazul built with `test-hooks` hears `AZ_SPEECH_HEARD` (the fake speech backend, run
+       with AZ_LINK_PATH naming it so the script finds the marker): the words arrive in the column;
+       a stroke, the stop button, Escape, a second rest and the pointer moving away each end the
+       note; a tip held down without moving (contact dwell) starts one and lifting it in place
+       neither ends it nor cycles the nib; the note is saved in the archive and can be deleted.
+       Without the test hooks the real recogniser is asked and refuses (an unbundled binary has no
+       Info.plist): the message is told over the pages, the empty note is not kept, a second rest
+       starts nothing. No `[azul][a11y]` lint line may print in either run;
+   10. the restart: a second AzReview on the same folder and data folder gets the saved session back
+       when it opens the file (`AZREVIEW_LOADED 1 0`) and adds its next stroke to it.
 
 Run ONE app at a time, through the capped runner:
 
@@ -27,6 +46,8 @@ The debug-server client is the shared one (scripts/azlin_e2e.py).
 
 import json
 import os
+import re
+import time
 import zipfile
 
 import azlin_e2e as e2e
@@ -46,6 +67,14 @@ def fixture(root):
             f.write("pub fn step_%d(x: u32) -> u32 { x + %d }\n" % (i, i))
     with open(os.path.join(root, "README.md"), "w", encoding="utf-8") as f:
         f.write("# A folder to review\n\nTwo files.\n")
+
+
+def read_session(path):
+    try:
+        with zipfile.ZipFile(path) as z:
+            return json.loads(z.read("session.json").decode("utf-8"))
+    except (OSError, zipfile.BadZipFile, KeyError, ValueError):
+        return {}
 
 
 def saves(app):
@@ -79,6 +108,9 @@ def body(args, logs, out):
         if under["x"] >= flyout["x"] + flyout["width"]:
             raise Failure("the files lie beside the pages, not over them: flyout %s, strip %s"
                           % (flyout, under))
+
+        if not app.has_id("__azreview_open-folder"):
+            raise Failure("the files have no Open folder button")
 
         # Open lib.rs from the files.
         app.click(text="lib.rs")
@@ -122,9 +154,41 @@ def body(args, logs, out):
         app.click(selector="#__azreview_save")
         app.until("Save writes", lambda: len(saves(app)) > before)
 
+        # A meaning the marker cannot write (key 3, a question) takes the pen; scope (key 1) the marker again.
+        app.key("3")
+        app.until("the pen for a question", lambda: "pen" in app.texts())
+        app.key("1")
+        app.until("the marker for scope", lambda: "marker" in app.texts())
+
+        # Mod+Z takes the stroke back, Mod+Shift+Z brings it again; each is written to the archive.
+        app.key("z", primary=True)
+        app.until("the archive without the stroke",
+                  lambda: len(read_session(os.path.join(data_dir, ARCHIVE)).get("strokes", [])) == 0)
+        app.key("z", primary=True, shift=True)
+        app.until("the archive with the stroke again",
+                  lambda: len(read_session(os.path.join(data_dir, ARCHIVE)).get("strokes", [])) == 1)
+
+        # Record mounts the microphone widget (the clip's samples come from it) and stopping removes it.
+        app.click(selector="#__azreview_record")
+        app.until("the microphone mounted", lambda: app.has_id("__azreview_microphone", every_dom=True)
+                  or app.has_id("__azreview_microphone"))
+        app.click(selector="#__azreview_record")
+        app.until("the microphone gone", lambda: not app.has_id("__azreview_microphone"))
+
+        # The window's own controls name themselves to a screen reader (azul's lint says when not).
+        no_lint(app, "the review window")
+
         # Settings and About.
         app.click(selector="#__azreview_settings")
         app.until("the settings page", lambda: app.has_id("appkit-settings"))
+        # AzReview's own category comes first: Dictation.
+        for row in ("__azreview_setting-input", "__azreview_setting-rest", "__azreview_setting-quiet"):
+            app.until("the dictation setting %s" % row, lambda row=row: app.has_id(row))
+        app.click_within("#__azreview_setting-rest", "2 s")
+        settings_path = os.path.join(data_dir, "review", "settings.json")
+        app.until("the rest time saved",
+                  lambda: os.path.exists(settings_path) and '"dictation-rest-ms": "2000"' in open(settings_path).read())
+        app.screenshot(os.path.join(out, "3a-settings.png"))
         app.click(text="About")
         app.until("the About section", lambda: app.has_id("appkit-about-open"))
         app.click(selector="#appkit-about-open")
@@ -149,5 +213,216 @@ def body(args, logs, out):
     return True
 
 
+HEARD = "this loop is off by one"
+HOOKS_MARKER = b"AZLIN-BUILD-MARKER:test-hooks"
+
+
+def fake_speech():
+    """Whether the libazul the app loads has the test hooks (the fake speech backend)."""
+    found = e2e.libazul_candidates()
+    if not found:
+        return False
+    import mmap
+    with open(found[0], "rb") as lib:
+        with mmap.mmap(lib.fileno(), 0, access=mmap.ACCESS_READ) as data:
+            return data.find(HOOKS_MARKER) >= 0
+
+
+def no_lint(app, what):
+    """No `[azul][a11y]` or `[azul][a11y-shape]` lint line on the app's output."""
+    lines = []
+    for path in (app.out_path, app.err_path):
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                lines += [l for l in f.read().splitlines() if "[azul][a11y" in l]
+        except OSError:
+            pass
+    if lines:
+        raise Failure("%s: azul's accessibility lint printed: %s" % (what, lines[:3]))
+
+
+def dictation(args, logs, out, binary, fake):
+    data_dir = os.path.join(logs, "data-dictation")
+    folder = os.path.join(logs, "folder-dictation")
+    os.makedirs(data_dir, exist_ok=True)
+    fixture(folder)
+    extra = {"AZ_SPEECH_HEARD": HEARD} if fake else {}
+    app = e2e.App("review-dictation", binary,
+                  [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en",
+                   "--dwell-ms", "400", "--dwell-input", "any", "--silence-ms", "6000"],
+                  args.debug_port + 1, logs, args.timeout, extra_env=extra)
+    try:
+        app.until("AzReview's window", lambda: app.has_id(STRIP))
+        app.frame(2)
+        app.click(text="lib.rs")
+        app.until("the files folded away", lambda: not app.has_id(FLYOUT))
+        strip = app.rect(STRIP)
+        base = (strip["x"] + 160.0, strip["y"] + 140.0)
+
+        def rest_at(dx, dy, what, n):
+            """The pointer moves to a new spot and stays: a dictation starts there."""
+            x, y = base[0] + dx, base[1] + dy
+            app.must("mouse_move", x=x, y=y)
+            app.frame(1)
+            app.until(what, lambda: (app.frame(1), app.count("AZREVIEW_DICTATION", r"started %d" % n) > 0)[1])
+
+        def ended(n, cause):
+            app.until("dictation %d ended (%s)" % (n, cause),
+                      lambda: (app.frame(1), app.count("AZREVIEW_DICTATION", r"ended %d %s" % (n, cause)) > 0)[1])
+
+        # 1. A rest starts a note that listens.
+        rest_at(0.0, 0.0, "the first dictation to start", 1)
+        app.until("the side column", lambda: app.has_id("__azreview_notes"))
+        if fake:
+            app.until("the marker on the page", lambda: app.has_id("__azreview_marker-1", every_dom=True))
+            app.until("the words in the column", lambda: app.shows(HEARD))
+            app.until("the listening pill", lambda: app.has_id("__azreview_listening"))
+            app.until("the stop button", lambda: app.has_id("__azreview_dictation-stop"))
+            app.screenshot(os.path.join(out, "5-listening.png"))
+            # A stroke elsewhere on the page ends it.
+            app.must("mouse_move", x=base[0] + 200.0, y=base[1] + 100.0)
+            app.must("mouse_down", x=base[0] + 200.0, y=base[1] + 100.0)
+            for i in range(1, 8):
+                app.must("mouse_move", x=base[0] + 200.0 + i * 12.0, y=base[1] + 100.0 + i * 3.0)
+                app.frame(1)
+            app.must("mouse_up", x=base[0] + 200.0 + 84.0, y=base[1] + 121.0)
+            app.frame(2)
+            ended(1, "(?:moved|drew)")
+            app.until("the note editable", lambda: app.has_id("__azreview_note-text-1"))
+            app.screenshot(os.path.join(out, "6-note.png"))
+            path = os.path.join(data_dir, ARCHIVE)
+            app.until("the archive with the note", lambda: os.path.exists(path) and notes_in(path))
+            notes = notes_in(path)
+            if HEARD not in notes[0].get("text", ""):
+                raise Failure("the archive's note does not hold the words: %s" % notes[0])
+            if notes[0].get("page") != 0:
+                raise Failure("the note's page: %s" % notes[0])
+
+            # 2. The stop button.
+            rest_at(0.0, 260.0, "the second dictation to start", 2)
+            app.until("the stop button", lambda: app.has_id("__azreview_dictation-stop"))
+            app.click(selector="#__azreview_dictation-stop")
+            ended(2, "button")
+            # 3. Escape.
+            rest_at(0.0, 0.0, "the third dictation to start", 3)
+            app.key("escape")
+            ended(3, "key")
+            # 4. A second rest, a little way off: the second dwell.
+            rest_at(0.0, 100.0, "the fourth dictation to start", 4)
+            app.must("mouse_move", x=base[0] + 20.0, y=base[1] + 100.0)
+            app.frame(1)
+            ended(4, "second-dwell")
+            # 5. The pointer moving far away.
+            rest_at(0.0, 300.0, "the fifth dictation to start", 5)
+            app.must("mouse_move", x=base[0] + 400.0, y=base[1] + 300.0)
+            app.frame(2)
+            ended(5, "moved")
+            # The pointer stays where it moved to: that rest starts a sixth note by itself. Escape ends it.
+            app.until("the resting pointer's note", lambda: (app.frame(1), app.count("AZREVIEW_DICTATION", r"started 6") > 0)[1])
+            app.key("escape")
+            ended(6, "key")
+            # 6. Contact dwell: the tip stays down without moving after the move - a note starts; lifting it
+            #    in place neither ends it nor changes the nib (a tap would cycle the nib).
+            x, y = base[0] + 300.0, base[1] + 420.0
+            app.must("mouse_move", x=x, y=y)
+            app.must("mouse_down", x=x, y=y)
+            app.until("the contact dwell's note", lambda: (app.frame(1), app.count("AZREVIEW_DICTATION", r"started 7") > 0)[1])
+            app.must("mouse_up", x=x, y=y)
+            app.frame(3)
+            if "marker" not in app.texts():
+                raise Failure("lifting the tip in place after a contact dwell cycled the nib: %s" % [t for t in app.texts() if t in ("marker", "pen", "audio pen")])
+            if app.count("AZREVIEW_DICTATION", r"ended 7 .*") > 0:
+                raise Failure("lifting the tip in place ended the contact dwell's note")
+            app.key("escape")
+            ended(7, "key")
+            # The notes: five cards (each said something), all editable.
+            app.until("five notes", lambda: all(app.has_id("__azreview_note-%d" % i) for i in (1, 2, 3, 4, 5)))
+            # Delete one with its button.
+            app.click(selector="#__azreview_note-delete-5")
+            app.until("the note gone", lambda: not app.has_id("__azreview_note-5"))
+            app.screenshot(os.path.join(out, "7-notes.png"))
+        else:
+            # The real recogniser refuses (the binary has no Info.plist, or no microphone is there):
+            # the user is told over the pages, and the empty note is not kept.
+            app.until("the refusal line", lambda: app.count("AZREVIEW_DICTATION", r"refused .*") > 0)
+            ended(1, "failed")
+            app.until("the refusal told over the pages",
+                      lambda: app.shows("Dictation") or app.shows("speech recognition"))
+            if app.has_id("__azreview_note-1"):
+                raise Failure("a note that heard nothing was kept")
+            # No recogniser at all: it cannot change before the next start, so a second rest starts nothing
+            # (it says so again over the pages) instead of asking the system once more.
+            app.must("mouse_move", x=base[0] + 300.0, y=base[1] + 300.0)
+            app.frame(1)
+            time.sleep(1.2)
+            app.frame(2)
+            if app.count("AZREVIEW_DICTATION", r"started 2") > 0:
+                raise Failure("a rest started a dictation although the recogniser is unavailable")
+            app.screenshot(os.path.join(out, "5-refused.png"))
+        no_lint(app, "the dictation run")
+    except Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
+        raise
+    finally:
+        app.stop()
+    app.log("PASS: dictation (%s)" % ("fake speech: words, stroke, stop, Escape, second rest, moving away, saved"
+                                       if fake else "the real recogniser refused, and said so"))
+
+
+def restore(args, logs, out, binary):
+    """A second AzReview on the folder and the data folder of the first: the saved session comes back
+    when its file is opened (`AZREVIEW_LOADED 1 0`: the stroke), and a stroke drawn now is added to it -
+    the archive is not written over (the first launch after a session used to lose it)."""
+    data_dir = os.path.join(logs, "data")
+    folder = os.path.join(logs, "folder")
+    path = os.path.join(data_dir, ARCHIVE)
+    before = len(read_session(path).get("strokes", []))
+    if before != 1:
+        raise Failure("the first run left %d stroke(s) in its archive, expected 1" % before)
+    app = e2e.App("review-restore", binary,
+                  [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en",
+                   "--dwell-input", "off"],
+                  args.debug_port + 2, logs, args.timeout)
+    try:
+        app.until("AzReview's window", lambda: app.has_id(STRIP))
+        app.frame(2)
+        app.click(text="lib.rs")
+        app.until("the files folded away", lambda: not app.has_id(FLYOUT))
+        app.until("the saved session back", lambda: app.count("AZREVIEW_LOADED", r"1 0") > 0)
+        strip = app.rect(STRIP)
+        x0, y0 = strip["x"] + 200.0, strip["y"] + 220.0
+        app.must("mouse_move", x=x0, y=y0)
+        app.must("mouse_down", x=x0, y=y0)
+        for i in range(1, 12):
+            app.must("mouse_move", x=x0 + i * 14.0, y=y0 + (i % 4) * 3.0)
+            app.frame(1)
+        app.must("mouse_up", x=x0 + 12 * 14.0, y=y0)
+        app.frame(2)
+        app.until("the archive with both strokes", lambda: len(read_session(path).get("strokes", [])) == 2)
+        ids = [st["id"] for st in read_session(path)["strokes"]]
+        if len(set(ids)) != len(ids):
+            raise Failure("the two strokes share an id: %s" % ids)
+        no_lint(app, "the restored session")
+    except Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
+        raise
+    finally:
+        app.stop()
+    app.log("PASS: the saved session came back and a new stroke was added to it (ids %s)" % ids)
+
+
+def notes_in(path):
+    with zipfile.ZipFile(path) as z:
+        return json.loads(z.read("session.json").decode("utf-8")).get("notes", [])
+
+
+def run_all(args, logs, out):
+    binary = e2e.find_binary("AzReview", args.bin, "AZREVIEW_BIN")
+    body(args, logs, out)
+    dictation(args, logs, out, binary, fake_speech())
+    restore(args, logs, out, binary)
+    return True
+
+
 if __name__ == "__main__":
-    e2e.run(TAG, body, default_port=8776)
+    e2e.run(TAG, run_all, default_port=8776)
