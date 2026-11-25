@@ -293,7 +293,8 @@ use getrandom as _;
 // (`az_desktop`, see build.rs): not for link-dynamic, nor the `engine` profile
 #[cfg(az_desktop)]
 pub mod desktop;
-#[cfg(feature = "web-e2e-runner")]
+// It takes the app's `ShellSettings` (the desktop module's), so it exists where the desktop does.
+#[cfg(all(feature = "web-e2e-runner", az_desktop))]
 pub mod e2e_web_runner;
 
 // The one reader of the process environment: `ProcessEnv`, an `azul_css::env::EnvSource`.

@@ -99,8 +99,8 @@ mod windows;
 #[cfg(test)]
 mod platform_invariants;
 
-/// Set by the headless run loop (`AZ_BACKEND=headless`): no notification is
-/// shown, every post is RECORDED for tests and `assert_notification`.
+/// Set by `App::create` when `AZ_BACKEND=headless` asked for it, and by the headless run loop:
+/// no notification is shown, every post is RECORDED for tests and `assert_notification`.
 static HEADLESS: AtomicBool = AtomicBool::new(false);
 
 /// Why a target without a backend cannot show a notification.
@@ -785,17 +785,29 @@ fn cap(available: bool, backend: String, reason: String) -> PlatformCapability {
     }
 }
 
+/// Whether the process asks for the headless backend (`AZ_BACKEND=headless`), read now through the
+/// one process reader: the one question put to the process outside an app's settings, for an app
+/// that probes before `App::create` has read its environment. A probe after it is answered by the
+/// switch `App::create` set.
+fn headless_asked_of_the_process() -> bool {
+    let shell = crate::desktop::shell_settings::ShellSettings::from_lookup(
+        &crate::env::ProcessEnv::new(),
+    );
+    crate::desktop::shell2::common::compositor::AzBackend::headless_selected_by(
+        shell.backend.as_deref(),
+    )
+}
+
 /// `PlatformCapability::notifications()`: can this process show a native
 /// notification, through which backend, and if not, why. Non-destructive: it
 /// never starts the backend (on macOS it must not even touch
 /// `UNUserNotificationCenter` before the bundle check has passed).
 #[must_use]
 pub fn probe() -> PlatformCapability {
-    // `AZ_BACKEND=headless`, asked before the run loop set the switch: an app
-    // probes while it builds its state, before `App::run` (AzClock).
-    if HEADLESS.load(Ordering::Relaxed)
-        || crate::desktop::shell2::common::compositor::AzBackend::headless_selected()
-    {
+    // `AZ_BACKEND=headless`: `App::create` sets the switch from the app's settings. An app that
+    // probes while it builds its state - BEFORE `App::create`, when there are no settings yet
+    // (AzClock's `ClockApp::new`) - is told by the process itself (`headless_asked_of_the_process`).
+    if HEADLESS.load(Ordering::Relaxed) || headless_asked_of_the_process() {
         return cap(
             false,
             "headless (recorded)".to_string(),

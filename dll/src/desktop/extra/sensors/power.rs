@@ -60,8 +60,10 @@ impl PowerState {
     #[must_use]
     pub fn query() -> PowerState {
         if super::headless_run() {
-            let path = std::env::var_os(super::battery::BATTERY_STATE_FILE_VAR);
-            return power_of_battery_file(path.as_deref().map(std::path::Path::new));
+            let hooks = azul_core::run_mode::test_hooks();
+            return power_of_battery_file(
+                hooks.battery_state_file.as_deref().map(std::path::Path::new),
+            );
         }
         let (on_mains, idle_secs) = platform::read();
         PowerState {
@@ -541,10 +543,14 @@ mod platform {
     /// The X11 session's idle time; `None` in a Wayland session (see the module docs) and
     /// without an X display or the extension.
     fn idle_secs() -> Option<u64> {
-        if std::env::var_os("WAYLAND_DISPLAY").is_some()
-            || std::env::var("XDG_SESSION_TYPE").as_deref() == Ok("wayland")
-            || std::env::var_os("DISPLAY").is_none()
-        {
+        // `PowerState::query` is a public C-ABI function a host calls with no window and no app in
+        // reach: the session is read through the one process reader (`PlatformEnv::of_process`).
+        idle_secs_of(&crate::desktop::platform_settings::PlatformEnv::of_process())
+    }
+
+    /// [`idle_secs`] for the session `env` describes.
+    fn idle_secs_of(env: &crate::desktop::platform_settings::PlatformEnv) -> Option<u64> {
+        if !env.is_x11_session() {
             return None;
         }
         let x = xss()?;

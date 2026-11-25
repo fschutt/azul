@@ -35,8 +35,13 @@
 #[cfg(feature = "std")]
 use std::{
     collections::{BTreeSet, VecDeque},
-    sync::Mutex,
+    sync::{Mutex, OnceLock},
 };
+
+use crate::settings::DiagSettings;
+
+/// The dials of an environment that asked for nothing.
+static NO_SETTINGS: DiagSettings = DiagSettings::new();
 
 /// Most diagnostics retained. Older ones are dropped.
 #[cfg(feature = "std")]
@@ -127,6 +132,9 @@ pub struct Diagnostics {
     once: Mutex<OnceKeys>,
     /// What the tests that share this recorder take ([`Self::test_lock`]).
     test_lock: Mutex<()>,
+    /// The dials of the environment ([`DiagSettings`]): installed once at the start, then only
+    /// read; nothing silenced and no trace until then.
+    settings: OnceLock<DiagSettings>,
 }
 
 #[cfg(feature = "std")]
@@ -150,7 +158,21 @@ impl Diagnostics {
                 capped: false,
             }),
             test_lock: Mutex::new(()),
+            settings: OnceLock::new(),
         }
+    }
+
+    /// Installs the dials of the environment; the first install wins, so what is silenced never
+    /// changes while a process runs.
+    pub fn install_settings(&self, settings: DiagSettings) {
+        drop(self.settings.set(settings));
+    }
+
+    /// The dials of the environment: [`DiagSettings::new`] (nothing silenced, no trace) until
+    /// they were installed.
+    #[must_use]
+    pub fn settings(&self) -> &DiagSettings {
+        self.settings.get().unwrap_or(&NO_SETTINGS)
     }
 
     /// Route diagnostics somewhere other than stderr.
@@ -379,6 +401,33 @@ pub fn test_lock() -> &'static Mutex<()> {
 #[cfg(feature = "std")]
 pub fn clear() {
     PROCESS.clear();
+}
+
+/// Installs the diagnostic dials of the process's environment, once at the start.
+///
+/// That is [`DiagSettings::from_lookup`]; the first install wins.
+#[cfg(feature = "std")]
+pub fn install_settings(settings: DiagSettings) {
+    PROCESS.install_settings(settings);
+}
+
+/// The diagnostic dials of the process: what was installed ([`install_settings`]), nothing
+/// silenced and no trace before that.
+#[cfg(feature = "std")]
+#[must_use]
+pub fn settings() -> &'static DiagSettings {
+    PROCESS.settings()
+}
+
+/// `no_std` builds have no environment: the dials of an empty one.
+#[cfg(not(feature = "std"))]
+pub fn install_settings(_settings: DiagSettings) {}
+
+/// `no_std` builds have no environment: the dials of an empty one.
+#[cfg(not(feature = "std"))]
+#[must_use]
+pub fn settings() -> &'static DiagSettings {
+    &NO_SETTINGS
 }
 
 #[cfg(not(feature = "std"))]

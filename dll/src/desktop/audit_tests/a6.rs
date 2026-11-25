@@ -231,9 +231,11 @@ mod macos_cursor {
         let set = body.find("cursor.set();").expect("the cursor is set");
         let before_set = &body[..set];
         assert!(before_set.contains("NSCursor::currentCursor()"));
-        assert!(before_set.contains("!cursor_is_set_on_every_call()"));
+        assert!(before_set.contains("!self.cursor_is_set_on_every_call()"));
         assert!(before_set.contains("return;"));
-        assert!(MACOS_RS.contains("\"AZ_CURSOR_SET_ALWAYS\""));
+        // the switch's name is the settings file's (`ShellSettings::cursor_set_always`)
+        assert!(include_str!("../shell_settings.rs").contains("\"AZ_CURSOR_SET_ALWAYS\""));
+        assert!(MACOS_RS.contains("self.shell_settings().cursor_set_always"));
     }
 }
 
@@ -260,7 +262,7 @@ mod one_hit_tester {
 
         let request = MACOS_RS.find(".request_hit_tester(").expect("the request is kept");
         let before = &MACOS_RS[..request];
-        let switch = before.rfind("AZ_WR_HIT_TESTER").expect("behind the switch");
+        let switch = before.rfind("webrender.hit_tester").expect("behind the switch");
         assert!(request - switch < 400, "the request follows its switch");
         assert_eq!(MACOS_RS.matches(".request_hit_tester(").count(), 1);
     }

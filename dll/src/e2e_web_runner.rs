@@ -69,17 +69,18 @@ fn extract_bundle() -> Result<std::path::PathBuf, String> {
     Ok(dir)
 }
 
-/// Probe order mirrors ubiquity; each candidate must answer `--version`.
-fn pick_runtime() -> Option<(String, Vec<String>)> {
-    if let Ok(rt) = std::env::var("AZ_E2E_RUNTIME") {
-        if !rt.is_empty() {
-            let extra = if rt.contains("deno") {
-                vec!["run".into(), "-A".into()]
-            } else {
-                vec![]
-            };
-            return Some((rt, extra));
-        }
+/// Probe order mirrors ubiquity; each candidate must answer `--version`. `AZ_E2E_RUNTIME`
+/// (`ShellSettings::e2e_runtime`) names the runtime instead.
+fn pick_runtime(
+    shell: &crate::desktop::shell_settings::ShellSettings,
+) -> Option<(String, Vec<String>)> {
+    if let Some(rt) = shell.e2e_runtime.clone() {
+        let extra = if rt.contains("deno") {
+            vec!["run".into(), "-A".into()]
+        } else {
+            vec![]
+        };
+        return Some((rt, extra));
     }
     for (cand, extra) in [
         ("node", vec![]),
@@ -104,12 +105,11 @@ fn pick_runtime() -> Option<(String, Vec<String>)> {
 /// harness against that URL and EXIT with its status. Returns (does
 /// nothing) in every other configuration — including the desktop
 /// `AZ_BACKEND=headless` runner, which keeps its existing path.
-pub fn maybe_run_and_exit() {
-    let e2e = match std::env::var("AZ_E2E") {
-        Ok(v) if !v.is_empty() => v,
-        _ => return,
+pub fn maybe_run_and_exit(shell: &crate::desktop::shell_settings::ShellSettings) {
+    let Some(e2e) = shell.e2e_script.clone() else {
+        return;
     };
-    let backend = std::env::var("AZ_BACKEND").unwrap_or_default();
+    let backend = shell.backend.clone().unwrap_or_default();
     if !(backend.starts_with("http://") || backend.starts_with("https://")) {
         return;
     }
@@ -121,7 +121,7 @@ pub fn maybe_run_and_exit() {
             std::process::exit(2);
         }
     };
-    let Some((rt, extra)) = pick_runtime() else {
+    let Some((rt, extra)) = pick_runtime(shell) else {
         eprintln!(
             "error: no JS runtime found for the web-e2e executor — install node, bun, or deno (or \
              set AZ_E2E_RUNTIME to a binary path)."

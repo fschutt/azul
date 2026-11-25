@@ -460,7 +460,7 @@ impl Win32Window {
                 .map(|r| r.hw_accel)
                 .or(Some(options.window_state.renderer_options.hw_accel));
             !matches!(
-                AzBackend::resolve(hw_accel),
+                AzBackend::resolve(app_shared.settings().shell.backend.as_deref(), hw_accel),
                 AzBackend::Cpu | AzBackend::Headless
             )
         };
@@ -1320,7 +1320,7 @@ impl Win32Window {
                             // — not yet run on real Windows.
                             let native_pw = (width * dpi).ceil() as i32;
                             let native_ph = (height * dpi).ceil() as i32;
-                            if crate::desktop::shell2::headless::native_backbuffer_enabled()
+                            if self.common.app.settings().shell.native_backbuffer
                                 && NATIVE_DIB_SUPPORTED.load(core::sync::atomic::Ordering::Relaxed)
                                 && native_pw > 0
                                 && native_ph > 0
@@ -1665,7 +1665,7 @@ impl Win32Window {
             }
 
             // CI testing
-            if std::env::var("AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
+            if self.common.app.settings().shell.exit_after_first_frame {
                 std::process::exit(0);
             }
 
@@ -1909,7 +1909,7 @@ impl Win32Window {
             }
 
             // CI testing
-            if std::env::var("AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
+            if self.common.app.settings().shell.exit_after_first_frame {
                 std::process::exit(0);
             }
 
@@ -1930,7 +1930,9 @@ impl Win32Window {
         let layout_window = borrows.layout_window.ok_or("No layout window")?;
 
         // Collect debug messages if debug server is enabled
-        let debug_enabled = crate::desktop::shell2::common::debug_server::layout_trace_enabled();
+        let debug_enabled = crate::desktop::shell2::common::debug_server::layout_trace_enabled(
+            &borrows.settings.shell,
+        );
         let mut debug_messages = if debug_enabled {
             Some(Vec::new())
         } else {
@@ -1950,6 +1952,7 @@ impl Win32Window {
             &self.icon_provider,
             &mut debug_messages,
             relayout_reason,
+            borrows.settings,
         )?;
 
         // Forward layout debug messages to the debug server's log queue
@@ -7081,6 +7084,7 @@ unsafe extern "system" fn window_proc(
             let held_language = window.common.system_style.language.clone();
             let new_style = std::sync::Arc::new(crate::desktop::app::discover_system_style(
                 core::slice::from_ref(&held_language),
+                &window.common.app.settings().platform,
             ));
             let desktop_theme = new_style.mode;
             // The DESKTOP's light / dark: the window takes it only while the

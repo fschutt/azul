@@ -22,6 +22,8 @@
 use azul_core::icon::IconProviderHandle;
 use azul_css::{props::basic::color::ColorU, system::SystemStyle};
 
+use crate::desktop::platform_settings::PlatformEnv;
+
 /// The icons worth having: every one is a shape a widget draws today.
 ///
 /// Kept small on purpose — this runs on the startup path, and each entry is a
@@ -64,8 +66,7 @@ const WANTED: &[&str] = &[
 const SCALABLE_NOMINAL_PX: u32 = 16;
 
 /// Every directory an icon may live in, paired with its NOMINAL size.
-fn icon_theme_dirs(theme: &str) -> Vec<(String, u32)> {
-    let home = std::env::var("HOME").unwrap_or_default();
+fn icon_theme_dirs(theme: &str, home: &str) -> Vec<(String, u32)> {
     let mut out = Vec::new();
     for root in [
         alloc::format!("{home}/.local/share/icons"),
@@ -137,7 +138,7 @@ fn icon_name_aliases(name: &str) -> &'static [&'static str] {
 /// The file's bytes, the directory's nominal pixel size, and whether it came
 /// out of a SYMBOLIC tree - which decides whether its placeholder foreground
 /// is substituted (see [`recolour_symbolic_palette`]).
-fn read_icon_svg(theme: &str, name: &str) -> Option<(Vec<u8>, u32, bool)> {
+fn read_icon_svg(theme: &str, name: &str, home: &str) -> Option<(Vec<u8>, u32, bool)> {
     // The WHOLE inheritance chain, not one level. Mint-Y-Sand inherits
     // `Mint-Y,Adwaita,gnome,hicolor` and ships no `actions` icons of its own,
     // so stopping at the first parent stopped exactly one theme short of the
@@ -153,7 +154,7 @@ fn read_icon_svg(theme: &str, name: &str) -> Option<(Vec<u8>, u32, bool)> {
     while cursor < chain.len() && chain.len() < 16 {
         let step = chain[cursor].clone();
         cursor += 1;
-        for parent in icon_theme_parents(&step) {
+        for parent in icon_theme_parents(&step, home) {
             let key = parent.to_ascii_lowercase();
             if seen.contains(&key) {
                 continue;
@@ -168,7 +169,7 @@ fn read_icon_svg(theme: &str, name: &str) -> Option<(Vec<u8>, u32, bool)> {
     // has `object-select`.
     for candidate in core::iter::once(name).chain(icon_name_aliases(name).iter().copied()) {
         for step in &chain {
-            for (dir, nominal) in icon_theme_dirs(step) {
+            for (dir, nominal) in icon_theme_dirs(step, home) {
                 // `foo-symbolic.svg` is how the symbolic trees spell `foo`, and
                 // a symbolic icon is the one meant for exactly this job: a
                 // small, single-colour UI indicator that takes the desktop's
@@ -194,8 +195,7 @@ fn read_icon_svg(theme: &str, name: &str) -> Option<(Vec<u8>, u32, bool)> {
 }
 
 /// Every entry of a theme's `Inherits=` line, in order.
-fn icon_theme_parents(theme: &str) -> Vec<String> {
-    let home = std::env::var("HOME").unwrap_or_default();
+fn icon_theme_parents(theme: &str, home: &str) -> Vec<String> {
     for root in [
         alloc::format!("{home}/.local/share/icons"),
         alloc::format!("{home}/.icons"),
@@ -221,8 +221,7 @@ fn icon_theme_parents(theme: &str) -> Vec<String> {
 
 /// The first entry of a theme's `Inherits=` line, if it has one.
 #[allow(dead_code)]
-fn icon_theme_parent(theme: &str) -> Option<String> {
-    let home = std::env::var("HOME").unwrap_or_default();
+fn icon_theme_parent(theme: &str, home: &str) -> Option<String> {
     for root in [
         alloc::format!("{home}/.local/share/icons"),
         "/usr/share/icons".to_string(),
@@ -556,7 +555,11 @@ fn element_with_id(text: &str, id: &str) -> Option<String> {
 /// Best-effort by design: a session with no icon theme, a theme that ships no
 /// SVGs, or a build without the rasteriser simply registers nothing, and every
 /// caller keeps the glyph fallback it already had.
-pub fn register_system_icons(provider: &mut IconProviderHandle, style: &SystemStyle) {
+pub fn register_system_icons(
+    provider: &mut IconProviderHandle,
+    style: &SystemStyle,
+    env: &PlatformEnv,
+) {
     let Some(theme) = style.linux.icon_theme.as_option() else {
         return;
     };
@@ -568,7 +571,7 @@ pub fn register_system_icons(provider: &mut IconProviderHandle, style: &SystemSt
         .into_option()
         .unwrap_or(ColorU::new_rgb(0, 0, 0));
 
-    let (icons, from_cache) = rendered_icons(theme, tint);
+    let (icons, from_cache) = rendered_icons(theme, tint, env.home().unwrap_or_default());
     let mut registered = 0usize;
     for (name, markup) in icons {
         let Some(dom) = icon_dom(&markup) else {
@@ -600,6 +603,7 @@ pub fn register_system_icons(provider: &mut IconProviderHandle, style: &SystemSt
 pub(crate) fn refresh_system_icons(
     provider: &azul_core::icon::SharedIconProvider,
     style: &SystemStyle,
+    env: &PlatformEnv,
 ) {
     let Some(theme) = style.linux.icon_theme.as_option() else {
         return;
@@ -609,7 +613,8 @@ pub(crate) fn refresh_system_icons(
         .text
         .into_option()
         .unwrap_or(ColorU::new_rgb(0, 0, 0));
-    let (icons, from_cache) = rendered_icons(theme.as_str(), tint);
+    let (icons, from_cache) =
+        rendered_icons(theme.as_str(), tint, env.home().unwrap_or_default());
     if from_cache {
         // Same theme AND same tint: what is registered is already right, and
         // re-registering would only flush the resolution cache for nothing.
@@ -656,7 +661,7 @@ type PreparedIcon = (String, String);
 /// `WANTED.len()`. A switch BACK to the previous theme re-renders rather than
 /// serving a stale entry - the cache holds one theme, which is the only one
 /// that can be on screen.
-fn rendered_icons(theme: &str, tint: ColorU) -> (Vec<PreparedIcon>, bool) {
+fn rendered_icons(theme: &str, tint: ColorU, home: &str) -> (Vec<PreparedIcon>, bool) {
     use std::sync::Mutex;
 
     type Key = (String, [u8; 4]);
@@ -688,7 +693,7 @@ fn rendered_icons(theme: &str, tint: ColorU) -> (Vec<PreparedIcon>, bool) {
     .unwrap_or_else(|_| titlebar_close_glyph(tint));
     let mut out: Vec<PreparedIcon> = vec![("titlebar-close".to_string(), close_glyph)];
     for name in WANTED {
-        let Some((svg, _nominal_px, symbolic)) = read_icon_svg(theme, name) else {
+        let Some((svg, _nominal_px, symbolic)) = read_icon_svg(theme, name, home) else {
             continue;
         };
         // A symbolic icon's `#bebebe` is a PLACEHOLDER, not a colour, so it is
@@ -991,7 +996,7 @@ mod tests {
         // `currentColor` never resolved, and the close button painted nothing
         // while this test stayed green. Read the registered markup instead, so
         // the premise is the shipped one.
-        let (icons, _) = rendered_icons("definitely-not-a-real-theme", TINT);
+        let (icons, _) = rendered_icons("definitely-not-a-real-theme", TINT, "/nonexistent-home");
         let (_, registered) = icons
             .iter()
             .find(|(name, _)| name == "titlebar-close")
@@ -1012,7 +1017,7 @@ mod tests {
     /// stays reachable for the decorative uses that want it.
     #[test]
     fn the_titlebar_glyph_is_registered_beside_the_theme_icons() {
-        let (icons, _) = rendered_icons("definitely-not-a-real-theme", TINT);
+        let (icons, _) = rendered_icons("definitely-not-a-real-theme", TINT, "/nonexistent-home");
         assert!(
             icons.iter().any(|(name, _)| name == "titlebar-close"),
             "even a session with no icon theme at all gets the window control"
@@ -1038,7 +1043,7 @@ mod tests {
     /// user themes before system ones — a user override must win.
     #[test]
     fn the_search_path_prefers_user_themes_and_covers_the_size_dirs() {
-        let dirs = icon_theme_dirs("breeze-dark");
+        let dirs = icon_theme_dirs("breeze-dark", "/home/user");
         assert!(dirs
             .iter()
             .any(|(d, _)| d.ends_with("/breeze-dark/actions/16")));
@@ -1057,7 +1062,7 @@ mod tests {
     /// the icon provider or the icon lays out at its oversampled bitmap size.
     #[test]
     fn every_size_directory_reports_the_size_it_is_named_after() {
-        for (dir, nominal) in icon_theme_dirs("breeze") {
+        for (dir, nominal) in icon_theme_dirs("breeze", "/home/user") {
             // Both nestings are searched - `{theme}/actions/16` (Breeze) and
             // `{theme}/16x16/actions` (Adwaita) - so the SIZE segment is
             // whichever of the last two is not the category.
@@ -1112,7 +1117,7 @@ mod tests {
     /// layout found nothing on a Mint desktop.
     #[test]
     fn the_search_covers_both_directory_nestings_and_the_symbolic_trees() {
-        let dirs: Vec<String> = icon_theme_dirs("Mint-Y")
+        let dirs: Vec<String> = icon_theme_dirs("Mint-Y", "/home/user")
             .into_iter()
             .map(|(d, _)| d)
             .collect();

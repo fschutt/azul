@@ -102,6 +102,11 @@ pub mod debug;
 pub mod db;
 /// Unified `AZ_PROFILE` gate for memory and CPU profiling instrumentation.
 pub mod profile;
+/// What the environment asks of azul-core, as settings.
+///
+/// `AZ_LOG`, `AZ_PROFILE`, `AZ_SUPPRESS`, `AZ_TEXT_AA` and more, built from an
+/// `azul_css::env::EnvSource`: this crate reads no environment itself.
+pub mod settings;
 /// [`work_count::WorkCount`]: a count of the work a struct did, kept in the struct and read from it.
 pub mod work_count;
 /// `no_std`-friendly synchronization primitives.

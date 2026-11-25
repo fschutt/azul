@@ -119,46 +119,10 @@ const ALLOWED: &[Allow] = &[
     Allow::exactly(
         "dll/src/desktop/shell_settings.rs",
         READ,
-        1,
+        2,
         "ShellSettings::from_lookup: the one place of the dll that names AZ_BACKEND (the windowing \
-         and rendering choice); the shells read the field",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/common/compositor.rs",
-        READ,
-        2,
-        "AzBackend::resolve: cpu, gpu, auto, headless, web",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/common/e2e_test.rs",
-        READ,
-        1,
-        "the scenario runner reads its own AZ_E2E_TEST (cargo feature e2e-test)",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/common/x11_host.rs",
-        READ,
-        1,
-        "the windowing choice on Linux (x11, wayland)",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/linux/mod.rs",
-        READ,
-        2,
-        "the windowing choice on Linux (x11, wayland)",
-    ),
-    Allow::exactly(
-        "dll/src/desktop/shell2/run.rs",
-        READ,
-        4,
-        "logs AZ_BACKEND at the run entry of each platform, and the table of switches that need a \
-         cargo feature (no read)",
-    ),
-    Allow::exactly(
-        "dll/src/e2e_web_runner.rs",
-        READ,
-        1,
-        "the embedded web-e2e executor: AZ_BACKEND=<http url> turns the binary into the runner",
+         and rendering choice) and AZ_E2E_TEST (the scenario runner's file, and the table of \
+         knobs that need a cargo feature); the shells read the fields",
     ),
 ];
 

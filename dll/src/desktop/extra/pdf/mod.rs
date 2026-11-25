@@ -835,7 +835,11 @@ mod engine {
         // to `return Ok(..)`/`return Err(..)` from a `-> Vec<u8>` function,
         // which broke every `pdf`-feature build including CI's `build-dll`
         // check; the token path had simply never been compiled.)
-        let tokens_requested = std::env::var("AZ_PAGINATION_ENGINE").as_deref() == Ok("tokens");
+        // `Pdf::from_dom` and its siblings are public C-ABI entry points a host calls with no
+        // window and no app in reach: the choice is read once per export, through the one
+        // process reader (`ExtraSettings::of_process`).
+        let tokens_requested = crate::desktop::extra::extra_settings::ExtraSettings::of_process()
+            .pagination_tokens;
         let tokenized: Option<Vec<azul_layout::solver3::display_list::DisplayList>> =
             if tokens_requested {
                 let mut dbg2 = None;

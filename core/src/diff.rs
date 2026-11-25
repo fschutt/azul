@@ -1814,34 +1814,31 @@ const IMAGE_CHURN_PER_SEC: u32 = 10;
 /// observe.
 #[derive(Debug, Default, Clone)]
 pub struct ImageChurn {
-    /// By node index: `(count, window_start, warned)`.
-    #[cfg(feature = "std")]
+    /// By node index: `(count, window_start, warned)`. The clock is `std::time::Instant`, which
+    /// panics where there is no system clock (wasm32), so the detector is absent there.
+    #[cfg(all(feature = "std", not(target_arch = "wasm32")))]
     nodes: BTreeMap<usize, (u32, std::time::Instant, bool)>,
 }
 
 impl ImageChurn {
     /// How many times this node has re-initialised inside the current window.
-    #[cfg(all(feature = "std", test))]
+    #[cfg(all(feature = "std", not(target_arch = "wasm32"), test))]
     pub(crate) fn count(&self, node_index: usize) -> u32 {
         self.nodes.get(&node_index).map_or(0, |entry| entry.0)
     }
 
     /// Notes that the image of node `node_index` re-initialised, and says so once it does at
     /// frame rate. `carried`: the previous frame was carried forward.
-    #[cfg(feature = "std")]
+    #[cfg(all(feature = "std", not(target_arch = "wasm32")))]
     fn note(&mut self, node_index: usize, carried: bool) {
-        use std::{sync::OnceLock, time::Instant};
+        use std::time::Instant;
 
-        // The environment's `AZ_SUPPRESS`, read once: it is the configuration of the process, as
-        // it is for every lint.
-        static SUPPRESSED: OnceLock<bool> = OnceLock::new();
-        if *SUPPRESSED.get_or_init(|| {
-            let v = std::env::var("AZ_SUPPRESS")
-                .or_else(|_| std::env::var("AZ_SUPRESS"))
-                .unwrap_or_default();
-            v.split(',')
-                .any(|t| t.trim().eq_ignore_ascii_case(IMAGE_CHURN_SUPPRESS_TAG))
-        }) {
+        // The environment's `AZ_SUPPRESS` (installed once at the start): it is the configuration
+        // of the process, as it is for every lint.
+        if crate::diagnostics::settings()
+            .suppress
+            .contains(IMAGE_CHURN_SUPPRESS_TAG)
+        {
             return;
         }
 
@@ -1886,7 +1883,7 @@ impl ImageChurn {
         }
     }
 
-    #[cfg(not(feature = "std"))]
+    #[cfg(not(all(feature = "std", not(target_arch = "wasm32"))))]
     fn note(&mut self, _node_index: usize, _carried: bool) {}
 }
 

@@ -109,7 +109,10 @@ impl Drop for App {
 
 impl Default for App {
     fn default() -> Self {
-        Self::create(RefAny::new(()), AppConfig::default())
+        // The config of the C API's `AppConfig::create`: the default text anti-aliasing is the
+        // one the environment asks for (`AZ_TEXT_AA`, ...), as it was when `AppConfig::default()`
+        // read it itself.
+        Self::create(RefAny::new(()), crate::env::app_config_create())
     }
 }
 
@@ -157,6 +160,31 @@ impl App {
         // the process again; the libraries read no environment themselves.
         let env = crate::env::ProcessEnv::new();
         let settings = AppSettings::from_lookup(&env);
+        // What azul-css and azul-core ask of it (the theme and mode pins, the log filter, the
+        // profiling gate, the diagnostic dials, the test hooks) is installed where their
+        // context-free code finds it, before the first log record and before the system style is
+        // discovered. The first install of a process wins.
+        settings.install_libraries();
+        // The end user's rice (`~/.azul/css/<theme>/*.css` and the legacy per-app file,
+        // `azul_css::rice`), in the `AZ_RICING` mode, with the real home directory: installed
+        // HERE (a test or a tool that never creates an App never reads it), and before the system
+        // style is discovered, which asks the mode. Each window loads the rice of its app theme
+        // when it first styles its DOM.
+        azul_css::rice::install(
+            azul_css::rice::RiceEnv::from_lookup(&env),
+            settings.css.ricing,
+        );
+
+        // `AZ_BACKEND=headless` is known before `App::run` starts the headless loop, for what an
+        // app asks while it builds its state (`PlatformCapability::notifications()`).
+        if crate::desktop::shell2::common::compositor::AzBackend::headless_selected_by(
+            settings.shell.backend.as_deref(),
+        ) {
+            crate::desktop::notifications::use_headless_backend();
+        }
+
+        // What the log gate is told (the stderr copy, the log file) before the first record.
+        crate::desktop::shell2::common::log_gate::install(&settings.shell);
 
         // Initialize AZ_RECORD file logging before anything else
         debug_server::init_recording();
@@ -167,7 +195,7 @@ impl App {
         // like a silent quit. Doing it here means it is live before any window,
         // event-loop or font work runs. No-op if the host already set a logger.
         #[cfg(feature = "logging")]
-        crate::desktop::logging::init_default_logger();
+        crate::desktop::logging::init_default_logger(settings.shell.no_color);
 
         // The app's own id (`AppConfig::app_id`), HERE: every run path -
         // `run`, `run_tray_only`, the crash reporter, iOS's
@@ -189,12 +217,15 @@ impl App {
         if settings.shell.dump_system_style {
             eprint!(
                 "{}",
-                crate::desktop::shell2::linux::system_style::dump_discovered_style()
+                crate::desktop::shell2::linux::system_style::dump_discovered_style(&settings.platform)
             );
         }
 
         // Discover the real system style (replaces the hard-coded default from AppConfig::create)
-        app_config.system_style = discover_system_style(app_config.localization.known_languages.as_slice());
+        app_config.system_style = discover_system_style(
+            app_config.localization.known_languages.as_slice(),
+            &settings.platform,
+        );
 
         // The desktop's OWN icons, into the "system" pack: a submenu arrow, a
         // drop-down chevron and a tree expander are shapes the platform already
@@ -206,6 +237,7 @@ impl App {
         crate::desktop::shell2::linux::system_icons::register_system_icons(
             &mut app_config.icon_provider,
             &app_config.system_style,
+            &settings.platform,
         );
 
         // Apply the AppConfig system-animation overrides ON TOP of discovery:
@@ -233,12 +265,8 @@ impl App {
         // sheen, and the shadows that follow the light are lit from it;
         // `CallbackInfo::set_app_light` moves it for all of them.
         azul_core::light::set_app_light(app_config.light);
-        // The end user's rice (`~/.azul/css/<theme>/*.css` and the legacy
-        // per-app file, `azul_css::rice`), in the `AZ_RICING` mode. Installed
-        // HERE, with the real home directory, so a test or a tool that never
-        // creates an App never reads it; each window loads the rice of its
-        // app theme when it first styles its DOM.
-        azul_css::rice::install(azul_css::rice::RiceEnv::from_process());
+        // The rice was installed at the top (above); the watcher is the one thread that
+        // follows its files in `AZ_RICING=watch`.
         start_rice_watcher();
 
         // Global hotkeys: NO backend here. `App::create` cannot know whether
@@ -266,7 +294,7 @@ impl App {
         // every lookup against the window's context. `AZ_RICING=off` skips
         // them, like the user stylesheet. Nothing here can fail the app: what
         // does not load is reported and skipped.
-        if azul_css::system::ricing_enabled() {
+        if azul_css::rice::installed_mode() != Some(azul_css::system::RicingMode::Off) {
             if let Some(root) = azul_layout::icon_remap::user_icons_root() {
                 let report = azul_layout::icon_remap::load_user_icon_rules(
                     &mut app_config.icon_provider,
@@ -444,7 +472,7 @@ impl App {
         // with the harness's status (desktop-parity semantics; the
         // AZ_BACKEND=headless runner below keeps its own path).
         #[cfg(feature = "web-e2e-runner")]
-        crate::e2e_web_runner::maybe_run_and_exit();
+        crate::e2e_web_runner::maybe_run_and_exit(&settings.shell);
         let data = self.ptr.data.clone();
         let config = self.ptr.config.clone();
         let fc_cache = (*self.ptr.fc_cache).clone();
@@ -814,7 +842,7 @@ impl AppInternal {
         #[cfg(feature = "logging")]
         {
             if app_config.enable_logging_on_panic {
-                crate::desktop::logging::set_up_panic_hooks();
+                crate::desktop::logging::set_up_panic_hooks(settings.shell.e2e_run);
             }
 
             if app_config.enable_visual_panic_hook {
@@ -891,10 +919,14 @@ const fn translate_log_level(log_level: AppLogLevel) -> log::LevelFilter {
 /// - macOS: `shell2/macos/system_style.rs` (dlopen + AppKit)
 /// - Windows: `shell2/windows/system_style.rs` (LoadLibrary + User32/Dwmapi)
 /// - Linux: `shell2/linux/system_style.rs` (D-Bus + gsettings)
-pub(crate) fn discover_system_style(known_languages: &[azul_css::system::SystemLanguage]) -> azul_css::system::SystemStyle {
+pub(crate) fn discover_system_style(
+    known_languages: &[azul_css::system::SystemLanguage],
+    env: &crate::desktop::platform_settings::PlatformEnv,
+) -> azul_css::system::SystemStyle {
     // Read only by the three desktop branches below; the Miri and
-    // other-OS fallbacks resolve no OS locale.
-    let _ = known_languages;
+    // other-OS fallbacks resolve no OS locale. The Linux discovery asks `env` (the platform
+    // lookups `App::create` read once) for the session, the desktop and the user's directories.
+    let _ = (known_languages, env);
     // Under Miri the platform `discover()` paths spawn external tools
     // (gsettings / dlopen AppKit / LoadLibrary), which Miri cannot emulate
     // ("can't call foreign function ..."). Fall back to the pure-Rust default
@@ -913,7 +945,7 @@ pub(crate) fn discover_system_style(known_languages: &[azul_css::system::SystemL
     }
     #[cfg(all(not(miri), target_os = "linux"))]
     {
-        crate::desktop::shell2::linux::system_style::discover(known_languages)
+        crate::desktop::shell2::linux::system_style::discover(known_languages, env)
     }
     #[cfg(all(
         not(miri),

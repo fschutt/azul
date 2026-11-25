@@ -63,7 +63,7 @@ pub fn scripted_run_owns_the_clock() -> bool {
 /// full server (which gates on `is_debug_enabled()` to feed its queue), the lean
 /// build forwards messages to the `log` facade, so this is ON unless `AZ_LOG=off`:
 /// it only says a sink exists. WHAT passes is the level, which a run that asked
-/// for nothing keeps at Error (`azul_core::log_filter::level_from_env`, one
+/// for nothing keeps at Error (`azul_core::log_filter::configured_level`, one
 /// reading for the gate and the facade alike) - so an app never "just exits with
 /// no error", and an ordinary run does not print the Debug firehose either (it
 /// printed 3.4 million lines in two minutes of an editor until 2026-11-20).

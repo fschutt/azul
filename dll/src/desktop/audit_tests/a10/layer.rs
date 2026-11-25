@@ -22,14 +22,14 @@ fn the_layer_present_is_off_unless_its_word_is_given() {
     let sets = all(MACOS_RS, "promote_for_present = ");
     assert_eq!(sets.len(), 1, "set in one place: before each frame of the CPU arm");
     assert!(
-        MACOS_RS[sets[0]..].starts_with("promote_for_present = cpu_present_options().layer"),
+        MACOS_RS[sets[0]..].starts_with("promote_for_present = self.cpu_present.layer"),
         "the renderer is asked only under the switch"
     );
     // Every use of the layers in the shell is under the switch.
     for call in ["cpu_view.present_layer(", "cpu_view.hide_present_layer("] {
         for at in all(MACOS_RS, call) {
             assert!(
-                near(MACOS_RS, at, "if cpu_present_options().layer {", 2000),
+                near(MACOS_RS, at, "if self.cpu_present.layer {", 2000),
                 "`{call}` runs only with AZ_CPU_PRESENT=layer"
             );
         }

@@ -76,11 +76,10 @@ mod platform {
     }
 }
 
-/// The variable naming the file a headless run appends its utterances to.
-pub const SPEECH_LOG_VAR: &str = "AZ_SPEECH_LOG";
-
-/// The variable holding what a headless run hears.
-pub const SPEECH_HEARD_VAR: &str = "AZ_SPEECH_HEARD";
+/// The variables naming the file a headless run appends its utterances to, and holding what it
+/// hears. The installed `azul_core::run_mode::TestHooks` hold their values; the names are
+/// `extra_settings`'.
+pub use crate::desktop::extra::extra_settings::{SPEECH_HEARD_VAR, SPEECH_LOG_VAR};
 
 /// What became of a text to say.
 #[repr(C)]

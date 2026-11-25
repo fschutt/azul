@@ -19,6 +19,7 @@
 
 use alloc::{boxed::Box, string::String};
 
+use crate::desktop::platform_settings::PlatformEnv;
 use azul_css::{
     corety::{AzString, OptionF32, OptionString},
     dynamic_selector::{BoolCondition, OsFamily, OsVersion},
@@ -96,8 +97,8 @@ fn send_all_nosignal(
 /// chain of `?` with no diagnostic at all, so a portal that was running and
 /// answering correctly reported as "unavailable" on every single startup and
 /// nothing said why.
-fn query_xdg_portal() -> Option<(u32, Option<(f64, f64, f64)>)> {
-    match query_xdg_portal_inner() {
+fn query_xdg_portal(env: &PlatformEnv) -> Option<(u32, Option<(f64, f64, f64)>)> {
+    match query_xdg_portal_inner(env) {
         Ok(v) => Some(v),
         Err(e) => {
             crate::plog_debug!("system style: xdg-desktop-portal probe failed: {}", e);
@@ -106,11 +107,13 @@ fn query_xdg_portal() -> Option<(u32, Option<(f64, f64, f64)>)> {
     }
 }
 
-fn query_xdg_portal_inner() -> Result<(u32, Option<(f64, f64, f64)>), String> {
+fn query_xdg_portal_inner(env: &PlatformEnv) -> Result<(u32, Option<(f64, f64, f64)>), String> {
     use std::{os::unix::net::UnixStream, time::Duration};
 
-    let bus_addr = std::env::var("DBUS_SESSION_BUS_ADDRESS")
-        .map_err(|_| "DBUS_SESSION_BUS_ADDRESS is not set".to_string())?;
+    let bus_addr = env
+        .dbus_session_bus_address
+        .as_deref()
+        .ok_or_else(|| "DBUS_SESSION_BUS_ADDRESS is not set".to_string())?;
     // "unix:path=/run/user/1000/bus", possibly with further comma-separated
     // parameters, and possibly `abstract=` instead of `path=`.
     let path = bus_addr
@@ -703,15 +706,19 @@ fn gsettings_get(schema: &str, key: &str) -> Option<String> {
 
 /// Populate additional Linux-specific fields in `style` via `gsettings` CLI
 /// queries and environment-variable fallbacks.
-fn discover_linux_extras(style: &mut SystemStyle) {
+fn discover_linux_extras(
+    style: &mut SystemStyle,
+    env: &PlatformEnv,
+    desktop_env: &DesktopEnvironment,
+) {
     // Ask the desktop's OWN store first. XFCE keeps none of this in
     // gsettings, and a machine that once ran KDE or GNOME still has THEIR
     // schemas populated - reading those is how an XFCE desktop themed
     // Mint-Y-Aqua ended up rendering as Breeze dark with breeze-dark icons.
-    let source = linux_settings_source(&azul_css::system::detect_linux_desktop_env());
+    let source = linux_settings_source(desktop_env);
     let de_answered = match source {
         LinuxSettingsSource::Xfconf => xfce_extras(style),
-        LinuxSettingsSource::KdeConfig => kde_extras(style),
+        LinuxSettingsSource::KdeConfig => kde_extras(style, env),
         _ => false,
     };
 
@@ -726,9 +733,9 @@ fn discover_linux_extras(style: &mut SystemStyle) {
         discover_gsettings_appearance(style);
     }
 
-    apply_env_cursor_fallbacks(style);
+    apply_env_cursor_fallbacks(style, env);
     // The GTK config file is the floor under every desktop and every bare WM.
-    gtk_ini_extras(style);
+    gtk_ini_extras(style, env);
 
     discover_shared_behaviour(style);
 }
@@ -980,8 +987,8 @@ impl KdeIni {
 /// `kdeglobals` and leaves the actual `Colors:*` groups to the scheme file in
 /// `/usr/share/color-schemes`, so reading `kdeglobals` alone finds a NAME and
 /// no colours — and every palette slot silently kept its built-in default.
-fn kde_color_sources() -> Vec<KdeIni> {
-    let home = std::env::var("HOME").unwrap_or_default();
+fn kde_color_sources(env: &PlatformEnv) -> Vec<KdeIni> {
+    let home = env.home().unwrap_or_default();
     let mut out = Vec::new();
 
     // The cursor theme lives in kcminputrc (`[Mouse] cursorTheme`), not in
@@ -1020,8 +1027,9 @@ fn kde_color_sources() -> Vec<KdeIni> {
     // makes the per-key `kreadconfig` fallback unnecessary: a key absent from
     // every file here is genuinely unset, and spawning a process to be told so
     // cost 128 `kreadconfig5` spawns on the startup path.
-    for dir in std::env::var("XDG_CONFIG_DIRS")
-        .unwrap_or_else(|_| "/etc/xdg".to_string())
+    for dir in env
+        .xdg_config_dirs()
+        .unwrap_or("/etc/xdg")
         .split(':')
         .map(String::from)
         .collect::<Vec<_>>()
@@ -1221,8 +1229,8 @@ pub(crate) fn titlebar_from_kde_layout(
 ///
 /// Returns `false` when KDE's config answered nothing, so the caller can fall
 /// back to the shared path.
-fn kde_extras(style: &mut SystemStyle) -> bool {
-    let sources = kde_color_sources();
+fn kde_extras(style: &mut SystemStyle, env: &PlatformEnv) -> bool {
+    let sources = kde_color_sources(env);
     let get = |group: &str, key: &str| -> Option<String> {
         sources
             .iter()
@@ -1250,7 +1258,7 @@ fn kde_extras(style: &mut SystemStyle) -> bool {
     }
 
     // kwinrc is a separate file from the colour sources.
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = env.home().unwrap_or_default();
     if let Some(kwinrc) = KdeIni::read(&alloc::format!("{home}/.config/kwinrc")) {
         let deco = "org.kde.kdecoration2";
         // Plasma's defaults, used when the user never moved a button.
@@ -1271,40 +1279,32 @@ fn kde_extras(style: &mut SystemStyle) -> bool {
 ///
 /// This is the universal floor under the DE-specific stores: a Hyprland or
 /// Sway user with no settings daemon still has `gtk-theme-name` here, and so
-/// does a session whose daemon we cannot reach. Parsed once.
-fn gtk_settings_ini() -> &'static alloc::collections::BTreeMap<String, String> {
-    static CACHE: std::sync::OnceLock<alloc::collections::BTreeMap<String, String>> =
-        std::sync::OnceLock::new();
-    CACHE.get_or_init(|| {
-        let mut map = alloc::collections::BTreeMap::new();
-        let home = std::env::var("HOME").unwrap_or_default();
-        let candidates = [
-            std::env::var("GTK_CONFIG_HOME").unwrap_or_default(),
-            alloc::format!("{home}/.config/gtk-4.0/settings.ini"),
-            alloc::format!("{home}/.config/gtk-3.0/settings.ini"),
-        ];
-        for path in candidates.iter().filter(|p| !p.is_empty()) {
-            let Ok(text) = std::fs::read_to_string(path) else {
+/// does a session whose daemon we cannot reach. Parsed once per discovery.
+fn gtk_settings_ini(env: &PlatformEnv) -> alloc::collections::BTreeMap<String, String> {
+    let mut map = alloc::collections::BTreeMap::new();
+    let home = env.home().unwrap_or_default();
+    let candidates = [
+        env.gtk_config_home().unwrap_or_default().to_string(),
+        alloc::format!("{home}/.config/gtk-4.0/settings.ini"),
+        alloc::format!("{home}/.config/gtk-3.0/settings.ini"),
+    ];
+    for path in candidates.iter().filter(|p| !p.is_empty()) {
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        for line in text.lines() {
+            let line = line.trim();
+            if line.starts_with('[') || line.starts_with('#') {
                 continue;
-            };
-            for line in text.lines() {
-                let line = line.trim();
-                if line.starts_with('[') || line.starts_with('#') {
-                    continue;
-                }
-                if let Some((k, v)) = line.split_once('=') {
-                    // First file wins: gtk-4.0 is more specific than gtk-3.0.
-                    map.entry(k.trim().to_string())
-                        .or_insert_with(|| v.trim().to_string());
-                }
+            }
+            if let Some((k, v)) = line.split_once('=') {
+                // First file wins: gtk-4.0 is more specific than gtk-3.0.
+                map.entry(k.trim().to_string())
+                    .or_insert_with(|| v.trim().to_string());
             }
         }
-        map
-    })
-}
-
-fn gtk_ini_get(key: &str) -> Option<String> {
-    gtk_settings_ini().get(key).cloned()
+    }
+    map
 }
 
 fn titlebar_side_from_layout(layout: &str) -> TitlebarButtonSide {
@@ -1411,14 +1411,14 @@ fn xfce_extras(style: &mut SystemStyle) -> bool {
 
 /// `XCURSOR_THEME` / `XCURSOR_SIZE` - honoured by every Linux WM, and the
 /// only cursor answer a bare tiling session gives.
-fn apply_env_cursor_fallbacks(style: &mut SystemStyle) {
+fn apply_env_cursor_fallbacks(style: &mut SystemStyle, env: &PlatformEnv) {
     if style.linux.cursor_theme.is_none() {
-        if let Ok(t) = std::env::var("XCURSOR_THEME") {
-            style.linux.cursor_theme = OptionString::Some(t.into());
+        if let Some(t) = &env.xcursor_theme {
+            style.linux.cursor_theme = OptionString::Some(t.clone().into());
         }
     }
     if style.linux.cursor_size == 0 {
-        if let Ok(s) = std::env::var("XCURSOR_SIZE") {
+        if let Some(s) = &env.xcursor_size {
             if let Ok(sz) = s.parse::<u32>() {
                 style.linux.cursor_size = sz;
             }
@@ -1430,7 +1430,9 @@ fn apply_env_cursor_fallbacks(style: &mut SystemStyle) {
 /// nothing above it answered. This is what makes a bare WM - Hyprland, Sway,
 /// i3, or an unknown session - load natively instead of falling back to a
 /// hardcoded Adwaita.
-fn gtk_ini_extras(style: &mut SystemStyle) {
+fn gtk_ini_extras(style: &mut SystemStyle, env: &PlatformEnv) {
+    let ini = gtk_settings_ini(env);
+    let gtk_ini_get = |key: &str| ini.get(key).cloned();
     if style.linux.icon_theme.is_none() {
         if let Some(v) = gtk_ini_get("gtk-icon-theme-name") {
             style.linux.icon_theme = OptionString::Some(v.into());
@@ -1470,7 +1472,7 @@ fn gtk_ini_extras(style: &mut SystemStyle) {
     }
 }
 
-fn discover_gnome_style() -> Result<SystemStyle, ()> {
+fn discover_gnome_style(env: &PlatformEnv) -> Result<SystemStyle, ()> {
     // Check color-scheme first (GNOME 42+)
     let color_scheme =
         gsettings_get("org.gnome.desktop.interface", "color-scheme").unwrap_or_default();
@@ -1600,8 +1602,8 @@ fn discover_gnome_style() -> Result<SystemStyle, ()> {
     // `gtk-primary-button-warps-slider` key in the interface schema, so
     // querying gsettings for it silently found nothing. GTK's own default is
     // "warp", i.e. jump to the clicked position.
-    let gtk_ini = std::env::var("HOME")
-        .ok()
+    let gtk_ini = env
+        .home()
         .and_then(|h| KdeIni::read(&alloc::format!("{h}/.config/gtk-3.0/settings.ini")));
     style.scrollbar_preferences.track_click = match gtk_ini
         .as_ref()
@@ -1637,7 +1639,7 @@ fn discover_gnome_style() -> Result<SystemStyle, ()> {
 /// Discover system style from KDE Plasma via `kreadconfig5` / `kreadconfig6`.
 ///
 /// Queries kdeglobals for theme, fonts, and color scheme.
-fn discover_kde_style() -> Result<SystemStyle, ()> {
+fn discover_kde_style(env: &PlatformEnv) -> Result<SystemStyle, ()> {
     // The parsed config files, in precedence order: kcminputrc, the user's
     // kdeglobals, the `.colors` file of the scheme it names, and the
     // system-wide defaults. NOTHING is spawned — `kreadconfig` reads these
@@ -1646,7 +1648,7 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
     //
     // No files at all means this is not a KDE session; the caller falls
     // through to the GNOME/riced discoverers.
-    let sources = kde_color_sources();
+    let sources = kde_color_sources(env);
     if sources.is_empty() {
         return Err(());
     }
@@ -1830,8 +1832,8 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
     // stock KDE session would have been reported as buttons-on-left.
     // kwinrc is the same INI shape as everything else here — read it, don't
     // spawn a reader for it.
-    let kwinrc = std::env::var("HOME")
-        .ok()
+    let kwinrc = env
+        .home()
         .and_then(|h| KdeIni::read(&alloc::format!("{h}/.config/kwinrc")));
     let deco = |key: &str| -> Option<String> {
         kwinrc
@@ -1995,12 +1997,12 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
 /// Checks for pywal `colors.json`, parses Hyprland/Sway/i3 configs for
 /// rounding, borders, and accent colors.  Falls back to gsettings for the
 /// GTK font if available.
-fn discover_riced_style() -> Result<SystemStyle, ()> {
-    let home = std::env::var("HOME").map_err(|_| ())?;
+fn discover_riced_style(env: &PlatformEnv) -> Result<SystemStyle, ()> {
+    let home = env.home().ok_or(())?;
 
-    let is_hyprland = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok();
-    let is_sway = std::env::var("SWAYSOCK").is_ok();
-    let is_i3 = std::env::var("I3SOCK").is_ok();
+    let is_hyprland = env.hyprland_instance_signature.is_some();
+    let is_sway = env.swaysock.is_some();
+    let is_i3 = env.i3sock.is_some();
 
     if !is_hyprland && !is_sway && !is_i3 {
         // Not a known riced WM
@@ -2324,22 +2326,22 @@ fn detect_kde_reduced_motion() -> BoolCondition {
 ///
 /// Priority: `LANGUAGE` > `LANG` > `LC_ALL`.  Returns a BCP 47-style tag
 /// (e.g. "en-US").  Falls back to "en-US" if nothing is set.
-fn detect_language_linux() -> AzString {
+fn detect_language_linux(env: &PlatformEnv) -> AzString {
     // LANGUAGE can contain a colon-separated list; take the first entry
-    if let Ok(lang) = std::env::var("LANGUAGE") {
+    if let Some(lang) = env.language.as_deref() {
         let first = lang.split(':').next().unwrap_or("en_US");
         let first = first.split('.').next().unwrap_or("en_US");
         if !first.is_empty() {
             return AzString::from(first.replace('_', "-"));
         }
     }
-    if let Ok(lang) = std::env::var("LANG") {
+    if let Some(lang) = env.lang.as_deref() {
         let lang = lang.split('.').next().unwrap_or("en_US");
         if !lang.is_empty() && lang != "C" && lang != "POSIX" {
             return AzString::from(lang.replace('_', "-"));
         }
     }
-    if let Ok(lang) = std::env::var("LC_ALL") {
+    if let Some(lang) = env.lc_all.as_deref() {
         let lang = lang.split('.').next().unwrap_or("en_US");
         if !lang.is_empty() && lang != "C" && lang != "POSIX" {
             return AzString::from(lang.replace('_', "-"));
@@ -2446,9 +2448,15 @@ fn font_weight_from_family_name(name: &str) -> u16 {
 ///
 /// Tries XDG Desktop Portal first (raw D-Bus), then CLI-based discovery
 /// (KDE, GNOME, riced desktops), and finally hardcoded GNOME Adwaita defaults.
-pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> SystemStyle {
+pub(crate) fn discover(
+    known_languages: &[azul_css::system::SystemLanguage],
+    env: &PlatformEnv,
+) -> SystemStyle {
+    // The desktop the session names, asked ONCE: every step below keys on it.
+    let desktop_env = azul_css::system::detect_linux_desktop_env(env);
+
     // ── 1. Try XDG Desktop Portal (D-Bus) ───────────────────────────
-    let portal_result = query_xdg_portal();
+    let portal_result = query_xdg_portal(env);
 
     if let Some((color_scheme, _)) = portal_result {
         crate::plog_debug!(
@@ -2476,7 +2484,7 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
     // Useful for tiling-WM users whose `XDG_CURRENT_DESKTOP` still says
     // `gnome` even though their system colors come from pywal.
     let force_riced = matches!(
-        azul_css::system::ricing_mode(),
+        azul_css::rice::installed_mode().unwrap_or_default(),
         azul_css::system::RicingMode::Force,
     );
 
@@ -2484,14 +2492,13 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
     // The portal is only allowed to speak for the second case.
     let mut desktop_answered = false;
     let mut style = if force_riced {
-        let found = discover_riced_style()
-            .or_else(|_| discover_kde_style())
-            .or_else(|_| discover_gnome_style());
+        let found = discover_riced_style(env)
+            .or_else(|_| discover_kde_style(env))
+            .or_else(|_| discover_gnome_style(env));
         desktop_answered = found.is_ok();
         found.unwrap_or_else(|_| defaults::gnome_adwaita_light())
     } else {
         // Normal priority: KDE > GNOME > riced > defaults
-        let desktop_env = azul_css::system::detect_linux_desktop_env();
         // The desktop's OWN store leads. Everything after it is a fallback
         // for a desktop that did not answer - never a different desktop's
         // settings winning over one that did. A machine that once ran KDE
@@ -2500,17 +2507,19 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
         // user is actually in.
         let found = match linux_settings_source(&desktop_env) {
             LinuxSettingsSource::KdeConfig => {
-                discover_kde_style().or_else(|_| discover_gnome_style())
+                discover_kde_style(env).or_else(|_| discover_gnome_style(env))
             }
             LinuxSettingsSource::Gsettings => {
-                discover_gnome_style().or_else(|_| discover_kde_style())
+                discover_gnome_style(env).or_else(|_| discover_kde_style(env))
             }
             LinuxSettingsSource::Xfconf => discover_xfce_style()
-                .or_else(|_| discover_gnome_style())
-                .or_else(|_| discover_riced_style()),
-            LinuxSettingsSource::LxqtConfig | LinuxSettingsSource::Riced => discover_riced_style()
-                .or_else(|_| discover_gnome_style())
-                .or_else(|_| discover_kde_style()),
+                .or_else(|_| discover_gnome_style(env))
+                .or_else(|_| discover_riced_style(env)),
+            LinuxSettingsSource::LxqtConfig | LinuxSettingsSource::Riced => {
+                discover_riced_style(env)
+                    .or_else(|_| discover_gnome_style(env))
+                    .or_else(|_| discover_kde_style(env))
+            }
         };
         desktop_answered = found.is_ok();
         found.unwrap_or_else(|_| defaults::gnome_adwaita_light())
@@ -2552,14 +2561,14 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
     }
 
     // ── 3. Fill in extras and metadata ──────────────────────────────
-    discover_linux_extras(&mut style);
+    discover_linux_extras(&mut style, env, &desktop_env);
     // The titlebar is the desktop's, and so is its type: whatever the store
     // above reported for the window title now reaches the metrics a CSD
     // titlebar is built from.
     adopt_desktop_titlebar_font(&mut style);
-    style.platform = Platform::Linux(azul_css::system::detect_linux_desktop_env());
+    style.platform = Platform::Linux(desktop_env.clone());
     style.language = azul_css::system::SystemLanguage::resolve(
-        detect_language_linux().as_str(),
+        detect_language_linux(env).as_str(),
         known_languages,
     );
     style.os_version = detect_linux_version();
@@ -2583,7 +2592,7 @@ pub(crate) fn discover(known_languages: &[azul_css::system::SystemLanguage]) -> 
     // follows the session: a KDE desktop pinned light gets Breeze Light, not
     // Adwaita, so the capture still looks like the desktop it was taken on.
     let kde_session = matches!(
-        linux_settings_source(&azul_css::system::detect_linux_desktop_env()),
+        linux_settings_source(&desktop_env),
         LinuxSettingsSource::KdeConfig
     );
     azul_css::system::apply_env_mode_pin(
@@ -2680,8 +2689,8 @@ fn color_scheme_to_theme(scheme: u32) -> Option<DarkLightMode> {
 ///
 /// Cheap: one relaxed atomic load. Safe to call every frame — the D-Bus round
 /// trip happens on the watcher thread, never on the caller's.
-pub(crate) fn observed_system_theme() -> Option<DarkLightMode> {
-    ensure_theme_watcher();
+pub(crate) fn observed_system_theme(env: &PlatformEnv) -> Option<DarkLightMode> {
+    ensure_theme_watcher(env);
     match OBSERVED_COLOR_SCHEME.load(core::sync::atomic::Ordering::Relaxed) {
         1 => Some(DarkLightMode::Dark),
         2 => Some(DarkLightMode::Light),
@@ -2710,8 +2719,8 @@ static THEME_WAKE_FD: core::sync::atomic::AtomicI32 = core::sync::atomic::Atomic
 ///
 /// Starts the watcher as a side effect, exactly like [`observed_system_theme`]:
 /// a backend that polls the fd is a backend that wants the answer.
-pub(crate) fn theme_wake_fd() -> i32 {
-    ensure_theme_watcher();
+pub(crate) fn theme_wake_fd(env: &PlatformEnv) -> i32 {
+    ensure_theme_watcher(env);
     THEME_WAKE_FD.load(core::sync::atomic::Ordering::Relaxed)
 }
 
@@ -2764,22 +2773,24 @@ fn publish_color_scheme(scheme: u32) {
 /// (a signal only reports transitions), and once per idle interval as a
 /// backstop for a portal implementation that answers `Read` but never emits the
 /// signal.
-fn ensure_theme_watcher() {
+fn ensure_theme_watcher(env: &PlatformEnv) {
     THEME_WATCHER.get_or_init(|| {
         // Created BEFORE the thread starts, so `theme_wake_fd()` never observes
         // -1 after `ensure_theme_watcher()` has returned.
         let fd = unsafe { libc::eventfd(0, libc::EFD_NONBLOCK | libc::EFD_CLOEXEC) };
         THEME_WAKE_FD.store(fd, core::sync::atomic::Ordering::Relaxed);
 
+        // The bus the watcher connects to is the one the app read at its start.
+        let bus_addr = env.dbus_session_bus_address.clone();
         let _ = std::thread::Builder::new()
             .name("azul-theme-watch".into())
-            .spawn(|| {
+            .spawn(move || {
                 // Doubling backoff, so a session with no bus at all (a TTY
                 // login, a container without DBUS_SESSION_BUS_ADDRESS) stops
                 // retrying every two seconds forever.
                 let mut backoff = core::time::Duration::from_secs(2);
                 loop {
-                    if watch_portal_color_scheme().is_some() {
+                    if watch_portal_color_scheme(bus_addr.as_deref()).is_some() {
                         // The connection lived and then ended: the bus went
                         // away or the portal restarted. Reconnect promptly.
                         backoff = core::time::Duration::from_secs(2);
@@ -2802,11 +2813,10 @@ const PORTAL_BACKSTOP_INTERVAL: core::time::Duration = core::time::Duration::fro
 /// `None` if one could not be made at all — the caller uses that to tell "the
 /// portal went away" from "there is no session bus here" when choosing a
 /// backoff.
-fn watch_portal_color_scheme() -> Option<()> {
+fn watch_portal_color_scheme(bus_addr: Option<&str>) -> Option<()> {
     use std::{io::Read, os::unix::net::UnixStream};
 
-    let bus_addr = std::env::var("DBUS_SESSION_BUS_ADDRESS").ok()?;
-    let path = bus_addr.strip_prefix("unix:path=")?.split(',').next()?;
+    let path = bus_addr?.strip_prefix("unix:path=")?.split(',').next()?;
     let mut stream = UnixStream::connect(path).ok()?;
     stream
         .set_write_timeout(Some(core::time::Duration::from_secs(2)))
@@ -3170,7 +3180,10 @@ pub(crate) fn adopt_observed_theme(
 ) -> Option<alloc::sync::Arc<SystemStyle>> {
     use azul_core::window::DarkLightMode;
 
-    let theme = effective_system_theme(observed_system_theme(), discovered_startup_theme())?;
+    let theme = effective_system_theme(
+        observed_system_theme(&common.app.settings().platform),
+        discovered_startup_theme(),
+    )?;
     let theme = match theme {
         DarkLightMode::Dark => DarkLightMode::Dark,
         DarkLightMode::Light => DarkLightMode::Light,
@@ -3208,6 +3221,7 @@ pub(crate) fn adopt_observed_theme(
     Some(rediscovered_style_for(
         theme,
         core::slice::from_ref(&held_language),
+        &common.app.settings().platform,
     ))
 }
 
@@ -3223,6 +3237,7 @@ pub(crate) fn adopt_observed_theme(
 fn rediscovered_style_for(
     theme: azul_core::window::DarkLightMode,
     known_languages: &[azul_css::system::SystemLanguage],
+    env: &PlatformEnv,
 ) -> alloc::sync::Arc<SystemStyle> {
     use std::sync::Mutex;
 
@@ -3241,7 +3256,7 @@ fn rediscovered_style_for(
             return alloc::sync::Arc::clone(style);
         }
     }
-    let style = alloc::sync::Arc::new(discover(known_languages));
+    let style = alloc::sync::Arc::new(discover(known_languages, env));
     *guard = Some((theme, alloc::sync::Arc::clone(&style)));
     style
 }
@@ -3257,10 +3272,10 @@ fn rediscovered_style_for(
 ///
 /// Reached from a normal build with `AZ_DUMP_SYSTEM_STYLE=1`.
 #[must_use]
-pub fn dump_discovered_style() -> String {
+pub fn dump_discovered_style(env: &PlatformEnv) -> String {
     use core::fmt::Write;
 
-    let s = discover(&[]);
+    let s = discover(&[], env);
     let mut o = String::new();
     let c = |v: &OptionColorU| -> String {
         v.as_option().map_or_else(
@@ -3284,7 +3299,7 @@ pub fn dump_discovered_style() -> String {
     // Which desktop-settings family actually answered. A Cinnamon/MATE
     // session answers on its OWN schemas; probing with a key that exists in
     // only one of them is what distinguishes "detected" from "fell back".
-    let resolved = linux_settings_source(&azul_css::system::detect_linux_desktop_env());
+    let resolved = linux_settings_source(&azul_css::system::detect_linux_desktop_env(env));
     let settings_source = match resolved {
         LinuxSettingsSource::KdeConfig => "kdeglobals".to_string(),
         LinuxSettingsSource::Xfconf => {
@@ -3313,7 +3328,7 @@ pub fn dump_discovered_style() -> String {
     let _ = writeln!(
         o,
         "kde_config_files    {} source(s)",
-        kde_color_sources().len()
+        kde_color_sources(env).len()
     );
     let _ = writeln!(o, "mode                {:?}", s.mode);
     let _ = writeln!(o, "language            {}", s.language.id.as_str());
@@ -3453,6 +3468,10 @@ pub fn dump_discovered_style() -> String {
     let _ = writeln!(o, "caret_blink_ms      {}", s.input.caret_blink_rate_ms);
     o
 }
+
+#[cfg(test)]
+#[path = "system_style_test.rs"]
+mod env_tests;
 
 #[cfg(test)]
 mod kde_ini_tests {

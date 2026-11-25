@@ -43,7 +43,7 @@ pub mod app_settings;
 /// New compositor integration for shell2 - WebRender bridge
 pub mod compositor2;
 /// What the environment asks of the WebRender path (the group D2 of the env pass)
-pub mod render_settings;
+pub mod webrender_settings;
 /// What the environment asks of the app start and the shells (the group D1 of the env pass)
 pub mod shell_settings;
 /// Client-Side Decorations (CSD) - Custom window titlebar
@@ -150,6 +150,9 @@ pub mod material_icons;
 pub mod menu;
 /// Menu rendering - Converts Menu structures to StyledDom
 pub mod menu_renderer;
+/// The platform lookups (session, desktop, home and XDG directories), typed and read once at the
+/// start of the app.
+pub mod platform_settings;
 /// Shader disk cache for WebRender program binaries
 pub mod shader_cache;
 /// New windowing backend (shell2) - modern, clean architecture

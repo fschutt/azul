@@ -1525,7 +1525,7 @@ impl HeadlessWindow {
         let layout_window = borrows.layout_window.ok_or("No layout window")?;
 
         // Collect debug messages if debug server is enabled
-        let debug_enabled = debug_server::layout_trace_enabled();
+        let debug_enabled = debug_server::layout_trace_enabled(&borrows.settings.shell);
         let mut debug_messages = if debug_enabled {
             Some(Vec::new())
         } else {
@@ -1545,6 +1545,7 @@ impl HeadlessWindow {
             &self.icon_provider,
             &mut debug_messages,
             relayout_reason,
+            borrows.settings,
         )?;
 
         // Forward layout debug messages to the debug server's log queue
@@ -1749,7 +1750,8 @@ impl HeadlessWindow {
     /// runtime edit, `Resize` for the latched resize fast path (see
     /// `service_frame`). Both re-lay-out the EXISTING StyledDom and render.
     fn relayout_existing_dom(&mut self, kind: event::IncrementalRelayout) -> Result<(), String> {
-        let debug_enabled = debug_server::layout_trace_enabled();
+        let debug_enabled =
+            debug_server::layout_trace_enabled(&self.common.app.settings().shell);
         let mut debug_messages = if debug_enabled {
             Some(Vec::new())
         } else {
@@ -2330,7 +2332,14 @@ impl HeadlessWindow {
         // without a full E2E harness: build the app, run with the env
         // var set, diff against a checked-in reference.
         #[cfg(feature = "cpurender")]
-        if let Ok(path) = std::env::var("AZ_HEADLESS_SNAPSHOT_PATH") {
+        if let Some(path) = self
+            .common
+            .app
+            .settings()
+            .shell
+            .headless_snapshot_path
+            .clone()
+        {
             if let Some(ref pixmap) = self.cpu_backend.last_frame {
                 match pixmap.encode_png() {
                     Ok(bytes) => match std::fs::write(&path, &bytes) {
@@ -2382,7 +2391,7 @@ impl HeadlessWindow {
         //
         // Deliberately AFTER the snapshot block so both can be set together: the
         // snapshot writes the frame, this exits on it.
-        if std::env::var("AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
+        if self.common.app.settings().shell.exit_after_first_frame {
             #[cfg(feature = "cpurender")]
             let rendered = self.cpu_backend.last_frame.is_some();
             #[cfg(not(feature = "cpurender"))]

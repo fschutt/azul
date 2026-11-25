@@ -1771,7 +1771,10 @@ jobs:
       && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')
           || github.event_name == 'workflow_dispatch')
     runs-on: windows-2022
-    continue-on-error: false
+    # Experimental, and it does not build today: the rust9x rustc cannot load the proc-macro DLLs it just made
+    # (LoadLibraryExW "Not enough memory resources are available", os error 8; also with CARGO_BUILD_JOBS=2: runs
+    # 45178260225 and 45654580226), then every crate that needs a proc macro is "not found". The website does not wait for it.
+    continue-on-error: true
     permissions:
       contents: write
     env:
@@ -1891,10 +1894,6 @@ jobs:
       - name: Build azul with rust9x (i686, WinXP+)
         working-directory: azul
         shell: bash
-        # Two crates at a time: with the runner's default (one per core) rustc could not even load three proc-macro DLLs
-        # (LoadLibraryExW "Not enough memory resources", os error 8, run 45178260225): the commit limit, not a code error.
-        env:
-          CARGO_BUILD_JOBS: "2"
         run: |
           cargo +rust9x build --release \
             --target i686-rust9x-windows-msvc \
@@ -2955,7 +2954,8 @@ jobs:
     # Builds the python extension as a separate artifact. Symbols are resolved dynamically at import time.
     name: Build Python extension (${{ matrix.os }})
     needs: [content_state_lint, documentation_paths, clippy, check_crates, feature_matrix_check, test_lib, codegen_linux, codegen_macos, codegen_windows]
-    timeout-minutes: 120
+    # The macOS build had not finished after 120 minutes on a cold cache (run 45178260225).
+    timeout-minutes: 240
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ${{ matrix.os }}
     strategy:

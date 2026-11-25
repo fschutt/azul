@@ -16,6 +16,8 @@
 //!
 //! ## Environment Variables
 //!
+//! Read once at the start of the app (`LinuxSettings`), not here:
+//!
 //! - `AZ_DISABLE_GNOME_MENUS=1` - Force fallback to CSD menus
 //! - `AZ_GNOME_MENU_DEBUG=1` - Enable debug logging
 //!
@@ -43,37 +45,65 @@ mod protocol_impl;
 mod shared_dbus;
 mod x11_properties;
 
-use std::env;
-
 pub use actions_protocol::drain_pending_menu_callbacks;
 pub(crate) use actions_protocol::{queue_menu_callback, DbusAction, PendingMenuCallback};
 pub use manager::GnomeMenuManager;
 pub(crate) use menu_conversion::MenuConversion;
 pub(crate) use menu_protocol::{DbusMenuGroup, DbusMenuItem};
 pub(crate) use protocol_impl::{register_actions_interface, register_menus_interface};
-pub use shared_dbus::get_shared_dbus_lib;
+pub use shared_dbus::{get_shared_dbus_lib, get_shared_dbus_lib_traced};
 pub(crate) use x11_properties::X11Properties;
 
 use super::super::common::debug_server::LogCategory;
-use crate::log_debug;
+use super::linux_settings::LinuxSettings;
+use crate::{desktop::platform_settings::PlatformEnv, log_debug};
+
+/// Whether the GNOME menu integration logs its steps (`AZ_GNOME_MENU_DEBUG=1`).
+///
+/// Decided once, when the app starts ([`LinuxSettings::gnome_menu_debug`]), and carried by
+/// everything that logs: the manager, its DBus handlers, the conversion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct MenuTrace(bool);
+
+impl MenuTrace {
+    /// Logs nothing.
+    pub const OFF: Self = Self(false);
+
+    /// A trace that logs when `on`.
+    #[must_use]
+    pub const fn new(on: bool) -> Self {
+        Self(on)
+    }
+
+    /// Log `msg` (in the platform category) when the trace is on.
+    pub fn log(self, msg: &str) {
+        if self.0 {
+            log_debug!(LogCategory::Platform, "[AZUL GNOME MENU] {}", msg);
+        }
+    }
+}
 
 /// Check if GNOME native menus should be used
 ///
 /// Returns `false` if:
-/// - `AZ_DISABLE_GNOME_MENUS=1` environment variable is set
+/// - `AZ_DISABLE_GNOME_MENUS=1` is set ([`LinuxSettings::disable_gnome_menus`])
 /// - Not running on GNOME desktop (checks `XDG_CURRENT_DESKTOP`)
-/// - DBus session bus not available
-pub fn should_use_gnome_menus() -> bool {
+/// - DBus session bus not available (`DBUS_SESSION_BUS_ADDRESS`)
+///
+/// `linux` and `env` are what the app read at its start; the call reads nothing.
+pub fn should_use_gnome_menus(linux: &LinuxSettings, env: &PlatformEnv) -> bool {
+    let trace = MenuTrace::new(linux.gnome_menu_debug);
+
     // Check explicit disable flag
-    if env::var("AZ_DISABLE_GNOME_MENUS").unwrap_or_default() == "1" {
-        debug_log("GNOME menus disabled via AZ_DISABLE_GNOME_MENUS=1");
+    if linux.disable_gnome_menus {
+        trace.log("GNOME menus disabled via AZ_DISABLE_GNOME_MENUS=1");
         return false;
     }
 
     // Check if running on GNOME
-    let desktop = env::var("XDG_CURRENT_DESKTOP").unwrap_or_default();
+    let desktop = env.xdg_current_desktop.as_deref().unwrap_or_default();
     if !desktop.to_lowercase().contains("gnome") {
-        debug_log(&format!(
+        trace.log(&format!(
             "Not running on GNOME desktop: XDG_CURRENT_DESKTOP={}",
             desktop
         ));
@@ -81,20 +111,13 @@ pub fn should_use_gnome_menus() -> bool {
     }
 
     // Check if DBus session bus is available
-    if env::var("DBUS_SESSION_BUS_ADDRESS").is_err() {
-        debug_log("DBus session bus not available (DBUS_SESSION_BUS_ADDRESS not set)");
+    if env.dbus_session_bus_address.is_none() {
+        trace.log("DBus session bus not available (DBUS_SESSION_BUS_ADDRESS not set)");
         return false;
     }
 
-    debug_log("GNOME menus available and enabled");
+    trace.log("GNOME menus available and enabled");
     true
-}
-
-/// Print debug log if `AZ_GNOME_MENU_DEBUG=1`
-pub(crate) fn debug_log(msg: &str) {
-    if env::var("AZ_GNOME_MENU_DEBUG").unwrap_or_default() == "1" {
-        log_debug!(LogCategory::Platform, "[AZUL GNOME MENU] {}", msg);
-    }
 }
 
 /// Errors that can occur during GNOME menu operations
@@ -147,25 +170,5 @@ impl std::fmt::Display for GnomeMenuError {
 impl std::error::Error for GnomeMenuError {}
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    #[cfg_attr(miri, ignore)] // Miri has issues with env var manipulation
-    fn test_should_use_gnome_menus_respects_disable_flag() {
-        env::set_var("AZ_DISABLE_GNOME_MENUS", "1");
-        assert!(!should_use_gnome_menus());
-        env::remove_var("AZ_DISABLE_GNOME_MENUS");
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore)] // Miri has issues with env var manipulation
-    fn test_debug_log_only_prints_when_enabled() {
-        env::remove_var("AZ_GNOME_MENU_DEBUG");
-        debug_log("Should not print");
-
-        env::set_var("AZ_GNOME_MENU_DEBUG", "1");
-        debug_log("Should print to stderr");
-        env::remove_var("AZ_GNOME_MENU_DEBUG");
-    }
-}
+#[path = "mod_test.rs"]
+mod tests;

@@ -11,8 +11,8 @@ use std::{
 };
 
 use super::{
-    debug_log, register_actions_interface, register_menus_interface, DbusAction, DbusMenuGroup,
-    GnomeMenuError, MenuConversion,
+    register_actions_interface, register_menus_interface, DbusAction, DbusMenuGroup,
+    GnomeMenuError, MenuConversion, MenuTrace,
 };
 use crate::desktop::shell2::linux::dbus::DBusLib;
 
@@ -39,6 +39,9 @@ pub struct GnomeMenuManager {
     // (`Menu::get_structure_hash`): an equal menu only re-registers its
     // actions, whose callbacks carry the app's new data.
     last_menu_hash: Cell<Option<u64>>,
+
+    // Whether the steps are logged (`AZ_GNOME_MENU_DEBUG=1`, decided at the app's start)
+    trace: MenuTrace,
 }
 
 /// Extract the error message string from a DBusError, falling back to "Unknown error".
@@ -63,12 +66,17 @@ impl GnomeMenuManager {
     ///
     /// * `app_name` - Application name (will be sanitized for DBus)
     /// * `dbus_lib` - Shared DBus library instance (load once, share across windows)
+    /// * `trace` - Whether the integration logs its steps (`LinuxSettings::gnome_menu_debug`)
     ///
     /// # Returns
     ///
     /// Returns `Err` if DBus connection fails or GNOME menus not available.
-    pub fn new(app_name: &str, dbus_lib: Arc<DBusLib>) -> Result<Self, GnomeMenuError> {
-        debug_log(&format!(
+    pub fn new(
+        app_name: &str,
+        dbus_lib: Arc<DBusLib>,
+        trace: MenuTrace,
+    ) -> Result<Self, GnomeMenuError> {
+        trace.log(&format!(
             "Creating GNOME menu manager V2 for app: {}",
             app_name
         ));
@@ -82,8 +90,8 @@ impl GnomeMenuManager {
         let bus_name = format!("org.gtk.{}", sanitized_name);
         let object_path = format!("/org/gtk/{}", sanitized_name.replace('_', "/"));
 
-        debug_log(&format!("Bus name: {}", bus_name));
-        debug_log(&format!("Object path: {}", object_path));
+        trace.log(&format!("Bus name: {}", bus_name));
+        trace.log(&format!("Object path: {}", object_path));
 
         // Initialize error structure
         let mut error = crate::desktop::shell2::linux::dbus::DBusError {
@@ -151,7 +159,7 @@ impl GnomeMenuManager {
             (dbus_lib.dbus_error_free)(&mut error);
         }
 
-        debug_log("DBus service registered successfully");
+        trace.log("DBus service registered successfully");
 
         // Create shared state for protocol handlers
         let menu_groups = Arc::new(Mutex::new(HashMap::new()));
@@ -159,12 +167,24 @@ impl GnomeMenuManager {
 
         // Register org.gtk.Menus interface
         let menubar_path = format!("{}/menus/MenuBar", object_path);
-        register_menus_interface(&dbus_lib, connection, &menubar_path, menu_groups.clone())?;
+        register_menus_interface(
+            &dbus_lib,
+            connection,
+            &menubar_path,
+            menu_groups.clone(),
+            trace,
+        )?;
 
         // Register org.gtk.Actions interface
-        register_actions_interface(&dbus_lib, connection, &object_path, actions.clone())?;
+        register_actions_interface(
+            &dbus_lib,
+            connection,
+            &object_path,
+            actions.clone(),
+            trace,
+        )?;
 
-        debug_log("All DBus interfaces registered successfully");
+        trace.log("All DBus interfaces registered successfully");
 
         // GNOME Shell's Start / Activate calls arrive on this socket: put it
         // in the run loops' wait set. Without it the exporter was served only
@@ -180,6 +200,7 @@ impl GnomeMenuManager {
             menu_groups,
             actions,
             last_menu_hash: Cell::new(None),
+            trace,
         })
     }
 
@@ -213,19 +234,19 @@ impl GnomeMenuManager {
     /// on every relayout.
     pub fn sync_menu(&self, menu: &azul_core::menu::Menu) -> Result<(), GnomeMenuError> {
         let hash = menu.get_structure_hash();
-        let actions = MenuConversion::extract_actions(menu)?;
+        let actions = MenuConversion::extract_actions(menu, self.trace)?;
         if self.last_menu_hash.get() == Some(hash) {
             self.register_actions(actions)?;
             return Ok(());
         }
 
-        let groups = MenuConversion::convert_menu(menu)?;
+        let groups = MenuConversion::convert_menu(menu, self.trace)?;
 
         self.update_menu(groups)?;
         self.register_actions(actions)?;
 
         self.last_menu_hash.set(Some(hash));
-        debug_log("GNOME menu synced from application menu bar");
+        self.trace.log("GNOME menu synced from application menu bar");
         Ok(())
     }
 
@@ -237,7 +258,7 @@ impl GnomeMenuManager {
 
         menu_groups.clear();
         for group in groups {
-            debug_log(&format!(
+            self.trace.log(&format!(
                 "Updating menu group {} with {} items",
                 group.group_id,
                 group.items.len()
@@ -245,7 +266,7 @@ impl GnomeMenuManager {
             menu_groups.insert(group.group_id, group);
         }
 
-        debug_log("Menu structure updated");
+        self.trace.log("Menu structure updated");
         Ok(())
     }
 
@@ -257,14 +278,14 @@ impl GnomeMenuManager {
 
         action_map.clear();
         for action in actions {
-            debug_log(&format!(
+            self.trace.log(&format!(
                 "Registering action: {} (enabled: {})",
                 action.name, action.enabled
             ));
             action_map.insert(action.name.clone(), action);
         }
 
-        debug_log(&format!("Registered {} actions", action_map.len()));
+        self.trace.log(&format!("Registered {} actions", action_map.len()));
         Ok(())
     }
 
@@ -276,7 +297,7 @@ impl GnomeMenuManager {
         window_id: u64,
         display: *mut std::ffi::c_void,
     ) -> Result<(), GnomeMenuError> {
-        debug_log("Setting X11 window properties for GNOME menu");
+        self.trace.log("Setting X11 window properties for GNOME menu");
 
         super::X11Properties::set_properties(
             window_id,
@@ -284,9 +305,10 @@ impl GnomeMenuManager {
             &self.app_name,
             &self.bus_name,
             &self.object_path,
+            self.trace,
         )?;
 
-        debug_log("X11 window properties set successfully");
+        self.trace.log("X11 window properties set successfully");
         Ok(())
     }
 
@@ -300,15 +322,15 @@ impl GnomeMenuManager {
         _surface_id: u64,
         app_id: &Option<String>,
     ) -> Result<(), GnomeMenuError> {
-        debug_log("Wayland menu integration (using app_id matching)");
+        self.trace.log("Wayland menu integration (using app_id matching)");
 
         if let Some(id) = app_id {
-            debug_log(&format!(
+            self.trace.log(&format!(
                 "App ID: {}, DBus name: {}, path: {}",
                 id, self.bus_name, self.object_path
             ));
         } else {
-            debug_log(&format!(
+            self.trace.log(&format!(
                 "No app_id set. GNOME Shell may not find menus. DBus: {}",
                 self.bus_name
             ));
@@ -335,7 +357,7 @@ impl GnomeMenuManager {
 
 impl Drop for GnomeMenuManager {
     fn drop(&mut self) {
-        debug_log(&format!(
+        self.trace.log(&format!(
             "Cleaning up GNOME menu manager V2 for: {}",
             self.app_name
         ));

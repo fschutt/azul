@@ -3241,7 +3241,7 @@ impl X11Window {
         if actions.is_empty() {
             return;
         }
-        if std::env::var("AZ_MAP_DEBUG").is_ok() {
+        if self.resources.app_shared.settings().linux.a11y_debug {
             eprintln!(
                 "[a11y] {} action(s) polled: {:?}",
                 actions.len(),
@@ -4090,6 +4090,7 @@ impl X11Window {
         // compilation on software / weak GPUs such as nouveau.)
         let force_cpu = matches!(
             crate::desktop::shell2::common::compositor::AzBackend::resolve(
+                resources.app_shared.settings().shell.backend.as_deref(),
                 options
                     .renderer
                     .as_option()
@@ -4402,6 +4403,7 @@ impl X11Window {
                         crate::desktop::shell2::linux::common::compose::ComposeSequencer::new(
                             fns,
                             xkb.clone(),
+                            resources.app_shared.settings().platform.compose_locale(),
                         )
                     })
                 })
@@ -4518,27 +4520,29 @@ impl X11Window {
         // Initialize GNOME native menus V2 (dlopen-based)
         // Only attempt if use_native_menus is true and GNOME is available
         if options.window_state.flags.use_native_menus
-            && super::gnome_menu::should_use_gnome_menus()
+            && super::gnome_menu::should_use_gnome_menus(resources.linux(), resources.platform())
         {
+            let menu_trace =
+                super::gnome_menu::MenuTrace::new(resources.linux().gnome_menu_debug);
             // Get shared DBus library (loaded once, shared across all windows)
-            if let Some(dbus_lib) = super::gnome_menu::get_shared_dbus_lib() {
+            if let Some(dbus_lib) = super::gnome_menu::get_shared_dbus_lib_traced(menu_trace) {
                 let app_name = &options.window_state.title;
 
-                match super::gnome_menu::GnomeMenuManager::new(app_name, dbus_lib) {
+                match super::gnome_menu::GnomeMenuManager::new(app_name, dbus_lib, menu_trace) {
                     Ok(menu_manager) => {
                         // Try to set window properties for GNOME Shell integration
                         match menu_manager
                             .set_window_properties(window.window as u64, display as *mut _)
                         {
                             Ok(_) => {
-                                super::gnome_menu::debug_log(&format!(
+                                menu_trace.log(&format!(
                                     "GNOME menu V2 integration enabled for window: {}",
                                     app_name
                                 ));
                                 window.gnome_menu = Some(menu_manager);
                             }
                             Err(e) => {
-                                super::gnome_menu::debug_log(&format!(
+                                menu_trace.log(&format!(
                                     "Failed to set GNOME V2 window properties: {} - falling back \
                                      to CSD menus",
                                     e
@@ -4548,7 +4552,7 @@ impl X11Window {
                         }
                     }
                     Err(e) => {
-                        super::gnome_menu::debug_log(&format!(
+                        menu_trace.log(&format!(
                             "Failed to create GNOME menu V2 manager: {} - using CSD fallback",
                             e
                         ));
@@ -4556,7 +4560,7 @@ impl X11Window {
                     }
                 }
             } else {
-                super::gnome_menu::debug_log("DBus library not available - using CSD fallback");
+                menu_trace.log("DBus library not available - using CSD fallback");
             }
         }
 
@@ -4776,7 +4780,8 @@ impl X11Window {
 
         if let Some(menu) = menu_opt {
             if let Err(e) = manager.sync_menu(&menu) {
-                super::gnome_menu::debug_log(&format!("Failed to sync GNOME menu: {}", e));
+                super::gnome_menu::MenuTrace::new(self.resources.linux().gnome_menu_debug)
+                    .log(&format!("Failed to sync GNOME menu: {}", e));
             }
         }
     }
@@ -5057,7 +5062,9 @@ impl X11Window {
             // below parks with an infinite timeout on an idle window, so on an
             // app with no timer and no thread that was "never".
             let theme_wake_idx = pollfds.len();
-            let theme_wake_fd = super::system_style::theme_wake_fd();
+            let theme_wake_fd = super::system_style::theme_wake_fd(
+                &self.resources.app_shared.settings().platform,
+            );
             if theme_wake_fd >= 0 {
                 pollfds.push(libc::pollfd {
                     fd: theme_wake_fd,
@@ -5557,7 +5564,7 @@ impl X11Window {
                     ProcessEventResult::DoNothing
                 } else {
                     self.snapshot_window_state_baseline("x11.handle_event.focus_out");
-                    if std::env::var("AZ_HIT_DEBUG").is_ok() {
+                    if self.common.app.settings().shell.hit_debug {
                         let f = unsafe { &event.focus };
                         eprintln!(
                             "[hit-debug] FocusOut clears buttons (mode={} detail={})",
@@ -6674,7 +6681,9 @@ impl X11Window {
         let layout_window = borrows.layout_window.ok_or("No layout window")?;
 
         // Collect debug messages if debug server is enabled
-        let debug_enabled = crate::desktop::shell2::common::debug_server::layout_trace_enabled();
+        let debug_enabled = crate::desktop::shell2::common::debug_server::layout_trace_enabled(
+            &borrows.settings.shell,
+        );
         let mut debug_messages = if debug_enabled {
             Some(Vec::new())
         } else {
@@ -6694,6 +6703,7 @@ impl X11Window {
             &self.resources.icon_provider,
             &mut debug_messages,
             relayout_reason,
+            borrows.settings,
         )?;
 
         // Forward layout debug messages to the debug server's log queue
@@ -6829,9 +6839,7 @@ impl X11Window {
     }
 
     fn pace_allows_render(&mut self) -> bool {
-        use std::sync::OnceLock;
-        static NO_PACE: OnceLock<bool> = OnceLock::new();
-        if *NO_PACE.get_or_init(|| std::env::var("AZ_NO_PACE").is_ok_and(|v| v == "1")) {
+        if self.resources.app_shared.settings().linux.no_pace {
             return true;
         }
         let Some(last) = self.last_present_at else {
@@ -7214,7 +7222,11 @@ impl X11Window {
                                             // in charge for good.
                                             if !self.shm_probed {
                                                 self.shm_probed = true;
-                                                match shm::X11ShmUpload::probe(self.display) {
+                                                match shm::X11ShmUpload::probe(
+                                                    self.display,
+                                                    &self.resources.app_shared.settings().linux,
+                                                    &self.resources.app_shared.settings().platform,
+                                                ) {
                                                     Ok(up) => self.shm_upload = Some(up),
                                                     Err(why) => log_debug!(
                                                         LogCategory::Rendering,
@@ -7390,7 +7402,7 @@ impl X11Window {
             self.common.display_list_initialized = true;
 
             // CI testing: Exit successfully after first frame render if env var is set
-            if std::env::var("AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
+            if self.common.app.settings().shell.exit_after_first_frame {
                 log_debug!(
                     LogCategory::General,
                     "[CI] AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting"
@@ -7654,7 +7666,7 @@ impl X11Window {
         }
 
         // CI testing: Exit successfully after first frame render if env var is set
-        if std::env::var("AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
+        if self.common.app.settings().shell.exit_after_first_frame {
             log_debug!(
                 LogCategory::General,
                 "[CI] AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting"
@@ -7881,7 +7893,7 @@ impl X11Window {
         // drag the next press diffed `true → true` (no MouseDown) and every
         // motion read as a drag. Release the buttons at the hand-off: the
         // pointer is the WM's from here until it comes up.
-        if std::env::var("AZ_HIT_DEBUG").is_ok() {
+        if self.common.app.settings().shell.hit_debug {
             eprintln!("[hit-debug] begin_interactive_move clears buttons");
         }
         self.common.update_unsynced_state(|ws| {
@@ -8305,7 +8317,12 @@ impl PlatformWindow for X11Window {
             .get();
         let views = self
             .webviews
-            .get_or_insert_with(|| super::webview::WpeWebViews::new(scale));
+            .get_or_insert_with(|| {
+                super::webview::WpeWebViews::new(
+                    scale,
+                    &self.resources.app_shared.settings().platform,
+                )
+            });
         views.set_scale(scale);
         Some(views as &mut dyn crate::desktop::shell2::common::webview::WebViewBackend)
     }
@@ -9226,7 +9243,11 @@ impl X11Window {
             // breeze-dark as two directories, and the tint comes from the
             // palette. Re-read them BEFORE the relayout that repaints with
             // them, or the new palette is drawn around the old glyphs.
-            super::system_icons::refresh_system_icons(&self.resources.icon_provider, &new_style);
+            super::system_icons::refresh_system_icons(
+                &self.resources.icon_provider,
+                &new_style,
+                &self.resources.app_shared.settings().platform,
+            );
             // Full rebuild or restyle, decided from what the app's `layout()`
             // declared it reads — see `PlatformWindow::adopt_system_style`.
             self.adopt_system_style(new_style);

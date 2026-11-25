@@ -10,6 +10,8 @@
 //! - [`shape_parser`]: Font and shape metric parsing.
 //! - [`dynamic_selector`]: Runtime selector matching helpers.
 //! - [`theme_chain`]: The theme chain and the `AZ_THEME` / `AZ_MODE` variables.
+//! - [`env`]: `EnvSource`, the seam to the environment (the crate never reads it itself).
+//! - [`settings`]: the settings the environment asks for, built from an `EnvSource`.
 //! - [`compact_cache`]: Compact caching utilities for resolved styles.
 //! - [`corety`]: Core type aliases re-exported at crate root.
 // Lint policy: deny correctness/safety issues, warn on style
@@ -126,6 +128,11 @@ pub mod props;
 pub mod shape;
 /// Parser for CSS shape functions and font metrics.
 pub mod shape_parser;
+/// What the environment asks of azul-css, as settings.
+///
+/// `AZ_RICING`, `AZ_THEME`, `AZ_MODE` and the desktop session: the one place of the crate that
+/// names its variables.
+pub mod settings;
 /// Native OS theme discovery: system colors, fonts, and DPI.
 pub mod system;
 /// The theme chain (`xyz:pink -> xyz -> flat`): which app themes are live.

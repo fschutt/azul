@@ -33,6 +33,8 @@ use std::process::Command;
 
 use azul_css::AzString;
 
+use crate::desktop::platform_settings::PlatformEnv;
+
 /// The codec extension that gpu-video (and every H.264 Vulkan Video decoder)
 /// requires on a physical device.
 const VK_EXT_VIDEO_DECODE_H264: &[u8] = b"VK_KHR_video_decode_h264";
@@ -1261,9 +1263,17 @@ fn detect_gpu_vendors() -> Vec<GpuVendor> {
 }
 
 /// Whether `prog` is on `PATH`.
+///
+/// Provisioning is a public entry (`VideoStartupCheck::run`, `ProvisionPlan::detect`) that a host
+/// calls with no app in reach, so `PATH` is read through the one process reader
+/// (`PlatformEnv::of_process`); [`which_in`] is the decision.
 fn which(prog: &str) -> bool {
-    std::env::var_os("PATH")
-        .map(|paths| std::env::split_paths(&paths).any(|p| p.join(prog).is_file()))
+    which_in(PlatformEnv::of_process().path.as_deref(), prog)
+}
+
+/// Whether `prog` is a file in one of the directories of `path` (a `PATH` value).
+fn which_in(path: Option<&std::ffi::OsStr>, prog: &str) -> bool {
+    path.map(|paths| std::env::split_paths(paths).any(|p| p.join(prog).is_file()))
         .unwrap_or(false)
 }
 
@@ -1408,10 +1418,23 @@ fn x11_fallback_session() -> Option<String> {
                 .map(|s| s.to_string())
         })
         .collect();
+    // The desktop the session names is read through the one process reader, as `which` reads
+    // `PATH` (a public entry with no app in reach).
+    pick_x11_session(
+        sessions,
+        PlatformEnv::of_process().xdg_current_desktop.as_deref(),
+    )
+}
+
+/// The X11 session to fall back to among `sessions` (the `*.desktop` names of
+/// `/usr/share/xsessions`): the one that matches `current_desktop` (`XDG_CURRENT_DESKTOP`), else
+/// the first of a list of known desktops, else the alphabetically first. `None` for no session.
+#[cfg(target_os = "linux")]
+fn pick_x11_session(sessions: Vec<String>, current_desktop: Option<&str>) -> Option<String> {
     if sessions.is_empty() {
         return None;
     }
-    if let Ok(cur) = std::env::var("XDG_CURRENT_DESKTOP") {
+    if let Some(cur) = current_desktop {
         let cur = cur.to_lowercase();
         if let Some(m) = sessions
             .iter()
@@ -1823,6 +1846,10 @@ pub fn overall_percent(completed_steps: usize, total_steps: usize, cmd_percent: 
     let overall = (done + cmd) / total_steps as f32;
     overall.clamp(0.0, 100.0).round() as u32
 }
+
+#[cfg(test)]
+#[path = "provision_test.rs"]
+mod env_tests;
 
 #[cfg(test)]
 mod provision_tests {
