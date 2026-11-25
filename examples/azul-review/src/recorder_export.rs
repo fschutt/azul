@@ -108,6 +108,8 @@ pub struct Plan {
     pub commands: Vec<Command>,
     /// The file the join reads and what is in it.
     pub concat_list: (PathBuf, String),
+    /// More lists the commands read (a straight copy reads the voice's files from one), written the same way.
+    pub extra_lists: Vec<(PathBuf, String)>,
     /// The chapters' file and what is in it.
     pub metadata: (PathBuf, String),
     /// The video.
@@ -186,6 +188,19 @@ fn corner(c: &str, margin: u32) -> String {
         "bottom_left" => format!("x={m}:y=H-h-{m}"),
         _ => format!("x=W-w-{m}:y=H-h-{m}"),
     }
+}
+
+/// The filters that give the camera's picture rounded corners (nothing for a rectangle): it gets an alpha
+/// channel and every pixel outside a quarter circle of radius a ninth of the width, in each corner, is made
+/// transparent, so the overlay shows the screen there.
+fn rounding(shape: &str, width: u32) -> String {
+    if shape != "rounded" {
+        return String::new();
+    }
+    let r = (f64::from(width) / 9.0).round().max(2.0) as u32;
+    format!(
+        ",format=yuva420p,geq=lum='p(X,Y)':cb='p(X,Y)':cr='p(X,Y)':a='if(gt(abs(W/2-X),W/2-{r})*gt(abs(H/2-Y),H/2-{r}),if(lte(hypot(abs(W/2-X)-(W/2-{r}),abs(H/2-Y)-(H/2-{r})),{r}),255,0),255)'"
+    )
 }
 
 /// `#rrggbb` as ffmpeg writes a colour.
@@ -293,7 +308,7 @@ fn segment_command(m: &Manifest, e: &Edl, seg: &EdlSegment, session_dir: &Path, 
             chain.push_str(&format!("+{}/TB", secs(lead)));
         }
         let w = camera_width(o.width, e.style.camera.scale);
-        chain.push_str(&format!(",scale={w}:-2,fps={fps},tpad=stop_mode=clone:stop_duration={}[cam]", secs(rec_us)));
+        chain.push_str(&format!(",scale={w}:-2{},fps={fps},tpad=stop_mode=clone:stop_duration={}[cam]", rounding(&e.style.camera.shape, w), secs(rec_us)));
         filters.push(chain);
         let last = if (seg.speed - 1.0).abs() > 1e-9 { "vc" } else { "v" };
         filters.push(format!("[b1][cam]overlay={}:eof_action=pass[{last}]", corner(&e.style.camera.corner, e.style.camera.margin)));
@@ -325,12 +340,93 @@ fn segment_command(m: &Manifest, e: &Edl, seg: &EdlSegment, session_dir: &Path, 
     Ok(Command { id: seg.id.clone(), args, output, us: out_us })
 }
 
+/// The plan of a cut list that asks for nothing the recorded pictures cannot give as they are: ONE segment,
+/// no camera over it, no zoom, no speed, no caption, a cut that begins and ends where recorded files do and
+/// a screen that is the output's own size in every file. Then the screen's files are joined with `-c:v copy`
+/// (no encoder is needed and the pictures are not touched: an hour is a matter of seconds) and the voice's
+/// files, which are Opus, become AAC. `None` when the cut list asks for more: the cuts are then made one by
+/// one ([`build_plan`]).
+///
+/// # Errors
+/// There is a voice and this ffmpeg has no AAC encoder.
+fn straight_copy(m: &Manifest, e: &Edl, session_dir: &Path, work_dir: &Path, out_file: &Path, enc: Encoders) -> Result<Option<Plan>, String> {
+    let [seg] = e.segments.as_slice() else { return Ok(None) };
+    if seg.camera || seg.zoom.is_some() || (seg.speed - 1.0).abs() > 1e-9 || seg.caption.is_some() || seg.title.is_some() {
+        return Ok(None);
+    }
+    let Some(screen) = m.tracks.screen.as_ref() else { return Ok(None) };
+    let slices = slices_for(screen, session_dir, seg.in_us, seg.out_us);
+    let Some(first) = slices.first() else { return Ok(None) };
+    // The files are taken whole, so each slice must be a whole file (to within a tenth of a second), the first
+    // may begin its picture a little late (a screen that did not change begins with its first change), and
+    // every file must be the output's size.
+    let whole = |sl: &Slice| {
+        screen.segments.iter().find(|s| session_dir.join(&s.file) == sl.file).and_then(|s| s.end_us.map(|end| (s.start_us, end))).is_some_and(
+            |(start, end)| sl.seek_us <= 100_000 && (end - start).abs_diff(sl.seek_us + sl.dur_us) <= 100_000,
+        )
+    };
+    // ... and no file may follow another after a gap (a screen that went away and came back): the joined
+    // files would close it up and the voice would run ahead of the picture.
+    let contiguous = slices.windows(2).all(|w| w[1].lead_us.saturating_sub(w[0].lead_us + w[0].dur_us) <= 100_000);
+    if first.lead_us > 200_000 || !contiguous || !slices.iter().all(whole) {
+        return Ok(None);
+    }
+    if slices.iter().any(|sl| size_of(screen, &sl.file, session_dir) != (e.output.width, e.output.height)) {
+        return Ok(None);
+    }
+    let voice = m.tracks.audio.as_ref().map(|a| slices_for(a, session_dir, seg.in_us, seg.out_us)).filter(|v| !v.is_empty());
+    if voice.is_some() && !enc.aac {
+        return Err(String::from("no AAC encoder in this ffmpeg"));
+    }
+    let screen_list = work_dir.join("screen_pieces.txt");
+    let voice_list = work_dir.join("audio_pieces.txt");
+    let meta_path = work_dir.join("chapters.ffmeta");
+    let mut args: Vec<String> = ["-hide_banner", "-nostdin", "-y", "-f", "concat", "-safe", "0", "-i"].iter().map(ToString::to_string).collect();
+    args.push(screen_list.to_string_lossy().into_owned());
+    let mut extra_lists = Vec::new();
+    let mut inputs = 1;
+    if let Some(v) = &voice {
+        args.extend(["-f", "concat", "-safe", "0", "-i"].iter().map(ToString::to_string));
+        args.push(voice_list.to_string_lossy().into_owned());
+        let files: Vec<PathBuf> = v.iter().map(|sl| sl.file.clone()).collect();
+        extra_lists.push((voice_list, concat_list(&files)));
+        inputs = 2;
+    }
+    args.extend(["-i".to_string(), meta_path.to_string_lossy().into_owned(), "-map".to_string(), "0:v".to_string()]);
+    if voice.is_some() {
+        args.extend(["-map".to_string(), "1:a".to_string()]);
+    }
+    args.extend(["-map_metadata".to_string(), inputs.to_string(), "-map_chapters".to_string(), inputs.to_string(), "-c:v".to_string(), "copy".to_string()]);
+    if let Some(v) = &voice {
+        let delay = if v[0].lead_us > 0 { format!(",adelay={0}|{0}", v[0].lead_us / 1_000) } else { String::new() };
+        let gain = if seg.audio.gain_db.abs() > 1e-9 { format!(",volume={:.3}dB", seg.audio.gain_db) } else { String::new() };
+        args.extend(["-af".to_string(), format!("aresample=48000{delay}{gain}")]);
+        args.extend(["-c:a", "aac", "-b:a"].iter().map(ToString::to_string));
+        args.extend([format!("{}k", e.output.audio_kbps), "-ar".to_string(), "48000".to_string()]);
+    }
+    args.extend(["-movflags".to_string(), "+faststart".to_string(), out_file.to_string_lossy().into_owned()]);
+    let files: Vec<PathBuf> = slices.iter().map(|sl| sl.file.clone()).collect();
+    let total_us = e.duration_us();
+    Ok(Some(Plan {
+        commands: vec![Command { id: String::from("join"), args, output: out_file.to_path_buf(), us: total_us }],
+        concat_list: (screen_list, concat_list(&files)),
+        extra_lists,
+        metadata: (meta_path, ffmetadata(e)),
+        output: out_file.to_path_buf(),
+        total_us,
+    }))
+}
+
 /// The plan of an export of `edl` for the session in `session_dir`: the pieces are made in `work_dir`
 /// and the video is `out_file`.
 ///
 /// # Errors
 /// Why no plan can be made: no encoder, or a cut where the screen recorded nothing or spans a resize.
 pub fn build_plan(m: &Manifest, e: &Edl, session_dir: &Path, work_dir: &Path, out_file: &Path, enc: Encoders) -> Result<Plan, String> {
+    // The screen alone, of one run, at its own size: its pictures are joined, not encoded again.
+    if let Some(plan) = straight_copy(m, e, session_dir, work_dir, out_file, enc)? {
+        return Ok(plan);
+    }
     encoder_args(enc, e.output.video_kbps)?;
     if !enc.aac {
         return Err(String::from("no AAC encoder in this ffmpeg"));
@@ -366,6 +462,7 @@ pub fn build_plan(m: &Manifest, e: &Edl, session_dir: &Path, work_dir: &Path, ou
     Ok(Plan {
         commands,
         concat_list: (list_path, concat_list(&pieces)),
+        extra_lists: Vec::new(),
         metadata: (meta_path, ffmetadata(e)),
         output: out_file.to_path_buf(),
         total_us,
@@ -443,6 +540,9 @@ pub fn run(plan: &Plan, ffmpeg: &Path, cancel: &AtomicBool, progress: &mut dyn F
         std::fs::create_dir_all(dir).map_err(io)?;
     }
     std::fs::write(&plan.concat_list.0, &plan.concat_list.1).map_err(io)?;
+    for (path, text) in &plan.extra_lists {
+        std::fs::write(path, text).map_err(io)?;
+    }
     std::fs::write(&plan.metadata.0, &plan.metadata.1).map_err(io)?;
     let steps = plan.commands.len();
     // The share of the whole each command is: by the video it makes, the join as much as the last cut.
@@ -455,6 +555,9 @@ pub fn run(plan: &Plan, ffmpeg: &Path, cancel: &AtomicBool, progress: &mut dyn F
             }
         }
         let _ = std::fs::remove_file(&plan.concat_list.0);
+        for (path, _) in &plan.extra_lists {
+            let _ = std::fs::remove_file(path);
+        }
         let _ = std::fs::remove_file(&plan.metadata.0);
     };
     for (i, c) in plan.commands.iter().enumerate() {

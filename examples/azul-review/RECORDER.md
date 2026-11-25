@@ -208,7 +208,7 @@ conversations and their outcomes, the markers) and returns an EDL.
   "style": {
     "background": "#101010",
     "screen": {"fit": "contain"},
-    "camera": {"corner": "bottom_right", "scale": 0.22, "margin": 24, "shape": "rect"}
+    "camera": {"corner": "bottom_right", "scale": 0.20, "margin": 24, "shape": "rect"}
   },
   "segments": [
     {
@@ -239,6 +239,9 @@ conversations and their outcomes, the markers) and returns an EDL.
   nothing clicks.
 * `caption.words` carry the **word-level timing** (session clock), so the renderer can show a
   caption word by word and a later step can move a cut to a word boundary.
+* `style.camera` is where the camera's picture-in-picture sits: by default the bottom right corner, a fifth of
+  the picture's width (`scale` 0.05 to 0.6), 24 pixels from the edges, a rectangle; `shape` `rounded` cuts
+  the corners with a quarter circle of a ninth of the camera's width.
 * `chapters` become MP4 chapter metadata (v1: one per file the review opened, from `nav.file`).
 * A version-3 field is never required: a generator writes what it knows, the renderer takes
   defaults for the rest, and a field it does not know is an error naming the field.
@@ -247,8 +250,8 @@ conversations and their outcomes, the markers) and returns an EDL.
 
 `identity_edl(manifest, file_changes)` makes the cut list that needs no judgement: one segment for each
 run (so a pause is not in the video), the screen as the base, the camera as a picture-in-picture in the
-corner where it was recorded, the microphone, a chapter for each file the review opened (`nav.file`), the
-picture the screen's shape up to 1920 x 1080. `Edl::parse` reads a cut list strictly (an unknown field is
+bottom right corner, a fifth of the picture wide, the microphone, a chapter for each file the review opened
+(`nav.file`), the picture the screen's own size (scaled down only to fit 4K, never enlarged, made even). `Edl::parse` reads a cut list strictly (an unknown field is
 an error that names it) and checks it against the session: segments inside one run, a zoom inside the
 screen track, a crossfade no longer than half a segment, chapters in order.
 
@@ -269,6 +272,15 @@ the later versions' crossfades will work on. A cut that spans a resize of the wi
 video; progress comes from ffmpeg's own `time=` lines. The end-to-end test records a session on stand-in
 encoders that replay real H.264 and Opus, makes the cut list, exports it with a real ffmpeg and checks
 streams, length, chapters and a clean decode with ffprobe.
+
+**A screen alone is joined, not encoded.** When the cut list asks for nothing the recorded pictures cannot
+give as they are (one segment, no camera over the screen, no zoom, no speed, no caption, a cut that begins
+and ends at files, every file the output's size, no gap between two files), the plan is ONE ffmpeg command:
+the screen's files joined with `-c:v copy` (the pictures are not touched, no video encoder is needed), the
+voice's files read as a second list and made AAC, the chapters as the third input. A session of several runs
+(a pause), a camera, a zoom or a cut inside a file is made cut by cut as above. The default session of the
+screen alone is therefore a matter of seconds an hour; a camera over the screen costs one hardware
+encoding of the picture (section 9).
 
 ### v2: enhancement (designed, not built)
 

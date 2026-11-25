@@ -85,6 +85,21 @@ fn filter_of(c: &Command) -> String {
     c.args[at + 1].clone()
 }
 
+/// The same session without the camera and without the second run: the screen and the voice in two
+/// files each, 0 to 100 s.
+fn screen_alone() -> Manifest {
+    let mut m = session();
+    m.tracks.camera = None;
+    m.runs.truncate(1);
+    m.tracks.screen.as_mut().unwrap().segments.truncate(2);
+    m.tracks.audio.as_mut().unwrap().segments.truncate(2);
+    m
+}
+
+fn plan_for(m: &Manifest, e: &Edl, enc: Encoders) -> Result<Plan, String> {
+    build_plan(m, e, Path::new("/rec/s"), Path::new("/work"), Path::new("/out/video.mp4"), enc)
+}
+
 // ---- which slices of which files ----
 
 #[test]
@@ -159,8 +174,8 @@ fn the_picture_is_the_screen_scaled_into_the_frame_over_a_background_with_the_ca
     let f = filter_of(&p.commands[0]);
     assert!(f.contains("[1:v]setpts=PTS-STARTPTS,scale=1280:720:force_original_aspect_ratio=decrease,setsar=1,fps=30,tpad=stop_mode=clone:stop_duration=20.000000[screen]"), "{f}");
     assert!(f.contains("[0:v][screen]overlay=x=(W-w)/2:y=(H-h)/2:eof_action=pass[b1]"), "{f}");
-    // The camera at 22% of 1280 = 281.6, made even: 282 px wide; 24 px from the corner.
-    assert!(f.contains("[2:v]setpts=PTS-STARTPTS,scale=282:-2,fps=30,tpad=stop_mode=clone:stop_duration=20.000000[cam]"), "{f}");
+    // The camera at 20% of 1280 = 256 px wide; 24 px from the corner.
+    assert!(f.contains("[2:v]setpts=PTS-STARTPTS,scale=256:-2,fps=30,tpad=stop_mode=clone:stop_duration=20.000000[cam]"), "{f}");
     assert!(f.contains("[b1][cam]overlay=x=W-w-24:y=H-h-24:eof_action=pass[v]"), "{f}");
     assert!(f.contains("[3:a]aresample=48000,volume=0.000dB[a]"), "{f}");
 }
@@ -189,7 +204,7 @@ fn a_cut_without_the_camera_has_no_second_overlay() {
 #[test]
 fn a_camera_that_was_not_there_yet_leads_in_with_the_background_showing() {
     let f = filter_of(&plan_of(&edl(vec![segment("a", 0, 20)])).commands[0]);
-    assert!(f.contains("[2:v]setpts=PTS-STARTPTS+5.000000/TB,scale=282:-2"), "the camera comes in at 5 s: {f}");
+    assert!(f.contains("[2:v]setpts=PTS-STARTPTS+5.000000/TB,scale=256:-2"), "the camera comes in at 5 s: {f}");
 }
 
 #[test]
@@ -450,6 +465,116 @@ mod running {
     }
 }
 
+// ---- the screen alone is joined, not encoded; the camera's corner and shape ----
+
+/// A session of one run with the screen and the voice and no camera over it, exported at the screen's own
+/// size, is ONE command that joins the screen's files with their pictures copied (no filter graph, no video
+/// encoder named) and makes the voice AAC; the chapters are the third input. The cuts are not made one by
+/// one: this is what makes an hour of a display an affair of seconds.
+///
+/// Mutation: a copy plan that still names an encoder; one that reads the voice's files from the screen's list.
+#[test]
+fn a_screen_alone_of_one_run_at_its_own_size_is_joined_with_the_pictures_copied() {
+    let m = screen_alone();
+    let e = identity_edl(&m, &[(10 * SEC, String::from("src/lib.rs"))]);
+    assert_eq!((e.output.width, e.output.height), (2880, 1800), "the screen's own size");
+    let p = plan_for(&m, &e, ENC).unwrap();
+    assert_eq!(p.commands.len(), 1, "one command, not one for the cut and one for the join");
+    let c = &p.commands[0];
+    assert_eq!((c.id.as_str(), c.us), ("join", 100 * SEC));
+    let a = args_of(c);
+    assert!(!a.contains("-filter_complex") && !a.contains("h264_videotoolbox") && !a.contains("libx264"), "{a}");
+    assert!(a.contains("-f concat -safe 0 -i /work/screen_pieces.txt -f concat -safe 0 -i /work/audio_pieces.txt -i /work/chapters.ffmeta"), "{a}");
+    assert!(a.contains("-map 0:v -map 1:a -map_metadata 2 -map_chapters 2 -c:v copy"), "{a}");
+    assert!(a.contains("-af aresample=48000 -c:a aac -b:a 160k -ar 48000 -movflags +faststart /out/video.mp4"), "{a}");
+    assert_eq!(p.concat_list.0, PathBuf::from("/work/screen_pieces.txt"));
+    assert_eq!(p.concat_list.1, "file '/rec/s/screen/0001.mp4'\nfile '/rec/s/screen/0002.mp4'\n");
+    assert_eq!(p.extra_lists, vec![(PathBuf::from("/work/audio_pieces.txt"), String::from("file '/rec/s/audio/0001.mp4'\nfile '/rec/s/audio/0002.mp4'\n"))]);
+    assert!(p.metadata.1.contains("title=src/lib.rs"), "{}", p.metadata.1);
+    // It needs no video encoder at all, and an AAC one only for the voice.
+    let none = Encoders { videotoolbox: false, libx264: false, aac: true };
+    assert!(plan_for(&m, &e, none).is_ok());
+    let no_aac = Encoders { aac: false, ..ENC };
+    assert_eq!(plan_for(&m, &e, no_aac).unwrap_err(), "no AAC encoder in this ffmpeg");
+    let mut silent = m.clone();
+    silent.tracks.audio = None;
+    let p = plan_for(&silent, &identity_edl(&silent, &[]), no_aac).unwrap();
+    assert!(!args_of(&p.commands[0]).contains("-map 1:a") && p.extra_lists.is_empty(), "no voice: a video alone");
+}
+
+/// A voice that began after the run did is delayed, and a gain is applied: the voice is encoded anyway.
+#[test]
+fn the_voice_of_a_straight_copy_keeps_its_start_and_its_gain() {
+    let mut m = screen_alone();
+    m.tracks.audio.as_mut().unwrap().segments[0].start_us = 5 * SEC;
+    let mut e = identity_edl(&m, &[]);
+    e.segments[0].audio.gain_db = -3.0;
+    let a = args_of(&plan_for(&m, &e, ENC).unwrap().commands[0]);
+    assert!(a.contains("-af aresample=48000,adelay=5000|5000,volume=-3.000dB"), "{a}");
+}
+
+/// Whatever the cut list asks that the recorded pictures cannot give as they are makes the cuts one by one
+/// again, with a video encoder: a camera over the screen, a second run, a zoom, a speed, a cut inside a file,
+/// another size than the screen's, a gap between two files, a picture that begins late.
+///
+/// Mutation: a copy for any of them (the picture would be wrong, or lose a gap and drift from the voice).
+#[test]
+fn anything_the_pictures_cannot_give_as_they_are_is_encoded() {
+    let m = screen_alone();
+    let base = identity_edl(&m, &[]);
+    assert_eq!(plan_for(&m, &base, ENC).unwrap().commands.len(), 1, "the straight copy it is");
+    let encoded = |m: &Manifest, e: &Edl| {
+        let p = plan_for(m, e, ENC).unwrap();
+        p.commands.len() == e.segments.len() + 1 && p.commands[0].args.iter().any(|a| a == "-filter_complex")
+    };
+    // A camera over the screen, or a second run.
+    assert!(encoded(&session(), &identity_edl(&session(), &[])));
+    let mut zoomed = base.clone();
+    zoomed.segments[0].zoom = Some(Zoom { x: 0, y: 0, w: 1440, h: 900, ease_ms: 0 });
+    assert!(encoded(&m, &zoomed));
+    let mut fast = base.clone();
+    fast.segments[0].speed = 2.0;
+    assert!(encoded(&m, &fast));
+    let mut inside = base.clone();
+    inside.segments[0].in_us = 10 * SEC;
+    assert!(encoded(&m, &inside), "a cut inside a file is not at a keyframe");
+    let mut smaller = base.clone();
+    smaller.output.width = 1920;
+    smaller.output.height = 1200;
+    assert!(encoded(&m, &smaller), "another size than the screen's");
+    let mut resized = m.clone();
+    resized.tracks.screen.as_mut().unwrap().segments[1].width = 1440;
+    resized.tracks.screen.as_mut().unwrap().segments[1].height = 900;
+    assert!(plan_for(&resized, &base, ENC).unwrap_err().contains("spans a resize"), "a file of another size is not copied, and the cuts cannot join two sizes");
+    let mut gap = m.clone();
+    gap.tracks.screen.as_mut().unwrap().segments[1].start_us = 70 * SEC;
+    assert!(encoded(&gap, &base), "ten seconds are missing between the two files");
+    let mut late = m.clone();
+    late.tracks.screen.as_mut().unwrap().segments[0].start_us = 3 * SEC;
+    assert!(encoded(&late, &base), "the picture begins three seconds into the run");
+    // And without a video encoder, it cannot be done.
+    let none = Encoders { videotoolbox: false, libx264: false, aac: true };
+    assert!(plan_for(&m, &zoomed, none).unwrap_err().contains("no H.264 encoder"));
+}
+
+/// The camera is a fifth of the picture, in the bottom right corner a margin from the edges, a rectangle
+/// unless the cut list says `rounded`: then it gets an alpha channel and the corners are cut out by a
+/// quarter circle before it is laid over the screen.
+///
+/// Mutation: the rounding that stays on a rectangle; a rounded camera without its mask.
+#[test]
+fn the_camera_is_overlaid_a_fifth_wide_in_the_bottom_right_corner_and_rounded_when_asked() {
+    let mut e = edl(vec![segment("a", 0, 60)]);
+    let f = filter_of(&plan_of(&e).commands[0]);
+    assert!(f.contains("scale=256:-2"), "a fifth of 1280: {f}");
+    assert!(f.contains("overlay=x=W-w-24:y=H-h-24"), "{f}");
+    assert!(!f.contains("geq") && !f.contains("yuva420p"), "a rectangle has no mask: {f}");
+    e.style.camera.shape = String::from("rounded");
+    let f = filter_of(&plan_of(&e).commands[0]);
+    assert!(f.contains("scale=256:-2,format=yuva420p,geq=lum='p(X,Y)':cb='p(X,Y)':cr='p(X,Y)':a='if(gt(abs(W/2-X),W/2-28)"), "a radius of a ninth of 256: {f}");
+    assert!(f.contains("[cam]") && f.find("geq").unwrap() < f.find("[cam]").unwrap(), "the mask is made before the overlay: {f}");
+}
+
 // ---- the whole way, with a real ffmpeg (skipped where there is none) ----
 
 mod e2e {
@@ -652,7 +777,7 @@ mod e2e {
     /// A session of six seconds recorded through the recorder with the rig's encoders: the window changes ten
     /// times a second, the camera sends 15 pictures a second and the voice 50 packets; three seconds, then (when
     /// `with_pause`) a pause of two seconds, then three seconds more.
-    fn record(rig: &Rig, with_pause: bool) -> Started {
+    fn record(rig: &Rig, with_pause: bool, with_camera: bool) -> Started {
         let factory = ReplayFactory { screen: rig.screen.clone(), camera: rig.camera.clone(), voice: rig.voice.clone() };
         let clock = MockClock::at(0);
         let c = clock.clone();
@@ -662,7 +787,7 @@ mod e2e {
             free_bytes: Box::new(|_| Some(500_000_000_000)),
             factory: Box::new(factory),
         };
-        let mut rec = Recorder::new(RecorderSettings { idle_pause_us: None, ..RecorderSettings::default() }, deps);
+        let mut rec = Recorder::new(RecorderSettings { idle_pause_us: None, camera: with_camera, ..RecorderSettings::default() }, deps);
         let started = rec
             .start(StartRequest {
                 recordings_dir: rig.tmp.0.join("recordings"),
@@ -687,7 +812,9 @@ mod e2e {
                     rec.event("nav.file", &format!("{{\"file\":\"{file}\",\"lines\":100}}")).unwrap();
                 }
                 rec.tap(&TapFrame { width: 640, height: 360, stride: 640 * 4, scale: 1.0, damage: Damage::Full, pixels: &window });
-                rec.camera_frame(RawFrame { width: 320, height: 240, format: PixelFormat::Nv12, bytes: vec![0; 320 * 240 * 3 / 2] });
+                if with_camera {
+                    rec.camera_frame(RawFrame { width: 320, height: 240, format: PixelFormat::Nv12, bytes: vec![0; 320 * 240 * 3 / 2] });
+                }
                 for k in 0..5 {
                     clock.set_us((from_ms + i * 100 + k * 20 + 20) * 1_000);
                     rec.audio_chunk(&vec![0.1; 960], 48_000, 1);
@@ -714,7 +841,7 @@ mod e2e {
     fn a_recorded_session_becomes_a_playable_video_with_chapters() {
         let Some(rig) = rig("export") else { return };
         let (ffmpeg, ffprobe, encoders, tmp) = (rig.ffmpeg.clone(), rig.ffprobe.clone(), rig.encoders, &rig.tmp);
-        let started = record(&rig, true);
+        let started = record(&rig, true, true);
 
         // The cut list and the export.
         let manifest = Manifest::parse(&fs::read_to_string(started.dir.join("manifest.json")).unwrap()).unwrap();
@@ -744,6 +871,88 @@ mod e2e {
         assert!(decode.status.success() && decode.stderr.is_empty(), "{}", String::from_utf8_lossy(&decode.stderr));
         eprintln!("exported {} bytes, {duration:.2} s, {} chapters", report.bytes, chapters.lines().count());
         eprintln!("ffprobe streams (codec, type, size):\n{streams}ffprobe duration: {duration:.3} s\nffprobe chapters (id, time base, start, start s, end, end s):\n{chapters}");
+    }
+
+    /// The packets of the first video stream of `file`, and its codec, as ffprobe counts them.
+    fn video_packets(rig: &Rig, file: &Path) -> (u64, String) {
+        let o = Process::new(&rig.ffprobe)
+            .args(["-v", "error", "-select_streams", "v:0", "-count_packets", "-show_entries", "stream=codec_name,nb_read_packets", "-of", "csv=p=0"])
+            .arg(file)
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&o.stdout).trim().to_string();
+        let mut parts = text.split(',');
+        let (codec, n) = (parts.next().unwrap_or("").to_string(), parts.next().unwrap_or("0").parse().unwrap_or(0));
+        (n, codec)
+    }
+
+    /// The screen of one run with the voice and no camera, exported with a real ffmpeg: ONE command, no
+    /// encoder, and the pictures that come out are the pictures that went in (the same count of packets, the
+    /// same codec), the voice AAC, the length of the session, a clean decode, a chapter for each file opened.
+    ///
+    /// Mutation: a copy plan that encodes the pictures again (the packet count of a re-encode of a replayed
+    /// stream is the same, but the command would carry an encoder: the pure test of it catches that; here
+    /// the file must decode and be the session's length).
+    #[test]
+    fn a_screen_alone_is_exported_by_copying_its_pictures() {
+        let Some(rig) = rig("copy") else { return };
+        let started = record(&rig, false, false);
+        let manifest = Manifest::parse(&fs::read_to_string(started.dir.join("manifest.json")).unwrap()).unwrap();
+        let files = file_changes(&fs::read_to_string(started.dir.join("events.jsonl")).unwrap());
+        let edl = identity_edl(&manifest, &files);
+        let none = Encoders { videotoolbox: false, libx264: false, aac: rig.encoders.aac };
+        let plan = build_plan(&manifest, &edl, &started.dir, &rig.tmp.0.join("work"), &rig.tmp.0.join("export/copy.mp4"), none).expect("a straight copy needs no video encoder");
+        assert_eq!(plan.commands.len(), 1, "{:?}", plan.commands.iter().map(|c| c.id.clone()).collect::<Vec<_>>());
+        let started_at = std::time::Instant::now();
+        let report = run(&plan, &rig.ffmpeg, &AtomicBool::new(false), &mut |_| {}).unwrap_or_else(|e| panic!("{e}"));
+        let took = started_at.elapsed();
+        let (packets, codec) = video_packets(&rig, &report.output);
+        let screen_packets: u64 = manifest.tracks.screen.as_ref().unwrap().segments.iter().map(|s| u64::from(s.samples)).sum();
+        assert_eq!((codec.as_str(), packets), ("h264", screen_packets), "the pictures that went in came out");
+        let probe = |args: &[&str]| {
+            let o = Process::new(&rig.ffprobe).args(["-v", "error"]).args(args).arg(&report.output).output().unwrap();
+            String::from_utf8_lossy(&o.stdout).into_owned()
+        };
+        let streams = probe(&["-show_entries", "stream=codec_name,codec_type", "-of", "csv=p=0"]);
+        assert!(streams.contains("h264") && streams.contains("aac"), "{streams}");
+        let duration: f64 = probe(&["-show_entries", "format=duration", "-of", "csv=p=0"]).trim().parse().unwrap();
+        assert!((duration - 6.0).abs() < 0.6, "{duration}");
+        assert_eq!(probe(&["-show_chapters", "-of", "csv=p=0"]).lines().count(), 3, "a chapter for each file opened (three)");
+        let decode = Process::new(&rig.ffmpeg).args(["-v", "error", "-i"]).arg(&report.output).args(["-f", "null", "-"]).output().unwrap();
+        assert!(decode.status.success() && decode.stderr.is_empty(), "{}", String::from_utf8_lossy(&decode.stderr));
+        eprintln!("straight copy: {packets} pictures copied, {} bytes, {duration:.2} s of video in {:.2} s", report.bytes, took.as_secs_f64());
+    }
+
+    /// A camera with rounded corners goes through the real ffmpeg: the export decodes clean, the corner of the
+    /// camera's picture shows the SCREEN (it differs from the same corner of a rectangular camera) and the
+    /// middle of it is the same camera picture in both.
+    #[test]
+    fn a_camera_with_rounded_corners_is_exported_and_shows_the_screen_in_its_corners() {
+        let Some(rig) = rig("round") else { return };
+        let started = record(&rig, false, true);
+        let manifest = Manifest::parse(&fs::read_to_string(started.dir.join("manifest.json")).unwrap()).unwrap();
+        let export = |shape: &str| {
+            let mut edl = identity_edl(&manifest, &[]);
+            edl.style.camera.shape = shape.to_string();
+            edl.style.camera.scale = 0.5;
+            edl.style.camera.margin = 0;
+            let out = rig.tmp.0.join(format!("export/{shape}.mp4"));
+            let plan = build_plan(&manifest, &edl, &started.dir, &rig.tmp.0.join(format!("work-{shape}")), &out, rig.encoders).unwrap();
+            let report = run(&plan, &rig.ffmpeg, &AtomicBool::new(false), &mut |_| {}).unwrap_or_else(|e| panic!("{e}"));
+            let decode = Process::new(&rig.ffmpeg).args(["-v", "error", "-i"]).arg(&report.output).args(["-f", "null", "-"]).output().unwrap();
+            assert!(decode.status.success() && decode.stderr.is_empty(), "{shape}: {}", String::from_utf8_lossy(&decode.stderr));
+            report.output
+        };
+        let (rect, rounded) = (export("rect"), export("rounded"));
+        // The camera is half the width, in the bottom right corner with no margin: 320 x 240 at (320, 120). The
+        // very corner of the picture is the camera's corner: cut away in the rounded one.
+        let (w, h) = (640, 360);
+        let (a, b) = (grey_frame(&rig, &rect, "1.0", w, h), grey_frame(&rig, &rounded, "1.0", w, h));
+        let corner = block_diff(&a, &b, w, (w - 6, w, h - 6, h));
+        let middle = block_diff(&a, &b, w, (440, 520, 220, 300));
+        eprintln!("rounded against rectangular camera: the corner differs by {corner:.1}, the middle by {middle:.1}");
+        assert!(corner > 8.0, "the corner shows the screen where the rectangle showed the camera: {corner}");
+        assert!(middle < 8.0, "the rest of the camera is the camera in both: {middle}");
     }
 
     /// One frame of `file` at `at` seconds as grey bytes, `w` x `h`.
@@ -778,7 +987,7 @@ mod e2e {
     #[test]
     fn the_command_of_the_doc_combines_the_tracks_by_hand_into_a_valid_video() {
         let Some(rig) = rig("byhand") else { return };
-        let started = record(&rig, false);
+        let started = record(&rig, false, true);
         let doc = include_str!("../RECORDER.md");
         let head = doc.find("### By hand: the screen with the camera in the bottom right corner and the voice").expect("the doc has the command");
         let from = doc[head..].find("```sh\n").map(|i| head + i + 6).expect("the command is a block");
