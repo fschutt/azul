@@ -170,3 +170,6 @@ azreview-agent-problem-arg-forbidden = { $field }: { $arg } is not allowed here 
 azreview-agent-problem-model-required = { $field }: name a model
 azreview-agent-problem-url-invalid = { $field }: { $text } is no http:// or https:// address
 azreview-agent-problem-unknown-field = { $field }: no such setting ({ $word })
+azreview-agent-field-effort = Effort
+azreview-agent-hint-effort = How hard the model thinks: low is fast and cheap, max is thorough. Empty: the model's own default. A model that does not know effort refuses it: clear the row then.
+azreview-agent-problem-not-a-choice = { $field }: "{ $word }" is not one of the choices ({ $choices })

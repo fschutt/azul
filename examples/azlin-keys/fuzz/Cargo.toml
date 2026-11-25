@@ -46,22 +46,8 @@ doc = false
 bench = false
 
 [[bin]]
-name = "reg_wrap_row"
-path = "fuzz_targets/reg_wrap_row.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
 name = "contact_text"
 path = "fuzz_targets/contact_text.rs"
-test = false
-doc = false
-bench = false
-
-[[bin]]
-name = "bound_secret"
-path = "fuzz_targets/bound_secret.rs"
 test = false
 doc = false
 bench = false
@@ -72,3 +58,10 @@ path = "fuzz_targets/id_text.rs"
 test = false
 doc = false
 bench = false
+
+# The two targets of lanes W1-S15c2 and W1-S15e are declared again when their parsers land: CI builds this
+# project now (srcgate's ci_storage_gate), and a [[bin]] whose file does not exist stops the whole build
+# ("can't find bin `bound_secret`"). Their files and entries come together:
+#
+#     reg_wrap_row  W1-S15c2  fuzz_targets/reg_wrap_row.rs  `reg_wrap::validate_row` on a row's bytes
+#     bound_secret  W1-S15e   fuzz_targets/bound_secret.rs  `BoundSecret::from_bytes` (needs the feature `binding`)

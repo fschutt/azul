@@ -462,7 +462,7 @@ fn the_privilege_order_is_the_briefs() {
 // ---- the golden fixtures of S5 ---------------------------------------------------------------------
 
 #[test]
-#[ignore = "S5 fixture not landed"]
+#[ignore = "X-DELTA-W1SIM-9: S5 fixture not landed"]
 fn team_log_entries_match_azlin_contract_fixture() {
     // Rule 9 of the brief: until S5 lands `team_log_entries.json` in azlin-contract's fixtures, this test
     // is ignored. It reads the fixture the day it exists: the file must be there, and then the entries
@@ -480,7 +480,7 @@ fn team_log_entries_match_azlin_contract_fixture() {
 }
 
 #[test]
-#[ignore = "S5 fixture not landed"]
+#[ignore = "X-DELTA-W1SIM-9: S5 fixture not landed"]
 fn genesis_hash_matches_fixture() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../azlin-contract/fixtures/c4/team_log_entries.json");

@@ -818,7 +818,7 @@ fn every_named_check_of_the_brief_is_a_test() {
 /// independent Ed25519 implementation signed). When the fixtures exist, the body below fails with the
 /// message of what to do next, which is the reminder.
 #[test]
-#[ignore = "S5 fixture not landed"]
+#[ignore = "X-DELTA-W1S16A-14: S5 fixture not landed"]
 fn head_record_and_log_record_match_azlin_contract_fixtures() {
     let dir = root().join("../azlin-contract/fixtures/c4");
     let head = fs::read_to_string(dir.join("head_record.json")).expect(

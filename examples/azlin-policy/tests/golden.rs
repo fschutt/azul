@@ -17,7 +17,7 @@ use azlin_policy::{AccountKind, Field};
 use common::{root, KINDS};
 
 #[test]
-#[ignore = "S5 fixture not landed"]
+#[ignore = "X-DELTA-W1S17B-15: S5 fixture not landed"]
 fn policy_cbor_matches_azlin_contract_fixture() {
     // The fixture of S5: `examples/azlin-contract/fixtures/c4/account_policy.json`.
     let path = root().join("../azlin-contract/fixtures/c4/account_policy.json");

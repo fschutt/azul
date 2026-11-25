@@ -250,7 +250,7 @@ impl_option!(
 /// Date column, the number it sorts and range-filters by (NaN = blank;
 /// blanks sort last either way).
 #[repr(C)]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct DataTableCell {
     /// The text shown.
     pub text: AzString,
@@ -308,6 +308,20 @@ impl DataTableCell {
 impl Default for DataTableCell {
     fn default() -> Self {
         Self::empty()
+    }
+}
+
+/// A blank cell (the number is NaN: [`Self::empty`], [`Self::create_text`]) is equal to another
+/// blank cell, and so to its own clone. The derived `==` compared the number as a float, and a NaN
+/// is unequal to itself, so a blank cell was never equal to anything - not even to its clone, which
+/// the C API's `partialEq` (and the conformance program that clones every type it can make) reads.
+/// Every NaN is the same blank here, as it is for the sort order; every other number compares as
+/// `==` does. The cell has no `Eq` or `Hash`.
+impl PartialEq for DataTableCell {
+    fn eq(&self, other: &Self) -> bool {
+        self.text == other.text
+            && self.icon == other.icon
+            && (self.value == other.value || (self.value.is_nan() && other.value.is_nan()))
     }
 }
 
