@@ -491,6 +491,12 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// coverage it doesn't have would render .notdef instead of falling
     /// back.
     ///
+    /// A VARIABLE font is registered once, as the font it is, however often and under
+    /// however many spellings of its family: its `wght` range is part of its index entry,
+    /// and a chain draws it as the static instance of the font at the coordinates the CSS
+    /// asks of its axes (`font-weight`, `font-stretch`, `font-style`, `font-optical-sizing`,
+    /// `font-variation-settings`; [`crate::solver3::getters::select_variable_instances`]).
+    ///
     /// Returns the `FontId` the family now resolves to.
     pub fn register_named_font(
         &mut self,
