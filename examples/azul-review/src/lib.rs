@@ -145,6 +145,8 @@ pub struct AppState {
     /// The folder dialog is open: a second request (the menu's key and the key handler both hear Mod+O)
     /// opens no second one.
     pub choosing_folder: bool,
+    /// The stroke that is live was begun by a pen (not a mouse or a trackpad).
+    pub live_pen: bool,
     /// A folder named on the command line, to be remembered as the one reviewed last once the window exists.
     pub remember_folder: Option<PathBuf>,
     pub recording: Option<VoiceClip>,
@@ -196,6 +198,7 @@ impl AppState {
             perf: perf::Perf::new(false),
             pointer_log: pointer::PointerLog::default(),
             choosing_folder: false,
+            live_pen: false,
             remember_folder: None,
             recording: None,
             clips: Vec::new(),
@@ -896,7 +899,7 @@ pub extern "C" fn on_ink_down(mut data: RefAny, mut info: CallbackInfo) -> Updat
         }
         return Update::DoNothing;
     }
-    let began = s.stroke_begin(page, sampled.point);
+    let began = s.stroke_begin(page, sampled.point, sampled.pen);
     drop(s);
     // A stroke whose release was not heard is kept as it was.
     if let Some(stale) = began.stale {

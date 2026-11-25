@@ -22,7 +22,7 @@ fn at(x: f32, y: f32) -> InkPoint {
 
 /// A press at (10, 10) and `n` moves along a line, the pointer pressed.
 fn drawn(s: &mut AppState, n: usize) {
-    s.stroke_begin(0, at(10.0, 10.0));
+    s.stroke_begin(0, at(10.0, 10.0), false);
     for i in 1..=n {
         s.stroke_move(at(10.0 + 5.0 * i as f32, 10.0), true);
     }
@@ -87,7 +87,7 @@ fn a_press_while_a_stroke_is_live_keeps_that_stroke_and_begins_the_next() {
     let mut s = app();
     drawn(&mut s, 4);
 
-    let began = s.stroke_begin(0, at(300.0, 300.0));
+    let began = s.stroke_begin(0, at(300.0, 300.0), false);
 
     assert_eq!(began.stale.map(|e| e.up), Some(Up::Kept), "the stroke whose release was lost is kept");
     assert_eq!(s.strokes.len(), 1);
@@ -105,26 +105,48 @@ fn a_hovering_pointer_makes_no_stroke() {
 }
 
 #[test]
-fn a_tap_is_no_ink_it_cycles_the_nib() {
+fn a_tap_of_a_pen_is_no_ink_it_cycles_the_nib() {
     let mut s = app();
-    s.stroke_begin(0, at(40.0, 40.0));
+    s.stroke_begin(0, at(40.0, 40.0), true);
     let ended = s.stroke_end().expect("the tap ends");
     assert_eq!(ended.up, Up::Click);
     assert!(s.strokes.is_empty(), "a tap leaves no stroke");
 }
 
 #[test]
+fn a_tap_of_a_mouse_or_a_trackpad_changes_no_nib_and_leaves_no_ink() {
+    // A tap on a trackpad is a click, and a click cycled marker -> pen -> audio pen: the audio pen mounts the
+    // microphone widget (a permission prompt). The nib is chosen in the title row, with the digit keys, with
+    // the right button; a tap by a pointer that is no pen is nothing.
+    let mut s = app();
+    s.stroke_begin(0, at(40.0, 40.0), false);
+    let ended = s.stroke_end().expect("the tap ends");
+    assert_eq!(ended.up, Up::Dab);
+    assert!(s.strokes.is_empty(), "a tap leaves no stroke");
+}
+
+#[test]
+fn a_stroke_of_a_trackpad_is_kept_like_any_other() {
+    let mut s = app();
+    s.stroke_begin(0, at(10.0, 10.0), false);
+    for i in 1..6 {
+        s.stroke_move(at(10.0 + 5.0 * i as f32, 10.0), true);
+    }
+    assert_eq!(s.stroke_end().map(|e| e.up), Some(Up::Kept));
+}
+
+#[test]
 fn a_tap_while_a_dictation_listens_is_a_dab_and_changes_nothing() {
     let mut s = app();
     s.voice.running = Some(crate::voice::Running::for_test(1, 1));
-    s.stroke_begin(0, at(40.0, 40.0));
+    s.stroke_begin(0, at(40.0, 40.0), true);
     assert_eq!(s.stroke_end().map(|e| e.up), Some(Up::Dab));
 }
 
 #[test]
 fn a_move_that_adds_less_than_a_third_of_a_pixel_is_not_a_point() {
     let mut s = app();
-    s.stroke_begin(0, at(10.0, 10.0));
+    s.stroke_begin(0, at(10.0, 10.0), false);
     assert_eq!(s.stroke_move(at(10.1, 10.1), true), Moved::Nothing);
     assert_eq!(s.stroke_move(at(11.0, 10.0), true), Moved::Grew(Layer::of(s.live.as_ref().unwrap().semantic)));
 }
@@ -132,7 +154,7 @@ fn a_move_that_adds_less_than_a_third_of_a_pixel_is_not_a_point() {
 #[test]
 fn the_ended_stroke_names_its_page_and_layer_so_the_frame_is_drawn_anew() {
     let mut s = app();
-    s.stroke_begin(2, at(10.0, 10.0));
+    s.stroke_begin(2, at(10.0, 10.0), false);
     s.stroke_move(at(30.0, 10.0), true);
     s.stroke_move(at(60.0, 10.0), true);
     let ended = s.stroke_end().expect("a stroke");

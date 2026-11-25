@@ -255,9 +255,11 @@ fn line_of(n: u64, ms: u64, e: &Logged) -> String {
 /// What a pointer lifting did to the stroke it had down.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Up {
-    /// A tap: it cycles the nib.
+    /// A tap of a pen: it cycles the nib.
     Click,
-    /// A tap while a dictation listens: nothing.
+    /// A tap that changes nothing: while a dictation listens, or by a mouse or a trackpad (a tap on a trackpad is a
+    /// click: it must not change the nib under the user's hand, nor select the audio pen, whose microphone asks
+    /// for a permission).
     Dab,
     /// A stroke, kept.
     Kept,
@@ -304,9 +306,10 @@ pub fn refresh_after_move(stroke_live: bool, asked: azul::callbacks::Update) -> 
 
 impl AppState {
     /// A press at `point` of `page`: a stroke begins there. A stroke still live (its release was not
-    /// heard) ends first, kept as it was.
-    pub fn stroke_begin(&mut self, page: usize, point: InkPoint) -> Began {
+    /// heard) ends first, kept as it was. `pen`: the pointer is a pen (a mouse or a trackpad is not).
+    pub fn stroke_begin(&mut self, page: usize, point: InkPoint, pen: bool) -> Began {
         let stale = self.stroke_end();
+        self.live_pen = pen;
         let id = self.next_stroke_id;
         self.next_stroke_id += 1;
         let semantic = self.tool.semantic_for(self.active);
@@ -372,7 +375,7 @@ impl AppState {
             let up = if self.voice.running.is_some() {
                 Up::Dab
             } else {
-                Up::Click
+                Up::Click // RED STUB: every pointer cycles the nib
             };
             Some(Ended { layer, page, up })
         } else {
