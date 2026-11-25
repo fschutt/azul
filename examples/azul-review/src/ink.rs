@@ -71,6 +71,63 @@ pub struct FrameKey {
     size: (u32, u32),
 }
 
+/// A page's picture grew by one stroke: its revision went from `from` to `to`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Append {
+    pub from: u64,
+    pub to: u64,
+    pub id: u64,
+}
+
+/// How a layer's frame gets to the picture its page has now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CatchUp {
+    /// It shows it already.
+    Same,
+    /// It shows the same as before: only its key moves.
+    KeyOnly,
+    /// It shows the page but for the last segments of the stroke just kept.
+    Tail,
+    /// Every kept stroke is painted again.
+    Whole,
+}
+
+/// How the frame that shows `had` (plus the stroke `live_id`, painted as far as it was drawn) gets to
+/// the picture `now`. `append` is the page's last growth and `appended_on` the layer that stroke is
+/// on; `this` is the frame's own layer.
+///
+/// A stroke that ends was painted into the frame while it was drawn: when that is the only change since
+/// the frame was drawn, nothing is painted again but the last segments the frame had not seen yet. Every
+/// other change (an erase, an undo, a file opened, a resize, two strokes between two frames) draws the
+/// layer anew from the kept strokes.
+#[must_use]
+pub fn catch_up(
+    had: Option<FrameKey>,
+    now: FrameKey,
+    append: Option<Append>,
+    appended_on: Option<Layer>,
+    this: Layer,
+    live_id: Option<u64>,
+) -> CatchUp {
+    if had == Some(now) {
+        return CatchUp::Same;
+    }
+    let (Some(had), Some(append), Some(on)) = (had, append, appended_on) else {
+        return CatchUp::Whole;
+    };
+    let same_picture = had.opened == now.opened && had.page == now.page && had.size == now.size;
+    if !same_picture || had.kept != append.from || now.kept != append.to {
+        return CatchUp::Whole;
+    }
+    if on != this {
+        CatchUp::KeyOnly
+    } else if live_id == Some(append.id) {
+        CatchUp::Tail
+    } else {
+        CatchUp::Whole
+    }
+}
+
 /// The revisions of the pages' kept strokes, in [`AppState::ink`]: the
 /// handlers touch a page when its kept strokes change, the layers read the
 /// key to know whether their frame still shows them.
@@ -83,19 +140,45 @@ pub struct InkRevisions {
     clock: u64,
     /// Each touched page's revision; an untouched page is at 0.
     pages: BTreeMap<usize, u64>,
+    /// A page whose last change was a stroke kept on it: what that change was.
+    appends: BTreeMap<usize, Append>,
 }
 
 impl InkRevisions {
-    /// The kept strokes of `page` changed.
+    /// A stroke (`id`) was kept on `page`: the page's picture grew by it. A layer whose frame shows
+    /// the stroke already needs no redraw of the others ([`catch_up`]).
+    pub fn appended(&mut self, page: usize, id: u64) {
+        let from = self.pages.get(&page).copied().unwrap_or(0);
+        self.clock += 1;
+        self.pages.insert(page, self.clock);
+        self.appends.insert(
+            page,
+            Append {
+                from,
+                to: self.clock,
+                id,
+            },
+        );
+    }
+
+    /// The last growth of `page`'s picture, when that is the last thing that happened to its strokes.
+    #[must_use]
+    pub fn append_of(&self, page: usize) -> Option<Append> {
+        self.appends.get(&page).copied()
+    }
+
+    /// The kept strokes of `page` changed in a way a frame cannot catch up with: it is drawn anew.
     pub fn touch(&mut self, page: usize) {
         self.clock += 1;
         self.pages.insert(page, self.clock);
+        self.appends.remove(&page);
     }
 
     /// Another file is open: every frame drawn before shows ink that is gone.
     pub fn open(&mut self) {
         self.opened += 1;
         self.pages.clear();
+        self.appends.clear();
     }
 
     /// The key a frame of `page` at `size` must have to be shown as it is.
@@ -120,6 +203,15 @@ pub struct LiveProgress {
 }
 
 impl LiveProgress {
+    /// What the frame has painted of a stroke in progress: its id and how many of its points.
+    #[must_use]
+    pub const fn progress(&self) -> Option<(u64, usize)> {
+        match self.id {
+            Some(id) => Some((id, self.points)),
+            None => None,
+        }
+    }
+
     /// Paints what the frame lacks of `live` (`None`: no stroke is being
     /// drawn on this layer) with `paint`; whether anything was painted.
     pub fn paint(
@@ -251,17 +343,32 @@ fn on(st: &Stroke, page: usize, layer: Layer) -> bool {
     st.page == page && Layer::of(st.semantic) == layer
 }
 
-/// The key a frame of `layer` on `page` at `size` must have now, and the
-/// stroke being drawn when it is on that layer of that page.
+/// What a frame of `layer` on `page` at `size` has to show now: the key it must have, the stroke being
+/// drawn when it is on that layer of that page, and how the page last grew.
 fn wanted(
     app: &mut RefAny,
     page: usize,
     layer: Layer,
     size: (u32, u32),
-) -> Option<(FrameKey, Option<Stroke>)> {
+) -> Option<(FrameKey, Option<Stroke>, Option<Append>)> {
     let s = app.downcast_ref::<AppState>()?;
     let live = s.live.as_ref().filter(|st| on(st, page, layer)).cloned();
-    Some((s.ink.key(page, size), live))
+    Some((s.ink.key(page, size), live, s.ink.append_of(page)))
+}
+
+/// The layer the kept stroke `id` is on.
+fn layer_of_stroke(app: &mut RefAny, id: u64) -> Option<Layer> {
+    let s = app.downcast_ref::<AppState>()?;
+    s.strokes
+        .iter()
+        .find(|st| st.id == id)
+        .map(|st| Layer::of(st.semantic))
+}
+
+/// The kept stroke `id`, for the last segments a frame has yet to paint of it.
+fn stroke_by_id(app: &mut RefAny, id: u64) -> Option<Stroke> {
+    let s = app.downcast_ref::<AppState>()?;
+    s.strokes.iter().find(|st| st.id == id).cloned()
 }
 
 /// The kept strokes of `layer` on `page`, read only when a frame is drawn
@@ -299,10 +406,30 @@ fn draw_frame(
     w: u32,
     h: u32,
 ) -> Option<ImageRef> {
+    let began = std::time::Instant::now();
+    let drawn = draw_frame_untimed(data, info, w, h);
+    // `AZREVIEW_PROFILE`: what a frame of an ink layer cost.
+    let app = data.downcast_ref::<InkCanvas>().map(|c| c.app.clone());
+    if let Some(mut app) = app {
+        if let Some(mut s) = app.downcast_mut::<AppState>() {
+            if s.perf.is_on() {
+                s.perf.drawn(u32::try_from(began.elapsed().as_micros()).unwrap_or(u32::MAX));
+            }
+        }
+    }
+    drawn
+}
+
+fn draw_frame_untimed(
+    data: &mut RefAny,
+    info: &mut RenderImageCallbackInfo,
+    w: u32,
+    h: u32,
+) -> Option<ImageRef> {
     let mut canvas = data.downcast_mut::<InkCanvas>()?;
     let canvas = &mut *canvas;
     let (mut app, page, layer) = (canvas.app.clone(), canvas.page, canvas.layer);
-    let (key, live) = wanted(&mut app, page, layer, (w, h))?;
+    let (key, live, append) = wanted(&mut app, page, layer, (w, h))?;
     let frame = &mut canvas.frame;
 
     let gl = info
@@ -331,17 +458,34 @@ fn draw_frame(
             ));
             frame.key = None;
         }
+        let what = how_to_catch_up(frame, key, append, &mut app, layer);
         let tex = frame.texture.as_mut()?;
-        if frame.key != Some(key) {
-            // A fresh texture holds whatever the driver left in it: clear it first.
-            tex.clear();
-            for s in &kept(&mut app, page, layer) {
-                paint_from(s, 0, &mut |x0, y0, x1, y1, b| {
-                    tex.paint_stroke(x0, y0, x1, y1, b)
-                });
+        match what {
+            CatchUp::Same => {}
+            CatchUp::KeyOnly => frame.key = Some(key),
+            CatchUp::Tail => {
+                // The stroke that ended was painted as it was drawn: only the segments the frame has
+                // not seen yet are left (a stroke is kept when the pen lifts, the last moves may not
+                // have had a frame).
+                if let Some(done) = append.and_then(|a| stroke_by_id(&mut app, a.id)) {
+                    frame.live.paint(Some(&done), &mut |x0, y0, x1, y1, b| {
+                        tex.paint_stroke(x0, y0, x1, y1, b)
+                    });
+                }
+                frame.key = Some(key);
+                frame.live = LiveProgress::default();
             }
-            frame.key = Some(key);
-            frame.live = LiveProgress::default();
+            CatchUp::Whole => {
+                // A fresh texture holds whatever the driver left in it: clear it first.
+                tex.clear();
+                for s in &kept(&mut app, page, layer) {
+                    paint_from(s, 0, &mut |x0, y0, x1, y1, b| {
+                        tex.paint_stroke(x0, y0, x1, y1, b)
+                    });
+                }
+                frame.key = Some(key);
+                frame.live = LiveProgress::default();
+            }
         }
         frame.live.paint(live.as_ref(), &mut |x0, y0, x1, y1, b| {
             tex.paint_stroke(x0, y0, x1, y1, b)
@@ -350,11 +494,32 @@ fn draw_frame(
     }
 
     let mut changed = false;
-    if frame.key != Some(key) || frame.pixels.is_none() {
-        frame.pixels = Some(draw_cpu(w, h, &kept(&mut app, page, layer)));
-        frame.key = Some(key);
-        frame.live = LiveProgress::default();
-        changed = true;
+    let what = if frame.pixels.is_none() {
+        CatchUp::Whole
+    } else {
+        how_to_catch_up(frame, key, append, &mut app, layer)
+    };
+    match what {
+        CatchUp::Same => {}
+        CatchUp::KeyOnly => frame.key = Some(key),
+        CatchUp::Tail => {
+            if let (Some(done), Some(pixels)) = (
+                append.and_then(|a| stroke_by_id(&mut app, a.id)),
+                frame.pixels.as_mut(),
+            ) {
+                changed |= frame.live.paint(Some(&done), &mut |x0, y0, x1, y1, b| {
+                    pixels.paint_stroke(x0, y0, x1, y1, b)
+                });
+            }
+            frame.key = Some(key);
+            frame.live = LiveProgress::default();
+        }
+        CatchUp::Whole => {
+            frame.pixels = Some(draw_cpu(w, h, &kept(&mut app, page, layer)));
+            frame.key = Some(key);
+            frame.live = LiveProgress::default();
+            changed = true;
+        }
     }
     let pixels = frame.pixels.as_mut()?;
     changed |= frame.live.paint(live.as_ref(), &mut |x0, y0, x1, y1, b| {
@@ -364,6 +529,28 @@ fn draw_frame(
         frame.shown = ImageRef::create_rawimage(pixels.clone()).into_option();
     }
     frame.shown.clone()
+}
+
+/// What `frame` needs to show the page as it is now ([`catch_up`], with what only the app knows).
+fn how_to_catch_up(
+    frame: &Frame,
+    key: FrameKey,
+    append: Option<Append>,
+    app: &mut RefAny,
+    layer: Layer,
+) -> CatchUp {
+    if frame.key == Some(key) {
+        return CatchUp::Same;
+    }
+    let appended_on = append.and_then(|a| layer_of_stroke(app, a.id));
+    catch_up(
+        frame.key,
+        key,
+        append,
+        appended_on,
+        layer,
+        frame.live.progress().map(|(id, _)| id),
+    )
 }
 
 /// The layer's merge callback: a DOM rebuild hands the old layer's frame to
@@ -394,3 +581,7 @@ pub fn point_from(x: f32, y: f32, pressure: f32, tilt_x: f32, tilt_y: f32) -> In
         tilt_y,
     }
 }
+
+#[cfg(test)]
+#[path = "ink_test.rs"]
+mod ink_test;
