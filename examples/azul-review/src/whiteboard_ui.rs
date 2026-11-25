@@ -455,8 +455,9 @@ fn redraw(info: &mut CallbackInfo) {
     azul_appkit::ui::redraw_image(info, node);
 }
 
-/// What a gesture asked of the window.
-fn answer(host: &Host, mut app: RefAny, out: Out, info: &mut CallbackInfo) -> Update {
+/// What a gesture asked of the window. `keep`: the gesture is over, a change to the board is kept now (not at
+/// every move of a drag).
+fn answer(host: &Host, mut app: RefAny, out: Out, keep: bool, info: &mut CallbackInfo) -> Update {
     let changed = host.run(|p| {
         p.collect_notices();
         p.wb.board.needs_save()
@@ -465,7 +466,7 @@ fn answer(host: &Host, mut app: RefAny, out: Out, info: &mut CallbackInfo) -> Up
         Out::Nothing => Update::DoNothing,
         Out::Redraw => {
             redraw(info);
-            if changed == Some(true) {
+            if keep && changed == Some(true) {
                 (host.on_changed)(&mut app, info);
             }
             Update::DoNothing
@@ -497,7 +498,15 @@ extern "C" fn on_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
         let Panel { wb, .. } = p;
         wb.input.press(&mut wb.board, at, kind, mods)
     });
-    out.map_or(Update::DoNothing, |o| answer(&host, host.app.clone(), o, &mut info))
+    match out {
+        // The selection is drawn on the cutout's node as well as over it: a new layout shows it.
+        Some(Out::Redraw) => {
+            redraw(&mut info);
+            Update::RefreshDom
+        }
+        Some(o) => answer(&host, host.app.clone(), o, false, &mut info),
+        None => Update::DoNothing,
+    }
 }
 
 extern "C" fn on_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -510,12 +519,21 @@ extern "C" fn on_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let out = host.run(|p| {
         let Panel { wb, .. } = p;
         if wb.input.is_busy() {
-            wb.input.motion(&mut wb.board, at, mods)
+            let out = wb.input.motion(&mut wb.board, at, mods);
+            (out, wb.input.moves_nodes())
         } else {
-            Out::Nothing
+            (Out::Nothing, false)
         }
     });
-    out.map_or(Update::DoNothing, |o| answer(&host, host.app.clone(), o, &mut info))
+    match out {
+        // The cutouts are nodes: they follow the pointer by a new layout, the arrows over them are redrawn with it.
+        Some((Out::Redraw, true)) => {
+            redraw(&mut info);
+            Update::RefreshDom
+        }
+        Some((o, _)) => answer(&host, host.app.clone(), o, false, &mut info),
+        None => Update::DoNothing,
+    }
 }
 
 extern "C" fn on_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -539,7 +557,7 @@ extern "C" fn on_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
             }
             Update::RefreshDom
         }
-        Some(o) => answer(&host, host.app.clone(), o, &mut info),
+        Some(o) => answer(&host, host.app.clone(), o, true, &mut info),
         None => Update::DoNothing,
     }
 }
@@ -555,7 +573,7 @@ extern "C" fn on_double(mut data: RefAny, mut info: CallbackInfo) -> Update {
         let Panel { wb, .. } = p;
         wb.input.double_click(&mut wb.board, at)
     });
-    out.map_or(Update::DoNothing, |o| answer(&host, host.app.clone(), o, &mut info))
+    out.map_or(Update::DoNothing, |o| answer(&host, host.app.clone(), o, false, &mut info))
 }
 
 extern "C" fn on_wheel(mut data: RefAny, mut info: CallbackInfo) -> Update {

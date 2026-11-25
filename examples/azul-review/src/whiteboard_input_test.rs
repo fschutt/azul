@@ -480,3 +480,23 @@ fn a_gesture_on_a_full_board_costs_no_more_than_a_frame_of_it() {
     assert!(per < 2.0, "{per} ms per event");
     assert!(board.cutout(first).is_some());
 }
+
+#[test]
+fn moving_resizing_and_panning_move_the_nodes_and_drawing_an_arrow_does_not() {
+    let (mut board, _, _) = two();
+    let mut input = BoardInput::default();
+    assert!(!input.moves_nodes());
+    input.press(&mut board, p(200.0, 150.0), mouse(), no_mods());
+    assert!(!input.moves_nodes(), "a press that has not moved yet");
+    input.motion(&mut board, p(260.0, 220.0), no_mods());
+    assert!(input.moves_nodes(), "a cutout being moved");
+    input.release(&mut board, p(260.0, 220.0), no_mods());
+    input.press(&mut board, p(400.0, 600.0), mouse(), no_mods());
+    assert!(input.moves_nodes(), "the board being moved by the hand");
+    input.release(&mut board, p(400.0, 600.0), no_mods());
+    // From a rim: an arrow.
+    let rim = board.cutouts().next().map(|c| p(c.rect.right() - 3.0, c.rect.y + 50.0)).expect("a cutout");
+    input.press(&mut board, rim, mouse(), no_mods());
+    input.motion(&mut board, p(rim.x + 100.0, rim.y + 100.0), no_mods());
+    assert!(!input.moves_nodes(), "an arrow being drawn");
+}

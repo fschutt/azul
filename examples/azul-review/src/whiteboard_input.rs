@@ -233,6 +233,13 @@ impl BoardInput {
         !matches!(self.gesture, Gesture::Idle)
     }
 
+    /// Whether the gesture going on moves the cutouts (a move, a resize, the board itself): their nodes
+    /// have to be laid out again as it goes. An arrow being drawn, bent or fastened moves nothing but itself.
+    #[must_use]
+    pub const fn moves_nodes(&self) -> bool {
+        matches!(self.gesture, Gesture::Moving { .. } | Gesture::Resizing { .. } | Gesture::Panning { .. })
+    }
+
     /// The pen stroke being drawn, in board coordinates (to show as it is drawn).
     #[must_use]
     pub fn stroke(&self) -> &[Pt] {
