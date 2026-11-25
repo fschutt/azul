@@ -82,8 +82,6 @@ pub struct Voice {
     pub pending: Option<Anchor>,
     /// The side column shows.
     pub notes_open: bool,
-    /// The language the speech is recognised in (a BCP 47 tag; empty: the system's).
-    pub language: String,
 }
 
 impl Voice {
@@ -98,7 +96,6 @@ impl Voice {
             next_session: 1,
             pending: None,
             notes_open: false,
-            language: String::new(),
         }
     }
 
@@ -340,7 +337,8 @@ fn start(data: &mut RefAny, info: &mut CallbackInfo, anchor: Anchor) -> Update {
         if s.file().is_none() {
             return Update::DoNothing;
         }
-        let language = s.voice.language.clone();
+        // The language of the app's words now (Settings > Language may have changed since the start).
+        let language = language_of(&s.kit);
         let id = s.next_note_id;
         s.next_note_id += 1;
         s.notes.push(Note::listening(id, anchor.page, anchor.x, anchor.y, &language));
@@ -552,3 +550,7 @@ pub fn language_of(kit_ref: &RefAny) -> String {
         .map(|k| k.language().tag().to_string())
         .unwrap_or_default()
 }
+
+#[cfg(test)]
+#[path = "voice_test.rs"]
+mod voice_test;

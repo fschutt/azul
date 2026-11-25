@@ -460,7 +460,6 @@ pub fn run() {
         },
         resolved.silence_ms,
     );
-    state.voice.language = voice::language_of(&kit_ref);
     state.switches = own;
     state.perf = perf::Perf::new(std::env::var_os("AZREVIEW_PROFILE").is_some());
     let app = App::create(RefAny::new(state), config);
@@ -724,6 +723,15 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     if matches!(key, VirtualKeyCode::O) && mods.primary_down() {
         info.prevent_default();
         return on_open_folder(data, info);
+    }
+    // Typing in a note: the letters and digits are the note's, and Mod+Z undoes its text, not the ink.
+    let typing = info.get_focused_node().into_option().is_some_and(|node| {
+        info.get_node_attribute(node, "contenteditable")
+            .into_option()
+            .is_some_and(|v| v.as_str() == "true")
+    });
+    if typing {
+        return Update::DoNothing;
     }
     let undo_key = matches!(key, VirtualKeyCode::Z) && mods.primary_down();
     let redo_key = (undo_key && mods.shift) || (matches!(key, VirtualKeyCode::Y) && mods.primary_down());

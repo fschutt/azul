@@ -13,7 +13,10 @@
        session is written on a Thread to review/src_lib.rs.azreview.zip (`AZREVIEW_SAVED ...`):
        a zip whose session.json holds the stroke;
     5. Mod+S and the Save button write it again;
-    6. the gear opens azul-appkit's settings page, About the standard About box
+    5b. Mod+Z takes the stroke back (the archive is written again, now without it) and Mod+Shift+Z
+      brings it again; the record button mounts the microphone widget while a clip records;
+   6. the gear opens azul-appkit's settings page (its Dictation section: which pointers start a note, how
+      long the pen rests, how long the quiet lasts; a choice is saved in settings.json), About the standard About box
        (`AZREVIEW_ABOUT open`), Escape closes the box, Escape the page;
     7. flora / dark: a screenshot (the chrome follows, the pages stay paper);
    8. the dictation: the pointer resting on a page (`--dwell-ms 400 --dwell-input any`: the mouse
@@ -58,6 +61,14 @@ def fixture(root):
         f.write("# A folder to review\n\nTwo files.\n")
 
 
+def read_session(path):
+    try:
+        with zipfile.ZipFile(path) as z:
+            return json.loads(z.read("session.json").decode("utf-8"))
+    except (OSError, zipfile.BadZipFile, KeyError, ValueError):
+        return {}
+
+
 def saves(app):
     return app.printed("AZREVIEW_SAVED", r".+")
 
@@ -89,6 +100,9 @@ def body(args, logs, out):
         if under["x"] >= flyout["x"] + flyout["width"]:
             raise Failure("the files lie beside the pages, not over them: flyout %s, strip %s"
                           % (flyout, under))
+
+        if not app.has_id("__azreview_open-folder"):
+            raise Failure("the files have no Open folder button")
 
         # Open lib.rs from the files.
         app.click(text="lib.rs")
@@ -132,12 +146,35 @@ def body(args, logs, out):
         app.click(selector="#__azreview_save")
         app.until("Save writes", lambda: len(saves(app)) > before)
 
+        # Mod+Z takes the stroke back, Mod+Shift+Z brings it again; each is written to the archive.
+        app.key("z", primary=True)
+        app.until("the archive without the stroke",
+                  lambda: len(read_session(os.path.join(data_dir, ARCHIVE)).get("strokes", [])) == 0)
+        app.key("z", primary=True, shift=True)
+        app.until("the archive with the stroke again",
+                  lambda: len(read_session(os.path.join(data_dir, ARCHIVE)).get("strokes", [])) == 1)
+
+        # Record mounts the microphone widget (the clip's samples come from it) and stopping removes it.
+        app.click(selector="#__azreview_record")
+        app.until("the microphone mounted", lambda: app.has_id("__azreview_microphone", every_dom=True)
+                  or app.has_id("__azreview_microphone"))
+        app.click(selector="#__azreview_record")
+        app.until("the microphone gone", lambda: not app.has_id("__azreview_microphone"))
+
         # The window's own controls name themselves to a screen reader (azul's lint says when not).
         no_lint(app, "the review window")
 
         # Settings and About.
         app.click(selector="#__azreview_settings")
         app.until("the settings page", lambda: app.has_id("appkit-settings"))
+        # AzReview's own category comes first: Dictation.
+        for row in ("__azreview_setting-input", "__azreview_setting-rest", "__azreview_setting-quiet"):
+            app.until("the dictation setting %s" % row, lambda row=row: app.has_id(row))
+        app.click_within("#__azreview_setting-rest", "2 s")
+        settings_path = os.path.join(data_dir, "review", "settings.json")
+        app.until("the rest time saved",
+                  lambda: os.path.exists(settings_path) and '"dictation-rest-ms": "2000"' in open(settings_path).read())
+        app.screenshot(os.path.join(out, "3a-settings.png"))
         app.click(text="About")
         app.until("the About section", lambda: app.has_id("appkit-about-open"))
         app.click(selector="#appkit-about-open")
