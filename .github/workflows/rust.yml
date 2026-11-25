@@ -3338,6 +3338,9 @@ jobs:
             bin_ext: ""
             artifact_name: azul-demos-macos
             dll_artifact: azul-macos-amd64
+            # An empty MACOSX_DEPLOYMENT_TARGET (what the step's env gave a leg without this key) is an error for rustc:
+            # "cannot parse integer from empty string". 11.0 is the first macOS on Apple Silicon.
+            macos_deployment_target: "11.0"
           - os: macos-15
             label: macOS (Intel)
             os_suffix: macos-intel
