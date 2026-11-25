@@ -1,7 +1,7 @@
 //! The session archive: what is written is what is read back, notes included, and an archive from
 //! before notes existed (or with fields a later version adds) still loads. No window.
 
-use azul::{json::Json, prelude::RefAny, zip::Zip};
+use azul::{json::Json, prelude::RefAny, vec::U8VecRef, zip::Zip};
 
 use super::*;
 use crate::{
@@ -59,7 +59,7 @@ fn zip_of(json: &str) -> Vec<u8> {
 fn session_json(archive: &[u8]) -> Json {
     let zip = Zip::from_bytes(bytes(archive));
     let json = zip.get_file("session.json");
-    Json::parse_bytes(json.as_ref().into())
+    Json::parse_bytes(U8VecRef::from(json.as_slice()))
         .into_result()
         .map_err(|_| "session.json parses")
         .expect("session.json is JSON")

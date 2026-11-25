@@ -37,6 +37,13 @@ pub const METER_PACKET_SAMPLES: usize = 4096;
 
 const METER_SPAN_PACKETS: usize = 240;
 
+/// The line of a page's code (0 for its first) under `y`, in the page's own coordinates: the code
+/// starts under the page's padding.
+#[must_use]
+pub fn line_of(y: f32) -> usize {
+    ((y - PAGE_PAD) / LINE_H).floor().max(0.0) as usize
+}
+
 fn page_h() -> f32 {
     code::LINES_PER_PAGE as f32 * LINE_H + 40.0
 }

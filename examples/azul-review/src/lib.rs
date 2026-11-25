@@ -40,6 +40,10 @@ pub mod model;
 pub mod session;
 pub mod ui;
 
+#[cfg(test)]
+#[path = "lib_test.rs"]
+mod lib_test;
+
 use model::{Finding, Note, Semantic, Stroke, Tool, VoiceClip};
 
 /// What azul-appkit's switches know about AzReview.
