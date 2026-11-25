@@ -33,6 +33,7 @@ pub type FrameTapCallbackType = extern "C" fn(RefAny, FrameTapInfo);
 /// that registers its callables through a host handle has no way to tap a frame yet.)
 #[repr(C)]
 pub struct FrameTapCallback {
+    /// The function called with each frame.
     pub cb: FrameTapCallbackType,
 }
 
@@ -98,7 +99,9 @@ impl fmt::Debug for FrameTapInfo {
 /// nothing yet to lay a rectangle over. The copies of a tap are one registration and share that.
 #[derive(Debug, Clone)]
 pub struct FrameTap {
+    /// What the app registered with the tap: the callback is called with a handle on it.
     pub data: RefAny,
+    /// The function that hears the frames.
     pub callback: FrameTapCallback,
     /// The size of the last frame told, `width << 32 | height`; 0 before the first.
     told: Arc<AtomicU64>,
@@ -106,6 +109,7 @@ pub struct FrameTap {
 
 impl FrameTap {
     /// A tap that calls `callback` with a handle on `data`.
+    #[must_use]
     pub fn new<C: Into<FrameTapCallback>>(data: RefAny, callback: C) -> Self {
         Self { data, callback: callback.into(), told: Arc::new(AtomicU64::new(0)) }
     }
