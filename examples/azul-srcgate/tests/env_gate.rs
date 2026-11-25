@@ -10,7 +10,7 @@
 //! A cluster that wires a file lowers its count (to zero: the line is deleted); the end state is
 //! the short list of the reader, the platform facades and the process-level proofs.
 //!
-//! Five rules, found in shipped code (comments and `#[cfg(test)]` items are not read):
+//! Six rules, found in shipped code (comments and `#[cfg(test)]` items are not read):
 //!
 //! - `env-read`: `env::var`, `env::var_os`, `env::vars`, `env::vars_os` as a call or as a
 //!   function value (`.map(std::env::var)`), and `use std::env::{.., var_os, ..}` imports. A
@@ -22,6 +22,10 @@
 //! - `env-dir`: `env::temp_dir`, `env::home_dir` and `dirs::*`: platform lookups that read
 //!   `HOME`, `XDG_*` or `TMPDIR` inside std or the `dirs` crate. They stay behind facades
 //!   (`layout/src/file.rs`), each with a pure twin that takes the values.
+//! - `process-env`: `ProcessEnv::new()` and `ProcessEnv::default()`, a reader of the live process
+//!   environment made where a question is asked. The app makes ONE at its start
+//!   (`App::create`); every other construction is a place that reads the process again, past the
+//!   `env-read` rule (which sees only the one reader's two calls), so each is listed.
 //! - `az-name`: a string literal that IS a variable's name (`AZ_*`, `AZUL_*`, `TEXTDBG`, the
 //!   platform names in [`PLATFORM_NAMES`]) outside a settings file. A settings file is
 //!   `settings.rs`, `*_settings.rs` or a file under a `settings/` directory: the one place of a
@@ -81,6 +85,7 @@ const WRITE: &str = "env-write";
 const FLAG: &str = "env-flag";
 const DIR: &str = "env-dir";
 const NAME: &str = "az-name";
+const MAKER: &str = "process-env";
 
 /// The names of the variables that are not `AZ_*` / `AZUL_*` but are read by the engine, the
 /// tools or the platform layers (ledger section 2.4).
@@ -262,6 +267,25 @@ fn env_names(t: &[Located]) -> Vec<usize> {
     strings(t, is_variable_name)
 }
 
+/// `ProcessEnv::new()` and `ProcessEnv::default()`, behind any path (`crate::env::ProcessEnv::new`):
+/// a reader of the live process environment made where it is asked. `Self::new()`, `MapEnv::new()`
+/// and the definition of the type are no construction of the process reader.
+fn process_env_makers(t: &[Located]) -> Vec<usize> {
+    let mut found = Vec::new();
+    for (i, x) in t.iter().enumerate() {
+        if x.tok.is_ident("ProcessEnv")
+            && t.get(i + 1).is_some_and(|n| n.tok.is_punct(':'))
+            && t.get(i + 2).is_some_and(|n| n.tok.is_punct(':'))
+            && t
+                .get(i + 3)
+                .is_some_and(|n| n.tok.is_ident("new") || n.tok.is_ident("default"))
+        {
+            found.push(x.line);
+        }
+    }
+    found
+}
+
 /// A settings file: the one place of a crate that names its variables.
 fn is_settings_file(rel: &str) -> bool {
     let name = rel.rsplit('/').next().unwrap_or(rel);
@@ -355,6 +379,24 @@ fn rules() -> Vec<Rule> {
                 "let l = \"AZ_lowercase\";",
                 "let h = \"HOMES\";",
                 "let a = AZ_BACKEND;",
+            ],
+        ),
+        Rule::new(
+            MAKER,
+            process_env_makers,
+            &[
+                "let e = ProcessEnv::new();",
+                "let e = crate::env::ProcessEnv::new();",
+                "let e = &azul_dll::env::ProcessEnv::default();",
+                "Self::from_lookup(&crate::env::ProcessEnv::new())",
+            ],
+            &[
+                "let e = Self::new();",
+                "let e = MapEnv::new();",
+                "let e = ProcessEnvironment::new();",
+                "impl ProcessEnv { pub fn new() -> Self { Self {} } }",
+                "let e = ProcessEnv;",
+                "let n = ProcessEnv::NAME;",
             ],
         ),
     ]
@@ -644,6 +686,20 @@ static W4: &[Allow] = &[
         3,
         "dll app start and shells: wired by cluster W4",
     ),
+    Allow::exactly(
+        "dll/src/desktop/compositor2.rs",
+        MAKER,
+        1,
+        "dll app start and shells: wired by cluster W4 (show_hit_test_overlay builds a reader of \
+         its own, cached in a static)",
+    ),
+    Allow::exactly(
+        "dll/src/desktop/wr_translate2.rs",
+        MAKER,
+        2,
+        "dll app start and shells: wired by cluster W4 (the tracy path of the renderer options and \
+         merge_overlay_env, cached in a static, each build a reader of their own)",
+    ),
 ];
 /// W5: dll linux shell and extras. Everything is wired through `PlatformEnv`, `LinuxSettings`
 /// and `ExtraSettings` (settings files, one place that names the variables) except the OS
@@ -721,6 +777,47 @@ static W7: &[Allow] = &[
         2,
         "ProcessEnv: the one reader of the process environment (var and var_os); the rest of the \
          workspace asks an EnvSource",
+    ),
+    Allow::exactly(
+        "dll/src/desktop/app.rs",
+        MAKER,
+        1,
+        "App::create: the ONE reader of an app, made at its start; every setting of the dll and of \
+         the library crates is built from it",
+    ),
+    Allow::exactly(
+        "dll/src/env.rs",
+        MAKER,
+        1,
+        "app_config_create: the C API's AppConfig::create runs before App::create and makes a \
+         reader of its own, for the default text anti-aliasing",
+    ),
+    Allow::exactly(
+        "dll/src/desktop/extra/extra_settings.rs",
+        MAKER,
+        1,
+        "ExtraSettings::of_process: the entry point of a service behind a public C-ABI function \
+         that a host calls with no app in reach (a stand-in device, the screen capture)",
+    ),
+    Allow::exactly(
+        "dll/src/desktop/platform_settings.rs",
+        MAKER,
+        1,
+        "PlatformEnv::of_process: the same, for the platform lookups of such a service entry point",
+    ),
+    Allow::exactly(
+        "dll/src/desktop/notifications/mod.rs",
+        MAKER,
+        1,
+        "headless_asked_of_the_process: PlatformCapability::notifications() probed BEFORE \
+         App::create has read the environment (AzClock builds its state first)",
+    ),
+    Allow::exactly(
+        "dll/src/web/lift_settings.rs",
+        MAKER,
+        1,
+        "WebLiftSettings::from_process: the one reader of a web-lift run (tool code, made once at \
+         the entry of run_web)",
     ),
     // The codegen directory is a COMPILE-TIME value (`env!`, set by dll/build.rs): not a read of
     // the process environment, so it is no setting. The literal stays where the `include!` is.
