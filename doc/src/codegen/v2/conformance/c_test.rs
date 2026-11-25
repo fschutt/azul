@@ -99,3 +99,36 @@ fn every_payload_that_can_be_cloned_is_compared_with_a_clone_of_what_went_in() {
         fresh.iter().take(12).cloned().collect::<Vec<_>>().join(", ")
     );
 }
+
+/// The leak check reads libazul's process-wide byte count when this thread's count does not
+/// balance (a case whose memory another thread frees), once the background threads are quiet. An
+/// `App` starts a font scan that goes on after the App is gone, and the thread that saves its
+/// result (`azul-font-cache-persist`) looks every 50 ms whether the scan is done. A quiet of 50 ms
+/// - the first version - took a pause of the scan for its end, and the scan's memory, finished a
+/// moment later, was a leak of 2 MB in "App derives" (seen in the first run of the program on a
+/// machine with no font cache on disk yet). The quiet has to be longer than a few polls of that
+/// thread.
+#[test]
+fn the_process_wide_byte_count_is_read_after_a_quiet_longer_than_the_font_savers_poll() {
+    let (_ir, _plan, program) = rendered();
+    let start = program
+        .find("static int64_t settled_live_bytes(void)")
+        .expect("the process-wide fallback of the leak check is rendered");
+    let body = &program[start..];
+    let body = &body[..body.find("\n}\n").expect("its end")];
+    let number_after = |marker: &str| -> u64 {
+        let at = body.find(marker).unwrap_or_else(|| panic!("no `{marker}` in:\n{body}")) + marker.len();
+        body[at..]
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect::<String>()
+            .parse()
+            .expect("a number")
+    };
+    assert!(body.contains("az_sleep_ms(5)"), "a round is 5 ms:\n{body}");
+    let quiet_ms = number_after("stable < ") * 5;
+    assert!(
+        quiet_ms >= 250,
+        "the count must stay unchanged for 250 ms (five polls of the font saver), it is {quiet_ms} ms:\n{body}"
+    );
+}
