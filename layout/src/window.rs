@@ -10066,9 +10066,9 @@ impl LayoutWindow {
                             & azul_css::compact_cache::FONT_STYLE_MASK);
                     }
                     if declares_variation {
-                        let id = azul_core::dom::NodeId::new(i);
+                        let id = NodeId::new(i);
                         if let Some(node) = styled_dom.styled_nodes.as_container().get(id) {
-                            mix(crate::solver3::getters::font_variation_inputs_hash(
+                            mix(solver3::getters::font_variation_inputs_hash(
                                 &styled_dom,
                                 id,
                                 &node.styled_node_state,
