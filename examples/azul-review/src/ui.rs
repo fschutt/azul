@@ -1,7 +1,11 @@
 use azul::{
     audio::AudioConfig,
     callbacks::{ButtonOnClickCallbackType, CallbackType},
-    dom::{AccessibilityInfo, AccessibilityRole, DomNodeId, NodeId, RenderImageCallback},
+    dom::{
+        AccessibilityInfo, AccessibilityRole, DomNodeId, NodeId, RenderImageCallback, VirtualKeyCode,
+        VirtualKeyCodeCombo,
+    },
+    option::OptionVirtualKeyCodeCombo,
     image::ImageRef,
     menu::{Menu, MenuItem, StringMenuItem},
     prelude::*,
@@ -272,8 +276,14 @@ fn problem_bar(problem: &str, data: &RefAny) -> Dom {
 /// The folder under review as the title row names it: the folder's own name, and the whole path (the chip's
 /// tooltip). None for no folder.
 fn folder_names(root: &std::path::Path) -> Option<(String, String)> {
-    let _ = root;
-    None // RED STUB
+    if root.as_os_str().is_empty() {
+        return None;
+    }
+    let whole = root.display().to_string();
+    let name = root
+        .file_name()
+        .map_or_else(|| whole.clone(), |n| n.to_string_lossy().into_owned());
+    Some((name, whole))
 }
 
 fn title_row(s: &AppState, data: &RefAny) -> Dom {
@@ -289,6 +299,10 @@ fn title_row(s: &AppState, data: &RefAny) -> Dom {
         .as_str(),
     );
     row.add_child(sidebar_switch(s, data));
+    row.add_child(open_folder_button(data));
+    if let Some(chip) = folder_chip(s) {
+        row.add_child(chip);
+    }
     row.add_child(Dom::create_div().with_css("width: 8px; flex-shrink: 0;"));
     for (i, sem) in Semantic::ALL.iter().enumerate() {
         row.add_child(meaning_key(i, *sem, *sem == s.ink_meaning(), data));
@@ -298,6 +312,53 @@ fn title_row(s: &AppState, data: &RefAny) -> Dom {
     row.add_child(Dom::create_div().with_css("width: 8px; flex-shrink: 0;"));
     row.add_child(column::switch(s, data));
     row
+}
+
+/// The title row's "Open folder...": a folder icon and the words, a key of its own (the folder dialog; the
+/// session menu has it with its key, Mod+O).
+fn open_folder_button(data: &RefAny) -> Dom {
+    let name = label("azreview-open-folder");
+    with_tip(
+        key(
+            "padding: 0px 8px; background: system:control-background; border: 1px solid system:separator; \
+             color: system:text; :hover { background: system:selection-background; }",
+            name.clone(),
+            data.clone(),
+            crate::on_open_folder,
+        ),
+        &name,
+    )
+    .with_id(ids::OPEN_FOLDER_BAR)
+    .with_child(Dom::create_icon("folder_open").with_css("font-size: 14px;"))
+    .with_child(Dom::create_span_with_text(name.as_str()))
+}
+
+/// Which folder is under review: its name, the file open after it; the whole path is the tooltip (the title
+/// bar is the app's own, so the window's title shows nothing). None while there is no folder.
+fn folder_chip(s: &AppState) -> Option<Dom> {
+    let (name, whole) = folder_names(&s.root)?;
+    let file = s.file().map(|f| f.display.clone());
+    let tip = match &file {
+        Some(f) => format!("{whole}/{f}"),
+        None => whole,
+    };
+    let mut chip = Dom::create_div()
+        .with_id(ids::FOLDER_CHIP)
+        .with_css(
+            "display: flex; flex-direction: row; align-items: center; gap: 6px; min-width: 0px; flex-shrink: 1; \
+             overflow: hidden; white-space: nowrap; font-size: 11px; padding: 0px 4px;",
+        )
+        .with_child(
+            Dom::create_span_with_text(name.as_str())
+                .with_css("font-weight: 600; color: system:text; flex-shrink: 0; max-width: 220px;"),
+        );
+    if let Some(file) = file {
+        chip.add_child(
+            Dom::create_span_with_text(file.as_str())
+                .with_css("color: system:secondary-text; min-width: 0px; overflow: hidden;"),
+        );
+    }
+    Some(with_tip(chip, &AzString::from(tip.as_str())))
 }
 
 /// The files' switch: flies the files out over the pages, folds them away.
@@ -421,6 +482,15 @@ fn open_folder_key(data: &RefAny) -> Dom {
         .with_child(Dom::create_icon("folder_open").with_css("font-size: 15px;"))
 }
 
+/// The primary modifier of a menu item's key: Command on a Mac, Control elsewhere.
+const fn cmd_key() -> VirtualKeyCode {
+    if cfg!(target_os = "macos") {
+        VirtualKeyCode::LWin
+    } else {
+        VirtualKeyCode::LControl
+    }
+}
+
 fn menu_bar(data: &RefAny) -> Menu {
     let mut items: Vec<MenuItem> = Vec::new();
 
@@ -449,9 +519,12 @@ fn menu_bar(data: &RefAny) -> Menu {
     items.push(MenuItem::String(ink));
 
     let mut session = StringMenuItem::create(label("azreview-menu-session"));
-    session = session.with_child(MenuItem::String(
-        StringMenuItem::create(label("azreview-open-folder")).with_callback(data.clone(), crate::on_open_folder),
-    ));
+    let mut open = StringMenuItem::create(label("azreview-open-folder"))
+        .with_callback(data.clone(), crate::on_open_folder);
+    open.accelerator = OptionVirtualKeyCodeCombo::Some(VirtualKeyCodeCombo {
+        keys: vec![cmd_key(), VirtualKeyCode::O].into(),
+    });
+    session = session.with_child(MenuItem::String(open));
     session = session.with_child(MenuItem::String(
         StringMenuItem::create(label("azreview-save-now")).with_callback(data.clone(), crate::on_menu_save),
     ));
@@ -734,33 +807,59 @@ fn sheet(s: &AppState, data: &RefAny) -> Dom {
          flex-direction: column; overflow: hidden; padding: 18px;",
     );
     if s.file().is_none() {
-        // No file open: none to review under the folder, or none picked yet.
-        let says = if s.root.as_os_str().is_empty() {
-            // No folder at all (an app started from the Finder): nothing to look under yet.
-            AzString::from(t("azreview-no-folder"))
+        // No file open: no folder yet (the app started with none to review), none to review under it, or none
+        // picked. The way out is in the page itself, large.
+        let (says, explains) = if s.root.as_os_str().is_empty() {
+            (
+                AzString::from(t("azreview-no-folder")),
+                Some(AzString::from(t("azreview-no-folder-hint"))),
+            )
         } else if s.files.is_empty() {
-            AzString::from(t_args(
-                "azreview-no-files",
-                &[("folder", Arg::from(s.root.display().to_string()))],
-            ))
+            (
+                AzString::from(t_args(
+                    "azreview-no-files",
+                    &[("folder", Arg::from(s.root.display().to_string()))],
+                )),
+                None,
+            )
         } else {
-            label("azreview-open-file")
+            (label("azreview-open-file"), None)
         };
-        area.add_child(
-            Dom::create_p_with_text(says)
-                .with_css("margin: 0px; color: system:secondary-text; padding: 40px 40px 12px 40px;"),
+        let mut panel = Dom::create_div()
+            .with_css(
+                "flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: \
+                 center; gap: 14px; padding: 40px; text-align: center;",
+            )
+            .with_child(Dom::create_icon("folder_open").with_css("font-size: 56px; color: system:secondary-text;"))
+            .with_child(
+                Dom::create_p_with_text(says)
+                    .with_css("margin: 0px; font-size: 18px; font-weight: 600; color: system:text;"),
+            );
+        if let Some(explains) = explains {
+            panel.add_child(
+                Dom::create_p_with_text(explains)
+                    .with_css("margin: 0px; font-size: 13px; color: system:secondary-text; max-width: 420px;"),
+            );
+        }
+        let name = label("azreview-open-folder");
+        panel.add_child(
+            Dom::create_node(NodeType::Button)
+                .with_css(
+                    "display: flex; flex-direction: row; align-items: center; gap: 10px; height: 44px; padding: \
+                     0px 22px; font-size: 15px; border-radius: 8px; border: 0px solid transparent; background: \
+                     system:accent; color: system:accent-text; cursor: pointer; margin-top: 6px;",
+                )
+                .with_accessibility_name(name.clone())
+                .with_callback(
+                    EventFilter::Hover(HoverEventFilter::Click),
+                    data.clone(),
+                    crate::on_open_folder,
+                )
+                .with_id(ids::OPEN_FOLDER_EMPTY)
+                .with_child(Dom::create_icon("folder_open").with_css("font-size: 20px;"))
+                .with_child(Dom::create_span_with_text(name.as_str())),
         );
-        // Nothing to review here (an app started from the Finder has the root of the disk as its
-        // folder): the way out is in the empty page itself.
-        area.add_child(
-            Dom::create_div().with_css("padding: 0px 40px;").with_child(
-                Button::create(label("azreview-open-folder"))
-                    .with_icon("folder_open")
-                    .with_on_click(data.clone(), crate::on_open_folder as ButtonOnClickCallbackType)
-                    .dom()
-                    .with_id(ids::OPEN_FOLDER_EMPTY),
-            ),
-        );
+        area.add_child(panel);
         return area;
     }
     area.add_child(

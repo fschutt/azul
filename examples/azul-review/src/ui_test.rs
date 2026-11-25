@@ -105,9 +105,13 @@ fn a_folder_is_named_by_its_own_name_and_its_tooltip_is_the_whole_path() {
 
 #[test]
 fn the_session_menu_opens_a_folder_with_the_primary_modifier_and_o() {
+    crate::l10n::in_english();
     let menu = menu_bar(&RefAny::new(0u8));
     let item = find_item(menu.items.as_ref(), "Open folder...").expect("Session > Open folder...");
-    let keys = item.accelerator.as_ref().expect("the item shows its key").keys.as_ref().to_vec();
+    let OptionVirtualKeyCodeCombo::Some(combo) = &item.accelerator else {
+        panic!("the item shows its key");
+    };
+    let keys = combo.keys.as_ref().to_vec();
     assert_eq!(keys.len(), 2, "{keys:?}");
     assert!(matches!(keys[1], VirtualKeyCode::O), "{keys:?}");
     let primary = if cfg!(target_os = "macos") { VirtualKeyCode::LWin } else { VirtualKeyCode::LControl };

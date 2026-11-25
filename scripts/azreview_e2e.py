@@ -6,9 +6,11 @@
        fresh data folder (`--data-dir`); it opens the first file (`AZREVIEW_FILE README.md`);
     2. the window is filled: the sheet strip reaches down to the window's bottom (there is no
        status bar);
-    3. the files fly out over the pages at the start (the sheet strip starts under the flyout,
-       not beside it); a click on `lib.rs` in them opens it (`AZREVIEW_FILE src/lib.rs`) and
-       folds the files away, and the pages stay where they were;
+    3. the files are folded away at the start (the page is what one sees first, the first file is open);
+       the title row's switch flies them out over the pages (the sheet strip keeps its place under the
+       flyout, not beside it); a click on `lib.rs` in them opens it (`AZREVIEW_FILE src/lib.rs`) and
+       folds the files away, and the pages stay where they were; the title row has a labeled
+       Open folder... button and names the folder, and a window started with no folder says so;
     4. a stroke drawn with the mouse on the first page is kept (`AZREVIEW_STROKES 1`) and the
        session is written on a Thread to review/src_lib.rs.azreview.zip (`AZREVIEW_SAVED ...`):
        a zip whose session.json holds the stroke;
@@ -57,6 +59,14 @@ TAG = "azreview"
 WIDTH, HEIGHT = 1280, 820
 STRIP = "__azreview_sheet-strip"
 FLYOUT = "__azreview_flyout"
+SIDEBAR_TOGGLE = "__azreview_sidebar-toggle"
+
+
+def show_files(app):
+    """The files are folded away at the start: the title row's switch flies them out over the pages."""
+    if not app.has_id(FLYOUT):
+        app.click(selector="#" + SIDEBAR_TOGGLE)
+    app.until("the files fly out", lambda: app.has_id(FLYOUT))
 ARCHIVE = "review/src_lib.rs.azreview.zip"
 
 
@@ -99,9 +109,16 @@ def body(args, logs, out):
         if not strip or strip.get("height", 0) < 300 or strip.get("y", 0) + strip.get("height", 0) > HEIGHT:
             raise Failure("the sheet strip does not fill the document: %s" % strip)
         app.screenshot(os.path.join(out, "1-readme.png"))
-        # The files fly out OVER the pages: the sheet strip keeps its place under the flyout
+        # The files are folded away at the start: nothing covers the page.
+        if app.has_id(FLYOUT):
+            raise Failure("the files cover the page at the start")
+        # The title row says which folder it is and has the way to another one, in words.
+        if not app.has_id("__azreview_open-folder-bar") or not app.has_id("__azreview_folder-chip"):
+            raise Failure("the title row has no Open folder... button or no folder name")
+        # The switch flies them out OVER the pages: the sheet strip keeps its place under the flyout
         # (it does not start where the flyout ends), and keeps it when the files fold away.
         under = strip
+        show_files(app)
         flyout = app.rect(FLYOUT)
         if not flyout or flyout.get("width", 0) <= 0:
             raise Failure("the files do not fly out at the start: %s" % flyout)
@@ -254,6 +271,7 @@ def dictation(args, logs, out, binary, fake):
     try:
         app.until("AzReview's window", lambda: app.has_id(STRIP))
         app.frame(2)
+        show_files(app)
         app.click(text="lib.rs")
         app.until("the files folded away", lambda: not app.has_id(FLYOUT))
         strip = app.rect(STRIP)
@@ -386,6 +404,7 @@ def restore(args, logs, out, binary):
     try:
         app.until("AzReview's window", lambda: app.has_id(STRIP))
         app.frame(2)
+        show_files(app)
         app.click(text="lib.rs")
         app.until("the files folded away", lambda: not app.has_id(FLYOUT))
         app.until("the saved session back", lambda: app.count("AZREVIEW_LOADED", r"1 0") > 0)

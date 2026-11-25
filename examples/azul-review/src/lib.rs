@@ -77,7 +77,7 @@ pub const SPEC: AppSpec = AppSpec {
     binary: "AzReview",
     summary: "ink-first code review",
     screens: &["review"],
-    files_help: "the folder to review (default: the current folder)",
+    files_help: "the folder to review (default: the one reviewed last; with none, the window offers Open folder)",
 };
 
 /// The About facts.
@@ -96,7 +96,9 @@ pub const ABOUT: AboutInfo = AboutInfo {
 /// blacklist (a software GL) or WebRender cannot start; `AZ_BACKEND=cpu|gpu|auto` still wins.
 #[must_use]
 pub fn window_renderer() -> RendererOptions {
-    RendererOptions::create_default() // RED STUB
+    let mut renderer = RendererOptions::create_default();
+    renderer.hw_accel = HwAcceleration::Enabled;
+    renderer
 }
 
 /// The keys AzReview answers (the kit adds Mod+, / F1 / Escape).
@@ -174,9 +176,8 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// AzReview on the `files` of `root`, the first open and the files out
-    /// (they are what one picks from first); `kit` and `data_root` are
-    /// azul-appkit's.
+    /// AzReview on the `files` of `root`, the first open and the files folded away (the page is what
+    /// one sees first, not the list over it); `kit` and `data_root` are azul-appkit's.
     #[must_use]
     pub fn create(root: PathBuf, files: Vec<code::SourceFile>, kit: RefAny, data_root: PathBuf) -> Self {
         Self {
@@ -208,7 +209,7 @@ impl AppState {
             epoch: 0,
             idle_timer: TimerId::unique(),
             root,
-            sidebar_open: true,
+            sidebar_open: false,
             problem: None,
             last_pad_keys: 0,
             kit,
@@ -220,7 +221,11 @@ impl AppState {
 
     /// The folder dialog may open: `false` while one is open already. Pair with [`Self::folder_dialog_closed`].
     pub fn ask_for_folder(&mut self) -> bool {
-        true // RED STUB
+        if self.choosing_folder {
+            return false;
+        }
+        self.choosing_folder = true;
+        true
     }
 
     /// The folder dialog was answered (a folder, or none).
@@ -239,15 +244,16 @@ impl AppState {
         self.rederive();
     }
 
-    /// Reviews another folder: its files replace the files, the first is open and the files are out
-    /// (they are what one picks from first).
+    /// Reviews another folder: its files replace the files, the first is open and the files are folded
+    /// away (the way to the others is the title row's switch; a folder without files shows the empty
+    /// page, which has the button).
     pub fn open_folder(&mut self, root: PathBuf, files: Vec<code::SourceFile>) {
         self.root = root;
         self.current = None;
         self.files = files;
         let first = if self.files.is_empty() { None } else { Some(0) };
         self.begin_file(first);
-        self.sidebar_open = true;
+        self.sidebar_open = false;
         self.rederive();
     }
 
@@ -556,6 +562,13 @@ fn kit_of(data: &mut RefAny) -> Option<RefAny> {
 extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
     if let Some(kit_ref) = kit_of(&mut data) {
         kit::on_window_created(&kit_ref, &mut info);
+        // A folder named on the command line is the one reviewed last from now on.
+        let named = data
+            .downcast_mut::<AppState>()
+            .and_then(|mut s| s.remember_folder.take());
+        if let Some(folder) = named {
+            kit::set_value(&kit_ref, &mut info, switches::KEY_FOLDER, &folder.to_string_lossy());
+        }
     }
     // What was marked on the first file in an earlier run comes back.
     load_session(&data, &mut info);
@@ -702,7 +715,13 @@ extern "C" fn on_loaded(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo
 
 /// "Open folder": a folder dialog; the folder's files replace the files, and the folder is remembered
 /// for the next start (an app started from the Finder has no folder of its own).
-pub extern "C" fn on_open_folder(data: RefAny, _info: CallbackInfo) -> Update {
+pub extern "C" fn on_open_folder(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let may_ask = data
+        .downcast_mut::<AppState>()
+        .is_some_and(|mut s| s.ask_for_folder());
+    if !may_ask {
+        return Update::DoNothing;
+    }
     let _request = FileDialog::open_directory(
         t("azreview-choose-folder"),
         OptionString::None,
@@ -713,6 +732,9 @@ pub extern "C" fn on_open_folder(data: RefAny, _info: CallbackInfo) -> Update {
 }
 
 extern "C" fn on_folder_chosen(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
+    if let Some(mut s) = data.downcast_mut::<AppState>() {
+        s.folder_dialog_closed();
+    }
     let Some(picked) = FileOpenResult::downcast(result).into_option() else {
         return Update::DoNothing;
     };

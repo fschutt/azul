@@ -87,3 +87,4 @@ azreview-ink-surface = Drawing surface of page { $n }
 azreview-recording-level = Recording level
 azreview-no-folder = Choose a folder to review.
 azreview-save-pointer-log = Save the pointer log
+azreview-no-folder-hint = AzReview shows the files of a folder as pages you can mark with a pen or the mouse.

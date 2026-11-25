@@ -87,3 +87,4 @@ azreview-ink-surface = Zeichenfläche der Seite { $n }
 azreview-recording-level = Aufnahmepegel
 azreview-no-folder = Wähle einen Ordner zum Prüfen.
 azreview-save-pointer-log = Zeigerprotokoll speichern
+azreview-no-folder-hint = AzReview zeigt die Dateien eines Ordners als Seiten, die du mit Stift oder Maus markieren kannst.
