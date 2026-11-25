@@ -73,6 +73,7 @@ mod l10n_tests;
 pub mod model;
 pub mod perf;
 pub mod session;
+pub mod stroke_features;
 pub mod switches;
 pub mod ui;
 pub mod voice;
