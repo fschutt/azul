@@ -4310,7 +4310,8 @@ pub fn parse_combined_css_property(
         Background, BackgroundColor, BackgroundImage, Border, BorderBottom, BorderColor,
         BorderLeft, BorderRadius, BorderRight, BorderStyle, BorderTop, BorderWidth, BoxShadow,
         ColumnRule, Columns, Flex, Font, Gap, Grid, GridArea, GridGap, InsetBlock, InsetInline,
-        FontVariant, ListStyle, Margin, Overflow, OverscrollBehavior, Padding, TextBox,
+        FontSynthesis, FontVariant, ListStyle, Margin, Overflow, OverscrollBehavior, Padding,
+        TextBox,
     };
 
     macro_rules! convert_value {

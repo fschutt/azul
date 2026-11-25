@@ -357,8 +357,10 @@ fn font_properties(prefix: &FontPrefix, tail: FontTail) -> Vec<CssProperty> {
     ]
 }
 
-/// Parses the value of the `font` shorthand: `[ [ <font-style> || <font-variant-css2> ||
-/// <font-weight> || <font-stretch-css3> ]? <font-size> [ / <line-height> ]? <font-family># ] |
+/// Parses the value of the `font` shorthand into the font longhands it sets.
+///
+/// The grammar is `[ [ <font-style> || <font-variant-css2> || <font-weight> ||
+/// <font-stretch-css3> ]? <font-size> [ / <line-height> ]? <font-family># ] |
 /// <system-family-name>`.
 ///
 /// Returns the eighteen longhands in a fixed order: `font-style`, `font-variant-caps`,
@@ -596,13 +598,14 @@ impl<'a> VariantWords<'a> {
     }
 }
 
-/// Parses the value of the `font-variant` shorthand: `normal | none | [ <common-lig-values> ||
-/// <discretionary-lig-values> || <historical-lig-values> || <contextual-alt-values> ||
-/// stylistic() || historical-forms || styleset() || character-variant() || swash() ||
-/// ornaments() || annotation() || <caps-keyword> || <numeric-figure-values> ||
-/// <numeric-spacing-values> || <numeric-fraction-values> || ordinal || slashed-zero ||
-/// <east-asian-variant-values> || <east-asian-width-values> || ruby || [ sub | super ] || [ text |
-/// emoji | unicode ] ]`.
+/// Parses the value of the `font-variant` shorthand into the longhands it sets.
+///
+/// The grammar is `normal | none | [ <common-lig-values> || <discretionary-lig-values> ||
+/// <historical-lig-values> || <contextual-alt-values> || stylistic() || historical-forms ||
+/// styleset() || character-variant() || swash() || ornaments() || annotation() ||
+/// <caps-keyword> || <numeric-figure-values> || <numeric-spacing-values> ||
+/// <numeric-fraction-values> || ordinal || slashed-zero || <east-asian-variant-values> ||
+/// <east-asian-width-values> || ruby || [ sub | super ] || [ text | emoji | unicode ] ]`.
 ///
 /// Returns four longhands, in this order: `font-variant-numeric`, `font-variant-caps`,
 /// `font-variant-ligatures` and `font-variant-east-asian`, all `Exact`: the ones the value does
@@ -668,8 +671,9 @@ fn font_synthesis_properties(listed: [bool; 4]) -> Vec<CssProperty> {
     ]
 }
 
-/// Parses the value of the `font-synthesis` shorthand: `none | [ weight || style || small-caps ||
-/// position ]`.
+/// Parses the value of the `font-synthesis` shorthand into the four longhands it sets.
+///
+/// The grammar is `none | [ weight || style || small-caps || position ]`.
 ///
 /// Returns four longhands, in this order: `font-synthesis-weight`, `-style`, `-small-caps` and
 /// `-position`, all `Exact`: `none` is `none` for all four, a list is `auto` for the keywords it

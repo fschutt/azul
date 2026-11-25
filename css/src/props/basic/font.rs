@@ -1035,7 +1035,7 @@ fn parse_plain_number(text: &str) -> Option<f32> {
         None => (body, None),
     };
     let whole_ok = whole.bytes().all(|b| b.is_ascii_digit());
-    let fraction_ok = fraction.map_or(true, |digits| {
+    let fraction_ok = fraction.is_none_or(|digits| {
         !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
     });
     if !whole_ok || !fraction_ok || (whole.is_empty() && fraction.is_none()) {
