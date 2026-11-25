@@ -10053,9 +10053,16 @@ impl LayoutWindow {
                 };
                 for (i, &fh) in cc.prev_font_hashes.iter().enumerate() {
                     mix(fh);
-                    if i < cc.tier1_enums.len() {
-                        mix(cc.get_font_weight(i) as u64);
-                        mix(cc.get_font_style(i) as u64);
+                    if let Some(&tier1) = cc.tier1_enums.get(i) {
+                        mix((tier1 >> azul_css::compact_cache::FONT_STYLE_SHIFT)
+                            & azul_css::compact_cache::FONT_STYLE_MASK);
+                    }
+                    // The weight, the width and the slant of the font: the numbers a
+                    // variable font is drawn at, so each of them is a font requirement.
+                    if let Some(text) = cc.tier2b_text.get(i) {
+                        mix(u64::from(text.font_weight));
+                        mix(u64::from(text.font_stretch));
+                        mix(u64::from(u16::from_ne_bytes(text.font_oblique.to_ne_bytes())));
                     }
                     if i < cc.tier2_dims.len() {
                         mix(u64::from(cc.get_font_size_raw(i)));

@@ -2061,7 +2061,7 @@ mod no_italic {
             matches!(
                 p,
                 CssProperty::FontStyle(v)
-                    if matches!(v.get_property(), Some(StyleFontStyle::Italic | StyleFontStyle::Oblique))
+                    if matches!(v.get_property(), Some(StyleFontStyle::Italic | StyleFontStyle::Oblique(_)))
             )
         });
         if italic {

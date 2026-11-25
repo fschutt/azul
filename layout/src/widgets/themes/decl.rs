@@ -587,7 +587,7 @@ pub(crate) fn focus_halo(light: ColorU, dark: ColorU) -> [CssPropertyWithConditi
 /// `font-weight: bold`.
 #[must_use]
 pub(crate) const fn bold() -> CssPropertyWithConditions {
-    weight(StyleFontWeight::Bold)
+    weight(StyleFontWeight::BOLD)
 }
 
 /// `font-weight: 600`.
@@ -767,7 +767,7 @@ pub(crate) const fn own_type() -> [CssPropertyWithConditions; 7] {
         simple(CssProperty::const_letter_spacing(StyleLetterSpacing {
             inner: PixelValue::const_px(0),
         })),
-        simple(CssProperty::font_weight(StyleFontWeight::Normal)),
+        simple(CssProperty::font_weight(StyleFontWeight::NORMAL)),
         simple(CssProperty::font_style(StyleFontStyle::Normal)),
         simple(CssProperty::const_line_height(StyleLineHeight::Normal)),
         simple(CssProperty::const_text_align(StyleTextAlign::Start)),

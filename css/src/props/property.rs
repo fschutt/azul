@@ -24,6 +24,7 @@ use crate::{
                 CssStyleFontFamilyParseError, CssStyleFontFamilyParseErrorOwned,
                 StyleFontFamilyVec, *,
             },
+            font_variation::*,
             length::{parse_float_value, parse_percentage_value, FloatValue, PercentageValue},
             pixel::{
                 parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned,
@@ -54,7 +55,7 @@ use crate::props::basic::{
     DurationParseErrorOwned,
 };
 
-const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 33] = [
+const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 34] = [
     (CombinedCssPropertyType::BorderRadius, "border-radius"),
     (CombinedCssPropertyType::Overflow, "overflow"),
     (
@@ -89,6 +90,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 33] = [
     (CombinedCssPropertyType::InsetInline, "inset-inline"),
     (CombinedCssPropertyType::ListStyle, "list-style"),
     (CombinedCssPropertyType::FontVariant, "font-variant"),
+    (CombinedCssPropertyType::FontSynthesis, "font-synthesis"),
     // SVG's `fill` IS a background: an SVG shape's box is clipped to its own
     // geometry, so filling the box fills the shape. Aliasing it here rather
     // than adding a parallel paint model is what lets all three spellings -
@@ -112,7 +114,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 33] = [
     (CombinedCssPropertyType::BorderWidth, "stroke-width"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 210] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 221] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -231,6 +233,17 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 210] = [
     (CssPropertyType::FontVariantNumeric, "font-variant-numeric"),
     (CssPropertyType::FontVariantCaps, "font-variant-caps"),
     (CssPropertyType::FontFeatureSettings, "font-feature-settings"),
+    (CssPropertyType::FontStretch, "font-stretch"),
+    (CssPropertyType::FontStretch, "font-width"),
+    (CssPropertyType::FontVariationSettings, "font-variation-settings"),
+    (CssPropertyType::FontOpticalSizing, "font-optical-sizing"),
+    (CssPropertyType::FontKerning, "font-kerning"),
+    (CssPropertyType::FontVariantLigatures, "font-variant-ligatures"),
+    (CssPropertyType::FontVariantEastAsian, "font-variant-east-asian"),
+    (CssPropertyType::FontSynthesisWeight, "font-synthesis-weight"),
+    (CssPropertyType::FontSynthesisStyle, "font-synthesis-style"),
+    (CssPropertyType::FontSynthesisSmallCaps, "font-synthesis-small-caps"),
+    (CssPropertyType::FontSynthesisPosition, "font-synthesis-position"),
     (CssPropertyType::CounterSet, "counter-set"),
     (CssPropertyType::Quotes, "quotes"),
     (CssPropertyType::BackgroundOrigin, "background-origin"),
@@ -576,6 +589,13 @@ pub type StyleBackgroundClipVecValue = CssPropertyValue<StyleBackgroundClipVec>;
 pub type StyleFontVariantNumericValue = CssPropertyValue<StyleFontVariantNumeric>;
 pub type StyleFontVariantCapsValue = CssPropertyValue<StyleFontVariantCaps>;
 pub type StyleFontFeatureSettingsValue = CssPropertyValue<StyleFontFeatureSettings>;
+pub type StyleFontStretchValue = CssPropertyValue<StyleFontStretch>;
+pub type StyleFontVariationSettingsValue = CssPropertyValue<StyleFontVariationSettings>;
+pub type StyleFontOpticalSizingValue = CssPropertyValue<StyleFontOpticalSizing>;
+pub type StyleFontKerningValue = CssPropertyValue<StyleFontKerning>;
+pub type StyleFontVariantLigaturesValue = CssPropertyValue<StyleFontVariantLigatures>;
+pub type StyleFontVariantEastAsianValue = CssPropertyValue<StyleFontVariantEastAsian>;
+pub type StyleFontSynthesisValue = CssPropertyValue<StyleFontSynthesis>;
 pub type CounterSetValue = CssPropertyValue<CounterSet>;
 pub type StyleQuotesValue = CssPropertyValue<StyleQuotes>;
 pub type StyleBackgroundOriginVecValue = CssPropertyValue<StyleBackgroundOriginVec>;
@@ -682,10 +702,14 @@ pub enum CombinedCssPropertyType {
     /// `list-style` shorthand: sets `list-style-type` + `list-style-position`
     /// (`list-style-image` is not supported and ignored)
     ListStyle,
-    /// `font-variant` shorthand: sets `font-variant-numeric` +
-    /// `font-variant-caps`; the keywords of the other `font-variant-*`
-    /// longhands, which azul has not, set nothing
+    /// `font-variant` shorthand: sets `font-variant-numeric`, `font-variant-caps`,
+    /// `font-variant-ligatures` and `font-variant-east-asian`; the keywords of the
+    /// other `font-variant-*` longhands (position, alternates, emoji), which azul
+    /// has not, set nothing
     FontVariant,
+    /// `font-synthesis` shorthand: sets `font-synthesis-weight`, `-style`,
+    /// `-small-caps` and `-position`
+    FontSynthesis,
 }
 
 impl fmt::Display for CombinedCssPropertyType {
@@ -956,6 +980,26 @@ pub enum CssProperty {
     /// `Color` or a `SystemColor`), apart from `BackgroundContent` so a later
     /// `background-image` keeps it.
     BackgroundColor(StyleBackgroundContentValue),
+    /// `font-stretch` (CSS Fonts 4 `font-width`): the width of the face, a percentage.
+    FontStretch(StyleFontStretchValue),
+    /// `font-variation-settings`: explicit variable-font axis values, `"wght" 650`.
+    FontVariationSettings(StyleFontVariationSettingsValue),
+    /// `font-optical-sizing`: whether the `opsz` axis follows the font size.
+    FontOpticalSizing(StyleFontOpticalSizingValue),
+    /// `font-kerning`: the pair adjustments of the face on or off.
+    FontKerning(StyleFontKerningValue),
+    /// `font-variant-ligatures`: which ligatures the shaper applies.
+    FontVariantLigatures(StyleFontVariantLigaturesValue),
+    /// `font-variant-east-asian`: the East Asian glyph forms the text asks for.
+    FontVariantEastAsian(StyleFontVariantEastAsianValue),
+    /// `font-synthesis-weight`: whether a bold face may be synthesized.
+    FontSynthesisWeight(StyleFontSynthesisValue),
+    /// `font-synthesis-style`: whether an italic face may be synthesized.
+    FontSynthesisStyle(StyleFontSynthesisValue),
+    /// `font-synthesis-small-caps`: whether small capitals may be synthesized.
+    FontSynthesisSmallCaps(StyleFontSynthesisValue),
+    /// `font-synthesis-position`: whether sub- and superscripts may be synthesized.
+    FontSynthesisPosition(StyleFontSynthesisValue),
 }
 
 impl_option!(
@@ -1232,6 +1276,16 @@ pub enum CssPropertyType {
     Quotes,
     BackgroundOrigin,
     BackgroundColor,
+    FontStretch,
+    FontVariationSettings,
+    FontOpticalSizing,
+    FontKerning,
+    FontVariantLigatures,
+    FontVariantEastAsian,
+    FontSynthesisWeight,
+    FontSynthesisStyle,
+    FontSynthesisSmallCaps,
+    FontSynthesisPosition,
 }
 
 impl CssPropertyType {
@@ -1444,6 +1498,16 @@ impl CssPropertyType {
         Self::Quotes,
         Self::BackgroundOrigin,
         Self::BackgroundColor,
+        Self::FontStretch,
+        Self::FontVariationSettings,
+        Self::FontOpticalSizing,
+        Self::FontKerning,
+        Self::FontVariantLigatures,
+        Self::FontVariantEastAsian,
+        Self::FontSynthesisWeight,
+        Self::FontSynthesisStyle,
+        Self::FontSynthesisSmallCaps,
+        Self::FontSynthesisPosition,
     ];
 
     /// Returns an iterator over all CSS property types.
@@ -1699,6 +1763,16 @@ impl CssPropertyType {
             Self::Quotes => "quotes",
             Self::BackgroundOrigin => "background-origin",
             Self::BackgroundColor => "background-color",
+            Self::FontStretch => "font-stretch",
+            Self::FontVariationSettings => "font-variation-settings",
+            Self::FontOpticalSizing => "font-optical-sizing",
+            Self::FontKerning => "font-kerning",
+            Self::FontVariantLigatures => "font-variant-ligatures",
+            Self::FontVariantEastAsian => "font-variant-east-asian",
+            Self::FontSynthesisWeight => "font-synthesis-weight",
+            Self::FontSynthesisStyle => "font-synthesis-style",
+            Self::FontSynthesisSmallCaps => "font-synthesis-small-caps",
+            Self::FontSynthesisPosition => "font-synthesis-position",
         }
     }
 
@@ -1713,6 +1787,7 @@ impl CssPropertyType {
             BorderCollapse, BorderSpacing, CaptionSide, Cursor, Direction, EmptyCells,
             FontFamily, FontFeatureSettings, FontSize, FontStyle, FontVariantCaps,
             FontVariantNumeric, FontWeight, HangingPunctuation, HyphenationLanguage, Hyphens,
+            FontStretch, FontVariationSettings, FontOpticalSizing, FontKerning, FontVariantLigatures, FontVariantEastAsian, FontSynthesisWeight, FontSynthesisStyle, FontSynthesisSmallCaps, FontSynthesisPosition,
             LetterSpacing, LineBreak, LineHeight, ListStylePosition, ListStyleType, Orphans,
             OverflowWrap, Quotes, TabSize, TextAlign, TextAlignLast, TextColor, TextCombineUpright,
             TextDecoration, TextIndent, TextJustify, TextOrientation, TextTransform, UserSelect,
@@ -1722,6 +1797,7 @@ impl CssPropertyType {
             // Font properties
             FontFamily | FontSize | FontWeight | FontStyle | LineHeight | LetterSpacing | WordSpacing | TextIndent |
             FontVariantNumeric | FontVariantCaps | FontFeatureSettings |
+            FontStretch | FontVariationSettings | FontOpticalSizing | FontKerning | FontVariantLigatures | FontVariantEastAsian | FontSynthesisWeight | FontSynthesisStyle | FontSynthesisSmallCaps | FontSynthesisPosition |
 
             // Generated content: the marks of open-quote and close-quote
             Quotes |
@@ -1764,7 +1840,8 @@ impl CssPropertyType {
             BorderRightColor, BorderRightStyle, BorderRightWidth, BorderSpacing, BorderTopColor,
             BorderTopStyle, BorderTopWidth, Bottom, BoxSizing, Clear, ColumnGap, Direction,
             Display, FlexBasis, FlexDirection, FlexGrow, FlexShrink, FlexWrap, Float, FontFamily,
-            FontSize, FontStyle, FontWeight, Gap, GridAutoFlow, GridColumn, GridRow, Height,
+            FontSize, FontStretch, FontStyle, FontWeight, Gap, GridAutoFlow, GridColumn, GridRow,
+            Height,
             JustifyContent, JustifyItems, JustifySelf, Left, LetterSpacing, LineHeight,
             MarginBottom, MarginLeft, MarginRight, MarginTop, MaxHeight, MaxWidth, MinHeight,
             MinWidth, OverflowX, OverflowY, PaddingBottom, PaddingLeft, PaddingRight, PaddingTop,
@@ -1793,6 +1870,7 @@ impl CssPropertyType {
             BorderSpacing | TabSize |
             // Tier 2b text
             TextColor | FontFamily | LineHeight | LetterSpacing | WordSpacing | TextIndent |
+            FontStretch |
             // Grid/flex alignment (tier1 extension)
             AlignSelf | JustifySelf | GridAutoFlow | JustifyItems |
             // Gap (tier2 extension)
@@ -1941,6 +2019,7 @@ impl CssPropertyType {
             ColumnRuleColor, ColumnRuleStyle, Cursor, Direction, DominantBaseline, Filter,
             FontFamily, FontFeatureSettings, FontSize, FontStyle, FontVariantCaps,
             FontVariantNumeric, FontWeight, HangingPunctuation, Height,
+            FontStretch, FontVariationSettings, FontOpticalSizing, FontKerning, FontVariantLigatures, FontVariantEastAsian, FontSynthesisWeight, FontSynthesisStyle, FontSynthesisSmallCaps, FontSynthesisPosition,
             HyphenationLanguage, Hyphens, InitialLetter, InitialLetterAlign, InitialLetterWrap,
             LetterSpacing, LineBreak, LineClamp, LineFitEdge, LineHeight, MaxHeight, MaxWidth,
             MinHeight, MinWidth, MixBlendMode, ObjectFit, ObjectPosition, Opacity,
@@ -2027,6 +2106,7 @@ impl CssPropertyType {
             // inherits but doesn't directly reflow).
             FontFamily | FontSize | FontWeight | FontStyle | FontVariantNumeric | FontVariantCaps
             | FontFeatureSettings | LetterSpacing | WordSpacing | LineHeight | TextAlign | TextJustify | TextIndent | WhiteSpace | TabSize
+            | FontStretch | FontVariationSettings | FontOpticalSizing | FontKerning | FontVariantLigatures | FontVariantEastAsian | FontSynthesisWeight | FontSynthesisStyle | FontSynthesisSmallCaps | FontSynthesisPosition
             | Hyphens | WordBreak | OverflowWrap | LineBreak | TextAlignLast | TextOrientation
             | HyphenationLanguage | TextCombineUpright | TextDecoration | HangingPunctuation
             | InitialLetter | LineClamp | Direction | VerticalAlign | UnicodeBidi | TextBoxTrim
@@ -4099,6 +4179,56 @@ pub fn parse_css_property(
                     .map_err(|_| CssParsingError::GenericParseError)?
                     .into(),
             ),
+            CssPropertyType::FontStretch => CssProperty::FontStretch(
+                parse_style_font_stretch(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::FontVariationSettings => CssProperty::FontVariationSettings(
+                parse_style_font_variation_settings(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::FontOpticalSizing => CssProperty::FontOpticalSizing(
+                parse_style_font_optical_sizing(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::FontKerning => CssProperty::FontKerning(
+                parse_style_font_kerning(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::FontVariantLigatures => CssProperty::FontVariantLigatures(
+                parse_style_font_variant_ligatures(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::FontVariantEastAsian => CssProperty::FontVariantEastAsian(
+                parse_style_font_variant_east_asian(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::FontSynthesisWeight => CssProperty::FontSynthesisWeight(
+                parse_style_font_synthesis(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::FontSynthesisStyle => CssProperty::FontSynthesisStyle(
+                parse_style_font_synthesis(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::FontSynthesisSmallCaps => CssProperty::FontSynthesisSmallCaps(
+                parse_style_font_synthesis(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::FontSynthesisPosition => CssProperty::FontSynthesisPosition(
+                parse_style_font_synthesis(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
             CssPropertyType::TableLayout => CssProperty::TableLayout(
                 parse_table_layout(value)
                     .map_err(|_| CssParsingError::GenericParseError)?
@@ -4326,8 +4456,29 @@ pub fn parse_combined_css_property(
         Gap | GridGap => {
             vec![CssPropertyType::RowGap, CssPropertyType::ColumnGap]
         }
+        // The `font` shorthand sets (or resets to their initial value) every
+        // font longhand, in the order `parse_font_shorthand` returns them.
         Font => {
-            vec![CssPropertyType::Font]
+            vec![
+                CssPropertyType::FontStyle,
+                CssPropertyType::FontVariantCaps,
+                CssPropertyType::FontWeight,
+                CssPropertyType::FontStretch,
+                CssPropertyType::FontSize,
+                CssPropertyType::LineHeight,
+                CssPropertyType::FontFamily,
+                CssPropertyType::FontVariantNumeric,
+                CssPropertyType::FontVariantLigatures,
+                CssPropertyType::FontVariantEastAsian,
+                CssPropertyType::FontKerning,
+                CssPropertyType::FontOpticalSizing,
+                CssPropertyType::FontVariationSettings,
+                CssPropertyType::FontFeatureSettings,
+                CssPropertyType::FontSynthesisWeight,
+                CssPropertyType::FontSynthesisStyle,
+                CssPropertyType::FontSynthesisSmallCaps,
+                CssPropertyType::FontSynthesisPosition,
+            ]
         }
         Columns => {
             vec![CssPropertyType::ColumnWidth, CssPropertyType::ColumnCount]
@@ -4364,6 +4515,16 @@ pub fn parse_combined_css_property(
             vec![
                 CssPropertyType::FontVariantNumeric,
                 CssPropertyType::FontVariantCaps,
+                CssPropertyType::FontVariantLigatures,
+                CssPropertyType::FontVariantEastAsian,
+            ]
+        }
+        FontSynthesis => {
+            vec![
+                CssPropertyType::FontSynthesisWeight,
+                CssPropertyType::FontSynthesisStyle,
+                CssPropertyType::FontSynthesisSmallCaps,
+                CssPropertyType::FontSynthesisPosition,
             ]
         }
     };
@@ -4389,6 +4550,7 @@ pub fn parse_combined_css_property(
             | BorderLeft
             | BorderStyle
             | FontVariant
+            | FontSynthesis
     );
 
     match value {
@@ -4929,10 +5091,14 @@ pub fn parse_combined_css_property(
                 Err(CssParsingError::InvalidValue(InvalidValueErr(value)))
             }
         }
-        Font => {
-            let fam = parse_style_font_family(value)?;
-            Ok(vec![CssProperty::Font(fam.into())])
-        }
+        // CSS Fonts 4 s2.8: sets every font longhand; the ones the value does
+        // not name are reset to their initial value. A system font keyword
+        // (`caption`, `menu`, `system:ui`...) keeps the family-only
+        // `CssProperty::Font`.
+        Font => crate::props::basic::font_shorthand::parse_font_shorthand(value)
+            .map_err(CssParsingError::InvalidValue),
+        FontSynthesis => crate::props::basic::font_shorthand::parse_font_synthesis_shorthand(value)
+            .map_err(CssParsingError::InvalidValue),
         Columns => {
             let mut props = Vec::new();
             for part in value.split_whitespace() {
@@ -5107,133 +5273,15 @@ pub fn parse_combined_css_property(
         }
         // CSS Fonts 4 s6.11: `normal | none | [ <common-lig-values> || ... ||
         // <numeric-figure-values> || ... || <caps-values> || ... ]`. `none`
-        // is the ligatures' `none`; both reset every longhand. The numeric
-        // keywords go to `font-variant-numeric`, which checks its own groups,
-        // one caps keyword to `font-variant-caps`; the keywords of the
-        // longhands azul has not are taken and set nothing.
-        FontVariant => {
-            let reset = || {
-                vec![
-                    CssProperty::FontVariantNumeric(CssPropertyValue::Exact(
-                        StyleFontVariantNumeric::NORMAL,
-                    )),
-                    CssProperty::FontVariantCaps(CssPropertyValue::Exact(
-                        StyleFontVariantCaps::Normal,
-                    )),
-                ]
-            };
-            let trimmed = value.trim();
-            if trimmed.eq_ignore_ascii_case("normal") || trimmed.eq_ignore_ascii_case("none") {
-                return Ok(reset());
-            }
-            let invalid = || CssParsingError::InvalidValue(InvalidValueErr(value));
-            let mut numeric: Vec<&str> = Vec::new();
-            let mut caps = None;
-            let mut other: Vec<String> = Vec::new();
-            for word in words_outside_parentheses(trimmed) {
-                if let Ok(c) = parse_style_font_variant_caps(word) {
-                    if caps.is_some() || c == StyleFontVariantCaps::Normal
-                    {
-                        return Err(invalid());
-                    }
-                    caps = Some(c);
-                } else if parse_style_font_variant_numeric(word).is_ok()
-                    && !word.eq_ignore_ascii_case("normal")
-                {
-                    numeric.push(word);
-                } else if is_font_variant_keyword_without_longhand(word) {
-                    let lower = word.to_ascii_lowercase();
-                    if other.contains(&lower) {
-                        return Err(invalid());
-                    }
-                    other.push(lower);
-                } else {
-                    return Err(invalid());
-                }
-            }
-            if numeric.is_empty() && caps.is_none() && other.is_empty() {
-                return Err(invalid());
-            }
-            let numeric = if numeric.is_empty() {
-                StyleFontVariantNumeric::NORMAL
-            } else {
-                parse_style_font_variant_numeric(&numeric.join(" "))
-                    .map_err(|_| invalid())?
-            };
-            Ok(vec![
-                CssProperty::FontVariantNumeric(CssPropertyValue::Exact(numeric)),
-                CssProperty::FontVariantCaps(CssPropertyValue::Exact(caps.unwrap_or_default())),
-            ])
-        }
+        // is the ligatures' `none` (the other longhands are `normal`). The
+        // numeric keywords go to `font-variant-numeric`, the ligature ones to
+        // `font-variant-ligatures`, the East Asian ones to
+        // `font-variant-east-asian`, one caps keyword to `font-variant-caps`;
+        // the keywords of the longhands azul has not (position, alternates,
+        // emoji) are taken and set nothing.
+        FontVariant => crate::props::basic::font_shorthand::parse_font_variant_shorthand(value)
+            .map_err(CssParsingError::InvalidValue),
     }
-}
-
-/// Whether `word` is a keyword of a `font-variant-*` longhand azul has not -
-/// `font-variant-ligatures`, `-east-asian`, `-position`, `-alternates` - which
-/// the `font-variant` shorthand takes and which set nothing.
-fn is_font_variant_keyword_without_longhand(word: &str) -> bool {
-    const KEYWORDS: &[&str] = &[
-        "common-ligatures",
-        "no-common-ligatures",
-        "discretionary-ligatures",
-        "no-discretionary-ligatures",
-        "historical-ligatures",
-        "no-historical-ligatures",
-        "contextual",
-        "no-contextual",
-        "jis78",
-        "jis83",
-        "jis90",
-        "jis04",
-        "simplified",
-        "traditional",
-        "full-width",
-        "proportional-width",
-        "ruby",
-        "sub",
-        "super",
-        "historical-forms",
-    ];
-    const FUNCTIONS: &[&str] = &[
-        "stylistic(",
-        "styleset(",
-        "character-variant(",
-        "swash(",
-        "ornaments(",
-        "annotation(",
-    ];
-    KEYWORDS.iter().any(|k| word.eq_ignore_ascii_case(k))
-        || FUNCTIONS.iter().any(|f| {
-            word.len() > f.len()
-                && word.ends_with(')')
-                && word.get(..f.len()).is_some_and(|start| start.eq_ignore_ascii_case(f))
-        })
-}
-
-/// The words of `value` split at whitespace outside parentheses, so a
-/// function's arguments (`styleset(ss01, ss02)`) stay one word.
-fn words_outside_parentheses(value: &str) -> Vec<&str> {
-    let mut words = Vec::new();
-    let mut depth = 0usize;
-    let mut start: Option<usize> = None;
-    for (i, c) in value.char_indices() {
-        match c {
-            '(' => depth += 1,
-            ')' => depth = depth.saturating_sub(1),
-            _ => {}
-        }
-        if c.is_ascii_whitespace() && depth == 0 {
-            if let Some(s) = start.take() {
-                words.push(&value[s..i]);
-            }
-        } else if start.is_none() {
-            start = Some(i);
-        }
-    }
-    if let Some(s) = start {
-        words.push(&value[s..]);
-    }
-    words
 }
 
 // Re-add the From implementations for convenience
@@ -5427,6 +5475,12 @@ impl_from_css_prop!(StyleBackgroundClipVec, CssProperty::BackgroundClip);
 impl_from_css_prop!(StyleFontVariantNumeric, CssProperty::FontVariantNumeric);
 impl_from_css_prop!(StyleFontVariantCaps, CssProperty::FontVariantCaps);
 impl_from_css_prop!(StyleFontFeatureSettings, CssProperty::FontFeatureSettings);
+impl_from_css_prop!(StyleFontStretch, CssProperty::FontStretch);
+impl_from_css_prop!(StyleFontVariationSettings, CssProperty::FontVariationSettings);
+impl_from_css_prop!(StyleFontOpticalSizing, CssProperty::FontOpticalSizing);
+impl_from_css_prop!(StyleFontKerning, CssProperty::FontKerning);
+impl_from_css_prop!(StyleFontVariantLigatures, CssProperty::FontVariantLigatures);
+impl_from_css_prop!(StyleFontVariantEastAsian, CssProperty::FontVariantEastAsian);
 impl_from_css_prop!(CounterSet, CssProperty::CounterSet);
 impl_from_css_prop!(StyleQuotes, CssProperty::Quotes);
 impl_from_css_prop!(StyleBackgroundOriginVec, CssProperty::BackgroundOrigin);
@@ -5671,6 +5725,16 @@ impl CssProperty {
             Self::FontVariantNumeric(v) => v.get_css_value_fmt(),
             Self::FontVariantCaps(v) => v.get_css_value_fmt(),
             Self::FontFeatureSettings(v) => v.get_css_value_fmt(),
+            Self::FontStretch(v) => v.get_css_value_fmt(),
+            Self::FontVariationSettings(v) => v.get_css_value_fmt(),
+            Self::FontOpticalSizing(v) => v.get_css_value_fmt(),
+            Self::FontKerning(v) => v.get_css_value_fmt(),
+            Self::FontVariantLigatures(v) => v.get_css_value_fmt(),
+            Self::FontVariantEastAsian(v) => v.get_css_value_fmt(),
+            Self::FontSynthesisWeight(v) => v.get_css_value_fmt(),
+            Self::FontSynthesisStyle(v) => v.get_css_value_fmt(),
+            Self::FontSynthesisSmallCaps(v) => v.get_css_value_fmt(),
+            Self::FontSynthesisPosition(v) => v.get_css_value_fmt(),
             Self::CounterSet(v) => v.get_css_value_fmt(),
             Self::Quotes(v) => v.get_css_value_fmt(),
             Self::BackgroundOrigin(v) => v.get_css_value_fmt(),
@@ -6253,6 +6317,16 @@ impl CssProperty {
             Self::FontVariantNumeric(v) => v.css_wide_keyword(),
             Self::FontVariantCaps(v) => v.css_wide_keyword(),
             Self::FontFeatureSettings(v) => v.css_wide_keyword(),
+            Self::FontStretch(v) => v.css_wide_keyword(),
+            Self::FontVariationSettings(v) => v.css_wide_keyword(),
+            Self::FontOpticalSizing(v) => v.css_wide_keyword(),
+            Self::FontKerning(v) => v.css_wide_keyword(),
+            Self::FontVariantLigatures(v) => v.css_wide_keyword(),
+            Self::FontVariantEastAsian(v) => v.css_wide_keyword(),
+            Self::FontSynthesisWeight(v) => v.css_wide_keyword(),
+            Self::FontSynthesisStyle(v) => v.css_wide_keyword(),
+            Self::FontSynthesisSmallCaps(v) => v.css_wide_keyword(),
+            Self::FontSynthesisPosition(v) => v.css_wide_keyword(),
             Self::CounterSet(v) => v.css_wide_keyword(),
             Self::Quotes(v) => v.css_wide_keyword(),
             Self::BackgroundOrigin(v) => v.css_wide_keyword(),
@@ -6468,6 +6542,16 @@ impl CssProperty {
             Self::FontVariantNumeric(_) => CssPropertyType::FontVariantNumeric,
             Self::FontVariantCaps(_) => CssPropertyType::FontVariantCaps,
             Self::FontFeatureSettings(_) => CssPropertyType::FontFeatureSettings,
+            Self::FontStretch(_) => CssPropertyType::FontStretch,
+            Self::FontVariationSettings(_) => CssPropertyType::FontVariationSettings,
+            Self::FontOpticalSizing(_) => CssPropertyType::FontOpticalSizing,
+            Self::FontKerning(_) => CssPropertyType::FontKerning,
+            Self::FontVariantLigatures(_) => CssPropertyType::FontVariantLigatures,
+            Self::FontVariantEastAsian(_) => CssPropertyType::FontVariantEastAsian,
+            Self::FontSynthesisWeight(_) => CssPropertyType::FontSynthesisWeight,
+            Self::FontSynthesisStyle(_) => CssPropertyType::FontSynthesisStyle,
+            Self::FontSynthesisSmallCaps(_) => CssPropertyType::FontSynthesisSmallCaps,
+            Self::FontSynthesisPosition(_) => CssPropertyType::FontSynthesisPosition,
             Self::CounterSet(_) => CssPropertyType::CounterSet,
             Self::Quotes(_) => CssPropertyType::Quotes,
             Self::BackgroundOrigin(_) => CssPropertyType::BackgroundOrigin,
@@ -7018,6 +7102,46 @@ impl CssProperty {
     #[must_use]
     pub const fn font_feature_settings(input: StyleFontFeatureSettings) -> Self {
         Self::FontFeatureSettings(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn font_stretch(input: StyleFontStretch) -> Self {
+        Self::FontStretch(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn font_variation_settings(input: StyleFontVariationSettings) -> Self {
+        Self::FontVariationSettings(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn font_optical_sizing(input: StyleFontOpticalSizing) -> Self {
+        Self::FontOpticalSizing(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn font_kerning(input: StyleFontKerning) -> Self {
+        Self::FontKerning(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn font_variant_ligatures(input: StyleFontVariantLigatures) -> Self {
+        Self::FontVariantLigatures(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn font_variant_east_asian(input: StyleFontVariantEastAsian) -> Self {
+        Self::FontVariantEastAsian(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn font_synthesis_weight(input: StyleFontSynthesis) -> Self {
+        Self::FontSynthesisWeight(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn font_synthesis_style(input: StyleFontSynthesis) -> Self {
+        Self::FontSynthesisStyle(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn font_synthesis_small_caps(input: StyleFontSynthesis) -> Self {
+        Self::FontSynthesisSmallCaps(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn font_synthesis_position(input: StyleFontSynthesis) -> Self {
+        Self::FontSynthesisPosition(CssPropertyValue::Exact(input))
     }
     #[must_use]
     pub const fn table_layout(input: LayoutTableLayout) -> Self {
@@ -8375,6 +8499,76 @@ impl CssProperty {
         }
     }
     #[must_use]
+    pub const fn as_font_stretch(&self) -> Option<&StyleFontStretchValue> {
+        match self {
+            Self::FontStretch(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
+    pub const fn as_font_variation_settings(&self) -> Option<&StyleFontVariationSettingsValue> {
+        match self {
+            Self::FontVariationSettings(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
+    pub const fn as_font_optical_sizing(&self) -> Option<&StyleFontOpticalSizingValue> {
+        match self {
+            Self::FontOpticalSizing(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
+    pub const fn as_font_kerning(&self) -> Option<&StyleFontKerningValue> {
+        match self {
+            Self::FontKerning(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
+    pub const fn as_font_variant_ligatures(&self) -> Option<&StyleFontVariantLigaturesValue> {
+        match self {
+            Self::FontVariantLigatures(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
+    pub const fn as_font_variant_east_asian(&self) -> Option<&StyleFontVariantEastAsianValue> {
+        match self {
+            Self::FontVariantEastAsian(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
+    pub const fn as_font_synthesis_weight(&self) -> Option<&StyleFontSynthesisValue> {
+        match self {
+            Self::FontSynthesisWeight(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
+    pub const fn as_font_synthesis_style(&self) -> Option<&StyleFontSynthesisValue> {
+        match self {
+            Self::FontSynthesisStyle(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
+    pub const fn as_font_synthesis_small_caps(&self) -> Option<&StyleFontSynthesisValue> {
+        match self {
+            Self::FontSynthesisSmallCaps(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
+    pub const fn as_font_synthesis_position(&self) -> Option<&StyleFontSynthesisValue> {
+        match self {
+            Self::FontSynthesisPosition(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
     pub const fn as_table_layout(&self) -> Option<&LayoutTableLayoutValue> {
         match self {
             Self::TableLayout(f) => Some(f),
@@ -8509,7 +8703,7 @@ impl CssProperty {
             TransformOrigin, UnicodeBidi, UserSelect, VerticalAlign, Visibility, WhiteSpace,
             Widows, Width, WordBreak, WordSpacing, WrapFlow, WrapThrough, WritingMode, ZIndex,
             Zoom, BackgroundClip, FontVariantNumeric, FontVariantCaps, FontFeatureSettings, CounterSet,
-            Quotes, BackgroundOrigin, BackgroundColor,
+            Quotes, BackgroundOrigin, BackgroundColor, FontStretch, FontVariationSettings, FontOpticalSizing, FontKerning, FontVariantLigatures, FontVariantEastAsian, FontSynthesisWeight, FontSynthesisStyle, FontSynthesisSmallCaps, FontSynthesisPosition,
         };
         match self {
             CaretColor(c) => c.is_initial(),
@@ -8703,6 +8897,16 @@ impl CssProperty {
             FontVariantNumeric(c) => c.is_initial(),
             FontVariantCaps(c) => c.is_initial(),
             FontFeatureSettings(c) => c.is_initial(),
+            FontStretch(c) => c.is_initial(),
+            FontVariationSettings(c) => c.is_initial(),
+            FontOpticalSizing(c) => c.is_initial(),
+            FontKerning(c) => c.is_initial(),
+            FontVariantLigatures(c) => c.is_initial(),
+            FontVariantEastAsian(c) => c.is_initial(),
+            FontSynthesisWeight(c) => c.is_initial(),
+            FontSynthesisStyle(c) => c.is_initial(),
+            FontSynthesisSmallCaps(c) => c.is_initial(),
+            FontSynthesisPosition(c) => c.is_initial(),
             CounterSet(c) => c.is_initial(),
             Quotes(c) => c.is_initial(),
             BackgroundOrigin(c) => c.is_initial(),
@@ -9182,6 +9386,46 @@ impl CssProperty {
     #[must_use]
     pub const fn const_font_feature_settings(input: StyleFontFeatureSettings) -> Self {
         Self::FontFeatureSettings(StyleFontFeatureSettingsValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_font_stretch(input: StyleFontStretch) -> Self {
+        Self::FontStretch(StyleFontStretchValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_font_variation_settings(input: StyleFontVariationSettings) -> Self {
+        Self::FontVariationSettings(StyleFontVariationSettingsValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_font_optical_sizing(input: StyleFontOpticalSizing) -> Self {
+        Self::FontOpticalSizing(StyleFontOpticalSizingValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_font_kerning(input: StyleFontKerning) -> Self {
+        Self::FontKerning(StyleFontKerningValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_font_variant_ligatures(input: StyleFontVariantLigatures) -> Self {
+        Self::FontVariantLigatures(StyleFontVariantLigaturesValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_font_variant_east_asian(input: StyleFontVariantEastAsian) -> Self {
+        Self::FontVariantEastAsian(StyleFontVariantEastAsianValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_font_synthesis_weight(input: StyleFontSynthesis) -> Self {
+        Self::FontSynthesisWeight(StyleFontSynthesisValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_font_synthesis_style(input: StyleFontSynthesis) -> Self {
+        Self::FontSynthesisStyle(StyleFontSynthesisValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_font_synthesis_small_caps(input: StyleFontSynthesis) -> Self {
+        Self::FontSynthesisSmallCaps(StyleFontSynthesisValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_font_synthesis_position(input: StyleFontSynthesis) -> Self {
+        Self::FontSynthesisPosition(StyleFontSynthesisValue::Exact(input))
     }
     #[must_use]
     pub const fn const_table_layout(input: LayoutTableLayout) -> Self {
@@ -9986,6 +10230,46 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::FontFeatureSettings(p) => format!(
             "CssProperty::FontFeatureSettings({})",
             print_css_property_value(p, tabs, "StyleFontFeatureSettings")
+        ),
+        CssProperty::FontStretch(p) => format!(
+            "CssProperty::FontStretch({})",
+            print_css_property_value(p, tabs, "StyleFontStretch")
+        ),
+        CssProperty::FontVariationSettings(p) => format!(
+            "CssProperty::FontVariationSettings({})",
+            print_css_property_value(p, tabs, "StyleFontVariationSettings")
+        ),
+        CssProperty::FontOpticalSizing(p) => format!(
+            "CssProperty::FontOpticalSizing({})",
+            print_css_property_value(p, tabs, "StyleFontOpticalSizing")
+        ),
+        CssProperty::FontKerning(p) => format!(
+            "CssProperty::FontKerning({})",
+            print_css_property_value(p, tabs, "StyleFontKerning")
+        ),
+        CssProperty::FontVariantLigatures(p) => format!(
+            "CssProperty::FontVariantLigatures({})",
+            print_css_property_value(p, tabs, "StyleFontVariantLigatures")
+        ),
+        CssProperty::FontVariantEastAsian(p) => format!(
+            "CssProperty::FontVariantEastAsian({})",
+            print_css_property_value(p, tabs, "StyleFontVariantEastAsian")
+        ),
+        CssProperty::FontSynthesisWeight(p) => format!(
+            "CssProperty::FontSynthesisWeight({})",
+            print_css_property_value(p, tabs, "StyleFontSynthesis")
+        ),
+        CssProperty::FontSynthesisStyle(p) => format!(
+            "CssProperty::FontSynthesisStyle({})",
+            print_css_property_value(p, tabs, "StyleFontSynthesis")
+        ),
+        CssProperty::FontSynthesisSmallCaps(p) => format!(
+            "CssProperty::FontSynthesisSmallCaps({})",
+            print_css_property_value(p, tabs, "StyleFontSynthesis")
+        ),
+        CssProperty::FontSynthesisPosition(p) => format!(
+            "CssProperty::FontSynthesisPosition({})",
+            print_css_property_value(p, tabs, "StyleFontSynthesis")
         ),
         CssProperty::CounterSet(p) => format!(
             "CssProperty::CounterSet({})",
@@ -11960,6 +12244,8 @@ mod font_variant_shorthand_tests {
             Ok(vec![
                 "font-variant-numeric: tabular-nums".to_string(),
                 "font-variant-caps: small-caps".to_string(),
+                "font-variant-ligatures: normal".to_string(),
+                "font-variant-east-asian: normal".to_string(),
             ])
         );
         assert_eq!(
@@ -11967,6 +12253,8 @@ mod font_variant_shorthand_tests {
             Ok(vec![
                 "font-variant-numeric: normal".to_string(),
                 "font-variant-caps: small-caps".to_string(),
+                "font-variant-ligatures: normal".to_string(),
+                "font-variant-east-asian: normal".to_string(),
             ]),
             "a longhand left out is reset, keywords ignore case"
         );
@@ -11975,28 +12263,42 @@ mod font_variant_shorthand_tests {
             Ok(vec![
                 "font-variant-numeric: oldstyle-nums slashed-zero".to_string(),
                 "font-variant-caps: normal".to_string(),
+                "font-variant-ligatures: normal".to_string(),
+                "font-variant-east-asian: normal".to_string(),
             ])
         );
-        for reset in ["normal", "none"] {
-            assert_eq!(
-                expand(reset),
-                Ok(vec![
-                    "font-variant-numeric: normal".to_string(),
-                    "font-variant-caps: normal".to_string(),
-                ]),
-                "`{reset}`"
-            );
-        }
+        assert_eq!(
+            expand("normal"),
+            Ok(vec![
+                "font-variant-numeric: normal".to_string(),
+                "font-variant-caps: normal".to_string(),
+                "font-variant-ligatures: normal".to_string(),
+                "font-variant-east-asian: normal".to_string(),
+            ])
+        );
+        // `none` is the ligatures' `none`: the other longhands are `normal`.
+        assert_eq!(
+            expand("none"),
+            Ok(vec![
+                "font-variant-numeric: normal".to_string(),
+                "font-variant-caps: normal".to_string(),
+                "font-variant-ligatures: none".to_string(),
+                "font-variant-east-asian: normal".to_string(),
+            ])
+        );
     }
 
     #[test]
-    fn font_variant_takes_the_keywords_of_the_longhands_azul_has_not() {
+    fn font_variant_sets_ligatures_and_east_asian_and_takes_the_keywords_azul_has_not() {
         assert_eq!(
             expand("no-common-ligatures all-small-caps jis78 super styleset(ss01, ss02)"),
             Ok(vec![
                 "font-variant-numeric: normal".to_string(),
                 "font-variant-caps: all-small-caps".to_string(),
-            ])
+                "font-variant-ligatures: no-common-ligatures".to_string(),
+                "font-variant-east-asian: jis78".to_string(),
+            ]),
+            "`super` and `styleset()` belong to longhands azul has not: taken, set nothing"
         );
     }
 
@@ -12008,6 +12310,8 @@ mod font_variant_shorthand_tests {
             "normal small-caps",
             "none tabular-nums",
             "small-caps small-caps",
+            "common-ligatures no-common-ligatures",
+            "jis78 jis83",
             "bold",
             "",
         ] {
@@ -12140,3 +12444,7 @@ mod font_variant_caps_tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "property_font_test.rs"]
+mod property_font_test;

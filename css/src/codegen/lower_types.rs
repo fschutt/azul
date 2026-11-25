@@ -226,6 +226,16 @@ pub(crate) fn lower_css_property(p: &crate::props::property::CssProperty) -> Exp
         P::Quotes(v) => prop_value(v, "Quotes", "StyleQuotesValue", "StyleQuotes", Some("quotes")),
         P::BackgroundOrigin(v) => prop_value(v, "BackgroundOrigin", "StyleBackgroundOriginVecValue", "StyleBackgroundOriginVec", Some("background_origin")),
         P::BackgroundColor(v) => prop_value(v, "BackgroundColor", "StyleBackgroundContentValue", "StyleBackgroundContent", Some("background_color")),
+        P::FontStretch(v) => prop_value(v, "FontStretch", "StyleFontStretchValue", "StyleFontStretch", None),
+        P::FontVariationSettings(v) => prop_value(v, "FontVariationSettings", "StyleFontVariationSettingsValue", "StyleFontVariationSettings", None),
+        P::FontOpticalSizing(v) => prop_value(v, "FontOpticalSizing", "StyleFontOpticalSizingValue", "StyleFontOpticalSizing", None),
+        P::FontKerning(v) => prop_value(v, "FontKerning", "StyleFontKerningValue", "StyleFontKerning", None),
+        P::FontVariantLigatures(v) => prop_value(v, "FontVariantLigatures", "StyleFontVariantLigaturesValue", "StyleFontVariantLigatures", None),
+        P::FontVariantEastAsian(v) => prop_value(v, "FontVariantEastAsian", "StyleFontVariantEastAsianValue", "StyleFontVariantEastAsian", None),
+        P::FontSynthesisWeight(v) => prop_value(v, "FontSynthesisWeight", "StyleFontSynthesisValue", "StyleFontSynthesis", None),
+        P::FontSynthesisStyle(v) => prop_value(v, "FontSynthesisStyle", "StyleFontSynthesisValue", "StyleFontSynthesis", None),
+        P::FontSynthesisSmallCaps(v) => prop_value(v, "FontSynthesisSmallCaps", "StyleFontSynthesisValue", "StyleFontSynthesis", None),
+        P::FontSynthesisPosition(v) => prop_value(v, "FontSynthesisPosition", "StyleFontSynthesisValue", "StyleFontSynthesis", None),
     }
 }
 
@@ -3035,15 +3045,30 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("StyleFontFamilyVecValue", "css"),
     ("StyleFontFeatureSettings", "css"),
     ("StyleFontFeatureSettingsValue", "css"),
+    ("StyleFontKerning", "css"),
+    ("StyleFontKerningValue", "css"),
+    ("StyleFontLigatureChoice", "css"),
+    ("StyleFontOpticalSizing", "css"),
+    ("StyleFontOpticalSizingValue", "css"),
     ("StyleFontSize", "css"),
     ("StyleFontSizeValue", "css"),
+    ("StyleFontStretch", "css"),
+    ("StyleFontStretchValue", "css"),
     ("StyleFontStyle", "css"),
     ("StyleFontStyleValue", "css"),
+    ("StyleFontSynthesis", "css"),
+    ("StyleFontSynthesisValue", "css"),
     ("StyleFontValue", "css"),
     ("StyleFontVariantCaps", "css"),
     ("StyleFontVariantCapsValue", "css"),
+    ("StyleFontVariantEastAsian", "css"),
+    ("StyleFontVariantEastAsianValue", "css"),
+    ("StyleFontVariantLigatures", "css"),
+    ("StyleFontVariantLigaturesValue", "css"),
     ("StyleFontVariantNumeric", "css"),
     ("StyleFontVariantNumericValue", "css"),
+    ("StyleFontVariationSettings", "css"),
+    ("StyleFontVariationSettingsValue", "css"),
     ("StyleFontWeight", "css"),
     ("StyleFontWeightValue", "css"),
     ("StyleHangingPunctuation", "css"),
@@ -3854,9 +3879,11 @@ pub(crate) static C_LIKE_ENUMS: &[&str] = &[
     "StyleDirection",
     "StyleDominantBaseline",
     "StyleEmptyCells",
-    "StyleFontStyle",
+    "StyleFontKerning",
+    "StyleFontLigatureChoice",
+    "StyleFontOpticalSizing",
+    "StyleFontSynthesis",
     "StyleFontVariantCaps",
-    "StyleFontWeight",
     "StyleHyphens",
     "StyleInitialLetterAlign",
     "StyleInitialLetterWrap",
@@ -4099,6 +4126,16 @@ pub(crate) static CSS_PROPERTY_ALIASES: &[(&str, &str, &str)] = &[
     ("Quotes", "StyleQuotesValue", "quotes"),
     ("BackgroundOrigin", "StyleBackgroundOriginVecValue", "background_origin"),
     ("BackgroundColor", "StyleBackgroundContentValue", "background_color"),
+    ("FontStretch", "StyleFontStretchValue", ""),
+    ("FontVariationSettings", "StyleFontVariationSettingsValue", ""),
+    ("FontOpticalSizing", "StyleFontOpticalSizingValue", ""),
+    ("FontKerning", "StyleFontKerningValue", ""),
+    ("FontVariantLigatures", "StyleFontVariantLigaturesValue", ""),
+    ("FontVariantEastAsian", "StyleFontVariantEastAsianValue", ""),
+    ("FontSynthesisWeight", "StyleFontSynthesisValue", ""),
+    ("FontSynthesisStyle", "StyleFontSynthesisValue", ""),
+    ("FontSynthesisSmallCaps", "StyleFontSynthesisValue", ""),
+    ("FontSynthesisPosition", "StyleFontSynthesisValue", ""),
 ];
 
 /// The `CssPropertyValue` alias of a `CssProperty` variant (`Width` ->
@@ -4325,6 +4362,16 @@ pub(crate) static CSS_PROPERTY_VARIANTS: &[&str] = &[
     "Quotes",
     "BackgroundOrigin",
     "BackgroundColor",
+    "FontStretch",
+    "FontVariationSettings",
+    "FontOpticalSizing",
+    "FontKerning",
+    "FontVariantLigatures",
+    "FontVariantEastAsian",
+    "FontSynthesisWeight",
+    "FontSynthesisStyle",
+    "FontSynthesisSmallCaps",
+    "FontSynthesisPosition",
 ];
 
 /// The C tag of a variant of a tagged union the printers build by hand:
@@ -7267,12 +7314,11 @@ impl Lower for crate::props::basic::font::StyleFontSize {
 
 impl Lower for crate::props::basic::font::StyleFontStyle {
     fn lower(&self) -> Expr {
-        let variant = match self {
-            Self::Normal => "Normal",
-            Self::Italic => "Italic",
-            Self::Oblique => "Oblique",
-        };
-        Expr::unit("StyleFontStyle", EnumShape::CLike, variant)
+        match self {
+            Self::Normal => Expr::unit("StyleFontStyle", EnumShape::Tagged, "Normal"),
+            Self::Italic => Expr::unit("StyleFontStyle", EnumShape::Tagged, "Italic"),
+            Self::Oblique(v) => Expr::variant("StyleFontStyle", EnumShape::Tagged, "Oblique", vec![v.lower()]),
+        }
     }
 }
 
@@ -7311,20 +7357,108 @@ impl Lower for crate::props::basic::font::StyleFontVariantNumeric {
 
 impl Lower for crate::props::basic::font::StyleFontWeight {
     fn lower(&self) -> Expr {
+        match self {
+            Self::Number(v) => Expr::variant("StyleFontWeight", EnumShape::Tagged, "Number", vec![v.lower()]),
+            Self::Lighter => Expr::unit("StyleFontWeight", EnumShape::Tagged, "Lighter"),
+            Self::Bolder => Expr::unit("StyleFontWeight", EnumShape::Tagged, "Bolder"),
+        }
+    }
+}
+
+impl Lower for crate::props::basic::font_variation::StyleFontKerning {
+    fn lower(&self) -> Expr {
         let variant = match self {
-            Self::Lighter => "Lighter",
-            Self::W100 => "W100",
-            Self::W200 => "W200",
-            Self::W300 => "W300",
+            Self::Auto => "Auto",
             Self::Normal => "Normal",
-            Self::W500 => "W500",
-            Self::W600 => "W600",
-            Self::Bold => "Bold",
-            Self::W800 => "W800",
-            Self::W900 => "W900",
-            Self::Bolder => "Bolder",
+            Self::None => "None",
         };
-        Expr::unit("StyleFontWeight", EnumShape::CLike, variant)
+        Expr::unit("StyleFontKerning", EnumShape::CLike, variant)
+    }
+}
+
+impl Lower for crate::props::basic::font_variation::StyleFontLigatureChoice {
+    fn lower(&self) -> Expr {
+        let variant = match self {
+            Self::Unset => "Unset",
+            Self::On => "On",
+            Self::Off => "Off",
+        };
+        Expr::unit("StyleFontLigatureChoice", EnumShape::CLike, variant)
+    }
+}
+
+impl Lower for crate::props::basic::font_variation::StyleFontOpticalSizing {
+    fn lower(&self) -> Expr {
+        let variant = match self {
+            Self::Auto => "Auto",
+            Self::None => "None",
+        };
+        Expr::unit("StyleFontOpticalSizing", EnumShape::CLike, variant)
+    }
+}
+
+impl Lower for crate::props::basic::font_variation::StyleFontStretch {
+    fn lower(&self) -> Expr {
+        Expr::strukt(
+            "StyleFontStretch",
+            vec![
+                ("inner", self.inner.lower()),
+            ],
+        )
+    }
+}
+
+impl Lower for crate::props::basic::font_variation::StyleFontSynthesis {
+    fn lower(&self) -> Expr {
+        let variant = match self {
+            Self::Auto => "Auto",
+            Self::None => "None",
+        };
+        Expr::unit("StyleFontSynthesis", EnumShape::CLike, variant)
+    }
+}
+
+impl Lower for crate::props::basic::font_variation::StyleFontVariantEastAsian {
+    fn lower(&self) -> Expr {
+        Expr::strukt(
+            "StyleFontVariantEastAsian",
+            vec![
+                ("jis78", self.jis78.lower()),
+                ("jis83", self.jis83.lower()),
+                ("jis90", self.jis90.lower()),
+                ("jis04", self.jis04.lower()),
+                ("simplified", self.simplified.lower()),
+                ("traditional", self.traditional.lower()),
+                ("full_width", self.full_width.lower()),
+                ("proportional_width", self.proportional_width.lower()),
+                ("ruby", self.ruby.lower()),
+            ],
+        )
+    }
+}
+
+impl Lower for crate::props::basic::font_variation::StyleFontVariantLigatures {
+    fn lower(&self) -> Expr {
+        Expr::strukt(
+            "StyleFontVariantLigatures",
+            vec![
+                ("common", self.common.lower()),
+                ("discretionary", self.discretionary.lower()),
+                ("historical", self.historical.lower()),
+                ("contextual", self.contextual.lower()),
+            ],
+        )
+    }
+}
+
+impl Lower for crate::props::basic::font_variation::StyleFontVariationSettings {
+    fn lower(&self) -> Expr {
+        Expr::strukt(
+            "StyleFontVariationSettings",
+            vec![
+                ("inner", self.inner.lower()),
+            ],
+        )
     }
 }
 

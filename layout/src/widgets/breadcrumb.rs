@@ -217,7 +217,7 @@ pub(crate) static BREADCRUMB_ITEM_STYLE: &[CssPropertyWithConditions] = &[
 
 /// The flat current (last) crumb's skin: muted dark, bold.
 pub(crate) static BREADCRUMB_CURRENT_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::font_weight(StyleFontWeight::Bold)),
+    CssPropertyWithConditions::simple(CssProperty::font_weight(StyleFontWeight::BOLD)),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: CURRENT_COLOR,
     })),
@@ -1312,7 +1312,7 @@ mod autotest_generated {
         }
         assert!(has_property(
             BREADCRUMB_CURRENT_STYLE,
-            &CssProperty::font_weight(StyleFontWeight::Bold)
+            &CssProperty::font_weight(StyleFontWeight::BOLD)
         ));
         assert_eq!(SEPARATOR_GLYPH.as_str(), "/");
     }
