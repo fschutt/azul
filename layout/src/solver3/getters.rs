@@ -5288,7 +5288,7 @@ pub fn get_style_properties_for_state_with(
         font_variant_caps,
         font_features,
         // These still use defaults - could be extended in future:
-        // writing_mode, text_orientation,
+        // font_variations, writing_mode, text_orientation,
         // text_combine_upright, font_variant_ligatures / _east_asian
         ..Default::default()
     }
