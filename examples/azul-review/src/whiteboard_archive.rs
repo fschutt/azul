@@ -105,9 +105,12 @@ impl ImageCodec for AzulCodec {
     }
 }
 
-/// How the entries are compressed: not at all. The pictures are PNGs already, and the manifest is a
-/// few hundred kilobytes: a save is built on the window's thread and must cost no more than a copy.
-const ZIP_LEVEL: u8 = 0;
+/// How hard the entries are deflated: lightly (level 1). The pictures are PNGs already and the manifest is a
+/// few hundred kilobytes, so a save built on the window's thread costs little more than a copy. (Level 0, "stored",
+/// would be the exact fit, but azul's zip writer cannot write it yet: `ZipWriteConfig::store()` hands the backend a
+/// compression level it refuses for a stored entry - the documented bug `autotest_bug_store_config_cannot_write_file_entries`
+/// in `layout/src/zip.rs`; `to_bytes_with_level(0)` answers with nothing.)
+const ZIP_LEVEL: u8 = 1;
 
 /// The entries as the bytes of one zip.
 ///

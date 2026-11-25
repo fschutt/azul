@@ -120,12 +120,13 @@ fn a_board_goes_into_a_zip_and_comes_back_the_same() {
 }
 
 #[test]
-fn the_pictures_are_stored_not_compressed_again_so_a_save_costs_a_copy() {
+fn a_save_adds_next_to_nothing_to_the_pictures_it_holds() {
     let data = board();
     let entries = store::write(&data, "w", 1);
     let content: usize = entries.iter().map(|e| e.bytes.len()).sum();
     let bytes = pack(&entries).expect("packed");
-    assert!(bytes.len() < content + 600, "{} bytes for {content} of content", bytes.len());
+    // The pictures are PNGs, which deflate cannot shrink: the archive is what it holds, the headers and a little more.
+    assert!(bytes.len() < content + content / 20 + 600, "{} bytes for {content} of content", bytes.len());
 }
 
 #[test]
