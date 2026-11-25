@@ -399,18 +399,6 @@ const W1: &[Allow] = &[];
 /// W2: layout window, cpu_backend, cpurender, managers, widgets, scroll_timer, callbacks.
 static W2: &[Allow] = &[
     Allow::exactly(
-        "layout/src/widgets/map.rs",
-        NAME,
-        1,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
-        "layout/src/widgets/map.rs",
-        READ,
-        1,
-        "window, render, widgets: wired by cluster W2",
-    ),
-    Allow::exactly(
         "layout/src/cpurender/raster.rs",
         READ,
         1,
