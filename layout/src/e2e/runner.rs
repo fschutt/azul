@@ -8290,6 +8290,11 @@ mod virtual_view_events_tests;
 #[path = "input_release_tests.rs"]
 mod input_release_tests;
 
+// ==== the window's own enter and leave reach a window listener, an element's do not ====
+#[cfg(test)]
+#[path = "window_leave_tests.rs"]
+mod window_leave_tests;
+
 // ==== a key reaches the hovered node's path, unless a field takes the typing ====
 #[cfg(test)]
 #[path = "hover_keys_tests.rs"]
