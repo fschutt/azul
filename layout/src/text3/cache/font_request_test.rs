@@ -176,7 +176,7 @@ fn the_settings_of_a_request_are_bounded() {
     assert!(kept.iter().all(|(known, _)| (0..64_u32).any(|n| tag(n) == *known)));
     assert!(request.setting(tag(0)).is_some());
     assert!(request.setting(tag(64)).is_none(), "the 65th distinct tag is dropped");
-    let last_of_tag_zero = (0..100_000_u32).filter(|n| n % 4096 == 0).last().expect("some") as f32;
+    let last_of_tag_zero = (0..100_000_u32).rev().find(|n| n % 4096 == 0).expect("some") as f32;
     assert_eq!(
         request.setting(tag(0)).map(FontCoord::to_f32),
         Some(FontCoord::from_f32(last_of_tag_zero).to_f32()),
