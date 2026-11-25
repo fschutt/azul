@@ -184,6 +184,8 @@ def body(args, logs, out):
             f.write("pub fn step_%d(x: u32) -> u32 { x + %d } // a line of code to review\n" % (i, i))
     dwell = ["--dwell-input", "any", "--dwell-ms", "400" if args.notes else "10000"]
     env = {"AZREVIEW_PROFILE": "1", "AZ_DEBUG_DAMAGE": "1"}
+    if args.az_profile:
+        env["AZ_PROFILE"] = args.az_profile
     if args.quiet:
         # the debug server turns the engine's debug log on: a line per pointer move and per layout pass
         env["AZ_LOG"] = "off"
@@ -198,8 +200,7 @@ def body(args, logs, out):
     try:
         app.until("AzReview's window", lambda: app.has_id("__azreview_sheet-strip"))
         app.frame(2)
-        app.click(text="lib.rs")
-        app.until("the files folded away", lambda: not app.has_id("__azreview_flyout"))
+        # the first file is open and the files are folded away at the start
         strip = app.rect("__azreview_sheet-strip")
         origin = (strip["x"], strip["y"])
         app.frame(5)
@@ -232,8 +233,26 @@ def body(args, logs, out):
         # one long stroke
         before = len(app.printed("AZREVIEW_PERF", r".*"))
         stamps, since = [], time.perf_counter()
+        gpu_before = (app.value("get_frame_report") or {}).get("gpu_total", {})
         stroke(app, origin, args.points, stamps=stamps)
+        gpu_after = (app.value("get_frame_report") or {}).get("gpu_total", {})
         result["stroke"] = us_to_ms(perf_line(app, before))
+        # The GPU path's own account of the frames the stroke cost (a real window drawn by WebRender): per frame
+        # built, the milliseconds of the renderer, of the frame build, of the transaction, of waiting for the
+        # render backend, and the draw calls and texture uploads.
+        builds = max(1, gpu_after.get("frame_builds", 0) - gpu_before.get("frame_builds", 0))
+        if gpu_after.get("frame_builds", 0) > gpu_before.get("frame_builds", 0):
+            def per_frame(key):
+                return round((gpu_after.get(key, 0) - gpu_before.get(key, 0)) / builds / 1000.0, 3)
+            result["gpu_per_frame"] = {
+                "frames": builds,
+                "render_ms": per_frame("render_us"),
+                "frame_build_ms": per_frame("frame_build_us"),
+                "transaction_ms": per_frame("transaction_us"),
+                "blocked_ms": per_frame("blocked_us"),
+                "draw_calls": round((gpu_after.get("draw_calls", 0) - gpu_before.get("draw_calls", 0)) / builds, 1),
+                "texture_uploads": round((gpu_after.get("texture_uploads", 0) - gpu_before.get("texture_uploads", 0)) / builds, 2),
+            }
         lines = list(tail.lines)
         frames = frames_of(lines, since)
         paint_ms = [(e - s) * 1000.0 for s, e in frames]
@@ -308,8 +327,14 @@ if __name__ == "__main__":
     parser.add_argument("--strokes", type=int, default=40)
     parser.add_argument("--quiet", action="store_true", help="AZ_LOG=off: no debug log lines (they cost time per move)")
     parser.add_argument("--notes", action="store_true", help="dictate five notes first (a libazul with the test hooks)")
+    parser.add_argument("--window", nargs="?", const="cpu", choices=("cpu", "gpu"),
+                        help="a REAL window (it takes the screen and the focus), drawn by the CPU renderer or the GPU, "
+                             "instead of headless: what the user sees, at the display's own scale")
+    parser.add_argument("--az-profile", help="AZ_PROFILE for the run (the engine's own spans, e.g. cpu)")
     parser.add_argument("--out")
     cli = parser.parse_args()
+    if cli.window:
+        e2e.BACKEND = cli.window
     logs = tempfile.mkdtemp(prefix="azreview-perf-")
     ok = False
     try:
