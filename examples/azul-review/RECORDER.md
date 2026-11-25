@@ -358,6 +358,18 @@ withdrawn, the stream died) is `Recorder::track_failed(Screen, reason)`: the seg
 `failed` with the reason, a `recorder.track` event and a notice say it, pictures that still come are not
 taken, and the camera, the voice and the events go on to the end of the session.
 
+**What azul gives the recorder for these** (the app's glue asks, the recorder takes plain values): the
+display by the system's own id (`ScreenCaptureSource::DisplayId`, built; a list of displays with their
+names, sizes and ids is `Monitor`), the cursor on or off and the app's own windows kept in the picture
+(`ScreenCaptureConfig.show_cursor`, `include_own_windows`, built: an app that records its own review from
+the display wants them in, a screen share does not), and `DesktopState::query()` (built, macOS first: the app in
+front, the pointer, the lock, the display's sleep; in a headless or E2E run it reads the script
+`AZ_DESKTOP_STATE_FILE` names, so a test needs no desktop). The lock and the machine's sleep also arrive as
+`SessionChange` events (`Locked`, `Unlocked`, `WillSleep`, `Woke`); `DesktopState.locked` says the state at
+the start. NOT built yet: the exclusion list of apps and windows in the capture (the setting is read and
+kept in `RecorderSettings.screen_exclude`, but nothing applies it to the capture until azul has it) and a
+native window id for the preview panel.
+
 **What the desktop is doing** is polled by the app a few times a second (`Recorder::desktop_sample`) and
 needs no permission of the system: the app in front (`app.front`, once for each change, so the export can cut
 chapters at app switches), the pointer on the desktop (`pointer.global`, at most `recorder-pointer-hz` times a
