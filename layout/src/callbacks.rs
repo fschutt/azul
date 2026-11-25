@@ -1818,7 +1818,7 @@ impl CallbackInfo {
         options: crate::updater::UpdateOptions,
     ) -> ThreadId {
         let (thread_id, thread) = crate::updater::spawn_update_check(
-            self.get_layout_window().app_env.clone(),
+            self.get_app_env(),
             data,
             callback,
             options,
@@ -5881,11 +5881,13 @@ impl CallbackInfo {
 
     /// The app's configuration snapshot the engine services read - its name and version, where
     /// the update manifest lives, the changelog URL, the support mailbox - as this window holds
-    /// it (`AppConfig`, handed to the window by the shell that built it). A worker thread
-    /// takes a copy when it is started.
+    /// it (`AppConfig`, handed to the window by the shell that built it), with what the
+    /// environment said when the app started (the platform folders, the forced rollout cohort:
+    /// `LayoutWindow::settings`). A worker thread takes a copy when it is started.
     #[must_use]
     pub fn get_app_env(&self) -> crate::appenv::AppEnv {
-        self.get_layout_window().app_env.clone()
+        let window = self.get_layout_window();
+        window.app_env.with_services(&window.settings.services)
     }
 
     /// What the dll can do about the machine's video drivers, if its shell handed this window

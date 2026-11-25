@@ -4237,7 +4237,7 @@ impl Runner {
             editing_state.as_ref(),
         );
         #[cfg(feature = "std")]
-        if std::env::var_os("AZ_ACT_DEBUG").is_some() {
+        if self.layout_window.settings.e2e.act_debug {
             std::eprintln!(
                 "[act] seat={} key={:?} focused={:?} action={:?}",
                 seat,
@@ -4813,6 +4813,17 @@ pub fn run_e2e_test(test: &E2eTest) -> E2eTestResult {
     run_e2e_test_with_dom(test, None)
 }
 
+/// [`run_e2e_test`] in a window that runs under `settings` (`LayoutWindow::set_settings`): the
+/// environment as a host read it once at the start - the traces of the runner (`AZ_ACT_DEBUG`,
+/// `AZ_ANIM_DEBUG`), the solver's and the text group's switches. [`run_e2e_test`] runs under the
+/// defaults, the behaviour of an empty environment.
+pub fn run_e2e_test_with_settings(
+    test: &E2eTest,
+    settings: &crate::settings::LayoutSettings,
+) -> E2eTestResult {
+    run_e2e_test_inner(test, None, None, None, settings).0
+}
+
 /// [`run_e2e_test`] on a document built in Rust: `initial_dom` is laid out
 /// BEFORE the first step runs, in place of the empty body a scenario
 /// without a `mount` op starts from. The steps then drive that tree through
@@ -4830,7 +4841,13 @@ fn run_e2e_test_keeping_runner(
     test: &E2eTest,
     initial_dom: Option<StyledDom>,
 ) -> (E2eTestResult, Runner) {
-    run_e2e_test_inner(test, initial_dom, None, None)
+    run_e2e_test_inner(
+        test,
+        initial_dom,
+        None,
+        None,
+        &crate::settings::LayoutSettings::default(),
+    )
 }
 
 /// [`run_e2e_test_keeping_runner`] in a window that belongs to the app behind `services`
@@ -4842,7 +4859,13 @@ fn run_e2e_test_in_app(
     test: &E2eTest,
     services: &crate::managers::app_services::AppServices,
 ) -> (E2eTestResult, Runner) {
-    run_e2e_test_inner(test, None, None, Some(services))
+    run_e2e_test_inner(
+        test,
+        None,
+        None,
+        Some(services),
+        &crate::settings::LayoutSettings::default(),
+    )
 }
 
 /// [`run_e2e_test`] as an application's window runs it: `app_data` is the
@@ -4854,7 +4877,14 @@ pub(crate) fn run_e2e_test_with_app(
     app_data: RefAny,
     config: &azul_core::resources::AppConfig,
 ) -> E2eTestResult {
-    run_e2e_test_inner(test, None, Some((app_data, config)), None).0
+    run_e2e_test_inner(
+        test,
+        None,
+        Some((app_data, config)),
+        None,
+        &crate::settings::LayoutSettings::default(),
+    )
+    .0
 }
 
 fn run_e2e_test_inner(
@@ -4862,9 +4892,15 @@ fn run_e2e_test_inner(
     initial_dom: Option<StyledDom>,
     app: Option<(RefAny, &azul_core::resources::AppConfig)>,
     services: Option<&crate::managers::app_services::AppServices>,
+    settings: &crate::settings::LayoutSettings,
 ) -> (E2eTestResult, Runner) {
-    let (results, runner) =
-        run_e2e_tests_in_one_window(core::slice::from_ref(test), initial_dom, app, services);
+    let (results, runner) = run_e2e_tests_in_one_window(
+        core::slice::from_ref(test),
+        initial_dom,
+        app,
+        services,
+        settings,
+    );
     let result = match results {
         Ok(results) => results
             .into_iter()
@@ -4891,6 +4927,7 @@ fn run_e2e_tests_in_one_window(
     initial_dom: Option<StyledDom>,
     app: Option<(RefAny, &azul_core::resources::AppConfig)>,
     services: Option<&crate::managers::app_services::AppServices>,
+    settings: &crate::settings::LayoutSettings,
 ) -> (Result<Vec<E2eTestResult>, String>, Runner) {
     let Some(test) = tests.first() else {
         return (
@@ -4898,7 +4935,7 @@ fn run_e2e_tests_in_one_window(
             Runner::new(800.0, 600.0, 96, false),
         );
     };
-    if std::env::var_os("AZ_ANIM_DEBUG").is_some() {
+    if settings.e2e.anim_debug {
         eprintln!("[scenario] {}", test.name);
     }
     // Start this scenario on a clean clock. The `tick_ms` / `wait` ops advance a
@@ -4933,6 +4970,12 @@ fn run_e2e_tests_in_one_window(
         None => (800.0, 600.0, 96, false),
     };
     let mut runner = Runner::new(w, h, dpi, animations);
+    runner.layout_window.set_settings(settings.clone());
+    // The window's own hit tester traces its queries when the settings say so (`AZ_TRACE_HIT`), as
+    // the shells' do.
+    runner
+        .cpu_hit_tester
+        .set_trace(runner.layout_window.settings.window.trace_hit);
     if let Some(services) = services {
         runner.layout_window.join_app(services);
     }

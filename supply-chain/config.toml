@@ -1138,6 +1138,10 @@ criteria = "safe-to-deploy"
 version = "0.2.4"
 criteria = "safe-to-deploy"
 
+[[exemptions.form_urlencoded]]
+version = "1.2.3"
+criteria = "safe-to-deploy"
+
 [[exemptions.four-cc]]
 version = "0.4.0"
 criteria = "safe-to-deploy"
@@ -2073,7 +2077,7 @@ version = "0.7.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.lopdf]]
-version = "0.44.0"
+version = "0.47.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.lru]]
@@ -4070,7 +4074,7 @@ version = "0.6.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.url]]
-version = "2.5.8"
+version = "2.5.9"
 criteria = "safe-to-deploy"
 
 [[exemptions.utf8-ranges]]

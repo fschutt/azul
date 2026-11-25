@@ -127,7 +127,13 @@ fn the_second_test_of_a_file_starts_with_nothing_held() {
         }
     ]))
     .expect("scenario json");
-    let (results, runner) = run_e2e_tests_in_one_window(&tests, Some(page()), None, None);
+    let (results, runner) = run_e2e_tests_in_one_window(
+        &tests,
+        Some(page()),
+        None,
+        None,
+        &crate::settings::LayoutSettings::default(),
+    );
     let results = results.expect("the run answers");
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].status, "fail", "premise: the first test fails: {:#?}", results[0].steps);

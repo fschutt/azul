@@ -106,6 +106,11 @@ mod queue {
     pub(super) struct RequestQueue {
         pub completed: Vec<CompletedRequest>,
         pub pending: Vec<PendingRequest>,
+        /// Which file picker answers the dialogs of this runtime: `AZUL_FILE_PICKER` as the run
+        /// was started with it (`native`, or the registration file of a provider). Set once at
+        /// the start ([`super::set_file_picker`]); `None` leaves it to the registration in the
+        /// config folder.
+        pub file_picker: Option<String>,
     }
 
     impl RefAnyHolder for RequestQueue {
@@ -124,6 +129,7 @@ mod queue {
     static REQUEST_QUEUE: std::sync::Mutex<RequestQueue> = std::sync::Mutex::new(RequestQueue {
         completed: Vec::new(),
         pending: Vec::new(),
+        file_picker: None,
     });
 
     #[cfg(not(test))]
@@ -151,6 +157,7 @@ mod queue {
                 core::cell::RefCell::new(RequestQueue {
                     completed: Vec::new(),
                     pending: Vec::new(),
+                    file_picker: None,
                 })
             };
     }
@@ -325,6 +332,23 @@ pub fn pending_count() -> usize {
     {
         0
     }
+}
+
+/// Tells the runtime which file picker answers the dialogs: `AZUL_FILE_PICKER` as the run was
+/// started with it (`native`, or the path of the registration file of a provider), `None` for the
+/// registration in the config folder. The `FileDialog` functions take no context, so the choice
+/// lives with the queue they all go through; the app start sets it once
+/// ([`crate::settings::ServiceSettings::install`]).
+#[cfg(feature = "std")]
+pub fn set_file_picker(choice: Option<&str>) {
+    queue::with_queue(|q| q.file_picker = choice.map(String::from));
+}
+
+/// The file picker [`set_file_picker`] named (`None`: nobody did).
+#[cfg(feature = "std")]
+#[must_use]
+pub fn file_picker() -> Option<String> {
+    queue::with_queue(|q| q.file_picker.clone())
 }
 
 /// Deterministic answers for request functions under end-to-end tests.
@@ -521,18 +545,30 @@ pub mod mock {
         http: Vec<(String, MockHttp)>,
         /// The URL patterns (as in `http`) a scripted run fetches for real,
         /// unmocked: `AZ_E2E_ALLOW_HTTP`, the local stack a script drives the
-        /// app against; `None` = read the variable on first use.
+        /// app against; `None` = parse the launch's text on first use.
         http_allowed: Option<Vec<String>>,
         audio_devices: Option<(Vec<AzString>, Vec<AzString>)>,
         video_decode_none: bool,
         saved_files: Vec<SavedFile>,
         unmocked: Vec<String>,
         /// Which devices get their synthetic stand-in, by
-        /// [`DeviceKind::index`]; `None` = read `AZ_SYNTHETIC_DEVICES` on
-        /// first use.
+        /// [`DeviceKind::index`]; `None` = parse the launch's
+        /// `AZ_SYNTHETIC_DEVICES` on first use.
         synthetic_devices: Option<[bool; 4]>,
         /// Which unavailable devices were already reported on stderr.
         devices_reported: [bool; 4],
+        /// What the run was started with ([`configure`]); read on first use, kept by [`reset`].
+        launch: Launch,
+    }
+
+    /// What the run was started with, as the text of the variables (`AZ_SYNTHETIC_DEVICES`,
+    /// `AZ_E2E_ALLOW_HTTP`), parsed where the store first needs it.
+    #[derive(Default)]
+    struct Launch {
+        /// The devices that get their synthetic stand-in: [`parse_synthetic_devices`]'s list.
+        synthetic_devices: Option<String>,
+        /// The URL patterns a scripted run fetches for real: [`parse_http_allowed`]'s list.
+        allow_http: Option<String>,
     }
 
     static STATE: Mutex<MockState> = Mutex::new(MockState {
@@ -552,6 +588,10 @@ pub mod mock {
         unmocked: Vec::new(),
         synthetic_devices: None,
         devices_reported: [false; 4],
+        launch: Launch {
+            synthetic_devices: None,
+            allow_http: None,
+        },
     });
 
     fn with<R>(f: impl FnOnce(&mut MockState) -> R) -> R {
@@ -582,13 +622,6 @@ pub mod mock {
         scripted_with(s, azul_core::run_mode::test_hooks())
     }
 
-    /// The devices `AZ_SYNTHETIC_DEVICES` gives a synthetic stand-in.
-    fn env_synthetic_devices() -> [bool; 4] {
-        std::env::var("AZ_SYNTHETIC_DEVICES")
-            .map(|list| parse_synthetic_devices(&list))
-            .unwrap_or([false; 4])
-    }
-
     /// `AZ_SYNTHETIC_DEVICES`: comma-separated [`DeviceKind::name`]s, or
     /// `all`. An unknown name is reported and ignored.
     fn parse_synthetic_devices(list: &str) -> [bool; 4] {
@@ -608,8 +641,28 @@ pub mod mock {
         synthetic
     }
 
+    /// The devices the launch's `AZ_SYNTHETIC_DEVICES` gives a synthetic stand-in.
     fn synthetic_in(s: &mut MockState) -> &mut [bool; 4] {
-        s.synthetic_devices.get_or_insert_with(env_synthetic_devices)
+        let launched = s.launch.synthetic_devices.as_deref();
+        s.synthetic_devices
+            .get_or_insert_with(|| launched.map_or([false; 4], parse_synthetic_devices))
+    }
+
+    /// Tells the store what the run was started with: `AZ_SYNTHETIC_DEVICES` (the devices an e2e
+    /// run opens as synthetic stand-ins) and `AZ_E2E_ALLOW_HTTP` (the URL patterns a scripted run
+    /// fetches for real), as the text of the variables. The app start calls it once
+    /// ([`crate::settings::E2eSettings::install`]), before any request; a store nobody
+    /// configured has no stand-in device and allows no URL. A second call replaces the first and
+    /// drops what was derived from it.
+    pub fn configure(synthetic_devices: Option<&str>, allow_http: Option<&str>) {
+        with(|s| {
+            s.launch = Launch {
+                synthetic_devices: synthetic_devices.map(String::from),
+                allow_http: allow_http.map(String::from),
+            };
+            s.synthetic_devices = None;
+            s.http_allowed = None;
+        });
     }
 
     /// Arm the store explicitly (an e2e host that is not driven by the
@@ -637,9 +690,11 @@ pub mod mock {
     pub fn reset() {
         with(|s| {
             let (armed, scripted) = (s.armed, s.scripted);
+            let launch = core::mem::take(&mut s.launch);
             *s = MockState::default();
             s.armed = armed;
             s.scripted = scripted;
+            s.launch = launch;
         });
     }
 
@@ -823,12 +878,9 @@ pub mod mock {
     }
 
     fn http_allowed_in(s: &mut MockState, url: &str) -> bool {
+        let launched = s.launch.allow_http.as_deref();
         s.http_allowed
-            .get_or_insert_with(|| {
-                std::env::var("AZ_E2E_ALLOW_HTTP")
-                    .map(|v| parse_http_allowed(&v))
-                    .unwrap_or_default()
-            })
+            .get_or_insert_with(|| launched.map(parse_http_allowed).unwrap_or_default())
             .iter()
             .any(|pattern| url_matches(pattern, url))
     }
@@ -1028,6 +1080,22 @@ pub mod mock {
             );
         }
 
+        /// What the run was started with names the allow-list: the text of `AZ_E2E_ALLOW_HTTP`
+        /// that `configure` gave the store, parsed where it is first needed; a run started with
+        /// nothing allows nothing.
+        #[test]
+        fn a_scripted_run_sends_the_requests_its_launch_allows_and_refuses_the_rest() {
+            let mut s = store(true);
+            s.launch.allow_http = Some(" http://127.0.0.1:* , ".to_owned());
+            assert_eq!(
+                take_http_in(&mut s, "http://127.0.0.1:8790/rooms"),
+                Answer::NotArmed
+            );
+            assert_eq!(take_http_in(&mut s, "http://localhost/x"), Answer::Unmocked);
+            let mut none = store(true);
+            assert_eq!(take_http_in(&mut none, "http://127.0.0.1:8790/"), Answer::Unmocked);
+        }
+
         /// A scripted run keeps its determinism: an unmocked request is
         /// refused and recorded, and a canned answer is used in both runs.
         #[test]
@@ -1049,8 +1117,8 @@ pub mod mock {
     #[cfg(test)]
     mod device_tests {
         use super::{
-            device_in, parse_synthetic_devices, record_unavailable_in, DeviceKind, MockDevice,
-            MockState,
+            device_in, parse_synthetic_devices, record_unavailable_in, DeviceKind, Launch,
+            MockDevice, MockState,
         };
 
         fn store(armed: bool, synthetic: [bool; 4]) -> MockState {
@@ -1069,6 +1137,51 @@ pub mod mock {
             let mut s = store(false, [true; 4]);
             for kind in DeviceKind::ALL {
                 assert_eq!(device_in(&mut s, kind), MockDevice::Real, "{kind:?}");
+            }
+        }
+
+        /// The devices the launch names (`AZ_SYNTHETIC_DEVICES`, as `configure` gave the store its
+        /// text) get their stand-in; a store nobody configured names none.
+        #[test]
+        fn the_devices_the_launch_names_get_their_stand_in() {
+            let mut s = MockState {
+                armed: Some(true),
+                scripted: Some(false),
+                launch: Launch {
+                    synthetic_devices: Some("camera, audio_sink".to_owned()),
+                    allow_http: None,
+                },
+                ..MockState::default()
+            };
+            assert_eq!(device_in(&mut s, DeviceKind::Camera), MockDevice::Synthetic);
+            assert_eq!(device_in(&mut s, DeviceKind::AudioSink), MockDevice::Synthetic);
+            assert_eq!(
+                device_in(&mut s, DeviceKind::Microphone),
+                MockDevice::Unavailable
+            );
+            let mut all = MockState {
+                armed: Some(true),
+                scripted: Some(false),
+                launch: Launch {
+                    synthetic_devices: Some("all".to_owned()),
+                    allow_http: None,
+                },
+                ..MockState::default()
+            };
+            for kind in DeviceKind::ALL {
+                assert_eq!(device_in(&mut all, kind), MockDevice::Synthetic, "{kind:?}");
+            }
+            let mut unconfigured = MockState {
+                armed: Some(true),
+                scripted: Some(false),
+                ..MockState::default()
+            };
+            for kind in DeviceKind::ALL {
+                assert_eq!(
+                    device_in(&mut unconfigured, kind),
+                    MockDevice::Unavailable,
+                    "{kind:?}"
+                );
             }
         }
 

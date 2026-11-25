@@ -444,6 +444,9 @@ pub enum DebugResponseData {
 #[derive(Debug, Clone)]
 pub struct PendingScreenshot {
     pixmap: Arc<Mutex<Option<crate::cpurender::AzulPixmap>>>,
+    /// The folder every screenshot is copied to (`AZ_E2E_SHOT_DIR`, the settings of the window
+    /// that took it): the thread that encodes the PNG has no window to ask.
+    shot_dir: Option<std::path::PathBuf>,
 }
 
 #[cfg(feature = "std")]
@@ -451,9 +454,13 @@ impl DebugResponseData {
     /// The response to a CPU screenshot, from the pixels the UI thread
     /// rendered - not encoded yet.
     #[must_use]
-    pub fn pending_screenshot(pixmap: crate::cpurender::AzulPixmap) -> Self {
+    pub fn pending_screenshot(
+        pixmap: crate::cpurender::AzulPixmap,
+        shot_dir: Option<std::path::PathBuf>,
+    ) -> Self {
         Self::PendingScreenshot(PendingScreenshot {
             pixmap: Arc::new(Mutex::new(Some(pixmap))),
+            shot_dir,
         })
     }
 
@@ -483,7 +490,7 @@ impl DebugResponseData {
                         azul_layout::callbacks::base64_encode(&png)
                     ),
                 };
-                write_shot_to_dir(&data.data);
+                write_shot_to_dir(pending.shot_dir.as_deref(), &data.data);
                 let data = ResponseData::Screenshot(data);
                 Self::Ok {
                     window_state: None,
@@ -507,7 +514,7 @@ mod pending_screenshot_tests {
     #[test]
     fn a_screenshot_png_is_encoded_by_the_thread_that_answers_the_request() {
         let pixmap = crate::cpurender::AzulPixmap::new(4, 2).expect("a 4x2 pixmap");
-        let response = DebugResponseData::pending_screenshot(pixmap);
+        let response = DebugResponseData::pending_screenshot(pixmap, None);
         assert!(
             response.is_pending(),
             "the UI thread hands the pixels over unencoded"
@@ -5750,9 +5757,17 @@ fn run_project_op(
             .layout_results
             .get(&ROOT_DOM_ID)
             .map(|lr| &lr.styled_dom);
+        let platform = &layout_window.settings.services.platform;
         let mut guard = scratch(callback_info);
         let s = &mut *guard;
-        super::project::handle(op, &mut s.project, &mut s.builder, &mut map_guard, live)
+        super::project::handle(
+            op,
+            &mut s.project,
+            &mut s.builder,
+            &mut map_guard,
+            live,
+            platform,
+        )
     };
     finish_builder_op(request, callback_info, result)
 }
@@ -6177,17 +6192,18 @@ pub fn log_active() -> bool {
     is_debug_enabled()
 }
 
-/// Initialize file-based recording from `AZ_RECORD` environment variable.
+/// Initialize file-based recording into `record`, the file `AZ_RECORD=<filepath>` named
+/// ([`azul_layout::settings::E2eSettings::record`], read from the environment once at the start).
 ///
-/// When `AZ_RECORD=<filepath>` is set, all log messages are written to the
-/// specified file in addition to the normal debug server log queue. This also
-/// enables debug logging so all `log_trace!` / `log_debug!` / etc. macros fire.
+/// With a file, all log messages are written to it in addition to the normal debug server log
+/// queue. This also enables debug logging so all `log_trace!` / `log_debug!` / etc. macros fire.
+/// `None` records nothing.
 ///
-/// Called once from `App::create()` before any other logging.
+/// Called once, from `E2eSettings::install`, before any other logging.
 #[cfg(feature = "std")]
-pub fn init_recording() {
-    if let Ok(path) = std::env::var("AZ_RECORD") {
-        if let Ok(file) = std::fs::File::create(&path) {
+pub fn init_recording(record: Option<&std::path::Path>) {
+    if let Some(path) = record {
+        if let Ok(file) = std::fs::File::create(path) {
             let _ = RECORD_FILE.set(Mutex::new(file));
             DEBUG_ENABLED.store(true, Ordering::SeqCst);
             SERVER_START_TIME.get_or_init(std::time::Instant::now);
@@ -6262,16 +6278,6 @@ pub fn queue_e2e_tests(tests: Vec<E2eTest>) -> std::sync::mpsc::Receiver<DebugRe
     rx
 }
 
-/// Get debug server port from environment
-///
-/// The `AZ_DEBUG` environment variable should be set to a port number (e.g., `AZ_DEBUG=8765`).
-/// Ports below 1024 require root/administrator privileges.
-/// Returns `None` if not set or not a valid port number.
-#[cfg(feature = "std")]
-pub fn get_debug_port() -> Option<u16> {
-    std::env::var("AZ_DEBUG").ok().and_then(|s| s.parse().ok())
-}
-
 /// Initialize the process-wide debug-server statics.
 ///
 /// Split out of `start_debug_server`, which now lives in the DLL
@@ -6308,7 +6314,7 @@ pub fn clear_debug_server() {
 }
 
 /// The port the debug server was started on (`0` if it was never started).
-/// Unlike [`get_debug_port`] this reads the ACTUAL bound port, not `AZ_DEBUG`.
+/// Unlike `E2eSettings::debug_port` (what `AZ_DEBUG` asked for) this is the ACTUAL bound port.
 #[cfg(feature = "std")]
 #[cfg(feature = "e2e-server")]
 #[must_use]
@@ -8724,19 +8730,18 @@ fn eval_assert_scroll(
     ))
 }
 
-/// Baseline-recording opt-in for `assert_screenshot` (`AZ_E2E_RECORD=1`).
+/// Baseline-recording opt-in for `assert_screenshot` (`AZ_E2E_RECORD=1`, read once at the start
+/// into the window's settings, `LayoutWindow::settings`).
 ///
 /// OFF by default, on purpose: a missing reference must be RED, never a silent
 /// "record whatever azul does today and call it expected".
 #[cfg(feature = "std")]
-fn e2e_record_mode() -> bool {
-    // `AZ_E2E_RECORD`, read once from the environment.
-    static RECORD: OnceLock<bool> = OnceLock::new();
-    *RECORD.get_or_init(|| {
-        std::env::var("AZ_E2E_RECORD")
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false)
-    })
+fn e2e_record_mode(callback_info: &azul_layout::callbacks::CallbackInfo) -> bool {
+    callback_info
+        .get_layout_window()
+        .settings
+        .e2e
+        .record_baselines
 }
 
 /// `assert_screenshot`: compare current CPU-rendered frame against a reference PNG.
@@ -8821,7 +8826,7 @@ fn eval_assert_screenshot(
                 // so it cannot silently gate green until a human has reviewed
                 // the PNG and re-run without the env var.
                 if e.kind() == std::io::ErrorKind::NotFound {
-                    if e2e_record_mode() {
+                    if e2e_record_mode(callback_info) {
                         if let Some(parent) = std::path::Path::new(reference_path).parent() {
                             let _ = std::fs::create_dir_all(parent);
                         }
@@ -14343,7 +14348,12 @@ fn eval_assert_damage_sound(
                 // AZ_E2E_DUMP=1: print the divergent pixels' actual channel
                 // values (incremental vs fresh) with 2px of context — the
                 // datum every soundness debugging session starts by needing.
-                if std::env::var_os("AZ_E2E_DUMP").is_some() {
+                if callback_info
+                    .get_layout_window()
+                    .settings
+                    .e2e
+                    .dump_divergent_pixels
+                {
                     let (fx, fy) = (p % w, p / w);
                     for y in fy.saturating_sub(1)..=(fy + 1).min(h - 1) {
                         for x in fx.saturating_sub(2)..=(fx + 2).min(w - 1) {
@@ -19024,7 +19034,15 @@ fn serve_debug_event(
                     let _ = take_logs();
                     let _ = request
                         .response_tx
-                        .send(DebugResponseData::pending_screenshot(pixmap));
+                        .send(DebugResponseData::pending_screenshot(
+                            pixmap,
+                            callback_info
+                                .get_layout_window()
+                                .settings
+                                .e2e
+                                .shot_dir
+                                .clone(),
+                        ));
                 }
                 Err(e) => {
                     send_err(request, e.as_str().to_string());
@@ -19095,7 +19113,15 @@ fn serve_debug_event(
                     // nobody can look at — which is precisely what a
                     // screenshot run wants from this op.
                     #[cfg(feature = "std")]
-                    write_shot_to_dir(&data.data);
+                    write_shot_to_dir(
+                        callback_info
+                            .get_layout_window()
+                            .settings
+                            .e2e
+                            .shot_dir
+                            .as_deref(),
+                        &data.data,
+                    );
                     send_ok(request, None, Some(ResponseData::Screenshot(data)));
                 }
                 Err(e) => {
@@ -25471,20 +25497,19 @@ mod non_interference_can_fail {
     }
 }
 
-/// Write one captured screenshot to `AZ_E2E_SHOT_DIR`, numbered in capture
-/// order (`shot-000.png`, `shot-001.png`, ...).
+/// Write one captured screenshot to `dir` (`AZ_E2E_SHOT_DIR`, read once at the start into the
+/// window's settings), numbered in capture order (`shot-000.png`, `shot-001.png`, ...).
 ///
 /// `data_uri` is the `data:image/png;base64,...` string the capture ops hand
-/// back. Unset (the default, and always in CI) this does nothing. The counter
+/// back. No folder (the default, and always in CI) this does nothing. The counter
 /// is shared by the CPU and the native capture so the numbering follows the
 /// order the scenario actually asked in, not one sequence per op.
 #[cfg(feature = "std")]
-fn write_shot_to_dir(data_uri: &str) {
-    let Some(dir) = std::env::var_os("AZ_E2E_SHOT_DIR") else {
+fn write_shot_to_dir(dir: Option<&std::path::Path>, data_uri: &str) {
+    let Some(dir) = dir else {
         return;
     };
-    let dir = std::path::PathBuf::from(dir);
-    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::create_dir_all(dir);
     // Numbers the files ONE process writes into the one `AZ_E2E_SHOT_DIR` (process configuration), in
     // the order the scenario asked for them, whichever window took them.
     static SHOT_N: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
