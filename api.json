@@ -103067,12 +103067,12 @@
                     "DataTableCell": {
                         "external": "azul_layout::widgets::data_table::DataTableCell",
                         "custom_impls": [
-                            "Default"
+                            "Default",
+                            "PartialEq"
                         ],
                         "derive": [
                             "Debug",
-                            "Clone",
-                            "PartialEq"
+                            "Clone"
                         ],
                         "struct_fields": [
                             {
