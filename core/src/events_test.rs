@@ -5445,3 +5445,66 @@ mod webview_event_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod window_leave_tests {
+    //! The window's own enter and leave: a window-level handler hears the pointer entering or leaving the OS
+    //! window, not an element losing the hover.
+
+    use super::*;
+    use crate::{
+        dom::{DomId, DomNodeId},
+        id::NodeId,
+        styled_dom::NodeHierarchyItemId,
+        task::{Instant, SystemTick},
+    };
+
+    fn at(dom: usize, node: usize) -> DomNodeId {
+        DomNodeId {
+            dom: DomId { inner: dom },
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node))),
+        }
+    }
+
+    fn event(kind: EventType, dom: usize, node: usize) -> SyntheticEvent {
+        SyntheticEvent::new(
+            kind,
+            EventSource::User,
+            at(dom, node),
+            Instant::Tick(SystemTick::new(0)),
+            EventData::None,
+        )
+    }
+
+    #[test]
+    fn a_window_mouse_leave_is_heard_only_when_the_pointer_left_the_window_not_when_it_left_an_element() {
+        // The pointer crossing a page loses the hover of one element after another: each has its MouseLeave. A
+        // window-level handler heard every one (a stroke's handler, a tooltip: one every few hundred
+        // milliseconds of movement) instead of the one when the pointer left the OS window, which is aimed at
+        // the root node.
+        let leave = |dom, node| event(EventType::MouseLeave, dom, node);
+        let enter = |dom, node| event(EventType::MouseEnter, dom, node);
+        assert!(
+            matches_window_filter(WindowEventFilter::MouseLeave, &leave(0, 0), EventPhase::Target),
+            "the pointer left the window: the root node"
+        );
+        assert!(
+            !matches_window_filter(WindowEventFilter::MouseLeave, &leave(0, 7), EventPhase::Target),
+            "an element of the page lost the hover"
+        );
+        assert!(
+            !matches_window_filter(WindowEventFilter::MouseLeave, &leave(1, 0), EventPhase::Target),
+            "the root of a virtual view's DOM is an element of the window, not the window"
+        );
+        assert!(matches_window_filter(WindowEventFilter::MouseEnter, &enter(0, 0), EventPhase::Target));
+        assert!(!matches_window_filter(WindowEventFilter::MouseEnter, &enter(0, 7), EventPhase::Target));
+        assert!(!matches_window_filter(WindowEventFilter::MouseEnter, &enter(1, 0), EventPhase::Target));
+    }
+
+    #[test]
+    fn an_element_still_hears_its_own_mouse_leave() {
+        // The per-node filter is untouched: the element that lost the hover hears it.
+        let leave = event(EventType::MouseLeave, 0, 7);
+        assert!(matches_hover_filter(HoverEventFilter::MouseLeave, &leave, EventPhase::Target));
+    }
+}
