@@ -1,0 +1,292 @@
+[package]
+name = "printpdf"
+version = "0.13.0"
+authors = [
+  "Felix Schütt <felix.schuett@maps4print.com>",
+  "Julien Schminke <julien.schminke@web.de",
+]
+repository = "https://github.com/fschutt/printpdf"
+homepage = "https://github.com/fschutt/printpdf"
+license = "MIT"
+readme = "README.md"
+description = "Rust library for reading and writing PDF files"
+keywords = ["pdf", "gui", "graphics", "wkhtmltopdf"]
+categories = ["gui"]
+# Only the web demo (web/), the docs (docs/) and the separate ppdf CLI crate (ppdf/) are
+# excluded (leading "/" = repo-root-anchored, gitignore syntax). Everything under
+# examples/assets and tests/ SHIPS ON PURPOSE despite being ~9 MB of the package:
+# lib tests and examples include_bytes!/include_str! those files, so excluding them
+# breaks `cargo test` of the published crate (distro packagers run it). The package is
+# at ~87% of crates.io's 10 MiB cap — publish-safety in ci.yaml watches the size; do
+# not add large assets.
+exclude = [
+  "/web",
+  "/docs",
+  "/ppdf",
+]
+autoexamples = false
+edition = "2021"
+# lopdf 0.44 is edition-2024 code with rust-version 1.88, so that is printpdf's true
+# floor too. Declaring it lets MSRV-aware resolvers see it instead of failing deep
+# inside the dependency tree on older toolchains.
+rust-version = "1.88"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# No lopdf `time` feature: it only gates lopdf's `Object <-> time` From-impls, which
+# printpdf never calls (dates are formatted/parsed in src/utils.rs and src/date.rs), and
+# lopdf 0.43/0.44's `time` feature only compiles against `time` >= 0.3.48, where
+# `FormatItem::StringLiteral` first exists (0.3.48 and 0.3.50 are yanked, so 0.3.49 is
+# the first usable one) — J-F-Liu/lopdf#518. Enabling it made printpdf 0.11.0/0.11.1
+# uninstallable for every consumer whose lockfile or MSRV-aware resolution picked
+# time <= 0.3.47 (#279).
+lopdf = { version = "0.47.0", default-features = false }
+# Floor 0.3.36: `time` 0.3.25–0.3.35 no longer passes type inference on rustc >= 1.80
+# (E0282 on `Box<_>`), so the old 0.3.25 floor admitted resolutions that cannot compile —
+# the same breakage class as #279, just via our own requirement instead of lopdf's.
+# Only `std`: printpdf hand-writes serde for its own DateTime (src/date.rs) and never
+# serializes `time` types, so the old serde/serde-human-readable features only cost
+# consumers build time.
+time = { version = "0.3.36", default-features = false, features = ["std"] }
+allsorts = { package = "allsorts-azul", version = "0.17.4", default-features = false, features = [
+  "flate2_rust",
+] }
+# Floor 0.25.2: src/image.rs uses `image::ImageReader`, a re-export that first appears
+# in 0.25.2 (0.25.0/0.25.1 only have `image::io::Reader`), so an older pin in a
+# consumer's lockfile would fail to compile printpdf — the #279 breakage class again.
+image = { version = "0.25.2", default-features = false, optional = true, features = [
+  "jpeg",
+] }
+svg2pdf = { version = "0.13.0", optional = true }
+base64 = "0.23.1"
+# Glyph names to characters (the Adobe Glyph List), for the encodings of simple fonts. Allsorts depends on it already.
+glyph-names = "0.2"
+# The `macintosh` (Mac OS Roman) table, for the encodings of simple fonts. Allsorts depends on it already.
+encoding_rs = "0.8"
+# 0.2, not 0.1: lopdf 0.44 pulls weezl ^0.2, so a 0.1 pin here linked a second copy of
+# the LZW coder into every consumer graph. The API printpdf uses is identical in 0.2.
+weezl = "0.2"
+serde = { version = "1" }
+serde_derive = { version = "1" }
+flate2 = "1.0.35"                                       # for decompression of builtin fonts
+serde_json = { version = "1" }
+smallvec = { version = "1.15.1", features = ["serde"] }
+# Feature-gated dependencies
+# rust-fontconfig 5: the tiered FontFallbackChain (css groups with per-script
+# faces, script groups, last_resort) and the FcFallbackConfig generic-family
+# model that azul-layout 0.0.15 builds its font resolution on. printpdf only
+# touches the stable surface (FcFontCache, FcPattern/FcFont, FcParseFontBytes,
+# FontBytes, UnicodeRange), so no code changed — but the range MUST intersect
+# azul-layout's (`>=5.0, <5.1`) on one version: two rust-fontconfigs in one
+# binary are two independent FcFontCaches, i.e. layout resolving a font the
+# renderer cannot find. `only_one_allsorts_is_linked` still guards the repo
+# against a second allsorts underneath.
+rust-fontconfig = { version = ">=5.0, <6", default-features = false, features = [
+  "std",
+  "parsing",
+], optional = true }
+xmlparser = { version = "0.13.6", default-features = false, optional = true }
+web-sys = { version = "0.3.77", optional = true, default-features = false, features = [
+  "console",
+  "ImageData",
+  "Window",
+  "Document",
+  "Blob",
+  "CanvasRenderingContext2d",
+  "HtmlCanvasElement",
+  "HtmlImageElement",
+  "ImageBitmap",
+  "BlobPropertyBag",
+] }
+wasm-bindgen-futures = { version = "0.4.50", optional = true, default-features = false }
+# 0.0.20 = the same branch with footnotes on paged media (`float: footnote`,
+# `@page { @footnote }`), margin notes beside a column, and static positions of
+# out-of-flow boxes inside a line and inside columns.
+# 0.0.19 = the same branch again: a justified line that a forced break ends is
+# no longer spread, and text anti-aliasing is one `TextAntialiasing` on `AppConfig`.
+# 0.0.18 = the same branch with the display list the SVG-fill fix needs:
+# `PushImageMaskClip::geometry` (the path of an SVG fill), `Text::line_box`, and
+# text anti-aliasing as a value.
+# 0.0.17 = azul#476 (fix/input-bugs-2026-09-19): ComponentCodegen replaces
+# compile_fn (the two html components), FontHash gains `synthetic_bold`.
+# 0.0.16 = the rust-fontconfig 5 release of azul (azul#457); 0.0.15 was the
+# same migration but pulled `uuid` into every wasm build and left
+# DocumentChangeset::apply_to_dom ungated, so it never worked here. Both pins move
+# together or the graph carries two FcFontCaches — see the rust-fontconfig
+# note above. Published from crates.io, never a git rev: `cargo publish`
+# strips [patch], so anything that only builds under one is not publishable
+# (the "No [patch]" CI gate enforces this).
+#
+# All three must stay pinned to the SAME version: azul-layout reaches its
+# siblings by in-repo path, so mixing versions would put two incompatible
+# azul-cores in the graph. Bump them together or not at all. On 0.0.x crates
+# a "0.0.20" requirement is EXACT, which is what that rule needs.
+#
+# The exactness has a cost worth knowing: azul's workspace [patch] redirects
+# THIS dependency to its own path crates so the dll links one azul-layout, and
+# an exact pin stops matching the moment azul bumps in-tree. That is why the
+# two repos release as a pair — azul-* publish first, printpdf follows, then
+# azul re-pins printpdf. Never paper over it with a [patch] here.
+azul-css = { version = "0.0.21", default-features = false, features = [
+  "parser",
+], optional = true }
+azul-core = { version = "0.0.21", default-features = false, features = [
+  "std",
+], optional = true }
+azul-layout = { version = "0.0.21", default-features = false, optional = true }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+wasm-bindgen = { version = "0.2" }
+serde_json = { version = "1" }
+
+[features]
+default = ["html"]
+# Basic text layout without hyphenation
+# `dep:rust-fontconfig` is required (not just by `html`): printpdf attaches the source
+# font bytes to every ParsedFont via `with_source_bytes(Arc<rust_fontconfig::FontBytes>)`,
+# so it has to be able to name that type. Without it, fonts embed as empty /FontFile2
+# streams — see src/font.rs `ParsedFont` and issue #277.
+text_layout = [
+  "dep:azul-css",
+  "dep:azul-core",
+  "dep:azul-layout",
+  "dep:rust-fontconfig",
+  "azul-layout/std",
+  "azul-layout/text_layout",
+  "azul-layout/font_loading",
+]
+# Hyphenation for English (US) only: the dictionary is 91 KB. Other languages are not hyphenated.
+text_layout_hyphenation = ["text_layout", "azul-layout/text_layout_hyphenation"]
+# Hyphenation dictionaries of all 82 languages the `hyphenation` crate has (2.9 MB in the binary)
+text_layout_hyphenation_all = ["text_layout_hyphenation", "azul-layout/text_layout_hyphenation_all"]
+# HTML/CSS layout
+html = [
+  "text_layout_hyphenation",
+  "dep:xmlparser",
+  "dep:rust-fontconfig",
+  "azul-layout/xml",
+  "azul-layout/pdf",
+]
+# HTML with the hyphenation dictionaries of all languages
+html_hyphenation_all = ["html", "text_layout_hyphenation_all"]
+# HTML with multithreaded font loading (faster on desktop, not available on WASM)
+html_multithreaded = [
+  "html",
+  "rust-fontconfig/multithreading",
+  "azul-layout/font_loading_multithreaded",
+]
+# SVG support
+# NOTE: azul-layout's `svg` feature references `crate::cpurender` (in xml/svg.rs) without
+# enabling it, so we must pull in `azul-layout/cpurender` as well.
+svg = ["html", "dep:svg2pdf", "azul-layout/svg", "azul-layout/cpurender"]
+# Image decoding support
+images = ["dep:image"]
+# Browser/WASM support
+js-sys = ["dep:js-sys", "web-sys", "wasm-bindgen-futures"]
+# Image format features
+gif = ["images", "image/gif"]
+jpeg = ["images", "image/jpeg"]
+png = ["images", "image/png"]
+pnm = ["images", "image/pnm"]
+tiff = ["images", "image/tiff"]
+bmp = ["images", "image/bmp"]
+ico = ["images", "image/ico"]
+tga = ["images", "image/tga"]
+hdr = ["images", "image/hdr"]
+dds = ["images", "image/dds"]
+webp = ["images", "image/webp"]
+rayon = ["images", "image/rayon"] # enables multithreading for decoding images
+
+[package.metadata.docs.rs]
+all-features = true
+
+[target.'cfg(all(target_arch="wasm32",target_os="unknown"))'.dependencies]
+js-sys = { version = "0.3.40", optional = true }
+wasm-bindgen-futures = { version = "0.4.50", default-features = false }
+# getrandom refuses to build for wasm32-unknown-unknown unless `wasm_js` is on. Only the
+# 0.4 line is in the graph now (lopdf 0.44 pulls it directly and via rand 0.10) — the
+# getrandom-0.3 entry that used to sit here had printpdf itself as its only remaining
+# dependent, i.e. it did nothing but link a second getrandom into every wasm build.
+# Floor 0.4.0 is safe: feature-only backend selection works from the first 0.4 release.
+getrandom_v04 = { package = "getrandom", version = "0.4", features = [
+  "wasm_js",
+] }
+
+[[example]]
+name = "bookmarks"
+required-features = []
+
+[[example]]
+name = "graphics"
+required-features = []
+
+[[example]]
+name = "repro_invoice_layout"
+required-features = ["html"]
+
+[[example]]
+name = "html_full"
+required-features = ["html"]
+
+[[example]]
+name = "margin_collapse_inline"
+path = "examples/margin_collapse_inline.rs"
+required-features = ["html"]
+
+[[example]]
+name = "margin_collapse_comprehensive"
+path = "examples/margin_collapse_comprehensive.rs"
+required-features = ["html"]
+
+[[example]]
+name = "html_full_debug"
+path = "examples/html_full_debug.rs"
+required-features = ["html"]
+
+[[example]]
+name = "optimize_pdf"
+required-features = ["images"]
+
+[[example]]
+name = "multipage"
+required-features = []
+
+[[example]]
+name = "text"
+required-features = []
+
+[[example]]
+name = "pagination_test"
+required-features = ["html"]
+
+[[example]]
+name = "otf-font-subset"
+path = "examples/otf-font-subset.rs"
+required-features = []
+
+[[example]]
+name = "baseline_alignment"
+path = "examples/baseline_alignment.rs"
+required-features = ["html"]
+
+[[example]]
+name = "debug_pagination"
+path = "examples/debug_pagination.rs"
+required-features = ["html"]
+
+[[example]]
+name = "pagination_boundary_test"
+path = "examples/pagination_boundary_test.rs"
+required-features = ["html"]
+
+[[example]]
+name = "html_gradient"
+path = "examples/html_gradient.rs"
+required-features = ["html"]
+
+# -- ⚝  by Dave -- in NeoVim ⚝  --
+
+# vendored candidate: its own workspace root so that the azul workspace does not adopt it
+[workspace]
