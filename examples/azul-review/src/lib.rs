@@ -185,28 +185,77 @@ impl AppState {
         self.rederive();
     }
 
-    /// Keeps a finished stroke (what Mod+Z takes back).
-    pub fn keep(&mut self, _stroke: Stroke) {}
+    /// Keeps a finished stroke (what Mod+Z takes back); a new stroke ends what Mod+Shift+Z would have
+    /// brought back.
+    pub fn keep(&mut self, stroke: Stroke) {
+        self.ink.touch(stroke.page);
+        self.history.push(Edit::Added(stroke.clone()));
+        self.redo_stack.clear();
+        self.strokes.push(stroke);
+        self.rederive();
+    }
 
     /// Takes the last edit back; whether there was one.
     pub fn undo(&mut self) -> bool {
-        false
+        let Some(edit) = self.history.pop() else {
+            return false;
+        };
+        match &edit {
+            Edit::Added(stroke) => {
+                self.strokes.retain(|s| s.id != stroke.id);
+                self.ink.touch(stroke.page);
+            }
+            Edit::Erased(stroke, index) => {
+                self.strokes.insert((*index).min(self.strokes.len()), stroke.clone());
+                self.ink.touch(stroke.page);
+            }
+        }
+        self.redo_stack.push(edit);
+        self.rederive();
+        true
     }
 
     /// Brings the last edit taken back again; whether there was one.
     pub fn redo(&mut self) -> bool {
-        false
+        let Some(edit) = self.redo_stack.pop() else {
+            return false;
+        };
+        match &edit {
+            Edit::Added(stroke) => {
+                self.strokes.push(stroke.clone());
+                self.ink.touch(stroke.page);
+            }
+            Edit::Erased(stroke, _) => {
+                self.strokes.retain(|s| s.id != stroke.id);
+                self.ink.touch(stroke.page);
+            }
+        }
+        self.history.push(edit);
+        self.rederive();
+        true
     }
 
     /// Erases the stroke at `index` (what Mod+Z brings back).
-    pub fn erase(&mut self, _index: usize) -> Option<Stroke> {
-        None
+    pub fn erase(&mut self, index: usize) -> Option<Stroke> {
+        if index >= self.strokes.len() {
+            return None;
+        }
+        let stroke = self.strokes.remove(index);
+        self.history.push(Edit::Erased(stroke.clone(), index));
+        self.redo_stack.clear();
+        self.ink.touch(stroke.page);
+        self.rederive();
+        Some(stroke)
     }
 
-    /// The topmost stroke of `page` the eraser at (`x`, `y`) touches.
+    /// The topmost stroke of `page` the eraser at (`x`, `y`) touches: the pen's line within 6 px, the
+    /// marker's broad nib within 12.
     #[must_use]
-    pub fn eraser_target(&self, _page: usize, _x: f32, _y: f32) -> Option<usize> {
-        None
+    pub fn eraser_target(&self, page: usize, x: f32, y: f32) -> Option<usize> {
+        self.strokes.iter().rposition(|st| {
+            let tolerance = if st.semantic.is_highlighter() { 12.0 } else { 6.0 };
+            st.page == page && st.is_near(x, y, tolerance)
+        })
     }
 
     /// Takes back what the archive of the open file holds, under what has been drawn since the file
@@ -563,6 +612,20 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         save_session(&data, &mut info);
         return Update::RefreshDom;
     }
+    let mods = info.get_key_modifiers();
+    let undo_key = matches!(key, VirtualKeyCode::Z) && mods.primary_down();
+    let redo_key = (undo_key && mods.shift_down()) || (matches!(key, VirtualKeyCode::Y) && mods.primary_down());
+    if undo_key || redo_key {
+        info.prevent_default();
+        let changed = data
+            .downcast_mut::<AppState>()
+            .is_some_and(|mut s| if redo_key { s.redo() } else { s.undo() });
+        if changed {
+            save_session(&data, &mut info);
+            info.trigger_all_virtual_view_rerender();
+        }
+        return Update::RefreshDom;
+    }
     let Some(index) = DIGITS.iter().position(|d| *d == key) else {
         return Update::DoNothing;
     };
@@ -624,21 +687,12 @@ pub extern "C" fn on_ink_down(mut data: RefAny, mut info: CallbackInfo) -> Updat
         return Update::DoNothing;
     };
     if is_eraser {
-        let hit = s.strokes.iter().rposition(|st| {
-            let (x0, y0, x1, y1) = st.bounds();
-            st.page == page
-                && p.x >= x0 - 6.0
-                && p.x <= x1 + 6.0
-                && p.y >= y0 - 6.0
-                && p.y <= y1 + 6.0
-        });
-        if let Some(i) = hit {
-            let gone = s.strokes.remove(i);
-            s.ink.touch(page);
-            s.rederive();
+        if let Some(i) = s.eraser_target(page, p.x, p.y) {
+            let gone = s.erase(i);
             drop(s);
-            ui::redraw_ink(&mut info, ink::Layer::of(gone.semantic));
-            return Update::DoNothing;
+            if let Some(gone) = gone {
+                ui::redraw_ink(&mut info, ink::Layer::of(gone.semantic));
+            }
         }
         return Update::DoNothing;
     }
@@ -752,8 +806,7 @@ pub extern "C" fn on_ink_up(mut data: RefAny, mut info: CallbackInfo) -> Update 
             let up = if s.voice.running.is_some() { Up::Dab } else { Up::Click };
             (up, s.idle_timer, layer)
         } else {
-            s.strokes.push(done);
-            s.rederive();
+            s.keep(done);
             println!("AZREVIEW_STROKES {}", s.strokes.len());
             (Up::Kept, s.idle_timer, layer)
         }

@@ -102,12 +102,30 @@ pub struct Stroke {
     pub epoch: u64,
 }
 
+/// How far (`x`, `y`) is from the segment `a` to `b`.
+fn distance_to_segment(a: &InkPoint, b: &InkPoint, x: f32, y: f32) -> f32 {
+    let (dx, dy) = (b.x - a.x, b.y - a.y);
+    let len2 = dx * dx + dy * dy;
+    let t = if len2 <= f32::EPSILON {
+        0.0
+    } else {
+        (((x - a.x) * dx + (y - a.y) * dy) / len2).clamp(0.0, 1.0)
+    };
+    (a.x + t * dx - x).hypot(a.y + t * dy - y)
+}
+
 impl Stroke {
     /// Whether (`x`, `y`) is within `tolerance` px of the stroke's line (of its dab, for one point):
     /// the eraser's hit, which a bounding box is no measure of (a long diagonal's box is a page).
     #[must_use]
-    pub fn is_near(&self, _x: f32, _y: f32, _tolerance: f32) -> bool {
-        false
+    pub fn is_near(&self, x: f32, y: f32, tolerance: f32) -> bool {
+        match self.points.as_slice() {
+            [] => false,
+            [p] => (p.x - x).hypot(p.y - y) <= tolerance,
+            points => points
+                .windows(2)
+                .any(|w| distance_to_segment(&w[0], &w[1], x, y) <= tolerance),
+        }
     }
 
     pub fn bounds(&self) -> (f32, f32, f32, f32) {
