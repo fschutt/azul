@@ -86,3 +86,33 @@ azreview-shortcut-undo = Undo the last stroke or erase (Mod+Shift+Z brings it ag
 azreview-ink-surface = Drawing surface of page { $n }
 azreview-recording-level = Recording level
 azreview-no-folder = Choose a folder to review.
+
+## Agents (the backends that answer: claude -p, Gemini, the APIs; the failures in words)
+
+azreview-agent-task-exploration = Exploration
+azreview-agent-task-editing = Editing
+azreview-agent-task-export = Export
+azreview-agent-backend-claude-print = Claude Code (claude -p)
+azreview-agent-backend-anthropic-api = Anthropic API
+azreview-agent-backend-gemini-cli = Gemini CLI
+azreview-agent-backend-gemini-api = Gemini API
+azreview-agent-backend-mock = Mock (scripted)
+azreview-agent-error-not-installed = { $program } is not installed (looked in { $where })
+azreview-agent-error-not-logged-in = { $program } is not signed in: open a terminal, run { $program } and sign in, then try again
+azreview-agent-error-key-missing = The key { $reference } is not set: put the key into that environment variable or keychain item (never into the settings)
+azreview-agent-error-key-denied = The key { $reference } could not be read: { $why }
+azreview-agent-error-timeout = Timeout after { $secs } s
+azreview-agent-error-cancelled = Cancelled
+azreview-agent-error-busy = { $running } agents are working already (at most { $cap } at once): wait for one to finish
+azreview-agent-error-spawn = { $program } could not be started: { $why }
+azreview-agent-error-exit = { $program } stopped with exit code { $code }: { $detail }
+azreview-agent-error-http = The service answered { $status } { $kind }: { $detail }
+azreview-agent-error-rate-limited = The service is busy or over its limit: { $detail }
+azreview-agent-error-network = The service could not be reached: { $why }
+azreview-agent-error-budget = The call would cost more than the limit of { $limit }: raise it in the settings
+azreview-agent-error-max-turns = The agent used all { $turns } turns without an answer: raise the limit in the settings or ask a narrower question
+azreview-agent-error-refused = The agent declined: { $detail }
+azreview-agent-error-bad-output = The answer could not be read ({ $why }): { $excerpt }
+azreview-agent-error-too-large = { $what } is too large ({ $size } of { $limit }): shorten it or raise the limit in the settings
+azreview-agent-error-settings = The agent settings are not usable: { $why }
+azreview-agent-error-unsupported = Not supported here: { $why }

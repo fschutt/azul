@@ -86,3 +86,33 @@ azreview-shortcut-undo = Den letzten Strich oder das letzte Radieren zurücknehm
 azreview-ink-surface = Zeichenfläche der Seite { $n }
 azreview-recording-level = Aufnahmepegel
 azreview-no-folder = Wähle einen Ordner zum Prüfen.
+
+## Agenten (die Backends, die antworten: claude -p, Gemini, die APIs; die Fehler in Worten)
+
+azreview-agent-task-exploration = Erkunden
+azreview-agent-task-editing = Bearbeiten
+azreview-agent-task-export = Export
+azreview-agent-backend-claude-print = Claude Code (claude -p)
+azreview-agent-backend-anthropic-api = Anthropic-API
+azreview-agent-backend-gemini-cli = Gemini-CLI
+azreview-agent-backend-gemini-api = Gemini-API
+azreview-agent-backend-mock = Mock (Skript)
+azreview-agent-error-not-installed = { $program } ist nicht installiert (gesucht in { $where })
+azreview-agent-error-not-logged-in = { $program } ist nicht angemeldet: Terminal öffnen, { $program } starten und anmelden, dann erneut versuchen
+azreview-agent-error-key-missing = Der Schlüssel { $reference } ist nicht gesetzt: lege ihn in diese Umgebungsvariable oder dieses Schlüsselbund-Objekt (niemals in die Einstellungen)
+azreview-agent-error-key-denied = Der Schlüssel { $reference } konnte nicht gelesen werden: { $why }
+azreview-agent-error-timeout = Zeitüberschreitung nach { $secs } s
+azreview-agent-error-cancelled = Abgebrochen
+azreview-agent-error-busy = { $running } Agenten arbeiten bereits (höchstens { $cap } gleichzeitig): warte, bis einer fertig ist
+azreview-agent-error-spawn = { $program } konnte nicht gestartet werden: { $why }
+azreview-agent-error-exit = { $program } wurde mit Exit-Code { $code } beendet: { $detail }
+azreview-agent-error-http = Der Dienst antwortete { $status } { $kind }: { $detail }
+azreview-agent-error-rate-limited = Der Dienst ist ausgelastet oder sein Limit ist erreicht: { $detail }
+azreview-agent-error-network = Der Dienst ist nicht erreichbar: { $why }
+azreview-agent-error-budget = Der Aufruf würde mehr kosten als das Limit von { $limit }: erhöhe es in den Einstellungen
+azreview-agent-error-max-turns = Der Agent hat alle { $turns } Runden verbraucht, ohne zu antworten: erhöhe das Limit in den Einstellungen oder frage enger
+azreview-agent-error-refused = Der Agent hat abgelehnt: { $detail }
+azreview-agent-error-bad-output = Die Antwort konnte nicht gelesen werden ({ $why }): { $excerpt }
+azreview-agent-error-too-large = { $what } ist zu groß ({ $size } von { $limit }): kürze es oder erhöhe das Limit in den Einstellungen
+azreview-agent-error-settings = Die Agenten-Einstellungen sind nicht brauchbar: { $why }
+azreview-agent-error-unsupported = Hier nicht unterstützt: { $why }
