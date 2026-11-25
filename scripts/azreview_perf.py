@@ -327,9 +327,11 @@ if __name__ == "__main__":
     parser.add_argument("--strokes", type=int, default=40)
     parser.add_argument("--quiet", action="store_true", help="AZ_LOG=off: no debug log lines (they cost time per move)")
     parser.add_argument("--notes", action="store_true", help="dictate five notes first (a libazul with the test hooks)")
-    parser.add_argument("--window", nargs="?", const="cpu", choices=("cpu", "gpu"),
-                        help="a REAL window (it takes the screen and the focus), drawn by the CPU renderer or the GPU, "
-                             "instead of headless: what the user sees, at the display's own scale")
+    parser.add_argument("--window", nargs="?", const="cpu", choices=("cpu", "gpu", "default"),
+                        help="a REAL window (it takes the screen and the focus), drawn by the CPU renderer or the GPU "
+                             "(forced), or as the window asks for itself ('default': no AZ_BACKEND, the GPU where the "
+                             "machine has one and the CPU renderer where not), instead of headless: what the user "
+                             "sees, at the display's own scale")
     parser.add_argument("--az-profile", help="AZ_PROFILE for the run (the engine's own spans, e.g. cpu)")
     parser.add_argument("--out")
     cli = parser.parse_args()
