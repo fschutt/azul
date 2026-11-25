@@ -44,18 +44,13 @@ use crate::solver3::getters::{get_display_property, get_white_space_property, Mu
 /// `AZ_SUPRESS` is accepted too). Every emitted warning names it.
 pub const SUPPRESS_TAG: &str = "bare_text";
 
-/// `AZ_SUPPRESS=bare_text` (checked once): the developer has read the
-/// warnings and wants them off — e.g. a codebase that deliberately renders
-/// raw text and accepts the differences from browser behavior.
+/// `AZ_SUPPRESS=bare_text` (as the app's environment asked at its start): the developer has read
+/// the warnings and wants them off — e.g. a codebase that deliberately renders raw text and
+/// accepts the differences from browser behavior.
 fn is_suppressed() -> bool {
-    static SUPPRESSED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *SUPPRESSED.get_or_init(|| {
-        let v = std::env::var("AZ_SUPPRESS")
-            .or_else(|_| std::env::var("AZ_SUPRESS"))
-            .unwrap_or_default();
-        v.split(',')
-            .any(|t| t.trim().eq_ignore_ascii_case(SUPPRESS_TAG))
-    })
+    azul_core::diagnostics::settings()
+        .suppress
+        .contains(SUPPRESS_TAG)
 }
 
 /// State on a text node that a text node cannot carry, as a bitset so the
@@ -978,30 +973,13 @@ mod autotest_generated {
 /// should not have to enumerate them, and a new lint must not suddenly start
 /// talking in that app's logs.
 ///
-/// Read once per tag and cached: these run inside the layout pass.
+/// The list is the one the app read at its start and installed
+/// (`azul_core::diagnostics::install_settings`, the dials of every one-shot finding); this crate
+/// reads no environment. A process that installed nothing silences nothing.
 pub fn lint_suppressed(tag: &str) -> bool {
-    use std::{
-        collections::BTreeMap,
-        sync::{Mutex, OnceLock},
-    };
-    static CACHE: OnceLock<Mutex<BTreeMap<String, bool>>> = OnceLock::new();
-    let cache = CACHE.get_or_init(|| Mutex::new(BTreeMap::new()));
-    if let Ok(c) = cache.lock() {
-        if let Some(hit) = c.get(tag) {
-            return *hit;
-        }
-    }
-    let v = std::env::var("AZ_SUPPRESS")
-        .or_else(|_| std::env::var("AZ_SUPRESS"))
-        .unwrap_or_default();
-    let hit = v.split(',').any(|t| {
-        let t = t.trim();
-        t.eq_ignore_ascii_case(tag) || t.eq_ignore_ascii_case("all")
-    });
-    if let Ok(mut c) = cache.lock() {
-        c.insert(tag.to_string(), hit);
-    }
-    hit
+    azul_core::diagnostics::settings()
+        .suppress
+        .contains_or_all(tag)
 }
 
 // ============================================================================

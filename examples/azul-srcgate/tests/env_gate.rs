@@ -434,18 +434,6 @@ static W3: &[Allow] = &[
         "report_dir: the disk fallback of a problem report in a build without the updater is the system's temp folder (`env::temp_dir`)",
     ),
     Allow::exactly(
-        "layout/src/dom_lint.rs",
-        NAME,
-        4,
-        "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
-    ),
-    Allow::exactly(
-        "layout/src/dom_lint.rs",
-        READ,
-        4,
-        "e2e, telemetry, services: wired by cluster W3 (the platform facades stay)",
-    ),
-    Allow::exactly(
         "layout/src/file.rs",
         DIR,
         20,
