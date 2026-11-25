@@ -25,6 +25,7 @@ pub mod html_render;
 pub mod hydration;
 #[cfg(feature = "web-transpiler")]
 pub mod lift_audit;
+pub mod lift_settings;
 pub mod loader_js;
 #[cfg(feature = "web-transpiler-static")]
 pub mod native_remill;
@@ -39,15 +40,8 @@ pub mod transpiler_remill;
 /// transpiler (and thus `symbol_table`) isn't compiled in — keeps the non-
 /// transpiler `web` build working without sprinkling `#[cfg]` at every call.
 #[inline]
-fn shards_enabled() -> bool {
-    #[cfg(feature = "web-transpiler")]
-    {
-        symbol_table::shards_enabled()
-    }
-    #[cfg(not(feature = "web-transpiler"))]
-    {
-        false
-    }
+fn shards_enabled(settings: &lift_settings::WebLiftSettings) -> bool {
+    cfg!(feature = "web-transpiler") && settings.shards
 }
 
 /// Framework-internal eventloop symbols lifted from libazul at server
@@ -160,6 +154,7 @@ use azul_core::{
     refany::RefAny,
     resources::{AppConfig, RouteMatch},
 };
+use lift_settings::WebLiftSettings;
 use azul_layout::window_state::WindowCreateOptions;
 use rust_fontconfig::{registry::FcFontRegistry, FcFontCache};
 
@@ -607,6 +602,7 @@ pub(crate) fn dlsym_self(name: &str) -> Option<usize> {
 /// `<link rel="preload">` hints emitted by `html_render`.
 pub fn discover_and_transpile_callbacks(
     discovered_per_route: &BTreeMap<String, Vec<DiscoveredCallback>>,
+    settings: &WebLiftSettings,
 ) -> Vec<CallbackWasm> {
     // Dedup by the *resolved* symbol address — two callbacks that
     // ended up at the same function (e.g. the same `on_click` reused
@@ -623,7 +619,7 @@ pub fn discover_and_transpile_callbacks(
     // discoverable: `RemillTranspiler` runs the real subprocess
     // pipeline (`remill-lift-17 → llc → wasm-ld`) and we ship the
     // lifted module.
-    let transpiler = transpiler::default_transpiler();
+    let transpiler = transpiler::default_transpiler(settings);
     let transpiler_available = transpiler.is_available();
     eprintln!(
         "[azul-web] transpiler: {} (available={})",
@@ -811,18 +807,21 @@ fn generate_mini_wasm_stub() -> Vec<u8> {
 /// transpiler isn't the real RemillTranspiler (e.g. StubTranspiler
 /// in tests) — the stub can't lift anything anyway.
 #[cfg(feature = "web-transpiler")]
-pub fn lift_boundary_shards(initial_boundaries: &[usize]) -> Vec<BoundaryWasm> {
+pub fn lift_boundary_shards(
+    initial_boundaries: &[usize],
+    settings: &WebLiftSettings,
+) -> Vec<BoundaryWasm> {
     use std::collections::{HashSet, VecDeque};
 
     use transpiler::Transpiler;
 
-    if !symbol_table::shards_enabled() {
+    if !settings.shards {
         // Legacy bundled mode: framework symbols ship inline in the
         // cb / layout / mini wasms. No boundary shards needed.
         return Vec::new();
     }
 
-    let transpiler = transpiler_remill::RemillTranspiler::new();
+    let transpiler = transpiler_remill::RemillTranspiler::new(settings.clone());
     if !transpiler.is_available() {
         eprintln!("[azul-web] boundary-lift: transpiler unavailable, skipping shards");
         return Vec::new();
@@ -880,7 +879,10 @@ pub fn lift_boundary_shards(initial_boundaries: &[usize]) -> Vec<BoundaryWasm> {
 
 /// Stub for non-web-transpiler builds — returns an empty Vec.
 #[cfg(not(feature = "web-transpiler"))]
-pub fn lift_boundary_shards(_initial_boundaries: &[usize]) -> Vec<BoundaryWasm> {
+pub fn lift_boundary_shards(
+    _initial_boundaries: &[usize],
+    _settings: &WebLiftSettings,
+) -> Vec<BoundaryWasm> {
     Vec::new()
 }
 
@@ -890,8 +892,11 @@ pub fn lift_boundary_shards(_initial_boundaries: &[usize]) -> Vec<BoundaryWasm> 
 /// runs through the same M5-M7 pipeline as widget callbacks; failure
 /// falls back to the [`emit_noop_callback_wasm`] stub with
 /// `is_client_side = false` (matching the per-callback fallback path).
-pub fn lift_layout_callbacks(layout_callbacks: &[LayoutCallback]) -> Vec<LayoutWasm> {
-    let transpiler = transpiler::default_transpiler();
+pub fn lift_layout_callbacks(
+    layout_callbacks: &[LayoutCallback],
+    settings: &WebLiftSettings,
+) -> Vec<LayoutWasm> {
+    let transpiler = transpiler::default_transpiler(settings);
     let transpiler_available = transpiler.is_available();
     let mut seen: BTreeMap<usize, ()> = BTreeMap::new();
     let mut out: Vec<LayoutWasm> = Vec::new();
@@ -940,8 +945,11 @@ pub fn lift_layout_callbacks(layout_callbacks: &[LayoutCallback]) -> Vec<LayoutW
 /// `(name, addr, size)` tuples to `transpiler.lift_and_link_eventloop`.
 /// On any failure log + fall back to the 8-byte stub so the rest of
 /// run_web can proceed (per the M0-M7 "fail soft" discipline).
-fn lift_eventloop_mini_wasm(extra_roots: &[(String, usize, usize)]) -> Vec<u8> {
-    let transpiler = transpiler::default_transpiler();
+fn lift_eventloop_mini_wasm(
+    extra_roots: &[(String, usize, usize)],
+    settings: &WebLiftSettings,
+) -> Vec<u8> {
+    let transpiler = transpiler::default_transpiler(settings);
     if !transpiler.is_available() {
         eprintln!(
             "[azul-web] azul-mini: transpiler unavailable ({}), using 8-byte stub",
@@ -1014,6 +1022,10 @@ pub fn run_web(
 ) -> Result<(), WindowError> {
     eprintln!("[azul-web] Starting web backend...");
 
+    // The environment of the lift (the transpiler's tool paths, caches and tracers, the audit's
+    // strictness, the sharding), read ONCE here and handed to everything that lifts.
+    let lift_settings = WebLiftSettings::from_process();
+
     // M8.7a: validate the App can be hydrated on the wasm client.
     // RefAny needs a registered JSON serializer (AZ_REFLECT_JSON);
     // layout cb should be dladdr-resolvable (warning only). FATAL
@@ -1062,7 +1074,10 @@ pub fn run_web(
     // (preserved as fallback) so the server still starts.
     #[cfg(feature = "web-transpiler")]
     {
-        match symbol_table::SymbolTable::build_from_loaded_image(&classification) {
+        match symbol_table::SymbolTable::build_from_loaded_image(
+            &classification,
+            lift_settings.shards,
+        ) {
             Ok(table) => {
                 eprintln!(
                     "[azul-web] SymbolTable: {} entries across loaded images",
@@ -1094,7 +1109,7 @@ pub fn run_web(
             mini_extra_roots.push((sym.name.clone(), sym.addr, sym.size));
         }
     }
-    let mini_wasm = lift_eventloop_mini_wasm(&mini_extra_roots);
+    let mini_wasm = lift_eventloop_mini_wasm(&mini_extra_roots, &lift_settings);
     eprintln!("[azul-web] azul-mini.wasm: {} bytes", mini_wasm.len());
 
     // Phase D: Pre-render all routes. The walk also collects every
@@ -1220,7 +1235,7 @@ pub fn run_web(
     // Phase C: feed every discovered callback into the (still-stubbed) lift
     // pipeline. Discovery is functional (DOM walk + dladdr); `wasm_bytes`
     // stays empty until the remill / LLVM-IR / wasm-link pass is wired up.
-    let mut cb_wasms = discover_and_transpile_callbacks(&discovered_per_route);
+    let mut cb_wasms = discover_and_transpile_callbacks(&discovered_per_route, &lift_settings);
     eprintln!(
         "[azul-web] Discovered {} unique callbacks across {} route(s); transpile lift is stubbed",
         cb_wasms.len(),
@@ -1251,11 +1266,11 @@ pub fn run_web(
     };
     // Dev knob: skip layout-cb lift for fast iteration while debugging
     // cb-side regressions. Set AZ_SKIP_LAYOUT_LIFT=1 to bypass.
-    let mut layout_wasms = if std::env::var_os("AZ_SKIP_LAYOUT_LIFT").is_some() {
+    let mut layout_wasms = if lift_settings.skip_layout_lift {
         eprintln!("[azul-web] AZ_SKIP_LAYOUT_LIFT=1 — skipping layout-cb lift");
         Vec::new()
     } else {
-        lift_layout_callbacks(&unique_layout_callbacks)
+        lift_layout_callbacks(&unique_layout_callbacks, &lift_settings)
     };
 
     eprintln!(
@@ -1288,19 +1303,19 @@ pub fn run_web(
         v.sort_unstable();
         v
     };
-    let boundary_wasms = if shards_enabled() {
+    let boundary_wasms = if shards_enabled(&lift_settings) {
         eprintln!(
             "[azul-web] M10-D: lifting boundary shards (seed_count={})",
             initial_seeds.len(),
         );
-        lift_boundary_shards(&initial_seeds)
+        lift_boundary_shards(&initial_seeds, &lift_settings)
     } else {
         Vec::new()
     };
     eprintln!(
         "[azul-web] Boundary shards: {} (sharded mode={})",
         boundary_wasms.len(),
-        shards_enabled(),
+        shards_enabled(&lift_settings),
     );
 
     // Phase D-cache : turn the cb/layout wasm URL hashes into REAL
@@ -1359,7 +1374,7 @@ pub fn run_web(
     // Phase 0.2 preflight: report any function that lifted with __remill_error
     // (undecoded instruction) / __remill_missing_block. No-op unless AZ_PREFLIGHT=1.
     #[cfg(feature = "web-transpiler")]
-    transpiler_remill::preflight_report();
+    transpiler_remill::preflight_report(&lift_settings);
 
     // Startup lift-audit (always on): refuse to serve a build that will
     // crash at runtime — stub mini, remill-crash stubs, env imports the
@@ -1395,13 +1410,12 @@ pub fn run_web(
         let preflight = transpiler_remill::preflight_entries();
         let fatal = lift_audit::run(
             &artifacts,
-            transpiler::default_transpiler().is_available(),
+            transpiler::default_transpiler(&lift_settings).is_available(),
             transpiler_remill::lift_failure_count(),
             &preflight,
+            lift_settings.shards,
         );
-        let strict = std::env::var("AZ_LIFT_STRICT")
-            .map(|v| v != "0")
-            .unwrap_or(true);
+        let strict = lift_settings.lift_strict;
         if fatal {
             if strict {
                 eprintln!(

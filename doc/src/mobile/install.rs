@@ -93,7 +93,7 @@ pub fn android_plan(tc: &Toolchain, opts: &Opts) -> Plan {
     }
 
     // platform-tools ships adb, which every deploy and log read goes through.
-    if tc.adb().is_file() || super::toolchain::which("adb").is_some() {
+    if tc.adb().is_file() || tc.which("adb").is_some() {
         plan.push(Step::satisfied("platform-tools (adb)", ""));
     } else if brew {
         plan.push(Step::run(
@@ -223,7 +223,7 @@ pub fn android_plan(tc: &Toolchain, opts: &Opts) -> Plan {
     // --- cargo-ndk (optional) ---------------------------------------------
     // scripts/build-android.sh links via the workspace .cargo/config.toml
     // rather than cargo-ndk, so this is a convenience for out-of-tree crates.
-    if super::toolchain::which("cargo-ndk").is_some() {
+    if tc.which("cargo-ndk").is_some() {
         plan.push(Step::satisfied("cargo-ndk", "").optional());
     } else {
         plan.push(
@@ -356,7 +356,7 @@ pub fn ios_plan(tc: &Toolchain, _opts: &Opts) -> Plan {
     }
 
     // --- Optional device + automation helpers ------------------------------
-    if super::toolchain::which("ios-deploy").is_some() {
+    if tc.which("ios-deploy").is_some() {
         plan.push(Step::satisfied("ios-deploy", "").optional());
     } else if tc.brew_prefix.is_some() {
         plan.push(
@@ -371,7 +371,7 @@ pub fn ios_plan(tc: &Toolchain, _opts: &Opts) -> Plan {
     // baguette links SimulatorKit/CoreSimulator directly, which is what buys
     // real gesture dispatch instead of synthesised taps — and is what
     // `mobile run ios` drives. It needs a recent Xcode.
-    if super::toolchain::which("baguette").is_some() {
+    if tc.which("baguette").is_some() {
         plan.push(Step::satisfied("baguette (headless simulator driver)", "").optional());
     } else if let Some(major) = tc.xcode_major.filter(|m| *m < 26) {
         plan.push(

@@ -29,6 +29,8 @@ pub struct RegressionConfig {
     pub test_dir: PathBuf,
     /// Output directory for cached screenshots (doc/target/reftest)
     pub output_dir: PathBuf,
+    /// The environment the tool was started with (`CHROME` and the scratch directory).
+    pub settings: crate::settings::ToolSettings,
 }
 
 /// Information about a commit
@@ -104,6 +106,7 @@ pub fn run_regression_analysis(config: RegressionConfig) -> anyhow::Result<()> {
         refs,
         test_dir: config.test_dir.clone(),
         output_dir: config.output_dir.clone(),
+        settings: config.settings.clone(),
     };
 
     let commits = resolve_refs(&config_with_refs)?;
@@ -200,7 +203,7 @@ pub fn run_visual_report(config: RegressionConfig) -> anyhow::Result<()> {
 
 /// Generate or create the persistent temp directory
 fn get_or_create_temp_dir(config: &RegressionConfig) -> anyhow::Result<PathBuf> {
-    let temp_base = std::env::temp_dir().join(TEMP_DIR_NAME);
+    let temp_base = config.settings.temp_dir.join(TEMP_DIR_NAME);
 
     if temp_base.exists() {
         // Check if it's a valid git repo
@@ -583,9 +586,13 @@ fn find_test_files(test_dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
 }
 
 /// Ensure Chrome reference screenshots exist
-fn ensure_chrome_references(test_files: &[PathBuf], chrome_dir: &Path) -> anyhow::Result<()> {
+fn ensure_chrome_references(
+    test_files: &[PathBuf],
+    chrome_dir: &Path,
+    settings: &crate::settings::ToolSettings,
+) -> anyhow::Result<()> {
     fs::create_dir_all(chrome_dir)?;
-    let chrome_path = super::get_chrome_path();
+    let chrome_path = super::get_chrome_path(settings);
 
     let mut generated = 0;
     for test_file in test_files {
@@ -608,6 +615,7 @@ fn ensure_chrome_references(test_files: &[PathBuf], chrome_dir: &Path) -> anyhow
             &layout_json,
             super::WIDTH,
             super::HEIGHT,
+            &settings.temp_dir,
         ) {
             Ok(_) => {
                 println!("OK");

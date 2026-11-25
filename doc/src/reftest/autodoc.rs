@@ -1047,7 +1047,7 @@ pub(crate) fn run_autodoc_agent(
 
     let mut child = match Command::new("claude")
         .args(&cmd_args)
-        .env_remove("CLAUDECODE")
+        .env_remove(crate::settings::CLAUDECODE)
         .current_dir(project_root)
         .stdin(Stdio::piped())
         .stdout(result_file)
@@ -1604,6 +1604,7 @@ pub fn render_xml_to_png(
     output_path: &Path,
     width: u32,
     height: u32,
+    settings: &crate::settings::ToolSettings,
 ) -> Result<(), String> {
     use azul_core::{dom::DomId, geom::LogicalSize};
     use azul_layout::{callbacks::ExternalSystemCallbacks, window_state::FullWindowState};
@@ -1614,6 +1615,7 @@ pub fn render_xml_to_png(
 
     let mut layout_window = azul_layout::LayoutWindow::from_font_context(font_context)
         .map_err(|e| format!("LayoutWindow: {:?}", e))?;
+    layout_window.set_settings(settings.layout.clone());
 
     let mut ws = FullWindowState::default();
     ws.size.dimensions = LogicalSize {
@@ -1636,10 +1638,10 @@ pub fn render_xml_to_png(
         .display_list;
 
     let mut gc = azul_layout::glyph_cache::GlyphCache::new();
-    // The harness chooses the anti-aliasing with AZ_TEXT_AA (`pin_comparison_text_blend` in reftest/mod.rs);
-    // since bf4dd8c9a the renderer no longer reads it, a glyph cache is told: without this the
+    // The caller chooses the anti-aliasing (the tool's own `ToolSettings::text_aa`); since
+    // bf4dd8c9a the renderer reads no switch itself, a glyph cache is told: without this the
     // pages were drawn with LCD fringes and compared to Chrome's grayscale, ~11,000 pixels off.
-    gc.set_text_aa(azul_layout::cpurender::TextAaSettings::from_env());
+    gc.set_text_aa(settings.text_aa.into());
     let pixmap = azul_layout::cpurender::render_with_font_manager(
         &dl,
         &rr,
@@ -1814,7 +1816,14 @@ pub fn run_autodoc_screenshots(config: &AutoreviewConfig) -> Result<(), String> 
         let mut succeeded: Vec<RenderBlock> = Vec::new();
         for block in blocks {
             let out = screenshots_dir.join(format!("{}.png", block.name));
-            match render_xml_to_png(&font_context, &block.xml, &out, block.width, block.height) {
+            match render_xml_to_png(
+                &font_context,
+                &block.xml,
+                &out,
+                block.width,
+                block.height,
+                &config.settings,
+            ) {
                 Ok(()) => {
                     let badge = match (&block.slideshow, block.subtitle.is_empty()) {
                         (Some(sid), false) => {
@@ -2031,7 +2040,10 @@ fn window_chrome_html(
 /// The whole set renders in 5.9 seconds with azul-doc already built. That is
 /// not worth a cache, and certainly not one that silently serves three-month-old
 /// pictures of fixed bugs.
-pub fn render_all_screenshots(project_root: &Path) -> Result<(usize, usize), String> {
+pub fn render_all_screenshots(
+    project_root: &Path,
+    settings: &crate::settings::ToolSettings,
+) -> Result<(usize, usize), String> {
     let guide_dir = project_root.join("doc/guide");
 
     let mut pages = Vec::new();
@@ -2071,7 +2083,14 @@ pub fn render_all_screenshots(project_root: &Path) -> Result<(usize, usize), Str
         let dir = guide_dir.join(lang).join("screenshots");
         fs::create_dir_all(&dir).map_err(|e| format!("mkdir {}: {}", dir.display(), e))?;
         let png = dir.join(format!("{}.png", block.name));
-        match render_xml_to_png(&font_context, &block.xml, &png, block.width, block.height) {
+        match render_xml_to_png(
+            &font_context,
+            &block.xml,
+            &png,
+            block.width,
+            block.height,
+            settings,
+        ) {
             Ok(()) => {
                 println!(
                     "  [{}/ok] {}.png ({}x{})",

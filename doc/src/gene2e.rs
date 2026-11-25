@@ -190,6 +190,9 @@ pub struct GenE2eOptions {
     pub review_model: String,
     /// Effort for the review agent.
     pub review_effort: String,
+    /// The engine's settings the scenarios of `--review-batch` run under (`ToolSettings::layout`,
+    /// which `main` sets; the behaviour of an empty environment when it does not).
+    pub layout: azul_layout::settings::LayoutSettings,
 }
 
 impl GenE2eOptions {
@@ -209,6 +212,7 @@ impl GenE2eOptions {
             review_batch: None,
             review_model: REVIEW_MODEL.to_string(),
             review_effort: REVIEW_EFFORT.to_string(),
+            layout: azul_layout::settings::LayoutSettings::default(),
         };
 
         let mut i = 0;
@@ -3951,7 +3955,7 @@ fn review_batch(g: &Generator<'_>, work: &[Work], outcomes: &[Option<String>]) -
         // `entries[owner[k]]`. The pairing is by position - by FILE - because a
         // name is not an identity (six scenarios of the first batch shared one,
         // and every result landed on the first of them).
-        let results = crate::e2erun::run_tests_in_order(&tests, Some(opts.jobs))?;
+        let results = crate::e2erun::run_tests_in_order(&tests, Some(opts.jobs), &opts.layout)?;
         pair_results(&mut entries, &owner, &results);
         let (report, v) = render_report(&tests, &results);
         eprint!("{report}");
