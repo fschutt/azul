@@ -54,6 +54,7 @@ pub mod agent_pool;
 pub mod agent_review;
 pub mod agent_settings;
 pub mod agent_stroke;
+pub mod chips;
 pub mod code;
 pub mod column;
 pub mod dictation;
