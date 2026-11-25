@@ -6941,8 +6941,8 @@ jobs:
           retention-days: 30
 
   fuzz_build:
-    # The fuzz targets of the crates that read bytes other people wrote (azul-storage, azcloud-kit)
-    # are BUILT, so a target that stopped compiling is a red job and not a corpus nobody runs
+    # The fuzz targets of the crates that read bytes other people wrote (azul-storage, azcloud-kit, azlin-cbor,
+    # azlin-content, azlin-keys) are BUILT, so a target that stopped compiling is a red job and not a corpus nobody runs
     # (X-DELTA-AZDRIVE-KEYS-42). A run is for a machine with hours to spend
     # (`cargo +nightly fuzz run <target>`, from the crate's fuzz folder); a CI job can afford a build.
     needs: [supply_chain_preflight]
@@ -6972,7 +6972,7 @@ jobs:
       - name: Build the fuzz targets
         run: |
           set -euo pipefail
-          for crate in examples/azul-storage examples/azcloud-kit; do
+          for crate in examples/azul-storage examples/azcloud-kit examples/azlin-cbor examples/azlin-content examples/azlin-keys; do
             echo "=== cargo fuzz build in $crate ==="
             # A fuzz project is no member of the workspace and its Cargo.lock is not committed: start
             # from the workspace's, so the targets build against the versions the tests run on.
