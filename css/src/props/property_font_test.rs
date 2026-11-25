@@ -1198,6 +1198,51 @@ fn the_four_synthesis_longhands_are_four_properties_of_one_value_type() {
     }
 }
 
+/// The variant and the value alias the generated Rust code names for each of [`samples`], in
+/// their order.
+#[cfg(feature = "codegen")]
+static GENERATED_NAMES: [(&str, &str); 10] = [
+    ("FontStretch", "StyleFontStretchValue"),
+    ("FontVariationSettings", "StyleFontVariationSettingsValue"),
+    ("FontOpticalSizing", "StyleFontOpticalSizingValue"),
+    ("FontKerning", "StyleFontKerningValue"),
+    ("FontVariantLigatures", "StyleFontVariantLigaturesValue"),
+    ("FontVariantEastAsian", "StyleFontVariantEastAsianValue"),
+    ("FontSynthesisWeight", "StyleFontSynthesisValue"),
+    ("FontSynthesisStyle", "StyleFontSynthesisValue"),
+    ("FontSynthesisSmallCaps", "StyleFontSynthesisValue"),
+    ("FontSynthesisPosition", "StyleFontSynthesisValue"),
+];
+
+/// The Rust code generated for a property names its variant and the alias of its value type: a
+/// slip between the four `font-synthesis-*` arms, or a value type the code does not know, shows
+/// here.
+#[cfg(feature = "codegen")]
+#[test]
+fn the_generated_rust_code_names_each_new_longhand_and_its_value_type() {
+    for (s, &(variant, alias)) in samples().iter().zip(GENERATED_NAMES.iter()) {
+        let exact = format_static_css_prop(&s.prop, 0);
+        assert!(
+            exact.starts_with(&format!("CssProperty::{variant}({alias}::Exact(")),
+            "`{}` generates `{exact}`",
+            s.name
+        );
+        for (keyword, text) in [
+            (CssWideKeyword::Initial, "Initial"),
+            (CssWideKeyword::Inherit, "Inherit"),
+            (CssWideKeyword::Unset, "Unset"),
+            (CssWideKeyword::Revert, "Revert"),
+        ] {
+            assert_eq!(
+                format_static_css_prop(&with_keyword(s.ty, keyword), 0),
+                format!("CssProperty::{variant}({alias}::{text})"),
+                "`{}`",
+                s.name
+            );
+        }
+    }
+}
+
 // ---- CSS-wide keywords -------------------------------------------------------------------------
 
 /// `initial`, `inherit`, `unset` and `revert` are values of every new longhand, and read back as

@@ -1,4 +1,5 @@
 use super::*;
+#[cfg(feature = "parser")]
 use crate::{
     css::CssPropertyValue,
     props::{
@@ -54,7 +55,7 @@ fn px(value: f32) -> StyleFontSize {
 }
 
 #[cfg(feature = "parser")]
-fn size_of(inner: PixelValue) -> StyleFontSize {
+fn font_size(inner: PixelValue) -> StyleFontSize {
     StyleFontSize { inner }
 }
 
@@ -167,7 +168,12 @@ impl VariantValue {
 
 /// The four `font-synthesis-*` longhands, all `Exact`: `auto` where `on`, else `none`.
 #[cfg(feature = "parser")]
-fn synthesis_expansion(weight: bool, style: bool, small_caps: bool, position: bool) -> Vec<CssProperty> {
+fn synthesis_expansion(
+    weight: bool,
+    style: bool,
+    small_caps: bool,
+    position: bool,
+) -> Vec<CssProperty> {
     let value = |on: bool| {
         CssPropertyValue::Exact(if on {
             StyleFontSynthesis::Auto
@@ -271,7 +277,7 @@ fn font_with_a_bold_weight_a_point_size_and_a_generic_family() {
         font("bold 12pt serif"),
         FontValue {
             weight: Some(StyleFontWeight::BOLD),
-            ..FontValue::new(size_of(PixelValue::pt(12.0)), family(&["serif"]))
+            ..FontValue::new(font_size(PixelValue::pt(12.0)), family(&["serif"]))
         }
         .expansion()
     );
@@ -411,7 +417,6 @@ fn an_angle_out_of_range_is_no_part_of_the_value() {
     for input in [
         "oblique 91deg 12px a",
         "oblique -91deg 12px a",
-        "oblique 10 12px a",
         "oblique 10px 12px a",
         "italic 10deg 12px a",
     ] {
@@ -473,7 +478,7 @@ fn font_weight_is_a_keyword_or_a_number_from_one_to_a_thousand() {
 
 #[cfg(feature = "parser")]
 #[test]
-fn a_fractional_weight_before_a_size_is_a_weight() {
+fn a_weight_that_is_no_multiple_of_a_hundred_is_a_weight() {
     // `font: 350 14px sans-serif`
     assert_eq!(
         font("350 14px sans-serif"),
@@ -641,10 +646,10 @@ fn a_property_given_twice_is_an_error() {
 fn the_size_is_a_length_a_percentage_or_a_keyword() {
     for (input, size) in [
         ("12px a", px(12.0)),
-        ("12pt a", size_of(PixelValue::pt(12.0))),
-        ("1.5em a", size_of(PixelValue::em(1.5))),
-        ("0.75rem a", size_of(PixelValue::rem(0.75))),
-        ("80% a", size_of(PixelValue::percent(80.0))),
+        ("12pt a", font_size(PixelValue::pt(12.0))),
+        ("1.5em a", font_size(PixelValue::em(1.5))),
+        ("0.75rem a", font_size(PixelValue::rem(0.75))),
+        ("80% a", font_size(PixelValue::percent(80.0))),
         ("0px a", px(0.0)),
         ("large a", px(18.0)),
         ("x-small a", px(10.0)),
@@ -954,17 +959,18 @@ fn an_azul_system_font_is_the_family_only_font_property() {
 #[test]
 fn a_system_font_keyword_with_anything_else_is_no_system_font() {
     // `caption 12px` is not the keyword alone: a size is expected where `caption` stands.
-    for input in ["caption 12px", "bold caption", "12px caption extra"] {
-        let parsed = parse_font_shorthand(input);
-        match input {
-            // `caption extra` is a family after a size: a normal full value.
-            "12px caption extra" => assert_eq!(
-                parsed.expect("a size and a family"),
-                FontValue::new(px(12.0), family(&["caption extra"])).expansion()
-            ),
-            _ => assert!(parsed.is_err(), "`{input}`"),
-        }
+    for input in ["caption 12px", "bold caption", "menu 12px/1.5 a", "caption, serif"] {
+        assert!(parse_font_shorthand(input).is_err(), "`{input}`");
     }
+    // After a size the keyword is a family name like any other.
+    assert_eq!(
+        font("12px caption extra"),
+        FontValue::new(px(12.0), family(&["caption extra"])).expansion()
+    );
+    assert_eq!(
+        font("12px caption"),
+        FontValue::new(px(12.0), family(&["caption"])).expansion()
+    );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1589,13 +1595,13 @@ fn odd_input_never_panics() {
         ",",
         ",,",
         "\0",
-        "\u{1F600}",
-        "\u{1F600} 12px a",
-        "12px \u{1F600}",
+        "\u{1D11E}",
+        "\u{1D11E} 12px a",
+        "12px \u{1D11E}",
         "12px\u{A0}a",
         "oblique",
         "oblique oblique",
-        "oblique \u{1F600}",
+        "oblique \u{1D11E}",
         "normal/",
         "normal normal normal normal normal normal",
         "-",
@@ -1605,10 +1611,10 @@ fn odd_input_never_panics() {
         "12px/1e999 a",
         "swash(",
         "swash()",
-        "stylistic(\u{1F600})",
+        "stylistic(\u{1D11E})",
         "\u{e9}",
         "system:",
-        "system:\u{1F600}",
+        "system:\u{1D11E}",
         long.as_str(),
         deep.as_str(),
     ] {

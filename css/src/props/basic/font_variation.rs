@@ -1,11 +1,10 @@
-//! CSS properties for the width, the variable axes, the kerning and the
-//! OpenType features of a font: `font-stretch`, `font-variation-settings`,
-//! `font-optical-sizing`, `font-kerning`, `font-variant-ligatures`,
-//! `font-variant-east-asian` and the `font-synthesis-*` longhands
-//! (CSS Fonts 4).
+//! CSS properties for the width, the axes and the OpenType features of a font (CSS Fonts 4).
 //!
-//! Every keyword is ASCII case-insensitive and a value is trimmed before it is
-//! read; a parse error carries the trimmed input.
+//! `font-stretch`, `font-variation-settings`, `font-optical-sizing`, `font-kerning`,
+//! `font-variant-ligatures`, `font-variant-east-asian` and the `font-synthesis-*` longhands.
+//!
+//! Every keyword is ASCII case-insensitive and a value is trimmed before it is read; a parse
+//! error carries the trimmed input.
 
 use alloc::{
     string::{String, ToString},
@@ -29,36 +28,31 @@ use crate::{
 
 /// A number as the font properties spell it: `[+-]?(digits+(.digits+)?|.digits+)`.
 ///
-/// No exponent, no `inf` or `NaN`, no trailing dot. The value is finite (a
-/// digit string too long for an `f32` is not a number here) and `-0` is `0`,
-/// so a number has one canonical spelling.
+/// No exponent, no `inf` or `NaN`, no trailing dot. The value is finite (a digit string too long
+/// for an `f32` is not a number here) and `-0` is `0`, so a number has one canonical spelling.
 fn parse_decimal(text: &str) -> Option<f32> {
     let bytes = text.as_bytes();
-    let unsigned = match bytes.first() {
-        Some(b'+' | b'-') => &bytes[1..],
-        _ => bytes,
-    };
-    let (whole, fraction) = match unsigned.iter().position(|b| *b == b'.') {
-        Some(dot) => (&unsigned[..dot], Some(&unsigned[dot + 1..])),
-        None => (unsigned, None),
-    };
-    let digits = |part: &[u8]| !part.is_empty() && part.iter().all(u8::is_ascii_digit);
-    let plain = match fraction {
-        None => digits(whole),
-        Some(fraction) => digits(fraction) && (whole.is_empty() || digits(whole)),
-    };
-    if !plain {
+    let unsigned = &bytes[usize::from(matches!(bytes.first(), Some(b'+' | b'-')))..];
+    let (mut whole, mut fraction, mut dot) = (0_usize, 0_usize, false);
+    for &byte in unsigned {
+        match byte {
+            b'0'..=b'9' if dot => fraction += 1,
+            b'0'..=b'9' => whole += 1,
+            b'.' if !dot => dot = true,
+            _ => return None,
+        }
+    }
+    // `5.` and `.` are no numbers: a dot needs a digit after it, a number without one a digit
+    let well_formed = if dot { fraction > 0 } else { whole > 0 };
+    if !well_formed {
         return None;
     }
     let value = text.parse::<f32>().ok()?;
-    if !value.is_finite() {
-        return None;
-    }
-    Some(if value == 0.0 { 0.0 } else { value })
+    let value = if value == 0.0 { 0.0 } else { value };
+    value.is_finite().then_some(value)
 }
 
-/// The word of `table` that `input` (trimmed, ASCII case-insensitive) is: the
-/// shared parser of the keyword-only properties.
+/// The value of the `table` entry whose keyword is `input` (trimmed, ASCII case-insensitive).
 #[cfg(feature = "parser")]
 fn parse_keyword<'a, T: Copy>(
     input: &'a str,
@@ -74,14 +68,13 @@ fn parse_keyword<'a, T: Copy>(
 
 // --- Font Stretch ---
 
-/// The `font-stretch` property (CSS Fonts 4, also spelled `font-width`): how
-/// wide the face of the family is, as a percentage of the normal width - `50%`
-/// is ultra condensed, `100%` normal, `200%` ultra expanded.
+/// The `font-stretch` property (CSS Fonts 4, also `font-width`): how wide the face is, as a
+/// percentage of the normal width.
 ///
-/// The keywords (`condensed`, `semi-expanded`, ...) are the percentages they
-/// stand for, and a value always prints as its percentage. A variable font
-/// draws any percentage on its `wdth` axis; a family of separate faces picks
-/// the face nearest to it. Inherited. The initial value is `100%`.
+/// `50%` is ultra condensed, `100%` normal, `200%` ultra expanded. The keywords (`condensed`,
+/// `semi-expanded`, ...) are the percentages they stand for, and a value always prints as its
+/// percentage. A variable font draws any percentage on its `wdth` axis; a family of separate
+/// faces picks the face nearest to it. Inherited. The initial value is `100%`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleFontStretch {
@@ -147,17 +140,17 @@ static STRETCH_KEYWORDS: [(&str, f32); 9] = [
 ];
 
 #[cfg(feature = "parser")]
-/// Parses a `font-stretch` value: one of the nine keywords (`ultra-condensed`
-/// 50%, `extra-condensed` 62.5%, `condensed` 75%, `semi-condensed` 87.5%,
-/// `normal` 100%, `semi-expanded` 112.5%, `expanded` 125%, `extra-expanded`
-/// 150%, `ultra-expanded` 200%) or a percentage of at least `0%`. Keywords are
-/// ASCII case-insensitive.
+/// Parses a `font-stretch` value: a keyword or a percentage of at least `0%`.
+///
+/// The keywords are `ultra-condensed` 50%, `extra-condensed` 62.5%, `condensed` 75%,
+/// `semi-condensed` 87.5%, `normal` 100%, `semi-expanded` 112.5%, `expanded` 125%,
+/// `extra-expanded` 150% and `ultra-expanded` 200%, ASCII case-insensitive.
 ///
 /// # Errors
 ///
-/// Returns an error if `input` is not a valid CSS `font-stretch` value: a
-/// negative percentage, a bare number, a percentage that is not a plain
-/// decimal (`1e2%`, `inf%`), an unknown word, or nothing at all.
+/// Returns an error if `input` is not a valid CSS `font-stretch` value: a negative percentage,
+/// a bare number, a percentage that is not a plain decimal (`1e2%`, `inf%`), an unknown word,
+/// or nothing at all.
 pub fn parse_style_font_stretch(input: &str) -> Result<StyleFontStretch, InvalidValueErr<'_>> {
     let trimmed = input.trim();
     if let Some((_, percent)) = STRETCH_KEYWORDS
@@ -176,15 +169,13 @@ pub fn parse_style_font_stretch(input: &str) -> Result<StyleFontStretch, Invalid
 
 // --- Font Variation Settings ---
 
-/// The `font-variation-settings` property (CSS Fonts 4): the value of each
-/// design axis of a variable font, by the axis' four-character tag -
-/// `"wght" 650`, `"wdth" 87.5`, `"opsz" 14`. Inherited.
+/// The `font-variation-settings` property (CSS Fonts 4): the value of each design axis of a
+/// variable font, by the axis' four-character tag.
 ///
-/// Held as its canonical CSS text (`normal`, or each axis as its tag in double
-/// quotes and its number, separated by `, `): one string keeps the value a
-/// single C struct. [`Self::variations`] reads the axes back; a tag given
-/// twice keeps only its last value, where it last stands. An axis a font does
-/// not have is ignored by the shaper.
+/// `"wght" 650`, `"wdth" 87.5`, `"opsz" 14`. Inherited. Held as its canonical CSS text (`normal`,
+/// or each axis as its tag in double quotes and its number, separated by `, `): one string keeps
+/// the value a single C struct. [`Self::variations`] reads the axes back; a tag given twice keeps
+/// only its last value, where it last stands. An axis a font does not have is ignored.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleFontVariationSettings {
@@ -201,12 +192,11 @@ impl Default for StyleFontVariationSettings {
 }
 
 impl StyleFontVariationSettings {
-    /// The value for `variations`, each an axis tag and its number; `normal`
-    /// for none. A tag listed twice keeps its last value, at the place it last
-    /// stands. An entry the grammar cannot hold - a tag that is not four
-    /// printable ASCII characters (or holds both kinds of quote), a number
-    /// that is not finite - is left out, so the text always reads back as
-    /// what it says.
+    /// The value for `variations`, each an axis tag and its number; `normal` for none. A tag
+    /// listed twice keeps its last value, at the place it last stands. An entry the grammar
+    /// cannot hold - a tag that is not four printable ASCII characters (or holds both kinds of
+    /// quote), a number that is not finite - is left out, so the text always reads back as what
+    /// it says.
     #[must_use]
     pub fn from_variations(variations: &[([u8; 4], f32)]) -> Self {
         let mut kept: Vec<([u8; 4], f32)> = Vec::new();
@@ -244,27 +234,26 @@ impl StyleFontVariationSettings {
     }
 }
 
-/// Whether `tag` is an axis tag the grammar can write: four printable ASCII
-/// characters (0x20 to 0x7E), not holding both a `"` and a `'` (a tag sits in
-/// one kind of quote).
+/// Whether `tag` is an axis tag the grammar can write: four printable ASCII characters (0x20 to
+/// 0x7E), not holding both a `"` and a `'` (a tag sits in one kind of quote).
 fn is_variation_tag(tag: [u8; 4]) -> bool {
     tag.iter().all(|b| (0x20..=0x7E).contains(b))
         && !(tag.contains(&b'"') && tag.contains(&b'\''))
 }
 
-/// One axis as the canonical text has it: the tag in double quotes (in single
-/// quotes when the tag itself holds a `"`), a space, the number.
+/// One axis as the canonical text has it: the tag in double quotes (in single quotes when the
+/// tag itself holds a `"`), a space, the number.
 fn variation_text(tag: [u8; 4], value: f32) -> String {
     let name: String = tag.iter().copied().map(char::from).collect();
     let quote = if tag.contains(&b'"') { '\'' } else { '"' };
     format!("{quote}{name}{quote} {value}")
 }
 
-/// The `(tag, value)` list of a `font-variation-settings` value that is not
-/// `normal`: comma separated, each a quoted four-character printable-ASCII tag
-/// (double or single quotes), then a plain decimal number - which is required.
-/// A tag given twice keeps its last value, where it last stands. `None` for
-/// anything the grammar does not allow.
+/// The `(tag, value)` list of a `font-variation-settings` value that is not `normal`.
+///
+/// Comma separated, each a quoted four-character printable-ASCII tag (double or single quotes),
+/// then a plain decimal number - which is required. A tag given twice keeps its last value,
+/// where it last stands. `None` for anything the grammar does not allow.
 fn parse_variation_list(input: &str) -> Option<Vec<([u8; 4], f32)>> {
     let mut out: Vec<([u8; 4], f32)> = Vec::new();
     let mut rest = input.trim_start();
@@ -278,17 +267,16 @@ fn parse_variation_list(input: &str) -> Option<Vec<([u8; 4], f32)>> {
             return None;
         }
         let after_tag = &after_quote[end + 1..];
-        let (number, next) = match after_tag.find(',') {
-            Some(comma) => (&after_tag[..comma], Some(&after_tag[comma + 1..])),
-            None => (after_tag, None),
-        };
+        let (number, next) = after_tag
+            .split_once(',')
+            .map_or((after_tag, None), |(number, next)| (number, Some(next)));
         let value = parse_decimal(number.trim())?;
         out.retain(|(other, _)| *other != tag);
         out.push((tag, value));
-        match next {
-            Some(next) => rest = next.trim_start(),
-            None => return Some(out),
-        }
+        let Some(next) = next else {
+            return Some(out);
+        };
+        rest = next.trim_start();
     }
 }
 
@@ -309,18 +297,18 @@ impl FormatAsRustCode for StyleFontVariationSettings {
 }
 
 #[cfg(feature = "parser")]
-/// Parses a `font-variation-settings` value: `normal`, or a comma-separated
-/// list of quoted four-character tags (double or single quotes), each followed
-/// by a number (`"wght" 650`, `'wdth' -12.5`, `"opsz" .5`, `"slnt" +3`). The
-/// number is required and plain decimal: no exponent, no `inf`, no `NaN`, no
-/// `on` / `off`. A tag given twice keeps its last value.
+/// Parses a `font-variation-settings` value: `normal`, or a comma-separated list of quoted tags,
+/// each followed by a number.
+///
+/// A tag is four printable ASCII characters in double or single quotes; the number is required
+/// and plain decimal (`"wght" 650`, `'wdth' -12.5`, `"opsz" .5`, `"slnt" +3`): no exponent, no
+/// `inf`, no `NaN`, no `on` / `off`. A tag given twice keeps its last value.
 ///
 /// # Errors
 ///
-/// Returns an error for an unquoted, short, long or non-ASCII tag, a missing
-/// or non-numeric value (`"wght"`, `"wght" on`, `"wght" 1e3`, `"wght" 5.`), an
-/// empty item (`, "wght" 400`, a trailing comma), `normal` with anything else,
-/// or nothing at all.
+/// Returns an error for an unquoted, short, long or non-ASCII tag, a missing or non-numeric
+/// value (`"wght"`, `"wght" on`, `"wght" 1e3`, `"wght" 5.`), an empty item (`, "wght" 400`, a
+/// trailing comma), `normal` with anything else, or nothing at all.
 pub fn parse_style_font_variation_settings(
     input: &str,
 ) -> Result<StyleFontVariationSettings, InvalidValueErr<'_>> {
@@ -335,9 +323,11 @@ pub fn parse_style_font_variation_settings(
 
 // --- Font Optical Sizing ---
 
-/// The `font-optical-sizing` property (CSS Fonts 4): whether a variable font's
-/// `opsz` axis follows the font size (`auto`, the initial value) or is left
-/// alone (`none`). Inherited.
+/// The `font-optical-sizing` property (CSS Fonts 4): whether a variable font's `opsz` axis
+/// follows the font size.
+///
+/// `auto`, the initial value, sets the axis from the font size; `none` leaves it alone.
+/// Inherited.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C)]
 pub enum StyleFontOpticalSizing {
@@ -374,8 +364,7 @@ impl FormatAsRustCode for StyleFontOpticalSizing {
 }
 
 #[cfg(feature = "parser")]
-/// Parses a `font-optical-sizing` value: `auto` or `none`, ASCII
-/// case-insensitive.
+/// Parses a `font-optical-sizing` value: `auto` or `none`, ASCII case-insensitive.
 ///
 /// # Errors
 ///
@@ -388,9 +377,11 @@ pub fn parse_style_font_optical_sizing(
 
 // --- Font Kerning ---
 
-/// The `font-kerning` property (CSS Fonts 4): whether the pair adjustments of
-/// the font are applied. `auto`, the initial value, leaves the choice to the
-/// shaper (kerning on), `normal` asks for it, `none` turns it off. Inherited.
+/// The `font-kerning` property (CSS Fonts 4): whether the pair adjustments of the font are
+/// applied.
+///
+/// `auto`, the initial value, leaves the choice to the shaper (kerning on), `normal` asks for
+/// it, `none` turns it off. Inherited.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C)]
 pub enum StyleFontKerning {
@@ -433,8 +424,7 @@ impl FormatAsRustCode for StyleFontKerning {
 }
 
 #[cfg(feature = "parser")]
-/// Parses a `font-kerning` value: `auto`, `normal` or `none`, ASCII
-/// case-insensitive.
+/// Parses a `font-kerning` value: `auto`, `normal` or `none`, ASCII case-insensitive.
 ///
 /// # Errors
 ///
@@ -445,8 +435,8 @@ pub fn parse_style_font_kerning(input: &str) -> Result<StyleFontKerning, Invalid
 
 // --- Font Variant Ligatures ---
 
-/// What one group of `font-variant-ligatures` asks for: nothing (`Unset`, the
-/// group is left to the font and the shaper), the group's ligatures on, or off.
+/// What one group of `font-variant-ligatures` asks for: nothing (`Unset`, the group is left to
+/// the font and the shaper), the group's ligatures on, or off.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C)]
 pub enum StyleFontLigatureChoice {
@@ -463,18 +453,18 @@ impl FormatAsRustCode for StyleFontLigatureChoice {
     }
 }
 
-/// The `font-variant-ligatures` property (CSS Fonts 4): which ligatures the
-/// text asks the font for, as OpenType features. One choice per group, in any
-/// combination of groups:
+/// The `font-variant-ligatures` property (CSS Fonts 4): which ligatures the text asks the font
+/// for, as OpenType features.
+///
+/// One choice per group, in any combination of groups:
 ///
 /// - common: `common-ligatures` / `no-common-ligatures` (`liga`, `clig`);
-/// - discretionary: `discretionary-ligatures` / `no-discretionary-ligatures`
-///   (`dlig`);
+/// - discretionary: `discretionary-ligatures` / `no-discretionary-ligatures` (`dlig`);
 /// - historical: `historical-ligatures` / `no-historical-ligatures` (`hlig`);
 /// - contextual: `contextual` / `no-contextual` (`calt`).
 ///
-/// `normal`, the initial value (every group `Unset`), leaves them to the font;
-/// `none` turns every group off. Inherited.
+/// `normal`, the initial value (every group `Unset`), leaves them to the font; `none` turns
+/// every group off. Inherited.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C)]
 pub struct StyleFontVariantLigatures {
@@ -488,8 +478,8 @@ pub struct StyleFontVariantLigatures {
     pub contextual: StyleFontLigatureChoice,
 }
 
-/// The four groups of `font-variant-ligatures` in the grammar's order, each
-/// with the keyword that turns it on and the one that turns it off.
+/// The four groups of `font-variant-ligatures` in the grammar's order, each with the keyword
+/// that turns it on and the one that turns it off.
 static LIGATURE_KEYWORDS: [(&str, &str); 4] = [
     ("common-ligatures", "no-common-ligatures"),
     ("discretionary-ligatures", "no-discretionary-ligatures"),
@@ -532,16 +522,15 @@ impl StyleFontVariantLigatures {
             && matches!(self.contextual, StyleFontLigatureChoice::Off)
     }
 
-    /// The OpenType feature tags the shaper turns on for this value, in the
-    /// grammar's order: common (`liga`, `clig`), discretionary (`dlig`),
-    /// historical (`hlig`), contextual (`calt`).
+    /// The OpenType feature tags the shaper turns on for this value, in the grammar's order:
+    /// common (`liga`, `clig`), discretionary (`dlig`), historical (`hlig`), contextual (`calt`).
     #[must_use]
     pub fn opentype_on(&self) -> Vec<[u8; 4]> {
         self.opentype_tags(StyleFontLigatureChoice::On)
     }
 
-    /// The OpenType feature tags the shaper turns off for this value, in the
-    /// grammar's order (as [`Self::opentype_on`]).
+    /// The OpenType feature tags the shaper turns off for this value, in the grammar's order (as
+    /// [`Self::opentype_on`]).
     #[must_use]
     pub fn opentype_off(&self) -> Vec<[u8; 4]> {
         self.opentype_tags(StyleFontLigatureChoice::Off)
@@ -623,8 +612,8 @@ impl FormatAsRustCode for StyleFontVariantLigatures {
     }
 }
 
-/// The group (0 to 3, the grammar's order) and the choice a
-/// `font-variant-ligatures` keyword stands for, ASCII case-insensitive.
+/// The group (0 to 3, the grammar's order) and the choice a `font-variant-ligatures` keyword
+/// stands for, ASCII case-insensitive.
 #[cfg(feature = "parser")]
 fn ligature_keyword(word: &str) -> Option<(usize, StyleFontLigatureChoice)> {
     LIGATURE_KEYWORDS
@@ -642,16 +631,16 @@ fn ligature_keyword(word: &str) -> Option<(usize, StyleFontLigatureChoice)> {
 }
 
 #[cfg(feature = "parser")]
-/// Parses a `font-variant-ligatures` value: `normal` or `none` (each only
-/// alone), or one or more of the eight keywords in any order, at most one per
-/// group. Keywords are ASCII case-insensitive.
+/// Parses a `font-variant-ligatures` value: `normal` or `none` (each only alone), or one or more
+/// of the eight keywords in any order, at most one per group.
+///
+/// Keywords are ASCII case-insensitive.
 ///
 /// # Errors
 ///
-/// Returns an error if `input` is not a valid CSS `font-variant-ligatures`
-/// value: an unknown word, two keywords of one group (`common-ligatures
-/// no-common-ligatures`), a repeated keyword, `normal` or `none` with anything
-/// else, or nothing at all.
+/// Returns an error if `input` is not a valid CSS `font-variant-ligatures` value: an unknown
+/// word, two keywords of one group (`common-ligatures no-common-ligatures`), a repeated keyword,
+/// `normal` or `none` with anything else, or nothing at all.
 pub fn parse_style_font_variant_ligatures(
     input: &str,
 ) -> Result<StyleFontVariantLigatures, InvalidValueErr<'_>> {
@@ -683,18 +672,18 @@ pub fn parse_style_font_variant_ligatures(
 
 // --- Font Variant East Asian ---
 
-/// The `font-variant-east-asian` property (CSS Fonts 4): which East Asian glyph
-/// forms the text asks the font for, as OpenType features. One choice of the
-/// variant group, one of the width group, and `ruby`:
+/// The `font-variant-east-asian` property (CSS Fonts 4): which East Asian glyph forms the text
+/// asks the font for, as OpenType features.
 ///
-/// - variant: `jis78` (`jp78`), `jis83` (`jp83`), `jis90` (`jp90`), `jis04`
-///   (`jp04`), `simplified` (`smpl`) or `traditional` (`trad`);
+/// One choice of the variant group, one of the width group, and `ruby`:
+///
+/// - variant: `jis78` (`jp78`), `jis83` (`jp83`), `jis90` (`jp90`), `jis04` (`jp04`),
+///   `simplified` (`smpl`) or `traditional` (`trad`);
 /// - width: `full-width` (`fwid`) or `proportional-width` (`pwid`);
 /// - `ruby` (`ruby`): the glyphs made for ruby annotation.
 ///
-/// `normal`, the initial value (every field `false`), asks for none of them.
-/// Inherited. A font without a feature shapes the text as if it had not been
-/// asked.
+/// `normal`, the initial value (every field `false`), asks for none of them. Inherited. A font
+/// without a feature shapes the text as if it had not been asked.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C)]
 #[allow(clippy::struct_excessive_bools)] // one flag per CSS keyword, as the grammar has them
@@ -724,8 +713,8 @@ impl StyleFontVariantEastAsian {
         ruby: false,
     };
 
-    /// Every keyword with its OpenType feature tag and whether `self` asks
-    /// for it, in the grammar's order (the order a value is printed in).
+    /// Every keyword with its OpenType feature tag and whether `self` asks for it, in the
+    /// grammar's order (the order a value is printed in).
     #[must_use]
     pub const fn keywords(&self) -> [(&'static str, [u8; 4], bool); 9] {
         [
@@ -755,8 +744,8 @@ impl StyleFontVariantEastAsian {
             || self.ruby)
     }
 
-    /// The OpenType feature tags the shaper turns on for this value, in the
-    /// grammar's order (empty for `normal`).
+    /// The OpenType feature tags the shaper turns on for this value, in the grammar's order
+    /// (empty for `normal`).
     #[must_use]
     pub fn opentype_features(&self) -> Vec<[u8; 4]> {
         self.keywords()
@@ -805,17 +794,18 @@ impl FormatAsRustCode for StyleFontVariantEastAsian {
 }
 
 #[cfg(feature = "parser")]
-/// Parses a `font-variant-east-asian` value: `normal` (only alone), or one or
-/// more of the nine keywords in any order - at most one of the variant group
-/// (`jis78` `jis83` `jis90` `jis04` `simplified` `traditional`), at most one of
-/// the width group (`full-width` `proportional-width`), and `ruby` at most
-/// once. Keywords are ASCII case-insensitive.
+/// Parses a `font-variant-east-asian` value: `normal` (only alone), or one or more of the nine
+/// keywords in any order.
+///
+/// At most one of the variant group (`jis78` `jis83` `jis90` `jis04` `simplified`
+/// `traditional`), at most one of the width group (`full-width` `proportional-width`), and
+/// `ruby` at most once. Keywords are ASCII case-insensitive.
 ///
 /// # Errors
 ///
-/// Returns an error if `input` is not a valid CSS `font-variant-east-asian`
-/// value: an unknown word, two values of one group, a repeated keyword,
-/// `normal` with anything else, or nothing at all.
+/// Returns an error if `input` is not a valid CSS `font-variant-east-asian` value: an unknown
+/// word, two values of one group, a repeated keyword, `normal` with anything else, or nothing at
+/// all.
 pub fn parse_style_font_variant_east_asian(
     input: &str,
 ) -> Result<StyleFontVariantEastAsian, InvalidValueErr<'_>> {
@@ -833,9 +823,8 @@ pub fn parse_style_font_variant_east_asian(
         else {
             return Err(InvalidValueErr(input));
         };
-        // The keywords 0 to 5 are the variant group, 6 and 7 the width group,
-        // 8 is `ruby`: a group takes one keyword, so a second one (or the same
-        // one again) is an error.
+        // The keywords 0 to 5 are the variant group, 6 and 7 the width group, 8 is `ruby`: a
+        // group takes one keyword, so a second one (or the same one again) is an error.
         let group: core::ops::Range<usize> = match index {
             0..=5 => 0..6,
             6..=7 => 6..8,
@@ -856,11 +845,11 @@ pub fn parse_style_font_variant_east_asian(
 
 // --- Font Synthesis ---
 
-/// The four `font-synthesis-*` longhands (`font-synthesis-weight`,
-/// `-style`, `-small-caps` and `-position`) share this one type: whether the
-/// engine may fake the face, the weight, the style, the small capitals or the
-/// super- and subscripts, when the font has none (`auto`, the initial value),
-/// or not (`none`). Inherited.
+/// The value of the four `font-synthesis-*` longhands (`weight`, `style`, `small-caps` and
+/// `position`): whether the engine may fake a face the font lacks.
+///
+/// `auto`, the initial value, lets it fake the bold, the italic, the small capitals or the
+/// super- and subscripts; `none` does not. Inherited.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C)]
 pub enum StyleFontSynthesis {
@@ -897,8 +886,8 @@ impl FormatAsRustCode for StyleFontSynthesis {
 }
 
 #[cfg(feature = "parser")]
-/// Parses the value of a `font-synthesis-weight`, `-style`, `-small-caps` or
-/// `-position` longhand: `auto` or `none`, ASCII case-insensitive.
+/// Parses the value of a `font-synthesis-weight`, `-style`, `-small-caps` or `-position`
+/// longhand: `auto` or `none`, ASCII case-insensitive.
 ///
 /// # Errors
 ///

@@ -1045,9 +1045,10 @@ fn parse_plain_number(text: &str) -> Option<f32> {
 }
 
 #[cfg(feature = "parser")]
-/// Parses a `font-weight` value: `normal`, `bold`, `bolder`, `lighter`, or a
-/// number from 1 to 1000 (`350`, `650.5`; no exponent). A number outside the
-/// range is invalid.
+/// Parses a `font-weight` value: a keyword or a number from 1 to 1000.
+///
+/// The keywords are `normal`, `bold`, `bolder` and `lighter`; the number is
+/// `350` or `650.5` (no exponent). A number outside the range is invalid.
 ///
 /// # Errors
 ///
@@ -1126,9 +1127,10 @@ fn parse_oblique_angle(text: &str) -> Option<FloatValue> {
 }
 
 #[cfg(feature = "parser")]
-/// Parses a `font-style` value: `normal`, `italic`, `oblique`, or `oblique`
-/// with an angle from -90 to 90 degrees (`oblique 20deg`; `deg`, `grad`,
-/// `rad` and `turn` are accepted). A bare `oblique` is 14 degrees.
+/// Parses a `font-style` value: `normal`, `italic`, `oblique` or `oblique <angle>`.
+///
+/// The angle is from -90 to 90 degrees (`oblique 20deg`; `deg`, `grad`, `rad` and
+/// `turn` are accepted). A bare `oblique` is 14 degrees.
 ///
 /// # Errors
 ///
@@ -3065,9 +3067,17 @@ mod autotest_generated {
 
     #[test]
     fn bolder_and_lighter_follow_the_relative_weight_table() {
-        use StyleFontWeight::{
-            Bolder, Lighter, BOLD, NORMAL, W100, W200, W300, W500, W600, W800, W900,
-        };
+        use StyleFontWeight::{Bolder, Lighter};
+        // Associated constants cannot be imported like variants.
+        const W100: StyleFontWeight = StyleFontWeight::W100;
+        const W200: StyleFontWeight = StyleFontWeight::W200;
+        const W300: StyleFontWeight = StyleFontWeight::W300;
+        const NORMAL: StyleFontWeight = StyleFontWeight::NORMAL;
+        const W500: StyleFontWeight = StyleFontWeight::W500;
+        const W600: StyleFontWeight = StyleFontWeight::W600;
+        const BOLD: StyleFontWeight = StyleFontWeight::BOLD;
+        const W800: StyleFontWeight = StyleFontWeight::W800;
+        const W900: StyleFontWeight = StyleFontWeight::W900;
         // CSS Fonts 4 s2.2: (parent, bolder, lighter).
         for (parent, bolder, lighter) in [
             (W100, NORMAL, W100),

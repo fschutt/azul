@@ -58,9 +58,10 @@ static SYSTEM_FONT_KEYWORDS: [&str; 6] = [
 #[cfg(feature = "parser")]
 static FONT_SYNTHESIS_KEYWORDS: [&str; 4] = ["weight", "style", "small-caps", "position"];
 
-/// The keywords of the `font-variant-*` longhands azul has not, each with the group of the
-/// `font-variant` grammar it stands in: a group may stand once in a value (`sub super` is no
-/// value). They are accepted and set nothing.
+/// The keywords of the `font-variant-*` longhands azul has not, each with its group of the grammar.
+///
+/// A group may stand once in a value (`sub super` is no value). The keywords are accepted and set
+/// nothing.
 #[cfg(feature = "parser")]
 static IGNORED_VARIANT_KEYWORDS: [(&str, &str); 6] = [
     ("sub", "position"),
@@ -123,9 +124,11 @@ enum PrefixStep {
     Duplicate,
 }
 
-/// What stands before the font size of a `font` value: at most one of each of `font-style`,
-/// `font-variant` (`normal` or `small-caps` only), `font-weight` and `font-stretch` (the keywords
-/// only, no percentage), in any order, and `normal`, which can be any of the four.
+/// What stands before the font size of a `font` value.
+///
+/// At most one each of `font-style`, `font-variant` (`normal` or `small-caps` only),
+/// `font-weight` and `font-stretch` (the keywords only, no percentage), in any order; and
+/// `normal`, which can be any of the four.
 #[cfg(feature = "parser")]
 #[derive(Default)]
 struct FontPrefix {
@@ -174,9 +177,8 @@ impl FontPrefix {
                 return set_once(&mut self.stretch, stretch);
             }
         }
-        parse_font_weight(&word).map_or(PrefixStep::End, |weight| {
-            set_once(&mut self.weight, weight)
-        })
+        parse_font_weight(&word)
+            .map_or(PrefixStep::End, |weight| set_once(&mut self.weight, weight))
     }
 
     /// Takes `italic`, `oblique` or `oblique <angle>`.
@@ -194,11 +196,11 @@ impl FontPrefix {
         parse_font_style(word).map_or(PrefixStep::End, |style| set_once(&mut self.style, style))
     }
 
-    /// Hands each `normal` to the first of the four properties no other token names, in the order
-    /// style, caps, weight, stretch: all four values are `normal`, so which of them it is makes
-    /// no difference to the value, and `normal italic` and `italic normal` are the same.
+    /// Hands each `normal` to the first of the four properties no other token names.
     ///
-    /// False when there are more `normal`s than free properties.
+    /// The order is style, caps, weight, stretch. All four values are `normal`, so which one a
+    /// `normal` is makes no difference to the value: `normal italic` and `italic normal` are the
+    /// same. False when there are more `normal`s than free properties.
     fn settle_normals(&mut self) -> bool {
         for _ in 0..self.normals {
             if self.style.is_none() {
@@ -217,9 +219,10 @@ impl FontPrefix {
     }
 }
 
-/// Splits `input` into the prefix and the rest, which starts at the first token that is no part of
-/// the prefix (the font size). `None` when a property is given twice, or when no token is left
-/// for the size.
+/// Splits `input` into the prefix and the rest, which starts at the font size.
+///
+/// The font size is the first token that is no part of the prefix. `None` when a property is
+/// given twice, or when no token is left for the size.
 #[cfg(feature = "parser")]
 fn split_font_prefix(input: &str) -> Option<(FontPrefix, &str)> {
     let mut prefix = FontPrefix::default();
@@ -272,18 +275,21 @@ fn starts_like_number(text: &str) -> bool {
     first.is_some_and(|c| c.is_ascii_digit())
 }
 
-/// Whether `item`, one of the comma separated items of a family list, can be a family name: a
-/// quoted string, or an unquoted name, which is a sequence of identifiers (CSS Fonts 4 section
-/// 3.1): not empty and not starting like a number.
+/// Whether `item`, one comma separated item of a family list, can be a family name.
+///
+/// A quoted string can. An unquoted name is a sequence of identifiers (CSS Fonts 4 section 3.1):
+/// not empty, and not starting like a number.
 #[cfg(feature = "parser")]
 fn is_family_name(item: &str) -> bool {
     let item = item.trim();
     item.starts_with(['"', '\'']) || (!item.is_empty() && !starts_like_number(item))
 }
 
-/// The family list `text` of a `font` value: not empty, with a name for every item (so a trailing
-/// comma is an error). `87.5% 12px a` is no stretch and a size, it is a size and a family named
-/// `12px a`, which is none.
+/// The family list `text` of a `font` value: not empty, with a name for every item.
+///
+/// A trailing comma is an error. So is `87.5% 12px a`: the percentage is no font stretch, it is
+/// the size, and what follows it is the family `12px a`, which is no name (it starts like a
+/// number).
 #[cfg(feature = "parser")]
 fn parse_font_family_list(text: &str) -> Option<StyleFontFamilyVec> {
     let text = text.trim();
@@ -299,8 +305,9 @@ fn parse_font_family_list(text: &str) -> Option<StyleFontFamilyVec> {
     parse_style_font_family(text).ok()
 }
 
-/// The size, the optional `/ <line-height>` and the family list of the text `rest`, which starts
-/// at the font size. White space around the `/` is free: `12px/1.5`, `12px / 1.5`, `12px /1.5`.
+/// The size, the optional line height and the family list of `rest`, which starts at the size.
+///
+/// White space around the `/` is free: `12px/1.5`, `12px / 1.5` and `12px /1.5` are one value.
 #[cfg(feature = "parser")]
 fn parse_font_tail(rest: &str) -> Option<FontTail> {
     let rest = rest.trim_start_matches(|c: char| c.is_ascii_whitespace());
@@ -330,9 +337,11 @@ fn exact_or_initial<T>(value: Option<T>) -> CssPropertyValue<T> {
     value.map_or(CssPropertyValue::Initial, CssPropertyValue::Exact)
 }
 
-/// The longhands `font` sets, in this order: the style, the caps variant, the weight, the stretch,
-/// the size, the line height and the family, then the eleven longhands it resets. What the value
-/// left out, and every reset, is `initial`.
+/// The longhands `font` sets, in the documented order.
+///
+/// The style, the caps variant, the weight, the stretch, the size, the line height and the family,
+/// then the eleven longhands `font` resets. What the value left out, and every reset, is
+/// `initial`.
 #[cfg(feature = "parser")]
 fn font_properties(prefix: &FontPrefix, tail: FontTail) -> Vec<CssProperty> {
     vec![
@@ -525,8 +534,9 @@ struct VariantWords<'a> {
     ignored: Vec<&'static str>,
 }
 
-/// The value of one longhand: `normal` when no word asked for it, else the words parsed together
-/// (the longhand's own parser says whether they are one value, so two of one group are an error).
+/// The value of one longhand: `normal` when no word asked for it, else the words parsed together.
+///
+/// The longhand's own parser says whether the words are one value: two of one group are an error.
 #[cfg(feature = "parser")]
 fn parse_group<T>(
     words: &[&str],

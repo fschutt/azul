@@ -647,23 +647,27 @@ pub const fn layout_clear_to_u8(v: LayoutClear) -> u8 {
     }
 }
 
+/// The slot value of a `font-weight: lighter` that is not resolved yet.
+///
 /// The `font-weight` slot of [`CompactTextProps`] holds the weight in 1/64 steps
 /// (1 -> 64, 400 -> 25600, 1000 -> 64000); `0` is "not declared", which reads as
 /// 400, and the declared 400 is stored as 0 too, so one weight has one encoding.
-/// `bolder` and `lighter` are stored as these two sentinels until the builder
+/// `bolder` and `lighter` are stored as two sentinels until the builder
 /// resolves them against the parent's weight (CSS Fonts 4 s2.2), so a node's
 /// children always copy a number.
 pub const FONT_WEIGHT_SLOT_LIGHTER: u16 = 0xFFFD;
-/// See [`FONT_WEIGHT_SLOT_LIGHTER`].
+/// The slot value of a `font-weight: bolder` that is not resolved yet (see
+/// [`FONT_WEIGHT_SLOT_LIGHTER`]).
 pub const FONT_WEIGHT_SLOT_BOLDER: u16 = 0xFFFE;
 /// The slot of the declared weight 400, which is stored as 0.
 const FONT_WEIGHT_SLOT_400: u16 = 25_600;
 /// The slot of the weight 1000.
 const FONT_WEIGHT_SLOT_MAX: u16 = 64_000;
 
-/// The `font-weight` slot of `weight`: clamped to 1..=1000, in 1/64 steps (a
-/// weight is held in thousandths, so every value a stylesheet writes with up to
-/// six binary fraction digits is exact), 400 as 0.
+/// The `font-weight` slot of `weight`: clamped to 1..=1000, in 1/64 steps, 400 as 0.
+///
+/// A weight is held in thousandths, so every value a stylesheet writes with up
+/// to six binary fraction digits is exact.
 #[inline]
 #[must_use]
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // clamped to 64..=64000 first
@@ -708,8 +712,9 @@ const FONT_STRETCH_SLOT_100: u16 = 6_400;
 /// The largest slot a declared stretch takes (about 1023%).
 const FONT_STRETCH_SLOT_MAX: i32 = 0xFFF0;
 
-/// The `font-stretch` slot of `stretch`: percent in 1/64 steps, 100% as 0, a
-/// declared `0%` as 1 (0 means "not declared"), saturating at about 1023%.
+/// The `font-stretch` slot of `stretch`: percent in 1/64 steps, 100% as 0.
+///
+/// A declared `0%` is 1 (0 means "not declared"); the slot saturates at about 1023%.
 #[inline]
 #[must_use]
 pub fn encode_font_stretch_slot(stretch: StyleFontStretch) -> u16 {
@@ -734,8 +739,9 @@ pub fn decode_font_stretch_slot(slot: u16) -> StyleFontStretch {
     }
 }
 
-/// The oblique angle slot of [`CompactTextProps`]: the slant in 1/64 degrees
-/// (14 degrees is 896), 0 for `normal` and `italic`. It only means something
+/// The oblique angle slot of [`CompactTextProps`]: the slant in 1/64 degrees.
+///
+/// 14 degrees is 896, `normal` and `italic` are 0. The slot only means something
 /// where the tier-1 style code says oblique.
 #[inline]
 #[must_use]
@@ -4295,7 +4301,7 @@ mod autotest_generated {
         case!(vertical_align);
         case!(border_collapse);
 
-        assert_eq!(cases.len(), 21, "every tier1 field must be covered");
+        assert_eq!(cases.len(), 20, "every tier1 field must be covered");
 
         for (name, expected) in cases {
             let decoded = T1::decode(expected.encode());
@@ -5216,10 +5222,16 @@ mod autotest_generated {
             DOM_HAS_TEXT_TRANSFORM,
             DOM_HAS_VERTICAL_ALIGN,
             DOM_HAS_ZOOM_OR_ASPECT_RATIO,
+            DOM_HAS_FONT_VARIATION_SETTINGS,
+            DOM_HAS_FONT_OPTICAL_SIZING,
+            DOM_HAS_FONT_KERNING,
+            DOM_HAS_FONT_VARIANT_LIGATURES,
+            DOM_HAS_FONT_VARIANT_EAST_ASIAN,
+            DOM_HAS_FONT_SYNTHESIS,
         ];
-        assert_eq!(flags.len(), 32, "the word is full: a 33rd flag needs another word");
+        assert_eq!(flags.len(), 38, "the word has 38 of its 64 bits taken");
 
-        let mut seen = 0u32;
+        let mut seen = 0u64;
         for f in flags {
             assert_eq!(f.count_ones(), 1, "{f:#X} is not a single-bit flag");
             assert_eq!(seen & f, 0, "two DOM_HAS_* flags share bit {f:#X}");
@@ -5232,7 +5244,7 @@ mod autotest_generated {
             assert!(!c.dom_declared(f));
         }
         assert!(!c.dom_declared(0));
-        assert!(!c.dom_declared(u32::MAX));
+        assert!(!c.dom_declared(u64::MAX));
 
         // One flag declared: only that query is true.
         c.dom_declared_flags = DOM_HAS_LINE_HEIGHT;
@@ -5243,10 +5255,10 @@ mod autotest_generated {
             !c.dom_declared(0),
             "an empty flag query must never report declared"
         );
-        assert!(c.dom_declared(u32::MAX));
+        assert!(c.dom_declared(u64::MAX));
 
         // Everything declared: every query is true.
-        c.dom_declared_flags = u32::MAX;
+        c.dom_declared_flags = u64::MAX;
         for f in flags {
             assert!(c.dom_declared(f));
         }

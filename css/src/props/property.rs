@@ -3721,6 +3721,14 @@ pub fn parse_css_property(
         // so `overscroll-behavior-x: none` silently resolved to the default.
         CssPropertyType::OverscrollBehaviorX |
         CssPropertyType::OverscrollBehaviorY |
+        // font-optical-sizing, font-kerning and the font-synthesis-* longhands
+        // have `auto` in their grammar: the typed value, not the generic keyword.
+        CssPropertyType::FontOpticalSizing |
+        CssPropertyType::FontKerning |
+        CssPropertyType::FontSynthesisWeight |
+        CssPropertyType::FontSynthesisStyle |
+        CssPropertyType::FontSynthesisSmallCaps |
+        CssPropertyType::FontSynthesisPosition |
         CssPropertyType::AspectRatio // aspect-ratio: auto means StyleAspectRatio::Auto
     );
 
@@ -3750,7 +3758,18 @@ pub fn parse_css_property(
         CssPropertyType::Quotes |
         // wrap-through: none keeps a box's lines off the exclusion boxes
         // around it; read back as "no value" it took the initial `wrap`
-        CssPropertyType::WrapThrough
+        CssPropertyType::WrapThrough |
+        // font-optical-sizing / font-kerning / font-synthesis-*: none turns the
+        // feature off; font-variant-ligatures: none turns every ligature off.
+        // As the generic keyword each read back as "no value": the initial
+        // `auto` / `normal`, so the author's `none` did nothing.
+        CssPropertyType::FontOpticalSizing |
+        CssPropertyType::FontKerning |
+        CssPropertyType::FontVariantLigatures |
+        CssPropertyType::FontSynthesisWeight |
+        CssPropertyType::FontSynthesisStyle |
+        CssPropertyType::FontSynthesisSmallCaps |
+        CssPropertyType::FontSynthesisPosition
     );
 
     Ok(match value {
