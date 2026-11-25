@@ -519,8 +519,9 @@
     fn font_chain_key_from_empty_selectors_defaults_to_serif() {
         let k = FontChainKey::from_selectors(&[]);
         assert_eq!(k.font_families, vec!["serif".to_string()]);
-        assert_eq!(k.weight, FcWeight::Normal);
-        assert!(!k.italic && !k.oblique);
+        assert_eq!(k.request, FontRequest::default());
+        assert_eq!(k.request.fc_weight(), FcWeight::Normal);
+        assert!(!k.request.is_italic() && !k.request.is_oblique());
     }
 
     #[test]
@@ -543,25 +544,26 @@
 
     #[test]
     fn font_chain_key_weight_and_style_come_from_the_first_selector_even_if_it_is_dropped() {
-        // QUIRK: the first selector's family is skipped (empty), but its weight
-        // and italic flag still win — the key describes a family it does not list.
+        // QUIRK: the first selector's family is skipped (empty), but its request
+        // still wins — the key describes a family it does not list.
         let mut first = sel("");
-        first.style = FontStyle::Italic;
-        first.weight = FcWeight::Bold;
+        first.request = FontRequest::default()
+            .with_weight_bucket(FcWeight::Bold)
+            .with_style(FontStyle::Italic);
         let stack = [first, sel("Arial")];
         let k = FontChainKey::from_selectors(&stack);
         assert_eq!(k.font_families, vec!["Arial".to_string()]);
-        assert_eq!(k.weight, FcWeight::Bold);
-        assert!(k.italic, "italic taken from the dropped first selector");
-        assert!(!k.oblique);
+        assert_eq!(k.request.fc_weight(), FcWeight::Bold);
+        assert!(k.request.is_italic(), "italic taken from the dropped first selector");
+        assert!(!k.request.is_oblique());
     }
 
     #[test]
     fn font_chain_key_oblique_is_exclusive_of_italic() {
         let mut s = sel("Arial");
-        s.style = FontStyle::Oblique;
+        s.request = FontRequest::default().with_style(FontStyle::Oblique);
         let k = FontChainKey::from_selectors(&[s]);
-        assert!(k.oblique && !k.italic);
+        assert!(k.request.is_oblique() && !k.request.is_italic());
     }
 
     #[test]

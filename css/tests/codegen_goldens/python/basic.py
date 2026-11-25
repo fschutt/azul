@@ -15,5 +15,5 @@ def style_btn():
         CssPropertyWithConditions.simple(CssProperty.flex_grow(_with(LayoutFlexGrow.default(), inner=FloatValue.create(1.0)))),
         CssPropertyWithConditions.simple(CssProperty.inherit(CssPropertyType.MinWidth)),
         CssPropertyWithConditions.simple(CssProperty.WhiteSpace(StyleWhiteSpaceValue.Exact(StyleWhiteSpace.Nowrap))),
-        CssPropertyWithConditions.on_hover(CssProperty.font_weight(StyleFontWeight.Bold)),
+        CssPropertyWithConditions.on_hover(CssProperty.font_weight(StyleFontWeight.Number(FloatValue.create(700.0)))),
     ]

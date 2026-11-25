@@ -60,11 +60,11 @@ let style_list_li_nth_child_2 () =
 (* CSS: #main>.title *)
 let style_main_title () =
   (azCssPropertyWithConditionsVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_css_property_with_conditions [
-    (azCssPropertyWithConditions_simple (azCssProperty_fontWeight (StyleFontWeight.to_int StyleFontWeight.Bold)))
+    (azCssPropertyWithConditions_simple (azCssProperty_fontWeight (azStyleFontWeight_number (azFloatValue_create 700.0))))
   ])) (Unsigned.Size_t.of_int 1))
 
 (* CSS: div .note:first *)
 let style_div_note_first () =
   (azCssPropertyWithConditionsVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_css_property_with_conditions [
-    (azCssPropertyWithConditions_simple (azCssProperty_fontStyle (StyleFontStyle.to_int StyleFontStyle.Italic)))
+    (azCssPropertyWithConditions_simple (azCssProperty_fontStyle (azStyleFontStyle_italic ())))
   ])) (Unsigned.Size_t.of_int 1))

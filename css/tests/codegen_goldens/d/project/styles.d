@@ -13,6 +13,6 @@ CssPropertyWithConditions[] styleBtn()
         CssPropertyWithConditions.simple(CssProperty.flexGrow(LayoutFlexGrow(FloatValue(1.0f)))),
         CssPropertyWithConditions.simple(CssProperty.inherit(CssPropertyType.minWidth)),
         CssPropertyWithConditions.simple(CssProperty.whiteSpace(StyleWhiteSpaceValue.exact(StyleWhiteSpace.nowrap))),
-        CssPropertyWithConditions.onHover(CssProperty.fontWeight(StyleFontWeight.bold)),
+        CssPropertyWithConditions.onHover(CssProperty.fontWeight(StyleFontWeight.number(FloatValue(700.0f)))),
     ];
 }

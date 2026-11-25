@@ -142,18 +142,19 @@ printpdf = { path = "third_party/printpdf" }
 # redirect printpdf's azul deps to this one workspace copy, so there is a single azul-layout.
 # Delete the printpdf patch and third_party/printpdf when printpdf 0.13 is on crates.io.
 # rust-fontconfig: use crates.io (the vendored copy was a labelled REVERT; its
-# only functional delta was a web_lift-only hashbrown workaround). core/ and
-# layout/ pin `>=5.0, <5.1` (5.0 = the tiered FontFallbackChain — css groups
-# with per-script faces, script groups, last_resort — plus the
+# only functional delta was a web_lift-only hashbrown workaround). core/,
+# layout/, dll/ and doc/ all require `5.2` (5.0 = the tiered FontFallbackChain —
+# css groups with per-script faces, script groups, last_resort — plus the
 # FcFallbackConfig generic-family model that absorbs the system fonts.conf
-# aliases; azul's own alias parsing went away with it). dll/ and doc/ say
-# `5.0`.
+# aliases; azul's own alias parsing went away with it; 5.2 = the variable-font
+# instances of `FcFontCache::variable_instance`, which azul-layout draws every
+# variable face through).
 #
 # THE SINGLE-COPY RULE still applies: every dependent's range must intersect
 # on ONE version or cargo resolves TWO rust-fontconfigs into one binary — two
 # independent FcFontCaches, i.e. layout resolving a font the renderer cannot
 # find. printpdf 0.12.8+ declares `>=5.0, <6`, which intersects this
-# workspace's `>=5.0, <5.1` at 5.0.x — one copy. printpdf 0.12.7 and older
+# workspace's `5.2` (that is `>=5.2, <6`) — one copy. printpdf 0.12.7 and older
 # declare `<5` and CANNOT share a graph with this tree: the rust-fontconfig 5
 # migration, the azul-* 0.0.16 bump and dll's printpdf 0.12.8 pin land as
 # ONE atomic pair (see the 0.0.14 history: bump alone = two azul_layouts).

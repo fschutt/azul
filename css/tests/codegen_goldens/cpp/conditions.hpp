@@ -58,7 +58,7 @@ inline AzCssPropertyWithConditionsVec style_list_li_nth_child_2() {
 inline AzCssPropertyWithConditionsVec style_main_title() {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         std::vector<AzCssPropertyWithConditions>{
-            AzCssPropertyWithConditions_simple(AzCssProperty_fontWeight(AzStyleFontWeight_Bold)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontWeight(AzStyleFontWeight_number(AzFloatValue_create(700.0f)))),
         }.data(),
         1
     );
@@ -68,7 +68,7 @@ inline AzCssPropertyWithConditionsVec style_main_title() {
 inline AzCssPropertyWithConditionsVec style_div_note_first() {
     return AzCssPropertyWithConditionsVec_copyFromPtr(
         std::vector<AzCssPropertyWithConditions>{
-            AzCssPropertyWithConditions_simple(AzCssProperty_fontStyle(AzStyleFontStyle_Italic)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontStyle(AzStyleFontStyle_italic())),
         }.data(),
         1
     );

@@ -24,11 +24,21 @@ namespace AzulStyles
                         )
                     )
                 ),
-                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontWeight(StyleFontWeight.W600)),
-                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontStyle(StyleFontStyle.Italic)),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontWeight(NativeMethods.AzStyleFontWeight_number(NativeMethods.AzFloatValue_create(600.0f)))),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontStyle(NativeMethods.AzStyleFontStyle_italic())),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontVariantNumeric(new AzStyleFontVariantNumeric { lining_nums = false, oldstyle_nums = false, proportional_nums = false, tabular_nums = true, diagonal_fractions = false, stacked_fractions = false, ordinal = false, slashed_zero = false })),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontVariantCaps(new AzStyleFontVariantCapsValue { Exact = new AzStyleFontVariantCapsValueVariant_Exact { tag = AzStyleFontVariantCapsValue_Tag.Exact, payload = StyleFontVariantCaps.SmallCaps } })),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontFeatureSettings(new AzStyleFontFeatureSettingsValue { Exact = new AzStyleFontFeatureSettingsValueVariant_Exact { tag = AzStyleFontFeatureSettingsValue_Tag.Exact, payload = new AzStyleFontFeatureSettings { inner = AzulCodegen.Str("\"liga\" 0, \"tnum\"") } } })),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontStretch(new AzStyleFontStretchValue { Exact = new AzStyleFontStretchValueVariant_Exact { tag = AzStyleFontStretchValue_Tag.Exact, payload = new AzStyleFontStretch { inner = new AzPercentageValue { number = NativeMethods.AzFloatValue_create(87.5f) } } } })),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontVariationSettings(new AzStyleFontVariationSettingsValue { Exact = new AzStyleFontVariationSettingsValueVariant_Exact { tag = AzStyleFontVariationSettingsValue_Tag.Exact, payload = new AzStyleFontVariationSettings { inner = AzulCodegen.Str("\"wght\" 650, \"wdth\" 87.5") } } })),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontOpticalSizing(new AzStyleFontOpticalSizingValue { Exact = new AzStyleFontOpticalSizingValueVariant_Exact { tag = AzStyleFontOpticalSizingValue_Tag.Exact, payload = StyleFontOpticalSizing.None } })),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontKerning(new AzStyleFontKerningValue { Exact = new AzStyleFontKerningValueVariant_Exact { tag = AzStyleFontKerningValue_Tag.Exact, payload = StyleFontKerning.None } })),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontVariantLigatures(new AzStyleFontVariantLigaturesValue { Exact = new AzStyleFontVariantLigaturesValueVariant_Exact { tag = AzStyleFontVariantLigaturesValue_Tag.Exact, payload = new AzStyleFontVariantLigatures { common = StyleFontLigatureChoice.Off, discretionary = StyleFontLigatureChoice.On, historical = StyleFontLigatureChoice.Unset, contextual = StyleFontLigatureChoice.Unset } } })),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontVariantEastAsian(new AzStyleFontVariantEastAsianValue { Exact = new AzStyleFontVariantEastAsianValueVariant_Exact { tag = AzStyleFontVariantEastAsianValue_Tag.Exact, payload = new AzStyleFontVariantEastAsian { jis78 = true, jis83 = false, jis90 = false, jis04 = false, simplified = false, traditional = false, full_width = true, proportional_width = false, ruby = true } } })),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontSynthesisWeight(new AzStyleFontSynthesisValue { Exact = new AzStyleFontSynthesisValueVariant_Exact { tag = AzStyleFontSynthesisValue_Tag.Exact, payload = StyleFontSynthesis.None } })),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontSynthesisStyle(new AzStyleFontSynthesisValue { Exact = new AzStyleFontSynthesisValueVariant_Exact { tag = AzStyleFontSynthesisValue_Tag.Exact, payload = StyleFontSynthesis.None } })),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontSynthesisSmallCaps(new AzStyleFontSynthesisValue { Exact = new AzStyleFontSynthesisValueVariant_Exact { tag = AzStyleFontSynthesisValue_Tag.Exact, payload = StyleFontSynthesis.Auto } })),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontSynthesisPosition(new AzStyleFontSynthesisValue { Exact = new AzStyleFontSynthesisValueVariant_Exact { tag = AzStyleFontSynthesisValue_Tag.Exact, payload = StyleFontSynthesis.None } })),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_textAlign(StyleTextAlign.Center)),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_textJustify(LayoutTextJustify.InterWord)),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_verticalAlign(NativeMethods.AzStyleVerticalAlign_middle())),
@@ -70,15 +80,49 @@ namespace AzulStyles
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_selectionBackgroundColor(new AzSelectionBackgroundColor { inner = new AzColorU { r = 51, g = 153, b = 255, a = 255 } })),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_selectionColor(new AzSelectionColor { inner = new AzColorU { r = 255, g = 255, b = 255, a = 255 } })),
                 NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_selectionRadius(new AzSelectionRadiusValue { Exact = new AzSelectionRadiusValueVariant_Exact { tag = AzSelectionRadiusValue_Tag.Exact, payload = new AzSelectionRadius { inner = NativeMethods.AzPixelValue_px(3.0f) } } })),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_font(AzulCodegen.Vec<AzStyleFontFamily, AzStyleFontFamilyVec>(NativeMethods.AzStyleFontFamilyVec_copyFromPtr, NativeMethods.AzStyleFontFamily_system(AzulCodegen.Str("caption")))))
+            );
+        }
+
+        // CSS: .shorthands
+        public static AzCssPropertyWithConditionsVec StyleShorthands()
+        {
+            return AzulCodegen.Vec<AzCssPropertyWithConditions, AzCssPropertyWithConditionsVec>(
+                NativeMethods.AzCssPropertyWithConditionsVec_copyFromPtr,
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontStyle(NativeMethods.AzStyleFontStyle_italic())),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontVariantCaps(new AzStyleFontVariantCapsValue { Exact = new AzStyleFontVariantCapsValueVariant_Exact { tag = AzStyleFontVariantCapsValue_Tag.Exact, payload = StyleFontVariantCaps.SmallCaps } })),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontWeight(NativeMethods.AzStyleFontWeight_number(NativeMethods.AzFloatValue_create(350.0f)))),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontStretch(new AzStyleFontStretchValue { Exact = new AzStyleFontStretchValueVariant_Exact { tag = AzStyleFontStretchValue_Tag.Exact, payload = new AzStyleFontStretch { inner = new AzPercentageValue { number = NativeMethods.AzFloatValue_create(75.0f) } } } })),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontSize(new AzStyleFontSize { inner = NativeMethods.AzPixelValue_px(14.0f) })),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_lineHeight(NativeMethods.AzStyleLineHeight_number(NativeMethods.AzFloatValue_create(1.5f)))),
                 NativeMethods.AzCssPropertyWithConditions_simple(
-                    NativeMethods.AzCssProperty_font(
+                    NativeMethods.AzCssProperty_fontFamily(
                         AzulCodegen.Vec<AzStyleFontFamily, AzStyleFontFamilyVec>(
                             NativeMethods.AzStyleFontFamilyVec_copyFromPtr,
                             NativeMethods.AzStyleFontFamily_system(AzulCodegen.Str("Georgia")),
                             NativeMethods.AzStyleFontFamily_system(AzulCodegen.Str("serif"))
                         )
                     )
-                )
+                ),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_initial(CssPropertyType.FontVariantNumeric)),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_initial(CssPropertyType.FontVariantLigatures)),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_initial(CssPropertyType.FontVariantEastAsian)),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_initial(CssPropertyType.FontKerning)),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_initial(CssPropertyType.FontOpticalSizing)),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_initial(CssPropertyType.FontVariationSettings)),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_initial(CssPropertyType.FontFeatureSettings)),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_initial(CssPropertyType.FontSynthesisWeight)),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_initial(CssPropertyType.FontSynthesisStyle)),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_initial(CssPropertyType.FontSynthesisSmallCaps)),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_initial(CssPropertyType.FontSynthesisPosition)),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontVariantNumeric(new AzStyleFontVariantNumeric { lining_nums = false, oldstyle_nums = true, proportional_nums = false, tabular_nums = false, diagonal_fractions = false, stacked_fractions = false, ordinal = false, slashed_zero = false })),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontVariantCaps(new AzStyleFontVariantCapsValue { Exact = new AzStyleFontVariantCapsValueVariant_Exact { tag = AzStyleFontVariantCapsValue_Tag.Exact, payload = StyleFontVariantCaps.Normal } })),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontVariantLigatures(new AzStyleFontVariantLigaturesValue { Exact = new AzStyleFontVariantLigaturesValueVariant_Exact { tag = AzStyleFontVariantLigaturesValue_Tag.Exact, payload = new AzStyleFontVariantLigatures { common = StyleFontLigatureChoice.Unset, discretionary = StyleFontLigatureChoice.Unset, historical = StyleFontLigatureChoice.Unset, contextual = StyleFontLigatureChoice.Unset } } })),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontVariantEastAsian(new AzStyleFontVariantEastAsianValue { Exact = new AzStyleFontVariantEastAsianValueVariant_Exact { tag = AzStyleFontVariantEastAsianValue_Tag.Exact, payload = new AzStyleFontVariantEastAsian { jis78 = true, jis83 = false, jis90 = false, jis04 = false, simplified = false, traditional = false, full_width = false, proportional_width = false, ruby = false } } })),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontSynthesisWeight(new AzStyleFontSynthesisValue { Exact = new AzStyleFontSynthesisValueVariant_Exact { tag = AzStyleFontSynthesisValue_Tag.Exact, payload = StyleFontSynthesis.Auto } })),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontSynthesisStyle(new AzStyleFontSynthesisValue { Exact = new AzStyleFontSynthesisValueVariant_Exact { tag = AzStyleFontSynthesisValue_Tag.Exact, payload = StyleFontSynthesis.Auto } })),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontSynthesisSmallCaps(new AzStyleFontSynthesisValue { Exact = new AzStyleFontSynthesisValueVariant_Exact { tag = AzStyleFontSynthesisValue_Tag.Exact, payload = StyleFontSynthesis.None } })),
+                NativeMethods.AzCssPropertyWithConditions_simple(NativeMethods.AzCssProperty_fontSynthesisPosition(new AzStyleFontSynthesisValue { Exact = new AzStyleFontSynthesisValueVariant_Exact { tag = AzStyleFontSynthesisValue_Tag.Exact, payload = StyleFontSynthesis.None } }))
             );
         }
 

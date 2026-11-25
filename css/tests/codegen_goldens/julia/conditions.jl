@@ -78,7 +78,7 @@ function style_main_title()
     az_vec(
         Azul.AzCssPropertyWithConditionsVec_copyFromPtr,
         Azul.AzCssPropertyWithConditions,
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontWeight(Azul.AzStyleFontWeight_Bold))
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontWeight(Azul.AzStyleFontWeight_number(Azul.AzFloatValue_create(700.0f0))))
     )
 end
 
@@ -87,6 +87,6 @@ function style_div_note_first()
     az_vec(
         Azul.AzCssPropertyWithConditionsVec_copyFromPtr,
         Azul.AzCssPropertyWithConditions,
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontStyle(Azul.AzStyleFontStyle_Italic))
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontStyle(Azul.AzStyleFontStyle_italic()))
     )
 end

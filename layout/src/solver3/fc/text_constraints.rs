@@ -81,23 +81,7 @@ pub const fn convert_font_style(style: StyleFontStyle) -> crate::font_traits::Fo
     match style {
         StyleFontStyle::Normal => crate::font_traits::FontStyle::Normal,
         StyleFontStyle::Italic => crate::font_traits::FontStyle::Italic,
-        StyleFontStyle::Oblique => crate::font_traits::FontStyle::Oblique,
-    }
-}
-
-/// Helper: Convert `StyleFontWeight` to `FcWeight`
-#[must_use]
-pub const fn convert_font_weight(weight: StyleFontWeight) -> FcWeight {
-    match weight {
-        StyleFontWeight::W100 => FcWeight::Thin,
-        StyleFontWeight::W200 => FcWeight::ExtraLight,
-        StyleFontWeight::W300 | StyleFontWeight::Lighter => FcWeight::Light,
-        StyleFontWeight::Normal => FcWeight::Normal,
-        StyleFontWeight::W500 => FcWeight::Medium,
-        StyleFontWeight::W600 => FcWeight::SemiBold,
-        StyleFontWeight::Bold => FcWeight::Bold,
-        StyleFontWeight::W800 => FcWeight::ExtraBold,
-        StyleFontWeight::W900 | StyleFontWeight::Bolder => FcWeight::Black,
+        StyleFontStyle::Oblique(_) => crate::font_traits::FontStyle::Oblique,
     }
 }
 
@@ -305,7 +289,7 @@ impl LineStyle {
             .ptr
             .compact_cache
             .as_ref()
-            .map_or(!0u32, |cc| cc.dom_declared_flags);
+            .map_or(!0u64, |cc| cc.dom_declared_flags);
         let cache = &styled_dom.css_property_cache.ptr;
         let id = dom_id;
         let node_data = &styled_dom.node_data.as_container()[id];

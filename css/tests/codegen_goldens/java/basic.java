@@ -21,7 +21,7 @@ public final class AzulStyles {
             AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_flexGrow(AzulCodegen.with(new AzLayoutFlexGrow.ByValue(), layoutFlexGrow -> { layoutFlexGrow.inner = AzulNativeCss.AzFloatValue_create(1.0f); }))),
             AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_inherit(CssPropertyType.MinWidth.value)),
             AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_whiteSpace(AzulCodegen.with(new AzStyleWhiteSpaceValue.ByValue(), styleWhiteSpaceValue -> { styleWhiteSpaceValue.Exact.tag = (byte) AzStyleWhiteSpaceValue_Tag.Exact.value; styleWhiteSpaceValue.Exact.payload = StyleWhiteSpace.Nowrap.value; styleWhiteSpaceValue.setType("Exact"); }))),
-            AzulNativeCss.AzCssPropertyWithConditions_onHover(AzulNativeCss.AzCssProperty_fontWeight(StyleFontWeight.Bold.value))
+            AzulNativeCss.AzCssPropertyWithConditions_onHover(AzulNativeCss.AzCssProperty_fontWeight(AzulNativeCss.AzStyleFontWeight_number(AzulNativeCss.AzFloatValue_create(700.0f))))
         );
     }
 }

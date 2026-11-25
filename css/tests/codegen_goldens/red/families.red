@@ -4,6 +4,9 @@
 ;; CSS: .text
 ;; style-text: not expressible with the Red/System bindings: the Red/System bindings declare every tagged union (CssProperty, LayoutWidth, ...) as an 8-byte opaque placeholder, so no CSS property can be passed or returned by value
 
+;; CSS: .shorthands
+;; style-shorthands: not expressible with the Red/System bindings: the Red/System bindings declare every tagged union (CssProperty, LayoutWidth, ...) as an 8-byte opaque placeholder, so no CSS property can be passed or returned by value
+
 ;; CSS: .box
 ;; style-box: not expressible with the Red/System bindings: the Red/System bindings declare every tagged union (CssProperty, LayoutWidth, ...) as an 8-byte opaque placeholder, so no CSS property can be passed or returned by value
 

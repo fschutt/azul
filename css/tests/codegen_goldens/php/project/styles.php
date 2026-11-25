@@ -57,7 +57,7 @@ function style_btn()
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_flexGrow(azul_struct('AzLayoutFlexGrow', ['inner' => $L->AzFloatValue_create(1.0)]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_inherit($L->AzCssPropertyType_MinWidth)),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_whiteSpace(azul_union('AzStyleWhiteSpaceValue', 'Exact', 6, $L->AzStyleWhiteSpace_Nowrap))),
-            $L->AzCssPropertyWithConditions_onHover($L->AzCssProperty_fontWeight($L->AzStyleFontWeight_Bold)),
+            $L->AzCssPropertyWithConditions_onHover($L->AzCssProperty_fontWeight($L->AzStyleFontWeight_number($L->AzFloatValue_create(700.0)))),
         ]
     );
 }

@@ -8,16 +8,26 @@ def _with(value, **fields):
 
 # CSS: .text
 # dropped a value these bindings cannot build: the Python bindings cannot build a StyleFontFamilyVec of 2+ items (only create() / from_item())
-# dropped a value these bindings cannot build: the Python bindings cannot build a StyleFontFamilyVec of 2+ items (only create() / from_item())
+# dropped a value these bindings cannot build: StyleFontFamily.System has a String payload, which the Python bindings do not expose
 def style_text():
     return [
         CssPropertyWithConditions.simple(CssProperty.text_color(_with(StyleTextColor.default(), inner=_with(ColorU.default(), r=51, g=102, b=153, a=255)))),
         CssPropertyWithConditions.simple(CssProperty.font_size(_with(StyleFontSize.default(), inner=PixelValue.px(14.0)))),
-        CssPropertyWithConditions.simple(CssProperty.font_weight(StyleFontWeight.W600)),
-        CssPropertyWithConditions.simple(CssProperty.font_style(StyleFontStyle.Italic)),
+        CssPropertyWithConditions.simple(CssProperty.font_weight(StyleFontWeight.Number(FloatValue.create(600.0)))),
+        CssPropertyWithConditions.simple(CssProperty.font_style(StyleFontStyle.Italic())),
         CssPropertyWithConditions.simple(CssProperty.font_variant_numeric(_with(StyleFontVariantNumeric.default(), lining_nums=False, oldstyle_nums=False, proportional_nums=False, tabular_nums=True, diagonal_fractions=False, stacked_fractions=False, ordinal=False, slashed_zero=False))),
         CssPropertyWithConditions.simple(CssProperty.FontVariantCaps(StyleFontVariantCapsValue.Exact(StyleFontVariantCaps.SmallCaps))),
         CssPropertyWithConditions.simple(CssProperty.FontFeatureSettings(StyleFontFeatureSettingsValue.Exact(_with(StyleFontFeatureSettings.default(), inner="\"liga\" 0, \"tnum\"")))),
+        CssPropertyWithConditions.simple(CssProperty.FontStretch(StyleFontStretchValue.Exact(_with(StyleFontStretch.default(), inner=_with(PercentageValue.default(), number=FloatValue.create(87.5)))))),
+        CssPropertyWithConditions.simple(CssProperty.FontVariationSettings(StyleFontVariationSettingsValue.Exact(_with(StyleFontVariationSettings.default(), inner="\"wght\" 650, \"wdth\" 87.5")))),
+        CssPropertyWithConditions.simple(CssProperty.FontOpticalSizing(StyleFontOpticalSizingValue.Exact(getattr(StyleFontOpticalSizing, "None")))),
+        CssPropertyWithConditions.simple(CssProperty.FontKerning(StyleFontKerningValue.Exact(getattr(StyleFontKerning, "None")))),
+        CssPropertyWithConditions.simple(CssProperty.FontVariantLigatures(StyleFontVariantLigaturesValue.Exact(_with(StyleFontVariantLigatures.default(), common=StyleFontLigatureChoice.Off, discretionary=StyleFontLigatureChoice.On, historical=StyleFontLigatureChoice.Unset, contextual=StyleFontLigatureChoice.Unset)))),
+        CssPropertyWithConditions.simple(CssProperty.FontVariantEastAsian(StyleFontVariantEastAsianValue.Exact(_with(StyleFontVariantEastAsian.default(), jis78=True, jis83=False, jis90=False, jis04=False, simplified=False, traditional=False, full_width=True, proportional_width=False, ruby=True)))),
+        CssPropertyWithConditions.simple(CssProperty.FontSynthesisWeight(StyleFontSynthesisValue.Exact(getattr(StyleFontSynthesis, "None")))),
+        CssPropertyWithConditions.simple(CssProperty.FontSynthesisStyle(StyleFontSynthesisValue.Exact(getattr(StyleFontSynthesis, "None")))),
+        CssPropertyWithConditions.simple(CssProperty.FontSynthesisSmallCaps(StyleFontSynthesisValue.Exact(StyleFontSynthesis.Auto))),
+        CssPropertyWithConditions.simple(CssProperty.FontSynthesisPosition(StyleFontSynthesisValue.Exact(getattr(StyleFontSynthesis, "None")))),
         CssPropertyWithConditions.simple(CssProperty.text_align(StyleTextAlign.Center)),
         CssPropertyWithConditions.simple(CssProperty.text_justify(LayoutTextJustify.InterWord)),
         CssPropertyWithConditions.simple(CssProperty.vertical_align(StyleVerticalAlign.Middle())),
@@ -59,6 +69,37 @@ def style_text():
         CssPropertyWithConditions.simple(CssProperty.selection_background_color(_with(SelectionBackgroundColor.default(), inner=_with(ColorU.default(), r=51, g=153, b=255, a=255)))),
         CssPropertyWithConditions.simple(CssProperty.selection_color(_with(SelectionColor.default(), inner=_with(ColorU.default(), r=255, g=255, b=255, a=255)))),
         CssPropertyWithConditions.simple(CssProperty.SelectionRadius(SelectionRadiusValue.Exact(_with(SelectionRadius.default(), inner=PixelValue.px(3.0))))),
+    ]
+
+# CSS: .shorthands
+# dropped a value these bindings cannot build: the Python bindings cannot build a StyleFontFamilyVec of 2+ items (only create() / from_item())
+def style_shorthands():
+    return [
+        CssPropertyWithConditions.simple(CssProperty.font_style(StyleFontStyle.Italic())),
+        CssPropertyWithConditions.simple(CssProperty.FontVariantCaps(StyleFontVariantCapsValue.Exact(StyleFontVariantCaps.SmallCaps))),
+        CssPropertyWithConditions.simple(CssProperty.font_weight(StyleFontWeight.Number(FloatValue.create(350.0)))),
+        CssPropertyWithConditions.simple(CssProperty.FontStretch(StyleFontStretchValue.Exact(_with(StyleFontStretch.default(), inner=_with(PercentageValue.default(), number=FloatValue.create(75.0)))))),
+        CssPropertyWithConditions.simple(CssProperty.font_size(_with(StyleFontSize.default(), inner=PixelValue.px(14.0)))),
+        CssPropertyWithConditions.simple(CssProperty.line_height(StyleLineHeight.Number(FloatValue.create(1.5)))),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.FontVariantNumeric)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.FontVariantLigatures)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.FontVariantEastAsian)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.FontKerning)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.FontOpticalSizing)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.FontVariationSettings)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.FontFeatureSettings)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.FontSynthesisWeight)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.FontSynthesisStyle)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.FontSynthesisSmallCaps)),
+        CssPropertyWithConditions.simple(CssProperty.initial(CssPropertyType.FontSynthesisPosition)),
+        CssPropertyWithConditions.simple(CssProperty.font_variant_numeric(_with(StyleFontVariantNumeric.default(), lining_nums=False, oldstyle_nums=True, proportional_nums=False, tabular_nums=False, diagonal_fractions=False, stacked_fractions=False, ordinal=False, slashed_zero=False))),
+        CssPropertyWithConditions.simple(CssProperty.FontVariantCaps(StyleFontVariantCapsValue.Exact(StyleFontVariantCaps.Normal))),
+        CssPropertyWithConditions.simple(CssProperty.FontVariantLigatures(StyleFontVariantLigaturesValue.Exact(_with(StyleFontVariantLigatures.default(), common=StyleFontLigatureChoice.Unset, discretionary=StyleFontLigatureChoice.Unset, historical=StyleFontLigatureChoice.Unset, contextual=StyleFontLigatureChoice.Unset)))),
+        CssPropertyWithConditions.simple(CssProperty.FontVariantEastAsian(StyleFontVariantEastAsianValue.Exact(_with(StyleFontVariantEastAsian.default(), jis78=True, jis83=False, jis90=False, jis04=False, simplified=False, traditional=False, full_width=False, proportional_width=False, ruby=False)))),
+        CssPropertyWithConditions.simple(CssProperty.FontSynthesisWeight(StyleFontSynthesisValue.Exact(StyleFontSynthesis.Auto))),
+        CssPropertyWithConditions.simple(CssProperty.FontSynthesisStyle(StyleFontSynthesisValue.Exact(StyleFontSynthesis.Auto))),
+        CssPropertyWithConditions.simple(CssProperty.FontSynthesisSmallCaps(StyleFontSynthesisValue.Exact(getattr(StyleFontSynthesis, "None")))),
+        CssPropertyWithConditions.simple(CssProperty.FontSynthesisPosition(StyleFontSynthesisValue.Exact(getattr(StyleFontSynthesis, "None")))),
     ]
 
 # CSS: .box

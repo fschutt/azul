@@ -2,11 +2,16 @@
 //! microphone picks up, fed by a tap on `AVAudioEngine`'s input. AVFoundation and Speech are
 //! dlopen'd, nothing links them: a system without one answers `Unavailable`.
 //!
-//! Hearing needs `NSSpeechRecognitionUsageDescription` and `NSMicrophoneUsageDescription` in the
-//! app's Info.plist. Without them the OS stops the process at the first request - an unbundled
-//! binary such as `target/release/<app>` has neither - so they are checked before anything is
-//! asked, and their absence is an `Unavailable` that says so.
+//! Hearing needs two permissions, speech recognition and the microphone. What the system says
+//! about them is read FIRST, without asking ([`authorization::decide`]): a bare binary such as
+//! `target/release/<app>` has no Info.plist, but a terminal that holds both permissions makes it
+//! `Authorized` (measured on macOS 15.5), and then it listens. Only a permission nobody decided
+//! yet needs the usage texts (`NSSpeechRecognitionUsageDescription`,
+//! `NSMicrophoneUsageDescription`) in the app's Info.plist - asking without them stops the
+//! process - so without them it is not asked: an `Unavailable` that says what to do.
 
+#[cfg(target_os = "macos")]
+use std::ffi::c_void;
 use std::{
     ffi::{c_char, CStr, CString},
     sync::{
@@ -19,10 +24,13 @@ use std::{
 use block2::RcBlock;
 use objc2::{
     msg_send,
-    runtime::{AnyClass, AnyObject},
+    runtime::{AnyClass, AnyObject, Bool},
 };
 
-use super::{HeardStatus, SpeechHeard, SpeechStatus};
+use super::{
+    authorization::{self, Access, Decision, Gate, Gates, Refusal},
+    HeardStatus, SpeechHeard, SpeechStatus,
+};
 
 /// The synthesizer, retained for the life of the process; `0` until the first utterance. A
 /// pointer is kept as a number: raw pointers are not `Sync`.
@@ -227,21 +235,170 @@ struct Hearing {
     error: Option<String>,
 }
 
+/// `AVMediaTypeAudio`: an `NSString` holding the four-character code of the media type.
+const MEDIA_TYPE_AUDIO: &str = "soun";
+
+/// What the system says about speech recognition and the microphone, WITHOUT asking, and which
+/// usage texts this program's Info.plist has. `None` when the classes are missing.
+pub(super) fn read_gates() -> Option<Gates> {
+    // The classes exist once their frameworks are loaded.
+    avfoundation()?;
+    speech_framework()?;
+    objc2::rc::autoreleasepool(|_| unsafe {
+        let recognizer_cls = class("SFSpeechRecognizer")?;
+        let capture_cls = class("AVCaptureDevice")?;
+        let speech: isize = msg_send![recognizer_cls, authorizationStatus];
+        let microphone: isize =
+            msg_send![capture_cls, authorizationStatusForMediaType: nsstring(MEDIA_TYPE_AUDIO)];
+        Some(Gates {
+            speech: Access::from_speech(speech),
+            microphone: Access::from_capture(microphone),
+            speech_key: has_usage_key(authorization::SPEECH_KEY),
+            microphone_key: has_usage_key(authorization::MICROPHONE_KEY),
+            starter: None,
+        })
+    })
+}
+
+#[cfg(target_os = "macos")]
+extern "C" {
+    fn getppid() -> i32;
+    fn proc_pidpath(pid: i32, buffer: *mut c_void, buffersize: u32) -> i32;
+    fn proc_pidinfo(pid: i32, flavor: i32, arg: u64, buffer: *mut c_void, buffersize: i32) -> i32;
+}
+
+/// `PROC_PIDT_SHORTBSDINFO`: the flavor of `proc_pidinfo` that returns a `proc_bsdshortinfo`. The
+/// full `proc_bsdinfo` is refused for a process of another user (`login`, which a terminal starts
+/// the shell through, belongs to root); the short one is not.
+#[cfg(target_os = "macos")]
+const PROC_PIDT_SHORTBSDINFO: i32 = 13;
+/// `sizeof(struct proc_bsdshortinfo)`; its `pbsi_ppid` is the second `u32`.
+#[cfg(target_os = "macos")]
+const BSDINFO_SIZE: usize = 64;
+#[cfg(target_os = "macos")]
+const BSDINFO_PPID_AT: usize = 4;
+/// `PROC_PIDPATHINFO_MAXSIZE`.
+#[cfg(target_os = "macos")]
+const PATH_MAX_SIZE: usize = 4096;
+
+/// The app this program was started from: the nearest ancestor process whose executable lives in
+/// an app bundle (Terminal, iTerm, Xcode, an editor). The system holds that app responsible for
+/// a bare binary's permission requests. Best effort, for a message only: `None` when the chain
+/// cannot be read.
+#[cfg(target_os = "macos")]
+pub(super) fn starter_app() -> Option<String> {
+    let mut pid = unsafe { getppid() };
+    // A process tree is shallow; the bound only guards against a loop.
+    for _ in 0..32 {
+        if pid <= 1 {
+            return None;
+        }
+        let mut path = vec![0u8; PATH_MAX_SIZE];
+        let length = unsafe { proc_pidpath(pid, path.as_mut_ptr().cast(), PATH_MAX_SIZE as u32) };
+        if let Ok(length) = usize::try_from(length) {
+            path.truncate(length);
+            if let Some(name) = authorization::app_name_from_path(&String::from_utf8_lossy(&path)) {
+                return Some(name);
+            }
+        }
+        let mut info = [0u8; BSDINFO_SIZE];
+        let got = unsafe {
+            proc_pidinfo(pid, PROC_PIDT_SHORTBSDINFO, 0, info.as_mut_ptr().cast(), BSDINFO_SIZE as i32)
+        };
+        if usize::try_from(got).ok() != Some(BSDINFO_SIZE) {
+            return None;
+        }
+        let parent = i32::from_ne_bytes(info[BSDINFO_PPID_AT..BSDINFO_PPID_AT + 4].try_into().ok()?);
+        if parent == pid {
+            return None;
+        }
+        pid = parent;
+    }
+    None
+}
+
+/// iOS: an app is always a bundle, and the process list is not the app's to read.
+#[cfg(not(target_os = "macos"))]
+pub(super) fn starter_app() -> Option<String> {
+    None
+}
+
+/// Asks the system for the microphone (with its prompt, when it shows one) and waits for the
+/// answer: whether it was allowed, `None` when nobody answered in time.
+unsafe fn request_microphone() -> Option<bool> {
+    let capture_cls = class("AVCaptureDevice")?;
+    let answer: Arc<(Mutex<Option<bool>>, Condvar)> = Arc::new((Mutex::new(None), Condvar::new()));
+    let reply = Arc::clone(&answer);
+    let handler = RcBlock::new(move |granted: Bool| {
+        *reply.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(granted.as_bool());
+        reply.1.notify_all();
+    });
+    let _: () = unsafe {
+        msg_send![capture_cls, requestAccessForMediaType: nsstring(MEDIA_TYPE_AUDIO), completionHandler: &*handler]
+    };
+    let (lock, ready) = &*answer;
+    let guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
+    // The user may take a while with the prompt.
+    let (guard, _) = ready
+        .wait_timeout_while(guard, Duration::from_secs(120), |granted| granted.is_none())
+        .unwrap_or_else(PoisonError::into_inner);
+    let granted: Option<bool> = *guard;
+    granted
+}
+
+/// A refusal as the engine's answer.
+fn refused(why: Refusal, message: &str) -> SpeechHeard {
+    SpeechHeard::none(
+        match why {
+            Refusal::Denied => HeardStatus::Denied,
+            Refusal::Unavailable => HeardStatus::Unavailable,
+        },
+        message,
+    )
+}
+
 /// Listens for up to `timeout_ms` in `language` (a BCP 47 tag; empty for the system's).
 pub fn listen(language: &str, timeout_ms: u32) -> SpeechHeard {
-    for key in ["NSSpeechRecognitionUsageDescription", "NSMicrophoneUsageDescription"] {
-        if !has_usage_key(key) {
-            return SpeechHeard::none(
-                HeardStatus::Unavailable,
-                &format!(
-                    "the app's Info.plist has no {key}: the system would stop the app at the \
-                     first request. Run it from an app bundle that declares it."
-                ),
-            );
-        }
-    }
     if avfoundation().is_none() || speech_framework().is_none() {
         return SpeechHeard::none(HeardStatus::Unavailable, "the Speech framework is not on this system");
+    }
+    let Some(mut gates) = read_gates() else {
+        return SpeechHeard::none(HeardStatus::Unavailable, "the speech recognizer's classes are missing");
+    };
+    // The name of the app that is held responsible is only looked for when a message will say it.
+    if gates.speech != Access::Authorized || gates.microphone != Access::Authorized {
+        gates.starter = starter_app();
+    }
+    match authorization::decide(&gates) {
+        Decision::Listen => {}
+        Decision::Refuse { why, message } => return refused(why, &message),
+        Decision::Ask { speech, microphone } => {
+            if speech {
+                let Some(recognizer_cls) = class("SFSpeechRecognizer") else {
+                    return SpeechHeard::none(HeardStatus::Unavailable, "the speech recognizer's classes are missing");
+                };
+                match unsafe { authorization(recognizer_cls) } {
+                    AUTH_AUTHORIZED => {}
+                    AUTH_NOT_DETERMINED => {
+                        return SpeechHeard::none(HeardStatus::Denied, &authorization::declined(Gate::Speech, false, &gates));
+                    }
+                    _ => {
+                        return SpeechHeard::none(HeardStatus::Denied, &authorization::declined(Gate::Speech, true, &gates));
+                    }
+                }
+            }
+            if microphone {
+                match unsafe { request_microphone() } {
+                    Some(true) => {}
+                    Some(false) => {
+                        return SpeechHeard::none(HeardStatus::Denied, &authorization::declined(Gate::Microphone, true, &gates));
+                    }
+                    None => {
+                        return SpeechHeard::none(HeardStatus::Denied, &authorization::declined(Gate::Microphone, false, &gates));
+                    }
+                }
+            }
+        }
     }
     objc2::rc::autoreleasepool(|_| unsafe {
         listen_with_recognizer(language, Duration::from_millis(u64::from(timeout_ms)))
@@ -257,12 +414,11 @@ unsafe fn listen_with_recognizer(language: &str, timeout: Duration) -> SpeechHea
     ) else {
         return SpeechHeard::none(HeardStatus::Unavailable, "the speech recognizer's classes are missing");
     };
-    match unsafe { authorization(recognizer_cls) } {
-        AUTH_AUTHORIZED => {}
-        AUTH_NOT_DETERMINED => {
-            return SpeechHeard::none(HeardStatus::Denied, "speech recognition was not allowed (no answer to the prompt)");
-        }
-        _ => return SpeechHeard::none(HeardStatus::Denied, "speech recognition is not allowed for this app"),
+    // `listen` decided and asked already: this only keeps a permission that was taken away in
+    // the meantime from starting a recognizer that would fail.
+    let status: isize = unsafe { msg_send![recognizer_cls, authorizationStatus] };
+    if status != AUTH_AUTHORIZED {
+        return SpeechHeard::none(HeardStatus::Denied, "speech recognition is not allowed any more");
     }
 
     // The recognizer of the language; its answers on a queue of their own, so a caller on the
@@ -294,6 +450,17 @@ unsafe fn listen_with_recognizer(language: &str, timeout: Duration) -> SpeechHea
     let engine: *mut AnyObject = unsafe { msg_send![engine_cls, new] };
     let input: *mut AnyObject = unsafe { msg_send![engine, inputNode] };
     let format: *mut AnyObject = unsafe { msg_send![input, outputFormatForBus: 0usize] };
+    // A Mac without a microphone reports a format of zero Hz: a tap on it raises an exception.
+    let rate: f64 = if format.is_null() { 0.0 } else { unsafe { msg_send![format, sampleRate] } };
+    if !(rate > 0.0) {
+        unsafe {
+            release(engine);
+            release(request);
+            release(queue);
+            release(recognizer);
+        }
+        return SpeechHeard::none(HeardStatus::Unavailable, "there is no microphone to listen with");
+    }
     let request_ptr = request as usize;
     let tap = RcBlock::new(move |buffer: *mut AnyObject, _when: *mut AnyObject| {
         if !buffer.is_null() {

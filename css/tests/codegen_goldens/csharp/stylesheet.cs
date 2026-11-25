@@ -103,7 +103,7 @@ namespace AzulStyles
                                 NativeMethods.AzCssPathSelector_class(AzulCodegen.Str("title"))
                             ),
                         },
-                        declarations = AzulCodegen.Vec<AzCssDeclaration, AzCssDeclarationVec>(NativeMethods.AzCssDeclarationVec_copyFromPtr, NativeMethods.AzCssDeclaration_static(NativeMethods.AzCssProperty_fontWeight(StyleFontWeight.Bold))),
+                        declarations = AzulCodegen.Vec<AzCssDeclaration, AzCssDeclarationVec>(NativeMethods.AzCssDeclarationVec_copyFromPtr, NativeMethods.AzCssDeclaration_static(NativeMethods.AzCssProperty_fontWeight(NativeMethods.AzStyleFontWeight_number(NativeMethods.AzFloatValue_create(700.0f))))),
                         conditions = NativeMethods.AzDynamicSelectorVec_create(),
                         priority = 20,
                     },
@@ -117,7 +117,7 @@ namespace AzulStyles
                                 NativeMethods.AzCssPathSelector_pseudoSelector(NativeMethods.AzCssPathPseudoSelector_first())
                             ),
                         },
-                        declarations = AzulCodegen.Vec<AzCssDeclaration, AzCssDeclarationVec>(NativeMethods.AzCssDeclarationVec_copyFromPtr, NativeMethods.AzCssDeclaration_static(NativeMethods.AzCssProperty_fontStyle(StyleFontStyle.Italic))),
+                        declarations = AzulCodegen.Vec<AzCssDeclaration, AzCssDeclarationVec>(NativeMethods.AzCssDeclarationVec_copyFromPtr, NativeMethods.AzCssDeclaration_static(NativeMethods.AzCssProperty_fontStyle(NativeMethods.AzStyleFontStyle_italic()))),
                         conditions = NativeMethods.AzDynamicSelectorVec_create(),
                         priority = 20,
                     }

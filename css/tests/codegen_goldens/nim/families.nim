@@ -22,11 +22,21 @@ proc styleText*(): AzCssPropertyWithConditionsVec =
         ])
       )
     ),
-    AzCssPropertyWithConditions_simple(AzCssProperty_fontWeight(AzStyleFontWeight.W600)),
-    AzCssPropertyWithConditions_simple(AzCssProperty_fontStyle(AzStyleFontStyle.Italic)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontWeight(AzStyleFontWeight_number(AzFloatValue_create(600.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontStyle(AzStyleFontStyle_italic())),
     AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantNumeric(AzStyleFontVariantNumeric(lining_nums: false, oldstyle_nums: false, proportional_nums: false, tabular_nums: true, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false))),
     AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantCaps(AzStyleFontVariantCapsValue(Exact: AzStyleFontVariantCapsValueVariant_Exact(tag: 6, payload: AzStyleFontVariantCaps.SmallCaps)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_fontFeatureSettings(AzStyleFontFeatureSettingsValue(Exact: AzStyleFontFeatureSettingsValueVariant_Exact(tag: 6, payload: AzStyleFontFeatureSettings(inner: azStr("\"liga\" 0, \"tnum\"")))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontStretch(AzStyleFontStretchValue(Exact: AzStyleFontStretchValueVariant_Exact(tag: 6, payload: AzStyleFontStretch(inner: AzPercentageValue(number: AzFloatValue_create(87.5))))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontVariationSettings(AzStyleFontVariationSettingsValue(Exact: AzStyleFontVariationSettingsValueVariant_Exact(tag: 6, payload: AzStyleFontVariationSettings(inner: azStr("\"wght\" 650, \"wdth\" 87.5")))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontOpticalSizing(AzStyleFontOpticalSizingValue(Exact: AzStyleFontOpticalSizingValueVariant_Exact(tag: 6, payload: AzStyleFontOpticalSizing.None)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontKerning(AzStyleFontKerningValue(Exact: AzStyleFontKerningValueVariant_Exact(tag: 6, payload: AzStyleFontKerning.None)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantLigatures(AzStyleFontVariantLigaturesValue(Exact: AzStyleFontVariantLigaturesValueVariant_Exact(tag: 6, payload: AzStyleFontVariantLigatures(common: AzStyleFontLigatureChoice.Off, discretionary: AzStyleFontLigatureChoice.On, historical: AzStyleFontLigatureChoice.Unset, contextual: AzStyleFontLigatureChoice.Unset))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantEastAsian(AzStyleFontVariantEastAsianValue(Exact: AzStyleFontVariantEastAsianValueVariant_Exact(tag: 6, payload: AzStyleFontVariantEastAsian(jis78: true, jis83: false, jis90: false, jis04: false, simplified: false, traditional: false, full_width: true, proportional_width: false, ruby: true))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontSynthesisWeight(AzStyleFontSynthesisValue(Exact: AzStyleFontSynthesisValueVariant_Exact(tag: 6, payload: AzStyleFontSynthesis.None)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontSynthesisStyle(AzStyleFontSynthesisValue(Exact: AzStyleFontSynthesisValueVariant_Exact(tag: 6, payload: AzStyleFontSynthesis.None)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontSynthesisSmallCaps(AzStyleFontSynthesisValue(Exact: AzStyleFontSynthesisValueVariant_Exact(tag: 6, payload: AzStyleFontSynthesis.Auto)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontSynthesisPosition(AzStyleFontSynthesisValue(Exact: AzStyleFontSynthesisValueVariant_Exact(tag: 6, payload: AzStyleFontSynthesis.None)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_textAlign(AzStyleTextAlign.Center)),
     AzCssPropertyWithConditions_simple(AzCssProperty_textJustify(AzLayoutTextJustify.InterWord)),
     AzCssPropertyWithConditions_simple(AzCssProperty_verticalAlign(AzStyleVerticalAlign_middle())),
@@ -68,14 +78,45 @@ proc styleText*(): AzCssPropertyWithConditionsVec =
     AzCssPropertyWithConditions_simple(AzCssProperty_selectionBackgroundColor(AzSelectionBackgroundColor(inner: AzColorU(r: 51'u8, g: 153'u8, b: 255'u8, a: 255'u8)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_selectionColor(AzSelectionColor(inner: AzColorU(r: 255'u8, g: 255'u8, b: 255'u8, a: 255'u8)))),
     AzCssPropertyWithConditions_simple(AzCssProperty_selectionRadius(AzSelectionRadiusValue(Exact: AzSelectionRadiusValueVariant_Exact(tag: 6, payload: AzSelectionRadius(inner: AzPixelValue_px(3.0)))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_font(azVec(AzStyleFontFamilyVec_copyFromPtr, [AzStyleFontFamily_system(azStr("caption"))]))),
+  ])
+
+# CSS: .shorthands
+proc styleShorthands*(): AzCssPropertyWithConditionsVec =
+  azVec(AzCssPropertyWithConditionsVec_copyFromPtr, [
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontStyle(AzStyleFontStyle_italic())),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantCaps(AzStyleFontVariantCapsValue(Exact: AzStyleFontVariantCapsValueVariant_Exact(tag: 6, payload: AzStyleFontVariantCaps.SmallCaps)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontWeight(AzStyleFontWeight_number(AzFloatValue_create(350.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontStretch(AzStyleFontStretchValue(Exact: AzStyleFontStretchValueVariant_Exact(tag: 6, payload: AzStyleFontStretch(inner: AzPercentageValue(number: AzFloatValue_create(75.0))))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontSize(AzStyleFontSize(inner: AzPixelValue_px(14.0)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_lineHeight(AzStyleLineHeight_number(AzFloatValue_create(1.5)))),
     AzCssPropertyWithConditions_simple(
-      AzCssProperty_font(
+      AzCssProperty_fontFamily(
         azVec(AzStyleFontFamilyVec_copyFromPtr, [
           AzStyleFontFamily_system(azStr("Georgia")),
           AzStyleFontFamily_system(azStr("serif")),
         ])
       )
     ),
+    AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType.FontVariantNumeric)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType.FontVariantLigatures)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType.FontVariantEastAsian)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType.FontKerning)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType.FontOpticalSizing)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType.FontVariationSettings)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType.FontFeatureSettings)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType.FontSynthesisWeight)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType.FontSynthesisStyle)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType.FontSynthesisSmallCaps)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType.FontSynthesisPosition)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantNumeric(AzStyleFontVariantNumeric(lining_nums: false, oldstyle_nums: true, proportional_nums: false, tabular_nums: false, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantCaps(AzStyleFontVariantCapsValue(Exact: AzStyleFontVariantCapsValueVariant_Exact(tag: 6, payload: AzStyleFontVariantCaps.Normal)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantLigatures(AzStyleFontVariantLigaturesValue(Exact: AzStyleFontVariantLigaturesValueVariant_Exact(tag: 6, payload: AzStyleFontVariantLigatures(common: AzStyleFontLigatureChoice.Unset, discretionary: AzStyleFontLigatureChoice.Unset, historical: AzStyleFontLigatureChoice.Unset, contextual: AzStyleFontLigatureChoice.Unset))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantEastAsian(AzStyleFontVariantEastAsianValue(Exact: AzStyleFontVariantEastAsianValueVariant_Exact(tag: 6, payload: AzStyleFontVariantEastAsian(jis78: true, jis83: false, jis90: false, jis04: false, simplified: false, traditional: false, full_width: false, proportional_width: false, ruby: false))))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontSynthesisWeight(AzStyleFontSynthesisValue(Exact: AzStyleFontSynthesisValueVariant_Exact(tag: 6, payload: AzStyleFontSynthesis.Auto)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontSynthesisStyle(AzStyleFontSynthesisValue(Exact: AzStyleFontSynthesisValueVariant_Exact(tag: 6, payload: AzStyleFontSynthesis.Auto)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontSynthesisSmallCaps(AzStyleFontSynthesisValue(Exact: AzStyleFontSynthesisValueVariant_Exact(tag: 6, payload: AzStyleFontSynthesis.None)))),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontSynthesisPosition(AzStyleFontSynthesisValue(Exact: AzStyleFontSynthesisValueVariant_Exact(tag: 6, payload: AzStyleFontSynthesis.None)))),
   ])
 
 # CSS: .box

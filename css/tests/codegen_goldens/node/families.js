@@ -16,11 +16,21 @@ function styleText() {
                 ], 2)
             )
         ),
-        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontWeight(azul.StyleFontWeight.W600)),
-        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontStyle(azul.StyleFontStyle.Italic)),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontWeight(lib.AzStyleFontWeight_number(lib.AzFloatValue_create(600.0)))),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontStyle(lib.AzStyleFontStyle_italic())),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontVariantNumeric({ lining_nums: false, oldstyle_nums: false, proportional_nums: false, tabular_nums: true, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontVariantCaps({ Exact: { tag: 6, payload: azul.StyleFontVariantCaps.SmallCaps } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontFeatureSettings({ Exact: { tag: 6, payload: { inner: azul._azString("\"liga\" 0, \"tnum\"") } } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontStretch({ Exact: { tag: 6, payload: { inner: { number: lib.AzFloatValue_create(87.5) } } } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontVariationSettings({ Exact: { tag: 6, payload: { inner: azul._azString("\"wght\" 650, \"wdth\" 87.5") } } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontOpticalSizing({ Exact: { tag: 6, payload: azul.StyleFontOpticalSizing.None } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontKerning({ Exact: { tag: 6, payload: azul.StyleFontKerning.None } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontVariantLigatures({ Exact: { tag: 6, payload: { common: azul.StyleFontLigatureChoice.Off, discretionary: azul.StyleFontLigatureChoice.On, historical: azul.StyleFontLigatureChoice.Unset, contextual: azul.StyleFontLigatureChoice.Unset } } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontVariantEastAsian({ Exact: { tag: 6, payload: { jis78: true, jis83: false, jis90: false, jis04: false, simplified: false, traditional: false, full_width: true, proportional_width: false, ruby: true } } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontSynthesisWeight({ Exact: { tag: 6, payload: azul.StyleFontSynthesis.None } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontSynthesisStyle({ Exact: { tag: 6, payload: azul.StyleFontSynthesis.None } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontSynthesisSmallCaps({ Exact: { tag: 6, payload: azul.StyleFontSynthesis.Auto } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontSynthesisPosition({ Exact: { tag: 6, payload: azul.StyleFontSynthesis.None } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_textAlign(azul.StyleTextAlign.Center)),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_textJustify(azul.LayoutTextJustify.InterWord)),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_verticalAlign(lib.AzStyleVerticalAlign_middle())),
@@ -62,15 +72,47 @@ function styleText() {
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_selectionBackgroundColor({ inner: { r: 51, g: 153, b: 255, a: 255 } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_selectionColor({ inner: { r: 255, g: 255, b: 255, a: 255 } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_selectionRadius({ Exact: { tag: 6, payload: { inner: lib.AzPixelValue_px(3.0) } } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_font(lib.AzStyleFontFamilyVec_copyFromPtr([lib.AzStyleFontFamily_system(azul._azString("caption"))], 1))),
+    ], 60));
+}
+
+// CSS: .shorthands
+function styleShorthands() {
+    return new azul.CssPropertyWithConditionsVec(lib.AzCssPropertyWithConditionsVec_copyFromPtr([
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontStyle(lib.AzStyleFontStyle_italic())),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontVariantCaps({ Exact: { tag: 6, payload: azul.StyleFontVariantCaps.SmallCaps } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontWeight(lib.AzStyleFontWeight_number(lib.AzFloatValue_create(350.0)))),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontStretch({ Exact: { tag: 6, payload: { inner: { number: lib.AzFloatValue_create(75.0) } } } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontSize({ inner: lib.AzPixelValue_px(14.0) })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_lineHeight(lib.AzStyleLineHeight_number(lib.AzFloatValue_create(1.5)))),
         lib.AzCssPropertyWithConditions_simple(
-            lib.AzCssProperty_font(
+            lib.AzCssProperty_fontFamily(
                 lib.AzStyleFontFamilyVec_copyFromPtr([
                     lib.AzStyleFontFamily_system(azul._azString("Georgia")),
                     lib.AzStyleFontFamily_system(azul._azString("serif")),
                 ], 2)
             )
         ),
-    ], 50));
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_initial(azul.CssPropertyType.FontVariantNumeric)),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_initial(azul.CssPropertyType.FontVariantLigatures)),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_initial(azul.CssPropertyType.FontVariantEastAsian)),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_initial(azul.CssPropertyType.FontKerning)),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_initial(azul.CssPropertyType.FontOpticalSizing)),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_initial(azul.CssPropertyType.FontVariationSettings)),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_initial(azul.CssPropertyType.FontFeatureSettings)),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_initial(azul.CssPropertyType.FontSynthesisWeight)),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_initial(azul.CssPropertyType.FontSynthesisStyle)),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_initial(azul.CssPropertyType.FontSynthesisSmallCaps)),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_initial(azul.CssPropertyType.FontSynthesisPosition)),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontVariantNumeric({ lining_nums: false, oldstyle_nums: true, proportional_nums: false, tabular_nums: false, diagonal_fractions: false, stacked_fractions: false, ordinal: false, slashed_zero: false })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontVariantCaps({ Exact: { tag: 6, payload: azul.StyleFontVariantCaps.Normal } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontVariantLigatures({ Exact: { tag: 6, payload: { common: azul.StyleFontLigatureChoice.Unset, discretionary: azul.StyleFontLigatureChoice.Unset, historical: azul.StyleFontLigatureChoice.Unset, contextual: azul.StyleFontLigatureChoice.Unset } } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontVariantEastAsian({ Exact: { tag: 6, payload: { jis78: true, jis83: false, jis90: false, jis04: false, simplified: false, traditional: false, full_width: false, proportional_width: false, ruby: false } } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontSynthesisWeight({ Exact: { tag: 6, payload: azul.StyleFontSynthesis.Auto } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontSynthesisStyle({ Exact: { tag: 6, payload: azul.StyleFontSynthesis.Auto } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontSynthesisSmallCaps({ Exact: { tag: 6, payload: azul.StyleFontSynthesis.None } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontSynthesisPosition({ Exact: { tag: 6, payload: azul.StyleFontSynthesis.None } })),
+    ], 26));
 }
 
 // CSS: .box
@@ -352,4 +394,4 @@ function styleAnim() {
     ], 3));
 }
 
-module.exports = { styleText, styleBox, styleFlex, styleGrid, styleBorders, styleScroll, styleEffects, styleFragment, styleFlowContent, styleExclusion, styleShape, styleTable, styleContent, styleAnim };
+module.exports = { styleText, styleShorthands, styleBox, styleFlex, styleGrid, styleBorders, styleScroll, styleEffects, styleFragment, styleFlowContent, styleExclusion, styleShape, styleTable, styleContent, styleAnim };
