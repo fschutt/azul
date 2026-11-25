@@ -153,6 +153,37 @@ fn the_settings_are_sorted_one_per_tag_and_the_last_wins() {
     assert_ne!(a, more);
 }
 
+/// A list of settings is bounded: a hostile stylesheet that names a hundred thousand tags costs
+/// a bounded amount of work and holds a bounded number of entries; the tags written first stay,
+/// and a later value of a kept tag still wins.
+#[test]
+fn the_settings_of_a_request_are_bounded() {
+    let tag = |n: u32| -> FourCc {
+        let digit = |shift: u32| b'A' + u8::try_from((n >> shift) & 15).expect("a nibble");
+        [digit(12), digit(8), digit(4), digit(0)]
+    };
+    let many: Vec<(FourCc, f32)> = (0..100_000_u32).map(|n| (tag(n % 4096), n as f32)).collect();
+    let started = std::time::Instant::now();
+    let request = FontRequest::default().with_settings(&many);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(5),
+        "a long list takes {:?}",
+        started.elapsed()
+    );
+    let kept = request.settings.as_deref().expect("some settings");
+    assert_eq!(kept.len(), FontRequest::MAX_SETTINGS);
+    // the first tags written are the ones kept: 0 .. 64 (a later value of one of them wins)
+    assert!(kept.iter().all(|(known, _)| (0..64_u32).any(|n| tag(n) == *known)));
+    assert!(request.setting(tag(0)).is_some());
+    assert!(request.setting(tag(64)).is_none(), "the 65th distinct tag is dropped");
+    let last_of_tag_zero = (0..100_000_u32).filter(|n| n % 4096 == 0).last().expect("some") as f32;
+    assert_eq!(
+        request.setting(tag(0)).map(FontCoord::to_f32),
+        Some(FontCoord::from_f32(last_of_tag_zero).to_f32()),
+        "a later value of a kept tag wins"
+    );
+}
+
 /// What makes two requests two keys: every coordinate, and the settings.
 #[test]
 fn requests_that_differ_in_one_coordinate_are_two_keys() {

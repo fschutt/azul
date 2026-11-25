@@ -117,6 +117,13 @@ impl FontRequest {
     /// The angle of a bare `oblique`, in degrees (CSS Fonts 4, 2.3).
     pub const BARE_OBLIQUE_DEGREES: f32 = 14.0;
 
+    /// The most axes a request sets explicitly. A font has a handful of axes (the widest in use
+    /// has a dozen) and a setting for a tag the face lacks is ignored, so a stylesheet that
+    /// names more than this many distinct tags says nothing a face could use: the tags written
+    /// first are kept, a later value of a kept tag still wins, the rest are dropped. It bounds
+    /// the work of a hostile list, which would otherwise be quadratic.
+    pub const MAX_SETTINGS: usize = 64;
+
     /// The bucket of the weight, the weight rust-fontconfig ranks the static files of a family
     /// by. A static face is chosen by it alone; a variable one is drawn at the exact weight.
     #[must_use]
@@ -215,15 +222,18 @@ impl FontRequest {
     }
 
     /// This request with the explicit settings `settings` of `font-variation-settings`: sorted
-    /// by tag, a tag written twice keeps its last value, none at all is `normal`.
+    /// by tag, a tag written twice keeps its last value, none at all is `normal`, and no more
+    /// than [`Self::MAX_SETTINGS`] distinct tags are kept.
     #[must_use]
     pub fn with_settings(mut self, settings: &[(FourCc, f32)]) -> Self {
-        let mut sorted: Vec<(FourCc, FontCoord)> = Vec::with_capacity(settings.len());
+        let mut sorted: Vec<(FourCc, FontCoord)> =
+            Vec::with_capacity(settings.len().min(Self::MAX_SETTINGS));
         for (tag, value) in settings {
             let value = FontCoord::from_f32(*value);
             match sorted.iter_mut().find(|(known, _)| known == tag) {
                 Some(slot) => slot.1 = value,
-                None => sorted.push((*tag, value)),
+                None if sorted.len() < Self::MAX_SETTINGS => sorted.push((*tag, value)),
+                None => {}
             }
         }
         sorted.sort_by_key(|(tag, _)| *tag);
