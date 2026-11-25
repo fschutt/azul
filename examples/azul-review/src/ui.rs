@@ -681,7 +681,10 @@ fn sheet(s: &AppState, data: &RefAny) -> Dom {
     );
     if s.file().is_none() {
         // No file open: none to review under the folder, or none picked yet.
-        let says = if s.files.is_empty() {
+        let says = if s.root.as_os_str().is_empty() {
+            // No folder at all (an app started from the Finder): nothing to look under yet.
+            AzString::from(t("azreview-no-folder"))
+        } else if s.files.is_empty() {
             AzString::from(t_args(
                 "azreview-no-files",
                 &[("folder", Arg::from(s.root.display().to_string()))],
@@ -1203,3 +1206,7 @@ mod tests {
         assert!(events.contains(&EventFilter::Hover(HoverEventFilter::ScrollEnd)), "{events:?}");
     }
 }
+
+#[cfg(test)]
+#[path = "ui_test.rs"]
+mod ui_test;

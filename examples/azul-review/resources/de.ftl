@@ -85,3 +85,4 @@ azreview-shortcut-open-folder = Einen anderen Ordner zum Prüfen öffnen
 azreview-shortcut-undo = Den letzten Strich oder das letzte Radieren zurücknehmen (Mod+Umschalt+Z holt es zurück)
 azreview-ink-surface = Zeichenfläche der Seite { $n }
 azreview-recording-level = Aufnahmepegel
+azreview-no-folder = Wähle einen Ordner zum Prüfen.

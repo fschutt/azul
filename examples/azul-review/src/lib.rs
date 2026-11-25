@@ -476,7 +476,7 @@ pub fn run() {
         values.get(switches::KEY_FOLDER).map(String::as_str),
         remember,
         Path::is_dir,
-        std::env::current_dir().unwrap_or_default(),
+        switches::usable_cwd(std::env::current_dir().unwrap_or_default()),
     );
     let files = code::load_tree(&root, 400);
     if let Some(first) = files.first() {

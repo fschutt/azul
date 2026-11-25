@@ -137,6 +137,17 @@ pub fn resolve(values: &BTreeMap<String, String>, sw: &Switches) -> Resolved {
     }
 }
 
+/// The current folder as a folder to review: a filesystem root is none (an app started from the Finder has
+/// `/` as its folder, and a walk of the whole disk is no review), which is the empty path.
+#[must_use]
+pub fn usable_cwd(cwd: PathBuf) -> PathBuf {
+    if cwd.parent().is_none() {
+        PathBuf::new()
+    } else {
+        cwd
+    }
+}
+
 /// The folder to review: the one named on the command line; else the one reviewed last, when it is
 /// still a folder and this run may take it (an app started from the Finder has the root of the disk as
 /// its folder; a fixture run never takes what the user did); else the current folder.

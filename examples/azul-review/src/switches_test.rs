@@ -130,3 +130,14 @@ fn an_empty_remembered_folder_is_no_folder() {
     assert_eq!(root, PathBuf::from("/cwd"));
     assert_eq!(pick_root(None, None, true, |_| true, PathBuf::from("/cwd")), PathBuf::from("/cwd"));
 }
+
+#[test]
+fn a_filesystem_root_is_no_folder_to_review() {
+    // An app started from the Finder has `/` as its folder: a walk of the whole disk is no review.
+    assert_eq!(usable_cwd(PathBuf::from("/")), PathBuf::new());
+    assert_eq!(usable_cwd(PathBuf::new()), PathBuf::new());
+    assert_eq!(usable_cwd(PathBuf::from("/Users/someone/code")), PathBuf::from("/Users/someone/code"));
+    // With none to fall back on, the folder reviewed last still wins over it.
+    let root = pick_root(None, Some("/last"), true, is_dir_of(&["/last"]), usable_cwd(PathBuf::from("/")));
+    assert_eq!(root, PathBuf::from("/last"));
+}
