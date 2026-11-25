@@ -1860,3 +1860,90 @@ fn font_rejects_what_is_not_a_size_and_a_family() {
         assert!(expand("font", bad).is_err(), "`font: {bad}` is no value");
     }
 }
+
+// ---- hostile input -------------------------------------------------------------------------------
+
+/// Text of a couple of hundred kilobytes in each of the shapes a hostile value takes: a run of
+/// words, of separators, of quotes, of brackets, of digits, and the tokens of the font grammars
+/// repeated (axes, sizes, angles, ligatures, East Asian forms, families, synthesis keywords).
+#[cfg(feature = "parser")]
+fn hostile_texts() -> Vec<(&'static str, String)> {
+    vec![
+        ("words", "a ".repeat(100_000)),
+        ("normal", "normal ".repeat(30_000)),
+        ("commas", "1,".repeat(100_000)),
+        ("brackets", "(".repeat(5_000)),
+        ("quotes", "\"".repeat(200_000)),
+        ("digits", "9".repeat(200_000)),
+        ("fraction", format!("0.{}", "0".repeat(200_000))),
+        ("axes", "\"wght\" 1, ".repeat(20_000)),
+        ("sizes", "12px/1.5 ".repeat(20_000)),
+        ("angles", "oblique 10deg ".repeat(15_000)),
+        ("ligatures", "common-ligatures ".repeat(12_000)),
+        ("east asian", "jis78 ".repeat(30_000)),
+        ("families", format!("12px {}", "\"Fam\", ".repeat(20_000))),
+        ("synthesis", "weight style ".repeat(15_000)),
+    ]
+}
+
+/// Every font property, and the three shorthands that set them, read a hostile value of a couple
+/// of hundred kilobytes without a panic and in time proportional to its length: a value that is
+/// read in a scan of itself for each of its parts is a hang (a hundred thousand parts are ten
+/// billion steps). The slowest read is named when it is too slow.
+#[cfg(feature = "parser")]
+#[test]
+fn every_font_property_reads_hostile_text_of_a_couple_hundred_kilobytes_in_bounded_time() {
+    use std::time::{Duration, Instant};
+    use CssPropertyType as P;
+
+    let longhands = [
+        P::FontFamily,
+        P::FontSize,
+        P::FontWeight,
+        P::FontStyle,
+        P::FontStretch,
+        P::FontVariationSettings,
+        P::FontOpticalSizing,
+        P::FontKerning,
+        P::FontVariantCaps,
+        P::FontVariantNumeric,
+        P::FontVariantLigatures,
+        P::FontVariantEastAsian,
+        P::FontFeatureSettings,
+        P::FontSynthesisWeight,
+        P::FontSynthesisStyle,
+        P::FontSynthesisSmallCaps,
+        P::FontSynthesisPosition,
+        P::LineHeight,
+    ];
+    let shorthands = [
+        CombinedCssPropertyType::Font,
+        CombinedCssPropertyType::FontVariant,
+        CombinedCssPropertyType::FontSynthesis,
+    ];
+
+    let mut slowest = (Duration::ZERO, String::new());
+    let mut note = |elapsed: Duration, what: String| {
+        if elapsed > slowest.0 {
+            slowest = (elapsed, what);
+        }
+    };
+    for (shape, text) in hostile_texts() {
+        for ty in longhands {
+            let start = Instant::now();
+            let _ = parse_css_property(ty, &text);
+            note(start.elapsed(), format!("{} of {shape}", ty.to_str()));
+        }
+        for key in shorthands {
+            let start = Instant::now();
+            let _ = parse_combined_css_property(key, &text);
+            note(start.elapsed(), format!("{key:?} of {shape}"));
+        }
+    }
+    assert!(
+        slowest.0 < Duration::from_secs(2),
+        "the slowest read took {:?}: {}",
+        slowest.0,
+        slowest.1
+    );
+}
