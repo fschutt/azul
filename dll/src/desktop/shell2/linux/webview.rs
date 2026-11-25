@@ -51,7 +51,12 @@ use super::{
     wpe,
     wpe_thread::{self, Command, Mail, Mailbox},
 };
-use crate::desktop::shell2::common::{webview::WebViewBackend, DlError};
+use std::ffi::CString;
+
+use crate::desktop::{
+    platform_settings::PlatformEnv,
+    shell2::common::{webview::WebViewBackend, DlError},
+};
 
 /// `wl_shm` format `ARGB8888`: B, G, R, A in memory, premultiplied.
 pub const SHM_FORMAT_ARGB8888: u32 = 0;
@@ -191,17 +196,21 @@ pub struct WpeWebViews {
     scale: f32,
     /// The thread knows this window's scale.
     scale_sent: bool,
+    /// The app's persistent web data and cache directories, handed to the thread when this
+    /// window is the first to start it.
+    directories: (CString, CString),
 }
 
 impl WpeWebViews {
     /// The backend of a window drawn at `scale` device pixels per logical
     /// one. Loads nothing: WPE `WebKit` is loaded by the first `create`.
     #[must_use]
-    pub fn new(scale: f32) -> Self {
+    pub fn new(scale: f32, env: &PlatformEnv) -> Self {
         Self {
             mailbox: Mailbox::default(),
             scale,
             scale_sent: false,
+            directories: wpe_thread::persistent_directories(env),
         }
     }
 
@@ -227,7 +236,7 @@ impl WpeWebViews {
 impl WebViewBackend for WpeWebViews {
     fn create(&mut self, id: WebViewId, config: WebViewConfig, src: &str) -> Result<(), String> {
         wpe::wpe().map_err(|e| unavailable_reason(&e))?;
-        wpe_thread::start()?;
+        wpe_thread::start(self.directories.clone())?;
         if !self.scale_sent {
             self.scale_sent = true;
             wpe_thread::send(&self.mailbox, Command::Scale(self.scale));

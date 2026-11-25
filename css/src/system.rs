@@ -93,21 +93,6 @@ pub fn ricing_mode_from(value: Option<&str>) -> RicingMode {
     }
 }
 
-/// Read the `AZ_RICING` env var and classify it ([`ricing_mode_from`]).
-#[cfg(feature = "std")]
-#[must_use]
-pub fn ricing_mode() -> RicingMode {
-    ricing_mode_from(std::env::var("AZ_RICING").ok().as_deref())
-}
-
-/// True when the rice (`crate::rice`) should be read. False only when
-/// `AZ_RICING=off` is set.
-#[cfg(feature = "std")]
-#[must_use]
-pub fn ricing_enabled() -> bool {
-    !matches!(ricing_mode(), RicingMode::Off)
-}
-
 /// Force a freshly discovered [`SystemStyle`] to the polarity `AZ_MODE`
 /// pins (or the deprecated `AZ_THEME=light|dark`), swapping in `light` /
 /// `dark` as the replacement palette.
@@ -2667,15 +2652,21 @@ impl SystemStyle {
     }
 }
 
-/// Detect the Linux desktop environment from environment variables.
+/// Detect the Linux desktop environment from the environment `env`
+/// ([`SystemEnv::from_lookup`], then [`desktop_env_of`]).
 ///
 /// Checks `XDG_CURRENT_DESKTOP`, `DESKTOP_SESSION`, and specific env markers
 /// to identify GNOME, KDE, XFCE, Cinnamon, MATE, Hyprland, Sway, i3, etc.
-#[cfg(feature = "std")]
 #[must_use]
-pub fn detect_linux_desktop_env() -> DesktopEnvironment {
+pub fn detect_linux_desktop_env(env: &dyn crate::env::EnvSource) -> DesktopEnvironment {
+    desktop_env_of(&crate::settings::SystemEnv::from_lookup(env))
+}
+
+/// The desktop environment `sys` describes: the pure half of [`detect_linux_desktop_env`].
+#[must_use]
+pub fn desktop_env_of(sys: &crate::settings::SystemEnv) -> DesktopEnvironment {
     // Check XDG_CURRENT_DESKTOP first (most reliable)
-    if let Ok(desktop) = std::env::var("XDG_CURRENT_DESKTOP") {
+    if let Some(desktop) = sys.current_desktop.clone() {
         let desktop_lower = desktop.to_lowercase();
         if desktop_lower.contains("gnome") {
             return DesktopEnvironment::Gnome;
@@ -2720,7 +2711,7 @@ pub fn detect_linux_desktop_env() -> DesktopEnvironment {
     }
 
     // Check DESKTOP_SESSION as fallback
-    if let Ok(session) = std::env::var("DESKTOP_SESSION") {
+    if let Some(session) = sys.desktop_session.clone() {
         let session_lower = session.to_lowercase();
         if session_lower.contains("gnome") {
             return DesktopEnvironment::Gnome;
@@ -2738,19 +2729,19 @@ pub fn detect_linux_desktop_env() -> DesktopEnvironment {
     }
 
     // Check for specific environment markers
-    if std::env::var("GNOME_DESKTOP_SESSION_ID").is_ok() {
+    if sys.gnome_session {
         return DesktopEnvironment::Gnome;
     }
-    if std::env::var("KDE_FULL_SESSION").is_ok() {
+    if sys.kde_session {
         return DesktopEnvironment::Kde;
     }
-    if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
+    if sys.hyprland {
         return DesktopEnvironment::Other(AzString::from_const_str("Hyprland"));
     }
-    if std::env::var("SWAYSOCK").is_ok() {
+    if sys.sway {
         return DesktopEnvironment::Other(AzString::from_const_str("Sway"));
     }
-    if std::env::var("I3SOCK").is_ok() {
+    if sys.i3 {
         return DesktopEnvironment::Other(AzString::from_const_str("i3"));
     }
 
@@ -2759,30 +2750,32 @@ pub fn detect_linux_desktop_env() -> DesktopEnvironment {
 
 /// Detect the system language as a BCP 47 tag.
 ///
-/// Checks `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, and `LANG` in priority order.
-/// Returns `"en-US"` if detection fails. For runtime detection via native
-/// OS APIs, the platform discovery in `azul-dll` overrides this.
-#[cfg(feature = "std")]
+/// Checks `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, and `LANG` of the environment `env`
+/// in priority order. Returns `"en-US"` if detection fails. For runtime detection
+/// via native OS APIs, the platform discovery in `azul-dll` overrides this.
 #[must_use]
-pub fn detect_system_language() -> AzString {
-    let env_vars = ["LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"];
-    for var in &env_vars {
-        if let Ok(value) = std::env::var(var) {
-            let value = value.trim();
-            if value.is_empty() || value == "C" || value == "POSIX" {
-                continue;
-            }
-            // Parse locale format: "de_DE.UTF-8" or "de_DE" or "de"
-            let lang = value
-                .split('.')  // Remove .UTF-8 suffix
-                .next()
-                .unwrap_or(value)
-                .split(':')  // LANGUAGE can be "de:en_US:en"
-                .next()
-                .unwrap_or(value);
-            if !lang.is_empty() {
-                return AzString::from(lang.replace('_', "-"));
-            }
+pub fn detect_system_language(env: &dyn crate::env::EnvSource) -> AzString {
+    system_language_of(&crate::settings::SystemEnv::from_lookup(env))
+}
+
+/// The language `sys` describes: the pure half of [`detect_system_language`].
+#[must_use]
+pub fn system_language_of(sys: &crate::settings::SystemEnv) -> AzString {
+    for value in &sys.languages {
+        let value = value.trim();
+        if value.is_empty() || value == "C" || value == "POSIX" {
+            continue;
+        }
+        // Parse locale format: "de_DE.UTF-8" or "de_DE" or "de"
+        let lang = value
+            .split('.') // Remove .UTF-8 suffix
+            .next()
+            .unwrap_or(value)
+            .split(':') // LANGUAGE can be "de:en_US:en"
+            .next()
+            .unwrap_or(value);
+        if !lang.is_empty() {
+            return AzString::from(lang.replace('_', "-"));
         }
     }
     AzString::from_const_str("en-US")
@@ -4734,58 +4727,87 @@ mod autotest_generated {
 
     // ── AZ_RICING / environment probes ───────────────────────────────────
     //
-    // These functions read process-global environment variables. The tests
-    // below deliberately do NOT mutate the environment (`set_var` races with
-    // every other test thread in the same binary), so they assert the
-    // invariants that must hold for *any* ambient environment.
+    // The probes take the environment they read as a value ([`crate::env::EnvSource`]); no test
+    // here touches the process's.
+
+    use crate::env::{MapEnv, NoEnv};
 
     #[test]
-    fn ricing_mode_is_deterministic_and_total() {
-        let mode = ricing_mode();
-        assert_eq!(mode, ricing_mode(), "ricing_mode() is not deterministic");
-        assert!(
-            matches!(
-                mode,
-                RicingMode::Off | RicingMode::Default | RicingMode::Force | RicingMode::Watch
-            ),
-            "{mode:?}"
-        );
+    fn ricing_mode_of_an_empty_environment_is_the_default_and_the_variable_is_read() {
+        assert_eq!(RicingMode::from_lookup(&NoEnv), RicingMode::Default);
         assert_eq!(RicingMode::default(), RicingMode::Default);
-    }
-
-    #[test]
-    fn ricing_enabled_is_the_inverse_of_off() {
-        assert_eq!(ricing_enabled(), ricing_mode() != RicingMode::Off);
-        assert_eq!(ricing_enabled(), ricing_enabled());
-    }
-
-    #[test]
-    fn detect_linux_desktop_env_is_deterministic() {
-        let a = detect_linux_desktop_env();
-        assert_eq!(a, detect_linux_desktop_env());
-
-        // Unless the ambient env explicitly sets an *empty* desktop string
-        // (which the function forwards verbatim), the `Other` label is either
-        // a const name or the non-empty env value.
-        let blank_env = |k: &str| std::env::var(k).map(|v| v.is_empty()).unwrap_or(false);
-        if !blank_env("XDG_CURRENT_DESKTOP") && !blank_env("DESKTOP_SESSION") {
-            if let DesktopEnvironment::Other(ref name) = a {
-                assert!(!name.as_str().is_empty(), "empty desktop-environment label");
-            }
+        for (value, want) in [
+            ("off", RicingMode::Off),
+            ("Disabled", RicingMode::Off),
+            ("force", RicingMode::Force),
+            ("watch", RicingMode::Watch),
+            ("typo", RicingMode::Default),
+            ("", RicingMode::Default),
+        ] {
+            let env = MapEnv::new().with("AZ_RICING", value);
+            assert_eq!(RicingMode::from_lookup(&env), want, "{value:?}");
         }
     }
 
     #[test]
+    fn detect_linux_desktop_env_reads_the_desktop_in_its_order() {
+        let desktop = |pairs: &[(&str, &str)]| {
+            let mut env = MapEnv::new();
+            for (k, v) in pairs {
+                env.set(k, v);
+            }
+            detect_linux_desktop_env(&env)
+        };
+        assert_eq!(
+            desktop(&[]),
+            DesktopEnvironment::Other(AzString::from_const_str("Unknown"))
+        );
+        assert_eq!(
+            desktop(&[("XDG_CURRENT_DESKTOP", "ubuntu:GNOME")]),
+            DesktopEnvironment::Gnome
+        );
+        assert_eq!(
+            desktop(&[("XDG_CURRENT_DESKTOP", "KDE"), ("DESKTOP_SESSION", "gnome")]),
+            DesktopEnvironment::Kde,
+            "XDG_CURRENT_DESKTOP wins over DESKTOP_SESSION"
+        );
+        assert_eq!(
+            desktop(&[("DESKTOP_SESSION", "plasma")]),
+            DesktopEnvironment::Kde
+        );
+        assert_eq!(
+            desktop(&[("KDE_FULL_SESSION", "true")]),
+            DesktopEnvironment::Kde
+        );
+        assert_eq!(
+            desktop(&[("SWAYSOCK", "/run/sway.sock")]),
+            DesktopEnvironment::Other(AzString::from_const_str("Sway"))
+        );
+        assert_eq!(
+            desktop(&[("XDG_CURRENT_DESKTOP", "Pop")]),
+            DesktopEnvironment::Other(AzString::from(String::from("Pop")))
+        );
+    }
+
+    #[test]
     fn detect_system_language_is_a_normalized_tag() {
-        let lang = detect_system_language();
-        let s = lang.as_str();
-        assert!(!s.is_empty(), "language tag must never be empty");
-        // The encoding suffix (".UTF-8"), the LANGUAGE list separator (':')
-        // and the POSIX underscore must all be normalized away.
-        assert!(!s.contains('.'), "{s:?} still carries an encoding suffix");
-        assert!(!s.contains(':'), "{s:?} still carries a locale list");
-        assert!(!s.contains('_'), "{s:?} is not BCP 47 (underscore)");
-        assert_eq!(lang, detect_system_language(), "not deterministic");
+        let lang = |pairs: &[(&str, &str)]| {
+            let mut env = MapEnv::new();
+            for (k, v) in pairs {
+                env.set(k, v);
+            }
+            detect_system_language(&env).as_str().to_string()
+        };
+        assert_eq!(lang(&[]), "en-US", "an empty environment");
+        assert_eq!(lang(&[("LANG", "de_DE.UTF-8")]), "de-DE");
+        assert_eq!(lang(&[("LANG", "C"), ("LC_ALL", "fr_FR")]), "fr-FR");
+        assert_eq!(
+            lang(&[("LANGUAGE", "de:en_US:en"), ("LANG", "fr_FR")]),
+            "de",
+            "LANGUAGE leads and is a list"
+        );
+        assert_eq!(lang(&[("LANG", "POSIX")]), "en-US");
+        assert_eq!(lang(&[("LANG", "")]), "en-US");
     }
 }
 

@@ -27,8 +27,14 @@ use super::{
     defines::{Display, Window, XErrorEvent, XImage, XShmSegmentInfo, GC},
     dlopen::{XShm, Xlib},
 };
-use crate::desktop::shell2::common::x11_host::{
-    display_is_local, shm_segment_reusable, x11_upload, PutImageWhy, ShmPending, X11Upload,
+use crate::desktop::{
+    platform_settings::PlatformEnv,
+    shell2::{
+        common::x11_host::{
+            display_is_local, shm_segment_reusable, x11_upload, PutImageWhy, ShmPending, X11Upload,
+        },
+        linux::linux_settings::LinuxSettings,
+    },
 };
 
 /// `ZPixmap`, the image format of a 32-bit TrueColor upload.
@@ -70,11 +76,16 @@ unsafe extern "C" fn shm_attach_error_trap(_d: *mut Display, _e: *mut XErrorEven
 
 impl X11ShmUpload {
     /// Everything that can be learned before a segment exists: the switch
-    /// (`AZ_X11_SHM=0`), the `DISPLAY` string, libXext, the extension. The
-    /// attach is tried by the first [`Self::upload`].
-    pub(super) fn probe(display: *mut Display) -> Result<Self, PutImageWhy> {
-        let enabled = std::env::var("AZ_X11_SHM").map_or(true, |v| v != "0");
-        let local = std::env::var("DISPLAY").is_ok_and(|d| display_is_local(&d));
+    /// (`AZ_X11_SHM=0`, [`LinuxSettings::x11_shm`]), the `DISPLAY` string
+    /// ([`PlatformEnv::display`]), libXext, the extension. The attach is tried
+    /// by the first [`Self::upload`].
+    pub(super) fn probe(
+        display: *mut Display,
+        settings: &LinuxSettings,
+        env: &PlatformEnv,
+    ) -> Result<Self, PutImageWhy> {
+        let enabled = settings.x11_shm;
+        let local = env.display.as_deref().is_some_and(display_is_local);
         let lib = if enabled && local {
             XShm::new().ok()
         } else {

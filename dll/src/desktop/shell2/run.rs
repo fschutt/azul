@@ -70,54 +70,14 @@ use super::common::{
 use super::macos::MacOSWindow;
 use crate::{log_debug, log_error, log_info, log_trace};
 
-/// Resolve the rendering backend from env vars and config.
-fn resolve_backend(options: &WindowCreateOptions) -> super::AzBackend {
+/// Resolve the rendering backend from `AZ_BACKEND` (as the app's environment asked, read once at
+/// its start) and the window's config.
+fn resolve_backend(
+    options: &WindowCreateOptions,
+    shell: &crate::desktop::shell_settings::ShellSettings,
+) -> super::AzBackend {
     let hw_accel = options.renderer.as_option().map(|r| r.hw_accel);
-    super::AzBackend::resolve(hw_accel)
-}
-
-/// Check if E2E test runner mode is requested.
-///
-/// `AZ_E2E=<path>` is the portable spelling and the only one on desktop. Only
-/// meaningful in `debug-server` builds; the lean build has no E2E runner.
-///
-/// **Android also reads the `debug.az.e2e` system property**, because there is
-/// no way to hand an env var to an activity: `am start` builds an Intent, and
-/// the app inherits the zygote's environment, not the shell's. The alternatives
-/// were an Intent extra (needs a JNI round-trip through the Activity before the
-/// window exists) or a hard-coded file path (a stale file would silently turn a
-/// normal launch into a test run). A property is explicit, set per-run by the
-/// harness, and cleared afterwards:
-///
-/// ```sh
-/// adb shell setprop debug.az.e2e /data/local/tmp/az_e2e.json
-/// ```
-///
-/// `getprop` rather than `__system_property_get` so this needs no new FFI
-/// dependency; it runs exactly once, at startup.
-#[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
-fn e2e_test_file() -> Option<String> {
-    if let Some(v) = std::env::var("AZ_E2E").ok().filter(|s| !s.is_empty()) {
-        return Some(v);
-    }
-    #[cfg(target_os = "android")]
-    {
-        if let Ok(out) = std::process::Command::new("getprop")
-            .arg("debug.az.e2e")
-            .output()
-        {
-            let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if !path.is_empty() {
-                log_info!(
-                    LogCategory::DebugServer,
-                    "[Android] E2E scenario from debug.az.e2e: {}",
-                    path
-                );
-                return Some(path);
-            }
-        }
-    }
-    None
+    super::AzBackend::resolve(shell.backend.as_deref(), hw_accel)
 }
 
 /// Report `AZ_*` knobs that this binary cannot honour.
@@ -129,74 +89,16 @@ fn e2e_test_file() -> Option<String> {
 /// zero mention of e2e anywhere in the log, and the only way to discover why
 /// was to go read the cfg gates.
 ///
-/// Called unconditionally at startup. Each entry names the variable, the
-/// feature that implements it, and how to get it back.
-pub(crate) fn warn_about_inert_env_knobs() {
-    // (variable, feature compiled in?, feature that implements it, what to
-    // build). `cfg!` — not a `#[cfg]` on the loop — so every row is evaluated
-    // in every configuration and the list cannot rot behind the gate it
-    // describes. Only knobs that are FULLY inert without their feature belong
-    // here; a knob that still does part of its job gets a targeted message at
-    // its own read site instead (e.g. AZ_BACKEND=web in compositor.rs).
-    let gated: &[(&str, bool, &str, &str)] = &[
-        (
-            "AZ_E2E",
-            cfg!(any(feature = "debug-server", feature = "e2e-scripting")),
-            "debug-server",
-            "cargo build -p azul-dll --features build-dll,debug-server",
-        ),
-        (
-            "AZ_DEBUG",
-            cfg!(any(feature = "debug-server", feature = "e2e-scripting")),
-            "debug-server",
-            "cargo build -p azul-dll --features build-dll,debug-server",
-        ),
-        // The deterministic resize/tick scenario runner (common/e2e_test.rs).
-        // Without `e2e-test` BOTH run.rs hooks are compiled out and the whole
-        // module does not exist — the app just opens its normal window.
-        (
-            "AZ_E2E_TEST",
-            cfg!(feature = "e2e-test"),
-            "e2e-test",
-            "cargo build -p azul-dll --features build-dll,e2e-test",
-        ),
-        // First-frame PNG snapshot (headless/mod.rs). Read only under
-        // `cpurender`; without it the run looks normal and no file appears.
-        (
-            "AZ_HEADLESS_SNAPSHOT_PATH",
-            cfg!(feature = "cpurender"),
-            "cpurender",
-            "cargo build -p azul-dll --features build-dll,cpurender",
-        ),
-        // Per-frame PNG dump out of CpuBackend::render_frame — same gate.
-        (
-            "AZ_DUMP_FRAME_DIR",
-            cfg!(feature = "cpurender"),
-            "cpurender",
-            "cargo build -p azul-dll --features build-dll,cpurender",
-        ),
-        // Layout profiling (azul-layout's `probe` feature, normally forced on
-        // by the DLL's _internal_deps). Without it `AZ_PROFILE=heap,...`
-        // silently reports heap=0 / writes no JSONL at all (layout/src/probe.rs
-        // no-op stubs); only the `cpu` mode prints its own "probe unavailable"
-        // line. `Probe::enabled()` is the compile-time truth for whether the
-        // real imp was built (probe on, not wasm, not web_lift) — the dll has
-        // no `probe` feature of its own, so `cfg!` can't express this row.
-        (
-            "AZ_PROFILE",
-            azul_layout::probe::Probe::enabled(),
-            "probe",
-            "cargo build -p azul-dll --features build-dll,azul-layout/probe",
-        ),
-    ];
-
-    for (var, compiled, feature, how) in gated {
-        if !compiled && std::env::var(var).map(|v| !v.is_empty()).unwrap_or(false) {
-            eprintln!(
-                "[azul] {var} is set but this build has no `{feature}` feature, so it does \
-                 NOTHING. Rebuild with: {how}"
-            );
-        }
+/// Called unconditionally at startup. The table of knobs (the variable, the feature that
+/// implements it, how to get it back) lives with the settings that read them
+/// ([`crate::desktop::shell_settings::ShellSettings::inert_knobs`]).
+pub(crate) fn warn_about_inert_env_knobs(shell: &crate::desktop::shell_settings::ShellSettings) {
+    for knob in shell.inert_knobs() {
+        eprintln!(
+            "[azul] {} is set but this build has no `{}` feature, so it does NOTHING. Rebuild \
+             with: {}",
+            knob.name, knob.feature, knob.how
+        );
     }
 }
 
@@ -560,6 +462,7 @@ fn run_headless(
 /// debug timer, or `(None, None)` when neither debug nor E2E is active.
 fn setup_debug_and_e2e(
     config: &AppConfig,
+    settings: &crate::desktop::app_settings::AppSettings,
 ) -> (
     Option<spmc::Receiver<debug_server::DebugRequest>>,
     Option<Arc<Mutex<azul_core::xml::ComponentMap>>>,
@@ -567,7 +470,7 @@ fn setup_debug_and_e2e(
     // Lean build: no debug server, no E2E runner — AZ_DEBUG/AZ_E2E are no-ops.
     #[cfg(not(any(feature = "debug-server", feature = "e2e-scripting")))]
     {
-        let _ = config;
+        let _ = (config, settings);
         (None, None)
     }
 
@@ -578,12 +481,12 @@ fn setup_debug_and_e2e(
         // those before the first request can be dispatched.
         debug_server::install_e2e_host_hooks();
 
+        // `AZ_DEBUG=<port>` was folded into the config's port at `App::create`.
         let mut debug_port = config.remote_control.debug_port.into_option();
-        if debug_port.is_none() {
-            debug_port = debug_server::get_debug_port();
-        }
-        let e2e_file = e2e_test_file();
-        
+        // `AZ_E2E` (on Android also the `debug.az.e2e` property, which the process reader
+        // answers for it), as the app's environment asked at its start.
+        let e2e_file = settings.shell.e2e_script.clone();
+
         let mut needs_debug = false;
         if debug_port.is_some() && config.remote_control.allow_remote_control {
             needs_debug = true;
@@ -686,19 +589,20 @@ pub fn run(
     crate::plog_info!(
         "[macOS] run() entry — AZ_BACKEND={:?} (errors only unless AZ_LOG says more: AZ_LOG=debug, \
          AZ_LOG=trace for everything, AZ_LOG=off to silence)",
-        std::env::var("AZ_BACKEND").ok()
+        app_shared.settings().shell.backend
     );
 
-    let (debug_request_rx, component_map) = setup_debug_and_e2e(&config);
+    let (debug_request_rx, component_map) = setup_debug_and_e2e(&config, app_shared.settings());
 
     // AZ_E2E_TEST: deterministic resize/tick scenario runner. Takes over the
     // main loop entirely (bypasses NSApplication) and exits the process after
     // the scenario completes.
     #[cfg(feature = "e2e-test")]
-    if let Some(path) = super::common::e2e_test::scenario_path() {
+    if let Some(path) = app_shared.settings().shell.e2e_scenario.clone() {
         return super::common::e2e_test::run_e2e_scenario(
             &path,
             app_data,
+            app_shared,
             config,
             fc_cache,
             font_registry,
@@ -707,7 +611,7 @@ pub fn run(
     }
 
     // Resolve rendering backend from AZ_BACKEND env / config
-    let backend = resolve_backend(&root_window);
+    let backend = resolve_backend(&root_window, &app_shared.settings().shell);
 
     // Web mode — serve as HTTP server, no native window. Match by
     // reference so `backend` survives for the Headless check below;
@@ -728,7 +632,7 @@ pub fn run(
     // Say so if an AZ_* knob was set that this build cannot honour, BEFORE any
     // of it matters — the point is to reach the user in the first lines of
     // output rather than have them infer it from an absence later.
-    warn_about_inert_env_knobs();
+    warn_about_inert_env_knobs(&app_shared.settings().shell);
 
     // Headless mode — no native window, CPU rendering only
     if backend == super::AzBackend::Headless {
@@ -754,14 +658,17 @@ pub fn run(
     // XQuartz - NSApplication, the menu bar and the Dock below are never
     // touched. Any other windowing request opens AppKit windows, and says so
     // when it asked for something this build or this host cannot do.
-    match super::common::x11_host::host_windowing_from_env() {
+    match super::common::x11_host::host_windowing(
+        app_shared.settings().shell.window.as_deref(),
+        app_shared.settings().shell.backend.as_deref(),
+    ) {
         super::common::x11_host::HostWindowing::Native => {}
         super::common::x11_host::HostWindowing::X11 => {
             #[cfg(az_x11)]
             {
                 crate::plog_info!(
                     "[macOS] X11 requested - running the X11 backend against DISPLAY={:?}",
-                    std::env::var("DISPLAY").ok()
+                    app_shared.settings().platform.display
                 );
                 super::common::x11_host::activate();
                 // Anything memoised before this line is AppKit's monitor list;
@@ -1552,9 +1459,9 @@ pub fn run(
     // App / Dock icon spec requested via `App::set_app_icon`.
     app_icon: Option<azul_css::AzString>,
 ) -> Result<(), WindowError> {
-    let (_debug_request_rx, _component_map) = setup_debug_and_e2e(&config);
+    let (_debug_request_rx, _component_map) = setup_debug_and_e2e(&config, app_shared.settings());
     #[cfg(feature = "web")]
-    if let super::AzBackend::Web(web_cfg) = resolve_backend(&root_window) {
+    if let super::AzBackend::Web(web_cfg) = resolve_backend(&root_window, &app_shared.settings().shell) {
         return crate::web::run_web(
             app_data,
             config,
@@ -1564,7 +1471,7 @@ pub fn run(
             web_cfg,
         );
     }
-    if resolve_backend(&root_window) == super::AzBackend::Headless {
+    if resolve_backend(&root_window, &app_shared.settings().shell) == super::AzBackend::Headless {
         return run_headless(
             app_data,
             undo_manager,
@@ -1665,8 +1572,8 @@ pub fn run(
     // App / Dock icon spec requested via `App::set_app_icon`.
     app_icon: Option<azul_css::AzString>,
 ) -> Result<(), WindowError> {
-    let (_debug_request_rx, _component_map) = setup_debug_and_e2e(&config);
-    if resolve_backend(&root_window) == super::AzBackend::Headless {
+    let (_debug_request_rx, _component_map) = setup_debug_and_e2e(&config, app_shared.settings());
+    if resolve_backend(&root_window, &app_shared.settings().shell) == super::AzBackend::Headless {
         return run_headless(
             app_data,
             undo_manager,
@@ -1741,9 +1648,9 @@ pub fn run(
     // App / Dock icon spec requested via `App::set_app_icon`.
     app_icon: Option<azul_css::AzString>,
 ) -> Result<(), WindowError> {
-    let (debug_request_rx, component_map) = setup_debug_and_e2e(&config);
+    let (debug_request_rx, component_map) = setup_debug_and_e2e(&config, app_shared.settings());
     #[cfg(feature = "web")]
-    if let super::AzBackend::Web(web_cfg) = resolve_backend(&root_window) {
+    if let super::AzBackend::Web(web_cfg) = resolve_backend(&root_window, &app_shared.settings().shell) {
         return crate::web::run_web(
             app_data,
             config,
@@ -1753,7 +1660,7 @@ pub fn run(
             web_cfg,
         );
     }
-    if resolve_backend(&root_window) == super::AzBackend::Headless {
+    if resolve_backend(&root_window, &app_shared.settings().shell) == super::AzBackend::Headless {
         return run_headless(
             app_data,
             undo_manager,
@@ -1774,7 +1681,7 @@ pub fn run(
     crate::plog_info!(
         "[Windows] run() entry — AZ_BACKEND={:?} (errors only unless AZ_LOG says more: AZ_LOG=debug, \
          AZ_LOG=trace for everything, AZ_LOG=off to silence)",
-        std::env::var("AZ_BACKEND").ok()
+        app_shared.settings().shell.backend
     );
     // Before the first window: when COM started this process for a click on
     // one of its toasts (`-ToastActivated`), the toast activator must be
@@ -2283,7 +2190,7 @@ pub fn run(
 ) -> Result<(), WindowError> {
     // Same reasoning as the environment dump below, for the knobs this build
     // cannot honour at all.
-    warn_about_inert_env_knobs();
+    warn_about_inert_env_knobs(&app_shared.settings().shell);
 
     // Startup environment dump — the first thing to check when a Linux app
     // "just exits": which display server we'll try, and whether the session
@@ -2291,22 +2198,23 @@ pub fn run(
     crate::plog_info!(
         "[Linux] run() entry — AZ_BACKEND={:?} WAYLAND_DISPLAY={:?} DISPLAY={:?} \
          XDG_SESSION_TYPE={:?}",
-        std::env::var("AZ_BACKEND").ok(),
-        std::env::var("WAYLAND_DISPLAY").ok(),
-        std::env::var("DISPLAY").ok(),
-        std::env::var("XDG_SESSION_TYPE").ok(),
+        app_shared.settings().shell.backend,
+        app_shared.settings().platform.wayland_display,
+        app_shared.settings().platform.display,
+        app_shared.settings().platform.xdg_session_type,
     );
-    let (debug_request_rx, component_map) = setup_debug_and_e2e(&config);
+    let (debug_request_rx, component_map) = setup_debug_and_e2e(&config, app_shared.settings());
 
     // AZ_E2E_TEST: deterministic headless resize/tick scenario runner — takes
     // over the run entirely and exits after the scenario. This hook existed in
     // the macOS run() but was missing here, so AZ_E2E_TEST was silently ignored
     // on Linux (the app opened a normal window instead of running the scenario).
     #[cfg(feature = "e2e-test")]
-    if let Some(path) = super::common::e2e_test::scenario_path() {
+    if let Some(path) = app_shared.settings().shell.e2e_scenario.clone() {
         return super::common::e2e_test::run_e2e_scenario(
             &path,
             app_data,
+            app_shared,
             config,
             fc_cache,
             font_registry,
@@ -2315,7 +2223,7 @@ pub fn run(
     }
 
     #[cfg(feature = "web")]
-    if let super::AzBackend::Web(web_cfg) = resolve_backend(&root_window) {
+    if let super::AzBackend::Web(web_cfg) = resolve_backend(&root_window, &app_shared.settings().shell) {
         crate::plog_info!("[Linux] backend resolved to Web");
         return crate::web::run_web(
             app_data,
@@ -2326,7 +2234,7 @@ pub fn run(
             web_cfg,
         );
     }
-    if resolve_backend(&root_window) == super::AzBackend::Headless {
+    if resolve_backend(&root_window, &app_shared.settings().shell) == super::AzBackend::Headless {
         crate::plog_info!("[Linux] backend resolved to Headless (AZ_BACKEND=headless)");
         return run_headless(
             app_data,

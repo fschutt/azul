@@ -16,7 +16,7 @@
 
 use std::{
     cell::RefCell,
-    sync::{Arc, OnceLock},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -24,7 +24,9 @@ use azul_core::{icon::SharedIconProvider, refany::RefAny, resources::AppConfig};
 use azul_layout::window_state::WindowCreateOptions;
 use rust_fontconfig::{registry::FcFontRegistry, FcFontCache};
 
-use super::{super::headless::HeadlessWindow, event::PlatformWindow, WindowError};
+use super::{
+    super::headless::HeadlessWindow, app_shared::AppShared, event::PlatformWindow, WindowError,
+};
 
 // ---------------------------------------------------------------------------
 // JSON schema
@@ -120,27 +122,19 @@ pub struct Scenario {
 }
 
 // ---------------------------------------------------------------------------
-// Env var reader
-// ---------------------------------------------------------------------------
-
-/// Returns the scenario file path if `AZ_E2E_TEST` is set.
-pub fn scenario_path() -> Option<String> {
-    static P: OnceLock<Option<String>> = OnceLock::new();
-    P.get_or_init(|| std::env::var("AZ_E2E_TEST").ok().filter(|s| !s.is_empty()))
-        .clone()
-}
-
-// ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
 
 /// Run the scenario, print JSONL events to stderr, exit process.
 ///
-/// Called from `run.rs` startup dispatch when `AZ_E2E_TEST` is set.
-/// This bypasses `NSApplication` entirely and takes over the thread.
+/// Called from `run.rs` startup dispatch when `AZ_E2E_TEST` is set
+/// (`ShellSettings::e2e_scenario`). This bypasses `NSApplication` entirely and takes over the
+/// thread. The window it builds belongs to the app that is run (`app_shared`), so it sees the
+/// settings the app's environment asked for.
 pub fn run_e2e_scenario(
     path: &str,
     app_data: RefAny,
+    app_shared: Arc<AppShared>,
     mut config: AppConfig,
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
@@ -166,12 +160,13 @@ pub fn run_e2e_scenario(
     let shared_icon_provider = SharedIconProvider::from_handle(icon_provider_handle);
     let app_data_arc = Arc::new(RefCell::new(app_data));
     eprintln!("[E2E-TRACE] before HeadlessWindow::new");
-    let mut window = HeadlessWindow::new(
+    let mut window = HeadlessWindow::with_app_shared(
         root_window,
         app_data_arc,
-        // The deterministic E2E scenario runner is single-window and not tied to
-        // an App; a fresh manager is sufficient (no cross-window undo sharing).
+        // The deterministic E2E scenario runner is single-window: a fresh undo manager is
+        // sufficient (no cross-window undo sharing).
         super::event::SharedUndoManager::new(),
+        app_shared,
         config,
         shared_icon_provider,
         fc_cache,

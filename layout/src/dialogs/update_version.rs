@@ -115,7 +115,7 @@ extern "C" fn check_worker(mut init: RefAny, mut sender: ThreadSender, _recv: Th
     let env = task.env.clone();
     drop(task);
 
-    let install = InstallKind::detect();
+    let install = InstallKind::detect_in(&env.platform);
     let effective =
         crate::updater::apply_shared_update_policy(effective_mode(env.update_mode, &install));
     let policy = env.update_policy();
@@ -131,7 +131,7 @@ extern "C" fn check_worker(mut init: RefAny, mut sender: ThreadSender, _recv: Th
         (Some(_), UpdateMode::SelfUpdate, Err(why)) => UpdatePhase::Failed { error: why.clone() },
         // The marks that refuse a rollback live in the user's own folder, not in the shared
         // temporary one: with no such folder there is no check.
-        (Some(url), _, _) => match private_state_dir(&env.app_name) {
+        (Some(url), _, _) => match private_state_dir(&env.platform, &env.app_name) {
             Err(error) => UpdatePhase::Failed { error },
             Ok(dir) => {
                 let audience = if effective == UpdateMode::SelfUpdate {
@@ -140,6 +140,7 @@ extern "C" fn check_worker(mut init: RefAny, mut sender: ThreadSender, _recv: Th
                     crate::updater::UpdateAudience::NotifyOnly
                 };
                 let mut state = UpdateState::load(&dir);
+                state.forced_bucket = env.update_bucket;
                 let result = check_for_updates_blocking(
                     url,
                     &env.current_version,
@@ -220,6 +221,7 @@ extern "C" fn apply_phase(mut state: RefAny, mut msg: RefAny, _info: CallbackInf
 struct InstallTask {
     release: ReleaseInfo,
     app_name: String,
+    platform: crate::settings::PlatformEnv,
     policy: UpdatePolicy,
 }
 
@@ -245,6 +247,7 @@ extern "C" fn on_install_now(mut state: RefAny, mut info: CallbackInfo) -> Updat
         InstallTask {
             release,
             app_name: env.app_name,
+            platform: env.platform,
             policy,
         }
     };
@@ -268,6 +271,7 @@ extern "C" fn install_worker(mut init: RefAny, mut sender: ThreadSender, _recv: 
     };
     let release = task.release.clone();
     let app_name = task.app_name.clone();
+    let platform = task.platform.clone();
     let policy = task.policy.clone();
     drop(task);
 
@@ -278,7 +282,7 @@ extern "C" fn install_worker(mut init: RefAny, mut sender: ThreadSender, _recv: 
     // never reach apply_update - which takes the proof, not a path, and
     // hashes the copy it installs. The marks and the staging are in the user's own folder:
     // with none (the shared temporary folder is no place for them) nothing is installed.
-    let verified = private_state_dir(&app_name).and_then(|state_dir| {
+    let verified = private_state_dir(&platform, &app_name).and_then(|state_dir| {
         let staging_dir = state_dir.join("staging");
         let mut state = UpdateState::read(&state_dir)?;
         let verified = download_and_verify(
@@ -314,7 +318,8 @@ extern "C" fn on_remind_later(mut _state: RefAny, mut info: CallbackInfo) -> Upd
     // "Remind me later" = a 7-day suspension in the updater's state file;
     // checks report UpToDate until it passes.
     // With no folder of the user's own the suspension is not kept (the next check asks again).
-    if let Ok(dir) = private_state_dir(&info.get_app_env().app_name) {
+    let env = info.get_app_env();
+    if let Ok(dir) = private_state_dir(&env.platform, &env.app_name) {
         let mut state = UpdateState::load(&dir);
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

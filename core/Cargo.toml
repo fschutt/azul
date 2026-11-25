@@ -1,7 +1,7 @@
 [package]
 readme = "../README.md"
 name = "azul-core"
-version = "0.0.20"
+version = "0.0.21"
 # Lean published package: ship src only, not the test/bench/example/fuzz harnesses.
 exclude = ["tests", "benches", "examples", "fuzz"]
 authors = ["Felix Schütt <felix.schuett@maps4print.com>"]
@@ -22,7 +22,7 @@ autoexamples = false
 # crate's own `codegen` feature below; `GetHash` comes from the ungated
 # `azul_css::hash` everywhere. Its parser comes with `css_parser`, its std
 # with `std`.
-azul-css                = { version = "0.0.20", path = "../css", default-features = false }
+azul-css                = { version = "0.0.21", path = "../css", default-features = false }
 libm                   = { version = "0.2.2",   default-features = false                   }
 gl-context-loader       = { version = "0.1.9", default-features = false }
 # The system font cache the callbacks hand out (feature `system_fonts`).
@@ -142,8 +142,8 @@ name = "codegen_project"
 path = "tests/codegen_project.rs"
 required-features = ["codegen"]
 
-# The twin of `run_mode_release.rs` that proves a build WITH `test-hooks` reads the test switches
-# once. Without the feature the file would compile to an empty harness (the zero-test guard calls
+# The twin of `run_mode_release.rs` that proves a build WITH `test-hooks` serves the test hooks
+# that were installed once (the dll builds them from the environment it read at the start). Without the feature the file would compile to an empty harness (the zero-test guard calls
 # that a failure), so a plain `cargo test -p azul-core` skips it; the `test_lib` job runs it with
 # `--features test-hooks`.
 [[test]]

@@ -125,24 +125,20 @@ impl AzBackend {
         val.and_then(render_backend_from_env) == Some(AzBackend::Headless)
     }
 
-    /// Whether this process runs headless (`AZ_BACKEND=headless`) - known
-    /// before `App::run` starts the headless loop, for what an app asks while
-    /// it builds its state (`PlatformCapability::notifications()`).
-    #[must_use]
-    pub fn headless_selected() -> bool {
-        Self::headless_selected_by(std::env::var("AZ_BACKEND").ok().as_deref())
-    }
-
-    /// Resolve the backend from environment variable and config.
+    /// Resolve the backend from `AZ_BACKEND` (`backend`: its value as the app's environment
+    /// asked at the start, `ShellSettings::backend`) and config.
     ///
     /// Priority order:
-    /// 1. `AZ_BACKEND` env var (highest)
+    /// 1. `AZ_BACKEND` (highest)
     /// 2. `WindowCreateOptions.renderer.hw_accel` (programmatic)
     /// 3. Default: `Auto`
-    pub fn resolve(hw_accel: Option<azul_core::window::HwAcceleration>) -> Self {
-        // 1. AZ_BACKEND env var
-        if let Ok(val) = std::env::var("AZ_BACKEND") {
-            if let Some(explicit) = render_backend_from_env(&val) {
+    pub fn resolve(
+        backend: Option<&str>,
+        hw_accel: Option<azul_core::window::HwAcceleration>,
+    ) -> Self {
+        // 1. AZ_BACKEND
+        if let Some(val) = backend {
+            if let Some(explicit) = render_backend_from_env(val) {
                 return explicit;
             }
             match val.to_lowercase().as_str() {
@@ -153,7 +149,7 @@ impl AzBackend {
                 _ => {
                     // Try parsing web://ip:port[?options]
                     #[cfg(feature = "web")]
-                    match crate::web::config::parse_web_config(&val) {
+                    match crate::web::config::parse_web_config(val) {
                         Ok(cfg) => return AzBackend::Web(cfg),
                         Err(e) => {
                             log_warn!(
@@ -500,6 +496,28 @@ mod render_selector_tests {
     #[test]
     fn the_default_desktop_renderer_is_cpu() {
         assert_eq!(AzBackend::default(), AzBackend::Cpu);
+    }
+
+    /// `resolve` takes the `AZ_BACKEND` value the app's environment asked for as an argument
+    /// (`ShellSettings::backend`): it reads nothing, the environment decides before the
+    /// config, and a windowing word or an unknown word leaves the decision to the config.
+    #[test]
+    fn the_backend_the_environment_asked_for_decides_before_the_config() {
+        use azul_core::window::HwAcceleration::{Disabled, Enabled};
+
+        assert_eq!(AzBackend::resolve(None, None), AzBackend::Cpu);
+        assert_eq!(AzBackend::resolve(None, Some(Enabled)), AzBackend::Gpu);
+        assert_eq!(AzBackend::resolve(None, Some(Disabled)), AzBackend::Cpu);
+        // the environment wins over the config, in any case
+        assert_eq!(AzBackend::resolve(Some("headless"), Some(Enabled)), AzBackend::Headless);
+        assert_eq!(AzBackend::resolve(Some("GPU"), Some(Disabled)), AzBackend::Gpu);
+        assert_eq!(AzBackend::resolve(Some("auto"), Some(Disabled)), AzBackend::Auto);
+        assert_eq!(AzBackend::resolve(Some("cpu"), Some(Enabled)), AzBackend::Cpu);
+        // a windowing selector is no render mode: the config decides
+        assert_eq!(AzBackend::resolve(Some("x11"), Some(Enabled)), AzBackend::Gpu);
+        assert_eq!(AzBackend::resolve(Some("wayland"), None), AzBackend::Cpu);
+        // and so is a word nobody knows
+        assert_eq!(AzBackend::resolve(Some("quantum"), Some(Enabled)), AzBackend::Gpu);
     }
 
     /// A capability probe that runs BEFORE `App::run` - an app building its state: AzClock asks

@@ -180,13 +180,6 @@ pub(crate) fn host_windowing(az_window: Option<&str>, az_backend: Option<&str>) 
     }
 }
 
-/// [`host_windowing`] over this process's environment.
-pub(crate) fn host_windowing_from_env() -> HostWindowing {
-    let az_window = std::env::var("AZ_WINDOW").ok();
-    let az_backend = std::env::var("AZ_BACKEND").ok();
-    host_windowing(az_window.as_deref(), az_backend.as_deref())
-}
-
 // ============================================================================
 // Is X11 driving this process?
 // ============================================================================

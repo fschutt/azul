@@ -17,10 +17,12 @@ use std::{
 use azul_css::{
     css::{rule_priority, CssRuleBlock},
     dynamic_selector::{DynamicSelector, DynamicSelectorContext, OsCondition, ThemeCondition},
+    env::{MapEnv, NoEnv},
     rice::{
-        azul_version_matches, chain_directories, fallback_of, load_rice, parse_rice_header,
-        rice_chain, ricing_mode_from, sanitize_rice_source, theme_dir_segments,
-        version_satisfies, RiceEnv, RiceFileState, RicePriority, MAX_RICE_FILE_BYTES,
+        azul_version_matches, chain_directories, default_rice_root, fallback_of,
+        legacy_stylesheet_path, load_rice, parse_rice_header, rice_chain, ricing_mode_from,
+        sanitize_rice_source, theme_dir_segments, version_satisfies, RiceEnv, RiceFileState,
+        RicePriority, MAX_RICE_FILE_BYTES,
     },
     system::{Platform, RicingMode, SystemStyle},
     AzString,
@@ -693,4 +695,68 @@ fn az_ricing_has_an_off_a_force_and_a_watch_mode() {
     assert_eq!(ricing_mode_from(Some("watch")), RicingMode::Watch);
     assert_eq!(ricing_mode_from(Some("live")), RicingMode::Watch);
     assert_eq!(ricing_mode_from(Some("typo")), RicingMode::Default);
+}
+
+// ---------------------------------------------------------------------------------------------
+// where the rice is looked for: the environment is handed in, never read
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn the_rice_root_and_the_legacy_stylesheet_are_looked_for_where_the_environment_says() {
+    let env = MapEnv::new()
+        .with("HOME", "/home/ada")
+        .with("USERPROFILE", "/users/ada")
+        .with("APPDATA", "/users/ada/roaming")
+        .with("XDG_CONFIG_HOME", "/home/ada/.cfg");
+    let (root, config) = if cfg!(target_os = "windows") {
+        ("/users/ada", "/users/ada/roaming")
+    } else if cfg!(target_os = "macos") {
+        ("/home/ada", "/home/ada/Library/Application Support")
+    } else {
+        ("/home/ada", "/home/ada/.cfg")
+    };
+    assert_eq!(default_rice_root(&env), Some(PathBuf::from(root).join(".azul")));
+    assert_eq!(
+        legacy_stylesheet_path("editor", &env),
+        Some(PathBuf::from(config).join("azul").join("styles").join("editor.css"))
+    );
+    let rice = RiceEnv::from_lookup(&env);
+    assert_eq!(rice.root, Some(PathBuf::from(root).join(".azul")));
+    assert!(!rice.app.is_empty(), "the name of the running executable");
+    assert_eq!(
+        rice.legacy_file,
+        legacy_stylesheet_path(&rice.app, &env),
+        "the legacy file of THIS executable"
+    );
+}
+
+#[test]
+fn an_empty_environment_has_no_rice_root_and_no_legacy_stylesheet() {
+    assert_eq!(default_rice_root(&NoEnv), None);
+    assert_eq!(legacy_stylesheet_path("editor", &NoEnv), None);
+    let rice = RiceEnv::from_lookup(&NoEnv);
+    assert_eq!(rice.root, None);
+    assert_eq!(rice.legacy_file, None);
+    // a blank directory is none, as it always was
+    let blank = MapEnv::new().with("HOME", "").with("USERPROFILE", "");
+    assert_eq!(default_rice_root(&blank), None);
+}
+
+#[test]
+fn xdg_config_home_leads_the_legacy_stylesheet_on_linux_and_falls_back_to_dot_config() {
+    if cfg!(target_os = "windows") || cfg!(target_os = "macos") {
+        return;
+    }
+    let only_home = MapEnv::new().with("HOME", "/home/ada");
+    assert_eq!(
+        legacy_stylesheet_path("editor", &only_home),
+        Some(PathBuf::from("/home/ada/.config/azul/styles/editor.css"))
+    );
+    let blank_xdg = MapEnv::new()
+        .with("HOME", "/home/ada")
+        .with("XDG_CONFIG_HOME", "");
+    assert_eq!(
+        legacy_stylesheet_path("editor", &blank_xdg),
+        Some(PathBuf::from("/home/ada/.config/azul/styles/editor.css"))
+    );
 }

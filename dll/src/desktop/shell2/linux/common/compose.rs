@@ -130,17 +130,22 @@ pub struct ComposeSequencer {
 impl ComposeSequencer {
     /// Compile the locale's Compose file and open a state on it.
     ///
+    /// `locale` is the one the session names ([`PlatformEnv::compose_locale`](crate::desktop::platform_settings::PlatformEnv::compose_locale)): the
+    /// same precedence `setlocale(LC_CTYPE, "")` uses, because that is the locale
+    /// Xlib's own compose handling picks and the two must agree on which file is
+    /// in force. `"C"` has no Compose file, so an unset environment simply leaves
+    /// compose unavailable rather than picking a wrong one.
+    ///
     /// `None` when the locale has no Compose file, when libxkbcommon is too
     /// old to export the compose API, or when the compile fails — all of which
     /// leave the backends on their previous (compose-less) behaviour rather
     /// than breaking key input.
-    pub fn new(fns: ComposeFns, library: Rc<dyn Any>) -> Option<Self> {
+    pub fn new(fns: ComposeFns, library: Rc<dyn Any>, locale: &str) -> Option<Self> {
         let context = unsafe { (fns.context_new)(0) };
         if context.is_null() {
             return None;
         }
-        let locale = compose_locale();
-        let Ok(c_locale) = CString::new(locale.clone()) else {
+        let Ok(c_locale) = CString::new(locale) else {
             unsafe { (fns.context_unref)(context) };
             return None;
         };
@@ -287,23 +292,6 @@ impl Drop for ComposeSequencer {
 fn decode(bytes: &[c_char]) -> String {
     let raw: Vec<u8> = bytes.iter().map(|b| *b as u8).collect();
     String::from_utf8_lossy(&raw).into_owned()
-}
-
-/// The locale whose Compose file to compile.
-///
-/// Same precedence `setlocale(LC_CTYPE, "")` uses, because that is the locale
-/// Xlib's own compose handling picks and the two must agree on which file is
-/// in force. `"C"` has no Compose file, so an unset environment simply leaves
-/// compose unavailable rather than picking a wrong one.
-fn compose_locale() -> String {
-    for var in ["LC_ALL", "LC_CTYPE", "LANG"] {
-        if let Ok(value) = std::env::var(var) {
-            if !value.is_empty() {
-                return value;
-            }
-        }
-    }
-    "C".to_string()
 }
 
 #[cfg(test)]

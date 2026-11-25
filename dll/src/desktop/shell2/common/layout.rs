@@ -246,6 +246,7 @@ pub fn regenerate_layout(
     icon_provider: &SharedIconProvider,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     relayout_reason: azul_core::callbacks::RelayoutReason,
+    settings: &crate::desktop::app_settings::AppSettings,
 ) -> Result<LayoutRegenerateResult, String> {
     log_debug!(LogCategory::Layout, "[regenerate_layout] START");
     // Engine observability: the whole produce side (callback + solve + DL)
@@ -649,13 +650,13 @@ pub fn regenerate_layout(
     // desktop panel — so we only build our own bar on Linux when none of those
     // apply (see `inject_software_menubar`).
     #[cfg(target_os = "linux")]
-    let user_dom = inject_software_menubar(user_dom);
+    let user_dom = inject_software_menubar(user_dom, settings);
     // X11 on a macOS host (`x11-macos`, `AZ_BACKEND=x11`): NSApplication never
     // starts, so there is no app menu to hand the bar to - the window carries
     // the software bar exactly as it does under an X11 session on Linux.
     #[cfg(all(az_x11, not(target_os = "linux")))]
     let user_dom = if crate::desktop::shell2::common::x11_host::active() {
-        inject_software_menubar(user_dom)
+        inject_software_menubar(user_dom, settings)
     } else {
         user_dom
     };
@@ -1586,7 +1587,7 @@ pub fn regenerate_layout(
     // `AZ_RECONCILE_DEBUG=1`: name every NEW node the reconcile could not
     // match to an old one (it is a fresh mount: state, focus and scroll on
     // its old counterpart are dropped). Diagnostic only.
-    if std::env::var_os("AZ_RECONCILE_DEBUG").is_some() {
+    if settings.shell.reconcile_debug {
         let describe = |nd: &azul_core::dom::NodeData| {
             let classes: Vec<String> = nd
                 .get_ids_and_classes()
@@ -2731,6 +2732,7 @@ pub fn drain_virtual_view_updates(
     let rebuilt = !updated.is_empty();
     if rebuilt {
         if let Some(cpu_ht) = cpu_hit_tester {
+            cpu_ht.set_trace(layout_window.settings.window.trace_hit);
             cpu_ht.rebuild_from_layout_with_gpu(
                 &layout_window.layout_results,
                 Some(&layout_window.gpu_state_manager),
@@ -2782,10 +2784,16 @@ fn inject_software_titlebar(
 /// scoped in the main flatten pass. No-op (returns `user_dom` unchanged) when
 /// there is no menu bar or a native global menu is in use.
 #[cfg(az_x11)]
-fn inject_software_menubar(user_dom: azul_core::dom::Dom) -> azul_core::dom::Dom {
+fn inject_software_menubar(
+    user_dom: azul_core::dom::Dom,
+    settings: &crate::desktop::app_settings::AppSettings,
+) -> azul_core::dom::Dom {
     use azul_core::dom::{Dom, DomVec};
 
-    if crate::desktop::shell2::linux::gnome_menu::should_use_gnome_menus() {
+    if crate::desktop::shell2::linux::gnome_menu::should_use_gnome_menus(
+        &settings.linux,
+        &settings.platform,
+    ) {
         return user_dom;
     }
     let menu = match user_dom.root.get_menu_bar() {

@@ -12,7 +12,8 @@ use rust_fontconfig::{registry::FcFontRegistry, FcFontCache};
 use super::super::common::{
     app_shared::AppShared, debug_server::LogCategory, event::SharedUndoManager,
 };
-use crate::log_debug;
+use super::linux_settings::LinuxSettings;
+use crate::{desktop::platform_settings::PlatformEnv, log_debug};
 
 /// Shared resources for all windows in a Linux application
 ///
@@ -63,6 +64,19 @@ pub struct AppResources {
 }
 
 impl AppResources {
+    /// The Linux shell's switches, read once at the start of the app (`AppSettings::linux`).
+    #[must_use]
+    pub fn linux(&self) -> &LinuxSettings {
+        &self.app_shared.settings().linux
+    }
+
+    /// The platform lookups the app read at its start (`AppSettings::platform`): the session,
+    /// the desktop, the user's directories.
+    #[must_use]
+    pub fn platform(&self) -> &PlatformEnv {
+        &self.app_shared.settings().platform
+    }
+
     /// Create new shared resources
     ///
     /// This should be called once at application startup.

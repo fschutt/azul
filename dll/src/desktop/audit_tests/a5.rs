@@ -885,7 +885,7 @@ fn a5_18_the_macos_release_marks_what_the_windows_lists_paint_before_it_gives_ha
     let marked = at("layout_window.text_halo_store.text_halos_in_use(");
     let released = at("layout_window.text_halo_store.release_text_halos(not_shown)");
     assert!(marked < released, "marked first, released last");
-    assert!(body.contains("if !keep_caches() {"), "the user's switch keeps the halos too");
+    assert!(body.contains("if !self.keep_caches() {"), "the user's switch keeps the halos too");
     assert!(
         !body.contains("registry::get_all_window_ptrs()"),
         "the pictures are the window's own: no other window is marked or released for"
@@ -1346,7 +1346,9 @@ fn a5_20_the_macos_shell_gives_a_hidden_windows_halos_back_and_brings_them_back(
             .unwrap_or_else(|| panic!("the release: `{what}` is missing"))
     };
     assert!(
-        release.contains("let full = reason == MemoryRelease::NotShown && halo_release_is_full();"),
+        release.contains(
+            "let full = reason == MemoryRelease::NotShown && self.halo_release_is_full();"
+        ),
         "a window nobody sees, unless the switch says otherwise"
     );
     let order = [
@@ -1379,8 +1381,8 @@ fn a5_20_the_macos_shell_gives_a_hidden_windows_halos_back_and_brings_them_back(
     }
 
     assert!(
-        body_at("fn halo_release_is_full(", "")
-            .contains("!std::env::var(\"AZ_HALO_RELEASE\").is_ok_and(|v| v == \"lists\")"),
+        body_at("fn halo_release_is_full(", "    ")
+            .contains("self.shell_settings().halo_release_full"),
         "the switch"
     );
     for (statement, why) in [

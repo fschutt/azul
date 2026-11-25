@@ -30,6 +30,14 @@ use std::{
 
 use serde_json::{json, Map, Value};
 
+use crate::settings::{platform::PlatformEnv, telemetry::TelemetrySettings};
+
+// The names of the variables live in `settings::telemetry`, the one place of the crate that knows
+// which variable means what; they stay reachable here.
+pub use crate::settings::telemetry::{
+    ENV_CLIENT_ID, ENV_ENDPOINT, ENV_FLUSH_SECS, ENV_OBSERVE, ENV_TIER, ENV_TOKEN,
+};
+
 /// Parses a config layer. Thin wrapper so call sites read the same as the
 /// old hand-rolled reader's `parse`.
 fn parse(text: &str) -> Result<Value, serde_json::Error> {
@@ -43,29 +51,12 @@ fn value_u64(v: &Value) -> Option<u64> {
         .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
 }
 
-/// Environment variable selecting the consent tier.
-/// The ONE-VAR local-observability switch. `AZ_OBSERVE=1` (or `local`) =
-/// "give me everything against the local Grafana stack": tier `metrics`,
-/// endpoint `http://127.0.0.1:4318`, the local stack's token, 5s flushes.
-/// `AZ_OBSERVE=<url>` targets a different collector. The granular
-/// `AZ_TELEMETRY*` variables still override individual pieces.
-pub const ENV_OBSERVE: &str = "AZ_OBSERVE";
 /// Default endpoint for `AZ_OBSERVE=1` - the local stack from
 /// `layout/examples/telemetry-grafana/`.
 pub const OBSERVE_LOCAL_ENDPOINT: &str = "http://127.0.0.1:4318";
 /// Default bearer token for `AZ_OBSERVE` - matches the local collector's
 /// configured token, so one variable really is enough.
 pub const OBSERVE_LOCAL_TOKEN: &str = "azul-demo-token";
-
-pub const ENV_TIER: &str = "AZ_TELEMETRY";
-/// Environment variable overriding the OTLP base endpoint.
-pub const ENV_ENDPOINT: &str = "AZ_TELEMETRY_ENDPOINT";
-/// Environment variable supplying the ingest bearer token.
-pub const ENV_TOKEN: &str = "AZ_TELEMETRY_TOKEN";
-/// Environment variable overriding the flush interval, in seconds.
-pub const ENV_FLUSH_SECS: &str = "AZ_TELEMETRY_FLUSH_SECS";
-/// Environment variable pinning the client id (test/CI determinism).
-pub const ENV_CLIENT_ID: &str = "AZ_TELEMETRY_CLIENT_ID";
 
 /// Basename of the per-user config file, in layers 3 and 4.
 pub const USER_CONFIG_FILE: &str = "telemetry.json";
@@ -421,13 +412,14 @@ pub fn store(config: TelemetryConfig) {
     }
 }
 
-/// Resolves the four layers for `app_id` and installs the result.
+/// Resolves the four layers for `app_id` and installs the result; `settings` is the environment
+/// layer, read once by the app start.
 ///
 /// Returns the resolved config. Safe to call more than once; the last call
 /// wins.
 #[must_use]
-pub fn load(app_id: &str) -> TelemetryConfig {
-    load_with_channel(app_id, "")
+pub fn load(app_id: &str, settings: &TelemetrySettings) -> TelemetryConfig {
+    load_with_channel(app_id, "", settings)
 }
 
 /// [`load`], with the release CHANNEL so the machine-wide shared config
@@ -436,7 +428,11 @@ pub fn load(app_id: &str) -> TelemetryConfig {
 /// layer and the per-app file; it also feeds the PER-SIGNAL gates (logs and
 /// metrics independently) and the per-metric opt-out set.
 #[must_use]
-pub fn load_with_channel(app_id: &str, channel: &str) -> TelemetryConfig {
+pub fn load_with_channel(
+    app_id: &str,
+    channel: &str,
+    settings: &TelemetrySettings,
+) -> TelemetryConfig {
     let mut config = TelemetryConfig::default();
 
     // Least specific first: each layer overwrites the fields it declares.
@@ -484,7 +480,7 @@ pub fn load_with_channel(app_id: &str, channel: &str) -> TelemetryConfig {
     // The per-metric opt-out applies regardless of which layer set the tier.
     super::metrics::set_disabled_metrics(shared_tele.disabled_metrics.iter().cloned());
 
-    apply_env(&mut config);
+    apply_settings(&mut config, settings);
 
     if config.tier.allows_metrics() && config.client_id.is_none() {
         config.client_id = Some(super::new_client_id());
@@ -501,11 +497,12 @@ pub fn load_with_channel(app_id: &str, channel: &str) -> TelemetryConfig {
     config
 }
 
-/// Applies the environment layer (highest precedence).
-fn apply_env(config: &mut TelemetryConfig) {
+/// Applies the environment layer (highest precedence): what the app start read of the process
+/// environment ([`TelemetrySettings`]).
+pub(super) fn apply_settings(config: &mut TelemetryConfig, settings: &TelemetrySettings) {
     // AZ_OBSERVE first, so the granular variables below can still override
     // any single piece of it.
-    if let Ok(raw) = std::env::var(ENV_OBSERVE) {
+    if let Some(raw) = &settings.observe {
         let v = raw.trim();
         if !v.is_empty() && v != "0" && !v.eq_ignore_ascii_case("off") {
             config.tier = TelemetryTier::Metrics;
@@ -526,8 +523,8 @@ fn apply_env(config: &mut TelemetryConfig) {
             config.flush_interval_secs = config.flush_interval_secs.min(5);
         }
     }
-    if let Ok(raw) = std::env::var(ENV_TIER) {
-        match TelemetryTier::from_name(&raw) {
+    if let Some(raw) = &settings.tier {
+        match TelemetryTier::from_name(raw) {
             Some(tier) => {
                 config.tier = tier;
                 config.tier_source = TierSource::Env;
@@ -542,24 +539,24 @@ fn apply_env(config: &mut TelemetryConfig) {
             ),
         }
     }
-    if let Ok(endpoint) = std::env::var(ENV_ENDPOINT) {
+    if let Some(endpoint) = &settings.endpoint {
         if !endpoint.is_empty() {
-            config.endpoint = endpoint;
+            config.endpoint.clone_from(endpoint);
         }
     }
-    if let Ok(token) = std::env::var(ENV_TOKEN) {
+    if let Some(token) = &settings.token {
         if !token.is_empty() {
-            config.auth_token = Some(token);
+            config.auth_token = Some(token.clone());
         }
     }
-    if let Ok(secs) = std::env::var(ENV_FLUSH_SECS) {
+    if let Some(secs) = &settings.flush_secs {
         if let Ok(parsed) = secs.parse::<u64>() {
             config.flush_interval_secs = parsed.max(1);
         }
     }
-    if let Ok(id) = std::env::var(ENV_CLIENT_ID) {
+    if let Some(id) = &settings.client_id {
         if !id.is_empty() {
-            config.client_id = Some(id);
+            config.client_id = Some(id.clone());
         }
     }
 }
@@ -622,7 +619,7 @@ pub fn config_dir() -> Option<PathBuf> {
             return Some(PathBuf::from(dir.inner.as_str()));
         }
     }
-    fallback_dir(true)
+    fallback_dir(&super::platform(), true)
 }
 
 /// The platform data directory, where the pending-ping queue lives.
@@ -634,17 +631,22 @@ pub fn data_dir() -> Option<PathBuf> {
             return Some(PathBuf::from(dir.inner.as_str()));
         }
     }
-    fallback_dir(false)
+    fallback_dir(&super::platform(), false)
 }
 
-/// Environment-only resolution of the config/data directory.
-fn fallback_dir(config: bool) -> Option<PathBuf> {
+/// Environment-only resolution of the config/data directory, from the platform variables the
+/// app start read (`platform`).
+pub(super) fn fallback_dir(platform: &PlatformEnv, config: bool) -> Option<PathBuf> {
     if cfg!(target_os = "windows") {
-        let var = if config { "APPDATA" } else { "LOCALAPPDATA" };
-        return std::env::var_os(var).map(PathBuf::from);
+        let var = if config {
+            &platform.app_data
+        } else {
+            &platform.local_app_data
+        };
+        return var.as_ref().map(PathBuf::from);
     }
     if cfg!(target_os = "macos") {
-        let home = std::env::var_os("HOME")?;
+        let home = platform.home.as_ref()?;
         return Some(
             PathBuf::from(home)
                 .join("Library")
@@ -652,18 +654,22 @@ fn fallback_dir(config: bool) -> Option<PathBuf> {
         );
     }
     let (xdg, suffix) = if config {
-        ("XDG_CONFIG_HOME", ".config")
+        (&platform.xdg_config_home, ".config")
     } else {
-        ("XDG_DATA_HOME", ".local/share")
+        (&platform.xdg_data_home, ".local/share")
     };
-    if let Some(dir) = std::env::var_os(xdg) {
+    if let Some(dir) = xdg {
         let path = PathBuf::from(dir);
         if path.is_absolute() {
             return Some(path);
         }
     }
-    Some(PathBuf::from(std::env::var_os("HOME")?).join(suffix))
+    Some(PathBuf::from(platform.home.as_ref()?).join(suffix))
 }
+
+#[cfg(test)]
+#[path = "config_test.rs"]
+mod settings_tests;
 
 #[cfg(test)]
 mod tests {

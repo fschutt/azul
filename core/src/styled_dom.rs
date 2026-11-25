@@ -1205,10 +1205,9 @@ impl StyledDomMemoryReport {
 /// tested there. Run a real app with this dial to settle it.
 #[cfg(feature = "std")]
 pub(crate) fn cascade_trace(msg: impl FnOnce() -> String) {
-    use std::sync::OnceLock;
-    // The environment's `AZ_CASCADE_TRACE`, read once: the dial is configuration of the process.
-    static ON: OnceLock<bool> = OnceLock::new();
-    if *ON.get_or_init(|| std::env::var("AZ_CASCADE_TRACE").is_ok()) {
+    // The environment's `AZ_CASCADE_TRACE` (installed once at the start): the dial is
+    // configuration of the process.
+    if crate::diagnostics::settings().cascade_trace {
         eprintln!("[cascade] {}", msg());
     }
 }

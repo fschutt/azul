@@ -431,7 +431,7 @@ fn deliver(
 
 /// Disk fallback: `{data_dir}/{app}/problem-reports/report-<unix>[.-]*`.
 fn save_to_disk(env: &crate::appenv::AppEnv, attachments: &[(String, Vec<u8>)]) -> ReportStatus {
-    let dir = report_dir(&env.app_name);
+    let dir = report_dir(&env.platform, &env.app_name);
     if let Err(e) = std::fs::create_dir_all(&dir) {
         return ReportStatus::Failed(format!("cannot create {}: {e}", dir.display()));
     }
@@ -447,15 +447,17 @@ fn save_to_disk(env: &crate::appenv::AppEnv, attachments: &[(String, Vec<u8>)]) 
     ReportStatus::Done(format!("Report saved to {}.", dir.display()))
 }
 
-/// Where disk-fallback reports go (public so apps can point users at it).
+/// Where disk-fallback reports go (public so apps can point users at it): under the user's data
+/// folder as `platform` (the environment the app read once at its start) names it.
 #[must_use]
-pub fn report_dir(app_name: &str) -> std::path::PathBuf {
+pub fn report_dir(platform: &crate::settings::PlatformEnv, app_name: &str) -> std::path::PathBuf {
     #[cfg(feature = "updater")]
     {
-        crate::updater::default_state_dir(app_name).join("problem-reports")
+        crate::updater::default_state_dir(platform, app_name).join("problem-reports")
     }
     #[cfg(not(feature = "updater"))]
     {
+        let _ = platform;
         std::env::temp_dir().join(app_name).join("problem-reports")
     }
 }

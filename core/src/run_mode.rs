@@ -13,7 +13,8 @@
 //! So they are asked for in ONE place. [`test_hooks`] is the hooks of this process:
 //!
 //! - in a build with the cargo feature `test-hooks` (the unit tests of the crates that need it and
-//!   the E2E builds: `--features build-dll,test-hooks`), what the environment asks for -
+//!   the E2E builds: `--features build-dll,test-hooks`), what the environment the dll read at the
+//!   start asks for ([`install`] with [`TestHooks::from_lookup`]) -
 //!   `AZ_BACKEND=headless` as a STAND-IN switch (everywhere else it stays what it always was: a
 //!   windowing choice), `AZ_E2E_TEST`, `AZ_E2E`, `AZ_KEYRING`, `AZ_KEYRING_FILE` and
 //!   `AZ_AUTH_SESSION_REDIRECT`;
@@ -21,12 +22,15 @@
 //!   not even read.
 //!
 //! A consumer asks the hook it needs (`test_hooks().open_nothing`, ...) and never reads one of
-//! those variables itself; `dll/tests/run_mode_gate.rs` fails when one does. The hooks are read
-//! once, at the first question: a test that must see another environment builds its own
-//! [`TestHooks`] ([`TestHooks::from_env`] takes the environment as a function) and hands it to
-//! the pure function behind the consumer.
+//! those variables itself; `dll/tests/run_mode_gate.rs` fails when one does. This crate reads no
+//! environment: the dll installs the hooks once, at the start ([`install`]), and until then the
+//! hooks are none. A test that must see another environment builds its own [`TestHooks`]
+//! ([`TestHooks::from_lookup`] takes the environment as a value) and hands it to the pure
+//! function behind the consumer.
 
 use std::ffi::OsString;
+
+use azul_css::env::EnvSource;
 
 /// The variable that picks a test run's keyring: `system`, `file` or `memory`.
 pub const KEYRING_CHOICE_VAR: &str = "AZ_KEYRING";
@@ -47,6 +51,18 @@ pub const FAKE_REDIRECT_VAR: &str = "AZ_AUTH_SESSION_REDIRECT";
 
 /// The windowing choice. `headless` is a stand-in switch here and nowhere else.
 const BACKEND_VAR: &str = "AZ_BACKEND";
+
+/// The file a test's battery reading is taken from (read at every query, so a test drains it).
+const BATTERY_STATE_FILE_VAR: &str = "AZ_BATTERY_STATE_FILE";
+
+/// The file a test's network reading is taken from (read at every query).
+const NETWORK_STATE_FILE_VAR: &str = "AZ_NETWORK_STATE_FILE";
+
+/// The file a test's utterances are appended to.
+const SPEECH_LOG_VAR: &str = "AZ_SPEECH_LOG";
+
+/// What a headless run hears, as text.
+const SPEECH_HEARD_VAR: &str = "AZ_SPEECH_HEARD";
 
 /// Whether this build can have hooks at all: the cargo feature `test-hooks`. A shipped build
 /// (`dist`) is built without it.
@@ -74,6 +90,18 @@ pub struct TestHooks {
     pub fake_sign_in: bool,
     /// `AZ_AUTH_SESSION_REDIRECT` as typed; read only in a run with `fake_sign_in`.
     pub fake_redirect: Option<String>,
+    /// `AZ_BATTERY_STATE_FILE` as typed: the switch file of a test's battery reading, meaningful
+    /// in a run with `no_sensors` (a blank name is none).
+    pub battery_state_file: Option<OsString>,
+    /// `AZ_NETWORK_STATE_FILE` as typed: the switch file of a test's network reading, meaningful
+    /// in a run with `no_sensors` (a blank name is none).
+    pub network_state_file: Option<OsString>,
+    /// `AZ_SPEECH_LOG` as typed: the file a run with `no_speech` appends its utterances to (a
+    /// blank name is none).
+    pub speech_log: Option<OsString>,
+    /// `AZ_SPEECH_HEARD` as text (a value that is not UTF-8 is none): what a run with `no_speech`
+    /// hears.
+    pub speech_heard: Option<String>,
     /// `Url::open` starts nothing and answers "opened".
     pub open_nothing: bool,
     /// The biometric prompt answers "unavailable" and shows no sheet. `presence::decide` of
@@ -91,6 +119,13 @@ pub struct TestHooks {
     pub scripted: bool,
 }
 
+impl Default for TestHooks {
+    /// No hook: the empty environment's, and what every shipped build has.
+    fn default() -> Self {
+        Self::NONE
+    }
+}
+
 impl TestHooks {
     /// No hook: what every shipped build has.
     pub const NONE: Self = Self {
@@ -99,6 +134,10 @@ impl TestHooks {
         keyring_headless: false,
         fake_sign_in: false,
         fake_redirect: None,
+        battery_state_file: None,
+        network_state_file: None,
+        speech_log: None,
+        speech_heard: None,
         open_nothing: false,
         no_biometric: false,
         no_sensors: false,
@@ -115,6 +154,10 @@ impl TestHooks {
         keyring_headless: true,
         fake_sign_in: true,
         fake_redirect: None,
+        battery_state_file: None,
+        network_state_file: None,
+        speech_log: None,
+        speech_heard: None,
         open_nothing: true,
         no_biometric: true,
         no_sensors: true,
@@ -122,6 +165,13 @@ impl TestHooks {
         mocks: true,
         scripted: false,
     };
+
+    /// The hooks a run asks for whose environment is `env` ([`Self::from_env`] over an
+    /// [`EnvSource`]). A path keeps its bytes.
+    #[must_use]
+    pub fn from_lookup(env: &dyn EnvSource) -> Self {
+        Self::from_env(&|name| env.var_os(name))
+    }
 
     /// The hooks a run asks for whose environment is `var`. Pure: this is the one place that
     /// knows which variable means what, and a test hands it an environment of its own.
@@ -143,6 +193,10 @@ impl TestHooks {
             keyring_headless: stand_in,
             fake_sign_in: stand_in,
             fake_redirect: var(FAKE_REDIRECT_VAR).and_then(|value| value.into_string().ok()),
+            battery_state_file: var(BATTERY_STATE_FILE_VAR),
+            network_state_file: var(NETWORK_STATE_FILE_VAR),
+            speech_log: var(SPEECH_LOG_VAR),
+            speech_heard: var(SPEECH_HEARD_VAR).and_then(|value| value.into_string().ok()),
             open_nothing: stand_in,
             no_biometric: stand_in,
             no_sensors: stand_in,
@@ -171,17 +225,15 @@ pub const TEST_HOOKS_MARKER: &str =
 #[used]
 static TEST_HOOKS_IN_THIS_BINARY: &str = TEST_HOOKS_MARKER;
 
-/// The hooks of this process: [`TestHooks::from_env`] of its environment, read at the first call,
-/// in a build with the cargo feature `test-hooks`.
+/// The hooks of this process: what [`install`] put there in a build with the cargo feature
+/// `test-hooks`, [`TestHooks::NONE`] before that.
 #[cfg(feature = "test-hooks")]
 #[must_use]
 pub fn test_hooks() -> &'static TestHooks {
-    // The test switches of the environment, read once: the process's configuration.
-    static HOOKS: std::sync::OnceLock<TestHooks> = std::sync::OnceLock::new();
     // Every binary that asks for a hook keeps the marker (a linker that drops what nothing reads
     // would drop it otherwise).
     std::hint::black_box(TEST_HOOKS_IN_THIS_BINARY);
-    HOOKS.get_or_init(|| TestHooks::from_env(&|name| std::env::var_os(name)))
+    HOOKS.get().unwrap_or(&TestHooks::NONE)
 }
 
 /// The hooks of this process: none. This build has no cargo feature `test-hooks`, so no variable
@@ -190,6 +242,28 @@ pub fn test_hooks() -> &'static TestHooks {
 #[must_use]
 pub const fn test_hooks() -> &'static TestHooks {
     &TestHooks::NONE
+}
+
+// The hooks of the process: the test switches of the environment, installed once at the start
+// (`install`), then only read. The consumers are public context-free functions (`Url::open`, the
+// keyring, the request mocks), which carry nothing to ask.
+#[cfg(feature = "test-hooks")]
+static HOOKS: std::sync::OnceLock<TestHooks> = std::sync::OnceLock::new();
+
+/// Installs the hooks of this process, once, at the start.
+///
+/// The dll builds them from the environment it read ([`TestHooks::from_lookup`]); the first
+/// install wins and the hooks never change while the process runs. A build without the cargo
+/// feature `test-hooks` keeps none.
+pub fn install(hooks: TestHooks) {
+    #[cfg(feature = "test-hooks")]
+    {
+        drop(HOOKS.set(hooks));
+    }
+    #[cfg(not(feature = "test-hooks"))]
+    {
+        drop(hooks);
+    }
 }
 
 #[cfg(test)]
@@ -340,11 +414,66 @@ mod tests {
         assert_eq!(test_hooks(), &TestHooks::NONE);
     }
 
-    /// A build with the cargo feature reads its environment once and hands out the same hooks.
+    /// A build with the cargo feature hands out the same hooks every time (none until the dll
+    /// installs them; `tests/run_mode_hooks.rs` installs some, in a process of its own).
     #[cfg(feature = "test-hooks")]
     #[test]
-    fn a_build_with_the_feature_reads_its_environment_once() {
+    fn a_build_with_the_feature_hands_out_the_same_hooks() {
         assert!(AVAILABLE);
         assert!(std::ptr::eq(test_hooks(), test_hooks()));
+    }
+
+    /// The switch files and the heard text of the sensors and the speech stand-ins are read as
+    /// typed, whatever else is set; the heard text is text, a path is not.
+    #[test]
+    fn the_files_and_the_text_of_the_sensor_and_speech_stand_ins_are_read_as_typed() {
+        let none = hooks(&[]);
+        assert!(none.battery_state_file.is_none() && none.network_state_file.is_none());
+        assert!(none.speech_log.is_none() && none.speech_heard.is_none());
+        let asked = hooks(&[
+            ("AZ_BATTERY_STATE_FILE", "/tmp/battery"),
+            ("AZ_NETWORK_STATE_FILE", "/tmp/network"),
+            ("AZ_SPEECH_LOG", "/tmp/speech.log"),
+            ("AZ_SPEECH_HEARD", "hello there"),
+        ]);
+        assert_eq!(asked.battery_state_file, Some(OsString::from("/tmp/battery")));
+        assert_eq!(asked.network_state_file, Some(OsString::from("/tmp/network")));
+        assert_eq!(asked.speech_log, Some(OsString::from("/tmp/speech.log")));
+        assert_eq!(asked.speech_heard.as_deref(), Some("hello there"));
+        // they are values, not switches: no stand-in is turned on by them
+        assert!(!asked.no_sensors && !asked.no_speech && !asked.mocks);
+        // an empty value is passed on as typed (the consumer treats a blank name as none)
+        let blank = hooks(&[("AZ_SPEECH_LOG", ""), ("AZ_SPEECH_HEARD", "")]);
+        assert_eq!(blank.speech_log, Some(OsString::new()));
+        assert_eq!(blank.speech_heard.as_deref(), Some(""));
+        // text that is not UTF-8 is no text
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStringExt;
+            let raw = |name: &str| (name == "AZ_SPEECH_HEARD").then(|| OsString::from_vec(vec![0xff, b'x']));
+            assert_eq!(TestHooks::from_env(&raw).speech_heard, None);
+        }
+    }
+
+    /// The environment is an `EnvSource`: a map, nothing, and a path that is not text.
+    #[test]
+    fn the_hooks_of_an_env_source_are_those_of_its_variables() {
+        use azul_css::env::{MapEnv, NoEnv};
+        assert_eq!(TestHooks::from_lookup(&NoEnv), TestHooks::NONE);
+        assert_eq!(TestHooks::default(), TestHooks::NONE);
+        let env = MapEnv::new()
+            .with("AZ_BACKEND", "headless")
+            .with("AZ_KEYRING", "memory")
+            .with_os("AZ_KEYRING_FILE", "/tmp/a-stack/keyring.json");
+        let hooks = TestHooks::from_lookup(&env);
+        assert!(hooks.fake_sign_in && hooks.mocks && !hooks.scripted);
+        assert_eq!(hooks.keyring_choice, Some(OsString::from("memory")));
+        assert_eq!(
+            hooks.keyring_file,
+            Some(OsString::from("/tmp/a-stack/keyring.json"))
+        );
+        let env = MapEnv::new().with("AZ_E2E", "/tmp/script.json");
+        let hooks = TestHooks::from_lookup(&env);
+        assert!(hooks.mocks && hooks.scripted && !hooks.fake_sign_in);
     }
 }

@@ -321,8 +321,11 @@ fn report_released_downcast() {
              use-after-release in the CALLER, not here. Re-run with RUST_BACKTRACE=1 to name it. \
              (said once per process)"
         );
-        if std::env::var("RUST_BACKTRACE").is_ok() {
-            eprintln!("{}", std::backtrace::Backtrace::force_capture());
+        // `capture` takes the backtrace only where `RUST_BACKTRACE` (or `RUST_LIB_BACKTRACE`) asks
+        // for one: std reads that, this crate reads no environment.
+        let backtrace = std::backtrace::Backtrace::capture();
+        if backtrace.status() == std::backtrace::BacktraceStatus::Captured {
+            eprintln!("{backtrace}");
         }
     }
 }

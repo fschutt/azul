@@ -376,6 +376,8 @@ pub fn default_renderer_options(
         // shown at its own scale at a whole-pixel offset - every tile that is
         // not being zoomed - is sampled at its texel centres, i.e. unchanged.
         low_quality_pinch_zoom: crate::desktop::compositor2::zoom_frames_enabled(),
+        // The Tracy profiler's library, loaded by the first renderer of a `profiler` build.
+        tracy_path: azul_css::env::EnvSource::var(&crate::env::ProcessEnv::new(), "WR_TRACY_PATH"),
         ..WrRendererOptions::default()
     }
 }
@@ -440,7 +442,7 @@ impl webrender::api::ExternalImageHandler for Compositor {
 /// flag keeps it, and the environment can only add.
 fn merge_overlay_env(mut state: DebugState) -> DebugState {
     static ENV: std::sync::OnceLock<DebugState> = std::sync::OnceLock::new();
-    let env = ENV.get_or_init(DebugState::from_az_overlay_env);
+    let env = ENV.get_or_init(|| DebugState::from_lookup(&crate::env::ProcessEnv::new()));
 
     macro_rules! or_in {
         ($($f:ident),* $(,)?) => { $( state.$f = state.$f || env.$f; )* };

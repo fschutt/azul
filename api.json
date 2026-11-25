@@ -1,8 +1,8 @@
 {
     "0.2.0": {
         "apiversion": 1,
-        "git": "1617dd619",
-        "date": "2026-11-21",
+        "git": "34530fe7f",
+        "date": "2026-11-25",
         "installation": {
             "tabOrder": [
                 "python",
@@ -193177,7 +193177,7 @@
                         "constructors": {
                             "create": {
                                 "fn_args": [],
-                                "fn_body": "azul_core::resources::AppConfig::create()"
+                                "fn_body": "azul_dll::env::app_config_create()"
                             }
                         },
                         "functions": {

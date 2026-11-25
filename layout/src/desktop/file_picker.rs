@@ -31,9 +31,10 @@ pub const PROTOCOL: u64 = 1;
 /// What starts the answer line on the provider's stdout.
 pub const ANSWER_PREFIX: &str = "AZPICK ";
 
-/// The environment variable that picks the picker: `native`, or the path of
-/// a registration file.
-pub const PICKER_VAR: &str = "AZUL_FILE_PICKER";
+// The environment variable that picks the picker (`native`, or the path of a registration file) is
+// named in `settings::services`, read once at the start and kept by the request runtime
+// (`request::set_file_picker`).
+pub use crate::settings::services::PICKER_VAR;
 
 /// What a request asks the picker for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -474,11 +475,9 @@ fn converse(
 /// cannot be used - logged, with the reason).
 #[must_use]
 pub fn ask_preferred(request: &PickRequest) -> Option<PendingPick> {
-    let env = std::env::var(PICKER_VAR).ok();
-    // A test names its provider for its own thread, as `AZUL_FILE_PICKER`
-    // names one for a process: the environment is shared by every test.
-    #[cfg(test)]
-    let env = tests::provider_for_this_thread().or(env);
+    // What the run was started with ([`PICKER_VAR`], kept by the request runtime; a test names
+    // its provider for its own thread: the request runtime of a test is the thread's).
+    let env = crate::request::file_picker();
     let e2e = crate::request::mock::is_armed();
     let Picker::Provider(file) = choose(env.as_deref(), e2e, registered_file().filter(|f| f.exists()))
     else {
@@ -497,24 +496,16 @@ pub fn ask_preferred(request: &PickRequest) -> Option<PendingPick> {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::{cell::RefCell, path::PathBuf};
+    use std::path::PathBuf;
 
     use super::*;
 
-    std::thread_local! {
-        static PROVIDER: RefCell<Option<String>> = const { RefCell::new(None) };
-    }
-
-    /// The registration file a test named for its thread.
-    pub(crate) fn provider_for_this_thread() -> Option<String> {
-        PROVIDER.with(|p| p.borrow().clone())
-    }
-
-    /// Runs `f` with `registration` as this thread's picker.
+    /// Runs `f` with `registration` as this thread's picker: the request runtime of a test is the
+    /// thread's own, as `AZUL_FILE_PICKER` names one for a process.
     pub(crate) fn with_provider<R>(registration: &Path, f: impl FnOnce() -> R) -> R {
-        PROVIDER.with(|p| *p.borrow_mut() = Some(registration.to_string_lossy().into_owned()));
+        crate::request::set_file_picker(Some(registration.to_string_lossy().as_ref()));
         let out = f();
-        PROVIDER.with(|p| *p.borrow_mut() = None);
+        crate::request::set_file_picker(None);
         out
     }
 

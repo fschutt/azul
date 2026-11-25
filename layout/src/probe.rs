@@ -137,6 +137,10 @@ mod imp {
     /// only then does a span look at its thread's choice, so a process that never does (every
     /// product build) still pays the one atomic load and touches no thread-local.
     const THREAD_CHOICES: u8 = 0b1000;
+    /// Set in [`RECORDING`] when the names of callbacks must NOT be recovered with `addr2line`
+    /// (`AZ_PROBE_ADDR2LINE=0`, [`set_addr2line`]): the stable offset name stays. Not a mode and
+    /// not a thread's choice, so [`store_mode`] keeps it.
+    const NO_ADDR2LINE: u8 = 0b1_0000;
 
     /// The recording mode in force on this thread: its own choice, else the process's.
     #[inline]
@@ -176,11 +180,27 @@ mod imp {
         }
     }
 
-    /// Stores the mode bits of [`RECORDING`], keeping [`THREAD_CHOICES`].
+    /// Stores the mode bits of [`RECORDING`], keeping [`THREAD_CHOICES`] and [`NO_ADDR2LINE`].
     fn store_mode(mode: u8) {
         let _ = RECORDING.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |old| {
-            Some((old & THREAD_CHOICES) | mode)
+            Some((old & (THREAD_CHOICES | NO_ADDR2LINE)) | mode)
         });
+    }
+
+    /// Whether the callback names the profiler only knows by address may be asked of the system's
+    /// `addr2line` (on unless [`set_addr2line`] said no).
+    pub(super) fn addr2line_allowed() -> bool {
+        RECORDING.load(Ordering::Relaxed) & NO_ADDR2LINE == 0
+    }
+
+    /// Allows (`true`, the default) or forbids asking `addr2line` for callback names
+    /// (`AZ_PROBE_ADDR2LINE=0`).
+    pub(super) fn set_addr2line(on: bool) {
+        if on {
+            RECORDING.fetch_and(!NO_ADDR2LINE, Ordering::Relaxed);
+        } else {
+            RECORDING.fetch_or(NO_ADDR2LINE, Ordering::Relaxed);
+        }
     }
 
     pub(super) fn set_recording(on: bool) {
@@ -467,7 +487,7 @@ mod imp {
     /// on a caller's thread): loading a big binary's DWARF costs anywhere
     /// from hundreds of ms to SECONDS, which is jank if anything waits on
     /// it. Runs at most once per distinct callback pointer.
-    /// `AZ_PROBE_ADDR2LINE=0` disables it.
+    /// `AZ_PROBE_ADDR2LINE=0` disables it (`Probe::set_addr2line`).
     ///
     /// PIE executables and shared objects map file offsets 1:1 to link-time
     /// addresses, so the module-relative offset is the right query; for a
@@ -496,7 +516,7 @@ mod imp {
         if !cfg!(target_os = "linux") {
             return None;
         }
-        if std::env::var("AZ_PROBE_ADDR2LINE").is_ok_and(|v| v == "0") {
+        if !addr2line_allowed() {
             return None;
         }
         if !addr2line_available() {
@@ -633,6 +653,9 @@ mod imp {
     pub(super) const fn track_scope(_on: bool) {}
 
     #[inline]
+    pub(super) const fn set_addr2line(_on: bool) {}
+
+    #[inline]
     pub(super) const fn drained_by_its_caller() -> bool {
         false
     }
@@ -722,6 +745,16 @@ impl Probe {
     #[allow(clippy::missing_const_for_fn)]
     pub fn track_scope(on: bool) {
         imp::track_scope(on);
+    }
+
+    /// Allow (`true`, the default) or forbid asking the system's `addr2line` for the name of a
+    /// callback the profiler only knows by its address (`AZ_PROBE_ADDR2LINE=0` forbids it). The
+    /// app start sets it once ([`crate::settings::ServiceSettings::install`]).
+    #[inline]
+    // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn set_addr2line(on: bool) {
+        imp::set_addr2line(on);
     }
 
     /// Force event recording on/off for the whole PROCESS, overriding the

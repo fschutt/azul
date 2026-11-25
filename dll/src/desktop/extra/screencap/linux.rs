@@ -25,12 +25,15 @@ use std::{
 };
 
 use super::dmabuf::{self, EglBackend, Plane};
+use crate::desktop::extra::extra_settings::ExtraSettings;
 
 /// `AZ_SCREENCAP_DEBUG=1` traces the portal/PipeWire handshake to stderr,
 /// independent of the dll's `logging` feature (the demos build without it).
+/// The first argument is the switch the session read when it opened
+/// (`ExtraSettings::screencap_debug`); nothing here asks the environment.
 macro_rules! scd {
-    ($($arg:tt)*) => {{
-        if std::env::var_os("AZ_SCREENCAP_DEBUG").is_some() {
+    ($debug:expr, $($arg:tt)*) => {{
+        if $debug {
             eprintln!("[screencap] {}", format!($($arg)*));
         }
     }};
@@ -103,10 +106,12 @@ struct Portal {
     proxy: zbus::blocking::Proxy<'static>,
     sender_token: String,
     counter: u32,
+    /// Trace the handshake to stderr (`AZ_SCREENCAP_DEBUG`).
+    debug: bool,
 }
 
 impl Portal {
-    fn new(conn: &zbus::blocking::Connection) -> Option<Self> {
+    fn new(conn: &zbus::blocking::Connection, debug: bool) -> Option<Self> {
         let conn = conn.clone();
         let proxy = zbus::blocking::Proxy::new(
             &conn,
@@ -122,6 +127,7 @@ impl Portal {
             proxy,
             sender_token,
             counter: 0,
+            debug,
         })
     }
 
@@ -168,7 +174,7 @@ impl Portal {
             // The D-Bus error text is the ONE line that says why the portal
             // refused — it must not be visible only under AZ_SCREENCAP_DEBUG.
             crate::plog_warn!("[screencap] portal {} call errored: {}", method, e);
-            scd!("portal {} call errored: {}", method, e);
+            scd!(self.debug, "portal {} call errored: {}", method, e);
         }
         let _request_handle = res.ok()?;
 
@@ -177,7 +183,7 @@ impl Portal {
         // forever; pull the next signal on a helper thread and bound the wait
         // with recv_timeout (the helper leaks until a signal eventually lands
         // or the process exits — fine for this one-shot handshake).
-        scd!(
+        scd!(self.debug,
             "portal {} waiting for Response (<= {:?})...",
             method,
             timeout
@@ -192,7 +198,7 @@ impl Portal {
             Ok(m) => m,
             Err(_) => {
                 crate::plog_warn!("[screencap] portal {} timed out", method);
-                scd!("portal {} TIMED OUT (no Response)", method);
+                scd!(self.debug, "portal {} TIMED OUT (no Response)", method);
                 return None;
             }
         };
@@ -205,16 +211,22 @@ impl Portal {
                 method,
                 code
             );
-            scd!("portal {} declined/cancelled (code {})", method, code);
+            scd!(self.debug, "portal {} declined/cancelled (code {})", method, code);
             return None;
         }
-        scd!("portal {} Response OK", method);
+        scd!(self.debug, "portal {} Response OK", method);
         Some(results)
     }
 }
 
 /// Full ScreenCast handshake → (pipewire fd, node_id, dbus conn, session path).
-fn portal_open_stream() -> Option<(OwnedFd, u32, zbus::blocking::Connection, String)> {
+///
+/// `debug` traces it (`AZ_SCREENCAP_DEBUG`); `start_secs` is how long the share dialog may stay
+/// open (`AZ_SCREENCAP_START_TIMEOUT_SECS`). Both are the session's, read once by `open`.
+fn portal_open_stream(
+    debug: bool,
+    start_secs: u64,
+) -> Option<(OwnedFd, u32, zbus::blocking::Connection, String)> {
     use zbus::zvariant::Value;
 
     let conn = match zbus::blocking::Connection::session() {
@@ -230,7 +242,7 @@ fn portal_open_stream() -> Option<(OwnedFd, u32, zbus::blocking::Connection, Str
             return None;
         }
     };
-    let mut portal = Portal::new(&conn)?;
+    let mut portal = Portal::new(&conn, debug)?;
 
     // 1. CreateSession(a{sv}) -> request path; results carry session_handle.
     let token = portal.next_token();
@@ -242,7 +254,7 @@ fn portal_open_stream() -> Option<(OwnedFd, u32, zbus::blocking::Connection, Str
         .get("session_handle")
         .and_then(|v| v.downcast_ref::<zbus::zvariant::Str>().ok())
         .map(|s| s.to_string())?;
-    scd!("CreateSession OK: {}", session_handle);
+    scd!(debug, "CreateSession OK: {}", session_handle);
     let session_path = zbus::zvariant::OwnedObjectPath::try_from(session_handle.clone()).ok()?;
 
     // 2. SelectSources(o, a{sv}): monitors, single, cursor embedded in frames.
@@ -258,16 +270,12 @@ fn portal_open_stream() -> Option<(OwnedFd, u32, zbus::blocking::Connection, Str
         &(session_path.clone(), opts),
         Duration::from_secs(20),
     )?;
-    scd!("SelectSources OK — showing share dialog...");
+    scd!(debug, "SelectSources OK — showing share dialog...");
 
     // 3. Start(o, s, a{sv}) — THIS pops the desktop's share-picker dialog.
     let token = portal.next_token();
     let mut opts: HashMap<&'static str, Value> = HashMap::new();
     opts.insert("handle_token", Value::from(token.clone()));
-    let start_secs = std::env::var("AZ_SCREENCAP_START_TIMEOUT_SECS")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(300);
     let results = portal.request(
         "Start",
         &token,
@@ -774,7 +782,7 @@ fn parse_format_pod(pod: *const u8) -> Option<(u32, u32, u32, Option<u64>)> {
 
 extern "C" fn on_param_changed(data: *mut c_void, id: u32, param: *const u8) {
     let ctx = unsafe { &*(data as *const StreamCtx) };
-    scd!("param_changed id={} (format id={})", id, SPA_PARAM_FORMAT);
+    scd!(ctx.debug, "param_changed id={} (format id={})", id, SPA_PARAM_FORMAT);
     if id != SPA_PARAM_FORMAT || param.is_null() {
         return;
     }
@@ -789,7 +797,7 @@ extern "C" fn on_param_changed(data: *mut c_void, id: u32, param: *const u8) {
             h,
             if dmabuf { " (dmabuf)" } else { "" }
         );
-        scd!(
+        scd!(ctx.debug,
             "negotiated format {} {}x{} modifier={:?}",
             fmt,
             w,
@@ -818,9 +826,9 @@ extern "C" fn on_param_changed(data: *mut c_void, id: u32, param: *const u8) {
         unsafe {
             (ctx.pw.pw_stream_update_params)(ctx.stream, params.as_mut_ptr(), 1);
         }
-        scd!("update_params(buffers, dmabuf={}) sent", dmabuf);
+        scd!(ctx.debug, "update_params(buffers, dmabuf={}) sent", dmabuf);
     } else {
-        scd!("param_changed: format pod did not parse");
+        scd!(ctx.debug, "param_changed: format pod did not parse");
     }
 }
 
@@ -834,9 +842,9 @@ extern "C" fn on_state_changed(data: *mut c_void, _old: c_int, state: c_int, err
         3 => "streaming",
         _ => "?",
     };
-    scd!("state -> {} ({})", name, state);
+    let ctx = unsafe { &*(data as *const StreamCtx) };
+    scd!(ctx.debug, "state -> {} ({})", name, state);
     if state == -1 {
-        let ctx = unsafe { &*(data as *const StreamCtx) };
         let msg = if err.is_null() {
             "unknown".to_string()
         } else {
@@ -845,7 +853,7 @@ extern "C" fn on_state_changed(data: *mut c_void, _old: c_int, state: c_int, err
                 .into_owned()
         };
         crate::plog_warn!("[screencap] stream error: {}", msg);
-        scd!("STREAM ERROR: {}", msg);
+        scd!(ctx.debug, "STREAM ERROR: {}", msg);
         let mut slot = ctx.shared.slot.lock().unwrap();
         slot.dead = true;
         ctx.shared.cond.notify_all();
@@ -896,7 +904,7 @@ extern "C" fn on_process(data: *mut c_void) {
                             slot.data = rgba;
                             slot.data_is_rgba = true;
                             if slot.seq == 0 {
-                                scd!("first dmabuf frame imported ({}x{})", w, h);
+                                scd!(ctx.debug, "first dmabuf frame imported ({}x{})", w, h);
                             }
                             slot.seq = slot.seq.wrapping_add(1);
                             ctx.shared.cond.notify_all();
@@ -919,7 +927,7 @@ extern "C" fn on_process(data: *mut c_void) {
                     }
                     slot.data_is_rgba = false;
                     if slot.seq == 0 {
-                        scd!(
+                        scd!(ctx.debug,
                             "first frame received ({}x{}, fmt {})",
                             w,
                             h,
@@ -948,6 +956,8 @@ struct StreamCtx {
     /// param_changed, read in process). Meaningless unless the current buffer
     /// is itself a dmabuf.
     modifier: AtomicU64,
+    /// Trace the stream's callbacks to stderr (`AZ_SCREENCAP_DEBUG`).
+    debug: bool,
 }
 unsafe impl Send for StreamCtx {}
 unsafe impl Sync for StreamCtx {}
@@ -961,29 +971,36 @@ unsafe impl Sync for StreamCtx {}
 /// user) and PipeWire delivers the source's own size; fps is negotiated by
 /// the compositor. The request is therefore informational here.
 pub fn open(_request: &azul_layout::widgets::capture_common::CaptureRequest) -> u64 {
-    scd!("open() called — starting portal handshake");
+    // The capture backend is registered as plain function pointers, so a session reads the
+    // two switches it needs once, here, through the one process reader (`ExtraSettings`), and
+    // carries them (`StreamCtx::debug`) from then on.
+    let settings = ExtraSettings::of_process();
+    let debug = settings.screencap_debug;
+    scd!(debug, "open() called — starting portal handshake");
     // 1. Portal handshake (may block on the user's share dialog).
-    let Some((fd, node_id, dbus, session_path)) = portal_open_stream() else {
+    let Some((fd, node_id, dbus, session_path)) =
+        portal_open_stream(debug, settings.screencap_start_timeout_secs)
+    else {
         // This is THE line a user needs when the widget shows the test
         // pattern — it must not be gated on AZ_SCREENCAP_DEBUG.
         crate::plog_warn!(
             "[screencap] xdg-desktop-portal ScreenCast handshake FAILED — falling back to the \
              test pattern (details above; set AZ_SCREENCAP_DEBUG=1 for the full trace)"
         );
-        scd!("portal handshake FAILED — falling back to test pattern");
+        scd!(debug, "portal handshake FAILED — falling back to test pattern");
         return 0;
     };
-    scd!("portal OK: node={} session={}", node_id, session_path);
+    scd!(debug, "portal OK: node={} session={}", node_id, session_path);
     // 2. PipeWire.
     let Some(pw) = PwLib::load() else {
         crate::plog_warn!(
             "[screencap] libpipewire-0.3 could not be loaded — screen capture unavailable, \
              falling back to the test pattern"
         );
-        scd!("libpipewire load FAILED");
+        scd!(debug, "libpipewire load FAILED");
         return 0;
     };
-    scd!("libpipewire loaded");
+    scd!(debug, "libpipewire loaded");
 
     let shared = Arc::new(Shared {
         slot: Mutex::new(FrameSlot::default()),
@@ -993,7 +1010,7 @@ pub fn open(_request: &azul_layout::widgets::capture_common::CaptureRequest) -> 
     // Surfaceless EGL importer for GPU (dmabuf) frames. Most compositors only
     // hand out dmabuf, so this is the path that actually works on a real
     // desktop; if it can't initialize we offer shared-memory formats only.
-    let egl = EglBackend::init();
+    let egl = EglBackend::init(debug);
     if egl.is_none() {
         // On GNOME/KDE the compositor usually delivers ONLY dmabuf frames;
         // without EGL every one of them is dropped and the stream stays
@@ -1004,7 +1021,7 @@ pub fn open(_request: &azul_layout::widgets::capture_common::CaptureRequest) -> 
              frames will arrive (set AZ_SCREENCAP_DEBUG=1 for the EGL trace)"
         );
     }
-    scd!(
+    scd!(debug,
         "egl backend: {}",
         if egl.is_some() {
             "ready"
@@ -1013,7 +1030,7 @@ pub fn open(_request: &azul_layout::widgets::capture_common::CaptureRequest) -> 
         }
     );
     let format_pods = build_format_pods(egl.as_ref());
-    scd!("offering {} EnumFormat params", format_pods.len());
+    scd!(debug, "offering {} EnumFormat params", format_pods.len());
 
     unsafe {
         let name = CString::new("azul-screencap").unwrap();
@@ -1095,6 +1112,7 @@ pub fn open(_request: &azul_layout::widgets::capture_common::CaptureRequest) -> 
             shared: shared.clone(),
             egl,
             modifier: AtomicU64::new(dmabuf::DRM_FORMAT_MOD_INVALID),
+            debug,
         }));
         let events = Box::new(PwStreamEvents {
             version: 2,
@@ -1135,7 +1153,7 @@ pub fn open(_request: &azul_layout::widgets::capture_common::CaptureRequest) -> 
             param_ptrs.len() as u32,
         );
         (pw.pw_thread_loop_unlock)(thread_loop);
-        scd!("pw_stream_connect rc={}", rc);
+        scd!(debug, "pw_stream_connect rc={}", rc);
         if rc != 0 {
             crate::plog_warn!("[screencap] pw_stream_connect failed ({})", rc);
             (pw.pw_thread_loop_lock)(thread_loop);
@@ -1170,7 +1188,7 @@ pub fn open(_request: &azul_layout::widgets::capture_common::CaptureRequest) -> 
         };
         sessions().lock().unwrap().insert(handle, session);
         crate::plog_info!("[screencap] session {} open (node {})", handle, node_id);
-        scd!(
+        scd!(debug,
             "session {} CONNECTED (node {}) — awaiting frames",
             handle,
             node_id

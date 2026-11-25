@@ -45,8 +45,9 @@ use std::{
 pub(super) mod readings;
 
 /// The variable naming the file whose words a headless / E2E run's battery is
-/// ([`BatteryState::from_words`]; ignored by every other run).
-pub const BATTERY_STATE_FILE_VAR: &str = "AZ_BATTERY_STATE_FILE";
+/// ([`BatteryState::from_words`]; ignored by every other run). The installed
+/// `azul_core::run_mode::TestHooks` hold its value; the name is `extra_settings`'.
+pub use crate::desktop::extra::extra_settings::BATTERY_STATE_FILE_VAR;
 
 /// How often the monitor reads the platform.
 pub const POLL: Duration = Duration::from_secs(20);
@@ -187,8 +188,8 @@ impl BatteryState {
 
 /// A headless run's battery: the switch file's words, else [`BatteryState::HEADLESS`].
 pub(super) fn headless_reading() -> BatteryState {
-    let path = std::env::var_os(BATTERY_STATE_FILE_VAR);
-    reading_of_file(path.as_deref().map(Path::new))
+    let hooks = azul_core::run_mode::test_hooks();
+    reading_of_file(hooks.battery_state_file.as_deref().map(Path::new))
 }
 
 /// The battery the file at `path` says ([`BatteryState::from_words`]); without a file, or one

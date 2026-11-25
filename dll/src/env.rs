@@ -77,6 +77,20 @@ impl EnvSource for ProcessEnv {
     }
 }
 
+/// `AppConfig::create` of the C API and of the `azul` crate (api.json names this function).
+///
+/// The config of `azul_core::resources::AppConfig::create`, which reads no environment, with the
+/// default text anti-aliasing replaced by what `AZ_TEXT_AA` and the `AZ_LCD_*` variables of the
+/// process environment ask for. An app that sets it afterwards decides for itself. It runs
+/// before `App::create`, so it makes a reader of its own ([`ProcessEnv::new`]).
+#[must_use]
+pub fn app_config_create() -> azul_core::resources::AppConfig {
+    let mut config = azul_core::resources::AppConfig::create();
+    config.text_antialiasing =
+        azul_core::resources::TextAntialiasing::from_lookup(&ProcessEnv::new());
+    config
+}
+
 /// The `debug.az.*` system properties of an Android process, as variables.
 ///
 /// Plain data, so the parsing is tested on every target; only [`AndroidProperties::read`], which

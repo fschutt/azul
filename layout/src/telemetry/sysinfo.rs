@@ -70,7 +70,7 @@ fn gather() -> SystemInfo {
         cpu_count: std::thread::available_parallelism().map_or(0, std::num::NonZeroUsize::get),
         ram_total_bytes: ram_total_bytes(),
         os: os_description(),
-        windowing: windowing_system(),
+        windowing: windowing_system(&super::platform()),
         gpu: GPU_INFO.get().cloned().unwrap_or_else(gpu_guess),
     }
 }
@@ -126,16 +126,24 @@ fn os_description() -> String {
     family.to_owned()
 }
 
-fn windowing_system() -> String {
+/// The windowing system the session runs, from the platform variables the app start read
+/// (`platform`; the settings [`super::init`] was given).
+fn windowing_system(platform: &crate::settings::PlatformEnv) -> String {
     #[cfg(target_os = "windows")]
-    return "win32".to_owned();
+    {
+        let _ = platform;
+        return "win32".to_owned();
+    }
     #[cfg(target_os = "macos")]
-    return "cocoa".to_owned();
+    {
+        let _ = platform;
+        return "cocoa".to_owned();
+    }
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
-        if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+        if platform.wayland_display {
             "wayland".to_owned()
-        } else if std::env::var_os("DISPLAY").is_some() {
+        } else if platform.display {
             "x11".to_owned()
         } else {
             "headless".to_owned()

@@ -35,6 +35,9 @@ fn a_shipped_build_has_no_hook_whatever_the_environment_holds() {
         "the process really holds the switches: {asked:?}"
     );
 
+    // Even a hook that is handed to the install is not kept: this build has none.
+    run_mode::install(asked);
+
     // `black_box`: the constant is known to be false here, and a plain `assert!(!false)` is
     // what clippy rejects as an assertion that can never fail.
     assert!(

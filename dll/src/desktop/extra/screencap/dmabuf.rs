@@ -24,9 +24,11 @@ use std::{
     sync::Mutex,
 };
 
+/// The EGL half of the screen-capture trace (`AZ_SCREENCAP_DEBUG`): the first argument is the
+/// switch the capture session read at its start (`ExtraSettings::screencap_debug`).
 macro_rules! scd {
-    ($($arg:tt)*) => {{
-        if std::env::var_os("AZ_SCREENCAP_DEBUG").is_some() {
+    ($debug:expr, $($arg:tt)*) => {{
+        if $debug {
             eprintln!("[screencap/egl] {}", format!($($arg)*));
         }
     }};
@@ -217,6 +219,8 @@ pub struct EglBackend {
     ctx: *mut c_void,
     surface: *mut c_void, // NO_SURFACE (surfaceless) or a 1x1 pbuffer
     blit: Mutex<Option<Blit>>,
+    /// `AZ_SCREENCAP_DEBUG` as the capture session read it: trace the import.
+    debug: bool,
 }
 
 // dpy/ctx are only touched under `blit`'s lock from the single data thread.
@@ -231,11 +235,12 @@ unsafe fn proc_addr<T: Copy>(get: EglGetProcAddress, name: &str) -> Option<T> {
 }
 
 impl EglBackend {
-    /// Build a surfaceless EGL/GLES2 context for dmabuf import. Returns `None`
+    /// Build a surfaceless EGL/GLES2 context for dmabuf import, tracing to stderr when `debug`
+    /// (`AZ_SCREENCAP_DEBUG`). Returns `None`
     /// (and the caller falls back to shared-memory buffers) if EGL or the
     /// required extensions are unavailable. Does NOT make the context current —
     /// that happens on the PipeWire data thread in `import_to_rgba`.
-    pub fn init() -> Option<EglBackend> {
+    pub fn init(debug: bool) -> Option<EglBackend> {
         unsafe {
             let libegl = crate::desktop::open_first_lib(&["libEGL.so.1"])?;
             let libgles = crate::desktop::open_first_lib(&["libGLESv2.so.2"])?;
@@ -285,15 +290,15 @@ impl EglBackend {
                 None => get_display(EGL_DEFAULT_DISPLAY),
             };
             if dpy.is_null() {
-                scd!("no EGL display");
+                scd!(debug, "no EGL display");
                 return None;
             }
             let (mut major, mut minor) = (0i32, 0i32);
             if initialize(dpy, &mut major, &mut minor) != EGL_TRUE {
-                scd!("eglInitialize failed: {:#x}", get_error());
+                scd!(debug, "eglInitialize failed: {:#x}", get_error());
                 return None;
             }
-            scd!("EGL {}.{} initialized", major, minor);
+            scd!(debug, "EGL {}.{} initialized", major, minor);
 
             // Need surfaceless contexts OR we make a tiny pbuffer below.
             let exts = {
@@ -306,7 +311,7 @@ impl EglBackend {
             };
 
             if bind_api(EGL_OPENGL_ES_API) != EGL_TRUE {
-                scd!("eglBindAPI(ES) failed");
+                scd!(debug, "eglBindAPI(ES) failed");
                 return None;
             }
 
@@ -330,14 +335,14 @@ impl EglBackend {
             if choose_config(dpy, cfg_attribs.as_ptr(), &mut config, 1, &mut n_config) != EGL_TRUE
                 || n_config < 1
             {
-                scd!("eglChooseConfig found no config");
+                scd!(debug, "eglChooseConfig found no config");
                 return None;
             }
 
             let ctx_attribs: [i32; 3] = [EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE];
             let ctx = create_context(dpy, config, EGL_NO_CONTEXT, ctx_attribs.as_ptr());
             if ctx.is_null() {
-                scd!("eglCreateContext failed: {:#x}", get_error());
+                scd!(debug, "eglCreateContext failed: {:#x}", get_error());
                 return None;
             }
 
@@ -348,7 +353,7 @@ impl EglBackend {
                 let pb: [i32; 5] = [EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE];
                 let s = create_pbuffer_surface(dpy, config, pb.as_ptr());
                 if s.is_null() {
-                    scd!("no surfaceless ctx and pbuffer creation failed");
+                    scd!(debug, "no surfaceless ctx and pbuffer creation failed");
                     return None;
                 }
                 s
@@ -396,7 +401,7 @@ impl EglBackend {
                 image_target_texture_2d_oes,
             };
 
-            scd!("EGL backend ready (surfaceless={})", surface.is_null());
+            scd!(debug, "EGL backend ready (surfaceless={})", surface.is_null());
             Some(EglBackend {
                 _libegl: libegl,
                 _libgles: libgles,
@@ -418,6 +423,7 @@ impl EglBackend {
                 ctx,
                 surface,
                 blit: Mutex::new(None),
+                debug,
             })
         }
     }
@@ -481,7 +487,7 @@ impl EglBackend {
         let mut guard = self.blit.lock().ok()?;
         unsafe {
             if (self.egl.make_current)(self.dpy, self.surface, self.surface, self.ctx) != EGL_TRUE {
-                scd!("eglMakeCurrent failed: {:#x}", (self.egl.get_error)());
+                scd!(self.debug, "eglMakeCurrent failed: {:#x}", (self.egl.get_error)());
                 return None;
             }
             if guard.is_none() {
@@ -512,7 +518,7 @@ impl EglBackend {
                 a.as_ptr(),
             );
             if img.is_null() {
-                scd!("eglCreateImageKHR failed: {:#x}", (self.egl.get_error)());
+                scd!(self.debug, "eglCreateImageKHR failed: {:#x}", (self.egl.get_error)());
                 return None;
             }
 
@@ -552,7 +558,7 @@ impl EglBackend {
                 0,
             );
             if (self.gl.check_framebuffer_status)(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE {
-                scd!("FBO incomplete");
+                scd!(self.debug, "FBO incomplete");
                 (self.egl.destroy_image)(self.dpy, img);
                 return None;
             }
@@ -599,7 +605,7 @@ impl EglBackend {
             let mut ok = 0i32;
             (self.gl.get_shaderiv)(sh, GL_COMPILE_STATUS, &mut ok);
             if ok == 0 {
-                scd!("shader compile failed (kind {:#x})", kind);
+                scd!(self.debug, "shader compile failed (kind {:#x})", kind);
                 return None;
             }
             Some(sh)
@@ -613,13 +619,13 @@ impl EglBackend {
         let mut ok = 0i32;
         (self.gl.get_programiv)(prog, GL_LINK_STATUS, &mut ok);
         if ok == 0 {
-            scd!("program link failed");
+            scd!(self.debug, "program link failed");
             return None;
         }
         let a_pos = (self.gl.get_attrib_location)(prog, b"pos\0".as_ptr() as *const c_char);
         let u_tex = (self.gl.get_uniform_location)(prog, b"tex\0".as_ptr() as *const c_char);
         if a_pos < 0 {
-            scd!("attrib 'pos' not found");
+            scd!(self.debug, "attrib 'pos' not found");
             return None;
         }
 
@@ -667,7 +673,7 @@ mod tests {
     #[test]
     #[ignore = "requires a GPU / libEGL; run explicitly"]
     fn egl_init_and_query() {
-        let egl = EglBackend::init().expect("EGL backend failed to initialize");
+        let egl = EglBackend::init(false).expect("EGL backend failed to initialize");
         for (name, fourcc) in [
             ("XRGB8888", DRM_FORMAT_XRGB8888),
             ("ARGB8888", DRM_FORMAT_ARGB8888),

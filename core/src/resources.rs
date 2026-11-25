@@ -1139,10 +1139,10 @@ pub struct AppConfig {
     /// Default: `EndProcess` (terminate when last window closes).
     pub termination_behavior: AppTerminationBehavior,
     /// How the text of every window of the app is anti-aliased by the CPU
-    /// renderer. [`AppConfig::create`] fills it from the environment
-    /// ([`TextAntialiasing::from_env`]: `AZ_TEXT_AA` and the `AZ_LCD_*`
-    /// variables), which is the one time those are read; an app that sets it
-    /// decides for itself.
+    /// renderer. The `AppConfig::create` of the C API and of the `azul` crate (the dll's) fills it
+    /// from the environment ([`TextAntialiasing::from_lookup`]: `AZ_TEXT_AA` and the `AZ_LCD_*`
+    /// variables), which is the one time those are read; `azul_core`'s own `create` leaves the
+    /// default, and an app that sets it decides for itself.
     pub text_antialiasing: TextAntialiasing,
     /// Configuration for the debug server and remote control capabilities.
     pub remote_control: RemoteControlConfig,
@@ -1394,7 +1394,9 @@ impl AppConfig {
             enable_visual_panic_hook: true,
             enable_logging_on_panic: true,
             termination_behavior: AppTerminationBehavior::default(),
-            text_antialiasing: TextAntialiasing::from_env(),
+            // The default; the environment's choice (`AZ_TEXT_AA`, ...) is put on by the dll's
+            // `AppConfig::create` (`TextAntialiasing::from_lookup`).
+            text_antialiasing: TextAntialiasing::default(),
             icon_provider,
             bundled_fonts,
             font_loading,
@@ -1677,8 +1679,10 @@ pub enum TextAntialiasMode {
 /// How the CPU renderer anti-aliases text: [`AppConfig::text_antialiasing`].
 ///
 /// These used to be environment variables that the rasteriser looked up when
-/// it first drew text. They are read in one place now, [`Self::from_env`], by
-/// [`AppConfig::create`], and passed down from the config to each window.
+/// it first drew text. They are read in one place now, [`Self::from_lookup`], by
+/// the dll when it creates an app (`AzAppConfig_create`) from the environment it read at
+/// the start, and passed down from the config to each window.
+/// [`AppConfig::create`] itself reads no environment: it takes [`Self::default`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct TextAntialiasing {
@@ -1721,60 +1725,11 @@ impl TextAntialiasing {
         }
     }
 
-    /// The settings the process environment asks for, or the default where it
-    /// says nothing (and in a build without `std`, which has no environment).
-    ///
-    /// * `AZ_TEXT_AA` = `lcd` | `legacy` | `grayscale` | `none`
-    /// * `AZ_LCD_BLEND=legacy`: the older spelling of `AZ_TEXT_AA=legacy`,
-    ///   honoured where `AZ_TEXT_AA` is unset or `lcd`
-    /// * `AZ_LCD_CONTRAST`, `AZ_LCD_CHROMA_LIMIT`, `AZ_LCD_COVERAGE_GAMMA`: 0..=255
-    /// * `AZ_LCD_PRETILE=0` or `AZ_NO_LCD_PRETILE`: no pre-blended tiles
-    #[must_use]
-    pub fn from_env() -> Self {
-        #[cfg(feature = "std")]
-        {
-            Self::from_vars(|name| std::env::var(name).ok())
-        }
-        #[cfg(not(feature = "std"))]
-        {
-            Self::default()
-        }
-    }
-
-    /// [`Self::from_env`] with the variables looked up by `var`.
+    /// [`TextAntialiasing::from_lookup`] (`crate::settings`: `AZ_TEXT_AA`, `AZ_LCD_BLEND`, the
+    /// `AZ_LCD_*`) with the variables looked up by `var`.
     #[must_use]
     pub fn from_vars(var: impl Fn(&str) -> Option<alloc::string::String>) -> Self {
-        let default = Self::default();
-        let asked = var("AZ_TEXT_AA");
-        let mut mode = match asked.as_deref() {
-            Some(s) if s.eq_ignore_ascii_case("none") || s == "0" => TextAntialiasMode::Aliased,
-            Some(s)
-                if s.eq_ignore_ascii_case("grayscale") || s.eq_ignore_ascii_case("greyscale") =>
-            {
-                TextAntialiasMode::Grayscale
-            }
-            Some(s) if s.eq_ignore_ascii_case("legacy") => TextAntialiasMode::LcdLegacy,
-            Some(s) if s.eq_ignore_ascii_case("lcd") => TextAntialiasMode::Lcd,
-            _ => TextAntialiasMode::PlatformDefault,
-        };
-        if matches!(mode, TextAntialiasMode::PlatformDefault | TextAntialiasMode::Lcd)
-            && var("AZ_LCD_BLEND").is_some_and(|v| v.eq_ignore_ascii_case("legacy"))
-        {
-            mode = TextAntialiasMode::LcdLegacy;
-        }
-        let level = |name: &str, default: u8| {
-            var(name)
-                .and_then(|v| v.parse::<u8>().ok())
-                .unwrap_or(default)
-        };
-        Self {
-            mode,
-            lcd_contrast: level("AZ_LCD_CONTRAST", default.lcd_contrast),
-            lcd_chroma_limit: level("AZ_LCD_CHROMA_LIMIT", default.lcd_chroma_limit),
-            lcd_coverage_gamma: level("AZ_LCD_COVERAGE_GAMMA", default.lcd_coverage_gamma),
-            lcd_pretile: var("AZ_LCD_PRETILE").is_none_or(|v| v.trim() != "0")
-                && var("AZ_NO_LCD_PRETILE").is_none(),
-        }
+        Self::from_lookup(&var)
     }
 }
 
