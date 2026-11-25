@@ -82,11 +82,27 @@ fn the_system_font_of_macos_follows_the_size_unless_it_is_none() {
         eprintln!("SKIP: no /System/Library/Fonts/SFNS.ttf on this host (macOS only)");
         return;
     }
-    let (cache, family, _source, _file) = cache_with_file(path);
-    let at = |css: &str| drawn_bytes(&cache, &family, css);
+    let (cache, family, _source, file) = cache_with_file(path);
+    // The first instance of each coordinates is made on the layout thread: what it costs is
+    // printed for the record (`-- --nocapture`).
+    let at = |css: &str| {
+        let started = std::time::Instant::now();
+        let bytes = drawn_bytes(&cache, &family, css);
+        eprintln!(
+            "[instance] SFNS.ttf ({} bytes) `{css}`: instance of {} bytes made in {:?}",
+            file.len(),
+            bytes.len(),
+            started.elapsed()
+        );
+        bytes
+    };
     let small = at("font-size: 13px");
     let large = at("font-size: 28px");
     let none = at("font-optical-sizing: none; font-size: 13px");
+    let bold = at("font-weight: bold; font-size: 13px");
+    let again = at("font-size: 13px");
+    assert!(again == small, "the same request is the same face");
+    assert!(bold != small, "bold is another instance");
     assert!(small != large, "13px and 28px are two optical sizes of the system font");
     assert!(none == large, "`none` draws the default optical size (28)");
     assert!(
