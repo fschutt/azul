@@ -1,7 +1,11 @@
 //! A track's segment files on a map in memory: opening, fragments, rotation, a new picture size,
 //! a file that fails. No window, no azul, no disk.
 
-use std::{cell::RefCell, collections::BTreeMap, io::Cursor, rc::Rc};
+use std::{
+    collections::BTreeMap,
+    io::Cursor,
+    sync::{Arc, Mutex},
+};
 
 use super::*;
 use crate::recorder_mp4::{scan, TrackKind};
@@ -17,27 +21,27 @@ struct Shared {
 }
 
 #[derive(Clone, Default)]
-struct MemStore(Rc<RefCell<Shared>>);
+struct MemStore(Arc<Mutex<Shared>>);
 
 struct MemFile {
     name: String,
-    shared: Rc<RefCell<Shared>>,
+    shared: Arc<Mutex<Shared>>,
 }
 
 impl SegmentStore for MemStore {
     fn create(&mut self, rel_path: &str) -> io::Result<Box<dyn SegmentFile>> {
-        let mut s = self.0.borrow_mut();
+        let mut s = self.0.lock().unwrap();
         if s.files.contains_key(rel_path) {
             return Err(io::Error::new(io::ErrorKind::AlreadyExists, "the file exists"));
         }
         s.files.insert(rel_path.to_string(), Vec::new());
-        Ok(Box::new(MemFile { name: rel_path.to_string(), shared: Rc::clone(&self.0) }))
+        Ok(Box::new(MemFile { name: rel_path.to_string(), shared: Arc::clone(&self.0) }))
     }
 }
 
 impl SegmentFile for MemFile {
     fn append(&mut self, bytes: &[u8]) -> io::Result<()> {
-        let mut s = self.shared.borrow_mut();
+        let mut s = self.shared.lock().unwrap();
         let over = s.fail_over;
         let file = s.files.get_mut(&self.name).unwrap();
         if over.is_some_and(|limit| file.len() + bytes.len() > limit) {
@@ -47,20 +51,20 @@ impl SegmentFile for MemFile {
         Ok(())
     }
     fn sync(&mut self) -> io::Result<()> {
-        self.shared.borrow_mut().syncs += 1;
+        self.shared.lock().unwrap().syncs += 1;
         Ok(())
     }
     fn len(&self) -> u64 {
-        self.shared.borrow().files[&self.name].len() as u64
+        self.shared.lock().unwrap().files[&self.name].len() as u64
     }
 }
 
 impl MemStore {
     fn file(&self, name: &str) -> Vec<u8> {
-        self.0.borrow().files[name].clone()
+        self.0.lock().unwrap().files[name].clone()
     }
     fn names(&self) -> Vec<String> {
-        self.0.borrow().files.keys().cloned().collect()
+        self.0.lock().unwrap().files.keys().cloned().collect()
     }
 }
 
@@ -121,7 +125,7 @@ fn the_first_keyframe_opens_the_first_segment_and_writes_the_head() {
     assert!(!seg.complete && seg.end_us.is_none());
     assert!(seg.bytes > 100, "ftyp and moov are in the file already");
     assert_eq!(store.names(), vec!["screen/0001.mp4"]);
-    assert!(store.0.borrow().syncs >= 1, "the head is synced");
+    assert!(store.0.lock().unwrap().syncs >= 1, "the head is synced");
     assert!(w.is_open());
     assert_eq!(w.open_since_us(), Some(2_500_000));
 }
@@ -170,7 +174,7 @@ fn fragments_are_appended_and_synced_when_they_are_whole() {
     assert_eq!(s.fragments, 3);
     assert!(s.truncated || s.whole_end == bytes_now.len() as u64);
     assert_eq!(s.whole_end as usize, bytes_now.len(), "only whole fragments were written");
-    assert!(store.0.borrow().syncs >= 4, "the head and each fragment were synced: {}", store.0.borrow().syncs);
+    assert!(store.0.lock().unwrap().syncs >= 4, "the head and each fragment were synced: {}", store.0.lock().unwrap().syncs);
 }
 
 #[test]
@@ -349,7 +353,7 @@ fn opus_packets_fill_segments_that_rotate_by_time() {
 #[test]
 fn a_write_that_fails_breaks_the_track_in_words_and_the_rest_is_dropped_quietly() {
     let mut store = MemStore::default();
-    store.0.borrow_mut().fail_over = Some(2_000);
+    store.0.lock().unwrap().fail_over = Some(2_000);
     let mut w = video_writer(300 * SEC);
     let mut failure = None;
     for i in 0..200 {
