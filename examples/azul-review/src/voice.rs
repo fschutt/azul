@@ -21,6 +21,7 @@ use std::{
 use azul::{
     prelude::*,
     speech::{HeardStatus, Speech},
+    task::TerminateTimer,
     time::SystemTimeDiff,
     widgets::{OnTextInputReturn, TextAreaState, TextInputValid},
 };
@@ -465,12 +466,14 @@ pub extern "C" fn on_toggle_notes(mut data: RefAny, _info: CallbackInfo) -> Upda
 
 /// A note's text was edited (each key).
 pub extern "C" fn on_note_text(mut data: RefAny, _info: CallbackInfo, state: TextAreaState) -> OnTextInputReturn {
-    if let Some(tag) = data.downcast_ref::<crate::column::NoteTag>().map(|t| (t.app.clone(), t.id)) {
-        let (mut app, id) = tag;
-        if let Some(mut s) = app.downcast_mut::<AppState>() {
-            if let Some(note) = s.notes.iter_mut().find(|n| n.id == id) {
-                note.text = state.get_text().as_str().to_string();
-            }
+    let tag = data
+        .downcast_ref::<crate::column::NoteTag>()
+        .map(|t| (t.app.clone(), t.id));
+    if let Some((mut app, id)) = tag {
+        let text = state.get_text().as_str().to_string();
+        let mut guard = app.downcast_mut::<AppState>();
+        if let Some(note) = guard.as_mut().and_then(|s| s.notes.iter_mut().find(|n| n.id == id)) {
+            note.text = text;
         }
     }
     OnTextInputReturn {
