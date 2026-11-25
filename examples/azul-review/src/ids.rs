@@ -52,3 +52,7 @@ pub const RIGHT_PANEL: AzString = AzString::from_const_str("__azreview_right-pan
 pub const RIGHT_GRIP: AzString = AzString::from_const_str("__azreview_right-grip");
 /// The bottom bar of the agents at work.
 pub const BOTTOM_BAR: AzString = AzString::from_const_str("__azreview_agents-bar");
+/// What the tree shows of a file's conversations: an agent at work (the spinner), a suggestion waiting, all done.
+pub const FILE_MARK_WORKING: AzString = AzString::from_const_str("__azreview_file-mark-working");
+pub const FILE_MARK_SUGGESTED: AzString = AzString::from_const_str("__azreview_file-mark-suggested");
+pub const FILE_MARK_DONE: AzString = AzString::from_const_str("__azreview_file-mark-done");

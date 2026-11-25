@@ -12,7 +12,7 @@ use azul::{
     shells::{ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
     vec::MenuItemVec,
-    widgets::{AlertKind, Button, InfoBar, LevelMeter, MicrophoneWidget},
+    widgets::{AlertKind, InfoBar, LevelMeter, MicrophoneWidget, Spinner, SpinnerStyle},
 };
 use azul_appkit::{
     l10n::{label, t, t_args, Arg},
@@ -549,7 +549,7 @@ fn file_list(s: &AppState, data: &RefAny) -> Dom {
                 continue;
             }
             list.add_child(finder_row(
-                comp, depth, "folder", "system:accent", false, None, data,
+                comp, depth, "folder", "system:accent", false, None, None, data,
             ));
         }
         prev = dirs.iter().map(|c| (*c).to_string()).collect();
@@ -561,6 +561,7 @@ fn file_list(s: &AppState, data: &RefAny) -> Dom {
             "system:secondary-text",
             s.current == Some(i),
             Some(i),
+            s.chips.file_state(&f.display),
             data,
         ));
     }
@@ -663,6 +664,7 @@ fn finder_row(
     icon_color: &str,
     selected: bool,
     index: Option<usize>,
+    mark: Option<crate::chips::State>,
     data: &RefAny,
 ) -> Dom {
     // A selected file: flat's accent row; under flora flora's selection (the soft wash and
@@ -705,7 +707,17 @@ fn finder_row(
             .as_str(),
         ),
     );
-    row.add_child(Dom::create_span_with_text(label));
+    row.add_child(Dom::create_span_with_text(label).with_css("flex-grow: 1; min-width: 0px; overflow: hidden;"));
+    // What the file's conversations come to: the spinner for an agent at work, yellow for a suggestion that waits, green
+    // when all are done; a file nobody talked about has no mark.
+    if let Some(state) = mark {
+        let id = match state {
+            crate::chips::State::Working => ids::FILE_MARK_WORKING,
+            crate::chips::State::Suggested => ids::FILE_MARK_SUGGESTED,
+            crate::chips::State::Done => ids::FILE_MARK_DONE,
+        };
+        row.add_child(state_mark(state, 10).with_id(id).with_accessibility_name(state_word(state)));
+    }
     match index {
         Some(i) => row
             .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: i })))
@@ -836,20 +848,85 @@ fn right_panel(width: f32, data: &RefAny) -> Dom {
         .with_child(grip(crate::layout::Panel::Right, "left: 0px;", data))
 }
 
-/// The bottom bar: the agents at work on the open file, one chip each. None yet.
-fn bottom_bar(_s: &AppState, _data: &RefAny) -> Dom {
-    Dom::create_div()
-        .with_id(ids::BOTTOM_BAR)
-        .with_css(
+/// The bottom bar: the conversations of the open file, one chip each (a blue spinner while its agent works, yellow
+/// when it has suggested something, green when it is done); a click goes to where it is anchored. Many chips scroll
+/// along the bar without a scrollbar.
+fn bottom_bar(s: &AppState, data: &RefAny) -> Dom {
+    let mut bar = Dom::create_div().with_id(ids::BOTTOM_BAR).with_css(
+        format!(
+            "display: flex; flex-direction: row; align-items: center; gap: 6px; height: {}px; \
+             flex-shrink: 0; padding: 0px 10px; border-top: 1px solid system:separator; font-size: 11px; \
+             color: system:secondary-text; user-select: none; overflow-x: auto; overflow-y: hidden; \
+             scrollbar-width: none;",
+            crate::layout::BOTTOM_H
+        )
+        .as_str(),
+    );
+    let chips = s.open_chips();
+    if chips.is_empty() {
+        bar.add_child(Dom::create_span_with_text(label("azreview-agents-none")));
+    }
+    for (i, chip) in chips.into_iter().enumerate() {
+        bar.add_child(chip_key(i, chip, data));
+    }
+    bar
+}
+
+/// The colour of a conversation's state: blue while it works, yellow when a suggestion waits, green when done.
+const fn state_colour(state: crate::chips::State) -> &'static str {
+    match state {
+        crate::chips::State::Working => "#0a84ff",
+        crate::chips::State::Suggested => "#e5a800",
+        crate::chips::State::Done => "#2fa84f",
+    }
+}
+
+/// What a state is called for the screen reader and the tooltip.
+fn state_word(state: crate::chips::State) -> AzString {
+    label(match state {
+        crate::chips::State::Working => "azreview-chip-working",
+        crate::chips::State::Suggested => "azreview-chip-suggested",
+        crate::chips::State::Done => "azreview-chip-done",
+    })
+}
+
+/// The mark of a state: the macOS spinner while an agent works, a dot in the colour of the state otherwise.
+fn state_mark(state: crate::chips::State, size: isize) -> Dom {
+    match state {
+        crate::chips::State::Working => Spinner::with_size(size)
+            .with_color(ColorU { r: 10, g: 132, b: 255, a: 255 })
+            .with_indicator(SpinnerStyle::Spokes)
+            .dom(),
+        _ => Dom::create_div().with_css(
             format!(
-                "display: flex; flex-direction: row; align-items: center; gap: 6px; height: {}px; \
-                 flex-shrink: 0; padding: 0px 10px; border-top: 1px solid system:separator; font-size: 11px; \
-                 color: system:secondary-text; user-select: none;",
-                crate::layout::BOTTOM_H
+                "width: {size}px; height: {size}px; border-radius: {}px; background: {}; flex-shrink: 0;",
+                size / 2,
+                state_colour(state)
             )
             .as_str(),
-        )
-        .with_child(Dom::create_span_with_text(label("azreview-agents-none")))
+        ),
+    }
+}
+
+/// A conversation's chip: its mark and the first words, a key named by the words and the state; `i` is its place among
+/// the open file's conversations.
+fn chip_key(i: usize, chip: &crate::chips::Chip, data: &RefAny) -> Dom {
+    let state = state_word(chip.state);
+    let title = if chip.title.is_empty() { AzString::from(format!("{}", chip.id).as_str()) } else { AzString::from(chip.title.as_str()) };
+    let name = AzString::from(format!("{}: {}", title.as_str(), state.as_str()).as_str());
+    with_tip(
+        key(
+            "padding: 0px 8px; gap: 6px; background: system:control-background; border: 1px solid \
+             system:separator; color: system:text; max-width: 220px;",
+            name.clone(),
+            data.clone(),
+            crate::on_chip_click,
+        ),
+        &name,
+    )
+    .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: i })))
+    .with_child(state_mark(chip.state, 12))
+    .with_child(Dom::create_span_with_text(title.as_str()).with_css("overflow: hidden; white-space: nowrap;"))
 }
 
 /// Page `page`'s number: as wide as the number and its padding, lit while

@@ -55,6 +55,7 @@ pub mod agent_review;
 pub mod agent_settings;
 pub mod agent_stroke;
 pub mod chips;
+pub mod chips_op;
 pub mod code;
 pub mod column;
 pub mod dictation;
@@ -172,6 +173,8 @@ pub struct AppState {
     pub next_stroke_id: u64,
     /// The five pens: which is in hand and the nib each has.
     pub pens: pens::Pens,
+    /// The conversations of the folder's files (the bottom bar shows the open file's; the tree marks each file).
+    pub chips: chips::Chips,
     pub findings: Vec<Finding>,
     /// The notes dictated at spots of the open file (the side column, the markers on the pages).
     pub notes: Vec<Note>,
@@ -238,6 +241,7 @@ impl AppState {
             ink: ink::InkRevisions::default(),
             next_stroke_id: 1,
             pens: pens::Pens::new(),
+            chips: chips::Chips::default(),
             findings: Vec::new(),
             notes: Vec::new(),
             next_note_id: 1,
@@ -301,6 +305,7 @@ impl AppState {
         self.root = root;
         self.current = None;
         self.files = files;
+        self.chips = chips::Chips::default();
         let first = if self.files.is_empty() { None } else { Some(0) };
         self.begin_file(first);
         self.rederive();
@@ -328,6 +333,12 @@ impl AppState {
             self.pens.select(index);
             self.nib_changed();
         }
+    }
+
+    /// The conversations of the open file, in the order they began.
+    #[must_use]
+    pub fn open_chips(&self) -> Vec<&chips::Chip> {
+        self.file().map_or_else(Vec::new, |f| self.chips.of_file(&f.display))
     }
 
     /// The meaning the next stroke has: the meaning of the pen in hand.
@@ -619,6 +630,7 @@ pub fn run() {
     ));
     if std::env::var_os("AZ_DEBUG").is_some() || std::env::var_os("AZ_E2E").is_some() {
         pointer::register_ops(&mut config);
+        chips_op::register_ops(&mut config);
     }
     let app = App::create(RefAny::new(state), config);
     let mut window =
@@ -1474,6 +1486,25 @@ pub extern "C" fn on_strip_scroll(mut data: RefAny, mut info: CallbackInfo) -> U
 
 pub extern "C" fn on_jump_to_page(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(page) = ui::index_of(&mut info) else {
+        return Update::DoNothing;
+    };
+    ui::scroll_to_page(&mut info, page);
+    let Some(mut s) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    s.visible_page = page;
+    Update::RefreshDom
+}
+
+/// A click on a conversation's chip: the pages go to where it is anchored.
+pub extern "C" fn on_chip_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(index) = ui::index_of(&mut info) else {
+        return Update::DoNothing;
+    };
+    let Some(page) = data
+        .downcast_ref::<AppState>()
+        .and_then(|s| s.open_chips().get(index).map(|c| c.page))
+    else {
         return Update::DoNothing;
     };
     ui::scroll_to_page(&mut info, page);

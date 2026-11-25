@@ -215,3 +215,49 @@ fn the_numbers_the_cutout_renderer_lays_out_by_are_the_pages() {
     assert_eq!(PAGE_PAD, 32.0);
     assert_eq!(CODE_W, PAGE_W - MARGIN_GUTTER_W - PAGE_PAD);
 }
+
+// ---- the bottom bar of the agents ----
+
+fn with_chips(files: usize, count: usize) -> AppState {
+    let mut s = reviewing("/work/proj");
+    let _ = files;
+    let names: Vec<String> = s.files.iter().map(|f| f.display.clone()).collect();
+    s.chips = crate::chips::mock(count, &names);
+    s
+}
+
+fn chip_keys(dom: &Dom) -> Vec<&Dom> {
+    nodes(dom)
+        .into_iter()
+        .filter(|n| n.root.callbacks.as_slice().iter().any(|c| c.callback.cb == crate::on_chip_click as usize))
+        .collect()
+}
+
+#[test]
+fn with_no_conversation_the_bar_says_no_agent_is_working() {
+    let s = with_chips(1, 0);
+    let bar = bottom_bar(&s, &RefAny::new(0u8));
+    assert!(texts(&bar).iter().any(|t| t.contains("No agents are working")), "{:?}", texts(&bar));
+    assert!(chip_keys(&bar).is_empty());
+}
+
+#[test]
+fn the_bar_has_a_chip_per_conversation_of_the_open_file_each_named_by_its_words_and_its_state() {
+    let s = with_chips(1, 12);
+    let bar = bottom_bar(&s, &RefAny::new(0u8));
+    let keys = chip_keys(&bar);
+    assert_eq!(keys.len(), 12, "the folder's only file holds all twelve");
+    for key in keys {
+        assert!(!key.root.accessibility.is_null(), "a chip without a name");
+    }
+    assert!(!texts(&bar).iter().any(|t| t.contains("No agents are working")));
+}
+
+#[test]
+fn a_file_is_marked_in_the_tree_by_the_state_of_its_conversations() {
+    let s = with_chips(1, 3);
+    let list = file_list(&s, &RefAny::new(0u8));
+    assert!(has_id(&list, "__azreview_file-mark-working"), "an agent is at work on the file");
+    let none = reviewing("/work/proj");
+    assert!(!has_id(&file_list(&none, &RefAny::new(0u8)), "__azreview_file-mark-working"), "no conversation, no mark");
+}
