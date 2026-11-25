@@ -28,6 +28,7 @@ use azul_appkit::{
 };
 
 pub mod code;
+pub mod column;
 pub mod dictation;
 pub mod dwell;
 pub mod ids;
@@ -39,7 +40,9 @@ mod l10n;
 mod l10n_tests;
 pub mod model;
 pub mod session;
+pub mod switches;
 pub mod ui;
+pub mod voice;
 
 #[cfg(test)]
 #[path = "lib_test.rs"]
@@ -67,8 +70,9 @@ pub const ABOUT: AboutInfo = AboutInfo {
 };
 
 /// The keys AzReview answers (the kit adds Mod+, / F1 / Escape).
-pub const SHORTCUTS: [Shortcut; 3] = [
+pub const SHORTCUTS: [Shortcut; 4] = [
     Shortcut::new("azreview-shortcuts-review", "Mod+S", "azreview-shortcut-save"),
+    Shortcut::new("azreview-shortcuts-review", "Pen rest", "azreview-shortcut-dictate"),
     Shortcut::new("azreview-shortcuts-review", "1 to 9", "azreview-shortcut-meaning"),
     Shortcut::new("azreview-shortcuts-review", "Right click", "azreview-shortcut-previous-nib"),
 ];
@@ -91,6 +95,10 @@ pub struct AppState {
     /// The notes dictated at spots of the open file (the side column, the markers on the pages).
     pub notes: Vec<Note>,
     pub next_note_id: u64,
+    /// The pen's rest and the dictation it starts (the side column, the markers).
+    pub voice: voice::Voice,
+    /// AzReview's own switches of this run (they win over the settings file).
+    pub switches: switches::Switches,
     pub recording: Option<VoiceClip>,
     pub clips: Vec<VoiceClip>,
     pub level_samples: usize,
@@ -131,6 +139,8 @@ impl AppState {
             findings: Vec::new(),
             notes: Vec::new(),
             next_note_id: 1,
+            voice: voice::Voice::new(dwell::Config::default(), dictation::DEFAULT_SILENCE_MS),
+            switches: switches::Switches::default(),
             recording: None,
             clips: Vec::new(),
             level_samples: 0,
@@ -154,6 +164,9 @@ impl AppState {
         if index >= self.files.len() {
             return;
         }
+        // What listens writes into the file being left: it ends, and its words are kept there.
+        self.voice.request_stop(dictation::Cause::File);
+        self.voice.pending = None;
         self.current = Some(index);
         self.strokes.clear();
         self.notes.clear();
@@ -162,6 +175,50 @@ impl AppState {
         self.visible_page = 0;
         self.sidebar_open = false;
         self.rederive();
+    }
+
+    /// Takes back what the archive of the open file holds, under what has been drawn since the file
+    /// opened (a stroke, a note: the load is a read on a Thread, and a pen is quick). What is here
+    /// is renumbered past the archive's ids, and a new stroke starts a new burst. `false`: the
+    /// archive is of another file (a late answer), nothing taken.
+    pub fn adopt(&mut self, loaded: session::Loaded) -> bool {
+        let Some(name) = self.file().map(|f| f.display.clone()) else {
+            return false;
+        };
+        if loaded.file != name {
+            return false;
+        }
+        let stroke_base = loaded.next_stroke_id() - 1;
+        let note_base = loaded.next_note_id() - 1;
+        let epoch_after = loaded.strokes.iter().map(|s| s.epoch + 1).max().unwrap_or(0);
+        for stroke in &mut self.strokes {
+            stroke.id += stroke_base;
+            stroke.epoch += epoch_after;
+        }
+        for note in &mut self.notes {
+            note.id += note_base;
+        }
+        if let Some(running) = self.voice.running.as_mut() {
+            running.note += note_base;
+        }
+        if let Some(live) = self.live.as_mut() {
+            live.id += stroke_base;
+        }
+        self.next_stroke_id += stroke_base;
+        self.next_note_id += note_base;
+        self.epoch = self.epoch.max(epoch_after);
+        let mut strokes = loaded.strokes;
+        strokes.append(&mut self.strokes);
+        self.strokes = strokes;
+        let mut notes = loaded.notes;
+        notes.append(&mut self.notes);
+        self.notes = notes;
+        let pages: std::collections::BTreeSet<usize> = self.strokes.iter().map(|s| s.page).collect();
+        for page in pages {
+            self.ink.touch(page);
+        }
+        self.rederive();
+        true
     }
 
     pub(crate) fn file(&self) -> Option<&code::SourceFile> {
@@ -220,10 +277,21 @@ fn derive_findings(
 }
 
 pub fn run() {
-    let args = match AppArgs::from_env(&SPEC) {
+    // AzReview's own switches first; the kit's parser gets the rest (and refuses what it does not know).
+    let (own, argv) = match switches::Switches::extract(std::env::args().skip(1).collect()) {
+        Ok(parsed) => parsed,
+        Err(why) => {
+            eprintln!("{why}");
+            std::process::exit(2);
+        }
+    };
+    let args = match AppArgs::parse(&SPEC, argv) {
         Ok(a) => a,
         Err(why) => {
             eprintln!("{why}");
+            if why.contains("USAGE") {
+                eprintln!("\nAZREVIEW OPTIONS:\n{}", switches::HELP);
+            }
             std::process::exit(2);
         }
     };
@@ -232,7 +300,7 @@ pub fn run() {
         .first()
         .cloned()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-    let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &[], args);
+    let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &["dictation"], args);
     // The words first: everything from here is said in the language chosen (Settings,
     // `--language`; the system's otherwise).
     let mut config = kit::app_config(&kit_ref);
@@ -248,11 +316,31 @@ pub fn run() {
             .map(|k| k.data_root.clone())
             .unwrap_or_default()
     };
+    let values = {
+        let mut k = kit_ref.clone();
+        k.downcast_ref::<kit::Kit>()
+            .map(|k| k.settings.values.clone())
+            .unwrap_or_default()
+    };
     let files = code::load_tree(&root, 400);
     if let Some(first) = files.first() {
         println!("AZREVIEW_FILE {}", first.display);
     }
-    let state = AppState::create(root, files, kit_ref.clone(), data_root);
+    let mut state = AppState::create(root, files, kit_ref.clone(), data_root);
+    let resolved = switches::resolve(&values, &own);
+    for note in &resolved.notes {
+        eprintln!("[AzReview] {note}");
+    }
+    state.voice = voice::Voice::new(
+        dwell::Config {
+            allow: resolved.allow,
+            rest_ms: resolved.rest_ms,
+            ..dwell::Config::default()
+        },
+        resolved.silence_ms,
+    );
+    state.voice.language = voice::language_of(&kit_ref);
+    state.switches = own;
     let app = App::create(RefAny::new(state), config);
     let window =
         kit::window_options(&kit_ref, ui::layout, (1280.0, 820.0), (800.0, 520.0), on_window_created);
@@ -269,6 +357,8 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
     if let Some(kit_ref) = kit_of(&mut data) {
         kit::on_window_created(&kit_ref, &mut info);
     }
+    // What was marked on the first file in an earlier run comes back.
+    load_session(&data, &mut info);
     Update::DoNothing
 }
 
@@ -330,6 +420,72 @@ extern "C" fn on_saved(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo)
     Update::RefreshDom
 }
 
+/// The write-back tag of a session read.
+const TAG_LOAD: u64 = 2;
+
+/// Reads the session archive of the open file (a folder that has none answers "no file": nothing to
+/// bring back), on a Thread.
+pub(crate) fn load_session(data: &RefAny, info: &mut CallbackInfo) {
+    let mut handle = data.clone();
+    let job = {
+        let Some(s) = handle.downcast_ref::<AppState>() else {
+            return;
+        };
+        let Some(file) = s.file() else {
+            return;
+        };
+        (
+            s.data_root.clone(),
+            FileJob::Get {
+                key: app_key(ABOUT.app_folder, &session::archive_name(Some(file.display.as_str()))),
+            },
+        )
+    };
+    kit::spawn_file_jobs(info, &job.0, vec![job.1], data.clone(), TAG_LOAD, on_loaded);
+}
+
+extern "C" fn on_loaded(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(reply) = kit::take_reply(&mut msg) else {
+        return Update::DoNothing;
+    };
+    let mut changed = false;
+    for outcome in reply.outcomes {
+        match outcome {
+            FileOutcome::Got { result: Ok(Some(bytes)), key } => match session::load(&bytes) {
+                Ok(loaded) => {
+                    let (strokes, notes) = (loaded.strokes.len(), loaded.notes.len());
+                    let taken = app
+                        .downcast_mut::<AppState>()
+                        .is_some_and(|mut s| s.adopt(loaded));
+                    if taken {
+                        println!("AZREVIEW_LOADED {strokes} {notes}");
+                        changed = true;
+                    }
+                }
+                Err(why) => {
+                    println!("AZREVIEW_LOAD_ERROR {key}: {why}");
+                    if let Some(mut s) = app.downcast_mut::<AppState>() {
+                        s.problem = Some(t_args(
+                            "azreview-load-failed",
+                            &[("why", Arg::from(why))],
+                        ));
+                    }
+                    changed = true;
+                }
+            },
+            FileOutcome::Got { result: Err(why), .. } => {
+                println!("AZREVIEW_LOAD_ERROR {why}");
+            }
+            _ => {}
+        }
+    }
+    if changed {
+        info.trigger_all_virtual_view_rerender();
+        return Update::RefreshDom;
+    }
+    Update::DoNothing
+}
+
 /// The keys 1 to 9, in the order of [`Semantic::ALL`].
 const DIGITS: [VirtualKeyCode; 9] = [
     VirtualKeyCode::Key1,
@@ -359,12 +515,16 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     if matches!(key, VirtualKeyCode::Escape) {
-        let folded = data.downcast_mut::<AppState>().is_some_and(|mut s| {
+        let acted = data.downcast_mut::<AppState>().is_some_and(|mut s| {
+            // What listens stops first; the files fold away on the next Escape.
+            if s.voice.request_stop(dictation::Cause::Key) {
+                return true;
+            }
             let was = s.sidebar_open;
             s.sidebar_open = false;
             was
         });
-        return if folded { Update::RefreshDom } else { Update::DoNothing };
+        return if acted { Update::RefreshDom } else { Update::DoNothing };
     }
     if matches!(key, VirtualKeyCode::S) && info.get_key_modifiers().primary_down() {
         info.prevent_default();
@@ -423,6 +583,8 @@ pub extern "C" fn on_ink_down(mut data: RefAny, mut info: CallbackInfo) -> Updat
     let Some(page) = ui::page_of(&mut info) else {
         return Update::DoNothing;
     };
+    // The pen set down: a dictation it left behind ends (the stroke is the new thing it does).
+    let ended = voice::pointer(&mut data, &mut info, Some(true));
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
@@ -472,7 +634,7 @@ pub extern "C" fn on_ink_down(mut data: RefAny, mut info: CallbackInfo) -> Updat
     drop(s);
     // The first dab shows at once; the stroke grows in the frame of its layer.
     ui::redraw_ink(&mut info, ink::Layer::of(semantic));
-    Update::DoNothing
+    ended
 }
 
 pub extern "C" fn on_cycle_tool(mut data: RefAny, _: CallbackInfo) -> Update {
@@ -506,11 +668,14 @@ fn cycle_tool(data: &mut RefAny, backward: bool) -> Update {
 /// A pointer move while a stroke is drawn: its new point, and a new frame of
 /// its layer - no new DOM (a DOM per move made drawing unusably slow).
 pub extern "C" fn on_ink_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    // Where the pen is, drawing or hovering: the dwell times its rest (and a dictation it has
+    // moved away from ends - the one DOM refresh a move may ask for).
+    let ended = voice::pointer(&mut data, &mut info, None);
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
     if s.live.is_none() {
-        return Update::DoNothing;
+        return ended;
     }
     let Some((p, _)) = ui::sample(&mut info) else {
         return Update::DoNothing;
@@ -523,20 +688,22 @@ pub extern "C" fn on_ink_move(mut data: RefAny, mut info: CallbackInfo) -> Updat
         .last()
         .is_none_or(|l| (l.x - p.x).abs() + (l.y - p.y).abs() > 0.35);
     if !far {
-        return Update::DoNothing;
+        return ended;
     }
     live.points.push(p);
     let layer = ink::Layer::of(live.semantic);
     drop(s);
     ui::redraw_ink(&mut info, layer);
-    Update::DoNothing
+    ended
 }
 
 /// The pen lifts: a stroke is kept (its page's frame drawn anew with it, no
 /// new DOM - nothing else in the window shows the strokes), a click cycles
 /// the nib.
 pub extern "C" fn on_ink_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let (is_click, timer_id, layer) = {
+    // The pen lifted: it rests in the air where it was (not a move: nothing of a dictation ends).
+    voice::pointer(&mut data, &mut info, Some(false));
+    let (up, timer_id, layer) = {
         let Some(mut s) = data.downcast_mut::<AppState>() else {
             return Update::DoNothing;
         };
@@ -548,21 +715,37 @@ pub extern "C" fn on_ink_up(mut data: RefAny, mut info: CallbackInfo) -> Update 
         s.ink.touch(done.page);
         let layer = ink::Layer::of(done.semantic);
         if done.points.len() < CLICK_POINT_LIMIT {
-            (true, s.idle_timer, layer)
+            // A touch that rests the pen on the page while a dictation listens is no click: it must
+            // not change the nib under the user's hand.
+            let up = if s.voice.running.is_some() { Up::Dab } else { Up::Click };
+            (up, s.idle_timer, layer)
         } else {
             s.strokes.push(done);
             s.rederive();
             println!("AZREVIEW_STROKES {}", s.strokes.len());
-            (false, s.idle_timer, layer)
+            (Up::Kept, s.idle_timer, layer)
         }
     };
     ui::redraw_ink(&mut info, layer);
-    if is_click {
-        return on_cycle_tool(data, info);
+    match up {
+        Up::Click => on_cycle_tool(data, info),
+        Up::Dab => Update::DoNothing,
+        Up::Kept => {
+            save_session(&data, &mut info);
+            arm_idle_timer(&mut info, data, timer_id);
+            Update::DoNothing
+        }
     }
-    save_session(&data, &mut info);
-    arm_idle_timer(&mut info, data, timer_id);
-    Update::DoNothing
+}
+
+/// What a pen lifting did to the stroke it had down.
+enum Up {
+    /// A tap: it cycles the nib.
+    Click,
+    /// A tap while a dictation listens: nothing.
+    Dab,
+    /// A stroke, kept.
+    Kept,
 }
 
 const ANNOTATION_IDLE_MS: u64 = 1_800;
@@ -734,6 +917,9 @@ pub extern "C" fn on_pick_file(mut data: RefAny, mut info: CallbackInfo) -> Upda
     };
     println!("AZREVIEW_FILE {}", file.display);
     s.open_file(index);
+    drop(s);
+    // What was marked on it in an earlier run comes back.
+    load_session(&data, &mut info);
     Update::RefreshDom
 }
 

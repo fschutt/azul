@@ -23,3 +23,14 @@ pub const PAGES: AzString = AzString::from_const_str(PAGES_NAME);
 pub const RECORD: AzString = AzString::from_const_str("__azreview_record");
 pub const SAVE: AzString = AzString::from_const_str("__azreview_save");
 pub const SETTINGS: AzString = AzString::from_const_str("__azreview_settings");
+/// The side column of notes, its title row's switch, its hint when empty, its "listening" pill, its
+/// stop button.
+pub const NOTES: AzString = AzString::from_const_str("__azreview_notes");
+pub const NOTES_TOGGLE: AzString = AzString::from_const_str("__azreview_notes-toggle");
+pub const NOTES_HINT: AzString = AzString::from_const_str("__azreview_notes-hint");
+pub const LISTENING: AzString = AzString::from_const_str("__azreview_listening");
+pub const DICTATION_STOP: AzString = AzString::from_const_str("__azreview_dictation-stop");
+/// The settings page's dictation rows.
+pub const SETTING_INPUT: AzString = AzString::from_const_str("__azreview_setting-input");
+pub const SETTING_REST: AzString = AzString::from_const_str("__azreview_setting-rest");
+pub const SETTING_QUIET: AzString = AzString::from_const_str("__azreview_setting-quiet");

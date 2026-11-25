@@ -226,3 +226,19 @@ fn the_allow_names_round_trip() {
     assert_eq!(Allow::parse(" PEN "), Some(Allow::Pen));
     assert_eq!(Allow::parse("stylus"), None);
 }
+
+#[test]
+fn a_rest_that_was_reported_still_holds_until_the_pointer_moves_on_or_leaves() {
+    let mut d = Dwell::new(config());
+    d.observe(hover(0, 100.0, 50.0), 0);
+    let here = d.tick(1_200).expect("a dwell");
+    assert!(d.still_at(&here), "reported, and the pen has not moved");
+    d.observe(hover(0, 103.0, 50.0), 1_500);
+    assert!(d.still_at(&here), "within the jitter");
+    d.observe(hover(0, 140.0, 50.0), 2_000);
+    assert!(!d.still_at(&here), "moved on");
+    d.observe(hover(0, 100.0, 50.0), 3_000);
+    assert!(d.still_at(&here), "back at it, a new rest of its own");
+    d.left();
+    assert!(!d.still_at(&here), "gone");
+}

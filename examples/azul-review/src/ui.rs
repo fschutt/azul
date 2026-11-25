@@ -15,10 +15,10 @@ use azul_appkit::{
 };
 
 use crate::{
-    code, ids,
+    code, column, ids,
     ink::{self, InkCanvas, Layer},
-    model::Semantic,
-    AppState,
+    model::{Note, Semantic},
+    voice, AppState,
 };
 
 /// A column that takes the rest of its parent.
@@ -103,19 +103,19 @@ pub fn index_of(info: &mut CallbackInfo) -> Option<usize> {
 /// A control of the bars - a meaning, the nib, a page, a tool, the files'
 /// switch: a button of its own, 22px tall, without the UA's face (its
 /// padding, border and 13px font), pressed and not dragged in the title row.
-const KEY: &str = "display: flex; flex-direction: row; align-items: center; justify-content: \
+pub(crate) const KEY: &str = "display: flex; flex-direction: row; align-items: center; justify-content: \
                    center; gap: 4px; height: 22px; box-sizing: border-box; padding: 0px 6px; \
                    border-radius: 4px; font-size: 11px; flex-shrink: 0; cursor: pointer; \
                    -azul-app-region: no-drag;";
 
 /// An icon-only key at rest: no face until the pointer is on it.
-const QUIET: &str = "padding: 0px 3px; background: transparent; border: 1px solid transparent; \
+pub(crate) const QUIET: &str = "padding: 0px 3px; background: transparent; border: 1px solid transparent; \
                      color: system:text; :hover { background: system:control-background; \
                      border: 1px solid system:separator; }";
 
 /// A key (`KEY` and `face`) named `name` for the screen reader, clicked (or
 /// pressed with Enter / Space) for `on_click` with `data`.
-fn key(face: &str, name: AzString, data: RefAny, on_click: CallbackType) -> Dom {
+pub(crate) fn key(face: &str, name: AzString, data: RefAny, on_click: CallbackType) -> Dom {
     Dom::create_node(NodeType::Button)
         .with_css(format!("{KEY} {face}").as_str())
         .with_accessibility_name(name)
@@ -126,7 +126,7 @@ fn key(face: &str, name: AzString, data: RefAny, on_click: CallbackType) -> Dom 
 struct Tip(AzString);
 
 /// `key` with its name as the tooltip while the pointer is on it.
-fn with_tip(key: Dom, name: &AzString) -> Dom {
+pub(crate) fn with_tip(key: Dom, name: &AzString) -> Dom {
     key.with_callback(
         EventFilter::Hover(HoverEventFilter::MouseEnter),
         RefAny::new(Tip(name.clone())),
@@ -160,7 +160,12 @@ pub extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
         Dom::create_div()
             .with_css(COLUMN)
             .with_child(kit::title_row(crate::SPEC.name))
-            .with_child(kit::settings_page(&s.kit, Vec::new()))
+            .with_child(kit::settings_page_with_reload(
+                &s.kit,
+                vec![column::settings_section(&s, &data)],
+                &data,
+                column::reload_settings,
+            ))
     } else {
         main_view(&s, &data)
     };
@@ -192,11 +197,19 @@ pub fn main_view(s: &AppState, data: &RefAny) -> Dom {
     if s.sidebar_open {
         pages.add_child(flyout(s, data));
     }
+    // The pages and, beside them, the side column of dictated notes.
+    let mut body = Dom::create_div().with_css(
+        "display: flex; flex-direction: row; flex-grow: 1; min-height: 0px; min-width: 0px;",
+    );
+    body.add_child(pages);
+    if s.voice.notes_open {
+        body.add_child(column::column(s, data));
+    }
     Dom::create_div()
         .with_css(COLUMN)
         .with_child(title_row(s, data))
         .with_child(page_rail(s, data))
-        .with_child(pages)
+        .with_child(body)
 }
 
 /// What went wrong (a session that was not written), over the pages until
@@ -232,6 +245,8 @@ fn title_row(s: &AppState, data: &RefAny) -> Dom {
     }
     row.add_child(Dom::create_div().with_css("width: 8px; flex-shrink: 0;"));
     row.add_child(nib_key(s, data));
+    row.add_child(Dom::create_div().with_css("width: 8px; flex-shrink: 0;"));
+    row.add_child(column::switch(s, data));
     row
 }
 
@@ -691,8 +706,9 @@ extern "C" fn sheets_virtual_view(
 
         let mut row = Dom::create_div()
             .with_css("display: flex; flex-direction: row; align-items: flex-start;");
+        let listening = s.voice.running_note().filter(|_| s.voice.is_listening());
         for page in first..first + count {
-            row.add_child(page_sheet(&cb_app, file, page));
+            row.add_child(page_sheet(&cb_app, file, page, &s.notes, listening));
         }
         (row, first, count, total, leftmost)
     };
@@ -714,7 +730,13 @@ extern "C" fn sheets_virtual_view(
     )
 }
 
-fn page_sheet(data: &RefAny, file: &code::SourceFile, page: usize) -> Dom {
+fn page_sheet(
+    data: &RefAny,
+    file: &code::SourceFile,
+    page: usize,
+    notes: &[Note],
+    listening: Option<u64>,
+) -> Dom {
     let (first_line, lines) = file.page(page);
     let mut sheet = Dom::create_div().with_css(
         format!(
@@ -757,6 +779,10 @@ fn page_sheet(data: &RefAny, file: &code::SourceFile, page: usize) -> Dom {
         col.add_child(code_row(first_line + i, line.as_str()));
     }
     sheet.add_child(col);
+    // The markers of the dictated notes: over the code, under the pen layer (they take no stroke).
+    for marker in column::markers(notes, page, listening) {
+        sheet.add_child(marker);
+    }
     sheet.add_child(ink_layer(data, page, Layer::Pen));
     sheet
 }
@@ -824,6 +850,17 @@ fn ink_layer(data: &RefAny, page: usize, layer: Layer) -> Dom {
         EventFilter::Hover(HoverEventFilter::RightMouseUp),
         data.clone(),
         crate::on_cycle_tool_back,
+    )
+    // The pointer off the page, or the pen out of the tablet's range: no rest to time.
+    .with_callback(
+        EventFilter::Hover(HoverEventFilter::MouseLeave),
+        data.clone(),
+        voice::on_pointer_left,
+    )
+    .with_callback(
+        EventFilter::Hover(HoverEventFilter::PenLeave),
+        data.clone(),
+        voice::on_pointer_left,
     )
 }
 

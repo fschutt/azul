@@ -270,6 +270,15 @@ impl Dwell {
         self.rest.as_ref().is_some_and(|r| !r.reported)
     }
 
+    /// Whether the pointer still rests where `anchor` was reported (it has not moved on, nor left).
+    #[must_use]
+    pub fn still_at(&self, anchor: &Anchor) -> bool {
+        self.rest.as_ref().is_some_and(|r| {
+            r.at.page == anchor.page
+                && distance((r.at.x, r.at.y), (anchor.x, anchor.y)) <= self.config.jitter_px
+        })
+    }
+
     fn leave_session(&mut self) -> Reaction {
         if self.session.take().is_some() {
             Reaction::MovedAway
