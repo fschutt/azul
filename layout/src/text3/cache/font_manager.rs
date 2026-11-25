@@ -1302,7 +1302,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
         self.font_chain_cache.retain(|_, chain| {
             chain
                 .fonts()
-                .all(|face| fc_cache.get_metadata_by_id(&face.id).is_some())
+                .all(|face| fc_cache.get_font_by_id(&face.id).is_some())
         });
         if self.font_chain_cache.len() != before {
             self.last_resolved_font_stacks_sig = None;
