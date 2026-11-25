@@ -7081,6 +7081,21 @@ pub trait PlatformWindow {
             #[cfg(not(feature = "debug-server"))]
             CallbackChange::StopHttpServer => ProcessEventResult::DoNothing,
 
+            // === The frame tap: state of the window; the CPU frame calls it ===
+            CallbackChange::SetFrameTap { tap } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.frame_tap = Some(tap.clone());
+                }
+                // The tap hears the next frame, whole: ask for one.
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+            CallbackChange::ClearFrameTap => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.frame_tap = None;
+                }
+                ProcessEventResult::DoNothing
+            }
+
             // === Timer Management ===
             CallbackChange::AddTimer { timer_id, timer } => {
                 if let Some(lw) = self.get_layout_window_mut() {

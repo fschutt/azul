@@ -1905,6 +1905,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         presented_frames: _,
         // Six atomics.
         frame_clock: _,
+        // A function and a handle on the app's data (counted where the app holds it).
+        frame_tap: _,
         // Two u64 arrays sized by node count (~16 B/node) — noise next to
         // the tree; walked nowhere, listed so the destructure stays total.
         last_dom_fingerprints: _,
@@ -2557,6 +2559,9 @@ pub struct LayoutWindow {
     /// When frames were presented and how long their work took
     /// ([`Self::frame_timings`]).
     pub frame_clock: FrameClock,
+    /// The app's frame tap, when it registered one (`CallbackInfo::set_frame_tap`): the CPU frame
+    /// hands every frame that changed to it ([`crate::frame_tap`]). `None`: nobody listens.
+    pub frame_tap: Option<crate::frame_tap::FrameTap>,
     /// The CSS DIFF of the most recent `begin_reconciliation`, waiting to be
     /// consumed by the NEXT layout pass of that DOM: node -> worst
     /// `RelayoutScope` across its changed properties (including `None` =
@@ -4595,6 +4600,7 @@ impl LayoutWindow {
             root_display_list_gpu_fingerprint: None,
             presented_frames: core::sync::atomic::AtomicU64::new(0),
             frame_clock: FrameClock::default(),
+            frame_tap: None,
             layout_cache: Solver3LayoutCache {
                 tree: None,
                 resize_only_hint: false,
@@ -34870,6 +34876,8 @@ impl LayoutWindow {
             presented_frames: _,
             // Clock readings, keyed by nothing.
             frame_clock: _,
+            // A function and the app's data, keyed by nothing.
+            frame_tap: _,
             // The cached layout trees keep the ids of the DOM they were laid
             // out from: the next pass of the DOM reads them through the
             // diff's pairing (set below).

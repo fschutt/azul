@@ -13059,6 +13059,34 @@
                                 ],
                                 "fn_body": "object.remove_timer(timer_id)"
                             },
+                            "set_frame_tap": {
+                                "doc": [
+                                    "Register this window's frame tap (applied after the callback returns): from then on `callback` is called with `data` and the frame (`FrameTapInfo`) every time the CPU renderer paints a frame that changed, and never for one that did not. The first frame it hears is the whole window; after that the rectangles that changed. An app that records its window copies the damaged rows out of the frame and returns: the callback runs on the window's thread, inside the frame. A window drawn by the GPU has no CPU frame and never calls it. One tap a window: this replaces the one before."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "FrameTapCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_frame_tap(data, callback)"
+                            },
+                            "clear_frame_tap": {
+                                "doc": [
+                                    "Take this window's frame tap away (applied after the callback returns; nothing happens when the window has none)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.clear_frame_tap()"
+                            },
                             "add_thread": {
                                 "doc": [
                                     "Add a thread to this window (applied after callback returns)"
@@ -25969,6 +25997,98 @@
                                 "type": "CustomE2eOpResult"
                             }
                         }
+                    },
+                    "FrameTapCallbackType": {
+                        "doc": [
+                            "The function a frame tap calls: the data the app registered, and the frame."
+                        ],
+                        "external": "azul_layout::frame_tap::FrameTapCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "FrameTapInfo"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
+                    },
+                    "FrameTapCallback": {
+                        "doc": [
+                            "A frame tap's function, as the functions of the C interface take it."
+                        ],
+                        "external": "azul_layout::frame_tap::FrameTapCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "FrameTapCallbackType"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A function (of Rust or of C) as a tap's callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cb": "FrameTapCallbackType"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::frame_tap::FrameTapCallback::create(cb)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "FrameTapInfo": {
+                        "doc": [
+                            "What a window's frame tap hears of one frame: its size and scale, the whole of it or the rectangles that changed (device pixels, x, y, width, height one after the other), and its pixels (RGBA, borrowed until the tap returns)."
+                        ],
+                        "external": "azul_layout::frame_tap::FrameTapInfo",
+                        "custom_impls": [
+                            "Debug"
+                        ],
+                        "derive": [
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "width": {
+                                    "type": "u32"
+                                },
+                                "height": {
+                                    "type": "u32"
+                                },
+                                "stride": {
+                                    "type": "usize"
+                                },
+                                "scale": {
+                                    "type": "f32"
+                                },
+                                "full": {
+                                    "type": "bool"
+                                },
+                                "damage": {
+                                    "type": "I32VecRef"
+                                },
+                                "pixels": {
+                                    "type": "U8VecRef"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
