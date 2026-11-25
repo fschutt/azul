@@ -23,12 +23,13 @@ interpolation), the way `allsorts::variations::instance` (rust-fontconfig's
 Deterministic: `head.created` / `modified` are pinned to 0 and nothing embeds a
 timestamp or a UUID, so running the script again reproduces identical bytes.
 
-Re-run:  python3 scripts/gen_variable_test_font.py        (fontTools >= 4.40)
+Re-run:  python3 scripts/gen_variable_test_font.py [output path]        (fontTools >= 4.40)
 Then update layout/tests/fonts/README.md if you change a metric.
 Pure Python: runs no `cargo`.
 """
 
 import os
+import sys
 
 from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.ttGlyphPen import TTGlyphPen
@@ -181,5 +182,7 @@ def build():
 
 
 if __name__ == "__main__":
-    build().save(OUT)
-    print("wrote", os.path.normpath(OUT))
+    # An optional argument names another place to write to (to compare with the checked-in file).
+    target = sys.argv[1] if len(sys.argv) > 1 else OUT
+    build().save(target)
+    print("wrote", os.path.normpath(target))
