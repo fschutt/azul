@@ -129,7 +129,7 @@ fn variant_case(o: &mut String, v: &VariantCase, n: usize) {
         (Some(PayloadCheck::PartialEq { clone, copy, .. }), [r]) => {
             let pt = c_type(r.ty());
             let _ = writeln!(o, "    {pt} arg = {};", make(r));
-            let expected = match (clone, copy) {
+            let expected = match (clone, *copy) {
                 (_, true) => "arg".to_string(),
                 (Some(clone), false) => format!("{clone}(&arg)"),
                 (None, false) => make(r),
