@@ -88,3 +88,23 @@ fn the_platform_lookups_and_the_linux_switches_come_from_the_same_environment() 
     // the other parts did not see them
     assert_eq!(settings.shell, ShellSettings::default());
 }
+
+#[test]
+fn the_layout_group_is_built_from_the_same_environment() {
+    let env = MapEnv::new()
+        .with("AZ_E2E_SHOT_DIR", "/tmp/azul-shots")
+        .with("AZ_NO_DL_PATCH", "1")
+        .with("AZ_DEBUG", "8765");
+    let settings = AppSettings::from_lookup(&env);
+    assert_eq!(
+        settings.layout.e2e.shot_dir,
+        Some(std::path::PathBuf::from("/tmp/azul-shots"))
+    );
+    assert_eq!(settings.layout.e2e.debug_port, Some(8765));
+    assert!(!settings.layout.solver.patching);
+    // an empty environment is the layout default
+    assert_eq!(
+        AppSettings::from_lookup(&NoEnv).layout,
+        azul_layout::settings::LayoutSettings::default()
+    );
+}

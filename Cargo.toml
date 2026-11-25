@@ -133,11 +133,14 @@ azul-css = { path = "css" }
 # published fork rustls-rustcrypto-azul by a `package =` rename (crypto-bigint 0.7.6+, no rustls-webpki 0.102).
 azul-core = { path = "core" }
 azul-layout = { path = "layout" }
+# TEMPORARY (release of azul 0.0.21): the printpdf 0.13.0 candidate that requires azul 0.0.21; delete with third_party/printpdf once 0.13 is published
+printpdf = { path = "third_party/printpdf" }
 # agg-rust-azul (our fork) is never [patch]ed: publish the fork, then bump the pin in layout/Cargo.toml.
-# printpdf comes from crates.io (0.12.13 — requires azul-css/core/layout
-# 0.0.20, all published). The azul-* path patches above redirect
-# printpdf's azul deps to this one workspace copy, so there is a single
-# azul-layout and NO printpdf git patch is needed. (dll/ pins printpdf 0.12.13.)
+# printpdf comes from crates.io once it is published (dll/ pins `0.13`, which requires
+# azul-css/core/layout 0.0.21). Until then the printpdf patch above is a vendored copy of the
+# printpdf 0.13.0 release candidate (third_party/printpdf). The azul-* path patches above
+# redirect printpdf's azul deps to this one workspace copy, so there is a single azul-layout.
+# Delete the printpdf patch and third_party/printpdf when printpdf 0.13 is on crates.io.
 # rust-fontconfig: use crates.io (the vendored copy was a labelled REVERT; its
 # only functional delta was a web_lift-only hashbrown workaround). core/ and
 # layout/ pin `>=5.0, <5.1` (5.0 = the tiered FontFallbackChain — css groups

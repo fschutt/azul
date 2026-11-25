@@ -481,10 +481,8 @@ fn setup_debug_and_e2e(
         // those before the first request can be dispatched.
         debug_server::install_e2e_host_hooks();
 
+        // `AZ_DEBUG=<port>` was folded into the config's port at `App::create`.
         let mut debug_port = config.remote_control.debug_port.into_option();
-        if debug_port.is_none() {
-            debug_port = debug_server::get_debug_port();
-        }
         // `AZ_E2E` (on Android also the `debug.az.e2e` property, which the process reader
         // answers for it), as the app's environment asked at its start.
         let e2e_file = settings.shell.e2e_script.clone();
