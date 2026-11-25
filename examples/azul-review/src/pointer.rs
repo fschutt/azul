@@ -372,10 +372,12 @@ impl AppState {
             // Dropped: the page's frame no longer shows the dab that was drawn. A kept stroke is
             // told to the page by `keep`: the frame already shows it.
             self.ink.touch(page);
-            let up = if self.voice.running.is_some() {
+            // A tap cycles the nib when a pen made it (and no dictation listens): a mouse's or a trackpad's
+            // is a click on a page, not a gesture of the pen.
+            let up = if self.voice.running.is_some() || !self.live_pen {
                 Up::Dab
             } else {
-                Up::Click // RED STUB: every pointer cycles the nib
+                Up::Click
             };
             Some(Ended { layer, page, up })
         } else {
