@@ -53,6 +53,20 @@ pub struct Running {
     pub stopping: Option<Cause>,
 }
 
+impl Running {
+    /// A running dictation for a test: no worker behind it.
+    #[cfg(test)]
+    #[must_use]
+    pub fn for_test(session: u64, note: u64) -> Self {
+        Self {
+            session,
+            note,
+            stop: Arc::new(AtomicBool::new(false)),
+            stopping: None,
+        }
+    }
+}
+
 /// The dictation of one window: the dwell, the running session, the column's state.
 pub struct Voice {
     pub dwell: Dwell,

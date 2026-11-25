@@ -14,7 +14,7 @@
 //! when a file is opened, `AZREVIEW_STROKES <n>` when a stroke is kept,
 //! `AZREVIEW_SAVED <key>` / `AZREVIEW_SAVE_ERROR <why>` per write.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use azul::{
     dialog::{FileDialog, FileOpenResult},
@@ -93,8 +93,6 @@ pub const CLIP_RATE: u32 = 48_000;
 /// The write-back tag of a session write.
 const TAG_SAVE: u64 = 1;
 
-/// The settings file's value: the folder reviewed last.
-const KEY_FOLDER: &str = "last-folder";
 
 pub struct AppState {
     pub files: Vec<code::SourceFile>,
@@ -438,14 +436,13 @@ pub fn run() {
     };
     // The folder named on the command line; else the one reviewed last (an app started from the
     // Finder has the root of the disk as its folder); else the current one.
-    let root = named_root
-        .or_else(|| {
-            values
-                .get(KEY_FOLDER)
-                .map(PathBuf::from)
-                .filter(|p| remember && p.is_dir())
-        })
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let root = switches::pick_root(
+        named_root,
+        values.get(switches::KEY_FOLDER).map(String::as_str),
+        remember,
+        Path::is_dir,
+        std::env::current_dir().unwrap_or_default(),
+    );
     let files = code::load_tree(&root, 400);
     if let Some(first) = files.first() {
         println!("AZREVIEW_FILE {}", first.display);
@@ -648,7 +645,7 @@ extern "C" fn on_folder_chosen(mut data: RefAny, mut info: CallbackInfo, result:
         s.open_folder(folder.clone(), files);
         s.kit.clone()
     };
-    kit::set_value(&kit_ref, &mut info, KEY_FOLDER, &folder.to_string_lossy());
+    kit::set_value(&kit_ref, &mut info, switches::KEY_FOLDER, &folder.to_string_lossy());
     if let Some(first) = data.downcast_ref::<AppState>().and_then(|s| s.files.first().map(|f| f.display.clone())) {
         println!("AZREVIEW_FILE {first}");
     }

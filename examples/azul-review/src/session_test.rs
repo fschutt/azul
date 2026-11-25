@@ -173,3 +173,94 @@ fn the_next_ids_come_after_the_ones_in_the_archive() {
     assert_eq!(Loaded::default().next_stroke_id(), 1, "an empty archive starts at 1");
     assert_eq!(Loaded::default().next_note_id(), 1);
 }
+
+#[test]
+fn a_note_with_quotes_backslashes_and_control_characters_comes_back_as_it_was() {
+    let mut s = state();
+    let tricky = "she said \"no\"\\n\tand\u{1}left\r\nit \u{2028} \u{1f600} \u{fc}";
+    s.notes.push(note(1, 0, tricky));
+    let (_, bytes) = archive(&s);
+    let back = load(&bytes).expect("loads");
+    assert_eq!(back.notes[0].text, tricky);
+}
+
+#[test]
+fn the_numbers_of_a_stroke_are_written_short_and_read_back_the_same() {
+    let mut s = state();
+    s.strokes.push(Stroke {
+        points: vec![
+            InkPoint { x: 0.55, y: -3.0, pressure: 1.0, tilt_x: 0.01, tilt_y: 123_456.78 },
+            InkPoint { x: f32::NAN, y: f32::INFINITY, pressure: 0.0, tilt_x: 0.0, tilt_y: 0.0 },
+        ],
+        ..stroke(1, 0, 0, Semantic::Issue)
+    });
+    let (_, bytes) = archive(&s);
+    let zip = Zip::from_bytes(bytes_of(&bytes));
+    let text = String::from_utf8(zip.get_file("session.json").as_slice().to_vec()).expect("UTF-8");
+    assert!(text.contains("\"x\":0.55,\"y\":-3.0,\"pressure\":1.0,\"tilt_x\":0.01,\"tilt_y\":123456.78"), "{text}");
+    assert!(text.contains("\"x\":0.0,\"y\":0.0"), "no number of a NaN or an infinity: {text}");
+    let back = load(&bytes).expect("loads");
+    assert_eq!(back.strokes[0].points[0].x, 0.55);
+    assert_eq!(back.strokes[0].points[0].y, -3.0);
+}
+
+fn bytes_of(v: &[u8]) -> azul::vec::U8Vec {
+    super::bytes(v)
+}
+
+/// Not a check: `cargo test -p AzReview --release -- --ignored --nocapture archive_timing` says what the
+/// archive of a long session costs on the window's thread every time the pen lifts.
+#[test]
+#[ignore = "a measurement, not a check"]
+fn archive_timing() {
+    use std::time::Instant;
+    for (strokes, per) in [(10usize, 300usize), (40, 300), (100, 300)] {
+        let mut s = state();
+        for id in 0..strokes {
+            let mut st = stroke(id as u64 + 1, 0, 0, Semantic::Issue);
+            st.points = (0..per)
+                .map(|i| InkPoint {
+                    x: 140.0 + i as f32 * 1.8,
+                    y: 60.0 + (id % 40) as f32 * 14.0 + 5.0 * (i as f32 / 6.0).sin(),
+                    pressure: 0.55,
+                    tilt_x: 0.0,
+                    tilt_y: 0.0,
+                })
+                .collect();
+            s.strokes.push(st);
+        }
+        s.findings = Vec::new();
+        let clips: Vec<&crate::model::VoiceClip> = Vec::new();
+        let t = Instant::now();
+        let text = session_text(&s, &clips);
+        let text_ms = t.elapsed().as_secs_f64() * 1000.0;
+        let t = Instant::now();
+        let (_, bytes) = archive(&s);
+        let all_ms = t.elapsed().as_secs_f64() * 1000.0;
+        println!(
+            "{strokes} strokes x {per} points = {} points: session.json {} KB in {text_ms:.2} ms, the whole archive {} KB in {all_ms:.2} ms",
+            strokes * per,
+            text.len() / 1024,
+            bytes.len() / 1024
+        );
+    }
+
+    // What a minute of recorded voice does to a save, and what the zip level changes.
+    let mut s = state();
+    let samples: Vec<f32> = (0..48_000 * 60)
+        .map(|i| ((i as f32) * 0.05).sin() * 0.3 + ((i * 7919 % 1000) as f32 / 1000.0 - 0.5) * 0.1)
+        .collect();
+    s.clips.push(crate::model::VoiceClip { samples, sample_rate: 48_000, stroke_ids: vec![1] });
+    let clips: Vec<&crate::model::VoiceClip> = s.clips.iter().collect();
+    let t = Instant::now();
+    let wav_bytes = wav(&clips[0].samples, 48_000);
+    println!("one minute of voice: wav {} KB encoded in {:.2} ms", wav_bytes.len() / 1024, t.elapsed().as_secs_f64() * 1000.0);
+    let mut zip = Zip::create();
+    zip.add_file("clip-0.wav", bytes(&wav_bytes));
+    zip.add_file("session.json", bytes(session_text(&s, &clips).as_bytes()));
+    for level in [0u8, 1, 6] {
+        let t = Instant::now();
+        let out = zip.to_bytes_with_level(level);
+        println!("zip level {level}: {} KB in {:.2} ms", out.as_slice().len() / 1024, t.elapsed().as_secs_f64() * 1000.0);
+    }
+}

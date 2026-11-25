@@ -2,7 +2,10 @@
 //! they override, as pure functions: the settings file's values and the switches in, the numbers the
 //! window uses out, every value outside what a person can mean capped with a word about it.
 
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
 use crate::{
     dictation,
@@ -15,6 +18,9 @@ pub const KEY_INPUT: &str = "dictation-input";
 pub const KEY_REST: &str = "dictation-rest-ms";
 /// The settings file's value: how long without words ends a dictation, ms.
 pub const KEY_SILENCE: &str = "dictation-silence-ms";
+
+/// The settings file's value: the folder reviewed last.
+pub const KEY_FOLDER: &str = "last-folder";
 
 /// The lines AzReview adds to the kit's usage text.
 pub const HELP: &str = "    --dwell-ms <MS>          How long the pen rests before it dictates (this run only)\n    \
@@ -129,6 +135,26 @@ pub fn resolve(values: &BTreeMap<String, String>, sw: &Switches) -> Resolved {
         silence_ms,
         notes,
     }
+}
+
+/// The folder to review: the one named on the command line; else the one reviewed last, when it is
+/// still a folder and this run may take it (an app started from the Finder has the root of the disk as
+/// its folder; a fixture run never takes what the user did); else the current folder.
+pub fn pick_root(
+    named: Option<PathBuf>,
+    last: Option<&str>,
+    may_take_last: bool,
+    is_dir: impl Fn(&Path) -> bool,
+    cwd: PathBuf,
+) -> PathBuf {
+    named
+        .or_else(|| {
+            last.map(str::trim)
+                .filter(|l| !l.is_empty() && may_take_last)
+                .map(PathBuf::from)
+                .filter(|p| is_dir(p))
+        })
+        .unwrap_or(cwd)
 }
 
 #[cfg(test)]

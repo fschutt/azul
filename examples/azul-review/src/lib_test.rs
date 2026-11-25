@@ -167,3 +167,48 @@ fn the_eraser_takes_the_topmost_of_two_strokes_it_touches() {
     // Both lie over each other: the one drawn last is on top.
     assert_eq!(s.eraser_target(0, 60.0, ui::PAGE_PAD + 1.0), Some(1));
 }
+
+// ---- another folder ----
+
+#[test]
+fn opening_a_folder_replaces_the_files_and_starts_afresh() {
+    let mut s = app_with_file();
+    s.keep(kept(1, 0));
+    s.notes.push(crate::model::Note::listening(1, 0, 10.0, 10.0, "en-US"));
+    s.sidebar_open = false;
+    let other = code::SourceFile {
+        path: PathBuf::from("/other/a.rs"),
+        display: "a.rs".to_string(),
+        lines: vec!["fn a() {}".to_string()],
+    };
+
+    s.open_folder(PathBuf::from("/other"), vec![other]);
+
+    assert_eq!(s.root, PathBuf::from("/other"));
+    assert_eq!(s.files.len(), 1);
+    assert_eq!(s.current, Some(0), "its first file is open");
+    assert!(s.strokes.is_empty() && s.notes.is_empty(), "nothing of the folder left behind");
+    assert!(!s.undo(), "nothing to take back from what was left");
+    assert!(s.sidebar_open, "the files are out: they are what one picks from first");
+    assert!(s.findings.is_empty());
+}
+
+#[test]
+fn a_folder_without_files_leaves_no_file_open() {
+    let mut s = app_with_file();
+    s.open_folder(PathBuf::from("/empty"), Vec::new());
+    assert_eq!(s.current, None);
+    assert!(s.file().is_none());
+    assert!(s.sidebar_open, "the way out (Open folder) is in the files");
+}
+
+#[test]
+fn opening_a_folder_ends_the_dictation_that_listens() {
+    let mut s = app_with_file();
+    s.voice.running = Some(crate::voice::Running::for_test(1, 1));
+    s.open_folder(PathBuf::from("/other"), Vec::new());
+    assert!(
+        s.voice.running.as_ref().is_some_and(|r| r.stopping.is_some()),
+        "what listens writes into the file being left: it is asked to stop"
+    );
+}

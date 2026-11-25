@@ -88,3 +88,45 @@ fn a_value_that_is_no_number_is_the_default() {
     assert_eq!(r.rest_ms, dwell::DEFAULT_REST_MS);
     assert_eq!(r.notes.len(), 1);
 }
+
+// ---- the folder to review ----
+
+use std::path::{Path, PathBuf};
+
+fn is_dir_of(dirs: &'static [&'static str]) -> impl Fn(&Path) -> bool {
+    move |p| dirs.iter().any(|d| Path::new(d) == p)
+}
+
+#[test]
+fn the_folder_named_on_the_command_line_is_the_one_reviewed() {
+    let root = pick_root(
+        Some(PathBuf::from("/named")),
+        Some("/last"),
+        true,
+        is_dir_of(&["/last", "/named"]),
+        PathBuf::from("/cwd"),
+    );
+    assert_eq!(root, PathBuf::from("/named"));
+}
+
+#[test]
+fn without_one_the_folder_reviewed_last_comes_back_if_it_is_still_a_folder() {
+    let root = pick_root(None, Some("/last"), true, is_dir_of(&["/last"]), PathBuf::from("/cwd"));
+    assert_eq!(root, PathBuf::from("/last"));
+    // An app started from the Finder has the root of the disk as its folder: the last one is better.
+    let gone = pick_root(None, Some("/last"), true, is_dir_of(&[]), PathBuf::from("/cwd"));
+    assert_eq!(gone, PathBuf::from("/cwd"), "a folder that is gone is not taken");
+}
+
+#[test]
+fn a_fixture_run_never_takes_the_folder_the_user_reviewed_last() {
+    let root = pick_root(None, Some("/last"), false, is_dir_of(&["/last"]), PathBuf::from("/cwd"));
+    assert_eq!(root, PathBuf::from("/cwd"));
+}
+
+#[test]
+fn an_empty_remembered_folder_is_no_folder() {
+    let root = pick_root(None, Some("  "), true, |_| true, PathBuf::from("/cwd"));
+    assert_eq!(root, PathBuf::from("/cwd"));
+    assert_eq!(pick_root(None, None, true, |_| true, PathBuf::from("/cwd")), PathBuf::from("/cwd"));
+}
