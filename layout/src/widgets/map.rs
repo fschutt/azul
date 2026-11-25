@@ -3811,13 +3811,9 @@ const fn widget_settings(info: &CallbackInfo) -> crate::settings::widgets::Widge
     info.get_layout_window().settings.widgets
 }
 
-/// Whether the map prints its counters on stdout - `AZ_MAP_STATS=1` (`AzMaps`
-/// sets it for its `--stats` switch). Read once.
-///
-/// SUPERSEDED by `WidgetSettings::map_stats` (the callbacks read it from their window, the
-/// render callback from [`MapTileCache::stats`]) and by [`TileFetchInit::stats`] (the worker).
-/// This function stays only until the dll's `tile_fetch_worker` reads `TileFetchInit::stats`
-/// instead of asking it; then it goes with its environment read.
+/// The `AZ_MAP_TILES` line of the map's counters (`AZ_MAP_STATS=1`, which `AzMaps` sets for its
+/// `--stats` switch; `WidgetSettings::map_stats`, read once at the app's start). The counters are
+/// three lines on stdout:
 ///
 /// - `AZ_MAP_TILES <ready> <pending> <fetching> <failed> <drawn>` after every
 ///   tile that arrives: the cache's entries by state, and the drawings held;
@@ -3825,16 +3821,10 @@ const fn widget_settings(info: &CallbackInfo) -> crate::settings::widgets::Widge
 ///   grid (the `VirtualView` callback, UI thread): how long it took and the
 ///   nodes it made;
 /// - the worker's `AZ_MAP_TILE <z>/<x>/<y> <fetch_ms> <decode_ms> <draw_ms>
-///   <bytes>` per tile (`azul_dll`'s `tile_fetch_worker`).
-#[must_use]
-pub fn map_stats_enabled() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| {
-        std::env::var("AZ_MAP_STATS").is_ok_and(|v| !v.trim().is_empty() && v.trim() != "0")
-    })
-}
-
-/// The `AZ_MAP_TILES` line (see [`map_stats_enabled`] for the three lines of `AZ_MAP_STATS`).
+///   <bytes>` per tile (`azul_dll`'s `tile_fetch_worker`, [`TileFetchInit::stats`]).
+///
+/// The callbacks read the switch from their window, the render callback from
+/// [`MapTileCache::stats`].
 fn print_tile_stats(cache: &MapTileCache) {
     let (mut ready, mut pending, mut fetching, mut failed) = (0usize, 0usize, 0usize, 0usize);
     for entry in cache.tiles.values() {

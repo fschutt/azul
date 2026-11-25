@@ -90,9 +90,15 @@ pub struct Config {
     /// `--limit` (which stops the session after N *decisions*), `--last`
     /// narrows the whole commit set for every run. `None` = the full range.
     pub last: Option<usize>,
+    /// The environment the tool was started with (`HOME` and `PATH` for the agents, Telegram).
+    pub settings: crate::settings::ToolSettings,
 }
 
-pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> {
+pub fn parse_args(
+    args: &[&str],
+    project_root: &Path,
+    settings: &crate::settings::ToolSettings,
+) -> Result<Config, String> {
     let mut reference = None;
     let mut base = None;
     let mut model = None;
@@ -180,6 +186,7 @@ pub fn parse_args(args: &[&str], project_root: &Path) -> Result<Config, String> 
         auto_apply,
         auto_unclear_apply,
         last,
+        settings: settings.clone(),
     })
 }
 
@@ -324,7 +331,7 @@ pub fn run(config: Config) -> Result<(), String> {
     let bridge: Option<Arc<TelegramBridge>> = if config.no_telegram {
         None
     } else {
-        match TelegramBridge::from_env_or_config() {
+        match TelegramBridge::from_env_or_config(&config.settings) {
             Some(Ok(b)) => {
                 println!(
                     "[telegram] active — chat_id={}, prompts will mirror to your bot",
@@ -2249,7 +2256,7 @@ fn run_analysis_agent(
         .or(config.model.as_deref())
         .unwrap_or("opus");
 
-    let path_with_rustup = rustup_prefixed_path();
+    let path_with_rustup = rustup_prefixed_path(&config.settings);
     let session_name = format!("analyzer {}.{}", short(sha), iter_idx);
 
     // Retry loop: on session-UUID collision (left over from a crashed/
@@ -2257,7 +2264,14 @@ fn run_analysis_agent(
     let max_retries: u32 = 4;
     let mut attempt: u32 = 0;
     loop {
-        let session_uuid = pick_free_session_uuid(sha, "a", iter_idx, attempt, project_root);
+        let session_uuid = pick_free_session_uuid(
+            sha,
+            "a",
+            iter_idx,
+            attempt,
+            project_root,
+            &config.settings,
+        );
         let cmd_args: Vec<&str> = vec![
             "-p",
             "--dangerously-skip-permissions",
@@ -2369,8 +2383,8 @@ fn spawn_claude_streaming(
 ) -> Result<StreamOutput, ClaudeError> {
     let mut cmd = Command::new("claude");
     cmd.args(args)
-        .env_remove("CLAUDECODE")
-        .env("PATH", path_env)
+        .env_remove(crate::settings::CLAUDECODE)
+        .env(crate::settings::PATH, path_env)
         .current_dir(cwd)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -2570,8 +2584,12 @@ fn summarize_tool_input(name: &str, input: Option<&serde_json::Value>) -> String
 /// session UUID when invoked from `cwd`. Claude stores transcripts at
 /// `~/.claude/projects/<sanitized-cwd>/<uuid>.jsonl`, where the sanitization
 /// replaces `/` with `-` in the absolute path.
-fn claude_session_file(cwd: &Path, uuid: &str) -> Option<PathBuf> {
-    let home = std::env::var("HOME").ok()?;
+fn claude_session_file(
+    cwd: &Path,
+    uuid: &str,
+    settings: &crate::settings::ToolSettings,
+) -> Option<PathBuf> {
+    let home = settings.home_utf8()?;
     let abs = cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
     let sanitized: String = abs
         .to_string_lossy()
@@ -2587,8 +2605,12 @@ fn claude_session_file(cwd: &Path, uuid: &str) -> Option<PathBuf> {
 }
 
 /// Check if a session UUID is already taken by a prior `claude` run.
-fn claude_session_in_use(cwd: &Path, uuid: &str) -> bool {
-    claude_session_file(cwd, uuid)
+fn claude_session_in_use(
+    cwd: &Path,
+    uuid: &str,
+    settings: &crate::settings::ToolSettings,
+) -> bool {
+    claude_session_file(cwd, uuid, settings)
         .map(|p| p.exists())
         .unwrap_or(false)
 }
@@ -2608,16 +2630,17 @@ fn pick_free_session_uuid(
     iter_idx: usize,
     retry_attempt: u32,
     cwd: &Path,
+    settings: &crate::settings::ToolSettings,
 ) -> String {
     if retry_attempt == 0 {
         let initial = make_session_uuid(sha, &format!("{}{}", suffix_prefix, iter_idx));
-        if !claude_session_in_use(cwd, &initial) {
+        if !claude_session_in_use(cwd, &initial, settings) {
             return initial;
         }
     }
     for _ in 0..64 {
         let uuid = make_random_session_uuid();
-        if !claude_session_in_use(cwd, &uuid) {
+        if !claude_session_in_use(cwd, &uuid, settings) {
             return uuid;
         }
     }
@@ -2893,7 +2916,7 @@ fn run_apply_agent(
 
     // Ensure the agent uses the rustup toolchain (which has all cross-compile
     // targets installed) rather than Homebrew's cargo, which doesn't.
-    let path_with_rustup = rustup_prefixed_path();
+    let path_with_rustup = rustup_prefixed_path(&config.settings);
 
     // Use the staged azul-doc binary (copied outside target/ at startup, so
     // `cargo clean` in the agent doesn't wipe it).
@@ -2908,7 +2931,14 @@ fn run_apply_agent(
     let max_retries: u32 = 4;
     let mut attempt: u32 = 0;
     loop {
-        let session_uuid = pick_free_session_uuid(sha, "b", iter_idx, attempt, project_root);
+        let session_uuid = pick_free_session_uuid(
+            sha,
+            "b",
+            iter_idx,
+            attempt,
+            project_root,
+            &config.settings,
+        );
         let cmd_args: Vec<&str> = vec![
             "-p",
             "--dangerously-skip-permissions",
@@ -2935,7 +2965,7 @@ fn run_apply_agent(
             prompt.as_bytes(),
             project_root,
             &path_with_rustup,
-            Some(&[("AZ_DOC_BIN", azul_doc_bin.as_path())]),
+            Some(&[(crate::settings::DOC_BIN, azul_doc_bin.as_path())]),
         ) {
             Ok(_out) => break,
             Err(ClaudeError::SessionInUse) if attempt < max_retries => {
@@ -3453,9 +3483,9 @@ fn stage_binary(project_root: &Path) -> Result<PathBuf, String> {
 /// Build a PATH with `~/.cargo/bin` prepended so rustup-managed `cargo`/`rustc`
 /// (with installed cross-compile targets) wins over any system-wide install
 /// (e.g. Homebrew rustc on macOS, which ships only the host sysroot).
-fn rustup_prefixed_path() -> String {
-    let existing = std::env::var("PATH").unwrap_or_default();
-    let home = std::env::var("HOME").unwrap_or_default();
+fn rustup_prefixed_path(settings: &crate::settings::ToolSettings) -> String {
+    let existing = settings.path_utf8().to_string();
+    let home = settings.home_utf8().unwrap_or_default().to_string();
     let rustup_bin = format!("{}/.cargo/bin", home);
     if existing.split(':').any(|p| p == rustup_bin) {
         // Already present — just reorder to put it first

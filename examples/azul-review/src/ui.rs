@@ -1,13 +1,14 @@
 use azul::{
+    audio::AudioConfig,
     callbacks::{ButtonOnClickCallbackType, CallbackType},
-    dom::{DomNodeId, NodeId, RenderImageCallback},
+    dom::{AccessibilityInfo, AccessibilityRole, DomNodeId, NodeId, RenderImageCallback},
     image::ImageRef,
     menu::{Menu, MenuItem, StringMenuItem},
     prelude::*,
     shells::{ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
     vec::MenuItemVec,
-    widgets::{AlertKind, InfoBar},
+    widgets::{AlertKind, Button, InfoBar, LevelMeter, MicrophoneWidget},
 };
 use azul_appkit::{
     l10n::{label, t, t_args, Arg},
@@ -15,10 +16,10 @@ use azul_appkit::{
 };
 
 use crate::{
-    code, ids,
+    code, column, ids,
     ink::{self, InkCanvas, Layer},
-    model::Semantic,
-    AppState,
+    model::{Note, Semantic},
+    voice, AppState,
 };
 
 /// A column that takes the rest of its parent.
@@ -30,12 +31,18 @@ const PAGE_W: f32 = 1000.0;
 const GUTTER_W: f32 = 52.0;
 
 const MARGIN_GUTTER_W: f32 = 260.0;
-const PAGE_PAD: f32 = 32.0;
+pub const PAGE_PAD: f32 = 32.0;
 const PAGE_GAP: f32 = 24.0;
 
 pub const METER_PACKET_SAMPLES: usize = 4096;
 
-const METER_SPAN_PACKETS: usize = 240;
+
+/// The line of a page's code (0 for its first) under `y`, in the page's own coordinates: the code
+/// starts under the page's padding.
+#[must_use]
+pub fn line_of(y: f32) -> usize {
+    ((y - PAGE_PAD) / LINE_H).floor().max(0.0) as usize
+}
 
 fn page_h() -> f32 {
     code::LINES_PER_PAGE as f32 * LINE_H + 40.0
@@ -96,19 +103,19 @@ pub fn index_of(info: &mut CallbackInfo) -> Option<usize> {
 /// A control of the bars - a meaning, the nib, a page, a tool, the files'
 /// switch: a button of its own, 22px tall, without the UA's face (its
 /// padding, border and 13px font), pressed and not dragged in the title row.
-const KEY: &str = "display: flex; flex-direction: row; align-items: center; justify-content: \
+pub(crate) const KEY: &str = "display: flex; flex-direction: row; align-items: center; justify-content: \
                    center; gap: 4px; height: 22px; box-sizing: border-box; padding: 0px 6px; \
                    border-radius: 4px; font-size: 11px; flex-shrink: 0; cursor: pointer; \
                    -azul-app-region: no-drag;";
 
 /// An icon-only key at rest: no face until the pointer is on it.
-const QUIET: &str = "padding: 0px 3px; background: transparent; border: 1px solid transparent; \
+pub(crate) const QUIET: &str = "padding: 0px 3px; background: transparent; border: 1px solid transparent; \
                      color: system:text; :hover { background: system:control-background; \
                      border: 1px solid system:separator; }";
 
 /// A key (`KEY` and `face`) named `name` for the screen reader, clicked (or
 /// pressed with Enter / Space) for `on_click` with `data`.
-fn key(face: &str, name: AzString, data: RefAny, on_click: CallbackType) -> Dom {
+pub(crate) fn key(face: &str, name: AzString, data: RefAny, on_click: CallbackType) -> Dom {
     Dom::create_node(NodeType::Button)
         .with_css(format!("{KEY} {face}").as_str())
         .with_accessibility_name(name)
@@ -119,7 +126,7 @@ fn key(face: &str, name: AzString, data: RefAny, on_click: CallbackType) -> Dom 
 struct Tip(AzString);
 
 /// `key` with its name as the tooltip while the pointer is on it.
-fn with_tip(key: Dom, name: &AzString) -> Dom {
+pub(crate) fn with_tip(key: Dom, name: &AzString) -> Dom {
     key.with_callback(
         EventFilter::Hover(HoverEventFilter::MouseEnter),
         RefAny::new(Tip(name.clone())),
@@ -153,7 +160,12 @@ pub extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
         Dom::create_div()
             .with_css(COLUMN)
             .with_child(kit::title_row(crate::SPEC.name))
-            .with_child(kit::settings_page(&s.kit, Vec::new()))
+            .with_child(kit::settings_page_with_reload(
+                &s.kit,
+                vec![column::settings_section(&s, &data)],
+                &data,
+                column::reload_settings,
+            ))
     } else {
         main_view(&s, &data)
     };
@@ -185,11 +197,19 @@ pub fn main_view(s: &AppState, data: &RefAny) -> Dom {
     if s.sidebar_open {
         pages.add_child(flyout(s, data));
     }
+    // The pages and, beside them, the side column of dictated notes.
+    let mut body = Dom::create_div().with_css(
+        "display: flex; flex-direction: row; flex-grow: 1; min-height: 0px; min-width: 0px;",
+    );
+    body.add_child(pages);
+    if s.voice.notes_open {
+        body.add_child(column::column(s, data));
+    }
     Dom::create_div()
         .with_css(COLUMN)
         .with_child(title_row(s, data))
         .with_child(page_rail(s, data))
-        .with_child(pages)
+        .with_child(body)
 }
 
 /// What went wrong (a session that was not written), over the pages until
@@ -221,10 +241,12 @@ fn title_row(s: &AppState, data: &RefAny) -> Dom {
     row.add_child(sidebar_switch(s, data));
     row.add_child(Dom::create_div().with_css("width: 8px; flex-shrink: 0;"));
     for (i, sem) in Semantic::ALL.iter().enumerate() {
-        row.add_child(meaning_key(i, *sem, *sem == s.active, data));
+        row.add_child(meaning_key(i, *sem, *sem == s.ink_meaning(), data));
     }
     row.add_child(Dom::create_div().with_css("width: 8px; flex-shrink: 0;"));
     row.add_child(nib_key(s, data));
+    row.add_child(Dom::create_div().with_css("width: 8px; flex-shrink: 0;"));
+    row.add_child(column::switch(s, data));
     row
 }
 
@@ -326,11 +348,27 @@ fn flyout(s: &AppState, data: &RefAny) -> Dom {
              system:separator; border-radius: 8px; box-shadow: 0px 6px 20px rgba(0,0,0,0.28); \
              overflow: hidden;",
         )
-        .with_child(Dom::create_span_with_text(label("azreview-files")).with_css(
-            "font-size: 11px; padding: 7px 10px; color: system:secondary-text; flex-shrink: 0; \
-             border-bottom: 1px solid system:separator;",
-        ))
+        .with_child(
+            Dom::create_div()
+                .with_css(
+                    "display: flex; flex-direction: row; align-items: center; padding: 4px 6px 4px \
+                     10px; flex-shrink: 0; border-bottom: 1px solid system:separator;",
+                )
+                .with_child(
+                    Dom::create_span_with_text(label("azreview-files"))
+                        .with_css("font-size: 11px; color: system:secondary-text; flex-grow: 1;"),
+                )
+                .with_child(open_folder_key(data)),
+        )
         .with_child(list)
+}
+
+/// The flyout's "Open folder": a folder dialog, the folder's files in the flyout.
+fn open_folder_key(data: &RefAny) -> Dom {
+    let name = label("azreview-open-folder");
+    with_tip(key(QUIET, name.clone(), data.clone(), crate::on_open_folder), &name)
+        .with_id(ids::OPEN_FOLDER)
+        .with_child(Dom::create_icon("folder_open").with_css("font-size: 15px;"))
 }
 
 fn menu_bar(data: &RefAny) -> Menu {
@@ -345,6 +383,13 @@ fn menu_bar(data: &RefAny) -> Menu {
     }
     ink = ink.with_child(MenuItem::Separator);
     ink = ink.with_child(MenuItem::String(
+        StringMenuItem::create(label("azreview-undo")).with_callback(data.clone(), crate::on_menu_undo),
+    ));
+    ink = ink.with_child(MenuItem::String(
+        StringMenuItem::create(label("azreview-redo")).with_callback(data.clone(), crate::on_menu_redo),
+    ));
+    ink = ink.with_child(MenuItem::Separator);
+    ink = ink.with_child(MenuItem::String(
         StringMenuItem::create(label("azreview-cycle-nib")).with_callback(data.clone(), crate::on_cycle_tool),
     ));
     ink = ink.with_child(MenuItem::String(
@@ -354,6 +399,9 @@ fn menu_bar(data: &RefAny) -> Menu {
     items.push(MenuItem::String(ink));
 
     let mut session = StringMenuItem::create(label("azreview-menu-session"));
+    session = session.with_child(MenuItem::String(
+        StringMenuItem::create(label("azreview-open-folder")).with_callback(data.clone(), crate::on_open_folder),
+    ));
     session = session.with_child(MenuItem::String(
         StringMenuItem::create(label("azreview-save-now")).with_callback(data.clone(), crate::on_menu_save),
     ));
@@ -447,19 +495,36 @@ fn finder_row(
     }
 }
 
+/// The recording's meter: how long the clip is and the level of the last packet of voice, a level
+/// meter that tells a screen reader its name.
 fn meter(s: &AppState) -> Dom {
-    let packets = s.level_samples / METER_PACKET_SAMPLES;
-    let filled = (packets % METER_SPAN_PACKETS) as f32 / METER_SPAN_PACKETS as f32;
+    let seconds = s.level_samples / crate::CLIP_RATE as usize;
     let mut wrap = Dom::create_div()
         .with_css("display: flex; flex-direction: row; align-items: center; gap: 6px;");
     wrap.add_child(
-        Dom::create_span_with_text(format!("{packets} pkt").as_str())
+        Dom::create_span_with_text(format!("{}:{:02}", seconds / 60, seconds % 60).as_str())
             .with_css("font-size: 11px; color: system:secondary-text; font-family: monospace;"),
     );
     let mut holder = Dom::create_div().with_css("width: 160px;");
-    holder.add_child(ProgressBar::create(filled * 100.0).dom());
+    holder.add_child(
+        LevelMeter::create(s.level)
+            .with_accessibility_name(label("azreview-recording-level"))
+            .dom(),
+    );
     wrap.add_child(holder);
     wrap
+}
+
+/// The microphone, a capture widget without a picture (1 px): mounted while a clip records.
+fn microphone(data: &RefAny) -> Dom {
+    MicrophoneWidget::create(AudioConfig {
+        sample_rate: crate::CLIP_RATE,
+        channels: 1,
+    })
+    .with_on_frame(data.clone(), crate::on_audio_frame)
+    .dom()
+    .with_id(ids::MICROPHONE)
+    .with_css("width: 1px; height: 1px; overflow: hidden; flex-shrink: 0;")
 }
 
 pub const STRIP_ID: &str = ids::STRIP_NAME;
@@ -486,6 +551,8 @@ fn page_rail(s: &AppState, data: &RefAny) -> Dom {
     let rec = s.recording.is_some();
     if rec {
         rail.add_child(meter(s));
+        // The capture runs while it is mounted: its frames are the clip's samples.
+        rail.add_child(microphone(data));
     }
     let (icon, name) = if rec {
         ("fiber_manual_record", "azreview-stop-recording")
@@ -614,7 +681,10 @@ fn sheet(s: &AppState, data: &RefAny) -> Dom {
     );
     if s.file().is_none() {
         // No file open: none to review under the folder, or none picked yet.
-        let says = if s.files.is_empty() {
+        let says = if s.root.as_os_str().is_empty() {
+            // No folder at all (an app started from the Finder): nothing to look under yet.
+            AzString::from(t("azreview-no-folder"))
+        } else if s.files.is_empty() {
             AzString::from(t_args(
                 "azreview-no-files",
                 &[("folder", Arg::from(s.root.display().to_string()))],
@@ -624,7 +694,18 @@ fn sheet(s: &AppState, data: &RefAny) -> Dom {
         };
         area.add_child(
             Dom::create_p_with_text(says)
-                .with_css("margin: 0px; color: system:secondary-text; padding: 40px;"),
+                .with_css("margin: 0px; color: system:secondary-text; padding: 40px 40px 12px 40px;"),
+        );
+        // Nothing to review here (an app started from the Finder has the root of the disk as its
+        // folder): the way out is in the empty page itself.
+        area.add_child(
+            Dom::create_div().with_css("padding: 0px 40px;").with_child(
+                Button::create(label("azreview-open-folder"))
+                    .with_icon("folder_open")
+                    .with_on_click(data.clone(), crate::on_open_folder as ButtonOnClickCallbackType)
+                    .dom()
+                    .with_id(ids::OPEN_FOLDER_EMPTY),
+            ),
         );
         return area;
     }
@@ -634,6 +715,10 @@ fn sheet(s: &AppState, data: &RefAny) -> Dom {
             sheets_virtual_view,
         )
         .with_id(ids::STRIP)
+        .with_accessibility_info(AccessibilityInfo::named(
+            label("azreview-pages"),
+            AccessibilityRole::Document,
+        ))
         .with_css("flex-grow: 1; min-height: 0px; width: 100%;")
         // A wheel or a trackpad scrolling the sheets lights the number of the
         // page that comes into view.
@@ -684,8 +769,9 @@ extern "C" fn sheets_virtual_view(
 
         let mut row = Dom::create_div()
             .with_css("display: flex; flex-direction: row; align-items: flex-start;");
+        let listening = s.voice.running_note().filter(|_| s.voice.is_listening());
         for page in first..first + count {
-            row.add_child(page_sheet(&cb_app, file, page));
+            row.add_child(page_sheet(&cb_app, file, page, &s.notes, listening));
         }
         (row, first, count, total, leftmost)
     };
@@ -707,7 +793,13 @@ extern "C" fn sheets_virtual_view(
     )
 }
 
-fn page_sheet(data: &RefAny, file: &code::SourceFile, page: usize) -> Dom {
+fn page_sheet(
+    data: &RefAny,
+    file: &code::SourceFile,
+    page: usize,
+    notes: &[Note],
+    listening: Option<u64>,
+) -> Dom {
     let (first_line, lines) = file.page(page);
     let mut sheet = Dom::create_div().with_css(
         format!(
@@ -741,7 +833,7 @@ fn page_sheet(data: &RefAny, file: &code::SourceFile, page: usize) -> Dom {
     let mut col = Dom::create_div().with_css(
         format!(
             "position: relative; display: flex; flex-direction: column; width: {}px; overflow: \
-             hidden;",
+             hidden; user-select: none;",
             (PAGE_W - MARGIN_GUTTER_W - PAGE_PAD) as isize,
         )
         .as_str(),
@@ -750,6 +842,10 @@ fn page_sheet(data: &RefAny, file: &code::SourceFile, page: usize) -> Dom {
         col.add_child(code_row(first_line + i, line.as_str()));
     }
     sheet.add_child(col);
+    // The markers of the dictated notes: over the code, under the pen layer (they take no stroke).
+    for marker in column::markers(notes, page, listening) {
+        sheet.add_child(marker);
+    }
     sheet.add_child(ink_layer(data, page, Layer::Pen));
     sheet
 }
@@ -774,6 +870,14 @@ fn code_row(number: usize, line: &str) -> Dom {
     row
 }
 
+/// What the screen reader is told of a picture that only decorates: nothing.
+fn decorative() -> AccessibilityInfo {
+    AccessibilityInfo {
+        role: AccessibilityRole::Nothing,
+        ..AccessibilityInfo::create_default()
+    }
+}
+
 /// The `layer` of page `page`'s ink: an [`InkCanvas`] drawn by
 /// [`ink::render_ink`], its frame kept over a DOM rebuild. The pen layer, on
 /// top, takes the pointer for the app (`data`).
@@ -793,10 +897,16 @@ fn ink_layer(data: &RefAny, page: usize, layer: Layer) -> Dom {
         )
         .as_str(),
     );
+    // The marker's layer lies under the code and takes nothing: it only decorates the page. The pen's is
+    // the page's drawing surface, which a screen reader is told by name.
     if layer == Layer::Marker {
-        return dom;
+        return dom.with_accessibility_info(decorative());
     }
-    dom.with_callback(
+    dom.with_accessibility_info(AccessibilityInfo::named(
+        t_args("azreview-ink-surface", &[("n", Arg::from(page + 1))]),
+        AccessibilityRole::Graphic,
+    ))
+    .with_callback(
         EventFilter::Hover(HoverEventFilter::MouseDown),
         data.clone(),
         crate::on_ink_down,
@@ -817,6 +927,17 @@ fn ink_layer(data: &RefAny, page: usize, layer: Layer) -> Dom {
         EventFilter::Hover(HoverEventFilter::RightMouseUp),
         data.clone(),
         crate::on_cycle_tool_back,
+    )
+    // The pointer off the page, or the pen out of the tablet's range: no rest to time.
+    .with_callback(
+        EventFilter::Hover(HoverEventFilter::MouseLeave),
+        data.clone(),
+        voice::on_pointer_left,
+    )
+    .with_callback(
+        EventFilter::Hover(HoverEventFilter::PenLeave),
+        data.clone(),
+        voice::on_pointer_left,
     )
 }
 
@@ -1085,3 +1206,7 @@ mod tests {
         assert!(events.contains(&EventFilter::Hover(HoverEventFilter::ScrollEnd)), "{events:?}");
     }
 }
+
+#[cfg(test)]
+#[path = "ui_test.rs"]
+mod ui_test;

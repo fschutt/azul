@@ -1325,6 +1325,15 @@ path = "tests/a_vsync_tick_reaches_a_main_loop_whose_timer_overruns.rs"
 harness = false
 required-features = ["build-dll"]
 
+# The web-lift settings (`web::lift_settings`): the same cases as the unit-test module
+# `src/web/lift_settings_test.rs`, which this file includes, so they run without the lib's test
+# build (that one does not compile with `web` today: the tests of `web/loader_js.rs` name
+# pointer-lock items `web/eventloop.rs` does not have yet). Only with the `web` feature.
+[[test]]
+name = "web_lift_settings"
+path = "tests/web_lift_settings.rs"
+required-features = ["web"]
+
 # -----------------------------------------------------------------------------
 # Examples
 # -----------------------------------------------------------------------------

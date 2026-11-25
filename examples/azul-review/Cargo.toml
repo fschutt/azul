@@ -20,3 +20,13 @@ crate-type = ["rlib"]
 [[bin]]
 name = "AzReview"
 path = "src/main.rs"
+
+# What macOS shows when AzReview first asks for a permission (azul-doc's `bundle macos` writes them
+# into the Info.plist). Without the two keys the system's speech recognition refuses an app (an
+# unbundled `target/release/AzReview` has neither: dictation answers "unavailable" and says why),
+# and the voice clips' microphone is refused.
+[package.metadata.bundle]
+usage = [
+    "NSMicrophoneUsageDescription=AzReview records your voice clips and listens while you dictate a note with the pen at rest.",
+    "NSSpeechRecognitionUsageDescription=AzReview turns what you say, while the pen rests on the code, into a note.",
+]

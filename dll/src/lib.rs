@@ -299,8 +299,9 @@ pub mod e2e_web_runner;
 
 // The one reader of the process environment: `ProcessEnv`, an `azul_css::env::EnvSource`.
 // The settings of every library crate are built from it once, at the start. (It needs azul-css,
-// so it is part of the internal build with `cabi_internal`.)
-#[cfg(feature = "cabi_internal")]
+// so it is part of the internal build with `cabi_internal`, and of the web backend, whose
+// `WebLiftSettings` it feeds.)
+#[cfg(any(feature = "cabi_internal", feature = "web"))]
 pub mod env;
 
 // Target-stable home for the `extra::*` feature handles (audio, video_codec,

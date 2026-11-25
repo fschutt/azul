@@ -3981,7 +3981,7 @@ fn run_agent_in_slot_internal(
 
     let mut child = match Command::new("claude")
         .args(&cmd_args)
-        .env_remove("CLAUDECODE")
+        .env_remove(crate::settings::CLAUDECODE)
         // Pin git operations to the worktree so agents can't accidentally
         // commit to the main repo branch by cd-ing to the main repo path.
         .env("GIT_DIR", slot.path.join(".git"))
@@ -4256,7 +4256,7 @@ fn preflight_checks(config: &SpecConfig, workspace_root: &Path) -> Result<(), St
     println!("================\n");
 
     // 1. Refuse to run inside an existing Claude Code session
-    if std::env::var("CLAUDECODE").is_ok() {
+    if config.settings.inside_claude_code {
         return Err(
             "Cannot run inside a Claude Code session.\nThe executor spawns claude CLI \
              subprocesses which would conflict.\nRun this command from a regular \
@@ -4267,7 +4267,7 @@ fn preflight_checks(config: &SpecConfig, workspace_root: &Path) -> Result<(), St
     println!("  [OK] Not running inside Claude Code");
 
     // 2. Check that ANTHROPIC_API_KEY is NOT set (avoid accidental API billing)
-    if std::env::var("ANTHROPIC_API_KEY").is_ok() {
+    if config.settings.anthropic_api_key_set {
         return Err(
             "ANTHROPIC_API_KEY is set in environment.\nThis would route claude CLI through the \
              paid API instead of your Pro/Max subscription.\nUnset it first:  unset \
@@ -4346,8 +4346,8 @@ fn preflight_checks(config: &SpecConfig, workspace_root: &Path) -> Result<(), St
     {
         let mut child = Command::new("claude")
             .args(["-p", "--dangerously-skip-permissions"])
-            .env_remove("CLAUDECODE")
-            .env_remove("ANTHROPIC_API_KEY")
+            .env_remove(crate::settings::CLAUDECODE)
+            .env_remove(crate::settings::ANTHROPIC_API_KEY)
             .current_dir(workspace_root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -5083,7 +5083,7 @@ pub fn cmd_test_models(
                     "--disallowedTools",
                     "rust-analyzer-lsp",
                 ])
-                .env_remove("CLAUDECODE")
+                .env_remove(crate::settings::CLAUDECODE)
                 .env("GIT_DIR", slot_path.join(".git"))
                 .env("GIT_WORK_TREE", &slot_path)
                 .current_dir(&slot_path)
