@@ -295,7 +295,7 @@ pub struct Began {
 /// replaces the pen's layer under the stroke), what it was otherwise.
 #[must_use]
 pub fn refresh_after_move(stroke_live: bool, asked: azul::callbacks::Update) -> azul::callbacks::Update {
-    if false && stroke_live {
+    if stroke_live {
         azul::callbacks::Update::DoNothing
     } else {
         asked
@@ -306,7 +306,7 @@ impl AppState {
     /// A press at `point` of `page`: a stroke begins there. A stroke still live (its release was not
     /// heard) ends first, kept as it was.
     pub fn stroke_begin(&mut self, page: usize, point: InkPoint) -> Began {
-        let stale = None; // RED STUB
+        let stale = self.stroke_end();
         let id = self.next_stroke_id;
         self.next_stroke_id += 1;
         let semantic = self.tool.semantic_for(self.active);
@@ -341,9 +341,9 @@ impl AppState {
         if self.live.is_none() {
             return Moved::Nothing;
         }
-        if false && !pressed {
+        if !pressed {
             return self.stroke_end().map_or(Moved::Nothing, Moved::Ended);
-        } // RED STUB
+        }
         let Some(live) = self.live.as_mut() else {
             return Moved::Nothing;
         };
