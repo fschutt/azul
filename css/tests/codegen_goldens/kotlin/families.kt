@@ -20,11 +20,21 @@ fun styleText(): AzCssPropertyWithConditionsVec.ByValue {
                 )
             )
         ),
-        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontWeight(StyleFontWeight.W600.value)),
-        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontStyle(StyleFontStyle.Italic.value)),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontWeight(AzulNativeCss.AzStyleFontWeight_number(AzulNativeCss.AzFloatValue_create(600.0f)))),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontStyle(AzulNativeCss.AzStyleFontStyle_italic())),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontVariantNumeric(AzStyleFontVariantNumeric.ByValue().apply { lining_nums = 0.toByte(); oldstyle_nums = 0.toByte(); proportional_nums = 0.toByte(); tabular_nums = 1.toByte(); diagonal_fractions = 0.toByte(); stacked_fractions = 0.toByte(); ordinal = 0.toByte(); slashed_zero = 0.toByte() })),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontVariantCaps(AzStyleFontVariantCapsValue.ByValue().apply { Exact.tag = AzStyleFontVariantCapsValue_Tag.Exact.value.toByte(); Exact.payload = StyleFontVariantCaps.SmallCaps.value; setType("Exact") })),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontFeatureSettings(AzStyleFontFeatureSettingsValue.ByValue().apply { Exact.tag = AzStyleFontFeatureSettingsValue_Tag.Exact.value.toByte(); Exact.payload = AzStyleFontFeatureSettings.ByValue().apply { inner = azStr("\"liga\" 0, \"tnum\"") }; setType("Exact") })),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontStretch(AzStyleFontStretchValue.ByValue().apply { Exact.tag = AzStyleFontStretchValue_Tag.Exact.value.toByte(); Exact.payload = AzStyleFontStretch.ByValue().apply { inner = AzPercentageValue.ByValue().apply { number = AzulNativeCss.AzFloatValue_create(87.5f) } }; setType("Exact") })),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontVariationSettings(AzStyleFontVariationSettingsValue.ByValue().apply { Exact.tag = AzStyleFontVariationSettingsValue_Tag.Exact.value.toByte(); Exact.payload = AzStyleFontVariationSettings.ByValue().apply { inner = azStr("\"wght\" 650, \"wdth\" 87.5") }; setType("Exact") })),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontOpticalSizing(AzStyleFontOpticalSizingValue.ByValue().apply { Exact.tag = AzStyleFontOpticalSizingValue_Tag.Exact.value.toByte(); Exact.payload = StyleFontOpticalSizing.None.value; setType("Exact") })),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontKerning(AzStyleFontKerningValue.ByValue().apply { Exact.tag = AzStyleFontKerningValue_Tag.Exact.value.toByte(); Exact.payload = StyleFontKerning.None.value; setType("Exact") })),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontVariantLigatures(AzStyleFontVariantLigaturesValue.ByValue().apply { Exact.tag = AzStyleFontVariantLigaturesValue_Tag.Exact.value.toByte(); Exact.payload = AzStyleFontVariantLigatures.ByValue().apply { common = StyleFontLigatureChoice.Off.value; discretionary = StyleFontLigatureChoice.On.value; historical = StyleFontLigatureChoice.Unset.value; contextual = StyleFontLigatureChoice.Unset.value }; setType("Exact") })),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontVariantEastAsian(AzStyleFontVariantEastAsianValue.ByValue().apply { Exact.tag = AzStyleFontVariantEastAsianValue_Tag.Exact.value.toByte(); Exact.payload = AzStyleFontVariantEastAsian.ByValue().apply { jis78 = 1.toByte(); jis83 = 0.toByte(); jis90 = 0.toByte(); jis04 = 0.toByte(); simplified = 0.toByte(); traditional = 0.toByte(); full_width = 1.toByte(); proportional_width = 0.toByte(); ruby = 1.toByte() }; setType("Exact") })),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontSynthesisWeight(AzStyleFontSynthesisValue.ByValue().apply { Exact.tag = AzStyleFontSynthesisValue_Tag.Exact.value.toByte(); Exact.payload = StyleFontSynthesis.None.value; setType("Exact") })),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontSynthesisStyle(AzStyleFontSynthesisValue.ByValue().apply { Exact.tag = AzStyleFontSynthesisValue_Tag.Exact.value.toByte(); Exact.payload = StyleFontSynthesis.None.value; setType("Exact") })),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontSynthesisSmallCaps(AzStyleFontSynthesisValue.ByValue().apply { Exact.tag = AzStyleFontSynthesisValue_Tag.Exact.value.toByte(); Exact.payload = StyleFontSynthesis.Auto.value; setType("Exact") })),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontSynthesisPosition(AzStyleFontSynthesisValue.ByValue().apply { Exact.tag = AzStyleFontSynthesisValue_Tag.Exact.value.toByte(); Exact.payload = StyleFontSynthesis.None.value; setType("Exact") })),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_textAlign(StyleTextAlign.Center.value)),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_textJustify(LayoutTextJustify.InterWord.value)),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_verticalAlign(AzulNativeCss.AzStyleVerticalAlign_middle())),
@@ -66,15 +76,48 @@ fun styleText(): AzCssPropertyWithConditionsVec.ByValue {
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_selectionBackgroundColor(AzSelectionBackgroundColor.ByValue().apply { inner = AzColorU.ByValue().apply { r = 51.toByte(); g = 153.toByte(); b = 255.toByte(); a = 255.toByte() } })),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_selectionColor(AzSelectionColor.ByValue().apply { inner = AzColorU.ByValue().apply { r = 255.toByte(); g = 255.toByte(); b = 255.toByte(); a = 255.toByte() } })),
         AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_selectionRadius(AzSelectionRadiusValue.ByValue().apply { Exact.tag = AzSelectionRadiusValue_Tag.Exact.value.toByte(); Exact.payload = AzSelectionRadius.ByValue().apply { inner = AzulNativeCss.AzPixelValue_px(3.0f) }; setType("Exact") })),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_font(azVec(AzulNativeVec::AzStyleFontFamilyVec_copyFromPtr, AzulNativeCss.AzStyleFontFamily_system(azStr("caption")))))
+    )
+}
+
+// CSS: .shorthands
+fun styleShorthands(): AzCssPropertyWithConditionsVec.ByValue {
+    return azVec(
+        AzulNativeVec::AzCssPropertyWithConditionsVec_copyFromPtr,
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontStyle(AzulNativeCss.AzStyleFontStyle_italic())),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontVariantCaps(AzStyleFontVariantCapsValue.ByValue().apply { Exact.tag = AzStyleFontVariantCapsValue_Tag.Exact.value.toByte(); Exact.payload = StyleFontVariantCaps.SmallCaps.value; setType("Exact") })),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontWeight(AzulNativeCss.AzStyleFontWeight_number(AzulNativeCss.AzFloatValue_create(350.0f)))),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontStretch(AzStyleFontStretchValue.ByValue().apply { Exact.tag = AzStyleFontStretchValue_Tag.Exact.value.toByte(); Exact.payload = AzStyleFontStretch.ByValue().apply { inner = AzPercentageValue.ByValue().apply { number = AzulNativeCss.AzFloatValue_create(75.0f) } }; setType("Exact") })),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontSize(AzStyleFontSize.ByValue().apply { inner = AzulNativeCss.AzPixelValue_px(14.0f) })),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_lineHeight(AzulNativeCss.AzStyleLineHeight_number(AzulNativeCss.AzFloatValue_create(1.5f)))),
         AzulNativeCss.AzCssPropertyWithConditions_simple(
-            AzulNativeCss.AzCssProperty_font(
+            AzulNativeCss.AzCssProperty_fontFamily(
                 azVec(
                     AzulNativeVec::AzStyleFontFamilyVec_copyFromPtr,
                     AzulNativeCss.AzStyleFontFamily_system(azStr("Georgia")),
                     AzulNativeCss.AzStyleFontFamily_system(azStr("serif"))
                 )
             )
-        )
+        ),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_initial(CssPropertyType.FontVariantNumeric.value)),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_initial(CssPropertyType.FontVariantLigatures.value)),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_initial(CssPropertyType.FontVariantEastAsian.value)),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_initial(CssPropertyType.FontKerning.value)),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_initial(CssPropertyType.FontOpticalSizing.value)),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_initial(CssPropertyType.FontVariationSettings.value)),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_initial(CssPropertyType.FontFeatureSettings.value)),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_initial(CssPropertyType.FontSynthesisWeight.value)),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_initial(CssPropertyType.FontSynthesisStyle.value)),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_initial(CssPropertyType.FontSynthesisSmallCaps.value)),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_initial(CssPropertyType.FontSynthesisPosition.value)),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontVariantNumeric(AzStyleFontVariantNumeric.ByValue().apply { lining_nums = 0.toByte(); oldstyle_nums = 1.toByte(); proportional_nums = 0.toByte(); tabular_nums = 0.toByte(); diagonal_fractions = 0.toByte(); stacked_fractions = 0.toByte(); ordinal = 0.toByte(); slashed_zero = 0.toByte() })),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontVariantCaps(AzStyleFontVariantCapsValue.ByValue().apply { Exact.tag = AzStyleFontVariantCapsValue_Tag.Exact.value.toByte(); Exact.payload = StyleFontVariantCaps.Normal.value; setType("Exact") })),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontVariantLigatures(AzStyleFontVariantLigaturesValue.ByValue().apply { Exact.tag = AzStyleFontVariantLigaturesValue_Tag.Exact.value.toByte(); Exact.payload = AzStyleFontVariantLigatures.ByValue().apply { common = StyleFontLigatureChoice.Unset.value; discretionary = StyleFontLigatureChoice.Unset.value; historical = StyleFontLigatureChoice.Unset.value; contextual = StyleFontLigatureChoice.Unset.value }; setType("Exact") })),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontVariantEastAsian(AzStyleFontVariantEastAsianValue.ByValue().apply { Exact.tag = AzStyleFontVariantEastAsianValue_Tag.Exact.value.toByte(); Exact.payload = AzStyleFontVariantEastAsian.ByValue().apply { jis78 = 1.toByte(); jis83 = 0.toByte(); jis90 = 0.toByte(); jis04 = 0.toByte(); simplified = 0.toByte(); traditional = 0.toByte(); full_width = 0.toByte(); proportional_width = 0.toByte(); ruby = 0.toByte() }; setType("Exact") })),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontSynthesisWeight(AzStyleFontSynthesisValue.ByValue().apply { Exact.tag = AzStyleFontSynthesisValue_Tag.Exact.value.toByte(); Exact.payload = StyleFontSynthesis.Auto.value; setType("Exact") })),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontSynthesisStyle(AzStyleFontSynthesisValue.ByValue().apply { Exact.tag = AzStyleFontSynthesisValue_Tag.Exact.value.toByte(); Exact.payload = StyleFontSynthesis.Auto.value; setType("Exact") })),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontSynthesisSmallCaps(AzStyleFontSynthesisValue.ByValue().apply { Exact.tag = AzStyleFontSynthesisValue_Tag.Exact.value.toByte(); Exact.payload = StyleFontSynthesis.None.value; setType("Exact") })),
+        AzulNativeCss.AzCssPropertyWithConditions_simple(AzulNativeCss.AzCssProperty_fontSynthesisPosition(AzStyleFontSynthesisValue.ByValue().apply { Exact.tag = AzStyleFontSynthesisValue_Tag.Exact.value.toByte(); Exact.payload = StyleFontSynthesis.None.value; setType("Exact") }))
     )
 }
 

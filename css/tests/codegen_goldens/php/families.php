@@ -65,11 +65,21 @@ function style_text()
                     )
                 )
             ),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontWeight($L->AzStyleFontWeight_W600)),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontStyle($L->AzStyleFontStyle_Italic)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontWeight($L->AzStyleFontWeight_number($L->AzFloatValue_create(600.0)))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontStyle($L->AzStyleFontStyle_italic())),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontVariantNumeric(azul_struct('AzStyleFontVariantNumeric', ['lining_nums' => false, 'oldstyle_nums' => false, 'proportional_nums' => false, 'tabular_nums' => true, 'diagonal_fractions' => false, 'stacked_fractions' => false, 'ordinal' => false, 'slashed_zero' => false]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontVariantCaps(azul_union('AzStyleFontVariantCapsValue', 'Exact', 6, $L->AzStyleFontVariantCaps_SmallCaps))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontFeatureSettings(azul_union('AzStyleFontFeatureSettingsValue', 'Exact', 6, azul_struct('AzStyleFontFeatureSettings', ['inner' => azul_str('"liga" 0, "tnum"')])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontStretch(azul_union('AzStyleFontStretchValue', 'Exact', 6, azul_struct('AzStyleFontStretch', ['inner' => azul_struct('AzPercentageValue', ['number' => $L->AzFloatValue_create(87.5)])])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontVariationSettings(azul_union('AzStyleFontVariationSettingsValue', 'Exact', 6, azul_struct('AzStyleFontVariationSettings', ['inner' => azul_str('"wght" 650, "wdth" 87.5')])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontOpticalSizing(azul_union('AzStyleFontOpticalSizingValue', 'Exact', 6, $L->AzStyleFontOpticalSizing_None))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontKerning(azul_union('AzStyleFontKerningValue', 'Exact', 6, $L->AzStyleFontKerning_None))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontVariantLigatures(azul_union('AzStyleFontVariantLigaturesValue', 'Exact', 6, azul_struct('AzStyleFontVariantLigatures', ['common' => $L->AzStyleFontLigatureChoice_Off, 'discretionary' => $L->AzStyleFontLigatureChoice_On, 'historical' => $L->AzStyleFontLigatureChoice_Unset, 'contextual' => $L->AzStyleFontLigatureChoice_Unset])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontVariantEastAsian(azul_union('AzStyleFontVariantEastAsianValue', 'Exact', 6, azul_struct('AzStyleFontVariantEastAsian', ['jis78' => true, 'jis83' => false, 'jis90' => false, 'jis04' => false, 'simplified' => false, 'traditional' => false, 'full_width' => true, 'proportional_width' => false, 'ruby' => true])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontSynthesisWeight(azul_union('AzStyleFontSynthesisValue', 'Exact', 6, $L->AzStyleFontSynthesis_None))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontSynthesisStyle(azul_union('AzStyleFontSynthesisValue', 'Exact', 6, $L->AzStyleFontSynthesis_None))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontSynthesisSmallCaps(azul_union('AzStyleFontSynthesisValue', 'Exact', 6, $L->AzStyleFontSynthesis_Auto))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontSynthesisPosition(azul_union('AzStyleFontSynthesisValue', 'Exact', 6, $L->AzStyleFontSynthesis_None))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textAlign($L->AzStyleTextAlign_Center)),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textJustify($L->AzLayoutTextJustify_InterWord)),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_verticalAlign($L->AzStyleVerticalAlign_middle())),
@@ -111,8 +121,27 @@ function style_text()
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_selectionBackgroundColor(azul_struct('AzSelectionBackgroundColor', ['inner' => azul_struct('AzColorU', ['r' => 51, 'g' => 153, 'b' => 255, 'a' => 255])]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_selectionColor(azul_struct('AzSelectionColor', ['inner' => azul_struct('AzColorU', ['r' => 255, 'g' => 255, 'b' => 255, 'a' => 255])]))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_selectionRadius(azul_union('AzSelectionRadiusValue', 'Exact', 6, azul_struct('AzSelectionRadius', ['inner' => $L->AzPixelValue_px(3.0)])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_font(azul_vec('AzStyleFontFamilyVec_copyFromPtr', 'AzStyleFontFamily', [$L->AzStyleFontFamily_system(azul_str('caption'))]))),
+        ]
+    );
+}
+
+// CSS: .shorthands
+function style_shorthands()
+{
+    $L = \Azul\Azul::lib();
+    return azul_vec(
+        'AzCssPropertyWithConditionsVec_copyFromPtr',
+        'AzCssPropertyWithConditions',
+        [
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontStyle($L->AzStyleFontStyle_italic())),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontVariantCaps(azul_union('AzStyleFontVariantCapsValue', 'Exact', 6, $L->AzStyleFontVariantCaps_SmallCaps))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontWeight($L->AzStyleFontWeight_number($L->AzFloatValue_create(350.0)))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontStretch(azul_union('AzStyleFontStretchValue', 'Exact', 6, azul_struct('AzStyleFontStretch', ['inner' => azul_struct('AzPercentageValue', ['number' => $L->AzFloatValue_create(75.0)])])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontSize(azul_struct('AzStyleFontSize', ['inner' => $L->AzPixelValue_px(14.0)]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_lineHeight($L->AzStyleLineHeight_number($L->AzFloatValue_create(1.5)))),
             $L->AzCssPropertyWithConditions_simple(
-                $L->AzCssProperty_font(
+                $L->AzCssProperty_fontFamily(
                     azul_vec(
                         'AzStyleFontFamilyVec_copyFromPtr',
                         'AzStyleFontFamily',
@@ -123,6 +152,25 @@ function style_text()
                     )
                 )
             ),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_initial($L->AzCssPropertyType_FontVariantNumeric)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_initial($L->AzCssPropertyType_FontVariantLigatures)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_initial($L->AzCssPropertyType_FontVariantEastAsian)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_initial($L->AzCssPropertyType_FontKerning)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_initial($L->AzCssPropertyType_FontOpticalSizing)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_initial($L->AzCssPropertyType_FontVariationSettings)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_initial($L->AzCssPropertyType_FontFeatureSettings)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_initial($L->AzCssPropertyType_FontSynthesisWeight)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_initial($L->AzCssPropertyType_FontSynthesisStyle)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_initial($L->AzCssPropertyType_FontSynthesisSmallCaps)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_initial($L->AzCssPropertyType_FontSynthesisPosition)),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontVariantNumeric(azul_struct('AzStyleFontVariantNumeric', ['lining_nums' => false, 'oldstyle_nums' => true, 'proportional_nums' => false, 'tabular_nums' => false, 'diagonal_fractions' => false, 'stacked_fractions' => false, 'ordinal' => false, 'slashed_zero' => false]))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontVariantCaps(azul_union('AzStyleFontVariantCapsValue', 'Exact', 6, $L->AzStyleFontVariantCaps_Normal))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontVariantLigatures(azul_union('AzStyleFontVariantLigaturesValue', 'Exact', 6, azul_struct('AzStyleFontVariantLigatures', ['common' => $L->AzStyleFontLigatureChoice_Unset, 'discretionary' => $L->AzStyleFontLigatureChoice_Unset, 'historical' => $L->AzStyleFontLigatureChoice_Unset, 'contextual' => $L->AzStyleFontLigatureChoice_Unset])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontVariantEastAsian(azul_union('AzStyleFontVariantEastAsianValue', 'Exact', 6, azul_struct('AzStyleFontVariantEastAsian', ['jis78' => true, 'jis83' => false, 'jis90' => false, 'jis04' => false, 'simplified' => false, 'traditional' => false, 'full_width' => false, 'proportional_width' => false, 'ruby' => false])))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontSynthesisWeight(azul_union('AzStyleFontSynthesisValue', 'Exact', 6, $L->AzStyleFontSynthesis_Auto))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontSynthesisStyle(azul_union('AzStyleFontSynthesisValue', 'Exact', 6, $L->AzStyleFontSynthesis_Auto))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontSynthesisSmallCaps(azul_union('AzStyleFontSynthesisValue', 'Exact', 6, $L->AzStyleFontSynthesis_None))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontSynthesisPosition(azul_union('AzStyleFontSynthesisValue', 'Exact', 6, $L->AzStyleFontSynthesis_None))),
         ]
     );
 }

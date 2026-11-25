@@ -95,7 +95,7 @@ pub fn stylesheet() -> Css {
                         CssPathSelector::Class(azul::str::String::from("title")),
                     ]),
                 },
-                declarations: CssDeclarationVec::from(vec![CssDeclaration::Static(CssProperty::font_weight(StyleFontWeight::Bold))]),
+                declarations: CssDeclarationVec::from(vec![CssDeclaration::Static(CssProperty::font_weight(StyleFontWeight::Number(FloatValue::create(700.0))))]),
                 conditions: DynamicSelectorVec::create(),
                 priority: 20,
             },

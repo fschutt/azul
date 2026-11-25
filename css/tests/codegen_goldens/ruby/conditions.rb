@@ -101,7 +101,7 @@ module AzulStyles
     AzulCodegen.vec(
       :az_css_property_with_conditions_vec_copy_from_ptr,
       N::AzCssPropertyWithConditions,
-      N.az_css_property_with_conditions_simple(N.az_css_property_font_weight(N::AzStyleFontWeight::Bold))
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_weight(N.az_style_font_weight_number(N.az_float_value_create(700.0))))
     )
   end
 
@@ -110,7 +110,7 @@ module AzulStyles
     AzulCodegen.vec(
       :az_css_property_with_conditions_vec_copy_from_ptr,
       N::AzCssPropertyWithConditions,
-      N.az_css_property_with_conditions_simple(N.az_css_property_font_style(N::AzStyleFontStyle::Italic))
+      N.az_css_property_with_conditions_simple(N.az_css_property_font_style(N.az_style_font_style_italic()))
     )
   end
 end

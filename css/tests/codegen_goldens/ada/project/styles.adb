@@ -11,7 +11,7 @@ package body Styles is
       t1 (3) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Flex_Grow (Az_LayoutFlexGrow'(Inner => Az_FloatValue_Create (1.0))));
       t1 (4) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_Inherit (Az_CssPropertyType'(MinWidth)));
       t1 (5) := Az_CssPropertyWithConditions_Simple (Az_CssProperty_White_Space (Az_StyleWhiteSpaceValue'(Tag => Exact, Payload_Exact => Az_StyleWhiteSpace'(Nowrap))));
-      t1 (6) := Az_CssPropertyWithConditions_On_Hover (Az_CssProperty_Font_Weight (Az_StyleFontWeight'(Bold)));
+      t1 (6) := Az_CssPropertyWithConditions_On_Hover (Az_CssProperty_Font_Weight (Az_StyleFontWeight_Number (Az_FloatValue_Create (700.0))));
       return Az_CssPropertyWithConditionsVec_Copy_From_Ptr (t1 (0)'Address, 7);
    end Style_Btn;
 

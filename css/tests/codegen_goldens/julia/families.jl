@@ -44,11 +44,21 @@ function style_text()
                 )
             )
         ),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontWeight(Azul.AzStyleFontWeight_W600)),
-        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontStyle(Azul.AzStyleFontStyle_Italic)),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontWeight(Azul.AzStyleFontWeight_number(Azul.AzFloatValue_create(600.0f0)))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontStyle(Azul.AzStyleFontStyle_italic())),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontVariantNumeric(Azul.AzStyleFontVariantNumeric(false, false, false, true, false, false, false, false))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontVariantCaps(az_union(Azul.AzStyleFontVariantCapsValue, Azul.AzStyleFontVariantCapsValueVariant_Exact, UInt8(6), Azul.AzStyleFontVariantCaps_SmallCaps))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontFeatureSettings(az_union(Azul.AzStyleFontFeatureSettingsValue, Azul.AzStyleFontFeatureSettingsValueVariant_Exact, UInt8(6), Azul.AzStyleFontFeatureSettings(Azul.az_string("\"liga\" 0, \"tnum\""))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontStretch(az_union(Azul.AzStyleFontStretchValue, Azul.AzStyleFontStretchValueVariant_Exact, UInt8(6), Azul.AzStyleFontStretch(Azul.AzPercentageValue(Azul.AzFloatValue_create(87.5f0)))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontVariationSettings(az_union(Azul.AzStyleFontVariationSettingsValue, Azul.AzStyleFontVariationSettingsValueVariant_Exact, UInt8(6), Azul.AzStyleFontVariationSettings(Azul.az_string("\"wght\" 650, \"wdth\" 87.5"))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontOpticalSizing(az_union(Azul.AzStyleFontOpticalSizingValue, Azul.AzStyleFontOpticalSizingValueVariant_Exact, UInt8(6), Azul.AzStyleFontOpticalSizing_None))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontKerning(az_union(Azul.AzStyleFontKerningValue, Azul.AzStyleFontKerningValueVariant_Exact, UInt8(6), Azul.AzStyleFontKerning_None))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontVariantLigatures(az_union(Azul.AzStyleFontVariantLigaturesValue, Azul.AzStyleFontVariantLigaturesValueVariant_Exact, UInt8(6), Azul.AzStyleFontVariantLigatures(Azul.AzStyleFontLigatureChoice_Off, Azul.AzStyleFontLigatureChoice_On, Azul.AzStyleFontLigatureChoice_Unset, Azul.AzStyleFontLigatureChoice_Unset)))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontVariantEastAsian(az_union(Azul.AzStyleFontVariantEastAsianValue, Azul.AzStyleFontVariantEastAsianValueVariant_Exact, UInt8(6), Azul.AzStyleFontVariantEastAsian(true, false, false, false, false, false, true, false, true)))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontSynthesisWeight(az_union(Azul.AzStyleFontSynthesisValue, Azul.AzStyleFontSynthesisValueVariant_Exact, UInt8(6), Azul.AzStyleFontSynthesis_None))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontSynthesisStyle(az_union(Azul.AzStyleFontSynthesisValue, Azul.AzStyleFontSynthesisValueVariant_Exact, UInt8(6), Azul.AzStyleFontSynthesis_None))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontSynthesisSmallCaps(az_union(Azul.AzStyleFontSynthesisValue, Azul.AzStyleFontSynthesisValueVariant_Exact, UInt8(6), Azul.AzStyleFontSynthesis_Auto))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontSynthesisPosition(az_union(Azul.AzStyleFontSynthesisValue, Azul.AzStyleFontSynthesisValueVariant_Exact, UInt8(6), Azul.AzStyleFontSynthesis_None))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_textAlign(Azul.AzStyleTextAlign_Center)),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_textJustify(Azul.AzLayoutTextJustify_InterWord)),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_verticalAlign(Azul.AzStyleVerticalAlign_middle())),
@@ -90,8 +100,23 @@ function style_text()
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_selectionBackgroundColor(Azul.AzSelectionBackgroundColor(Azul.AzColorU(51, 153, 255, 255)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_selectionColor(Azul.AzSelectionColor(Azul.AzColorU(255, 255, 255, 255)))),
         Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_selectionRadius(az_union(Azul.AzSelectionRadiusValue, Azul.AzSelectionRadiusValueVariant_Exact, UInt8(6), Azul.AzSelectionRadius(Azul.AzPixelValue_px(3.0f0))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_font(az_vec(Azul.AzStyleFontFamilyVec_copyFromPtr, Azul.AzStyleFontFamily, Azul.AzStyleFontFamily_system(Azul.az_string("caption")))))
+    )
+end
+
+# CSS: .shorthands
+function style_shorthands()
+    az_vec(
+        Azul.AzCssPropertyWithConditionsVec_copyFromPtr,
+        Azul.AzCssPropertyWithConditions,
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontStyle(Azul.AzStyleFontStyle_italic())),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontVariantCaps(az_union(Azul.AzStyleFontVariantCapsValue, Azul.AzStyleFontVariantCapsValueVariant_Exact, UInt8(6), Azul.AzStyleFontVariantCaps_SmallCaps))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontWeight(Azul.AzStyleFontWeight_number(Azul.AzFloatValue_create(350.0f0)))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontStretch(az_union(Azul.AzStyleFontStretchValue, Azul.AzStyleFontStretchValueVariant_Exact, UInt8(6), Azul.AzStyleFontStretch(Azul.AzPercentageValue(Azul.AzFloatValue_create(75.0f0)))))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontSize(Azul.AzStyleFontSize(Azul.AzPixelValue_px(14.0f0)))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_lineHeight(Azul.AzStyleLineHeight_number(Azul.AzFloatValue_create(1.5f0)))),
         Azul.AzCssPropertyWithConditions_simple(
-            Azul.AzCssProperty_font(
+            Azul.AzCssProperty_fontFamily(
                 az_vec(
                     Azul.AzStyleFontFamilyVec_copyFromPtr,
                     Azul.AzStyleFontFamily,
@@ -99,7 +124,26 @@ function style_text()
                     Azul.AzStyleFontFamily_system(Azul.az_string("serif"))
                 )
             )
-        )
+        ),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_initial(Azul.AzCssPropertyType_FontVariantNumeric)),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_initial(Azul.AzCssPropertyType_FontVariantLigatures)),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_initial(Azul.AzCssPropertyType_FontVariantEastAsian)),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_initial(Azul.AzCssPropertyType_FontKerning)),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_initial(Azul.AzCssPropertyType_FontOpticalSizing)),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_initial(Azul.AzCssPropertyType_FontVariationSettings)),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_initial(Azul.AzCssPropertyType_FontFeatureSettings)),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_initial(Azul.AzCssPropertyType_FontSynthesisWeight)),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_initial(Azul.AzCssPropertyType_FontSynthesisStyle)),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_initial(Azul.AzCssPropertyType_FontSynthesisSmallCaps)),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_initial(Azul.AzCssPropertyType_FontSynthesisPosition)),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontVariantNumeric(Azul.AzStyleFontVariantNumeric(false, true, false, false, false, false, false, false))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontVariantCaps(az_union(Azul.AzStyleFontVariantCapsValue, Azul.AzStyleFontVariantCapsValueVariant_Exact, UInt8(6), Azul.AzStyleFontVariantCaps_Normal))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontVariantLigatures(az_union(Azul.AzStyleFontVariantLigaturesValue, Azul.AzStyleFontVariantLigaturesValueVariant_Exact, UInt8(6), Azul.AzStyleFontVariantLigatures(Azul.AzStyleFontLigatureChoice_Unset, Azul.AzStyleFontLigatureChoice_Unset, Azul.AzStyleFontLigatureChoice_Unset, Azul.AzStyleFontLigatureChoice_Unset)))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontVariantEastAsian(az_union(Azul.AzStyleFontVariantEastAsianValue, Azul.AzStyleFontVariantEastAsianValueVariant_Exact, UInt8(6), Azul.AzStyleFontVariantEastAsian(true, false, false, false, false, false, false, false, false)))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontSynthesisWeight(az_union(Azul.AzStyleFontSynthesisValue, Azul.AzStyleFontSynthesisValueVariant_Exact, UInt8(6), Azul.AzStyleFontSynthesis_Auto))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontSynthesisStyle(az_union(Azul.AzStyleFontSynthesisValue, Azul.AzStyleFontSynthesisValueVariant_Exact, UInt8(6), Azul.AzStyleFontSynthesis_Auto))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontSynthesisSmallCaps(az_union(Azul.AzStyleFontSynthesisValue, Azul.AzStyleFontSynthesisValueVariant_Exact, UInt8(6), Azul.AzStyleFontSynthesis_None))),
+        Azul.AzCssPropertyWithConditions_simple(Azul.AzCssProperty_fontSynthesisPosition(az_union(Azul.AzStyleFontSynthesisValue, Azul.AzStyleFontSynthesisValueVariant_Exact, UInt8(6), Azul.AzStyleFontSynthesis_None)))
     )
 end
 

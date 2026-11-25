@@ -48,11 +48,11 @@ proc styleListLiNthChild2*(): AzCssPropertyWithConditionsVec =
 # CSS: #main>.title
 proc styleMainTitle*(): AzCssPropertyWithConditionsVec =
   azVec(AzCssPropertyWithConditionsVec_copyFromPtr, [
-    AzCssPropertyWithConditions_simple(AzCssProperty_fontWeight(AzStyleFontWeight.Bold)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontWeight(AzStyleFontWeight_number(AzFloatValue_create(700.0)))),
   ])
 
 # CSS: div .note:first
 proc styleDivNoteFirst*(): AzCssPropertyWithConditionsVec =
   azVec(AzCssPropertyWithConditionsVec_copyFromPtr, [
-    AzCssPropertyWithConditions_simple(AzCssProperty_fontStyle(AzStyleFontStyle.Italic)),
+    AzCssPropertyWithConditions_simple(AzCssProperty_fontStyle(AzStyleFontStyle_italic())),
   ])

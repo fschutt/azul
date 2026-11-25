@@ -145,7 +145,7 @@ let stylesheet () =
                 ])) (Unsigned.Size_t.of_int 3)))
               ]
             ));
-            (fun v -> Ctypes.setf v az_css_rule_block_field_declarations (azCssDeclarationVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_css_declaration [(azCssDeclaration_static (azCssProperty_fontWeight (StyleFontWeight.to_int StyleFontWeight.Bold)))])) (Unsigned.Size_t.of_int 1)));
+            (fun v -> Ctypes.setf v az_css_rule_block_field_declarations (azCssDeclarationVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_css_declaration [(azCssDeclaration_static (azCssProperty_fontWeight (azStyleFontWeight_number (azFloatValue_create 700.0))))])) (Unsigned.Size_t.of_int 1)));
             (fun v -> Ctypes.setf v az_css_rule_block_field_conditions (azDynamicSelectorVec_create ()));
             (fun v -> Ctypes.setf v az_css_rule_block_field_priority (Unsigned.UInt8.of_int 20))
           ]
@@ -164,7 +164,7 @@ let stylesheet () =
                 ])) (Unsigned.Size_t.of_int 4)))
               ]
             ));
-            (fun v -> Ctypes.setf v az_css_rule_block_field_declarations (azCssDeclarationVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_css_declaration [(azCssDeclaration_static (azCssProperty_fontStyle (StyleFontStyle.to_int StyleFontStyle.Italic)))])) (Unsigned.Size_t.of_int 1)));
+            (fun v -> Ctypes.setf v az_css_rule_block_field_declarations (azCssDeclarationVec_copyFromPtr (Ctypes.CArray.start (Ctypes.CArray.of_list az_css_declaration [(azCssDeclaration_static (azCssProperty_fontStyle (azStyleFontStyle_italic ())))])) (Unsigned.Size_t.of_int 1)));
             (fun v -> Ctypes.setf v az_css_rule_block_field_conditions (azDynamicSelectorVec_create ()));
             (fun v -> Ctypes.setf v az_css_rule_block_field_priority (Unsigned.UInt8.of_int 20))
           ]

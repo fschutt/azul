@@ -5,6 +5,9 @@ Option Explicit
 ' CSS: .text
 ' StyleText: not expressible with the VB6 bindings: a VB6 Declare cannot pass or return a user-defined type by value, so the bindings skip every CSS constructor (AzCssProperty_width, ...) and do not declare their out-pointer twins (AzCssProperty_widthByref, ...)
 
+' CSS: .shorthands
+' StyleShorthands: not expressible with the VB6 bindings: a VB6 Declare cannot pass or return a user-defined type by value, so the bindings skip every CSS constructor (AzCssProperty_width, ...) and do not declare their out-pointer twins (AzCssProperty_widthByref, ...)
+
 ' CSS: .box
 ' StyleBox: not expressible with the VB6 bindings: a VB6 Declare cannot pass or return a user-defined type by value, so the bindings skip every CSS constructor (AzCssProperty_width, ...) and do not declare their out-pointer twins (AzCssProperty_widthByref, ...)
 

@@ -8,6 +8,13 @@ End Function
 ' CSS: .text
 ' dropped a value these bindings cannot build: azul.bi declares no type for `StyleFontVariantCapsValue` (or for the CssPropertyValue<T> in its payload)
 ' dropped a value these bindings cannot build: azul.bi declares no type for `StyleFontFeatureSettingsValue` (or for the CssPropertyValue<T> in its payload)
+' dropped a value these bindings cannot build: azul.bi declares no type for `StyleFontStretchValue` (or for the CssPropertyValue<T> in its payload)
+' dropped a value these bindings cannot build: azul.bi declares no type for `StyleFontVariationSettingsValue` (or for the CssPropertyValue<T> in its payload)
+' dropped a value these bindings cannot build: azul.bi declares no type for `StyleFontOpticalSizingValue` (or for the CssPropertyValue<T> in its payload)
+' dropped a value these bindings cannot build: azul.bi declares no type for `StyleFontKerningValue` (or for the CssPropertyValue<T> in its payload)
+' dropped a value these bindings cannot build: azul.bi declares no type for `StyleFontVariantLigaturesValue` (or for the CssPropertyValue<T> in its payload)
+' dropped a value these bindings cannot build: azul.bi declares no type for `StyleFontVariantEastAsianValue` (or for the CssPropertyValue<T> in its payload)
+' dropped a value these bindings cannot build: azul.bi declares no type for `StyleFontSynthesisValue` (or for the CssPropertyValue<T> in its payload)
 ' dropped a value these bindings cannot build: azul.bi declares no type for `StyleInitialLetterValue` (or for the CssPropertyValue<T> in its payload)
 ' dropped a value these bindings cannot build: azul.bi declares no type for `StyleLineClampValue` (or for the CssPropertyValue<T> in its payload)
 ' dropped a value these bindings cannot build: azul.bi declares no type for `StyleHangingPunctuationValue` (or for the CssPropertyValue<T> in its payload)
@@ -37,17 +44,16 @@ End Function
 ' dropped a value these bindings cannot build: azul.bi declares no type for `SelectionRadiusValue` (or for the CssPropertyValue<T> in its payload)
 Function StyleText() As AzCssPropertyWithConditionsVec
     Dim t1(0 To 1) As AzStyleFontFamily
-    Dim t2(0 To 1) As AzStyleFontFamily
+    Dim t2(0 To 0) As AzStyleFontFamily
     Dim t3(0 To 20) As AzCssPropertyWithConditions
     t1(0) = AzStyleFontFamily_system(CssStr("Arial"))
     t1(1) = AzStyleFontFamily_system(CssStr("sans-serif"))
-    t2(0) = AzStyleFontFamily_system(CssStr("Georgia"))
-    t2(1) = AzStyleFontFamily_system(CssStr("serif"))
+    t2(0) = AzStyleFontFamily_system(CssStr("caption"))
     t3(0) = AzCssPropertyWithConditions_simple(AzCssProperty_textColor(Type<AzStyleTextColor>(Type<AzColorU>(51, 102, 153, 255))))
     t3(1) = AzCssPropertyWithConditions_simple(AzCssProperty_fontSize(Type<AzStyleFontSize>(AzPixelValue_px(14.0))))
     t3(2) = AzCssPropertyWithConditions_simple(AzCssProperty_fontFamily(AzStyleFontFamilyVec_copyFromPtr(@t1(0), 2)))
-    t3(3) = AzCssPropertyWithConditions_simple(AzCssProperty_fontWeight(AzStyleFontWeight_W600))
-    t3(4) = AzCssPropertyWithConditions_simple(AzCssProperty_fontStyle(AzStyleFontStyle_Italic))
+    t3(3) = AzCssPropertyWithConditions_simple(AzCssProperty_fontWeight(AzStyleFontWeight_number(AzFloatValue_create(600.0))))
+    t3(4) = AzCssPropertyWithConditions_simple(AzCssProperty_fontStyle(AzStyleFontStyle_italic()))
     t3(5) = AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantNumeric(Type<AzStyleFontVariantNumeric>(0, 0, 0, 1, 0, 0, 0, 0)))
     t3(6) = AzCssPropertyWithConditions_simple(AzCssProperty_textAlign(AzStyleTextAlign_Center))
     t3(7) = AzCssPropertyWithConditions_simple(AzCssProperty_textJustify(AzLayoutTextJustify_InterWord))
@@ -63,8 +69,39 @@ Function StyleText() As AzCssPropertyWithConditionsVec
     t3(17) = AzCssPropertyWithConditions_simple(AzCssProperty_caretAnimationDuration(Type<AzCaretAnimationDuration>(Type<AzCssDuration>(500, AzCssDurationUnit_Milliseconds))))
     t3(18) = AzCssPropertyWithConditions_simple(AzCssProperty_selectionBackgroundColor(Type<AzSelectionBackgroundColor>(Type<AzColorU>(51, 153, 255, 255))))
     t3(19) = AzCssPropertyWithConditions_simple(AzCssProperty_selectionColor(Type<AzSelectionColor>(Type<AzColorU>(255, 255, 255, 255))))
-    t3(20) = AzCssPropertyWithConditions_simple(AzCssProperty_font(AzStyleFontFamilyVec_copyFromPtr(@t2(0), 2)))
+    t3(20) = AzCssPropertyWithConditions_simple(AzCssProperty_font(AzStyleFontFamilyVec_copyFromPtr(@t2(0), 1)))
     Return AzCssPropertyWithConditionsVec_copyFromPtr(@t3(0), 21)
+End Function
+
+' CSS: .shorthands
+' dropped a value these bindings cannot build: azul.bi declares no type for `StyleFontVariantCapsValue` (or for the CssPropertyValue<T> in its payload)
+' dropped a value these bindings cannot build: azul.bi declares no type for `StyleFontStretchValue` (or for the CssPropertyValue<T> in its payload)
+' dropped a value these bindings cannot build: azul.bi declares no type for `StyleFontVariantLigaturesValue` (or for the CssPropertyValue<T> in its payload)
+' dropped a value these bindings cannot build: azul.bi declares no type for `StyleFontVariantEastAsianValue` (or for the CssPropertyValue<T> in its payload)
+' dropped a value these bindings cannot build: azul.bi declares no type for `StyleFontSynthesisValue` (or for the CssPropertyValue<T> in its payload)
+Function StyleShorthands() As AzCssPropertyWithConditionsVec
+    Dim t1(0 To 1) As AzStyleFontFamily
+    Dim t2(0 To 16) As AzCssPropertyWithConditions
+    t1(0) = AzStyleFontFamily_system(CssStr("Georgia"))
+    t1(1) = AzStyleFontFamily_system(CssStr("serif"))
+    t2(0) = AzCssPropertyWithConditions_simple(AzCssProperty_fontStyle(AzStyleFontStyle_italic()))
+    t2(1) = AzCssPropertyWithConditions_simple(AzCssProperty_fontWeight(AzStyleFontWeight_number(AzFloatValue_create(350.0))))
+    t2(2) = AzCssPropertyWithConditions_simple(AzCssProperty_fontSize(Type<AzStyleFontSize>(AzPixelValue_px(14.0))))
+    t2(3) = AzCssPropertyWithConditions_simple(AzCssProperty_lineHeight(AzStyleLineHeight_number(AzFloatValue_create(1.5))))
+    t2(4) = AzCssPropertyWithConditions_simple(AzCssProperty_fontFamily(AzStyleFontFamilyVec_copyFromPtr(@t1(0), 2)))
+    t2(5) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontVariantNumeric))
+    t2(6) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontVariantLigatures))
+    t2(7) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontVariantEastAsian))
+    t2(8) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontKerning))
+    t2(9) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontOpticalSizing))
+    t2(10) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontVariationSettings))
+    t2(11) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontFeatureSettings))
+    t2(12) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontSynthesisWeight))
+    t2(13) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontSynthesisStyle))
+    t2(14) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontSynthesisSmallCaps))
+    t2(15) = AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontSynthesisPosition))
+    t2(16) = AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantNumeric(Type<AzStyleFontVariantNumeric>(0, 1, 0, 0, 0, 0, 0, 0)))
+    Return AzCssPropertyWithConditionsVec_copyFromPtr(@t2(0), 17)
 End Function
 
 ' CSS: .box

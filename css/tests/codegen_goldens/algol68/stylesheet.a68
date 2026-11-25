@@ -136,13 +136,13 @@ BEGIN
    t56[2] := az css path selector direct children;
    t56[3] := az css path selector class (css str ("title"));
    selectors OF t57 := az css path selector vec copy from ptr (t56[1], LENG 3);
-   t58[1] := az css declaration static (az css property font weight (style font weight bold));
+   t58[1] := az css declaration static (az css property font weight (az style font weight number (az float value create (700.0))));
    t59[1] := az css path selector type (node type tag div);
    t59[2] := az css path selector children;
    t59[3] := az css path selector class (css str ("note"));
    t59[4] := az css path selector pseudo selector (az css path pseudo selector first);
    selectors OF t60 := az css path selector vec copy from ptr (t59[1], LENG 4);
-   t61[1] := az css declaration static (az css property font style (style font style italic));
+   t61[1] := az css declaration static (az css property font style (az style font style italic));
    t62[1] := AZCSSRULEBLOCK (t2, az css declaration vec copy from ptr (t4[1], LENG 1), az dynamic selector vec create, REPR 20);
    t62[2] := AZCSSRULEBLOCK (t6, az css declaration vec copy from ptr (t8[1], LENG 1), az dynamic selector vec create, REPR 20);
    t62[3] := AZCSSRULEBLOCK (t10, az css declaration vec copy from ptr (t12[1], LENG 1), az dynamic selector vec create, REPR 20);

@@ -13,7 +13,7 @@ inline AzCssPropertyWithConditionsVec style_btn() {
             AzCssPropertyWithConditions_simple(AzCssProperty_flexGrow(AzLayoutFlexGrow{ AzFloatValue_create(1.0f) })),
             AzCssPropertyWithConditions_simple(AzCssProperty_inherit(AzCssPropertyType_MinWidth)),
             AzCssPropertyWithConditions_simple(AzCssProperty_whiteSpace([]{ AzStyleWhiteSpaceValue v{}; v.Exact = AzStyleWhiteSpaceValueVariant_Exact{ AzStyleWhiteSpaceValue_Tag_Exact, AzStyleWhiteSpace_Nowrap }; return v; }())),
-            AzCssPropertyWithConditions_onHover(AzCssProperty_fontWeight(AzStyleFontWeight_Bold)),
+            AzCssPropertyWithConditions_onHover(AzCssProperty_fontWeight(AzStyleFontWeight_number(AzFloatValue_create(700.0f)))),
         }.data(),
         7
     );

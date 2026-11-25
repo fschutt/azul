@@ -33,6 +33,6 @@
       (css-property-with-conditions-simple (css-property-flex-grow (make-AzLayoutFlexGrow (float-value-create 1.0))))
       (css-property-with-conditions-simple (css-property-inherit AzCssPropertyType_MinWidth))
       (css-property-with-conditions-simple (css-property-white-space (css-union _AzStyleWhiteSpaceValue AzStyleWhiteSpaceValue_Variant_Exact-tag set-AzStyleWhiteSpaceValue_Variant_Exact-variant-tag! AzStyleWhiteSpaceValue_Tag_Exact set-AzStyleWhiteSpaceValue_Variant_Exact-payload! AzStyleWhiteSpace_Nowrap)))
-      (css-property-with-conditions-on-hover (css-property-font-weight AzStyleFontWeight_Bold))
+      (css-property-with-conditions-on-hover (css-property-font-weight (style-font-weight-number (float-value-create 700.0))))
     )
   ))

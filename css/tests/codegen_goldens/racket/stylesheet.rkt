@@ -128,7 +128,7 @@
               )
             )
           )
-          (css-vec css-declaration-vec-copy-from-ptr _AzCssDeclaration (list (css-declaration-static (css-property-font-weight AzStyleFontWeight_Bold))))
+          (css-vec css-declaration-vec-copy-from-ptr _AzCssDeclaration (list (css-declaration-static (css-property-font-weight (style-font-weight-number (float-value-create 700.0))))))
           (dynamic-selector-vec-create)
           20
         )
@@ -145,7 +145,7 @@
               )
             )
           )
-          (css-vec css-declaration-vec-copy-from-ptr _AzCssDeclaration (list (css-declaration-static (css-property-font-style AzStyleFontStyle_Italic))))
+          (css-vec css-declaration-vec-copy-from-ptr _AzCssDeclaration (list (css-declaration-static (css-property-font-style (style-font-style-italic)))))
           (dynamic-selector-vec-create)
           20
         )
