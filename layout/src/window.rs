@@ -10068,22 +10068,11 @@ impl LayoutWindow {
                     if declares_variation {
                         let id = azul_core::dom::NodeId::new(i);
                         if let Some(node) = styled_dom.styled_nodes.as_container().get(id) {
-                            let state = node.styled_node_state;
-                            for (tag, value) in
-                                crate::solver3::getters::get_font_variation_settings_list(
-                                    &styled_dom,
-                                    id,
-                                    &state,
-                                )
-                            {
-                                mix(u64::from(u32::from_be_bytes(tag)));
-                                mix(u64::from(value.to_bits()));
-                            }
-                            mix(u64::from(crate::solver3::getters::font_optical_sizing_is_auto(
+                            mix(crate::solver3::getters::font_variation_inputs_hash(
                                 &styled_dom,
                                 id,
-                                &state,
-                            )));
+                                &node.styled_node_state,
+                            ));
                         }
                     }
                     // The weight, the width and the slant of the font: the numbers a

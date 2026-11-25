@@ -2208,6 +2208,29 @@ pub fn font_request_of_node(
     }
 }
 
+/// A hash of what a node asks through the two font properties that have no compact slot: its
+/// `font-variation-settings` and whether it draws a variable face at its font size
+/// (`font-optical-sizing`). The caches that decide from the compact cache alone (the font
+/// requirements of a layout pass, the collected inline content of a formatting context) fold it in
+/// for a document that declares one of them (the compact flags), so that a restyle that moves only
+/// a setting is a change to them; a document that declares neither never asks.
+#[must_use]
+pub(crate) fn font_variation_inputs_hash(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> u64 {
+    use core::hash::{Hash, Hasher};
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for (tag, value) in get_font_variation_settings_list(styled_dom, node_id, node_state) {
+        tag.hash(&mut hasher);
+        value.to_bits().hash(&mut hasher);
+    }
+    font_optical_sizing_is_auto(styled_dom, node_id, node_state).hash(&mut hasher);
+    hasher.finish()
+}
+
 /// [`font_request_of_node`] at the node's used font size `font_size_px`:
 /// the optical size is the size in whole CSS px unless the node says
 /// `font-optical-sizing: none`.
