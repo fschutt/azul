@@ -696,7 +696,7 @@ fn process_cost() -> (f64, u64) {
 
 #[cfg(target_os = "macos")]
 #[test]
-#[ignore = "a measurement: cargo test --release -p AzReview --lib -- --ignored --nocapture a_simulated_session"]
+#[ignore = "X-EDGE-C-2: a measurement: cargo test --release -p AzReview --lib -- --ignored --nocapture a_simulated_session"]
 fn a_simulated_session_of_ten_minutes_is_priced_in_cpu_seconds_per_hour_and_memory() {
     // A 2880 x 1800 window, a 720p camera at 15 pictures a second and the voice in 20 ms chunks, ten
     // minutes at a clock the loop moves as fast as it can, with stand-in encoders that keep no picture:
