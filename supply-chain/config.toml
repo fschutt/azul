@@ -2944,6 +2944,11 @@ criteria = "safe-to-deploy"
 version = "0.14.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.printpdf]]
+version = "0.13.0"
+criteria = "safe-to-deploy"
+notes = "The owner's own crate as published on crates.io (azul vendored the same source as third_party/printpdf for the 0.0.21 release until it was published). Not read."
+
 [[exemptions.proc-macro-crate]]
 version = "3.5.0"
 criteria = "safe-to-deploy"
