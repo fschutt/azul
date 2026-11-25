@@ -821,13 +821,18 @@ impl Recognizer for HeadlessRecognizer {
     }
 
     fn listen(&mut self, call: &Listen<'_>) -> Answer {
-        let mut answer = heard_to_answer(&headless::heard());
-        if answer.outcome == Outcome::Heard {
-            answer.words = words_of(&answer.text, 0, 300, 1.0);
-            answer.started_unix_ms = call.clock.unix_ms();
-        }
-        answer
+        with_timed_words(heard_to_answer(&headless::heard()), call.clock.unix_ms())
     }
+}
+
+/// What the old headless stand-in heard, with a word's time: 300 ms for each, one after the other
+/// from the start, the audio dated `unix_ms`.
+fn with_timed_words(mut answer: Answer, unix_ms: u64) -> Answer {
+    if answer.outcome == Outcome::Heard {
+        answer.words = words_of(&answer.text, 0, 300, 1.0);
+        answer.started_unix_ms = unix_ms;
+    }
+    answer
 }
 
 /// A name for the platform's recognizer in a status line.

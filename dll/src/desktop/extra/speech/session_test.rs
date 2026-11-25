@@ -11,7 +11,8 @@ use super::{
     chain::Chain,
     mock::{words_of, ManualClock, MockSpeech, Step},
     recognizer::{Kind, Outcome, SharedClock, SystemClock},
-    BuiltinSpeechStatus, HeardStatus, SpeechLimits, SpeechRecognizer, SpeechSession,
+    answer_to_heard, heard_to_answer, with_timed_words, BuiltinSpeechStatus, HeardStatus, SpeechHeard,
+    SpeechLimits, SpeechRecognizer, SpeechSession,
 };
 
 const ORIGIN: u64 = 1_700_000_000_000;
@@ -198,20 +199,21 @@ fn a_test_run_follows_the_script_its_hook_names() {
 }
 
 /// Without a script a headless run is the old stand-in: what `AZ_SPEECH_HEARD` holds is heard at
-/// once on every call, now with timed words and the scripted recognizer named.
+/// once on every call, now with timed words and the scripted recognizer named. (The text itself
+/// is the headless module's process-wide one, which its own tests set: this takes the answer
+/// that module gave and checks what the chain makes of it.)
 #[test]
-fn a_headless_run_without_a_script_hears_the_old_variable_as_the_scripted_recognizer() {
-    let hooks = TestHooks {
-        speech_heard: Some("open the file".to_string()),
-        ..TestHooks::HEADLESS
-    };
-    // The text a test hears is kept by the headless stand-in: set it through its own door.
-    super::headless::set_heard(Some("open the file"));
-    let session = SpeechSession::with_hooks(&hooks);
-    let heard = session.listen_blocking(AzString::from("en".to_string()), 1_000);
-    super::headless::set_heard(None);
-    assert_eq!(heard.status, HeardStatus::Heard);
-    assert_eq!(heard.recognizer, SpeechRecognizer::Scripted);
-    assert_eq!(heard.text.as_str(), "open the file");
-    assert_eq!(heard.words.as_slice().len(), 3);
+fn the_old_stand_in_answer_gets_timed_words_and_a_quiet_one_stays_quiet() {
+    let heard = with_timed_words(heard_to_answer(&SpeechHeard::heard("open the file", 1.0)), ORIGIN);
+    assert_eq!(heard.text, "open the file");
+    assert_eq!(heard.started_unix_ms, ORIGIN);
+    assert_eq!(
+        heard.words.iter().map(|w| (w.text.as_str(), w.start_ms, w.end_ms)).collect::<Vec<_>>(),
+        vec![("open", 0, 300), ("the", 300, 600), ("file", 600, 900)]
+    );
+    let quiet = with_timed_words(heard_to_answer(&SpeechHeard::none(HeardStatus::NothingHeard, "nothing was said")), ORIGIN);
+    assert!(quiet.words.is_empty());
+    assert_eq!(quiet.started_unix_ms, 0);
+    // The public answer carries who gave it.
+    assert_eq!(answer_to_heard(heard, Some(Kind::Scripted)).recognizer, SpeechRecognizer::Scripted);
 }
