@@ -1500,6 +1500,8 @@ mod paint_stroke_state_tests {
         attribs_set_on: Vec<u32>,
         /// What was set at each `glDrawArrays`: (the blend function, the scissor test, the vertex array).
         drawn_with: Vec<([u32; 4], bool, u32)>,
+        /// The vertices of each dab (pos.x, pos.y, uv.x, uv.y per corner).
+        dabs: Vec<[f32; 16]>,
         next_name: u32,
     }
 
@@ -1520,6 +1522,7 @@ mod paint_stroke_state_tests {
             blend_func: [gl::ONE, gl::ONE_MINUS_SRC_ALPHA, gl::ONE, gl::ONE_MINUS_SRC_ALPHA],
             attribs_set_on: Vec::new(),
             drawn_with: Vec::new(),
+            dabs: Vec::new(),
             next_name: 100,
         }
     }
@@ -1645,7 +1648,25 @@ mod paint_stroke_state_tests {
     extern "system" fn nothing_texture(_a: u32, _b: u32, _c: u32, _d: u32, _e: i32) {}
     extern "system" fn nothing_uniform4(_l: i32, _a: f32, _b: f32, _c: f32, _d: f32) {}
     extern "system" fn nothing_uniform1(_l: i32, _a: f32) {}
-    extern "system" fn nothing_data(_t: u32, _size: isize, _p: *const c_void, _u: u32) {}
+    extern "system" fn nothing_pixel_store(_name: u32, _value: i32) {}
+    extern "system" fn nothing_data(_t: u32, size: isize, p: *const c_void, _u: u32) {
+        if size == 64 && !p.is_null() {
+            let mut dab = [0.0_f32; 16];
+            // SAFETY: the stroke hands over the 16 floats of a dab, 64 bytes.
+            dab.copy_from_slice(unsafe { core::slice::from_raw_parts(p.cast::<f32>(), 16) });
+            with(|g| g.dabs.push(dab));
+        }
+    }
+    /// A framebuffer whose rows are numbered: row `i` of `h` is filled with the byte `i + 1`.
+    extern "system" fn read_pixels(_x: i32, _y: i32, w: i32, h: i32, _f: u32, _t: u32, out: *mut c_void) {
+        let out = out.cast::<u8>();
+        for row in 0..h.max(0) as usize {
+            for byte in 0..(w.max(0) as usize) * 4 {
+                // SAFETY: the loader passes a buffer of w * h * 4 bytes.
+                unsafe { *out.add(row * (w as usize) * 4 + byte) = (row + 1) as u8 };
+            }
+        }
+    }
 
     fn driver() -> GenericGlContext {
         // SAFETY: every field is a function pointer, null is valid for each.
@@ -1684,6 +1705,8 @@ mod paint_stroke_state_tests {
         set!(glUniform4f, nothing_uniform4, extern "system" fn(i32, f32, f32, f32, f32));
         set!(glUniform1f, nothing_uniform1, extern "system" fn(i32, f32));
         set!(glBufferData, nothing_data, extern "system" fn(u32, isize, *const c_void, u32));
+        set!(glPixelStorei, nothing_pixel_store, extern "system" fn(u32, i32));
+        set!(glReadPixels, read_pixels, extern "system" fn(i32, i32, i32, i32, u32, u32, *mut c_void));
         gl
     }
 
@@ -1764,5 +1787,65 @@ mod paint_stroke_state_tests {
                 "the colour times the dab's alpha, the alpha 'over'"
             );
         }
+    }
+
+    /// One dab of a soft brush with its centre at texture row `y` of a 64 x 32 texture.
+    fn dab_at(y: f32) -> [f32; 16] {
+        with(|g| *g = renderers());
+        let mut texture = Texture::create(
+            21,
+            TextureFlags {
+                is_opaque: false,
+                is_video_texture: false,
+            },
+            PhysicalSizeU32 { width: 64, height: 32 },
+            ColorU::TRANSPARENT,
+            painting_context(),
+            RawImageFormat::RGBA8,
+        );
+        texture.paint_dot(20.0, y, Brush::new(ColorU { r: 9, g: 9, b: 9, a: 255 }, 2.0));
+        with(|g| g.dabs.first().copied().expect("a dab was drawn"))
+    }
+
+    #[test]
+    fn a_dab_near_the_top_of_a_texture_lands_in_the_first_rows_of_its_memory() {
+        // The compositor shows row 0 of a texture at the top of its box, as the SVG shader writes it: a
+        // stroke at the top of the picture must be painted in the first rows, not the last.
+        let (top, bottom) = (dab_at(3.0), dab_at(29.0));
+        let ys = |d: &[f32; 16]| [d[1], d[5], d[9], d[13]];
+        assert!(ys(&top).iter().all(|y| *y < -0.5), "NDC y of a dab 3 rows from the top of 32: {:?}", ys(&top));
+        assert!(ys(&bottom).iter().all(|y| *y > 0.5), "and 3 rows from the bottom: {:?}", ys(&bottom));
+    }
+
+    #[test]
+    fn the_corners_of_a_dab_run_counter_clockwise_so_a_culling_renderer_keeps_them() {
+        let d = dab_at(10.0);
+        let p = |i: usize| (d[i * 4], d[i * 4 + 1]);
+        let area = |a: (f32, f32), b: (f32, f32), c: (f32, f32)| (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0);
+        assert!(area(p(0), p(1), p(2)) > 0.0, "the first triangle of the strip");
+        assert!(area(p(1), p(3), p(2)) > 0.0, "and the second (the strip alternates)");
+    }
+
+    #[test]
+    fn reading_a_texture_back_keeps_the_order_of_its_rows_and_the_framebuffer_binding() {
+        with(|g| *g = renderers());
+        let texture = Texture::create(
+            21,
+            TextureFlags {
+                is_opaque: false,
+                is_video_texture: false,
+            },
+            PhysicalSizeU32 { width: 2, height: 3 },
+            ColorU::TRANSPARENT,
+            painting_context(),
+            RawImageFormat::RGBA8,
+        );
+        let image = texture.copy_to_raw_image();
+        let RawImageData::U8(bytes) = &image.pixels else {
+            panic!("8-bit pixels");
+        };
+        let first_bytes_of_rows: Vec<u8> = (0..3).map(|row| bytes.as_ref()[row * 8]).collect();
+        assert_eq!(first_bytes_of_rows, vec![1, 2, 3], "row 0 stays row 0: the memory is top-down");
+        assert_eq!(with(|g| g.framebuffer), 9, "the renderer's framebuffer is bound again");
     }
 }
