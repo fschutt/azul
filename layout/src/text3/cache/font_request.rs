@@ -117,12 +117,13 @@ impl FontRequest {
     /// The angle of a bare `oblique`, in degrees (CSS Fonts 4, 2.3).
     pub const BARE_OBLIQUE_DEGREES: f32 = 14.0;
 
-    /// The most axes a request sets explicitly. A font has a handful of axes (the widest in use
-    /// has a dozen) and a setting for a tag the face lacks is ignored, so a stylesheet that
-    /// names more than this many distinct tags says nothing a face could use: the tags written
-    /// first are kept, a later value of a kept tag still wins, the rest are dropped. It bounds
-    /// the work of a hostile list, which would otherwise be quadratic.
-    pub const MAX_SETTINGS: usize = 64;
+    /// The most axes a request sets explicitly: what a node keeps of `font-variation-settings`
+    /// (`azul_css::props::basic::MAX_VARIATION_AXES`, where the parser warns about more). A font
+    /// has a handful of axes (the widest in use has a dozen) and a setting for a tag the face
+    /// lacks is ignored, so a list of more distinct tags says nothing a face could use: the tags
+    /// written first are kept, a later value of a kept tag still wins, the rest are dropped. It
+    /// bounds the work of a hostile list, which would otherwise be quadratic.
+    pub const MAX_SETTINGS: usize = azul_css::props::basic::MAX_VARIATION_AXES;
 
     /// The bucket of the weight, the weight rust-fontconfig ranks the static files of a family
     /// by. A static face is chosen by it alone; a variable one is drawn at the exact weight.
