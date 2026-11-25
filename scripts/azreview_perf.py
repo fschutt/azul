@@ -9,7 +9,8 @@ Runs ONE AzReview on a folder of code (`AZ_BACKEND=headless`, the debug server, 
   idle      the resident memory of the window with a page of code open (`get_frame_report`)
   hover     a sweep of N pointer moves over the page with the dwell on (the cost of watching a pen rest)
   stroke    one stroke of N points on a page of code: per move, AzReview's handler (`AZREVIEW_PERF`:
-            `move_us`), the frame of the ink layer (`draw_us`), and from the `[damage]` lines the engine
+            `move_us`, reported in milliseconds as `move_ms_*`; the same for every `*_ms_*` key of
+            `hover` and `stroke`), the frame of the ink layer (`draw_ms_*`), and from the `[damage]` lines the engine
             prints (timestamped here when they ARRIVE, as mapedit3's perf_matrix does) how long each
             painted frame took (first `rect(s) after merge` line to the last `painted` line) and how
             long after a move was sent the next frame was painted
@@ -135,7 +136,10 @@ def perf_line(app, count_before):
 
 
 def us_to_ms(d):
-    return {k: (round(v / 1000.0, 3) if k.endswith(("p50", "p99", "max")) else v) for k, v in d.items()}
+    """An `AZREVIEW_PERF` line's numbers (microseconds, `move_us_p50=4`) as the report's milliseconds under
+    keys that say so (`move_ms_p50: 0.004`); the counts (`move_ms_n`) are counts."""
+    return {k.replace("_us_", "_ms_"): (round(v / 1000.0, 3) if k.endswith(("p50", "p99", "max")) else v)
+            for k, v in d.items()}
 
 
 LAYOUT = re.compile(r"\] ← regenerate_layout \(([0-9.]+)ms\)")
