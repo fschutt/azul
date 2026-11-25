@@ -32,9 +32,9 @@ pub const COLUMN_W: f32 = 300.0;
 pub const MARKER_D: f32 = 22.0;
 
 /// The rest times the settings page offers, ms.
-pub const REST_PRESETS: [u64; 4] = [800, 1_200, 2_000, 3_000];
+pub static REST_PRESETS: [u64; 4] = [800, 1_200, 2_000, 3_000];
 /// The silence times the settings page offers, ms.
-pub const SILENCE_PRESETS: [u64; 4] = [5_000, 10_000, 20_000, 40_000];
+pub static SILENCE_PRESETS: [u64; 4] = [5_000, 10_000, 20_000, 40_000];
 
 /// What a note's controls carry: the app and the note's id.
 pub struct NoteTag {
@@ -292,21 +292,21 @@ pub fn nearest(presets: &[u64], value: u64) -> usize {
 }
 
 /// The labels of the rest times.
-const REST_LABELS: [&str; 4] = [
+static REST_LABELS: [&str; 4] = [
     "azreview-rest-0-8",
     "azreview-rest-1-2",
     "azreview-rest-2-0",
     "azreview-rest-3-0",
 ];
 /// The labels of the silence times.
-const SILENCE_LABELS: [&str; 4] = [
+static SILENCE_LABELS: [&str; 4] = [
     "azreview-quiet-5",
     "azreview-quiet-10",
     "azreview-quiet-20",
     "azreview-quiet-40",
 ];
 /// The labels of the pointers that may rest into a dictation, in the order of [`Allow::ALL`].
-const INPUT_LABELS: [&str; 3] = [
+static INPUT_LABELS: [&str; 3] = [
     "azreview-dictation-off",
     "azreview-dictation-pen",
     "azreview-dictation-any",
