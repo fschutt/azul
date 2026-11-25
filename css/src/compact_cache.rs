@@ -5216,10 +5216,16 @@ mod autotest_generated {
             DOM_HAS_TEXT_TRANSFORM,
             DOM_HAS_VERTICAL_ALIGN,
             DOM_HAS_ZOOM_OR_ASPECT_RATIO,
+            DOM_HAS_FONT_VARIATION_SETTINGS,
+            DOM_HAS_FONT_OPTICAL_SIZING,
+            DOM_HAS_FONT_KERNING,
+            DOM_HAS_FONT_VARIANT_LIGATURES,
+            DOM_HAS_FONT_VARIANT_EAST_ASIAN,
+            DOM_HAS_FONT_SYNTHESIS,
         ];
-        assert_eq!(flags.len(), 32, "the word is full: a 33rd flag needs another word");
+        assert_eq!(flags.len(), 38, "the word has 38 of its 64 bits taken");
 
-        let mut seen = 0u32;
+        let mut seen = 0u64;
         for f in flags {
             assert_eq!(f.count_ones(), 1, "{f:#X} is not a single-bit flag");
             assert_eq!(seen & f, 0, "two DOM_HAS_* flags share bit {f:#X}");
@@ -5232,7 +5238,7 @@ mod autotest_generated {
             assert!(!c.dom_declared(f));
         }
         assert!(!c.dom_declared(0));
-        assert!(!c.dom_declared(u32::MAX));
+        assert!(!c.dom_declared(u64::MAX));
 
         // One flag declared: only that query is true.
         c.dom_declared_flags = DOM_HAS_LINE_HEIGHT;
@@ -5243,10 +5249,10 @@ mod autotest_generated {
             !c.dom_declared(0),
             "an empty flag query must never report declared"
         );
-        assert!(c.dom_declared(u32::MAX));
+        assert!(c.dom_declared(u64::MAX));
 
         // Everything declared: every query is true.
-        c.dom_declared_flags = u32::MAX;
+        c.dom_declared_flags = u64::MAX;
         for f in flags {
             assert!(c.dom_declared(f));
         }
