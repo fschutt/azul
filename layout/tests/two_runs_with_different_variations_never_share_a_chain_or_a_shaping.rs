@@ -52,11 +52,16 @@ fn window() -> LayoutWindow {
 /// `dom` laid out in `lw`: the distance between the first and the last glyph of each text item,
 /// in px.
 fn lay_out(lw: &mut LayoutWindow, dom: Dom) -> Vec<f32> {
+    lay_out_styled(lw, StyledDom::create_from_dom(dom))
+}
+
+/// The same for a DOM that is styled already (by a stylesheet, say).
+fn lay_out_styled(lw: &mut LayoutWindow, styled: StyledDom) -> Vec<f32> {
     let mut ws = FullWindowState::default();
     ws.size.dimensions = LogicalSize::new(400.0, 200.0);
     lw.current_window_state = ws.clone();
     lw.layout_and_generate_display_list(
-        StyledDom::create_from_dom(dom),
+        styled,
         &ws,
         &RendererResources::default(),
         &ExternalSystemCallbacks::rust_internal(),
@@ -134,6 +139,36 @@ fn a_relayout_that_changes_only_the_settings_draws_the_new_instance() {
     assert!(close(second[0], 28.8), "wdth 125 after wdth 75 in the same window: {second:?}");
     let third = lay_out(&mut lw, page("75"));
     assert!(close(third[0], 19.2), "and back to wdth 75: {third:?}");
+}
+
+/// The same DOM under another STYLESHEET: nothing of the nodes, their classes or their inline css
+/// changes, only the rules the cascade resolves onto them. The collected inline content of the
+/// paragraph is keyed by the nodes and by the resolved style (the compact cache), which holds no
+/// slot for the settings, so the settings are folded in for a document that declares them.
+#[test]
+fn a_relayout_under_another_stylesheet_draws_the_new_instance() {
+    use azul_core::dom::{IdOrClass, IdOrClassVec};
+
+    let mut lw = window();
+    let page = |setting: &str| {
+        let classes: IdOrClassVec = vec![IdOrClass::Class("p".into())].into();
+        let mut dom = Dom::create_body().with_css("margin: 0px;").with_child(
+            Dom::create_div()
+                .with_ids_and_classes(classes)
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("DDDD")),
+        );
+        let (css, _warnings) = azul_css::parser2::new_from_str(&format!(
+            ".p {{ font-family: \"Azul Mock Variable\"; font-size: 16px; \
+             font-variation-settings: \"wdth\" {setting}; }}"
+        ));
+        StyledDom::create(&mut dom, css)
+    };
+    let first = lay_out_styled(&mut lw, page("75"));
+    assert_eq!(first.len(), 1, "one paragraph: {first:?}");
+    assert!(close(first[0], 19.2), "wdth 75: {first:?}");
+    let second = lay_out_styled(&mut lw, page("125"));
+    assert_eq!(second.len(), 1, "one paragraph: {second:?}");
+    assert!(close(second[0], 28.8), "wdth 125 from another stylesheet: {second:?}");
 }
 
 /// ... and so does `font-optical-sizing`: "OOOO" at 20px is three advances of 500 + 2 * (opsz - 14)
