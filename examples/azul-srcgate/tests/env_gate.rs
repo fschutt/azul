@@ -398,14 +398,6 @@ static W0: &[Allow] = &[
 const W1: &[Allow] = &[];
 /// W2: layout window, cpu_backend, cpurender, managers, widgets, scroll_timer, callbacks.
 static W2: &[Allow] = &[
-    Allow::exactly(
-        "layout/src/cpurender/raster.rs",
-        READ,
-        1,
-        "TextAaSettings::from_env: AZ_TEXT_AA and the AZ_LCD_* of the process for a tool that has \
-         no app to take them from (the doc tool's reftests, until W6 hands them its own settings \
-         and the function goes); it was the read of AppConfig::create before the env pass",
-    ),
 ];
 /// W3: layout e2e, telemetry, request, probe, updater, icon_remap, file_picker, file, dialogs.
 static W3: &[Allow] = &[

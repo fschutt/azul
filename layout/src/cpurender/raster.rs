@@ -6892,9 +6892,9 @@ pub const TEXT_AA_DEFAULT: TextAa = TextAa::Grayscale;
 /// Everything that decides how a text run is anti-aliased, as one value.
 ///
 /// The renderer does not read the environment for any of this. Whoever owns a
-/// render target decides - a window's backend once at startup with
-/// [`TextAaSettings::from_env`], a page image by what it is for - and hands the
-/// value to the [`GlyphCache`](crate::glyph_cache::GlyphCache) the target is
+/// render target decides - a window's backend once at startup from
+/// [`AppConfig::text_antialiasing`](azul_core::resources::AppConfig), a page image by what it is
+/// for - and hands the value to the [`GlyphCache`](crate::glyph_cache::GlyphCache) the target is
 /// drawn with, which every text path already receives.
 #[derive(Clone, Copy)]
 pub struct TextAaSettings {
@@ -6993,17 +6993,11 @@ impl TextAaSettings {
         }
     }
 
-    /// The settings the process environment asks for, for a tool that has no app to take them
-    /// from ([`TextAntialiasing::from_vars`](azul_core::resources::TextAntialiasing::from_vars)
-    /// over the process's variables). A window does not call this; it takes
-    /// [`AppConfig::text_antialiasing`](azul_core::resources::AppConfig), which the dll's
-    /// `AppConfig::create` filled from the environment it read at the start.
-    #[must_use]
-    pub fn from_env() -> Self {
-        azul_core::resources::TextAntialiasing::from_vars(|name| std::env::var(name).ok()).into()
-    }
-
-    /// [`Self::from_env`] with the variables looked up by `var`.
+    /// The settings the variables `var` looks up ask for
+    /// ([`TextAntialiasing::from_vars`](azul_core::resources::TextAntialiasing::from_vars)), for a
+    /// tool that has no app to take them from and read its environment once itself. A window does
+    /// not call this; it takes [`AppConfig::text_antialiasing`](azul_core::resources::AppConfig),
+    /// which the dll's `AppConfig::create` filled from the environment it read at the start.
     #[must_use]
     pub fn from_vars(var: impl Fn(&str) -> Option<String>) -> Self {
         azul_core::resources::TextAntialiasing::from_vars(var).into()
