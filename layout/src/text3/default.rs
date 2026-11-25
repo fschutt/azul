@@ -863,6 +863,32 @@ const fn to_opentype_lang_tag(lang: hyphenation::Language) -> u32 {
     u32::from_be_bytes(tag_bytes)
 }
 
+/// Whether `ch` is a default-ignorable code point that is drawn as nothing and takes no room: the
+/// soft hyphen, the combining grapheme joiner, the Arabic letter mark, the Khmer vowel inherents,
+/// the Mongolian selectors and vowel separator, the zero width and joiner characters and the bidi
+/// marks (U+200B to U+200F, U+202A to U+202E), the invisible operators and the format characters
+/// of U+2060 to U+206F, the variation selectors, the byte order mark, the specials, the musical
+/// format characters and the tags: the set HarfBuzz hides, so a text that holds one is drawn as
+/// the text without it. The Hangul fillers are not in it (a face may draw them).
+const fn is_hidden_default_ignorable(ch: char) -> bool {
+    matches!(
+        ch as u32,
+        0x00AD
+            | 0x034F
+            | 0x061C
+            | 0x17B4..=0x17B5
+            | 0x180B..=0x180E
+            | 0x200B..=0x200F
+            | 0x202A..=0x202E
+            | 0x2060..=0x206F
+            | 0xFE00..=0xFE0F
+            | 0xFEFF
+            | 0xFFF0..=0xFFF8
+            | 0x1D173..=0x1D17A
+            | 0xE0000..=0xE0FFF
+    )
+}
+
 /// The piece of `text` each shaped glyph stands for, as `(start, len)` in bytes.
 ///
 /// The shaper does not carry source offsets, so they are rebuilt by walking the
@@ -1442,6 +1468,9 @@ fn shape_text_internal_with(
         .collect();
     let placements = resolve_placements(&infos, &advances, &kernings, scale_factor, direction);
 
+    // The glyph a hidden default-ignorable code point is drawn with: the face's space, which has
+    // no outline (a face without one keeps the glyph it has).
+    let blank_glyph = parsed_font.lookup_glyph_index(0x20);
     let mut shaped_glyphs = Vec::with_capacity(infos.len());
     for (((info, &(byte_index, byte_len)), placement), &kerning) in
         infos.iter().zip(&spans).zip(&placements).zip(&kernings)
@@ -1455,9 +1484,32 @@ fn shape_text_internal_with(
             .or_else(|| text.get(byte_index..).and_then(|s| s.chars().next()))
             .unwrap_or('\u{FFFD}');
 
+        // A glyph that only stands for default-ignorable code points (a ligature that holds a
+        // letter is no such glyph) is drawn as nothing and takes no room.
+        let hidden = !info.glyph.unicodes.is_empty()
+            && info.glyph.unicodes.iter().all(|&c| is_hidden_default_ignorable(c));
+        let (glyph_id, advance, kerning, offset) = if hidden {
+            (
+                blank_glyph.unwrap_or(info.glyph.glyph_index),
+                0.0,
+                0.0,
+                Point { x: 0.0, y: 0.0 },
+            )
+        } else {
+            (
+                info.glyph.glyph_index,
+                placement.advance,
+                kerning,
+                Point {
+                    x: placement.offset_x,
+                    y: placement.offset_y,
+                },
+            )
+        };
+
         let vert = parsed_font.get_vertical_metrics(info.glyph.glyph_index);
         let glyph = Glyph {
-            glyph_id: info.glyph.glyph_index,
+            glyph_id,
             codepoint: source_char,
             font_hash,
             font_metrics,
@@ -1467,12 +1519,9 @@ fn shape_text_internal_with(
             logical_byte_len: byte_len,
             content_index: 0,
             cluster,
-            advance: placement.advance,
+            advance,
             kerning,
-            offset: Point {
-                x: placement.offset_x,
-                y: placement.offset_y,
-            },
+            offset,
             vertical_advance: vert.as_ref().map_or(0.0, |v| v.advance * font_size),
             vertical_origin_y: vert.as_ref().map_or(0.0, |v| v.origin_y * font_size),
             vertical_bearing: vert.map_or(Point { x: 0.0, y: 0.0 }, |v| Point {

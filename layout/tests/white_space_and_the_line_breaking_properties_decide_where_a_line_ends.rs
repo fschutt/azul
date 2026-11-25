@@ -5,7 +5,7 @@
 //! ten glyphs. The text of a line is read back from its glyph ids (`code point - 0x1F`), a line
 //! as the glyphs on one baseline; the spaces at the end of a line hang and are not told.
 
-use crate::text_rig::{laid_out, line_texts, MONO};
+use crate::text_rig::{laid_out, line_texts, painted, MONO};
 
 /// The lines `text` breaks into under `css` in a window 100 px wide, the spaces at their ends
 /// taken off.
@@ -101,4 +101,23 @@ fn a_soft_hyphen_is_a_break_under_manual_and_none_under_none() {
     assert!(manual[0].starts_with("aaaaaaa") && manual[0].ends_with('-'), "{manual:?}");
     assert!(manual[1].ends_with("bbbbbbb"), "{manual:?}");
     assert_eq!(broken("hyphens: none", word).len(), 1);
+}
+
+/// A soft hyphen is drawn as nothing and takes no room, at a break too (the face has no glyph for
+/// U+00AD: it was drawn as its .notdef box, 10 px wide, inside the word and at the start of the
+/// next line).
+#[test]
+fn a_soft_hyphen_draws_nothing_and_takes_no_room() {
+    let word = "aaaaaaa\u{AD}bbbbbbb";
+    let b = u32::from('b') - 0x1F;
+    let first_b = |css: &str| {
+        let (_lw, dl) = laid_out(MONO, css, word, 100.0);
+        let glyphs = painted(&dl);
+        assert!(glyphs.iter().all(|g| g.id != 0), "`{css}`: no .notdef box in {glyphs:?}");
+        glyphs.iter().filter(|g| g.id == b).map(|g| g.x).fold(f32::MAX, f32::min)
+    };
+    // the word stays whole: the b's follow the seven a's
+    assert!((first_b("hyphens: none") - 70.0).abs() < 0.05);
+    // the word breaks at the soft hyphen: the b's start the second line
+    assert!(first_b("hyphens: manual").abs() < 0.05);
 }
