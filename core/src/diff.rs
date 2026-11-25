@@ -1814,21 +1814,22 @@ const IMAGE_CHURN_PER_SEC: u32 = 10;
 /// observe.
 #[derive(Debug, Default, Clone)]
 pub struct ImageChurn {
-    /// By node index: `(count, window_start, warned)`.
-    #[cfg(feature = "std")]
+    /// By node index: `(count, window_start, warned)`. The clock is `std::time::Instant`, which
+    /// panics where there is no system clock (wasm32), so the detector is absent there.
+    #[cfg(all(feature = "std", not(target_arch = "wasm32")))]
     nodes: BTreeMap<usize, (u32, std::time::Instant, bool)>,
 }
 
 impl ImageChurn {
     /// How many times this node has re-initialised inside the current window.
-    #[cfg(all(feature = "std", test))]
+    #[cfg(all(feature = "std", not(target_arch = "wasm32"), test))]
     pub(crate) fn count(&self, node_index: usize) -> u32 {
         self.nodes.get(&node_index).map_or(0, |entry| entry.0)
     }
 
     /// Notes that the image of node `node_index` re-initialised, and says so once it does at
     /// frame rate. `carried`: the previous frame was carried forward.
-    #[cfg(feature = "std")]
+    #[cfg(all(feature = "std", not(target_arch = "wasm32")))]
     fn note(&mut self, node_index: usize, carried: bool) {
         use std::time::Instant;
 
@@ -1882,7 +1883,7 @@ impl ImageChurn {
         }
     }
 
-    #[cfg(not(feature = "std"))]
+    #[cfg(not(all(feature = "std", not(target_arch = "wasm32"))))]
     fn note(&mut self, _node_index: usize, _carried: bool) {}
 }
 
