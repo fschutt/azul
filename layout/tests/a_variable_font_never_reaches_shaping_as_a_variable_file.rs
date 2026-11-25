@@ -65,3 +65,77 @@ fn a_static_face_is_drawn_as_the_file() {
         );
     }
 }
+
+/// B as the desktop meets it: the variable font is an INSTALLED file, found by the registry's scan,
+/// and the chain is resolved by the registry-backed resolver every window uses
+/// (`resolve_font_chains_fast`), which makes the instances in the registry's own cache.
+#[test]
+fn an_installed_variable_font_is_drawn_as_a_static_instance_through_the_registry() {
+    use std::collections::{BTreeSet, HashMap};
+
+    use azul_layout::{
+        solver3::getters::{resolve_font_chains_fast, CollectedFontStacks},
+        text3::cache::{FontRequest, FontSelector},
+    };
+
+    let file = std::fs::read(red_hat_mono_path()).expect("the face is checked in");
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("azul-variable-through-the-registry-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("a directory of installed fonts");
+    std::fs::write(dir.join("RedHatMono-VariableFont_wght.ttf"), &file).expect("an installed font");
+    let registry = rust_fontconfig::registry::FcFontRegistry::new_with_configs(
+        rust_fontconfig::config::FcScanConfig {
+            font_dirs: vec![dir.clone()],
+            priority_families: Vec::new(),
+        },
+        rust_fontconfig::FcFallbackConfig::empty(),
+    );
+    registry.spawn_scout_and_builders();
+    registry.wait_for_scout();
+
+    let used: BTreeSet<char> = ['a', 'b'].into_iter().collect();
+    for (weight, coordinates) in [
+        (400.0, Vec::new()),
+        (650.0, vec![(*b"wght", 650.0)]),
+        (700.0, vec![(*b"wght", 700.0)]),
+        (1000.0, vec![(*b"wght", 700.0)]),
+    ] {
+        let collected = CollectedFontStacks {
+            font_stacks: vec![vec![FontSelector {
+                family: "Red Hat Mono".to_string(),
+                request: FontRequest::default().with_weight(weight),
+                ..FontSelector::default()
+            }]],
+            hash_to_index: HashMap::new(),
+            font_refs: HashMap::new(),
+        };
+        let resolved = resolve_font_chains_fast(
+            &collected,
+            &registry,
+            &used,
+            &HashMap::new(),
+            &azul_layout::settings::TextSettings::default(),
+        );
+        let chain = resolved.chains.values().next().expect("the stack's chain");
+        let face = chain
+            .css_fallbacks
+            .iter()
+            .find(|group| group.css_name == "Red Hat Mono")
+            .and_then(|group| group.fonts.first())
+            .expect("the installed family matched")
+            .id;
+        let drawn = registry
+            .shared_cache()
+            .get_font_bytes(&face)
+            .expect("the face drawn has bytes")
+            .as_slice()
+            .to_vec();
+        assert!(!is_variable(&drawn), "weight {weight}: the face drawn is still a variable font");
+        assert!(
+            drawn == instance_bytes(&file, &coordinates),
+            "weight {weight}: not the instance of the file at {coordinates:?}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
