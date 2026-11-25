@@ -2,7 +2,7 @@
 //!
 //! Replaces BTreeMap-based CSS property lookups with cache-friendly arrays.
 //!
-//! - **Tier 1**: `Vec<u64>` — ALL 21 enum properties bitpacked (8 B/node)
+//! - **Tier 1**: `Vec<u64>` — ALL 20 enum properties bitpacked (8 B/node)
 //! - **Tier 2 hot**: `Vec<CompactNodeProps>` — layout-critical numeric dimensions (108 B/node)
 //! - **Tier 2 cold**: `Vec<CompactNodePropsCold>` — paint-only properties (28 B/node)
 //! - **Tier 2b**: `Vec<CompactTextProps>` — text/IFC properties (32 B/node)
@@ -1137,7 +1137,7 @@ pub const fn decode_color_u32(v: u32) -> Option<ColorU> {
 // Tier 1: Encode / Decode
 // =============================================================================
 
-/// Pack all 21 enum properties into a single u64.
+/// Pack all 20 enum properties into a single u64.
 #[inline]
 #[must_use]
 pub const fn encode_tier1(
@@ -3022,7 +3022,7 @@ mod tests {
     // ========================================================================
     // Tier1 enum 0-sentinel contract
     //
-    // Tier1 packs 21 enums into a single u64. A bit run that is all zeros
+    // Tier1 packs 20 enums into a single u64. A bit run that is all zeros
     // must decode to the CSS initial value of that property, because an
     // unpopulated tier1 field is all zeros. If any encoder shifts so that
     // `0 -> something-other-than-initial`, every node that didn't explicitly
