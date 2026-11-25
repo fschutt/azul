@@ -2,7 +2,7 @@
 //! its cutouts through azul's PNG codec. Thin glue: what a file holds, how it is read and what is
 //! refused is `whiteboard_store`'s, tested on its own.
 //!
-//! A save is built on the UI thread (the pictures are already PNGs, the zip stores them as they are:
+//! A save is built on the UI thread (the pictures are already PNGs, the zip deflates them lightly:
 //! little more than a copy) and written on the file thread (`azul_appkit`'s file jobs: atomic, one
 //! writer). A load decodes every picture, which takes a while for a full board: [`spawn_load`] does it
 //! on a Thread of its own and hands the board back.
