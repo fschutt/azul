@@ -278,6 +278,13 @@ pub fn panel_dom(panel: &mut Panel, host: &Host) -> Dom {
                 .with_css("position: absolute; left: 16px; right: 16px; top: 24px; margin: 0px; color: #6b665e; font-size: 12px;"),
         );
     }
+    if let Some(said) = panel.hint.as_deref() {
+        // What the board told (a refusal, a repaired file): under the surface, over the cutouts, until the next press.
+        root.add_child(Dom::create_p_with_text(said).with_css(
+            "position: absolute; left: 8px; right: 8px; bottom: 8px; margin: 0px; padding: 6px 8px; background: #fff3cd; \
+             border: 1px solid #e0c36a; border-radius: 4px; font-size: 11px; color: #5a4a10;",
+        ));
+    }
     root.add_child(surface(host));
     root
 }
@@ -495,6 +502,7 @@ extern "C" fn on_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     let out = host.run(|p| {
+        p.hint = None;
         let Panel { wb, .. } = p;
         wb.input.press(&mut wb.board, at, kind, mods)
     });

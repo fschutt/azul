@@ -266,3 +266,21 @@ fn a_label_is_typed_in_a_text_area_under_its_cutout_while_it_is_being_edited() {
     });
     assert!(with_id(&plain.expect("a panel"), &format!("__azreview_whiteboard-label-{id}")).is_none());
 }
+
+#[test]
+fn what_the_board_told_is_shown_in_the_panel_until_the_next_press() {
+    crate::l10n::in_english();
+    let host = host();
+    let dom = host
+        .run(|p| {
+            p.hint = Some("There is an arrow like this one already.".to_string());
+            panel_dom(p, &host)
+        })
+        .expect("a panel");
+    assert!(texts(&dom).iter().any(|t| t.contains("arrow like this one")), "{:?}", texts(&dom));
+    let quiet = host.run(|p| {
+        p.hint = None;
+        panel_dom(p, &host)
+    });
+    assert!(!texts(&quiet.expect("a panel")).iter().any(|t| t.contains("arrow like this one")));
+}
