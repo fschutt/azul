@@ -82,6 +82,9 @@ pub struct Voice {
     pub pending: Option<Anchor>,
     /// The side column shows.
     pub notes_open: bool,
+    /// Why speech recognition cannot be had at all here (no recogniser, the app not set up for one):
+    /// it cannot change before the app is started again, so a rest says so again and starts nothing.
+    pub unavailable: Option<String>,
 }
 
 impl Voice {
@@ -96,6 +99,7 @@ impl Voice {
             next_session: 1,
             pending: None,
             notes_open: false,
+            unavailable: None,
         }
     }
 
@@ -337,6 +341,11 @@ fn start(data: &mut RefAny, info: &mut CallbackInfo, anchor: Anchor) -> Update {
         if s.file().is_none() {
             return Update::DoNothing;
         }
+        if let Some(why) = s.voice.unavailable.clone() {
+            // Nothing to listen with: say so again, over the pages, and start nothing.
+            s.problem = Some(refusal(Status::Unavailable, &why));
+            return Update::RefreshDom;
+        }
         // The language of the app's words now (Settings > Language may have changed since the start).
         let language = language_of(&s.kit);
         let id = s.next_note_id;
@@ -407,6 +416,9 @@ extern "C" fn on_message(mut app: RefAny, mut msg: RefAny, mut info: CallbackInf
             Out::Failed { status, message } => {
                 println!("AZREVIEW_DICTATION refused {status:?} {message}");
                 s.problem = Some(refusal(status, &message));
+                if status == Status::Unavailable {
+                    s.voice.unavailable = Some(message);
+                }
                 Update::RefreshDom
             }
             Out::Ended(end) => {

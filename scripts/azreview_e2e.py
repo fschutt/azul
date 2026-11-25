@@ -342,6 +342,14 @@ def dictation(args, logs, out, binary, fake):
                       lambda: app.shows("Dictation") or app.shows("speech recognition"))
             if app.has_id("__azreview_note-1"):
                 raise Failure("a note that heard nothing was kept")
+            # No recogniser at all: it cannot change before the next start, so a second rest starts nothing
+            # (it says so again over the pages) instead of asking the system once more.
+            app.must("mouse_move", x=base[0] + 300.0, y=base[1] + 300.0)
+            app.frame(1)
+            time.sleep(1.2)
+            app.frame(2)
+            if app.count("AZREVIEW_DICTATION", r"started 2") > 0:
+                raise Failure("a rest started a dictation although the recogniser is unavailable")
             app.screenshot(os.path.join(out, "5-refused.png"))
         no_lint(app, "the dictation run")
     except Failure:
