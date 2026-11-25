@@ -416,3 +416,18 @@ in user units, so a test reads which axis moved and by how much from one advance
 
 The face's OS/2 says Regular, weight class 400, width class 5. The default
 instance is the font with every advance 500.
+
+## 13. Cantarell-VF.otf - a CFF2 variable font
+
+| | |
+|---|---|
+| family name | **Cantarell** (the Cantarell Project's variable font) |
+| licence | SIL OFL 1.1, `Cantarell-OFL.txt` |
+| numGlyphs | 1307 |
+| axes | `wght` 100 / 400 / 800 |
+| tables | `CFF2 GDEF GPOS GSUB HVAR MVAR OS/2 STAT avar cmap fvar head hhea hmtx maxp name post` |
+
+The one face of the tests whose outlines are CFF2 (the other variable faces are TrueType, `glyf`
+with `gvar`): `a_variable_font_never_reaches_shaping_as_a_variable_file` checks that an instance of
+it is a static face too. Not made by a script; a copy of the file the printpdf and rust-fontconfig
+tests use.

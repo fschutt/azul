@@ -139,3 +139,32 @@ fn an_installed_variable_font_is_drawn_as_a_static_instance_through_the_registry
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A face with CFF2 outlines (Cantarell, `wght` 100 to 800) is made static the same way: no `fvar`,
+/// the bytes of the instance of the file at the weight asked for (clamped to the axis).
+#[test]
+fn a_cff2_variable_font_is_drawn_as_a_static_instance() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fonts/Cantarell-VF.otf");
+    let (cache, family, _source, file) = cache_with_file(&path);
+    assert!(is_variable(&file), "premise: the file is a variable font");
+    for (css, coordinates) in [
+        ("font-weight: 400", Vec::new()),
+        ("font-weight: 100", vec![(*b"wght", 100.0)]),
+        ("font-weight: 650", vec![(*b"wght", 650.0)]),
+        ("font-weight: 900", vec![(*b"wght", 800.0)]),
+    ] {
+        let drawn = drawn_bytes(&cache, &family, css);
+        assert!(!is_variable(&drawn), "`{css}`: the face drawn is still a variable font");
+        assert!(
+            drawn == instance_bytes(&file, &coordinates),
+            "`{css}`: not the instance of the file at {coordinates:?}"
+        );
+        // what azul's own parser makes of the instance, for the record
+        let parsed = azul_layout::font::parsed::ParsedFont::from_bytes(&drawn, 0, &mut Vec::new());
+        eprintln!(
+            "[instance] Cantarell-VF.otf `{css}`: {} bytes, parses as a face: {}",
+            drawn.len(),
+            parsed.is_some()
+        );
+    }
+}
