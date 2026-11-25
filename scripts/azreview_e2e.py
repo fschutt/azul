@@ -12,21 +12,27 @@
     4. a stroke drawn with the mouse on the first page is kept (`AZREVIEW_STROKES 1`) and the
        session is written on a Thread to review/src_lib.rs.azreview.zip (`AZREVIEW_SAVED ...`):
        a zip whose session.json holds the stroke;
-    5. Mod+S and the Save button write it again;
-    5b. Mod+Z takes the stroke back (the archive is written again, now without it) and Mod+Shift+Z
-      brings it again; the record button mounts the microphone widget while a clip records;
-   6. the gear opens azul-appkit's settings page (its Dictation section: which pointers start a note, how
-      long the pen rests, how long the quiet lasts; a choice is saved in settings.json), About the standard About box
-       (`AZREVIEW_ABOUT open`), Escape closes the box, Escape the page;
-    7. flora / dark: a screenshot (the chrome follows, the pages stay paper);
-   8. the dictation: the pointer resting on a page (`--dwell-ms 400 --dwell-input any`: the mouse
-      stands in for the pen, whose state this driver cannot inject) starts a note that listens - a
-      marker on the page, the note and the "listening" pill in the side column; a libazul built with
-      `test-hooks` hears `AZ_SPEECH_HEARD` (the fake speech backend) and the words arrive in the
-      column; a stroke, the stop button, Escape, a second rest and the pointer moving away each end
-      it; the note is saved in the archive. Without the test hooks the real recogniser is asked and
-      refuses (an unbundled binary has no Info.plist): the message is told over the pages and the
-      empty note is not kept. No `[azul][a11y]` lint line may print in either run.
+    5. Mod+S and the Save button write it again; a meaning the marker cannot write (key 3) takes the
+       pen, key 1 the marker again; Mod+Z takes the stroke back (the archive is written again, now
+       without it) and Mod+Shift+Z brings it again; the record button mounts the microphone widget
+       while a clip records and unmounts it on stop; the files have an Open folder button;
+    6. the window names every control to a screen reader: azul prints no `[azul][a11y]` lint line;
+    7. the gear opens azul-appkit's settings page (AzReview's own Dictation section: which pointers
+       start a note, how long the pen rests, how long the quiet lasts; a choice is saved in
+       settings.json), About the standard About box (`AZREVIEW_ABOUT open`), Escape closes the box,
+       Escape the page;
+    8. flora / dark: a screenshot (the chrome follows, the pages stay paper);
+    9. the dictation, on a second AzReview (`--dwell-ms 400 --dwell-input any`: the mouse stands in
+       for the pen, whose state this driver cannot inject): the pointer resting on a page starts a
+       note that listens - a marker on the page, the note and the "listening" pill in the side
+       column. A libazul built with `test-hooks` hears `AZ_SPEECH_HEARD` (the fake speech backend, run
+       with AZ_LINK_PATH naming it so the script finds the marker): the words arrive in the column;
+       a stroke, the stop button, Escape, a second rest and the pointer moving away each end the
+       note; a tip held down without moving (contact dwell) starts one and lifting it in place
+       neither ends it nor cycles the nib; the note is saved in the archive and can be deleted.
+       Without the test hooks the real recogniser is asked and refuses (an unbundled binary has no
+       Info.plist): the message is told over the pages, the empty note is not kept, a second rest
+       starts nothing. No `[azul][a11y]` lint line may print in either run.
 
 Run ONE app at a time, through the capped runner:
 
