@@ -1282,8 +1282,14 @@ mod retained_list_tests {
             pixels_differing(&first, &last, whole, 0).0 > 0,
             "the first frame lacked halos, the last one has them"
         );
+        // Within one level of one channel, not bit for bit: the two sessions are two renderers
+        // that blend the same pictures, and on the CI runner (macos-15) the same binary gave 23
+        // pixels that differ by exactly one level in one channel - 7 of them with no equal
+        // neighbour - in two runs and none in a third. A halo that is missing or blurred is a
+        // different picture: `first` against `last` above differs in 136,000 pixels, by up to 22
+        // levels.
         assert_eq!(
-            pixels_differing(&last, &reference, whole, 0).0,
+            pixels_differing(&last, &reference, whole, 1).0,
             0,
             "the last frame of the follow-ups is the frame that draws every halo at once"
         );

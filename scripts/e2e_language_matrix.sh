@@ -1417,7 +1417,7 @@ lang_kotlin() {
           -Dartifact=net.java.dev.jna:jna:5.14.0 >/dev/null 2>&1 || true
       fi
       [ -f "$JNA_JAR" ] || { echo "JNA jar not found at $JNA_JAR"; exit 1; }
-      kotlinc -J-Xmx4g -cp "$JNA_JAR" Azul.kt HelloWorld.kt \
+      kotlinc -J-Xmx8g -cp "$JNA_JAR" Azul.kt HelloWorld.kt \
         -include-runtime -d hello-world.jar || exit 1
       # Portable classpath (see lang_java): ';' + Windows-style paths on Windows,
       # else the JVM can't find com.azul.HelloWorldKt or the MSYS-path JNA jar.
