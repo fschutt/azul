@@ -29,7 +29,7 @@ default-search-keys:
 
 ## Overview
 
-Font fallback, the text shaper and variable fonts are stable: the axes of a variable font are driven from CSS (see "Variable fonts" below). The properties below all parse and apply.
+Font fallback, the text shaper and variable fonts are stable: the axes of a variable font are driven from CSS (see "Variable fonts" below), and so are the OpenType features of the shaper (see "OpenType features"). The properties below all parse and apply; "What is not drawn yet" at the end of this page lists the few text properties the engine does not implement.
 
 Text rendering is driven by four font properties (`font-family`,
 `font-size`, `font-weight`, `font-style`) and modulated by alignment,
@@ -141,6 +141,57 @@ at most 32 instances per font file (and 128 MiB of them); a request beyond that 
 nearest instance made. The system font of macOS is such a face: its `opsz` follows the font size
 and its `wght` the weight, as in Chrome and CoreText.
 
+## OpenType features
+
+The shaper turns the OpenType features of a font on and off from CSS. Each row of the table is a
+property and the features it asks for; a font without a feature draws the text as it would
+without the property.
+
+| property | value | features |
+|----------|-------|----------|
+| `font-kerning` | `none` | turns `kern` (the pair adjustments of the font) off; `normal` and `auto` leave it on |
+| `font-variant-ligatures` | `common-ligatures` / `no-common-ligatures` | `liga` and `clig` on / off |
+| | `discretionary-ligatures` / `no-discretionary-ligatures` | `dlig` on / off |
+| | `historical-ligatures` / `no-historical-ligatures` | `hlig` on / off |
+| | `contextual` / `no-contextual` | `calt` on / off |
+| | `none` | all four off (the ligatures a script needs, `rlig`, stay) |
+| `font-variant-caps` | `small-caps`, `all-small-caps`, `petite-caps`, `all-petite-caps`, `unicase`, `titling-caps` | `smcp`, `smcp` + `c2sc`, `pcap`, `pcap` + `c2pc`, `unic`, `titl` |
+| `font-variant-numeric` | `lining-nums`, `oldstyle-nums`, `proportional-nums`, `tabular-nums`, `diagonal-fractions`, `stacked-fractions`, `ordinal`, `slashed-zero` | `lnum`, `onum`, `pnum`, `tnum`, `frac`, `afrc`, `ordn`, `zero` |
+| `font-variant-east-asian` | `jis78`, `jis83`, `jis90`, `jis04`, `simplified`, `traditional` | `jp78`, `jp83`, `jp90`, `jp04`, `smpl`, `trad` |
+| | `full-width`, `proportional-width` | `fwid`, `pwid` |
+| | `ruby` | `ruby` |
+| `font-feature-settings` | `"tag"`, `"tag" 1`, `"tag" on` / `"tag" 0`, `"tag" off` / `"tag" N` | the feature on / off / its Nth alternate, counted from 1 |
+
+The order is the one of CSS Fonts 4: the features a script turns on by itself, the properties above
+(a group of ligatures that is turned off takes its features out of the script's own; so does a
+`letter-spacing` that is not zero for `liga` and `clig`, unless `common-ligatures` asks for them),
+and last `font-feature-settings`, which has the last word. `font-feature-settings: "kern" 0`
+turns the kerning off and `"kern" 1` on again after `font-kerning: none`, and the pair
+adjustments of a font are applied once.
+
+A `font-feature-settings` value keeps its first 64 distinct tags (`MAX_FONT_FEATURES`; a font has a
+few dozen features at most) and the stylesheet parser warns about more.
+
+## What the engine fakes
+
+`font-synthesis` says what the engine may fake where a face or a feature is missing. Its
+longhands take `auto` (fake it, the initial value) or `none`; the shorthand is `none` or any of
+`weight`, `style`, `small-caps`, `position` (the ones not listed are `none`). Inherited.
+
+| longhand | what it switches |
+|----------|------------------|
+| `font-synthesis-weight` | the thickened bold of a text that asks for a weight of 600 or more from a face that has no bold cut: in both rasterizers and in the PDF writer (the run is filled and stroked) |
+| `font-synthesis-small-caps` | the small capitals of `font-variant-caps` that the shaper builds from scaled capitals (at 0.7 of the size) where the font has no `smcp`: `none` sets the text as it is |
+| `font-synthesis-style` | the slant of an italic that a family has no face for. Parsed, inherited and carried by the style of the run; **no consumer yet**: the engine draws no synthetic italic or oblique (see "What is not drawn yet") |
+| `font-synthesis-position` | the smaller, raised glyphs of a super- or subscript that a font has no `sups` or `subs` for. Parsed, inherited and carried by the style of the run; **no consumer yet**: there is no `font-variant-position` either |
+
+## Vertical text
+
+`writing-mode: vertical-rl | vertical-lr` is read for the text of every node: the glyph runs the
+PDF writer is given say the writing mode of their text. `text-combine-upright: all` and `digits N`
+set the characters of a run side by side in one em of the vertical line (tate-chu-yoko) - in the
+display list and in the PDF. In horizontal text the property has no effect.
+
 ## text-align
 
 Horizontal alignment of inline content within its line box:
@@ -166,13 +217,15 @@ The legacy `distribute` value computes to `inter-character` per the spec.
 ## Line metrics
 
 - `line-height` accepts `<percentage>`. Default `120%`. Multiplier applied to `font-size`.
-- `letter-spacing` accepts `<length>`. Default `0px`. Added between every glyph.
-- `word-spacing` accepts `<length>`. Default `0px`. Added between words.
-- `tab-size` accepts `<length>`. Default `8em`. Width of a tab character.
+- `letter-spacing` accepts a `<length>` or `normal`. Default `0px`. Added after every glyph. `normal` is `0` and ends the spacing a parent set.
+- `word-spacing` accepts a `<length>` or `normal`. Default `0px`. Added after every space. `normal` is `0` and ends the spacing a parent set.
+- `tab-size` accepts a `<number>` or a `<length>`. Default `8`. A number is the distance between the tab stops in widths of a space (`tab-size: 4`), a length is that distance in px (`tab-size: 30px`); `0` draws no tab. The stops lie at multiples of the distance from the start of the line, so a tab advances to the next stop wherever on the line it stands. The width of a space counts the `letter-spacing` and `word-spacing` of the text.
+- `text-indent` accepts a `<length>` or `<percentage>`, with `hanging` (indent every line but the first) and `each-line` (indent the line after a forced break too).
+- `text-align-last` accepts `auto`, `start`, `end`, `left`, `right`, `center`, or `justify` and aligns the last line of a block (and the lines before a forced break) the way `text-align` does the others; `auto` follows `text-align`, except that `justify` leaves the last line at `start`.
 
 ```css
 .body { line-height: 150%; letter-spacing: 0.02em; }
-pre   { tab-size: 4em; }
+pre   { tab-size: 4; }
 ```
 
 ## Wrapping and breaks
@@ -214,8 +267,17 @@ For bidirectional text:
 StyleDirection::Ltr   // left-to-right (default)
 StyleDirection::Rtl   // right-to-left
 
-StyleUnicodeBidi      // bidi-override embedding for the inline element
+StyleUnicodeBidi      // normal, embed, isolate, bidi-override, isolate-override, plaintext
 ```
+
+`direction` is the base direction of the block: a right-to-left block starts its lines at the
+right edge (`text-align: start` follows it, `left` and `right` do not), and the letters of a Latin
+word keep their order in it. Arabic and Hebrew words run from the right in a block of either
+direction. On the block that holds the text, `unicode-bidi: bidi-override` and `isolate-override`
+make every letter run in the direction of the block whatever its own (reversed in a right-to-left
+block, in the order they are written in a left-to-right one) and `plaintext` takes the base
+direction from the first strong letter of the text. `embed` and `isolate` open no level of their
+own in a block.
 
 For vertical scripts, set `writing-mode` on the block container. See
 [Inline and Text Flow](../layout/inline.md#direction-and-writing-modes)
@@ -224,6 +286,7 @@ for the values.
 ## Text decoration and selection
 
 - `text-decoration` accepts `none`, `underline`, `overline`, or `line-through`.
+- `text-shadow` accepts `<x> <y> [blur] [color]`. The text is painted between a push and a pop of the shadow in the display list, so both rasterizers draw the shadow under the glyphs.
 - `user-select` accepts `auto`, `text`, `none`, or `all`.
 - `vertical-align` accepts `baseline`, `top`, `middle`, `bottom`, `sub`, `super`, `text-top`, `text-bottom`, `<percentage>`, or `<length>`.
 
@@ -275,7 +338,7 @@ double-click text selection from overlapping the click.
 - `line-height`. Default `120%`.
 - `letter-spacing`. Default `0px`.
 - `word-spacing`. Default `0px`.
-- `tab-size`. Default `8em`.
+- `tab-size`. Default `8`.
 - `text-align`. Default `start`.
 - `text-justify`. Default `auto`.
 - `white-space`. Default `normal`.
@@ -286,3 +349,18 @@ double-click text selection from overlapping the click.
 - `text-decoration`. Default `none`.
 - `user-select`. Default `auto`.
 - `vertical-align`. Default `baseline`.
+
+## What is not drawn yet
+
+The text properties below are parsed or are not properties at all yet; the engine does not draw
+what they say. Each row says what the layout does today.
+
+| property | today |
+|----------|-------|
+| `font-synthesis-style`, `font-synthesis-position` | parsed and inherited, with no consumer: a `font-style: italic` text in a family without an italic face is drawn upright (the engine fakes no slant, in neither rasterizer nor in a PDF), and a super- or subscript is not faked either |
+| `text-orientation: upright`, `sideways` | parsed; in a vertical block `upright` sets the line direction to left-to-right as the spec says, and no value turns a glyph: the text is `mixed` |
+| `hanging-punctuation` | parsed and kept by the cascade, not applied: the punctuation stays inside the line box |
+| `initial-letter` | makes room: the lines beside the first letter start after a box N lines high, and the letter is drawn at the size of the text, not bigger and not moved into the room |
+| `text-decoration-style`, `-color`, `-thickness`, `text-underline-position`, `-offset`, `text-emphasis` | not properties: `text-decoration` is three switches (underline, overline, line-through) drawn in the colour of the text |
+| `font-size-adjust` | not a property: the font size never follows the x-height of the face |
+| `text-wrap` (`balance`, `pretty`, `nowrap`), `text-rendering`, `hyphenate-character`, `font-variant-position`, `font-variant-alternates` | not properties (the stylesheet parser reports them as unknown); `white-space: nowrap` is the one that sets a text on one line |
