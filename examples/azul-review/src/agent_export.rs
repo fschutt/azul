@@ -28,6 +28,7 @@ use crate::{
     agent_json::{self, json, Json},
     agent_limits::{cap_chars, Limits, Notes},
     recorder_edl::{AudioCut, Chapter as EdlChapter, Edl, EdlSegment, Generator},
+    recorder_manifest::{Manifest, TranscriptLine},
 };
 
 // ==== The request ====
@@ -50,7 +51,7 @@ pub struct Speech {
 }
 
 /// What the manifest says of the session.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SessionFacts {
     /// The session's folder name (`2026-11-26_10-00-00`).
     pub id: String,
@@ -60,6 +61,9 @@ pub struct SessionFacts {
     pub runs: Vec<(u64, u64)>,
     /// The screen track in its own pixels.
     pub screen: (u32, u32),
+    /// Device pixels to a point on the screen track (2.0 on a Retina display): the events' places
+    /// are points, the zoom's are the track's pixels.
+    pub scale: f32,
     /// There is a camera track.
     pub camera: bool,
 }
@@ -175,6 +179,327 @@ impl CutList {
             })
             .sum()
     }
+}
+
+// ==== From the recorder's files ====
+
+impl SessionFacts {
+    /// What `manifest` says: how long the clock ran, the runs (an open one ends where the session
+    /// does), the screen track's size and scale, whether there is a camera track.
+    #[must_use]
+    pub fn from_manifest(manifest: &Manifest) -> Self {
+        let end = manifest.end_us();
+        Self {
+            id: manifest.session.clone(),
+            duration_us: end,
+            runs: manifest
+                .runs
+                .iter()
+                .map(|r| (r.start_us, r.end_us.unwrap_or(end)))
+                .filter(|(a, b)| b > a)
+                .collect(),
+            screen: manifest
+                .tracks
+                .screen
+                .as_ref()
+                .map_or((0, 0), |t| (t.width, t.height)),
+            scale: manifest.tracks.screen.as_ref().map_or(1.0, |t| t.scale),
+            camera: manifest
+                .tracks
+                .camera
+                .as_ref()
+                .is_some_and(|t| !t.segments.is_empty()),
+        }
+    }
+}
+
+/// The lines of `transcript.jsonl` (`recorder_manifest::parse_transcript`) as a request has them.
+#[must_use]
+pub fn speeches(lines: &[TranscriptLine]) -> Vec<Speech> {
+    lines
+        .iter()
+        .map(|l| Speech {
+            t0_us: l.t0_us,
+            t1_us: l.t1_us,
+            text: l.text.clone(),
+            words: l
+                .words
+                .iter()
+                .map(|w| Word {
+                    w: w.w.clone(),
+                    t0_us: w.t0_us,
+                    t1_us: w.t1_us,
+                })
+                .collect(),
+        })
+        .collect()
+}
+
+/// The most events of the log that are read, and the longest line of it (a pen stroke's line is the
+/// longest the recorder writes, and the summary needs none of those).
+const MAX_EVENT_LINES: usize = 4_000_000;
+const MAX_EVENT_LINE_BYTES: usize = 64 * 1024;
+/// The most of each list a summary keeps (more are spread over the session).
+const MAX_SUMMARY_ITEMS: usize = 2_000;
+/// The most conversations that are followed.
+const MAX_CONVERSATIONS: usize = 20_000;
+/// A pen that is down and sends nothing for this long has drawn two strokes.
+const STROKE_GAP_US: u64 = 1_500_000;
+
+/// The kind of an event line (`{"t": 12, "k": "nav.file", ...}`) without parsing the line.
+fn kind_of(line: &str) -> Option<&str> {
+    let after = line[line.find("\"k\"")? + 3..]
+        .trim_start()
+        .strip_prefix(':')?;
+    let rest = after.trim_start().strip_prefix('"')?;
+    let kind = &rest[..rest.find('"')?];
+    (!kind.is_empty()
+        && kind
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'.'))
+    .then_some(kind)
+}
+
+/// A pen stroke being followed: where the pointer was while it was down.
+struct Pen {
+    t0_us: u64,
+    last_us: u64,
+    samples: u32,
+    /// `[x0, y0, x1, y1]` in the screen track's pixels.
+    bbox: [f64; 4],
+}
+
+fn stroke_box(pen: &Pen, screen: (u32, u32)) -> Option<StrokeBox> {
+    let [x0, y0, x1, y1] = pen.bbox;
+    if pen.samples < 2 && (x1 - x0).max(y1 - y0) < 4.0 {
+        return None;
+    }
+    let clamp = |v: f64, max: u32| -> u32 {
+        let v = v.max(0.0) as u32;
+        if max == 0 {
+            v
+        } else {
+            v.min(max)
+        }
+    };
+    Some(StrokeBox {
+        t_us: pen.t0_us,
+        bbox: [
+            clamp(x0.floor(), screen.0),
+            clamp(y0.floor(), screen.1),
+            clamp(x1.ceil(), screen.0),
+            clamp(y1.ceil(), screen.1),
+        ],
+    })
+}
+
+/// What `events_jsonl` (the recorder's `events.jsonl`, `RECORDER.md` section 4) says happened,
+/// boiled down for an agent that never sees the video: the files that were open and for how long
+/// (`nav.file`), the conversations with an agent and how each ended (`conv.*`), where the pen worked
+/// (the pointer's places while it was down, in the screen track's pixels), the moments the reviewer
+/// marked (`marker`) and the stretches the recorder paused for idleness (`session.idle_pause`). A
+/// line that cannot be read, one that is too long and a kind it does not need are passed over; at
+/// most [`MAX_SUMMARY_ITEMS`] of each list are kept, spread over the whole session. The second value
+/// says what was passed over and cut.
+#[must_use]
+pub fn summarize(events_jsonl: &str, facts: &SessionFacts) -> (Summary, Vec<String>) {
+    use std::collections::HashMap;
+
+    let mut notes = Notes::new();
+    let scale = if facts.scale.is_finite() && facts.scale > 0.0 {
+        f64::from(facts.scale)
+    } else {
+        1.0
+    };
+    let mut opened: Vec<(u64, String)> = Vec::new();
+    let mut conversations: Vec<ConvSpan> = Vec::new();
+    let mut by_id: HashMap<u64, usize> = HashMap::new();
+    let mut markers: Vec<Marker> = Vec::new();
+    let mut idle: Vec<(u64, u64)> = Vec::new();
+    let mut strokes: Vec<StrokeBox> = Vec::new();
+    let mut pen: Option<Pen> = None;
+    let (mut unreadable, mut too_long, mut read) = (0_usize, 0_usize, 0_usize);
+    for line in events_jsonl.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        read += 1;
+        if read > MAX_EVENT_LINES {
+            notes.push(format!("only the first {MAX_EVENT_LINES} events were read"));
+            break;
+        }
+        let Some(kind) = kind_of(line) else {
+            unreadable += 1;
+            continue;
+        };
+        let wanted = matches!(
+            kind,
+            "nav.file" | "marker" | "session.idle_pause" | "pointer.move"
+        ) || kind.starts_with("conv.");
+        if !wanted {
+            continue;
+        }
+        if line.len() > MAX_EVENT_LINE_BYTES {
+            too_long += 1;
+            continue;
+        }
+        let Ok(v) = agent_json::parse(line, MAX_EVENT_LINE_BYTES) else {
+            unreadable += 1;
+            continue;
+        };
+        let t = agent_json::u64_of(&v, "t").unwrap_or(0);
+        match kind {
+            "nav.file" => {
+                if let Some(file) = agent_json::str_of(&v, "file") {
+                    if opened.last().is_none_or(|(_, f)| f != file) {
+                        opened.push((t, cap_chars(file, 400).0));
+                    }
+                }
+            }
+            "marker" => {
+                let label = agent_json::str_of(&v, "label").unwrap_or("").trim();
+                markers.push(Marker {
+                    t_us: t,
+                    label: if label.is_empty() {
+                        "marker".to_string()
+                    } else {
+                        cap_chars(label, 200).0
+                    },
+                });
+            }
+            "session.idle_pause" => {
+                let ms = agent_json::u64_of(&v, "idle_ms").unwrap_or(0);
+                if ms > 0 {
+                    idle.push((t.saturating_sub(ms.saturating_mul(1_000)), t));
+                }
+            }
+            "pointer.move" => {
+                let down = agent_json::bool_of(&v, "down").unwrap_or(false);
+                let place = agent_json::f64_of(&v, "x")
+                    .zip(agent_json::f64_of(&v, "y"))
+                    .filter(|(x, y)| x.is_finite() && y.is_finite());
+                match (down, place) {
+                    (true, Some((x, y))) => {
+                        let (x, y) = (x * scale, y * scale);
+                        match &mut pen {
+                            Some(p) if t.saturating_sub(p.last_us) <= STROKE_GAP_US => {
+                                p.last_us = t;
+                                p.samples += 1;
+                                p.bbox = [
+                                    p.bbox[0].min(x),
+                                    p.bbox[1].min(y),
+                                    p.bbox[2].max(x),
+                                    p.bbox[3].max(y),
+                                ];
+                            }
+                            _ => {
+                                if let Some(done) =
+                                    pen.take().and_then(|p| stroke_box(&p, facts.screen))
+                                {
+                                    strokes.push(done);
+                                }
+                                pen = Some(Pen {
+                                    t0_us: t,
+                                    last_us: t,
+                                    samples: 1,
+                                    bbox: [x, y, x, y],
+                                });
+                            }
+                        }
+                    }
+                    _ => {
+                        if let Some(done) = pen.take().and_then(|p| stroke_box(&p, facts.screen)) {
+                            strokes.push(done);
+                        }
+                    }
+                }
+            }
+            conv => {
+                let Some(id) = agent_json::u64_of(&v, "id") else {
+                    continue;
+                };
+                if conv == "conv.start" {
+                    if conversations.len() < MAX_CONVERSATIONS && !by_id.contains_key(&id) {
+                        by_id.insert(id, conversations.len());
+                        conversations.push(ConvSpan {
+                            id,
+                            file: cap_chars(agent_json::str_of(&v, "file").unwrap_or(""), 400).0,
+                            line: agent_json::u64_of(&v, "line")
+                                .and_then(|n| usize::try_from(n).ok())
+                                .unwrap_or(0),
+                            t0_us: t,
+                            t1_us: t,
+                            outcome: "open".to_string(),
+                        });
+                    }
+                } else if let Some(c) = by_id.get(&id).and_then(|i| conversations.get_mut(*i)) {
+                    let word_end = if conv == "conv.word" {
+                        agent_json::u64_of(&v, "t1_us").unwrap_or(0)
+                    } else {
+                        0
+                    };
+                    c.t1_us = c.t1_us.max(t).max(word_end);
+                    match conv {
+                        "conv.accept" => c.outcome = "accepted".to_string(),
+                        "conv.reject" if c.outcome != "accepted" => {
+                            c.outcome = "rejected".to_string();
+                        }
+                        "conv.suggestion"
+                            if agent_json::str_of(&v, "op") == Some("answer")
+                                && c.outcome == "open" =>
+                        {
+                            c.outcome = "answered".to_string();
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+    if let Some(done) = pen.take().and_then(|p| stroke_box(&p, facts.screen)) {
+        strokes.push(done);
+    }
+    if unreadable > 0 {
+        notes.push(format!("{unreadable} event lines could not be read"));
+    }
+    if too_long > 0 {
+        notes.push(format!(
+            "{too_long} event lines over {MAX_EVENT_LINE_BYTES} bytes were passed over"
+        ));
+    }
+    // the files: each is open until the next one is opened (the last one until the session's end)
+    let mut files: Vec<FileSpan> = opened
+        .iter()
+        .enumerate()
+        .map(|(i, (t0, file))| FileSpan {
+            file: file.clone(),
+            t0_us: *t0,
+            t1_us: opened
+                .get(i + 1)
+                .map_or(facts.duration_us.max(*t0), |next| next.0.max(*t0)),
+        })
+        .collect();
+    files.sort_by_key(|f| f.t0_us);
+    conversations.sort_by_key(|c| c.t0_us);
+    markers.sort_by_key(|m| m.t_us);
+    idle.sort_unstable();
+    strokes.sort_by_key(|b| b.t_us);
+    let mut keep = |what: &str, n: usize| -> usize {
+        if n > MAX_SUMMARY_ITEMS {
+            notes.push(format!(
+                "{n} {what} were found, {MAX_SUMMARY_ITEMS} are kept, spread over the session"
+            ));
+        }
+        n.min(MAX_SUMMARY_ITEMS)
+    };
+    let summary = Summary {
+        files: spread(&files, keep("files", files.len())),
+        conversations: spread(&conversations, keep("conversations", conversations.len())),
+        strokes: spread(&strokes, keep("strokes", strokes.len())),
+        markers: spread(&markers, keep("markers", markers.len())),
+        idle: spread(&idle, keep("idle gaps", idle.len())),
+    };
+    (summary, notes.finish())
 }
 
 // ==== The prompt ====
@@ -324,6 +649,18 @@ fn assemble(p: &Parts<'_>) -> String {
     out
 }
 
+/// `n` of `items`, at even steps from the first to the last (all of them when `n` is as many).
+fn spread<T: Clone>(items: &[T], n: usize) -> Vec<T> {
+    match n {
+        0 => Vec::new(),
+        1 => items.first().cloned().into_iter().collect(),
+        _ if n >= items.len() => items.to_vec(),
+        _ => (0..n)
+            .map(|k| items[k * (items.len() - 1) / (n - 1)].clone())
+            .collect(),
+    }
+}
+
 /// The prompt for `export` (the call keeps `request` for the mock).
 ///
 /// # Errors
@@ -361,15 +698,22 @@ pub fn build_call<'a>(
     let mut keep_strokes = strokes_n;
     let mut keep_speech = speech_n;
     let mut trimmed: Vec<String> = Vec::new();
+    // what is kept of a list that is too long is spread over the whole session (the first of them
+    // would be the first minutes of a session of hours)
+    let files = spread(&export.summary.files, files_n);
+    let conversations = spread(&export.summary.conversations, convs_n);
+    let markers = spread(&export.summary.markers, markers_n);
+    let idle = spread(&export.summary.idle, idle_n);
     loop {
+        let strokes = spread(&export.summary.strokes, keep_strokes);
         let parts = Parts {
             request: export,
-            strokes: &export.summary.strokes[..keep_strokes],
-            files: &export.summary.files[..files_n],
-            conversations: &export.summary.conversations[..convs_n],
-            markers: &export.summary.markers[..markers_n],
-            idle: &export.summary.idle[..idle_n],
-            speeches: export.transcript[..keep_speech]
+            strokes: &strokes,
+            files: &files,
+            conversations: &conversations,
+            markers: &markers,
+            idle: &idle,
+            speeches: spread(&export.transcript, keep_speech)
                 .iter()
                 .map(|s| (s.t0_us, s.t1_us, cap_chars(s.text.trim(), speech_chars).0))
                 .collect(),

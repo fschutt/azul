@@ -8,7 +8,8 @@ use crate::{
     agent_mock::MockBackend,
     recorder_edl::identity_edl,
     recorder_manifest::{
-        AppInfo, ClockInfo, HostInfo, Manifest, Run, Segment, Track, TrackStatus, Workspace,
+        AppInfo, ClockInfo, HostInfo, Manifest, Run, Segment, Track, TrackStatus, TranscriptLine,
+        Workspace,
     },
 };
 
@@ -42,6 +43,7 @@ fn export() -> ExportRequest {
             duration_us: 600 * S,
             runs: vec![(0, 300 * S), (320 * S, 600 * S)],
             screen: (2880, 1800),
+            scale: 2.0,
             camera: true,
         },
         summary: Summary {
@@ -861,6 +863,312 @@ fn what_the_parser_lets_through_is_always_sound_for_the_session() {
     let list = parse(text).0.expect("reads");
     let edl = list.to_edl(&base(), None);
     assert_eq!(edl.problems(&session()), Vec::<String>::new(), "{edl:#?}");
+}
+
+// ==== from the recorder's files ====
+
+fn facts() -> SessionFacts {
+    SessionFacts::from_manifest(&session())
+}
+
+#[test]
+fn the_facts_of_a_session_come_from_its_manifest() {
+    let f = facts();
+    assert_eq!(f.id, "2026-11-26_10-00-00");
+    assert_eq!(f.duration_us, 600 * S);
+    assert_eq!(f.runs, vec![(0, 300 * S), (320 * S, 600 * S)]);
+    assert_eq!((f.screen, f.scale, f.camera), ((2880, 1800), 2.0, true));
+    // the last run is still open: it ends where the session does; there is no camera
+    let mut m = session();
+    m.runs[1].end_us = None;
+    m.tracks.camera = None;
+    let f = SessionFacts::from_manifest(&m);
+    assert_eq!(f.runs, vec![(0, 300 * S), (320 * S, 600 * S)]);
+    assert!(!f.camera);
+    // no screen track: no size, a scale of one
+    m.tracks.screen = None;
+    let f = SessionFacts::from_manifest(&m);
+    assert_eq!((f.screen, f.scale), ((0, 0), 1.0));
+}
+
+#[test]
+fn the_transcript_lines_become_speech_with_the_times_of_their_words() {
+    let line = TranscriptLine {
+        t0_us: 10 * S,
+        t1_us: 12 * S,
+        text: "this leaks".to_string(),
+        lang: "en".to_string(),
+        engine: "mock".to_string(),
+        conv: Some(3),
+        words: vec![
+            crate::recorder_manifest::Word {
+                w: "this".to_string(),
+                t0_us: 10 * S,
+                t1_us: 10_400_000,
+                p: Some(0.9),
+            },
+            crate::recorder_manifest::Word {
+                w: "leaks".to_string(),
+                t0_us: 10_500_000,
+                t1_us: 11 * S,
+                p: None,
+            },
+        ],
+    };
+    let speech = speeches(&[line]);
+    assert_eq!(speech.len(), 1);
+    assert_eq!(
+        (speech[0].t0_us, speech[0].t1_us, speech[0].text.as_str()),
+        (10 * S, 12 * S, "this leaks")
+    );
+    assert_eq!(
+        speech[0].words,
+        vec![word("this", 10.0, 10.4), word("leaks", 10.5, 11.0)]
+    );
+}
+
+const EVENTS: &str = r#"{"t":1000000,"k":"session.start","app":"AzReview","version":"0.1.0","workspace":"/w"}
+{"t":2000000,"k":"nav.file","file":"src/lib.rs","lines":120}
+{"t":2500000,"k":"nav.file","file":"src/lib.rs","lines":120}
+{"t":9000000,"k":"pointer.move","x":50,"y":60,"page":0,"px":50,"py":60,"pen":true,"down":false}
+{"t":10000000,"k":"pointer.move","x":100,"y":200,"page":0,"px":100,"py":200,"pen":true,"down":true}
+{"t":10100000,"k":"pointer.move","x":300,"y":210,"page":0,"px":300,"py":210,"pen":true,"down":true}
+{"t":10200000,"k":"pointer.move","x":450,"y":230,"page":0,"px":450,"py":230,"pen":true,"down":true}
+{"t":10300000,"k":"pointer.move","x":450,"y":230,"page":0,"px":450,"py":230,"pen":true,"down":false}
+{"t":12000000,"k":"pointer.move","x":700,"y":800,"page":0,"px":700,"py":800,"pen":true,"down":true}
+{"t":12100000,"k":"pointer.move","x":700,"y":800,"page":0,"px":700,"py":800,"pen":true,"down":false}
+{"t":20000000,"k":"conv.start","id":3,"file":"src/lib.rs","line":39,"page":0,"x":10,"y":10}
+{"t":21000000,"k":"conv.word","id":3,"w":"rename","t0_us":21000000,"t1_us":21400000,"p":0.9}
+{"t":25000000,"k":"conv.working","id":3,"task":"editing"}
+{"t":30000000,"k":"conv.suggestion","id":3,"op":"replace","file":"src/lib.rs","first":39,"last":39}
+{"t":40000000,"k":"conv.accept","id":3,"op":"replace","file":"src/lib.rs","first":39,"last":39}
+{"t":41000000,"k":"conv.done","id":3}
+{"t":50000000,"k":"conv.start","id":4,"file":"src/ink.rs","line":7,"page":0,"x":10,"y":10}
+{"t":52000000,"k":"conv.suggestion","id":4,"op":"answer","file":"src/ink.rs","first":7,"last":7}
+{"t":53000000,"k":"conv.done","id":4}
+{"t":60000000,"k":"conv.start","id":5,"file":"src/ink.rs","line":9,"page":0,"x":10,"y":10}
+{"t":65000000,"k":"conv.suggestion","id":5,"op":"insert","file":"src/ink.rs","first":9,"last":9}
+{"t":66000000,"k":"conv.reject","id":5}
+{"t":70000000,"k":"nav.file","file":"src/ink.rs","lines":300}
+{"t":80000000,"k":"marker","label":"the interesting part"}
+{"t":81000000,"k":"marker","label":"  "}
+{"t":150000000,"k":"session.idle_pause","idle_ms":30000}
+{"t":160000000,"k":"nav.file","file":"README.md","lines":10}
+"#;
+
+fn file(name: &str, from_s: u64, to_s: u64) -> FileSpan {
+    FileSpan {
+        file: name.to_string(),
+        t0_us: from_s * S,
+        t1_us: to_s * S,
+    }
+}
+
+fn conv(id: u64, file: &str, line: usize, from_s: f64, to_s: f64, outcome: &str) -> ConvSpan {
+    ConvSpan {
+        id,
+        file: file.to_string(),
+        line,
+        t0_us: (from_s * 1e6).round() as u64,
+        t1_us: (to_s * 1e6).round() as u64,
+        outcome: outcome.to_string(),
+    }
+}
+
+#[test]
+fn the_events_are_boiled_down_to_files_conversations_strokes_markers_and_idleness() {
+    let (summary, notes) = summarize(EVENTS, &facts());
+    assert_eq!(notes, Vec::<String>::new());
+    // a file is open until the next one is opened, the last one until the session ends; opening the
+    // file that is open is no change
+    assert_eq!(
+        summary.files,
+        vec![
+            file("src/lib.rs", 2, 70),
+            file("src/ink.rs", 70, 160),
+            file("README.md", 160, 600)
+        ]
+    );
+    // accepted beats everything; an answer is an answer; a rejection is a rejection; the end of a
+    // conversation is its last event (a word counts to the end of the word)
+    assert_eq!(
+        summary.conversations,
+        vec![
+            conv(3, "src/lib.rs", 39, 20.0, 41.0, "accepted"),
+            conv(4, "src/ink.rs", 7, 50.0, 53.0, "answered"),
+            conv(5, "src/ink.rs", 9, 60.0, 66.0, "rejected"),
+        ]
+    );
+    // the pointer's places while the pen was down, in the screen track's pixels (points times 2); a
+    // tap that did not move is no stroke
+    assert_eq!(
+        summary.strokes,
+        vec![StrokeBox {
+            t_us: 10 * S,
+            bbox: [200, 400, 900, 460]
+        }]
+    );
+    assert_eq!(
+        summary.markers,
+        vec![
+            Marker {
+                t_us: 80 * S,
+                label: "the interesting part".to_string()
+            },
+            Marker {
+                t_us: 81 * S,
+                label: "marker".to_string()
+            },
+        ]
+    );
+    assert_eq!(summary.idle, vec![(120 * S, 150 * S)]);
+}
+
+#[test]
+fn a_pen_that_stays_down_but_sends_nothing_for_a_while_has_drawn_two_strokes() {
+    let text = r#"{"t":1000000,"k":"pointer.move","x":10,"y":10,"down":true}
+{"t":1100000,"k":"pointer.move","x":30,"y":40,"down":true}
+{"t":5000000,"k":"pointer.move","x":200,"y":300,"down":true}
+{"t":5100000,"k":"pointer.move","x":260,"y":340,"down":true}
+"#;
+    let (summary, _) = summarize(text, &facts());
+    assert_eq!(
+        summary.strokes,
+        vec![
+            StrokeBox {
+                t_us: S,
+                bbox: [20, 20, 60, 80]
+            },
+            StrokeBox {
+                t_us: 5 * S,
+                bbox: [400, 600, 520, 680]
+            },
+        ]
+    );
+}
+
+#[test]
+fn boxes_stay_inside_the_screen_and_a_scale_that_is_nonsense_is_one() {
+    let text = r#"{"t":1000000,"k":"pointer.move","x":-50,"y":-50,"down":true}
+{"t":1100000,"k":"pointer.move","x":9000,"y":9000,"down":true}
+"#;
+    let (summary, _) = summarize(text, &facts());
+    assert_eq!(summary.strokes[0].bbox, [0, 0, 2880, 1800]);
+    let odd = SessionFacts {
+        scale: f32::NAN,
+        ..facts()
+    };
+    let (summary, _) = summarize(text, &odd);
+    assert_eq!(summary.strokes[0].bbox, [0, 0, 2880, 1800]);
+    let one = SessionFacts {
+        scale: 0.0,
+        ..facts()
+    };
+    let text = r#"{"t":1000000,"k":"pointer.move","x":100,"y":100,"down":true}
+{"t":1100000,"k":"pointer.move","x":200,"y":300,"down":true}
+"#;
+    assert_eq!(
+        summarize(text, &one).0.strokes[0].bbox,
+        [100, 100, 200, 300]
+    );
+}
+
+#[test]
+fn lines_that_cannot_be_read_are_passed_over_and_counted_and_the_rest_is_still_the_summary() {
+    let mut text = String::from(EVENTS);
+    text.push_str("this is not json\n");
+    text.push_str("{\"t\": 6, \"k\": \"marker\", \"label\": \"spaced like a person writes it\"}\n");
+    text.push_str(&format!(
+        "{{\"t\":7,\"k\":\"nav.file\",\"file\":\"{}\"}}\n",
+        "y".repeat(100_000)
+    ));
+    text.push_str(&format!(
+        "{{\"t\":8,\"k\":\"pen.stroke\",\"s\":\"{}\"}}\n",
+        "x".repeat(200_000)
+    ));
+    text.push_str("{\"t\":9,\"k\":\"nav.file\",\"file\":");
+    let (summary, notes) = summarize(&text, &facts());
+    assert_eq!(summary.files.len(), 3, "{:?}", summary.files);
+    assert_eq!(summary.conversations.len(), 3);
+    assert_eq!(
+        summary.markers.len(),
+        3,
+        "the spaced one is read: {:?}",
+        summary.markers
+    );
+    assert_eq!(
+        summary.markers[0].t_us, 6,
+        "the markers are in the order of the clock"
+    );
+    assert!(
+        notes
+            .iter()
+            .any(|n| n.contains("2 event lines could not be read")),
+        "{notes:?}"
+    );
+    assert!(
+        notes
+            .iter()
+            .any(|n| n.contains("1 event lines over 65536 bytes")),
+        "{notes:?}"
+    );
+}
+
+#[test]
+fn a_long_session_is_spread_over_its_whole_length_not_cut_at_the_front() {
+    let mut text = String::new();
+    for i in 0..5_000_u64 {
+        text.push_str(&format!(
+            "{{\"t\":{},\"k\":\"nav.file\",\"file\":\"f{i}.rs\"}}\n",
+            i * 100_000
+        ));
+    }
+    let (summary, notes) = summarize(&text, &facts());
+    assert_eq!(summary.files.len(), 2_000);
+    assert_eq!(summary.files[0].file, "f0.rs");
+    assert_eq!(summary.files[1999].file, "f4999.rs");
+    assert!(
+        summary.files.windows(2).all(|w| w[0].t0_us < w[1].t0_us),
+        "in order"
+    );
+    assert!(
+        notes
+            .iter()
+            .any(|n| n.contains("5000 files were found, 2000 are kept")),
+        "{notes:?}"
+    );
+}
+
+#[test]
+fn a_prompt_keeps_the_first_the_last_and_even_steps_of_a_list_that_is_too_long() {
+    let mut e = export();
+    e.summary.strokes = (0..300_u32)
+        .map(|i| StrokeBox {
+            t_us: u64::from(i) * S,
+            bbox: [0, 0, 10, 10],
+        })
+        .collect();
+    let p = prompt_of(e);
+    assert!(p.contains("- 0.0: 0,0,10,10\n"), "{p}");
+    assert!(p.contains("- 299.0: 0,0,10,10\n"), "{p}");
+    let kept = p.lines().filter(|l| l.ends_with(": 0,0,10,10")).count();
+    assert_eq!(kept, Limits::default().max_export_items);
+    assert!(
+        p.contains("- 150.0: 0,0,10,10\n") || p.contains("- 153.0: 0,0,10,10\n"),
+        "{p}"
+    );
+}
+
+#[test]
+fn spreading_picks_the_first_the_last_and_even_steps_between() {
+    let v: Vec<u32> = (0..10).collect();
+    assert_eq!(spread(&v, 3), vec![0, 4, 9]);
+    assert_eq!(spread(&v, 1), vec![0]);
+    assert_eq!(spread(&v, 0), Vec::<u32>::new());
+    assert_eq!(spread(&v, 10), v);
+    assert_eq!(spread(&v, 11), v);
+    assert_eq!(spread(&[] as &[u32], 3), Vec::<u32>::new());
+    assert_eq!(spread(&v, 2), vec![0, 9]);
 }
 
 // ==== through the boundary ====
