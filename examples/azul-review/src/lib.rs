@@ -185,8 +185,8 @@ fn derive_findings(
     for s in strokes {
         let (_, y0, _, y1) = s.bounds();
         let (first_line, _) = file.page(s.page);
-        let l0 = first_line + (y0 / ui::LINE_H).floor().max(0.0) as usize;
-        let l1 = first_line + (y1 / ui::LINE_H).floor().max(0.0) as usize;
+        let l0 = first_line + ui::line_of(y0);
+        let l1 = first_line + ui::line_of(y1);
 
         let merged = out.iter_mut().find(|f| {
             f.epoch == s.epoch
