@@ -41027,6 +41027,36 @@
                                 },
                                 "BackgroundColor": {
                                     "type": "StyleBackgroundContentValue"
+                                },
+                                "FontStretch": {
+                                    "type": "StyleFontStretchValue"
+                                },
+                                "FontVariationSettings": {
+                                    "type": "StyleFontVariationSettingsValue"
+                                },
+                                "FontOpticalSizing": {
+                                    "type": "StyleFontOpticalSizingValue"
+                                },
+                                "FontKerning": {
+                                    "type": "StyleFontKerningValue"
+                                },
+                                "FontVariantLigatures": {
+                                    "type": "StyleFontVariantLigaturesValue"
+                                },
+                                "FontVariantEastAsian": {
+                                    "type": "StyleFontVariantEastAsianValue"
+                                },
+                                "FontSynthesisWeight": {
+                                    "type": "StyleFontSynthesisValue"
+                                },
+                                "FontSynthesisStyle": {
+                                    "type": "StyleFontSynthesisValue"
+                                },
+                                "FontSynthesisSmallCaps": {
+                                    "type": "StyleFontSynthesisValue"
+                                },
+                                "FontSynthesisPosition": {
+                                    "type": "StyleFontSynthesisValue"
                                 }
                             }
                         ],
@@ -50302,6 +50332,9 @@
                             "Represents the `font-weight` property."
                         ],
                         "external": "azul_css::props::basic::font::StyleFontWeight",
+                        "custom_impls": [
+                            "Default"
+                        ],
                         "derive": [
                             "Copy",
                             "Debug",
@@ -50310,45 +50343,18 @@
                             "PartialEq",
                             "Eq",
                             "Ord",
-                            "Clone",
-                            "Default"
+                            "Clone"
                         ],
                         "enum_fields": [
                             {
-                                "Lighter": {}
-                            },
-                            {
-                                "W100": {}
-                            },
-                            {
-                                "W200": {}
-                            },
-                            {
-                                "W300": {}
-                            },
-                            {
-                                "Normal": {}
-                            },
-                            {
-                                "W500": {}
-                            },
-                            {
-                                "W600": {}
-                            },
-                            {
-                                "Bold": {}
-                            },
-                            {
-                                "W800": {}
-                            },
-                            {
-                                "W900": {}
-                            },
-                            {
+                                "Number": {
+                                    "type": "FloatValue"
+                                },
+                                "Lighter": {},
                                 "Bolder": {}
                             }
                         ],
-                        "repr": "C"
+                        "repr": "C, u8"
                     },
                     "StyleFontWeightValue": {
                         "doc": [
@@ -51001,16 +51007,14 @@
                         ],
                         "enum_fields": [
                             {
-                                "Normal": {}
-                            },
-                            {
-                                "Italic": {}
-                            },
-                            {
-                                "Oblique": {}
+                                "Normal": {},
+                                "Italic": {},
+                                "Oblique": {
+                                    "type": "FloatValue"
+                                }
                             }
                         ],
-                        "repr": "C"
+                        "repr": "C, u8"
                     },
                     "LayoutBorderSpacingValue": {
                         "doc": [
@@ -52553,7 +52557,17 @@
                                 "CounterSet": {},
                                 "Quotes": {},
                                 "BackgroundOrigin": {},
-                                "BackgroundColor": {}
+                                "BackgroundColor": {},
+                                "FontStretch": {},
+                                "FontVariationSettings": {},
+                                "FontOpticalSizing": {},
+                                "FontKerning": {},
+                                "FontVariantLigatures": {},
+                                "FontVariantEastAsian": {},
+                                "FontSynthesisWeight": {},
+                                "FontSynthesisStyle": {},
+                                "FontSynthesisSmallCaps": {},
+                                "FontSynthesisPosition": {}
                             }
                         ],
                         "repr": "C"
@@ -55626,7 +55640,8 @@
                                 "InsetBlock": {},
                                 "InsetInline": {},
                                 "ListStyle": {},
-                                "FontVariant": {}
+                                "FontVariant": {},
+                                "FontSynthesis": {}
                             }
                         ],
                         "repr": "C"
@@ -61469,6 +61484,238 @@
                                 }
                             }
                         ],
+                        "repr": "C"
+                    },
+                    "StyleFontKerning": {
+                        "external": "azul_css::props::basic::font_variation::StyleFontKerning",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "Normal": {},
+                                "None": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleFontKerningValue": {
+                        "external": "azul_css::props::property::StyleFontKerningValue",
+                        "repr": "C"
+                    },
+                    "StyleFontLigatureChoice": {
+                        "external": "azul_css::props::basic::font_variation::StyleFontLigatureChoice",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Unset": {},
+                                "On": {},
+                                "Off": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleFontOpticalSizing": {
+                        "external": "azul_css::props::basic::font_variation::StyleFontOpticalSizing",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "None": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleFontOpticalSizingValue": {
+                        "external": "azul_css::props::property::StyleFontOpticalSizingValue",
+                        "repr": "C"
+                    },
+                    "StyleFontStretch": {
+                        "external": "azul_css::props::basic::font_variation::StyleFontStretch",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "inner": {
+                                    "type": "PercentageValue"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleFontStretchValue": {
+                        "external": "azul_css::props::property::StyleFontStretchValue",
+                        "repr": "C"
+                    },
+                    "StyleFontSynthesis": {
+                        "external": "azul_css::props::basic::font_variation::StyleFontSynthesis",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "None": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleFontSynthesisValue": {
+                        "external": "azul_css::props::property::StyleFontSynthesisValue",
+                        "repr": "C"
+                    },
+                    "StyleFontVariantEastAsian": {
+                        "external": "azul_css::props::basic::font_variation::StyleFontVariantEastAsian",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "jis78": {
+                                    "type": "bool"
+                                },
+                                "jis83": {
+                                    "type": "bool"
+                                },
+                                "jis90": {
+                                    "type": "bool"
+                                },
+                                "jis04": {
+                                    "type": "bool"
+                                },
+                                "simplified": {
+                                    "type": "bool"
+                                },
+                                "traditional": {
+                                    "type": "bool"
+                                },
+                                "full_width": {
+                                    "type": "bool"
+                                },
+                                "proportional_width": {
+                                    "type": "bool"
+                                },
+                                "ruby": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleFontVariantEastAsianValue": {
+                        "external": "azul_css::props::property::StyleFontVariantEastAsianValue",
+                        "repr": "C"
+                    },
+                    "StyleFontVariantLigatures": {
+                        "external": "azul_css::props::basic::font_variation::StyleFontVariantLigatures",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "common": {
+                                    "type": "StyleFontLigatureChoice"
+                                },
+                                "discretionary": {
+                                    "type": "StyleFontLigatureChoice"
+                                },
+                                "historical": {
+                                    "type": "StyleFontLigatureChoice"
+                                },
+                                "contextual": {
+                                    "type": "StyleFontLigatureChoice"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleFontVariantLigaturesValue": {
+                        "external": "azul_css::props::property::StyleFontVariantLigaturesValue",
+                        "repr": "C"
+                    },
+                    "StyleFontVariationSettings": {
+                        "external": "azul_css::props::basic::font_variation::StyleFontVariationSettings",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "inner": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleFontVariationSettingsValue": {
+                        "external": "azul_css::props::property::StyleFontVariationSettingsValue",
                         "repr": "C"
                     }
                 }
