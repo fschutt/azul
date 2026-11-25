@@ -51,7 +51,7 @@ pub use mount_views::{
 };
 
 mod runner;
-pub use runner::run_e2e_test;
+pub use runner::{run_e2e_test, run_e2e_test_with_settings};
 
 mod report;
 #[cfg(feature = "std")]
@@ -170,6 +170,11 @@ mod class_swap_tests;
 // of every DOM of the window, not the root's alone.
 #[cfg(test)]
 mod cpu_view_values_tests;
+
+// A screenshot is copied to the folder its window's settings name (`AZ_E2E_SHOT_DIR`), by the
+// thread that encodes it, and to none when the window has no folder.
+#[cfg(test)]
+mod shot_dir_tests;
 
 pub mod hooks {
     //! Dependency-injection seam for the three host-coupled call sites in

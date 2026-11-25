@@ -49,10 +49,12 @@
 //! # Example
 //!
 //! ```no_run
-//! use azul_layout::telemetry::{self, AppMeta};
+//! use azul_layout::telemetry::{self, AppMeta, TelemetrySettings};
 //!
-//! // Reads AZ_TELEMETRY + the layered config files. Off unless opted in.
-//! telemetry::init("my-app", AppMeta::new("1.4.2", "beta"));
+//! // The environment as the app start reads it (AZ_TELEMETRY ...), once, plus the layered
+//! // config files. Off unless opted in.
+//! let settings = TelemetrySettings::from_lookup(&|name: &str| std::env::var(name).ok());
+//! telemetry::init("my-app", AppMeta::new("1.4.2", "beta"), &settings);
 //! telemetry::record_session_start();
 //! telemetry::record_startup(0.42, 84_000_000);
 //! telemetry::spawn_uploader();
@@ -84,6 +86,11 @@ pub use config::{
 pub use metrics::{MetricLabels, MetricsSnapshot};
 pub use otlp::{LogRecord, ResourceInfo, Severity};
 pub use queue::{PingKind, PingQueue, UploadStats};
+
+use crate::settings::PlatformEnv;
+// The environment the client was started with, and the one variable it names itself: both live in
+// `settings::telemetry`, the one place of the crate that knows which variable means what.
+pub use crate::settings::telemetry::{TelemetrySettings, CRASH_DUMP_ENV};
 
 /// Cap on buffered log records. Beyond this the oldest are dropped: a log
 /// buffer that grows without bound is a memory leak wearing a telemetry hat.
@@ -121,6 +128,9 @@ struct Inner {
     resource: ResourceInfo,
     queue: Option<PingQueue>,
     min_severity: Severity,
+    /// The environment the app start read ([`init`]): what the config layers, the crash hook and
+    /// the folders ask instead of the process.
+    settings: TelemetrySettings,
 }
 
 fn inner() -> &'static RwLock<Option<Inner>> {
@@ -131,6 +141,21 @@ fn inner() -> &'static RwLock<Option<Inner>> {
 fn log_buffer() -> &'static Mutex<Vec<LogRecord>> {
     static BUFFER: OnceLock<Mutex<Vec<LogRecord>>> = OnceLock::new();
     BUFFER.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+/// A copy of the settings [`init`] was given: the environment as the app start read it. Before
+/// [`init`] ran (a standalone caller, a test) it is an empty environment's.
+pub(crate) fn settings() -> TelemetrySettings {
+    inner()
+        .read()
+        .ok()
+        .and_then(|slot| slot.as_ref().map(|state| state.settings.clone()))
+        .unwrap_or_default()
+}
+
+/// The platform variables of [`settings`].
+pub(crate) fn platform() -> PlatformEnv {
+    settings().platform
 }
 
 /// Wall-clock now, as Unix nanoseconds. Zero if the clock is before the epoch.
@@ -197,14 +222,32 @@ fn fill_random(out: &mut [u8; 16]) {
     }
 }
 
-/// Loads the layered config for `app_id` and prepares the client.
+/// Loads the layered config for `app_id` and prepares the client. `settings` is the environment as
+/// the app start read it ([`TelemetrySettings::from_lookup`]): the highest layer of the config, and
+/// what the client asks of the process from now on.
 ///
 /// Returns the resolved configuration so the caller can decide whether to show
 /// a consent dialog (see [`TelemetryConfig::pinned_off`]). Safe to call twice;
 /// the last call wins.
 #[must_use]
-pub fn init(app_id: &str, meta: AppMeta) -> TelemetryConfig {
-    let resolved = config::load(app_id);
+pub fn init(app_id: &str, meta: AppMeta, settings: &TelemetrySettings) -> TelemetryConfig {
+    // The settings first: the folders the config layers and the queue live in are found through
+    // them, so the process state holds them before the first layer is read.
+    if let Ok(mut slot) = inner().write() {
+        *slot = Some(Inner {
+            app_id: app_id.to_owned(),
+            resource: ResourceInfo {
+                service_name: app_id.to_owned(),
+                service_version: meta.version.clone(),
+                scope_name: "azul-layout".to_owned(),
+                scope_version: env!("CARGO_PKG_VERSION").to_owned(),
+            },
+            queue: None,
+            min_severity: DEFAULT_LOG_SEVERITY,
+            settings: settings.clone(),
+        });
+    }
+    let resolved = config::load(app_id, settings);
 
     // Consent ARMS the probe: a tier that ships metrics wants
     // `app_phase_seconds{phase}` filled, and requiring a second, unrelated
@@ -223,18 +266,11 @@ pub fn init(app_id: &str, meta: AppMeta) -> TelemetryConfig {
     metrics::register_histogram(metrics::PHASE_SECONDS, metrics::MICRO_SECONDS_BUCKETS);
     metrics::register_histogram(metrics::PAINT_DAMAGE_PIXELS, metrics::PIXELS_BUCKETS);
 
+    let queue = PingQueue::for_app(app_id);
     if let Ok(mut slot) = inner().write() {
-        *slot = Some(Inner {
-            app_id: app_id.to_owned(),
-            resource: ResourceInfo {
-                service_name: app_id.to_owned(),
-                service_version: meta.version,
-                scope_name: "azul-layout".to_owned(),
-                scope_version: env!("CARGO_PKG_VERSION").to_owned(),
-            },
-            queue: PingQueue::for_app(app_id),
-            min_severity: DEFAULT_LOG_SEVERITY,
-        });
+        if let Some(state) = slot.as_mut() {
+            state.queue = queue;
+        }
     }
 
     resolved
@@ -997,12 +1033,8 @@ pub fn shutdown() -> FlushOutcome {
     flush()
 }
 
-/// The env var carrying the crash-dump path into the REINVOKED reporter
-/// process. `AzApp::run` (and this demo) check it at startup: when set, the
-/// process is not a normal launch — it parses the dump, shows it to the
-/// user (CPU rendering only; the crash may well be the GPU path) and offers
-/// manual submission.
-pub const CRASH_DUMP_ENV: &str = "AZ_CRASH_DUMP";
+// `CRASH_DUMP_ENV`, the env var carrying the crash-dump path into the REINVOKED reporter process,
+// is named in `settings::telemetry` and re-exported above.
 
 /// Whether the app registered a crash CONTACT (a mailbox) — the marker that
 /// the reinvoke-reporter flow is wanted at all. Read off the contact itself
@@ -1078,7 +1110,8 @@ pub fn pending_crash_dump_path() -> Option<std::path::PathBuf> {
 /// spawned. Never inside the reporter process itself, under e2e, or below
 /// the crashes tier.
 pub fn respawn_reporter_for_pending_crash() -> bool {
-    if std::env::var_os(CRASH_DUMP_ENV).is_some() || std::env::var_os("AZ_E2E").is_some() {
+    let settings = settings();
+    if settings.crash_dump.is_some() || settings.e2e_run {
         return false;
     }
     if !tier().allows_crashes() || !crash_contact_registered() {
@@ -1144,20 +1177,33 @@ impl CrashDump {
 
 /// The crash dump handed to THIS process via [`CRASH_DUMP_ENV`], if any —
 /// the first thing `AzApp::run` (or an app's own main) should check: `Some`
-/// means "you are the crash reporter, not the app".
+/// means "you are the crash reporter, not the app". Asks the settings [`init`] was given.
 #[must_use]
 pub fn crash_dump_from_env() -> Option<CrashDump> {
-    let path = std::env::var_os(CRASH_DUMP_ENV)?;
+    let path = settings().crash_dump?;
     CrashDump::load(std::path::PathBuf::from(path)).ok()
 }
 
 /// Strips user paths from a backtrace/location string: `$HOME` becomes `~`,
 /// `/rustc/<hash>/` and registry paths collapse, and any remaining absolute
 /// path keeps only its last three components. The FRAMES stay (that is the
-/// diagnostic); the user's directory layout does not travel.
+/// diagnostic); the user's directory layout does not travel. The home folder is the one the
+/// settings [`init`] was given name.
 #[must_use]
 pub fn strip_user_paths(text: &str) -> String {
-    let home = std::env::var("HOME").ok().filter(|h| h.len() > 1);
+    strip_user_paths_in(text, &platform())
+}
+
+/// [`strip_user_paths`] for the home folder `platform` names (a home of one character, `/`, is no
+/// home to strip).
+#[must_use]
+pub(crate) fn strip_user_paths_in(text: &str, platform: &PlatformEnv) -> String {
+    let home = platform
+        .home
+        .as_deref()
+        .and_then(std::ffi::OsStr::to_str)
+        .filter(|h| h.len() > 1)
+        .map(str::to_owned);
     let mut out = String::with_capacity(text.len());
     for (i, line) in text.lines().enumerate() {
         if i != 0 {
@@ -1346,7 +1392,7 @@ pub fn install_panic_hook() {
                 // process (AzApp::run checks the env var) parses the dump,
                 // shows it (CPU rendering only) and asks about submission.
                 // Never from a headless/e2e run: nobody can dismiss it.
-                if !endpoint_configured && std::env::var_os("AZ_E2E").is_none() {
+                if !endpoint_configured && !settings().e2e_run {
                     let file = std::env::temp_dir().join(format!(
                         "azul-crash-{}-{}.json",
                         std::process::id(),
@@ -1423,13 +1469,17 @@ mod tests {
 
     #[test]
     fn strip_user_paths_removes_home_and_shortens_absolutes() {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/home/testuser".into());
+        let home = "/home/testuser".to_owned();
+        let platform = PlatformEnv {
+            home: Some(home.clone().into()),
+            ..PlatformEnv::default()
+        };
         let input = format!(
             "panicked at {home}/Development/azul/layout/src/window.rs:42\nat \
              /rustc/abcdef1234567890abcdef1234567890abcdef12/library/std/src/panic.rs:10\nat \
              /very/long/absolute/path/to/some/crate/src/lib.rs:7"
         );
-        let out = super::strip_user_paths(&input);
+        let out = super::strip_user_paths_in(&input, &platform);
         assert!(!out.contains(&home), "home dir must not survive: {out}");
         assert!(out.contains("~/Development"), "home becomes ~: {out}");
         assert!(

@@ -12,6 +12,8 @@ use std::sync::RwLock;
 
 use azul_core::resources::UpdateMode;
 
+use crate::settings::{PlatformEnv, ServiceSettings};
+
 /// The published snapshot. All fields plain owned data — this is read from
 /// worker threads.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,6 +43,11 @@ pub struct AppEnv {
     /// `AppConfig.updates.channel` — the release channel this binary
     /// follows ("" = stable).
     pub update_channel: String,
+    /// The platform variables the services ask (the user's folders, the snap marker): what the
+    /// environment said when the app started, not part of `AppConfig` ([`Self::with_services`]).
+    pub platform: PlatformEnv,
+    /// The rollout cohort `AZ_UPDATE_BUCKET` forces on the updater ([`Self::with_services`]).
+    pub update_bucket: Option<u8>,
 }
 
 impl Default for AppEnv {
@@ -55,6 +62,8 @@ impl Default for AppEnv {
             update_root_public_key: String::new(),
             update_allow_unsigned: false,
             update_channel: String::new(),
+            platform: PlatformEnv::default(),
+            update_bucket: None,
         }
     }
 }
@@ -76,6 +85,8 @@ impl AppEnv {
             update_root_public_key: config.updates.root_public_key.as_str().to_owned(),
             update_allow_unsigned: config.updates.allow_unsigned,
             update_channel: config.updates.channel.as_str().to_owned(),
+            platform: PlatformEnv::default(),
+            update_bucket: None,
             changelog_md: opt(&config.changelog_md),
             report_problem: match &config.report_problem {
                 azul_core::resources::OptionEmailAddress::Some(e) => {
@@ -88,6 +99,21 @@ impl AppEnv {
                 }
                 azul_core::resources::OptionEmailAddress::None => None,
             },
+        }
+    }
+}
+
+impl AppEnv {
+    /// This snapshot with what the environment said when the app started: the platform variables
+    /// and the forced rollout cohort of `services` (`LayoutWindow::settings`), which the config of
+    /// the app does not hold. The engine services (the updater, the problem report) take their
+    /// folders and their cohort from it.
+    #[must_use]
+    pub fn with_services(&self, services: &ServiceSettings) -> Self {
+        Self {
+            platform: services.platform.clone(),
+            update_bucket: services.update_bucket,
+            ..self.clone()
         }
     }
 }

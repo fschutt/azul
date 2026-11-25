@@ -35,9 +35,17 @@ pub mod widgets;
 pub mod window;
 
 // Cluster W3 (e2e, telemetry, services): its `pub mod` lines go here.
+pub mod e2e;
+pub mod platform;
+pub mod services;
+pub mod telemetry;
 
+pub use e2e::E2eSettings;
+pub use platform::PlatformEnv;
 pub use render::{PaintSwitches, RenderSettings};
+pub use services::ServiceSettings;
 pub use solver::{DenseTextMode, MovedRunPolicy, SolverSettings};
+pub use telemetry::TelemetrySettings;
 pub use text::TextSettings;
 pub use widgets::WidgetSettings;
 pub use window::WindowSettings;
@@ -69,6 +77,13 @@ pub struct LayoutSettings {
     pub widgets: WidgetSettings,
 
     // Cluster W3 (e2e, telemetry, services): its fields go here.
+    /// The end-to-end machinery and the debug server ([`E2eSettings`]).
+    pub e2e: E2eSettings,
+    /// The telemetry client ([`TelemetrySettings`]).
+    pub telemetry: TelemetrySettings,
+    /// The services: the file picker, the profiler's symbol lookup, the platform folders
+    /// ([`ServiceSettings`]).
+    pub services: ServiceSettings,
 }
 
 impl LayoutSettings {
@@ -85,6 +100,9 @@ impl LayoutSettings {
             widgets: WidgetSettings::from_lookup(env),
 
             // Cluster W3 (e2e, telemetry, services): its groups go here.
+            e2e: E2eSettings::from_lookup(env),
+            telemetry: TelemetrySettings::from_lookup(env),
+            services: ServiceSettings::from_lookup(env),
         }
     }
 }
