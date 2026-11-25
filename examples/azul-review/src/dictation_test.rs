@@ -41,16 +41,16 @@ fn said(text: &str) -> Heard {
 struct Script {
     now: Time,
     answers: VecDeque<(u64, Heard)>,
-    calls: usize,
+    calls: Rc<Cell<usize>>,
     /// Run in each call, before it answers (a test's "the pen moved meanwhile").
     meanwhile: Option<Box<dyn FnMut(usize)>>,
 }
 
 impl Listener for Script {
     fn listen(&mut self, _language: &str, timeout_ms: u32) -> Heard {
-        self.calls += 1;
+        self.calls.set(self.calls.get() + 1);
         if let Some(f) = self.meanwhile.as_mut() {
-            f(self.calls);
+            f(self.calls.get());
         }
         match self.answers.pop_front() {
             Some((took, h)) => {
@@ -80,7 +80,7 @@ fn script(answers: Vec<(u64, Heard)>) -> (Script, FakeClock) {
         Script {
             now: now.clone(),
             answers: answers.into(),
-            calls: 0,
+            calls: Rc::new(Cell::new(0)),
             meanwhile: None,
         },
         FakeClock { now, slept: Vec::new() },
@@ -95,13 +95,12 @@ fn run_with(
     stop_after_calls: Option<usize>,
 ) -> Vec<Out> {
     let mut outs = Vec::new();
-    let calls = Rc::new(Cell::new(0usize));
-    let asked = calls.clone();
+    let calls = listener.calls.clone();
     run(
         plan,
         listener,
         clock,
-        &mut || stop_after_calls.is_some_and(|n| asked.get() >= n),
+        &mut || stop_after_calls.is_some_and(|n| calls.get() >= n),
         &mut |out| outs.push(out),
     );
     outs
@@ -154,7 +153,7 @@ fn a_stop_ends_the_session_between_two_calls() {
         vec![Out::Text("one".to_string()), Out::Text("two".to_string()), Out::Ended(End::Stopped)],
         "what was said while the stop was asked for is kept, nothing more is listened for"
     );
-    assert_eq!(listener.calls, 2);
+    assert_eq!(listener.calls.get(), 2);
 }
 
 #[test]
@@ -162,7 +161,7 @@ fn a_stop_before_the_first_call_listens_for_nothing() {
     let (mut listener, mut clock) = script(vec![(1_000, said("never"))]);
     let outs = run_with(&plan(), &mut listener, &mut clock, Some(0));
     assert_eq!(outs, vec![Out::Ended(End::Stopped)]);
-    assert_eq!(listener.calls, 0);
+    assert_eq!(listener.calls.get(), 0);
 }
 
 #[test]
@@ -181,7 +180,7 @@ fn a_refusal_is_told_with_its_words_and_ends_the_session() {
             ],
             "{status:?}"
         );
-        assert_eq!(listener.calls, 1, "{status:?}: no second try");
+        assert_eq!(listener.calls.get(), 1, "{status:?}: no second try");
     }
 }
 
@@ -192,11 +191,10 @@ fn a_listener_that_answers_at_once_is_not_asked_in_a_tight_loop() {
     let answers = (0..5).map(|_| (0, said("same words"))).collect();
     let (mut listener, mut clock) = script(answers);
     let outs = run_with(&plan(), &mut listener, &mut clock, Some(3));
-    assert_eq!(listener.calls, 3);
-    assert_eq!(clock.slept, vec![400, 400, 400].into_iter().take(clock.slept.len()).collect::<Vec<u64>>());
-    assert!(clock.slept.len() >= 2, "slept between calls: {:?}", clock.slept);
-    assert!(clock.now.get() >= 800, "{}", clock.now.get());
-    assert!(outs.last() == Some(&Out::Ended(End::Stopped)), "{outs:?}");
+    assert_eq!(listener.calls.get(), 3);
+    assert_eq!(clock.slept, vec![400, 400], "a pause between two calls, none after the last");
+    assert_eq!(clock.now.get(), 800);
+    assert_eq!(outs.last(), Some(&Out::Ended(End::Stopped)), "{outs:?}");
 }
 
 #[test]
