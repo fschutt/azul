@@ -44,6 +44,9 @@ use azul_appkit::{
     ui as kit,
 };
 
+pub mod agent_json;
+pub mod agent_limits;
+pub mod agent_stroke;
 pub mod code;
 pub mod column;
 pub mod dictation;

@@ -11,6 +11,9 @@ publish = false
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
 # The shared app skeleton: switches, data root, settings.json, About, file jobs on a Thread.
 azul-appkit = { path = "../azul-appkit", features = ["azul"] }
+# The agents' JSON (agent_json.rs, a small facade): the CLIs' envelopes, the APIs' bodies, the model's own
+# reply. Already in Cargo.lock (azul-appkit and others use it): no new crate, one more edge.
+serde_json = "1"
 
 [lib]
 name = "azul_review"
