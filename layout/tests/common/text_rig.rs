@@ -35,6 +35,7 @@ use azul_layout::{
         cache::UnifiedLayout,
         default::PathLoader,
         glyphs::{get_glyph_runs_pdf, PdfGlyphRun},
+        mock_fonts::mock_font_ranges,
     },
     window::LayoutWindow,
     window_state::FullWindowState,
@@ -58,14 +59,18 @@ pub const LIGA: &str = "Azul Mock Liga";
 pub const PROP: &str = "Azul Mock Prop";
 /// `tests/fonts/azul-mock-vertical.ttf`: sixteen ideographs with vertical metrics.
 pub const VERTICAL: &str = "Azul Mock Vertical";
+/// `tests/fonts/azul-mock-arabic.ttf`: five Arabic letters and a space, every glyph 500 units.
+pub const ARABIC: &str = "Azul Mock Arabic";
 
-/// The faces of `tests/fonts` this rig registers, by family name.
-static FACES: [(&str, &str); 5] = [
-    (FEATURES, "azul-mock-features.ttf"),
-    (KERN, "azul-mock-kern.ttf"),
-    (LIGA, "azul-mock-liga.ttf"),
-    (PROP, "azul-mock-prop.ttf"),
-    (VERTICAL, "azul-mock-vertical.ttf"),
+/// The faces of `tests/fonts` this rig registers, by family name, and whether the face has the
+/// ASCII glyphs.
+static FACES: [(&str, &str, bool); 6] = [
+    (FEATURES, "azul-mock-features.ttf", true),
+    (KERN, "azul-mock-kern.ttf", true),
+    (LIGA, "azul-mock-liga.ttf", true),
+    (PROP, "azul-mock-prop.ttf", true),
+    (VERTICAL, "azul-mock-vertical.ttf", false),
+    (ARABIC, "azul-mock-arabic.ttf", false),
 ];
 
 /// The bytes of the face file `file` of `tests/fonts`.
@@ -79,7 +84,7 @@ pub fn face_bytes(file: &str) -> Vec<u8> {
 /// A window that knows every face of the rig by its family name.
 pub fn window() -> LayoutWindow {
     let lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
-    for (family, file) in &FACES {
+    for (family, file, _) in &FACES {
         assert!(
             lw.font_manager
                 .registered_fonts
@@ -214,6 +219,25 @@ pub fn line_ids(dl: &DisplayList) -> Vec<Vec<u32>> {
         .collect()
 }
 
+/// The text of each line of a page set in a face whose glyph id is `code point - 0x1F` (every mock
+/// face of the rig that has the ASCII glyphs): the glyphs of a line from left to right, as the
+/// characters they draw. A line whose glyph has no ASCII code point shows a `?`.
+pub fn line_texts(dl: &DisplayList) -> Vec<String> {
+    lines(dl)
+        .into_iter()
+        .map(|mut line| {
+            line.sort_by(|a, b| a.x.total_cmp(&b.x));
+            line.iter()
+                .map(|g| {
+                    char::from_u32(g.id + 0x1F)
+                        .filter(|c| c.is_ascii() && !c.is_ascii_control())
+                        .unwrap_or('?')
+                })
+                .collect()
+        })
+        .collect()
+}
+
 /// The width of a line of the page: from the pen of its first glyph to the pen after its last,
 /// given the advance of the last glyph.
 pub fn extent(line: &[Painted], last_advance: f32) -> f32 {
@@ -262,13 +286,11 @@ pub struct Exported {
 pub fn export(html: &str) -> Exported {
     let styled_dom = Dom::from_xml_string(html);
     let mut fonts = FontManager::new(build_font_cache()).expect("a font manager");
-    for (family, file) in &FACES {
-        assert!(
-            fonts.registered_fonts.register_font(family, &face_bytes(file)),
-            "premise: {file} is a font"
-        );
+    // The faces with the ASCII glyphs, registered by family name as printpdf registers the fonts
+    // of a document (`register_named_font`); the others cover other characters.
+    for (family, file, _) in FACES.iter().filter(|(_, _, ascii)| *ascii) {
+        fonts.register_named_font(family, &face_bytes(file), mock_font_ranges());
     }
-    drop(fonts.registered_fonts.ensure_in(&fonts.fc_cache));
     let mut layout_cache = Solver3LayoutCache::default();
     let mut text_cache = TextLayoutCache::new();
     let content_size = LogicalSize::new(800.0, 600.0);

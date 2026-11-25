@@ -120,7 +120,7 @@ fn inline_pipeline_struct_sizes_are_pinned() {
     assert_size!(BidiRun, 168, "Stage 2 (bidi) output.");
     assert_size!(
         StyleProperties,
-        256,
+        280,
         "Shared behind an Arc, so one per distinct style - NOT per glyph. GREW 248 -> 256 \
          (2026-10-03, 753dbc393): InlineBorderInfo gained `margin_left` / `margin_right` (an \
          inline box's horizontal margins move the pen, CSS 2.2 s10.3.1), 60 -> 68 B. GREW \
@@ -129,7 +129,10 @@ fn inline_pipeline_struct_sizes_are_pinned() {
          Arc<[InlineBoxEdge]>), so nested spans keep their outer span's edges. SHRANK 280 -> \
          256 (2026-11-25): `font_variations`, a Vec of (tag, value) that nothing ever filled, \
          was deleted - the explicit `font-variation-settings` are part of the request every \
-         font of the font stack carries."
+         font of the font stack carries. GREW 256 -> 280 (2026-11-26): `font-variant-ligatures` \
+         and `font-variant-east-asian` are the css values (four choices and nine flags, where \
+         they were one-byte keywords that nothing could set), `font_synthesis` (four switches) \
+         joined them, and `text_orientation`, which nothing read, was deleted."
     );
 }
 

@@ -148,6 +148,8 @@ mod a_variable_font_never_reaches_shaping_as_a_variable_file;
 mod a_variable_font_registered_in_memory_is_drawn_at_the_exact_weight;
 #[path = "a_vertical_block_gives_its_runs_the_writing_mode_and_combines_its_digits.rs"]
 mod a_vertical_block_gives_its_runs_the_writing_mode_and_combines_its_digits;
+#[path = "white_space_and_the_line_breaking_properties_decide_where_a_line_ends.rs"]
+mod white_space_and_the_line_breaking_properties_decide_where_a_line_ends;
 #[path = "abs_pos_anomalies.rs"]
 mod abs_pos_anomalies;
 #[path = "abspos_in_flex_containing_block.rs"]
@@ -200,6 +202,8 @@ mod delete_keyed_to_caret_owner;
 mod damage_raster_reports_what_it_painted;
 #[path = "demo_layout_regressions.rs"]
 mod demo_layout_regressions;
+#[path = "direction_and_unicode_bidi_order_the_glyphs_of_a_line.rs"]
+mod direction_and_unicode_bidi_order_the_glyphs_of_a_line;
 #[path = "display_list_ids.rs"]
 mod display_list_ids;
 #[path = "dl_patch_golden.rs"]
@@ -216,6 +220,8 @@ mod drag_selection_scroll;
 mod e2e_pixel_diff;
 #[path = "embedded_font_renders.rs"]
 mod embedded_font_renders;
+#[path = "font_feature_settings_font_variant_caps_and_font_variant_numeric_ask_the_font_for_their_features.rs"]
+mod font_feature_settings_font_variant_caps_and_font_variant_numeric_ask_the_font_for_their_features;
 #[path = "font_optical_sizing_sets_opsz_to_the_font_size_unless_it_is_none.rs"]
 mod font_optical_sizing_sets_opsz_to_the_font_size_unless_it_is_none;
 #[path = "font_stretch_and_font_style_reach_the_wdth_slnt_and_ital_axes.rs"]
@@ -262,6 +268,10 @@ mod h1_margin_em_resolution;
 mod h1_p_margin_collapse;
 #[path = "hover_manager.rs"]
 mod hover_manager;
+#[path = "initial_letter_makes_room_for_a_big_first_letter_in_the_first_lines.rs"]
+mod initial_letter_makes_room_for_a_big_first_letter_in_the_first_lines;
+#[path = "hostile_values_of_the_font_properties_cost_a_bounded_amount_of_work.rs"]
+mod hostile_values_of_the_font_properties_cost_a_bounded_amount_of_work;
 #[path = "icon_pipeline.rs"]
 mod icon_pipeline;
 #[path = "a_measured_dom_ends_where_its_scroll_box_ends.rs"]
@@ -298,6 +308,8 @@ mod integration_test_registry_is_exhaustive;
 mod keyboard_selection_is_painted;
 #[path = "keycode_table_manifest_is_exhaustive.rs"]
 mod keycode_table_manifest_is_exhaustive;
+#[path = "letter_spacing_word_spacing_and_tab_size_move_the_glyphs_of_a_line.rs"]
+mod letter_spacing_word_spacing_and_tab_size_move_the_glyphs_of_a_line;
 #[path = "list_item_editing.rs"]
 mod list_item_editing;
 #[path = "list_marker_counter.rs"]
@@ -468,6 +480,12 @@ mod test_scrollbar_detection;
 mod test_style_tag_parsing;
 #[path = "test_text_layout.rs"]
 mod test_text_layout;
+#[path = "text_align_last_text_justify_and_text_indent_place_the_words_of_a_line.rs"]
+mod text_align_last_text_justify_and_text_indent_place_the_words_of_a_line;
+#[path = "text_shadow_wraps_the_text_it_shadows_in_the_display_list.rs"]
+mod text_shadow_wraps_the_text_it_shadows_in_the_display_list;
+#[path = "text_transform_changes_the_letters_that_are_drawn.rs"]
+mod text_transform_changes_the_letters_that_are_drawn;
 #[path = "text3_baseline_exact.rs"]
 mod text3_baseline_exact;
 #[path = "text3_brutal_selection.rs"]
