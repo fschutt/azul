@@ -10051,11 +10051,29 @@ impl LayoutWindow {
                     h = h.rotate_left(13) ^ v;
                     h = h.wrapping_mul(0x0100_0000_01b3);
                 };
+                // `font-variation-settings` and `font-optical-sizing` have no compact slot: a
+                // document that declares one asks the cascade for the value of each node, so the
+                // values are font requirements too (a restyle that changes only a setting must
+                // resolve its chain again). A document that declares neither pays nothing.
+                let declares_variation = cc.dom_declared(
+                    azul_css::compact_cache::DOM_HAS_FONT_VARIATION_SETTINGS
+                        | azul_css::compact_cache::DOM_HAS_FONT_OPTICAL_SIZING,
+                );
                 for (i, &fh) in cc.prev_font_hashes.iter().enumerate() {
                     mix(fh);
                     if let Some(&tier1) = cc.tier1_enums.get(i) {
                         mix((tier1 >> azul_css::compact_cache::FONT_STYLE_SHIFT)
                             & azul_css::compact_cache::FONT_STYLE_MASK);
+                    }
+                    if declares_variation {
+                        let id = NodeId::new(i);
+                        if let Some(node) = styled_dom.styled_nodes.as_container().get(id) {
+                            mix(solver3::getters::font_variation_inputs_hash(
+                                &styled_dom,
+                                id,
+                                &node.styled_node_state,
+                            ));
+                        }
                     }
                     // The weight, the width and the slant of the font: the numbers a
                     // variable font is drawn at, so each of them is a font requirement.
@@ -37826,7 +37844,7 @@ mod autotest_generated {
             .font_manager
             .font_chain_cache
             .keys()
-            .map(|k| k.optical_size)
+            .map(|k| k.request.optical_size)
             .collect();
         assert!(
             sizes.contains(&40),
@@ -37866,7 +37884,7 @@ mod autotest_generated {
             .font_manager
             .font_chain_cache
             .keys()
-            .map(|k| k.optical_size)
+            .map(|k| k.request.optical_size)
             .collect();
         assert!(
             sizes.contains(&20),

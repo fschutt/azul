@@ -103,6 +103,11 @@
 #[path = "common/fakefont.rs"]
 mod fakefont;
 
+/// The variable faces and the helpers the variable-font tests share (`tests/common/variable_fonts.rs`).
+#[cfg(feature = "text_layout")]
+#[path = "common/variable_fonts.rs"]
+mod variable_fonts;
+
 // --- the registered integration tests, alphabetically ---
 
 #[path = "a_bold_request_draws_the_bold_instance_of_a_variable_font.rs"]
@@ -117,6 +122,8 @@ mod a_context_menu_opens_from_a_secondary_press;
 mod a_drag_selection_owns_the_scroll_of_its_field;
 #[path = "a_hundred_and_twenty_nested_blocks_lay_out_on_a_two_megabyte_thread.rs"]
 mod a_hundred_and_twenty_nested_blocks_lay_out_on_a_two_megabyte_thread;
+#[path = "a_numeric_font_weight_draws_the_variable_font_at_exactly_that_weight.rs"]
+mod a_numeric_font_weight_draws_the_variable_font_at_exactly_that_weight;
 #[path = "a_press_on_an_overflowing_field_selects.rs"]
 mod a_press_on_an_overflowing_field_selects;
 #[path = "a_scroll_box_scrolls_to_its_end_padding.rs"]
@@ -127,6 +134,12 @@ mod a_selection_drag_autoscrolls_the_box_its_text_scrolls_in;
 mod a_selection_reveal_shows_its_focus_end;
 #[path = "a_screen_reader_reads_a_host_with_paragraphs.rs"]
 mod a_screen_reader_reads_a_host_with_paragraphs;
+#[path = "a_variable_font_has_at_most_so_many_instances.rs"]
+mod a_variable_font_has_at_most_so_many_instances;
+#[path = "a_variable_font_never_reaches_shaping_as_a_variable_file.rs"]
+mod a_variable_font_never_reaches_shaping_as_a_variable_file;
+#[path = "a_variable_font_registered_in_memory_is_drawn_at_the_exact_weight.rs"]
+mod a_variable_font_registered_in_memory_is_drawn_at_the_exact_weight;
 #[path = "abs_pos_anomalies.rs"]
 mod abs_pos_anomalies;
 #[path = "abspos_in_flex_containing_block.rs"]
@@ -195,6 +208,12 @@ mod drag_selection_scroll;
 mod e2e_pixel_diff;
 #[path = "embedded_font_renders.rs"]
 mod embedded_font_renders;
+#[path = "font_optical_sizing_sets_opsz_to_the_font_size_unless_it_is_none.rs"]
+mod font_optical_sizing_sets_opsz_to_the_font_size_unless_it_is_none;
+#[path = "font_stretch_and_font_style_reach_the_wdth_slnt_and_ital_axes.rs"]
+mod font_stretch_and_font_style_reach_the_wdth_slnt_and_ital_axes;
+#[path = "font_variation_settings_win_over_the_properties_they_overlap.rs"]
+mod font_variation_settings_win_over_the_properties_they_overlap;
 #[path = "text_ink_is_not_cut_at_its_line_box.rs"]
 mod text_ink_is_not_cut_at_its_line_box;
 #[path = "empty_cells.rs"]
@@ -499,6 +518,8 @@ mod theme_conditional_stylesheet;
 mod token_vs_slicer_differential;
 #[path = "tray_events.rs"]
 mod tray_events;
+#[path = "two_runs_with_different_variations_never_share_a_chain_or_a_shaping.rs"]
+mod two_runs_with_different_variations_never_share_a_chain_or_a_shaping;
 #[path = "typed_script_font_fallback.rs"]
 mod typed_script_font_fallback;
 #[path = "typing_beside_a_block.rs"]

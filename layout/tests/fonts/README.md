@@ -388,3 +388,46 @@ moves the shadda first (HarfBuzz's and allsorts' Arabic mark reordering), so
 it sits on the letter and the fatha stacks on it (mark to mark): the shadda
 (50) at (-27, 256), the fatha (52) at (-35, 456) font units. Shaped in the
 text's order, the fatha sat on the letter under the shadda.
+
+## 12. azul-mock-variable.ttf - five variation axes, one glyph for each
+
+Made by `python3 scripts/gen_variable_test_font.py` (fontTools; deterministic, like the others).
+
+| | |
+|---|---|
+| family name | **Azul Mock Variable** |
+| upem / ascent / descent | 1000 / 800 / -200 |
+| numGlyphs | 96 (`.notdef`, `space`, the 94 other printable ASCII characters; `W D S I O` are the varying ones) |
+| cmap | U+0020..U+007E |
+| advance (every other glyph) | **500** at every coordinate |
+| tables | `cmap glyf head hhea hmtx loca maxp name OS/2 post fvar gvar` (no `avar`, `HVAR`, `MVAR`, `STAT`) |
+
+The advances vary through the phantom points of the glyphs' `gvar` tuples, one
+tuple per side of the default of the axis. Each varying glyph depends on ONE axis only, linearly
+in user units, so a test reads which axis moved and by how much from one advance:
+
+| axis | min / default / max | glyph | advance (font units) | e.g. |
+|------|---------------------|-------|----------------------|------|
+| `wght` | 300 / 400 / 700 | `W` | 500 + 1 * (wght - 400) | 650 -> 750, 300 -> 400 |
+| `wdth` | 75 / 100 / 125 | `D` | 500 + 4 * (wdth - 100) | 87.5 -> 450, 75 -> 400 |
+| `slnt` | -15 / 0 / 0 | `S` | 500 + 10 * slnt | -10 -> 400, -15 -> 350 |
+| `ital` | 0 / 0 / 1 | `I` | 500 + 100 * ital | 1 -> 600 |
+| `opsz` | 8 / 14 / 144 | `O` | 500 + 2 * (opsz - 14) | 8 -> 488, 144 -> 760, 20 -> 512 |
+
+The face's OS/2 says Regular, weight class 400, width class 5. The default
+instance is the font with every advance 500.
+
+## 13. Cantarell-VF.otf - a CFF2 variable font
+
+| | |
+|---|---|
+| family name | **Cantarell** (the Cantarell Project's variable font) |
+| licence | SIL OFL 1.1, `Cantarell-OFL.txt` |
+| numGlyphs | 1307 |
+| axes | `wght` 100 / 400 / 800 |
+| tables | `CFF2 GDEF GPOS GSUB HVAR MVAR OS/2 STAT avar cmap fvar head hhea hmtx maxp name post` |
+
+The one face of the tests whose outlines are CFF2 (the other variable faces are TrueType, `glyf`
+with `gvar`): `a_variable_font_never_reaches_shaping_as_a_variable_file` checks that an instance of
+it is a static face too. Not made by a script; a copy of the file the printpdf and rust-fontconfig
+tests use.

@@ -370,7 +370,7 @@
     ],
     "struct GroupItem": ["source", "run_byte_offset", "style", "source_node_id"],
     "struct CompactShapedEntry": ["clusters"],
-    "struct FontManager": ["vf_bake_cache", "loaded_fonts_memo"],
+    "struct FontManager": ["loaded_fonts_memo"],
     "impl Glyph": [
       "bounds",
       "character_class",

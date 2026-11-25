@@ -1753,10 +1753,10 @@ mod autotest_generated {
     /// screen; a face with a bold cut, or a regular run, is not.
     #[test]
     fn pdf_runs_say_when_bold_is_synthesized() {
-        use crate::text3::cache::{FontSelector, FontStack};
+        use crate::text3::cache::{FontRequest, FontSelector, FontStack};
         let bold = styled(|s| {
             s.font_stack = FontStack::Stack(vec![FontSelector {
-                weight: rust_fontconfig::FcWeight::Bold,
+                request: FontRequest::default().with_weight_bucket(rust_fontconfig::FcWeight::Bold),
                 ..FontSelector::default()
             }]);
         });

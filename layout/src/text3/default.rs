@@ -80,10 +80,8 @@ impl PathLoader {
         let font_bytes = std::fs::read(path).map_err(|_| {
             LayoutError::FontNotFound(FontSelector {
                 family: path.to_string_lossy().into_owned(),
-                weight: rust_fontconfig::FcWeight::Normal,
-                style: crate::text3::cache::FontStyle::Normal,
+                request: crate::text3::cache::FontRequest::default(),
                 unicode_ranges: Vec::new(),
-                optical_size: 0,
             })
         })?;
         let arc_owned = Arc::<[u8]>::from(font_bytes);
