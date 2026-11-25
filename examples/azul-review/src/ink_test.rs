@@ -108,7 +108,7 @@ fn what_a_stroke_in_progress_has_painted_is_told() {
         id: 9,
         epoch: 0,
     };
-    shown.paint(Some(&live), &mut |_, _, _, _, _| {});
+    shown.paint(Some(&live), 1.0, &mut |_, _, _, _, _| {});
     assert_eq!(shown.progress(), Some((9, 5)));
 }
 
