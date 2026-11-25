@@ -845,9 +845,10 @@ fn sheet(s: &AppState, data: &RefAny) -> Dom {
         panel.add_child(
             Dom::create_node(NodeType::Button)
                 .with_css(
-                    "display: flex; flex-direction: row; align-items: center; gap: 10px; height: 44px; padding: \
-                     0px 22px; font-size: 15px; border-radius: 8px; border: 0px solid transparent; background: \
-                     system:accent; color: system:accent-text; cursor: pointer; margin-top: 6px;",
+                    "display: flex; flex-direction: row; align-items: center; align-self: center; gap: 10px; \
+                     height: 44px; padding: 0px 22px; font-size: 15px; border-radius: 8px; border: 0px solid \
+                     transparent; background: system:accent; color: system:accent-text; cursor: pointer; \
+                     margin-top: 6px;",
                 )
                 .with_accessibility_name(name.clone())
                 .with_callback(

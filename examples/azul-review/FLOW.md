@@ -82,7 +82,8 @@ keychain item, never the key in the settings file). Everything mockable: agent, 
 |------|-------|
 | Pages of the open file, ink with the mouse, trackpad or pen, five meanings (keys 1 to 5) | built |
 | Ink rasterised at the window's device pixel ratio, drawn by the GPU with an automatic fallback to the CPU renderer | built |
-| A stroke ends with any release, a move that finds the pointer not pressed, the pointer leaving, the focus lost; the last 200 pointer events can be saved | built |
+| A stroke ends with any release, a move that finds the pointer not pressed, the pointer leaving, the focus lost; the last 200 pointer events can be saved (Session menu, `AZREVIEW_EVENTS`, the debug op `azreview_pointer_log`) | built |
+| A tap by a mouse or a trackpad changes no nib and selects no audio pen; a pen's tap still cycles the nib | built |
 | Open folder (button in the title row, Mod+O), the folder named in the title row, the last folder remembered, an empty page with a large button; the files folded away at the start | built |
 | Dictation by the pen at rest (a note in the side column, a marker on the page) | built |
 | Top edge in the title-bar row, vertical page strip, sliding full-height file tree, bottom agents bar, right whiteboard bar | planned (the layout refactor) |
