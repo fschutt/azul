@@ -149,7 +149,7 @@ smoke_kotlin() {
   local out="$WORK_DIR/kotlin"; rm -rf "$out"; mkdir -p "$out"
   JAVA_HOME="${JAVA_HOME:-$(cd "$("${JDK_BIN}java" -XshowSettings:properties -version 2>&1 \
     | sed -n 's/^ *java.home = //p')" 2>/dev/null && pwd)}" \
-    kotlinc -J-Xmx4g -nowarn -cp "$JNA_JAR" "$CODEGEN_DIR/kotlin/Azul.kt" "$SRC_DIR/kotlin.kt" \
+    kotlinc -J-Xmx8g -nowarn -cp "$JNA_JAR" "$CODEGEN_DIR/kotlin/Azul.kt" "$SRC_DIR/kotlin.kt" \
       -include-runtime -d "$out/smoke.jar" || return 1
   "${JDK_BIN}java" -Djna.library.path="$LIB_DIR" -cp "$out/smoke.jar:$JNA_JAR" com.azul.KotlinKt
 }

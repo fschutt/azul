@@ -136,7 +136,7 @@ run_kotlin() {
             SKIP_LIST+=("kotlin: hello-world.jar missing and kotlinc not in PATH")
             popd >/dev/null; return
         fi
-        if ! kotlinc -J-Xmx4g -cp "$JNA_JAR" Azul.kt HelloWorld.kt -include-runtime \
+        if ! kotlinc -J-Xmx8g -cp "$JNA_JAR" Azul.kt HelloWorld.kt -include-runtime \
                 -d hello-world.jar > /tmp/kotlin_compile.log 2>&1; then
             echo "[kotlin] kotlinc FAIL — see /tmp/kotlin_compile.log"
             FAIL_LIST+=("kotlin")
