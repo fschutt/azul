@@ -15,7 +15,8 @@ use super::*;
 use crate::{
     agent_api::{AnthropicApi, AnthropicConfig, GeminiApi, GeminiApiConfig},
     agent_backend::{
-        never_cancelled, run_task, BackendKind, Body, Control, ManualClock, Request, Task,
+        never_cancelled, run_task, AgentError, BackendKind, Body, Control, ManualClock, Request,
+        Task,
     },
     agent_limits::Limits,
     agent_review::{Context, ReviewRequest, Utterance},
