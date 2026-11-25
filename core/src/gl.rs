@@ -3232,16 +3232,44 @@ impl Texture {
 
         let fbo = gl.gen_framebuffers(1).get(0).copied().unwrap_or(0);
         let vbo = gl.gen_buffers(1).get(0).copied().unwrap_or(0);
-        if fbo == 0 || vbo == 0 {
+        // A vertex array of its own: a core profile has no default one, and the one the renderer left
+        // bound is the renderer's - the attribute arrays set below would change it.
+        let vao = gl.gen_vertex_arrays(1).get(0).copied().unwrap_or(0);
+        if fbo == 0 || vbo == 0 || vao == 0 {
             if fbo != 0 {
                 gl.delete_framebuffers((&[fbo][..]).into());
             }
             if vbo != 0 {
                 gl.delete_buffers((&[vbo][..]).into());
             }
+            if vao != 0 {
+                gl.delete_vertex_arrays((&[vao][..]).into());
+            }
             return;
         }
 
+        // What whoever drew before (WebRender between two frames, another canvas callback) had bound
+        // and set: put back at the end, as `clear` and `draw` do. A stroke that left its own
+        // framebuffer, program, vertex array, viewport and blend state behind drew every frame
+        // after it wrong: the window showed nothing but its background.
+        let saved = GlStateSave::save(&gl);
+        let mut viewport = [0_i32; 4];
+        gl.get_integer_v(gl::VIEWPORT, (&mut viewport[..]).into());
+        let mut blend = [0_u8];
+        gl.get_boolean_v(gl::BLEND, (&mut blend[..]).into());
+        let mut scissor = [0_u8];
+        gl.get_boolean_v(gl::SCISSOR_TEST, (&mut scissor[..]).into());
+        let mut blend_func = [0_i32; 4];
+        for (slot, name) in blend_func.iter_mut().zip([
+            gl::BLEND_SRC_RGB,
+            gl::BLEND_DST_RGB,
+            gl::BLEND_SRC_ALPHA,
+            gl::BLEND_DST_ALPHA,
+        ]) {
+            gl.get_integer_v(name, (&mut core::slice::from_mut(slot)[..]).into());
+        }
+
+        gl.bind_vertex_array(vao);
         gl.bind_framebuffer(gl::FRAMEBUFFER, fbo);
         gl.framebuffer_texture_2d(
             gl::FRAMEBUFFER,
@@ -3251,8 +3279,17 @@ impl Texture {
             0,
         );
         gl.viewport(0, 0, self.size.width as i32, self.size.height as i32);
+        // A scissor the renderer left on would cut the dabs to its rectangle.
+        gl.disable(gl::SCISSOR_TEST);
         gl.enable(gl::BLEND);
-        gl.blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+        // The texture is composited as premultiplied alpha: the colour is multiplied by the dab's
+        // alpha (src alpha), the alpha is "over" (one, one minus src alpha).
+        gl.blend_func_separate(
+            gl::SRC_ALPHA,
+            gl::ONE_MINUS_SRC_ALPHA,
+            gl::ONE,
+            gl::ONE_MINUS_SRC_ALPHA,
+        );
         gl.use_program(prog);
 
         let a = (f32::from(brush.color.a) / 255.0) * brush.flow.clamp(0.0, 1.0);
@@ -3303,11 +3340,25 @@ impl Texture {
 
         gl.disable_vertex_attrib_array(0);
         gl.disable_vertex_attrib_array(1);
-        gl.bind_buffer(gl::ARRAY_BUFFER, 0);
-        gl.disable(gl::BLEND);
-        gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
+        // The renderer's state back: the blend and scissor switches, the blend function, the viewport,
+        // then its bindings.
+        if scissor[0] != 0 {
+            gl.enable(gl::SCISSOR_TEST);
+        }
+        if blend[0] == 0 {
+            gl.disable(gl::BLEND);
+        }
+        gl.blend_func_separate(
+            blend_func[0] as u32,
+            blend_func[1] as u32,
+            blend_func[2] as u32,
+            blend_func[3] as u32,
+        );
+        gl.viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+        saved.restore(&gl);
         gl.delete_buffers((&[vbo][..]).into());
         gl.delete_framebuffers((&[fbo][..]).into());
+        gl.delete_vertex_arrays((&[vao][..]).into());
     }
 
     /// Read this texture's pixels back into an RGBA8 `RawImage` (top-left origin)
