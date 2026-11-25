@@ -91,7 +91,7 @@ fn another_file_another_page_or_another_size_draws_anew() {
 
 #[test]
 fn a_frame_that_is_current_needs_nothing_and_a_new_frame_everything() {
-    let mut r = InkRevisions::default();
+    let r = InkRevisions::default();
     let key = r.key(0, SIZE);
     assert_eq!(catch_up(Some(key), key, None, None, Layer::Pen, None), CatchUp::Same);
     assert_eq!(catch_up(None, key, None, None, Layer::Pen, None), CatchUp::Whole);
