@@ -76,6 +76,10 @@ pub mod screencap;
 ///   the network ([`sensors::network`]), each a synchronous query
 ///   of a cached or cheap reading; a fixed reading (or a test's switch file) in headless runs.
 pub mod sensors;
+/// The desktop's state, polled: the app in front, the pointer on the desktop, the lock and the display's
+/// sleep (`DesktopState::query`): the readings of a recorder or an app that reacts to the desktop, kept
+/// apart from [`sensors`] because they say more about the person than the device does.
+pub mod desktop_state;
 /// The user's session: the screen locked or unlocked, the machine about to
 /// sleep or awake (`SessionChange` events), from the platform's observers.
 pub mod session;

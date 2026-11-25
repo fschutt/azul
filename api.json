@@ -208977,6 +208977,68 @@
                         },
                         "repr": "C"
                     },
+                    "DesktopState": {
+                        "doc": [
+                            "The desktop's state, polled: the app in front, the pointer on the desktop, whether the screen is locked and whether the display sleeps. Cheap enough to ask ten or twenty times a second from the thread that asks; no permission of the system is needed. macOS today; where a platform has no reading every field is 'not known' and the screen is not locked. In a headless or E2E test run it is what the file named by AZ_DESKTOP_STATE_FILE says. It reads the app's bundle id and name, the pointer's place, the lock and the display's sleep and nothing else (no window titles or contents, no keys, no clicks, no list of the other apps), and keeps and sends nothing: an app that asks says so to the person."
+                        ],
+                        "external": "azul_dll::unified::desktop_state::DesktopState",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "front_bundle": {
+                                    "type": "OptionString",
+                                    "doc": [
+                                        "The bundle id of the app in front (com.apple.Safari); none where it is not known."
+                                    ]
+                                },
+                                "front_name": {
+                                    "type": "OptionString",
+                                    "doc": [
+                                        "The name of the app in front."
+                                    ]
+                                },
+                                "pointer": {
+                                    "type": "OptionScreenPosition",
+                                    "doc": [
+                                        "The pointer's place on the desktop, points from the top left of the primary display; none where it is not known."
+                                    ]
+                                },
+                                "locked": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "The screen is locked, or the screen saver shows."
+                                    ]
+                                },
+                                "display_asleep": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "The main display is asleep."
+                                    ]
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "query": {
+                                "doc": [
+                                    "The desktop now."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::unified::desktop_state::DesktopState::query()"
+                            },
+                            "headless": {
+                                "doc": [
+                                    "What a headless or E2E run reports when no script says otherwise: nothing known, nothing locked."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::unified::desktop_state::DesktopState::headless()"
+                            }
+                        },
+                        "repr": "C"
+                    },
                     "BatteryState": {
                         "external": "azul_dll::unified::sensors::BatteryState",
                         "derive": [
