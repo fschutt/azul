@@ -435,6 +435,9 @@ pub struct Completion {
     pub usage: Usage,
     /// The model that answered, as the service says (it may differ from the one asked for).
     pub model: String,
+    /// What the backend noticed or cut on the way (the answer stopped at the token limit): joined
+    /// to the response's diagnostics.
+    pub notes: Vec<String>,
 }
 
 /// What a request came to.
@@ -511,6 +514,7 @@ pub fn run_task(
     let elapsed_ms = ctl.now_ms().saturating_sub(started);
     let mut notes = Notes::new();
     notes.extend(call.diagnostics.iter().cloned());
+    notes.extend(completion.notes.iter().cloned());
     let body = match request {
         Request::Review(review) => Body::Review(agent_review::parse_body(
             review,

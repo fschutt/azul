@@ -45,10 +45,13 @@ use azul_appkit::{
 };
 
 pub mod agent_backend;
+pub mod agent_claude;
+pub mod agent_gemini;
 pub mod agent_json;
 pub mod agent_limits;
 pub mod agent_mock;
 pub mod agent_pool;
+pub mod agent_process;
 pub mod agent_review;
 pub mod agent_settings;
 pub mod agent_stroke;

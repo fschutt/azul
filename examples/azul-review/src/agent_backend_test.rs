@@ -501,6 +501,7 @@ impl Backend for Scripted {
                 ..Usage::default()
             },
             model: "script-1".to_string(),
+            notes: Vec::new(),
         })
     }
 }

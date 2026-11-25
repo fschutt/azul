@@ -1,0 +1,42 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000004",
+  "response": "{\"answer\": \"ok\", \"suggestions\": []}",
+  "stats": {
+    "models": {
+      "gemini-2.5-flash": {
+        "api": {
+          "totalRequests": 1,
+          "totalErrors": 0,
+          "totalLatencyMs": 1180,
+          "errorsByType": {}
+        },
+        "tokens": {
+          "input": 402,
+          "prompt": 1450,
+          "candidates": 14,
+          "total": 1481,
+          "cached": 1048,
+          "thoughts": 17,
+          "tool": 0
+        }
+      }
+    },
+    "tools": {
+      "totalCalls": 0,
+      "totalSuccess": 0,
+      "totalFail": 0,
+      "totalDurationMs": 0,
+      "totalDecisions": {
+        "accept": 0,
+        "reject": 0,
+        "modify": 0,
+        "auto_accept": 0
+      },
+      "byName": {}
+    },
+    "files": {
+      "totalLinesAdded": 0,
+      "totalLinesRemoved": 0
+    }
+  }
+}

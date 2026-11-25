@@ -310,6 +310,7 @@ impl Backend for MockBackend {
                         ..Usage::default()
                     },
                     model: "mock".to_string(),
+                    notes: Vec::new(),
                 })
             }
             Step::Fail { delay_ms, error } => {
