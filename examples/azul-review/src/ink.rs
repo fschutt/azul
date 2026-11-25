@@ -41,32 +41,36 @@ pub const MAX_RASTER_SCALE: f32 = 4.0;
 /// "transparent white" (255, 255, 255, 0) would not be nothing: it ADDS white to everything under the
 /// layer, and the code under the pen's layer disappears.
 pub const CLEAR: ColorU = ColorU {
-    r: 255,
-    g: 255,
-    b: 255,
+    r: 0,
+    g: 0,
+    b: 0,
     a: 0,
-}; // RED STUB
+};
 
 /// The scale a layer is rasterised at: the window's device pixel ratio (2 on a Retina display), so
 /// a stroke's edge is as sharp as the display's pixels; 1 where the window reports none or nonsense.
 #[must_use]
 pub fn raster_scale(device_pixel_ratio: f32) -> f32 {
-    let _ = device_pixel_ratio;
-    1.0 // RED STUB
+    if device_pixel_ratio.is_finite() && device_pixel_ratio >= 1.0 {
+        device_pixel_ratio.min(MAX_RASTER_SCALE)
+    } else {
+        1.0
+    }
 }
 
 /// A layer's frame size in px: its `logical` size (px at 1x) at `scale`, whole px, at least one each way.
 #[must_use]
 pub fn raster_size(logical: (f32, f32), scale: f32) -> (u32, u32) {
-    let px = |v: f32| (v * 1.0 * (scale * 0.0 + 1.0)).round().max(0.0) as u32; // RED STUB
+    let px = |v: f32| (v * scale).round().max(1.0) as u32;
     (px(logical.0), px(logical.1))
 }
 
 /// `b` as it is in a frame rasterised at `scale`: the nib is as wide on the screen as at 1x, so in the
 /// frame's px it is `scale` times as wide.
 #[must_use]
-pub fn brush_at(b: Brush, _scale: f32) -> Brush {
-    b // RED STUB
+pub fn brush_at(mut b: Brush, scale: f32) -> Brush {
+    b.radius *= scale;
+    b
 }
 
 /// Which strokes a layer draws.
@@ -312,23 +316,23 @@ fn paint_from(
 ) {
     if let [p] = stroke.points.as_slice() {
         paint(
-            p.x,
-            p.y,
-            p.x,
-            p.y,
+            p.x * scale,
+            p.y * scale,
+            p.x * scale,
+            p.y * scale,
             brush_at(brush(stroke.semantic, p.pressure), scale),
-        ); // RED STUB
+        );
         return;
     }
     for i in from.max(1)..stroke.points.len() {
         let (a, b) = (stroke.points[i - 1], stroke.points[i]);
         paint(
-            a.x,
-            a.y,
-            b.x,
-            b.y,
+            a.x * scale,
+            a.y * scale,
+            b.x * scale,
+            b.y * scale,
             brush_at(brush(stroke.semantic, (a.pressure + b.pressure) * 0.5), scale),
-        ); // RED STUB
+        );
     }
 }
 
