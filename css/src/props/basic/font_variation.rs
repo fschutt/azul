@@ -30,7 +30,7 @@ use crate::{
 ///
 /// No exponent, no `inf` or `NaN`, no trailing dot. The value is finite (a digit string too long
 /// for an `f32` is not a number here) and `-0` is `0`, so a number has one canonical spelling.
-fn parse_decimal(text: &str) -> Option<f32> {
+pub(crate) fn parse_decimal(text: &str) -> Option<f32> {
     let bytes = text.as_bytes();
     let unsigned = &bytes[usize::from(matches!(bytes.first(), Some(b'+' | b'-')))..];
     let (mut whole, mut fraction, mut dot) = (0_usize, 0_usize, false);

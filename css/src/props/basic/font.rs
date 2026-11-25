@@ -1026,22 +1026,10 @@ impl CssFontWeightParseErrorOwned {
 }
 
 #[cfg(feature = "parser")]
-/// A CSS `<number>` the way the font properties take it: an optional sign,
-/// digits with an optional fraction (`350`, `-0.5`, `.5`), no exponent. Finite.
+/// A CSS `<number>` the way the font properties take it: an optional sign, digits with an
+/// optional fraction (`350`, `-0.5`, `.5`), no exponent. Finite.
 fn parse_plain_number(text: &str) -> Option<f32> {
-    let body = text.strip_prefix(['+', '-']).unwrap_or(text);
-    let (whole, fraction) = match body.split_once('.') {
-        Some((whole, fraction)) => (whole, Some(fraction)),
-        None => (body, None),
-    };
-    let whole_ok = whole.bytes().all(|b| b.is_ascii_digit());
-    let fraction_ok = fraction.is_none_or(|digits| {
-        !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
-    });
-    if !whole_ok || !fraction_ok || (whole.is_empty() && fraction.is_none()) {
-        return None;
-    }
-    text.parse::<f32>().ok().filter(|value| value.is_finite())
+    crate::props::basic::font_variation::parse_decimal(text)
 }
 
 #[cfg(feature = "parser")]
@@ -1112,7 +1100,7 @@ fn parse_oblique_angle(text: &str) -> Option<FloatValue> {
     } else if let Some(number) = text.strip_suffix("grad") {
         parse_plain_number(number)? * 360.0 / 400.0
     } else if let Some(number) = text.strip_suffix("rad") {
-        parse_plain_number(number)? * 180.0 / core::f32::consts::PI
+        parse_plain_number(number)?.to_degrees()
     } else if let Some(number) = text.strip_suffix("turn") {
         parse_plain_number(number)? * 360.0
     } else {

@@ -368,8 +368,7 @@ fn computed_and_is_relative_work_in_const_context() {
     const LIGHTER_IS_RELATIVE: bool = StyleFontWeight::Lighter.is_relative();
     const BOLD_IS_RELATIVE: bool = StyleFontWeight::BOLD.is_relative();
     assert_eq!(BOLDER_THAN_NORMAL, StyleFontWeight::BOLD);
-    assert!(LIGHTER_IS_RELATIVE);
-    assert!(!BOLD_IS_RELATIVE);
+    assert_eq!([LIGHTER_IS_RELATIVE, BOLD_IS_RELATIVE], [true, false]);
 }
 
 // ---- parse_font_weight -------------------------------------------------------------------------
