@@ -1243,6 +1243,9 @@ pub enum CssParseWarnMsgInner<'a> {
         value: &'a str,
         count: usize,
     },
+    /// A `font-variation-settings` value that writes `count` distinct axis tags, more than the
+    /// `MAX_VARIATION_AXES` a node keeps: the first ones are kept, the rest is dropped.
+    TooManyVariationAxes { key: &'a str, count: usize },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1271,6 +1274,10 @@ pub enum CssParseWarnMsgInnerOwned {
     TooManyShadows {
         key: String,
         value: String,
+        count: usize,
+    },
+    TooManyVariationAxes {
+        key: String,
         count: usize,
     },
 }
@@ -1313,6 +1320,12 @@ impl CssParseWarnMsgInner<'_> {
                     count: *count,
                 }
             }
+            Self::TooManyVariationAxes { key, count } => {
+                CssParseWarnMsgInnerOwned::TooManyVariationAxes {
+                    key: (*key).to_string(),
+                    count: *count,
+                }
+            }
         }
     }
 }
@@ -1347,6 +1360,9 @@ impl CssParseWarnMsgInnerOwned {
                 value,
                 count: *count,
             },
+            Self::TooManyVariationAxes { key, count } => {
+                CssParseWarnMsgInner::TooManyVariationAxes { key, count: *count }
+            }
         }
     }
 }
@@ -1362,6 +1378,7 @@ impl_display! { CssParseWarnMsgInner<'a>, {
     MalformedStructure { message } => format!("Malformed CSS structure: {}", message),
     VarWithoutFallback { key, value } => format!("'{}: {}' reads a variable without a fallback: where it is undefined the property takes its initial value; write var(--name, <fallback>)", key, value),
     TooManyShadows { key, value, count } => format!("'{}: {}' lists {} shadows: a node keeps the first {}, the rest is dropped", key, value, count, crate::props::style::box_shadow::MAX_BOX_SHADOWS),
+    TooManyVariationAxes { key, count } => format!("'{}' lists {} axes: a node keeps the first {}, the rest is dropped", key, count, crate::props::basic::font_variation::MAX_VARIATION_AXES),
 }}
 
 /// Parses @media conditions from the content following "@media"
@@ -2521,6 +2538,11 @@ fn css_blocks_to_stylesheet<'a>(
                     {
                         warnings.push(CssParseWarnMsg { warning, location });
                     }
+                    if let Some(warning) =
+                        too_many_variation_axes(unparsed_css_key, unparsed_css_value, css_key_map)
+                    {
+                        warnings.push(CssParseWarnMsg { warning, location });
+                    }
                     declarations.extend(decls);
                 }
                 Err(e) => {
@@ -2562,6 +2584,21 @@ fn too_many_shadows<'a>(
     }
     let count = crate::props::basic::parse::split_string_respect_comma(value).len();
     (count > MAX_BOX_SHADOWS).then_some(CssParseWarnMsgInner::TooManyShadows { key, value, count })
+}
+
+/// The warning a KEPT `font-variation-settings` value that writes more distinct axis tags than a
+/// node keeps (`MAX_VARIATION_AXES`) earns: the tags after them are dropped as the value is read.
+fn too_many_variation_axes<'a>(
+    key: &'a str,
+    value: &str,
+    css_key_map: &CssKeyMap,
+) -> Option<CssParseWarnMsgInner<'a>> {
+    use crate::props::basic::font_variation::{count_variation_axes, MAX_VARIATION_AXES};
+    if CssPropertyType::from_str(key, css_key_map) != Some(CssPropertyType::FontVariationSettings) {
+        return None;
+    }
+    let count = count_variation_axes(strip_important(value))?;
+    (count > MAX_VARIATION_AXES).then_some(CssParseWarnMsgInner::TooManyVariationAxes { key, count })
 }
 
 /// A declaration's value without its `!important` flag (CSS Cascade 4, 6.4:

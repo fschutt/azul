@@ -7,6 +7,7 @@
 //! error carries the trimmed input.
 
 use alloc::{
+    collections::BTreeSet,
     string::{String, ToString},
     vec::Vec,
 };
@@ -175,7 +176,8 @@ pub fn parse_style_font_stretch(input: &str) -> Result<StyleFontStretch, Invalid
 /// `"wght" 650`, `"wdth" 87.5`, `"opsz" 14`. Inherited. Held as its canonical CSS text (`normal`,
 /// or each axis as its tag in double quotes and its number, separated by `, `): one string keeps
 /// the value a single C struct. [`Self::variations`] reads the axes back; a tag given twice keeps
-/// only its last value, where it last stands. An axis a font does not have is ignored.
+/// only its last value, where it last stands. An axis a font does not have is ignored. A value
+/// keeps its first [`MAX_VARIATION_AXES`] distinct tags.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct StyleFontVariationSettings {
@@ -191,12 +193,20 @@ impl Default for StyleFontVariationSettings {
     }
 }
 
+/// The most axes one `font-variation-settings` value keeps.
+///
+/// The widest real variable font has about a dozen axes and a face ignores a tag it does not
+/// have, so a value that writes more distinct tags than this is a hostile or a mistaken one: its
+/// first `MAX_VARIATION_AXES` tags are kept (a later value of a kept tag still wins) and the rest
+/// is dropped, as the value is read, and the stylesheet parser says so in a warning.
+pub const MAX_VARIATION_AXES: usize = 64;
+
 impl StyleFontVariationSettings {
     /// The value for `variations`, each an axis tag and its number; `normal` for none. A tag
     /// listed twice keeps its last value, at the place it last stands. An entry the grammar
     /// cannot hold - a tag that is not four printable ASCII characters (or holds both kinds of
     /// quote), a number that is not finite - is left out, so the text always reads back as what
-    /// it says.
+    /// it says. A list keeps its first [`MAX_VARIATION_AXES`] distinct tags.
     #[must_use]
     pub fn from_variations(variations: &[([u8; 4], f32)]) -> Self {
         let mut kept: Vec<([u8; 4], f32)> = Vec::new();
@@ -204,8 +214,7 @@ impl StyleFontVariationSettings {
             if !is_variation_tag(*tag) || !value.is_finite() {
                 continue;
             }
-            kept.retain(|(other, _)| other != tag);
-            kept.push((*tag, if *value == 0.0 { 0.0 } else { *value }));
+            keep_variation(&mut kept, *tag, if *value == 0.0 { 0.0 } else { *value });
         }
         if kept.is_empty() {
             return Self::default();
@@ -249,13 +258,27 @@ fn variation_text(tag: [u8; 4], value: f32) -> String {
     format!("{quote}{name}{quote} {value}")
 }
 
-/// The `(tag, value)` list of a `font-variation-settings` value that is not `normal`.
+/// Puts one axis into `kept`: a tag that is kept already takes the new value, at the end of the
+/// list (where it last stands); a new tag is appended while `kept` holds fewer than
+/// [`MAX_VARIATION_AXES`] axes and dropped after that. The scan is over at most
+/// [`MAX_VARIATION_AXES`] entries, so a list of any length is read in linear time.
+fn keep_variation(kept: &mut Vec<([u8; 4], f32)>, tag: [u8; 4], value: f32) {
+    if let Some(at) = kept.iter().position(|(other, _)| *other == tag) {
+        kept.remove(at);
+    } else if kept.len() >= MAX_VARIATION_AXES {
+        return;
+    }
+    kept.push((tag, value));
+}
+
+/// Reads the entries of a `font-variation-settings` value that is not `normal`, in order, and
+/// hands each tag and number to `entry`.
 ///
 /// Comma separated, each a quoted four-character printable-ASCII tag (double or single quotes),
-/// then a plain decimal number - which is required. A tag given twice keeps its last value,
-/// where it last stands. `None` for anything the grammar does not allow.
-fn parse_variation_list(input: &str) -> Option<Vec<([u8; 4], f32)>> {
-    let mut out: Vec<([u8; 4], f32)> = Vec::new();
+/// then a plain decimal number - which is required. `None` for anything the grammar does not
+/// allow (`entry` has run for the entries before the one that broke it). Every byte of the input
+/// is looked at a constant number of times, so the time is linear in its length.
+fn read_variation_entries(input: &str, mut entry: impl FnMut([u8; 4], f32)) -> Option<()> {
     let mut rest = input.trim_start();
     loop {
         let quote = rest.chars().next().filter(|c| *c == '"' || *c == '\'')?;
@@ -270,14 +293,37 @@ fn parse_variation_list(input: &str) -> Option<Vec<([u8; 4], f32)>> {
         let (number, next) = after_tag
             .split_once(',')
             .map_or((after_tag, None), |(number, next)| (number, Some(next)));
-        let value = parse_decimal(number.trim())?;
-        out.retain(|(other, _)| *other != tag);
-        out.push((tag, value));
+        entry(tag, parse_decimal(number.trim())?);
         let Some(next) = next else {
-            return Some(out);
+            return Some(());
         };
         rest = next.trim_start();
     }
+}
+
+/// The `(tag, value)` list of a `font-variation-settings` value that is not `normal`.
+///
+/// A tag given twice keeps its last value, where it last stands. `None` for anything the grammar
+/// does not allow (see [`read_variation_entries`]).
+fn parse_variation_list(input: &str) -> Option<Vec<([u8; 4], f32)>> {
+    let mut kept: Vec<([u8; 4], f32)> = Vec::new();
+    read_variation_entries(input, |tag, value| keep_variation(&mut kept, tag, value))?;
+    Some(kept)
+}
+
+/// How many distinct axis tags the `font-variation-settings` value `input` writes - what
+/// [`MAX_VARIATION_AXES`] caps: 0 for `normal`, `None` for a value that is not valid.
+#[must_use]
+pub fn count_variation_axes(input: &str) -> Option<usize> {
+    let trimmed = input.trim();
+    if trimmed.eq_ignore_ascii_case("normal") {
+        return Some(0);
+    }
+    let mut tags = BTreeSet::new();
+    read_variation_entries(trimmed, |tag, _| {
+        tags.insert(tag);
+    })?;
+    Some(tags.len())
 }
 
 impl PrintAsCssValue for StyleFontVariationSettings {
@@ -302,7 +348,8 @@ impl FormatAsRustCode for StyleFontVariationSettings {
 ///
 /// A tag is four printable ASCII characters in double or single quotes; the number is required
 /// and plain decimal (`"wght" 650`, `'wdth' -12.5`, `"opsz" .5`, `"slnt" +3`): no exponent, no
-/// `inf`, no `NaN`, no `on` / `off`. A tag given twice keeps its last value.
+/// `inf`, no `NaN`, no `on` / `off`. A tag given twice keeps its last value; the value keeps its
+/// first [`MAX_VARIATION_AXES`] distinct tags (the stylesheet parser warns about more).
 ///
 /// # Errors
 ///
