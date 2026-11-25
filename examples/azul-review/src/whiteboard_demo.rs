@@ -470,7 +470,7 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
 
 /// Starts the demo window: `whiteboard_demo [--size WxH] [--data-dir DIR] [--language en|de] [--shot FILE]`.
 pub fn run() {
-    let args = match AppArgs::parse(&crate::SPEC, std::env::args().skip(1).collect()) {
+    let args = match AppArgs::parse(&crate::SPEC, std::env::args().skip(1).collect::<Vec<String>>()) {
         Ok(a) => a,
         Err(why) => {
             eprintln!("{why}");
