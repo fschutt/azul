@@ -60,6 +60,7 @@ pub mod dictation;
 pub mod dwell;
 pub mod ids;
 pub mod ink;
+pub mod layout;
 #[cfg(test)]
 mod ink_tests;
 mod l10n;
