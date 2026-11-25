@@ -15,7 +15,15 @@
     5. Mod+S and the Save button write it again;
     6. the gear opens azul-appkit's settings page, About the standard About box
        (`AZREVIEW_ABOUT open`), Escape closes the box, Escape the page;
-    7. flora / dark: a screenshot (the chrome follows, the pages stay paper).
+    7. flora / dark: a screenshot (the chrome follows, the pages stay paper);
+   8. the dictation: the pointer resting on a page (`--dwell-ms 400 --dwell-input any`: the mouse
+      stands in for the pen, whose state this driver cannot inject) starts a note that listens - a
+      marker on the page, the note and the "listening" pill in the side column; a libazul built with
+      `test-hooks` hears `AZ_SPEECH_HEARD` (the fake speech backend) and the words arrive in the
+      column; a stroke, the stop button, Escape, a second rest and the pointer moving away each end
+      it; the note is saved in the archive. Without the test hooks the real recogniser is asked and
+      refuses (an unbundled binary has no Info.plist): the message is told over the pages and the
+      empty note is not kept. No `[azul][a11y]` lint line may print in either run.
 
 Run ONE app at a time, through the capped runner:
 
@@ -27,6 +35,8 @@ The debug-server client is the shared one (scripts/azlin_e2e.py).
 
 import json
 import os
+import re
+import time
 import zipfile
 
 import azlin_e2e as e2e
@@ -149,5 +159,147 @@ def body(args, logs, out):
     return True
 
 
+HEARD = "this loop is off by one"
+HOOKS_MARKER = b"AZLIN-BUILD-MARKER:test-hooks"
+
+
+def fake_speech():
+    """Whether the libazul the app loads has the test hooks (the fake speech backend)."""
+    found = e2e.libazul_candidates()
+    if not found:
+        return False
+    import mmap
+    with open(found[0], "rb") as lib:
+        with mmap.mmap(lib.fileno(), 0, access=mmap.ACCESS_READ) as data:
+            return data.find(HOOKS_MARKER) >= 0
+
+
+def no_lint(app, what):
+    """No `[azul][a11y]` (or other `[azul]`) lint line on the app's output."""
+    lines = []
+    for path in (app.out_path, app.err_path):
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                lines += [l for l in f.read().splitlines() if "[azul][a11y]" in l]
+        except OSError:
+            pass
+    if lines:
+        raise Failure("%s: azul's accessibility lint printed: %s" % (what, lines[:3]))
+
+
+def dictation(args, logs, out, binary, fake):
+    data_dir = os.path.join(logs, "data-dictation")
+    folder = os.path.join(logs, "folder-dictation")
+    os.makedirs(data_dir, exist_ok=True)
+    fixture(folder)
+    extra = {"AZ_SPEECH_HEARD": HEARD} if fake else {}
+    app = e2e.App("review-dictation", binary,
+                  [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en",
+                   "--dwell-ms", "400", "--dwell-input", "any", "--silence-ms", "6000"],
+                  args.debug_port + 1, logs, args.timeout, extra_env=extra)
+    try:
+        app.until("AzReview's window", lambda: app.has_id(STRIP))
+        app.frame(2)
+        app.click(text="lib.rs")
+        app.until("the files folded away", lambda: not app.has_id(FLYOUT))
+        strip = app.rect(STRIP)
+        base = (strip["x"] + 160.0, strip["y"] + 140.0)
+
+        def rest_at(dx, dy, what, n):
+            """The pointer moves to a new spot and stays: a dictation starts there."""
+            x, y = base[0] + dx, base[1] + dy
+            app.must("mouse_move", x=x, y=y)
+            app.frame(1)
+            app.until(what, lambda: (app.frame(1), app.count("AZREVIEW_DICTATION", r"started %d" % n) > 0)[1])
+
+        def ended(n, cause):
+            app.until("dictation %d ended (%s)" % (n, cause),
+                      lambda: (app.frame(1), app.count("AZREVIEW_DICTATION", r"ended %d %s" % (n, cause)) > 0)[1])
+
+        # 1. A rest starts a note that listens.
+        rest_at(0.0, 0.0, "the first dictation to start", 1)
+        app.until("the side column", lambda: app.has_id("__azreview_notes"))
+        app.until("the marker on the page", lambda: app.has_id("__azreview_marker-1", every_dom=True))
+        if fake:
+            app.until("the words in the column", lambda: app.shows(HEARD))
+            app.until("the listening pill", lambda: app.has_id("__azreview_listening"))
+            app.until("the stop button", lambda: app.has_id("__azreview_dictation-stop"))
+            app.screenshot(os.path.join(out, "5-listening.png"))
+            # A stroke elsewhere on the page ends it.
+            app.must("mouse_move", x=base[0] + 200.0, y=base[1] + 100.0)
+            app.must("mouse_down", x=base[0] + 200.0, y=base[1] + 100.0)
+            for i in range(1, 8):
+                app.must("mouse_move", x=base[0] + 200.0 + i * 12.0, y=base[1] + 100.0 + i * 3.0)
+                app.frame(1)
+            app.must("mouse_up", x=base[0] + 200.0 + 84.0, y=base[1] + 121.0)
+            app.frame(2)
+            ended(1, "(?:moved|drew)")
+            app.until("the note editable", lambda: app.has_id("__azreview_note-text-1"))
+            app.screenshot(os.path.join(out, "6-note.png"))
+            path = os.path.join(data_dir, ARCHIVE)
+            app.until("the archive with the note", lambda: os.path.exists(path) and notes_in(path))
+            notes = notes_in(path)
+            if HEARD not in notes[0].get("text", ""):
+                raise Failure("the archive's note does not hold the words: %s" % notes[0])
+            if notes[0].get("page") != 0:
+                raise Failure("the note's page: %s" % notes[0])
+
+            # 2. The stop button.
+            rest_at(0.0, 260.0, "the second dictation to start", 2)
+            app.until("the stop button", lambda: app.has_id("__azreview_dictation-stop"))
+            app.click(selector="#__azreview_dictation-stop")
+            ended(2, "button")
+            # 3. Escape.
+            rest_at(0.0, 0.0, "the third dictation to start", 3)
+            app.key("escape")
+            ended(3, "key")
+            # 4. A second rest, a little way off: the second dwell.
+            rest_at(0.0, 100.0, "the fourth dictation to start", 4)
+            app.must("mouse_move", x=base[0] + 20.0, y=base[1] + 100.0)
+            app.frame(1)
+            ended(4, "second-dwell")
+            # 5. The pointer moving far away.
+            rest_at(0.0, 300.0, "the fifth dictation to start", 5)
+            app.must("mouse_move", x=base[0] + 400.0, y=base[1] + 300.0)
+            app.frame(2)
+            ended(5, "moved")
+            # The notes: five cards (each said something), all editable.
+            app.until("five notes", lambda: all(app.has_id("__azreview_note-%d" % i) for i in (1, 2, 3, 4, 5)))
+            # Delete one with its button.
+            app.click(selector="#__azreview_note-delete-5")
+            app.until("the note gone", lambda: not app.has_id("__azreview_note-5"))
+            app.screenshot(os.path.join(out, "7-notes.png"))
+        else:
+            # The real recogniser refuses (the binary has no Info.plist, or no microphone is there):
+            # the user is told over the pages, and the empty note is not kept.
+            app.until("the refusal line", lambda: app.count("AZREVIEW_DICTATION", r"refused .*") > 0)
+            ended(1, "failed")
+            app.until("the refusal told over the pages",
+                      lambda: app.shows("Dictation") or app.shows("speech recognition"))
+            if app.has_id("__azreview_note-1"):
+                raise Failure("a note that heard nothing was kept")
+            app.screenshot(os.path.join(out, "5-refused.png"))
+        no_lint(app, "the dictation run")
+    except Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
+        raise
+    finally:
+        app.stop()
+    app.log("PASS: dictation (%s)" % ("fake speech: words, stroke, stop, Escape, second rest, moving away, saved"
+                                       if fake else "the real recogniser refused, and said so"))
+
+
+def notes_in(path):
+    with zipfile.ZipFile(path) as z:
+        return json.loads(z.read("session.json").decode("utf-8")).get("notes", [])
+
+
+def run_all(args, logs, out):
+    binary = e2e.find_binary("AzReview", args.bin, "AZREVIEW_BIN")
+    body(args, logs, out)
+    dictation(args, logs, out, binary, fake_speech())
+    return True
+
+
 if __name__ == "__main__":
-    e2e.run(TAG, body, default_port=8776)
+    e2e.run(TAG, run_all, default_port=8776)
