@@ -1036,7 +1036,8 @@ pub fn peak_rss_bytes_pub() -> u64 {
 
 #[cfg(feature = "probe")]
 fn peak_rss_bytes_self() -> u64 {
-    #[cfg(unix)]
+    // Miri has no `getrusage`: under it the peak is unknown (0), as on a platform without one.
+    #[cfg(all(unix, not(miri)))]
     unsafe {
         let mut ru: libc::rusage = core::mem::zeroed();
         if libc::getrusage(libc::RUSAGE_SELF, &raw mut ru) != 0 {
@@ -1055,7 +1056,7 @@ fn peak_rss_bytes_self() -> u64 {
     {
         windows_memory_counters().map_or(0, |c| c.peak_working_set)
     }
-    #[cfg(not(any(unix, all(target_os = "windows", not(miri)))))]
+    #[cfg(not(any(all(unix, not(miri)), all(target_os = "windows", not(miri)))))]
     {
         0
     }
