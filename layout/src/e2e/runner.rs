@@ -1966,13 +1966,20 @@ impl Runner {
                                 }
                             }
                         }
-                        EventFilter::Window(_) => {
+                        EventFilter::Window(window_filter) => {
                             // Window events fire on EVERY node carrying a
                             // matching callback: found through the list each
                             // styled DOM keeps of its window listeners, as the
                             // shells' dispatch does (A6-08), not by walking every
                             // node of every DOM for every event of the pass (a
                             // pointer move is one, a hover change five).
+                            //
+                            // When the listener hears THIS event, as the shells
+                            // ask: an element losing the hover is not the
+                            // pointer leaving the window.
+                            if !azul_core::events::window_listener_hears(*window_filter, event) {
+                                continue;
+                            }
                             for (dom_id, lr) in &lw.layout_results {
                                 let ndc = lr.styled_dom.node_data.as_container();
                                 for node_id in window_listeners(&lr.styled_dom) {

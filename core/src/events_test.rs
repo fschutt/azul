@@ -5509,4 +5509,17 @@ mod window_leave_tests {
         let leave = event(EventType::MouseLeave, 0, 7);
         assert!(matches_hover_filter(HoverEventFilter::MouseLeave, &leave, EventPhase::Target));
     }
+
+    #[test]
+    fn the_question_the_dispatchers_ask_is_about_the_event_itself() {
+        // Planning probes with an event aimed at the root, so it names the MouseLeave filter for every
+        // MouseLeave; the dispatchers then ask this of each window listener they collected.
+        assert!(window_listener_hears(WindowEventFilter::MouseLeave, &event(EventType::MouseLeave, 0, 0)));
+        assert!(!window_listener_hears(WindowEventFilter::MouseLeave, &event(EventType::MouseLeave, 0, 7)));
+        assert!(window_listener_hears(WindowEventFilter::MouseEnter, &event(EventType::MouseEnter, 0, 0)));
+        assert!(!window_listener_hears(WindowEventFilter::MouseEnter, &event(EventType::MouseEnter, 0, 7)));
+        // The window filters that do not depend on the target hear what they always heard.
+        assert!(window_listener_hears(WindowEventFilter::MouseOver, &event(EventType::MouseOver, 0, 7)));
+        assert!(!window_listener_hears(WindowEventFilter::MouseOver, &event(EventType::MouseLeave, 0, 0)));
+    }
 }

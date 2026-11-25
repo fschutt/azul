@@ -2552,6 +2552,17 @@ pub fn is_window_target(target: &DomNodeId) -> bool {
     target.dom.inner == 0 && target.node.into_crate_internal() == Some(NodeId::ZERO)
 }
 
+/// Whether a window listener of `filter` hears `event`.
+///
+/// Planning ([`event_type_to_filters`]) names the window filters an event TYPE reaches, probing with an event aimed
+/// at the root node, and the dispatchers then collect the window listeners of those filters from the nodes that
+/// carry them. The listener has to be asked about the event itself as well: a `MouseLeave` aimed at an element that
+/// lost the hover is not the pointer leaving the OS window.
+#[must_use]
+pub fn window_listener_hears(filter: WindowEventFilter, event: &SyntheticEvent) -> bool {
+    matches_window_filter(filter, event, EventPhase::Target)
+}
+
 /// Check if a window filter matches the event.
 // Exhaustive (filter, event-type) truth table — see matches_hover_filter.
 #[allow(clippy::match_same_arms, clippy::too_many_lines)]
