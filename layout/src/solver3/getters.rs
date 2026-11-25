@@ -196,7 +196,7 @@ pub fn get_element_font_size_in_viewport(
 /// "nothing declared" for every node, in every state, and need not be asked.
 /// `false` without a compact cache (nothing is known).
 #[must_use]
-pub(crate) fn dom_declares_nothing_of(styled_dom: &StyledDom, flag: u32) -> bool {
+pub(crate) fn dom_declares_nothing_of(styled_dom: &StyledDom, flag: u64) -> bool {
     styled_dom
         .css_property_cache
         .ptr
