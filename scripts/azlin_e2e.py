@@ -354,6 +354,9 @@ class App:
         self.err_path = os.path.join(logs, "%s.stderr" % tag)
         env = dict(os.environ)
         env.update({"AZ_BACKEND": BACKEND, "AZ_DEBUG": str(port)})
+        if BACKEND == "default":
+            # No AZ_BACKEND at all: the window's own request (what the app asks for in its options) decides.
+            env.pop("AZ_BACKEND", None)
         env.update(extra_env or {})
         if "AZ_KEYRING_FILE" in env:
             require_keyring_hooks()
