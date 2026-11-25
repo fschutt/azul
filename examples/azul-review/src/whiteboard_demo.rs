@@ -139,7 +139,7 @@ extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let bar = {
         let panel_dom = whiteboard_ui::panel_dom(&mut demo.panel, &host);
         Dom::create_div()
-            .with_css(format!("display: flex; flex-direction: column; width: {BAR_W}px; flex-shrink: 0; min-height: 0px;").as_str())
+            .with_css(format!("display: flex; flex-direction: column; width: {BAR_W}px; flex-shrink: 0; min-height: 0px; margin-left: auto;").as_str())
             .with_child(panel_dom)
     };
     Dom::create_body()
