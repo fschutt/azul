@@ -299,6 +299,26 @@ fn draw_frame(
     w: u32,
     h: u32,
 ) -> Option<ImageRef> {
+    let began = std::time::Instant::now();
+    let drawn = draw_frame_untimed(data, info, w, h);
+    // `AZREVIEW_PROFILE`: what a frame of an ink layer cost.
+    let app = data.downcast_ref::<InkCanvas>().map(|c| c.app.clone());
+    if let Some(mut app) = app {
+        if let Some(mut s) = app.downcast_mut::<AppState>() {
+            if s.perf.is_on() {
+                s.perf.drawn(u32::try_from(began.elapsed().as_micros()).unwrap_or(u32::MAX));
+            }
+        }
+    }
+    drawn
+}
+
+fn draw_frame_untimed(
+    data: &mut RefAny,
+    info: &mut RenderImageCallbackInfo,
+    w: u32,
+    h: u32,
+) -> Option<ImageRef> {
     let mut canvas = data.downcast_mut::<InkCanvas>()?;
     let canvas = &mut *canvas;
     let (mut app, page, layer) = (canvas.app.clone(), canvas.page, canvas.layer);

@@ -14,6 +14,7 @@ pub struct Perf {
     draws: Vec<u32>,
     frame_work: Vec<u32>,
     frame_interval: Vec<u32>,
+    archives: Vec<u32>,
 }
 
 /// The value at the `q` (0 to 1) of `values` (sorted here); 0 for none.
@@ -64,6 +65,13 @@ impl Perf {
         }
     }
 
+    /// A session archive was built (on the window's thread) in `us` microseconds.
+    pub fn archived(&mut self, us: u32) {
+        if self.on {
+            push(&mut self.archives, us);
+        }
+    }
+
     /// The engine's last presented frame: its work and the interval since the one before.
     pub fn frame(&mut self, work_us: u32, interval_us: u32) {
         if self.on {
@@ -74,7 +82,11 @@ impl Perf {
 
     /// The stretch in one line, and the next stretch begins; `None` when nothing was kept.
     pub fn summary(&mut self) -> Option<String> {
-        if self.moves.is_empty() && self.draws.is_empty() && self.frame_work.is_empty() {
+        if self.moves.is_empty()
+            && self.draws.is_empty()
+            && self.frame_work.is_empty()
+            && self.archives.is_empty()
+        {
             return None;
         }
         let mut line = format!("AZREVIEW_PERF moves={}", self.moves.len());
@@ -83,6 +95,7 @@ impl Perf {
             ("draw_us", &mut self.draws),
             ("frame_work_us", &mut self.frame_work),
             ("frame_interval_us", &mut self.frame_interval),
+            ("archive_us", &mut self.archives),
         ] {
             let n = values.len();
             line.push_str(&format!(

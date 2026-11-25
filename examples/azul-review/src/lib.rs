@@ -118,6 +118,8 @@ pub struct AppState {
     pub voice: voice::Voice,
     /// AzReview's own switches of this run (they win over the settings file).
     pub switches: switches::Switches,
+    /// The ink's own timings (`AZREVIEW_PROFILE=1`).
+    pub perf: perf::Perf,
     pub recording: Option<VoiceClip>,
     pub clips: Vec<VoiceClip>,
     pub level_samples: usize,
@@ -162,6 +164,7 @@ impl AppState {
             redo_stack: Vec::new(),
             voice: voice::Voice::new(dwell::Config::default(), dictation::DEFAULT_SILENCE_MS),
             switches: switches::Switches::default(),
+            perf: perf::Perf::new(false),
             recording: None,
             clips: Vec::new(),
             level_samples: 0,
@@ -462,6 +465,7 @@ pub fn run() {
     );
     state.voice.language = voice::language_of(&kit_ref);
     state.switches = own;
+    state.perf = perf::Perf::new(std::env::var_os("AZREVIEW_PROFILE").is_some());
     let app = App::create(RefAny::new(state), config);
     let window =
         kit::window_options(&kit_ref, ui::layout, (1280.0, 820.0), (800.0, 520.0), on_window_created);
@@ -499,7 +503,13 @@ pub(crate) fn save_session(data: &RefAny, info: &mut CallbackInfo) {
         }
         s.saving = true;
         s.save_pending = false;
+        let began = std::time::Instant::now();
         let (name, bytes) = session::archive(&s);
+        if s.perf.is_on() {
+            let us = u32::try_from(began.elapsed().as_micros()).unwrap_or(u32::MAX);
+            s.perf.archived(us);
+            println!("AZREVIEW_ARCHIVE strokes={} bytes={} us={us}", s.strokes.len(), bytes.len());
+        }
         (
             s.data_root.clone(),
             FileJob::Put {
@@ -852,16 +862,35 @@ fn cycle_tool(data: &mut RefAny, backward: bool) -> Update {
 /// A pointer move while a stroke is drawn: its new point, and a new frame of
 /// its layer - no new DOM (a DOM per move made drawing unusably slow).
 pub extern "C" fn on_ink_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let timed = data.downcast_ref::<AppState>().is_some_and(|s| s.perf.is_on());
+    if !timed {
+        return ink_move(&mut data, &mut info);
+    }
+    let began = std::time::Instant::now();
+    let update = ink_move(&mut data, &mut info);
+    let us = u32::try_from(began.elapsed().as_micros()).unwrap_or(u32::MAX);
+    let frames = info.get_frame_timings();
+    if let Some(mut s) = data.downcast_mut::<AppState>() {
+        s.perf.moved(us);
+        s.perf.frame(
+            u32::try_from(frames.frame_work_us).unwrap_or(u32::MAX),
+            u32::try_from(frames.frame_interval_us).unwrap_or(u32::MAX),
+        );
+    }
+    update
+}
+
+fn ink_move(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
     // Where the pen is, drawing or hovering: the dwell times its rest (and a dictation it has
     // moved away from ends - the one DOM refresh a move may ask for).
-    let ended = voice::pointer(&mut data, &mut info, None);
+    let ended = voice::pointer(data, info, None);
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
     if s.live.is_none() {
         return ended;
     }
-    let Some((p, _)) = ui::sample(&mut info) else {
+    let Some((p, _)) = ui::sample(info) else {
         return Update::DoNothing;
     };
     let Some(live) = s.live.as_mut() else {
@@ -877,7 +906,7 @@ pub extern "C" fn on_ink_move(mut data: RefAny, mut info: CallbackInfo) -> Updat
     live.points.push(p);
     let layer = ink::Layer::of(live.semantic);
     drop(s);
-    ui::redraw_ink(&mut info, layer);
+    ui::redraw_ink(info, layer);
     ended
 }
 
@@ -906,6 +935,9 @@ pub extern "C" fn on_ink_up(mut data: RefAny, mut info: CallbackInfo) -> Update 
         } else {
             s.keep(done);
             println!("AZREVIEW_STROKES {}", s.strokes.len());
+            if let Some(line) = s.perf.summary() {
+                println!("{line}");
+            }
             (Up::Kept, s.idle_timer, layer)
         }
     };

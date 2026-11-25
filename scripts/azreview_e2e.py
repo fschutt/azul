@@ -132,6 +132,9 @@ def body(args, logs, out):
         app.click(selector="#__azreview_save")
         app.until("Save writes", lambda: len(saves(app)) > before)
 
+        # The window's own controls name themselves to a screen reader (azul's lint says when not).
+        no_lint(app, "the review window")
+
         # Settings and About.
         app.click(selector="#__azreview_settings")
         app.until("the settings page", lambda: app.has_id("appkit-settings"))
@@ -175,12 +178,12 @@ def fake_speech():
 
 
 def no_lint(app, what):
-    """No `[azul][a11y]` (or other `[azul]`) lint line on the app's output."""
+    """No `[azul][a11y]` or `[azul][a11y-shape]` lint line on the app's output."""
     lines = []
     for path in (app.out_path, app.err_path):
         try:
             with open(path, "r", encoding="utf-8", errors="replace") as f:
-                lines += [l for l in f.read().splitlines() if "[azul][a11y]" in l]
+                lines += [l for l in f.read().splitlines() if "[azul][a11y" in l]
         except OSError:
             pass
     if lines:

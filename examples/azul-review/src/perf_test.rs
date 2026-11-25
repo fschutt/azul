@@ -58,3 +58,11 @@ fn a_run_of_samples_is_capped_so_a_long_session_cannot_grow_without_end() {
     let line = perf.summary().expect("samples");
     assert!(line.contains(&format!("moves={MAX_SAMPLES}")), "{line}");
 }
+
+#[test]
+fn the_time_to_build_the_archive_is_in_the_summary_too() {
+    let mut perf = Perf::new(true);
+    perf.archived(1_500);
+    let line = perf.summary().expect("an archive was timed");
+    assert!(line.contains("archive_us_p50=1500"), "{line}");
+}
