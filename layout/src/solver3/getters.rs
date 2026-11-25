@@ -6362,7 +6362,7 @@ pub fn collect_font_stacks_from_styled_dom_in_viewport(
     // tuple's hash stands for, asked for the tuple's request. (The
     // representative node of a tuple is the node whose request it is; the
     // request itself is all that is read of it now.)
-    for ((fh, request), _representative) in &unique_font_keys {
+    for (fh, request) in unique_font_keys.keys() {
         let fh = *fh;
 
         // Use reverse map from compact cache: hash → actual font families.
