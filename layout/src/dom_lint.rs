@@ -976,6 +976,7 @@ mod autotest_generated {
 /// The list is the one the app read at its start and installed
 /// (`azul_core::diagnostics::install_settings`, the dials of every one-shot finding); this crate
 /// reads no environment. A process that installed nothing silences nothing.
+#[must_use]
 pub fn lint_suppressed(tag: &str) -> bool {
     azul_core::diagnostics::settings()
         .suppress
