@@ -61510,7 +61510,13 @@
                     },
                     "StyleFontKerningValue": {
                         "external": "azul_css::props::property::StyleFontKerningValue",
-                        "repr": "C"
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleFontKerning"
+                            ]
+                        }
                     },
                     "StyleFontLigatureChoice": {
                         "external": "azul_css::props::basic::font_variation::StyleFontLigatureChoice",
@@ -61557,10 +61563,19 @@
                     },
                     "StyleFontOpticalSizingValue": {
                         "external": "azul_css::props::property::StyleFontOpticalSizingValue",
-                        "repr": "C"
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleFontOpticalSizing"
+                            ]
+                        }
                     },
                     "StyleFontStretch": {
                         "external": "azul_css::props::basic::font_variation::StyleFontStretch",
+                        "custom_impls": [
+                            "Default"
+                        ],
                         "derive": [
                             "Debug",
                             "Copy",
@@ -61582,7 +61597,13 @@
                     },
                     "StyleFontStretchValue": {
                         "external": "azul_css::props::property::StyleFontStretchValue",
-                        "repr": "C"
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleFontStretch"
+                            ]
+                        }
                     },
                     "StyleFontSynthesis": {
                         "external": "azul_css::props::basic::font_variation::StyleFontSynthesis",
@@ -61607,7 +61628,13 @@
                     },
                     "StyleFontSynthesisValue": {
                         "external": "azul_css::props::property::StyleFontSynthesisValue",
-                        "repr": "C"
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleFontSynthesis"
+                            ]
+                        }
                     },
                     "StyleFontVariantEastAsian": {
                         "external": "azul_css::props::basic::font_variation::StyleFontVariantEastAsian",
@@ -61657,7 +61684,13 @@
                     },
                     "StyleFontVariantEastAsianValue": {
                         "external": "azul_css::props::property::StyleFontVariantEastAsianValue",
-                        "repr": "C"
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleFontVariantEastAsian"
+                            ]
+                        }
                     },
                     "StyleFontVariantLigatures": {
                         "external": "azul_css::props::basic::font_variation::StyleFontVariantLigatures",
@@ -61692,10 +61725,19 @@
                     },
                     "StyleFontVariantLigaturesValue": {
                         "external": "azul_css::props::property::StyleFontVariantLigaturesValue",
-                        "repr": "C"
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleFontVariantLigatures"
+                            ]
+                        }
                     },
                     "StyleFontVariationSettings": {
                         "external": "azul_css::props::basic::font_variation::StyleFontVariationSettings",
+                        "custom_impls": [
+                            "Default"
+                        ],
                         "derive": [
                             "Debug",
                             "Clone",
@@ -61716,7 +61758,13 @@
                     },
                     "StyleFontVariationSettingsValue": {
                         "external": "azul_css::props::property::StyleFontVariationSettingsValue",
-                        "repr": "C"
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleFontVariationSettings"
+                            ]
+                        }
                     }
                 }
             },
