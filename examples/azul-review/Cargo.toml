@@ -11,8 +11,11 @@ publish = false
 azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
 # The shared app skeleton: switches, data root, settings.json, About, file jobs on a Thread.
 azul-appkit = { path = "../azul-appkit", features = ["azul"] }
-# The agents' JSON (agent_json.rs, a small facade): the CLIs' envelopes, the APIs' bodies, the model's own
-# reply. Already in Cargo.lock (azul-appkit and others use it): no new crate, one more edge.
+# serde (derive) and serde_json: both are in Cargo.lock already through azul-appkit, the same specs. The
+# recorder's manifest, transcript and events are strict JSON schemas (recorder_manifest.rs,
+# recorder_events.rs); the agents' JSON is a small facade over serde_json (agent_json.rs: the CLIs'
+# envelopes, the APIs' bodies, the model's own reply).
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [lib]
