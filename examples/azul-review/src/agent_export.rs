@@ -16,13 +16,18 @@
 //! not asked for at all, they are made from the transcript (the words that fall inside the segment,
 //! with their times), so a caption can never say what was not said.
 //!
-//! [`edl_json`] writes the cut list as the EDL the renderer reads; [`cut_list_json`] as the agent's
-//! own answer (what the mock sends).
+//! [`CutList::to_edl`] puts the cut list on the recorder's own [`Edl`] (`recorder_edl.rs`: the zoom,
+//! the caption and its words are that module's types, shared and not copied), on top of the cut list
+//! the recorder makes for the session without judgement: the picture's size, the style and the
+//! captions' setting are the recorder's, the segments, the chapters and the title are the agent's.
+//! [`cut_list_json`] writes it as the agent's own answer (what the mock sends).
 
+pub use crate::recorder_edl::{Caption, CaptionWord, Zoom};
 use crate::{
     agent_backend::{AgentError, Call, Request, Tools},
     agent_json::{self, json, Json},
     agent_limits::{cap_chars, Limits, Notes},
+    recorder_edl::{AudioCut, Chapter as EdlChapter, Edl, EdlSegment, Generator},
 };
 
 // ==== The request ====
@@ -128,31 +133,6 @@ pub struct ExportRequest {
 
 // ==== The answer ====
 
-/// A region of the screen track to show, in its pixels.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Zoom {
-    pub x: u32,
-    pub y: u32,
-    pub w: u32,
-    pub h: u32,
-    pub ease_ms: u32,
-}
-
-/// A word of a caption.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CaptionWord {
-    pub w: String,
-    pub t0_us: u64,
-    pub t1_us: u64,
-}
-
-/// What is said while a segment plays, word by word.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Caption {
-    pub text: String,
-    pub words: Vec<CaptionWord>,
-}
-
 /// One piece of the video: a stretch of the session clock.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CutSegment {
@@ -167,7 +147,8 @@ pub struct CutSegment {
     pub title: Option<String>,
 }
 
-/// A chapter of the video, on the session clock.
+/// A chapter of the video as the agent places it: on the SESSION clock, where the thing it names
+/// happened (the recorder's own chapters are on the video's timeline: [`CutList::to_edl`] moves them).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Chapter {
     pub t_us: u64,
@@ -851,57 +832,100 @@ pub fn cut_list_text(list: &CutList) -> String {
     agent_json::to_text(&cut_list_json(list))
 }
 
-/// The cut list as the recorder's EDL, schema 1 (`RECORDER.md` section 6): microseconds on the
-/// session clock, only the fields an agent knows (the renderer takes defaults for the rest).
-#[must_use]
-pub fn edl_json(list: &CutList, session: &str) -> Json {
-    let segments: Vec<Json> = list
-        .segments
-        .iter()
-        .enumerate()
-        .map(|(i, s)| {
-            let mut o = json!({
-                "id": format!("s{}", i + 1),
-                "in_us": s.in_us,
-                "out_us": s.out_us,
-                "camera": s.camera,
-                "speed": f64::from(s.speed),
-            });
-            if let Some(map) = o.as_object_mut() {
-                if let Some(z) = &s.zoom {
-                    map.insert("zoom".to_string(), zoom_json(z));
+impl CutList {
+    /// Where `t` of the session clock is on the video's timeline, given the pieces kept (`kept`: each
+    /// with the video's time at which it starts): inside a piece, its place in it; in a stretch that
+    /// was cut away, where the next piece begins; after the last piece: none.
+    fn on_video(kept: &[(u64, &EdlSegment)], t: u64) -> Option<u64> {
+        for (start, seg) in kept {
+            if t < seg.out_us {
+                if t <= seg.in_us {
+                    return Some(*start);
                 }
-                if let Some(c) = &s.caption {
-                    let words: Vec<Json> = c
-                        .words
-                        .iter()
-                        .map(|w| json!({"w": w.w, "t0_us": w.t0_us, "t1_us": w.t1_us}))
-                        .collect();
-                    map.insert(
-                        "caption".to_string(),
-                        json!({"text": c.text, "words": words}),
-                    );
-                }
-                if let Some(t) = &s.title {
-                    map.insert("title".to_string(), json!(t));
-                }
+                let speed = if seg.speed.is_finite() && seg.speed > 0.0 {
+                    seg.speed
+                } else {
+                    1.0
+                };
+                let inside = ((t - seg.in_us) as f64 / speed).round() as u64;
+                return Some(*start + inside.min(seg.duration_us()));
             }
-            o
-        })
-        .collect();
-    let chapters: Vec<Json> = list
-        .chapters
-        .iter()
-        .map(|c| json!({"t_us": c.t_us, "title": c.title}))
-        .collect();
-    json!({
-        "schema": 1,
-        "session": session,
-        "title": list.title,
-        "segments": segments,
-        "chapters": chapters,
-        "generator": {"name": "agent", "version": 1},
-    })
+        }
+        None
+    }
+
+    /// The cut list as the recorder's [`Edl`] (schema 1): `base` is the cut list the recorder makes for
+    /// the same session without judgement (`identity_edl`), which has what the agent does not decide
+    /// (the picture's size, the style, the captions' setting, the session's name); this list's segments
+    /// (named `s1`, `s2`, ..., the sound as recorded), chapters and title are put on it, and `note` (the
+    /// backend's name, say) is kept in the generator. Chapters move from the session's clock to the
+    /// video's: one in a stretch that was cut away begins where the next piece does (the last of
+    /// several there is kept), one after the last piece is left out; the order is the video's.
+    ///
+    /// The result still has to be checked against the session (`Edl::problems`): this does not know
+    /// the manifest.
+    #[must_use]
+    pub fn to_edl(&self, base: &Edl, note: Option<&str>) -> Edl {
+        let segments: Vec<EdlSegment> = self
+            .segments
+            .iter()
+            .enumerate()
+            .map(|(i, s)| EdlSegment {
+                id: format!("s{}", i + 1),
+                in_us: s.in_us,
+                out_us: s.out_us,
+                camera: s.camera,
+                speed: (f64::from(s.speed) * 1000.0).round() / 1000.0,
+                zoom: s.zoom.clone(),
+                // the sound is as recorded: the agent decides the picture and the order, and a later
+                // step, not the agent, crossfades the cuts
+                audio: AudioCut::default(),
+                caption: s.caption.clone(),
+                title: s.title.clone(),
+            })
+            .collect();
+        let mut starts = Vec::with_capacity(segments.len());
+        let mut offset = 0_u64;
+        for s in &segments {
+            starts.push(offset);
+            offset += s.duration_us();
+        }
+        let kept: Vec<(u64, &EdlSegment)> = starts.iter().copied().zip(segments.iter()).collect();
+        let mut chapters: Vec<EdlChapter> = Vec::new();
+        for c in &self.chapters {
+            if let Some(t_us) = Self::on_video(&kept, c.t_us) {
+                chapters.push(EdlChapter {
+                    t_us,
+                    title: c.title.clone(),
+                });
+            }
+        }
+        chapters.sort_by_key(|c| c.t_us);
+        // two chapters at one place: the one that began last is what the video shows there
+        let mut deduped: Vec<EdlChapter> = Vec::with_capacity(chapters.len());
+        for c in chapters {
+            if deduped.last().is_some_and(|last| last.t_us == c.t_us) {
+                deduped.pop();
+            }
+            deduped.push(c);
+        }
+        let title = self.title.trim();
+        Edl {
+            title: if title.is_empty() {
+                base.title.clone()
+            } else {
+                Some(title.to_string())
+            },
+            segments,
+            chapters: deduped,
+            generator: Generator {
+                name: String::from("agent"),
+                version: 1,
+                notes: note.map(str::to_string),
+            },
+            ..base.clone()
+        }
+    }
 }
 
 #[cfg(test)]

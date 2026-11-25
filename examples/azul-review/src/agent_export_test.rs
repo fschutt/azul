@@ -6,6 +6,10 @@ use super::*;
 use crate::{
     agent_backend::{never_cancelled, run_task, Control, ManualClock, Request},
     agent_mock::MockBackend,
+    recorder_edl::identity_edl,
+    recorder_manifest::{
+        AppInfo, ClockInfo, HostInfo, Manifest, Run, Segment, Track, TrackStatus, Workspace,
+    },
 };
 
 const S: u64 = 1_000_000;
@@ -600,54 +604,263 @@ fn a_cut_list_written_by_this_module_reads_back_the_same() {
     assert_eq!(again, list);
 }
 
-// ==== the EDL ====
+// ==== the recorder's cut list ====
+
+fn track(video: bool, w: u32, h: u32, segments: Vec<Segment>) -> Track {
+    Track {
+        source: String::from("mock"),
+        device: None,
+        codec: String::from(if video { "h264" } else { "opus" }),
+        encoder: String::from("mock"),
+        hardware: false,
+        width: w,
+        height: h,
+        scale: 2.0,
+        fps: 10,
+        vfr: video,
+        bitrate_kbps: 100,
+        sample_rate: if video { 0 } else { 48_000 },
+        channels: if video { 0 } else { 1 },
+        timescale: if video { 90_000 } else { 48_000 },
+        status: TrackStatus::Stopped,
+        note: None,
+        segments,
+    }
+}
+
+fn piece(file: &str, start: u64, end: u64) -> Segment {
+    Segment {
+        file: file.into(),
+        start_us: start * S,
+        end_us: Some(end * S),
+        bytes: 1_000,
+        samples: 10,
+        complete: true,
+        recovered: false,
+        width: 0,
+        height: 0,
+    }
+}
+
+/// The session `export()` is about: two runs (0 to 300 s and 320 to 600 s), a screen of 2880 x 1800,
+/// a camera and a voice.
+fn session() -> Manifest {
+    let mut m = Manifest::begin(
+        AppInfo {
+            name: String::from("AzReview"),
+            version: String::from("0.1.0"),
+        },
+        "2026-11-26_10-00-00",
+        Workspace {
+            root: String::from("/w"),
+            name: String::from("azul"),
+        },
+        ClockInfo {
+            unit: String::from("us"),
+            origin_unix_ms: 0,
+            origin_iso8601: String::from("1970-01-01T00:00:00Z"),
+            utc_offset_minutes: 0,
+        },
+        HostInfo {
+            os: String::from("macos"),
+            arch: String::from("aarch64"),
+        },
+    );
+    let both = |dir: &str| {
+        vec![
+            piece(&format!("{dir}/0001.mp4"), 0, 300),
+            piece(&format!("{dir}/0002.mp4"), 320, 600),
+        ]
+    };
+    m.tracks.screen = Some(track(true, 2880, 1800, both("screen")));
+    m.tracks.camera = Some(track(true, 1280, 720, both("camera")));
+    m.tracks.audio = Some(track(false, 0, 0, both("audio")));
+    m.runs = vec![
+        Run {
+            start_us: 0,
+            end_us: Some(300 * S),
+            end_reason: Some(String::from("pause")),
+        },
+        Run {
+            start_us: 320 * S,
+            end_us: Some(600 * S),
+            end_reason: Some(String::from("stop")),
+        },
+    ];
+    m
+}
+
+fn base() -> Edl {
+    identity_edl(&session(), &[])
+}
 
 #[test]
-fn the_cut_list_is_written_as_the_recorders_edl_schema_one() {
+fn the_cut_list_is_put_on_the_recorders_own_edl_on_top_of_what_the_recorder_decides() {
     let list = parse(FULL).0.expect("reads");
-    let edl = edl_json(&list, "2026-11-26_10-00-00");
-    assert_eq!(agent_json::u64_of(&edl, "schema"), Some(1));
+    let base = base();
+    let edl = list.to_edl(&base, Some("claude-haiku via claude -p"));
+    // what the recorder decides is kept
+    assert_eq!(edl.schema, 1);
+    assert_eq!(edl.session, "2026-11-26_10-00-00");
+    assert_eq!(edl.output, base.output);
+    assert_eq!(edl.style, base.style);
+    assert_eq!(edl.captions, base.captions);
+    // what the agent decides is put on it
+    assert_eq!(edl.title.as_deref(), Some("Ein Puffer, der leckt"));
+    assert_eq!(edl.generator.name, "agent");
+    assert_eq!(edl.generator.version, 1);
     assert_eq!(
-        agent_json::str_of(&edl, "session"),
-        Some("2026-11-26_10-00-00")
+        edl.generator.notes.as_deref(),
+        Some("claude-haiku via claude -p")
     );
+    assert_eq!(edl.segments.len(), 2);
+    let (a, b) = (&edl.segments[0], &edl.segments[1]);
+    assert_eq!((a.id.as_str(), a.in_us, a.out_us), ("s1", 9 * S, 13 * S));
+    assert_eq!((b.id.as_str(), b.in_us, b.out_us), ("s2", 199 * S, 203 * S));
+    assert!(a.camera && !b.camera);
+    assert_eq!((a.speed, b.speed), (1.0, 2.0));
+    assert_eq!(a.zoom, list.segments[0].zoom);
+    assert_eq!(a.caption, list.segments[0].caption);
+    assert_eq!(a.title.as_deref(), Some("src/lib.rs"));
+    assert_eq!(a.audio, AudioCut::default(), "the sound is as recorded");
+    assert_eq!(edl.duration_us(), 6 * S, "4 s and 4 s at twice the speed");
+}
+
+#[test]
+fn what_the_agent_makes_passes_the_recorders_strict_check_and_reads_back_as_itself() {
+    let list = parse(FULL).0.expect("reads");
+    let edl = list.to_edl(&base(), None);
+    let m = session();
+    assert_eq!(edl.problems(&m), Vec::<String>::new());
+    let again = Edl::parse(&edl.to_json(), &m).expect("the recorder reads it");
+    assert_eq!(again, edl);
+}
+
+#[test]
+fn chapters_move_from_the_session_clock_to_the_videos() {
+    let mut list = parse(FULL).0.expect("reads");
+    // pieces: 9 to 13 s (4 s long in the video: 0 to 4 s) and 199 to 203 s at twice the speed (2 s:
+    // 4 to 6 s of the video)
+    list.chapters = vec![
+        Chapter {
+            t_us: 0,
+            title: "before the first piece".to_string(),
+        },
+        Chapter {
+            t_us: 11 * S,
+            title: "inside the first".to_string(),
+        },
+        Chapter {
+            t_us: 100 * S,
+            title: "in the stretch that was cut away".to_string(),
+        },
+        Chapter {
+            t_us: 201 * S,
+            title: "inside the second, at its middle".to_string(),
+        },
+        Chapter {
+            t_us: 250 * S,
+            title: "after the last piece".to_string(),
+        },
+    ];
+    let edl = list.to_edl(&base(), None);
+    let places: Vec<(u64, &str)> = edl
+        .chapters
+        .iter()
+        .map(|c| (c.t_us, c.title.as_str()))
+        .collect();
     assert_eq!(
-        agent_json::str_of(
-            agent_json::get(&edl, "generator").expect("generator"),
-            "name"
-        ),
-        Some("agent")
+        places,
+        vec![
+            (0, "before the first piece"),
+            (2 * S, "inside the first"),
+            (4 * S, "in the stretch that was cut away"),
+            (5 * S, "inside the second, at its middle"),
+        ],
+        "the one after the last piece has no place in the video"
     );
-    let segments = agent_json::array_of(&edl, "segments").expect("segments");
-    assert_eq!(segments.len(), 2);
-    assert_eq!(agent_json::str_of(&segments[0], "id"), Some("s1"));
-    assert_eq!(agent_json::u64_of(&segments[0], "in_us"), Some(9_000_000));
-    assert_eq!(agent_json::u64_of(&segments[0], "out_us"), Some(13_000_000));
-    assert_eq!(agent_json::bool_of(&segments[0], "camera"), Some(true));
-    assert_eq!(agent_json::f64_of(&segments[1], "speed"), Some(2.0));
-    let zoom = agent_json::get(&segments[0], "zoom").expect("zoom");
-    assert_eq!(
-        (
-            agent_json::u64_of(zoom, "w"),
-            agent_json::u64_of(zoom, "h"),
-            agent_json::u64_of(zoom, "ease_ms")
-        ),
-        (Some(800), Some(500), Some(400))
+}
+
+#[test]
+fn two_chapters_in_one_cut_away_stretch_leave_the_one_that_began_last() {
+    let mut list = parse(FULL).0.expect("reads");
+    list.chapters = vec![
+        Chapter {
+            t_us: 100 * S,
+            title: "first".to_string(),
+        },
+        Chapter {
+            t_us: 150 * S,
+            title: "second".to_string(),
+        },
+    ];
+    let edl = list.to_edl(&base(), None);
+    let places: Vec<(u64, &str)> = edl
+        .chapters
+        .iter()
+        .map(|c| (c.t_us, c.title.as_str()))
+        .collect();
+    assert_eq!(places, vec![(4 * S, "second")]);
+}
+
+#[test]
+fn chapters_given_out_of_order_come_out_in_the_videos_order() {
+    let mut list = parse(FULL).0.expect("reads");
+    list.chapters = vec![
+        Chapter {
+            t_us: 200 * S,
+            title: "late".to_string(),
+        },
+        Chapter {
+            t_us: 10 * S,
+            title: "early".to_string(),
+        },
+    ];
+    let edl = list.to_edl(&base(), None);
+    let titles: Vec<&str> = edl.chapters.iter().map(|c| c.title.as_str()).collect();
+    assert_eq!(titles, vec!["early", "late"]);
+    assert!(edl.chapters[0].t_us < edl.chapters[1].t_us);
+    assert_eq!(edl.problems(&session()), Vec::<String>::new());
+}
+
+#[test]
+fn a_cut_list_without_a_title_keeps_the_recorders_and_the_speed_is_written_plainly() {
+    let mut list = parse(FULL).0.expect("reads");
+    list.title = "  ".to_string();
+    list.segments[1].speed = 1.3;
+    let base = base();
+    let edl = list.to_edl(&base, None);
+    assert_eq!(edl.title, base.title);
+    assert_eq!(edl.segments[1].speed, 1.3, "not 1.2999999523162842");
+}
+
+#[test]
+fn a_cut_list_with_no_segment_is_an_edl_the_recorder_refuses_in_words() {
+    let list = CutList {
+        title: "Nothing".to_string(),
+        segments: Vec::new(),
+        chapters: Vec::new(),
+    };
+    let edl = list.to_edl(&base(), None);
+    let problems = edl.problems(&session());
+    assert!(
+        problems.iter().any(|p| p.contains("no segments")),
+        "{problems:?}"
     );
-    let caption = agent_json::get(&segments[0], "caption").expect("caption");
-    assert_eq!(
-        agent_json::str_of(caption, "text"),
-        Some("this function leaks the buffer")
-    );
-    let words = agent_json::array_of(caption, "words").expect("words");
-    assert_eq!(agent_json::str_of(&words[0], "w"), Some("this"));
-    assert_eq!(agent_json::u64_of(&words[0], "t0_us"), Some(10_000_000));
-    let chapters = agent_json::array_of(&edl, "chapters").expect("chapters");
-    assert_eq!(agent_json::u64_of(&chapters[1], "t_us"), Some(250_000_000));
-    assert_eq!(
-        agent_json::str_of(&chapters[1], "title"),
-        Some("src/main.rs")
-    );
+}
+
+#[test]
+fn what_the_parser_lets_through_is_always_sound_for_the_session() {
+    // a model's worst: a segment across the gap between the runs, one outside the session, a zoom
+    // off the screen, a speed beyond the range, captions around a cut word
+    let text = r#"{"title": "Wild", "segments": [
+        {"in_s": 290, "out_s": 330, "zoom": {"x": 9000, "y": 9000, "w": 100, "h": 100}, "speed": 50},
+        {"in_s": 595, "out_s": 900, "camera": true, "zoom": {"x": 0, "y": 0, "w": 9999, "h": 9999}},
+        {"in_s": 10.2, "out_s": 11.0, "speed": 0.01}
+      ], "chapters": [{"t_s": -5, "title": "negative"}, {"t_s": 99999, "title": "far"}]}"#;
+    let list = parse(text).0.expect("reads");
+    let edl = list.to_edl(&base(), None);
+    assert_eq!(edl.problems(&session()), Vec::<String>::new(), "{edl:#?}");
 }
 
 // ==== through the boundary ====

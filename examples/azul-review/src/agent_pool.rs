@@ -33,6 +33,14 @@
 //!    (`l10n_key()` and `l10n_args()` through the window's `t_args`; `kind_name()` for the e2e lines).
 //! 4. Cancel is `pool.cancel(id)` (the worker kills its process or drops its answer); a timer calls
 //!    `pool.reap(now_ms)` for the workers that never report.
+//! 5. An export asks the same way with `Request::Export(ExportRequest)` (the session's facts, the
+//!    summary and the transcript the recorder writes, the target) and `Task::Export`; the answer is
+//!    `response.cut_list()`, and `cut_list.to_edl(&identity_edl(&manifest, &file_changes),
+//!    Some(&identity.label()))` puts it on the recorder's own cut list, which `Edl::problems(&manifest)`
+//!    checks before `recorder_export` renders it.
+//! 6. With no agent set up the window can still guess what the strokes mean from their shapes:
+//!    `stroke_features::offline_intent_for(&strokes, &context, &limits)` (a small rule table, never
+//!    above a confidence of 0.45, and never for a stroke whose meaning the reviewer chose).
 
 use std::{
     panic::{catch_unwind, AssertUnwindSafe},

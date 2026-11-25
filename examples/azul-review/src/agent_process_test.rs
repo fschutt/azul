@@ -134,7 +134,10 @@ mod unix {
             env_set: Vec::new(),
             env_remove: Vec::new(),
             stdin: Vec::new(),
-            timeout_ms: 20_000,
+            // ms of the test's clock, which a poll of 15 ms moves by 15 ms while it waits 1 ms of
+            // real time: a program that is slow on a busy machine is not the thing under test (the
+            // tests of the deadline set their own)
+            timeout_ms: 600_000,
             max_stdout: 64 * 1024,
             max_stderr: 64 * 1024,
         }
