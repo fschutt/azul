@@ -62,6 +62,8 @@ azreview-whiteboard-empty = Kreise Code mit dem Stift ein und ziehe den Kreis in
 azreview-whiteboard-drawing = Das Bild wird gezeichnet...
 azreview-whiteboard-picture-missing = Das Bild ist nicht verfügbar. Das sind die Zeilen, die es zeigt:
 azreview-whiteboard-cutout-name = { $file }, Zeilen { $first } bis { $last }
+azreview-whiteboard-label-placeholder = Beschriftung hinzufügen
+azreview-whiteboard-label-name = Beschriftung von { $file }, Zeilen { $first } bis { $last }
 
 ## Diktieren und die Seitenspalte der Notizen
 

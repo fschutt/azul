@@ -62,6 +62,8 @@ azreview-whiteboard-empty = Circle some code with the pen and drag the circle to
 azreview-whiteboard-drawing = Drawing the picture...
 azreview-whiteboard-picture-missing = The picture is not available. These are the lines it shows:
 azreview-whiteboard-cutout-name = { $file }, lines { $first } to { $last }
+azreview-whiteboard-label-placeholder = Add a label
+azreview-whiteboard-label-name = Label of { $file }, lines { $first } to { $last }
 
 ## Dictation and the side column of notes
 

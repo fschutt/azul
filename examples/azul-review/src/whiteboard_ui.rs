@@ -10,12 +10,13 @@
 use std::{collections::BTreeMap, time::Instant};
 
 use azul::{
-    callbacks::RenderImageCallbackInfo,
+    callbacks::{RenderImageCallbackInfo, TextAreaOnFocusLostCallbackType, TextAreaOnTextInputCallbackType},
     dom::{AccessibilityInfo, AccessibilityRole, DomNodeId, NodeId, RenderImageCallback},
     image::{Brush, ImageRef, RawImage, RawImageFormat},
     prelude::*,
     str::String as AzString,
     vec::U8VecRef,
+    widgets::{OnTextInputReturn, TextArea, TextAreaState, TextInputValid},
 };
 use azul_appkit::l10n::{label, t, t_args, Arg};
 
@@ -43,6 +44,8 @@ pub struct Panel {
     pub drag_over: bool,
     /// What the person was last told (a refused cutout, a repaired file).
     pub hint: Option<String>,
+    /// The item whose label is being typed.
+    pub editing: Option<ItemId>,
 }
 
 impl Panel {
@@ -56,6 +59,7 @@ impl Panel {
             dpr: 1.0,
             drag_over: false,
             hint: None,
+            editing: None,
         }
     }
 
@@ -125,7 +129,7 @@ fn css_px(v: f32) -> String {
 }
 
 /// One cutout as a node: its picture (or the lines it was made from while there is none), its label under it.
-fn cutout_dom(panel: &mut Panel, c: &Cutout, selected: bool) -> Dom {
+fn cutout_dom(panel: &mut Panel, host: &Host, c: &Cutout, selected: bool) -> Dom {
     let view = panel.wb.board.view();
     let o = view.to_screen(c.rect.origin());
     let (w, h) = (c.rect.w * view.zoom, c.rect.h * view.zoom);
@@ -166,7 +170,9 @@ fn cutout_dom(panel: &mut Panel, c: &Cutout, selected: bool) -> Dom {
         }
     }
     let mut group = Dom::create_div().with_child(node);
-    if !c.label.is_empty() {
+    if panel.editing == Some(c.id) {
+        group.add_child(label_editor(host, c, Pt::new(o.x, o.y + h + 3.0), w));
+    } else if !c.label.is_empty() {
         group.add_child(
             Dom::create_span_with_text(c.label.as_str()).with_css(
                 format!(
@@ -180,6 +186,57 @@ fn cutout_dom(panel: &mut Panel, c: &Cutout, selected: bool) -> Dom {
         );
     }
     group
+}
+
+
+/// What a label's text area tells back: which cutout, and the panel it is on.
+struct LabelTag {
+    host: Host,
+    id: ItemId,
+}
+
+/// The text area a cutout's label is typed in, under the cutout.
+fn label_editor(host: &Host, c: &Cutout, at: Pt, w: f32) -> Dom {
+    let tag = RefAny::new(LabelTag { host: host.clone(), id: c.id });
+    TextArea::create()
+        .with_text(c.label.as_str())
+        .with_placeholder(label("azreview-whiteboard-label-placeholder"))
+        .with_accessibility_name(t_args(
+            "azreview-whiteboard-label-name",
+            &[
+                ("file", Arg::from(c.source.file.clone())),
+                ("first", Arg::from(c.source.first_line as usize)),
+                ("last", Arg::from(c.source.last_line as usize)),
+            ],
+        ))
+        .with_on_text_input(tag.clone(), on_label_text as TextAreaOnTextInputCallbackType)
+        .with_on_focus_lost(tag, on_label_blur as TextAreaOnFocusLostCallbackType)
+        .dom()
+        .with_id(format!("__azreview_whiteboard-label-{}", c.id).as_str())
+        .with_css(format!("position: absolute; left: {}; top: {}; width: {}; min-height: 24px;", css_px(at.x), css_px(at.y), css_px(w)).as_str())
+}
+
+/// A character typed in a label: the label is taken when the area is left.
+extern "C" fn on_label_text(_data: RefAny, _info: CallbackInfo, _state: TextAreaState) -> OnTextInputReturn {
+    OnTextInputReturn { update: Update::DoNothing, valid: TextInputValid::Yes }
+}
+
+/// The label's text area was left: its text is the label (a step of the board), the typing is over.
+extern "C" fn on_label_blur(mut data: RefAny, mut info: CallbackInfo, state: TextAreaState) -> Update {
+    let Some((host, id)) = data.downcast_ref::<LabelTag>().map(|t| (t.host.clone(), t.id)) else {
+        return Update::DoNothing;
+    };
+    let text = state.get_text().as_str().to_string();
+    let changed = host.run(|p| {
+        p.editing = None;
+        let ok = p.wb.board.set_label(id, &text).is_ok();
+        p.collect_notices();
+        ok && p.wb.board.needs_save()
+    });
+    if changed == Some(true) {
+        (host.on_changed)(&mut host.app.clone(), &mut info);
+    }
+    Update::RefreshDom
 }
 
 /// The name of a cutout for a screen reader: where it comes from, and its label.
@@ -213,7 +270,7 @@ pub fn panel_dom(panel: &mut Panel, host: &Host) -> Dom {
         .as_str(),
     );
     for c in &cutouts {
-        root.add_child(cutout_dom(panel, c, selected == Some(c.id)));
+        root.add_child(cutout_dom(panel, host, c, selected == Some(c.id)));
     }
     if cutouts.is_empty() {
         root.add_child(
@@ -414,7 +471,10 @@ fn answer(host: &Host, mut app: RefAny, out: Out, info: &mut CallbackInfo) -> Up
             Update::DoNothing
         }
         Out::Jump(id) => (host.on_jump)(&mut app, id, info),
-        Out::EditLabel(_) => Update::RefreshDom,
+        Out::EditLabel(id) => {
+            host.run(|p| p.editing = Some(id));
+            Update::RefreshDom
+        }
         Out::Notice(n) => {
             host.run(|p| p.hint = Some(say(&n)));
             Update::RefreshDom

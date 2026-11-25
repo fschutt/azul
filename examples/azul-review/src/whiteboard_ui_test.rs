@@ -247,3 +247,22 @@ fn the_keys_of_the_panel_take_the_selection_off_and_let_go_and_take_a_step_back(
     assert!(on_key(&mut panel, Key::Redo));
     assert!(!on_key(&mut panel, Key::Escape), "nothing to let go of");
 }
+
+#[test]
+fn a_label_is_typed_in_a_text_area_under_its_cutout_while_it_is_being_edited() {
+    crate::l10n::in_english();
+    let host = host();
+    let (dom, id) = host
+        .run(|p| {
+            let (a, _) = with_cutouts(p);
+            p.editing = Some(a);
+            (panel_dom(p, &host), a)
+        })
+        .expect("a panel");
+    assert!(with_id(&dom, &format!("__azreview_whiteboard-label-{id}")).is_some(), "the text area");
+    let plain = host.run(|p| {
+        p.editing = None;
+        panel_dom(p, &host)
+    });
+    assert!(with_id(&plain.expect("a panel"), &format!("__azreview_whiteboard-label-{id}")).is_none());
+}
