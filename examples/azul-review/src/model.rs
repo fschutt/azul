@@ -103,6 +103,13 @@ pub struct Stroke {
 }
 
 impl Stroke {
+    /// Whether (`x`, `y`) is within `tolerance` px of the stroke's line (of its dab, for one point):
+    /// the eraser's hit, which a bounding box is no measure of (a long diagonal's box is a page).
+    #[must_use]
+    pub fn is_near(&self, _x: f32, _y: f32, _tolerance: f32) -> bool {
+        false
+    }
+
     pub fn bounds(&self) -> (f32, f32, f32, f32) {
         let mut b = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
         for p in &self.points {

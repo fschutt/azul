@@ -96,6 +96,9 @@ pub struct AppState {
     /// The notes dictated at spots of the open file (the side column, the markers on the pages).
     pub notes: Vec<Note>,
     pub next_note_id: u64,
+    /// What Mod+Z takes back, newest last, and what Mod+Shift+Z brings back.
+    pub history: Vec<Edit>,
+    pub redo_stack: Vec<Edit>,
     /// The pen's rest and the dictation it starts (the side column, the markers).
     pub voice: voice::Voice,
     /// AzReview's own switches of this run (they win over the settings file).
@@ -140,6 +143,8 @@ impl AppState {
             findings: Vec::new(),
             notes: Vec::new(),
             next_note_id: 1,
+            history: Vec::new(),
+            redo_stack: Vec::new(),
             voice: voice::Voice::new(dwell::Config::default(), dictation::DEFAULT_SILENCE_MS),
             switches: switches::Switches::default(),
             recording: None,
@@ -171,11 +176,37 @@ impl AppState {
         self.current = Some(index);
         self.strokes.clear();
         self.notes.clear();
+        self.history.clear();
+        self.redo_stack.clear();
         self.live = None;
         self.ink.open();
         self.visible_page = 0;
         self.sidebar_open = false;
         self.rederive();
+    }
+
+    /// Keeps a finished stroke (what Mod+Z takes back).
+    pub fn keep(&mut self, _stroke: Stroke) {}
+
+    /// Takes the last edit back; whether there was one.
+    pub fn undo(&mut self) -> bool {
+        false
+    }
+
+    /// Brings the last edit taken back again; whether there was one.
+    pub fn redo(&mut self) -> bool {
+        false
+    }
+
+    /// Erases the stroke at `index` (what Mod+Z brings back).
+    pub fn erase(&mut self, _index: usize) -> Option<Stroke> {
+        None
+    }
+
+    /// The topmost stroke of `page` the eraser at (`x`, `y`) touches.
+    #[must_use]
+    pub fn eraser_target(&self, _page: usize, _x: f32, _y: f32) -> Option<usize> {
+        None
     }
 
     /// Takes back what the archive of the open file holds, under what has been drawn since the file
@@ -737,6 +768,15 @@ pub extern "C" fn on_ink_up(mut data: RefAny, mut info: CallbackInfo) -> Update 
             Update::DoNothing
         }
     }
+}
+
+/// One change to the ink that Mod+Z can take back.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Edit {
+    /// A stroke was kept.
+    Added(Stroke),
+    /// A stroke was erased from place `index` of the file's strokes.
+    Erased(Stroke, usize),
 }
 
 /// What a pen lifting did to the stroke it had down.
