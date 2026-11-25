@@ -2954,7 +2954,8 @@ jobs:
     # Builds the python extension as a separate artifact. Symbols are resolved dynamically at import time.
     name: Build Python extension (${{ matrix.os }})
     needs: [content_state_lint, documentation_paths, clippy, check_crates, feature_matrix_check, test_lib, codegen_linux, codegen_macos, codegen_windows]
-    timeout-minutes: 120
+    # The macOS build had not finished after 120 minutes on a cold cache (run 45178260225).
+    timeout-minutes: 240
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
     runs-on: ${{ matrix.os }}
     strategy:
