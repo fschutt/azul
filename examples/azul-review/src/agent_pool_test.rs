@@ -204,7 +204,9 @@ fn a_job_reports_that_it_began_and_then_its_answer() {
     match &messages[1].event {
         JobEvent::Done(result) => match result.as_ref() {
             Ok(response) => {
-                let Body::Review(reply) = &response.body;
+                let Body::Review(reply) = &response.body else {
+                    panic!("a review answer")
+                };
                 assert_eq!(reply.answer, "fine");
                 assert_eq!(response.usage.elapsed_ms, 100);
             }
@@ -317,4 +319,41 @@ fn the_worker_runs_on_a_thread_of_its_own_and_the_ticket_cancels_it_from_here() 
         ),
         JobEvent::Started => panic!("two starts"),
     }
+}
+
+#[test]
+fn the_scripts_read_one_line_per_message() {
+    let mut pool = Pool::default();
+    let t = ticket(&mut pool);
+    let reply = Reply {
+        answer: "fine".to_string(),
+        suggestions: vec![crate::agent_review::Suggestion::InsertLines {
+            after_line: 1,
+            lines: vec!["// x".to_string()],
+        }],
+        intent: None,
+    };
+    let make: Factory = Box::new(move || {
+        Ok(Box::new(MockBackend::scripted(vec![Step::reply(
+            250, &reply,
+        )])))
+    });
+    let messages = run(spec(make), &t);
+    assert_eq!(
+        messages[0].log_line(Task::Editing),
+        format!("AZREVIEW_AGENT started 4 editing job={}", t.id)
+    );
+    assert_eq!(
+        messages[1].log_line(Task::Editing),
+        "AZREVIEW_AGENT done 4 editing mock items=1 ms=250"
+    );
+    let failed = JobMessage {
+        job: 9,
+        conversation: 4,
+        event: JobEvent::Done(Box::new(Err(AgentError::Timeout { secs: 90 }))),
+    };
+    assert_eq!(
+        failed.log_line(Task::Exploration),
+        "AZREVIEW_AGENT failed 4 exploration timeout Timeout after 90 s"
+    );
 }

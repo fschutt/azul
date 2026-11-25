@@ -6,9 +6,9 @@ use std::{cell::Cell, rc::Rc};
 
 use super::*;
 use crate::{
-    agent_backend::{never_cancelled, run_task, Body, Clock, ManualClock, Response},
+    agent_backend::{never_cancelled, run_task, Clock, ManualClock, Response},
     agent_limits::Limits,
-    agent_review::{Context, ReviewRequest, Speaker, Turn, Utterance, WordRef},
+    agent_review::{Context, PageGrid, ReviewRequest, Speaker, Turn, Utterance, WordRef},
     agent_stroke::{Sample, StrokeInput},
 };
 
@@ -92,9 +92,7 @@ fn run(
 }
 
 fn reply_of(response: &Response) -> &Reply {
-    match &response.body {
-        Body::Review(reply) => reply,
-    }
+    response.reply().expect("a review answer")
 }
 
 #[test]
@@ -338,12 +336,142 @@ fn auto_guesses_an_intent_only_for_strokes_the_reviewer_did_not_pin() {
     assert!(reply_of(&pinned).intent.is_none());
 }
 
+/// A stroke along the points, unpinned, whatever its pen was.
+fn drawn(id: u64, pinned: bool, from: (f32, f32), to: (f32, f32)) -> StrokeInput {
+    let mut s = stroke(id, pinned);
+    s.samples = (0..12)
+        .map(|i| {
+            let t = i as f32 / 11.0;
+            Sample {
+                x: from.0 + (to.0 - from.0) * t,
+                y: from.1 + (to.1 - from.1) * t,
+                pressure: 0.5,
+                dt_ms: i * 30,
+                tilt: None,
+            }
+        })
+        .collect();
+    s
+}
+
+/// The request of `request()` with these strokes on a page whose lines are 16 px high and 8 px wide
+/// (line 10, `let value = foo(1);`, is y 100 to 116 and `foo` is x 96 to 120).
+fn on_the_grid(said: &str, strokes: Vec<StrokeInput>) -> Request {
+    let mut req = request(Task::Editing, said, false);
+    let Request::Review(r) = &mut req else {
+        panic!("a review request")
+    };
+    r.strokes = strokes;
+    r.context.grid = Some(PageGrid {
+        first_line: 10,
+        origin_x: 0.0,
+        origin_y: 100.0,
+        line_height: 16.0,
+        char_width: 8.0,
+    });
+    req
+}
+
+fn intent_of(response: &Response) -> Intent {
+    reply_of(response).intent.clone().expect("an intent")
+}
+
+#[test]
+fn auto_reads_the_shape_when_the_words_say_nothing_plain() {
+    let mut mock = MockBackend::auto(0);
+    let mut clock = ManualClock::new();
+    // a line through the middle of `foo`: a strike-through, which means an issue
+    let strike = drawn(1, false, (92.0, 108.0), (124.0, 108.0));
+    let response = run(
+        &mut mock,
+        &on_the_grid("this looks odd", vec![strike]),
+        &mut clock,
+    )
+    .expect("answers");
+    let intent = intent_of(&response);
+    assert_eq!(intent.meaning, Some(Meaning::Issue));
+    assert!(
+        intent.rationale.contains("rule of shape") && intent.rationale.contains("strike-through"),
+        "{}",
+        intent.rationale
+    );
+    assert!(intent.confidence > 0.0 && intent.confidence <= 0.5);
+    // and under it: an underline, which means scope
+    let under = drawn(1, false, (92.0, 114.4), (124.0, 114.4));
+    let response = run(
+        &mut mock,
+        &on_the_grid("this looks odd", vec![under]),
+        &mut clock,
+    )
+    .expect("answers");
+    assert_eq!(intent_of(&response).meaning, Some(Meaning::Scope));
+}
+
+#[test]
+fn auto_prefers_what_the_reviewer_said_to_what_a_shape_may_mean() {
+    let mut mock = MockBackend::auto(0);
+    let mut clock = ManualClock::new();
+    let strike = drawn(1, false, (92.0, 108.0), (124.0, 108.0));
+    let response = run(
+        &mut mock,
+        &on_the_grid("why is this here?", vec![strike]),
+        &mut clock,
+    )
+    .expect("answers");
+    let intent = intent_of(&response);
+    assert_eq!(intent.meaning, Some(Meaning::Question));
+    assert_eq!(intent.rationale, "the mock's rule of thumb");
+}
+
+#[test]
+fn auto_never_reads_the_shape_of_a_stroke_the_reviewer_chose_a_meaning_for() {
+    let mut mock = MockBackend::auto(0);
+    let mut clock = ManualClock::new();
+    let pinned = drawn(1, true, (92.0, 108.0), (124.0, 108.0));
+    let response = run(
+        &mut mock,
+        &on_the_grid("this looks odd", vec![pinned]),
+        &mut clock,
+    )
+    .expect("answers");
+    assert!(reply_of(&response).intent.is_none());
+    // two strokes: the one that is pinned is left out of the guess, the other one is guessed at
+    let pinned_underline = drawn(1, true, (92.0, 114.4), (124.0, 114.4));
+    let strike = drawn(2, false, (92.0, 108.0), (124.0, 108.0));
+    let response = run(
+        &mut mock,
+        &on_the_grid("this looks odd", vec![pinned_underline, strike]),
+        &mut clock,
+    )
+    .expect("answers");
+    assert_eq!(intent_of(&response).meaning, Some(Meaning::Issue));
+}
+
+#[test]
+fn auto_falls_back_to_scope_when_neither_the_words_nor_the_shape_say_anything() {
+    let mut mock = MockBackend::auto(0);
+    let mut clock = ManualClock::new();
+    // a short slanted line: no rule fits
+    let slanted = drawn(1, false, (92.0, 100.0), (124.0, 140.0));
+    let response = run(
+        &mut mock,
+        &on_the_grid("this looks odd", vec![slanted]),
+        &mut clock,
+    )
+    .expect("answers");
+    let intent = intent_of(&response);
+    assert_eq!(intent.meaning, Some(Meaning::Scope));
+    assert_eq!(intent.rationale, "the mock's rule of thumb");
+}
+
 #[test]
 fn a_mock_that_says_nothing_still_answers_something_readable() {
     let mut mock = MockBackend::auto(0);
     let mut clock = ManualClock::new();
     let mut req = request(Task::Editing, "", true);
-    let Request::Review(r) = &mut req;
+    let Request::Review(r) = &mut req else {
+        panic!("a review request")
+    };
     r.turns.clear();
     let response = run(&mut mock, &req, &mut clock).expect("answers");
     assert_eq!(

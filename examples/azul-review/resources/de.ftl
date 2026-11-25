@@ -172,3 +172,6 @@ azreview-agent-problem-arg-forbidden = { $field }: { $arg } ist hier nicht erlau
 azreview-agent-problem-model-required = { $field }: nenne ein Modell
 azreview-agent-problem-url-invalid = { $field }: { $text } ist keine http://- oder https://-Adresse
 azreview-agent-problem-unknown-field = { $field }: keine solche Einstellung ({ $word })
+azreview-agent-field-effort = Aufwand
+azreview-agent-hint-effort = Wie gründlich das Modell nachdenkt: low ist schnell und billig, max gründlich. Leer: der Standard des Modells. Ein Modell, das Aufwand nicht kennt, lehnt ihn ab: leere dann die Zeile.
+azreview-agent-problem-not-a-choice = { $field }: „{ $word }“ gehört nicht zu den Möglichkeiten ({ $choices })
