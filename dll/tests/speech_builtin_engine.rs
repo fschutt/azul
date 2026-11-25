@@ -111,9 +111,12 @@ fn transcribe(wav: &str, language: &str) -> azul::desktop::extra::speech::recogn
     })
 }
 
+/// One test for both sentences: the engine owns ONE process-global model and is not thread-safe
+/// (two recognizers calling it from two test threads at once crashed it with a SIGSEGV on the
+/// runner), so what uses it runs one after the other.
 #[test]
-#[ignore = "needs scripts/fetch_whistle.sh target/speech-engine and two recordings, en.wav and de.wav, there"]
-fn the_real_engine_turns_a_recorded_english_sentence_into_timed_words() {
+#[ignore = "SPEECH-R1: a run needs scripts/fetch_whistle.sh target/speech-engine and two recordings, en.wav and de.wav, there"]
+fn the_real_engine_turns_a_recorded_english_and_german_sentence_into_timed_words() {
     let answer = transcribe("en.wav", "en-US");
     println!("english: {answer:#?}");
     assert_eq!(answer.outcome, Outcome::Heard, "{}", answer.message);
@@ -129,11 +132,8 @@ fn the_real_engine_turns_a_recorded_english_sentence_into_timed_words() {
         last = word.start_ms;
     }
     assert!(answer.started_unix_ms > 1_700_000_000_000, "dated by the wall clock");
-}
 
-#[test]
-#[ignore = "needs scripts/fetch_whistle.sh target/speech-engine and two recordings, en.wav and de.wav, there"]
-fn the_real_engine_detects_a_recorded_german_sentence() {
+    // German, with no language asked for: the engine detects it.
     let answer = transcribe("de.wav", "");
     println!("german: {answer:#?}");
     assert_eq!(answer.outcome, Outcome::Heard, "{}", answer.message);
