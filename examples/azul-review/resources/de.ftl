@@ -86,3 +86,4 @@ azreview-shortcut-undo = Den letzten Strich oder das letzte Radieren zurücknehm
 azreview-ink-surface = Zeichenfläche der Seite { $n }
 azreview-recording-level = Aufnahmepegel
 azreview-no-folder = Wähle einen Ordner zum Prüfen.
+azreview-save-pointer-log = Zeigerprotokoll speichern

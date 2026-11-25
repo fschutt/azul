@@ -190,6 +190,12 @@ pub fn pointer(data: &mut RefAny, info: &mut CallbackInfo, down: Option<bool>) -
 
 /// The pointer left the page (off it, off the window, or the pen out of the tablet's range).
 pub extern "C" fn on_pointer_left(mut data: RefAny, _info: CallbackInfo) -> Update {
+    pointer_left(&mut data)
+}
+
+/// What the pointer leaving the page does to the dwell and to a dictation: the rest is over, and a
+/// dictation the pen has moved away from ends.
+pub fn pointer_left(data: &mut RefAny) -> Update {
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };

@@ -48,7 +48,7 @@ fn ink_in_the_pages_padding_above_the_code_is_on_the_first_line() {
 
 // ---- undo and redo ----
 
-fn app_with_file() -> AppState {
+pub(crate) fn app_with_file() -> AppState {
     AppState::create(PathBuf::new(), vec![file()], RefAny::new(0u8), PathBuf::new())
 }
 

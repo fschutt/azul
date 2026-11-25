@@ -76,17 +76,43 @@ pub fn redraw_ink(info: &mut CallbackInfo, layer: Layer) {
     }
 }
 
-pub fn sample(info: &mut CallbackInfo) -> Option<(crate::model::InkPoint, bool)> {
+/// The pointer as a stroke sees it.
+#[derive(Debug, Clone, Copy)]
+pub struct Sampled {
+    /// Where, in the pen layer's px, with the pen's pressure and tilt (a mouse's are the defaults).
+    pub point: crate::model::InkPoint,
+    /// The pen's eraser end is down.
+    pub eraser: bool,
+    /// A button or the pen's tip is down, as the window says: the button is the tip's too on a pen.
+    pub pressed: bool,
+    /// A pen drives the pointer.
+    pub pen: bool,
+    /// The pen's pressure while its tip is down (0 for a mouse or a trackpad, and for a pen in the air).
+    pub pressure: f32,
+}
+
+pub fn sample(info: &mut CallbackInfo) -> Option<Sampled> {
     let p = info.get_cursor_relative_to_node().into_option()?;
-    if let Some(pen) = info.get_pen_state().into_option() {
+    let button = info.get_current_mouse_state().left_down;
+    let pen = info.get_pen_state().into_option();
+    if let Some(pen) = &pen {
         if pen.in_contact {
-            return Some((
-                ink::point_from(p.x, p.y, pen.pressure, pen.tilt.x_tilt, pen.tilt.y_tilt),
-                pen.is_eraser,
-            ));
+            return Some(Sampled {
+                point: ink::point_from(p.x, p.y, pen.pressure, pen.tilt.x_tilt, pen.tilt.y_tilt),
+                eraser: pen.is_eraser,
+                pressed: true,
+                pen: true,
+                pressure: pen.pressure,
+            });
         }
     }
-    Some((ink::point_from(p.x, p.y, 0.0, 0.0, 0.0), false))
+    Some(Sampled {
+        point: ink::point_from(p.x, p.y, 0.0, 0.0, 0.0),
+        eraser: false,
+        pressed: button,
+        pen: pen.is_some(),
+        pressure: 0.0,
+    })
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -179,6 +205,23 @@ pub extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
             EventFilter::Window(WindowEventFilter::VirtualKeyDown),
             data.clone(),
             crate::on_key,
+        )
+        // A stroke ends with the release wherever it is, with the pointer leaving the window, with the
+        // window losing its focus: not only with a release over the page's pen layer.
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::LeftMouseUp),
+            data.clone(),
+            crate::on_window_up,
+        )
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::MouseLeave),
+            data.clone(),
+            crate::on_window_left,
+        )
+        .with_callback(
+            EventFilter::Window(WindowEventFilter::FocusLost),
+            data.clone(),
+            crate::on_focus_lost,
         )
 }
 
@@ -408,6 +451,10 @@ fn menu_bar(data: &RefAny) -> Menu {
     session = session.with_child(MenuItem::String(
         StringMenuItem::create(label("azreview-reveal-archive"))
             .with_callback(data.clone(), crate::on_menu_reveal),
+    ));
+    session = session.with_child(MenuItem::String(
+        StringMenuItem::create(label("azreview-save-pointer-log"))
+            .with_callback(data.clone(), crate::on_menu_pointer_log),
     ));
     items.push(MenuItem::String(session));
 
@@ -928,16 +975,17 @@ fn ink_layer(data: &RefAny, page: usize, layer: Layer) -> Dom {
         data.clone(),
         crate::on_cycle_tool_back,
     )
-    // The pointer off the page, or the pen out of the tablet's range: no rest to time.
+    // The pointer off the page, or the pen out of the tablet's range: no rest to time, and a stroke whose
+    // release was not heard is over.
     .with_callback(
         EventFilter::Hover(HoverEventFilter::MouseLeave),
         data.clone(),
-        voice::on_pointer_left,
+        crate::on_ink_leave,
     )
     .with_callback(
         EventFilter::Hover(HoverEventFilter::PenLeave),
         data.clone(),
-        voice::on_pointer_left,
+        crate::on_ink_leave,
     )
 }
 

@@ -86,3 +86,4 @@ azreview-shortcut-undo = Undo the last stroke or erase (Mod+Shift+Z brings it ag
 azreview-ink-surface = Drawing surface of page { $n }
 azreview-recording-level = Recording level
 azreview-no-folder = Choose a folder to review.
+azreview-save-pointer-log = Save the pointer log

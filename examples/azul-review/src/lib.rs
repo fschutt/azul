@@ -57,6 +57,7 @@ mod l10n;
 mod l10n_tests;
 pub mod model;
 pub mod perf;
+pub mod pointer;
 pub mod session;
 pub mod switches;
 pub mod ui;
@@ -128,6 +129,8 @@ pub struct AppState {
     pub switches: switches::Switches,
     /// The ink's own timings (`AZREVIEW_PROFILE=1`).
     pub perf: perf::Perf,
+    /// The last pointer events (`AZREVIEW_EVENTS=1`, the Session menu, the debug server).
+    pub pointer_log: pointer::PointerLog,
     pub recording: Option<VoiceClip>,
     pub clips: Vec<VoiceClip>,
     pub level_samples: usize,
@@ -175,6 +178,7 @@ impl AppState {
             voice: voice::Voice::new(dwell::Config::default(), dictation::DEFAULT_SILENCE_MS),
             switches: switches::Switches::default(),
             perf: perf::Perf::new(false),
+            pointer_log: pointer::PointerLog::default(),
             recording: None,
             clips: Vec::new(),
             level_samples: 0,
@@ -497,6 +501,12 @@ pub fn run() {
     );
     state.switches = own;
     state.perf = perf::Perf::new(std::env::var_os("AZREVIEW_PROFILE").is_some());
+    state.pointer_log = pointer::PointerLog::new(pointer::Echo::parse(
+        std::env::var("AZREVIEW_EVENTS").ok().as_deref(),
+    ));
+    if std::env::var_os("AZ_DEBUG").is_some() || std::env::var_os("AZ_E2E").is_some() {
+        pointer::register_ops(&mut config);
+    }
     let app = App::create(RefAny::new(state), config);
     let window =
         kit::window_options(&kit_ref, ui::layout, (1280.0, 820.0), (800.0, 520.0), on_window_created);
@@ -826,6 +836,7 @@ pub extern "C" fn on_settings_open(mut data: RefAny, _info: CallbackInfo) -> Upd
     Update::RefreshDom
 }
 
+/// The pen layer's press: a stroke begins (the pen's eraser end takes the stroke under it instead).
 pub extern "C" fn on_ink_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let ms = info.get_current_mouse_state();
     if ms.right_down || ms.middle_down {
@@ -834,16 +845,18 @@ pub extern "C" fn on_ink_down(mut data: RefAny, mut info: CallbackInfo) -> Updat
     let Some(page) = ui::page_of(&mut info) else {
         return Update::DoNothing;
     };
-    // The pen set down: a dictation it left behind ends (the stroke is the new thing it does).
-    let ended = voice::pointer(&mut data, &mut info, Some(true));
+    let Some(sampled) = ui::sample(&mut info) else {
+        return Update::DoNothing;
+    };
+    log_pointer(&mut data, &mut info, pointer::Kind::Down, Some(page), &sampled);
+    // The pen set down: a dictation it left behind ends (the stroke is the new thing it does). The window is
+    // not rebuilt for it now: a stroke begins, and the dictation's own end message rebuilds it.
+    voice::pointer(&mut data, &mut info, Some(true));
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
-    let Some((p, is_eraser)) = ui::sample(&mut info) else {
-        return Update::DoNothing;
-    };
-    if is_eraser {
-        if let Some(i) = s.eraser_target(page, p.x, p.y) {
+    if sampled.eraser {
+        if let Some(i) = s.eraser_target(page, sampled.point.x, sampled.point.y) {
             let gone = s.erase(i);
             drop(s);
             if let Some(gone) = gone {
@@ -852,31 +865,15 @@ pub extern "C" fn on_ink_down(mut data: RefAny, mut info: CallbackInfo) -> Updat
         }
         return Update::DoNothing;
     }
-    let id = s.next_stroke_id;
-    s.next_stroke_id += 1;
-    let semantic = s.tool.semantic_for(s.active);
-    let epoch = s.epoch;
-    s.live = Some(Stroke {
-        page,
-        semantic,
-        points: vec![p],
-        id,
-        epoch,
-    });
-
-    if s.tool.records_audio() && s.recording.is_none() {
-        s.recording = Some(VoiceClip {
-            sample_rate: CLIP_RATE,
-            ..VoiceClip::default()
-        });
-    }
-    if let Some(clip) = s.recording.as_mut() {
-        clip.stroke_ids.push(id);
-    }
+    let began = s.stroke_begin(page, sampled.point);
     drop(s);
+    // A stroke whose release was not heard is kept as it was.
+    if let Some(stale) = began.stale {
+        finish_stroke(&mut data, &mut info, stale);
+    }
     // The first dab shows at once; the stroke grows in the frame of its layer.
-    ui::redraw_ink(&mut info, ink::Layer::of(semantic));
-    ended
+    ui::redraw_ink(&mut info, began.layer);
+    Update::DoNothing
 }
 
 pub extern "C" fn on_cycle_tool(mut data: RefAny, _: CallbackInfo) -> Update {
@@ -929,85 +926,178 @@ pub extern "C" fn on_ink_move(mut data: RefAny, mut info: CallbackInfo) -> Updat
 }
 
 fn ink_move(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+    let Some(sampled) = ui::sample(info) else {
+        return Update::DoNothing;
+    };
+    let page = ui::page_of(info);
+    log_pointer(data, info, pointer::Kind::Move, page, &sampled);
     // Where the pen is, drawing or hovering: the dwell times its rest (and a dictation it has
-    // moved away from ends - the one DOM refresh a move may ask for).
-    let ended = voice::pointer(data, info, None);
+    // moved away from ends). The window is not rebuilt for that while a stroke is live: a rebuilt window
+    // replaces the pen's layer under the stroke.
+    let asked = voice::pointer(data, info, None);
+    let live = data.downcast_ref::<AppState>().is_some_and(|s| s.live.is_some());
+    let update = pointer::refresh_after_move(live, asked);
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
     if s.live.is_none() {
         // The pen's eraser end dragged over the page takes every stroke it crosses (a press takes the
         // one under it, `on_ink_down`).
-        if let Some((p, true)) = ui::sample(info) {
-            if let Some(page) = ui::page_of(info) {
-                if let Some(gone) = s.eraser_target(page, p.x, p.y).and_then(|i| s.erase(i)) {
+        if sampled.eraser {
+            if let Some(page) = page {
+                if let Some(gone) = s
+                    .eraser_target(page, sampled.point.x, sampled.point.y)
+                    .and_then(|i| s.erase(i))
+                {
                     drop(s);
                     ui::redraw_ink(info, ink::Layer::of(gone.semantic));
                 }
             }
         }
-        return ended;
+        return update;
     }
-    let Some((p, _)) = ui::sample(info) else {
-        return Update::DoNothing;
-    };
-    let Some(live) = s.live.as_mut() else {
-        return Update::DoNothing;
-    };
-    let far = live
-        .points
-        .last()
-        .is_none_or(|l| (l.x - p.x).abs() + (l.y - p.y).abs() > 0.35);
-    if !far {
-        return ended;
-    }
-    live.points.push(p);
-    let layer = ink::Layer::of(live.semantic);
-    drop(s);
-    ui::redraw_ink(info, layer);
-    ended
-}
-
-/// The pen lifts: a stroke is kept (its page's frame drawn anew with it, no
-/// new DOM - nothing else in the window shows the strokes), a click cycles
-/// the nib.
-pub extern "C" fn on_ink_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    // The pen lifted: it rests in the air where it was (not a move: nothing of a dictation ends).
-    voice::pointer(&mut data, &mut info, Some(false));
-    let (up, timer_id, layer) = {
-        let Some(mut s) = data.downcast_mut::<AppState>() else {
-            return Update::DoNothing;
-        };
-        let Some(done) = s.live.take() else {
-            return Update::DoNothing;
-        };
-        let layer = ink::Layer::of(done.semantic);
-        if done.points.len() < CLICK_POINT_LIMIT {
-            // Dropped (a click cycles the nib): the page's frame no longer shows the dab that was
-            // drawn. A kept stroke is told to the page by `keep`: the frame already shows it.
-            s.ink.touch(done.page);
-            // A touch that rests the pen on the page while a dictation listens is no click: it must
-            // not change the nib under the user's hand.
-            let up = if s.voice.running.is_some() { Up::Dab } else { Up::Click };
-            (up, s.idle_timer, layer)
-        } else {
-            s.keep(done);
-            println!("AZREVIEW_STROKES {}", s.strokes.len());
-            if let Some(line) = s.perf.summary() {
-                println!("{line}");
-            }
-            (Up::Kept, s.idle_timer, layer)
-        }
-    };
-    ui::redraw_ink(&mut info, layer);
-    match up {
-        Up::Click => on_cycle_tool(data, info),
-        Up::Dab => Update::DoNothing,
-        Up::Kept => {
-            save_session(&data, &mut info);
-            arm_idle_timer(&mut info, data, timer_id);
+    match s.stroke_move(sampled.point, sampled.pressed) {
+        pointer::Moved::Nothing => Update::DoNothing,
+        pointer::Moved::Grew(layer) => {
+            drop(s);
+            ui::redraw_ink(info, layer);
             Update::DoNothing
         }
+        pointer::Moved::Ended(ended) => {
+            drop(s);
+            finish_stroke(data, info, ended)
+        }
+    }
+}
+
+/// The pen layer's release: the stroke that is live ends.
+pub extern "C" fn on_ink_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    if let Some(sampled) = ui::sample(&mut info) {
+        let page = ui::page_of(&mut info);
+        log_pointer(&mut data, &mut info, pointer::Kind::Up, page, &sampled);
+    }
+    // The pointer lifted: it rests where it was (not a move: nothing of a dictation ends).
+    voice::pointer(&mut data, &mut info, Some(false));
+    end_stroke(&mut data, &mut info)
+}
+
+/// Every release in the window: a stroke whose release the pen layer did not hear (the pointer was off
+/// the page, over the margin, between two pages) ends all the same.
+pub extern "C" fn on_window_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    log_window(&mut data, &mut info, pointer::Kind::WindowUp);
+    end_stroke(&mut data, &mut info)
+}
+
+/// The pointer left the window: a stroke live under a pointer that is not pressed ends.
+pub extern "C" fn on_window_left(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    log_window(&mut data, &mut info, pointer::Kind::WindowLeave);
+    if info.get_current_mouse_state().left_down {
+        return Update::DoNothing;
+    }
+    end_stroke(&mut data, &mut info)
+}
+
+/// The window lost its focus (a dialog, another app): what was drawn is kept; the release that comes
+/// while another window has the focus is not heard here.
+pub extern "C" fn on_focus_lost(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    log_window(&mut data, &mut info, pointer::Kind::FocusLost);
+    end_stroke(&mut data, &mut info)
+}
+
+/// The pointer left a page's pen layer: the dwell's rest is over, and a stroke live under a pointer that
+/// is not pressed ends.
+pub extern "C" fn on_ink_leave(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    log_window(&mut data, &mut info, pointer::Kind::Leave);
+    let asked = voice::pointer_left(&mut data);
+    if info.get_current_mouse_state().left_down {
+        return pointer::refresh_after_move(
+            data.downcast_ref::<AppState>().is_some_and(|s| s.live.is_some()),
+            asked,
+        );
+    }
+    let ended = end_stroke(&mut data, &mut info);
+    if matches!(ended, Update::DoNothing) {
+        asked
+    } else {
+        ended
+    }
+}
+
+/// Ends the stroke that is live, if one is, and does what its end asks.
+fn end_stroke(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+    let ended = data.downcast_mut::<AppState>().and_then(|mut s| s.stroke_end());
+    match ended {
+        Some(ended) => finish_stroke(data, info, ended),
+        None => Update::DoNothing,
+    }
+}
+
+/// What a stroke that ended asks: its page's layer drawn anew; a tap cycles the nib; a kept stroke is
+/// saved and the idle timer armed.
+fn finish_stroke(data: &mut RefAny, info: &mut CallbackInfo, ended: pointer::Ended) -> Update {
+    // The ended stroke's page, from wherever the end was heard (the layer, the window): every layer is asked, and
+    // one that shows its page already draws nothing.
+    info.update_all_image_callbacks();
+    match ended.up {
+        pointer::Up::Click => cycle_tool(data, false),
+        pointer::Up::Dab => Update::DoNothing,
+        pointer::Up::Kept => {
+            let timer_id = {
+                let Some(mut s) = data.downcast_mut::<AppState>() else {
+                    return Update::DoNothing;
+                };
+                println!("AZREVIEW_STROKES {}", s.strokes.len());
+                if let Some(line) = s.perf.summary() {
+                    println!("{line}");
+                }
+                s.idle_timer
+            };
+            save_session(data, info);
+            arm_idle_timer(info, data.clone(), timer_id);
+            Update::DoNothing
+        }
+    }
+}
+
+/// Notes an event of a page's pen layer in the log.
+fn log_pointer(
+    data: &mut RefAny,
+    _info: &mut CallbackInfo,
+    kind: pointer::Kind,
+    page: Option<usize>,
+    sampled: &ui::Sampled,
+) {
+    if let Some(mut s) = data.downcast_mut::<AppState>() {
+        let live = s.live.as_ref().map(|l| l.points.len());
+        s.pointer_log.push(pointer::Logged {
+            kind,
+            page,
+            x: sampled.point.x,
+            y: sampled.point.y,
+            pressure: sampled.pressure,
+            pressed: sampled.pressed,
+            pen: sampled.pen,
+            live,
+        });
+    }
+}
+
+/// Notes an event of the window (no position) in the log.
+fn log_window(data: &mut RefAny, info: &mut CallbackInfo, kind: pointer::Kind) {
+    let ms = info.get_current_mouse_state();
+    let pen = info.get_pen_state().into_option();
+    if let Some(mut s) = data.downcast_mut::<AppState>() {
+        let live = s.live.as_ref().map(|l| l.points.len());
+        s.pointer_log.push(pointer::Logged {
+            kind,
+            page: None,
+            x: 0.0,
+            y: 0.0,
+            pressure: pen.as_ref().map_or(0.0, |p| p.pressure),
+            pressed: ms.left_down || pen.as_ref().is_some_and(|p| p.in_contact),
+            pen: pen.is_some(),
+            live,
+        });
     }
 }
 
@@ -1018,16 +1108,6 @@ pub enum Edit {
     Added(Stroke),
     /// A stroke was erased from place `index` of the file's strokes.
     Erased(Stroke, usize),
-}
-
-/// What a pen lifting did to the stroke it had down.
-enum Up {
-    /// A tap: it cycles the nib.
-    Click,
-    /// A tap while a dictation listens: nothing.
-    Dab,
-    /// A stroke, kept.
-    Kept,
 }
 
 const ANNOTATION_IDLE_MS: u64 = 1_800;
@@ -1077,8 +1157,6 @@ pub extern "C" fn on_annotation_idle(
         should_terminate: TerminateTimer::Terminate,
     }
 }
-
-const CLICK_POINT_LIMIT: usize = 3;
 
 pub extern "C" fn on_pad(mut data: RefAny, info: CallbackInfo) -> Update {
     let Some(pad) = info.get_tablet_pad().into_option() else {
@@ -1154,6 +1232,32 @@ pub extern "C" fn on_menu_semantic(mut data: RefAny, mut info: CallbackInfo) -> 
 pub extern "C" fn on_menu_save(data: RefAny, mut info: CallbackInfo) -> Update {
     save_session(&data, &mut info);
     Update::RefreshDom
+}
+
+/// The Session menu's "Save the pointer log": the last pointer events, as text, in the sessions' folder (it
+/// is opened, to be sent along with a report of a stroke that went wrong).
+pub extern "C" fn on_menu_pointer_log(mut data: RefAny, _: CallbackInfo) -> Update {
+    let Some(mut s) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    let dir = s.data_root.join(ABOUT.app_folder);
+    let path = dir.join("pointer-events.log");
+    let text = s.pointer_log.text();
+    let written = std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&path, text));
+    match written {
+        Ok(()) => {
+            println!("AZREVIEW_POINTER_LOG {}", path.display());
+            if let Err(e) = azul_appkit::files::open_external(&dir.to_string_lossy()) {
+                s.problem = Some(e);
+                return Update::RefreshDom;
+            }
+            Update::DoNothing
+        }
+        Err(e) => {
+            s.problem = Some(format!("{}: {e}", path.display()));
+            Update::RefreshDom
+        }
+    }
 }
 
 pub extern "C" fn on_menu_reveal(mut data: RefAny, _: CallbackInfo) -> Update {
