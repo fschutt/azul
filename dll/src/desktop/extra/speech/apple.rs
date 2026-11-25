@@ -672,6 +672,7 @@ const TAP_KEEP_SECONDS: usize = 30;
 
 /// The Mac's microphone for the built-in recognizer: the same `AVAudioEngine` input the system's
 /// recognizer listens through, behind the same permission rules (for the microphone alone).
+#[derive(Debug, Clone, Copy)]
 pub struct AppleMicrophoneSource;
 
 impl MicrophoneSource for AppleMicrophoneSource {

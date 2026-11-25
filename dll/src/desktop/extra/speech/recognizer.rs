@@ -151,7 +151,7 @@ pub trait Clock: Send + Sync {
 }
 
 /// The wall clock.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct SystemClock {
     began: Instant,
 }
@@ -189,6 +189,7 @@ impl Clock for SystemClock {
 pub const WAIT_SLICE_MS: u64 = 20;
 
 /// What a recognizer is asked to do: listen for up to `timeout_ms` in `language`.
+#[derive(Clone, Copy)]
 pub struct Listen<'a> {
     /// A BCP 47 tag, or empty for the system's language.
     pub language: &'a str,
@@ -248,7 +249,7 @@ pub trait Recognizer: Send {
 
 /// The limits on what a caller may ask for: every input has a realistic least and most, a value
 /// outside is kept to it and the answer says so.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
     /// The shortest time to listen, ms: below it nothing is heard but a click.
     pub min_listen_ms: u32,

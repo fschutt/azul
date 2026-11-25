@@ -140,7 +140,7 @@ impl Resampler {
 }
 
 /// How the end-pointer tells speech from the room.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Vad {
     /// How much before the first voiced frame is kept, ms (the first consonant is quiet).
     pub preroll_ms: u32,

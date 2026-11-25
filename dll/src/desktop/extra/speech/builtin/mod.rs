@@ -70,7 +70,7 @@ pub struct Failure {
 }
 
 /// What listens and what limits it.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Tuning {
     /// Engine threads (0: the engine's choice, up to four). One keeps a window's rendering from
     /// being starved by a transcription.
