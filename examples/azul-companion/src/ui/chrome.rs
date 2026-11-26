@@ -12,6 +12,13 @@ use crate::theme as th;
 /// The id of the phone's block (the layout check starts from it).
 pub const PHONE_ID: &str = "az-phone";
 
+/// The root of the page: a body without margins round the phone, as the simulator's wrapper has it, so that the phone's own app and the
+/// layout study lay out the same tree.
+#[must_use]
+pub fn body(phone: Dom) -> Dom {
+    Dom::create_body().with_css(format!("margin: 0px; padding: 0px; background: {}; font-family: system:ui, sans-serif;", th::BG).as_str()).with_child(phone)
+}
+
 /// The phone's screens in a block of the phone's size (the system's bars are the safe area's margins).
 #[must_use]
 pub fn phone(cx: &Cx) -> Dom {
