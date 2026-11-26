@@ -637,7 +637,17 @@ jobs:
         with:
           name: demoapps-ios-sim
           path: apps
+      - name: idb, to press the button a manifest names (best effort)
+        continue-on-error: true
+        run: |
+          brew tap facebook/fb
+          brew install idb-companion
+          python3 -m venv "$RUNNER_TEMP/idb"
+          "$RUNNER_TEMP/idb/bin/pip" install fb-idb
+          echo "$RUNNER_TEMP/idb/bin" >> "$GITHUB_PATH"
       - name: Start every app in a simulator
+        env:
+          AZ_SMOKE_TAPS: ${{ needs.plan.outputs.smoke_taps }}
         run: bash scripts/ci/ios_smoke.sh demosmoke-ios 12 apps/*-ios-sim.app.zip
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
