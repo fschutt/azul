@@ -171,12 +171,13 @@ pub fn request_for(
 
 /// What the GPU path does for an Android `onTrimMemory` level (`ComponentCallbacks2`): nothing below
 /// `TRIM_MEMORY_RUNNING_LOW` (10: `RUNNING_MODERATE` is 5), the renderer's caches from there (`RUNNING_LOW` 10,
-/// `RUNNING_CRITICAL` 15), and from `TRIM_MEMORY_UI_HIDDEN` (20: the app's UI is no longer visible; `BACKGROUND` 40,
-/// `MODERATE` 60, `COMPLETE` 80) the renderer and the context too when no surface needs them (the reducer makes a heavy
-/// trim with a surface a light one).
+/// `RUNNING_CRITICAL` 15, and `UI_HIDDEN` 20: the home button, the process is not yet on the LRU list and the user may be back in a
+/// second: the compiled programs and the context stay), and from `TRIM_MEMORY_BACKGROUND` (40: the process is on the LRU list;
+/// `MODERATE` 60, `COMPLETE` 80) the renderer and the context too when no surface needs them (the reducer makes a heavy trim with
+/// a surface a light one).
 #[must_use]
 pub const fn trim_level_for_android(level: i32) -> Option<TrimLevel> {
-    if level >= 20 {
+    if level >= 40 {
         Some(TrimLevel::Heavy)
     } else if level >= 10 {
         Some(TrimLevel::Light)

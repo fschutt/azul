@@ -332,7 +332,8 @@ The window's life is the activity's:
 - Text is grayscale on a phone in both renderers (`AppConfig::text_antialiasing`: the platform default there, as the CPU
   renderer has always had it), so the two pictures of one window differ in the antialiasing of glyph edges and curves and
   nowhere else; `AZ_TEXT_AA=lcd` asks for LCD text on the GPU path too.
-- `onTrimMemory` empties WebRender's caches at the `RUNNING_LOW` levels, and from `UI_HIDDEN` on, with no window on screen,
+- `onTrimMemory` empties WebRender's caches from `RUNNING_LOW` on (`UI_HIDDEN`, the home button, included: the context and
+  the compiled programs stay, so coming back does not compile them again), and from `BACKGROUND` on, with no window on screen,
   gives the renderer and the context back as well; they are made again when a window returns.
 - A lost context (the driver reset, the GPU was taken away) is rebuilt once and the frame drawn again; a second loss without
   a good frame in between ends the GPU path, as any other failure does.

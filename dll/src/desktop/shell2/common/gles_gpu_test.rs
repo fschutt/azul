@@ -30,13 +30,23 @@ fn running_levels_drop_the_caches_only() {
     assert_eq!(trim_level_for_android(RUNNING_CRITICAL), Some(TrimLevel::Light));
 }
 
-/// From `UI_HIDDEN` on the UI is not visible: the renderer and the context may go when no surface needs them (the reducer
-/// turns a heavy trim with a surface into a light one).
+/// `UI_HIDDEN` is the home button: the UI is off the screen, the process is not yet on the LRU list. The large allocations (the texture
+/// and glyph caches) go, the renderer and the context stay: coming back must not compile every program again (a software GL needs
+/// seconds for them, a phone's GPU a fraction of one, every time the user looks at another app).
 #[test]
-fn hidden_and_background_levels_are_heavy() {
-    for level in [UI_HIDDEN, BACKGROUND, MODERATE, COMPLETE, 1000] {
+fn ui_hidden_drops_the_caches_and_keeps_the_renderer() {
+    assert_eq!(trim_level_for_android(UI_HIDDEN), Some(TrimLevel::Light));
+}
+
+/// From `BACKGROUND` on the process is on the LRU list, the system will want it back: what is cheap to build again goes, the renderer
+/// and the context too when no surface needs them (the reducer turns a heavy trim with a surface into a light one).
+#[test]
+fn the_levels_of_a_process_on_the_lru_list_are_heavy() {
+    for level in [BACKGROUND, MODERATE, COMPLETE, 1000] {
         assert_eq!(trim_level_for_android(level), Some(TrimLevel::Heavy), "{level}");
     }
+    // Just below: the process is still the one in front or has just left it.
+    assert_eq!(trim_level_for_android(BACKGROUND - 1), Some(TrimLevel::Light));
 }
 
 fn shell(backend: Option<&str>) -> ShellSettings {
