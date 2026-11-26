@@ -1674,7 +1674,6 @@ fn snapshot(s: &MeetState) -> ui::CallView {
     }
 }
 
-/// The app's callbacks, as the window wires them (`ui::Actions`).
 /// Whether the system refuses a device: asked and denied, or restricted by a policy (a parent, an
 /// employer). Not asked yet is not a refusal: the request is on its way.
 fn refused(state: PermissionState) -> bool {
@@ -1698,6 +1697,7 @@ extern "C" fn on_permission_changed(mut data: RefAny, info: CallbackInfo) -> Upd
     Update::RefreshDom
 }
 
+/// The app's callbacks, as the window wires them (`ui::Actions`).
 const ACTIONS: ui::Actions = ui::Actions {
     mic: mic_toggle,
     cam: cam_toggle,
