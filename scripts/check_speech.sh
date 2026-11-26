@@ -68,7 +68,7 @@ source_gates() {
   section "SRCGATE"
   cargo test -p azul-srcgate 2>&1 | grep -E "^test result|FAILED|failed|panicked" | sort | uniq -c
   section "LEDGER OF IGNORED TESTS"
-  (cd layout && rustc --edition 2021 --test tests/ignored_tests_are_on_the_ledger.rs -o /tmp/ledger_test 2>&1 | tail -3)
+  (cd layout && CARGO_MANIFEST_DIR="$PWD" rustc --edition 2021 --test tests/ignored_tests_are_on_the_ledger.rs -o /tmp/ledger_test 2>&1 | tail -3)
   (cd layout && CARGO_MANIFEST_DIR="$PWD" /tmp/ledger_test 2>&1 | tail -4)
 }
 
