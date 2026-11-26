@@ -11,6 +11,7 @@ import json
 import os
 import pathlib
 import plistlib
+import re
 import subprocess
 import sys
 import tarfile
@@ -571,6 +572,36 @@ class IosBuildQaScriptTest(unittest.TestCase):
     def test_the_script_deletes_nothing(self):
         code = "\n".join(l for l in self.text.splitlines() if not l.lstrip().startswith("#"))
         self.assertNotRegex(code, r"\brm\b")
+
+
+class AndroidBuildAllScriptTest(unittest.TestCase):
+    """scripts/ci/android_build_all.sh: every phone app and the QA variant of AzWidgets for Android x86_64 in ONE runner job."""
+
+    def setUp(self):
+        self.path = HERE / "ci" / "android_build_all.sh"
+        self.text = self.path.read_text(encoding="utf-8")
+
+    def test_the_script_parses_and_builds_the_three_libraries_then_every_app_then_the_qa_build(self):
+        self.assertEqual(subprocess.run(["bash", "-n", str(self.path)]).returncode, 0)
+        order = [self.text.index(n) for n in ("for variant in mobile mobile-iroh mobile-e2e", "demo_build.py android --target",
+                                              "--variant mobile-e2e", "android_elf_check.py demo-out/apps")]
+        self.assertEqual(order, sorted(order))
+        self.assertIn("demo_apps.py features", self.text)
+
+    def test_the_apps_it_builds_are_the_ones_of_the_plan_and_the_qa_one_is_the_e2e_app_of_the_manifest(self):
+        m = demo_apps.load()
+        plan = demo_apps.plan(m, e2e=True)
+        shipped = next(e["apps"] for e in plan["apps_android"] if e["leg"] == "android-x86_64" and e["variant"] == "")
+        self.assertEqual(sorted(shipped.split()), ["AzCompanion", "AzMaps", "AzMeet", "AzPaint", "AzWidgets", "AzWriter"])
+        qa = next(e["apps"] for e in plan["apps_android"] if e["leg"] == "android-x86_64" and e["variant"] == "mobile-e2e")
+        self.assertEqual(qa, "AzWidgets")
+        self.assertIn("--apps AzWidgets", self.text.split("--variant mobile-e2e")[0].rsplit("demo_build.py", 1)[1])
+
+    def test_it_deletes_only_on_a_runner(self):
+        lines = self.text.splitlines()
+        for i, line in enumerate(lines):
+            if re.search(r"\brm\b", line) and not line.lstrip().startswith("#"):
+                self.assertTrue(any('GITHUB_ACTIONS' in l for l in lines[max(0, i - 2):i]), line)
 
 
 class IosPlistTest(unittest.TestCase):
