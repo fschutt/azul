@@ -238,14 +238,14 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
                 DocumentShell::create(pages::document_area(&app, st, width))
                     .office_shell()
                     .with_ribbon(ribbon::phone_bar(&app, st))
-                    .with_status_bar(pages::status_bar(&app, st))
+                    .with_status_bar(pages::status_bar(&app, st, true))
                     .dom()
             }
             // No title row: the ribbon's tabs are the title bar.
             Screen::Editor => DocumentShell::create(pages::document_area(&app, st, width))
                 .office_shell()
                 .with_ribbon(ribbon::ribbon(&app, st))
-                .with_status_bar(pages::status_bar(&app, st))
+                .with_status_bar(pages::status_bar(&app, st, false))
                 .dom(),
         }
     };

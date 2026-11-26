@@ -196,7 +196,7 @@ extern "C" fn on_zoom_slider(mut data: RefAny, _info: CallbackInfo, slider: Slid
 /// The status bar: the caret's page, the words, the notice; the views and
 /// the zoom.
 #[must_use]
-pub fn status_bar(app: &RefAny, st: &AppState) -> Dom {
+pub fn status_bar(app: &RefAny, st: &AppState, phone: bool) -> Dom {
     let (page_label, words) = match st.doc.as_ref() {
         Some(doc) => {
             let pages = st.pages.starts_for(doc.doc().block_count()).len();
@@ -231,6 +231,12 @@ pub fn status_bar(app: &RefAny, st: &AppState) -> Dom {
     }
     if !st.notice.is_empty() {
         segments.push(StatusBarSegment::create(s(&st.notice)));
+    }
+    // A phone shows the page and the words and nothing to press: the print layout does not fit it (the web
+    // layout is the only one), the zoom is the system's font size, and the view keys and the zoom's keys and
+    // slider are 20 px controls, none of them a finger's.
+    if phone {
+        return StatusBar::create(segments).dom();
     }
     let views: Vec<StatusBarView> = View::ALL
         .iter()
