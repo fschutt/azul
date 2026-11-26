@@ -30,7 +30,7 @@ use objc2::{
 use super::{
     authorization::{self, Access, Decision, Gate, Gates, Refusal},
     builtin::{Microphone, MicrophoneSource},
-    keeper::{Lease, MicKeeper},
+    keeper::{Lease, MicKeeper, PREROLL_MS},
     recognizer::{Answer, EventKind, Outcome, Readiness, StreamOptions, Word, STREAM_ENDPOINT_MS},
     vocabulary::Vocabulary,
     SpeechStatus,
@@ -465,6 +465,8 @@ pub fn listen(
             endpoint_ms: u32::try_from(SILENCE.as_millis()).unwrap_or(1_500),
             max_ms: 0,
             max_utterances: 1,
+            // A call hears all the microphone kept: speech that began before the call is not cut.
+            pre_roll_ms: PREROLL_MS,
         },
         &|kind, answer| {
             if kind == EventKind::Final {
@@ -863,6 +865,7 @@ unsafe fn stream_with_recognizer(
             return Answer::none(outcome, &message);
         }
     };
+    lease.trim_preroll(options.pre_roll_ms);
     let rate = lease.rate();
     // What is handed to the requests: mono floats at the microphone's rate.
     let format: *mut AnyObject = unsafe {

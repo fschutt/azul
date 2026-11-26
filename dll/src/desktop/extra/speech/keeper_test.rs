@@ -407,6 +407,27 @@ fn the_armed_microphone_collects_what_comes_in_for_the_first_call() {
 }
 
 #[test]
+fn a_lease_can_hand_over_only_the_last_part_of_what_came_in_while_nobody_listened() {
+    let room = Room::default();
+    let keeper = keeper(&room, 5_000);
+    keeper.arm().expect("armed");
+    for chunk in 0..5 {
+        room.push(samples(chunk * 1_600, 1_600));
+    }
+    room.wait_until_read();
+    let mut lease = keeper.acquire().expect("the armed microphone");
+    assert_eq!(lease.preroll.len(), 8_000, "half a second");
+    // The last 200 ms (3200 samples at 16 kHz), the newest last.
+    lease.trim_preroll(200);
+    assert_eq!(lease.preroll, samples(8_000 - 3_200, 3_200));
+    // More than is there changes nothing; none leaves nothing.
+    lease.trim_preroll(5_000);
+    assert_eq!(lease.preroll.len(), 3_200);
+    lease.trim_preroll(0);
+    assert!(lease.preroll.is_empty());
+}
+
+#[test]
 fn the_time_is_kept_to_a_minute() {
     let room = Room::default();
     let keeper = keeper(&room, 4_000_000_000);

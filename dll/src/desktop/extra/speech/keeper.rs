@@ -388,6 +388,16 @@ impl Lease {
         self.microphone.as_mut().expect("a lease holds its microphone until it is finished").as_mut()
     }
 
+    /// Keeps of [`Self::preroll`] only the last `ms` (what an open microphone heard just before
+    /// the call; the older is the room's from before the user meant to speak).
+    pub fn trim_preroll(&mut self, ms: u32) {
+        let keep = (u64::from(self.rate()) * u64::from(ms) / 1000) as usize;
+        if self.preroll.len() > keep {
+            let surplus = self.preroll.len() - keep;
+            self.preroll.drain(..surplus);
+        }
+    }
+
     /// The rate of the microphone's sound, Hz.
     #[must_use]
     pub fn rate(&self) -> u32 {

@@ -26,6 +26,60 @@
 //! happened to the ones before it. [`SpeechSession::recognizers`] lists the chain and each one's
 //! state for a status line; [`SpeechSession::reset`] forgets the refusals.
 //!
+//! # A session that stands ready, and the stream
+//!
+//! Opening the microphone takes about 270 ms on a Mac and what is said meanwhile is lost, so a session
+//! can keep it open: [`SpeechSession::arm`] opens it when the user is about to speak (the pen comes
+//! in range, the button is hovered) and keeps the last 2 s in memory (overwritten, never saved), so
+//! the next call or stream starts at once (measured: sound reaches the recognizer 2-13 ms after the
+//! call for the built-in model, 14-49 ms for the system's, 270 ms cold) and hears what came in
+//! before it. [`SpeechSession::state`] says [`SpeechState::Cold`], `Warm` (a recognizer is
+//! initialised), `Armed` (microphone open) or `Listening`; [`SpeechStandby`] says what stays open
+//! between calls (`Off`, `OnDemand` the default, `WhileArmed` with a safety time, `Always`).
+//!
+//! [`SpeechSession::start_stream`] listens as a stream: utterance after utterance on one microphone,
+//! with [`SpeechEventKind::Ready`] when sound flows, a `Partial` while an utterance goes on (the
+//! built-in model re-decodes it about every 500 ms: 71-235 ms after a word was said; the system's
+//! gives what it reports: 440-860 ms after), a `Final` per utterance (the end of speech to the final:
+//! 0.95 s built-in, 1.3 s system at the default 600 ms end-point), `Quiet` and `Ended`.
+//! [`SpeechStream::wait_events`] blocks until there is an event (it wakes in under a millisecond),
+//! [`SpeechStream::poll_events`] never blocks; `stop` gives the final of what was said so far,
+//! `cancel` drops it. Times: a word's `start_ms` is from [`SpeechHeard::started_unix_ms`], the moment
+//! the audio of its utterance began, which for the first utterance may be before the stream began
+//! (the microphone's last 2 s); never negative.
+//!
+//! ## Measured on an Apple M2 (8 GB, release build, real microphone, a TTS sentence through the
+//! loudspeakers, word times from the recognizer's own, 2026-11-26)
+//!
+//! | what | built-in model (Whistle, one thread) | system's recognizer |
+//! |------|--------------------------------------|---------------------|
+//! | `arm()` (the microphone opens) | 142-187 ms, its first sound about 270 ms after the call | the same microphone |
+//! | start of a call to sound flowing: opened for the call / kept open | 197-211 ms / 2-13 ms | 206-268 ms / 14-24 ms |
+//! | `start_stream` to `Ready`: cold / armed | 274 ms / 2-12 ms | 265 ms / 16-49 ms |
+//! | a word said to the `Partial` that shows it | 71-235 ms (a partial every ~500 ms of audio) | 438-860 ms (median ~600) |
+//! | end of speech to the `Final`, end-point 800 / 600 ms | 946 ms / about 750 ms | 2046-2241 ms at 1500 ms, 1240 ms at 500, 1319 ms at 700 |
+//! | CPU while an utterance goes on | 9-15 % of one core (one partial decode of 1-3 s of speech about 80 ms) | 1 % here (the work is the system's speech service's) |
+//! | `wait_events`: event produced to returned | at most 1 ms | at most 1 ms |
+//! | a sentence that begins 1100 ms before the call, microphone not kept / kept | "Session is closed twice." / complete | "Is closed twice" / complete |
+//!
+//! The pause that ends an utterance ([`SpeechStreamOptions::endpoint_ms`]), built-in model, 12 English
+//! clips of 4 s and 12 German read paragraphs of 18 s, the finals joined, word error rate against the
+//! reference (a whole clip in one call: English 5.8 %, German 12.6 %):
+//!
+//! | end-point | 300 ms | 400 | 500 | 600 | 800 | 1000 |
+//! |-----------|--------|-----|-----|-----|-----|------|
+//! | English word error rate | 8.3 % | 8.3 % | 6.7 % | **5.8 %** | 5.8 % | 5.8 % |
+//! | English clips cut into more than one utterance | 4 of 12 | 3 | 3 | 2 | 1 | 1 |
+//! | German word error rate (paragraphs cut at their sentence ends) | 20.4 % | 19.7 % | 18.1 % | 17.2 % | 15.5 % | 13.3 % |
+//! | German utterances per paragraph | 6.2 | 5.6 | 5.1 | 4.6 | 3.7 | 2.4 |
+//!
+//! So a stream's end-point is 600 ms unless the app asks (an app that dictates long German prose asks
+//! for 800 to 1000 ms), and a call keeps its measured 800 ms (built-in model) and 1500 ms (system).
+//! An armed microphone hears the room: a stream is handed the last second of what it heard
+//! ([`SpeechStreamOptions::pre_roll_ms`]), and in a room where people talk an utterance can start
+//! with their words or run on with them, so start streams when the user means it and end them with
+//! `stop`.
+//!
 //! The same chain code runs with scripted recognizers ([`mock`]): the unit tests drive it on a
 //! clock they move, and a test run reads the script `AZ_SPEECH_SCRIPT` names ([`script`]).
 //!
@@ -97,7 +151,7 @@ use self::{
     order::Preference,
     recognizer::{
         Answer, Event, EventKind, Kind, Limits, Listen, Outcome, Readiness, Recognizer, SharedClock, StreamOptions,
-        SystemClock, Word,
+        SystemClock, Word, STREAM_PRE_ROLL_MS,
     },
     vocabulary::Vocabulary,
 };
@@ -578,6 +632,13 @@ pub struct SpeechStreamOptions {
     pub max_ms: u32,
     /// How many utterances end the stream (0: until it is stopped or its time is up).
     pub max_utterances: u32,
+    /// How much of what an open (armed) microphone heard before the stream began is handed to it,
+    /// ms (1000 by default, at most the 2000 the microphone keeps, 0: none). A second covers the
+    /// words said just before the app started the stream (a pen that rests for 1.2 s before the
+    /// dictation begins) and keeps most of the talk of the room out of it: an armed microphone hears
+    /// the room, so start streams only when the user means it and end them with `stop` (the last
+    /// words come as the last final), not with `cancel` (which drops them).
+    pub pre_roll_ms: u32,
 }
 
 impl Default for SpeechStreamOptions {
@@ -587,6 +648,7 @@ impl Default for SpeechStreamOptions {
             endpoint_ms: 0,
             max_ms: 0,
             max_utterances: 0,
+            pre_roll_ms: STREAM_PRE_ROLL_MS,
         }
     }
 }
@@ -598,6 +660,7 @@ impl From<SpeechStreamOptions> for StreamOptions {
             endpoint_ms: options.endpoint_ms,
             max_ms: options.max_ms,
             max_utterances: options.max_utterances,
+            pre_roll_ms: options.pre_roll_ms,
         }
     }
 }

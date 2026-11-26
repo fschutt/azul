@@ -835,6 +835,7 @@ fn stream_options(partials: bool, max_utterances: u32) -> StreamOptions {
         endpoint_ms: 0,
         max_ms: 0,
         max_utterances,
+        pre_roll_ms: 2_000,
     }
 }
 
@@ -1021,4 +1022,39 @@ fn what_an_armed_microphone_heard_before_the_stream_began_is_part_of_its_first_u
     assert_eq!(*rig.room.opened.lock().unwrap(), 1);
     let said = rig.seen.lock().unwrap().calls[0].0;
     assert!(said >= 16_000 * 3 / 2, "{said} samples: the part said while it was armed is in it");
+}
+
+/// An armed microphone hears the room: a stream is handed the last `pre_roll_ms` of what it heard
+/// (a second by default), not all of its 2 s.
+#[test]
+fn a_stream_is_handed_only_the_pre_roll_it_asked_for() {
+    let decoded_samples = |pre_roll_ms: u32| {
+        let mut rig = kept_rig(5_000);
+        assert!(rig.keeper.arm().is_ok());
+        // 1.3 s before the stream: 300 ms of room, then a second of speech-like sound (400 ms of
+        // voice and 100 ms of quiet, twice: a steady tone would be taken for the room); the sentence
+        // goes on into the stream for another second, then the room.
+        rig.room.push_takes(300, 0, 0);
+        rig.room.push_takes(0, 400, 100);
+        rig.room.push_takes(0, 400, 100);
+        rig.room.wait_until_read();
+        rig.room.push_takes(0, 400, 100);
+        rig.room.push_takes(0, 400, 100);
+        rig.room.push_takes(0, 0, 1_500);
+        let never = || false;
+        let options = StreamOptions {
+            pre_roll_ms,
+            ..stream_options(false, 1)
+        };
+        let (events, _) = run_stream(&mut rig, &options, 30_000, &never, &never);
+        assert!(events.iter().any(|(kind, _, _)| *kind == EventKind::Final));
+        let calls = rig.seen.lock().unwrap().calls.clone();
+        calls[0].0
+    };
+    let (all, one_second, none) = (decoded_samples(2_000), decoded_samples(1_000), decoded_samples(0));
+    assert!(all > one_second && one_second > none, "{all} samples with all of it, {one_second} with a second, {none} with none");
+    // With none the first utterance is what came after the stream began: 600 ms of voice and the tails.
+    assert!(none < 16_000 * 3 / 2, "{none}");
+    // With a second the voice that was said just before the stream is in it.
+    assert!(one_second > none + 16_000 / 2, "{one_second} against {none}");
 }

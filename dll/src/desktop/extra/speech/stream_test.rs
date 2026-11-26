@@ -35,6 +35,7 @@ fn options(partials: bool, max_utterances: u32, max_ms: u32) -> SpeechStreamOpti
         endpoint_ms: 0,
         max_ms,
         max_utterances,
+        pre_roll_ms: 1_000,
     }
 }
 

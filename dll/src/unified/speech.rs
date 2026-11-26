@@ -283,6 +283,7 @@ pub struct SpeechStreamOptions {
     pub endpoint_ms: u32,
     pub max_ms: u32,
     pub max_utterances: u32,
+    pub pre_roll_ms: u32,
 }
 
 #[cfg(any(target_arch = "wasm32", az_engine_stubs))]
@@ -293,6 +294,7 @@ impl Default for SpeechStreamOptions {
             endpoint_ms: 0,
             max_ms: 0,
             max_utterances: 0,
+            pre_roll_ms: 1_000,
         }
     }
 }

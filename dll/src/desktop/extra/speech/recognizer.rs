@@ -274,7 +274,15 @@ pub struct StreamOptions {
     pub max_ms: u32,
     /// How many utterances end the stream (0: until it is stopped or its time is up).
     pub max_utterances: u32,
+    /// How much of what an open microphone heard before the stream began is handed to it, ms, at
+    /// most the 2 s the microphone keeps (0: none). See [`STREAM_PRE_ROLL_MS`].
+    pub pre_roll_ms: u32,
 }
+
+/// What a stream is handed of the microphone's last 2 s when the app does not say, ms: a second
+/// covers the words said just before the app started the stream (a pen that rests for 1.2 s before
+/// the dictation begins) and keeps most of the talk of the room out of it.
+pub const STREAM_PRE_ROLL_MS: u32 = 1_000;
 
 impl Default for StreamOptions {
     fn default() -> Self {
@@ -283,6 +291,7 @@ impl Default for StreamOptions {
             endpoint_ms: 0,
             max_ms: 0,
             max_utterances: 0,
+            pre_roll_ms: STREAM_PRE_ROLL_MS,
         }
     }
 }

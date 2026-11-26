@@ -45,7 +45,7 @@ pub use self::{
     engine::{CactusEngine, Engine, EngineError},
 };
 use super::{
-    keeper::MicKeeper,
+    keeper::{MicKeeper, PREROLL_MS},
     recognizer::{Answer, EventKind, Kind, Listen, Outcome, Readiness, Recognizer, StreamOptions, STREAM_ENDPOINT_MS},
     vocabulary::Vocabulary,
 };
@@ -496,6 +496,8 @@ impl Recognizer for Builtin {
             endpoint_ms: self.tuning.vad.hangover_ms,
             max_ms: 0,
             max_utterances: 1,
+            // A call hears all the microphone kept: speech that began before the call is not cut.
+            pre_roll_ms: PREROLL_MS,
         };
         let never = || false;
         let mut one = *call;
@@ -591,6 +593,7 @@ impl Builtin {
             Ok(lease) => lease,
             Err((outcome, message)) => return Answer::none(outcome, &message),
         };
+        lease.trim_preroll(options.pre_roll_ms);
         let rate = lease.rate();
         let mut resampler = Resampler::new(rate);
         let mut vad = self.tuning.vad;
