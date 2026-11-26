@@ -7,6 +7,9 @@
 set +e
 echo "=== runner: $(uname -a)"; grep -m1 'model name' /proc/cpuinfo; echo "cores: $(nproc)"; uptime
 sudo apt-get install -y -qq xvfb xauth >/dev/null 2>&1
+# What a window needs on a desktop and a bare runner image lacks: EGL (the X11 shell requires it even for the CPU renderer), Mesa's
+# software GL, xkbcommon, the X extension libraries
+sudo apt-get install -y -qq libegl1 libegl-mesa0 libgl1 libgl1-mesa-dri libglx-mesa0 libgles2 libxkbcommon0 libxkbcommon-x11-0 libx11-6 libx11-xcb1 libxext6 libxrender1 libxrandr2 libxi6 libxcursor1 >/dev/null 2>&1
 Xvfb :99 -screen 0 1280x800x24 >/dev/null 2>&1 &
 sleep 2
 export DISPLAY=:99
