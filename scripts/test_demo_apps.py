@@ -4,6 +4,7 @@
 
     python3 scripts/test_demo_apps.py            (Python 3.11+, standard library only)
 """
+import argparse
 import contextlib
 import io
 import json
@@ -212,6 +213,140 @@ class PackTest(unittest.TestCase):
 
     def test_there_are_never_more_groups_than_apps(self):
         self.assertEqual(demo_apps.pack([{"package": "AzA", "weight": 1}], 4), [["AzA"]])
+
+
+class E2eVariantTest(unittest.TestCase):
+    """The QA variant: the phone libazul with the engine's debug server (AZ_DEBUG=<port>) and E2E scripting, linked by the SAME app
+    build as the shipped one, an artifact of the run and never an asset of the release or a link of the page."""
+
+    def setUp(self):
+        self.m = demo_apps.load()
+
+    def app(self, name):
+        return next(a for a in self.m["app"] if a["package"] == name)
+
+    def test_the_names_are_the_shipped_names_with_e2e_after_the_app(self):
+        w = self.app("AzWidgets")
+        self.assertEqual(demo_apps.staged_name(w, "android-x86_64", e2e=True), "AzWidgets-e2e-android-x86_64.apk")
+        self.assertEqual(demo_apps.staged_name(w, "ios-sim", e2e=True), "AzWidgets-e2e-ios-sim.app.zip")
+        self.assertEqual(demo_apps.staged_name(w, "android-x86_64"), "AzWidgets-android-x86_64.apk")
+        with self.assertRaises(ValueError):
+            demo_apps.staged_name(w, "linux", e2e=True)
+
+    def test_without_the_input_a_run_plans_nothing_of_it(self):
+        plan = demo_apps.plan(self.m)
+        for key, entries in plan.items():
+            if key.startswith(("libs_", "apps_")):
+                for e in entries:
+                    self.assertNotEqual(e.get("variant"), "mobile-e2e", key)
+                    self.assertFalse(e["artifact"].startswith("demoe2e-"), key)
+
+    def test_with_the_input_the_lib_of_the_listed_columns_and_the_app_that_asks_are_planned(self):
+        plan = demo_apps.plan(self.m, e2e=True)
+        libs = {e["leg"]: e for k in ("libs_android", "libs_ios") for e in plan[k] if e["variant"] == "mobile-e2e"}
+        self.assertEqual(sorted(libs), ["android-x86_64", "ios-sim"])
+        for leg, e in libs.items():
+            feats = e["features"].split(",")
+            self.assertIn("debug-server", feats)
+            self.assertIn("e2e-scripting", feats)
+            self.assertEqual("android-activity" in feats, leg.startswith("android"))
+            self.assertEqual(e["artifact"], f"demolib-{leg}-mobile-e2e")
+        entries = {e["leg"]: e for k in ("apps_android", "apps_ios") for e in plan[k] if e.get("variant") == "mobile-e2e"}
+        self.assertEqual(sorted(entries), ["android-x86_64", "ios-sim"])
+        for leg, e in entries.items():
+            self.assertEqual(e["apps"], "AzWidgets")
+            self.assertEqual(e["lib_artifacts"], f"demolib-{leg}-mobile-e2e")
+            self.assertTrue(e["artifact"].startswith("demoe2e-"), e["artifact"])   # a name the shipped-files patterns never match
+            self.assertTrue(e["results_artifact"].startswith("demoresults-"))
+        # the shipped builds of the same columns are still there, against the plain lib
+        shipped = [e for k in ("apps_android", "apps_ios") for e in plan[k] if e.get("variant") == ""]
+        self.assertTrue(shipped)
+        for e in shipped:
+            self.assertFalse(e["artifact"].startswith("demoe2e-"))
+
+    def test_the_plan_command_takes_the_input_as_a_flag(self):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(demo_apps.main(["plan", "--e2e"]), 0)
+        self.assertIn("demolib-android-x86_64-mobile-e2e", buf.getvalue())
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(demo_apps.main(["plan"]), 0)
+        self.assertNotIn("mobile-e2e", buf.getvalue())
+
+    def test_an_app_never_ships_against_the_qa_lib(self):
+        self.app("AzMaps")["mobile_lib"] = "mobile-e2e"
+        errors = demo_apps.check(self.m)
+        self.assertTrue(any("artifact_only" in e and "AzMaps" in e for e in errors), errors)
+
+    def test_the_qa_lib_must_carry_the_debug_server_and_only_phone_columns(self):
+        self.m["lib"]["mobile-e2e"]["features"] = "std,logging,link-static"
+        self.assertTrue(any("debug-server" in e for e in demo_apps.check(self.m)))
+        m = demo_apps.load()
+        m["lib"]["mobile-e2e"]["targets"] = ["linux"]
+        self.assertTrue(any("mobile-e2e" in e and "targets" in e for e in demo_apps.check(m)))
+
+    def test_an_e2e_app_needs_a_column_the_qa_lib_builds(self):
+        self.m["lib"]["mobile-e2e"]["targets"] = ["ios-sim"]
+        self.app("AzWidgets")["platforms"] = ["linux"]
+        self.assertTrue(any("AzWidgets" in e and "e2e" in e for e in demo_apps.check(self.m)), demo_apps.check(self.m))
+
+    def test_the_real_manifest_passes_its_own_check_with_the_variant_in_it(self):
+        self.assertTrue(self.m["lib"]["mobile-e2e"]["artifact_only"])
+        self.assertEqual([a["package"] for a in self.m["app"] if a.get("e2e")], ["AzWidgets"])
+        self.assertEqual([e for e in demo_apps.check(self.m) if "e2e" in e], [])
+
+    def test_a_qa_file_never_becomes_a_release_asset_or_a_page_link(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "demoe2e-android-x86_64").mkdir()
+            (root / "demoe2e-android-x86_64" / "AzWidgets-e2e-android-x86_64.apk").write_bytes(b"an apk with the debug server")
+            (root / "demoapps-android-x86_64").mkdir()
+            (root / "demoapps-android-x86_64" / "AzWidgets-android-x86_64.apk").write_bytes(b"the shipped apk")
+            listing = demo_publish.assemble(root, root / "release", "0.2.0", "abc")
+        self.assertEqual([x["name"] for x in listing], ["AzWidgets-android-x86_64.apk"])
+        for app in self.m["app"]:
+            for col in demo_apps.columns_of(app):
+                self.assertNotIn("-e2e-", demo_apps.release_name(app, col))
+
+    def test_the_status_keeps_the_qa_builds_apart_from_the_shipped_cells(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "r").mkdir()
+            (root / "r" / "AzWidgets.android-x86_64.result.json").write_text(json.dumps({
+                "app": "AzWidgets", "column": "android-x86_64", "status": "built", "size": 2048, "shipped_size": 2048,
+                "seconds": 12, "engine_crates": [], "artifact": "AzWidgets-android-x86_64.apk"}))
+            (root / "r" / "AzWidgets.android-x86_64-e2e.result.json").write_text(json.dumps({
+                "app": "AzWidgets", "column": "android-x86_64", "variant": "mobile-e2e", "status": "built", "size": 9000,
+                "shipped_size": 9000, "seconds": 20, "engine_crates": [], "artifact": "AzWidgets-e2e-android-x86_64.apk"}))
+            data, md = demo_apps.status([root / "r"], m=self.m)
+        cell = next(r for r in data["apps"] if r["app"] == "AzWidgets")["cells"]["android-x86_64"]
+        self.assertEqual(cell["size"], 2048)                       # the shipped cell is the shipped build
+        self.assertEqual(data["summary"]["assets"], 1)             # and the QA build is not an asset
+        self.assertEqual([(q["app"], q["column"], q["artifact"]) for q in data["summary"]["qa_builds"]],
+                         [("AzWidgets", "android-x86_64", "AzWidgets-e2e-android-x86_64.apk")])
+        self.assertIn("never published", md)
+
+    def test_a_qa_result_is_a_file_of_its_own(self):
+        with tempfile.TemporaryDirectory() as d:
+            args = argparse.Namespace(out=str(pathlib.Path(d) / "out"), results=str(pathlib.Path(d) / "res"))
+            job = demo_build.Job(args)
+            app = job.apps["AzWidgets"]
+            job.result(app, "android-x86_64", "x86_64-linux-android", "failed", "x", variant="mobile-e2e")
+            job.result(app, "android-x86_64", "x86_64-linux-android", "failed", "x")
+            names = sorted(p.name for p in (pathlib.Path(d) / "res").iterdir())
+            qa = json.loads((pathlib.Path(d) / "res" / "AzWidgets.android-x86_64-e2e.result.json").read_text())
+        self.assertEqual(names, ["AzWidgets.android-x86_64-e2e.result.json", "AzWidgets.android-x86_64.result.json"])
+        self.assertEqual(qa["variant"], "mobile-e2e")
+
+    def test_the_build_driver_takes_only_an_artifact_only_variant(self):
+        with tempfile.TemporaryDirectory() as d:
+            argv = ["android", "--target", "x86_64-linux-android", "--libs", d, "--apps", "AzWidgets",
+                    "--out", str(pathlib.Path(d) / "o"), "--results", str(pathlib.Path(d) / "r")]
+            with self.assertRaises(SystemExit):
+                demo_build.main(argv + ["--variant", "mobile"])
+            with self.assertRaises(SystemExit):
+                demo_build.main(argv + ["--variant", "no-such-variant"])
 
 
 class BuildTest(unittest.TestCase):
