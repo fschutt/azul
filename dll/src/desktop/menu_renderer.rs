@@ -859,6 +859,15 @@ impl MenuMetrics {
         // The icon div is always emitted, so it is a flex sibling of the label
         // and the row is as tall as the taller of the two.
         let row_height = line_box.max(icon_size);
+        // A finger needs room: an item is 48 dp tall on Android and 44 pt on iOS (a drop-down's choices and a
+        // context menu are these rows), nothing more on a desktop. Only the item's content box grows: the
+        // separators and the frame keep their padding.
+        let touch_item = match style.platform {
+            azul_css::system::Platform::Android => 48.0,
+            azul_css::system::Platform::Ios => 44.0,
+            _ => 0.0,
+        };
+        let row_height = row_height.max(touch_item - 2.0 * pad_v);
 
         Self {
             font_size_px,
