@@ -266,7 +266,7 @@ fn cpp_app_main(m: &Module, module_file: &str) -> String {
          azul::WindowCreateOptions::create(layout);\n    azul::App app = \
          azul::App::create(std::move(data), azul::AppConfig::create());\n    \
          app.run(std::move(window));\n    return 0;\n}}\n",
-        title = app.title.replace(|c: char| c == '\n' || c == '\r', " "),
+        title = app.title.replace(['\n', '\r'], " "),
     )
 }
 

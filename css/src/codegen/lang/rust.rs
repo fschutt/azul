@@ -376,7 +376,7 @@ fn rust_app_main(m: &Module) -> String {
          App::create(RefAny::new(AppData {{}}), AppConfig::create());\n    let mut window = \
          WindowCreateOptions::create(layout);\n    window.window_state.title = {};\n    \
          app.run(window);\n}}\n",
-        app.title.replace(|c: char| c == '\n' || c == '\r', " "),
+        app.title.replace(['\n', '\r'], " "),
         az_str(&app.title),
     )
 }

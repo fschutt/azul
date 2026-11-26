@@ -241,16 +241,16 @@ fn nim_joined(parts: &[ConcatPart<'_>]) -> String {
 }
 
 /// The Vec helper (CSS values only); [`STR_HELPER`] follows it.
-const VEC_HELPER: &str = r#"template azVec(copy, items: untyped): untyped =
+const VEC_HELPER: &str = r"template azVec(copy, items: untyped): untyped =
   block:
     var arr = items
     copy(addr arr[0], csize_t(arr.len))
 
-"#;
+";
 
-const STR_HELPER: &str = r#"proc azStr(s: string): AzString =
+const STR_HELPER: &str = r"proc azStr(s: string): AzString =
   AzString_fromUtf8(cast[ptr uint8](s.cstring), csize_t(s.len))
-"#;
+";
 
 /// A DOM item: a proc with `string` parameters that default to the values
 /// the item was made with.

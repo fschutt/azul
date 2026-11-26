@@ -596,17 +596,14 @@ pub fn lower_styles(css: &Css) -> Module {
             states.into_iter().map(DynamicSelector::PseudoState).collect();
         conditions.extend(rule.conditions.as_slice().iter().cloned());
 
-        let idx = match groups.iter().position(|g| g.base == base) {
-            Some(i) => i,
-            None => {
-                groups.push(Group {
-                    base: base.clone(),
-                    selectors: Vec::new(),
-                    props: Vec::new(),
-                    notes: Vec::new(),
-                });
-                groups.len() - 1
-            }
+        let idx = if let Some(i) = groups.iter().position(|g| g.base == base) { i } else {
+            groups.push(Group {
+                base: base.clone(),
+                selectors: Vec::new(),
+                props: Vec::new(),
+                notes: Vec::new(),
+            });
+            groups.len() - 1
         };
         let g = &mut groups[idx];
         let shown = if full.is_empty() { "*".to_string() } else { full };

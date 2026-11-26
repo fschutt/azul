@@ -504,7 +504,7 @@ pub fn chained_infix(recv: Doc, link: Doc) -> Doc {
 /// `s` on one line (a window title or a library name in a comment).
 #[must_use]
 pub fn one_line(s: &str) -> String {
-    s.replace(|c: char| c == '\n' || c == '\r', " ")
+    s.replace(['\n', '\r'], " ")
 }
 
 /// The comment lines (without comment markers) a printer writes instead of

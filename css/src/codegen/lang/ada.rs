@@ -848,7 +848,7 @@ impl CodegenBackend for Ada {
         let built: Vec<&Item> = m
             .items
             .iter()
-            .filter(|i| item_blocker(&Ada, i).is_none())
+            .filter(|i| item_blocker(&Self, i).is_none())
             .collect();
         for item in &built {
             let name = unit_name(item);

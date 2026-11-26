@@ -168,9 +168,7 @@ fn item_fn(item: &Item) -> (bool, String) {
         out.push_str(&format!("# {line}\n"));
     }
     let name = item.name.snake();
-    let body = native_list(&Perl, &item.value, "[", "]")
-        .map(Ok)
-        .unwrap_or_else(|| item_doc(&Perl, item));
+    let body = native_list(&Perl, &item.value, "[", "]").map_or_else(|| item_doc(&Perl, item), Ok);
     match body {
         Ok(doc) => {
             out.push_str(&format!(

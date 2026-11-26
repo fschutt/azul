@@ -337,7 +337,7 @@ if (!function_exists("azul_str")) {
 }
 "#;
 
-const HELPERS: &str = r#"function azul_struct(string $type, array $fields)
+const HELPERS: &str = r"function azul_struct(string $type, array $fields)
 {
     $value = \Azul\Azul::lib()->new($type);
     foreach ($fields as $name => $field) {
@@ -376,7 +376,7 @@ function azul_str(string $s)
     \FFI::memcpy($bytes, $s, $n);
     return $L->AzString_fromUtf8($bytes, $n);
 }
-"#;
+";
 
 fn item_fn(item: &Item) -> String {
     let mut out = String::new();

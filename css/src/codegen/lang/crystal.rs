@@ -443,7 +443,7 @@ impl CodegenBackend for Crystal {
              && crystal run main.cr --link-flags=-L.\nrequire \"./styles\"\n\n",
         );
         for item in &m.items {
-            if item_doc(&Crystal, item).is_err() {
+            if item_doc(&Self, item).is_err() {
                 continue;
             }
             let name = item.name.snake();

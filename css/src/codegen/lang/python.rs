@@ -197,9 +197,7 @@ fn item_def(item: &Item) -> String {
         })
         .collect::<Vec<_>>()
         .join(", ");
-    let body = native_list(&Python, &item.value, "[", "]")
-        .map(Ok)
-        .unwrap_or_else(|| item_doc(&Python, item));
+    let body = native_list(&Python, &item.value, "[", "]").map_or_else(|| item_doc(&Python, item), Ok);
     match body {
         // A builder chain spans lines: inside parentheses.
         Ok(doc) if matches!(doc, Doc::Chain { .. }) && doc.is_multiline() => out.push_str(&format!(
@@ -238,7 +236,7 @@ fn python_app_main(m: &Module) -> String {
          App.create(AppData(), AppConfig.create())\n    \
          app.run(WindowCreateOptions.create(layout))\n\nif __name__ == \"__main__\":\n    \
          main()\n",
-        app.title.replace(|c: char| c == '\n' || c == '\r', " "),
+        app.title.replace(['\n', '\r'], " "),
     )
 }
 
@@ -283,7 +281,7 @@ impl CodegenBackend for Python {
                  ComponentDef whose render function is a native callback, which the Python\n# \
                  bindings cannot build: register it from the Rust, C or C++ export. Each\n# \
                  render_* function above keeps the component's defaults as its keyword defaults.\n",
-                lib.name.replace(|c: char| c == '\n' || c == '\r', " ")
+                lib.name.replace(['\n', '\r'], " ")
             ));
         }
         out
