@@ -106,11 +106,12 @@ public final class AzulBiometric {
 
                             @Override
                             public void onAuthenticationFailed() {
-                                // A rejected finger, not the end of the attempt
-                                // — the prompt stays up. Reported so the app can
-                                // show its own feedback; the terminal answer
-                                // still comes from succeeded/error.
-                                nativeOnBiometricResult(handle, RESULT_FAILED);
+                                // A rejected finger, not the end of the attempt: the prompt stays up and the
+                                // user tries again (the system shows its own "not recognized" feedback; too
+                                // many tries end in onAuthenticationError with a lockout code). The native
+                                // side resolves a request at its FIRST result, so reporting this one made the
+                                // success that follows a dropped call: the user was authenticated and the app
+                                // was told Failed. The terminal answer comes from succeeded/error only.
                             }
 
                             @Override

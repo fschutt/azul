@@ -442,7 +442,15 @@ def displayed_ms(text, package=""):
     return found
 
 
-def report_modes(run, step, results, expect_gpu, platform):
+SOFTWARE_DEVICE = re.compile(r"swiftshader|llvmpipe|softpipe|swrast|software renderer|android emulator|apple software|angle.*(swiftshader|software)", re.I)
+
+
+def device_is_software(device):
+    """Does the contract line's `device=` text name a software GL renderer (SwiftShader, llvmpipe, 'Apple Software Renderer', ...)?"""
+    return bool(device and SOFTWARE_DEVICE.search(device))
+
+
+def report_modes(run, step, results, expect_gpu, platform, hardware=False):
     """The verdict of the AZ_BACKEND runs. `results[mode]` = {ran, requested, device, rgba, dims, first_frame_s,
     displayed_ms, frames: {median, p95, n} | None}. Says, per mode, WHICH backend ran: a request for the GPU that ran
     the CPU renderer is a FINDING (informational while the build has no GPU path, a FAILURE once `--expect-gpu` says it
@@ -463,18 +471,33 @@ def report_modes(run, step, results, expect_gpu, platform):
             bits.append(f"scroll frame time median {f['median']:.1f} / p95 {f['p95']:.1f} ms (n={f['n']})")
         summary.append(f"{mode}: " + ", ".join(bits))
         step.note(f"AZ_BACKEND={mode}: " + ", ".join(bits))
+        software = (not hardware) or device_is_software(r.get("device"))
         if mode == "cpu":
             step.check("requested cpu: the CPU renderer ran", ran in ("cpu", "unknown"), f"ran {ran}", required=True)
-        elif mode in ("gpu", "auto"):
+        elif mode == "gpu":
+            # `gpu` FORCES the GL path on any renderer that works, a software GL included (SwiftShader, 'Apple Software Renderer')
             if ran == "gpu":
-                step.check(f"requested {mode}: the GPU renderer ran", True, r.get("device") or "")
+                step.check("requested gpu: the GL renderer ran", True, r.get("device") or "")
             elif ran == "cpu":
-                step.check(f"requested {mode}: the GPU renderer ran", False,
-                           f"requested {mode}, ran cpu: the CPU renderer drew the page (finding; the GPU path is not in this build)",
-                           required=expect_gpu and mode == "gpu")
+                step.check("requested gpu: the GL renderer ran", False,
+                           "requested gpu, ran cpu: the CPU renderer drew the page (finding while the build has no GL path; a failure with --expect-gpu)",
+                           required=expect_gpu)
             else:
-                step.check(f"requested {mode}: the engine says which renderer ran", False,
-                           "no `[render] backend=` line in the engine's log: it cannot be told which renderer drew", required=expect_gpu and mode == "gpu")
+                step.check("requested gpu: the engine says which renderer ran", False,
+                           "no `[render] backend=` line in the engine's log: it cannot be told which renderer drew", required=expect_gpu)
+        else:
+            # `auto` takes the GL path ONLY on a hardware renderer with ES >= 3.0; on a software GL (every CI emulator and
+            # Simulator) it runs the CPU renderer with one diagnostic line: 'requested auto, ran cpu' is then the DESIGN
+            if ran == "unknown":
+                step.check("requested auto: the engine says which renderer ran", False,
+                           "no `[render] backend=` line in the engine's log: it cannot be told which renderer drew", required=False)
+            elif software:
+                step.check("requested auto on a software GL: the CPU renderer runs (by design)", ran == "cpu",
+                           f"ran {ran}" + ("" if ran == "cpu" else ": auto took the GL path on a software renderer, it must wait for hardware"),
+                           required=True)
+            else:
+                step.check("requested auto on a hardware GPU: the GL renderer runs", ran == "gpu",
+                           f"ran {ran} on {r.get('device') or '?'}", required=expect_gpu)
     run.meta["render_modes"] = " | ".join(summary)
     run.render_table = []
     for mode in ("cpu", "gpu", "auto"):
@@ -861,7 +884,7 @@ def android_scenarios(args):
             dev.settle(1.0)
             results[mode] = {"ran": ran, "requested": requested, "device": device, "rgba": rgba, "dims": dims, "first_frame_s": t,
                              "displayed_ms": displayed_ms(text, args.package), "frames": frames}
-        report_modes(run, s, results, args.expect_gpu, "android")
+        report_modes(run, s, results, args.expect_gpu, "android", hardware=args.hardware)
         dev.sh("setprop debug.az.env 'AZ_LOG=info;AZ_DUMP_PRESENT=1'")
         dev.launch(cold=True)       # the default start again: what the later steps compare with
         dev.wait_for_front(timeout=args.first_frame_timeout)
@@ -1071,7 +1094,19 @@ def android_scenarios(args):
         pid0 = dev.pid()
         before = dev.look(s, "before-background")
         dev.home()
-        time.sleep(10)
+        time.sleep(6)
+        # an app in the background draws nothing and costs nothing: CPU over 3 s at 6 s in (a battery question, a finding when high)
+        pid_bg = dev.pid()
+        if pid_bg:
+            top = dev.sh(f"top -b -n 2 -d 3 -p {pid_bg}", timeout=60)
+            rows = [l for l in top.splitlines() if l.strip().startswith(pid_bg)]
+            if rows:
+                cols = rows[-1].split()
+                cpu = next((c for c in cols if re.fullmatch(r"\d+(\.\d+)?", c) and "." in c), None)
+                if cpu is not None:
+                    s.check("the app is quiet in the background (CPU under 5 %)", float(cpu) < 5.0, f"{cpu} % of one core over 3 s", required=False)
+                s.note("background top: " + " ".join(cols))
+        time.sleep(1)
         s.check("alive after 10 s in the background", dev.alive(), f"pid {dev.pid() or '-'}")
         dev.resume()
         t = dev.wait_for_front(timeout=30)
@@ -1213,6 +1248,33 @@ def android_scenarios(args):
         dev.no_crash_since(s, mark)
 
     run.step("18-monkey", "300 random touches and drags (fixed seed)", s_monkey, needs_app=True)
+
+    def pss_kb(pid):
+        text = dev.sh(f"dumpsys meminfo {pid} | grep -E 'TOTAL PSS|TOTAL:' | head -n 2")
+        m = re.search(r"TOTAL PSS:\s+(\d+)", text) or re.search(r"TOTAL:?\s+(\d+)", text)
+        return int(m.group(1)) if m else None
+
+    def s_soak(s):
+        """Rotate eight times (portrait, landscape, portrait ...) and look at what the process holds: a leak per rotation (a
+        pixmap, a layout, a window never dropped) shows as growth. Required: alive, in front, growth under 100 MB; the number is
+        in the notes."""
+        mark = dev.now_mark()
+        pid = dev.pid()
+        before = pss_kb(pid) if pid else None
+        for _ in range(8):
+            dev.rotate(1)
+            dev.settle(1.5)
+            dev.rotate(0)
+            dev.settle(1.5)
+        dev.look(s, "after-rotation-soak")
+        after = pss_kb(dev.pid() or pid)
+        if before and after:
+            s.note(f"PSS {before // 1024} MB before, {after // 1024} MB after eight rotation pairs ({(after - before) // 1024:+d} MB)")
+            s.check("eight rotation pairs leave the process's memory within 100 MB", after - before < 100 * 1024, f"{(after - before) // 1024:+d} MB")
+        dev.alive_and_front(s)
+        dev.no_crash_since(s, mark)
+
+    run.step("18b-rotation-soak", "eight rotations there and back: alive, in front, memory growth", s_soak, needs_app=True)
 
     # ---- the logs
     def s_logs(s):
@@ -1588,7 +1650,7 @@ def ios_scenarios(args):
             s.check(f"AZ_BACKEND={mode}: the app draws", t is not None and not is_flat(sig), f"first frame after {t:.1f} s" if t is not None else "no frame")
             results[mode] = {"ran": ran, "requested": requested, "device": device, "rgba": full[0] if full else None,
                              "dims": (full[1], full[2]) if full else dev.dims, "first_frame_s": t, "displayed_ms": None, "frames": None}
-        report_modes(run, s, results, args.expect_gpu, "ios")
+        report_modes(run, s, results, args.expect_gpu, "ios", hardware=args.hardware)
         dev.launch(cold=True)       # the default start again: the picture the later steps compare with
         dev.wait_for_front(timeout=args.first_frame_timeout)
         dev.settle(2.0)
@@ -1637,7 +1699,7 @@ def ios_scenarios(args):
         dev.settle(2.0)
         after = dev.look(s, "after-background")
         s.check("same process as before", dev.pid() == pid0, f"{pid0} -> {dev.pid()}", required=False)
-        s.check("the picture is the one from before", sig_diff(after, before) < 0.05, f"differs {sig_diff(after, before):.3f}", required=False)
+        s.check("the window shows the picture it had before (it was repainted after the return)", sig_diff(after, before) < 0.08, f"differs {sig_diff(after, before):.3f}")
         crashes = dev.crash_reports()
         s.check("the host wrote no crash report for the app", not crashes, ", ".join(crashes))
 
@@ -1744,6 +1806,7 @@ def main(argv):
     a.add_argument("--only", default="", help="comma list of step numbers to run besides 00-02, e.g. 03,08,09,12 (a first look at another app)")
     a.add_argument("--series", type=int, default=0, help="N cold starts to measure (0: none)")
     a.add_argument("--expect-gpu", action="store_true", help="the build has a GPU renderer: a gpu request that ran the CPU one FAILS")
+    a.add_argument("--hardware", action="store_true", help="the device has a real GPU (a phone, not a CI emulator): `auto` must then run the GL renderer")
     a.add_argument("--floor-apk", default="", help="the floor APK (an empty Java Activity) measured the same way")
     a.add_argument("--tap-label", default="", help="press the button the accessibility tree names this (step 03e)")
     i = sub.add_parser("ios")
@@ -1755,6 +1818,7 @@ def main(argv):
     i.add_argument("--label", default="AzWidgets")
     i.add_argument("--first-frame-timeout", type=int, default=45)
     i.add_argument("--expect-gpu", action="store_true", help="the build has a GPU renderer: a gpu request that ran the CPU one FAILS")
+    i.add_argument("--hardware", action="store_true", help="the device has a real GPU (a phone, not a CI Simulator): `auto` must then run the GL renderer")
     i.add_argument("--only", default="", help="comma list of step numbers to run besides 00-02")
     args = ap.parse_args(argv)
     run = android_scenarios(args) if args.platform == "android" else ios_scenarios(args)
