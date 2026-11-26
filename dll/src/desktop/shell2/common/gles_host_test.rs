@@ -78,6 +78,13 @@ impl OffscreenGles {
     }
 }
 
+impl Drop for OffscreenGles {
+    fn drop(&mut self) {
+        // Where a crash at the end of a test is: here, or in the fields' own drops that follow (the context, the table).
+        eprintln!("teardown: EGL context and function table");
+    }
+}
+
 /// The context of a test, or `None` with the reason on stderr: a machine with no OpenGL ES 3 does not run the test,
 /// and does not pretend that it did. With `AZ_REQUIRE_GLES` set the missing context is a failure.
 fn gles_or_skip(test: &str) -> Option<OffscreenGles> {
@@ -312,18 +319,24 @@ impl<'a> GpuSession<'a> {
 impl Drop for GpuSession<'_> {
     fn drop(&mut self) {
         // The GL objects go while their context is current (it is: the test's `OffscreenGles` outlives this).
+        eprintln!("teardown: framebuffer");
         drop(self.framebuffer.take());
         if let Some(parts) = self.parts.take() {
             let GpuParts {
                 renderer,
                 render_api,
                 gl_context_ptr,
+                hit_tester,
                 ..
             } = parts;
             drop(render_api);
+            drop(hit_tester);
+            eprintln!("teardown: the engine's GL context");
             drop(gl_context_ptr);
+            eprintln!("teardown: renderer");
             renderer.deinit();
         }
+        eprintln!("teardown: session done");
         let _ = self.gles;
     }
 }

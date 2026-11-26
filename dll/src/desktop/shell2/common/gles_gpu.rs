@@ -120,6 +120,21 @@ impl GlesGpuConfig {
     }
 }
 
+/// What a window asks of the renderer: `AZ_BACKEND` as the app's environment typed it, then the window's `hw_accel`
+/// (its own renderer options, else the window state's), then the CPU renderer (`GpuRequest::resolve`).
+#[must_use]
+pub fn request_for(
+    shell: &crate::desktop::shell_settings::ShellSettings,
+    options: &WindowCreateOptions,
+) -> GpuRequest {
+    let hw_accel = options
+        .renderer
+        .as_option()
+        .map(|r| r.hw_accel)
+        .or(Some(options.window_state.renderer_options.hw_accel));
+    GpuRequest::resolve(shell.backend.as_deref(), hw_accel)
+}
+
 /// What the shell lends the GPU path for the length of one call.
 pub struct GpuCtx<'a> {
     /// The window's common state: where the renderer, its API, the document and the GL context live.

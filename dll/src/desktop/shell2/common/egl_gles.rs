@@ -125,8 +125,10 @@ pub struct EglApi {
     query_string: FnQueryString,
     get_error: FnGetError,
     get_proc_address: FnGetProcAddress,
-    /// Last: the functions above point into it.
-    _library: libloading::Library,
+    /// The functions above point into it. NEVER unloaded (`ManuallyDrop`: no `dlclose`): a GL stack (Mesa, GLVND, a
+    /// vendor driver) keeps threads, thread-local destructors and `atexit` handlers that point into its own code, and a
+    /// process that unloads it crashes when one of them runs. No GL program unloads its driver.
+    _library: std::mem::ManuallyDrop<libloading::Library>,
 }
 
 impl fmt::Debug for EglApi {
@@ -210,7 +212,7 @@ impl EglApi {
             query_string,
             get_error,
             get_proc_address,
-            _library: library,
+            _library: std::mem::ManuallyDrop::new(library),
         })
     }
 
@@ -704,8 +706,8 @@ impl Drop for EglSession {
 
 /// The GL function table of a context, and the library its functions were resolved from.
 pub struct GlesFunctions {
-    /// Kept loaded while the table's pointers may be called.
-    _library: Option<libloading::Library>,
+    /// Kept loaded for good (`ManuallyDrop`: never `dlclose`d, see `EglApi`).
+    _library: Option<std::mem::ManuallyDrop<libloading::Library>>,
     /// The table WebRender and the engine's GL code call through.
     pub context: Rc<GenericGlContext>,
 }
@@ -793,7 +795,7 @@ impl GlesFunctions {
             ));
         }
         Ok(Self {
-            _library: library,
+            _library: library.map(std::mem::ManuallyDrop::new),
             context: Rc::new(table),
         })
     }
