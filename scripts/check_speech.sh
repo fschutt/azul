@@ -218,11 +218,20 @@ case "$part" in
   static)
     static_linux
     ;;
+  all)
+    speech_tests
+    layout_tests
+    doc_tests
+    autofix_agrees
+    source_gates
+    compile_checks
+    static_linux
+    ;;
   macos)
     macos
     ;;
   *)
-    echo "usage: bash scripts/check_speech.sh gate | static | macos"
+    echo "usage: bash scripts/check_speech.sh gate | static | all | macos"
     ;;
 esac
 section "END"
