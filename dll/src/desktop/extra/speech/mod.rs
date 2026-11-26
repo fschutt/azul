@@ -324,7 +324,12 @@ impl Default for SpeechStandby {
 pub struct SpeechWord {
     /// The word as the recognizer wrote it (punctuation attached, as the engine gives it).
     pub text: AzString,
-    /// Milliseconds from [`SpeechHeard::started_unix_ms`] to the start of the word.
+    /// Milliseconds from [`SpeechHeard::started_unix_ms`] to the start of the word: never
+    /// negative. `started_unix_ms` is the moment the audio of the utterance began, which for the
+    /// first utterance of a stream on an armed microphone can be before the stream was started (the
+    /// pre-roll); the moment the word was said is `started_unix_ms + start_ms`. The first word of a
+    /// built-in utterance typically starts 300 ms in (the end-pointer keeps 300 ms of room before
+    /// the voice).
     pub start_ms: u32,
     /// And to its end.
     pub end_ms: u32,
@@ -1013,7 +1018,11 @@ impl SpeechSession {
     /// to speak (the pen comes in range, the button is hovered), not when they have begun. Opening
     /// costs about 270 ms once. Answers why it could not, empty when the session is armed (the
     /// permission rules of the microphone apply: a refusal is a sentence the user can act on).
-    /// Arming an armed session starts the waiting time again.
+    /// Arming an armed session starts the waiting time again. It takes no language and needs none:
+    /// the microphone does not depend on one, the built-in model takes the language per call, and
+    /// the system's recognizer is made for the language of each call (14-49 ms with an armed
+    /// microphone). Safe to call while a call or a stream listens (they hand the microphone back
+    /// armed) and at any time again; [`Self::disarm`] is as safe.
     pub fn arm(&self) -> AzString {
         let Some(inner) = self.inner() else {
             return AzString::from("this speech session is closed".to_string());
