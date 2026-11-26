@@ -177,3 +177,23 @@ fn the_errors_of_the_system_are_told_in_words() {
     assert!(describe_error(-65563).contains("not running"));
     assert!(describe_error(-1).contains("-1"));
 }
+
+#[test]
+fn a_host_is_filed_under_one_spelling_in_lower_case_with_its_root_dot() {
+    assert_eq!(host_key("abc-41234.local."), "abc-41234.local.");
+    assert_eq!(host_key("abc-41234.local"), "abc-41234.local.");
+    assert_eq!(host_key("ABC-41234.Local."), "abc-41234.local.");
+    assert_eq!(host_key("Abc-41234.LOCAL"), "abc-41234.local.");
+    // the system's spelling finds the SRV record's host in the maps the assembling reads
+    let mut ports = BTreeMap::new();
+    let mut hosts: BTreeMap<String, Vec<IpAddr>> = BTreeMap::new();
+    ports.insert(host_key("abc-41234.local."), 41234u16);
+    hosts
+        .entry(host_key("ABC-41234.Local"))
+        .or_default()
+        .push(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 8)));
+    assert_eq!(
+        assemble(&ports, &hosts),
+        vec![SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 8)), 41234)]
+    );
+}

@@ -158,6 +158,14 @@ pub(super) fn describe_error(code: i32) -> String {
     }
 }
 
+/// The key a host name is filed under while a lookup collects the SRV targets and the addresses of
+/// their hosts: lower case with one trailing dot. DNS names are case-insensitive, and the system may
+/// hand a name back in another case or without its root dot than the SRV record carried it in; two
+/// spellings of one host must find each other.
+pub(super) fn host_key(name: &str) -> String {
+    name.to_string()
+}
+
 /// The socket addresses of one peer: for every SRV target its port with the addresses found for
 /// that target, in the order of the target names, each address once, only those a dial can use
 /// ([`usable_peer_addr`]), at most [`MAX_ADDRESSES_PER_PEER`].
