@@ -1258,6 +1258,8 @@ pub fn break_one_line<T: ParsedFontTrait>(
     if cursor.is_done() {
         return (LogicalLine::default(), false);
     }
+    // The line that starts the paragraph (`hanging-punctuation: first` hangs a mark on it).
+    let first_line = cursor.next_item_index == 0 && cursor.partial_remainder.is_empty();
 
     // +spec:white-space-processing:c83dbd - Phase II: collapsible spaces at line start removed,
     // trailing spaces removed, tab stops CSS Text Module Level 3 § 4.1.2: At the beginning of a
@@ -1303,6 +1305,18 @@ pub fn break_one_line<T: ParsedFontTrait>(
             }
         }
     }
+
+    // `hanging-punctuation: first`: the opening bracket or quote that opens the first line takes no
+    // room on it, so the line has that much more.
+    let start_hang = if first_line && line_items.iter().all(is_hanging_marker) {
+        cursor
+            .upcoming()
+            .next()
+            .map_or(0.0, |item| start_hang_width(item, is_vertical))
+    } else {
+        0.0
+    };
+    let room = line_constraints.total_available + start_hang;
 
     // +spec:line-breaking:35817b - white-space: nowrap/pre prevent soft wrap opportunities
     // CSS Text Level 3 § 3: For nowrap and pre, wrapping is suppressed. All content
@@ -1397,8 +1411,9 @@ pub fn break_one_line<T: ParsedFontTrait>(
                 .take(unit_len)
                 .fold(current_width, |w, item| fold_line_width(w, item, is_vertical));
 
-            // 2. Can the whole unit fit on the current line?
-            if width_with_unit <= line_constraints.total_available {
+            // 2. Can the whole unit fit on the current line? A mark that would hang at the end of
+            // the line (`hanging-punctuation`) takes no room there.
+            if width_with_unit - end_hang_credit(cursor, unit_len, is_vertical) <= room {
                 line_items.extend(cursor.upcoming().take(unit_len).cloned());
                 current_width = width_with_unit;
                 cursor.consume(unit_len);
@@ -1418,7 +1433,7 @@ pub fn break_one_line<T: ParsedFontTrait>(
                     collected = cursor.upcoming().take(unit_len).cloned().collect();
                     &collected
                 };
-                let available_width = line_constraints.total_available - current_width;
+                let available_width = room - current_width;
                 // 3. The unit overflows. Can we hyphenate it? It breaks at
                 // its soft hyphens (hyphens: manual or auto) or, with none
                 // and a dictionary, where the dictionary breaks it, with a
@@ -1458,7 +1473,7 @@ pub fn break_one_line<T: ParsedFontTrait>(
                             // Per CSS Text 3 §5.5: "an otherwise unbreakable sequence
                             // of characters may be broken at an arbitrary point" when
                             // overflow-wrap is anywhere/break-word.
-                            let avail = line_constraints.total_available;
+                            let avail = room;
                             for item in next_unit {
                                 // Same fold as the fit test and the intrinsic scan.
                                 let width_with_item =
@@ -1506,6 +1521,108 @@ pub fn break_one_line<T: ParsedFontTrait>(
     let mut line = LogicalLine::new(line_items);
     line.trim_trailing_white_space(white_space_mode);
     (line, false)
+}
+
+/// The character of a cluster that is of ONE character, which a mark that hangs is.
+fn lone_char(item: &ShapedItem) -> Option<char> {
+    let ShapedItem::Cluster(cluster) = item else {
+        return None;
+    };
+    let mut chars = cluster.text().chars();
+    let first = chars.next()?;
+    chars.next().is_none().then_some(first)
+}
+
+/// How wide the opening bracket or quote is that `hanging-punctuation: first` hangs before the
+/// start of the first line, when `item` is one (CSS Text 3, 8.2); 0 for every other item.
+fn start_hang_width(item: &ShapedItem, is_vertical: bool) -> f32 {
+    match item {
+        ShapedItem::Cluster(cluster)
+            if cluster.style.hanging_punctuation.first
+                && lone_char(item).is_some_and(is_opening_mark_char) =>
+        {
+            get_item_measure_with_spacing(item, is_vertical).max(0.0)
+        }
+        _ => 0.0,
+    }
+}
+
+/// How wide the mark is that hangs beyond the end of a line, when `item` ends it: a stop or comma
+/// under `force-end`, or under `allow-end` when the line `does_not_fit` with it; the closing
+/// bracket or quote that ends the paragraph (`ends_block`) under `last`; 0 for every other item.
+fn end_hang_width(
+    item: &ShapedItem,
+    is_vertical: bool,
+    does_not_fit: bool,
+    ends_block: bool,
+) -> f32 {
+    let ShapedItem::Cluster(cluster) = item else {
+        return 0.0;
+    };
+    let hang = cluster.style.hanging_punctuation;
+    let Some(c) = lone_char(item) else {
+        return 0.0;
+    };
+    let hangs = if is_hanging_punctuation_char(c) {
+        hang.force_end || (hang.allow_end && does_not_fit)
+    } else {
+        hang.last && ends_block && is_closing_mark_char(c)
+    };
+    if hangs {
+        get_item_measure_with_spacing(item, is_vertical).max(0.0)
+    } else {
+        0.0
+    }
+}
+
+/// How much of the unit the breaker is about to put on the line takes no room there: the width of
+/// the mark that would hang at its end if the unit ended the line (`allow-end`: the line does not
+/// fit it, or it would not be asked).
+fn end_hang_credit(cursor: &BreakCursor<'_>, unit_len: usize, is_vertical: bool) -> f32 {
+    let Some(last) = cursor.upcoming().take(unit_len).last() else {
+        return 0.0;
+    };
+    let ShapedItem::Cluster(cluster) = last else {
+        return 0.0;
+    };
+    let hang = cluster.style.hanging_punctuation;
+    if !hang.is_enabled() {
+        return 0.0;
+    }
+    // `last`: only the unit that ends the paragraph; white space after it is stripped
+    let ends_block = hang.last && cursor.upcoming().skip(unit_len).all(is_collapsible_whitespace);
+    end_hang_width(last, is_vertical, true, ends_block)
+}
+
+/// How wide the marks are that hang before the first and beyond the last item of a line, in the
+/// direction the paragraph reads: `(start, end)`. `starts_block` is whether the line is the first
+/// of its block, `does_not_fit` whether its content - the hung marks counted - is wider than its
+/// room, `ends_block` whether it holds the end of its paragraph.
+fn hanging_widths(
+    items: &[ShapedItem],
+    is_vertical: bool,
+    base: BidiDirection,
+    starts_block: bool,
+    does_not_fit: impl Fn(f32) -> bool,
+    ends_block: bool,
+) -> (f32, f32) {
+    let start = if starts_block {
+        // the first item that is not an outside list marker, in the direction the paragraph reads
+        let first = if base.is_rtl() {
+            items.iter().rev().find(|item| !is_hanging_marker(item))
+        } else {
+            items.iter().find(|item| !is_hanging_marker(item))
+        };
+        first.map_or(0.0, |item| start_hang_width(item, is_vertical))
+    } else {
+        0.0
+    };
+    let end = from_line_end(items, base)
+        .find(|item| !is_collapsible_whitespace(item))
+        .map_or(0.0, |item| {
+            end_hang_width(item, is_vertical, does_not_fit(start), ends_block)
+        });
+    (start, end)
 }
 
 /// How narrow, in ems of the paragraph's font, a segment the shapes and
@@ -2355,7 +2472,20 @@ pub fn position_one_line_between<T: ParsedFontTrait>(
                 }
             }
         };
-        let effective_segment_width = final_segment_width - trailing_ws_width;
+        // `hanging-punctuation` (CSS Text 3, 8.2): the marks that hang before the start and beyond
+        // the end of the line take no room in it, as the white space that hangs does not: the
+        // line is aligned and justified by what is left. The opening mark of the first line, the
+        // stop or comma that ends a line, the closing mark that ends the last.
+        let (hang_start, hang_end) = hanging_widths(
+            &justified_segment_items,
+            is_vertical,
+            base_direction,
+            line_index == 0 && segment_start == 0,
+            |hang_start| final_segment_width - trailing_ws_width - hang_start > segment.width,
+            piece.is_last_line && item_cursor == line_items.len(),
+        );
+        let effective_segment_width =
+            final_segment_width - trailing_ws_width - hang_start - hang_end;
 
         // +spec:text-alignment-spacing:b9d88e - justify stretches inline boxes via text-justify;
         // non-collapsible WS may skip justification
@@ -2414,7 +2544,14 @@ pub fn position_one_line_between<T: ParsedFontTrait>(
             line_alignment_offset(align, remaining_space, base_direction)
         };
 
-        let mut main_axis_pen = segment.start_x + alignment_offset;
+        // The mark that hangs before the line's visual left edge stands outside it; the one at
+        // the right edge overhangs by itself.
+        let hang_before = if base_direction.is_rtl() {
+            hang_end
+        } else {
+            hang_start
+        };
+        let mut main_axis_pen = segment.start_x + alignment_offset - hang_before;
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
                 "[Pos1Line] Segment width: {}, Item width: {}, Remaining space: {}, Initial pen: \

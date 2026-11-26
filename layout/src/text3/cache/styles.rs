@@ -442,6 +442,29 @@ impl Default for FontHash {
     }
 }
 
+/// What `hanging-punctuation` lets hang (CSS Text 3, 8.2): a mark that hangs takes no room on its
+/// line - it is not counted for the fit of the line or for its alignment - and stands beyond the
+/// line's edge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct HangingPunctuation {
+    /// `first`: an opening bracket or quote at the start of the first line of the block.
+    pub first: bool,
+    /// `last`: a closing bracket or quote at the end of the last line of the block.
+    pub last: bool,
+    /// `force-end`: a stop or comma at the end of a line, whether or not it fits.
+    pub force_end: bool,
+    /// `allow-end`: a stop or comma at the end of a line, if it does not otherwise fit.
+    pub allow_end: bool,
+}
+
+impl HangingPunctuation {
+    /// Whether any mark may hang.
+    #[must_use]
+    pub const fn is_enabled(self) -> bool {
+        self.first || self.last || self.force_end || self.allow_end
+    }
+}
+
 /// Style properties with vertical text support
 #[derive(Debug, Clone, PartialEq)]
 pub struct StyleProperties {
@@ -513,6 +536,10 @@ pub struct StyleProperties {
     /// its text relative to the line baseline. `Baseline` (the default) leaves the cluster
     /// on the line's default alignment.
     pub vertical_align: VerticalAlign,
+
+    /// `hanging-punctuation` (inherited): the marks the line breaker and the positioning of a line
+    /// let hang outside it.
+    pub hanging_punctuation: HangingPunctuation,
 }
 
 impl Default for StyleProperties {
@@ -542,6 +569,7 @@ impl Default for StyleProperties {
             font_variant_east_asian: FontVariantEastAsian::default(),
             font_synthesis: FontSynthesis::default(),
             vertical_align: VerticalAlign::Baseline,
+            hanging_punctuation: HangingPunctuation::default(),
         }
     }
 }
@@ -652,6 +680,7 @@ impl Hash for StyleProperties {
         self.font_variant_ligatures.hash(state);
         self.font_variant_east_asian.hash(state);
         self.font_synthesis.hash(state);
+        self.hanging_punctuation.hash(state);
 
         // The inline box's decoration. This hash is a cache KEY - the text
         // cache's first stage is `calculate_id(&content)` - so a span's text

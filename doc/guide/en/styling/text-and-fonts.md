@@ -375,7 +375,7 @@ what they say. Each row says what the layout does today.
 |----------|-------|
 | `font-synthesis-style`, `font-synthesis-position` | parsed and inherited, with no consumer: a `font-style: italic` text in a family without an italic face is drawn upright (the engine fakes no slant, in neither rasterizer nor in a PDF), and a super- or subscript is not faked either |
 | `text-orientation: upright`, `sideways` | parsed; in a vertical block `upright` sets the line direction to left-to-right as the spec says, and no value turns a glyph: the text is `mixed` |
-| `hanging-punctuation` | parsed and kept by the cascade, not applied: the punctuation stays inside the line box |
+| `hanging-punctuation` | applied by the greedy line breaker and the positioning of every line; not by the breaker of `text-wrap: balance` and `pretty` (which count the mark in the line) and not by the intrinsic sizes (a box sized to its content holds the mark); the marks are the brackets and quotes and the stops and commas of Latin, CJK and fullwidth text |
 | `initial-letter` | makes room: the lines beside the first letter start after a box N lines high, and the letter is drawn at the size of the text, not bigger and not moved into the room |
 | `text-decoration-style`, `text-underline-position`, `-offset`, `text-emphasis` | not properties: the lines of `text-decoration` are solid and drawn at the place the font size suggests (the colour and the thickness are `text-decoration-color` and `-thickness`) |
 | `font-size-adjust` | not a property: the font size never follows the x-height of the face |
