@@ -4,7 +4,7 @@
 //! `NativeMethods.Az<Class>_<lowerCamel>(..)` (api.json constructors and the
 //! enum variant constructors alike); C-like enums are C# enums WITHOUT the
 //! `Az` prefix (`LayoutDisplay.Flex`, `CssPropertyType.Width`); structs and
-//! tagged unions keep it and have public snake_case fields, so a struct is
+//! tagged unions keep it and have public `snake_case` fields, so a struct is
 //! an object initialiser (`new AzColorU { r = 255, .. }`) and a union member
 //! of an explicit-layout union is too (`new AzLayoutWidthValue { Exact = new
 //! AzLayoutWidthValueVariant_Exact { tag = AzLayoutWidthValue_Tag.Exact,
@@ -14,7 +14,7 @@
 //! an `AzString` from UTF-8 bytes like the generated wrappers do.
 //!
 //! A DOM goes through the wrapper classes instead (`lang_csharp/wrappers.rs`):
-//! static factories and methods are PascalCase (`Dom.CreateDiv()`,
+//! static factories and methods are `PascalCase` (`Dom.CreateDiv()`,
 //! `SmallAriaInfo.Label(..)`), a by-value `self` method consumes its
 //! receiver and returns a new `Dom` (`.WithChild(..)`, chained), and string
 //! arguments are C# `string`s. A DOM module is `namespace AzulUi`, `static
@@ -29,6 +29,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use crate::codegen::{
     doc::{render, Doc},
@@ -257,7 +258,7 @@ fn dom_item_method(item: &Item) -> String {
     let syntax = WrapperDom(CSharpDom);
     let mut out = String::new();
     for line in &item_comments(&syntax, item) {
-        out.push_str(&format!("        // {line}\n"));
+        let _ = writeln!(out, "        // {line}");
     }
     let name = item.name.upper_camel();
     let first_optional = item
@@ -276,15 +277,17 @@ fn dom_item_method(item: &Item) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     match item_doc(&syntax, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "        public static Dom {name}({params})\n        {{\n            return {};\n        \
              }}\n",
             render(&doc, "    ", 3)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "        // not expressible with the C# bindings: {reason}\n        public static Dom \
              {name}({params}) => null;\n"
-        )),
+        ); },
     }
     out
 }
@@ -371,19 +374,21 @@ const HELPERS: &str = r"    internal static class AzulCodegen
 fn item_method(item: &Item) -> String {
     let mut out = String::new();
     for line in &item_comments(&CSharp, item) {
-        out.push_str(&format!("        // {line}\n"));
+        let _ = writeln!(out, "        // {line}");
     }
     let name = item.name.upper_camel();
     let ty = ty_name(&item.ty);
     match item_doc(&CSharp, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "        public static {ty} {name}()\n        {{\n            return {};\n        }}\n",
             render(&doc, "    ", 3)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "        // not expressible with the C# bindings: {reason}\n        public static {ty} \
              {name}() => default;\n"
-        )),
+        ); },
     }
     out
 }
@@ -418,9 +423,10 @@ impl CodegenBackend for CSharp {
         if css {
             out.push_str("using System;\nusing System.Runtime.InteropServices;\nusing System.Text;\n");
         }
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "using Azul;\n\nnamespace {ns}\n{{\n    public static class {class}\n    {{\n"
-        ));
+        );
         for (i, item) in m.items.iter().enumerate() {
             if i > 0 {
                 out.push('\n');
@@ -440,7 +446,7 @@ impl CodegenBackend for CSharp {
         if let Some(lib) = &m.library {
             out.push('\n');
             for line in registration_note(lib, NO_REGISTRATION) {
-                out.push_str(&format!("// {line}\n"));
+                let _ = writeln!(out, "// {line}");
             }
         }
         out
@@ -470,17 +476,19 @@ impl CodegenBackend for CSharp {
         for item in &m.items {
             let name = item.name.upper_camel();
             if item.ty.ends_with("Vec") {
-                main.push_str(&format!(
+                let _ = write!(
+                    main,
                     "        var {0} = AzulStyles.Styles.{1}();\n        Console.WriteLine(\"{1}: \" + \
                      {0}.len + \" properties\");\n",
                     item.name.lower_camel(),
                     name
-                ));
+                );
             } else {
-                main.push_str(&format!(
+                let _ = write!(
+                    main,
                     "        AzulStyles.Styles.{name}();\n        Console.WriteLine(\"{name}: \
                      built\");\n"
-                ));
+                );
             }
         }
         main.push_str("    }\n}\n");

@@ -110,6 +110,12 @@ pub enum Notice {
     NoSuchBoard,
     /// The board that is open is not kept yet, or a board is being read: the whiteboard is not left until it is.
     BoardBusy,
+    /// A snapshot cannot be added: the board keeps `snapshots` of them, or `items` items, or `megabytes` MB of text in all of them,
+    /// at most.
+    HistoryFull { snapshots: usize, items: usize, megabytes: usize },
+    NoSuchSnapshot,
+    /// A snapshot waits until the pictures that are being drawn are.
+    PicturesPending,
 }
 
 impl Notice {
@@ -153,6 +159,11 @@ impl Notice {
             Self::BoardNameEmpty => "A whiteboard needs a name.".to_string(),
             Self::NoSuchBoard => "There is no such whiteboard in this folder.".to_string(),
             Self::BoardBusy => "The whiteboard is being kept or opened: one moment.".to_string(),
+            Self::HistoryFull { snapshots, items, megabytes } => format!(
+                "The history of this whiteboard is full ({snapshots} snapshots, or {items} items, or {megabytes} MB of text in all of them, at most): it keeps what it has."
+            ),
+            Self::NoSuchSnapshot => "There is no such snapshot on this whiteboard.".to_string(),
+            Self::PicturesPending => "A picture is still being drawn: one moment, then take the snapshot.".to_string(),
         }
     }
 
@@ -176,6 +187,9 @@ impl Notice {
             Self::BoardNameEmpty => "azreview-whiteboard-notice-board-name-empty",
             Self::NoSuchBoard => "azreview-whiteboard-notice-no-such-board",
             Self::BoardBusy => "azreview-whiteboard-notice-board-busy",
+            Self::HistoryFull { .. } => "azreview-whiteboard-notice-history-full",
+            Self::NoSuchSnapshot => "azreview-whiteboard-notice-no-such-snapshot",
+            Self::PicturesPending => "azreview-whiteboard-notice-pictures-pending",
         }
     }
 
@@ -194,13 +208,16 @@ impl Notice {
             }
             Self::NoSuchItem { id } => vec![("id", *id)],
             Self::BoardRepaired { dropped } => vec![("dropped", *dropped as u64)],
+            Self::HistoryFull { snapshots, items, megabytes } => vec![("snapshots", *snapshots as u64), ("items", *items as u64), ("megabytes", *megabytes as u64)],
             Self::PictureInvalid
             | Self::ArrowToItself
             | Self::ArrowNeedsACutout
             | Self::ArrowRepeated
             | Self::BoardNameEmpty
             | Self::NoSuchBoard
-            | Self::BoardBusy => Vec::new(),
+            | Self::BoardBusy
+            | Self::NoSuchSnapshot
+            | Self::PicturesPending => Vec::new(),
         }
     }
 }
@@ -801,6 +818,23 @@ impl Board {
         self.view_revision += 1;
         self.saved_view_revision = self.view_revision;
         notices
+    }
+
+    /// Points cutout `id` at another place of the code (a reference that was found again, [`crate::whiteboard_relocate`]):
+    /// not a step of the board and not undone by Mod+Z - where the code is now is not the person's doing - but the board is
+    /// no longer what is on disk. Whether there is such a cutout.
+    pub fn set_source(&mut self, id: ItemId, source: &Source) -> bool {
+        let limits = self.limits;
+        let Some(Item::Cutout(c)) = self.data.items.iter_mut().find(|i| i.id() == id) else {
+            return false;
+        };
+        let source = source.sanitized(&limits);
+        if c.source == source {
+            return true;
+        }
+        c.source = source;
+        self.revision += 1;
+        true
     }
 
     /// The board as it is is not what is on disk (it came from somewhere else): the next save writes it.

@@ -19,6 +19,7 @@ import argparse
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 CELL_W, CELL_H = 216, 480
@@ -105,8 +106,7 @@ def cell(shot, caption, work, name, missing_text):
 def build(out_dir, columns):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    work = out_dir / ".work"
-    work.mkdir(exist_ok=True)
+    work = Path(tempfile.mkdtemp(prefix="azgallery-"))     # temp files stay in the system temp folder: nothing is deleted
     made = []
     for sheet, cells in SHEETS.items():
         rows = []
@@ -130,9 +130,7 @@ def build(out_dir, columns):
         magick(*rows, "-append", sheet_png)
         made.append(sheet_png)
         print("wrote", sheet_png)
-    for p in work.glob("*.png"):
-        p.unlink()
-    work.rmdir()
+    print("temp files left in", work)
     return made
 
 

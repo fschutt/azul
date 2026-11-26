@@ -30,6 +30,7 @@ import re
 import struct
 import subprocess
 import sys
+import tempfile
 import time
 import zlib
 from pathlib import Path
@@ -595,8 +596,11 @@ class Android:
     def wait_for_front(self, timeout=40):
         """Seconds until the app is alive, has the focus and its screen is neither flat nor the launcher; None on timeout."""
         t0 = time.time()
+        seen_alive = False
         while time.time() - t0 < timeout:
-            if self.alive() and self.foreground():
+            alive = self.alive()
+            if alive and self.foreground():
+                seen_alive = True
                 try:
                     sig, _w, _h, _rgba = signature_android_raw(self.adb("exec-out", "screencap", binary=True, timeout=60))
                 except ValueError:
@@ -604,6 +608,10 @@ class Android:
                 if sig and not is_flat(sig) and (self.home_sig is None or sig_diff(sig, self.home_sig) > LAUNCHER_BELOW):
                     self.last_sig = sig
                     return time.time() - t0
+            elif alive:
+                seen_alive = True
+            elif seen_alive:
+                return None           # it was running and is gone: it died, waiting longer shows nothing
             time.sleep(1.0)
         return None
 
@@ -1144,6 +1152,27 @@ class IOS:
     def simctl(self, *args, timeout=120, env=None):
         return self.x("xcrun", "simctl", *args, timeout=timeout, env=env)
 
+    def to_file(self, log_name, *cmd, timeout=600):
+        """Run a command with its output going straight into logs/<log_name> (a FILE, not a pipe: the first trial run of this
+        harness hung for an hour in `log show` because a killed command's children kept a pipe open). -> (rc, the file's text)"""
+        path = self.run.logs_dir / log_name
+        with open(path, "wb") as fh:
+            try:
+                rc = subprocess.run(list(cmd), stdout=fh, stderr=subprocess.STDOUT, timeout=timeout).returncode
+            except subprocess.TimeoutExpired:
+                rc = 124
+        return rc, path.read_text(encoding="utf-8", errors="replace")
+
+    def fire(self, *args, wait=25):
+        """`simctl <args>` that is allowed to run on in the background: waits `wait` seconds for it, never kills it, never
+        blocks longer (launches and the like). -> its output so far"""
+        proc = subprocess.Popen(["xcrun", "simctl"] + list(args), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        try:
+            out, _e = proc.communicate(timeout=wait)
+        except subprocess.TimeoutExpired:
+            return "(still running after %d s)" % wait
+        return out.decode("utf-8", "replace")
+
     # -- state
     def pid(self):
         _rc, out, _err = self.simctl("spawn", self.udid, "launchctl", "list")
@@ -1157,37 +1186,40 @@ class IOS:
         return bool(self.pid())
 
     # -- the picture
-    def capture(self, name):
-        """PNG from simctl; the signature from a small BMP made of it with sips. -> (signature, w, h, filename)."""
-        self.shot_count += 1
-        fname = f"{self.shot_count:02d}-{name}.png"
-        path = self.run.shots_dir / fname
+    def capture(self, name, keep=True):
+        """PNG from simctl; the signature from a small BMP made of it with sips. -> (signature, w, h, filename).
+        `keep=False` (the polls of wait_for_front) writes into the system temp folder and counts no picture: nothing of
+        this script deletes a file, temp files stay in the runner's temp folder."""
+        if keep:
+            self.shot_count += 1
+            fname = f"{self.shot_count:02d}-{name}.png"
+            path = self.run.shots_dir / fname
+        else:
+            fname = ""
+            path = Path(tempfile.gettempdir()) / f"azqa-{os.getpid()}-poll.png"
         rc, _o, err = self.simctl("io", self.udid, "screenshot", "--type=png", str(path), timeout=90)
         if rc != 0 or not path.exists():
             raise RuntimeError(f"simctl io screenshot failed: {err.strip()[:200]}")
         w, h = png_size(path)
-        small = self.run.shots_dir / f".sig-{self.shot_count}.bmp"
+        small = Path(tempfile.gettempdir()) / f"azqa-{os.getpid()}-sig-{time.time_ns()}.bmp"
         rc, _o, err = self.x("sips", "-z", "240", "120", "--setProperty", "format", "bmp", str(path), "--out", str(small), timeout=60)
         if rc != 0 or not small.exists():
             raise RuntimeError(f"sips could not reduce the picture: {err.strip()[:200]}")
         sig, _sw, _sh, _px = parse_bmp(small.read_bytes())
-        small.unlink()
         self.dims = (w, h)
-        self.last_png = path
+        if keep:
+            self.last_png = path
         return sig, w, h, fname
 
     def last_rgba_full(self):
         """The full-resolution pixels of the last picture (sips makes a BMP of the PNG). -> (rgba, w, h) | None"""
         if not getattr(self, "last_png", None):
             return None
-        big = self.run.shots_dir / f".full-{self.shot_count}.bmp"
+        big = Path(tempfile.gettempdir()) / f"azqa-{os.getpid()}-full-{time.time_ns()}.bmp"
         rc, _o, _e = self.x("sips", "--setProperty", "format", "bmp", str(self.last_png), "--out", str(big), timeout=120)
         if rc != 0 or not big.exists():
             return None
-        try:
-            _sig, w, h, rgba = parse_bmp(big.read_bytes())
-        finally:
-            big.unlink()
+        _sig, w, h, rgba = parse_bmp(big.read_bytes())
         return rgba, w, h
 
     def console_text(self, launch_no=None):
@@ -1227,30 +1259,43 @@ class IOS:
         out_f = self.run.logs_dir / f"console-{self.launch_count}.out.txt"
         err_f = self.run.logs_dir / f"console-{self.launch_count}.err.txt"
         cmd = ["launch"] + (["--terminate-running-process"] if cold else []) + [f"--stdout={out_f}", f"--stderr={err_f}", self.udid, self.bundle]
-        rc, out, err = self.simctl(*cmd, timeout=120, env=env)
+        # `simctl launch` prints "<bundle>: <pid>" and returns; when it does not (it can wait for the app to exit when the
+        # output is redirected) it is left running after 25 s: waiting for it would block every step that follows
+        proc = subprocess.Popen(["xcrun", "simctl"] + cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+        try:
+            raw_out, raw_err = proc.communicate(timeout=25)
+            rc = proc.returncode
+        except subprocess.TimeoutExpired:
+            raw_out, raw_err, rc = b"", b"", None
+        out = raw_out.decode("utf-8", "replace")
+        err = raw_err.decode("utf-8", "replace")
         m = re.search(r":\s*(\d+)\s*$", out.strip())
-        return {"rc": rc, "pid": m.group(1) if m else "", "out": out.strip(), "err": err.strip(), "console": (out_f, err_f)}
+        return {"rc": rc, "pid": m.group(1) if m else self.pid(), "out": out.strip() or "(simctl launch still running after 25 s)",
+                "err": err.strip(), "console": (out_f, err_f)}
 
     def terminate(self):
         self.simctl("terminate", self.udid, self.bundle)
 
     def open_other_app(self, bundle="com.apple.Preferences"):
-        return self.simctl("launch", self.udid, bundle)
+        return self.fire("launch", self.udid, bundle)
 
     def wait_for_front(self, timeout=45):
         t0 = time.time()
+        seen_alive = False
         while time.time() - t0 < timeout:
             if self.alive():
+                seen_alive = True
                 try:
-                    sig, _w, _h, _f = self.capture("poll")
+                    sig, _w, _h, _f = self.capture("poll", keep=False)
                 except RuntimeError:
                     sig = None
-                self.shot_count -= 1
-                for p in self.run.shots_dir.glob(f"{self.shot_count + 1:02d}-poll.png"):
-                    p.unlink()
                 if sig and not is_flat(sig) and (self.home_sig is None or sig_diff(sig, self.home_sig) > LAUNCHER_BELOW):
                     self.last_sig = sig
                     return time.time() - t0
+            elif seen_alive:
+                return None           # it was running and is gone: it died, waiting longer shows nothing
+            elif time.time() - t0 > 15:
+                return None           # it never started
             time.sleep(1.0)
         return None
 
@@ -1278,10 +1323,8 @@ class IOS:
         in landscape. Tests the landscape LAYOUT where the rotation itself cannot be pressed. -> the new .app path."""
         import plistlib
         import shutil
-        dst = self.run.logs_dir / "landscape-app" / Path(self.app_dir).name
-        if dst.parent.exists():
-            shutil.rmtree(dst.parent)
-        dst.parent.mkdir(parents=True)
+        # a folder of its own in the runner's temp area: nothing is deleted, nothing of the copy lands in the artifacts
+        dst = Path(tempfile.mkdtemp(prefix="azqa-landscape-")) / Path(self.app_dir).name
         shutil.copytree(self.app_dir, dst, symlinks=True)
         info_path = dst / "Info.plist"
         info = plistlib.loads(info_path.read_bytes())
@@ -1296,7 +1339,10 @@ class IOS:
 
     def gui_keystroke(self, char_code):
         """Cmd + arrow in the Simulator app (Device > Rotate Left = Cmd-Left, Rotate Right = Cmd-Right). Needs the
-        GUI app and the runner's accessibility permission for osascript. -> (ok, message)"""
+        GUI app and the runner's accessibility permission for osascript. OFF unless AZ_QA_GUI=1: it is the one part
+        of the QA that touches the runner's window server. -> (ok, message)"""
+        if os.environ.get("AZ_QA_GUI") != "1":
+            return False, "the Simulator GUI steps are off (AZ_QA_GUI=1 turns them on)"
         if not self.gui:
             self.x("open", "-a", "Simulator", "--args", "-CurrentDeviceUDID", self.udid, timeout=60)
             time.sleep(8)
@@ -1307,7 +1353,9 @@ class IOS:
         return rc == 0, (err or out).strip()[:200]
 
     def gui_menu(self, menu, item):
-        """A Simulator menu item by name (Debug > Simulate Memory Warning ...). -> (ok, message)"""
+        """A Simulator menu item by name (Debug > Simulate Memory Warning ...). OFF unless AZ_QA_GUI=1. -> (ok, message)"""
+        if os.environ.get("AZ_QA_GUI") != "1":
+            return False, "the Simulator GUI steps are off (AZ_QA_GUI=1 turns them on)"
         if not self.gui:
             self.x("open", "-a", "Simulator", "--args", "-CurrentDeviceUDID", self.udid, timeout=60)
             time.sleep(8)
@@ -1342,8 +1390,6 @@ def ios_scenarios(args):
         s.note(f"{run.meta.get('device')} / {run.meta.get('runtime')}")
         s.check("the simulator answers", rc == 0, run.meta.get("runtime", ""))
 
-    run.step("00-device", "the simulator is up; light appearance, medium text, a neutral status bar (9:41, full battery)", s_device)
-
     def recover(s):
         """Before a step: appearance and text size back to normal, the app running (started again when an earlier
         step left it dead: that step has already said so)."""
@@ -1361,7 +1407,8 @@ def ios_scenarios(args):
     run.recover = recover
 
     def s_home(s):
-        dev.simctl("launch", args.udid, "com.apple.springboard")
+        # the home screen as it is after boot and install (the app's icon on it): no launch of SpringBoard through simctl
+        # (the first trial run lost 127 s to it and the install after it timed out)
         dev.settle(3.0)
         sig, w, h, fname = dev.capture("home-baseline")
         s.shots.append(fname)
@@ -1369,19 +1416,21 @@ def ios_scenarios(args):
         s.check("the home screen is a picture", not is_flat(sig), f"{flat_fraction(sig):.3f}")
         s.note(f"screen {w}x{h}")
 
-    run.step("01-home-baseline", "the home screen before the app starts: the picture an app must differ from", s_home)
-
     def s_install(s):
         if args.app:
-            rc, _o, err = dev.simctl("install", args.udid, args.app, timeout=180)
-            s.check("simctl install succeeds", rc == 0, err.strip()[:160])
+            t0 = time.time()
+            rc, text = dev.to_file("install.log", "xcrun", "simctl", "install", args.udid, args.app, timeout=600)
+            s.check("simctl install succeeds", rc == 0, f"{text.strip()[-160:]} ({time.time() - t0:.0f} s)")
             plist = Path(args.app) / "Info.plist"
             if plist.exists():
                 import plistlib
                 info = plistlib.loads(plist.read_bytes())
                 s.note(f"{info.get('CFBundleIdentifier')} {info.get('CFBundleShortVersionString')} min iOS {info.get('MinimumOSVersion')} orientations {info.get('UISupportedInterfaceOrientations')}")
 
-    run.step("02-install", "install the Simulator app", s_install)
+    # the order of the demos pipeline's smoke test, which works: boot, install, then everything else
+    run.step("00-install", "install the Simulator app", s_install)
+    run.step("01-device", "the simulator is up; light appearance, medium text, a neutral status bar (9:41, full battery)", s_device)
+    run.step("02-home-baseline", "the home screen before the app starts: the picture an app must differ from", s_home)
 
     def s_cold(s):
         l = dev.launch(cold=True)
@@ -1538,8 +1587,9 @@ def ios_scenarios(args):
     run.step("10-terminate-and-start-again", "kill the process, start again", s_cold2)
 
     def s_logs(s):
-        rc, out, _e = dev.simctl("spawn", args.udid, "log", "show", "--last", "20m", "--style", "compact", "--info", "--debug", timeout=300)
-        (run.logs_dir / "log-all.txt").write_text(out, encoding="utf-8", errors="replace")
+        # straight into a file with a bound (a pipe hung the first trial for an hour); the last 6 minutes, info level
+        rc, out = dev.to_file("log-all.txt", "xcrun", "simctl", "spawn", args.udid, "log", "show", "--last", "6m", "--style", "compact", "--info", timeout=240)
+        s.note(f"log show exit {rc}, {len(out.splitlines())} lines")
         mine = [l for l in out.splitlines() if exe in l or "launchd_sim" in l and dev.bundle in l]
         (run.logs_dir / "log-app.txt").write_text("\n".join(mine), encoding="utf-8")
         rep = dev.crash_reports()
