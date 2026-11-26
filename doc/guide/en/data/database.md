@@ -186,12 +186,6 @@ feature. Without an engine `Db::open` resumes with
 the missing feature. `PlatformCapability::sql()` and `::sync()` answer these
 questions at runtime.
 
-The full-text index of the engine (turso's `fts`) is behind a feature of its
-own, `db-fts`, which is in no shipped set: it brings a search library and its
-crates into the build. A search of the app's own documents is
-`azul-search-index`; turn `db-fts` on when the search has to live in the SQL of
-the database.
-
 ## See also
 
 - [background-tasks](background-tasks.md) - timers, for driving `sync_now`
