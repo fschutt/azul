@@ -57,6 +57,7 @@ run css_lib cargo test -p azul-css --lib
 run core_lib cargo test -p azul-core --lib
 run layout_lib cargo test -p azul-layout --lib
 run layout_tests cargo test -p azul-layout --test all
+run layout_fluent cargo test -p azul-layout --lib --features fluent -- fluent
 run phone_tests cargo test -p azul-layout --test all -- safe_area_inset azul_widgets_video azul_maps_sidebar azul_maps_drive azul_paint_toolbar azul_writer_phone a_button_is_a_touch azul_widgets_toolbar
 
 # 1b. RED of the layout tests of the phone work: with the themes of the engine and the files of the apps as they were on the
