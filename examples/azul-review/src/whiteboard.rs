@@ -733,6 +733,35 @@ impl Board {
         self.saved_view_revision = self.view_revision;
     }
 
+    /// The board as it was when its revisions were `content` and `view` was kept (a save built then
+    /// and written since): what changed after is still to be kept.
+    pub const fn mark_saved_at(&mut self, content: u64, view: u64) {
+        self.saved_revision = if content < self.revision { content } else { self.revision };
+        self.saved_view_revision = if view < self.view_revision { view } else { self.view_revision };
+    }
+
+    /// Counts the changes to the view.
+    #[must_use]
+    pub const fn view_revision(&self) -> u64 {
+        self.view_revision
+    }
+
+    /// The board a file holds replaces this one (the history starts afresh, the observer and the limits
+    /// stay); what was left out is the notices.
+    pub fn replace_with(&mut self, data: BoardData) -> Vec<Notice> {
+        let (loaded, notices) = Self::from_data(data, self.limits);
+        self.data = loaded.data;
+        self.history.clear();
+        self.future.clear();
+        self.live = None;
+        self.revision += 1;
+        // What was just read is what is on disk, unless it had to be repaired.
+        self.saved_revision = if notices.is_empty() { self.revision } else { self.revision - 1 };
+        self.view_revision += 1;
+        self.saved_view_revision = self.view_revision;
+        notices
+    }
+
     /// What the board has told since it was last asked.
     pub fn take_notices(&mut self) -> Vec<Notice> {
         std::mem::take(&mut self.notices)

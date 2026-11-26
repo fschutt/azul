@@ -179408,6 +179408,219 @@
                             ],
                             "returns": null
                         }
+                    },
+                    "SpeechWordVec": {
+                        "external": "azul_dll::unified::speech::SpeechWordVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "SpeechWord",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "SpeechWordVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `SpeechWordVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "SpeechWordVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `SpeechWordVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechWordVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "speech_word_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "speech_word_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "speech_word_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `SpeechWordVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "SpeechWord"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechWordVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `SpeechWordVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const SpeechWord"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechWordVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionSpeechWord"
+                                },
+                                "fn_body": "speech_word_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `SpeechWordVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechWordVecSlice"
+                                },
+                                "fn_body": "speech_word_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechWordVecSlice"
+                                },
+                                "fn_body": "speech_word_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "SpeechWordVecDestructor": {
+                        "external": "azul_dll::unified::speech::SpeechWordVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "SpeechWordVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "SpeechWordVecDestructorType": {
+                        "external": "azul_dll::unified::speech::SpeechWordVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "SpeechWordVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -190708,6 +190921,30 @@
                                     "type": "TextLayout",
                                     "doc": [
                                         "Some value of type TextLayout"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionSpeechWord": {
+                        "external": "azul_dll::unified::speech::OptionSpeechWord",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "SpeechWord",
+                                    "doc": [
+                                        "Some value of type SpeechWord"
                                     ]
                                 }
                             }
@@ -218437,11 +218674,23 @@
                                 "message": {
                                     "type": "String"
                                 },
-                                "status": {
-                                    "type": "HeardStatus"
+                                "language": {
+                                    "type": "String"
+                                },
+                                "words": {
+                                    "type": "SpeechWordVec"
+                                },
+                                "started_unix_ms": {
+                                    "type": "u64"
                                 },
                                 "confidence": {
                                     "type": "f32"
+                                },
+                                "status": {
+                                    "type": "HeardStatus"
+                                },
+                                "recognizer": {
+                                    "type": "SpeechRecognizer"
                                 }
                             }
                         ],
@@ -218482,6 +218731,314 @@
                                 "Denied": {},
                                 "Unavailable": {},
                                 "Failed": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechRecognizer": {
+                        "external": "azul_dll::unified::speech::SpeechRecognizer",
+                        "custom_impls": [
+                            "From"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Native": {},
+                                "Builtin": {},
+                                "Scripted": {},
+                                "None": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechWord": {
+                        "external": "azul_dll::unified::speech::SpeechWord",
+                        "custom_impls": [
+                            "From"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "text": {
+                                    "type": "String"
+                                },
+                                "start_ms": {
+                                    "type": "u32"
+                                },
+                                "end_ms": {
+                                    "type": "u32"
+                                },
+                                "probability": {
+                                    "type": "f32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "BuiltinSpeechStatus": {
+                        "external": "azul_dll::unified::speech::BuiltinSpeechStatus",
+                        "custom_impls": [
+                            "From"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Ready": {},
+                                "EngineMissing": {},
+                                "EngineIncompatible": {},
+                                "ModelMissing": {},
+                                "ModelRejected": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechLimits": {
+                        "external": "azul_dll::unified::speech::SpeechLimits",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "min_listen_ms": {
+                                    "type": "u32"
+                                },
+                                "max_listen_ms": {
+                                    "type": "u32"
+                                },
+                                "max_keywords": {
+                                    "type": "u32"
+                                },
+                                "max_model_mb": {
+                                    "type": "u32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechSession": {
+                        "external": "azul_dll::unified::speech::SpeechSession",
+                        "custom_impls": [
+                            "Clone",
+                            "Default",
+                            "Drop"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A session whose chain is the platform's recognizer, then the built-in one (not set up",
+                                    "until `set_builtin_files` or `set_builtin_bytes`, unless its files are next to the",
+                                    "executable). In a headless or E2E test run it is the chain `AZ_SPEECH_SCRIPT` scripts."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::unified::speech::SpeechSession::new()"
+                            }
+                        },
+                        "functions": {
+                            "set_builtin_files": {
+                                "doc": [
+                                    "Registers the built-in recognizer from files: `engine_path` is the engine's shared library",
+                                    "(`libcactus.dylib`, `libcactus.so`, `libcactus.dll`), `model_path` the model",
+                                    "(`whistle.cact`); an empty path is looked for next to the executable, in a `speech` folder",
+                                    "there and in a bundle's `Resources`, and the engine may also be linked into the program.",
+                                    "Loads the engine and the model at once (a few tens of milliseconds) and answers what came",
+                                    "of it; `recognizers` says why when it is not `Ready`. Call it at the start, not during a",
+                                    "listen call (it waits for one to end)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "engine_path": "String"
+                                    },
+                                    {
+                                        "model_path": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BuiltinSpeechStatus"
+                                },
+                                "fn_body": "object.set_builtin_files(engine_path, model_path)"
+                            },
+                            "set_builtin_bytes": {
+                                "doc": [
+                                    "The same with the model's bytes in memory (`include_bytes!`); the engine copies them, the",
+                                    "slice need not outlive the call."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "engine_path": "String"
+                                    },
+                                    {
+                                        "model": "U8VecRef"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BuiltinSpeechStatus"
+                                },
+                                "fn_body": "object.set_builtin_bytes(engine_path, model)"
+                            },
+                            "set_vocabulary": {
+                                "doc": [
+                                    "The words the built-in model should favour (names, jargon, the app's own vocabulary):",
+                                    "at most `max_keywords` of 64 characters each. Answers what was cut, empty when nothing was.",
+                                    "The system's recognizer does not take it."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "words": "StringVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.set_vocabulary(words).into()"
+                            },
+                            "set_limits": {
+                                "doc": [
+                                    "What the recognizers are asked to keep to; the defaults are [`SpeechLimits::default`]."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "limits": "SpeechLimits"
+                                    }
+                                ],
+                                "fn_body": "object.set_limits(limits)"
+                            },
+                            "listen_blocking": {
+                                "doc": [
+                                    "Listens for up to `timeout_ms` in `language` (a BCP 47 tag such as `de-DE`, or just `de`;",
+                                    "empty for the system's) and answers what was said, with which recognizer said it. Blocks:",
+                                    "call it from a worker thread. The first call may show the system's permission prompt."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "language": "String"
+                                    },
+                                    {
+                                        "timeout_ms": "u32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechHeard"
+                                },
+                                "fn_body": "object.listen_blocking(language, timeout_ms)"
+                            },
+                            "cancel": {
+                                "doc": [
+                                    "Ends the listen call that is running: it answers what was said until now. Does nothing",
+                                    "when none is running."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "fn_body": "object.cancel()"
+                            },
+                            "recognizers": {
+                                "doc": [
+                                    "The chain, in the order it is tried, one line each, for a status line:",
+                                    "`native | <name> | ready` or `built-in | <name> | unavailable: <why>`. A recognizer that",
+                                    "refused (in this session or by what it says about itself) shows its outcome, `denied`,",
+                                    "`unavailable` or `failed`, and the reason."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StringVec"
+                                },
+                                "fn_body": "object.recognizers()"
+                            },
+                            "reset": {
+                                "doc": [
+                                    "Forgets which recognizers refused: the next call asks every one again (the user changed",
+                                    "a permission, the app registered a model)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "fn_body": "object.reset()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "SpeechWordVecSlice": {
+                        "external": "azul_dll::unified::speech::SpeechWordVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "SpeechWord",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
                             }
                         ],
                         "repr": "C"

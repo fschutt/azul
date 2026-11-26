@@ -29,7 +29,9 @@ use objc2::{
 
 use super::{
     authorization::{self, Access, Decision, Gate, Gates, Refusal},
-    HeardStatus, SpeechHeard, SpeechStatus,
+    builtin::{Microphone, MicrophoneSource},
+    recognizer::{Answer, Outcome, Readiness, Word},
+    SpeechStatus,
 };
 
 /// The synthesizer, retained for the life of the process; `0` until the first utterance. A
@@ -223,6 +225,53 @@ unsafe fn authorization(recognizer_cls: &AnyClass) -> isize {
     status.unwrap_or(AUTH_NOT_DETERMINED)
 }
 
+/// The words of a transcription (`SFTranscription`): each segment's text, when it began and how
+/// long it lasted in seconds from the start of the audio, and how sure the recognizer is.
+unsafe fn read_segments(transcription: *mut AnyObject) -> Vec<(String, f64, f64, f32)> {
+    let segments: *mut AnyObject = unsafe { msg_send![transcription, segments] };
+    if segments.is_null() {
+        return Vec::new();
+    }
+    let count: usize = unsafe { msg_send![segments, count] };
+    let mut out = Vec::with_capacity(count.min(4_096));
+    for index in 0..count.min(4_096) {
+        let segment: *mut AnyObject = unsafe { msg_send![segments, objectAtIndex: index] };
+        if segment.is_null() {
+            continue;
+        }
+        let text: *mut AnyObject = unsafe { msg_send![segment, substring] };
+        let timestamp: f64 = unsafe { msg_send![segment, timestamp] };
+        let duration: f64 = unsafe { msg_send![segment, duration] };
+        let confidence: f32 = unsafe { msg_send![segment, confidence] };
+        if let Some(text) = unsafe { rust_string(text) } {
+            out.push((text, timestamp, duration, confidence));
+        }
+    }
+    out
+}
+
+/// The words of the segments: a segment that holds several words (the recognizer joins "is a")
+/// is cut into them, each with an equal share of its time.
+fn words_of_segments(segments: &[(String, f64, f64, f32)]) -> Vec<Word> {
+    let ms = |seconds: f64| -> u32 {
+        if seconds.is_finite() && seconds > 0.0 {
+            (seconds * 1000.0).round().min(f64::from(u32::MAX)) as u32
+        } else {
+            0
+        }
+    };
+    let mut words = Vec::new();
+    for (text, start, duration, confidence) in segments {
+        let parts: Vec<&str> = text.split_whitespace().collect();
+        let each = duration / parts.len().max(1) as f64;
+        for (index, part) in parts.iter().enumerate() {
+            let from = start + each * index as f64;
+            words.push(Word::new(part, ms(from), ms(from + each).max(ms(from)), *confidence));
+        }
+    }
+    words
+}
+
 /// What the recognition task reported so far.
 #[derive(Debug, Default, Clone)]
 struct Hearing {
@@ -233,6 +282,9 @@ struct Hearing {
     /// The task gave its final answer (or failed).
     done: bool,
     error: Option<String>,
+    /// The words of the best transcription: text, seconds from the start of the audio, seconds
+    /// long, how sure.
+    segments: Vec<(String, f64, f64, f32)>,
 }
 
 /// `AVMediaTypeAudio`: an `NSString` holding the four-character code of the media type.
@@ -347,23 +399,23 @@ unsafe fn request_microphone() -> Option<bool> {
 }
 
 /// A refusal as the engine's answer.
-fn refused(why: Refusal, message: &str) -> SpeechHeard {
-    SpeechHeard::none(
+fn refused(why: Refusal, message: &str) -> Answer {
+    Answer::none(
         match why {
-            Refusal::Denied => HeardStatus::Denied,
-            Refusal::Unavailable => HeardStatus::Unavailable,
+            Refusal::Denied => Outcome::Denied,
+            Refusal::Unavailable => Outcome::Unavailable,
         },
         message,
     )
 }
 
 /// Listens for up to `timeout_ms` in `language` (a BCP 47 tag; empty for the system's).
-pub fn listen(language: &str, timeout_ms: u32) -> SpeechHeard {
+pub fn listen(language: &str, timeout_ms: u32, cancel: &dyn Fn() -> bool) -> Answer {
     if avfoundation().is_none() || speech_framework().is_none() {
-        return SpeechHeard::none(HeardStatus::Unavailable, "the Speech framework is not on this system");
+        return Answer::none(Outcome::Unavailable, "the Speech framework is not on this system");
     }
     let Some(mut gates) = read_gates() else {
-        return SpeechHeard::none(HeardStatus::Unavailable, "the speech recognizer's classes are missing");
+        return Answer::none(Outcome::Unavailable, "the speech recognizer's classes are missing");
     };
     // The name of the app that is held responsible is only looked for when a message will say it.
     if gates.speech != Access::Authorized || gates.microphone != Access::Authorized {
@@ -375,15 +427,15 @@ pub fn listen(language: &str, timeout_ms: u32) -> SpeechHeard {
         Decision::Ask { speech, microphone } => {
             if speech {
                 let Some(recognizer_cls) = class("SFSpeechRecognizer") else {
-                    return SpeechHeard::none(HeardStatus::Unavailable, "the speech recognizer's classes are missing");
+                    return Answer::none(Outcome::Unavailable, "the speech recognizer's classes are missing");
                 };
                 match unsafe { authorization(recognizer_cls) } {
                     AUTH_AUTHORIZED => {}
                     AUTH_NOT_DETERMINED => {
-                        return SpeechHeard::none(HeardStatus::Denied, &authorization::declined(Gate::Speech, false, &gates));
+                        return Answer::none(Outcome::Denied, &authorization::declined(Gate::Speech, false, &gates));
                     }
                     _ => {
-                        return SpeechHeard::none(HeardStatus::Denied, &authorization::declined(Gate::Speech, true, &gates));
+                        return Answer::none(Outcome::Denied, &authorization::declined(Gate::Speech, true, &gates));
                     }
                 }
             }
@@ -391,34 +443,64 @@ pub fn listen(language: &str, timeout_ms: u32) -> SpeechHeard {
                 match unsafe { request_microphone() } {
                     Some(true) => {}
                     Some(false) => {
-                        return SpeechHeard::none(HeardStatus::Denied, &authorization::declined(Gate::Microphone, true, &gates));
+                        return Answer::none(Outcome::Denied, &authorization::declined(Gate::Microphone, true, &gates));
                     }
                     None => {
-                        return SpeechHeard::none(HeardStatus::Denied, &authorization::declined(Gate::Microphone, false, &gates));
+                        return Answer::none(Outcome::Denied, &authorization::declined(Gate::Microphone, false, &gates));
                     }
                 }
             }
         }
     }
     objc2::rc::autoreleasepool(|_| unsafe {
-        listen_with_recognizer(language, Duration::from_millis(u64::from(timeout_ms)))
+        listen_with_recognizer(language, Duration::from_millis(u64::from(timeout_ms)), cancel)
     })
 }
 
-unsafe fn listen_with_recognizer(language: &str, timeout: Duration) -> SpeechHeard {
+/// Whether listening can begin, asked without listening and without asking the user.
+pub fn readiness() -> Readiness {
+    if avfoundation().is_none() || speech_framework().is_none() {
+        return Readiness::Refused {
+            outcome: Outcome::Unavailable,
+            message: "the Speech framework is not on this system".to_string(),
+        };
+    }
+    let Some(mut gates) = read_gates() else {
+        return Readiness::Refused {
+            outcome: Outcome::Unavailable,
+            message: "the speech recognizer's classes are missing".to_string(),
+        };
+    };
+    if gates.speech != Access::Authorized || gates.microphone != Access::Authorized {
+        gates.starter = starter_app();
+    }
+    match authorization::decide(&gates) {
+        // Undecided with the usage texts: the system's prompt comes with the first listen.
+        Decision::Listen | Decision::Ask { .. } => Readiness::Ready,
+        Decision::Refuse { why, message } => Readiness::Refused {
+            outcome: match why {
+                Refusal::Denied => Outcome::Denied,
+                Refusal::Unavailable => Outcome::Unavailable,
+            },
+            message,
+        },
+    }
+}
+
+unsafe fn listen_with_recognizer(language: &str, timeout: Duration, cancel: &dyn Fn() -> bool) -> Answer {
     let (Some(recognizer_cls), Some(request_cls), Some(engine_cls), Some(queue_cls)) = (
         class("SFSpeechRecognizer"),
         class("SFSpeechAudioBufferRecognitionRequest"),
         class("AVAudioEngine"),
         class("NSOperationQueue"),
     ) else {
-        return SpeechHeard::none(HeardStatus::Unavailable, "the speech recognizer's classes are missing");
+        return Answer::none(Outcome::Unavailable, "the speech recognizer's classes are missing");
     };
     // `listen` decided and asked already: this only keeps a permission that was taken away in
     // the meantime from starting a recognizer that would fail.
     let status: isize = unsafe { msg_send![recognizer_cls, authorizationStatus] };
     if status != AUTH_AUTHORIZED {
-        return SpeechHeard::none(HeardStatus::Denied, "speech recognition is not allowed any more");
+        return Answer::none(Outcome::Denied, "speech recognition is not allowed any more");
     }
 
     // The recognizer of the language; its answers on a queue of their own, so a caller on the
@@ -434,12 +516,12 @@ unsafe fn listen_with_recognizer(language: &str, timeout: Duration) -> SpeechHea
         unsafe { msg_send![alloc, initWithLocale: locale] }
     };
     if recognizer.is_null() {
-        return SpeechHeard::none(HeardStatus::Unavailable, &format!("no speech recognizer for {language}"));
+        return Answer::none(Outcome::Unavailable, &format!("no speech recognizer for {language}"));
     }
     let available: bool = unsafe { msg_send![recognizer, isAvailable] };
     if !available {
         unsafe { release(recognizer) };
-        return SpeechHeard::none(HeardStatus::Unavailable, "the speech recognizer is not available now");
+        return Answer::none(Outcome::Unavailable, "the speech recognizer is not available now");
     }
     let queue: *mut AnyObject = unsafe { msg_send![queue_cls, new] };
     let _: () = unsafe { msg_send![recognizer, setQueue: queue] };
@@ -459,7 +541,7 @@ unsafe fn listen_with_recognizer(language: &str, timeout: Duration) -> SpeechHea
             release(queue);
             release(recognizer);
         }
-        return SpeechHeard::none(HeardStatus::Unavailable, "there is no microphone to listen with");
+        return Answer::none(Outcome::Unavailable, "there is no microphone to listen with");
     }
     let request_ptr = request as usize;
     let tap = RcBlock::new(move |buffer: *mut AnyObject, _when: *mut AnyObject| {
@@ -473,6 +555,9 @@ unsafe fn listen_with_recognizer(language: &str, timeout: Duration) -> SpeechHea
     };
     let _: () = unsafe { msg_send![engine, prepare] };
     let mut error: *mut AnyObject = core::ptr::null_mut();
+    let started_unix_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
     let started: bool = unsafe { msg_send![engine, startAndReturnError: &mut error as *mut *mut AnyObject] };
     let finish = |task: *mut AnyObject, audio_ended: bool| unsafe {
         let _: () = msg_send![engine, stop];
@@ -491,15 +576,15 @@ unsafe fn listen_with_recognizer(language: &str, timeout: Duration) -> SpeechHea
     if !started {
         let why = unsafe { describe(error) };
         finish(core::ptr::null_mut(), false);
-        return SpeechHeard::none(HeardStatus::Failed, &format!("the microphone did not start: {why}"));
+        return Answer::none(Outcome::Failed, &format!("the microphone did not start: {why}"));
     }
 
     // The task reports partial transcriptions, then a final one (or an error).
     let shared: Arc<(Mutex<Hearing>, Condvar)> = Arc::new((Mutex::new(Hearing::default()), Condvar::new()));
     let reply = Arc::clone(&shared);
     let handler = RcBlock::new(move |result: *mut AnyObject, error: *mut AnyObject| {
-        let (text, is_final) = if result.is_null() {
-            (None, false)
+        let (text, is_final, segments) = if result.is_null() {
+            (None, false, Vec::new())
         } else {
             let transcription: *mut AnyObject = unsafe { msg_send![result, bestTranscription] };
             let formatted: *mut AnyObject = if transcription.is_null() {
@@ -508,12 +593,14 @@ unsafe fn listen_with_recognizer(language: &str, timeout: Duration) -> SpeechHea
                 unsafe { msg_send![transcription, formattedString] }
             };
             let is_final: bool = unsafe { msg_send![result, isFinal] };
-            (unsafe { rust_string(formatted) }, is_final)
+            let segments = if transcription.is_null() { Vec::new() } else { unsafe { read_segments(transcription) } };
+            (unsafe { rust_string(formatted) }, is_final, segments)
         };
         let failure = (!error.is_null()).then(|| unsafe { describe(error) });
         let mut hearing = reply.0.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(text) = text.filter(|t| *t != hearing.text) {
             hearing.text = text;
+            hearing.segments = segments;
             hearing.changed_at = Some(Instant::now());
         }
         if is_final || failure.is_some() {
@@ -545,7 +632,7 @@ unsafe fn listen_with_recognizer(language: &str, timeout: Duration) -> SpeechHea
         }
         let paused = !now.text.is_empty() && now.changed_at.is_some_and(|at| at.elapsed() >= SILENCE);
         match audio_ended_at {
-            None if paused || Instant::now() >= deadline => {
+            None if paused || Instant::now() >= deadline || cancel() => {
                 let _: () = unsafe { msg_send![request, endAudio] };
                 audio_ended_at = Some(Instant::now());
             }
@@ -559,13 +646,188 @@ unsafe fn listen_with_recognizer(language: &str, timeout: Duration) -> SpeechHea
     drop(handler);
 
     if !heard.text.trim().is_empty() {
-        return SpeechHeard::heard(heard.text.trim(), if heard.done { 1.0 } else { 0.5 });
+        let words = words_of_segments(&heard.segments);
+        let mut answer = Answer::heard_words(words, language, started_unix_ms);
+        answer.text = heard.text.trim().to_string();
+        // The recognizer's confidence per word is 0 until its final answer: the old rule stands
+        // where it gives none.
+        if answer.confidence <= 0.0 {
+            answer.confidence = if heard.done { 1.0 } else { 0.5 };
+        }
+        return answer;
     }
     match heard.error {
         // "No speech detected" is the recognizer's way of saying nothing was said.
         Some(why) if !why.to_ascii_lowercase().contains("no speech") => {
-            SpeechHeard::none(HeardStatus::Failed, &why)
+            Answer::none(Outcome::Failed, &why)
         }
-        _ => SpeechHeard::none(HeardStatus::NothingHeard, "nothing was said"),
+        _ => Answer::none(Outcome::NothingHeard, "nothing was said"),
+    }
+}
+
+// ---- The microphone of the built-in recognizer ----
+
+/// The most sound the tap keeps for a reader that stalls: half a minute (the oldest goes first).
+const TAP_KEEP_SECONDS: usize = 30;
+
+/// The Mac's microphone for the built-in recognizer: the same `AVAudioEngine` input the system's
+/// recognizer listens through, behind the same permission rules (for the microphone alone).
+#[derive(Debug, Clone, Copy)]
+pub struct AppleMicrophoneSource;
+
+impl MicrophoneSource for AppleMicrophoneSource {
+    fn open(&mut self) -> Result<Box<dyn Microphone>, (Outcome, String)> {
+        let Some(mut gates) = read_gates() else {
+            return Err((Outcome::Unavailable, "the audio classes are missing".to_string()));
+        };
+        if gates.microphone != Access::Authorized {
+            gates.starter = starter_app();
+        }
+        match authorization::decide_microphone(&gates) {
+            Decision::Listen => {}
+            Decision::Refuse { why, message } => {
+                return Err((
+                    match why {
+                        Refusal::Denied => Outcome::Denied,
+                        Refusal::Unavailable => Outcome::Unavailable,
+                    },
+                    message,
+                ));
+            }
+            Decision::Ask { microphone, .. } => {
+                if microphone {
+                    match unsafe { request_microphone() } {
+                        Some(true) => {}
+                        answered => {
+                            return Err((
+                                Outcome::Denied,
+                                authorization::declined(Gate::Microphone, answered.is_some(), &gates),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        objc2::rc::autoreleasepool(|_| unsafe { AppleMicrophone::start() })
+            .map(|microphone| Box::new(microphone) as Box<dyn Microphone>)
+    }
+}
+
+/// An open `AVAudioEngine` whose input tap fills `shared` with mono samples.
+struct AppleMicrophone {
+    engine: *mut AnyObject,
+    input: *mut AnyObject,
+    shared: Arc<(Mutex<Vec<f32>>, Condvar)>,
+    rate: u32,
+    /// The tap's block, kept alive while the engine may call it.
+    _tap: Box<dyn std::any::Any>,
+}
+
+// SAFETY: the engine and its input node are used from the one thread that listens; the tap writes
+// only into `shared`, which is a mutex.
+unsafe impl Send for AppleMicrophone {}
+
+impl AppleMicrophone {
+    unsafe fn start() -> Result<Self, (Outcome, String)> {
+        let Some(engine_cls) = class("AVAudioEngine") else {
+            return Err((Outcome::Unavailable, "the audio engine's class is missing".to_string()));
+        };
+        let engine: *mut AnyObject = unsafe { msg_send![engine_cls, new] };
+        if engine.is_null() {
+            return Err((Outcome::Unavailable, "the audio engine could not be made".to_string()));
+        }
+        let input: *mut AnyObject = unsafe { msg_send![engine, inputNode] };
+        let format: *mut AnyObject = unsafe { msg_send![input, outputFormatForBus: 0usize] };
+        // A Mac without a microphone reports a format of zero Hz: a tap on it raises an exception.
+        let rate: f64 = if format.is_null() { 0.0 } else { unsafe { msg_send![format, sampleRate] } };
+        if !(rate > 0.0) {
+            unsafe { release(engine) };
+            return Err((Outcome::Unavailable, "there is no microphone to listen with".to_string()));
+        }
+        let channels: u32 = unsafe { msg_send![format, channelCount] };
+        let channels = channels.max(1) as usize;
+        let keep = rate as usize * TAP_KEEP_SECONDS;
+        let shared: Arc<(Mutex<Vec<f32>>, Condvar)> = Arc::new((Mutex::new(Vec::new()), Condvar::new()));
+        let tap_shared = Arc::clone(&shared);
+        let tap = RcBlock::new(move |buffer: *mut AnyObject, _when: *mut AnyObject| {
+            if buffer.is_null() {
+                return;
+            }
+            let frames: u32 = unsafe { msg_send![buffer, frameLength] };
+            let planes: *const *mut f32 = unsafe { msg_send![buffer, floatChannelData] };
+            if planes.is_null() || frames == 0 {
+                return;
+            }
+            let frames = frames as usize;
+            let mut mono = vec![0.0f32; frames];
+            for channel in 0..channels {
+                let plane = unsafe { *planes.add(channel) };
+                if plane.is_null() {
+                    continue;
+                }
+                let plane = unsafe { core::slice::from_raw_parts(plane, frames) };
+                for (sum, sample) in mono.iter_mut().zip(plane) {
+                    *sum += sample / channels as f32;
+                }
+            }
+            let (lock, ready) = &*tap_shared;
+            let mut samples = lock.lock().unwrap_or_else(PoisonError::into_inner);
+            samples.extend_from_slice(&mono);
+            if samples.len() > keep {
+                let drop = samples.len() - keep;
+                samples.drain(..drop);
+            }
+            ready.notify_all();
+        });
+        let _: () = unsafe {
+            msg_send![input, installTapOnBus: 0usize, bufferSize: 1024u32, format: format, block: &*tap]
+        };
+        let _: () = unsafe { msg_send![engine, prepare] };
+        let mut error: *mut AnyObject = core::ptr::null_mut();
+        let started: bool = unsafe { msg_send![engine, startAndReturnError: &mut error as *mut *mut AnyObject] };
+        if !started {
+            let why = unsafe { describe(error) };
+            unsafe {
+                let _: () = msg_send![input, removeTapOnBus: 0usize];
+                release(engine);
+            }
+            return Err((Outcome::Failed, format!("the microphone did not start: {why}")));
+        }
+        Ok(Self {
+            engine,
+            input,
+            shared,
+            rate: rate as u32,
+            _tap: Box::new(tap),
+        })
+    }
+}
+
+impl Microphone for AppleMicrophone {
+    fn rate(&self) -> u32 {
+        self.rate
+    }
+
+    fn read(&mut self, out: &mut Vec<f32>, wait_ms: u32) -> Result<(), String> {
+        let (lock, ready) = &*self.shared;
+        let mut samples = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        if samples.is_empty() {
+            samples = ready
+                .wait_timeout_while(samples, Duration::from_millis(u64::from(wait_ms)), |samples| samples.is_empty())
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+        out.append(&mut samples);
+        Ok(())
+    }
+}
+
+impl Drop for AppleMicrophone {
+    fn drop(&mut self) {
+        unsafe {
+            let _: () = msg_send![self.engine, stop];
+            let _: () = msg_send![self.input, removeTapOnBus: 0usize];
+            release(self.engine);
+        }
     }
 }

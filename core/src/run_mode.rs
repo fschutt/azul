@@ -67,6 +67,10 @@ const SPEECH_LOG_VAR: &str = "AZ_SPEECH_LOG";
 /// What a headless run hears, as text.
 const SPEECH_HEARD_VAR: &str = "AZ_SPEECH_HEARD";
 
+/// The file that scripts what a headless run's recognizers hear and refuse, call after call (a
+/// JSON script: see the speech module's `script`).
+const SPEECH_SCRIPT_VAR: &str = "AZ_SPEECH_SCRIPT";
+
 /// Whether this build can have hooks at all: the cargo feature `test-hooks`. A shipped build
 /// (`dist`) is built without it.
 pub const AVAILABLE: bool = cfg!(feature = "test-hooks");
@@ -108,6 +112,10 @@ pub struct TestHooks {
     /// `AZ_SPEECH_HEARD` as text (a value that is not UTF-8 is none): what a run with `no_speech`
     /// hears.
     pub speech_heard: Option<String>,
+    /// `AZ_SPEECH_SCRIPT` as typed: the JSON script a run with `no_speech` takes its recognizers'
+    /// answers from (what the system's and the built-in recognizer hear, refuse or fail at, with
+    /// their delays); it replaces `speech_heard` when both are set (a blank name is none).
+    pub speech_script: Option<OsString>,
     /// `Url::open` starts nothing and answers "opened".
     pub open_nothing: bool,
     /// The biometric prompt answers "unavailable" and shows no sheet. `presence::decide` of
@@ -145,6 +153,7 @@ impl TestHooks {
         desktop_state_file: None,
         speech_log: None,
         speech_heard: None,
+        speech_script: None,
         open_nothing: false,
         no_biometric: false,
         no_sensors: false,
@@ -166,6 +175,7 @@ impl TestHooks {
         desktop_state_file: None,
         speech_log: None,
         speech_heard: None,
+        speech_script: None,
         open_nothing: true,
         no_biometric: true,
         no_sensors: true,
@@ -206,6 +216,7 @@ impl TestHooks {
             desktop_state_file: var(DESKTOP_STATE_FILE_VAR),
             speech_log: var(SPEECH_LOG_VAR),
             speech_heard: var(SPEECH_HEARD_VAR).and_then(|value| value.into_string().ok()),
+            speech_script: var(SPEECH_SCRIPT_VAR),
             open_nothing: stand_in,
             no_biometric: stand_in,
             no_sensors: stand_in,
@@ -438,25 +449,28 @@ mod tests {
     fn the_files_and_the_text_of_the_sensor_and_speech_stand_ins_are_read_as_typed() {
         let none = hooks(&[]);
         assert!(none.battery_state_file.is_none() && none.network_state_file.is_none() && none.desktop_state_file.is_none());
-        assert!(none.speech_log.is_none() && none.speech_heard.is_none());
+        assert!(none.speech_log.is_none() && none.speech_heard.is_none() && none.speech_script.is_none());
         let asked = hooks(&[
             ("AZ_BATTERY_STATE_FILE", "/tmp/battery"),
             ("AZ_NETWORK_STATE_FILE", "/tmp/network"),
             ("AZ_DESKTOP_STATE_FILE", "/tmp/desktop"),
             ("AZ_SPEECH_LOG", "/tmp/speech.log"),
             ("AZ_SPEECH_HEARD", "hello there"),
+            ("AZ_SPEECH_SCRIPT", "/tmp/speech-script.json"),
         ]);
         assert_eq!(asked.battery_state_file, Some(OsString::from("/tmp/battery")));
         assert_eq!(asked.network_state_file, Some(OsString::from("/tmp/network")));
         assert_eq!(asked.desktop_state_file, Some(OsString::from("/tmp/desktop")));
         assert_eq!(asked.speech_log, Some(OsString::from("/tmp/speech.log")));
         assert_eq!(asked.speech_heard.as_deref(), Some("hello there"));
+        assert_eq!(asked.speech_script, Some(OsString::from("/tmp/speech-script.json")));
         // they are values, not switches: no stand-in is turned on by them
         assert!(!asked.no_sensors && !asked.no_speech && !asked.mocks);
         // an empty value is passed on as typed (the consumer treats a blank name as none)
-        let blank = hooks(&[("AZ_SPEECH_LOG", ""), ("AZ_SPEECH_HEARD", "")]);
+        let blank = hooks(&[("AZ_SPEECH_LOG", ""), ("AZ_SPEECH_HEARD", ""), ("AZ_SPEECH_SCRIPT", "")]);
         assert_eq!(blank.speech_log, Some(OsString::new()));
         assert_eq!(blank.speech_heard.as_deref(), Some(""));
+        assert_eq!(blank.speech_script, Some(OsString::new()));
         // text that is not UTF-8 is no text
         #[cfg(unix)]
         {
