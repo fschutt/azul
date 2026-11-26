@@ -1417,6 +1417,10 @@ pub struct Monitor {
     pub video_modes: VideoModeVec,
     /// Whether this is the primary/main monitor
     pub is_primary_monitor: bool,
+    /// The system's own number for the display: the `CGDirectDisplayID` on macOS (what
+    /// `ScreenCaptureSource::DisplayId` takes, so that an app can name this monitor to a screen capture);
+    /// 0 where the system has no such number (or an app has no way to read it yet).
+    pub native_id: u32,
 }
 
 impl_option!(
@@ -1472,6 +1476,7 @@ impl Default for Monitor {
             work_area: LayoutRect::zero(),
             video_modes: Vec::new().into(),
             is_primary_monitor: false,
+            native_id: 0,
         }
     }
 }

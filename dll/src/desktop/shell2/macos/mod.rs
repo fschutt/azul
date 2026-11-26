@@ -88,7 +88,7 @@ use crate::{impl_platform_window_getters, log_debug, log_error, log_info, log_tr
 pub mod accessibility;
 pub mod clipboard;
 mod color_space;
-mod coregraphics;
+pub(crate) mod coregraphics;
 mod corevideo;
 mod events;
 mod gl;

@@ -122,13 +122,32 @@ fn get_displays_uncached() -> Vec<DisplayInfo> {
 /// This is the recommended API for getting monitor information.
 /// Returns a MonitorVec with stable MonitorId values that persist across frames.
 pub fn get_monitors() -> MonitorVec {
-    get_displays()
-        .into_iter()
-        .enumerate()
-        .map(|(i, display)| display.to_monitor(i))
-        .collect::<Vec<_>>()
-        .into()
+    let monitors = get_displays().into_iter().enumerate().map(|(i, display)| display.to_monitor(i)).collect();
+    number_monitors(monitors, &native_display_ids()).into()
 }
+
+/// The system's own numbers of the displays, in the order of [`get_displays`]: the `CGDirectDisplayID`s on
+/// macOS; none where the system has no such number.
+fn native_display_ids() -> Vec<u32> {
+    #[cfg(target_os = "macos")]
+    return macos::native_ids();
+
+    #[cfg(not(target_os = "macos"))]
+    return Vec::new();
+}
+
+/// `monitors` with their `native_id`s: the n-th number goes to the n-th monitor, and a monitor with no number
+/// (the list is shorter than the monitors, or empty) keeps 0.
+pub(crate) fn number_monitors(mut monitors: Vec<Monitor>, ids: &[u32]) -> Vec<Monitor> {
+    for (monitor, id) in monitors.iter_mut().zip(ids) {
+        monitor.native_id = *id;
+    }
+    monitors
+}
+
+#[cfg(test)]
+#[path = "display_numbers_test.rs"]
+mod display_numbers_test;
 
 impl DisplayInfo {
     /// Convert DisplayInfo to Monitor with index and stable hash
@@ -168,6 +187,7 @@ impl DisplayInfo {
             ),
             video_modes: self.video_modes.clone().into(),
             is_primary_monitor: self.is_primary,
+            native_id: 0,
         }
     }
 }
@@ -660,6 +680,18 @@ mod macos {
     use objc2_foundation::MainThreadMarker;
 
     use super::*;
+
+    /// The `CGDirectDisplayID`s of the screens, in the order of [`get_displays`] (`NSScreen.screens`); none off the
+    /// main thread (where AppKit's screens cannot be read).
+    pub(super) fn native_ids() -> Vec<u32> {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return Vec::new();
+        };
+        NSScreen::screens(mtm)
+            .iter()
+            .map(|screen| crate::desktop::shell2::macos::coregraphics::get_display_id_from_screen(&screen).unwrap_or(0))
+            .collect()
+    }
 
     pub(super) fn get_displays() -> Vec<DisplayInfo> {
         // AppKit screen enumeration is main-thread only. This used to be

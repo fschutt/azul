@@ -7731,6 +7731,12 @@
                                 },
                                 "is_primary_monitor": {
                                     "type": "bool"
+                                },
+                                "native_id": {
+                                    "type": "u32",
+                                    "doc": [
+                                        "The system's own number for the display: the CGDirectDisplayID on macOS (what ScreenCaptureSource::DisplayId takes, so that an app can name this monitor to a screen capture); 0 where the system has no such number."
+                                    ]
                                 }
                             }
                         ],
