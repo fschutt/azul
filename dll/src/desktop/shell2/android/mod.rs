@@ -104,6 +104,11 @@ pub struct AndroidWindow {
     /// The system asked for the window's content again while the GPU path draws (`RedrawNeeded`, a new surface): the next iteration
     /// presents the last frame once more.
     gpu_present_owed: bool,
+    /// The frames this window posts, measured inside the engine (`common::frame_stats`: the `[render] frames` line of a scroll, for
+    /// either renderer), the clock they are noted on, and the CPU raster time since the last post.
+    frame_stats: crate::desktop::shell2::common::frame_stats::FrameStats,
+    frame_clock: std::time::Instant,
+    raster_since_post_us: u64,
     /// `false` once `MainEvent::Destroy` arrives; breaks the outer loop.
     pub is_open: bool,
     /// What the Java UI thread may touch (`bridge::UiBridge`): the queues it pushes events onto (the IME's
@@ -251,6 +256,9 @@ impl AndroidWindow {
             backend: RenderBackend::Cpu,
             gpu: None,
             gpu_present_owed: false,
+            frame_stats: crate::desktop::shell2::common::frame_stats::FrameStats::new(),
+            frame_clock: std::time::Instant::now(),
+            raster_since_post_us: 0,
             is_open: true,
             icon_provider,
             font_registry,
@@ -372,6 +380,7 @@ impl AndroidWindow {
                 lw.prepare_frame_cpu();
             }
             if let Some(lw) = self.common.layout_window.as_ref() {
+                let raster_started = std::time::Instant::now();
                 self.cpu_backend.render_frame(
                     lw,
                     &self.common.renderer_resources,
@@ -379,6 +388,9 @@ impl AndroidWindow {
                     height,
                     dpi,
                 );
+                self.raster_since_post_us = self
+                    .raster_since_post_us
+                    .saturating_add(u64::try_from(raster_started.elapsed().as_micros()).unwrap_or(u64::MAX));
             }
             // What this render changed joins what the renders since the last present changed: a
             // regeneration renders several times before the shell posts (its bounded lifecycle loop),
@@ -2534,6 +2546,7 @@ fn map_keycode(k: Keycode) -> Option<azul_core::window::VirtualKeyCode> {
     feature = "cpurender"
 ))]
 fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
+    let present_started = std::time::Instant::now();
     // pixmap -> ANativeWindow_lock -> memcpy -> unlockAndPost.
     //
     // Caller must arrange for `window.cpu_backend.last_frame` to be populated
@@ -2725,6 +2738,7 @@ fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
     // guard.drop() calls ANativeWindow_unlockAndPost: the frame is posted from here.
     drop(guard);
     window.present.posted(&plan);
+    window.note_posted_frame(present_started);
     if let Some((status_light, navigation_light)) = bars_to_tell {
         set_system_bars_appearance(status_light, navigation_light);
     }

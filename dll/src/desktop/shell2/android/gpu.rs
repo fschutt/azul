@@ -159,6 +159,19 @@ impl AndroidWindow {
         }
     }
 
+    /// A CPU frame was posted: noted with the engine's frame statistics, as the GPU path notes its own (`GlesGpu` does it at its swap).
+    /// The draw time is the raster since the last post plus the present that started at `present_started` (the lock, the copy and
+    /// the post).
+    #[cfg(all(feature = "ndk", feature = "cpurender"))]
+    pub(super) fn note_posted_frame(&mut self, present_started: std::time::Instant) {
+        let present_us = u64::try_from(present_started.elapsed().as_micros()).unwrap_or(u64::MAX);
+        let draw_us = std::mem::take(&mut self.raster_since_post_us).saturating_add(present_us);
+        let at_us = u64::try_from(self.frame_clock.elapsed().as_micros()).unwrap_or(u64::MAX);
+        if let Some(line) = self.frame_stats.record(at_us, Some(draw_us)) {
+            log_info!(LogCategory::Rendering, "{}", line);
+        }
+    }
+
     /// `close()`: the GPU path goes (the surface, the renderer, the context, in that order) before the common state's renderer is
     /// asked to deinit.
     pub(super) fn gpu_shutdown(&mut self) {
