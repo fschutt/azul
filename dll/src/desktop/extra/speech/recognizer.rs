@@ -305,6 +305,11 @@ impl Default for StreamOptions {
     }
 }
 
+/// An answer that came sooner than this after the question was not waited for, ms.
+const INSTANT_ANSWER_MS: u64 = 100;
+/// How long the default stream pauses before it asks a recognizer that answered at once again, ms.
+const INSTANT_ANSWER_PAUSE_MS: u64 = 250;
+
 /// What a recognizer says about itself without listening.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Readiness {
@@ -353,6 +358,7 @@ pub trait Recognizer: Send {
                 break;
             }
             let per_call = u32::try_from((budget - used).min(60_000)).unwrap_or(60_000).max(500);
+            let asked = call.clock.now_ms();
             let answer = self.listen(&Listen {
                 language: call.language,
                 timeout_ms: per_call,
@@ -367,6 +373,11 @@ pub trait Recognizer: Send {
                 }
                 Outcome::NothingHeard => emit(EventKind::Quiet, answer),
                 _ => return answer,
+            }
+            // A `listen` that answers at once is not a microphone that waits for speech (a stand-in,
+            // a recognizer that has a result ready): it is not asked again without a pause.
+            if call.clock.now_ms().saturating_sub(asked) < INSTANT_ANSWER_MS {
+                call.wait(INSTANT_ANSWER_PAUSE_MS);
             }
         }
         Answer::none(if finals > 0 { Outcome::Heard } else { Outcome::NothingHeard }, "")

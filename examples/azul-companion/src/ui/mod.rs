@@ -467,7 +467,8 @@ impl Root {
                 true
             }
             Action::PairCancel => {
-                self.api.forget_mac(now);
+                // stops the search or the pairing; the Mac the phone is paired with (if any) is NOT forgotten by it
+                self.api.cancel(now);
                 true
             }
             Action::PairStart => {

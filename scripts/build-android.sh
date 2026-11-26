@@ -299,6 +299,14 @@ fi
 echo "==> zipalign"
 "$BT/zipalign" -f 4 base.apk aligned.apk
 
+# A device with 16 KiB pages (Android 15 and later) cannot load a library whose PT_LOAD segments are aligned to 4 KiB, NDK 27's
+# default; the rustflags of the Android targets in the workspace's .cargo/config.toml link them with 16 KiB. Said here for whoever
+# builds an APK by hand; the demos pipeline FAILS the app (scripts/demo_build.py verify_apk).
+if [[ -f "$ASSET_ROOT/scripts/android_elf_check.py" ]]; then
+    python3 "$ASSET_ROOT/scripts/android_elf_check.py" aligned.apk \
+        || echo "warning: a library of this APK cannot be loaded on a device with 16 KiB pages (see above)" >&2
+fi
+
 # THE debug keystore: scripts/android/debug.keystore is in the repo (a public key, alias androiddebugkey,
 # password android), so every build of every demo is signed with the same key and a phone accepts an
 # update over an older install. Generated only when absent (a checkout that lost it).

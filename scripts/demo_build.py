@@ -5,6 +5,8 @@
                           --out <dir> --results <dir> [--target <triple>] [--deployment-target 11.0] [--run-check]
     demo_build.py android --target <triple> --apps "..." --libs <dir of lib artifacts> --out <dir> --results <dir>
     demo_build.py ios     --target <triple> --apps "..." --libs <dir of lib artifacts> --out <dir> --results <dir>
+    (android, ios)        [--variant mobile-e2e]: the QA build against the artifact-only lib variant of the manifest (the engine's
+                          debug server), staged as <Name>-e2e-<column>, its result a file of its own with "variant" set
 
 Every app is its own `cargo build` against the library its target built once (scripts/demo_lib.sh): the
 engine is never compiled here, and scripts/demo_gate.py reads cargo's JSON of every build and turns a
@@ -29,6 +31,7 @@ import time
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
+import android_elf_check  # noqa: E402
 import demo_apps  # noqa: E402
 import demo_gate  # noqa: E402
 
@@ -118,21 +121,23 @@ class Job:
         self.manifest = demo_apps.load()
         self.apps = {a["package"]: a for a in self.manifest["app"]}
 
-    def result(self, app, column, target, status, reason="", artifact=None, seconds=0, gate=None, first_error=""):
+    def result(self, app, column, target, status, reason="", artifact=None, seconds=0, gate=None, first_error="", variant=""):
         r = {
             "app": app["package"], "column": column, "target": target, "status": status, "reason": reason,
             "artifact": None, "sha256": None, "size": None, "shipped_size": None, "seconds": int(seconds),
             "engine_crates": (gate or {}).get("engine_crates", []), "first_error": first_error,
             "dll_features": (gate or {}).get("dll_features", []),
         }
+        if variant:     # a QA build (artifact only): its own file, never the shipped cell of the column
+            r["variant"] = variant
         if artifact:
             p = pathlib.Path(artifact)
             r.update(artifact=p.name, sha256=sha256_of(p), size=p.stat().st_size, shipped_size=shipped_size(p))
-        (self.results / f"{app['package']}.{column}.result.json").write_text(
+        (self.results / f"{app['package']}.{column}{'-e2e' if variant else ''}.result.json").write_text(
             json.dumps(r, indent=2, sort_keys=True), encoding="utf-8")
         mark = {"built": "OK  ", "failed": "FAIL", "skipped": "skip"}.get(status, status)
         extra = f"  {r['size']} bytes" if r["size"] else ""
-        print(f"[{mark}] {app['package']:<18} {column:<14} {int(seconds):>5}s{extra}  {first_error or reason}", flush=True)
+        print(f"[{mark}] {app['package'] + ('-e2e' if variant else ''):<18} {column:<14} {int(seconds):>5}s{extra}  {first_error or reason}", flush=True)
         return r
 
     def run_cargo(self, cmd, env, tag):
@@ -315,15 +320,16 @@ def phone(args, job, kind):
     column = {"aarch64-linux-android": "android-arm64", "x86_64-linux-android": "android-x86_64",
               "aarch64-apple-ios": "ios-device", "aarch64-apple-ios-sim": "ios-sim"}[args.target]
     ver = version_info()
+    variant = args.variant
     for pkg in args.apps.split():
         app = job.apps[pkg]
         started = time.time()
-        tag = f"{pkg}.{column}"
-        artifact_name = f"demolib-{column}-{app['mobile_lib']}"
+        tag = f"{pkg}.{column}" + ("-e2e" if variant else "")
+        artifact_name = f"demolib-{column}-{variant or app['mobile_lib']}"
         lib = lib_file(args.libs, artifact_name, kind)
         if lib is None:
             job.result(app, column, args.target, "failed", f"the library {artifact_name} did not arrive",
-                       seconds=time.time() - started, first_error=f"no libazul in {artifact_name}")
+                       seconds=time.time() - started, first_error=f"no libazul in {artifact_name}", variant=variant)
             continue
         env = dict(os.environ)
         env["CARGO_PROFILE_RELEASE_DEBUG"] = "0"
@@ -333,14 +339,15 @@ def phone(args, job, kind):
         work.mkdir(exist_ok=True)
         if kind == "android":
             env.update(AZ_ANDROID_NO_DEPLOY="1", AZ_ANDROID_LINK_LIB=str(lib), AZ_ANDROID_BUILD_JSON=str(json_log),
-                       LABEL=app["name"], VERSION_NAME=ver["name"], VERSION_CODE=ver["code"])
+                       LABEL=app["name"] + (" e2e" if variant else ""), VERSION_NAME=ver["name"], VERSION_CODE=ver["code"])
             perms = (app.get("android") or {}).get("permissions") or []
             if perms:
                 env["AZ_ANDROID_PERMISSIONS"] = ",".join(perms)
             cmd = ["bash", "scripts/build-android.sh", args.target, pkg, app["bundle_id"], pkg]
         else:
             env.update(AZ_IOS_DRYRUN="1", AZ_IOS_LINK_LIB=str(lib), AZ_IOS_BUILD_JSON=str(json_log), APP_NAME=pkg,
-                       BUNDLE_ID=app["bundle_id"], DISPLAY_NAME=app["name"], VERSION="0.2.0", BUILD=ver["build"])
+                       BUNDLE_ID=app["bundle_id"], DISPLAY_NAME=app["name"] + (" e2e" if variant else ""), VERSION="0.2.0",
+                       BUILD=ver["build"])
             ios = app.get("ios") or {}
             if ios.get("local_network"):
                 env["AZ_IOS_LOCAL_NETWORK"] = ios["local_network"]
@@ -363,15 +370,17 @@ def phone(args, job, kind):
             err = first_error(json_log, err_log)
             job.keep_failure_log(tag, json_log, err_log)
             shutil.rmtree(work, ignore_errors=True)
-            job.result(app, column, args.target, "failed", f"{cmd[1]} failed", seconds=time.time() - started, gate=gate, first_error=err)
+            job.result(app, column, args.target, "failed", f"{cmd[1]} failed", seconds=time.time() - started, gate=gate, first_error=err,
+                       variant=variant)
             continue
         if gate and (gate["engine_crates"] or gate["dll_engine_features"]):
             job.result(app, column, args.target, "failed", "the engine was compiled into the app", seconds=time.time() - started, gate=gate,
-                       first_error="engine crates compiled: " + ", ".join(gate["engine_crates"] + gate["dll_engine_features"]))
+                       first_error="engine crates compiled: " + ", ".join(gate["engine_crates"] + gate["dll_engine_features"]),
+                       variant=variant)
             job.drop_logs(json_log, err_log)
             shutil.rmtree(work, ignore_errors=True)
             continue
-        dst = job.out / demo_apps.staged_name(app, column)
+        dst = job.out / demo_apps.staged_name(app, column, e2e=bool(variant))
         try:
             if kind == "android":
                 abi = {"aarch64-linux-android": "arm64-v8a", "x86_64-linux-android": "x86_64"}[args.target]
@@ -387,11 +396,11 @@ def phone(args, job, kind):
                 subprocess.run(["zip", "-qry", str(dst.resolve()), app_dir.name], cwd=app_dir.parent, check=True)
         except Exception as e:  # noqa: BLE001  (a bad bundle is this app's failure, not the job's)
             job.result(app, column, args.target, "failed", "the bundle is not sound", seconds=time.time() - started,
-                       gate=gate, first_error=str(e)[:300])
+                       gate=gate, first_error=str(e)[:300], variant=variant)
             job.drop_logs(json_log, err_log)
             shutil.rmtree(work, ignore_errors=True)
             continue
-        job.result(app, column, args.target, "built", seconds=time.time() - started, artifact=dst, gate=gate)
+        job.result(app, column, args.target, "built", seconds=time.time() - started, artifact=dst, gate=gate, variant=variant)
         job.drop_logs(json_log, err_log)
         shutil.rmtree(work, ignore_errors=True)
 
@@ -406,6 +415,11 @@ def verify_apk(apk, abi):
     for needle in (f"lib/{abi}/libazul.so", "classes.dex"):
         if needle not in listing:
             raise RuntimeError(f"the APK has no {needle}")
+    # a device with 16 KiB pages (Android 15 and later) cannot load a library whose segments are aligned to 4 KiB, NDK 27's default:
+    # every library of the APK has p_align >= 0x4000 (the rustflags of .cargo/config.toml), the failing file is named
+    problems = android_elf_check.check_apk(str(apk))
+    if problems:
+        raise RuntimeError("; ".join(problems))
     if (bt / "apksigner").exists():
         r = subprocess.run([str(bt / "apksigner"), "verify", str(apk)], capture_output=True, text=True)
         if r.returncode != 0:
@@ -430,6 +444,7 @@ def main(argv):
         p = sub.add_parser(name)
         p.add_argument("--target", required=True)
         p.add_argument("--libs", required=True)
+        p.add_argument("--variant", default="")
     for p in sub.choices.values():
         p.add_argument("--apps", required=True)
         p.add_argument("--out", required=True)
@@ -439,6 +454,10 @@ def main(argv):
     unknown = [a for a in args.apps.split() if a not in job.apps]
     if unknown:
         sys.exit(f"demo_build: not in scripts/demo_apps.toml: {unknown}")
+    variant = getattr(args, "variant", "")
+    if variant and variant not in demo_apps.artifact_only_libs(job.manifest):
+        sys.exit(f"demo_build: --variant {variant!r} is no artifact_only lib of scripts/demo_apps.toml "
+                 f"({sorted(demo_apps.artifact_only_libs(job.manifest))}): a shipped build takes the lib its app names")
     if args.kind == "desktop":
         desktop(args, job)
     else:

@@ -8,6 +8,10 @@
 //! - [`frame`] and [`wire`]: the frames, and their bytes (versioned, compact, total decoding: no input panics);
 //! - [`advert`]: the text a node announces on the local network (project hash, name, role), total in both directions;
 //! - [`pairing`]: the offer, the proof of its one-time secret, the six-digit code both screens show;
+//! - [`access`]: who may command which screen of AzReview (the trust records a pairing leaves);
+//! - [`host`]: the Mac's side, a state machine AzReview polls; [`client`]: the phone's side, the real [`phone::PhoneApi`];
+//! - [`store`]: what the phone keeps between two runs; [`discovery`]: how it finds the Mac again (what it saved, what the local
+//!   network announces);
 //! - [`viewport`]: the arithmetic of a drag, a pinch and a fit on the page, shared by the phone's prediction and AzReview;
 //! - [`pace`]: "newest wins" rate limiting (30 pen states and 60 gesture updates a second);
 //! - [`link`]: the network seam (and, in a test, [`mock`]: an in-process network with latency, loss, reordering and a
@@ -17,6 +21,8 @@
 
 pub mod access;
 pub mod advert;
+pub mod client;
+pub mod discovery;
 pub mod frame;
 pub mod host;
 pub mod limits;
@@ -25,6 +31,7 @@ pub mod mock;
 pub mod pace;
 pub mod pairing;
 pub mod phone;
+pub mod store;
 pub mod view;
 pub mod viewport;
 pub mod wire;

@@ -37,6 +37,8 @@ pub const SETTING_REST: AzString = AzString::from_const_str("__azreview_setting-
 pub const SETTING_QUIET: AzString = AzString::from_const_str("__azreview_setting-quiet");
 pub const SETTING_STANDBY: AzString = AzString::from_const_str("__azreview_setting-standby");
 pub const SETTING_STANDBY_IDLE: AzString = AzString::from_const_str("__azreview_setting-standby-idle");
+pub const SETTING_ARMED: AzString = AzString::from_const_str("__azreview_setting-wb-armed");
+pub const WHITEBOARD_HELP: AzString = AzString::from_const_str("__azreview_wb-help");
 /// The flyout's "Open folder" button.
 pub const OPEN_FOLDER: AzString = AzString::from_const_str("__azreview_open-folder");
 /// The empty page's "Open folder" button, and the microphone widget that records a clip.

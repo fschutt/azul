@@ -248,6 +248,25 @@ Declare permissions in `AndroidManifest.xml` (`CAMERA`, `RECORD_AUDIO`,
 (API 24); AAudio (API 26) is loaded at runtime, so on 7.0/7.1 the app runs and
 audio just reports unavailable.
 
+**16 KiB memory pages.** Android 15 and later run on devices whose kernel uses 16 KiB pages,
+and Google requires apps that target Android 15 (targetSdk 35) and later to support them from
+2027-02-01. A native library whose segments are aligned to 4 KiB (the default of NDK 27's
+linker; NDK 28 aligns to 16 KiB) cannot be loaded there. Link every library of your app, yours
+and `libazul.so`, with 16 KiB alignment by naming the flags once in the `.cargo/config.toml` of
+your project (this repository does it for the demo apps):
+
+```toml
+[target.aarch64-linux-android]
+rustflags = ["-Clink-arg=-Wl,-z,max-page-size=16384", "-Clink-arg=-Wl,-z,common-page-size=16384"]
+[target.x86_64-linux-android]
+rustflags = ["-Clink-arg=-Wl,-z,max-page-size=16384", "-Clink-arg=-Wl,-z,common-page-size=16384"]
+```
+
+`python3 scripts/android_elf_check.py app.apk` reads the program headers of every library of an
+APK and names each one whose `PT_LOAD` alignment is below 16 KiB (`llvm-readelf -lW lib.so` shows
+the same column, `Align`). A `RUSTFLAGS` environment variable replaces the flags of the config
+file, so name them there too when you set one.
+
 ## iOS
 
 ### Build + bundle the .app/.ipa (no Xcode project)
