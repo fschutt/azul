@@ -395,6 +395,16 @@ class StatusTest(unittest.TestCase):
         self.assertIn("AzWidgets/linux", data["summary"]["unexplained_failures"])
         self.assertIn("MISSING", md)
 
+    def test_every_cell_names_the_file_it_stands_for_even_when_the_build_failed_or_never_reported(self):
+        # the page's link pruning needs the names of the failed cells too (their `artifact` is null): they are in the status
+        m = demo_apps.load()
+        data, _ = demo_apps.status([], m=m)
+        for row in data["apps"]:
+            app = next(a for a in m["app"] if a["package"] == row["app"])
+            for col, cell in row["cells"].items():
+                self.assertEqual(cell["staged"], demo_apps.staged_name(app, col), (row["app"], col))
+                self.assertEqual(cell["release"], demo_apps.release_name(app, col), (row["app"], col))
+
     def test_results_and_boot_tests_fill_the_cells(self):
         m = demo_apps.load()
         with tempfile.TemporaryDirectory() as d:

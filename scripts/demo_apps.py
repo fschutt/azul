@@ -494,6 +494,8 @@ def status(dirs, m=None, extra=None):
             else:
                 cell = {k: r.get(k) for k in ("status", "reason", "artifact", "sha256", "size", "shipped_size", "seconds",
                                                "engine_crates", "first_error")}
+            cell["staged"] = staged_name(a, col)      # the file the build stages and the asset the release serves: a failed or
+            cell["release"] = release_name(a, col)    # missing cell has no `artifact`, and the page's link pruning needs the names
             if known:
                 cell["known"] = known
             boot = boot_text(smoke.get((a["package"], col)))
