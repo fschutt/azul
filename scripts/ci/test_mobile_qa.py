@@ -527,6 +527,28 @@ class StartupLinesTests(unittest.TestCase):
         self.assertIsNone(q.median_start(["nothing"]))
 
 
+class FlatTests(unittest.TestCase):
+    def sig(self, fill, paint=()):
+        """A 40 x 80 signature of one colour with rectangles of another: paint = [(row0, row1, col0, col1, (r, g, b)), ...]."""
+        rows = [[fill] * q.COLS for _ in range(q.ROWS)]
+        for r0, r1, c0, c1, colour in paint:
+            for r in range(r0, r1):
+                for c in range(c0, c1):
+                    rows[r][c] = colour
+        return bytes(v for row in rows for px in row for v in px)
+
+    def test_a_black_window_with_a_clock_is_flat(self):
+        clock = [(1, 3, 3, 9, (255, 255, 255)), (1, 3, 30, 38, (255, 255, 255)), (76, 78, 14, 26, (255, 255, 255))]    # the status bar and the home indicator
+        self.assertTrue(q.is_flat(self.sig((0, 0, 0), clock)))
+
+    def test_content_between_the_bars_is_not_flat(self):
+        self.assertFalse(q.is_flat(self.sig((0, 0, 0), [(20, 30, 4, 36, (240, 240, 240))])))
+
+    def test_a_signature_of_another_size_is_counted_whole(self):
+        self.assertTrue(q.is_flat(bytes([9, 9, 9]) * 100))
+        self.assertFalse(q.is_flat(bytes([0, 0, 0]) * 50 + bytes([255, 255, 255]) * 50))
+
+
 class RunFolderTests(unittest.TestCase):
     def test_the_run_folder_is_absolute_even_when_it_was_given_relative(self):
         # `simctl launch --stdout=<path>` is opened by the Simulator's own launchd, whose root is not the runner's folder

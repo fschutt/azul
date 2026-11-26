@@ -146,8 +146,15 @@ def write_png(path, width, height, rgba):
     Path(path).write_bytes(png)
 
 
+SYSTEM_BAR_ROWS = (7, 5)    # of the 80 sample rows: the status bar on top and the navigation bar / home indicator below are the SYSTEM's picture
+
+
 def flat_fraction(sig):
-    """The share of the samples that has the most common colour (channels quantised to 16 levels)."""
+    """The share of the samples that has the most common colour (channels quantised to 16 levels). Counted over the rows between the
+    system bars: a window that drew nothing is black with a clock on it (the iOS Simulator's first picture of an app that never laid
+    out passed the 99.9 % test on its status bar's glyphs alone)."""
+    if len(sig) == COLS * ROWS * 3:
+        sig = sig[SYSTEM_BAR_ROWS[0] * COLS * 3:(ROWS - SYSTEM_BAR_ROWS[1]) * COLS * 3]
     counts = {}
     for i in range(0, len(sig), 3):
         key = (sig[i] >> 4, sig[i + 1] >> 4, sig[i + 2] >> 4)
