@@ -10758,6 +10758,7 @@ impl MacOSWindow {
         // Step 0: Update window size from current content view bounds
         // This ensures we always have the latest size, even if resize notifications were missed
         self.sync_window_size_from_content_view();
+        self.common.app.startup().mark_once("frame:first_render_prepared");
 
         // Step 1: Prepare OpenGL context (if using OpenGL backend)
         if self.backend == RenderBackend::OpenGL {
@@ -11114,6 +11115,7 @@ impl MacOSWindow {
                     // callbacks through the content chokepoint, scrollbar cache).
                     // The logic lives in LayoutWindow so no backend can skip a piece.
                     layout_window.prepare_frame_cpu();
+                    self.common.app.startup().mark_once("frame:first_render_content_prepared");
 
                     // Shared CPU renderer (same path as headless + X11 + Wayland):
                     // damage diff + scroll-offset feed + thin-strip scroll-shift with
@@ -11181,6 +11183,7 @@ impl MacOSWindow {
                     // not leave a pointer into the view framebuffer armed
                     // across frames.
                     self.cpu_backend.native_target = None;
+                    self.common.app.startup().mark_once("frame:first_render_rasterized");
 
                     let paint = self.cpu_backend.last_frame_damage.clone();
                     let present = self.cpu_backend.last_present_damage.clone();
@@ -11315,6 +11318,9 @@ impl MacOSWindow {
             // background whose callback draws its frame off the UI thread is
             // asked again on the frames the animation drivers bring.
             self.arm_animation_drivers_if_needed();
+            // The CPU frame is rendered and handed to the view (the startup timeline's split of the first frame:
+            // the pixels are on the screen once the view's `drawRect:` returns).
+            self.common.app.startup().mark_once("frame:first_render_done");
             return Ok(());
         }
 
