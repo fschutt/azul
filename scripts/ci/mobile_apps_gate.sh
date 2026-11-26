@@ -214,7 +214,7 @@ PY
     an_item_is_48_dp_on_android_and_44_pt_on_ios
 }
 run red_safe_area_without_the_guard red_safe_area
-run green_dll_tests cargo test -p azul-dll --features build-dll --test headless_safe_area_moved --test localization_headless --test android_language_contract --test menu_rows_are_a_touch_target_on_a_phone
+run green_dll_tests cargo test -p azul-dll --features build-dll --no-fail-fast --test headless_safe_area_moved --test localization_headless --test android_language_contract --test menu_rows_are_a_touch_target_on_a_phone
 
 # 3. lints of the three engine crates, as the CI's second clippy step runs them
 run clippy cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets --features "$features" -- -D warnings
