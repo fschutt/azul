@@ -477,6 +477,10 @@ fn hostile_input_is_bounded_and_never_panics() {
     let r = resolve(&idx, &many);
     assert!(r.certain.len() <= MAX_MENTIONS);
     assert!(r.hints.len() <= Options::default().max_hints);
+    // What is past the words that are read stays in the corrected sentence as heard.
+    let past = format!("{}see esses error", "word ".repeat(450));
+    let r = resolve(&idx, &past);
+    assert_eq!(r.corrected, r.raw, "nothing was corrected in the first 400 words and the rest is kept: {} vs {}", r.corrected.len(), r.raw.len());
     let long_word = "x".repeat(1_000_000);
     let _ = resolve(&idx, &long_word);
     let _ = resolve(&idx, &format!("the {} error", "c ".repeat(20_000)));

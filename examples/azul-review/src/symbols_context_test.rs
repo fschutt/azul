@@ -2,12 +2,16 @@
 //! comment and their lines, within a budget), where the rest is, what to grep for the names that
 //! are only hinted at, and how the words were heard. No window, no azul.
 
+use std::{sync::Arc, time::Duration};
+
 use super::*;
 use crate::{
     symbols::{DefInfo, Kind, Vis},
-    symbols_resolve::{Certain, Correction, CorrectionKind, Hint, Resolution, Scope},
+    symbols_resolve::{Certain, Context, Correction, CorrectionKind, Hint, Resolution, Resolver, Scope},
+    symbols_sched::{ActivityGate, Indexer, IndexerSettings},
     symbols_source::MemSource,
-    symbols_spoken::{VIA_HOMOPHONE, VIA_LETTERS},
+    symbols_spoken::{HeardWord, VIA_HOMOPHONE, VIA_LETTERS},
+    symbols_vocab::{build as build_vocab, VocabContext, VocabOptions},
 };
 
 const ERROR_RS: &str = "\
@@ -248,4 +252,46 @@ fn the_lines_around_a_place_are_numbered_and_stay_inside_the_file() {
     assert!(context_around(&m, "crates/css/src/error.rs", 99, 2).is_none());
     assert!(context_around(&m, "nothing.rs", 1, 2).is_none());
     assert!(context_around(&m, "../etc/passwd", 1, 2).is_none());
+}
+
+#[test]
+fn the_whole_flow_from_the_files_to_the_agents_prompt_and_the_recognisers_words_without_a_window() {
+    // A workspace, indexed in the background outwards from the file the reviewer is looking at.
+    let mut m = MemSource::new();
+    m.put("crates/css/Cargo.toml", b"[package]\nname = \"azul-css\"\n[dependencies]\nserde = \"1\"\n".to_vec());
+    m.put("crates/css/src/lib.rs", b"pub mod error;\n".to_vec());
+    m.put("crates/css/src/error.rs", ERROR_RS.as_bytes().to_vec());
+    let source = Arc::new(m);
+    let indexer = Indexer::start(source.clone(), Some("crates/css/src/lib.rs"), IndexerSettings::default(), ActivityGate::new());
+    assert!(indexer.wait_idle(Duration::from_secs(30)));
+    // What the built-in recogniser wrote for "yeah we had a C S S error here" in the hardest voice, with its words' probabilities.
+    let heard = |text: &str, p: f32| HeardWord { text: text.to_string(), probability: p, biased: false };
+    let words = vec![
+        heard("Yell", 0.7),
+        heard("we", 0.73),
+        heard("had", 0.97),
+        heard("to", 0.99),
+        heard("see", 0.99),
+        heard("S.", 0.58),
+        heard("S.", 0.84),
+        heard("ever", 0.21),
+        heard("here.", 0.94),
+    ];
+    let idx = indexer.index();
+    let resolution = Resolver::new(&idx).resolve(&words, &Context { file: Some("crates/css/src/lib.rs"), recent: &[] });
+    assert_eq!(resolution.corrected, "Yell we had to CssError here.");
+    assert_eq!(resolution.raw, "Yell we had to see S. S. ever here.");
+    assert_eq!(resolution.certain.len(), 1);
+    assert!(resolution.certain[0].repaired);
+    // What the agent is told.
+    let prompt = build_section(&resolution, &*source, &ContextBudget::default()).render_prompt();
+    assert!(prompt.contains("CssError (struct) crates/css/src/error.rs:3-10"), "{prompt}");
+    assert!(prompt.contains("pub struct CssError {") && prompt.contains("/// What went wrong while a style was read."), "{prompt}");
+    assert!(prompt.contains("heard as \"Yell we had to see S. S. ever here.\""), "{prompt}");
+    // What the recogniser is told next: the names of the page, the file and the package, then the keywords.
+    let v = build_vocab(&idx, &VocabContext { page_text: ERROR_RS, file: Some("crates/css/src/error.rs"), recent: &["CssError".to_string()] }, &VocabOptions::default());
+    for want in ["CssError", "azul-css", "serde", "enum"] {
+        assert!(v.words.iter().any(|w| w == want), "{want} in {:?}", v.words);
+    }
+    assert!(v.words.len() <= 200);
 }

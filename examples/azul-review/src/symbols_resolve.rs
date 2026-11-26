@@ -285,6 +285,13 @@ impl<'a> Resolver<'a> {
         let spoken = clean_words(used);
         let mut work = Work { r: self, ctx, words: used, claimed: vec![false; spoken.len()], spoken };
         let mut resolution = work.run();
+        // What is past the words that were read is kept as it was heard.
+        if words.len() > used.len() {
+            for w in &words[used.len()..] {
+                resolution.corrected.push(' ');
+                resolution.corrected.push_str(&w.text);
+            }
+        }
         resolution.raw = raw;
         resolution
     }

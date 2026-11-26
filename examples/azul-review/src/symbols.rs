@@ -22,6 +22,37 @@
 //! The index is a plain value; the background scan ([`crate::symbols_sched`]) keeps it behind a
 //! lock and puts a file in when it has been scanned ([`Index::put_scanned`]); a file saved by the
 //! user is put in again, which replaces what the file had.
+//!
+//! # The parts
+//!
+//! - `symbols_tokens`: the words of an identifier, the key they make, the phonetic skeleton, the bounded edit distance.
+//! - `symbols_source`, `symbols_scan`, `symbols_manifest`: the files (disk or memory), the scanners of eleven languages
+//!   and the manifests that name the packages.
+//! - `symbols` (this file) and `symbols_sched`: the index and the background scan, outwards from the file looked at,
+//!   on at most two low-priority threads that hold the far files back while the user draws.
+//! - `symbols_spoken` and `symbols_resolve`: what the reviewer says (spelled letters, number words, the mishearings of
+//!   code words) read as names, and the answer: a definition for CERTAIN, or a HINT of what to search for.
+//! - `symbols_vocab`: the words the recogniser is told to favour. `symbols_context`: the part of the agent's prompt.
+//!
+//! # Plugging it in (the AzReview app; none of it blocks the window's thread)
+//!
+//! ```text
+//! // once per folder:   AppState keeps `indexer: Indexer` and `activity: ActivityGate`
+//! let gate = ActivityGate::new();                       // gate.touch() in the pen, the scroll and the pointer handlers
+//! let indexer = Indexer::start(Arc::new(DiskSource::new(root)), Some(open_file_rel), IndexerSettings::default(), gate.clone());
+//! indexer.set_focus(rel);                               // another file is shown
+//! indexer.file_saved(rel);                              // a save, an accepted edit
+//! let p = indexer.progress();                           // t_args(p.l10n_key(), &p.l10n_args()): "Indexing code: 4,120 of 18,310 files"
+//! // per utterance, on the worker that took the words (the read lock is held for about a millisecond):
+//! let words: Vec<HeardWord> = heard.words.iter().map(|w| HeardWord { text: w.text.to_string(), probability: w.probability, biased: w.biased }).collect();
+//! let idx = indexer.index();
+//! let res = Resolver::new(&idx).resolve(&words, &Context { file: Some(rel), recent: &recent_defs });
+//! let section = build_section(&res, &disk_source, &ContextBudget::default());
+//! drop(idx);                                            // res.corrected is the note's text; res.raw stays in the data
+//! // the agent request gets `section.render_prompt()`; the recogniser gets, when the file changes:
+//! let v = build_vocab(&idx, &VocabContext { page_text, file: Some(rel), recent: &names }, &VocabOptions::default());
+//! speech_session.set_vocabulary(v.words.into());        // answers what the speech layer cut
+//! ```
 
 use std::{
     collections::{HashMap, HashSet},
