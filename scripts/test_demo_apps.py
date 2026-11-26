@@ -904,7 +904,9 @@ class AfterTapTest(unittest.TestCase):
 
     def test_the_android_boot_test_turns_the_apps_info_log_on_for_an_app_with_a_press(self):
         text = (HERE / "ci" / "android_smoke.sh").read_text(encoding="utf-8")
-        self.assertIn("setprop debug.az.log info", text)    # AZ_LOG=info: the app's own lines of what a press did ("tap <Action>")
+        # AZ_LOG=info: the app's own lines of what a press did ("tap <Action>"); AZ_SMOKE_LOG=debug adds the shell's `[Android] motion
+        # <Down|Up> at (x,y) -> <result>` line per touch event
+        self.assertIn('setprop debug.az.log "${AZ_SMOKE_LOG:-info}"', text)
         self.assertIn("screenshot-probe.png", text)
         self.assertIn("--probe-label", text)
 
