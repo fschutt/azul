@@ -14,7 +14,7 @@ use std::{
     net::SocketAddr,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Mutex,
+        Mutex, MutexGuard,
     },
 };
 
@@ -22,7 +22,14 @@ use iroh::{address_lookup::EndpointInfo, EndpointId};
 
 use azul_css::{AzString, StringVec};
 
-use super::types::{IrohEvent, IrohEventKind, IrohNearbyPeer};
+use super::{
+    discovery::{usable_peer_addr, MAX_ADDRESSES_PER_PEER},
+    types::{IrohEvent, IrohEventKind, IrohNearbyPeer},
+};
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 /// The most endpoints the list holds. A network with more azul endpoints than this is not a home
 /// or an office; the rest is counted ([`Nearby::refused`]) and said in the status.
@@ -45,10 +52,31 @@ pub(super) struct Advertised {
 /// surrounding white space trimmed, and at most [`MAX_ADVERTISED_BYTES`] bytes, cut at a
 /// character boundary.
 pub(super) fn advertised_text(raw: &str) -> Advertised {
-    Advertised {
-        text: raw.to_string(),
-        cut_from: None,
+    let cleaned: String = raw
+        .chars()
+        .filter(|c| !c.is_control() && !is_bidi_override(*c))
+        .collect();
+    let cleaned = cleaned.trim();
+    if cleaned.len() <= MAX_ADVERTISED_BYTES {
+        return Advertised {
+            text: cleaned.to_string(),
+            cut_from: None,
+        };
     }
+    let mut end = MAX_ADVERTISED_BYTES;
+    while !cleaned.is_char_boundary(end) {
+        end -= 1;
+    }
+    Advertised {
+        text: cleaned[..end].trim_end().to_string(),
+        cut_from: Some(cleaned.len()),
+    }
+}
+
+/// The characters that embed, override or isolate a direction of writing (U+202A to U+202E and
+/// U+2066 to U+2069): in a name they make the text around it read backwards.
+fn is_bidi_override(c: char) -> bool {
+    matches!(c, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
 }
 
 /// One endpoint on the local network, as far as the app may believe it.
@@ -80,8 +108,18 @@ impl From<&NearbyPeer> for IrohNearbyPeer {
 pub(super) fn nearby_of(info: &EndpointInfo) -> NearbyPeer {
     NearbyPeer {
         id: info.endpoint_id,
-        advertised: String::new(),
-        addresses: Vec::new(),
+        advertised: info
+            .data
+            .user_data()
+            .map(|text| advertised_text(AsRef::<str>::as_ref(text)).text)
+            .unwrap_or_default(),
+        addresses: info
+            .data
+            .ip_addrs()
+            .filter(|address| usable_peer_addr(address))
+            .take(MAX_ADDRESSES_PER_PEER)
+            .copied()
+            .collect(),
     }
 }
 
@@ -113,25 +151,61 @@ impl Nearby {
 
     /// An announcement (or its refresh) of `info` was heard.
     pub(super) fn seen(&self, info: &EndpointInfo) {
-        let _ = (&self.own, info);
+        if info.endpoint_id == self.own {
+            return;
+        }
+        let peer = nearby_of(info);
+        let mut inner = lock(&self.inner);
+        if !inner.peers.contains_key(&peer.id) && inner.peers.len() >= MAX_NEARBY_PEERS {
+            self.refused.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+        inner.peers.insert(peer.id, peer);
     }
 
     /// The endpoint `id` is no longer announcing.
     pub(super) fn gone(&self, id: &EndpointId) {
-        let _ = id;
+        lock(&self.inner).peers.remove(id);
     }
 
     /// The endpoints on the network now, by endpoint id.
     pub(super) fn list(&self) -> Vec<NearbyPeer> {
-        let _ = &self.inner;
-        Vec::new()
+        lock(&self.inner).peers.values().cloned().collect()
     }
 
     /// The next change the app has not been told of: `NearbyAppeared` for an endpoint that is new
     /// or whose announcement changed (once, however often it changed since the app asked last),
     /// `NearbyGone` for one it was told of that vanished. `None` when the app is up to date.
     pub(super) fn take_event(&self) -> Option<IrohEvent> {
-        None
+        let mut guard = lock(&self.inner);
+        let inner = &mut *guard;
+        // an endpoint the app was told of that has vanished
+        let vanished = inner
+            .reported
+            .keys()
+            .find(|id| !inner.peers.contains_key(*id))
+            .copied();
+        if let Some(id) = vanished {
+            inner.reported.remove(&id);
+            return Some(IrohEvent::new(IrohEventKind::NearbyGone, 0, id.to_string()));
+        }
+        // one that is new, or whose announcement is not what the app was told
+        let changed = inner
+            .peers
+            .iter()
+            .find(|(id, peer)| inner.reported.get(*id) != Some(*peer))
+            .map(|(id, peer)| (*id, peer.clone()));
+        let (id, peer) = changed?;
+        inner.reported.insert(id, peer.clone());
+        let mut event = IrohEvent::payload(
+            IrohEventKind::NearbyAppeared,
+            0,
+            0,
+            0,
+            peer.advertised.into_bytes(),
+        );
+        event.text = AzString::from_string(id.to_string());
+        Some(event)
     }
 
     /// How many announcements were not listed because the list was full.
