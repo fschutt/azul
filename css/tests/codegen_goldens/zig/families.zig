@@ -102,6 +102,7 @@ pub fn styleShorthands() C.AzCssPropertyWithConditionsVec {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontVariantNumeric)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontVariantLigatures)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontVariantEastAsian)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontVariantPosition)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontKerning)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontOpticalSizing)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_initial(C.AzCssPropertyType_FontVariationSettings)),
@@ -114,11 +115,12 @@ pub fn styleShorthands() C.AzCssPropertyWithConditionsVec {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantCaps(C.AzStyleFontVariantCapsValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontVariantCaps_Normal } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantLigatures(C.AzStyleFontVariantLigaturesValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontVariantLigatures{ .common = C.AzStyleFontLigatureChoice_Unset, .discretionary = C.AzStyleFontLigatureChoice_Unset, .historical = C.AzStyleFontLigatureChoice_Unset, .contextual = C.AzStyleFontLigatureChoice_Unset } } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantEastAsian(C.AzStyleFontVariantEastAsianValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontVariantEastAsian{ .jis78 = true, .jis83 = false, .jis90 = false, .jis04 = false, .simplified = false, .traditional = false, .full_width = false, .proportional_width = false, .ruby = false } } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantPosition(C.AzStyleFontVariantPositionValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontVariantPosition_Normal } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisWeight(C.AzStyleFontSynthesisValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontSynthesis_Auto } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisStyle(C.AzStyleFontSynthesisValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontSynthesis_Auto } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisSmallCaps(C.AzStyleFontSynthesisValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontSynthesis_None } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisPosition(C.AzStyleFontSynthesisValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontSynthesis_None } })),
-    }, 26);
+    }, 28);
 }
 
 // CSS: .box

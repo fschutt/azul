@@ -193,7 +193,7 @@ text-decoration: underline;
 - `text-rendering` accepts `auto`, `optimizeSpeed`, `optimizeLegibility`, or `geometricPrecision`. Type `StyleTextRendering`. `optimizeSpeed` turns the kerning and the common ligatures off where `font-kerning` and `font-variant-ligatures` say nothing.
 - `font-synthesis-weight`, `font-synthesis-style`, `font-synthesis-small-caps`, and `font-synthesis-position` accept `auto` or `none`. Type `StyleFontSynthesis`.
 - `font-synthesis` (shorthand) accepts `none` or any of `weight`, `style`, `small-caps`, `position`; the ones not listed are `none`.
-- `font-variant` (shorthand) sets `font-variant-caps`, `-numeric`, `-ligatures`, and `-east-asian`; `none` is `font-variant-ligatures: none`.
+- `font-variant` (shorthand) sets `font-variant-caps`, `-numeric`, `-ligatures`, `-east-asian`, and `-position` (`sub`, `super`); `none` is `font-variant-ligatures: none`.
 - `font` (shorthand) accepts `[<font-style> || small-caps || <font-weight> || <font-stretch keyword>]? <font-size> [/ <line-height>]? <font-family>`, or a system font keyword. It sets every font property above; the ones the value does not name are reset to their initial value.
 - `line-height` accepts a unitless number, length, or percentage. Type `StyleLineHeight`.
 - `letter-spacing` accepts a length or `normal` (`0`, which ends the spacing of a parent). Type `StyleLetterSpacing`.
@@ -221,7 +221,7 @@ text-decoration: underline;
 - `line-break` accepts `auto`, `loose`, `normal`, `strict`, or `anywhere`. Type `StyleLineBreak`. `anywhere` allows a break between any two characters; the others break Latin text alike.
 - `hyphens` accepts `none`, `manual`, or `auto`. Type `StyleHyphens`.
 - `initial-letter` accepts a number of lines (`3`, with an optional sink). Type `StyleInitialLetter`. Makes room for the first letter; the letter is not drawn bigger yet.
-- `hanging-punctuation` is parsed and not applied yet. Type `StyleHangingPunctuation`.
+- `hanging-punctuation` accepts `none`, or `first`, `force-end` or `allow-end`, and `last`, in any order. Type `StyleHangingPunctuation`. Inherited. A mark that hangs takes no room on its line: the line is broken, aligned and justified without it, and it stands beyond the line's edge. `first` hangs the opening bracket or quote of the first line, `last` the closing bracket or quote of the last line, `force-end` a stop or comma that ends a line, `allow-end` one that ends a line only if it does not otherwise fit.
 - `hyphenation-language` (Azul) accepts a BCP 47 tag. Type `StyleHyphenationLanguage`.
 
 System font keywords resolve to platform defaults (`SF Pro`, `Segoe UI`,

@@ -717,9 +717,9 @@ pub enum CombinedCssPropertyType {
     /// (`list-style-image` is not supported and ignored)
     ListStyle,
     /// `font-variant` shorthand: sets `font-variant-numeric`, `font-variant-caps`,
-    /// `font-variant-ligatures` and `font-variant-east-asian`; the keywords of the
-    /// other `font-variant-*` longhands (position, alternates, emoji), which azul
-    /// has not, set nothing
+    /// `font-variant-ligatures`, `font-variant-east-asian` and `font-variant-position`;
+    /// the keywords of the other `font-variant-*` longhands (alternates, emoji), which
+    /// azul has not, set nothing
     FontVariant,
     /// `font-synthesis` shorthand: sets `font-synthesis-weight`, `-style`,
     /// `-small-caps` and `-position`
@@ -4581,6 +4581,7 @@ pub fn parse_combined_css_property(
                 CssPropertyType::FontVariantNumeric,
                 CssPropertyType::FontVariantLigatures,
                 CssPropertyType::FontVariantEastAsian,
+                CssPropertyType::FontVariantPosition,
                 CssPropertyType::FontKerning,
                 CssPropertyType::FontOpticalSizing,
                 CssPropertyType::FontVariationSettings,
@@ -4628,6 +4629,7 @@ pub fn parse_combined_css_property(
                 CssPropertyType::FontVariantCaps,
                 CssPropertyType::FontVariantLigatures,
                 CssPropertyType::FontVariantEastAsian,
+                CssPropertyType::FontVariantPosition,
             ]
         }
         FontSynthesis => {
@@ -5387,9 +5389,10 @@ pub fn parse_combined_css_property(
         // is the ligatures' `none` (the other longhands are `normal`). The
         // numeric keywords go to `font-variant-numeric`, the ligature ones to
         // `font-variant-ligatures`, the East Asian ones to
-        // `font-variant-east-asian`, one caps keyword to `font-variant-caps`;
-        // the keywords of the longhands azul has not (position, alternates,
-        // emoji) are taken and set nothing.
+        // `font-variant-east-asian`, one caps keyword to `font-variant-caps`,
+        // `sub` or `super` to `font-variant-position`; the keywords of the
+        // longhands azul has not (alternates, emoji) are taken and set
+        // nothing.
         FontVariant => crate::props::basic::font_shorthand::parse_font_variant_shorthand(value)
             .map_err(CssParsingError::InvalidValue),
     }
@@ -12525,6 +12528,7 @@ mod font_variant_shorthand_tests {
                 "font-variant-caps: small-caps".to_string(),
                 "font-variant-ligatures: normal".to_string(),
                 "font-variant-east-asian: normal".to_string(),
+                "font-variant-position: normal".to_string(),
             ])
         );
         assert_eq!(
@@ -12534,6 +12538,7 @@ mod font_variant_shorthand_tests {
                 "font-variant-caps: small-caps".to_string(),
                 "font-variant-ligatures: normal".to_string(),
                 "font-variant-east-asian: normal".to_string(),
+                "font-variant-position: normal".to_string(),
             ]),
             "a longhand left out is reset, keywords ignore case"
         );
@@ -12544,6 +12549,7 @@ mod font_variant_shorthand_tests {
                 "font-variant-caps: normal".to_string(),
                 "font-variant-ligatures: normal".to_string(),
                 "font-variant-east-asian: normal".to_string(),
+                "font-variant-position: normal".to_string(),
             ])
         );
         assert_eq!(
@@ -12553,6 +12559,7 @@ mod font_variant_shorthand_tests {
                 "font-variant-caps: normal".to_string(),
                 "font-variant-ligatures: normal".to_string(),
                 "font-variant-east-asian: normal".to_string(),
+                "font-variant-position: normal".to_string(),
             ])
         );
         // `none` is the ligatures' `none`: the other longhands are `normal`.
@@ -12563,12 +12570,13 @@ mod font_variant_shorthand_tests {
                 "font-variant-caps: normal".to_string(),
                 "font-variant-ligatures: none".to_string(),
                 "font-variant-east-asian: normal".to_string(),
+                "font-variant-position: normal".to_string(),
             ])
         );
     }
 
     #[test]
-    fn font_variant_sets_ligatures_and_east_asian_and_takes_the_keywords_azul_has_not() {
+    fn font_variant_sets_ligatures_east_asian_and_position_and_takes_the_keywords_azul_has_not() {
         assert_eq!(
             expand("no-common-ligatures all-small-caps jis78 super styleset(ss01, ss02)"),
             Ok(vec![
@@ -12576,8 +12584,9 @@ mod font_variant_shorthand_tests {
                 "font-variant-caps: all-small-caps".to_string(),
                 "font-variant-ligatures: no-common-ligatures".to_string(),
                 "font-variant-east-asian: jis78".to_string(),
+                "font-variant-position: super".to_string(),
             ]),
-            "`super` and `styleset()` belong to longhands azul has not: taken, set nothing"
+            "`super` is `font-variant-position`, `styleset()` belongs to a longhand azul has not: taken, sets nothing"
         );
     }
 

@@ -58,6 +58,13 @@ impl AvfSink {
     /// requires, or a readable reason why not (note: the standard-format
     /// initializer rejects more than 2 channels).
     pub(super) fn open(rate: u32, channels: u16) -> Result<AvfSink, String> {
+        // iOS: the default session is silenced by the Ring/Silent switch and the screen lock; the
+        // playback category is what a sink that must be heard needs (a no-op on macOS).
+        if let Err(why) = crate::desktop::extra::audio_session::activate(
+            crate::desktop::extra::audio_session::SessionUse::Playback,
+        ) {
+            crate::plog_warn!("[audio] {why}: playing in the default session");
+        }
         let ch = channels.max(1) as u32;
         let sample_rate = if rate == 0 { 48_000.0 } else { rate as f64 };
         unsafe {
