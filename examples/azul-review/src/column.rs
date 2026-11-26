@@ -80,31 +80,32 @@ fn badge(number: usize, listening: bool, size: f32) -> Dom {
         .with_child(face)
 }
 
-/// The marker of `note` on its page: its badge, centred on the anchor. Under the pen layer, so it
-/// never takes a stroke's pointer events.
+/// The marker of `note` on its page: its badge, centred on the anchor, which is at `y` of the page as it is drawn now (lines put
+/// in above it push it down). Under the pen layer, so it never takes a stroke's pointer events.
 #[must_use]
-pub fn marker(note: &Note, number: usize, listening: bool) -> Dom {
+pub fn marker(note: &Note, y: f32, number: usize, listening: bool) -> Dom {
     Dom::create_div()
         .with_id(format!("__azreview_marker-{}", note.id).as_str())
         .with_css(
             format!(
                 "position: absolute; left: {}px; top: {}px;",
                 note.x - MARKER_D / 2.0,
-                note.y - MARKER_D / 2.0
+                y - MARKER_D / 2.0
             )
             .as_str(),
         )
         .with_child(badge(number, listening, MARKER_D))
 }
 
-/// The markers of the notes on `page` (`listening`: the id of the note that is listening now).
+/// The markers of the notes on `page` (`listening`: the id of the note that is listening now), each at its anchor as the page
+/// is drawn (`map`).
 #[must_use]
-pub fn markers(notes: &[Note], page: usize, listening: Option<u64>) -> Vec<Dom> {
+pub fn markers(notes: &[Note], page: usize, listening: Option<u64>, map: &crate::line_map::LineMap) -> Vec<Dom> {
     notes
         .iter()
         .enumerate()
         .filter(|(_, n)| n.page == page)
-        .map(|(i, n)| marker(n, i + 1, listening == Some(n.id)))
+        .map(|(i, n)| marker(n, map.to_display(n.y), i + 1, listening == Some(n.id)))
         .collect()
 }
 
@@ -342,6 +343,7 @@ pub fn reload_settings(app: &mut RefAny, _info: &mut CallbackInfo, settings: &Ap
         ..cfg
     });
     s.voice.silence_ms = resolved.silence_ms;
+    s.voice.endpoint_ms = resolved.endpoint_ms;
     s.voice.set_standby(standby::Config {
         standby: resolved.standby,
         idle_ms: resolved.standby_idle_ms,

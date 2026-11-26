@@ -58,10 +58,11 @@ fn tag_of(info: &mut CallbackInfo) -> Option<u64> {
         .and_then(|mut d| d.downcast_ref::<ConvTag>().map(|t| t.id))
 }
 
-/// How tall the margin is: the page, less its padding above and below, and no further than the window shows of the page
-/// (`visible_bottom` px from the page's top: a window shorter than the page cuts it).
-fn margin_h(visible_bottom: f32) -> f32 {
-    (ui::page_h() - 2.0 * ui::PAGE_PAD).min(visible_bottom - ui::PAGE_PAD - 8.0).max(0.0)
+/// How tall the margin is: the page (`page_height`: it is taller where lines were put in), less its padding above and below,
+/// and no further than the window shows of the page (`visible_bottom` px from the page's top: a window shorter than the page
+/// cuts it).
+fn margin_h(page_height: f32, visible_bottom: f32) -> f32 {
+    (page_height - 2.0 * ui::PAGE_PAD).min(visible_bottom - ui::PAGE_PAD - 8.0).max(0.0)
 }
 
 /// What a chip says of its conversation for the screen reader and the tooltip: its number, its words and its state.
@@ -80,15 +81,17 @@ fn chip_name(number: usize, note: &Note) -> AzString {
 /// The conversations of `page` with their numbers and where their chips stand.
 fn placed<'a>(s: &'a AppState, page: usize, visible_bottom: f32) -> (Vec<(usize, &'a Note)>, margin::Placement) {
     let here: Vec<(usize, &Note)> = s.notes.iter().enumerate().filter(|(_, n)| n.page == page).map(|(i, n)| (i + 1, n)).collect();
+    // a chip stands at the height of its anchor as the page shows it now: lines put in above push it down
+    let map = s.page_map(page);
     let slots: Vec<Slot> = here
         .iter()
         .map(|(_, n)| Slot {
             id: n.id,
-            want_y: n.y - ui::PAGE_PAD - CHIP_H / 2.0,
+            want_y: map.to_display(n.y) - ui::PAGE_PAD - CHIP_H / 2.0,
             keep: keep_of(s, n),
         })
         .collect();
-    let placement = margin::place(&slots, margin_h(visible_bottom), CHIP_H, CHIP_GAP);
+    let placement = margin::place(&slots, margin_h(map.grown_height(ui::page_h()), visible_bottom), CHIP_H, CHIP_GAP);
     (here, placement)
 }
 
@@ -156,11 +159,12 @@ pub fn margin(s: &AppState, data: &RefAny, page: usize, visible_bottom: f32) -> 
     if here.is_empty() {
         return None;
     }
+    let height = margin_h(s.page_map(page).grown_height(ui::page_h()), visible_bottom);
     let mut column = Dom::create_div().with_id(format!("__azreview_margin-{}", page + 1).as_str()).with_css(
         format!(
             "position: absolute; left: {MARGIN_X:.0}px; top: {:.0}px; width: {MARGIN_W:.0}px; height: {:.0}px;",
             ui::PAGE_PAD,
-            margin_h(visible_bottom)
+            height
         )
         .as_str(),
     );
@@ -177,7 +181,7 @@ pub fn margin(s: &AppState, data: &RefAny, page: usize, visible_bottom: f32) -> 
                 .with_css(
                     format!(
                         "position: absolute; left: 0px; top: {:.0}px; font-size: 11px; color: system:secondary-text;",
-                        margin_h(visible_bottom) - 14.0
+                        height - 14.0
                     )
                     .as_str(),
                 ),
@@ -307,10 +311,11 @@ fn icon_key(icon: &str, name: AzString, id: String, tag: &RefAny, on_click: Butt
 }
 
 /// Where the top of the open conversation stands on the page, px from the page's top: at its chip (which stands `chip_top` px
-/// down the margin), pushed up so that its foot (`height` below) is inside what the window shows of the page.
+/// down the margin), pushed up so that its foot (`height` below) is inside what the window shows of the page (`page_height`
+/// is the page's own, taller where lines were put in).
 #[must_use]
-pub fn popover_y(chip_top: f32, height: f32, visible_bottom: f32) -> f32 {
-    ui::PAGE_PAD + margin::popover_top(chip_top, height, margin_h(visible_bottom))
+pub fn popover_y(chip_top: f32, height: f32, page_height: f32, visible_bottom: f32) -> f32 {
+    ui::PAGE_PAD + margin::popover_top(chip_top, height, margin_h(page_height, visible_bottom))
 }
 
 /// How many lines `chars` letters take.
@@ -392,13 +397,19 @@ pub fn popover(s: &AppState, data: &RefAny, page: usize, visible_right: f32, vis
     let id = s.open_conv?;
     let (here, placement) = placed(s, page, visible_bottom);
     let (number, note) = here.iter().find(|(_, n)| n.id == id).copied()?;
+    let map = s.page_map(page);
     let chip_top = placement
         .tops
         .iter()
         .find(|(i, _)| *i == id)
-        .map_or_else(|| (note.y - ui::PAGE_PAD - CHIP_H / 2.0).max(0.0), |(_, t)| *t);
+        .map_or_else(|| (map.to_display(note.y) - ui::PAGE_PAD - CHIP_H / 2.0).max(0.0), |(_, t)| *t);
     let running = s.voice.running_note() == Some(id);
-    let top = popover_y(chip_top, popover_height(note, running, s.voice.partial().chars().count()), visible_bottom);
+    let top = popover_y(
+        chip_top,
+        popover_height(note, running, s.voice.partial().chars().count()),
+        map.grown_height(ui::page_h()),
+        visible_bottom,
+    );
     let tag = RefAny::new(NoteTag { app: data.clone(), id });
 
     let mut head = Dom::create_div().with_css("display: flex; flex-direction: row; align-items: center; gap: 8px;");

@@ -231,11 +231,6 @@ azreview-sugg-accept-all = Alle offenen übernehmen
 azreview-sugg-reject-all = Alle offenen ablehnen
 azreview-sugg-taken = Übernommen
 azreview-sugg-refused = Abgelehnt
-azreview-insert-rule =
-    { $n ->
-        [one] Eine Zeile nach Zeile { $line }
-       *[other] { $n } Zeilen nach Zeile { $line }
-    }
 azreview-conv-understood = Verstanden (nach den Namen des Ordners) als: { $words }
 azreview-conv-earlier =
     { $n ->

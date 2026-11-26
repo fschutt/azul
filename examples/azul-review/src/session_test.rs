@@ -359,7 +359,7 @@ fn the_conversation_of_a_note_travels_with_it() {
     n.talk.hear(Said {
         text: "this loop is off by one".to_string(),
         started_unix_ms: 1_700_000_000_123,
-        words: vec![HeardWord { text: "this".to_string(), start_ms: 40, end_ms: 310, probability: 0.75 }],
+        words: vec![HeardWord { text: "this".to_string(), start_ms: 40, end_ms: 310, probability: 0.75, biased: false }],
     });
     n.talk.turns.push(Turn { who: Who::Agent, text: "It is read \"twice\".\nSee line 4.".to_string(), at_unix_ms: 1_700_000_005_000 });
     n.talk.turns.push(Turn { who: Who::Reviewer, text: "and the second?".to_string(), at_unix_ms: 1_700_000_009_000 });
@@ -545,4 +545,36 @@ fn a_conversation_finished_in_an_archive_from_before_the_log_counts_as_written()
     assert_eq!(back.notes[0].talk.phase, Phase::Done);
     assert!(!back.notes[0].talk.due(), "it was finished before there was a log: no patch of it is made now");
     assert!(back.notes[1].talk.phase == Phase::Suggested && !back.notes[1].talk.due());
+}
+
+#[test]
+fn a_word_the_recogniser_was_told_to_favour_is_kept_as_biased_and_the_others_say_nothing_of_it() {
+    use crate::{
+        conversation::Said,
+        dictation::HeardWord,
+    };
+    let mut s = state();
+    let mut n = note(1, 0, "compute stale flag");
+    n.talk.hear(Said {
+        text: "compute stale flag".to_string(),
+        started_unix_ms: 5,
+        words: vec![
+            HeardWord { text: "compute_stale_flag".to_string(), start_ms: 0, end_ms: 300, probability: 0.3, biased: true },
+            HeardWord { text: "flag".to_string(), start_ms: 300, end_ms: 600, probability: 0.9, biased: false },
+        ],
+    });
+    s.notes.push(n);
+    let (_, bytes) = archive(&s);
+    let json = session_json(&bytes);
+    let text = String::from_utf8_lossy(&bytes);
+    let _ = text;
+    let back = load(&bytes).expect("it loads");
+    let words = &back.notes[0].talk.said[0].words;
+    assert!(words[0].biased && !words[1].biased, "{words:?}");
+    // only a word that is biased writes the key
+    let note = json.get_key("notes").into_option().and_then(|n| n.get_index(0).into_option()).expect("a note");
+    let said = note.get_key("said").into_option().and_then(|n| n.get_index(0).into_option()).expect("an utterance");
+    let written = said.get_key("words").into_option().expect("words");
+    assert!(written.get_index(0).into_option().and_then(|w| w.get_key("b").into_option()).is_some());
+    assert!(written.get_index(1).into_option().and_then(|w| w.get_key("b").into_option()).is_none());
 }

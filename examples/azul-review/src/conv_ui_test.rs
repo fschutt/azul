@@ -395,13 +395,13 @@ fn a_window_that_shows_less_of_the_page_holds_fewer_chips_and_says_how_many_more
 #[test]
 fn the_open_conversation_keeps_inside_the_part_of_the_page_the_window_shows() {
     // a chip low on the page and a conversation 330 px tall
-    let whole = popover_y(560.0, 330.0, ui::page_h());
-    let cut = popover_y(560.0, 330.0, 420.0);
+    let whole = popover_y(560.0, 330.0, ui::page_h(), ui::page_h());
+    let cut = popover_y(560.0, 330.0, ui::page_h(), 420.0);
     assert!(cut < whole, "the window shows less of the page, so the popover stands higher: {cut} against {whole}");
     assert!(cut + 330.0 <= 420.0 + 0.5, "its foot is inside what the window shows: {cut}");
     assert!(whole + 330.0 <= ui::page_h() + 0.5, "and inside the page: {whole}");
     // a chip high on the page keeps it where it is
-    assert_eq!(popover_y(40.0, 330.0, ui::page_h()), ui::PAGE_PAD + 40.0);
+    assert_eq!(popover_y(40.0, 330.0, ui::page_h(), ui::page_h()), ui::PAGE_PAD + 40.0);
 }
 
 // ==== The agent's suggestions in the open conversation ====
@@ -474,4 +474,16 @@ fn the_open_conversation_with_suggestions_is_taller_than_without() {
     let none = with_suggestions(&[]);
     let three = with_suggestions(&[Decision::Waiting, Decision::Waiting, Decision::Waiting]);
     assert!(popover_height(&three.notes[0], false, 0) > popover_height(&none.notes[0], false, 0) + 100.0);
+}
+
+#[test]
+fn the_margin_of_a_page_that_grew_is_as_much_taller_as_the_page() {
+    let plain = margin_h(ui::page_h(), ui::page_h());
+    let grown = margin_h(ui::page_h() + 60.0, ui::page_h() + 60.0);
+    assert_eq!(grown, plain + 60.0);
+    // a window that shows no more than before cuts it where it cuts it: at what it shows, less the padding and a margin
+    assert_eq!(margin_h(ui::page_h() + 60.0, ui::page_h()), ui::page_h() - ui::PAGE_PAD - 8.0);
+    // and the open conversation may stand lower on it
+    let low = popover_y(plain, 100.0, ui::page_h() + 60.0, ui::page_h() + 60.0);
+    assert!(low > popover_y(plain, 100.0, ui::page_h(), ui::page_h()));
 }

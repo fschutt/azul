@@ -78,6 +78,7 @@ pub mod dwell;
 pub mod ids;
 pub mod ink;
 pub mod layout;
+pub mod line_map;
 pub mod margin;
 pub mod notes_op;
 #[cfg(test)]
@@ -1212,6 +1213,26 @@ impl AppState {
         self.open.as_ref()
     }
 
+    /// Where the lines of `page` are drawn: the lines the suggestions of the conversations would put in (the ones that wait
+    /// and the ones that were taken) are rows of the page, which grows by them; nothing else moves (page breaks are stable).
+    /// A page nobody put lines in is plain.
+    pub(crate) fn page_map(&self, page: usize) -> line_map::LineMap {
+        let count = self.file().map_or(0, |f| f.lines_on_page(page));
+        if count == 0 || !self.notes.iter().any(|n| !n.talk.proposals.is_empty()) {
+            return line_map::LineMap::new(count, Vec::new(), ui::PAGE_PAD, ui::LINE_H);
+        }
+        let inserts = page_marks::inserts_of(&self.notes, code::SourceFile::first_line_of(page), count);
+        line_map::LineMap::from_inserts(code::SourceFile::first_line_of(page), count, &inserts, ui::PAGE_PAD, ui::LINE_H)
+    }
+
+    /// How many rows the tallest page has grown by: the strip is as high as that page.
+    pub(crate) fn most_extra_rows(&self) -> usize {
+        let Some(file) = self.file() else {
+            return 0;
+        };
+        page_marks::extra_rows_by_page(&self.notes, |page| file.lines_on_page(page)).values().copied().max().unwrap_or(0)
+    }
+
     fn rederive(&mut self) {
         let Some(file) = self.file().cloned() else {
             self.findings.clear();
@@ -1351,6 +1372,7 @@ pub fn run() {
         },
         resolved.silence_ms,
     );
+    state.voice.endpoint_ms = resolved.endpoint_ms;
     state.voice.arming = standby::Arming::new(standby::Config {
         standby: resolved.standby,
         idle_ms: resolved.standby_idle_ms,

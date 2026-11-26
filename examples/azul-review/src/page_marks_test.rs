@@ -195,3 +195,31 @@ fn a_line_with_no_marks_is_one_piece() {
     assert_eq!((p[0].text.as_str(), p[0].look, p[0].from), ("fn tail() {}", Look::Plain, Some(0)));
     assert!(pieces("", &[], &LineMarks::default()).is_empty() || pieces("", &[], &LineMarks::default())[0].text.is_empty());
 }
+
+#[test]
+fn how_many_rows_each_page_grows_by_is_known_for_the_pages_that_have_lines_put_in() {
+    let insert = |after, rows: &[&str]| Suggestion::InsertLines { after_line: after, lines: rows.iter().map(|s| (*s).to_string()).collect() };
+    let a = note_with(vec![
+        (insert(4, &["a", "b"]), Decision::Waiting),
+        (insert(46, &["last of page 1"]), Decision::Accepted),
+        (insert(47, &["first of page 2"]), Decision::Waiting),
+        (insert(5, &["refused"]), Decision::Rejected),
+        (remove(1, 4, 9, "stale"), Decision::Waiting),
+    ]);
+    let b = note_with(vec![(insert(0, &["before everything"]), Decision::Waiting), (insert(100, &["third page"]), Decision::Waiting), (insert(300, &["no such page"]), Decision::Waiting)]);
+    let grown = extra_rows_by_page(&[a, b], |page| if page < 3 { 46 } else { 0 });
+    // page 0: two after line 4, one after line 46 (it grows the page that has the line), one before the first line
+    assert_eq!(grown.get(&0), Some(&4));
+    assert_eq!(grown.get(&1), Some(&1), "after line 47: the second page");
+    assert_eq!(grown.get(&2), Some(&1), "line 100 is on the third page");
+    assert_eq!(grown.len(), 3, "line 300 is on a page the file does not have");
+    assert_eq!(extra_rows_by_page(&[], |_| 46), std::collections::BTreeMap::new());
+}
+
+#[test]
+fn lines_put_after_a_line_the_file_does_not_have_grow_no_page() {
+    let far = Suggestion::InsertLines { after_line: 500, lines: vec!["x".to_string()] };
+    // the file has 100 lines: 46, 46 and 8 on its pages
+    let grown = extra_rows_by_page(&[note_with(vec![(far, Decision::Waiting)])], |page| [46, 46, 8].get(page).copied().unwrap_or(0));
+    assert!(grown.is_empty(), "{grown:?}");
+}

@@ -63,6 +63,11 @@ pub(crate) fn page_h() -> f32 {
     code::LINES_PER_PAGE as f32 * LINE_H + 40.0
 }
 
+/// The height of a page that has grown by `extra_rows` rows (lines put in: page breaks are stable, the page grows).
+pub(crate) fn page_h_with(extra_rows: usize) -> f32 {
+    page_h() + extra_rows as f32 * LINE_H
+}
+
 pub(crate) fn page_stride() -> f32 {
     PAGE_W + PAGE_GAP
 }
@@ -106,8 +111,21 @@ pub struct Sampled {
     pub pressure: f32,
 }
 
+/// `y` as it is kept: a pointer over the page is where the lines are drawn now, and ink and notes are kept where the page was
+/// first drawn (lines put in above are not in it).
+pub(crate) fn kept_y(info: &mut CallbackInfo, y: f32) -> f32 {
+    let Some(mut canvas) = info.get_dataset(info.get_hit_node()).into_option() else {
+        return y;
+    };
+    let Some((mut app, page)) = canvas.downcast_ref::<InkCanvas>().map(|c| (c.app.clone(), c.page)) else {
+        return y;
+    };
+    app.downcast_ref::<AppState>().map_or(y, |s| s.page_map(page).to_original(y))
+}
+
 pub fn sample(info: &mut CallbackInfo) -> Option<Sampled> {
     let p = info.get_cursor_relative_to_node().into_option()?;
+    let p = LogicalPosition::create(p.x, kept_y(info, p.y));
     let button = info.get_current_mouse_state().left_down;
     let pen = info.get_pen_state().into_option();
     if let Some(pen) = &pen {
@@ -1457,9 +1475,8 @@ extern "C" fn sheets_virtual_view(
     let cb_app = app.clone();
 
     let stride = page_stride();
-    let strip_h = page_h();
 
-    let (dom, first, count, total, leftmost) = {
+    let (dom, first, count, total, leftmost, strip_h) = {
         let Some(s) = app.downcast_ref::<AppState>() else {
             return VirtualViewReturn::default();
         };
@@ -1476,6 +1493,8 @@ extern "C" fn sheets_virtual_view(
         let visible = (viewport_w / stride).ceil() as usize + 2;
         let count = visible.max(2).min(total.saturating_sub(first));
 
+        // page breaks are stable: a page that has lines put in grows, and the strip is as high as the tallest
+        let strip_h = page_h_with(s.most_extra_rows());
         let mut row = Dom::create_div()
             .with_css("display: flex; flex-direction: row; align-items: flex-start;");
         for page in first..first + count {
@@ -1483,7 +1502,7 @@ extern "C" fn sheets_virtual_view(
             let visible_right = info.scroll_offset.x.max(0.0) + viewport_w - page as f32 * stride;
             row.add_child(page_sheet(&cb_app, file, page, &s, &s.hidden_ranges(page), visible_right, viewport_h));
         }
-        (row, first, count, total, leftmost)
+        (row, first, count, total, leftmost, strip_h)
     };
 
     if let Some(mut s) = app.downcast_mut::<AppState>() {
@@ -1514,13 +1533,16 @@ fn page_sheet(
 ) -> Dom {
     let (notes, listening) = (&s.notes[..], s.voice.ready_note());
     let (first_line, lines) = file.page(page);
+    // Page breaks are stable: lines the suggestions put in are rows of this page, which grows; no other page moves.
+    let map = s.page_map(page);
+    let height = map.grown_height(page_h());
     let mut sheet = Dom::create_div().with_css(
         format!(
             "position: relative; width: {}px; height: {}px; background: {PAGE_BG}; border: 1px \
              solid #b9b4ab; box-shadow: 0px 1px 4px #00000030; margin-right: {}px; flex-shrink: \
              0; box-sizing: border-box; padding: {}px; overflow: hidden;",
             PAGE_W as isize,
-            page_h() as isize,
+            height as isize,
             PAGE_GAP as isize,
             PAGE_PAD as isize,
         )
@@ -1529,7 +1551,7 @@ fn page_sheet(
 
     // The marker's ink first: positioned boxes paint in tree order, so the
     // code (positioned too) is drawn over it, and the pen's ink over both.
-    sheet.add_child(ink_layer(data, page, Layer::Marker));
+    sheet.add_child(ink_layer(data, page, Layer::Marker, height));
     sheet.add_child(
         Dom::create_div().with_css(
             format!(
@@ -1546,16 +1568,15 @@ fn page_sheet(
     // What the agents' suggestions do to the page's lines (none where nobody suggested anything).
     if s.notes.iter().any(|n| !n.talk.proposals.is_empty()) {
         let marks = crate::page_marks::marks_of(&s.notes, first_line, &lines);
-        let inserts = crate::page_marks::inserts_of(&s.notes, first_line, lines.len());
-        sheet.add_child(page_code_column_marked(first_line, &lines, hidden, &marks, &inserts));
+        sheet.add_child(page_code_column_marked(first_line, &lines, hidden, &marks, &map));
     } else {
         sheet.add_child(page_code_column_hidden(first_line, &lines, hidden));
     }
     // The markers of the dictated notes: over the code, under the pen layer (they take no stroke).
-    for marker in column::markers(notes, page, listening) {
+    for marker in column::markers(notes, page, listening, &map) {
         sheet.add_child(marker);
     }
-    sheet.add_child(ink_layer(data, page, Layer::Pen));
+    sheet.add_child(ink_layer(data, page, Layer::Pen, height));
     // The conversations of the page: a chip for each in the margin, and the open one over it (above the pen's layer, which
     // they take no stroke and no rest from).
     if let Some(margin) = crate::conv_ui::margin(s, data, page, visible_bottom) {
@@ -1580,19 +1601,20 @@ pub fn page_code_column(first_line: usize, lines: &[String]) -> Dom {
 /// its own width), so nothing reflows and no page break moves.
 #[must_use]
 pub fn page_code_column_hidden(first_line: usize, lines: &[String], hidden: &[Vec<(usize, usize)>]) -> Dom {
-    page_code_column_marked(first_line, lines, hidden, &[], &[])
+    page_code_column_marked(first_line, lines, hidden, &[], &crate::line_map::LineMap::plain())
 }
 
 /// [`page_code_column_hidden`] with what the suggestions of the agents do to the lines (`marks`, one for each line: words
-/// struck, taken or added) and a rule where lines would be inserted (`inserts`): the page's code as the reviewer reads it.
-/// The rows, their heights and the places of the words that are in the file stay what they were: nothing reflows.
+/// struck, taken or added) and the lines they would put in (`map`, which says after which lines): the page's code as the reviewer
+/// reads it. The words that are in the file keep their places in their lines; the lines put in are rows of their own after
+/// the line they follow, and the page is taller by them (page breaks are stable: nothing else moves).
 #[must_use]
 pub fn page_code_column_marked(
     first_line: usize,
     lines: &[String],
     hidden: &[Vec<(usize, usize)>],
     marks: &[crate::page_marks::LineMarks],
-    inserts: &[crate::page_marks::Insert],
+    map: &crate::line_map::LineMap,
 ) -> Dom {
     let no_marks = crate::page_marks::LineMarks::default();
     let mut col = Dom::create_div().with_css(
@@ -1603,45 +1625,60 @@ pub fn page_code_column_marked(
         )
         .as_str(),
     );
+    let put = |col: &mut Dom, after: Option<usize>| {
+        for block in map.blocks_after(after) {
+            for (k, text) in block.lines.iter().enumerate() {
+                col.add_child(inserted_row(first_line, block, k, text));
+            }
+        }
+    };
+    put(&mut col, None);
     for (i, line) in lines.iter().enumerate() {
         let ranges = hidden.get(i).map_or(&[][..], Vec::as_slice);
         col.add_child(code_row(first_line + i, line.as_str(), ranges, marks.get(i).unwrap_or(&no_marks)));
-    }
-    // Where an agent would put lines: a rule under the line they follow (a yellow one while it waits, green once taken)
-    // with how many lines, over the rows and never between them.
-    for insert in inserts {
-        let rows_above = if insert.after_line == 0 { 0 } else { insert.after_line + 1 - first_line };
-        col.add_child(insert_rule(insert, rows_above));
+        put(&mut col, Some(i));
     }
     col
 }
 
-/// The rule that says where lines would be inserted: `rows_above` rows of the page are above it.
-fn insert_rule(insert: &crate::page_marks::Insert, rows_above: usize) -> Dom {
-    let (line, label) = if insert.accepted { ("#2fa84f", "#bfe9c8") } else { ("#e5a800", "#ffe58a") };
-    let words = t_args(
-        "azreview-insert-rule",
-        &[("n", Arg::from(insert.rows.len())), ("line", Arg::from(insert.after_line))],
-    );
-    Dom::create_div()
-        .with_id(format!("__azreview_insert-{}-{}", insert.conversation, insert.after_line).as_str())
-        .with_css(
+/// The colours of the lines an agent would put in: the wash of the row, the plus in the gutter and the ink of the line; yellow
+/// while the suggestion waits, green once the reviewer took it.
+pub(crate) const fn insert_colours(accepted: bool) -> (&'static str, &'static str, &'static str) {
+    if accepted {
+        ("#d9f2e0", "#2fa84f", "#14532d")
+    } else {
+        ("#fff1b8", "#b98900", "#1f1f1f")
+    }
+}
+
+/// A line an agent would put in: a row of its own, yellow while the suggestion waits and green once the reviewer took it, with
+/// a plus in the gutter where the line's number would be. The first row of a block has the id the scripts look for
+/// (`__azreview_insert-<conversation>-<the line it follows>`).
+fn inserted_row(first_line: usize, block: &crate::line_map::Block, k: usize, text: &str) -> Dom {
+    let (wash, plus, ink) = insert_colours(block.accepted);
+    let after_line = block.after.map_or(0, |a| first_line + a);
+    let id = if k == 0 {
+        format!("__azreview_insert-{}-{after_line}", block.conversation)
+    } else {
+        format!("__azreview_insert-{}-{after_line}-{k}", block.conversation)
+    };
+    let mut row = Dom::create_div()
+        .with_id(id.as_str())
+        .with_css(format!("display: flex; flex-direction: row; height: {LINE_H}px; background: {wash};").as_str());
+    row.add_child(
+        Dom::create_span_with_text("+").with_css(
             format!(
-                "position: absolute; left: 0px; top: {}px; width: {}px; height: 2px; background: {line};",
-                (rows_above as f32 * LINE_H) as isize - 1,
-                CODE_W as isize
+                "width: {}px; flex-shrink: 0; text-align: right; padding-right: 10px; font-family: monospace; font-size: 11px; \
+                 font-weight: 700; color: {plus};",
+                GUTTER_W as isize - 10,
             )
             .as_str(),
-        )
-        .with_child(
-            Dom::create_span_with_text(words.as_str()).with_css(
-                format!(
-                    "position: absolute; right: 0px; top: -7px; padding: 0px 6px; font-size: 9px; line-height: 13px; \
-                     background: {label}; color: #1f1f1f; border-radius: 3px;"
-                )
-                .as_str(),
-            ),
-        )
+        ),
+    );
+    row.add_child(Dom::create_span_with_text(clip_line(text)).with_css(
+        format!("font-family: monospace; font-size: 11px; color: {ink}; white-space: pre;").as_str(),
+    ));
+    row
 }
 
 /// How a piece of a line is drawn: the ink of the code; the colour of the page where a slash or an accepted suggestion took
@@ -1744,7 +1781,7 @@ fn decorative() -> AccessibilityInfo {
 /// The `layer` of page `page`'s ink: an [`InkCanvas`] drawn by
 /// [`ink::render_ink`], its frame kept over a DOM rebuild. The pen layer, on
 /// top, takes the pointer for the app (`data`).
-fn ink_layer(data: &RefAny, page: usize, layer: Layer) -> Dom {
+fn ink_layer(data: &RefAny, page: usize, layer: Layer, height: f32) -> Dom {
     let canvas = RefAny::new(InkCanvas::create(data.clone(), page, layer));
     let dom = Dom::create_image(ImageRef::callback(
         RenderImageCallback::create(ink::render_ink).to_core(),
@@ -1756,7 +1793,7 @@ fn ink_layer(data: &RefAny, page: usize, layer: Layer) -> Dom {
         format!(
             "position: absolute; top: 0px; left: 0px; width: {}px; height: {}px;",
             PAGE_W as isize,
-            page_h() as isize,
+            height as isize,
         )
         .as_str(),
     );
@@ -1840,7 +1877,7 @@ mod tests {
     /// points of a stroke between press and release come from `mousemove`.
     #[test]
     fn the_ink_layer_takes_the_points_of_a_stroke_from_every_pointer_move() {
-        let layer = ink_layer(&RefAny::new(0u8), 0, Layer::Pen);
+        let layer = ink_layer(&RefAny::new(0u8), 0, Layer::Pen, page_h());
         assert_eq!(
             events_of(&layer, crate::on_ink_move),
             vec![EventFilter::Hover(HoverEventFilter::MouseMove)]

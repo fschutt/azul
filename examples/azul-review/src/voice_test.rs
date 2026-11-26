@@ -146,7 +146,7 @@ fn a_refusal_is_told_in_this_apps_words_with_the_engines_after_them() {
 fn answer(status: HeardStatus, recognizer: SpeechRecognizer, text: &str, words: &[(&str, u32, u32, f32)]) -> SpeechHeard {
     let items: Vec<SpeechWord> = words
         .iter()
-        .map(|(w, s, e, p)| SpeechWord { text: (*w).to_string().into(), start_ms: *s, end_ms: *e, probability: *p })
+        .map(|(w, s, e, p)| SpeechWord { text: (*w).to_string().into(), start_ms: *s, end_ms: *e, probability: *p, biased: false })
         .collect();
     SpeechHeard {
         text: text.to_string().into(),
@@ -342,4 +342,40 @@ fn a_scripted_dictation_cannot_say_more_than_a_person_could() {
     assert_eq!(l.remaining(), MAX_SCRIPT_UTTERANCES);
     let long = ScriptListener::new(vec!["é".repeat(MAX_SCRIPT_CHARS + 10)], 0);
     assert_eq!(long.first().map(|t| t.chars().count()), Some(MAX_SCRIPT_CHARS));
+}
+
+#[test]
+fn a_word_the_recogniser_was_told_to_favour_is_biased_in_what_the_dictation_sees() {
+    let mut heard = answer(HeardStatus::Heard, SpeechRecognizer::Builtin, "compute_stale_flag now", &[("compute_stale_flag", 0, 300, 0.3), ("now", 320, 500, 0.9)]);
+    // the engine says which of the words it favoured; the helper's words say none, the first is made one that was
+    let items = vec![
+        SpeechWord { text: "compute_stale_flag".to_string().into(), start_ms: 0, end_ms: 300, probability: 0.3, biased: true },
+        SpeechWord { text: "now".to_string().into(), start_ms: 320, end_ms: 500, probability: 0.9, biased: false },
+    ];
+    heard.words = SpeechWordVec::copy_from_ptr(&items[0], items.len());
+    let seen = heard_of(&heard);
+    assert!(seen.words[0].biased, "a low probability on a favoured word is no doubt, and the dictation knows which it is");
+    assert!(!seen.words[1].biased);
+}
+
+// ---- the microphone's thread: what the standby is to the engine ----
+
+#[test]
+fn the_engine_keeps_the_microphone_as_the_standby_says() {
+    use super::{engine_standby, EngineStandby};
+    use crate::standby::Standby;
+    assert_eq!(engine_standby(Standby::Off), EngineStandby::Off, "off keeps nothing between calls");
+    assert_eq!(engine_standby(Standby::Near), EngineStandby::WhileArmed, "near is open while the pen is, by arm and disarm");
+    assert_eq!(engine_standby(Standby::Always), EngineStandby::Always);
+}
+
+#[test]
+fn what_the_policy_asks_is_only_counted_where_no_thread_opens_the_microphone() {
+    use crate::{dwell::Config, standby::Action};
+    let mut voice = Voice::new(Config::default(), 10_000);
+    assert!(voice.mic_thread.is_none(), "a window has no microphone thread before its session is there, and none under a test");
+    assert_eq!(voice.apply(Some(Action::Arm)), Some(Action::Arm));
+    assert_eq!(voice.apply(Some(Action::Disarm)), Some(Action::Disarm));
+    assert_eq!((voice.arms, voice.disarms), (1, 1));
+    assert_eq!(voice.apply(None), None);
 }

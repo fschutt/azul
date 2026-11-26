@@ -23,9 +23,13 @@ use azul::{
 };
 
 use crate::{
+    line_map::LineMap,
     model::{InkPoint, Semantic, Stroke},
     AppState,
 };
+
+/// The map of a page nothing was put in: for the painting that is not of a page of the window.
+static PLAIN: LineMap = LineMap::plain();
 
 /// The pen's radius at full pressure, px.
 const PEN_RADIUS: f32 = 1.6;
@@ -108,6 +112,9 @@ pub struct FrameKey {
     kept: u64,
     /// The layer's size in px.
     size: (u32, u32),
+    /// How the page's lines are drawn (`LineMap::signature`): ink is drawn where its lines are, so a frame drawn for another
+    /// map is drawn anew.
+    map: u64,
 }
 
 /// A page's picture grew by one stroke: its revision went from `from` to `to`.
@@ -154,7 +161,7 @@ pub fn catch_up(
     let (Some(had), Some(append), Some(on)) = (had, append, appended_on) else {
         return CatchUp::Whole;
     };
-    let same_picture = had.opened == now.opened && had.page == now.page && had.size == now.size;
+    let same_picture = had.opened == now.opened && had.page == now.page && had.size == now.size && had.map == now.map;
     if !same_picture || had.kept != append.from || now.kept != append.to {
         return CatchUp::Whole;
     }
@@ -220,14 +227,22 @@ impl InkRevisions {
         self.appends.clear();
     }
 
-    /// The key a frame of `page` at `size` must have to be shown as it is.
+    /// The key a frame of `page` at `size` must have to be shown as it is, on a page nobody put lines in.
     #[must_use]
     pub fn key(&self, page: usize, size: (u32, u32)) -> FrameKey {
+        self.key_with(page, size, 0)
+    }
+
+    /// The key a frame of `page` at `size` must have to be shown as it is, its lines drawn as the map with `map` as its
+    /// signature draws them.
+    #[must_use]
+    pub fn key_with(&self, page: usize, size: (u32, u32), map: u64) -> FrameKey {
         FrameKey {
             opened: self.opened,
             page,
             kept: self.pages.get(&page).copied().unwrap_or(0),
             size,
+            map,
         }
     }
 }
@@ -260,6 +275,18 @@ impl LiveProgress {
         scale: f32,
         paint: &mut dyn FnMut(f32, f32, f32, f32, Brush),
     ) -> bool {
+        self.paint_mapped(live, scale, &PLAIN, paint)
+    }
+
+    /// [`Self::paint`] on a page whose lines are drawn as `map` says: a stroke is kept where the page was first drawn and
+    /// painted where its lines are now.
+    pub fn paint_mapped(
+        &mut self,
+        live: Option<&Stroke>,
+        scale: f32,
+        map: &LineMap,
+        paint: &mut dyn FnMut(f32, f32, f32, f32, Brush),
+    ) -> bool {
         let Some(live) = live else {
             *self = Self::default();
             return false;
@@ -273,7 +300,7 @@ impl LiveProgress {
         if live.points.len() <= self.points {
             return false;
         }
-        paint_from(live, self.points, scale, paint);
+        paint_from(live, self.points, scale, map, paint);
         self.points = live.points.len();
         true
     }
@@ -307,30 +334,27 @@ pub fn brush(semantic: Semantic, pressure: f32) -> Brush {
 
 /// Paints `stroke` from its point `from` on: every segment that ends at a
 /// point from there (a stroke of one point is a dab). The points and the nib are in the px of a frame
-/// rasterised at `scale` (the stroke's own are the page's logical px).
+/// rasterised at `scale` (the stroke's own are the page's logical px, as the page was first drawn: `map` carries them to where
+/// the page's lines are now).
 fn paint_from(
     stroke: &Stroke,
     from: usize,
     scale: f32,
+    map: &LineMap,
     paint: &mut dyn FnMut(f32, f32, f32, f32, Brush),
 ) {
     if let [p] = stroke.points.as_slice() {
-        paint(
-            p.x * scale,
-            p.y * scale,
-            p.x * scale,
-            p.y * scale,
-            brush_at(brush(stroke.semantic, p.pressure), scale),
-        );
+        let y = map.to_display(p.y) * scale;
+        paint(p.x * scale, y, p.x * scale, y, brush_at(brush(stroke.semantic, p.pressure), scale));
         return;
     }
     for i in from.max(1)..stroke.points.len() {
         let (a, b) = (stroke.points[i - 1], stroke.points[i]);
         paint(
             a.x * scale,
-            a.y * scale,
+            map.to_display(a.y) * scale,
             b.x * scale,
-            b.y * scale,
+            map.to_display(b.y) * scale,
             brush_at(brush(stroke.semantic, (a.pressure + b.pressure) * 0.5), scale),
         );
     }
@@ -340,9 +364,15 @@ fn paint_from(
 /// painted on the CPU (premultiplied RGBA: painting over transparent black keeps it so).
 #[must_use]
 pub fn draw_cpu(w: u32, h: u32, scale: f32, strokes: &[Stroke]) -> RawImage {
+    draw_cpu_mapped(w, h, scale, &PLAIN, strokes)
+}
+
+/// [`draw_cpu`] on a page whose lines are drawn as `map` says.
+#[must_use]
+pub fn draw_cpu_mapped(w: u32, h: u32, scale: f32, map: &LineMap, strokes: &[Stroke]) -> RawImage {
     let mut img = RawImage::create_rgba8(w, h, vec![0u8; (w as usize) * (h as usize) * 4], true);
     for s in strokes {
-        paint_from(s, 0, scale, &mut |x0, y0, x1, y1, b| {
+        paint_from(s, 0, scale, map, &mut |x0, y0, x1, y1, b| {
             img.paint_stroke(x0, y0, x1, y1, b)
         });
     }
@@ -397,16 +427,18 @@ fn on(st: &Stroke, page: usize, layer: Layer) -> bool {
 }
 
 /// What a frame of `layer` on `page` at `size` has to show now: the key it must have, the stroke being
-/// drawn when it is on that layer of that page, and how the page last grew.
+/// drawn when it is on that layer of that page, how the page last grew, and where the page's lines are drawn (the ink goes down
+/// with the line it was drawn on when lines are put in above it).
 fn wanted(
     app: &mut RefAny,
     page: usize,
     layer: Layer,
     size: (u32, u32),
-) -> Option<(FrameKey, Option<Stroke>, Option<Append>)> {
+) -> Option<(FrameKey, Option<Stroke>, Option<Append>, LineMap)> {
     let s = app.downcast_ref::<AppState>()?;
     let live = s.live.as_ref().filter(|st| on(st, page, layer)).cloned();
-    Some((s.ink.key(page, size), live, s.ink.append_of(page)))
+    let map = s.page_map(page);
+    Some((s.ink.key_with(page, size, map.signature()), live, s.ink.append_of(page), map))
 }
 
 /// The layer the kept stroke `id` is on.
@@ -488,7 +520,7 @@ fn draw_frame_untimed(
     let mut canvas = data.downcast_mut::<InkCanvas>()?;
     let canvas = &mut *canvas;
     let (mut app, page, layer) = (canvas.app.clone(), canvas.page, canvas.layer);
-    let (key, live, append) = wanted(&mut app, page, layer, (w, h))?;
+    let (key, live, append, map) = wanted(&mut app, page, layer, (w, h))?;
     let frame = &mut canvas.frame;
 
     let gl = info
@@ -521,7 +553,7 @@ fn draw_frame_untimed(
                 // not seen yet are left (a stroke is kept when the pen lifts, the last moves may not
                 // have had a frame).
                 if let Some(done) = append.and_then(|a| stroke_by_id(&mut app, a.id)) {
-                    frame.live.paint(Some(&done), scale, &mut |x0, y0, x1, y1, b| {
+                    frame.live.paint_mapped(Some(&done), scale, &map, &mut |x0, y0, x1, y1, b| {
                         tex.paint_stroke(x0, y0, x1, y1, b)
                     });
                 }
@@ -532,7 +564,7 @@ fn draw_frame_untimed(
                 // A fresh texture holds whatever the driver left in it: clear it first.
                 tex.clear();
                 for s in &kept(&mut app, page, layer) {
-                    paint_from(s, 0, scale, &mut |x0, y0, x1, y1, b| {
+                    paint_from(s, 0, scale, &map, &mut |x0, y0, x1, y1, b| {
                         tex.paint_stroke(x0, y0, x1, y1, b)
                     });
                 }
@@ -540,7 +572,7 @@ fn draw_frame_untimed(
                 frame.live = LiveProgress::default();
             }
         }
-        frame.live.paint(live.as_ref(), scale, &mut |x0, y0, x1, y1, b| {
+        frame.live.paint_mapped(live.as_ref(), scale, &map, &mut |x0, y0, x1, y1, b| {
             tex.paint_stroke(x0, y0, x1, y1, b)
         });
         return Some(ImageRef::gl_texture(tex.clone()));
@@ -560,7 +592,7 @@ fn draw_frame_untimed(
                 append.and_then(|a| stroke_by_id(&mut app, a.id)),
                 frame.pixels.as_mut(),
             ) {
-                changed |= frame.live.paint(Some(&done), scale, &mut |x0, y0, x1, y1, b| {
+                changed |= frame.live.paint_mapped(Some(&done), scale, &map, &mut |x0, y0, x1, y1, b| {
                     pixels.paint_stroke(x0, y0, x1, y1, b)
                 });
             }
@@ -568,14 +600,14 @@ fn draw_frame_untimed(
             frame.live = LiveProgress::default();
         }
         CatchUp::Whole => {
-            frame.pixels = Some(draw_cpu(w, h, scale, &kept(&mut app, page, layer)));
+            frame.pixels = Some(draw_cpu_mapped(w, h, scale, &map, &kept(&mut app, page, layer)));
             frame.key = Some(key);
             frame.live = LiveProgress::default();
             changed = true;
         }
     }
     let pixels = frame.pixels.as_mut()?;
-    changed |= frame.live.paint(live.as_ref(), scale, &mut |x0, y0, x1, y1, b| {
+    changed |= frame.live.paint_mapped(live.as_ref(), scale, &map, &mut |x0, y0, x1, y1, b| {
         pixels.paint_stroke(x0, y0, x1, y1, b)
     });
     if changed || frame.shown.is_none() {

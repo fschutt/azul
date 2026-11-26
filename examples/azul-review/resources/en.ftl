@@ -231,11 +231,6 @@ azreview-sugg-accept-all = Take all that wait
 azreview-sugg-reject-all = Refuse all that wait
 azreview-sugg-taken = Taken
 azreview-sugg-refused = Refused
-azreview-insert-rule =
-    { $n ->
-        [one] One line after line { $line }
-       *[other] { $n } lines after line { $line }
-    }
 azreview-conv-understood = Understood as: { $words }
 azreview-conv-earlier =
     { $n ->

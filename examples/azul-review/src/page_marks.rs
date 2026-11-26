@@ -8,8 +8,11 @@
 //! A suggestion names its text (`old`) and the page is checked against it: a range whose text is not what the suggestion
 //! said any more (the file changed since) marks nothing. Pure: lines and numbers, no window.
 
+use std::collections::BTreeMap;
+
 use crate::{
     agent_review::{Pos, Suggestion},
+    code::SourceFile,
     conversation::Decision,
     model::Note,
 };
@@ -174,6 +177,32 @@ pub fn inserts_of(notes: &[Note], first_line: usize, line_count: usize) -> Vec<I
     }
     out.sort_by_key(|i| i.after_line);
     out
+}
+
+/// How many rows each page grows by when the lines the suggestions of `notes` would put in (the ones that wait and the ones
+/// that were taken) are shown in it: the pages that grow only. `lines_on_page` says how many lines a page has; lines put after
+/// a line the file does not have grow no page.
+#[must_use]
+pub fn extra_rows_by_page(notes: &[Note], lines_on_page: impl Fn(usize) -> usize) -> BTreeMap<usize, usize> {
+    let mut grown: BTreeMap<usize, usize> = BTreeMap::new();
+    for note in notes {
+        for proposal in &note.talk.proposals {
+            if proposal.decision == Decision::Rejected {
+                continue;
+            }
+            let Suggestion::InsertLines { after_line, lines } = &proposal.suggestion else {
+                continue;
+            };
+            let page = SourceFile::page_of_line(*after_line);
+            let first = SourceFile::first_line_of(page);
+            let last = first + lines_on_page(page).saturating_sub(1);
+            let on_page = (*after_line >= first && *after_line <= last && lines_on_page(page) > 0) || (*after_line == 0 && lines_on_page(0) > 0);
+            if on_page && !lines.is_empty() {
+                *grown.entry(page).or_insert(0) += lines.len();
+            }
+        }
+    }
+    grown
 }
 
 /// A byte position inside `line` that is the start of a letter: `at` where it is, the next start where it is inside a

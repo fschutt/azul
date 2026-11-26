@@ -211,6 +211,9 @@ fn push_talk(out: &mut String, talk: &Conversation) {
                     push_string(out, &w.text);
                     let _ = write!(out, ",\"s\":{},\"e\":{},\"p\":", w.start_ms, w.end_ms);
                     push_num(out, w.probability);
+                    if w.biased {
+                        out.push_str(",\"b\":true");
+                    }
                     out.push('}');
                 }
                 out.push(']');
@@ -548,6 +551,7 @@ fn talk_from(json: &Json) -> Conversation {
                     start_ms: u32::try_from(count(w, "s")?).ok()?,
                     end_ms: u32::try_from(count(w, "e")?).ok()?,
                     probability: num(w, "p")? as f32,
+                    biased: key(w, "b").and_then(|b| b.as_bool().into_option()).unwrap_or(false),
                 })
             })
             .collect();

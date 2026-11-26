@@ -467,3 +467,48 @@ fn a_folder_row_says_the_part_of_its_lines_that_is_reviewed_and_a_file_row_says_
 fn the_key_that_holds_a_file_back_is_among_the_shortcuts() {
     assert!(crate::SHORTCUTS.iter().any(|s| s.keys == "Mod+Shift+R"), "the shortcuts page lists it");
 }
+
+// ---- lines put in are rows of the page ----
+
+fn block(after: Option<usize>, lines: &[&str], accepted: bool, conversation: u64) -> crate::line_map::Block {
+    crate::line_map::Block { after, lines: lines.iter().map(|l| (*l).to_string()).collect(), accepted, conversation }
+}
+
+#[test]
+fn lines_put_in_are_rows_after_the_line_they_follow_each_with_a_plus_in_the_gutter() {
+    let lines = vec!["fn a() {}".to_string(), "fn b() {}".to_string(), "fn c() {}".to_string()];
+    let map = crate::line_map::LineMap::new(3, vec![block(Some(0), &["// one", "// two"], false, 7)], PAGE_PAD, LINE_H);
+    let col = page_code_column_marked(41, &lines, &[], &[], &map);
+    assert_eq!(col.children.as_slice().len(), 5, "three lines and the two put in");
+    let said = texts(&col);
+    assert_eq!(said, vec!["41", "fn a() {}", "+", "// one", "+", "// two", "42", "fn b() {}", "43", "fn c() {}"], "after the first line, before the second");
+    // the first row of the block has the id the scripts look for: the conversation and the line it follows
+    assert!(has_id(&col, "__azreview_insert-7-41"));
+    assert!(has_id(&col, "__azreview_insert-7-41-1"), "the next row of the block");
+    // the page is as many rows taller as lines were put in (the column's rows are all one height)
+    assert_eq!(map.grown_height(page_h()), page_h() + 2.0 * LINE_H);
+}
+
+#[test]
+fn lines_put_in_wait_yellow_and_are_green_once_taken() {
+    assert_eq!(insert_colours(false).0, "#fff1b8", "yellow while it waits");
+    assert_eq!(insert_colours(true).0, "#d9f2e0", "green once taken");
+    assert_ne!(insert_colours(false), insert_colours(true));
+    // before the first line: the line it follows is 0, whichever the look
+    let lines = vec!["fn a() {}".to_string()];
+    for accepted in [false, true] {
+        let map = crate::line_map::LineMap::new(1, vec![block(None, &["// new"], accepted, 3)], PAGE_PAD, LINE_H);
+        let col = page_code_column_marked(1, &lines, &[], &[], &map);
+        assert!(has_id(&col.children.as_slice()[0], "__azreview_insert-3-0"), "{accepted}");
+    }
+}
+
+#[test]
+fn a_column_nothing_is_put_in_is_built_as_it_always_was() {
+    let lines = vec!["fn a() {}".to_string(), "fn b() {}".to_string()];
+    let plain = crate::line_map::LineMap::new(2, Vec::new(), PAGE_PAD, LINE_H);
+    let a = page_code_column(1, &lines);
+    let b = page_code_column_marked(1, &lines, &[], &[], &plain);
+    assert_eq!(texts(&a), texts(&b));
+    assert_eq!(nodes(&a).len(), nodes(&b).len());
+}
