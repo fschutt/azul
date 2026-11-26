@@ -8,7 +8,10 @@ use std::{
 };
 
 use super::*;
-use crate::recorder_mp4::{scan, TrackKind};
+use crate::recorder_mp4::{
+    recorder_mp4_test::{first_voice_run, tracks_of, voice_samples},
+    scan, TrackKind,
+};
 
 // ---- the store ----
 
@@ -379,71 +382,6 @@ fn a_write_that_fails_breaks_the_track_in_words_and_the_rest_is_dropped_quietly(
 }
 
 // ---- the camera's files that carry the voice ----
-
-/// The boxes of a box's body: `(name, body)` in order.
-fn boxes(data: &[u8]) -> Vec<([u8; 4], &[u8])> {
-    let mut out = Vec::new();
-    let mut at = 0;
-    while at + 8 <= data.len() {
-        let size = u32::from_be_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]]) as usize;
-        if size < 8 || at + size > data.len() {
-            break;
-        }
-        out.push(([data[at + 4], data[at + 5], data[at + 6], data[at + 7]], &data[at + 8..at + size]));
-        at += size;
-    }
-    out
-}
-
-/// How many tracks a file's `moov` describes.
-fn tracks_of(file: &[u8]) -> usize {
-    let top = boxes(file);
-    let moov = top.iter().find(|(k, _)| k == b"moov").map_or(&[][..], |(_, b)| *b);
-    boxes(moov).iter().filter(|(k, _)| k == b"trak").count()
-}
-
-/// How many samples the voice's (track 2) runs of a file hold in all.
-fn voice_samples(file: &[u8]) -> u32 {
-    let mut total = 0;
-    for (kind, moof) in boxes(file) {
-        if &kind != b"moof" {
-            continue;
-        }
-        for (k, traf) in boxes(moof) {
-            if &k != b"traf" {
-                continue;
-            }
-            let tfhd = boxes(traf).into_iter().find(|(k, _)| k == b"tfhd").map_or(&[][..], |(_, b)| b);
-            if tfhd.len() >= 8 && u32::from_be_bytes([tfhd[4], tfhd[5], tfhd[6], tfhd[7]]) == 2 {
-                let trun = boxes(traf).into_iter().find(|(k, _)| k == b"trun").map_or(&[][..], |(_, b)| b);
-                total += u32::from_be_bytes([trun[4], trun[5], trun[6], trun[7]]);
-            }
-        }
-    }
-    total
-}
-
-/// The time and the sample count of the voice's (track 2) run in the first fragment that has one.
-fn first_voice_run(file: &[u8]) -> Option<(u64, u32)> {
-    for (kind, moof) in boxes(file) {
-        if &kind != b"moof" {
-            continue;
-        }
-        for (k, traf) in boxes(moof) {
-            if &k != b"traf" {
-                continue;
-            }
-            let tfhd = boxes(traf).into_iter().find(|(k, _)| k == b"tfhd")?.1;
-            if u32::from_be_bytes([tfhd[4], tfhd[5], tfhd[6], tfhd[7]]) == 2 {
-                let tfdt = boxes(traf).into_iter().find(|(k, _)| k == b"tfdt")?.1;
-                let trun = boxes(traf).into_iter().find(|(k, _)| k == b"trun")?.1;
-                let base = u64::from_be_bytes([tfdt[4], tfdt[5], tfdt[6], tfdt[7], tfdt[8], tfdt[9], tfdt[10], tfdt[11]]);
-                return Some((base, u32::from_be_bytes([trun[4], trun[5], trun[6], trun[7]])));
-            }
-        }
-    }
-    None
-}
 
 /// A picture track that carries the voice makes its segments files of two tracks, and the voice's packets go
 /// into the open segment at their times, after the segment's start.

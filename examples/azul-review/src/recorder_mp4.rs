@@ -1666,4 +1666,4 @@ pub fn scan<R: Read + Seek>(reader: &mut R) -> Result<Scan, ScanError> {
 
 #[cfg(test)]
 #[path = "recorder_mp4_test.rs"]
-mod recorder_mp4_test;
+pub(crate) mod recorder_mp4_test;

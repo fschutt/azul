@@ -12,7 +12,7 @@ use crate::{
     recorder_events::{event_channel, Caps},
     recorder_clock::MockClock,
     recorder_manifest::{AppInfo, ClockInfo, HostInfo, Segment, Workspace},
-    recorder_mp4::scan,
+    recorder_mp4::{recorder_mp4_test::{tracks_of, voice_samples}, scan},
     recorder_track::SegmentFile,
 };
 
@@ -520,60 +520,6 @@ fn with_camera_and_voice(store: &MemStore, voice_in_camera: bool) -> Writer {
     w
 }
 
-/// How many tracks the `moov` of a file describes.
-fn tracks_in(file: &[u8]) -> usize {
-    let boxes = |data: &[u8]| -> Vec<([u8; 4], Vec<u8>)> {
-        let mut out = Vec::new();
-        let mut at = 0;
-        while at + 8 <= data.len() {
-            let size = u32::from_be_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]]) as usize;
-            if size < 8 || at + size > data.len() {
-                break;
-            }
-            out.push(([data[at + 4], data[at + 5], data[at + 6], data[at + 7]], data[at + 8..at + size].to_vec()));
-            at += size;
-        }
-        out
-    };
-    let moov = boxes(file).into_iter().find(|(k, _)| k == b"moov").map(|(_, b)| b).unwrap_or_default();
-    boxes(&moov).iter().filter(|(k, _)| k == b"trak").count()
-}
-
-/// How many samples the voice's (track 2) runs of a file hold in all.
-fn voice_samples_in(file: &[u8]) -> u32 {
-    let boxes = |data: &[u8]| -> Vec<([u8; 4], Vec<u8>)> {
-        let mut out = Vec::new();
-        let mut at = 0;
-        while at + 8 <= data.len() {
-            let size = u32::from_be_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]]) as usize;
-            if size < 8 || at + size > data.len() {
-                break;
-            }
-            out.push(([data[at + 4], data[at + 5], data[at + 6], data[at + 7]], data[at + 8..at + size].to_vec()));
-            at += size;
-        }
-        out
-    };
-    let mut total = 0;
-    for (kind, moof) in boxes(file) {
-        if &kind != b"moof" {
-            continue;
-        }
-        for (k, traf) in boxes(&moof) {
-            if &k != b"traf" {
-                continue;
-            }
-            let parts = boxes(&traf);
-            let tfhd = parts.iter().find(|(k, _)| k == b"tfhd").map(|(_, b)| b.clone()).unwrap_or_default();
-            let trun = parts.iter().find(|(k, _)| k == b"trun").map(|(_, b)| b.clone()).unwrap_or_default();
-            if tfhd.len() >= 8 && u32::from_be_bytes([tfhd[4], tfhd[5], tfhd[6], tfhd[7]]) == 2 && trun.len() >= 8 {
-                total += u32::from_be_bytes([trun[4], trun[5], trun[6], trun[7]]);
-            }
-        }
-    }
-    total
-}
-
 /// The voice goes into the camera's files as well as into its own track's, and the camera's picture is what the
 /// manifest and the scanner see of the camera track: the voice's own files and the manifest's count of
 /// them are as they were.
@@ -593,9 +539,9 @@ fn the_voice_goes_into_the_cameras_files_and_into_its_own() {
     w.stop(4 * SEC, None);
     let camera = store.file("camera/0001.mp4");
     let voice = store.file("audio/0001.mp4");
-    assert_eq!(tracks_in(&camera), 2, "the camera's file carries a voice track");
-    assert_eq!(voice_samples_in(&camera), 100, "and every packet of the voice is in it");
-    assert_eq!(tracks_in(&voice), 1, "and the voice has its own, whole");
+    assert_eq!(tracks_of(&camera), 2, "the camera's file carries a voice track");
+    assert_eq!(voice_samples(&camera), 100, "and every packet of the voice is in it");
+    assert_eq!(tracks_of(&voice), 1, "and the voice has its own, whole");
     let s = scan(&mut Cursor::new(&voice)).unwrap();
     assert_eq!(s.samples, 100, "every packet is in the voice's own file");
     let c = scan(&mut Cursor::new(&camera)).unwrap();
@@ -618,7 +564,7 @@ fn a_writer_that_is_not_to_carry_the_voice_writes_the_cameras_files_without_it()
         w.audio(SEC + i * 20_000, opus(i as u8));
     }
     w.stop(3 * SEC, None);
-    assert_eq!(tracks_in(&store.file("camera/0001.mp4")), 1);
+    assert_eq!(tracks_of(&store.file("camera/0001.mp4")), 1);
     assert_eq!(scan(&mut Cursor::new(&store.file("audio/0001.mp4"))).unwrap().samples, 50);
 }
 

@@ -75,9 +75,8 @@ fn track(video: bool) -> Track {
     }
 }
 
-/// A session on disk with a screen and an audio track and `seconds` of media written through the
-/// real writer and files; the writer is returned so the test decides whether it ever finishes.
-fn session(recordings: &Path, seconds: u64) -> (PathBuf, Writer) {
+/// A session folder with its manifest and writer, no track yet: the camera's files carry the voice when asked.
+fn open_session(recordings: &Path, voice_in_camera: bool) -> (PathBuf, Writer) {
     let (name, dir) = new_session_dir(recordings, "2025-11-25_22-00-00").unwrap();
     let m = Manifest::begin(
         AppInfo { name: String::from("AzReview"), version: String::from("0.1.0") },
@@ -87,18 +86,42 @@ fn session(recordings: &Path, seconds: u64) -> (PathBuf, Writer) {
         HostInfo { os: String::from("macos"), arch: String::from("aarch64") },
     );
     let transcript = open_lines(&dir.join(TRANSCRIPT_FILE)).unwrap();
-    let mut w = Writer::new(
-        WriterConfig { segment_us: 300 * SEC, created_unix_s: 1_764_108_000, camera_chunk_us: 5 * SEC, voice_in_camera: false },
+    let w = Writer::new(
+        WriterConfig { segment_us: 300 * SEC, created_unix_s: 1_764_108_000, camera_chunk_us: 5 * SEC, voice_in_camera },
         m,
         Box::new(DiskStore::new(dir.clone())),
         Some(Box::new(transcript)),
     );
+    (dir, w)
+}
+
+/// A session on disk with a screen and an audio track and `seconds` of media written through the
+/// real writer and files; the writer is returned so the test decides whether it ever finishes.
+fn session(recordings: &Path, seconds: u64) -> (PathBuf, Writer) {
+    let (dir, mut w) = open_session(recordings, false);
     w.add_track("screen", Kind::Video, track(true)).unwrap();
     w.add_track("audio", Kind::Opus, track(false)).unwrap();
     for i in 0..seconds * 10 {
         let t = i * SEC / 10;
         w.video("screen", t, &if i % 20 == 0 { key(i as u8) } else { delta(i as u8) });
         w.audio(t, vec![0xf8, i as u8, 1, 2, 3]);
+    }
+    ManifestFile::new(&dir).write(&w.manifest().to_json()).unwrap();
+    (dir, w)
+}
+
+/// A session on disk with a camera whose files carry the voice (and the voice's own track): `seconds` of pictures,
+/// ten a second with a keyframe every two seconds, and of voice, five packets of 20 ms with each picture.
+fn camera_session(recordings: &Path, seconds: u64) -> (PathBuf, Writer) {
+    let (dir, mut w) = open_session(recordings, true);
+    w.add_track("camera", Kind::Video, track(true)).unwrap();
+    w.add_track("audio", Kind::Opus, track(false)).unwrap();
+    for i in 0..seconds * 10 {
+        let t = i * SEC / 10;
+        w.video("camera", t, &if i % 20 == 0 { key(i as u8) } else { delta(i as u8) });
+        for k in 0..5_u64 {
+            w.audio(t + k * 20_000, vec![0xf8, (i * 5 + k) as u8, 1, 2, 3]);
+        }
     }
     ManifestFile::new(&dir).write(&w.manifest().to_json()).unwrap();
     (dir, w)
@@ -190,6 +213,48 @@ fn a_killed_session_is_cut_back_to_its_last_whole_fragment_and_says_so() {
     assert_eq!(m.tracks.screen.as_ref().unwrap().status, TrackStatus::Stopped);
     assert!(m.diagnostics.iter().any(|d| d.text.contains("the app ended without stopping this recording")));
     assert!(m.problems().is_empty(), "{:?}", m.problems());
+}
+
+/// A camera file that carries the voice is cut back like any other, at its last whole fragment (the scanner reads
+/// the picture's run of each), and what is left is still a file of two tracks that holds the voice of the whole
+/// fragments: the voice's runs are not counted as pictures and not cut away with them.
+///
+/// Mutation: a scanner that reads the voice's run as the file's; a cut that leaves a byte of the torn fragment; a
+/// manifest that counts the file's length from before the cut.
+#[test]
+fn a_killed_camera_file_that_carries_the_voice_is_cut_at_its_last_whole_fragment_and_keeps_both_tracks() {
+    use crate::recorder_mp4::recorder_mp4_test::{tracks_of, voice_samples};
+
+    let tmp = Tmp::new("joint");
+    let (dir, writer) = camera_session(&tmp.0, 10);
+    std::mem::forget(writer);
+    let camera = dir.join("camera/0001.mp4");
+    let written = fs::read(&camera).unwrap();
+    assert_eq!(tracks_of(&written), 2, "a picture and a voice");
+    // The fragments are at the keyframes of 4 s and 8 s (a chunk is 5 s: a fragment closes at the first keyframe after
+    // three quarters of it): two are on disk and the third was still being made. The kill tore the last on disk.
+    let f = OpenOptions::new().write(true).open(&camera).unwrap();
+    f.set_len(written.len() as u64 - 7).unwrap();
+    drop(f);
+
+    let r = recover_session(&dir).unwrap();
+    assert_eq!((r.cut, r.removed), (1, 0));
+    let kept = fs::read(&camera).unwrap();
+    let s = scan_file(&camera);
+    assert!(!s.truncated, "the file is whole now");
+    assert_eq!(kept.len() as u64, s.whole_end);
+    assert_eq!((s.fragments, s.samples), (1, 40), "the picture's fragments and samples, not the voice's (200 in this one)");
+    assert_eq!(s.duration_us(), 4 * SEC);
+    assert_eq!(tracks_of(&kept), 2, "still a picture and a voice");
+    assert_eq!(voice_samples(&kept), 200, "the voice of the fragment that stayed is in it, all of it");
+    let m = Manifest::parse(&fs::read_to_string(dir.join(MANIFEST_FILE)).unwrap()).unwrap();
+    let seg = &m.tracks.camera.as_ref().unwrap().segments[0];
+    assert!(seg.complete && seg.recovered);
+    assert_eq!((seg.samples, seg.bytes), (40, s.whole_end), "the manifest counts the pictures");
+    assert!(m.problems().is_empty(), "{:?}", m.problems());
+    // The voice's own file is whole and its own: nothing of the camera's copy is in the way of it.
+    let a = &m.tracks.audio.as_ref().unwrap().segments[0];
+    assert!(a.complete && a.samples > 0);
 }
 
 #[test]

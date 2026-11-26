@@ -1023,3 +1023,74 @@ fn a_voice_that_runs_ahead_of_the_pictures_waits_for_the_fragment_after_the_keyf
     assert_eq!(fragments[1].0[1].2.len(), 15, "the voice after it");
     assert_eq!(fragments[1].0[1].1, 100 * 960, "begins at 2.0 s");
 }
+
+
+// ---- reading a file's boxes: for the tests of files that carry two tracks (the muxer's, the track writer's, the
+// ---- writer's, the recorder's and the recovery's), one place ----
+
+/// The boxes of a box's body: `(name, body)` in order (what is cut off at the end is not listed).
+pub(crate) fn boxes(data: &[u8]) -> Vec<([u8; 4], &[u8])> {
+    let mut out = Vec::new();
+    let mut at = 0;
+    while at + 8 <= data.len() {
+        let size = u32::from_be_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]]) as usize;
+        if size < 8 || at + size > data.len() {
+            break;
+        }
+        out.push(([data[at + 4], data[at + 5], data[at + 6], data[at + 7]], &data[at + 8..at + size]));
+        at += size;
+    }
+    out
+}
+
+/// How many tracks a file's `moov` describes.
+pub(crate) fn tracks_of(file: &[u8]) -> usize {
+    let top = boxes(file);
+    let moov = top.iter().find(|(k, _)| k == b"moov").map_or(&[][..], |(_, b)| *b);
+    boxes(moov).iter().filter(|(k, _)| k == b"trak").count()
+}
+
+/// How many samples the voice's (track 2) runs of a file hold in all.
+pub(crate) fn voice_samples(file: &[u8]) -> u32 {
+    let mut total = 0;
+    for (kind, moof) in boxes(file) {
+        if &kind != b"moof" {
+            continue;
+        }
+        for (k, traf) in boxes(moof) {
+            if &k != b"traf" {
+                continue;
+            }
+            let tfhd = boxes(traf).into_iter().find(|(k, _)| k == b"tfhd").map_or(&[][..], |(_, b)| b);
+            if tfhd.len() >= 8 && u32::from_be_bytes([tfhd[4], tfhd[5], tfhd[6], tfhd[7]]) == 2 {
+                let trun = boxes(traf).into_iter().find(|(k, _)| k == b"trun").map_or(&[][..], |(_, b)| b);
+                if trun.len() >= 8 {
+                    total += u32::from_be_bytes([trun[4], trun[5], trun[6], trun[7]]);
+                }
+            }
+        }
+    }
+    total
+}
+
+/// The time and the sample count of the voice's (track 2) run in the first fragment that has one.
+pub(crate) fn first_voice_run(file: &[u8]) -> Option<(u64, u32)> {
+    for (kind, moof) in boxes(file) {
+        if &kind != b"moof" {
+            continue;
+        }
+        for (k, traf) in boxes(moof) {
+            if &k != b"traf" {
+                continue;
+            }
+            let tfhd = boxes(traf).into_iter().find(|(k, _)| k == b"tfhd")?.1;
+            if u32::from_be_bytes([tfhd[4], tfhd[5], tfhd[6], tfhd[7]]) == 2 {
+                let tfdt = boxes(traf).into_iter().find(|(k, _)| k == b"tfdt")?.1;
+                let trun = boxes(traf).into_iter().find(|(k, _)| k == b"trun")?.1;
+                let base = u64::from_be_bytes([tfdt[4], tfdt[5], tfdt[6], tfdt[7], tfdt[8], tfdt[9], tfdt[10], tfdt[11]]);
+                return Some((base, u32::from_be_bytes([trun[4], trun[5], trun[6], trun[7]])));
+            }
+        }
+    }
+    None
+}
