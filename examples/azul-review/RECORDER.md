@@ -392,7 +392,9 @@ the display wants them in, a screen share does not), and `DesktopState::query()`
 front, the pointer, the lock, the display's sleep; in a headless or E2E run it reads the script
 `AZ_DESKTOP_STATE_FILE` names, so a test needs no desktop). The lock and the machine's sleep also arrive as
 `SessionChange` events (`Locked`, `Unlocked`, `WillSleep`, `Woke`); `DesktopState.locked` says the state at
-the start. The exclusion list of apps is built (`ScreenCaptureWidget::add_excluded_app`,
+the start. The display a window is on is named to the capture by `Monitor.native_id` (the system's own number:
+the `CGDirectDisplayID` on macOS; `Monitor.monitor_id.index` is a position in AppKit's list and not a number
+the capture knows). The exclusion list of apps is built (`ScreenCaptureWidget::add_excluded_app`,
 `CaptureRequest.exclude`); the app's glue that hands it `recorder-screen-exclude` (kept in
 `RecorderSettings.screen_exclude`) is not. The preview panel's exclusion is the window flag
 `WindowFlags::exclude_from_capture` (built; a property of azul's window options like `is_always_on_top`, applied
@@ -432,6 +434,26 @@ and the unlock goes on, but only after a pause the lock made), and whether the d
   shows the free space and the hours left at the recording's current rate.
 * Idle: after N minutes without input, speech or change the recorder pauses itself
   (`session.idle_pause`) and resumes on activity.
+
+### The window (built: `recorder_panel.rs`, `recorder_host.rs`, `recorder_ui.rs`)
+
+Three layers, the first two plain Rust and tested without a window. `recorder_panel` says everything the person
+reads as keys and arguments of `resources/en.ftl` and `de.ftl` (the dot, the time, a pause's reason, the disk and
+the hours it lasts, the tracks that are off, what will be recorded before the first press, what the system
+allows for each device and whom it holds responsible, the notices, why a start failed, the rows of the list).
+`recorder_host` holds the recorder and decides what the window asks the system for at each moment: nothing while
+nothing records, the screen (at the display's aspect, at most `recorder-screen-width` wide), the camera and the
+microphone while a recording runs, nothing again in a pause (a camera light that stays on in a pause is a
+surprise), the camera alone for the preview; it starts a recording with what the system allows (a refused device
+is named and the others record; a `window` source is refused in words and never recorded as the whole display),
+keeps the last twenty notices, reads the list, deletes a recording (never the one that is going), puts right the
+recordings an earlier run left cut off. `recorder_ui` is the skin: a small window that floats over the others and
+is kept out of the screen's own recording (`WindowFlags::exclude_from_capture`), whose DOM mounts the capture
+widgets while the host asks for them and hands each frame to it, with a timer of 100 ms (the recorder's tick and,
+three times a second while it records, `DesktopState::query()`) and the pause key (a global hotkey, `Cmd+Shift+P`
+on a Mac, `Ctrl+Alt+P` elsewhere, that says when another program has it). Closing the window finishes a recording
+that is going. `cargo run -p AzReview --example recorder_demo` is that window on its own (recordings go to
+`review/recordings` of the data folder; a cut-off one is put right at the start).
 
 ## 9. What it costs
 
@@ -549,11 +571,12 @@ the export writes AAC.
 * The voice inside the camera file as recorded: a joint two-track fragmented MP4 (H.264 and Opus in one file,
   the audio's fragments interleaved with the picture's at the chunk boundaries), with its crash recovery.
 * A readback of the GL window's framebuffer for the `own` source on a window that is on the GPU.
-* **The check that the camera preview is not in a display capture** (not run: it needs a real capture of the
-  display, which the person has to allow). One test, about 10 seconds, nothing saved: the preview window is
-  opened with a patch of a colour that is nowhere else on the desktop (a magenta square drawn by the window),
-  a display capture of the display it is on runs for 10 seconds with `include_own_windows` on (the app's own
-  windows are in the picture, so what is tested is the flag and not the capture's own-window filter), and
-  every frame is checked in memory for that colour at the place of the window. It prints `preview visible in
-  the capture: yes/no` and the number of frames looked at, and writes no file. It runs twice: with the flag on
-  (expected: no) and with it off (expected: yes, the control that shows the check could see the patch).
+* **The check that the camera preview is not in a display capture** (built, NOT run: it needs a real capture of
+  the display, which the person has to allow). `cargo run -p AzReview --example recorder_probe -- --exclude on`
+  (and `--exclude off`): a window whose whole face is magenta floats over the others with the flag as asked, a
+  display capture of the display it is on runs for ten seconds with the app's own windows in the picture (so that
+  what is tested is the flag and not the capture's own-window filter), every frame is looked at in memory for
+  that colour (`recorder_patch.rs`), and one line is printed, `RECPROBE preview_visible=yes|no frames=.. with_patch=..`;
+  nothing is saved. It runs twice: with the flag on (expected: no) and with it off (expected: yes, the control that
+  shows the check could see the patch). The first run asks for Screen Recording (for a program started from a
+  terminal the system names the terminal).
