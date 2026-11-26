@@ -324,3 +324,25 @@ fn a_window_that_draws_under_the_bars_has_a_root_that_is_the_whole_screen() {
         );
     }
 }
+
+#[test]
+fn the_window_knows_when_its_insets_are_not_the_ones_its_root_was_placed_for() {
+    let (mut w, state) = lay_out_phone(393.0, 852.0, SafeAreaInsets::default(), false);
+    assert!(!w.safe_area_moved_since_layout(&state), "laid out under the insets it has");
+
+    w.safe_area_insets = side_insets(59.0, 34.0, 0.0, 0.0);
+    assert!(
+        w.safe_area_moved_since_layout(&state),
+        "the bars arrived after the first frame: the retained layout stands on other insets"
+    );
+    // a window that draws under the bars stands on none, whatever arrives
+    assert!(!w.safe_area_moved_since_layout(&phone_state(393.0, 852.0, true)));
+    // a keyboard is not part of the root's insets
+    let mut keyboard_only = SafeAreaInsets::default();
+    keyboard_only.keyboard = OptionPixelValue::Some(PixelValue::px(291.0));
+    w.safe_area_insets = keyboard_only;
+    assert!(
+        !w.safe_area_moved_since_layout(&state),
+        "the root stood on no insets and the keyboard is none of them: nothing moved"
+    );
+}
