@@ -12,9 +12,9 @@ use azul_css::{impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_p
 pub use crate::desktop::extra::speech::{
     BuiltinSpeechStatus, HeardStatus, OptionSpeechEvent, OptionSpeechWord, Speech, SpeechEvent, SpeechEventKind,
     SpeechEventVec, SpeechEventVecDestructor, SpeechEventVecDestructorType, SpeechEventVecSlice, SpeechHeard,
-    SpeechLimits, SpeechPreference, SpeechRecognizer, SpeechSession, SpeechStandby, SpeechState, SpeechStatus,
-    SpeechStream, SpeechStreamOptions, SpeechWord, SpeechWordVec, SpeechWordVecDestructor,
-    SpeechWordVecDestructorType, SpeechWordVecSlice,
+    SpeechLimits, SpeechModelDownload, SpeechModelPhase, SpeechModelState, SpeechPreference, SpeechRecognizer,
+    SpeechSession, SpeechStandby, SpeechState, SpeechStatus, SpeechStream, SpeechStreamOptions, SpeechWord,
+    SpeechWordVec, SpeechWordVecDestructor, SpeechWordVecDestructorType, SpeechWordVecSlice,
 };
 
 /// wasm stub of the desktop `SpeechStatus`; `#[repr(C)]` layout MUST match.
@@ -105,6 +105,50 @@ impl Default for SpeechStandby {
     fn default() -> Self {
         Self::OnDemand
     }
+}
+
+/// wasm stub of the desktop `SpeechModelDownload`; `#[repr(C)]` layout MUST match.
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum SpeechModelDownload {
+    Never,
+    Ask,
+    Automatic,
+}
+
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+impl Default for SpeechModelDownload {
+    fn default() -> Self {
+        Self::Ask
+    }
+}
+
+/// wasm stub of the desktop `SpeechModelPhase`; `#[repr(C)]` layout MUST match.
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum SpeechModelPhase {
+    Present,
+    Downloading,
+    NeedsConsent,
+    Missing,
+    Failed,
+    Offline,
+    NoFolder,
+}
+
+/// wasm stub of the desktop `SpeechModelState`; `#[repr(C)]` layout MUST match.
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpeechModelState {
+    pub bytes_done: u64,
+    pub bytes_total: u64,
+    pub message: AzString,
+    pub path: AzString,
+    pub url: AzString,
+    pub phase: SpeechModelPhase,
 }
 
 /// wasm stub of the desktop `SpeechLimits`; `#[repr(C)]` layout MUST match.
@@ -421,6 +465,29 @@ impl SpeechSession {
     pub fn disarm(&self) {}
     /// Nothing is kept open on wasm.
     pub fn set_standby(&self, _standby: SpeechStandby) {}
+    /// No model to fetch on wasm.
+    pub fn set_model_download(&self, _policy: SpeechModelDownload) {}
+    /// No model to fetch on wasm.
+    pub fn set_offline(&self, _offline: bool) {}
+    /// No model to keep on wasm.
+    pub fn set_model_folder(&self, _folder: AzString) {}
+    /// No model on wasm.
+    pub fn model_state(&self) -> SpeechModelState {
+        SpeechModelState {
+            bytes_done: 0,
+            bytes_total: 0,
+            message: AzString::from("no speech recognition on the web yet".to_string()),
+            path: AzString::from(String::new()),
+            url: AzString::from(String::new()),
+            phase: SpeechModelPhase::Missing,
+        }
+    }
+    /// No model on wasm.
+    pub fn allow_model_download(&self) -> SpeechModelState {
+        self.model_state()
+    }
+    /// Nothing is fetched on wasm.
+    pub fn cancel_model_download(&self) {}
     /// No sound flows on wasm.
     pub fn audio_flowing(&self) -> bool {
         false

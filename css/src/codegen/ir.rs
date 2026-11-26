@@ -1,7 +1,7 @@
 //! The language-neutral IR every printer consumes.
 //!
 //! An [`Expr`] describes *how to construct a value through the azul bindings*,
-//! in api.json vocabulary (class names without the `Az` prefix, snake_case
+//! in api.json vocabulary (class names without the `Az` prefix, `snake_case`
 //! method names). It is produced exactly once, by [`super::lower`], and each
 //! language printer only decides how to *spell* the six node kinds:
 //!
@@ -22,7 +22,7 @@
 //! printers turn each into a function (or the language's closest equivalent)
 //! returning the value.
 //!
-//! **DOM construction** (AzBuilder's "Subtree → code" / "Component → code",
+//! **DOM construction** (`AzBuilder`'s "Subtree → code" / "Component → code",
 //! lowered in `azul_core::codegen::dom`) adds four node kinds:
 //!
 //! | node | api.json concept | C spelling |
@@ -159,7 +159,7 @@ pub enum Expr {
     /// An api.json `String` (C `AzString`) built from a literal.
     Str(String),
     /// A static api.json constructor / function: `class::method(args)`.
-    /// `method` is the api.json snake_case name (`"text_color"`).
+    /// `method` is the api.json `snake_case` name (`"text_color"`).
     Call {
         class: String,
         method: String,
@@ -190,10 +190,10 @@ pub enum Expr {
     Unsupported { what: String },
     /// A by-value `self` method of api.json class `class` on `recv` (the
     /// builder methods: `Dom.with_child`, `Dom.with_css`, ...). `method` is
-    /// the api.json snake_case name. A chain of them nests: the innermost
+    /// the api.json `snake_case` name. A chain of them nests: the innermost
     /// `recv` is the constructor.
     Method {
-        recv: alloc::boxed::Box<Expr>,
+        recv: Box<Expr>,
         class: String,
         method: String,
         args: Vec<Expr>,
@@ -244,7 +244,7 @@ impl Expr {
     }
 
     #[must_use]
-    pub fn f32_text(text: String) -> Self {
+    pub const fn f32_text(text: String) -> Self {
         Self::Float { text, ty: Prim::F32 }
     }
 
@@ -308,7 +308,7 @@ impl Expr {
     #[must_use]
     pub fn method(recv: Self, class: &str, method: &str, args: Vec<Self>) -> Self {
         Self::Method {
-            recv: alloc::boxed::Box::new(recv),
+            recv: Box::new(recv),
             class: class.to_string(),
             method: method.to_string(),
             args,
@@ -462,7 +462,7 @@ impl Expr {
     pub fn used_types(&self) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
         self.walk(&mut |e| match e {
-            Self::Call { class, .. } => out.push(class.clone()),
+            Self::Call { class, .. } | Self::Method { class, .. } => out.push(class.clone()),
             Self::Variant { ty, shape, .. } => {
                 out.push(ty.clone());
                 if let EnumShape::Generic { base, .. } = shape {
@@ -474,7 +474,6 @@ impl Expr {
                 out.push(ty.clone());
                 out.push(elem.clone());
             }
-            Self::Method { class, .. } => out.push(class.clone()),
             Self::Str(_) | Self::Concat(_) => out.push("String".to_string()),
             _ => {}
         });
@@ -485,8 +484,10 @@ impl Expr {
 }
 
 /// Lists whose items are independent (a style's properties, a rule's
-/// declarations, a stylesheet's rules): an item the bindings cannot build is
-/// dropped from them (with a note) instead of poisoning the whole list.
+/// declarations, a stylesheet's rules).
+///
+/// An item the bindings cannot build is dropped from them (with a note) instead
+/// of poisoning the whole list.
 pub static DROPPABLE_VECS: &[&str] = &[
     "CssPropertyWithConditionsVec",
     "CssDeclarationVec",
@@ -760,9 +761,11 @@ pub struct AppSpec {
     pub is_body: bool,
 }
 
-/// A module that is a component library: printers that can spell the
-/// registration append a `register_<library>_library()` that registers
-/// each component (a `ComponentDef` whose render function calls the item).
+/// A module that is a component library.
+///
+/// Printers that can spell the registration append a
+/// `register_<library>_library()` that registers each component (a
+/// `ComponentDef` whose render function calls the item).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LibrarySpec {
     /// The library name (`"user"`).
@@ -835,9 +838,10 @@ impl Module {
     }
 }
 
-/// Flatten `e` for languages that cannot nest constructor calls: every
-/// non-leaf child is hoisted into a temporary, in evaluation order. Returns
-/// the bindings (`(temp_index, shallow expr)`) and the final shallow
+/// Flatten `e` for languages that cannot nest constructor calls: every non-leaf
+/// child is hoisted into a temporary, in evaluation order.
+///
+/// Returns the bindings (`(temp_index, shallow expr)`) and the final shallow
 /// expression; shallow expressions reference temporaries through
 /// [`Operand::Temp`] slots.
 #[must_use]

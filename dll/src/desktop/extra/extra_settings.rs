@@ -33,9 +33,29 @@ pub const SPEECH_HEARD_VAR: &str = "AZ_SPEECH_HEARD";
 /// The variable naming the file that scripts what a headless run's recognizers hear and refuse.
 pub const SPEECH_SCRIPT_VAR: &str = "AZ_SPEECH_SCRIPT";
 
+/// The variable that says whether the built-in recognizer's model is fetched when it is missing:
+/// `never`, `ask` (the default) or `automatic`. The app's own choice (`set_model_download`) wins
+/// over it.
+pub const SPEECH_MODEL_DOWNLOAD_VAR: &str = "AZ_SPEECH_MODEL_DOWNLOAD";
+
+/// The variable that makes a program offline for the model's download: set to anything but empty,
+/// `0` and `false`, nothing is fetched from the network.
+pub const SPEECH_OFFLINE_VAR: &str = "AZ_SPEECH_OFFLINE";
+
 /// How long the portal's share dialog may stay open before a screen capture gives up: five
 /// minutes.
 pub const SCREENCAP_START_TIMEOUT_SECS: u64 = 300;
+
+/// What [`SPEECH_MODEL_DOWNLOAD_VAR`] says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelDownloadSetting {
+    /// `never`: the model is never fetched.
+    Never,
+    /// `ask`: not until the app allows it.
+    Ask,
+    /// `automatic`: at the first need.
+    Automatic,
+}
 
 /// What the platform services read from the environment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,6 +69,12 @@ pub struct ExtraSettings {
     /// `AZ_SCREENCAP_START_TIMEOUT_SECS`: how long the portal's share dialog may stay open
     /// ([`SCREENCAP_START_TIMEOUT_SECS`] when unset or not a number).
     pub screencap_start_timeout_secs: u64,
+    /// `AZ_SPEECH_MODEL_DOWNLOAD`: whether the built-in recognizer's model is fetched when it is
+    /// missing (`None`: the variable is unset or says none of the three words: the session's default,
+    /// which asks).
+    pub speech_model_download: Option<ModelDownloadSetting>,
+    /// `AZ_SPEECH_OFFLINE`: nothing is fetched from the network.
+    pub speech_offline: bool,
 }
 
 impl ExtraSettings {
@@ -63,6 +89,17 @@ impl ExtraSettings {
                 .var("AZ_SCREENCAP_START_TIMEOUT_SECS")
                 .and_then(|v| v.parse::<u64>().ok())
                 .unwrap_or(SCREENCAP_START_TIMEOUT_SECS),
+            speech_model_download: env.var(SPEECH_MODEL_DOWNLOAD_VAR).and_then(|word| {
+                match word.trim().to_ascii_lowercase().as_str() {
+                    "never" => Some(ModelDownloadSetting::Never),
+                    "ask" => Some(ModelDownloadSetting::Ask),
+                    "automatic" => Some(ModelDownloadSetting::Automatic),
+                    _ => None,
+                }
+            }),
+            speech_offline: env
+                .var(SPEECH_OFFLINE_VAR)
+                .is_some_and(|word| !matches!(word.trim().to_ascii_lowercase().as_str(), "" | "0" | "false")),
         }
     }
 

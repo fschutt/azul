@@ -20,6 +20,8 @@ fn the_empty_environment_is_the_default() {
             pagination_tokens: false,
             screencap_debug: false,
             screencap_start_timeout_secs: 300,
+            speech_model_download: None,
+            speech_offline: false,
         }
     );
 }
@@ -59,4 +61,38 @@ fn the_names_of_the_headless_stand_in_switches_are_kept() {
     assert_eq!(SPEECH_LOG_VAR, "AZ_SPEECH_LOG");
     assert_eq!(SPEECH_HEARD_VAR, "AZ_SPEECH_HEARD");
     assert_eq!(SPEECH_SCRIPT_VAR, "AZ_SPEECH_SCRIPT");
+}
+
+#[test]
+fn the_model_download_is_one_of_three_words_and_anything_else_is_the_default() {
+    for (word, setting) in [
+        ("never", ModelDownloadSetting::Never),
+        ("ask", ModelDownloadSetting::Ask),
+        ("automatic", ModelDownloadSetting::Automatic),
+        (" Automatic ", ModelDownloadSetting::Automatic),
+        ("NEVER", ModelDownloadSetting::Never),
+    ] {
+        assert_eq!(with(&[("AZ_SPEECH_MODEL_DOWNLOAD", word)]).speech_model_download, Some(setting), "{word:?}");
+    }
+    for other in ["", "always", "yes", "1", "auto"] {
+        assert_eq!(with(&[("AZ_SPEECH_MODEL_DOWNLOAD", other)]).speech_model_download, None, "{other:?}");
+    }
+    assert_eq!(with(&[]).speech_model_download, None);
+}
+
+#[test]
+fn offline_is_on_when_the_variable_says_anything_but_nothing_zero_or_false() {
+    for on in ["1", "yes", "true", "offline", " 1 "] {
+        assert!(with(&[("AZ_SPEECH_OFFLINE", on)]).speech_offline, "{on:?}");
+    }
+    for off in ["", "0", "false", "FALSE", " "] {
+        assert!(!with(&[("AZ_SPEECH_OFFLINE", off)]).speech_offline, "{off:?}");
+    }
+    assert!(!with(&[]).speech_offline);
+}
+
+#[test]
+fn the_names_of_the_model_switches_are_kept() {
+    assert_eq!(SPEECH_MODEL_DOWNLOAD_VAR, "AZ_SPEECH_MODEL_DOWNLOAD");
+    assert_eq!(SPEECH_OFFLINE_VAR, "AZ_SPEECH_OFFLINE");
 }
