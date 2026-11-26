@@ -165,10 +165,15 @@ fn insets_that_moved_with_a_rotation_take_the_root_with_them() {
     warm_up(&mut window);
     assert_eq!(root_rect(&window).origin.y, top);
 
-    // Landscape: the island is at the side now, the bars on top and bottom go.
+    // Landscape: the window turns first (the layout at the new size, still under the bars of the old
+    // orientation), and the system tells the new bars afterwards: the island is at the side now, the
+    // bars on top and bottom go. A pass that sees the new size and the new insets together would
+    // place the root right whatever the guard says - the order is what a phone does.
     window.simulate_resize(height, width);
+    window.regenerate_layout().expect("the rotation's first pass, at the new size");
+    assert_eq!(root_rect(&window).origin.y, top, "the new bars have not been told yet");
     the_system_reports(&mut window, insets(0.0, 21.0, 59.0, 59.0));
-    let result = window.regenerate_layout_inner().expect("the rotation's regeneration");
+    let result = window.regenerate_layout_inner().expect("the regeneration the new bars ask for");
 
     assert_ne!(result, LayoutRegenerateResult::LayoutUnchanged);
     let after = root_rect(&window);
