@@ -1128,7 +1128,9 @@ web-transpiler-static = ["web-transpiler", "dep:cc"]
 # dll/src/desktop/extra/speech/builtin/mod.rs), so this feature is OFF EVERYWHERE: in no other feature's
 # list (not default, not build-dll, not link-static, not dist), in no workflow and in no recipe, and a
 # public artifact (a release, the website, the demos, a crate) never carries it. The srcgate test
-# `speech_engine_gate` fails when anything but this line, build.rs and the speech module names it.
+# `speech_engine_gate` fails when anything but this line, build.rs, the speech module and the two speech
+# scripts (the fetch script, in comments; scripts/check_speech.sh, which only tests and compiles, never in a
+# release profile, and which no workflow runs) names it.
 # A build of one's own turns it on:
 #   scripts/fetch_whistle.sh --static target/speech-engine   # puts static/libcactus.a there (sha256 pinned)
 #   cargo build -p azul-dll --features speech-engine-static

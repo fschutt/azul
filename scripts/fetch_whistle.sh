@@ -125,16 +125,13 @@ fetch_checked() {   # url, file, sha256
   curl --fail --silent --show-error --location --output "$file.part" "$url"
   got="$(sha256_of "$file.part")"
   if [ "$got" != "$sha" ]; then
-    rm -f "$file.part"
-    echo "CHECKSUM MISMATCH for $url: expected $sha, got $got" >&2
+    echo "CHECKSUM MISMATCH for $url: expected $sha, got $got (the file is left as $file.part: delete it)" >&2
     exit 1
   fi
   mv "$file.part" "$file"
 }
 
 mkdir -p "$dest"
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
 
 if [ "$static_engine" = 1 ]; then
   mkdir -p "$dest/static"
@@ -143,6 +140,9 @@ if [ "$static_engine" = 1 ]; then
   lib="static/libcactus.a"
   echo "wrote  $dest/$lib ($(wc -c < "$dest/$lib" | tr -d ' ') bytes)"
 else
+  # The wheel is unpacked in a temporary folder; nothing here deletes it (delete it when you like).
+  work="$(mktemp -d)"
+  trap 'echo "left: $work (the downloaded wheel; delete when you like)"' EXIT
   wheel="cactus_runtime-${ENGINE_VERSION}-py3-none-${tag}.whl"
   fetch_checked "https://huggingface.co/Cactus-Compute/cactus/resolve/${ENGINE_REVISION}/releases/${ENGINE_VERSION}/python/${wheel}" \
     "$work/$wheel" "$want"

@@ -26,8 +26,16 @@ const HOME: &[&str] = &[
     "dll/build.rs",
     "dll/tests/speech_builtin_engine.rs",
     "scripts/fetch_whistle.sh",
+    "scripts/check_speech.sh",
     "examples/azul-srcgate/tests/speech_engine_gate.rs",
 ];
+
+/// What the check script of the speech work (`scripts/check_speech.sh`, run by hand or on a runner) may do with
+/// the feature: test it and compile it, nothing that makes a thing to ship.
+const CHECK_SCRIPT: &str = "scripts/check_speech.sh";
+
+/// Words that make a build something to ship or to upload: a line that names the feature may have none of them.
+const SHIPPING_WORDS: &[&str] = &["--release", "--profile", "prod-release", "upload", "publish", "gh release"];
 
 /// Folders that belong to it as a whole.
 const HOME_DIRS: &[&str] = &["dll/src/desktop/extra/speech/"];
@@ -95,6 +103,24 @@ fn violations(relative: &str, text: &str) -> Vec<String> {
             _ => {}
         }
     }
+    // The check script tests and compiles the feature (on a runner or by hand): nowhere does it make a thing to ship
+    // or to upload, so none of its lines has a word that does.
+    if relative == CHECK_SCRIPT {
+        for (index, line) in text.lines().enumerate() {
+            let shipping = SHIPPING_WORDS.iter().find(|word| line.contains(**word));
+            if let (false, Some(word)) = (line.trim_start().starts_with('#'), shipping) {
+                found.push(format!("{relative}:{}: the check script says `{word}`: {}", index + 1, line.trim()));
+            }
+        }
+    }
+    // No workflow runs the check script: the engine is linked on a runner only when a person asks for it.
+    if relative.starts_with(".github/") {
+        for (index, line) in text.lines().enumerate() {
+            if line.contains("check_speech") {
+                found.push(format!("{relative}:{}: a workflow runs the speech check script: {}", index + 1, line.trim()));
+            }
+        }
+    }
     found
 }
 
@@ -112,7 +138,7 @@ fn nothing_that_ships_or_builds_for_others_names_the_static_speech_engine() {
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue; // not text: nothing that could name a feature
         };
-        if !text.contains(FEATURE) {
+        if !text.contains(FEATURE) && !text.contains("check_speech") {
             continue;
         }
         let relative = path.strip_prefix(&root).unwrap_or(&path).to_string_lossy().replace('\\', "/");
@@ -159,4 +185,23 @@ fn the_code_it_gates_documentation_and_the_fetch_script_comments_may_name_it() {
     assert!(violations("scripts/fetch_whistle.sh", "#   the feature `speech-engine-static` links it\n").is_empty());
     let runs = "cargo build -p azul-dll --features speech-engine-static\n";
     assert_eq!(violations("scripts/fetch_whistle.sh", runs).len(), 1, "a script may document it, not run it");
+}
+
+#[test]
+fn the_check_script_may_test_and_compile_it_but_never_make_a_thing_to_ship_and_no_workflow_runs_it() {
+    let tests = "  cargo test -p azul-dll --lib --features speech-engine-static builtin > /tmp/static.log 2>&1\n";
+    assert!(violations("scripts/check_speech.sh", tests).is_empty());
+    let build = "  cargo build -p azul-dll --features \"build-dll,speech-engine-static\" > /tmp/dylib.log 2>&1\n";
+    assert!(violations("scripts/check_speech.sh", build).is_empty(), "a build of one's own, in the debug profile");
+    for shipping in [
+        "  cargo build --release -p azul-dll --features speech-engine-static\n",
+        "  cargo build --profile prod-release -p azul-dll --features speech-engine-static\n",
+        "  gh release upload v1 target/libazul.dylib\n",
+    ] {
+        assert_eq!(violations("scripts/check_speech.sh", shipping).len(), 1, "{shipping}");
+    }
+    let a_comment = "# a release build (--release) would ship it: never\n";
+    assert!(violations("scripts/check_speech.sh", a_comment).is_empty());
+    let workflow = "      - run: bash scripts/check_speech.sh static\n";
+    assert_eq!(violations(".github/workflows/rust.yml", workflow).len(), 1);
 }
