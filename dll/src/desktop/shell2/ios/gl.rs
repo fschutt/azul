@@ -92,13 +92,13 @@ fn fail(stage: GpuStage, cause: impl AsRef<str>) -> GpuFallback {
 
 /// `OpenGLES.framework`, opened. Never closed: the GL function table points into it, and the system's
 /// frameworks stay mapped for the life of the process anyway.
-pub struct EaglLibrary {
+pub(super) struct EaglLibrary {
     library: ManuallyDrop<libloading::Library>,
 }
 
 impl EaglLibrary {
     /// Open the framework (stage [`GpuStage::Library`]).
-    pub fn open() -> Result<Self, GpuFallback> {
+    pub(super) fn open() -> Result<Self, GpuFallback> {
         // SAFETY: opening a system framework runs its initialisers, as every app that links it does.
         let library = unsafe { libloading::Library::new(OPENGLES_PATH) }
             .map_err(|e| fail(GpuStage::Library, format!("dlopen {OPENGLES_PATH}: {e}")))?;
@@ -148,7 +148,7 @@ impl EaglLibrary {
     }
 
     /// The engine's GL table, filled from this framework (stage [`GpuStage::Functions`]).
-    pub fn functions(&self) -> Result<Rc<GenericGlContext>, GpuFallback> {
+    pub(super) fn functions(&self) -> Result<Rc<GenericGlContext>, GpuFallback> {
         let (asked, found) = (std::cell::Cell::new(0_usize), std::cell::Cell::new(0_usize));
         let table = load_gl_context(|name| {
             let address = self.function(name);
@@ -186,13 +186,13 @@ impl EaglLibrary {
 // ----- the context -----------------------------------------------------------------------------
 
 /// An `EAGLContext` of OpenGL ES 3.0. Owned (+1); current on the thread that made it current.
-pub struct EaglContext {
+pub(super) struct EaglContext {
     object: *mut AnyObject,
 }
 
 impl EaglContext {
     /// Make the context (stage [`GpuStage::Context`]).
-    pub fn new() -> Result<Self, GpuFallback> {
+    pub(super) fn new() -> Result<Self, GpuFallback> {
         let Some(cls) = class(c"EAGLContext") else {
             return Err(fail(GpuStage::Context, "the class EAGLContext is not registered"));
         };
@@ -212,7 +212,7 @@ impl EaglContext {
 
     /// Is this context the one current on the calling thread?
     #[must_use]
-    pub fn is_current(&self) -> bool {
+    pub(super) fn is_current(&self) -> bool {
         let Some(cls) = class(c"EAGLContext") else {
             return false;
         };
@@ -222,7 +222,7 @@ impl EaglContext {
     }
 
     /// Make it current on the calling thread (a no-op when it is).
-    pub fn make_current(&self) -> Result<(), GpuFallback> {
+    pub(super) fn make_current(&self) -> Result<(), GpuFallback> {
         if self.is_current() {
             return Ok(());
         }
@@ -242,7 +242,7 @@ impl EaglContext {
     }
 
     /// Nothing is current on the calling thread any more.
-    pub fn clear_current() {
+    pub(super) fn clear_current() {
         if let Some(cls) = class(c"EAGLContext") {
             // SAFETY: a class method of EAGLContext; nil is the documented way to unset.
             let _: Bool = unsafe { msg_send![cls, setCurrentContext: std::ptr::null_mut::<AnyObject>()] };
@@ -267,7 +267,7 @@ impl EaglContext {
 
     /// What the context says about itself. Needs it current.
     #[must_use]
-    pub fn device_info(gl: &GenericGlContext) -> DeviceInfo {
+    pub(super) fn device_info(gl: &GenericGlContext) -> DeviceInfo {
         DeviceInfo {
             vendor: gl.get_string(glconst::VENDOR),
             renderer: gl.get_string(glconst::RENDERER),
@@ -278,7 +278,7 @@ impl EaglContext {
 
     /// Give the object up WITHOUT releasing it (the app is in the background: nothing may flush a GL command, and
     /// a context's `dealloc` does).
-    pub fn leak(self) {
+    pub(super) fn leak(self) {
         std::mem::forget(self);
     }
 }
@@ -298,7 +298,7 @@ impl Drop for EaglContext {
 /// whose colour attachment is that layer's renderbuffer. WebRender takes the framebuffer bound at the start of a
 /// frame as its default one, so [`Drawable::bind`] before `render`, [`Drawable::present`] after it. There is no
 /// depth or stencil buffer: WebRender's default target uses none.
-pub struct Drawable {
+pub(super) struct Drawable {
     gl: Rc<GenericGlContext>,
     /// The `CAEAGLLayer`, owned (+1) and held by its superlayer too.
     layer: *mut AnyObject,
@@ -310,7 +310,7 @@ pub struct Drawable {
 
 impl Drawable {
     /// Make the drawable under `parent` (the render view's layer), `size` big. The context must be current.
-    pub fn create(
+    pub(super) fn create(
         library: &EaglLibrary,
         context: &EaglContext,
         gl: &Rc<GenericGlContext>,
@@ -454,7 +454,7 @@ impl Drawable {
 
     /// The drawable has another size or scale: the layer follows its parent, and the renderbuffer's storage is
     /// allocated again from it. The context must be current.
-    pub fn resize(
+    pub(super) fn resize(
         &mut self,
         context: &EaglContext,
         parent: *mut AnyObject,
@@ -468,18 +468,18 @@ impl Drawable {
     }
 
     /// The framebuffer WebRender draws into (its colour renderbuffer is the layer's).
-    pub fn bind(&self) {
+    pub(super) fn bind(&self) {
         self.gl.bind_framebuffer(glconst::FRAMEBUFFER, self.framebuffer);
     }
 
     /// The size of the renderbuffer in device pixels, as the layer gave it.
     #[must_use]
-    pub fn size(&self) -> (i32, i32) {
+    pub(super) fn size(&self) -> (i32, i32) {
         (self.width, self.height)
     }
 
     /// Show the frame (`-presentRenderbuffer:`).
-    pub fn present(&self, context: &EaglContext) -> Result<(), GpuFallback> {
+    pub(super) fn present(&self, context: &EaglContext) -> Result<(), GpuFallback> {
         self.gl.bind_renderbuffer(glconst::RENDERBUFFER, self.renderbuffer);
         if context.present_renderbuffer() {
             Ok(())
@@ -489,7 +489,7 @@ impl Drawable {
     }
 
     /// Delete the GL objects (the context current, GL allowed) and take the layer off the view.
-    pub fn destroy(&mut self) {
+    pub(super) fn destroy(&mut self) {
         if self.framebuffer != 0 || self.renderbuffer != 0 {
             self.gl.bind_framebuffer(glconst::FRAMEBUFFER, 0);
             self.gl.bind_renderbuffer(glconst::RENDERBUFFER, 0);
@@ -507,7 +507,7 @@ impl Drawable {
 
     /// Give the GL objects up WITHOUT a GL command (the app is in the background, or the context is lost); the
     /// layer is taken off the view (Core Animation, not GL).
-    pub fn abandon(&mut self) {
+    pub(super) fn abandon(&mut self) {
         self.framebuffer = 0;
         self.renderbuffer = 0;
         self.remove_layer();

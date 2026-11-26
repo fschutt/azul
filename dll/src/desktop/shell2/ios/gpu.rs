@@ -200,7 +200,8 @@ impl IOSWindow {
 
     /// The layer of the render view: the CAEAGLLayer goes under it.
     fn gpu_view_layer(&self) -> *mut AnyObject {
-        let view = (&*self.ui_view as *const objc::runtime::Object) as *mut AnyObject;
+        let object: *const objc::runtime::Object = &*self.ui_view;
+        let view = object as *mut AnyObject;
         // SAFETY: `layer` of a live UIView, on the main thread.
         unsafe { msg_send![view, layer] }
     }
@@ -321,7 +322,7 @@ impl IOSWindow {
             Action::DestroySurface => {
                 if let Some(gpu) = self.gpu.as_mut() {
                     if let Some(context) = gpu.context.as_ref() {
-                        let _ = context.make_current();
+                        make_current_for_teardown(context);
                     }
                     if let Some(mut drawable) = gpu.drawable.take() {
                         drawable.destroy();
@@ -333,7 +334,7 @@ impl IOSWindow {
             Action::DestroyRenderer => {
                 if let Some(gpu) = self.gpu.as_ref() {
                     if let Some(context) = gpu.context.as_ref() {
-                        let _ = context.make_current();
+                        make_current_for_teardown(context);
                     }
                 }
                 // WebRender's renderer must be deinit'd inside a frame, with its context current; the
@@ -546,7 +547,9 @@ impl IOSWindow {
         // the CPU renderer has drawn nothing yet: a full layout, a full raster, a present
         self.common.request_regeneration(RelayoutReason::RefreshDom);
         self.needs_rerender = true;
-        let _ = self.present();
+        if let Err(e) = self.present() {
+            log_warn!(LogCategory::Rendering, "[iOS GPU] the CPU renderer's first present after the fall back failed: {}", e);
+        }
     }
 
     // ----- the frame ---------------------------------------------------------------------------
@@ -655,7 +658,7 @@ impl IOSWindow {
             return;
         };
         // easing-based scroll animations move one step
-        let now = azul_core::task::Instant::System(std::time::Instant::now().into());
+        let now = azul_core::task::Instant::System(Instant::now().into());
         let tick = layout_window.scroll_manager.tick(now);
         if tick.needs_repaint {
             layout_window.scroll_manager.calculate_scrollbar_states();
@@ -745,7 +748,9 @@ impl IOSWindow {
             return Err(GpuFallback::injected(GpuStage::Lost));
         }
         if let Some(gpu) = self.gpu.as_mut() {
-            let _ = gpu.lifecycle.step(Event::FramePresented);
+            // (a frame that went out has no answer: the machine only forgives the losses before it)
+            let answer = gpu.lifecycle.step(Event::FramePresented);
+            debug_assert!(answer.is_empty(), "FramePresented has no action");
         }
         log_debug!(
             LogCategory::Rendering,
@@ -804,6 +809,19 @@ fn plist_backend() -> Option<String> {
             return None;
         }
         Some(CStr::from_ptr(bytes).to_string_lossy().into_owned())
+    }
+}
+
+/// The teardown paths make the context current when they can: what they delete is deleted either way, a context that
+/// refuses is the reason it is being torn down.
+fn make_current_for_teardown(context: &EaglContext) {
+    if let Err(e) = context.make_current() {
+        log_debug!(
+            LogCategory::Rendering,
+            "[iOS GPU] the context could not be made current for the teardown ({}): {}",
+            e.stage.name(),
+            e.cause
+        );
     }
 }
 
