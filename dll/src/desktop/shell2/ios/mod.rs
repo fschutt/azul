@@ -131,6 +131,11 @@ extern "C" {
         principalClassName: *mut Object,
         delegateClassName: *mut Object,
     ) -> i32;
+    /// The exported constants (iOS 2+), linked rather than rebuilt from their conventional
+    /// values: the notification of the keyboard's frame and the keys of its user info.
+    static UIKeyboardWillChangeFrameNotification: *mut Object;
+    static UIKeyboardFrameEndUserInfoKey: *mut Object;
+    static UIKeyboardIsLocalUserInfoKey: *mut Object;
 }
 
 #[link(name = "CoreGraphics", kind = "framework")]
@@ -2172,9 +2177,7 @@ impl IOSWindow {
             // raised was covering the field.
             {
                 let center: *mut Object = msg_send![class!(NSNotificationCenter), defaultCenter];
-                let name_cstr = b"UIKeyboardWillChangeFrameNotification\0".as_ptr() as *const i8;
-                let name: *mut Object =
-                    msg_send![class!(NSString), stringWithUTF8String: name_cstr];
+                let name: *mut Object = UIKeyboardWillChangeFrameNotification;
                 let _: () = msg_send![
                     center,
                     addObserver: view
@@ -2917,8 +2920,7 @@ extern "C" fn ui_keyboard_frame_changed(this: &Object, _cmd: Sel, notification: 
         if info.is_null() {
             return;
         }
-        let key_cstr = b"UIKeyboardFrameEndUserInfoKey\0".as_ptr() as *const i8;
-        let key: *mut Object = msg_send![class!(NSString), stringWithUTF8String: key_cstr];
+        let key: *mut Object = UIKeyboardFrameEndUserInfoKey;
         let value: *mut Object = msg_send![info, objectForKey: key];
         if value.is_null() {
             return;
@@ -2926,9 +2928,7 @@ extern "C" fn ui_keyboard_frame_changed(this: &Object, _cmd: Sel, notification: 
         // iPad multitasking notifies EVERY visible app when any app's keyboard comes or goes;
         // `UIKeyboardIsLocalUserInfoKey` is true only for the app that raised it. Another app's
         // keyboard must not inset this app's layout.
-        let local_key_cstr = b"UIKeyboardIsLocalUserInfoKey\0".as_ptr() as *const i8;
-        let local_key: *mut Object =
-            msg_send![class!(NSString), stringWithUTF8String: local_key_cstr];
+        let local_key: *mut Object = UIKeyboardIsLocalUserInfoKey;
         let local_value: *mut Object = msg_send![info, objectForKey: local_key];
         let is_local: Option<bool> = if local_value.is_null() {
             None

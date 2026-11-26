@@ -538,3 +538,26 @@ fn the_keyboard_protocols_are_registered_by_name_when_the_runtime_has_none() {
     at(IOS_MOD_RS, "fn register_protocol_by_name(", "the shell");
     at(IOS_MOD_RS, "ProtocolDecl::new(name)", "register_protocol_by_name");
 }
+
+/// The notification name, the user-info keys and the run-loop mode are exported constants: they
+/// are linked, not rebuilt from a C string holding their conventional value.
+#[test]
+fn the_ios_shell_links_the_exported_constants_it_names() {
+    let code = code_of(IOS_MOD_RS);
+    for literal in [
+        "b\"UIKeyboardWillChangeFrameNotification",
+        "b\"UIKeyboardFrameEndUserInfoKey",
+        "b\"UIKeyboardIsLocalUserInfoKey",
+        "b\"kCFRunLoopDefaultMode",
+    ] {
+        assert!(!code.contains(literal), "{literal}: link the constant");
+    }
+    for linked in [
+        "static UIKeyboardWillChangeFrameNotification",
+        "static UIKeyboardFrameEndUserInfoKey",
+        "static UIKeyboardIsLocalUserInfoKey",
+        "static NSRunLoopCommonModes",
+    ] {
+        at(&code, linked, "the extern blocks of the iOS shell");
+    }
+}
