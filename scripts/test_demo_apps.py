@@ -4,9 +4,12 @@
 
     python3 scripts/test_demo_apps.py            (Python 3.11+, standard library only)
 """
+import contextlib
+import io
 import json
 import pathlib
 import sys
+import tarfile
 import tempfile
 import unittest
 
@@ -15,6 +18,11 @@ sys.path.insert(0, str(HERE))
 import demo_apps  # noqa: E402
 import demo_build  # noqa: E402
 import demo_gate  # noqa: E402
+import demo_icon  # noqa: E402
+import demo_publish  # noqa: E402
+sys.path.insert(0, str(HERE / "ci"))
+import png_compare  # noqa: E402
+import smoke_verdict  # noqa: E402
 
 
 def cargo_json(*artifacts):
@@ -28,6 +36,27 @@ def cargo_json(*artifacts):
     lines.append(json.dumps({"reason": "build-finished", "success": True}))
     return "\n".join(lines) + "\n"
 
+
+# What `python3 scripts/demo_apps.py assets <package>` prints: app, column, staged name, release name, one line
+# per built file. doc/src/dllgen/demo_apps_test.rs holds the SAME lines against the names the release page
+# generator gives the files (GOLDEN_AZWIDGETS and GOLDEN_AZCOMPANION there), and a test of that file reads this
+# one for them: the script and the page agree to the byte as long as both match these, so change them together.
+GOLDEN_AZWIDGETS = (
+    "AzWidgets\tlinux\tAzWidgets-linux\tAzWidgets-linux.tar.gz\n"
+    "AzWidgets\tmacos-arm64\tAzWidgets-macos\tAzWidgets-macos.tar.gz\n"
+    "AzWidgets\tmacos-intel\tAzWidgets-macos-intel\tAzWidgets-macos-intel.tar.gz\n"
+    "AzWidgets\twindows\tAzWidgets-windows.exe\tAzWidgets-windows.exe.tar.gz\n"
+    "AzWidgets\tandroid-arm64\tAzWidgets-android-arm64.apk\tAzWidgets-android-arm64.apk\n"
+    "AzWidgets\tandroid-x86_64\tAzWidgets-android-x86_64.apk\tAzWidgets-android-x86_64.apk\n"
+    "AzWidgets\tios-device\tAzWidgets-ios-device.app.zip\tAzWidgets-ios-device.app.zip\n"
+    "AzWidgets\tios-sim\tAzWidgets-ios-sim.app.zip\tAzWidgets-ios-sim.app.zip\n"
+)
+GOLDEN_AZCOMPANION = (
+    "AzCompanion\tandroid-arm64\tAzCompanion-android-arm64.apk\tAzCompanion-android-arm64.apk\n"
+    "AzCompanion\tandroid-x86_64\tAzCompanion-android-x86_64.apk\tAzCompanion-android-x86_64.apk\n"
+    "AzCompanion\tios-device\tAzCompanion-ios-device.app.zip\tAzCompanion-ios-device.app.zip\n"
+    "AzCompanion\tios-sim\tAzCompanion-ios-sim.app.zip\tAzCompanion-ios-sim.app.zip\n"
+)
 
 FACADE = "path+file:///w/dll#azul-dll@0.2.0"
 CORE = "path+file:///w/core#azul-core@0.0.21"
@@ -96,6 +125,13 @@ class NamesTest(unittest.TestCase):
         self.assertEqual(demo_apps.staged_name(a, "ios-device"), "AzCompanion-ios-device.app.zip")
         self.assertEqual(demo_apps.staged_name(a, "ios-sim"), "AzCompanion-ios-sim.app.zip")
         self.assertEqual(demo_apps.release_name(a, "ios-device"), "AzCompanion-ios-device.app.zip")
+
+    def test_the_assets_command_prints_the_names_the_release_page_generator_pins(self):
+        for package, golden in (("AzWidgets", GOLDEN_AZWIDGETS), ("AzCompanion", GOLDEN_AZCOMPANION)):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(demo_apps.main(["assets", package]), 0)
+            self.assertEqual(out.getvalue(), golden, package)
 
     def test_no_two_assets_share_a_name(self):
         seen = {}
@@ -240,6 +276,314 @@ class StatusTest(unittest.TestCase):
         self.assertEqual((cell["status"], cell["boot"]), ("built", "boots"))
         self.assertEqual(data["summary"]["assets"], 1)
         self.assertIn("built, boots", md)
+
+
+class PublishTest(unittest.TestCase):
+    def run_dir(self, root, names):
+        out = root / "demoapps-x" / "demos-out"
+        out.mkdir(parents=True)
+        for n in names:
+            (out / n).write_bytes(b"binary of " + n.encode())
+        (out / "logs").mkdir()
+        (out / "logs" / "AzWidgets-linux").write_bytes(b"a log that happens to share the name")
+        return root
+
+    def test_a_desktop_binary_is_shipped_as_a_tar_gz_and_a_macos_one_with_its_unquarantine_script(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = self.run_dir(pathlib.Path(d), ["AzWidgets-linux", "AzWidgets-macos", "AzWidgets-windows.exe"])
+            out = pathlib.Path(d) / "release"
+            listing = demo_publish.assemble(root, out, "0.2.0", "abc")
+            self.assertEqual(sorted(x["name"] for x in listing),
+                             ["AzWidgets-linux.tar.gz", "AzWidgets-macos.tar.gz", "AzWidgets-windows.exe.tar.gz"])
+            with tarfile.open(out / "AzWidgets-macos.tar.gz") as t:
+                self.assertEqual(sorted(t.getnames()), ["AzWidgets-macos", "README-macOS.txt", "unquarantine.sh"])
+                self.assertEqual(t.getmember("AzWidgets-macos").mode, 0o755)
+                self.assertIn(b'exec "./AzWidgets-macos"', t.extractfile("unquarantine.sh").read())
+            with tarfile.open(out / "AzWidgets-linux.tar.gz") as t:
+                self.assertEqual(t.getnames(), ["AzWidgets-linux"])
+
+    def test_a_phone_file_is_shipped_as_it_is_and_the_listing_names_every_asset(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = self.run_dir(pathlib.Path(d), ["AzCompanion-android-arm64.apk", "AzCompanion-ios-device.app.zip"])
+            out = pathlib.Path(d) / "release"
+            demo_publish.assemble(root, out, "0.2.0", "abc")
+            self.assertEqual((out / "AzCompanion-android-arm64.apk").read_bytes(), b"binary of AzCompanion-android-arm64.apk")
+            listing = json.loads((out / "release-assets.json").read_text())
+            self.assertEqual(sorted(x["name"] for x in listing),
+                             ["AzCompanion-android-arm64.apk", "AzCompanion-ios-device.app.zip", "companion.json"])
+
+    def test_companion_json_names_every_file_with_its_hash_and_says_it_is_unsigned(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = self.run_dir(pathlib.Path(d), ["AzCompanion-android-arm64.apk", "AzCompanion-ios-sim.app.zip"])
+            out = pathlib.Path(d) / "release"
+            demo_publish.assemble(root, out, "0.2.0", "deadbeef")
+            c = json.loads((out / "companion.json").read_text())
+        self.assertEqual((c["schema"], c["app"], c["release"], c["git"]), (1, "AzCompanion", "0.2.0", "deadbeef"))
+        self.assertEqual([f["name"] for f in c["files"]], ["AzCompanion-android-arm64.apk", "AzCompanion-ios-sim.app.zip"])
+        self.assertEqual([f["platform"] for f in c["files"]], ["android-arm64", "ios-sim"])
+        for f in c["files"]:
+            self.assertRegex(f["sha256"], r"^[0-9a-f]{64}$")
+            self.assertGreater(f["size"], 0)
+        self.assertIsNone(c["signature"])
+        self.assertIn("unsigned", c["signature_note"])
+        self.assertIsInstance(c["protocol_version"], int)
+
+    def test_a_run_without_the_companion_makes_no_companion_json(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = self.run_dir(pathlib.Path(d), ["AzWidgets-linux"])
+            out = pathlib.Path(d) / "release"
+            demo_publish.assemble(root, out, "0.2.0", "abc")
+            self.assertFalse((out / "companion.json").exists())
+
+
+class IconTest(unittest.TestCase):
+    def test_an_icon_is_a_valid_png_of_the_asked_size(self):
+        rows = demo_icon.render("AzMaps", 48, True)
+        data = demo_icon.png(rows, 48, rgba=True)
+        self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
+        self.assertEqual(int.from_bytes(data[16:20], "big"), 48)
+        self.assertEqual(int.from_bytes(data[20:24], "big"), 48)
+        self.assertEqual(len(rows), 48)
+        self.assertTrue(all(len(r) == 48 * 4 for r in rows))
+
+    def test_the_corners_of_an_android_icon_are_transparent_and_an_ios_icon_is_square(self):
+        self.assertEqual(demo_icon.render("AzMaps", 48, True)[0][3], 0)
+        self.assertEqual(demo_icon.render("AzMaps", 48, False)[0][3], 255)
+
+    def test_apps_have_their_own_colour_and_the_companion_its_blue(self):
+        self.assertNotEqual(demo_icon.colour("AzMaps"), demo_icon.colour("AzPaint"))
+        r, g, b = demo_icon.colour("AzCompanion")
+        self.assertGreater(b, r)
+        # the same phone remote under its display name: the same blue, the same letters
+        self.assertEqual(demo_icon.colour("AzReview Companion"), demo_icon.colour("AzCompanion"))
+        self.assertEqual(demo_icon.letters("AzReview Companion"), demo_icon.letters("AzCompanion"))
+
+    def test_the_icons_of_a_platform_land_where_its_packager_looks(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            demo_icon.main(["android", "AzMaps", str(root / "res")])
+            demo_icon.main(["ios", "AzMaps", str(root / "app")])
+            self.assertTrue((root / "res" / "mipmap-xxxhdpi" / "ic_launcher.png").is_file())
+            self.assertTrue((root / "app" / "AppIcon60x60@3x.png").is_file())
+
+
+class IconLettersTest(unittest.TestCase):
+    """The launcher icon says which app it is: the first letters of its name on a rounded square (no art of anybody's)."""
+
+    def test_the_letters_are_the_first_two_after_the_family_prefix_or_the_humps_of_a_long_name(self):
+        expect = {"AzWidgets": "WI", "AzMaps": "MA", "AzBuilder": "BU", "AzPdf": "PD", "AzERP": "ER", "AzInstallManager": "IM",
+                  "AzPasswordManager": "PM", "AzVideoCut": "VC", "AzCompanion": "RC", "AzReview Companion": "RC",
+                  "Notes": "NO", "AzX": "X"}
+        for name, letters in expect.items():
+            self.assertEqual(demo_icon.letters(name), letters, name)
+
+    def test_every_app_of_the_manifest_gets_two_letters_of_its_own_alphabet(self):
+        for app in demo_apps.load()["app"]:
+            letters = demo_icon.letters(app["package"])
+            self.assertTrue(1 <= len(letters) <= 2, app["package"])
+            self.assertTrue(all(c in demo_icon.FONT for c in letters), (app["package"], letters))
+
+    def test_the_font_has_every_letter_and_digit_as_seven_rows_of_five_and_no_two_alike(self):
+        self.assertEqual(sorted(demo_icon.FONT), sorted("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789?"))
+        for ch, rows in demo_icon.FONT.items():
+            self.assertEqual(len(rows), 7, ch)
+            for row in rows:
+                self.assertRegex(row, r"^[#.]{5}$", ch)
+        self.assertEqual(len({tuple(r) for r in demo_icon.FONT.values()}), len(demo_icon.FONT))
+
+    def test_the_cells_of_the_icon_are_the_cells_of_the_font(self):
+        # the centre of every cell of the two letters is lit exactly where the font has a '#'
+        for text in ("WI", "MA", "RC"):
+            for letter_index, ch in enumerate(text):
+                for row in range(7):
+                    for col in range(5):
+                        x, y = demo_icon.cell_centre(text, letter_index, col, row)
+                        self.assertEqual(demo_icon.lit(text, x, y), demo_icon.FONT[ch][row][col] == "#", (text, ch, col, row))
+
+    def test_the_letters_fit_inside_the_rounded_square(self):
+        x0, y0, x1, y1 = demo_icon.text_box("WI")
+        self.assertGreaterEqual(x0, 0.12)
+        self.assertLessEqual(x1, 0.88)
+        self.assertGreaterEqual(y0, 0.2)
+        self.assertLessEqual(y1, 0.8)
+        # the box is centred
+        self.assertAlmostEqual((x0 + x1) / 2, 0.5, places=3)
+        self.assertAlmostEqual((y0 + y1) / 2, 0.5, places=3)
+
+    def test_the_picture_shows_the_letters_in_white_and_two_apps_with_other_letters_look_other(self):
+        def white(name):
+            rows = demo_icon.render(name, 96, False)
+            return [[row[i * 4:i * 4 + 3] == b"\xff\xff\xff" for i in range(96)] for row in rows]
+        wi, ma, ma2 = white("AzWidgets"), white("AzMaps"), white("AzMail")
+        self.assertGreater(sum(map(sum, wi)), 300)       # there is something white
+        self.assertNotEqual(wi, ma)                      # other letters, other picture
+        self.assertEqual(ma, ma2)                        # the same letters in the same place (the colours of the two differ)
+        self.assertNotEqual(demo_icon.colour("AzMaps"), demo_icon.colour("AzMail"))
+
+    def test_the_old_family_letter_is_gone(self):
+        self.assertFalse(hasattr(demo_icon, "STROKES"))
+
+
+def synthetic_png(width, height, pixel):
+    """An RGBA PNG (filter 0) of pixel(x, y) -> (r, g, b, a)."""
+    import struct
+    import zlib
+
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    raw = b"".join(b"\x00" + b"".join(bytes(pixel(x, y)) for x in range(width)) for y in range(height))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
+def home_screen(x, y):          # a wallpaper-like gradient with a row of "icons"
+    if 40 <= y < 60 and (x // 16) % 2 == 0:
+        return (230, 230, 240, 255)
+    return ((x * 3) % 256, (y * 2) % 256, 160, 255)
+
+
+def app_screen(x, y):           # a page: white, with lines of glyph-like marks in grey ramps (anti-aliased edges)
+    if 24 <= y < 136 and y % 9 < 4 and (x * 7 + y * 3) % 23 < 15:
+        v = 40 + (x * 5 + y) % 120
+        return (v, v, v, 255)
+    return (250, 250, 250, 255)
+
+
+def black_window_under_bars(x, y):   # a window that never drew: black, but the system draws its bars over it
+    if y < 8 or y >= 150:
+        v = (x * 13 + y * 5) % 256   # the clock, the icons, the navigation shapes: anti-aliased, many values
+        return (v, v, v, 255)
+    return (0, 0, 0, 255)
+
+
+def white_window_under_bars(x, y):
+    if y < 8 or y >= 150:
+        v = (x * 13 + y * 5) % 256
+        return (v, v, v, 255)
+    return (255, 255, 255, 255)
+
+
+class VerdictTest(unittest.TestCase):
+    def pictures(self, d, after):
+        root = pathlib.Path(d)
+        (root / "home.png").write_bytes(synthetic_png(96, 160, home_screen))
+        (root / "after.png").write_bytes(synthetic_png(96, 160, after))
+        return str(root / "home.png"), str(root / "after.png")
+
+    def verdict(self, d, after, **kw):
+        home, shot = self.pictures(d, after)
+        argv = ["--out", str(pathlib.Path(d) / "result.json"), "--app", "AzX", "--id", "com.azul.AzX", "--alive", kw.get("alive", "1"),
+                "--alive-after", kw.get("alive_after", "1"), "--fatal", kw.get("fatal", ""), "--baseline", home, "--after", shot]
+        if "resumed" in kw:
+            argv += ["--resumed", kw["resumed"]]
+        code = smoke_verdict.main(argv)
+        return code, json.loads((pathlib.Path(d) / "result.json").read_text())
+
+    def test_an_app_that_is_alive_twice_and_drawn_over_the_home_screen_boots(self):
+        with tempfile.TemporaryDirectory() as d:
+            code, r = self.verdict(d, app_screen)
+        self.assertEqual(code, 0)
+        self.assertTrue(r["pass"] and r["differs_from_home"] and r["screen_nonblank"])
+
+    def test_the_home_screen_left_behind_is_a_failure_even_though_it_is_not_black(self):
+        # the iOS run of 2026-11-26: the app had died, the screenshot was the home screen, and a "not black" test passed it
+        with tempfile.TemporaryDirectory() as d:
+            code, r = self.verdict(d, home_screen)
+        self.assertEqual(code, 1)
+        self.assertFalse(r["pass"])
+        self.assertIn("home screen is still showing", r["reason"])
+        self.assertTrue(r["screen_nonblank"])
+
+    def test_the_clock_of_the_status_bar_does_not_make_a_home_screen_a_different_picture(self):
+        def with_clock(x, y):
+            return (255, 255, 255, 255) if y < 4 and x < 24 else home_screen(x, y)
+        with tempfile.TemporaryDirectory() as d:
+            code, r = self.verdict(d, with_clock)
+        self.assertEqual(code, 1)
+        self.assertGreater(r["home_similarity"], 0.985)
+
+    def test_dying_at_the_second_look_is_a_failure_with_its_fatal_line(self):
+        with tempfile.TemporaryDirectory() as d:
+            code, r = self.verdict(d, app_screen, alive_after="0", fatal="SIGABRT")
+        self.assertEqual(code, 1)
+        self.assertIn("second look", r["reason"])
+        self.assertIn("SIGABRT", r["reason"])
+
+    def test_not_alive_at_all_comes_first(self):
+        with tempfile.TemporaryDirectory() as d:
+            code, r = self.verdict(d, app_screen, alive="0", alive_after="0")
+        self.assertEqual(code, 1)
+        self.assertIn("not alive", r["reason"])
+
+    def test_a_flat_colour_is_a_window_that_never_drew(self):
+        with tempfile.TemporaryDirectory() as d:
+            code, r = self.verdict(d, lambda x, y: (0, 0, 0, 255))
+        self.assertEqual(code, 1)
+        self.assertIn("flat colour", r["reason"])
+
+    def test_the_system_naming_another_app_as_resumed_fails_it(self):
+        with tempfile.TemporaryDirectory() as d:
+            code, r = self.verdict(d, app_screen, resumed="no")
+        self.assertEqual(code, 1)
+        self.assertIn("launcher is in front", r["reason"])
+
+    def test_a_fatal_line_fails_an_app_that_looks_fine(self):
+        with tempfile.TemporaryDirectory() as d:
+            code, r = self.verdict(d, app_screen, fatal="Fatal signal 11")
+        self.assertEqual(code, 1)
+        self.assertIn("Fatal signal 11", r["reason"])
+
+    def test_a_button_that_took_the_app_down_and_a_missing_text_fail_it(self):
+        base = {"alive": True, "alive_after": True, "screen_nonblank": True, "home_similarity": 0.2, "differs_from_home": True}
+        self.assertFalse(smoke_verdict.judge({**base, "tap": {"label": "Try", "alive": False, "fatal": None}})[0])
+        self.assertFalse(smoke_verdict.judge({**base, "expect": {"text": "Connect", "found": False}})[0])
+        self.assertTrue(smoke_verdict.judge({**base, "expect": {"text": "Connect", "found": True}, "tap": {"alive": True}})[0])
+
+    def test_pictures_of_different_sizes_are_different_pictures(self):
+        with tempfile.TemporaryDirectory() as d:
+            (pathlib.Path(d) / "a.png").write_bytes(synthetic_png(8, 8, home_screen))
+            (pathlib.Path(d) / "b.png").write_bytes(synthetic_png(16, 8, home_screen))
+            self.assertEqual(png_compare.same_fraction(png_compare.decode(str(pathlib.Path(d) / "a.png")),
+                                                       png_compare.decode(str(pathlib.Path(d) / "b.png"))), 0.0)
+
+    def test_a_black_window_under_the_system_bars_is_a_window_that_never_drew(self):
+        # the status bar and the navigation bar are in every screenshot: a picture counted whole is "drawn" because of them
+        with tempfile.TemporaryDirectory() as d:
+            code, r = self.verdict(d, black_window_under_bars)
+        self.assertEqual(code, 1)
+        self.assertTrue(r["differs_from_home"])
+        self.assertFalse(r["screen_nonblank"])
+        self.assertIn("flat colour", r["reason"])
+
+    def test_a_white_window_under_the_system_bars_is_a_window_that_never_drew(self):
+        with tempfile.TemporaryDirectory() as d:
+            code, r = self.verdict(d, white_window_under_bars)
+        self.assertEqual(code, 1)
+        self.assertIn("flat colour", r["reason"])
+
+    def test_a_little_content_in_the_window_is_enough(self):
+        def one_button(x, y):   # black, with a single grey button: 3 percent of the window
+            return (90, 90, 90, 255) if 60 <= y < 70 and 20 <= x < 76 else (0, 0, 0, 255)
+        with tempfile.TemporaryDirectory() as d:
+            code, r = self.verdict(d, one_button)
+        self.assertEqual(code, 0)
+        self.assertTrue(r["screen_nonblank"])
+
+    def test_a_screenshot_that_was_never_taken_or_cannot_be_read_says_so(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "home.png").write_bytes(synthetic_png(96, 160, home_screen))
+            base = ["--out", str(root / "r.json"), "--app", "AzX", "--alive", "1", "--alive-after", "1"]
+            self.assertEqual(smoke_verdict.main(base + ["--baseline", str(root / "home.png"), "--after", str(root / "none.png")]), 1)
+            self.assertIn("no screenshot", json.loads((root / "r.json").read_text())["reason"])
+            (root / "torn.png").write_bytes(synthetic_png(96, 160, app_screen)[:200])   # cut off, as a hiccup of the emulator does
+            self.assertEqual(smoke_verdict.main(base + ["--baseline", str(root / "home.png"), "--after", str(root / "torn.png")]), 1)
+            self.assertIn("cannot be read", json.loads((root / "r.json").read_text())["reason"])
+
+    def test_the_status_text_of_a_failed_boot_carries_the_reason(self):
+        text = demo_apps.boot_text({"pass": False, "reason": "the home screen is still showing (99.8% of the pixels are the same)"})
+        self.assertTrue(text.startswith("BOOT FAILED: the home screen"))
+        self.assertEqual(demo_apps.boot_text({"pass": True}), "boots")
 
 
 if __name__ == "__main__":

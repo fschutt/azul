@@ -138,14 +138,19 @@ pub mod decode {
     pub fn decode_raw_image_from_any_bytes(image_bytes: &[u8]) -> ResultRawImageDecodeImageError {
         use azul_core::resources::RawImageData;
 
-        let image_format = match image::guess_format(image_bytes) {
-            Ok(o) => o,
-            Err(e) => {
-                return ResultRawImageDecodeImageError::Err(translate_image_error_decode(e));
-            }
+        let decoded = match image::guess_format(image_bytes) {
+            Ok(image_format) => image::load_from_memory_with_format(image_bytes, image_format),
+            // TGA has no magic number (the `image` crate says "TGA is not supported" of
+            // `guess_format`), so a file that nothing else claims is read as TGA: its header is
+            // checked field by field, and a file that is not one fails with the error it had
+            // before.
+            #[cfg(feature = "tga")]
+            Err(e) => image::load_from_memory_with_format(image_bytes, image::ImageFormat::Tga)
+                .map_err(|_| e),
+            #[cfg(not(feature = "tga"))]
+            Err(e) => Err(e),
         };
-
-        let decoded = match image::load_from_memory_with_format(image_bytes, image_format) {
+        let decoded = match decoded {
             Ok(o) => o,
             Err(e) => {
                 return ResultRawImageDecodeImageError::Err(translate_image_error_decode(e));
@@ -1570,3 +1575,7 @@ pub mod encode {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "image_tga_test.rs"]
+mod tga_tests;

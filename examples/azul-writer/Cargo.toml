@@ -28,11 +28,9 @@ serde_json = "1"
 docx-parser = { git = "https://github.com/yukiyokotani/office-open-xml-viewer", rev = "c1983b7174ccefabd2ed80527813ea8c80782af3" }
 
 [target.'cfg(target_os = "android")'.dependencies]
-azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "android-activity", "pdf"] }
 ctor = "0.2"
 
 [target.'cfg(target_os = "ios")'.dependencies]
-azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "pdf"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

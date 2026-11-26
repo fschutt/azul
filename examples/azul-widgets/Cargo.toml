@@ -22,11 +22,18 @@ description = """
 publish = false
 
 [dependencies]
-azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic", "e2e-scripting"] }
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
-azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static", "android-activity"] }
 ctor = "0.2"
+
+[features]
+# The facade's E2E scripting (AZ_E2E=script.json). OFF in the demo that ships: the feature compiles the
+# whole engine (azul-core, azul-layout, azul-css) into the app, where every other build links the prebuilt
+# libazul and compiles none of it (scripts/demo_gate.py fails a build that does), and a shipped app does
+# not read a script from its environment. The E2E runs that need it ask for it:
+#   cargo build -p AzWidgets --features e2e
+e2e = ["azul/e2e-scripting"]
 
 [lib]
 name = "azul_widgets"
@@ -36,6 +43,3 @@ crate-type = ["rlib", "cdylib"]
 [[bin]]
 name = "AzWidgets"
 path = "src/main.rs"
-
-[target.'cfg(target_os = "ios")'.dependencies]
-azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-static"] }
