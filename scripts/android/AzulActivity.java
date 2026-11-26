@@ -207,6 +207,15 @@ public class AzulActivity extends NativeActivity {
         if (event != null && AzulGamepad.onKey(event, event.getAction() == KeyEvent.ACTION_DOWN)) {
             return true;
         }
+        // A hardware keyboard's letters (and the keys `adb shell input text` injects) reached here after
+        // the IME and the native input queue passed them by: the character is Android's to read off the
+        // event, the decision whether it types is the shell's (android_core::keys).
+        if (event != null && event.getAction() == KeyEvent.ACTION_DOWN) {
+            long nativePtr = nativeGetWindowPointer();
+            if (nativePtr != 0L) {
+                NativeTextBridge.keyText(nativePtr, event);
+            }
+        }
         return super.dispatchKeyEvent(event);
     }
 

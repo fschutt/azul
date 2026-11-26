@@ -124,3 +124,16 @@ fn the_activity_does_not_start_the_media_session() {
         "an app asks for a media session (AppConfig::expose_system_media_controls); the activity must not claim one for every app"
     );
 }
+
+/// A hardware keyboard's letters (and `adb shell input text`) reach the activity after the IME and the
+/// native input queue passed them by, and only Java can read the character off the event
+/// (`KeyEvent.getUnicodeChar()`): the activity forwards it, the shell decides whether it types.
+#[test]
+fn the_activity_forwards_the_character_of_a_key_nobody_consumed() {
+    let src = java_code("scripts/android/AzulActivity.java");
+    let body = method_body(&src, "public boolean dispatchKeyEvent(");
+    assert!(
+        body.contains("NativeTextBridge.keyText("),
+        "dispatchKeyEvent must hand the key's character to the shell (a hardware keyboard could not type at all)"
+    );
+}

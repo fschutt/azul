@@ -21,6 +21,7 @@ use std::sync::{
 use super::accessibility::AndroidAccessibilityAdapter;
 use crate::desktop::shell2::android_core::{
     ime::pack_rect,
+    keys::typed_text,
     ui_bridge::{RawGesture, UiEvent, UiQueues},
 };
 
@@ -480,5 +481,25 @@ pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeOnRawMot
             dy,
             device: device_id,
         });
+    }
+}
+
+/// A key the IME and the native input queue passed by (`AzulActivity.dispatchKeyEvent`): the character
+/// its own layout types (`KeyEvent.getUnicodeChar()`, a virtual keyboard's included: `adb shell input
+/// text`) and its meta state. A hardware keyboard's letters become text here, committed as an IME's
+/// commit is (`android_core::keys`).
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeOnKeyText(
+    _env: *mut core::ffi::c_void,
+    _class: *mut core::ffi::c_void,
+    native_ptr: i64,
+    unicode: i32,
+    meta_state: i32,
+    down: i32,
+) {
+    if let Some(bridge) = from_cookie(native_ptr) {
+        if let Some(text) = typed_text(down != 0, unicode, meta_state) {
+            bridge.push(UiEvent::Commit(text));
+        }
     }
 }

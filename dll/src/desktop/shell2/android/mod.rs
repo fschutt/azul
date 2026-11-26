@@ -37,7 +37,6 @@ use crate::{
                 ime::ImeMirror,
                 lifecycle::{frame_work, FrameWork},
                 present::{rows_to_write, PresentState, RowDamage},
-                keys::typed_text as typed_text_of,
                 metrics::{self, dpi_of_density, logical_size},
                 touch::{mouse_effect, HitTest, Phase as TouchPhase},
                 ui_bridge::{RawGesture, UiEvent},
@@ -1007,7 +1006,11 @@ fn apply_ui_events(window: &mut AndroidWindow, events: Vec<UiEvent>) {
 
     // Captured-pointer deltas arrive in bursts: summed, one pass (like the desktop's raw motion).
     let mut raw_motion: Option<(f64, f64, u64)> = None;
-    for event in events {
+    // The insets arrive once per frame of the keyboard's animation: only the latest of a burst matters.
+    let last_insets = events
+        .iter()
+        .rposition(|e| matches!(e, UiEvent::Insets { .. }));
+    for (index, event) in events.into_iter().enumerate() {
         match event {
             UiEvent::Commit(text) => {
                 window.snapshot_window_state_baseline("android.ime_commit");
@@ -1142,7 +1145,11 @@ fn apply_ui_events(window: &mut AndroidWindow, events: Vec<UiEvent>) {
                 left,
                 right,
                 ime,
-            } => apply_insets(window, [top, bottom, left, right, ime]),
+            } => {
+                if Some(index) == last_insets {
+                    apply_insets(window, [top, bottom, left, right, ime]);
+                }
+            }
             UiEvent::Gesture(gesture) => apply_gesture(window, gesture),
         }
     }
@@ -1637,8 +1644,6 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
         i32,
         bool,
     )> = Vec::new();
-    // The text hardware keys type (`android_core::keys`): committed after the key events, in order.
-    let mut typed_text: Vec<String> = Vec::new();
     // Pen / stylus samples — populated when any pointer in a MotionEvent
     // reports `ToolType::Stylus` or `ToolType::Eraser`. tilt is decomposed
     // into (x_tilt_deg, y_tilt_deg) so it matches the W3C
@@ -1777,29 +1782,6 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                 }
             }
             InputEvent::KeyEvent(k) => {
-                // A hardware keyboard sends KeyEvents the IME did not consume and the letters in them
-                // never became text: ask the device's KeyCharacterMap (a virtual device has none).
-                if matches!(k.action(), KeyAction::Down) && k.device_id() > 0 {
-                    let meta = k.meta_state();
-                    let mapped = app
-                        .device_key_character_map(k.device_id())
-                        .ok()
-                        .and_then(|map| map.get(k.key_code(), meta).ok())
-                        .and_then(|c| match c {
-                            android_activity::input::KeyMapChar::Unicode(c) => Some(c),
-                            _ => None,
-                        });
-                    if let Some(text) = typed_text_of(
-                        true,
-                        k.device_id(),
-                        meta.ctrl_on(),
-                        meta.alt_on(),
-                        meta.meta_on(),
-                        mapped,
-                    ) {
-                        typed_text.push(text);
-                    }
-                }
                 key_updates.push((
                     k.action(),
                     map_keycode(k.key_code()),
@@ -1811,11 +1793,10 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
             }
             _ => {}
         }
-        // unicode_char mapping (KeyCharacterMap) still TODO — gets us
-        // text input from a hardware keyboard. State-diff already fires
-        // VirtualKeyDown / VirtualKeyUp HoverEventFilters from the
-        // current_virtual_keycode change below, which is enough for the
-        // most common test cases (Enter to submit, Tab to navigate).
+        // The characters of a hardware keyboard are not read here: the native queue has no character
+        // for a key. `AzulActivity.dispatchKeyEvent` reads `KeyEvent.getUnicodeChar()` for the keys that
+        // reach it after the IME and this queue (`android_core::keys`), and the key state below
+        // (VirtualKeyDown / VirtualKeyUp for Enter, Tab, the arrows) stays what it was.
         InputStatus::Unhandled
     }) {}
 
@@ -2323,14 +2304,6 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
         }
     }
 
-    // The text the hardware keys typed, as the IME's commits are applied.
-    if !typed_text.is_empty() {
-        apply_ui_events(
-            window,
-            typed_text.into_iter().map(UiEvent::Commit).collect(),
-        );
-    }
-
     // After callbacks have observed any native-gesture override the
     // Android `GestureDetector` JNI bridge injected this frame, clear
     // the slot so a stale OS gesture doesn't keep firing. No-op until
@@ -2359,7 +2332,7 @@ fn phase_of(action: MotionAction) -> TouchPhase {
 /// Map the Android `Keycode` enum to Azul's `VirtualKeyCode` for the
 /// most common navigation / editing keys. Letters and digits arrive via
 /// the soft keyboard's text-input path (Sprint H follow-up — wires
-/// `KeyCharacterMap.get` for unicode), so this map only handles the
+/// `KeyEvent.getUnicodeChar`, `android_core::keys`), so this map only handles the
 /// non-character keys that callbacks query through
 /// `KeyboardState::is_key_down` / `current_virtual_keycode`.
 #[cfg(all(target_os = "android", feature = "android-activity"))]

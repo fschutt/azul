@@ -507,6 +507,11 @@ mod jni_bridge {
         let ok = with_adapter(native_ptr, false, |a| {
             a.perform_action(virtual_view_id, verb)
         });
+        if ok {
+            // The action waits in the queue for the loop to apply it: a loop that is parked (background,
+            // or idle once it stops polling) must hear about it.
+            super::super::bridge::wake_event_loop();
+        }
         u8::from(ok)
     }
 }
