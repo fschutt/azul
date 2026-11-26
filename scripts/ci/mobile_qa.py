@@ -923,6 +923,38 @@ def android_scenarios(args):
     if args.series:
         run.step("03d-cold-start-series", "N cold starts from the launcher: the app against the floor (an empty Java Activity)", s_series, needs_app=True)
 
+    def s_tap_label(s):
+        """Press the button the accessibility tree names `--tap-label`: a tap, then a long press, then a tap 40 px higher, each
+        followed by 3 s and a picture; the step passes when ANY of them changes the screen, and says which did. (AzCompanion's
+        'Try it without a Mac' changed nothing on a tap: is it the touch path or the button?)"""
+        mark = dev.now_mark()
+        before = dev.look(s, "before-label-tap")
+        found = dev.find_label(args.tap_label)
+        s.check(f"the accessibility tree names {args.tap_label!r} with a position", bool(found), str(found))
+        if not found:
+            return
+        x, y = found
+        run.meta["tap_label_at"] = f"{args.tap_label!r} ({x}, {y})"
+        s.note(f"{args.tap_label!r} is at ({x}, {y}) in the accessibility tree")
+        outcomes = []
+        for how, action in (("tap", lambda: dev.tap(x, y)),
+                            ("long press 800 ms", lambda: dev.swipe(x, y, x, y, 800)),
+                            ("tap 40 px higher", lambda: dev.tap(x, y - 40))):
+            action()
+            dev.settle(3.0)
+            sig = dev.look(s, "after-" + how.split(" ")[0] + ("-" + how.split(" ")[1] if how.startswith("tap 40") else ""))
+            d = sig_diff(sig, before)
+            outcomes.append((how, d))
+            if d > SAME_BELOW:
+                break
+        s.check("pressing the button changes the screen", any(d > SAME_BELOW for _h, d in outcomes),
+                "; ".join(f"{h}: differs {d:.3f}" for h, d in outcomes))
+        dev.alive_and_front(s)
+        dev.no_crash_since(s, mark)
+
+    if args.tap_label:
+        run.step("03e-tap-label", f"press the button {args.tap_label!r} (a tap, a long press, a tap 40 px higher): the screen must change", s_tap_label, needs_app=True)
+
     def s_ui_dump(s):
         dev.sh("uiautomator dump /sdcard/qa-ui.xml", timeout=40)
         xml = dev.sh("cat /sdcard/qa-ui.xml")
@@ -1713,6 +1745,7 @@ def main(argv):
     a.add_argument("--series", type=int, default=0, help="N cold starts to measure (0: none)")
     a.add_argument("--expect-gpu", action="store_true", help="the build has a GPU renderer: a gpu request that ran the CPU one FAILS")
     a.add_argument("--floor-apk", default="", help="the floor APK (an empty Java Activity) measured the same way")
+    a.add_argument("--tap-label", default="", help="press the button the accessibility tree names this (step 03e)")
     i = sub.add_parser("ios")
     i.add_argument("--out", required=True)
     i.add_argument("--udid", required=True)
