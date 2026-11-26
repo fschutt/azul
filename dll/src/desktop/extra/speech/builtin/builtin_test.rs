@@ -13,6 +13,7 @@ use super::{
 };
 use super::engine::Engine;
 use super::super::{
+    keeper::MicKeeper,
     mock::ManualClock,
     recognizer::{Clock, Kind, Listen, Outcome, Readiness, Recognizer},
 };
@@ -587,4 +588,186 @@ fn rig_with_refusal() -> Rig {
         Vec::new(),
         Some((Outcome::Denied, "the microphone is turned off".to_string())),
     )
+}
+
+/// A microphone whose sound the test pushes in from outside, a chunk per read, and that counts how
+/// often it was opened and closed.
+#[derive(Clone, Default)]
+struct Room {
+    sound: Arc<Mutex<std::collections::VecDeque<Vec<f32>>>>,
+    opened: Arc<Mutex<u32>>,
+    closed: Arc<Mutex<u32>>,
+}
+
+impl Room {
+    /// `room` ms of room, `speech` ms of voice, `after` ms of room, as reads of 100 ms.
+    fn push_takes(&self, room: u32, speech: u32, after: u32) {
+        for take in takes(16_000, room, speech, after) {
+            if let Take::Sound(chunk) = take {
+                self.sound.lock().unwrap().push_back(chunk);
+            }
+        }
+    }
+
+    /// Waits until everything pushed was read, and a little more for the chunk in hand.
+    fn wait_until_read(&self) {
+        let began = std::time::Instant::now();
+        while !self.sound.lock().unwrap().is_empty() {
+            assert!(began.elapsed() < std::time::Duration::from_secs(5), "nobody read what was pushed");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(80));
+    }
+}
+
+struct RoomSource(Room);
+
+impl MicrophoneSource for RoomSource {
+    fn open(&mut self) -> Result<Box<dyn Microphone>, (Outcome, String)> {
+        *self.0.opened.lock().unwrap() += 1;
+        Ok(Box::new(RoomMicrophone(self.0.clone())))
+    }
+}
+
+struct RoomMicrophone(Room);
+
+impl Microphone for RoomMicrophone {
+    fn rate(&self) -> u32 {
+        16_000
+    }
+
+    fn read(&mut self, out: &mut Vec<f32>, _wait_ms: u32) -> Result<(), String> {
+        if let Some(chunk) = self.0.sound.lock().unwrap().pop_front() {
+            out.extend(chunk);
+        }
+        Ok(())
+    }
+}
+
+impl Drop for RoomMicrophone {
+    fn drop(&mut self) {
+        *self.0.closed.lock().unwrap() += 1;
+    }
+}
+
+struct KeptRig {
+    builtin: Builtin,
+    keeper: MicKeeper,
+    room: Room,
+    seen: Arc<Mutex<Seen>>,
+    clock: Arc<ManualClock>,
+}
+
+/// A recognizer whose microphone stays open for `keep_ms` after a call.
+fn kept_rig(keep_ms: u32) -> KeptRig {
+    let room = Room::default();
+    let keeper = MicKeeper::new(Box::new(RoomSource(room.clone())));
+    keeper.set_keep_ms(keep_ms);
+    let (engine, seen) = FakeEngine::new(Ok(GERMAN_REPLY.to_string()));
+    let builtin = Builtin::with_engine(engine, &[0u8; 1234], keeper.clone(), Tuning::default()).expect("a model");
+    KeptRig {
+        builtin,
+        keeper,
+        room,
+        seen,
+        clock: ManualClock::shared(ORIGIN),
+    }
+}
+
+fn kept_listen(rig: &mut KeptRig, timeout_ms: u32) -> super::super::recognizer::Answer {
+    let never = || false;
+    rig.builtin.listen(&Listen {
+        language: "de",
+        timeout_ms,
+        clock: &*rig.clock,
+        cancel: &never,
+        flowing: &|| {},
+    })
+}
+
+#[test]
+fn a_kept_microphone_serves_the_next_call_and_speech_that_began_in_the_gap_is_not_lost() {
+    let mut rig = kept_rig(5_000);
+    rig.room.push_takes(600, 1_200, 1_500);
+    let first = kept_listen(&mut rig, 10_000);
+    assert_eq!(first.outcome, Outcome::Heard, "{}", first.message);
+    assert_eq!(*rig.room.opened.lock().unwrap(), 1);
+    assert!(rig.keeper.is_held(), "the microphone stays open for the next call");
+    assert_eq!(*rig.room.closed.lock().unwrap(), 0);
+
+    // The speaker goes on while the first answer is being used: 600 ms of a second sentence come in
+    // before the second call begins. The rest of it, and the quiet after, come with the call.
+    rig.room.push_takes(0, 600, 0);
+    rig.room.wait_until_read();
+    rig.room.push_takes(0, 600, 1_500);
+    let began = rig.clock.now_ms();
+    let flowed = Arc::new(Mutex::new(None));
+    let flowing = {
+        let (flowed, clock) = (Arc::clone(&flowed), rig.clock.clone());
+        move || *flowed.lock().unwrap() = Some(clock.now_ms())
+    };
+    let never = || false;
+    let second = rig.builtin.listen(&Listen {
+        language: "de",
+        timeout_ms: 10_000,
+        clock: &*rig.clock,
+        cancel: &never,
+        flowing: &flowing,
+    });
+    assert_eq!(second.outcome, Outcome::Heard, "{}", second.message);
+    assert_eq!(*rig.room.opened.lock().unwrap(), 1, "no microphone was opened for the second call");
+    assert_eq!(*flowed.lock().unwrap(), Some(began), "its sound was flowing before the call began");
+    // The engine got the whole sentence: 300 ms before it, 1200 ms of voice, the tail. Without what
+    // came in during the gap it would have had half of it.
+    let seen = rig.seen.lock().unwrap().clone();
+    assert_eq!(seen.calls.len(), 2);
+    assert!(seen.calls[1].0 >= 16_000 * 3 / 2, "{} samples of the second call: the gap was lost", seen.calls[1].0);
+}
+
+#[test]
+fn what_was_kept_for_the_next_call_does_not_use_up_its_time() {
+    let mut rig = kept_rig(5_000);
+    rig.room.push_takes(0, 600, 1_200);
+    let _ = kept_listen(&mut rig, 10_000);
+    // A second and a half of room comes in while nobody listens; then 400 ms of room and 600 ms of
+    // voice with the call, which has two seconds: the voice is inside them, only if the time that
+    // was kept does not count.
+    rig.room.push_takes(1_500, 0, 0);
+    rig.room.wait_until_read();
+    rig.room.push_takes(400, 600, 1_500);
+    let answer = kept_listen(&mut rig, 2_000);
+    assert_eq!(answer.outcome, Outcome::Heard, "{}", answer.message);
+    let seen = rig.seen.lock().unwrap().clone();
+    assert!(seen.calls[1].0 >= 16_000 * 11 / 10, "{} samples: the voice was cut", seen.calls[1].0);
+}
+
+#[test]
+fn a_cancelled_call_gives_the_microphone_up_instead_of_keeping_it() {
+    let mut rig = kept_rig(5_000);
+    rig.room.push_takes(600, 1_200, 1_500);
+    let reads = std::cell::Cell::new(0);
+    let cancel = || {
+        reads.set(reads.get() + 1);
+        reads.get() > 3
+    };
+    let answer = rig.builtin.listen(&Listen {
+        language: "de",
+        timeout_ms: 10_000,
+        clock: &*rig.clock,
+        cancel: &cancel,
+        flowing: &|| {},
+    });
+    assert!(matches!(answer.outcome, Outcome::NothingHeard | Outcome::Heard), "{}", answer.message);
+    assert!(!rig.keeper.is_held(), "the user cancelled: the microphone indicator goes out");
+    assert_eq!(*rig.room.closed.lock().unwrap(), 1);
+}
+
+#[test]
+fn a_microphone_that_is_not_kept_is_closed_before_the_engine_runs() {
+    // The old behaviour with a keeper that keeps nothing: opened for the call, closed at its end.
+    let mut rig = kept_rig(0);
+    rig.room.push_takes(600, 1_200, 1_500);
+    let _ = kept_listen(&mut rig, 10_000);
+    assert_eq!((*rig.room.opened.lock().unwrap(), *rig.room.closed.lock().unwrap()), (1, 1));
+    assert!(!rig.keeper.is_held());
 }

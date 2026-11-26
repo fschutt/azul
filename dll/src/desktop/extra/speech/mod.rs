@@ -59,6 +59,7 @@ mod capture;
 pub mod chain;
 mod headless;
 mod json;
+pub mod keeper;
 #[cfg(target_os = "linux")]
 pub mod linux;
 pub mod mock;
@@ -87,6 +88,7 @@ use self::windows as platform;
 use self::{
     builtin::{Builtin, BuiltinStatus, Tuning},
     chain::{Chain, Health},
+    keeper::{MicKeeper, DEFAULT_KEEP_MS},
     mock::{words_of, MockSpeech},
     order::Preference,
     recognizer::{Answer, Kind, Limits, Listen, Outcome, Readiness, Recognizer, SharedClock, SystemClock, Word},
@@ -470,6 +472,12 @@ pub struct SpeechLimits {
     pub max_keywords: u32,
     /// The largest model file taken, megabytes (128).
     pub max_model_mb: u32,
+    /// How long the microphone stays open after a call, ms (5000, at most 60000; 0 closes it at the
+    /// end of every call): the next call then starts at once, without the 430 ms a Mac takes to open
+    /// one, and what was said in between is not lost (the last 2 s are kept for it). The system
+    /// shows its microphone indicator for as long. A cancel, a `reset` and the end of the session
+    /// close it at once.
+    pub mic_keep_ms: u32,
 }
 
 impl Default for SpeechLimits {
@@ -481,6 +489,7 @@ impl Default for SpeechLimits {
             max_listen_ms: chain.max_listen_ms,
             max_keywords: u32::try_from(tuning.max_keywords).unwrap_or(u32::MAX),
             max_model_mb: u32::try_from(tuning.max_model_bytes / (1024 * 1024)).unwrap_or(u32::MAX),
+            mic_keep_ms: DEFAULT_KEEP_MS,
         }
     }
 }
@@ -498,6 +507,8 @@ struct SessionInner {
     limits: Mutex<SpeechLimits>,
     /// The vocabulary handed to the built-in model, kept for when it is registered.
     vocabulary: Mutex<Vec<String>>,
+    /// The microphone: opened for a call, kept for the next one for `mic_keep_ms`.
+    keeper: MicKeeper,
     /// Sound is reaching the recognizer of the call that runs.
     flowing: AtomicBool,
     /// What the app asked for: who is asked first.
@@ -587,10 +598,12 @@ impl SpeechSession {
         let scripted = backend_for(hooks) == Backend::Headless;
         if scripted {
             let (chain, preference) = scripted_chain(hooks, clock);
-            return Self::from_chain(chain, exe_dir, true, preference, true);
+            return Self::from_chain(chain, exe_dir, true, preference, true, MicKeeper::without_microphone());
         }
-        let chain = platform_chain(clock, exe_dir.as_deref());
-        Self::from_chain(chain, exe_dir, false, Preference::Automatic, NATIVE_TAKES_VOCABULARY)
+        let keeper = MicKeeper::new(capture::platform_source());
+        keeper.set_keep_ms(DEFAULT_KEEP_MS);
+        let chain = platform_chain(clock, exe_dir.as_deref(), &keeper);
+        Self::from_chain(chain, exe_dir, false, Preference::Automatic, NATIVE_TAKES_VOCABULARY, keeper)
     }
 
     fn from_chain(
@@ -599,6 +612,7 @@ impl SpeechSession {
         scripted: bool,
         preference: Preference,
         native_takes_vocabulary: bool,
+        keeper: MicKeeper,
     ) -> Self {
         let inner = Arc::new(SessionInner {
             chain: Mutex::new(chain),
@@ -606,6 +620,7 @@ impl SpeechSession {
             lines: Mutex::new(Vec::new()),
             limits: Mutex::new(SpeechLimits::default()),
             vocabulary: Mutex::new(Vec::new()),
+            keeper,
             flowing: AtomicBool::new(false),
             preference: Mutex::new(preference),
             identifiers: AtomicBool::new(false),
@@ -624,7 +639,13 @@ impl SpeechSession {
     /// A session on `chain` (for the tests of the chain through the public face).
     #[cfg(test)]
     pub(crate) fn on_chain(chain: Chain) -> Self {
-        Self::from_chain(chain, None, true, Preference::Automatic, true)
+        Self::from_chain(chain, None, true, Preference::Automatic, true, MicKeeper::without_microphone())
+    }
+
+    /// The same with the keeper whose microphone a test watches.
+    #[cfg(test)]
+    pub(crate) fn on_chain_with_keeper(chain: Chain, keeper: MicKeeper) -> Self {
+        Self::from_chain(chain, None, true, Preference::Automatic, true, keeper)
     }
 
     fn inner(&self) -> Option<&SessionInner> {
@@ -670,7 +691,7 @@ impl SpeechSession {
             max_model_bytes: u64::from(limits.max_model_mb) * 1024 * 1024,
             ..Tuning::default()
         };
-        let microphone = capture::platform_source();
+        let microphone = inner.keeper.clone();
         let built = match source {
             BuiltinSource::File(model_path) => {
                 Builtin::from_files(engine_path, &model_path, inner.exe_dir.as_deref(), microphone, tuning.clone())
@@ -681,7 +702,7 @@ impl SpeechSession {
         };
         let (mut recognizer, status) = match built {
             Ok(builtin) => (builtin, BuiltinStatus::Ready),
-            Err(failure) => (Builtin::refused(capture::platform_source(), failure.message), failure.status),
+            Err(failure) => (Builtin::refused(inner.keeper.clone(), failure.message), failure.status),
         };
         let vocabulary = inner.vocabulary.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let _ = recognizer.set_keywords(&vocabulary);
@@ -737,6 +758,7 @@ impl SpeechSession {
             return;
         };
         *inner.limits.lock().unwrap_or_else(PoisonError::into_inner) = limits;
+        inner.keeper.set_keep_ms(limits.mic_keep_ms);
         inner.chain.lock().unwrap_or_else(PoisonError::into_inner).set_limits(Limits {
             min_listen_ms: limits.min_listen_ms,
             max_listen_ms: limits.max_listen_ms.max(limits.min_listen_ms),
@@ -774,6 +796,9 @@ impl SpeechSession {
     pub fn cancel(&self) {
         if let Some(inner) = self.inner() {
             inner.cancel.store(true, Ordering::SeqCst);
+            // A microphone that waits for the next call is let go too: the user is done (a call that
+            // is running has the microphone, and gives it up at its end).
+            inner.keeper.release();
         }
     }
 
@@ -794,6 +819,7 @@ impl SpeechSession {
     /// a permission, the app registered a model).
     pub fn reset(&self) {
         if let Some(inner) = self.inner() {
+            inner.keeper.release();
             inner.chain.lock().unwrap_or_else(PoisonError::into_inner).reset();
             inner.refresh_lines();
         }
@@ -864,12 +890,12 @@ impl SessionInner {
 
 /// The platform's chain: its own recognizer, then the built-in one (looked for next to the
 /// executable until the app registers it).
-fn platform_chain(clock: SharedClock, exe_dir: Option<&std::path::Path>) -> Chain {
+fn platform_chain(clock: SharedClock, exe_dir: Option<&std::path::Path>, keeper: &MicKeeper) -> Chain {
     Chain::new(clock)
-        .with(Box::new(NativeRecognizer::default()))
+        .with(Box::new(NativeRecognizer::new(keeper.clone())))
         .with(Box::new(Builtin::discover(
             exe_dir.map(std::path::Path::to_path_buf),
-            capture::platform_source(),
+            keeper.clone(),
             Tuning::default(),
         )))
 }
@@ -913,10 +939,20 @@ const NATIVE_PHRASES: usize = 100;
 const NATIVE_PHRASE_CHARS: usize = 64;
 
 /// The platform's own recognizer as a link of the chain.
-#[derive(Default)]
 struct NativeRecognizer {
     /// What it is asked to favour: on macOS and iOS (`contextualStrings`), nowhere else yet.
     vocabulary: Vocabulary,
+    /// The session's microphone (macOS and iOS: the recognizer is fed from it).
+    keeper: MicKeeper,
+}
+
+impl NativeRecognizer {
+    fn new(keeper: MicKeeper) -> Self {
+        Self {
+            vocabulary: Vocabulary::default(),
+            keeper,
+        }
+    }
 }
 
 impl Recognizer for NativeRecognizer {
@@ -954,6 +990,7 @@ impl Recognizer for NativeRecognizer {
             call.cancel,
             &self.vocabulary,
             call.flowing,
+            &self.keeper,
         );
         if answer.started_unix_ms == 0 && answer.outcome == Outcome::Heard {
             answer.started_unix_ms = began;
@@ -1046,16 +1083,17 @@ fn native_listen(
     cancel: &dyn Fn() -> bool,
     vocabulary: &Vocabulary,
     flowing: &dyn Fn(),
+    keeper: &MicKeeper,
 ) -> Answer {
     #[cfg(any(target_os = "ios", target_os = "macos"))]
     {
-        platform::listen(language, timeout_ms, cancel, vocabulary, flowing)
+        platform::listen(language, timeout_ms, cancel, vocabulary, flowing, keeper)
     }
     #[cfg(not(any(target_os = "ios", target_os = "macos")))]
     {
         // The other platforms' recognizers answer at the end of their own call (a cancel waits for
         // it), take no vocabulary yet, and cannot say when sound begins to flow: from the start.
-        let _ = (cancel, vocabulary);
+        let _ = (cancel, vocabulary, keeper);
         flowing();
         heard_to_answer(&platform::listen(language, timeout_ms))
     }
@@ -1233,7 +1271,14 @@ pub(crate) fn listen_with(backend: Backend, language: &str, timeout_ms: u32) -> 
             heard
         }
         Backend::Platform => answer_to_heard(
-            native_listen(&language_tag(language), timeout_ms.max(1), &|| false, &Vocabulary::default(), &|| {}),
+            native_listen(
+                &language_tag(language),
+                timeout_ms.max(1),
+                &|| false,
+                &Vocabulary::default(),
+                &|| {},
+                &MicKeeper::new(capture::platform_source()),
+            ),
             Some(Kind::Native),
         ),
     }

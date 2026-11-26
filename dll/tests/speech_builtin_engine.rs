@@ -116,7 +116,7 @@ fn transcribe(wav: &str, language: &str) -> azul::desktop::extra::speech::recogn
 /// (two recognizers calling it from two test threads at once crashed it with a SIGSEGV on the
 /// runner), so what uses it runs one after the other.
 #[test]
-#[ignore = "SPEECH-R1: a run needs scripts/fetch_whistle.sh target/speech-engine and two recordings, en.wav and de.wav, there"]
+#[ignore = "X-EDGE-C-2: a hand-run measurement; it needs scripts/fetch_whistle.sh target/speech-engine and two recordings, en.wav and de.wav, there"]
 fn the_real_engine_turns_a_recorded_english_and_german_sentence_into_timed_words() {
     let answer = transcribe("en.wav", "en-US");
     println!("english: {answer:#?}");

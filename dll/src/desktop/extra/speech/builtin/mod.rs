@@ -45,6 +45,7 @@ pub use self::{
     engine::{CactusEngine, Engine, EngineError},
 };
 use super::{
+    keeper::{MicKeeper, PREROLL_MS},
     recognizer::{Answer, Kind, Listen, Outcome, Readiness, Recognizer},
     vocabulary::Vocabulary,
 };
@@ -99,8 +100,9 @@ impl Default for Tuning {
     }
 }
 
-/// What delivers sound: opened for each listen call, closed at its end (the microphone light is
-/// on only while listening).
+/// What delivers sound: opened when a call needs a microphone (the session's [`MicKeeper`] may keep
+/// it open for the next call: the microphone indicator is on only while listening and for the time
+/// the app allows after it).
 pub trait MicrophoneSource: Send {
     /// Opens the microphone, or says why not: `Denied` when the user (or an administrator) said
     /// no, `Unavailable` when there is none or it cannot be asked for.
@@ -123,6 +125,19 @@ pub trait Microphone: Send {
     ///
     /// The device's message when it failed.
     fn read(&mut self, out: &mut Vec<f32>, wait_ms: u32) -> Result<(), String>;
+}
+
+impl From<Box<dyn MicrophoneSource>> for MicKeeper {
+    /// A keeper that keeps nothing: the microphone is opened for each call and closed at its end.
+    fn from(source: Box<dyn MicrophoneSource>) -> Self {
+        Self::new(source)
+    }
+}
+
+impl<S: MicrophoneSource + 'static> From<Box<S>> for MicKeeper {
+    fn from(source: Box<S>) -> Self {
+        Self::new(source)
+    }
 }
 
 /// How long one read waits for sound, ms.
@@ -174,7 +189,8 @@ fn find_in(places: &[PathBuf], name: &str) -> Option<PathBuf> {
 /// The built-in recognizer.
 pub struct Builtin {
     state: State,
-    microphone: Box<dyn MicrophoneSource>,
+    /// The microphone, opened for a call and kept for the next one for as long as the session says.
+    keeper: MicKeeper,
     tuning: Tuning,
     /// What the model is asked to favour, kept to the limits; its words are marked in an answer.
     vocabulary: Vocabulary,
@@ -195,7 +211,7 @@ enum State {
 impl Builtin {
     /// A recognizer that has nothing registered: it refuses with how to set it up.
     #[must_use]
-    pub fn not_set_up(microphone: Box<dyn MicrophoneSource>) -> Self {
+    pub fn not_set_up(microphone: impl Into<MicKeeper>) -> Self {
         Self::refused(
             microphone,
             format!(
@@ -209,10 +225,10 @@ impl Builtin {
     /// A recognizer that looks for the files next to the executable (`exe_dir`) when it is first
     /// needed and refuses, saying where it looked, when they are not there.
     #[must_use]
-    pub fn discover(exe_dir: Option<PathBuf>, microphone: Box<dyn MicrophoneSource>, tuning: Tuning) -> Self {
+    pub fn discover(exe_dir: Option<PathBuf>, microphone: impl Into<MicKeeper>, tuning: Tuning) -> Self {
         Self {
             state: State::Discover(exe_dir),
-            microphone,
+            keeper: microphone.into(),
             tuning,
             vocabulary: Vocabulary::default(),
             floor: 0.0004,
@@ -221,10 +237,10 @@ impl Builtin {
 
     /// A recognizer that cannot listen, for `message`.
     #[must_use]
-    pub fn refused(microphone: Box<dyn MicrophoneSource>, message: String) -> Self {
+    pub fn refused(microphone: impl Into<MicKeeper>, message: String) -> Self {
         Self {
             state: State::Refused(message),
-            microphone,
+            keeper: microphone.into(),
             tuning: Tuning::default(),
             vocabulary: Vocabulary::default(),
             floor: 0.0004,
@@ -239,7 +255,7 @@ impl Builtin {
     pub fn with_engine(
         mut engine: Box<dyn Engine>,
         model: &[u8],
-        microphone: Box<dyn MicrophoneSource>,
+        microphone: impl Into<MicKeeper>,
         tuning: Tuning,
     ) -> Result<Self, Failure> {
         if model.len() as u64 > tuning.max_model_bytes {
@@ -259,7 +275,7 @@ impl Builtin {
         })?;
         Ok(Self {
             state: State::Ready(engine),
-            microphone,
+            keeper: microphone.into(),
             tuning,
             vocabulary: Vocabulary::default(),
             floor: 0.0004,
@@ -335,7 +351,7 @@ impl Builtin {
         engine_path: &str,
         model_path: &str,
         exe_dir: Option<&Path>,
-        microphone: Box<dyn MicrophoneSource>,
+        microphone: impl Into<MicKeeper>,
         tuning: Tuning,
     ) -> Result<Self, Failure> {
         let engine = Self::open_engine(engine_path, exe_dir)?;
@@ -352,7 +368,7 @@ impl Builtin {
         engine_path: &str,
         model: &[u8],
         exe_dir: Option<&Path>,
-        microphone: Box<dyn MicrophoneSource>,
+        microphone: impl Into<MicKeeper>,
         tuning: Tuning,
     ) -> Result<Self, Failure> {
         let engine = Self::open_engine(engine_path, exe_dir)?;
@@ -461,20 +477,34 @@ impl Recognizer for Builtin {
             return Answer::none(Outcome::Unavailable, message);
         }
         let began_unix_ms = call.clock.unix_ms();
-        let mut microphone = match self.microphone.open() {
-            Ok(microphone) => microphone,
+        let mut lease = match self.keeper.acquire() {
+            Ok(lease) => lease,
             Err((outcome, message)) => return Answer::none(outcome, &message),
         };
-        let mut resampler = Resampler::new(microphone.rate());
+        let rate = lease.rate();
+        let mut resampler = Resampler::new(rate);
         let mut endpointer = Endpointer::with_floor(self.tuning.vad.clone(), self.floor);
-        let timeout_ms = u64::from(call.timeout_ms);
+        // What came in while nobody listened (a kept microphone) is heard first, and does not use up
+        // the time the caller asked for.
+        let preroll = std::mem::take(&mut lease.preroll);
+        let preroll_ms = preroll.len() as u64 * 1000 / u64::from(rate.max(1));
+        let timeout_ms = u64::from(call.timeout_ms) + preroll_ms;
         let mut raw = Vec::new();
         let mut last_sound_at = call.clock.now_ms();
         let mut flowed = false;
-        let mut progress = Progress::Waiting;
+        if lease.warm {
+            // The microphone was open before the call: its sound is flowing already.
+            flowed = true;
+            (call.flowing)();
+        }
+        let mut progress = if preroll.is_empty() {
+            Progress::Waiting
+        } else {
+            endpointer.push(&resampler.process(&preroll))
+        };
         while progress != Progress::Done && endpointer.elapsed_ms() < timeout_ms && !(call.cancel)() {
             raw.clear();
-            if let Err(why) = microphone.read(&mut raw, READ_WAIT_MS) {
+            if let Err(why) = lease.microphone().read(&mut raw, READ_WAIT_MS) {
                 return Answer::none(Outcome::Failed, &format!("the microphone failed: {why}"));
             }
             if raw.is_empty() {
@@ -492,8 +522,9 @@ impl Recognizer for Builtin {
             }
             progress = endpointer.push(&resampler.process(&raw));
         }
-        // The microphone is off before the (heavier) transcription starts.
-        drop(microphone);
+        // The microphone is given back before the (heavier) transcription starts: kept for the next
+        // call, unless this one was cancelled (the user is done: the indicator goes out).
+        lease.finish(!(call.cancel)());
         self.floor = endpointer.noise_floor();
         let segment = if progress == Progress::Done {
             endpointer.take()
@@ -533,7 +564,9 @@ impl Recognizer for Builtin {
         }
         let mut words = transcript.words;
         self.vocabulary.mark(&mut words);
-        let mut answer = Answer::heard_words(words, &transcript.language, began_unix_ms + segment.start_ms);
+        // The audio began `preroll_ms` before the call did (what a kept microphone heard in between).
+        let audio_began_unix_ms = began_unix_ms.saturating_sub(preroll_ms);
+        let mut answer = Answer::heard_words(words, &transcript.language, audio_began_unix_ms + segment.start_ms);
         answer.text = transcript.text;
         if let Some(note) = note {
             answer.message = note;

@@ -10,9 +10,9 @@ use azul_css::{impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_p
 
 #[cfg(az_desktop)]
 pub use crate::desktop::extra::speech::{
-    BuiltinSpeechStatus, HeardStatus, OptionSpeechWord, Speech, SpeechHeard, SpeechLimits, SpeechRecognizer,
-    SpeechSession, SpeechStatus, SpeechWord, SpeechWordVec, SpeechWordVecDestructor, SpeechWordVecDestructorType,
-    SpeechWordVecSlice,
+    BuiltinSpeechStatus, HeardStatus, OptionSpeechWord, Speech, SpeechHeard, SpeechLimits, SpeechPreference,
+    SpeechRecognizer, SpeechSession, SpeechStatus, SpeechWord, SpeechWordVec, SpeechWordVecDestructor,
+    SpeechWordVecDestructorType, SpeechWordVecSlice,
 };
 
 /// wasm stub of the desktop `SpeechStatus`; `#[repr(C)]` layout MUST match.
@@ -59,6 +59,23 @@ pub enum BuiltinSpeechStatus {
     ModelRejected,
 }
 
+/// wasm stub of the desktop `SpeechPreference`; `#[repr(C)]` layout MUST match.
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum SpeechPreference {
+    Automatic,
+    NativeFirst,
+    BuiltinFirst,
+}
+
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+impl Default for SpeechPreference {
+    fn default() -> Self {
+        Self::Automatic
+    }
+}
+
 /// wasm stub of the desktop `SpeechLimits`; `#[repr(C)]` layout MUST match.
 #[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
@@ -68,6 +85,7 @@ pub struct SpeechLimits {
     pub max_listen_ms: u32,
     pub max_keywords: u32,
     pub max_model_mb: u32,
+    pub mic_keep_ms: u32,
 }
 
 #[cfg(any(target_arch = "wasm32", az_engine_stubs))]
@@ -78,6 +96,7 @@ impl Default for SpeechLimits {
             max_listen_ms: 60_000,
             max_keywords: 200,
             max_model_mb: 128,
+            mic_keep_ms: 5_000,
         }
     }
 }
@@ -227,6 +246,12 @@ impl SpeechSession {
     }
     /// Nothing to limit on wasm.
     pub fn set_limits(&self, _limits: SpeechLimits) {}
+    /// Nothing is asked on wasm.
+    pub fn set_preference(&self, _preference: SpeechPreference) {}
+    /// No sound flows on wasm.
+    pub fn audio_flowing(&self) -> bool {
+        false
+    }
     /// No speech on wasm.
     pub fn listen_blocking(&self, _language: AzString, _timeout_ms: u32) -> SpeechHeard {
         SpeechHeard::unavailable("no speech recognition on the web yet")

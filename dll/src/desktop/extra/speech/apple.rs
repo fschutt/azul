@@ -15,7 +15,7 @@ use std::ffi::c_void;
 use std::{
     ffi::{c_char, CStr, CString},
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicUsize, Ordering},
         Arc, Condvar, Mutex, OnceLock, PoisonError,
     },
     time::{Duration, Instant},
@@ -30,6 +30,7 @@ use objc2::{
 use super::{
     authorization::{self, Access, Decision, Gate, Gates, Refusal},
     builtin::{Microphone, MicrophoneSource},
+    keeper::MicKeeper,
     recognizer::{Answer, Outcome, Readiness, Word},
     vocabulary::Vocabulary,
     SpeechStatus,
@@ -41,6 +42,9 @@ static SYNTHESIZER: AtomicUsize = AtomicUsize::new(0);
 
 /// `AVSpeechBoundaryImmediate`: stop mid-word.
 const BOUNDARY_IMMEDIATE: isize = 0;
+
+/// `AVAudioPCMFormatFloat32` (`AVAudioCommonFormat`).
+const AV_AUDIO_PCM_FORMAT_FLOAT32: usize = 1;
 
 /// `SFSpeechRecognizerAuthorizationStatus`.
 const AUTH_NOT_DETERMINED: isize = 0;
@@ -280,8 +284,6 @@ struct Hearing {
     text: String,
     /// When the transcription last changed: a long pause ends the listening.
     changed_at: Option<Instant>,
-    /// The first buffer of sound came from the microphone.
-    audio: bool,
     /// The task gave its final answer (or failed).
     done: bool,
     error: Option<String>,
@@ -421,6 +423,7 @@ pub fn listen(
     cancel: &dyn Fn() -> bool,
     vocabulary: &Vocabulary,
     flowing: &dyn Fn(),
+    keeper: &MicKeeper,
 ) -> Answer {
     if avfoundation().is_none() || speech_framework().is_none() {
         return Answer::none(Outcome::Unavailable, "the Speech framework is not on this system");
@@ -464,7 +467,7 @@ pub fn listen(
         }
     }
     objc2::rc::autoreleasepool(|_| unsafe {
-        listen_with_recognizer(language, Duration::from_millis(u64::from(timeout_ms)), cancel, vocabulary, flowing)
+        listen_with_recognizer(language, Duration::from_millis(u64::from(timeout_ms)), cancel, vocabulary, flowing, keeper)
     })
 }
 
@@ -520,18 +523,50 @@ unsafe fn set_contextual_strings(request: *mut AnyObject, vocabulary: &Vocabular
     let _: () = unsafe { msg_send![request, setContextualStrings: array] };
 }
 
+/// Hands `samples` (mono, in `format`) to the request as one buffer.
+unsafe fn append_samples(request: *mut AnyObject, format: *mut AnyObject, samples: &[f32]) {
+    let Some(buffer_cls) = class("AVAudioPCMBuffer") else {
+        return;
+    };
+    let Ok(frames) = u32::try_from(samples.len()) else {
+        return;
+    };
+    if frames == 0 {
+        return;
+    }
+    let alloc: *mut AnyObject = unsafe { msg_send![buffer_cls, alloc] };
+    let buffer: *mut AnyObject = unsafe { msg_send![alloc, initWithPCMFormat: format, frameCapacity: frames] };
+    if buffer.is_null() {
+        return;
+    }
+    let _: () = unsafe { msg_send![buffer, setFrameLength: frames] };
+    let planes: *const *mut f32 = unsafe { msg_send![buffer, floatChannelData] };
+    if !planes.is_null() {
+        let plane = unsafe { *planes };
+        if !plane.is_null() {
+            unsafe { core::ptr::copy_nonoverlapping(samples.as_ptr(), plane, samples.len()) };
+            let _: () = unsafe { msg_send![request, appendAudioPCMBuffer: buffer] };
+        }
+    }
+    unsafe { release(buffer) };
+}
+
+/// How long one read of the microphone waits for sound while the request is fed, ms.
+const FEED_WAIT_MS: u32 = 40;
+
 unsafe fn listen_with_recognizer(
     language: &str,
     timeout: Duration,
     cancel: &dyn Fn() -> bool,
     vocabulary: &Vocabulary,
     flowing: &dyn Fn(),
+    keeper: &MicKeeper,
 ) -> Answer {
-    let (Some(recognizer_cls), Some(request_cls), Some(engine_cls), Some(queue_cls)) = (
+    let (Some(recognizer_cls), Some(request_cls), Some(queue_cls), Some(format_cls)) = (
         class("SFSpeechRecognizer"),
         class("SFSpeechAudioBufferRecognitionRequest"),
-        class("AVAudioEngine"),
         class("NSOperationQueue"),
+        class("AVAudioFormat"),
     ) else {
         return Answer::none(Outcome::Unavailable, "the speech recognizer's classes are missing");
     };
@@ -568,63 +603,48 @@ unsafe fn listen_with_recognizer(
     let _: () = unsafe { msg_send![request, setShouldReportPartialResults: true] };
     unsafe { set_contextual_strings(request, vocabulary) };
 
-    // The microphone: every buffer of the input goes to the request.
-    let engine: *mut AnyObject = unsafe { msg_send![engine_cls, new] };
-    let input: *mut AnyObject = unsafe { msg_send![engine, inputNode] };
-    let format: *mut AnyObject = unsafe { msg_send![input, outputFormatForBus: 0usize] };
-    // A Mac without a microphone reports a format of zero Hz: a tap on it raises an exception.
-    let rate: f64 = if format.is_null() { 0.0 } else { unsafe { msg_send![format, sampleRate] } };
-    if !(rate > 0.0) {
-        unsafe {
-            release(engine);
-            release(request);
-            release(queue);
-            release(recognizer);
-        }
-        return Answer::none(Outcome::Unavailable, "there is no microphone to listen with");
-    }
-    let request_ptr = request as usize;
-    let shared: Arc<(Mutex<Hearing>, Condvar)> = Arc::new((Mutex::new(Hearing::default()), Condvar::new()));
-    let tap_shared = Arc::clone(&shared);
-    let first_buffer = AtomicBool::new(false);
-    let tap = RcBlock::new(move |buffer: *mut AnyObject, _when: *mut AnyObject| {
-        if !buffer.is_null() {
-            let request = request_ptr as *mut AnyObject;
-            let _: () = unsafe { msg_send![request, appendAudioPCMBuffer: buffer] };
-            if !first_buffer.swap(true, Ordering::SeqCst) {
-                // Sound reaches the recognizer: the listening call hears of it at once.
-                tap_shared.0.lock().unwrap_or_else(PoisonError::into_inner).audio = true;
-                tap_shared.1.notify_all();
+    // The microphone is the session's: open already when the last call kept it, else opened now
+    // (the permission rules of the microphone apply there).
+    let mut lease = match keeper.acquire() {
+        Ok(lease) => lease,
+        Err((outcome, message)) => {
+            unsafe {
+                release(request);
+                release(queue);
+                release(recognizer);
             }
+            return Answer::none(outcome, &message);
         }
-    });
-    let _: () = unsafe {
-        msg_send![input, installTapOnBus: 0usize, bufferSize: 1024u32, format: format, block: &*tap]
     };
-    let _: () = unsafe { msg_send![engine, prepare] };
-    let mut error: *mut AnyObject = core::ptr::null_mut();
+    let rate = lease.rate();
+    // What is handed to the request: mono floats at the microphone's rate.
+    let format: *mut AnyObject = unsafe {
+        let alloc: *mut AnyObject = msg_send![format_cls, alloc];
+        msg_send![alloc, initWithCommonFormat: AV_AUDIO_PCM_FORMAT_FLOAT32, sampleRate: f64::from(rate), channels: 1u32, interleaved: Bool::NO]
+    };
+    // What came in while nobody listened is the first of this call's audio.
+    let preroll = std::mem::take(&mut lease.preroll);
+    let preroll_ms = preroll.len() as u64 * 1000 / u64::from(rate.max(1));
     let started_unix_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
-    let started: bool = unsafe { msg_send![engine, startAndReturnError: &mut error as *mut *mut AnyObject] };
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        .saturating_sub(preroll_ms);
+    let shared: Arc<(Mutex<Hearing>, Condvar)> = Arc::new((Mutex::new(Hearing::default()), Condvar::new()));
     let finish = |task: *mut AnyObject, audio_ended: bool| unsafe {
-        let _: () = msg_send![engine, stop];
-        let _: () = msg_send![input, removeTapOnBus: 0usize];
         if !audio_ended {
             let _: () = msg_send![request, endAudio];
         }
         if !task.is_null() {
             let _: () = msg_send![task, cancel];
         }
-        release(engine);
+        release(format);
         release(request);
         release(queue);
         release(recognizer);
     };
-    if !started {
-        let why = unsafe { describe(error) };
+    if format.is_null() {
         finish(core::ptr::null_mut(), false);
-        return Answer::none(Outcome::Failed, &format!("the microphone did not start: {why}"));
+        return Answer::none(Outcome::Failed, "the audio format of the microphone could not be made");
     }
 
     // The task reports partial transcriptions, then a final one (or an error).
@@ -661,13 +681,37 @@ unsafe fn listen_with_recognizer(
     let task: *mut AnyObject =
         unsafe { msg_send![recognizer, recognitionTaskWithRequest: request, resultHandler: &*handler] };
 
-    // Wait for the final answer: the time is up, or the user paused, ends the audio; then the
-    // recognizer has a moment for its final transcription.
+    // Feed the request from the microphone until the time is up or the user paused (then the audio
+    // ends and the recognizer has a moment for its final transcription).
     let deadline = Instant::now() + timeout;
     let mut audio_ended_at: Option<Instant> = None;
     let mut signalled = false;
+    let mut microphone_failed: Option<String> = None;
+    let mut raw: Vec<f32> = Vec::new();
+    if lease.warm {
+        // Open before the call: its sound is flowing already.
+        signalled = true;
+        flowing();
+    }
+    if !preroll.is_empty() {
+        unsafe { append_samples(request, format, &preroll) };
+    }
     let heard = loop {
-        let now = {
+        let now = if audio_ended_at.is_none() {
+            raw.clear();
+            if let Err(why) = lease.microphone().read(&mut raw, FEED_WAIT_MS) {
+                microphone_failed = Some(why);
+            }
+            if !raw.is_empty() {
+                if !signalled {
+                    // The first sound of this call: a UI may say "speak now".
+                    signalled = true;
+                    flowing();
+                }
+                unsafe { append_samples(request, format, &raw) };
+            }
+            shared.0.lock().unwrap_or_else(PoisonError::into_inner).clone()
+        } else {
             let (lock, changed) = &*shared;
             let guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
             let (guard, _) = changed
@@ -675,16 +719,12 @@ unsafe fn listen_with_recognizer(
                 .unwrap_or_else(PoisonError::into_inner);
             guard.clone()
         };
-        if now.audio && !signalled {
-            signalled = true;
-            flowing();
-        }
         if now.done {
             break now;
         }
         let paused = !now.text.is_empty() && now.changed_at.is_some_and(|at| at.elapsed() >= SILENCE);
         match audio_ended_at {
-            None if paused || Instant::now() >= deadline || cancel() => {
+            None if paused || Instant::now() >= deadline || cancel() || microphone_failed.is_some() => {
                 let _: () = unsafe { msg_send![request, endAudio] };
                 audio_ended_at = Some(Instant::now());
             }
@@ -694,8 +734,13 @@ unsafe fn listen_with_recognizer(
     };
     finish(if heard.done { core::ptr::null_mut() } else { task }, audio_ended_at.is_some());
     // The blocks stay alive until here: the framework holds copies of its own.
-    drop(tap);
     drop(handler);
+    // The microphone goes back to be kept for the next call, unless this one was cancelled or the
+    // microphone failed (the user is done, or the device is gone).
+    lease.finish(microphone_failed.is_none() && !cancel());
+    if let Some(why) = microphone_failed.filter(|_| heard.text.trim().is_empty()) {
+        return Answer::none(Outcome::Failed, &format!("the microphone failed: {why}"));
+    }
 
     if !heard.text.trim().is_empty() {
         let mut words = words_of_segments(&heard.segments);

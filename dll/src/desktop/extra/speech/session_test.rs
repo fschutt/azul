@@ -2,13 +2,18 @@
 //! a real run uses), the answers as the repr(C) types the C API hands out, the status lines, the
 //! handles that share one session, and what `AZ_SPEECH_SCRIPT` makes of a test run.
 
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicU32, Ordering},
+    Arc,
+};
 
 use azul_core::run_mode::TestHooks;
 use azul_css::{AzString, StringVec};
 
 use super::{
+    builtin::{Microphone, MicrophoneSource},
     chain::Chain,
+    keeper::MicKeeper,
     mock::{words_of, ManualClock, MockSpeech, Step},
     recognizer::{Kind, Outcome, SharedClock, SystemClock},
     answer_to_heard, heard_to_answer, with_timed_words, BuiltinSpeechStatus, HeardStatus, SpeechHeard,
@@ -346,4 +351,80 @@ fn the_session_says_when_sound_is_flowing_and_stops_saying_it_when_the_call_ends
     assert!(!session.audio_flowing(), "the call ended: no sound flows to it");
     // A closed session has no sound.
     assert!(!SpeechSession::default().audio_flowing());
+}
+
+/// A source of microphones that count how many were closed.
+struct CountingSource(Arc<AtomicU32>);
+
+struct CountingMicrophone(Arc<AtomicU32>);
+
+impl MicrophoneSource for CountingSource {
+    fn open(&mut self) -> Result<Box<dyn Microphone>, (Outcome, String)> {
+        Ok(Box::new(CountingMicrophone(Arc::clone(&self.0))))
+    }
+}
+
+impl Microphone for CountingMicrophone {
+    fn rate(&self) -> u32 {
+        16_000
+    }
+
+    fn read(&mut self, _out: &mut Vec<f32>, _wait_ms: u32) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+impl Drop for CountingMicrophone {
+    fn drop(&mut self) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+#[test]
+fn the_session_decides_how_long_the_microphone_stays_open_and_lets_it_go_on_cancel_reset_and_zero() {
+    assert_eq!(SpeechLimits::default().mic_keep_ms, 5_000, "five seconds unless the app says otherwise");
+    let closed = Arc::new(AtomicU32::new(0));
+    let keeper = MicKeeper::new(Box::new(CountingSource(Arc::clone(&closed))));
+    let clock = ManualClock::shared(ORIGIN);
+    let session = SpeechSession::on_chain_with_keeper(
+        Chain::new(clock).with(Box::new(MockSpeech::new(Kind::Native, vec![]))),
+        keeper.clone(),
+    );
+    session.set_limits(SpeechLimits::default());
+    assert_eq!(keeper.keep_ms(), 5_000);
+
+    keeper.acquire().expect("a microphone").finish(true);
+    assert!(keeper.is_held());
+    session.reset();
+    assert!(!keeper.is_held(), "a reset lets the microphone go");
+    assert_eq!(closed.load(Ordering::SeqCst), 1);
+
+    keeper.acquire().expect("a microphone").finish(true);
+    session.cancel();
+    assert!(!keeper.is_held(), "so does a cancel when nothing is listening");
+    assert_eq!(closed.load(Ordering::SeqCst), 2);
+
+    keeper.acquire().expect("a microphone").finish(true);
+    session.set_limits(SpeechLimits {
+        mic_keep_ms: 0,
+        ..SpeechLimits::default()
+    });
+    assert!(!keeper.is_held(), "a time of zero closes it at once");
+    assert_eq!(closed.load(Ordering::SeqCst), 3);
+
+    session.set_limits(SpeechLimits {
+        mic_keep_ms: u32::MAX,
+        ..SpeechLimits::default()
+    });
+    assert_eq!(keeper.keep_ms(), 60_000, "a minute is the most");
+
+    // The end of the session closes what is kept.
+    keeper.acquire().expect("a microphone").finish(true);
+    drop(keeper);
+    drop(session);
+    let began = std::time::Instant::now();
+    while closed.load(Ordering::SeqCst) < 4 {
+        assert!(began.elapsed() < std::time::Duration::from_secs(2), "the microphone outlived its session");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
 }
