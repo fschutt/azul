@@ -25,7 +25,7 @@ function styleText() {
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontVariationSettings({ Exact: { tag: 6, payload: { inner: azul._azString("\"wght\" 650, \"wdth\" 87.5") } } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontOpticalSizing({ Exact: { tag: 6, payload: azul.StyleFontOpticalSizing.None } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontKerning({ Exact: { tag: 6, payload: azul.StyleFontKerning.None } })),
-        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontVariantPosition({ Exact: { tag: 6, payload: azul.StyleFontVariantPosition.Super } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontVariantPosition({ Exact: { tag: 6, payload: azul.StyleFontVariantPosition.Superscript } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_textRendering({ Exact: { tag: 6, payload: azul.StyleTextRendering.OptimizeLegibility } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_textWrap({ Exact: { tag: 6, payload: azul.StyleTextWrap.Balance } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontVariantLigatures({ Exact: { tag: 6, payload: { common: azul.StyleFontLigatureChoice.Off, discretionary: azul.StyleFontLigatureChoice.On, historical: azul.StyleFontLigatureChoice.Unset, contextual: azul.StyleFontLigatureChoice.Unset } } })),

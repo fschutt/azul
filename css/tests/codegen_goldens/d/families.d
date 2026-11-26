@@ -26,7 +26,7 @@ CssPropertyWithConditions[] styleText()
         CssPropertyWithConditions.simple(CssProperty.fontVariationSettings(StyleFontVariationSettingsValue.exact(StyleFontVariationSettings("\"wght\" 650, \"wdth\" 87.5")))),
         CssPropertyWithConditions.simple(CssProperty.fontOpticalSizing(StyleFontOpticalSizingValue.exact(StyleFontOpticalSizing.none))),
         CssPropertyWithConditions.simple(CssProperty.fontKerning(StyleFontKerningValue.exact(StyleFontKerning.none))),
-        CssPropertyWithConditions.simple(CssProperty.fontVariantPosition(StyleFontVariantPositionValue.exact(StyleFontVariantPosition.super_))),
+        CssPropertyWithConditions.simple(CssProperty.fontVariantPosition(StyleFontVariantPositionValue.exact(StyleFontVariantPosition.superscript))),
         CssPropertyWithConditions.simple(CssProperty.textRendering(StyleTextRenderingValue.exact(StyleTextRendering.optimizeLegibility))),
         CssPropertyWithConditions.simple(CssProperty.textWrap(StyleTextWrapValue.exact(StyleTextWrap.balance))),
         CssPropertyWithConditions.simple(CssProperty.fontVariantLigatures(StyleFontVariantLigaturesValue.exact(StyleFontVariantLigatures(StyleFontLigatureChoice.off, StyleFontLigatureChoice.on, StyleFontLigatureChoice.unset, StyleFontLigatureChoice.unset)))),

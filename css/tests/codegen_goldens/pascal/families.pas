@@ -335,7 +335,7 @@ begin
   t51 := AzCssPropertyWithConditionsSimple(t50);
   FillChar(t52, SizeOf(t52), 0);
   t52.Tag := 6;
-  t52.Payload_Exact := TAzStyleFontVariantPosition.Super;
+  t52.Payload_Exact := TAzStyleFontVariantPosition.Superscript;
   t53 := AzCssPropertyFontVariantPosition(t52);
   t54 := AzCssPropertyWithConditionsSimple(t53);
   FillChar(t55, SizeOf(t55), 0);

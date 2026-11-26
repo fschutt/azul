@@ -24,7 +24,7 @@ module AzulStyles
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_variation_settings(Azul::StyleFontVariationSettingsValue::Exact.new(Azul::StyleFontVariationSettings.__own(LibAzul::AzStyleFontVariationSettings.new(inner: Azul::Native.az_string("\"wght\" 650, \"wdth\" 87.5")))))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_optical_sizing(Azul::StyleFontOpticalSizingValue::Exact.new(Azul::StyleFontOpticalSizing::None))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_kerning(Azul::StyleFontKerningValue::Exact.new(Azul::StyleFontKerning::None))),
-      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_variant_position(Azul::StyleFontVariantPositionValue::Exact.new(Azul::StyleFontVariantPosition::Super))),
+      Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_variant_position(Azul::StyleFontVariantPositionValue::Exact.new(Azul::StyleFontVariantPosition::Superscript))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.text_rendering(Azul::StyleTextRenderingValue::Exact.new(Azul::StyleTextRendering::OptimizeLegibility))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.text_wrap(Azul::StyleTextWrapValue::Exact.new(Azul::StyleTextWrap::Balance))),
       Azul::CssPropertyWithConditions.simple(Azul::CssProperty.font_variant_ligatures(Azul::StyleFontVariantLigaturesValue::Exact.new(Azul::StyleFontVariantLigatures.__own(LibAzul::AzStyleFontVariantLigatures.new(common: Azul::StyleFontLigatureChoice::Off, discretionary: Azul::StyleFontLigatureChoice::On, historical: Azul::StyleFontLigatureChoice::Unset, contextual: Azul::StyleFontLigatureChoice::Unset))))),

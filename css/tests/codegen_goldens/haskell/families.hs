@@ -23,7 +23,7 @@ styleText = sequence
     (CssPropertyWithConditions.simple (T.CssProperty_FontStretch (T.StyleFontStretchValue_Exact (T.StyleFontStretch (T.PercentageValue (T.FloatValue 87500)))))),
     (CssPropertyWithConditions.simple (T.CssProperty_FontOpticalSizing (T.StyleFontOpticalSizingValue_Exact T.StyleFontOpticalSizing_None))),
     (CssPropertyWithConditions.simple (T.CssProperty_FontKerning (T.StyleFontKerningValue_Exact T.StyleFontKerning_None))),
-    (CssPropertyWithConditions.simple (T.CssProperty_FontVariantPosition (T.StyleFontVariantPositionValue_Exact T.StyleFontVariantPosition_Super))),
+    (CssPropertyWithConditions.simple (T.CssProperty_FontVariantPosition (T.StyleFontVariantPositionValue_Exact T.StyleFontVariantPosition_Superscript))),
     (CssPropertyWithConditions.simple (T.CssProperty_TextRendering (T.StyleTextRenderingValue_Exact T.StyleTextRendering_OptimizeLegibility))),
     (CssPropertyWithConditions.simple (T.CssProperty_TextWrap (T.StyleTextWrapValue_Exact T.StyleTextWrap_Balance))),
     (CssPropertyWithConditions.simple (T.CssProperty_FontVariantLigatures (T.StyleFontVariantLigaturesValue_Exact (T.StyleFontVariantLigatures T.StyleFontLigatureChoice_Off T.StyleFontLigatureChoice_On T.StyleFontLigatureChoice_Unset T.StyleFontLigatureChoice_Unset)))),

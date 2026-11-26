@@ -29,7 +29,7 @@ style_text :: proc() -> azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontVariationSettings(azul.AzStyleFontVariationSettingsValue{Exact = {tag = 6, payload = azul.AzStyleFontVariationSettings{inner = css_str("\"wght\" 650, \"wdth\" 87.5")}}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontOpticalSizing(azul.AzStyleFontOpticalSizingValue{Exact = {tag = 6, payload = azul.AzStyleFontOpticalSizing.None}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontKerning(azul.AzStyleFontKerningValue{Exact = {tag = 6, payload = azul.AzStyleFontKerning.None}})),
-		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontVariantPosition(azul.AzStyleFontVariantPositionValue{Exact = {tag = 6, payload = azul.AzStyleFontVariantPosition.Super}})),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontVariantPosition(azul.AzStyleFontVariantPositionValue{Exact = {tag = 6, payload = azul.AzStyleFontVariantPosition.Superscript}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_textRendering(azul.AzStyleTextRenderingValue{Exact = {tag = 6, payload = azul.AzStyleTextRendering.OptimizeLegibility}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_textWrap(azul.AzStyleTextWrapValue{Exact = {tag = 6, payload = azul.AzStyleTextWrap.Balance}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontVariantLigatures(azul.AzStyleFontVariantLigaturesValue{Exact = {tag = 6, payload = azul.AzStyleFontVariantLigatures{common = azul.AzStyleFontLigatureChoice.Off, discretionary = azul.AzStyleFontLigatureChoice.On, historical = azul.AzStyleFontLigatureChoice.Unset, contextual = azul.AzStyleFontLigatureChoice.Unset}}})),

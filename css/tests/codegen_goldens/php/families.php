@@ -74,7 +74,7 @@ function style_text()
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontVariationSettings(azul_union('AzStyleFontVariationSettingsValue', 'Exact', 6, azul_struct('AzStyleFontVariationSettings', ['inner' => azul_str('"wght" 650, "wdth" 87.5')])))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontOpticalSizing(azul_union('AzStyleFontOpticalSizingValue', 'Exact', 6, $L->AzStyleFontOpticalSizing_None))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontKerning(azul_union('AzStyleFontKerningValue', 'Exact', 6, $L->AzStyleFontKerning_None))),
-            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontVariantPosition(azul_union('AzStyleFontVariantPositionValue', 'Exact', 6, $L->AzStyleFontVariantPosition_Super))),
+            $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontVariantPosition(azul_union('AzStyleFontVariantPositionValue', 'Exact', 6, $L->AzStyleFontVariantPosition_Superscript))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textRendering(azul_union('AzStyleTextRenderingValue', 'Exact', 6, $L->AzStyleTextRendering_OptimizeLegibility))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_textWrap(azul_union('AzStyleTextWrapValue', 'Exact', 6, $L->AzStyleTextWrap_Balance))),
             $L->AzCssPropertyWithConditions_simple($L->AzCssProperty_fontVariantLigatures(azul_union('AzStyleFontVariantLigaturesValue', 'Exact', 6, azul_struct('AzStyleFontVariantLigatures', ['common' => $L->AzStyleFontLigatureChoice_Off, 'discretionary' => $L->AzStyleFontLigatureChoice_On, 'historical' => $L->AzStyleFontLigatureChoice_Unset, 'contextual' => $L->AzStyleFontLigatureChoice_Unset])))),

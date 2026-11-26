@@ -22,7 +22,7 @@ def style_text():
         CssPropertyWithConditions.simple(CssProperty.FontVariationSettings(StyleFontVariationSettingsValue.Exact(_with(StyleFontVariationSettings.default(), inner="\"wght\" 650, \"wdth\" 87.5")))),
         CssPropertyWithConditions.simple(CssProperty.FontOpticalSizing(StyleFontOpticalSizingValue.Exact(getattr(StyleFontOpticalSizing, "None")))),
         CssPropertyWithConditions.simple(CssProperty.FontKerning(StyleFontKerningValue.Exact(getattr(StyleFontKerning, "None")))),
-        CssPropertyWithConditions.simple(CssProperty.FontVariantPosition(StyleFontVariantPositionValue.Exact(StyleFontVariantPosition.Super))),
+        CssPropertyWithConditions.simple(CssProperty.FontVariantPosition(StyleFontVariantPositionValue.Exact(StyleFontVariantPosition.Superscript))),
         CssPropertyWithConditions.simple(CssProperty.TextRendering(StyleTextRenderingValue.Exact(StyleTextRendering.OptimizeLegibility))),
         CssPropertyWithConditions.simple(CssProperty.TextWrap(StyleTextWrapValue.Exact(StyleTextWrap.Balance))),
         CssPropertyWithConditions.simple(CssProperty.FontVariantLigatures(StyleFontVariantLigaturesValue.Exact(_with(StyleFontVariantLigatures.default(), common=StyleFontLigatureChoice.Off, discretionary=StyleFontLigatureChoice.On, historical=StyleFontLigatureChoice.Unset, contextual=StyleFontLigatureChoice.Unset)))),
