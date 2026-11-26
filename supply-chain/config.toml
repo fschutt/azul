@@ -3568,6 +3568,11 @@ notes = "small-string type that acto (swarm-discovery) names its actors with; no
 version = "0.6.5"
 criteria = "safe-to-deploy"
 
+[[exemptions.socks]]
+version = "0.3.4"
+criteria = "safe-to-deploy"
+notes = "SOCKS4 and SOCKS5 client over std::net (sfackler), what ureq's socks-proxy feature uses for a SOCKS proxy (azul-layout's http); no build script, no process, file or environment access; its five unsafe blocks (writev and readv, one ptr::copy) are in the UDP-associate path, which ureq does not call; read for those, not audited line by line."
+
 [[exemptions.softaes]]
 version = "0.1.5"
 criteria = "safe-to-deploy"
@@ -4435,6 +4440,11 @@ criteria = "safe-to-deploy"
 [[exemptions.winnow]]
 version = "1.0.4"
 criteria = "safe-to-deploy"
+
+[[exemptions.winreg]]
+version = "0.56.0"
+criteria = "safe-to-deploy"
+notes = "Windows registry bindings (windows-sys; no serde, no transactions): ureq's win-system-proxy feature opens HKEY_CURRENT_USER read-only for the proxy that Internet Options names, in Windows builds only; build = false, no network, process or file access; unsafe only as registry FFI calls; skimmed for those, not audited line by line."
 
 [[exemptions.wmi]]
 version = "0.18.4"
