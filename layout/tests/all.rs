@@ -168,6 +168,8 @@ mod app_target;
 mod azul_widgets_demo_follows_the_theme;
 #[path = "azul_widgets_toolbar_wraps_on_a_narrow_screen.rs"]
 mod azul_widgets_toolbar_wraps_on_a_narrow_screen;
+#[path = "azul_maps_drive_banner_fits_a_phone.rs"]
+mod azul_maps_drive_banner_fits_a_phone;
 #[path = "azul_maps_sidebar_is_a_sheet_on_a_phone.rs"]
 mod azul_maps_sidebar_is_a_sheet_on_a_phone;
 #[path = "azul_paint_toolbar_fits_a_phone.rs"]

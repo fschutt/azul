@@ -70,8 +70,12 @@ const FRESH_S: u64 = 5;
 const CAR_MARKER: u64 = u64::MAX - 10;
 
 /// The banner and the bar, by day and by night; the car layout's type is bigger.
-const BANNER: &str = "position: absolute; left: 50%; top: 48px; width: 460px; margin-left: -230px; \
-                      display: flex; flex-direction: row; align-items: center; gap: 14px; \
+/// Where the banner and the bar sit: centred, 460 and 560 px wide, in a desktop window; on a phone (a window narrower
+/// than [`crate::COMPACT_WIDTH`]) as wide as the screen less 8 px each side. The two fixed widths ran out of the screen
+/// on both sides of a 411 dp phone (by 25 and 75 dp).
+const BANNER_SPOT: &str = "position: absolute; left: 50%; top: 48px; width: 460px; margin-left: -230px;";
+const BANNER_SPOT_PHONE: &str = "position: absolute; left: 8px; right: 8px; top: 48px;";
+const BANNER: &str = "display: flex; flex-direction: row; align-items: center; gap: 14px; \
                       padding: 12px 16px; border-radius: 12px; background: #0b6e4f; color: #ffffff; \
                       box-shadow: 0px 2px 10px rgba(0,0,0,0.35);";
 const BANNER_NIGHT: &str = "background: #1d2226; color: #e8eaed;";
@@ -81,8 +85,9 @@ const BANNER_DISTANCE: &str = "font-size: 26px; font-weight: bold;";
 const BANNER_DISTANCE_CAR: &str = "font-size: 38px; font-weight: bold;";
 const BANNER_TEXT: &str = "font-size: 15px; white-space: normal;";
 const BANNER_TEXT_CAR: &str = "font-size: 22px; white-space: normal;";
-const BAR: &str = "position: absolute; left: 50%; bottom: 26px; width: 560px; margin-left: -280px; \
-                   display: flex; flex-direction: row; align-items: center; gap: 8px; padding: 8px 12px; \
+const BAR_SPOT: &str = "position: absolute; left: 50%; bottom: 26px; width: 560px; margin-left: -280px;";
+const BAR_SPOT_PHONE: &str = "position: absolute; left: 8px; right: 8px; bottom: 26px;";
+const BAR: &str = "display: flex; flex-direction: row; align-items: center; gap: 8px; padding: 8px 12px; \
                    border-radius: 12px; background: system:window-background; color: system:text; \
                    box-shadow: 0px 2px 10px rgba(0,0,0,0.3);";
 const BAR_NIGHT: &str = "background: #202124; color: #e8eaed;";
@@ -771,7 +776,13 @@ pub(crate) fn banner(s: &MapState, app: &RefAny, dark_window: bool) -> Vec<Dom> 
     };
     let look = shown.look;
     let car = look.car;
-    let banner_css = if look.night { format!("{BANNER} {BANNER_NIGHT}") } else { BANNER.to_string() };
+    let phone = s.size.get().0 < crate::COMPACT_WIDTH;
+    let banner_spot = if phone { BANNER_SPOT_PHONE } else { BANNER_SPOT };
+    let banner_css = if look.night {
+        format!("{banner_spot} {BANNER} {BANNER_NIGHT}")
+    } else {
+        format!("{banner_spot} {BANNER}")
+    };
     let mut words = Dom::create_div().with_css("display: flex; flex-direction: column; flex-grow: 1; min-width: 0px;");
     if look.distance {
         words.add_child(
@@ -804,7 +815,8 @@ pub(crate) fn banner(s: &MapState, app: &RefAny, dark_window: bool) -> Vec<Dom> 
         .with_child(words);
 
     // The bar: arrival, time and distance left, the switches.
-    let bar_css = if look.night { format!("{BAR} {BAR_NIGHT}") } else { BAR.to_string() };
+    let bar_spot = if phone { BAR_SPOT_PHONE } else { BAR_SPOT };
+    let bar_css = if look.night { format!("{bar_spot} {BAR} {BAR_NIGHT}") } else { format!("{bar_spot} {BAR}") };
     let mut bar = Dom::create_div()
         .with_css(bar_css.as_str())
         .with_id(ids::NAV_BAR)

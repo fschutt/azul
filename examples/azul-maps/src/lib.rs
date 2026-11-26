@@ -338,9 +338,12 @@ const ATTRIBUTION: &str = "position: absolute; right: 4px; bottom: 3px; font-siz
                            border-radius: 3px; @theme(flora) { color: #262521; background: \
                            rgba(251, 250, 246, 0.8); @media (prefers-color-scheme: dark) { \
                            color: #E7E7E7; background: rgba(29, 29, 29, 0.8); } }";
+/// Where a problem with the pins file is shown: centred and 360 px wide in a desktop window; on a phone from the
+/// left edge to the zoom keys (a window narrower than 360 dp would have lost both ends of the 360 px).
+const NOTICE_SPOT: &str = "position: absolute; left: 50%; bottom: 30px; width: 360px; margin-left: -180px;";
+const NOTICE_SPOT_PHONE: &str = "position: absolute; left: 8px; right: 72px; bottom: 30px;";
 /// A problem with the pins file, as a small toast.
-const NOTICE: &str = "position: absolute; left: 50%; bottom: 30px; width: 360px; margin-left: \
-                      -180px; text-align: center; font-size: 12px; color: #ffffff; background: \
+const NOTICE: &str = "text-align: center; font-size: 12px; color: #ffffff; background: \
                       rgba(176,0,32,0.9); padding: 6px 10px; border-radius: 6px; @theme(flora) \
                       { color: #F4F2EA; background: rgba(126, 74, 66, 0.94); border-radius: 3px; }";
 const LOCATION_DOT: &str = "width: 16px; height: 16px; background: #4285f4; border-radius: 8px; \
@@ -1581,9 +1584,10 @@ fn screen(s: &MapState, app: &RefAny, dark: bool, insets: kit::TitleInsets) -> D
             .with_child(Dom::create_span_with_text(credits)),
     );
     if !s.notice.is_empty() {
+        let spot = if s.size.get().0 < COMPACT_WIDTH { NOTICE_SPOT_PHONE } else { NOTICE_SPOT };
         root.add_child(
             Dom::create_div()
-                .with_css(NOTICE)
+                .with_css(format!("{spot} {NOTICE}"))
                 .with_child(Dom::create_span_with_text(s.notice.as_str())),
         );
     }
