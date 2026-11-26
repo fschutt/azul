@@ -35,7 +35,7 @@ use crate::{
             android_core::{
                 bars::{band_luma, BarsState},
                 ime::ImeMirror,
-                lifecycle::{frame_work, FrameWork},
+                lifecycle::{frame_work, trim_plan, FrameWork, TRIM_MEMORY_UI_HIDDEN},
                 present::{rows_to_write, PresentState, RowDamage},
                 metrics::{self, dpi_of_density, logical_size},
                 touch::{mouse_effect, HitTest, Phase as TouchPhase},
@@ -941,6 +941,36 @@ pub fn android_main(app: AndroidApp) {
     );
 }
 
+/// Give memory back for an `onTrimMemory(level)` (`android_core::lifecycle::trim_plan`): what the CPU
+/// backend keeps only to make frames cheaper (kept group surfaces, halos, the layered compositor), the
+/// glyph cache's idle entries and the allocator's free arenas, as on macOS under memory pressure. The frame
+/// on screen stays and the next frames make again what they need.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn trim_memory(window: &mut AndroidWindow, level: i32) {
+    let plan = trim_plan(level);
+    log_info!(
+        LogCategory::Rendering,
+        "[Android] trim memory level={} -> caches={} allocator={}",
+        level,
+        plan.release_caches,
+        plan.purge_allocator
+    );
+    if plan.release_caches {
+        #[cfg(feature = "cpurender")]
+        {
+            window.cpu_backend.release_caches();
+            window.cpu_backend.glyph_cache.gc();
+        }
+    }
+    if plan.purge_allocator {
+        azul_layout::probe::hint_purge_allocator();
+    }
+    // `release_caches` may have turned the next frame into a whole one.
+    if plan.release_caches && window.present.has_frame() && has_surface(window) {
+        window.needs_rerender = true;
+    }
+}
+
 /// Closes the bridge when `android_main` ends, normally or by unwinding, and withdraws the activity
 /// object: everything the UI thread or another thread may still call after this finds a CLOSED bridge
 /// (answers its default, queues nothing) and no activity (the Java calls of the extras stop).
@@ -1151,6 +1181,7 @@ fn apply_ui_events(window: &mut AndroidWindow, events: Vec<UiEvent>) {
                 }
             }
             UiEvent::Gesture(gesture) => apply_gesture(window, gesture),
+            UiEvent::TrimMemory(level) => trim_memory(window, level),
         }
     }
     // The same gate as X11's handle_xi_raw_motion - only while the lock is held - then the shared manager
@@ -1549,21 +1580,9 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 }
             }
             MainEvent::LowMemory => {
-                // NDK `onLowMemory`: "Use this callback to release resources you do not need". What
-                // the CPU backend keeps only to make frames cheaper (kept group surfaces, halos,
-                // the layered compositor), the glyph cache's idle entries and the allocator's free
-                // arenas go back, as on macOS under memory pressure; the frame on screen stays and
-                // the next frames make again what they need.
-                #[cfg(feature = "cpurender")]
-                {
-                    window.cpu_backend.release_caches();
-                    window.cpu_backend.glyph_cache.gc();
-                }
-                azul_layout::probe::hint_purge_allocator();
-                // `release_caches` may have turned the next frame into a whole one.
-                if window.present.has_frame() && has_surface(window) {
-                    window.needs_rerender = true;
-                }
+                // NDK `onLowMemory`: "Use this callback to release resources you do not need": the
+                // worst level (`onTrimMemory` reaches the shell as `UiEvent::TrimMemory`).
+                trim_memory(window, TRIM_MEMORY_UI_HIDDEN);
             }
             MainEvent::Destroy => {
                 window.close();

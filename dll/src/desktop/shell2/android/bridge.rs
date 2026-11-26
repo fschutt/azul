@@ -153,6 +153,21 @@ pub unsafe extern "system" fn Java_com_azul_app_AzulActivity_nativeOnUiModeChang
     }
 }
 
+/// `AzulActivity.nativeOnTrimMemory(cookie, level)`: `Activity.onTrimMemory`. NativeActivity forwards only
+/// `onLowMemory` to native code; the levels (`am send-trim-memory RUNNING_CRITICAL`, the UI going hidden)
+/// come through here.
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_azul_app_AzulActivity_nativeOnTrimMemory(
+    _env: *mut core::ffi::c_void,
+    _class: *mut core::ffi::c_void,
+    native_ptr: i64,
+    level: i32,
+) {
+    if let Some(bridge) = from_cookie(native_ptr) {
+        bridge.push(UiEvent::TrimMemory(level));
+    }
+}
+
 // ---------------------------------------------------------------------------
 // NativeGestureBridge: positions arrive in PHYSICAL pixels (View coordinates); the loop converts.
 // ---------------------------------------------------------------------------

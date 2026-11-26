@@ -137,3 +137,23 @@ fn the_activity_forwards_the_character_of_a_key_nobody_consumed() {
         "dispatchKeyEvent must hand the key's character to the shell (a hardware keyboard could not type at all)"
     );
 }
+
+/// An app process has no HOME and no XDG_* variables: `dirs::home_dir()` is None on Android (dirs-sys'
+/// getpwuid fallback is compiled out), so `FilePath::get_data_dir()`, `get_cache_dir()` and
+/// `get_config_dir()` answered None and `std::env::temp_dir()` was `/data/local/tmp`, which an app cannot
+/// write: an app that keeps a pairing or a cache through them kept nothing (AzCompanion paired again at
+/// every start). The activity sets them from `getFilesDir()` / `getCacheDir()` before the library loads
+/// (the app's load-time constructor runs inside `System.loadLibrary`).
+#[test]
+fn the_apps_private_folders_are_in_the_environment_before_the_library_loads() {
+    let src = java_code("scripts/android/AzulActivity.java");
+    let on_create = method_body(&src, "protected void onCreate(");
+    let prepare_at = on_create.find("prepareAppDirs()").expect("onCreate prepares the app's folders");
+    let load_at = on_create.find("System.loadLibrary(").expect("onCreate loads the library");
+    assert!(prepare_at < load_at, "the folders are set BEFORE System.loadLibrary (the constructor runs inside it)");
+    let prepare = method_body(&src, "private void prepareAppDirs()");
+    for var in ["HOME", "XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "TMPDIR"] {
+        assert!(prepare.contains(&format!("\"{var}\"")), "{var} must be set from the app's private folders");
+    }
+    assert!(prepare.contains("getFilesDir()") && prepare.contains("getCacheDir()"));
+}

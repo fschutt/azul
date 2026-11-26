@@ -80,6 +80,8 @@ pub enum UiEvent {
     Insets { top: i32, bottom: i32, left: i32, right: i32, ime: i32 },
     /// A recognised gesture.
     Gesture(RawGesture),
+    /// `Activity.onTrimMemory(level)` (the `TRIM_MEMORY_*` of `ComponentCallbacks2`).
+    TrimMemory(i32),
 }
 
 /// The inbox and the mirror. Everything is behind a lock or an atomic.

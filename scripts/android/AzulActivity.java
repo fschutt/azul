@@ -45,8 +45,42 @@ public class AzulActivity extends NativeActivity {
     private NativeGestureBridge gestureBridge;
     private AzulAccessibilityBridge accessibilityBridge;
 
+    /**
+     * The app's private folders, as the environment the Rust side reads them from.
+     *
+     * An app process has no HOME and no XDG_* variables, so `dirs::home_dir()` is None (dirs-sys' fallback
+     * through getpwuid is compiled out on Android) and so are `FilePath::get_data_dir()`,
+     * `get_cache_dir()` and `get_config_dir()`; `std::env::temp_dir()` is `/data/local/tmp`, which an app
+     * cannot write. An app that keeps a pairing, a cache or a database through them kept nothing. Set
+     * BEFORE the library loads: the app's load-time constructor (azul_android_init) runs inside
+     * System.loadLibrary and may already ask. {@code Os.setenv} (API 21) on the main thread before any
+     * native thread exists is the safe way to change the environment of a process; what the caller
+     * already set is kept.
+     */
+    private void prepareAppDirs() {
+        try {
+            java.io.File files = getFilesDir();   // /data/user/0/<package>/files, created if missing
+            java.io.File cache = getCacheDir();   // /data/user/0/<package>/cache
+            setenvIfUnset("HOME", files.getAbsolutePath());
+            setenvIfUnset("XDG_DATA_HOME", files.getAbsolutePath());
+            setenvIfUnset("XDG_CONFIG_HOME", new java.io.File(files, "config").getAbsolutePath());
+            setenvIfUnset("XDG_CACHE_HOME", cache.getAbsolutePath());
+            setenvIfUnset("TMPDIR", cache.getAbsolutePath());
+        } catch (Throwable t) {
+            android.util.Log.w("azul", "the app's folders are not in the environment: " + t);
+        }
+    }
+
+    private static void setenvIfUnset(String key, String value) throws android.system.ErrnoException {
+        String current = android.system.Os.getenv(key);
+        if (current == null || current.isEmpty()) {
+            android.system.Os.setenv(key, value, true);
+        }
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        prepareAppDirs();
         // NativeActivity dlopens the cdylib NATIVELY during super.onCreate —
         // which does NOT register it with this ClassLoader for Java
         // native-method resolution. Without an explicit System.loadLibrary,
@@ -354,6 +388,23 @@ public class AzulActivity extends NativeActivity {
     /** Implemented in Rust (dll/src/desktop/shell2/android/mod.rs). */
     private static native long nativeGetWindowPointer();
 
-    /** Implemented in Rust (dll/src/desktop/shell2/android/mod.rs). */
+    /**
+     * The system asks the app to give memory back (TRIM_MEMORY_RUNNING_LOW 10, RUNNING_CRITICAL 15,
+     * UI_HIDDEN 20, the background levels 40, 60, 80). NativeActivity forwards only onLowMemory to native
+     * code, so the level goes to the shell here.
+     */
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        long nativePtr = nativeGetWindowPointer();
+        if (nativePtr != 0L) {
+            nativeOnTrimMemory(nativePtr, level);
+        }
+    }
+
+    /** Implemented in Rust (dll/src/desktop/shell2/android/bridge.rs). */
+    private static native void nativeOnTrimMemory(long nativePtr, int level);
+
+    /** Implemented in Rust (dll/src/desktop/shell2/android/bridge.rs). */
     private static native void nativeOnUiModeChanged(long nativePtr, int nightMode);
 }
