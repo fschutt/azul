@@ -47,8 +47,8 @@ use azul_core::{
 // widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     dynamic_selector::{
-        CssPropertyWithConditions as Cond, CssPropertyWithConditionsVec,
-        OptionCssPropertyWithConditionsVec,
+        CssPropertyWithConditions as Cond, CssPropertyWithConditionsVec, DynamicSelector,
+        OptionCssPropertyWithConditionsVec, OsCondition,
     },
     props::{
         basic::{
@@ -469,6 +469,21 @@ fn theme_back_button(t: &BackstageTheme) -> CssPropertyWithConditionsVec {
     ];
     push_nav_hover(&mut v, t);
     push_ring_border(&mut v, t.back_ring, 2, BACK_D / 2);
+    // A finger needs room: the back arrow is a 48 dp ring on Android and a 44 pt one on iOS (its size and the
+    // radius that keeps it a ring, by OS); nothing on a desktop.
+    for (os, diameter) in [(OsCondition::Android, 48), (OsCondition::IOS, 44)] {
+        let on = DynamicSelector::Os(os);
+        for prop in [
+            P::const_width(LayoutWidth::const_px(diameter)),
+            P::const_height(LayoutHeight::const_px(diameter)),
+            P::const_border_top_left_radius(StyleBorderTopLeftRadius::const_px(diameter / 2)),
+            P::const_border_top_right_radius(StyleBorderTopRightRadius::const_px(diameter / 2)),
+            P::const_border_bottom_left_radius(StyleBorderBottomLeftRadius::const_px(diameter / 2)),
+            P::const_border_bottom_right_radius(StyleBorderBottomRightRadius::const_px(diameter / 2)),
+        ] {
+            v.push(Cond::with_condition(prop, on.clone()));
+        }
+    }
     if t.is_office_2010() {
         // The ring again with its dark twin after each edge.
         v.extend(super::themes::decl::themed_border_color(

@@ -211,6 +211,28 @@ fn a_drop_down_is_as_tall_as_a_finger_on_a_phone_and_a_desktop_one_is_not() {
     }
 }
 
+extern "C" fn go_back(_data: azul_core::refany::RefAny, _info: azul_layout::callbacks::CallbackInfo) -> azul_core::callbacks::Update {
+    azul_core::callbacks::Update::DoNothing
+}
+
+#[test]
+fn the_back_ring_of_the_backstage_is_a_finger_wide_ring_on_a_phone() {
+    use azul_layout::widgets::button::ButtonOnClickCallbackType;
+    let back = || {
+        let items = BackstageNavItemVec::from_vec(vec![BackstageNavItem::new(AzString::from("Info"))]);
+        Backstage::new(items)
+            .with_on_back(azul_core::refany::RefAny::new(0u32), go_back as ButtonOnClickCallbackType)
+            .dom()
+    };
+    let class = "__azul-native-button";
+    let (w, h) = size_of_class(defaults::android_material_light(), back(), class);
+    assert!(w >= 47.9 && h >= 47.9, "48 dp on Android: {w} x {h}");
+    let (w, h) = size_of_class(defaults::ios_light(), back(), class);
+    assert!(w >= 43.9 && h >= 43.9, "44 pt on iOS: {w} x {h}");
+    let (w, h) = size_of_class(defaults::macos_modern_light(), back(), class);
+    assert!(w < 40.0 && h < 40.0, "a desktop's ring keeps its 38 px: {w} x {h}");
+}
+
 fn backstage() -> Dom {
     let items = BackstageNavItemVec::from_vec(vec![
         BackstageNavItem::new(AzString::from("Info")),

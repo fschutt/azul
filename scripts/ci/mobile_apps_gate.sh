@@ -90,6 +90,7 @@ red_layout() {
     a_button_is_a_touch_target_on_a_phone::a_text_field_is_as_tall_as_a_finger_on_a_phone_and_a_desktop_field_is_not \
     a_button_is_a_touch_target_on_a_phone::a_drop_down_is_as_tall_as_a_finger_on_a_phone_and_a_desktop_one_is_not \
     a_button_is_a_touch_target_on_a_phone::a_backstage_row_is_as_tall_as_a_finger_on_a_phone_and_a_desktop_row_is_not \
+    a_button_is_a_touch_target_on_a_phone::the_back_ring_of_the_backstage_is_a_finger_wide_ring_on_a_phone \
     azul_widgets_video_card_fits_a_phone::no_node_of_the_video_card_crosses_the_right_edge_of_a_phone \
     azul_widgets_video_card_fits_a_phone::the_stage_is_as_wide_as_the_page_leaves_it_up_to_the_clips_480_and_keeps_16_to_9 \
     azul_widgets_mail_window_fits_a_phone::on_a_phone_the_three_panes_stand_one_over_the_other_inside_the_card \
