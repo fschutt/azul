@@ -53,7 +53,7 @@
 (def-word-struct wco-words
   #.(/ (cffi:foreign-type-size '(:struct azul-internal::az-window-create-options)) 8))
 
-(cffi:defcfun ("AzWindowCreateOptions_default" %wco-default-words)
+(cffi:defcfun ("AzWindowCreateOptions_createDefault" %wco-default-words)
     (:struct wco-words))
 
 (cffi:defcfun ("AzApp_run" %app-run-words) :void

@@ -18,7 +18,10 @@
     7. a label is typed under the selected cutout (double click under it) and on the arrow (double click on its
        line); the text area takes the keyboard by itself; leaving it keeps the label;
     8. the second cutout is carried by its body and resized by its corner handle (one step each, undone by Mod+Z);
-    9. the restart: a second demo on the same data folder reads the board back (`WBDEMO_LOADED 3`: the
+    9. the boards: the header's list opens, a new board opens empty, is renamed (the name typed, Enter), board 1 is
+       opened again with its cutouts, duplicated (the copy's zip holds its cutouts), one deleted (a bar says so)
+       and brought back by Undo, one moved up; the list is kept in the data folder;
+   10. the restart: a second demo on the same data folder reads the board back (`WBDEMO_LOADED 3`: the
        two cutouts and the arrow, with their labels).
 
 The pen is not driven here: the debug server's pen_down / pen_move / pen_up only move the mouse state (the engine does
@@ -60,10 +63,31 @@ def ellipse(cx, cy, rx, ry, n=48, turns=0.97, start=-100.0):
     return pts
 
 
-def board_file(data_dir):
+def board_file(data_dir, board="b1"):
+    """The zip of board `board` (a board of the list has its id in its file's name; the file of the one-board
+    version, which is board b1 in place, has none)."""
     folder = os.path.join(data_dir, "review", "boards")
     names = sorted(os.listdir(folder)) if os.path.isdir(folder) else []
-    return os.path.join(folder, names[-1]) if names else None
+    own = [n for n in names if n.endswith(".%s.azboard.zip" % board)]
+    legacy = [n for n in names if n.endswith(".azboard.zip") and not re.search(r"\.b\d+\.azboard\.zip$", n)]
+    pick = own or (legacy if board == "b1" else [])
+    return os.path.join(folder, pick[-1]) if pick else None
+
+
+def read_index(data_dir):
+    """The list of boards as the demo keeps it (`azreview-boards/1`), or None."""
+    folder = os.path.join(data_dir, "review", "boards")
+    names = [n for n in sorted(os.listdir(folder))] if os.path.isdir(folder) else []
+    found = [n for n in names if n.endswith(".azboards.json")]
+    if not found:
+        return None
+    with open(os.path.join(folder, found[-1]), encoding="utf-8") as f:
+        return json.load(f)
+
+
+def shown_boards(data_dir):
+    index = read_index(data_dir) or {}
+    return [(b["id"], b["name"]) for b in index.get("boards", []) if "deleted_ms" not in b]
 
 
 def read_board(path):
@@ -406,6 +430,62 @@ def body(args, logs, out):
         app.until("the resize is one step back", lambda: rect_of(2) == r1)
         app.key("z", primary=True)
         app.until("and the carry is one step back", lambda: rect_of(2) == r0)
+
+        # The boards: the header's list opens, a new board opens empty, is renamed, the first one is opened again
+        # with its cutouts, duplicated; one is deleted and brought back by Undo, another moved up.
+        def boards():
+            return shown_boards(data_dir)
+
+        def say(marker, pattern=r".*"):
+            return app.count(marker, pattern)
+
+        if [n for _, n in boards()] != ["Board 1"]:
+            raise Failure("a fresh workspace should list one board, Board 1: %s" % boards())
+        app.click("#__azreview_whiteboard-boards")
+        app.until("the list of boards", lambda: app.has_id("__azreview_whiteboard-board-list"))
+        shoot(app, os.path.join(out, "9a-list.png"))
+        app.click("#__azreview_whiteboard-board-new")
+        app.until("board 2 is open", lambda: say("WBDEMO_BOARDS", r"2 b2 .*") >= 1)
+        app.until("and its list is kept", lambda: [i for i, _ in boards()] == ["b1", "b2"])
+        app.until("and it is empty", lambda: not app.has_id("__azreview_whiteboard-cutout-1"))
+        shoot(app, os.path.join(out, "9b-new-board.png"))
+        # Renamed: the field takes the keyboard, the name typed over the old one, Enter keeps it.
+        app.click("#__azreview_whiteboard-boards")
+        app.click("#__azreview_whiteboard-board-b2-rename")
+        field = "__azreview_whiteboard-board-b2-field"
+        app.until("the name field", lambda: app.has_id(field))
+        app.must("focus_node", selector="#" + field)
+        app.key("a", primary=True)
+        app.must("text_input", text="Ideas")
+        app.key("Enter")
+        app.until("the new name is kept", lambda: [n for _, n in boards()][1:] and [n for _, n in boards()][1].endswith("Ideas"))
+        shoot(app, os.path.join(out, "9c-renamed.png"))
+        # Board 1 again, read from its file: its cutouts are back.
+        app.click("#__azreview_whiteboard-board-b1")
+        app.until("board 1 is read", lambda: say("WBDEMO_OPENED", r"b1 3") >= 1 or app.has_id("__azreview_whiteboard-cutout-1"))
+        app.until("with its cutouts", lambda: app.has_id("__azreview_whiteboard-cutout-1") and app.has_id("__azreview_whiteboard-cutout-2"))
+        # A copy of the open board.
+        app.click("#__azreview_whiteboard-boards")
+        app.click("#__azreview_whiteboard-board-b1-duplicate")
+        app.until("the copy is listed", lambda: [i for i, _ in boards()] == ["b1", "b2", "b3"])
+        app.until("and its file is written", lambda: board_file(data_dir, "b3") is not None)
+        copy_manifest, copy_pictures = read_board(board_file(data_dir, "b3"))
+        if len([i for i in copy_manifest["items"] if i["kind"] == "cutout"]) != 2 or not copy_pictures:
+            raise Failure("the copy does not hold the board's two cutouts and their pictures")
+        # Board 2 deleted: the bar tells it, Undo brings it back.
+        app.click("#__azreview_whiteboard-boards")
+        app.click("#__azreview_whiteboard-board-b2-delete")
+        app.until("the board is deleted", lambda: [i for i, _ in boards()] == ["b1", "b3"])
+        app.until("the bar with Undo", lambda: app.has_id("__azreview_whiteboard-toast-undo"))
+        shoot(app, os.path.join(out, "9d-deleted.png"))
+        app.click("#__azreview_whiteboard-toast-undo")
+        app.until("the board is back", lambda: [i for i, _ in boards()] == ["b1", "b2", "b3"])
+        # The copy moved up: it is second now.
+        app.click("#__azreview_whiteboard-boards")
+        app.click("#__azreview_whiteboard-board-b3-up")
+        app.until("the copy is moved", lambda: [i for i, _ in boards()] == ["b1", "b3", "b2"])
+        shoot(app, os.path.join(out, "9e-list.png"))
+        print("[azwhiteboard] boards: %s" % boards())
     except Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
         raise
@@ -417,6 +497,7 @@ def body(args, logs, out):
     try:
         app.until("the second window", lambda: app.has_id(SURFACE))
         app.expect_line("WBDEMO_LOADED", "3", "the board read back (two cutouts and the arrow)")
+        app.expect_line("WBDEMO_BOARDS", "3 b1 Board 1", "the list of boards read back, board 1 open")
         app.frame(3)
         for i in (1, 2):
             if not app.rect("__azreview_whiteboard-cutout-%d" % i):

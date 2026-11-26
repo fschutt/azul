@@ -1568,22 +1568,20 @@ lang_odin() {
       odin build . -out:hello-world-e2e \
         -extra-linker-flags:"-L. -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText" || exit 1
     elif [ "$IS_WINDOWS" = 1 ]; then
-      # `foreign import azul "system:azul"` makes Odin ask the MSVC linker for
-      # azul.lib (NOT -lazul as on unix), so give it the import lib under that
-      # name on the lib search path; azul.dll resolves from cwd at run time.
-      #
-      # Do NOT hand azul.lib's directory to Odin via -extra-linker-flags: when
-      # any -extra-linker-flags is present, Odin mis-quotes its OWN
-      # auto-detected MSVC / Windows-Kits lib paths (which live under
-      # "C:\Program Files ...") and the MSVC linker splits them at the first
-      # space -> `LNK1181: cannot open input file 'C:\Program.obj'`
-      # (odin-lang/Odin#2741). Instead expose the local azul.lib to link.exe
-      # through the LIB environment variable, which the MSVC linker searches
-      # natively and Odin never re-quotes. Needs Windows-host validation.
+      # The generated azul.odin imports `system:azul.lib` on Windows: Odin hands
+      # the name to link.exe as it is, and link.exe reads a bare `azul` as the
+      # object file azul.obj ("LINK : fatal error LNK1181: cannot open input
+      # file 'azul.obj'", website run 45738701245). The release's import
+      # library goes next to the program under that name, where link.exe finds
+      # it without a LIB variable (the install steps in api.json say the same);
+      # azul.dll resolves from PATH at run time. Do NOT hand a library directory
+      # to Odin via -extra-linker-flags: when any is present, Odin mis-quotes its
+      # OWN auto-detected MSVC / Windows-Kits lib paths (which live under
+      # "C:\Program Files ...") and link.exe splits them at the first space
+      # (odin-lang/Odin#2741).
       BIN=./hello-world-e2e.exe
       cp "$RELEASE_DIR/azul.dll.lib" ./azul.lib 2>/dev/null || true
-      local ODIN_LIBDIR; ODIN_LIBDIR="$(pwd -W 2>/dev/null || pwd)"
-      LIB="${ODIN_LIBDIR};${LIB:-}" odin build . -out:hello-world-e2e.exe || exit 1
+      odin build . -out:hello-world-e2e.exe || exit 1
     else
       odin build . -out:hello-world-e2e \
         -extra-linker-flags:"-L." || exit 1
@@ -1701,10 +1699,21 @@ lang_swift() {
       "${MODULE[@]}" -L. -lazul -o libAzulSwift.dylib || exit 1
       swiftc -I. hello-world.swift -L. -lAzulSwift -lazul -framework Foundation -framework AppKit -framework OpenGL -framework CoreGraphics -framework CoreText -o hello-world-e2e || exit 1
     elif [ "$IS_WINDOWS" = 1 ]; then
-      # Link the MSVC import libs directly; AzulSwift.dll sits next to the
-      # exe and azul.dll resolves from PATH.
+      # AzulSwift is a static library here, not a DLL, for two reasons.
+      #  * A DLL has an export table of at most 65,535 symbols, and the module's
+      #    objects carry 76,781 export directives (measured 2026-11-26, Swift
+      #    6.3.2): the link stopped with "LINK : fatal error LNK1189: library
+      #    limit of 65535 objects exceeded" (website run 45738701245). -static
+      #    makes the compiler stop exporting (0 directives); an archive has no
+      #    export table.
+      #  * The driver archives with `link /LIB`, found by name on PATH, which in
+      #    Git Bash is GNU coreutils' `link` ("/usr/bin/link: extra operand
+      #    '/OUT:AzulSwift.lib'"). -use-ld=lld-link makes it the LLVM linker of
+      #    the Swift toolchain, which acts as lib.exe for /LIB.
+      # azul.dll resolves from PATH through its import library, which only the
+      # final link names.
       BIN=./hello-world-e2e.exe
-      "${MODULE[@]}" "$RELEASE_DIR/azul.dll.lib" -o AzulSwift.dll || exit 1
+      "${MODULE[@]}" -static -use-ld=lld-link -o AzulSwift.lib || exit 1
       swiftc -I. hello-world.swift AzulSwift.lib "$RELEASE_DIR/azul.dll.lib" -o hello-world-e2e.exe || exit 1
     else
       "${MODULE[@]}" -L. -lazul -o libAzulSwift.so || exit 1
@@ -1965,11 +1974,17 @@ lang_lisp() {
     cp "$CODEGEN_DIR/azul.asd"  "$REPO_ROOT/examples/lisp/" 2>/dev/null || true
     cp "$LIB_PATH"              "$REPO_ROOT/examples/lisp/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/lisp" || exit 1
+    # sbcl.exe is a native Windows program: it would read "/c/Users/..." (what
+    # $HOME is in Git Bash) as a path on the current drive and not find
+    # quicklisp ("Couldn't load /c/Users/runneradmin/quicklisp/setup.lisp:
+    # file does not exist", website run 45738701245).
+    local QL="$HOME/quicklisp/setup.lisp"
+    [ "$IS_WINDOWS" = 1 ] && QL="$(cygpath -m "$QL")"
     # --dynamic-space-size 8192: the generated azul.lisp is ~110k lines of
     # defcstruct/defcfun; compiling it blows the default SBCL heap ("Heap
     # exhausted, game over"). 8 GiB is comfortable headroom.
     sbcl --dynamic-space-size 8192 --non-interactive \
-      --eval "(load \"$HOME/quicklisp/setup.lisp\")" \
+      --eval "(load \"$QL\")" \
       --eval "(push (truename \".\") asdf:*central-registry*)" \
       --eval "(ql:quickload :azul-example)" \
       --eval "(azul-hello:run-app)"
@@ -2330,7 +2345,10 @@ run_one() {  # per-lang worker: re-exec --single under a timeout.
   # a long racket does not block the gating shipped rows.
   local LANG_TIMEOUT="$LANG_TIMEOUT"
   case "$lang" in
-    racket) [ "$LANG_TIMEOUT" -lt 900 ] && LANG_TIMEOUT=900 ;;
+    # The module alone takes 13m21s to compile on ubuntu and 13m04s on windows (runs 45738701245:
+    # the leg reached the example's unbound identifier after that), and more than the 15 minutes
+    # it was given on macos-15 (killed at 900 s, rc 143): 30 minutes, not a hang.
+    racket) [ "$LANG_TIMEOUT" -lt 1800 ] && LANG_TIMEOUT=1800 ;;
     # dune compiles the ~150 generated OCaml units and cabal the ~200
     # generated Haskell modules from scratch on the first run: minutes, not
     # a hang (each was one multi-megabyte file before the 2026-09 split).
@@ -2348,10 +2366,11 @@ run_one() {  # per-lang worker: re-exec --single under a timeout.
     # clang (see lang_go for why gcc never finishes); 900 s leaves room for a
     # slow runner without hiding a return of that class.
     go) [ "$LANG_TIMEOUT" -lt 900 ] && LANG_TIMEOUT=900 ;;
-    # swiftc compiles the generated Azul module (~170k lines, 44 files) before
-    # the example: 2m12s with -j4 on a 4-core laptop, 1.9 GB and 5m37s as the
-    # one file. The default 240 s is a coin toss on a CI runner.
-    swift) [ "$LANG_TIMEOUT" -lt 600 ] && LANG_TIMEOUT=600 ;;
+    # swiftc compiles the generated Azul module (~315k lines, 50 files) before
+    # the example: 2m53s for the whole leg on ubuntu-22.04, 1m25s on macos-15,
+    # and on windows-2022 4 to 7 minutes for the module alone (3m59s and 6m46s
+    # on two runners of one run, 45754551758) plus 10 s for the example.
+    swift) [ "$LANG_TIMEOUT" -lt 900 ] && LANG_TIMEOUT=900 ;;
   esac
   # NB: capture the exit code via `&&` short-circuit, NOT `if …; then return; fi`.
   # A bare `if <cmd>; then return 0; fi` whose condition is FALSE leaves the `if`

@@ -228,7 +228,7 @@ fn emit_shim(
     }
     for (idx, a) in user_args.iter().enumerate() {
         let position = if takes_self { idx + 1 } else { idx };
-        let pstype = ps_type_of(a, ir);
+        let pstype = ps_type_literal(&cs_param_type(a, ir));
         let mut name_pascal = snake_to_pascal_param(&a.name);
         // Avoid colliding with the implicit `$Instance` (the self param)
         // when an api.json arg is also named `instance`. PowerShell
@@ -382,32 +382,51 @@ fn unique_cmdlet_name(
     name
 }
 
-/// PowerShell type annotation for an argument: the C# parameter type of
-/// the wrapper method the shim forwards to ([`cs_param_type`]), so the
-/// binder hands the method what it declares - an owned heap-owning
-/// argument is the wrapper class (`[Azul.WindowCreateOptions]`, consumed
-/// by the call), a string a native `[string]`, a value its `Az*` struct,
-/// a reference an opaque `[IntPtr]`.
-fn ps_type_of(arg: &FunctionArg, ir: &CodegenIR) -> String {
-    let cs = cs_param_type(arg, ir);
-    let ps = match cs.as_str() {
-        "string" => "string",
-        "bool" => "bool",
-        "byte" => "byte",
-        "sbyte" => "sbyte",
-        "short" => "int16",
-        "ushort" => "uint16",
-        "int" => "int32",
-        "uint" => "uint32",
-        "long" => "int64",
-        "ulong" => "uint64",
-        "float" => "single",
-        "double" => "double",
-        "IntPtr" => "IntPtr",
-        "UIntPtr" => "UIntPtr",
-        other => return format!("[Azul.{}]", other),
+/// The PowerShell type literal for the C# parameter type of the wrapper method a shim forwards to
+/// ([`cs_param_type`]), so the binder hands the method what it declares - an owned heap-owning
+/// argument is the wrapper class (`[Azul.WindowCreateOptions]`, consumed by the call), a string a
+/// native `[string]`, a value its `Az*` struct, a reference an opaque `[IntPtr]`.
+///
+/// C# writes an optional value `T?` and names a class of the global
+/// namespace `global::Azul.X`; neither is PowerShell. `[Azul.global::Azul.DbScope?]`
+/// and `[Azul.AzU8VecRef?]` are not type literals ("Missing ] at end of attribute or type
+/// literal"), so `Azul.psm1` did not parse at all - 75 errors for 25 parameters, and the
+/// PowerShell leg of the language board stopped at `Import-Module` (website run 45738701245,
+/// Windows). An optional string or wrapper class (reference types) is written as the type
+/// itself; an optional value is `Nullable[T]`.
+fn ps_type_literal(cs: &str) -> String {
+    let (cs, optional) = match cs.strip_suffix('?') {
+        Some(inner) => (inner, true),
+        None => (cs, false),
     };
-    format!("[{}]", ps)
+    // `CsOption::native` writes an optional wrapper class `global::Azul.X?`, a reference type.
+    let (cs, global) = match cs.strip_prefix("global::") {
+        Some(rest) => (rest, true),
+        None => (cs, false),
+    };
+    let name = match cs {
+        "string" => "string".to_string(),
+        "bool" => "bool".to_string(),
+        "byte" => "byte".to_string(),
+        "sbyte" => "sbyte".to_string(),
+        "short" => "int16".to_string(),
+        "ushort" => "uint16".to_string(),
+        "int" => "int32".to_string(),
+        "uint" => "uint32".to_string(),
+        "long" => "int64".to_string(),
+        "ulong" => "uint64".to_string(),
+        "float" => "single".to_string(),
+        "double" => "double".to_string(),
+        "IntPtr" => "IntPtr".to_string(),
+        "UIntPtr" => "UIntPtr".to_string(),
+        other if other.starts_with("Azul.") => other.to_string(),
+        other => format!("Azul.{}", other),
+    };
+    if optional && cs != "string" && !global {
+        format!("[Nullable[{}]]", name)
+    } else {
+        format!("[{}]", name)
+    }
 }
 
 /// PowerShell parameter names are PascalCase by convention.
@@ -506,3 +525,7 @@ mod tests {
         assert!(out.contains("[Azul.WindowCreateOptions]::Default()"), "{out}");
     }
 }
+
+#[cfg(test)]
+#[path = "cmdlets_test.rs"]
+mod cmdlets_test;

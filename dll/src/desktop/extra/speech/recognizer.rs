@@ -40,6 +40,10 @@ pub struct Word {
     pub end_ms: u32,
     /// How sure the recognizer is of this word, 0 to 1.
     pub probability: f32,
+    /// The word is one of the vocabulary the recognizer was told to favour: favouring pulls a
+    /// right word's probability down (a correct "enum" came out at 0.32), so a consumer must not
+    /// read the probability of a biased word as doubt.
+    pub biased: bool,
 }
 
 impl Word {
@@ -50,6 +54,7 @@ impl Word {
             start_ms,
             end_ms,
             probability,
+            biased: false,
         }
     }
 }
@@ -198,6 +203,19 @@ pub struct Listen<'a> {
     pub clock: &'a dyn Clock,
     /// Whether the caller wants the call to end now.
     pub cancel: &'a dyn Fn() -> bool,
+    /// Called once, as soon as sound reaches the recognizer in this call: the microphone is open
+    /// and delivering, so a UI may say "speak now". Never called when no sound can come (the
+    /// microphone was refused). A recognizer that cannot tell calls it when it begins to listen.
+    pub flowing: &'a dyn Fn(),
+}
+
+impl std::fmt::Debug for Listen<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Listen")
+            .field("language", &self.language)
+            .field("timeout_ms", &self.timeout_ms)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Listen<'_> {
@@ -214,6 +232,76 @@ impl Listen<'_> {
             waited += slice;
         }
         waited
+    }
+}
+
+/// What a stream reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EventKind {
+    /// Sound reaches the recognizer: the first event of a stream that could listen.
+    Ready,
+    /// What the utterance that is going on has come to so far.
+    Partial,
+    /// An utterance is over: its text and its words with their times.
+    Final,
+    /// A stretch of the room without speech.
+    Quiet,
+    /// The stream is over; the answer says how (heard something, nothing, refused, failed).
+    Ended,
+}
+
+/// One thing a stream reports.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Event {
+    pub kind: EventKind,
+    /// Milliseconds since the stream began.
+    pub at_ms: u64,
+    /// What was heard (a partial: so far; a final: the utterance; an end: why and how).
+    pub answer: Answer,
+    /// Who gave it.
+    pub by: Option<Kind>,
+}
+
+/// The pause that ends an utterance in a stream when the app does not say, ms. Measured on the
+/// built-in model with 12 English clips (4 s each) and 12 German ones (read paragraphs of 18 s) cut
+/// into utterances by an end-point of 0.3 .. 1.0 s and the finals joined, word error rate against the
+/// reference: English 8.3 % at 300 and 400 ms, 6.7 % at 500, 5.8 % at 600, 800 and 1000 (2 of 12
+/// clips cut at 600 ms, 1 of 12 at 800); German 20.4 / 19.7 / 18.1 / 17.2 / 15.5 / 13.3 % at 300 /
+/// 400 / 500 / 600 / 800 / 1000 ms (every paragraph is cut at its sentence ends: 6.2 .. 2.4 utterances
+/// a clip). 600 ms is the shortest end-point that costs English nothing; an app that dictates long
+/// German prose asks for 800 to 1000 ms. A call (not a stream) keeps its 800 ms.
+pub const STREAM_ENDPOINT_MS: u32 = 600;
+
+/// What a stream is asked to do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StreamOptions {
+    /// Report what an utterance has come to while it goes on.
+    pub partials: bool,
+    /// How long a pause ends an utterance, ms, kept to 200 .. 3000 (0: [`STREAM_ENDPOINT_MS`]).
+    pub endpoint_ms: u32,
+    /// How long the stream runs at most, ms (0: as long as the limits allow).
+    pub max_ms: u32,
+    /// How many utterances end the stream (0: until it is stopped or its time is up).
+    pub max_utterances: u32,
+    /// How much of what an open microphone heard before the stream began is handed to it, ms, at
+    /// most the 2 s the microphone keeps (0: none). See [`STREAM_PRE_ROLL_MS`].
+    pub pre_roll_ms: u32,
+}
+
+/// What a stream is handed of the microphone's last 2 s when the app does not say, ms: a second
+/// covers the words said just before the app started the stream (a pen that rests for 1.2 s before
+/// the dictation begins) and keeps most of the talk of the room out of it.
+pub const STREAM_PRE_ROLL_MS: u32 = 1_000;
+
+impl Default for StreamOptions {
+    fn default() -> Self {
+        Self {
+            partials: true,
+            endpoint_ms: 0,
+            max_ms: 0,
+            max_utterances: 0,
+            pre_roll_ms: STREAM_PRE_ROLL_MS,
+        }
     }
 }
 
@@ -240,6 +328,56 @@ pub trait Recognizer: Send {
     /// at least every few hundred milliseconds and answers `NothingHeard` when it is set.
     fn listen(&mut self, call: &Listen<'_>) -> Answer;
 
+    /// Listens as a stream: utterance after utterance, until `stop` (after the utterance that
+    /// runs), `call.cancel` (now), the options' time or utterance count, or a failure.
+    /// `call.flowing` is called when sound begins to flow; `emit` gets the partials, finals and
+    /// quiet stretches as they come. Answers how it ended: `Heard` (some utterance was heard),
+    /// `NothingHeard`, a refusal (before any event the chain hands the stream on) or `Failed`.
+    ///
+    /// The provided body listens one utterance at a time through [`Self::listen`] (a recognizer that
+    /// cannot stream: a pause between two utterances, no partials); the built-in recognizer and the
+    /// system's on macOS stream for real.
+    fn listen_stream(
+        &mut self,
+        call: &Listen<'_>,
+        options: &StreamOptions,
+        stop: &dyn Fn() -> bool,
+        emit: &dyn Fn(EventKind, Answer),
+    ) -> Answer {
+        let began = call.clock.now_ms();
+        let budget = u64::from(call.timeout_ms);
+        let mut finals = 0u32;
+        loop {
+            let used = call.clock.now_ms().saturating_sub(began);
+            if stop() || (call.cancel)() || used >= budget || (options.max_utterances > 0 && finals >= options.max_utterances) {
+                break;
+            }
+            let per_call = u32::try_from((budget - used).min(60_000)).unwrap_or(60_000).max(500);
+            let answer = self.listen(&Listen {
+                language: call.language,
+                timeout_ms: per_call,
+                clock: call.clock,
+                cancel: call.cancel,
+                flowing: call.flowing,
+            });
+            match answer.outcome {
+                Outcome::Heard => {
+                    finals += 1;
+                    emit(EventKind::Final, answer);
+                }
+                Outcome::NothingHeard => emit(EventKind::Quiet, answer),
+                _ => return answer,
+            }
+        }
+        Answer::none(if finals > 0 { Outcome::Heard } else { Outcome::NothingHeard }, "")
+    }
+
+    /// Whether it is initialised: its model is loaded, its recognizer made; what a first call
+    /// would otherwise have to do first (a status, not a promise that a call will not wait).
+    fn warm(&self) -> bool {
+        false
+    }
+
     /// The words to favour (names, jargon), for a recognizer that takes them; answers the word
     /// about what it cut, `None` when nothing was or it takes none.
     fn set_vocabulary(&mut self, _words: &[String]) -> Option<String> {
@@ -257,6 +395,8 @@ pub struct Limits {
     pub max_listen_ms: u32,
     /// The longest language tag.
     pub max_language_chars: usize,
+    /// The longest a stream runs, ms: an hour.
+    pub max_stream_ms: u32,
 }
 
 impl Default for Limits {
@@ -265,6 +405,7 @@ impl Default for Limits {
             min_listen_ms: 500,
             max_listen_ms: 60_000,
             max_language_chars: 35,
+            max_stream_ms: 3_600_000,
         }
     }
 }

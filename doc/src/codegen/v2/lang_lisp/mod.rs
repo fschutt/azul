@@ -49,6 +49,10 @@ pub mod managed;
 pub mod types;
 pub mod wrappers;
 
+#[cfg(test)]
+#[path = "recipe_test.rs"]
+mod recipe_test;
+
 use anyhow::Result;
 
 use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};

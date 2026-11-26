@@ -27,8 +27,15 @@ fn on_jump(_: &mut RefAny, _: ItemId, _: &mut CallbackInfo) -> Update {
 
 fn on_changed(_: &mut RefAny, _: &mut CallbackInfo) {}
 
+fn on_plan(_: &mut RefAny, _: crate::whiteboard_app::Plan, _: &mut CallbackInfo) {}
+
+/// The board's area of a panel: the child under the header (the cutouts, the surface, the label being typed).
+fn area(dom: &Dom) -> &Dom {
+    &dom.children.as_slice()[1]
+}
+
 fn host() -> Host {
-    Host { app: RefAny::new(Panel::new("/work/azul")), with, on_jump, on_changed }
+    Host { app: RefAny::new(Panel::new("/work/azul")), with, on_jump, on_changed, on_plan }
 }
 
 fn nodes(dom: &Dom) -> Vec<&Dom> {
@@ -99,8 +106,9 @@ fn the_surface_takes_the_pointer_the_double_click_and_the_wheel_and_nothing_else
     assert_eq!(events(surface, on_up), vec![EventFilter::Hover(HoverEventFilter::MouseUp)]);
     assert_eq!(events(surface, on_double), vec![EventFilter::Hover(HoverEventFilter::DoubleClick)]);
     assert_eq!(events(surface, on_wheel), vec![EventFilter::Hover(HoverEventFilter::Scroll)]);
-    // The cutouts under it answer nothing themselves: the surface decides what is under the pointer.
-    for n in nodes(&dom) {
+    // The cutouts under it answer nothing themselves: the surface decides what is under the pointer (the header over
+    // the board has its own buttons).
+    for n in nodes(area(&dom)) {
         if n.root.has_id(AzString::from(SURFACE_ID)) {
             continue;
         }
@@ -122,7 +130,7 @@ fn a_cutout_is_a_node_under_the_surface_with_its_label() {
     assert!(texts(&dom).iter().any(|t| t == "the parser"), "{:?}", texts(&dom));
     assert!(!texts(&dom).iter().any(|t| t.contains("Circle some code")), "the hint goes when there is something");
     // The surface is the last child of the panel: over everything.
-    let last = dom.children.as_slice().last().expect("children");
+    let last = area(&dom).children.as_slice().last().expect("children");
     assert!(last.root.has_id(AzString::from(SURFACE_ID)));
 }
 
@@ -138,10 +146,10 @@ fn a_frame_shows_while_a_region_is_carried_over_the_bar_and_the_surface_stays_on
         .expect("a panel")
     };
     let (still, over) = (made(false), made(true));
-    assert_eq!(over.children.as_slice().len(), still.children.as_slice().len() + 1, "the frame is one node more");
-    let last = over.children.as_slice().last().expect("children");
+    assert_eq!(area(&over).children.as_slice().len(), area(&still).children.as_slice().len() + 1, "the frame is one node more");
+    let last = area(&over).children.as_slice().last().expect("children");
     assert!(last.root.has_id(AzString::from(SURFACE_ID)), "the surface, not the frame, is over everything");
-    for n in nodes(&over) {
+    for n in nodes(area(&over)) {
         if !n.root.has_id(AzString::from(SURFACE_ID)) {
             assert!(n.root.callbacks.as_slice().is_empty(), "the frame answers nothing: the surface keeps the pointer");
         }
@@ -335,7 +343,7 @@ fn the_text_area_of_a_label_is_over_the_surface_so_that_a_click_lands_in_it() {
             (panel_dom(p, &host), a)
         })
         .expect("a panel");
-    let place = |id: &str| dom.children.as_slice().iter().position(|n| n.root.has_id(AzString::from(id)));
+    let place = |id: &str| area(&dom).children.as_slice().iter().position(|n| n.root.has_id(AzString::from(id)));
     let (surface, area) = (place(SURFACE_ID), place(&format!("__azreview_whiteboard-label-{a}")));
     assert!(surface.is_some() && area.is_some(), "{surface:?} {area:?}");
     assert!(area > surface, "the text area comes after the surface: it is drawn over it and gets the pointer");

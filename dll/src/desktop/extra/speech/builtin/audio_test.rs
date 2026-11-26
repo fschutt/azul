@@ -222,3 +222,94 @@ fn quiet_speech_is_not_cut_by_the_continuing_threshold() {
     let length_ms = endpointer.take().expect("the utterance").samples.len() as i64 * 1000 / i64::from(MODEL_RATE);
     assert!((length_ms - 2_100).abs() <= 80, "{length_ms} ms long");
 }
+
+/// Pushes `signal` in chunks of 100 ms and cuts every utterance that ends, the way a stream does.
+fn utterances_of(endpointer: &mut Endpointer, signal: &[f32]) -> Vec<super::Segment> {
+    let mut segments = Vec::new();
+    for chunk in signal.chunks(1_600) {
+        let mut progress = endpointer.push(chunk);
+        while progress == Progress::Done {
+            assert!(segments.len() < 20, "the end-pointer never moved on to the next utterance");
+            segments.push(endpointer.take().expect("an utterance"));
+            endpointer.next_utterance();
+            // What was left of the chunk after the end of the utterance is the next one's.
+            progress = endpointer.push(&[]);
+        }
+    }
+    segments
+}
+
+#[test]
+fn a_stream_of_two_sentences_gives_two_utterances_each_with_its_own_start() {
+    let mut signal = room(500, 0.0004);
+    signal.extend(tone(MODEL_RATE, 300.0, 0.05, 800));
+    signal.extend(room(1_000, 0.0004));
+    signal.extend(tone(MODEL_RATE, 300.0, 0.05, 800));
+    signal.extend(room(1_200, 0.0004));
+    let mut endpointer = Endpointer::new(Vad::default());
+    let segments = utterances_of(&mut endpointer, &signal);
+    assert_eq!(segments.len(), 2, "one utterance per sentence");
+    // 300 ms before the voice and 300 ms after it are kept: 200 ms and 2000 ms into the stream.
+    assert!((segments[0].start_ms as i64 - 200).abs() <= 40, "{}", segments[0].start_ms);
+    assert!((segments[1].start_ms as i64 - 2_000).abs() <= 40, "{}", segments[1].start_ms);
+    for segment in &segments {
+        let ms = segment.samples.len() as u64 * 1000 / u64::from(MODEL_RATE);
+        assert!((1_300..=1_500).contains(&ms), "{ms} ms: 300 before, 800 of voice, 300 after");
+    }
+    // The room's noise level carries over from one utterance to the next.
+    assert!(endpointer.noise_floor() < 0.002);
+}
+
+#[test]
+fn a_stream_with_a_sentence_that_starts_right_after_the_end_of_the_last_loses_nothing_of_it() {
+    // The second voice begins 900 ms after the first ended: 100 ms after the end-pointer decided.
+    let mut signal = room(300, 0.0004);
+    signal.extend(tone(MODEL_RATE, 300.0, 0.05, 600));
+    signal.extend(room(900, 0.0004));
+    signal.extend(tone(MODEL_RATE, 300.0, 0.05, 600));
+    signal.extend(room(1_200, 0.0004));
+    let mut endpointer = Endpointer::new(Vad::default());
+    let segments = utterances_of(&mut endpointer, &signal);
+    assert_eq!(segments.len(), 2);
+    // The second keeps all its 600 ms of voice (and the 300 ms before it are the room).
+    let voice = segments[1].samples.iter().filter(|s| s.abs() > 0.02).count() as u64 * 1000 / u64::from(MODEL_RATE);
+    assert!(voice >= 300, "only {voice} ms of the voice's loud samples were kept");
+    assert!(segments[1].samples.len() as u64 * 1000 / u64::from(MODEL_RATE) >= 1_100);
+}
+
+#[test]
+fn the_utterance_so_far_can_be_looked_at_without_ending_it() {
+    let mut endpointer = Endpointer::new(Vad::default());
+    assert!(endpointer.peek().is_none(), "nothing yet");
+    feed(&mut endpointer, &room(500, 0.0004));
+    assert!(endpointer.peek().is_none(), "the room is not an utterance");
+    feed(&mut endpointer, &tone(MODEL_RATE, 300.0, 0.05, 600));
+    let early = endpointer.peek().expect("speech has begun");
+    assert_eq!(endpointer.speech_ms() / 100, 6, "{} ms of speech", endpointer.speech_ms());
+    feed(&mut endpointer, &tone(MODEL_RATE, 300.0, 0.05, 400));
+    let later = endpointer.peek().expect("speech goes on");
+    assert!(later.samples.len() > early.samples.len() + 6_000, "the utterance grew by what was said");
+    assert_eq!(later.start_ms, early.start_ms, "it begins where it began");
+    assert_eq!(endpointer.take(), None, "it is not over");
+    // Ended by the caller, it is the same speech.
+    let finished = endpointer.finish().expect("the speech so far");
+    assert!(finished.samples.len() >= later.samples.len());
+}
+
+#[test]
+fn the_pause_that_ends_an_utterance_is_the_one_asked_for() {
+    let mut signal = room(300, 0.0004);
+    signal.extend(tone(MODEL_RATE, 300.0, 0.05, 600));
+    signal.extend(room(500, 0.0004));
+    signal.extend(tone(MODEL_RATE, 300.0, 0.05, 600));
+    signal.extend(room(1_200, 0.0004));
+    let count = |hangover_ms: u32| {
+        let vad = Vad {
+            hangover_ms,
+            ..Vad::default()
+        };
+        utterances_of(&mut Endpointer::new(vad), &signal).len()
+    };
+    assert_eq!(count(800), 1, "a pause of half a second inside a sentence does not end it");
+    assert_eq!(count(400), 2, "it ends it where the end-point is shorter");
+}

@@ -5016,11 +5016,15 @@
                             "os": [
                                 "windows"
                             ],
-                            "description": "Download the native library and the generated azul.odin (into an azul/ subpackage) plus the hello-world driver, then build with odin",
+                            "description": "Download the native library with its import library (as azul.lib: the generated azul.odin imports it by that name) and the generated azul.odin (into an azul/ subpackage) plus the hello-world driver, then build with odin",
                             "steps": [
                                 {
                                     "type": "command",
                                     "content": "curl -O $HOSTNAME/ui/release/$VERSION/azul.dll"
+                                },
+                                {
+                                    "type": "command",
+                                    "content": "curl -o azul.lib $HOSTNAME/ui/release/$VERSION/azul.dll.lib"
                                 },
                                 {
                                     "type": "command",
@@ -5032,7 +5036,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "odin build . -out:hello-world.exe -extra-linker-flags:\"-L.\""
+                                    "content": "odin build . -out:hello-world.exe"
                                 },
                                 {
                                     "type": "command",
@@ -6220,7 +6224,7 @@
                             "os": [
                                 "windows"
                             ],
-                            "description": "Download the native library and the Swift bundle (the Azul module's sources in Azul/, azul.h, module.modulemap, hello-world.swift), build the Azul module the example imports, then the example",
+                            "description": "Download the native library and the Swift bundle (the Azul module's sources in Azul/, azul.h, module.modulemap, hello-world.swift), build the Azul module the example imports (as a static library: it has more symbols than the 65,535 one DLL can export), then the example",
                             "steps": [
                                 {
                                     "type": "command",
@@ -6240,7 +6244,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "swiftc -emit-library -emit-module -module-name Azul -parse-as-library -j8 -I. Azul/*.swift azul.dll.lib -o AzulSwift.dll"
+                                    "content": "swiftc -emit-library -static -use-ld=lld-link -emit-module -module-name Azul -parse-as-library -j8 -I. Azul/*.swift -o AzulSwift.lib"
                                 },
                                 {
                                     "type": "command",
@@ -7617,6 +7621,12 @@
                                 },
                                 "extend_into_safe_area": {
                                     "type": "bool"
+                                },
+                                "exclude_from_capture": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "Keep this window out of screen captures and recordings (a preview of the camera, a recording indicator: a window that records the screen would otherwise show itself). macOS: the window's sharing type is none; Windows 10 version 2004 and later: WDA_EXCLUDEFROMCAPTURE; X11 and Wayland give no way and the flag has no effect there. Default: false."
+                                    ]
                                 }
                             }
                         ],
@@ -7725,6 +7735,12 @@
                                 },
                                 "is_primary_monitor": {
                                     "type": "bool"
+                                },
+                                "native_id": {
+                                    "type": "u32",
+                                    "doc": [
+                                        "The system's own number for the display: the CGDirectDisplayID on macOS (what ScreenCaptureSource::DisplayId takes, so that an app can name this monitor to a screen capture); 0 where the system has no such number."
+                                    ]
                                 }
                             }
                         ],
@@ -13058,6 +13074,34 @@
                                     }
                                 ],
                                 "fn_body": "object.remove_timer(timer_id)"
+                            },
+                            "set_frame_tap": {
+                                "doc": [
+                                    "Register this window's frame tap (applied after the callback returns): from then on `callback` is called with `data` and the frame (`FrameTapInfo`) every time the CPU renderer paints a frame that changed, and never for one that did not. The first frame it hears is the whole window; after that the rectangles that changed. An app that records its window copies the damaged rows out of the frame and returns: the callback runs on the window's thread, inside the frame. A window drawn by the GPU has no CPU frame and never calls it. One tap a window: this replaces the one before."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "FrameTapCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_frame_tap(data, callback)"
+                            },
+                            "clear_frame_tap": {
+                                "doc": [
+                                    "Take this window's frame tap away (applied after the callback returns; nothing happens when the window has none)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.clear_frame_tap()"
                             },
                             "add_thread": {
                                 "doc": [
@@ -25969,6 +26013,24 @@
                                 "type": "CustomE2eOpResult"
                             }
                         }
+                    },
+                    "FrameTapCallbackType": {
+                        "doc": [
+                            "The function a frame tap calls: the data the app registered, and the frame."
+                        ],
+                        "external": "azul_layout::frame_tap::FrameTapCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "FrameTapInfo"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -39875,6 +39937,43 @@
                                 "Ended": {}
                             }
                         ],
+                        "repr": "C"
+                    },
+                    "FrameTapCallback": {
+                        "doc": [
+                            "A frame tap's function, as the functions of the C interface take it."
+                        ],
+                        "external": "azul_layout::frame_tap::FrameTapCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "From",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "FrameTapCallbackType"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "A function (of Rust or of C) as a tap's callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cb": "FrameTapCallbackType"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::frame_tap::FrameTapCallback::create(cb)"
+                            }
+                        },
                         "repr": "C"
                     }
                 }
@@ -61778,6 +61877,68 @@
                             ]
                         }
                     },
+                    "DesktopState": {
+                        "doc": [
+                            "The desktop's state, polled: the app in front, the pointer on the desktop, whether the screen is locked and whether the display sleeps. Cheap enough to ask ten or twenty times a second from the thread that asks; no permission of the system is needed. macOS today; where a platform has no reading every field is 'not known' and the screen is not locked. In a headless or E2E test run it is what the file named by AZ_DESKTOP_STATE_FILE says. It reads the app's bundle id and name, the pointer's place, the lock and the display's sleep and nothing else (no window titles or contents, no keys, no clicks, no list of the other apps), and keeps and sends nothing: an app that asks says so to the person."
+                        ],
+                        "external": "azul_dll::unified::desktop_state::DesktopState",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "front_bundle": {
+                                    "type": "OptionString",
+                                    "doc": [
+                                        "The bundle id of the app in front (com.apple.Safari); none where it is not known."
+                                    ]
+                                },
+                                "front_name": {
+                                    "type": "OptionString",
+                                    "doc": [
+                                        "The name of the app in front."
+                                    ]
+                                },
+                                "pointer": {
+                                    "type": "OptionScreenPosition",
+                                    "doc": [
+                                        "The pointer's place on the desktop, points from the top left of the primary display; none where it is not known."
+                                    ]
+                                },
+                                "locked": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "The screen is locked, or the screen saver shows."
+                                    ]
+                                },
+                                "display_asleep": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "The main display is asleep."
+                                    ]
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "query": {
+                                "doc": [
+                                    "The desktop now."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::unified::desktop_state::DesktopState::query()"
+                            },
+                            "headless": {
+                                "doc": [
+                                    "What a headless or E2E run reports when no script says otherwise: nothing known, nothing locked."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_dll::unified::desktop_state::DesktopState::headless()"
+                            }
+                        },
+                        "repr": "C"
+                    },
                     "StyleFontVariantPosition": {
                         "external": "azul_css::props::basic::font_variation::StyleFontVariantPosition",
                         "derive": [
@@ -68284,6 +68445,12 @@
                                 },
                                 "on_consumer_frame": {
                                     "type": "OptionOnConsumerFrame"
+                                },
+                                "excluded_apps": {
+                                    "type": "StringVec",
+                                    "doc": [
+                                        "The apps whose windows are left out of the picture, by bundle id (at most eight, read when the capture starts); every window of such an app, the ones that open later too."
+                                    ]
                                 }
                             }
                         ],
@@ -68387,6 +68554,37 @@
                                     "type": "ScreenCaptureWidget"
                                 },
                                 "fn_body": "object.with_consumer(consumer)"
+                            },
+                            "add_excluded_app": {
+                                "doc": [
+                                    "Leave the windows of the app with this bundle id (com.apple.notificationcenterui) out of the picture. Read when the capture starts; at most eight apps."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "bundle_id": "String"
+                                    }
+                                ],
+                                "fn_body": "object.add_excluded_app(bundle_id)"
+                            },
+                            "with_excluded_app": {
+                                "doc": [
+                                    "Builder form of [`add_excluded_app`](Self::add_excluded_app)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "bundle_id": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ScreenCaptureWidget"
+                                },
+                                "fn_body": "object.with_excluded_app(bundle_id)"
                             },
                             "set_on_consumer_frame": {
                                 "doc": [
@@ -116079,6 +116277,44 @@
                                 "None": {},
                                 "First": {},
                                 "Second": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "FrameTapInfo": {
+                        "doc": [
+                            "What a window's frame tap hears of one frame: its size and scale, the whole of it or the rectangles that changed (device pixels, x, y, width, height one after the other), and its pixels (RGBA, borrowed until the tap returns)."
+                        ],
+                        "external": "azul_layout::frame_tap::FrameTapInfo",
+                        "custom_impls": [
+                            "Debug"
+                        ],
+                        "derive": [
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "width": {
+                                    "type": "u32"
+                                },
+                                "height": {
+                                    "type": "u32"
+                                },
+                                "stride": {
+                                    "type": "usize"
+                                },
+                                "scale": {
+                                    "type": "f32"
+                                },
+                                "full": {
+                                    "type": "bool"
+                                },
+                                "damage": {
+                                    "type": "I32VecRef"
+                                },
+                                "pixels": {
+                                    "type": "U8VecRef"
+                                }
                             }
                         ],
                         "repr": "C"
@@ -179569,6 +179805,219 @@
                             "returns": null
                         },
                         "repr": "C"
+                    },
+                    "SpeechEventVec": {
+                        "external": "azul_dll::unified::speech::SpeechEventVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "SpeechEvent",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "SpeechEventVecDestructor"
+                                },
+                                "flags": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `SpeechEventVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "SpeechEventVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `SpeechEventVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechEventVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "speech_event_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "speech_event_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "speech_event_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `SpeechEventVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "SpeechEvent"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechEventVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `SpeechEventVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const SpeechEvent"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechEventVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionSpeechEvent"
+                                },
+                                "fn_body": "speech_event_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `SpeechEventVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechEventVecSlice"
+                                },
+                                "fn_body": "speech_event_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechEventVecSlice"
+                                },
+                                "fn_body": "speech_event_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "SpeechEventVecDestructor": {
+                        "external": "azul_dll::unified::speech::SpeechEventVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "SpeechEventVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "SpeechEventVecDestructorType": {
+                        "external": "azul_dll::unified::speech::SpeechEventVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "name": "ptr",
+                                    "type": "SpeechEventVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        },
+                        "repr": "C"
                     }
                 }
             },
@@ -190893,6 +191342,30 @@
                                     "type": "SpeechWord",
                                     "doc": [
                                         "Some value of type SpeechWord"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionSpeechEvent": {
+                        "external": "azul_dll::unified::speech::OptionSpeechEvent",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "SpeechEvent",
+                                    "doc": [
+                                        "Some value of type SpeechEvent"
                                     ]
                                 }
                             }
@@ -208743,6 +209216,18 @@
                                 },
                                 "output_format": {
                                     "type": "RawImageFormat"
+                                },
+                                "show_cursor": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "Whether the cursor is in the picture. Default: yes."
+                                    ]
+                                },
+                                "include_own_windows": {
+                                    "type": "bool",
+                                    "doc": [
+                                        "Whether this app's own windows are in the picture. Default: no - a shared desktop that shows the sharing app loops (every repaint of the tile is a change of the screen); an app that records its own review from the display wants them in."
+                                    ]
                                 }
                             }
                         ],
@@ -208766,6 +209251,12 @@
                                 },
                                 "Window": {
                                     "type": "u64"
+                                },
+                                "DisplayId": {
+                                    "type": "u32",
+                                    "doc": [
+                                        "A specific display by the system's own id (macOS: its CGDirectDisplayID; 0 is the primary display). Unlike an index it names the same display while others come and go."
+                                    ]
                                 }
                             }
                         ],
@@ -218649,6 +219140,9 @@
                                 },
                                 "probability": {
                                     "type": "f32"
+                                },
+                                "biased": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -218704,6 +219198,12 @@
                                 },
                                 "max_model_mb": {
                                     "type": "u32"
+                                },
+                                "mic_keep_ms": {
+                                    "type": "u32"
+                                },
+                                "armed_idle_ms": {
+                                    "type": "u32"
                                 }
                             }
                         ],
@@ -218713,6 +219213,7 @@
                         "external": "azul_dll::unified::speech::SpeechSession",
                         "custom_impls": [
                             "Clone",
+                            "Debug",
                             "Default",
                             "Drop"
                         ],
@@ -218881,6 +219382,128 @@
                                     }
                                 ],
                                 "fn_body": "object.reset()"
+                            },
+                            "audio_flowing": {
+                                "doc": [
+                                    "Whether sound is reaching the recognizer in the call that runs: false until the",
+                                    "microphone delivers its first sound (it takes a moment to start: about 270 ms on a Mac),",
+                                    "true from then until the call ends. A window shows \"speak now\" from the moment it turns",
+                                    "true: what is said before is lost. Poll it from another thread while `listen_blocking`",
+                                    "runs on a worker thread. A recognizer that cannot tell (Windows, Android) makes it true",
+                                    "when it begins to listen."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.audio_flowing()"
+                            },
+                            "set_preference": {
+                                "doc": [
+                                    "Who is asked first: [`SpeechPreference::Automatic`] by default."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "preference": "SpeechPreference"
+                                    }
+                                ],
+                                "fn_body": "object.set_preference(preference)"
+                            },
+                            "start_stream": {
+                                "doc": [
+                                    "Listens as a stream: utterance after utterance on one microphone, with what each has",
+                                    "come to as it goes, until [`SpeechStream::stop`], [`SpeechStream::cancel`], the options'",
+                                    "time or utterance count. Returns at once; the stream listens on a thread of its own, through",
+                                    "the same chain as [`Self::listen_blocking`] (the same order, the same hand-over to the next",
+                                    "recognizer on a refusal before the first event). What was said before the call and is",
+                                    "still in the microphone's buffer (an armed session keeps the last 2 s) is part of the first",
+                                    "utterance. A call or another stream that runs waits for this one to end."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "language": "String"
+                                    },
+                                    {
+                                        "options": "SpeechStreamOptions"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechStream"
+                                },
+                                "fn_body": "object.start_stream(language, options)"
+                            },
+                            "state": {
+                                "doc": [
+                                    "What the session is ready for ([`SpeechState`])."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechState"
+                                },
+                                "fn_body": "object.state()"
+                            },
+                            "arm": {
+                                "doc": [
+                                    "Opens the microphone now and keeps it open (see [`SpeechStandby`]), so that the next call",
+                                    "starts at once and hears what came in meanwhile (the last 2 s): arm when the user is about",
+                                    "to speak (the pen comes in range, the button is hovered), not when they have begun. Opening",
+                                    "costs about 270 ms once. Answers why it could not, empty when the session is armed (the",
+                                    "permission rules of the microphone apply: a refusal is a sentence the user can act on).",
+                                    "Arming an armed session starts the waiting time again. It takes no language and needs none:",
+                                    "the microphone does not depend on one, the built-in model takes the language per call, and",
+                                    "the system's recognizer is made for the language of each call (14-49 ms with an armed",
+                                    "microphone). Safe to call while a call or a stream listens (they hand the microphone back",
+                                    "armed) and at any time again; [`Self::disarm`] is as safe."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.arm().into()"
+                            },
+                            "disarm": {
+                                "doc": [
+                                    "Closes the microphone that waits for a call: the system's indicator goes out. A call that",
+                                    "is running goes on."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "fn_body": "object.disarm()"
+                            },
+                            "set_standby": {
+                                "doc": [
+                                    "What stays open between calls: [`SpeechStandby::OnDemand`] by default."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "standby": "SpeechStandby"
+                                    }
+                                ],
+                                "fn_body": "object.set_standby(standby)"
                             }
                         },
                         "repr": "C"
@@ -218896,6 +219519,271 @@
                             {
                                 "ptr": {
                                     "type": "SpeechWord",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechPreference": {
+                        "external": "azul_dll::unified::speech::SpeechPreference",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Automatic": {},
+                                "NativeFirst": {},
+                                "BuiltinFirst": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechStream": {
+                        "external": "azul_dll::unified::speech::SpeechStream",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Default",
+                            "Drop"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr"
+                                },
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "poll_events": {
+                                "doc": [
+                                    "The events that came since the last call, oldest first; never waits."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechEventVec"
+                                },
+                                "fn_body": "object.poll_events()"
+                            },
+                            "wait_events": {
+                                "doc": [
+                                    "The events that came since the last call, waiting up to `timeout_ms` for the first one:",
+                                    "returns as soon as there is one (a worker thread that waits here neither spins nor adds a",
+                                    "polling period to the latency), at once when the stream is over, empty when the time ran",
+                                    "out first."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "timeout_ms": "u32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechEventVec"
+                                },
+                                "fn_body": "object.wait_events(timeout_ms)"
+                            },
+                            "stop": {
+                                "doc": [
+                                    "Ends the stream after the utterance that goes on (an `Ended` event follows)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "fn_body": "object.stop()"
+                            },
+                            "cancel": {
+                                "doc": [
+                                    "Ends the stream now: the utterance that goes on is dropped without a final (an `Ended`",
+                                    "event follows)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "fn_body": "object.cancel()"
+                            },
+                            "is_running": {
+                                "doc": [
+                                    "Whether the stream is still listening (events may still be waiting to be collected)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_running()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "SpeechEvent": {
+                        "external": "azul_dll::unified::speech::SpeechEvent",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "kind": {
+                                    "type": "SpeechEventKind"
+                                },
+                                "at_ms": {
+                                    "type": "u32"
+                                },
+                                "heard": {
+                                    "type": "SpeechHeard"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechEventKind": {
+                        "external": "azul_dll::unified::speech::SpeechEventKind",
+                        "custom_impls": [
+                            "From"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Ready": {},
+                                "Partial": {},
+                                "Final": {},
+                                "Quiet": {},
+                                "Ended": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechStandby": {
+                        "external": "azul_dll::unified::speech::SpeechStandby",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Off": {},
+                                "OnDemand": {},
+                                "WhileArmed": {},
+                                "Always": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechState": {
+                        "external": "azul_dll::unified::speech::SpeechState",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Cold": {},
+                                "Warm": {},
+                                "Armed": {},
+                                "Listening": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechStreamOptions": {
+                        "external": "azul_dll::unified::speech::SpeechStreamOptions",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "partials": {
+                                    "type": "bool"
+                                },
+                                "endpoint_ms": {
+                                    "type": "u32"
+                                },
+                                "max_ms": {
+                                    "type": "u32"
+                                },
+                                "max_utterances": {
+                                    "type": "u32"
+                                },
+                                "pre_roll_ms": {
+                                    "type": "u32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechEventVecSlice": {
+                        "external": "azul_dll::unified::speech::SpeechEventVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "SpeechEvent",
                                     "ref_kind": "constptr",
                                     "doc": [
                                         "Pointer to the slice data"

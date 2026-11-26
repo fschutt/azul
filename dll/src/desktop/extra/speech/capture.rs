@@ -1,4 +1,4 @@
-//! The microphone the built-in recognizer listens to, per platform: the Mac's through an
+//! The microphone the built-in recognizer and the system's recognizer listen to, per platform: the Mac's and the iPhone's through an
 //! `AVAudioEngine` tap (the same stack the system's recognizer uses, so the same permission
 //! rules), Linux's through ALSA at 16 kHz mono. Where there is none, the built-in recognizer
 //! says so instead of listening to nothing.
@@ -8,7 +8,7 @@ use super::builtin::MicrophoneSource;
 /// The microphone of this platform.
 #[must_use]
 pub(super) fn platform_source() -> Box<dyn MicrophoneSource> {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
         Box::new(super::apple::AppleMicrophoneSource)
     }
@@ -16,14 +16,14 @@ pub(super) fn platform_source() -> Box<dyn MicrophoneSource> {
     {
         Box::new(linux::Source)
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "linux")))]
     {
         Box::new(none::Source)
     }
 }
 
 /// A platform whose microphone the built-in recognizer cannot use yet.
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "linux")))]
 mod none {
     use super::{super::builtin::Microphone, super::recognizer::Outcome, MicrophoneSource};
 

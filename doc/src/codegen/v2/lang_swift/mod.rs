@@ -20,7 +20,9 @@
 //!
 //! * `azul.swift` + `module.modulemap` - the `Azul` module as one file next to
 //!   `azul.h`, what the website bundle ships and the e2e lane compiles:
-//!   `swiftc -emit-library -emit-module -module-name Azul -I. azul.swift ...`.
+//!   `swiftc -emit-library -emit-module -module-name Azul -I. azul.swift ...`
+//!   (on Windows a static library, `-static -use-ld=lld-link -o AzulSwift.lib`: the
+//!   module has more symbols than the 65,535 one DLL can export; see `windows_test.rs`).
 //! * `swift/` - a SwiftPM package: `Package.swift`, a system-library target
 //!   `CAzul` (module map + its own copy of `azul.h`, written by the caller)
 //!   and the `Azul` target (`Sources/Azul/*.swift`, one file per api.json
@@ -186,8 +188,9 @@ Swift bindings for the [Azul](https://azul.rs) GUI framework, generated from
 
 ## Install
 
-Add the package, and put `libazul.so` / `libazul.dylib` / `azul.lib` from the
-Azul release where the linker and the loader find it:
+Add the package, and put `libazul.so` / `libazul.dylib` / `azul.dll` (with its
+import library `azul.dll.lib`, named `azul.lib`) from the Azul release where the
+linker and the loader find it:
 
 ```swift
 // Package.swift of your app
@@ -210,6 +213,17 @@ Without SwiftPM, compile the one-file module next to `azul.h` and
 ```sh
 swiftc -emit-library -emit-module -module-name Azul -parse-as-library -I. azul.swift -L. -lazul -o libAzulSwift.so
 swiftc -I. main.swift -L. -lAzulSwift -lazul -o app
+```
+
+On Windows build the module as a static library: it declares more symbols
+(about 77,000) than the 65,535 one DLL can export, so an `AzulSwift.dll` stops
+with `LNK1189`. `-use-ld=lld-link` archives with the LLVM linker of the Swift
+toolchain; without it the driver runs `link /LIB` from `PATH`, which in the Git
+Bash is its own `link` command.
+
+```sh
+swiftc -emit-library -static -use-ld=lld-link -emit-module -module-name Azul -parse-as-library -I. azul.swift -o AzulSwift.lib
+swiftc -I. main.swift AzulSwift.lib azul.dll.lib -o app.exe
 ```
 
 ## Hello world
@@ -322,6 +336,11 @@ fn header(p: &Parts, version: &str) -> String {
 //   swiftc -emit-library -emit-module -module-name Azul -parse-as-library \\
 //     -I. azul.swift -L. -lazul -o libAzulSwift.so
 //   swiftc -I. main.swift -L. -lAzulSwift -lazul -o app
+// On Windows a static library (one DLL exports at most 65,535 symbols, the
+// module has about 77,000: LNK1189), archived by the LLVM linker of the toolchain:
+//   swiftc -emit-library -static -use-ld=lld-link -emit-module -module-name Azul \\
+//     -parse-as-library -I. azul.swift -o AzulSwift.lib
+//   swiftc -I. main.swift AzulSwift.lib azul.dll.lib -o app.exe
 //
 // Declared: {} classes, {} structs, {} enums; {} functions, {} properties,
 //   {} initializers, {} enum cases.
@@ -608,6 +627,10 @@ pub fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &Codegen
     }
     true
 }
+
+#[cfg(test)]
+#[path = "windows_test.rs"]
+mod windows_test;
 
 #[cfg(test)]
 mod tests {

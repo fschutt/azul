@@ -102,6 +102,14 @@ pub enum Notice {
     /// A board read from a file had items that could not be used (a dangling arrow, an id twice,
     /// more than the cap): they were left out.
     BoardRepaired { dropped: usize },
+    /// The workspace has as many boards as it may (the whiteboards of a folder, not the items of one).
+    TooManyBoards { limit: usize },
+    /// A name of a board holds `limit` characters at most: the rest was cut off.
+    BoardNameCut { limit: usize },
+    BoardNameEmpty,
+    NoSuchBoard,
+    /// The board that is open is not kept yet, or a board is being read: the whiteboard is not left until it is.
+    BoardBusy,
 }
 
 impl Notice {
@@ -136,6 +144,15 @@ impl Notice {
             Self::BoardRepaired { dropped } => format!(
                 "{dropped} items of the saved whiteboard could not be used and were left out."
             ),
+            Self::TooManyBoards { limit } => {
+                format!("This folder has {limit} whiteboards, as many as it has room for: delete one first.")
+            }
+            Self::BoardNameCut { limit } => {
+                format!("The name of a whiteboard holds {limit} characters at most: the rest was cut off.")
+            }
+            Self::BoardNameEmpty => "A whiteboard needs a name.".to_string(),
+            Self::NoSuchBoard => "There is no such whiteboard in this folder.".to_string(),
+            Self::BoardBusy => "The whiteboard is being kept or opened: one moment.".to_string(),
         }
     }
 
@@ -154,6 +171,11 @@ impl Notice {
             Self::ArrowNeedsACutout => "azreview-whiteboard-notice-arrow-needs-a-cutout",
             Self::ArrowRepeated => "azreview-whiteboard-notice-arrow-repeated",
             Self::BoardRepaired { .. } => "azreview-whiteboard-notice-board-repaired",
+            Self::TooManyBoards { .. } => "azreview-whiteboard-notice-too-many-boards",
+            Self::BoardNameCut { .. } => "azreview-whiteboard-notice-board-name-cut",
+            Self::BoardNameEmpty => "azreview-whiteboard-notice-board-name-empty",
+            Self::NoSuchBoard => "azreview-whiteboard-notice-no-such-board",
+            Self::BoardBusy => "azreview-whiteboard-notice-board-busy",
         }
     }
 
@@ -161,7 +183,10 @@ impl Notice {
     #[must_use]
     pub fn args(&self) -> Vec<(&'static str, u64)> {
         match self {
-            Self::TooManyItems { limit } | Self::LabelShortened { limit } => vec![("limit", *limit as u64)],
+            Self::TooManyItems { limit }
+            | Self::LabelShortened { limit }
+            | Self::TooManyBoards { limit }
+            | Self::BoardNameCut { limit } => vec![("limit", *limit as u64)],
             Self::PicturesTooBig { limit_px } => vec![("limit", *limit_px)],
             Self::PictureTooBig { px, limit_px } => vec![("px", *px), ("limit", *limit_px)],
             Self::ScaleLowered { wanted_pct, used_pct } => {
@@ -169,9 +194,13 @@ impl Notice {
             }
             Self::NoSuchItem { id } => vec![("id", *id)],
             Self::BoardRepaired { dropped } => vec![("dropped", *dropped as u64)],
-            Self::PictureInvalid | Self::ArrowToItself | Self::ArrowNeedsACutout | Self::ArrowRepeated => {
-                Vec::new()
-            }
+            Self::PictureInvalid
+            | Self::ArrowToItself
+            | Self::ArrowNeedsACutout
+            | Self::ArrowRepeated
+            | Self::BoardNameEmpty
+            | Self::NoSuchBoard
+            | Self::BoardBusy => Vec::new(),
         }
     }
 }

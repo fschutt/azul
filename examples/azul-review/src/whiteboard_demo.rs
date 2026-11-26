@@ -11,9 +11,11 @@
 //! `scripts/azwhiteboard_e2e.py` drives it. stdout, for scripts: `WBDEMO_ARMED <first> <last>`,
 //! `WBDEMO_HELD` (a press inside a loop was held), `WBDEMO_LIFTED` (the region follows the pointer),
 //! `WBDEMO_DROPPED`, `WBDEMO_RENDERED <w>x<h> <ms>ms | <why>`, `WBDEMO_SAVED <path>`,
-//! `WBDEMO_LOADED <items>`, `WBDEMO_JUMP <file> <first> <last> <freshness>`, `WBDEMO_KEY <key> <items>`.
+//! `WBDEMO_LOADED <items>`, `WBDEMO_JUMP <file> <first> <last> <freshness>`, `WBDEMO_KEY <key> <items>`,
+//! `WBDEMO_BOARDS <shown> <open id> <open name>` (told at the start and after every change of the list),
+//! `WBDEMO_OPENED <id> <items>` (a board that was switched to has been read), `WBDEMO_COPY_SAVED <file>`.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use azul::{
     callbacks::{RenderImageCallbackInfo, WriteBackCallbackType},
@@ -35,8 +37,10 @@ use crate::{
     model::{InkPoint, Semantic, Stroke},
     ui::{LINE_H, PAGE_PAD},
     whiteboard::{lines_hash, ItemId},
-    whiteboard_app::SourceFacts,
+    whiteboard_app::{Effect, Plan, SourceFacts},
     whiteboard_archive,
+    whiteboard_boards,
+    whiteboard_boards_ui::BoardOutcome,
     whiteboard_drag::{Motion, Pointer, Press, Release},
     whiteboard_geom::{Pt, Size},
     whiteboard_jump::{find_block_in, jump, FileView},
@@ -67,7 +71,12 @@ struct Demo {
     next_id: u64,
     /// The lines of the last jump and until when they flash (ms of the panel's clock).
     flash: Option<(u32, u32, u64)>,
-    board_path: PathBuf,
+    /// The folder the app's files are in (`<data root>/review`): the boards, the list of them.
+    files: PathBuf,
+    /// Where the save that runs writes to (the open board's file).
+    saving_to: Option<PathBuf>,
+    /// The bytes of the board file being read, kept for a copy aside if it cannot be used.
+    loading_raw: Option<Vec<u8>>,
     timer: Option<TimerId>,
     /// `WBDEMO_PROFILE`: the frame times are printed every two seconds.
     profile: bool,
@@ -116,7 +125,7 @@ fn with_panel(app: &mut RefAny, f: &mut dyn FnMut(&mut Panel)) -> bool {
 }
 
 fn host(app: &RefAny) -> Host {
-    Host { app: app.clone(), with: with_panel, on_jump, on_changed }
+    Host { app: app.clone(), with: with_panel, on_jump, on_changed, on_plan }
 }
 
 /// The bar as the window has it now (the window is `window` px; the bar is its right edge).
@@ -466,9 +475,25 @@ fn on_changed(app: &mut RefAny, info: &mut CallbackInfo) {
         let Some(job) = d.panel.wb.save_job(now) else {
             return;
         };
-        (job.entries, d.board_path.clone())
+        let path = d.files.join(&job.name);
+        d.saving_to = Some(path.clone());
+        (job.entries, path)
     };
     whiteboard_archive::spawn_save(info, app, entries, path, on_saved as WriteBackCallbackType);
+}
+
+/// Writes a small file of the app (the list of boards, a copy of a damaged file) where its name says.
+fn write_effect(files: &Path, e: &Effect) {
+    match whiteboard_archive::write_atomic(&files.join(&e.name), &e.bytes) {
+        Ok(()) => say(&format!("WBDEMO_FILE {}", e.name)),
+        Err(why) => say(&format!("WBDEMO_WRITE_ERROR {} {why}", e.name)),
+    }
+}
+
+/// What the list of boards is, for a script.
+fn say_boards(d: &Demo) {
+    let (id, name) = d.panel.wb.active_board();
+    say(&format!("WBDEMO_BOARDS {} {id} {name}", d.panel.wb.boards().boards().count()));
 }
 
 /// The Thread has written the file (or could not).
@@ -476,20 +501,112 @@ extern "C" fn on_saved(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo)
     let Some(result) = whiteboard_archive::take_saved(&mut msg) else {
         return Update::DoNothing;
     };
-    let again = {
+    let (again, waiting, index, files) = {
         let Some(mut d) = app.downcast_mut::<Demo>() else {
             return Update::DoNothing;
         };
-        match &result {
-            Ok(()) => say(&format!("WBDEMO_SAVED {}", d.board_path.display())),
-            Err(why) => say(&format!("WBDEMO_SAVE_ERROR {why}")),
+        match (&result, d.saving_to.take()) {
+            (Ok(()), Some(path)) => say(&format!("WBDEMO_SAVED {}", path.display())),
+            (Ok(()), None) => say("WBDEMO_SAVED"),
+            (Err(why), _) => say(&format!("WBDEMO_SAVE_ERROR {why}")),
         }
-        d.panel.wb.save_done(&result)
+        let again = d.panel.wb.save_done(&result);
+        let index = d.panel.wb.take_index_effect();
+        let waiting = d.panel.after_wait();
+        (again, waiting, index, d.files.clone())
     };
+    if let Some(e) = index {
+        write_effect(&files, &e);
+    }
+    follow(&mut app, waiting, &mut info);
     if again {
         on_changed(&mut app, &mut info);
     }
+    Update::RefreshDom
+}
+
+/// What came of a change that waited for the open board to be kept.
+fn follow(app: &mut RefAny, outcome: Option<BoardOutcome>, info: &mut CallbackInfo) {
+    match outcome {
+        Some(BoardOutcome::Done(plan)) => on_plan(app, plan, info),
+        Some(BoardOutcome::Wait) => on_changed(app, info),
+        Some(BoardOutcome::Told) | None => {}
+    }
+}
+
+/// The list of boards changed or another board is to be read: what the plan says is done.
+fn on_plan(app: &mut RefAny, plan: Plan, info: &mut CallbackInfo) {
+    let files = {
+        let Some(d) = app.downcast_mut::<Demo>() else {
+            return;
+        };
+        say_boards(&d);
+        d.files.clone()
+    };
+    for e in &plan.effects {
+        write_effect(&files, e);
+    }
+    if let Some(copy) = plan.copy {
+        whiteboard_archive::spawn_save(info, app, copy.entries, files.join(&copy.name), on_copy_saved as WriteBackCallbackType);
+    }
+    if let Some(name) = plan.load {
+        read_board(app, &files.join(name), info);
+    }
+}
+
+/// The copy a duplicate made is written.
+extern "C" fn on_copy_saved(mut _app: RefAny, mut msg: RefAny, _info: CallbackInfo) -> Update {
+    match whiteboard_archive::take_saved(&mut msg) {
+        Some(Ok(())) => say("WBDEMO_COPY_SAVED"),
+        Some(Err(why)) => say(&format!("WBDEMO_SAVE_ERROR {why}")),
+        None => {}
+    }
     Update::DoNothing
+}
+
+/// The file of the board that is open is read (and its pictures decoded on a Thread); no file is an empty board.
+fn read_board(app: &mut RefAny, path: &Path, info: &mut CallbackInfo) {
+    match std::fs::read(path) {
+        Ok(bytes) => {
+            if let Some(mut d) = app.downcast_mut::<Demo>() {
+                d.loading_raw = Some(bytes.clone());
+            }
+            whiteboard_archive::spawn_load(info, app, bytes, crate::whiteboard::LIMITS, on_board_read as WriteBackCallbackType);
+        }
+        Err(_) => {
+            let waiting = {
+                let Some(mut d) = app.downcast_mut::<Demo>() else {
+                    return;
+                };
+                d.panel.wb.loaded_none();
+                say(&format!("WBDEMO_OPENED {} 0", d.panel.wb.active_board().0));
+                d.panel.after_wait()
+            };
+            follow(app, waiting, info);
+        }
+    }
+}
+
+/// A board that was switched to has been read.
+extern "C" fn on_board_read(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(result) = whiteboard_archive::take_loaded(&mut msg) else {
+        return Update::DoNothing;
+    };
+    let (effects, waiting, files) = {
+        let Some(mut d) = app.downcast_mut::<Demo>() else {
+            return Update::DoNothing;
+        };
+        let raw = d.loading_raw.take();
+        let now = d.panel.now_ms();
+        let effects = d.panel.wb.loaded(result, raw, now);
+        say(&format!("WBDEMO_OPENED {} {}", d.panel.wb.active_board().0, d.panel.wb.board.len()));
+        (effects, d.panel.after_wait(), d.files.clone())
+    };
+    for e in &effects {
+        write_effect(&files, e);
+    }
+    follow(&mut app, waiting, &mut info);
+    Update::RefreshDom
 }
 
 fn on_jump(app: &mut RefAny, id: ItemId, _info: &mut CallbackInfo) -> Update {
@@ -539,6 +656,9 @@ extern "C" fn on_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallbac
         if d.panel.wb.expire(now) {
             update = Update::RefreshDom;
         }
+        if d.panel.expire_toast(now) {
+            update = Update::RefreshDom;
+        }
         d.ticks += 1;
         if d.profile && d.ticks % 20 == 0 {
             if let Some(line) = d.panel.perf.take_summary() {
@@ -585,17 +705,32 @@ pub fn run() {
     let profile = std::env::var_os("WBDEMO_PROFILE").is_some();
     let fill = std::env::var("WBDEMO_FILL").ok().and_then(|v| v.parse::<usize>().ok()).unwrap_or(0);
     let (file, lines) = demo_text();
-    let board_path = data_root.join("review").join(whiteboard_store::board_name("whiteboard-demo"));
+    let files = data_root.join("review");
     let mut panel = Panel::new("whiteboard-demo");
     panel.wb.set_bar(true, BAR_W, 1_280.0);
     panel.perf_on = profile;
-    match std::fs::read(&board_path) {
+    // The list of boards first, then the board it says is open.
+    let unix_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(0));
+    let start = panel.wb.index_loaded(
+        std::fs::read(files.join(whiteboard_boards::index_name("whiteboard-demo"))).ok(),
+        files.join(whiteboard_store::board_name("whiteboard-demo")).exists(),
+        &Panel::first_board_name(),
+        unix_ms,
+    );
+    if let Some(told) = &start.told {
+        say(&format!("WBDEMO_BOARDS_TOLD {}", told.english()));
+    }
+    for e in &start.effects {
+        write_effect(&files, e);
+    }
+    say(&format!("WBDEMO_BOARDS {} {} {}", panel.wb.boards().boards().count(), panel.wb.active_board().0, panel.wb.active_board().1));
+    match std::fs::read(files.join(&start.load)) {
         Ok(bytes) => {
             let loaded = whiteboard_archive::load(&bytes, &crate::whiteboard::LIMITS);
             let items = loaded.as_ref().map_or(0, |l| l.data.items.len());
-            let effects = panel.wb.loaded(loaded, Some(bytes), 0);
-            for e in effects {
-                let _ = std::fs::write(board_path.with_file_name(e.name.rsplit('/').next().unwrap_or("corrupt")), e.bytes);
+            let effects = panel.wb.loaded(loaded, Some(bytes), unix_ms);
+            for e in &effects {
+                write_effect(&files, e);
             }
             say(&format!("WBDEMO_LOADED {items}"));
         }
@@ -616,7 +751,9 @@ pub fn run() {
         live: None,
         next_id: 1,
         flash: None,
-        board_path,
+        files,
+        saving_to: None,
+        loading_raw: None,
         timer: None,
         profile,
         ticks: 0,
