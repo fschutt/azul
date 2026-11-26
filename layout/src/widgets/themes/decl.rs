@@ -37,8 +37,7 @@ use azul_css::{
         },
         layout::{
             LayoutMarginBottom, LayoutMarginLeft, LayoutMarginRight, LayoutMarginTop, LayoutMinHeight,
-            LayoutMinWidth, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight,
-            LayoutPaddingTop,
+            LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop,
         },
         property::CssProperty,
         style::{

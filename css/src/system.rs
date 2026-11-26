@@ -349,8 +349,6 @@ fn canonical_language_tag(tag: &str) -> Option<String> {
     for part in parts {
         let alphabetic = part.bytes().all(|b| b.is_ascii_alphabetic());
         match part.len() {
-            // `u`, `x`, `t`: an extension, and everything after it is no part of the language.
-            1 => break,
             4 if script_allowed && alphabetic => {
                 let mut script = part.to_ascii_lowercase();
                 script[..1].make_ascii_uppercase();
@@ -374,6 +372,8 @@ fn canonical_language_tag(tag: &str) -> Option<String> {
                 out.push_str(&part.to_ascii_lowercase());
                 (script_allowed, region_allowed) = (false, false);
             }
+            // `u`, `x`, `t`: an extension, and everything after it is no part of the language -
+            // and so is anything else this does not know.
             _ => break,
         }
     }
