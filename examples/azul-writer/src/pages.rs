@@ -70,6 +70,17 @@ fn first_takes_the_keyboard(index: usize, page: &Dom) -> Dom {
     }
 }
 
+/// The canvas's room beside a sheet, both sides together, px.
+const CANVAS_SIDES: f32 = 48.0;
+
+/// Whether the document is shown as the web layout's one sheet: the web layout was asked for, or
+/// the window is narrower than the A4 sheet the print layout would put in it (a phone: a sheet of
+/// 794 px ran out of a 411 dp screen and its text with it). The sheet that fits the screen reflows.
+#[must_use]
+pub fn shows_as_web(view: View, window_width: f32, zoom: f32) -> bool {
+    view == View::Web || window_width < paginate::A4_W * zoom + CANVAS_SIDES
+}
+
 /// The document area for the app's state (`window_width`: the room the
 /// web layout's sheet may take).
 #[must_use]
@@ -92,7 +103,8 @@ pub fn document_area(app: &RefAny, st: &AppState, window_width: f32) -> Dom {
          background: system:under-page-background;",
     );
     let margin = (paginate::MARGIN * zoom).round();
-    match st.view {
+    let view = if shows_as_web(st.view, window_width, zoom) { View::Web } else { View::Print };
+    match view {
         View::Print => {
             let starts = st.pages.starts_for(doc.doc().block_count());
             let count = starts.len();
@@ -108,7 +120,7 @@ pub fn document_area(app: &RefAny, st: &AppState, window_width: f32) -> Dom {
         }
         View::Web => {
             let pages = editor.page_doms(vec![0u32], 0, 1);
-            let width = (window_width - 48.0).clamp(320.0, 1200.0 * zoom);
+            let width = (window_width - CANVAS_SIDES).clamp(320.0, 1200.0 * zoom);
             for (i, page) in pages.as_slice().iter().enumerate() {
                 canvas.add_child(sheet(
                     first_takes_the_keyboard(i, page),
@@ -226,3 +238,7 @@ pub fn status_bar(app: &RefAny, st: &AppState) -> Dom {
         .with_zoom(zoom)
         .dom()
 }
+
+#[cfg(test)]
+#[path = "pages_test.rs"]
+mod pages_test;
