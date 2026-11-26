@@ -1,8 +1,8 @@
 {
     "0.2.0": {
         "apiversion": 1,
-        "git": "34530fe7f",
-        "date": "2026-11-25",
+        "git": "d5b046d24",
+        "date": "2026-11-26",
         "installation": {
             "tabOrder": [
                 "python",
@@ -5055,7 +5055,7 @@
                             "os": [
                                 "linux"
                             ],
-                            "description": "Debian / Ubuntu: install libazul from the self-hosted apt repository, then compile the generated unit and the hello-world with fpc (the unit links `azul` by name, resolved from /usr/lib)",
+                            "description": "Debian / Ubuntu: install libazul from the self-hosted apt repository, then compile the generated unit and the hello-world with fpc (the unit links `azul` by name, resolved from /usr/lib); -Aas because fpc 3.2 gives every routine of azul.pas a section of its own, about 112,000, and the ELF writer inside fpc cannot number more than 65,279",
                             "steps": [
                                 {
                                     "type": "command",
@@ -5075,7 +5075,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "fpc hello-world.pas"
+                                    "content": "fpc -Aas hello-world.pas"
                                 },
                                 {
                                     "type": "command",
@@ -5089,7 +5089,7 @@
                             "os": [
                                 "linux"
                             ],
-                            "description": "Download the prebuilt library, the generated azul.pas unit, and the hello-world source, then build with the Free Pascal Compiler",
+                            "description": "Download the prebuilt library, the generated azul.pas unit, and the hello-world source, then build with the Free Pascal Compiler; -Aas because fpc 3.2 gives every routine of azul.pas a section of its own, about 112,000, and the ELF writer inside fpc cannot number more than 65,279",
                             "steps": [
                                 {
                                     "type": "command",
@@ -5105,7 +5105,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "fpc -Fl. hello-world.pas"
+                                    "content": "fpc -Aas -Fl. hello-world.pas"
                                 },
                                 {
                                     "type": "command",
@@ -41040,6 +41040,15 @@
                                 "FontKerning": {
                                     "type": "StyleFontKerningValue"
                                 },
+                                "TextWrap": {
+                                    "type": "StyleTextWrapValue"
+                                },
+                                "FontVariantPosition": {
+                                    "type": "StyleFontVariantPositionValue"
+                                },
+                                "TextRendering": {
+                                    "type": "StyleTextRenderingValue"
+                                },
                                 "FontVariantLigatures": {
                                     "type": "StyleFontVariantLigaturesValue"
                                 },
@@ -52562,6 +52571,9 @@
                                 "FontVariationSettings": {},
                                 "FontOpticalSizing": {},
                                 "FontKerning": {},
+                                "TextWrap": {},
+                                "FontVariantPosition": {},
+                                "TextRendering": {},
                                 "FontVariantLigatures": {},
                                 "FontVariantEastAsian": {},
                                 "FontSynthesisWeight": {},
@@ -61763,6 +61775,105 @@
                             "target": "CssPropertyValue",
                             "generic_args": [
                                 "StyleFontVariationSettings"
+                            ]
+                        }
+                    },
+                    "StyleFontVariantPosition": {
+                        "external": "azul_css::props::basic::font_variation::StyleFontVariantPosition",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Normal": {},
+                                "Subscript": {},
+                                "Superscript": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleFontVariantPositionValue": {
+                        "external": "azul_css::props::property::StyleFontVariantPositionValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleFontVariantPosition"
+                            ]
+                        }
+                    },
+                    "StyleTextRendering": {
+                        "external": "azul_css::props::basic::font_variation::StyleTextRendering",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "OptimizeSpeed": {},
+                                "OptimizeLegibility": {},
+                                "GeometricPrecision": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleTextRenderingValue": {
+                        "external": "azul_css::props::property::StyleTextRenderingValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleTextRendering"
+                            ]
+                        }
+                    },
+                    "StyleTextWrap": {
+                        "external": "azul_css::props::basic::font_variation::StyleTextWrap",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Wrap": {},
+                                "Nowrap": {},
+                                "Balance": {},
+                                "Stable": {},
+                                "Pretty": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleTextWrapValue": {
+                        "external": "azul_css::props::property::StyleTextWrapValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleTextWrap"
                             ]
                         }
                     }

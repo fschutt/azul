@@ -83,6 +83,33 @@ pub(crate) fn resolve_effective_alignment(
     }
 }
 
+/// The most shaped items a paragraph may have for `text-wrap: balance` or `pretty` to break it as
+/// a whole: the breaker looks at every earlier break for each break it may take, so its time grows
+/// with the square of the paragraph. A longer one is broken as `wrap` is.
+const MAX_ITEMS_BROKEN_AS_A_WHOLE: usize = 3_000;
+
+/// The most lines a balanced paragraph has: balancing is for headings and short texts (Chrome
+/// balances six lines, Firefox ten), and a longer text is broken as `wrap` is.
+const MAX_BALANCED_LINES: f32 = 10.0;
+
+/// Whether the rest of the paragraph at `cursor` is short enough to be broken as a whole
+/// ([`MAX_ITEMS_BROKEN_AS_A_WHOLE`], and [`MAX_BALANCED_LINES`] for a balanced one).
+fn breaks_as_a_whole(cursor: &BreakCursor<'_>, constraints: &UnifiedConstraints) -> bool {
+    let remaining = cursor.items.get(cursor.next_item_index..).unwrap_or(&[]);
+    if remaining.len() > MAX_ITEMS_BROKEN_AS_A_WHOLE {
+        return false;
+    }
+    if constraints.text_wrap == TextWrap::Balance {
+        if let AvailableSpace::Definite(width) = constraints.available_width {
+            let total: f32 = remaining.iter().map(|item| item.bounds().width).sum();
+            if width > 0.0 && total > MAX_BALANCED_LINES * width {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 /// How far below a fragment's bottom a line may end and still fit it: float
 /// rounding, not overflow.
 const LINE_FIT_EPSILON: f32 = 0.01;
@@ -394,7 +421,8 @@ pub fn perform_fragment_layout_from<T: ParsedFontTrait>(
     // piece: a room shapes or exclusions cut, whose segments differ from line
     // to line, a fragment that ends at a height or after some lines, and the
     // columns are broken by the greedy breaker below.
-    if fragment_constraints.text_wrap == TextWrap::Balance
+    if matches!(fragment_constraints.text_wrap, TextWrap::Balance | TextWrap::Pretty)
+        && breaks_as_a_whole(cursor, fragment_constraints)
         && fragment_constraints.shape_boundaries.is_empty()
         && fragment_constraints.shape_exclusions.is_empty()
         && fragment_constraints.available_height.is_none()
@@ -404,7 +432,7 @@ pub fn perform_fragment_layout_from<T: ParsedFontTrait>(
     {
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(
-                "Using Knuth-Plass algorithm for text-wrap: balance".to_string(),
+                "Using Knuth-Plass algorithm for text-wrap: balance or pretty".to_string(),
             ));
         }
 

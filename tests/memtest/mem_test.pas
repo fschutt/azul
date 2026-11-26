@@ -5,7 +5,7 @@
   This file only exercises the create/consume/DROP paths in a loop and exits 0.
   No event loop (AzApp_run needs a display and hangs headless).
 
-  Build, mirroring examples/pascal:
+  Build, mirroring examples/pascal (on Linux add -Aas, see the Pascal guide):
     fpc -Mobjfpc -Sh -Fl. mem_test.pas && LD_LIBRARY_PATH=. ./mem_test }
 
 program MemTest;

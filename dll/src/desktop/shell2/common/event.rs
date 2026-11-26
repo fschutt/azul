@@ -10451,13 +10451,21 @@ pub trait PlatformWindow {
                                 }
                             }
                         }
-                        EventFilter::Window(_) => {
+                        EventFilter::Window(window_filter) => {
                             // Window events fire on ALL nodes with matching
                             // callback - found through the list every styled
                             // DOM keeps of its window listeners, not by a walk
                             // over every node of every DOM for every event of
                             // every pass (a pointer move is one, a hover change
                             // five: see `nodes_listening_to_window_events`).
+                            //
+                            // When the listener hears THIS event: the pointer
+                            // crossing a page makes a `MouseLeave` for every
+                            // element that lost the hover, and a window
+                            // listener is for the pointer leaving the window.
+                            if !azul_core::events::window_listener_hears(*window_filter, event) {
+                                continue;
+                            }
                             for (dom_id, lr) in &layout_window.layout_results {
                                 let ndc = lr.styled_dom.node_data.as_container();
                                 for node_id in nodes_listening_to_window_events(&lr.styled_dom) {

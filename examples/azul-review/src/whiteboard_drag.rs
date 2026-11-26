@@ -255,6 +255,16 @@ pub struct Ghost {
     pub region: RegionId,
     /// In the window.
     pub at: Pt,
+    /// Where the press that lifted it was, in the window.
+    pub from: Pt,
+}
+
+impl Ghost {
+    /// How far the pointer has carried the region from where it lay: draw its outline moved by this.
+    #[must_use]
+    pub fn offset(&self) -> Pt {
+        Pt::new(self.at.x - self.from.x, self.at.y - self.from.y)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -262,7 +272,7 @@ enum Phase {
     Idle,
     /// A press on a region, not yet a drag.
     Pressed { region: RegionId, origin: Pt, since_ms: u64, via_grip: bool, held: bool },
-    Dragging { region: RegionId, at: Pt, bar_asked: bool },
+    Dragging { region: RegionId, at: Pt, from: Pt, bar_asked: bool },
 }
 
 /// The drag of an armed region to the bar.
@@ -309,22 +319,22 @@ impl Drag {
                     }
                     if moved > HOLD_JITTER_PX {
                         // Held long enough, and now it moves: a hold that no tick told yet, then a lift.
-                        self.phase = Phase::Dragging { region, at, bar_asked: false };
+                        self.phase = Phase::Dragging { region, at, from: origin, bar_asked: false };
                         return Motion::Lifted(region);
                     }
                     return Motion::Nothing;
                 }
                 if moved > DRAG_START_PX {
-                    self.phase = Phase::Dragging { region, at, bar_asked: false };
+                    self.phase = Phase::Dragging { region, at, from: origin, bar_asked: false };
                     return Motion::Lifted(region);
                 }
                 Motion::Nothing
             }
-            Phase::Dragging { region, bar_asked, .. } => {
+            Phase::Dragging { region, from, bar_asked, .. } => {
                 let over_bar = bar.rect.contains(at);
                 let near_edge = bar.window_w > 0.0 && at.x >= bar.window_w - EDGE_OPEN_PX;
                 let open_bar = !bar.open && !bar_asked && (near_edge || over_bar);
-                self.phase = Phase::Dragging { region, at, bar_asked: bar_asked || open_bar };
+                self.phase = Phase::Dragging { region, at, from, bar_asked: bar_asked || open_bar };
                 Motion::Dragging { region, over_bar, open_bar }
             }
         }
@@ -373,7 +383,7 @@ impl Drag {
     #[must_use]
     pub const fn ghost(&self) -> Option<Ghost> {
         match self.phase {
-            Phase::Dragging { region, at, .. } => Some(Ghost { region, at }),
+            Phase::Dragging { region, at, from, .. } => Some(Ghost { region, at, from }),
             _ => None,
         }
     }

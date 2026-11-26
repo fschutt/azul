@@ -299,6 +299,28 @@ fn an_anchor_on_a_side_starts_from_the_middle_of_that_side_and_a_free_end_stays_
 }
 
 #[test]
+fn all_the_arrows_are_placed_as_each_one_is_placed_alone_with_the_cutouts_looked_up_once() {
+    let mut b = Board::new();
+    let ids: Vec<ItemId> = (0..6).map(|i| cutout(&mut b, i as f32 * 300.0, (i % 3) as f32 * 200.0)).collect();
+    // Every kind of end: from the middle of a box, from a side, from a point on it, to a loose point.
+    b.add_arrow(End::item(ids[0]), End::item(ids[1]), 0.0, "a").expect("added");
+    b.add_arrow(End::Item { id: ids[1], anchor: Anchor::Side(Side::Bottom) }, End::item(ids[2]), 0.3, "").expect("added");
+    b.add_arrow(End::Item { id: ids[3], anchor: Anchor::Point { u: 0.25, v: 0.5 } }, End::item(ids[4]), -0.2, "").expect("added");
+    b.add_arrow(End::item(ids[5]), End::Free(Pt::new(900.0, 900.0)), 0.0, "").expect("added");
+    b.add_arrow(End::Free(Pt::new(-50.0, 20.0)), End::item(ids[2]), 0.0, "").expect("added");
+    let all = b.placed_arrows();
+    let each: Vec<(ItemId, Placed)> = b.arrows().filter_map(|a| b.place_arrow(a.id).map(|p| (a.id, p))).collect();
+    assert_eq!(all.len(), 5);
+    assert_eq!(all, each, "the same arrows, in the order of the board, each where it is drawn alone");
+    // After a cutout moved: still the same answers.
+    b.move_live(ids[1], Pt::new(700.0, 500.0));
+    let each: Vec<(ItemId, Placed)> = b.arrows().filter_map(|a| b.place_arrow(a.id).map(|p| (a.id, p))).collect();
+    assert_eq!(b.placed_arrows(), each);
+    // And on a board with no arrows: nothing.
+    assert!(Board::new().placed_arrows().is_empty());
+}
+
+#[test]
 fn an_arrow_may_not_loop_onto_its_own_cutout_nor_float_free_nor_hang_on_nothing_nor_repeat() {
     let mut b = Board::new();
     let a = cutout(&mut b, 0.0, 0.0);

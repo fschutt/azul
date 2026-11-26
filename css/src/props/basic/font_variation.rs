@@ -1,7 +1,9 @@
 //! CSS properties for the width, the axes and the OpenType features of a font (CSS Fonts 4).
 //!
 //! `font-stretch`, `font-variation-settings`, `font-optical-sizing`, `font-kerning`,
-//! `font-variant-ligatures`, `font-variant-east-asian` and the `font-synthesis-*` longhands.
+//! `font-variant-ligatures`, `font-variant-east-asian`, `font-variant-position` and the `font-synthesis-*`
+//! longhands, and the keyword properties of the text shaper that go with them: `text-rendering` and
+//! `text-wrap`.
 //!
 //! Every keyword is ASCII case-insensitive and a value is trimmed before it is read; a parse
 //! error carries the trimmed input.
@@ -478,6 +480,190 @@ impl FormatAsRustCode for StyleFontKerning {
 /// Returns an error if `input` is not exactly one of the three keywords.
 pub fn parse_style_font_kerning(input: &str) -> Result<StyleFontKerning, InvalidValueErr<'_>> {
     parse_keyword(input, &StyleFontKerning::ALL)
+}
+
+// --- Font Variant Position ---
+
+/// The `font-variant-position` property (CSS Fonts 4): the subscript or superscript forms of the
+/// glyphs of a font, which the shaper asks for as its `subs` and `sups` features.
+///
+/// `normal`, the initial value, asks for neither. Inherited.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum StyleFontVariantPosition {
+    #[default]
+    Normal,
+    Subscript,
+    Superscript,
+}
+
+impl StyleFontVariantPosition {
+    /// Every value with its CSS keyword, in the grammar's order.
+    pub const ALL: [(Self, &'static str); 3] = [
+        (Self::Normal, "normal"),
+        (Self::Subscript, "sub"),
+        (Self::Superscript, "super"),
+    ];
+
+    /// The CSS keyword of this value.
+    #[must_use]
+    pub const fn keyword(&self) -> &'static str {
+        match self {
+            Self::Normal => "normal",
+            Self::Subscript => "sub",
+            Self::Superscript => "super",
+        }
+    }
+}
+
+impl PrintAsCssValue for StyleFontVariantPosition {
+    fn print_as_css_value(&self) -> String {
+        self.keyword().to_string()
+    }
+}
+
+#[cfg(feature = "codegen")]
+impl FormatAsRustCode for StyleFontVariantPosition {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("StyleFontVariantPosition::{self:?}")
+    }
+}
+
+#[cfg(feature = "parser")]
+/// Parses a `font-variant-position` value: one of its keywords, ASCII case-insensitive.
+///
+/// # Errors
+///
+/// Returns an error if `input` is not exactly one of the keywords.
+pub fn parse_style_font_variant_position(input: &str) -> Result<StyleFontVariantPosition, InvalidValueErr<'_>> {
+    parse_keyword(input, &StyleFontVariantPosition::ALL)
+}
+
+// --- Text Rendering ---
+
+/// The `text-rendering` property (SVG 1.1, CSS Text 4 informative): what the text is drawn for.
+///
+/// `auto`, the initial value, leaves it to the engine. `optimizeSpeed` turns the kerning and the
+/// ligatures off where `font-kerning` and `font-variant-ligatures` do not say otherwise;
+/// `optimizeLegibility` and `geometricPrecision` ask for both (the engine draws both anyway, at
+/// linear advances). Inherited.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum StyleTextRendering {
+    #[default]
+    Auto,
+    OptimizeSpeed,
+    OptimizeLegibility,
+    GeometricPrecision,
+}
+
+impl StyleTextRendering {
+    /// Every value with its CSS keyword, in the grammar's order.
+    pub const ALL: [(Self, &'static str); 4] = [
+        (Self::Auto, "auto"),
+        (Self::OptimizeSpeed, "optimizeSpeed"),
+        (Self::OptimizeLegibility, "optimizeLegibility"),
+        (Self::GeometricPrecision, "geometricPrecision"),
+    ];
+
+    /// The CSS keyword of this value.
+    #[must_use]
+    pub const fn keyword(&self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::OptimizeSpeed => "optimizeSpeed",
+            Self::OptimizeLegibility => "optimizeLegibility",
+            Self::GeometricPrecision => "geometricPrecision",
+        }
+    }
+}
+
+impl PrintAsCssValue for StyleTextRendering {
+    fn print_as_css_value(&self) -> String {
+        self.keyword().to_string()
+    }
+}
+
+#[cfg(feature = "codegen")]
+impl FormatAsRustCode for StyleTextRendering {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("StyleTextRendering::{self:?}")
+    }
+}
+
+#[cfg(feature = "parser")]
+/// Parses a `text-rendering` value: one of its keywords, ASCII case-insensitive.
+///
+/// # Errors
+///
+/// Returns an error if `input` is not exactly one of the keywords.
+pub fn parse_style_text_rendering(input: &str) -> Result<StyleTextRendering, InvalidValueErr<'_>> {
+    parse_keyword(input, &StyleTextRendering::ALL)
+}
+
+// --- Text Wrap ---
+
+/// The `text-wrap` property (CSS Text 4): how the lines of a paragraph are broken.
+///
+/// `wrap`, the initial value, breaks greedily: each line takes all the words that fit. `nowrap`
+/// puts the text on one line. `balance` breaks the paragraph so that its lines are as even in
+/// length as the words allow; `pretty` breaks it as a whole, to avoid a ragged edge (the last line
+/// is left as long as it falls); `stable` is `wrap`. Inherited.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum StyleTextWrap {
+    #[default]
+    Wrap,
+    Nowrap,
+    Balance,
+    Stable,
+    Pretty,
+}
+
+impl StyleTextWrap {
+    /// Every value with its CSS keyword, in the grammar's order.
+    pub const ALL: [(Self, &'static str); 5] = [
+        (Self::Wrap, "wrap"),
+        (Self::Nowrap, "nowrap"),
+        (Self::Balance, "balance"),
+        (Self::Stable, "stable"),
+        (Self::Pretty, "pretty"),
+    ];
+
+    /// The CSS keyword of this value.
+    #[must_use]
+    pub const fn keyword(&self) -> &'static str {
+        match self {
+            Self::Wrap => "wrap",
+            Self::Nowrap => "nowrap",
+            Self::Balance => "balance",
+            Self::Stable => "stable",
+            Self::Pretty => "pretty",
+        }
+    }
+}
+
+impl PrintAsCssValue for StyleTextWrap {
+    fn print_as_css_value(&self) -> String {
+        self.keyword().to_string()
+    }
+}
+
+#[cfg(feature = "codegen")]
+impl FormatAsRustCode for StyleTextWrap {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("StyleTextWrap::{self:?}")
+    }
+}
+
+#[cfg(feature = "parser")]
+/// Parses a `text-wrap` value: one of its keywords, ASCII case-insensitive.
+///
+/// # Errors
+///
+/// Returns an error if `input` is not exactly one of the keywords.
+pub fn parse_style_text_wrap(input: &str) -> Result<StyleTextWrap, InvalidValueErr<'_>> {
+    parse_keyword(input, &StyleTextWrap::ALL)
 }
 
 // --- Font Variant Ligatures ---

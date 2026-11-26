@@ -114,7 +114,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 34] = [
     (CombinedCssPropertyType::BorderWidth, "stroke-width"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 221] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 224] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -238,6 +238,9 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 221] = [
     (CssPropertyType::FontVariationSettings, "font-variation-settings"),
     (CssPropertyType::FontOpticalSizing, "font-optical-sizing"),
     (CssPropertyType::FontKerning, "font-kerning"),
+    (CssPropertyType::TextWrap, "text-wrap"),
+    (CssPropertyType::FontVariantPosition, "font-variant-position"),
+    (CssPropertyType::TextRendering, "text-rendering"),
     (CssPropertyType::FontVariantLigatures, "font-variant-ligatures"),
     (CssPropertyType::FontVariantEastAsian, "font-variant-east-asian"),
     (CssPropertyType::FontSynthesisWeight, "font-synthesis-weight"),
@@ -593,6 +596,9 @@ pub type StyleFontStretchValue = CssPropertyValue<StyleFontStretch>;
 pub type StyleFontVariationSettingsValue = CssPropertyValue<StyleFontVariationSettings>;
 pub type StyleFontOpticalSizingValue = CssPropertyValue<StyleFontOpticalSizing>;
 pub type StyleFontKerningValue = CssPropertyValue<StyleFontKerning>;
+pub type StyleTextWrapValue = CssPropertyValue<StyleTextWrap>;
+pub type StyleFontVariantPositionValue = CssPropertyValue<StyleFontVariantPosition>;
+pub type StyleTextRenderingValue = CssPropertyValue<StyleTextRendering>;
 pub type StyleFontVariantLigaturesValue = CssPropertyValue<StyleFontVariantLigatures>;
 pub type StyleFontVariantEastAsianValue = CssPropertyValue<StyleFontVariantEastAsian>;
 pub type StyleFontSynthesisValue = CssPropertyValue<StyleFontSynthesis>;
@@ -988,6 +994,12 @@ pub enum CssProperty {
     FontOpticalSizing(StyleFontOpticalSizingValue),
     /// `font-kerning`: the pair adjustments of the face on or off.
     FontKerning(StyleFontKerningValue),
+    /// `text-wrap`: how the lines of a paragraph are broken (balanced, as a whole, or not at all).
+    TextWrap(StyleTextWrapValue),
+    /// `font-variant-position`: the subscript or superscript forms of the glyphs.
+    FontVariantPosition(StyleFontVariantPositionValue),
+    /// `text-rendering`: speed or legibility of the text (kerning and ligatures).
+    TextRendering(StyleTextRenderingValue),
     /// `font-variant-ligatures`: which ligatures the shaper applies.
     FontVariantLigatures(StyleFontVariantLigaturesValue),
     /// `font-variant-east-asian`: the East Asian glyph forms the text asks for.
@@ -1280,6 +1292,9 @@ pub enum CssPropertyType {
     FontVariationSettings,
     FontOpticalSizing,
     FontKerning,
+    TextWrap,
+    FontVariantPosition,
+    TextRendering,
     FontVariantLigatures,
     FontVariantEastAsian,
     FontSynthesisWeight,
@@ -1502,6 +1517,9 @@ impl CssPropertyType {
         Self::FontVariationSettings,
         Self::FontOpticalSizing,
         Self::FontKerning,
+        Self::TextWrap,
+        Self::FontVariantPosition,
+        Self::TextRendering,
         Self::FontVariantLigatures,
         Self::FontVariantEastAsian,
         Self::FontSynthesisWeight,
@@ -1767,6 +1785,9 @@ impl CssPropertyType {
             Self::FontVariationSettings => "font-variation-settings",
             Self::FontOpticalSizing => "font-optical-sizing",
             Self::FontKerning => "font-kerning",
+            Self::TextWrap => "text-wrap",
+            Self::FontVariantPosition => "font-variant-position",
+            Self::TextRendering => "text-rendering",
             Self::FontVariantLigatures => "font-variant-ligatures",
             Self::FontVariantEastAsian => "font-variant-east-asian",
             Self::FontSynthesisWeight => "font-synthesis-weight",
@@ -1787,7 +1808,7 @@ impl CssPropertyType {
             BorderCollapse, BorderSpacing, CaptionSide, Cursor, Direction, EmptyCells,
             FontFamily, FontFeatureSettings, FontSize, FontStyle, FontVariantCaps,
             FontVariantNumeric, FontWeight, HangingPunctuation, HyphenationLanguage, Hyphens,
-            FontStretch, FontVariationSettings, FontOpticalSizing, FontKerning, FontVariantLigatures, FontVariantEastAsian, FontSynthesisWeight, FontSynthesisStyle, FontSynthesisSmallCaps, FontSynthesisPosition,
+            FontStretch, FontVariationSettings, FontOpticalSizing, FontKerning, TextWrap, FontVariantPosition, TextRendering, FontVariantLigatures, FontVariantEastAsian, FontSynthesisWeight, FontSynthesisStyle, FontSynthesisSmallCaps, FontSynthesisPosition,
             LetterSpacing, LineBreak, LineHeight, ListStylePosition, ListStyleType, Orphans,
             OverflowWrap, Quotes, TabSize, TextAlign, TextAlignLast, TextColor, TextCombineUpright,
             TextDecoration, TextIndent, TextJustify, TextOrientation, TextTransform, UserSelect,
@@ -1797,7 +1818,7 @@ impl CssPropertyType {
             // Font properties
             FontFamily | FontSize | FontWeight | FontStyle | LineHeight | LetterSpacing | WordSpacing | TextIndent |
             FontVariantNumeric | FontVariantCaps | FontFeatureSettings |
-            FontStretch | FontVariationSettings | FontOpticalSizing | FontKerning | FontVariantLigatures | FontVariantEastAsian | FontSynthesisWeight | FontSynthesisStyle | FontSynthesisSmallCaps | FontSynthesisPosition |
+            FontStretch | FontVariationSettings | FontOpticalSizing | FontKerning | TextWrap | FontVariantPosition | TextRendering | FontVariantLigatures | FontVariantEastAsian | FontSynthesisWeight | FontSynthesisStyle | FontSynthesisSmallCaps | FontSynthesisPosition |
 
             // Generated content: the marks of open-quote and close-quote
             Quotes |
@@ -2019,7 +2040,7 @@ impl CssPropertyType {
             ColumnRuleColor, ColumnRuleStyle, Cursor, Direction, DominantBaseline, Filter,
             FontFamily, FontFeatureSettings, FontSize, FontStyle, FontVariantCaps,
             FontVariantNumeric, FontWeight, HangingPunctuation, Height,
-            FontStretch, FontVariationSettings, FontOpticalSizing, FontKerning, FontVariantLigatures, FontVariantEastAsian, FontSynthesisWeight, FontSynthesisStyle, FontSynthesisSmallCaps, FontSynthesisPosition,
+            FontStretch, FontVariationSettings, FontOpticalSizing, FontKerning, TextWrap, FontVariantPosition, TextRendering, FontVariantLigatures, FontVariantEastAsian, FontSynthesisWeight, FontSynthesisStyle, FontSynthesisSmallCaps, FontSynthesisPosition,
             HyphenationLanguage, Hyphens, InitialLetter, InitialLetterAlign, InitialLetterWrap,
             LetterSpacing, LineBreak, LineClamp, LineFitEdge, LineHeight, MaxHeight, MaxWidth,
             MinHeight, MinWidth, MixBlendMode, ObjectFit, ObjectPosition, Opacity,
@@ -2106,7 +2127,7 @@ impl CssPropertyType {
             // inherits but doesn't directly reflow).
             FontFamily | FontSize | FontWeight | FontStyle | FontVariantNumeric | FontVariantCaps
             | FontFeatureSettings | LetterSpacing | WordSpacing | LineHeight | TextAlign | TextJustify | TextIndent | WhiteSpace | TabSize
-            | FontStretch | FontVariationSettings | FontOpticalSizing | FontKerning | FontVariantLigatures | FontVariantEastAsian | FontSynthesisWeight | FontSynthesisStyle | FontSynthesisSmallCaps | FontSynthesisPosition
+            | FontStretch | FontVariationSettings | FontOpticalSizing | FontKerning | TextWrap | FontVariantPosition | TextRendering | FontVariantLigatures | FontVariantEastAsian | FontSynthesisWeight | FontSynthesisStyle | FontSynthesisSmallCaps | FontSynthesisPosition
             | Hyphens | WordBreak | OverflowWrap | LineBreak | TextAlignLast | TextOrientation
             | HyphenationLanguage | TextCombineUpright | TextDecoration | HangingPunctuation
             | InitialLetter | LineClamp | Direction | VerticalAlign | UnicodeBidi | TextBoxTrim
@@ -3725,6 +3746,7 @@ pub fn parse_css_property(
         // have `auto` in their grammar: the typed value, not the generic keyword.
         CssPropertyType::FontOpticalSizing |
         CssPropertyType::FontKerning |
+        CssPropertyType::TextRendering |
         CssPropertyType::FontSynthesisWeight |
         CssPropertyType::FontSynthesisStyle |
         CssPropertyType::FontSynthesisSmallCaps |
@@ -4218,6 +4240,21 @@ pub fn parse_css_property(
             ),
             CssPropertyType::FontKerning => CssProperty::FontKerning(
                 parse_style_font_kerning(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::TextWrap => CssProperty::TextWrap(
+                parse_style_text_wrap(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::FontVariantPosition => CssProperty::FontVariantPosition(
+                parse_style_font_variant_position(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::TextRendering => CssProperty::TextRendering(
+                parse_style_text_rendering(value)
                     .map_err(|_| CssParsingError::GenericParseError)?
                     .into(),
             ),
@@ -5502,6 +5539,9 @@ impl_from_css_prop!(StyleFontStretch, CssProperty::FontStretch);
 impl_from_css_prop!(StyleFontVariationSettings, CssProperty::FontVariationSettings);
 impl_from_css_prop!(StyleFontOpticalSizing, CssProperty::FontOpticalSizing);
 impl_from_css_prop!(StyleFontKerning, CssProperty::FontKerning);
+impl_from_css_prop!(StyleTextWrap, CssProperty::TextWrap);
+impl_from_css_prop!(StyleFontVariantPosition, CssProperty::FontVariantPosition);
+impl_from_css_prop!(StyleTextRendering, CssProperty::TextRendering);
 impl_from_css_prop!(StyleFontVariantLigatures, CssProperty::FontVariantLigatures);
 impl_from_css_prop!(StyleFontVariantEastAsian, CssProperty::FontVariantEastAsian);
 impl_from_css_prop!(CounterSet, CssProperty::CounterSet);
@@ -5752,6 +5792,9 @@ impl CssProperty {
             Self::FontVariationSettings(v) => v.get_css_value_fmt(),
             Self::FontOpticalSizing(v) => v.get_css_value_fmt(),
             Self::FontKerning(v) => v.get_css_value_fmt(),
+            Self::TextWrap(v) => v.get_css_value_fmt(),
+            Self::FontVariantPosition(v) => v.get_css_value_fmt(),
+            Self::TextRendering(v) => v.get_css_value_fmt(),
             Self::FontVariantLigatures(v) => v.get_css_value_fmt(),
             Self::FontVariantEastAsian(v) => v.get_css_value_fmt(),
             Self::FontSynthesisWeight(v) => v.get_css_value_fmt(),
@@ -6344,6 +6387,9 @@ impl CssProperty {
             Self::FontVariationSettings(v) => v.css_wide_keyword(),
             Self::FontOpticalSizing(v) => v.css_wide_keyword(),
             Self::FontKerning(v) => v.css_wide_keyword(),
+            Self::TextWrap(v) => v.css_wide_keyword(),
+            Self::FontVariantPosition(v) => v.css_wide_keyword(),
+            Self::TextRendering(v) => v.css_wide_keyword(),
             Self::FontVariantLigatures(v) => v.css_wide_keyword(),
             Self::FontVariantEastAsian(v) => v.css_wide_keyword(),
             Self::FontSynthesisWeight(v) => v.css_wide_keyword(),
@@ -6569,6 +6615,9 @@ impl CssProperty {
             Self::FontVariationSettings(_) => CssPropertyType::FontVariationSettings,
             Self::FontOpticalSizing(_) => CssPropertyType::FontOpticalSizing,
             Self::FontKerning(_) => CssPropertyType::FontKerning,
+            Self::TextWrap(_) => CssPropertyType::TextWrap,
+            Self::FontVariantPosition(_) => CssPropertyType::FontVariantPosition,
+            Self::TextRendering(_) => CssPropertyType::TextRendering,
             Self::FontVariantLigatures(_) => CssPropertyType::FontVariantLigatures,
             Self::FontVariantEastAsian(_) => CssPropertyType::FontVariantEastAsian,
             Self::FontSynthesisWeight(_) => CssPropertyType::FontSynthesisWeight,
@@ -7141,6 +7190,18 @@ impl CssProperty {
     #[must_use]
     pub const fn font_kerning(input: StyleFontKerning) -> Self {
         Self::FontKerning(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn text_wrap(input: StyleTextWrap) -> Self {
+        Self::TextWrap(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn font_variant_position(input: StyleFontVariantPosition) -> Self {
+        Self::FontVariantPosition(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn text_rendering(input: StyleTextRendering) -> Self {
+        Self::TextRendering(CssPropertyValue::Exact(input))
     }
     #[must_use]
     pub const fn font_variant_ligatures(input: StyleFontVariantLigatures) -> Self {
@@ -8550,6 +8611,27 @@ impl CssProperty {
         }
     }
     #[must_use]
+    pub const fn as_text_wrap(&self) -> Option<&StyleTextWrapValue> {
+        match self {
+            Self::TextWrap(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
+    pub const fn as_font_variant_position(&self) -> Option<&StyleFontVariantPositionValue> {
+        match self {
+            Self::FontVariantPosition(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
+    pub const fn as_text_rendering(&self) -> Option<&StyleTextRenderingValue> {
+        match self {
+            Self::TextRendering(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
     pub const fn as_font_variant_ligatures(&self) -> Option<&StyleFontVariantLigaturesValue> {
         match self {
             Self::FontVariantLigatures(f) => Some(f),
@@ -8726,7 +8808,7 @@ impl CssProperty {
             TransformOrigin, UnicodeBidi, UserSelect, VerticalAlign, Visibility, WhiteSpace,
             Widows, Width, WordBreak, WordSpacing, WrapFlow, WrapThrough, WritingMode, ZIndex,
             Zoom, BackgroundClip, FontVariantNumeric, FontVariantCaps, FontFeatureSettings, CounterSet,
-            Quotes, BackgroundOrigin, BackgroundColor, FontStretch, FontVariationSettings, FontOpticalSizing, FontKerning, FontVariantLigatures, FontVariantEastAsian, FontSynthesisWeight, FontSynthesisStyle, FontSynthesisSmallCaps, FontSynthesisPosition,
+            Quotes, BackgroundOrigin, BackgroundColor, FontStretch, FontVariationSettings, FontOpticalSizing, FontKerning, TextWrap, FontVariantPosition, TextRendering, FontVariantLigatures, FontVariantEastAsian, FontSynthesisWeight, FontSynthesisStyle, FontSynthesisSmallCaps, FontSynthesisPosition,
         };
         match self {
             CaretColor(c) => c.is_initial(),
@@ -8924,6 +9006,9 @@ impl CssProperty {
             FontVariationSettings(c) => c.is_initial(),
             FontOpticalSizing(c) => c.is_initial(),
             FontKerning(c) => c.is_initial(),
+            TextWrap(c) => c.is_initial(),
+            FontVariantPosition(c) => c.is_initial(),
+            TextRendering(c) => c.is_initial(),
             FontVariantLigatures(c) => c.is_initial(),
             FontVariantEastAsian(c) => c.is_initial(),
             FontSynthesisWeight(c) => c.is_initial(),
@@ -9425,6 +9510,18 @@ impl CssProperty {
     #[must_use]
     pub const fn const_font_kerning(input: StyleFontKerning) -> Self {
         Self::FontKerning(StyleFontKerningValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_text_wrap(input: StyleTextWrap) -> Self {
+        Self::TextWrap(StyleTextWrapValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_font_variant_position(input: StyleFontVariantPosition) -> Self {
+        Self::FontVariantPosition(StyleFontVariantPositionValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_text_rendering(input: StyleTextRendering) -> Self {
+        Self::TextRendering(StyleTextRenderingValue::Exact(input))
     }
     #[must_use]
     pub const fn const_font_variant_ligatures(input: StyleFontVariantLigatures) -> Self {
@@ -10269,6 +10366,18 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::FontKerning(p) => format!(
             "CssProperty::FontKerning({})",
             print_css_property_value(p, tabs, "StyleFontKerning")
+        ),
+        CssProperty::TextWrap(p) => format!(
+            "CssProperty::TextWrap({})",
+            print_css_property_value(p, tabs, "StyleTextWrap")
+        ),
+        CssProperty::FontVariantPosition(p) => format!(
+            "CssProperty::FontVariantPosition({})",
+            print_css_property_value(p, tabs, "StyleFontVariantPosition")
+        ),
+        CssProperty::TextRendering(p) => format!(
+            "CssProperty::TextRendering({})",
+            print_css_property_value(p, tabs, "StyleTextRendering")
         ),
         CssProperty::FontVariantLigatures(p) => format!(
             "CssProperty::FontVariantLigatures({})",
