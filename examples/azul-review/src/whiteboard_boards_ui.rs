@@ -1,9 +1,12 @@
 //! The header of the whiteboard's panel: the board that is open (its name is a button), "new board", and the list of
-//! boards as a popover (open one, rename, duplicate, delete, move up and down); a deleted board is told in a bar at the
-//! foot of the panel with Undo. What the clicks ask of the boards is [`Panel::board_action`], which is done at once
+//! boards as a popover (open one, rename, duplicate, delete, move up and down, export as a JSON file, import one); a
+//! deleted board is told in a bar at the foot of the panel with Undo. Export asks first (a small sheet: what the file
+//! holds, the author name it will carry, where the pictures go) and then hands the host the board to write
+//! ([`Plan::export`]); import asks the host for a file ([`Plan::import`]) and takes what it read as a new board
+//! ([`Panel::import_loaded`]). What the clicks ask of the boards is [`Panel::board_action`], which is done at once
 //! or, when the open board is not kept yet, when it is ([`BoardOutcome::Wait`], [`Panel::after_wait`]). The window's part
 //! is the [`Plan`] the host gets ([`crate::whiteboard_ui::Host::on_plan`]): the list to write, a copy to write, a board
-//! to read.
+//! to read, a board to export, a file to import.
 
 use azul::{
     callbacks::{
@@ -19,6 +22,8 @@ use azul_appkit::l10n::{t, t_args, Arg};
 
 use crate::{
     whiteboard_app::{Plan, HEADER_PX},
+    whiteboard_export::ExportPictures,
+    whiteboard_store::Loaded,
     whiteboard_ui::{say, Host, Panel},
 };
 
@@ -38,6 +43,15 @@ pub enum BoardAction {
     Rename(String, String),
     /// Move this board `n` places in the list (negative: up).
     Move(String, isize),
+    /// The sheet that asks how to export the open board.
+    OpenExport,
+    /// Where the pictures of the export go.
+    Pictures(ExportPictures),
+    CloseExport,
+    /// Export the open board as the sheet says: the host asks where.
+    Export,
+    /// Open a file of a board as a new board: the host asks for the file.
+    Import,
 }
 
 /// What a bar at the foot of the panel says, and what its button undoes.
@@ -58,6 +72,10 @@ pub struct Switcher {
     pub toast: Option<Toast>,
     /// A change that waits for the open board to be kept: it is done when the save is ([`Panel::after_wait`]).
     pub pending: Option<BoardAction>,
+    /// The export sheet, open: where the pictures go.
+    pub export: Option<ExportPictures>,
+    /// A file that was read and waits for the open board to be kept before it becomes a board of its own.
+    pub pending_import: Option<Box<Loaded>>,
 }
 
 /// What a [`BoardAction`] came to.
@@ -120,6 +138,25 @@ impl Panel {
                 let to = usize::try_from((at as isize + by).max(0)).unwrap_or(0);
                 self.wb.move_board(id, to, now)
             }
+            BoardAction::OpenExport => {
+                self.switcher.export = Some(ExportPictures::default());
+                Ok(Plan::default())
+            }
+            BoardAction::Pictures(p) => {
+                if self.switcher.export.is_some() {
+                    self.switcher.export = Some(*p);
+                }
+                Ok(Plan::default())
+            }
+            BoardAction::CloseExport => {
+                self.switcher.export = None;
+                Ok(Plan::default())
+            }
+            BoardAction::Export => Ok(match self.switcher.export.take() {
+                Some(pictures) => Plan { export: Some(self.wb.export_request(pictures, None, now)), ..Plan::default() },
+                None => Plan::default(),
+            }),
+            BoardAction::Import => Ok(Plan { import: true, ..Plan::default() }),
         };
         self.collect_notices();
         match result {
@@ -144,8 +181,40 @@ impl Panel {
 
     /// The open board was kept (or read): what waited for it is asked again.
     pub fn after_wait(&mut self) -> Option<BoardOutcome> {
+        if let Some(loaded) = self.switcher.pending_import.take() {
+            return Some(self.import_loaded(*loaded));
+        }
         let action = self.switcher.pending.take()?;
         Some(self.board_action(action))
+    }
+
+    /// A file of a board was read: it becomes a new board of the workspace, named for what the file calls it, and is
+    /// open. The open board must be kept first: when it is not, the file waits for it ([`BoardOutcome::Wait`]).
+    pub fn import_loaded(&mut self, loaded: Loaded) -> BoardOutcome {
+        if self.wb.can_leave().is_err() {
+            self.switcher.pending_import = Some(Box::new(loaded));
+            return BoardOutcome::Wait;
+        }
+        let now = self.now_ms();
+        let fallback = t("azreview-whiteboard-board-imported");
+        let result = self.wb.import_board(loaded, &fallback, now);
+        self.collect_notices();
+        match result {
+            Ok(plan) => {
+                self.switcher.open = false;
+                self.switcher.renaming = None;
+                BoardOutcome::Done(plan)
+            }
+            Err(n) => {
+                self.hint = Some(say(&n));
+                BoardOutcome::Told
+            }
+        }
+    }
+
+    /// A file could not be exported or imported: what the person is told (the sentence is in their language).
+    pub fn tell(&mut self, sentence: String) {
+        self.hint = Some(sentence);
     }
 
     /// The bar that tells a board was deleted goes when its time is up. Whether it went (the window shows it).
@@ -190,7 +259,7 @@ pub(crate) fn header_dom(panel: &Panel, host: &Host) -> Dom {
         tap(host, ""),
         on_toggle,
         "__azreview_whiteboard-boards",
-        "flex-grow: 1; min-width: 0px; text-align: left; font-size: 12px; font-weight: bold; overflow: hidden;",
+        "flex-grow: 1; min-width: 0px; text-align: left; font-size: 12px; font-weight: bold; overflow: hidden; white-space: nowrap;",
     );
     let new = button(
         "+",
@@ -203,7 +272,7 @@ pub(crate) fn header_dom(panel: &Panel, host: &Host) -> Dom {
     Dom::create_div()
         .with_css(format!(
             "display: flex; flex-direction: row; align-items: center; flex-shrink: 0; height: {HEADER_PX}px; \
-             padding: 0px 6px; background: #ebe7dd; border-bottom: 1px solid #d6d1c6;"
+             padding: 0px 6px; background: system:window-background; border-bottom: 1px solid system:separator;"
         ).as_str())
         .with_child(switcher)
         .with_child(new)
@@ -219,7 +288,7 @@ pub(crate) fn popover_dom(panel: &Panel, host: &Host) -> Dom {
         .with_css(
             format!(
                 "position: absolute; left: 6px; right: 6px; top: {}px; max-height: 320px; overflow-y: auto; display: flex; \
-                 flex-direction: column; padding: 4px; background: #fbfaf6; border: 1px solid #c9c3b6; \
+                 flex-direction: column; padding: 4px; background: system:window-background; border: 1px solid system:separator; \
                  box-shadow: 0px 3px 10px rgba(0,0,0,0.25);",
                 HEADER_PX + 2.0
             )
@@ -227,10 +296,12 @@ pub(crate) fn popover_dom(panel: &Panel, host: &Host) -> Dom {
         );
     for (n, b) in shown.iter().enumerate() {
         let is_open = b.id == open_id;
+        // A board is two lines: its name (a button that opens it) over what can be done to it, so that the bar's width never
+        // squeezes a name out; the open one is marked with a tint that reads on a light and on a dark ground.
         let mut row = Dom::create_div().with_css(
             format!(
-                "display: flex; flex-direction: row; align-items: center; padding: 2px 2px; background: {};",
-                if is_open { "#e3edfb" } else { "transparent" }
+                "display: flex; flex-direction: column; padding: 2px 2px 3px 2px; margin-bottom: 2px; background: {};",
+                if is_open { "rgba(32, 92, 214, 0.22)" } else { "transparent" }
             )
             .as_str(),
         );
@@ -243,26 +314,110 @@ pub(crate) fn popover_dom(panel: &Panel, host: &Host) -> Dom {
                 tap(host, &b.id),
                 on_pick,
                 &format!("__azreview_whiteboard-board-{}", b.id),
-                "flex-grow: 1; min-width: 0px; text-align: left; font-size: 12px; overflow: hidden;",
+                "min-width: 0px; text-align: left; font-size: 12px; overflow: hidden; white-space: nowrap;",
             ));
             let small = |key: &str, cb: ButtonOnClickCallbackType, suffix: &str| {
                 button(&t(key), &t(key), tap(host, &b.id), cb, &format!("__azreview_whiteboard-board-{}-{suffix}", b.id), SMALL)
             };
-            row.add_child(small("azreview-whiteboard-board-rename", on_rename, "rename"));
+            let mut actions = Dom::create_div().with_css("display: flex; flex-direction: row; justify-content: flex-end; margin-top: 2px;");
+            actions.add_child(small("azreview-whiteboard-board-rename", on_rename, "rename"));
             if is_open {
-                row.add_child(small("azreview-whiteboard-board-duplicate", on_duplicate, "duplicate"));
+                actions.add_child(small("azreview-whiteboard-board-duplicate", on_duplicate, "duplicate"));
             }
-            row.add_child(small("azreview-whiteboard-board-delete", on_delete, "delete"));
+            actions.add_child(small("azreview-whiteboard-board-delete", on_delete, "delete"));
             if n > 0 {
-                row.add_child(small("azreview-whiteboard-board-up", on_up, "up"));
+                actions.add_child(small("azreview-whiteboard-board-up", on_up, "up"));
             }
             if n < last {
-                row.add_child(small("azreview-whiteboard-board-down", on_down, "down"));
+                actions.add_child(small("azreview-whiteboard-board-down", on_down, "down"));
             }
+            row.add_child(actions);
         }
         list.add_child(row);
     }
-    list
+    list.with_child(
+        Dom::create_div()
+            .with_css("display: flex; flex-direction: row; justify-content: flex-end; padding: 4px 2px 0px 2px; margin-top: 2px; border-top: 1px solid system:separator;")
+            .with_child(button(
+                &t("azreview-whiteboard-export"),
+                &t("azreview-whiteboard-export-name"),
+                tap(host, ""),
+                on_export_open,
+                "__azreview_whiteboard-board-export",
+                SMALL,
+            ))
+            .with_child(button(
+                &t("azreview-whiteboard-import"),
+                &t("azreview-whiteboard-import-name"),
+                tap(host, ""),
+                on_import,
+                "__azreview_whiteboard-board-import",
+                SMALL,
+            )),
+    )
+}
+
+/// The sheet that asks how a board is exported: what the file holds, the name it carries as its author (the setting says
+/// which, and the sheet says it, so that nobody publishes a name without having been told), where the pictures go.
+pub(crate) fn export_dialog_dom(panel: &Panel, host: &Host, pictures: ExportPictures) -> Dom {
+    let name = panel.wb.active_board().1.to_string();
+    let author = match panel.wb.author_name() {
+        Some(a) => t_args("azreview-whiteboard-export-author", &[("author", Arg::from(a))]),
+        None => t("azreview-whiteboard-export-author-none"),
+    };
+    let paragraph = |text: String| Dom::create_p_with_text(text.as_str()).with_css("margin: 0px 0px 6px 0px; font-size: 11px; color: system:text;");
+    let choice = |key: &str, chosen: bool, cb: ButtonOnClickCallbackType, id: &str| {
+        button(
+            &format!("{} {}", if chosen { "\u{25c9}" } else { "\u{25cb}" }, t(key)),
+            &t(key),
+            tap(host, ""),
+            cb,
+            id,
+            "font-size: 11px; padding: 2px 6px; margin-right: 6px; text-align: left;",
+        )
+    };
+    Dom::create_div()
+        .with_id("__azreview_whiteboard-export")
+        .with_css(
+            format!(
+                "position: absolute; left: 6px; right: 6px; top: {}px; display: flex; flex-direction: column; padding: 8px; \
+                 background: system:window-background; border: 1px solid system:separator; box-shadow: 0px 3px 10px rgba(0,0,0,0.25);",
+                HEADER_PX + 2.0
+            )
+            .as_str(),
+        )
+        .with_child(
+            Dom::create_p_with_text(t_args("azreview-whiteboard-export-title", &[("name", Arg::from(name))]).as_str())
+                .with_css("margin: 0px 0px 6px 0px; font-size: 12px; font-weight: bold; color: system:text;"),
+        )
+        .with_child(paragraph(t("azreview-whiteboard-export-what")))
+        .with_child(paragraph(author))
+        .with_child(
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: column; margin-bottom: 6px;")
+                .with_child(choice("azreview-whiteboard-export-pictures-inside", pictures == ExportPictures::Embedded, on_pictures_inside, "__azreview_whiteboard-export-inside"))
+                .with_child(choice("azreview-whiteboard-export-pictures-beside", pictures == ExportPictures::Beside, on_pictures_beside, "__azreview_whiteboard-export-beside")),
+        )
+        .with_child(
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: row; justify-content: flex-end;")
+                .with_child(button(
+                    &t("azreview-whiteboard-export-go"),
+                    &t("azreview-whiteboard-export-go"),
+                    tap(host, ""),
+                    on_export_go,
+                    "__azreview_whiteboard-export-go",
+                    "font-size: 11px; padding: 2px 10px; margin-right: 6px;",
+                ))
+                .with_child(button(
+                    &t("azreview-whiteboard-export-cancel"),
+                    &t("azreview-whiteboard-export-cancel"),
+                    tap(host, ""),
+                    on_export_cancel,
+                    "__azreview_whiteboard-export-cancel",
+                    "font-size: 11px; padding: 2px 10px;",
+                )),
+        )
 }
 
 /// The field a board's name is typed in (Enter or leaving it keeps the name, Escape drops it).
@@ -393,6 +548,48 @@ extern "C" fn on_undo(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     act(&host, BoardAction::Restore(id), &mut info)
+}
+
+extern "C" fn on_export_open(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((host, _)) = of(&mut data) else {
+        return Update::DoNothing;
+    };
+    act(&host, BoardAction::OpenExport, &mut info)
+}
+
+extern "C" fn on_export_cancel(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((host, _)) = of(&mut data) else {
+        return Update::DoNothing;
+    };
+    act(&host, BoardAction::CloseExport, &mut info)
+}
+
+extern "C" fn on_export_go(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((host, _)) = of(&mut data) else {
+        return Update::DoNothing;
+    };
+    act(&host, BoardAction::Export, &mut info)
+}
+
+extern "C" fn on_pictures_inside(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((host, _)) = of(&mut data) else {
+        return Update::DoNothing;
+    };
+    act(&host, BoardAction::Pictures(ExportPictures::Embedded), &mut info)
+}
+
+extern "C" fn on_pictures_beside(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((host, _)) = of(&mut data) else {
+        return Update::DoNothing;
+    };
+    act(&host, BoardAction::Pictures(ExportPictures::Beside), &mut info)
+}
+
+extern "C" fn on_import(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((host, _)) = of(&mut data) else {
+        return Update::DoNothing;
+    };
+    act(&host, BoardAction::Import, &mut info)
 }
 
 extern "C" fn on_rename_text(_data: RefAny, _info: CallbackInfo, _state: TextInputState) -> OnTextInputReturn {

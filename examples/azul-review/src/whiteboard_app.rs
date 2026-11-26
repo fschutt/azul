@@ -10,12 +10,17 @@ use std::sync::Arc;
 
 use crate::{
     whiteboard::{kept_lines, lines_hash, Board, BoardData, CutoutDraft, CutoutImage, ImageSlot, ItemId, Limits, Notice, Source},
+    whiteboard_azboard::Meta,
     whiteboard_boards::{self as boards, BoardIndex, BoardsError},
     whiteboard_cutout::{plan, CapturePlan},
     whiteboard_drag::{Armed, ArmedRegion, ArmedRegions, Bar, Drag, Motion, Pointer, Press, RegionId, Release, Tick},
+    whiteboard_export::{self as export, ExportPictures, ExportRequest},
     whiteboard_geom::{Pt, Rect, Size},
+    whiteboard_git::RepoFacts,
+    whiteboard_hash,
     whiteboard_input::BoardInput,
     whiteboard_lasso::{covered_lines, recognize, PageLines},
+    whiteboard_settings::Settings,
     whiteboard_store::{self as store, Entry, Loaded, SaveGate, StoreError},
 };
 
@@ -107,6 +112,11 @@ pub struct Plan {
     /// Read this board's file (among the app's files) and hand what it holds to [`Whiteboard::loaded`] (or
     /// [`Whiteboard::loaded_none`] when there is none).
     pub load: Option<String>,
+    /// Ask where to write the board as a JSON file to share, and write it there on a Thread ([`export::export`]).
+    pub export: Option<ExportRequest>,
+    /// Ask for a file of a board to open, read it on a Thread ([`export::import`]) and hand it to
+    /// `Panel::import_loaded`.
+    pub import: bool,
 }
 
 /// What the host does when the list of boards has been read at the start.
@@ -146,6 +156,13 @@ pub struct Whiteboard {
     loading: bool,
     /// The list of boards changed (a board was kept) and was not given to the host yet ([`Self::take_index_effect`]).
     index_dirty: bool,
+    /// What the repository of the workspace says (read from the files of `.git` by the host): the revision a new cutout
+    /// is circled at, and where a document says its code lies.
+    repo: Option<RepoFacts>,
+    /// The settings of the whiteboard: the author a document names, the template of a link to code.
+    settings: Settings,
+    /// The workspace's folder on disk, when `workspace` (what names the files of its boards) is not itself the folder's path.
+    folder: Option<std::path::PathBuf>,
 }
 
 impl Whiteboard {
@@ -175,12 +192,87 @@ impl Whiteboard {
             boards: BoardIndex::migrated(workspace, "Board 1", 0),
             loading: false,
             index_dirty: false,
+            repo: None,
+            settings: Settings::default(),
+            folder: None,
         }
     }
 
     #[must_use]
     pub fn workspace(&self) -> &str {
         &self.workspace
+    }
+
+    /// The workspace's folder on disk, for a host whose `workspace` is only a name (the repository is looked at there).
+    pub fn set_folder(&mut self, folder: Option<std::path::PathBuf>) {
+        self.folder = folder;
+    }
+
+    /// The workspace's folder: what [`Self::set_folder`] said, else the workspace itself (the folder's path).
+    #[must_use]
+    pub fn folder(&self) -> std::path::PathBuf {
+        self.folder.clone().unwrap_or_else(|| std::path::PathBuf::from(&self.workspace))
+    }
+
+    /// What the repository says, as the host last read it (`None`: no repository, or not read yet).
+    #[must_use]
+    pub const fn repo(&self) -> Option<&RepoFacts> {
+        self.repo.as_ref()
+    }
+
+    /// The host has read the repository's facts: a cutout made from now on names its revision.
+    pub fn set_repo(&mut self, facts: Option<RepoFacts>) {
+        self.repo = facts;
+    }
+
+    #[must_use]
+    pub const fn settings(&self) -> &Settings {
+        &self.settings
+    }
+
+    pub fn set_settings(&mut self, settings: Settings) {
+        self.settings = settings;
+    }
+
+    /// The name a document is written with: the setting, else the name git is configured with; `None` for none.
+    #[must_use]
+    pub fn author_name(&self) -> Option<String> {
+        self.settings.author_name(self.repo.as_ref().and_then(|r| r.author.as_deref()))
+    }
+
+    /// What a document of the open board says besides its items (`now_ms`: when it is kept, or exported).
+    fn meta(&self, now_ms: u64) -> Meta {
+        let b = self.boards.active();
+        Meta {
+            board_id: b.id.clone(),
+            board_name: b.name.clone(),
+            created_ms: b.created_ms,
+            modified_ms: now_ms,
+            workspace_name: store::folder_name(&self.folder().to_string_lossy()),
+            repo: self.repo.clone(),
+            author: self.author_name(),
+            template: self.settings.permalink_template.clone(),
+        }
+    }
+
+    /// The export of the open board as it is now (its unkept changes too): what the Thread that writes the file is
+    /// given. `folder` is where the host's workspace is, `home` where the global git config is.
+    #[must_use]
+    pub fn export_request(&self, pictures: ExportPictures, home: Option<&str>, now_ms: u64) -> ExportRequest {
+        ExportRequest {
+            data: self.board.snapshot(),
+            meta: self.meta(now_ms),
+            pictures,
+            folder: self.folder(),
+            home: home.map(Into::into),
+            remote: None,
+        }
+    }
+
+    /// The name the open board's file is proposed under.
+    #[must_use]
+    pub fn export_file_name(&self) -> String {
+        export::suggested_name(&self.boards.active().name)
     }
 
     /// What the whiteboard has to tell the person since it was last asked.
@@ -279,6 +371,8 @@ impl Whiteboard {
         let made = plan(&r.polygon, dpr, page, &limits)?;
         let lines = kept_lines(&facts.covered, &limits);
         let source = Source {
+            rev: self.repo.as_ref().and_then(|r| r.rev.clone()).unwrap_or_default(),
+            sha256: whiteboard_hash::lines_tagged(&facts.covered),
             file: facts.file,
             page: u32::try_from(r.page).unwrap_or(0),
             first_line: r.first_line,
@@ -288,7 +382,10 @@ impl Whiteboard {
             range_hash: lines_hash(&lines),
             lines,
         };
-        let centre = self.board.view().to_board(Pt::new(at_bar.x, at_bar.y - HEADER_PX));
+        // A drop on the header lands at the top of the board, the whole cutout in view.
+        let view = self.board.view();
+        let y = (at_bar.y - HEADER_PX).max(made.logical.h * 0.5 * view.zoom);
+        let centre = view.to_board(Pt::new(at_bar.x, y));
         let at = Pt::new(centre.x - made.logical.w * 0.5, centre.y - made.logical.h * 0.5);
         let id = self.board.add_cutout(CutoutDraft::pending(at, made.logical, source))?;
         self.armed.disarm(region);
@@ -442,6 +539,15 @@ impl Whiteboard {
         Some(self.index_effect())
     }
 
+    /// Whether the whiteboard may be left for another board now: the open board is kept, no write runs and no board is
+    /// being read.
+    ///
+    /// # Errors
+    /// [`Notice::BoardBusy`]: ask for a save, and again when it is done.
+    pub fn can_leave(&self) -> Result<(), Notice> {
+        self.leave()
+    }
+
     /// What the whiteboard is left for another board only when nothing is lost: the open board is kept, no write
     /// runs and no board is being read.
     fn leave(&self) -> Result<(), Notice> {
@@ -527,7 +633,7 @@ impl Whiteboard {
         let (id, cut) = self.boards.create(name, now_ms)?;
         self.name_cut(cut);
         let file = self.boards.get(&id).map(|b| b.file.clone()).unwrap_or_default();
-        let entries = store::write(&self.board.snapshot(), &self.workspace, now_ms);
+        let entries = store::write(&self.board.snapshot(), &self.meta(now_ms));
         let mut plan = self.list_plan();
         plan.copy = Some(Write { name: file, entries });
         Ok(plan)
@@ -573,6 +679,35 @@ impl Whiteboard {
         Ok(self.list_plan())
     }
 
+    /// A board read from a file of another (or a copy of its own) becomes a new board of the workspace, named for what the
+    /// file calls it (`fallback` when it calls it nothing), and open: the board that was open must be kept first. It is
+    /// kept in a file of its own by the next save.
+    ///
+    /// # Errors
+    /// The open board is not kept yet ([`Notice::BoardBusy`]), or the workspace has as many boards as it may.
+    pub fn import_board(&mut self, loaded: Loaded, fallback: &str, now_ms: u64) -> Result<Plan, Notice> {
+        self.leave()?;
+        let named = loaded.meta.board_name.trim();
+        let (id, cut) = self.boards.create(if named.is_empty() { fallback } else { named }, now_ms)?;
+        self.name_cut(cut);
+        self.boards.set_active(&id)?;
+        self.start_empty(false);
+        let (left_out, pictures, modified) = (loaded.left_out, loaded.unreadable_pictures, loaded.meta.modified_ms);
+        let notices = self.board.replace_with(loaded.data);
+        // What was read is not what is in this board's own file (there is none): the next save writes it.
+        self.board.mark_unsaved();
+        self.status = if left_out > 0 || pictures > 0 || !notices.is_empty() {
+            Status::Repaired { left_out, pictures }
+        } else {
+            Status::Loaded { items: self.board.len(), saved_ms: modified }
+        };
+        if left_out > 0 {
+            self.notices.push(Notice::BoardRepaired { dropped: left_out });
+        }
+        self.notices.extend(notices);
+        Ok(self.list_plan())
+    }
+
     // ---- the file
 
     /// The save to write, when the board has changed since it was kept and none is being written (a save
@@ -586,7 +721,7 @@ impl Whiteboard {
         self.saving = Some((revision, view_revision, now_ms));
         Some(SaveJob {
             name: self.boards.active().file.clone(),
-            entries: store::write(&self.board.snapshot(), &self.workspace, now_ms),
+            entries: store::write(&self.board.snapshot(), &self.meta(now_ms)),
             revision,
             view_revision,
         })
@@ -636,7 +771,7 @@ impl Whiteboard {
                 self.status = if items_left_out > 0 || pictures > 0 || !notices.is_empty() {
                     Status::Repaired { left_out: items_left_out, pictures }
                 } else {
-                    Status::Loaded { items: self.board.len(), saved_ms: l.saved_ms }
+                    Status::Loaded { items: self.board.len(), saved_ms: l.meta.modified_ms }
                 };
                 self.notices.extend(notices);
                 if items_left_out > 0 {

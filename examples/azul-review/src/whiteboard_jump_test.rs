@@ -52,6 +52,8 @@ fn cutout_of(file: &str, first: u32, last: u32, then: &[String]) -> Cutout {
     let mut board = Board::new();
     let image = Arc::new(CutoutImage { width: 2, height: 2, scale: 1.0, rgba: vec![255; 16], png: vec![] });
     let source = Source {
+        rev: String::new(),
+        sha256: String::new(),
         file: file.to_string(),
         page: 0,
         first_line: first,
@@ -194,6 +196,8 @@ fn a_jump_is_heard_by_the_observer() {
     board.set_observer(Box::new(Log(heard.clone())));
     let image = Arc::new(CutoutImage { width: 2, height: 2, scale: 1.0, rgba: vec![255; 16], png: vec![] });
     let source = Source {
+        rev: String::new(),
+        sha256: String::new(),
         file: "src/a.rs".to_string(),
         page: 0,
         first_line: 10,

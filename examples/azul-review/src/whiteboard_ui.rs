@@ -442,6 +442,9 @@ pub fn panel_dom(panel: &mut Panel, host: &Host) -> Dom {
     if panel.switcher.open {
         root.add_child(boards_ui::popover_dom(panel, host));
     }
+    if let Some(pictures) = panel.switcher.export {
+        root.add_child(boards_ui::export_dialog_dom(panel, host, pictures));
+    }
     if let Some(toast) = panel.switcher.toast.as_ref() {
         root.add_child(boards_ui::toast_dom(toast, host));
     }
@@ -842,6 +845,10 @@ extern "C" fn on_wheel(mut data: RefAny, mut info: CallbackInfo) -> Update {
 /// The keys the panel answers when it has the keyboard: Delete takes the selection off, Escape lets go.
 /// `true` when it did something (the app then does not treat the key as its own).
 pub fn on_key(panel: &mut Panel, key: Key) -> bool {
+    if key == Key::Escape && panel.switcher.export.is_some() {
+        panel.switcher.export = None;
+        return true;
+    }
     if key == Key::Escape && panel.switcher.open {
         panel.switcher.open = false;
         panel.switcher.renaming = None;

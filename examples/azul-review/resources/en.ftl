@@ -179,6 +179,23 @@ azreview-whiteboard-board-undo = Undo
 azreview-whiteboard-board-deleted = Whiteboard "{ $name }" deleted
 azreview-whiteboard-board-rename-name = Name of the whiteboard { $name }
 azreview-whiteboard-board-loading = Opening the whiteboard...
+azreview-whiteboard-board-imported = Imported whiteboard
+azreview-whiteboard-export = Export...
+azreview-whiteboard-export-name = Export the open whiteboard as a JSON file
+azreview-whiteboard-import = Import...
+azreview-whiteboard-import-name = Open a whiteboard file as a new whiteboard
+azreview-whiteboard-export-title = Export "{ $name }" as a JSON file
+azreview-whiteboard-export-what = One file with the cutouts and arrows, and for each cutout the code it shows, a link to those lines at the revision they were circled at, and the picture. A web viewer can open it.
+azreview-whiteboard-export-author = The file names its author: { $author } (the name git is set up with; the setting whiteboard-author changes it or leaves it out).
+azreview-whiteboard-export-author-none = The file names no author (the setting whiteboard-author is off, or git has no name).
+azreview-whiteboard-export-pictures-inside = Pictures inside the file
+azreview-whiteboard-export-pictures-beside = Pictures in a folder beside the file
+azreview-whiteboard-export-go = Choose the file...
+azreview-whiteboard-export-cancel = Cancel
+azreview-whiteboard-exported = Exported to { $path }: { $pictures } pictures, { $links } links to code.
+azreview-whiteboard-export-failed = The export failed: { $why }
+azreview-whiteboard-imported = Opened "{ $name }" from { $file }.
+azreview-whiteboard-import-failed = That file could not be opened: { $why }
 
 ## Dictation and the side column of notes
 
