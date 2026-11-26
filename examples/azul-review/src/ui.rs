@@ -201,32 +201,37 @@ pub extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
     };
     // The scope as the window's body: no UA margin, the full window height,
     // the app theme's ground and ink in both modes.
-    ShellThemeScope::create(Dom::create_div().with_css(COLUMN).with_child(content))
+    let body = ShellThemeScope::create(Dom::create_div().with_css(COLUMN).with_child(content))
         .with_accent(ShellThemeAccent::Slate)
         .body()
-        .with_menu_bar(menu_bar(&data))
-        .with_callback(
-            EventFilter::Window(WindowEventFilter::VirtualKeyDown),
-            data.clone(),
-            crate::on_key,
-        )
-        // A stroke ends with the release wherever it is, with the pointer leaving the window, with the
-        // window losing its focus: not only with a release over the page's pen layer.
-        .with_callback(
-            EventFilter::Window(WindowEventFilter::LeftMouseUp),
-            data.clone(),
-            crate::on_window_up,
-        )
-        .with_callback(
-            EventFilter::Window(WindowEventFilter::MouseLeave),
-            data.clone(),
-            crate::on_window_left,
-        )
-        .with_callback(
-            EventFilter::Window(WindowEventFilter::FocusLost),
-            data.clone(),
-            crate::on_focus_lost,
-        )
+        .with_menu_bar(menu_bar(&data));
+    with_window_listeners(body, &data)
+}
+
+/// What the window as a whole listens to: the keys, and what ends a stroke wherever it happens - the button let go
+/// anywhere, the pointer leaving the window, the WINDOW losing the focus (not an element: `FocusLost` of a window
+/// listener is the blur of the element that had the focus, and a press on the page blurs the file picked in the tree).
+pub(crate) fn with_window_listeners(body: Dom, data: &RefAny) -> Dom {
+    body.with_callback(
+        EventFilter::Window(WindowEventFilter::VirtualKeyDown),
+        data.clone(),
+        crate::on_key,
+    )
+    .with_callback(
+        EventFilter::Window(WindowEventFilter::LeftMouseUp),
+        data.clone(),
+        crate::on_window_up,
+    )
+    .with_callback(
+        EventFilter::Window(WindowEventFilter::MouseLeave),
+        data.clone(),
+        crate::on_window_left,
+    )
+    .with_callback(
+        EventFilter::Window(WindowEventFilter::WindowFocusLost),
+        data.clone(),
+        crate::on_focus_lost,
+    )
 }
 
 /// The review window: the title row (it moves the window), the page rail,
