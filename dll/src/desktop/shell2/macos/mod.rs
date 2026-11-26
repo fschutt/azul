@@ -10586,12 +10586,26 @@ impl MacOSWindow {
             self.awaiting_first_frame = false;
             self.window.setAlphaValue(1.0);
             self.mark_first_present(shows_document);
+            self.exit_after_first_frame_if_asked();
         } else {
             // The frame WebRender is building asks for the draw that shows
             // it; the request keeps a window whose frame never comes on its
             // way to being shown anyway.
             self.blank_first_draws += 1;
             self.request_redraw();
+        }
+    }
+
+    /// CI testing: `AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER` ends the process with 0 once the first frame is on its
+    /// way to the screen. The CPU view's frame path leaves `render_and_present_in_draw_rect` before its end, where
+    /// this check used to stand alone, so a CPU window never exited: the check is at the first present.
+    fn exit_after_first_frame_if_asked(&self) {
+        if self.common.app.settings().shell.exit_after_first_frame {
+            log_info!(
+                LogCategory::General,
+                "[CI] AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting"
+            );
+            std::process::exit(0);
         }
     }
 
@@ -11658,13 +11672,7 @@ impl MacOSWindow {
         }
 
         // CI testing: Exit successfully after first frame render if env var is set
-        if self.common.app.settings().shell.exit_after_first_frame {
-            log_info!(
-                LogCategory::General,
-                "[CI] AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER set - exiting"
-            );
-            std::process::exit(0);
-        }
+        self.exit_after_first_frame_if_asked();
 
         Ok(())
     }
@@ -13776,3 +13784,7 @@ mod audit_a10_tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "first_present_exit_test.rs"]
+mod first_present_exit_test;
