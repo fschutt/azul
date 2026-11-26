@@ -5,7 +5,8 @@ use azul::{
 };
 
 use crate::{
-    conversation::{Conversation, Phase, Said, Who},
+    agent_review::{Pos, Suggestion},
+    conversation::{Conversation, Decision, Phase, Proposal, Said, Who},
     deletion::{self, Deleted, Deletion},
     dictation::HeardWord,
     model::{Finding, InkPoint, Note, NoteState, Semantic, Stroke, VoiceClip},
@@ -146,8 +147,24 @@ fn push_talk(out: &mut String, talk: &Conversation) {
     if talk.asked > 0 {
         let _ = write!(out, ",\"asked\":{}", talk.asked);
     }
-    if talk.pending > 0 {
-        let _ = write!(out, ",\"pending\":{}", talk.pending);
+    // whether what a finished conversation came to was written (a patch file of it); an archive that says nothing of it
+    // is one of before the patch files, whose finished conversations count as written
+    if talk.phase == Phase::Done {
+        let _ = write!(out, ",\"logged\":{}", talk.logged);
+    }
+    if let Some(patch) = &talk.patch {
+        out.push_str(",\"patch\":");
+        push_string(out, patch);
+    }
+    if !talk.proposals.is_empty() {
+        out.push_str(",\"suggestions\":[");
+        for (i, p) in talk.proposals.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            push_proposal(out, p);
+        }
+        out.push(']');
     }
     if let Some(heard) = &talk.heard_as {
         out.push_str(",\"heard_as\":");
@@ -194,6 +211,9 @@ fn push_talk(out: &mut String, talk: &Conversation) {
                     push_string(out, &w.text);
                     let _ = write!(out, ",\"s\":{},\"e\":{},\"p\":", w.start_ms, w.end_ms);
                     push_num(out, w.probability);
+                    if w.biased {
+                        out.push_str(",\"b\":true");
+                    }
                     out.push('}');
                 }
                 out.push(']');
@@ -202,6 +222,34 @@ fn push_talk(out: &mut String, talk: &Conversation) {
         }
         out.push(']');
     }
+}
+
+/// One suggestion of an agent with what was decided about it, as a JSON object (`k`: ins, rep or rem).
+fn push_proposal(out: &mut String, p: &Proposal) {
+    use std::fmt::Write;
+    match &p.suggestion {
+        Suggestion::InsertLines { after_line, lines } => {
+            let _ = write!(out, "{{\"k\":\"ins\",\"after\":{after_line},\"lines\":[");
+            for (i, line) in lines.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                push_string(out, line);
+            }
+            out.push(']');
+        }
+        Suggestion::ReplaceRange { start, end, old, text } => {
+            let _ = write!(out, "{{\"k\":\"rep\",\"sl\":{},\"sc\":{},\"el\":{},\"ec\":{},\"old\":", start.line, start.col, end.line, end.col);
+            push_string(out, old);
+            out.push_str(",\"text\":");
+            push_string(out, text);
+        }
+        Suggestion::RemoveRange { start, end, old } => {
+            let _ = write!(out, "{{\"k\":\"rem\",\"sl\":{},\"sc\":{},\"el\":{},\"ec\":{},\"old\":", start.line, start.col, end.line, end.col);
+            push_string(out, old);
+        }
+    }
+    let _ = write!(out, ",\"d\":\"{}\"}}", p.decision.name());
 }
 
 fn push_finding(out: &mut String, f: &Finding) {
@@ -454,13 +502,36 @@ fn note_from(json: &Json) -> Option<Note> {
     })
 }
 
+/// A suggestion read from its JSON object; none for one that cannot be read (an unknown kind, a missing field).
+fn proposal_from(json: &Json) -> Option<Proposal> {
+    let line = |name: &str| count(json, name).and_then(|n| usize::try_from(n).ok());
+    let pos = |l: &str, c: &str| Some(Pos { line: line(l)?, col: line(c)? });
+    let suggestion = match text_of(json, "k")?.as_str() {
+        "ins" => Suggestion::InsertLines {
+            after_line: line("after")?,
+            lines: items(json, "lines").iter().filter_map(|l| l.as_string().into_option().map(|s| s.as_str().to_string())).collect(),
+        },
+        "rep" => Suggestion::ReplaceRange { start: pos("sl", "sc")?, end: pos("el", "ec")?, old: text_of(json, "old")?, text: text_of(json, "text")? },
+        "rem" => Suggestion::RemoveRange { start: pos("sl", "sc")?, end: pos("el", "ec")?, old: text_of(json, "old")? },
+        _ => return None,
+    };
+    let decision = text_of(json, "d").map_or(Some(Decision::Waiting), |d| Decision::parse(&d))?;
+    Some(Proposal { suggestion, decision })
+}
+
 /// The conversation a note's JSON holds (a draft with nothing said where it holds none); a turn, an utterance or a
 /// phase that cannot be read is left out, the rest kept, and what a conversation keeps is held to its bounds.
 fn talk_from(json: &Json) -> Conversation {
     let mut talk = Conversation::default();
     talk.phase = text_of(json, "phase").and_then(|p| Phase::parse(&p)).unwrap_or(Phase::Draft);
     talk.asked = count(json, "asked").and_then(|n| u32::try_from(n).ok()).unwrap_or(0);
-    talk.pending = count(json, "pending").and_then(|n| usize::try_from(n).ok()).unwrap_or(0);
+    talk.logged = key(json, "logged").and_then(|v| v.as_bool().into_option()).unwrap_or(talk.phase == Phase::Done);
+    talk.patch = text_of(json, "patch").filter(|p| crate::patch::is_name(p));
+    for item in items(json, "suggestions") {
+        if let Some(p) = proposal_from(&item) {
+            talk.restore_proposal(p.suggestion, p.decision);
+        }
+    }
     talk.heard_as = text_of(json, "heard_as");
     talk.problem = text_of(json, "problem");
     for turn in items(json, "turns") {
@@ -480,6 +551,7 @@ fn talk_from(json: &Json) -> Conversation {
                     start_ms: u32::try_from(count(w, "s")?).ok()?,
                     end_ms: u32::try_from(count(w, "e")?).ok()?,
                     probability: num(w, "p")? as f32,
+                    biased: key(w, "b").and_then(|b| b.as_bool().into_option()).unwrap_or(false),
                 })
             })
             .collect();

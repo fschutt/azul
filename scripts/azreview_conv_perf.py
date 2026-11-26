@@ -59,6 +59,12 @@ def add_note(app, text, y, page=0, ask=False):
     return answer["id"]
 
 
+def back_to_the_first_page(app):
+    """The strip scrolled to the first page (the wheel's two ways need not end where they began)."""
+    app.click(selector="#__azreview_page-pill-1", frames=2)
+    app.until("the first page", lambda: app.has_id("__azreview_conv-1", every_dom=True))
+
+
 def scroll_across(app, tail, steps, label):
     """The page strip scrolled to the right and back by the wheel, `steps` notches each way: the frames painted meanwhile."""
     rect = app.rect(STRIP)
@@ -75,6 +81,7 @@ def scroll_across(app, tail, steps, label):
     app.frame(2)
     frames = frames_of(tail.lines, t0)
     durations = [round((end - start) * 1000.0, 2) for start, end in frames]
+    back_to_the_first_page(app)
     return {"label": label, "seconds": round(time.perf_counter() - t0, 2), "frames": len(frames),
             "frame_ms": quantiles(durations), "step_ms": quantiles(per_step)}
 

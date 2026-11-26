@@ -10,8 +10,9 @@
 //! reads [`Conversation::phase`]. Everything is bounded (`MAX_TURNS`, `MAX_TURN_BYTES`, `MAX_SAID`): a cut says so in the
 //! word it returns, and never panics.
 
-use crate::{agent_review::Reply, chips};
+use crate::{agent_review::Reply, chips, patch::Outcome};
 
+pub use crate::agent_review::Suggestion;
 pub use crate::dictation::Said;
 
 /// How many turns a conversation keeps: more than a reviewer reads, and a bound on the memory and on the archive.
@@ -96,6 +97,45 @@ impl Phase {
     }
 }
 
+/// What the reviewer decided about a suggestion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Decision {
+    /// It waits for the reviewer.
+    Waiting,
+    /// The reviewer took it: the edit is part of the review (a diff in memory and in the archive, never written to the file).
+    Accepted,
+    /// The reviewer refused it.
+    Rejected,
+}
+
+impl Decision {
+    /// The word the archive keeps.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Waiting => "waiting",
+            Self::Accepted => "accepted",
+            Self::Rejected => "rejected",
+        }
+    }
+
+    /// The decision a name stands for.
+    #[must_use]
+    pub fn parse(name: &str) -> Option<Self> {
+        [Self::Waiting, Self::Accepted, Self::Rejected].into_iter().find(|d| d.name() == name)
+    }
+}
+
+/// A suggestion of the agent and what the reviewer made of it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Proposal {
+    pub suggestion: Suggestion,
+    pub decision: Decision,
+}
+
+/// How many suggestions a conversation keeps: the decided ones go first.
+pub const MAX_PROPOSALS: usize = 50;
+
 /// What an answer did to the conversation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Landed {
@@ -125,10 +165,15 @@ pub struct Conversation {
     pub problem: Option<String>,
     /// How many times an agent was asked.
     pub asked: u32,
-    /// How many suggestions wait for the reviewer.
-    pub pending: usize,
+    /// What the agent suggested, in the order it said it, each with what the reviewer decided.
+    pub proposals: Vec<Proposal>,
     /// The follow-up the reviewer is typing (not yet a turn; not kept in the archive).
     pub draft: String,
+    /// What the conversation came to was written to the data root (a patch file of it): nothing is due for it until it is
+    /// resolved again.
+    pub logged: bool,
+    /// The name of the patch file the last resolution wrote.
+    pub patch: Option<String>,
 }
 
 impl Default for Phase {
@@ -167,13 +212,23 @@ impl Conversation {
         true
     }
 
+    /// How many suggestions wait for the reviewer.
+    #[must_use]
+    pub fn pending(&self) -> usize {
+        self.proposals.iter().filter(|p| p.decision == Decision::Waiting).count()
+    }
+
+    /// The suggestions the reviewer took, in the order the agent said them.
+    pub fn accepted(&self) -> impl Iterator<Item = &Suggestion> {
+        self.proposals.iter().filter(|p| p.decision == Decision::Accepted).map(|p| &p.suggestion)
+    }
+
     /// The agent answered. A reply that chose to do nothing ends the conversation quietly (nothing is shown, the
     /// reviewer's words stay); words are an agent's turn; suggestions wait for the reviewer.
     pub fn receive(&mut self, reply: &Reply, now_unix_ms: u64) -> Landed {
         self.problem = None;
         if reply.is_no_action() {
             self.phase = Phase::Draft;
-            self.pending = 0;
             return Landed::Quiet;
         }
         if reply.heard_as.as_deref().is_some_and(|h| !h.trim().is_empty()) {
@@ -182,39 +237,140 @@ impl Conversation {
         if !reply.answer.trim().is_empty() {
             self.push(Who::Agent, &reply.answer, now_unix_ms);
         }
-        self.pending = reply.suggestions.len();
-        if self.pending > 0 {
+        for suggestion in &reply.suggestions {
+            let _kept = self.propose(suggestion.clone());
+        }
+        self.settled();
+        match self.pending() {
+            0 => Landed::Answered,
+            n => Landed::Suggested(n),
+        }
+    }
+
+    /// Keeps a suggestion, waiting; past `MAX_PROPOSALS` the oldest decided one makes room, and with none decided the new
+    /// one is not kept (`false`).
+    fn propose(&mut self, suggestion: Suggestion) -> bool {
+        if self.proposals.len() >= MAX_PROPOSALS {
+            match self.proposals.iter().position(|p| p.decision != Decision::Waiting) {
+                Some(at) => {
+                    self.proposals.remove(at);
+                }
+                None => return false,
+            }
+        }
+        self.proposals.push(Proposal { suggestion, decision: Decision::Waiting });
+        true
+    }
+
+    /// The phase that follows from what waits: suggested while anything does, done when something was answered and nothing
+    /// does.
+    fn settled(&mut self) {
+        if self.pending() > 0 {
             self.phase = Phase::Suggested;
-            Landed::Suggested(self.pending)
         } else {
-            self.phase = Phase::Done;
-            Landed::Answered
+            self.finish();
+        }
+    }
+
+    /// The conversation is done; one that was not done before is due for the log of resolved conversations.
+    fn finish(&mut self) {
+        if self.phase != Phase::Done {
+            self.logged = false;
+        }
+        self.phase = Phase::Done;
+    }
+
+    /// Whether the conversation is resolved and what it came to is not written yet (a patch file of it, which every
+    /// resolved conversation has: the diff of what was taken, or a header alone).
+    #[must_use]
+    pub fn due(&self) -> bool {
+        self.phase == Phase::Done && !self.logged
+    }
+
+    /// What the conversation came to was written, as the patch file `patch` (none: it wrote none).
+    pub fn mark_logged(&mut self, patch: Option<String>) {
+        self.logged = true;
+        self.patch = patch;
+    }
+
+    /// How the conversation ended: what the reviewer took, refused, was answered in words, or nothing.
+    #[must_use]
+    pub fn outcome(&self) -> Outcome {
+        if self.accepted().next().is_some() {
+            Outcome::Accepted
+        } else if !self.proposals.is_empty() {
+            Outcome::Rejected
+        } else if self.turns.iter().any(|t| t.who == Who::Agent) {
+            Outcome::Answered
+        } else {
+            Outcome::Closed
+        }
+    }
+
+    /// A suggestion read back from the archive, with its decision (bounded like [`Self::propose`]).
+    pub fn restore_proposal(&mut self, suggestion: Suggestion, decision: Decision) {
+        if self.propose(suggestion) {
+            if let Some(last) = self.proposals.last_mut() {
+                last.decision = decision;
+            }
         }
     }
 
     /// The agent could not answer: why, for the reviewer.
     pub fn fail(&mut self, why: String) {
         self.phase = Phase::Failed;
-        self.pending = 0;
         self.problem = Some(why);
     }
 
-    /// `count` suggestions were taken or refused; when none is left the conversation is done. `false` when nothing waited.
-    pub fn settle(&mut self, count: usize) -> bool {
-        if self.pending == 0 || count == 0 {
-            return false;
+    /// The reviewer decides suggestion `index`; `false` (and nothing changes) for one that is not there or has that decision
+    /// already. When nothing waits any more the conversation is done; when something waits again it is suggested.
+    pub fn decide(&mut self, index: usize, decision: Decision) -> bool {
+        match self.proposals.get_mut(index) {
+            Some(p) if p.decision != decision => p.decision = decision,
+            _ => return false,
         }
-        self.pending = self.pending.saturating_sub(count);
-        if self.pending == 0 && self.phase == Phase::Suggested {
-            self.phase = Phase::Done;
+        // what a finished conversation came to has changed, even where it stays finished
+        if self.phase == Phase::Done {
+            self.logged = false;
+        }
+        if matches!(self.phase, Phase::Suggested | Phase::Done) {
+            self.settled();
         }
         true
     }
 
-    /// The reviewer says it is finished, whatever waits.
+    /// The reviewer takes everything that waits; how many were taken.
+    pub fn accept_all(&mut self) -> usize {
+        self.decide_all(Decision::Accepted)
+    }
+
+    /// The reviewer refuses everything that waits; how many were refused.
+    pub fn reject_all(&mut self) -> usize {
+        self.decide_all(Decision::Rejected)
+    }
+
+    fn decide_all(&mut self, decision: Decision) -> usize {
+        let mut count = 0;
+        for p in &mut self.proposals {
+            if p.decision == Decision::Waiting {
+                p.decision = decision;
+                count += 1;
+            }
+        }
+        if count > 0 && matches!(self.phase, Phase::Suggested | Phase::Done) {
+            self.settled();
+        }
+        count
+    }
+
+    /// The reviewer says it is finished: what waits is refused (closing a conversation takes nothing).
     pub fn resolve(&mut self) {
-        self.phase = Phase::Done;
-        self.pending = 0;
+        for p in &mut self.proposals {
+            if p.decision == Decision::Waiting {
+                p.decision = Decision::Rejected;
+            }
+        }
+        self.finish();
     }
 
     /// The reviewer opens a finished conversation again.

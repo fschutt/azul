@@ -22,8 +22,8 @@ use azul_appkit::{
 use azul::prelude::*;
 
 use crate::{
-    progress::{Book, Entry, Seen, MAX_FILES},
-    session::{items, push_string, text_of},
+    progress::{Back, Book, Entry, Seen, MAX_FILES},
+    session::{count, items, push_string, text_of},
     AppState,
 };
 
@@ -34,16 +34,22 @@ pub const MAX_ENTRIES: usize = MAX_FILES;
 /// How many ranges of pages are read of one file.
 pub const MAX_RANGES: usize = 4_096;
 
-/// The name of the file of the workspace at `root`: `progress-` and 16 hex digits of the folder's FNV-1a, so that each
-/// workspace has its own.
+/// The 16 hex digits of the folder's FNV-1a that tell one workspace from another in the data root.
 #[must_use]
-pub fn file_name(root: &str) -> String {
+pub fn root_hash(root: &str) -> String {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in root.bytes() {
         h ^= u64::from(b);
         h = h.wrapping_mul(0x0100_0000_01b3);
     }
-    format!("progress-{h:016x}.json")
+    format!("{h:016x}")
+}
+
+/// The name of the file of the workspace at `root`: `progress-` and [`root_hash`] of the folder, so that each workspace has
+/// its own.
+#[must_use]
+pub fn file_name(root: &str) -> String {
+    format!("progress-{}.json", root_hash(root))
 }
 
 /// The text of the file for `book` (the workspace at `root`): the files something is known of.
@@ -55,6 +61,11 @@ pub fn to_json(book: &Book, root: &str) -> String {
     push_string(&mut out, FORMAT);
     out.push_str(",\"root\":");
     push_string(&mut out, root);
+    if let Some(back) = book.back() {
+        out.push_str(",\"return\":{\"file\":");
+        push_string(&mut out, &back.file);
+        let _ = write!(out, ",\"page\":{},\"line\":{}}}", back.page, back.line);
+    }
     out.push_str(",\"files\":[");
     let mut first = true;
     for (path, entry) in book.iter().filter(|(_, e)| e.seen.count() > 0 || e.held) {
@@ -108,6 +119,15 @@ pub fn from_json_capped(bytes: &[u8], cap: usize) -> Result<Book, String> {
         return Err(format!("the progress file is of format {format}, which this version of AzReview does not read"));
     }
     let mut book = Book::with_cap(cap);
+    if let Some(place) = json.get_key("return").into_option() {
+        let page = count(&place, "page").and_then(|n| usize::try_from(n).ok());
+        let line = count(&place, "line").and_then(|n| u32::try_from(n).ok());
+        if let (Some(file), Some(page), Some(line)) = (text_of(&place, "file"), page, line) {
+            let _ = book.jumped_from(Back { file, page, line });
+            // what is read is not yet to be kept again
+            let _ = book.take_dirty();
+        }
+    }
     for item in items(&json, "files") {
         let Some(path) = text_of(&item, "path").filter(|p| !p.is_empty()) else {
             continue;

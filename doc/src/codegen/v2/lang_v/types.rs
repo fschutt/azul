@@ -26,7 +26,7 @@ use super::{
         },
     },
     ffi_type_name, field_type_for_ref_kind, include_enum, include_struct, map_type_to_v,
-    sanitize_identifier, snake_fields,
+    sanitize_identifier, snake_fields, v_field_name,
 };
 
 pub fn generate_types(
@@ -187,7 +187,7 @@ fn emit_tagged_union(b: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
             EnumVariantKind::Struct(fields) => {
                 for f in fields {
                     let fty = field_type_for_ref_kind(&f.type_name, &f.ref_kind, ir);
-                    b.line(&format!("\t{} {}", sanitize_identifier(&f.name), fty));
+                    b.line(&format!("\t{} {}", v_field_name(&f.name), fty));
                 }
             }
         }
@@ -241,7 +241,7 @@ fn emit_field(b: &mut CodeBuilder, f: &FieldDef, ir: &CodegenIR) {
         b.line(&format!("\t// {}", sanitize_comment(doc)));
     }
     let fty = field_type_for_ref_kind(&f.type_name, &f.ref_kind, ir);
-    b.line(&format!("\t{} {}", sanitize_identifier(&f.name), fty));
+    b.line(&format!("\t{} {}", v_field_name(&f.name), fty));
 }
 
 // ============================================================================

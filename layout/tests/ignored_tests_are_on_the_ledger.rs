@@ -94,6 +94,14 @@ const LEDGER: &[Row] = &[
         reason: NEEDS_DISPLAY,
     },
     Row {
+        file: "dll/src/desktop/extra/desktop_state/desktop_state_test.rs",
+        test: "the_real_desktop_of_a_mac_has_an_app_in_front_and_a_pointer",
+        kind: Kind::Hardware,
+        id: None,
+        owner: "dll/desktop_state",
+        reason: "reads the real desktop of the Mac it runs on (the app in front, the pointer, the lock): a CI runner's desktop is empty; run by hand: cargo test -p azul-dll --lib the_real_desktop_of_a_mac -- --ignored (X-EDGE-C-2)",
+    },
+    Row {
         file: "dll/src/desktop/extra/iroh/bonjour_test.rs",
         test: "bonjour_finds_what_the_mdns_lookup_announces",
         kind: Kind::Hardware,
@@ -366,7 +374,8 @@ const COUNTS: &[(Kind, usize)] = &[
     // + the two real-network tests of iroh's local discovery (extra/iroh/engine_test.rs, bonjour_test.rs): 12 -> 14.
     // + the listing of the endpoints of the local network over real mDNS (extra/iroh/engine_test.rs): 14 -> 15.
     // + the Bonjour watch of an iPhone over real mDNS (extra/iroh/bonjour_test.rs): 15 -> 16.
-    (Kind::Hardware, 16),
+    // + the real desktop of a Mac (extra/desktop_state/desktop_state_test.rs): 16 -> 17.
+    (Kind::Hardware, 17),
 ];
 
 /// The crates whose sources are scanned (`src/` and `tests/` of each).

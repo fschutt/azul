@@ -10,7 +10,7 @@
 
 use std::{collections::BTreeMap, sync::OnceLock};
 
-use super::{snake_field, snake_fields};
+use super::{snake_field, snake_fields, v_field_name};
 use super::super::config::CodegenConfig;
 
 fn generated() -> &'static str {
@@ -63,6 +63,18 @@ fn snake_field_spells_a_variant_in_lowercase_words() {
 }
 
 #[test]
+fn a_field_name_that_starts_with_an_underscore_moves_it_to_the_end() {
+    assert_eq!(v_field_name("_reserved"), "reserved_");
+    assert_eq!(v_field_name("_abi_mut"), "abi_mut_");
+    assert_eq!(v_field_name("__x"), "x_");
+    assert_eq!(v_field_name("_0"), "f0");
+    assert_eq!(v_field_name("_12"), "f12");
+    assert_eq!(v_field_name("_"), "unnamed");
+    assert_eq!(v_field_name("title"), "title");
+    assert_eq!(v_field_name("type"), "type_");
+}
+
+#[test]
 fn two_names_that_fold_to_one_word_stay_two_fields() {
     assert_eq!(snake_fields(["KeyA", "Key_A", "Other"]), ["key_a", "key_a_", "other"]);
 }
@@ -85,9 +97,9 @@ fn no_enum_variant_or_union_field_of_the_module_has_an_uppercase_letter() {
     );
 }
 
-/// V refuses a field name that starts with an underscore ("field name `_dummy` cannot start with
-/// `_`", V 0.5.2: the 27 structs that have no field took one, `_dummy u8`, so that the C struct is
-/// not empty).
+/// V refuses a field name that starts with an underscore ("field name `_reserved` cannot start with
+/// `_`", V 0.5.2: 27 members of azul.v - `_reserved`, `_abi_mut`, `_abi_ref` and the fields of tuple
+/// structs, `_0`, `_1`, `_2`).
 #[test]
 fn no_field_name_of_the_module_starts_with_an_underscore() {
     let offenders: Vec<(usize, &str)> = generated()
@@ -101,6 +113,33 @@ fn no_field_name_of_the_module_starts_with_an_underscore() {
         "{} members of azul.v start with an underscore, which V refuses in a field name; the first: {:?}",
         offenders.len(),
         &offenders[..offenders.len().min(5)]
+    );
+}
+
+/// With no C header to include, V 0.5.2 writes no C declaration for `fn C.AzString_fromUtf8(...)`
+/// and the C compiler stops ("C function `C.AzString_fromUtf8` was declared in V, but the C
+/// compiler did not see a matching C declaration", run 45764257231): the V declaration of a symbol
+/// that a library provides carries `@[c_extern]`.
+#[test]
+fn every_c_function_the_module_declares_is_marked_extern() {
+    let lines: Vec<&str> = generated().lines().collect();
+    let mut declared = 0;
+    let mut bare = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        if line.starts_with("fn C.") {
+            declared += 1;
+            if i == 0 || lines[i - 1] != "@[c_extern]" {
+                bare.push(*line);
+            }
+        }
+    }
+    assert!(declared > 10_000, "only {declared} `fn C.` declarations found: the scan does not read the module");
+    assert!(
+        bare.is_empty(),
+        "{} of the {} C functions of azul.v are not marked `@[c_extern]`; the first: {:?}",
+        bare.len(),
+        declared,
+        &bare[..bare.len().min(3)]
     );
 }
 

@@ -132,6 +132,18 @@ impl SourceFile {
         page * LINES_PER_PAGE + 1
     }
 
+    /// The page line `line` is on (line 0, before the first, is on the first page).
+    #[must_use]
+    pub const fn page_of_line(line: usize) -> usize {
+        line.saturating_sub(1) / LINES_PER_PAGE
+    }
+
+    /// How many lines page `page` has (none past the end of the file), without making them.
+    #[must_use]
+    pub fn lines_on_page(&self, page: usize) -> usize {
+        self.line_count().saturating_sub(page.saturating_mul(LINES_PER_PAGE)).min(LINES_PER_PAGE)
+    }
+
     /// The first line of `page` and its lines (none past the end of the file): borrowed where the file is held as
     /// lines, made from the text where it is big.
     pub fn page(&self, page: usize) -> (usize, Cow<'_, [String]>) {

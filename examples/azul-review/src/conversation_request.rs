@@ -34,7 +34,7 @@ fn heard(said: &Said) -> Utterance {
         words: said
             .words
             .iter()
-            .map(|w| SaidWord { w: w.text.clone(), p: Some(w.probability), biased: false })
+            .map(|w| SaidWord { w: w.text.clone(), p: Some(w.probability), biased: w.biased })
             .collect(),
     }
 }

@@ -47,6 +47,10 @@
 pub mod cmdlets;
 pub mod manifest;
 
+#[cfg(test)]
+#[path = "example_test.rs"]
+mod example_test;
+
 use anyhow::{anyhow, Result};
 
 use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};
