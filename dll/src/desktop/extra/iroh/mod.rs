@@ -14,6 +14,8 @@ mod engine;
 #[cfg(az_iroh_engine)]
 mod multicast_lock;
 #[cfg(az_iroh_engine)]
+mod nearby;
+#[cfg(az_iroh_engine)]
 mod dns_wire;
 #[cfg(az_iroh_bonjour)]
 mod bonjour;
@@ -321,6 +323,39 @@ impl IrohEndpoint {
             return engine.set_allowed_peers(None).is_ok();
         }
         false
+    }
+
+    /// Changes what this endpoint tells the computers on the local network about itself while it
+    /// is bound (`IrohConfig::advertised` sets the first text): the same cleaning and the same
+    /// 245 bytes apply, and `local_discovery_status` says when the text was cut. An empty text
+    /// advertises nothing again. Returns false when nothing is bound.
+    pub fn set_advertised(&self, text: AzString) -> bool {
+        #[cfg(az_iroh_engine)]
+        if let Some(engine) = self.engine() {
+            engine.set_advertised(text.as_str());
+            return true;
+        }
+        drop(text);
+        false
+    }
+
+    /// The endpoints that announced themselves on the local network and are still announcing,
+    /// by endpoint id: what they advertise about themselves and the addresses a dial can use (at
+    /// most 64 endpoints, 16 addresses each). It is the state behind the `NearbyAppeared` and
+    /// `NearbyGone` events, filled while local discovery is on; nothing is dialed by it: an app
+    /// that wants to join one passes its endpoint id to `connect`. Empty when nothing is bound.
+    pub fn nearby_peers(&self) -> IrohNearbyPeerVec {
+        #[cfg(az_iroh_engine)]
+        if let Some(engine) = self.engine() {
+            return IrohNearbyPeerVec::from_vec(
+                engine
+                    .nearby_peers()
+                    .iter()
+                    .map(IrohNearbyPeer::from)
+                    .collect(),
+            );
+        }
+        IrohNearbyPeerVec::from_vec(Vec::new())
     }
 
     /// What local-network discovery does for this endpoint: `off` (switched off by the config,
