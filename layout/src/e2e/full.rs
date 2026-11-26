@@ -426,6 +426,9 @@ pub fn take_forwarded_debug_requests(slot: u64) -> Vec<DebugRequest> {
 /// Response data from timer callback to HTTP thread (internal)
 #[cfg(feature = "std")]
 #[derive(Debug, Clone)]
+// One response is built per request and moved once into a channel; boxing its payload would change the
+// variant the DLL's debug server matches on (dll/src/desktop/shell2/run.rs).
+#[allow(clippy::large_enum_variant)]
 pub enum DebugResponseData {
     /// Successful response with optional data
     Ok {
@@ -1515,6 +1518,9 @@ pub struct LogMessageJson {
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "status")]
+// One response is built per request and serialized at once: boxing its body would change the type the
+// DLL's debug server builds.
+#[allow(clippy::large_enum_variant)]
 pub enum DebugHttpResponse {
     #[serde(rename = "ok")]
     Ok(DebugHttpResponseOk),
@@ -5314,9 +5320,9 @@ pub struct E2eScratch {
 /// panicked on: a scenario that panicked mid-step must not take the whole
 /// (possibly parallel) run down with it.
 #[cfg(feature = "std")]
-fn scratch<'a>(
-    callback_info: &'a azul_layout::callbacks::CallbackInfo,
-) -> std::sync::MutexGuard<'a, E2eScratch> {
+fn scratch(
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> std::sync::MutexGuard<'_, E2eScratch> {
     callback_info
         .get_layout_window()
         .e2e_scratch
@@ -5775,6 +5781,7 @@ fn run_project_op(
             platform,
         );
         drop(guard);
+        drop(map_guard);
         outcome
     };
     finish_builder_op(request, callback_info, result)
@@ -16287,11 +16294,10 @@ fn override_data_model_defaults(
             let parsed = parse_json_to_default_value(&field.field_type, json_val)
                 .map_err(|e| format!("field '{name}': {e}"))?;
             field.default_value = OptionComponentDefaultValue::Some(parsed);
-        } else if field.required {
-            if matches!(&field.default_value, OptionComponentDefaultValue::None) {
+        } else if field.required
+            && matches!(&field.default_value, OptionComponentDefaultValue::None) {
                 return Err(format!("required field '{name}' is missing"));
             }
-        }
     }
 
     Ok(ComponentDataModel {
@@ -20626,25 +20632,22 @@ fn serve_debug_event(
                 .map(|(_, s)| s);
 
             // Default container/content rects if not in scroll manager
-            let (container_rect, content_rect, max_scroll_x, max_scroll_y) = match scroll_info {
-                Some(state) => {
-                    let max_x =
-                        (state.children_rect.size.width - state.parent_rect.size.width).max(0.0);
-                    let max_y =
-                        (state.children_rect.size.height - state.parent_rect.size.height).max(0.0);
-                    (state.parent_rect, state.children_rect, max_x, max_y)
-                }
-                None => {
-                    // Fallback: try to get from layout
-                    let zero_rect = azul_core::geom::LogicalRect {
-                        origin: LogicalPosition { x: 0.0, y: 0.0 },
-                        size: LogicalSize {
-                            width: 0.0,
-                            height: 0.0,
-                        },
-                    };
-                    (zero_rect, zero_rect, 0.0, 0.0)
-                }
+            let (container_rect, content_rect, max_scroll_x, max_scroll_y) = if let Some(state) = scroll_info {
+                let max_x =
+                    (state.children_rect.size.width - state.parent_rect.size.width).max(0.0);
+                let max_y =
+                    (state.children_rect.size.height - state.parent_rect.size.height).max(0.0);
+                (state.parent_rect, state.children_rect, max_x, max_y)
+            } else {
+                // Fallback: try to get from layout
+                let zero_rect = azul_core::geom::LogicalRect {
+                    origin: LogicalPosition { x: 0.0, y: 0.0 },
+                    size: LogicalSize {
+                        width: 0.0,
+                        height: 0.0,
+                    },
+                };
+                (zero_rect, zero_rect, 0.0, 0.0)
             };
 
             fn build_scrollbar_geometry(
@@ -21169,14 +21172,7 @@ fn serve_debug_event(
                 ref_count: app_data.get_ref_count(),
             };
 
-            if !app_data.can_serialize() {
-                let response = AppStateResponse {
-                    metadata,
-                    state: serde_json::Value::Null,
-                    error: Some(RefAnyError::NotSerializable),
-                };
-                send_ok(request, None, Some(ResponseData::AppState(response)));
-            } else {
+            if app_data.can_serialize() {
                 if let Some(json) = serialize_refany_to_json(app_data) {
                     // Convert our Json type to serde_json::Value for the response
                     let value = json.to_serde_value();
@@ -21196,6 +21192,13 @@ fn serve_debug_event(
                     };
                     send_ok(request, None, Some(ResponseData::AppState(response)));
                 }
+            } else {
+                let response = AppStateResponse {
+                    metadata,
+                    state: serde_json::Value::Null,
+                    error: Some(RefAnyError::NotSerializable),
+                };
+                send_ok(request, None, Some(ResponseData::AppState(response)));
             }
         }
 
@@ -21277,15 +21280,7 @@ fn serve_debug_event(
                                 ref_count: refany.get_ref_count(),
                             };
 
-                            if !refany.can_serialize() {
-                                let response = NodeDatasetResponse {
-                                    node_id: *node_id,
-                                    metadata,
-                                    dataset: serde_json::Value::Null,
-                                    error: Some(RefAnyError::NotSerializable),
-                                };
-                                send_ok(request, None, Some(ResponseData::NodeDataset(response)));
-                            } else {
+                            if refany.can_serialize() {
                                 if let Some(json) = serialize_refany_to_json(refany) {
                                     let value = json.to_serde_value();
                                     let response = NodeDatasetResponse {
@@ -21314,6 +21309,14 @@ fn serve_debug_event(
                                         Some(ResponseData::NodeDataset(response)),
                                     );
                                 }
+                            } else {
+                                let response = NodeDatasetResponse {
+                                    node_id: *node_id,
+                                    metadata,
+                                    dataset: serde_json::Value::Null,
+                                    error: Some(RefAnyError::NotSerializable),
+                                };
+                                send_ok(request, None, Some(ResponseData::NodeDataset(response)));
                             }
                         }
                         None => {
@@ -22699,16 +22702,7 @@ fn serve_debug_event(
                 defs.push(def);
             }
 
-            if !validation_errors.is_empty() {
-                send_err(
-                    request,
-                    format!(
-                        "Validation errors in library '{}': {}",
-                        lib_name,
-                        validation_errors.join("; ")
-                    ),
-                );
-            } else {
+            if validation_errors.is_empty() {
                 let new_lib = ComponentLibrary {
                     name: AzString::from(lib_name.as_str()),
                     version: AzString::from(lib_json.version.as_str()),
@@ -22746,6 +22740,15 @@ fn serve_debug_event(
                     })),
                 );
                 needs_update = true;
+            } else {
+                send_err(
+                    request,
+                    format!(
+                        "Validation errors in library '{}': {}",
+                        lib_name,
+                        validation_errors.join("; ")
+                    ),
+                );
             }
         }
 
@@ -22873,18 +22876,18 @@ fn serve_debug_event(
 
             // Only allow deletion of modifiable libraries
             if let Some(lib) = libs.iter().find(|l| l.name.as_str() == name.as_str()) {
-                if !lib.modifiable {
+                if lib.modifiable {
+                    libs.retain(|l| l.name.as_str() != name.as_str());
+                    map_guard.libraries = ComponentLibraryVec::from_vec(libs);
+                    drop(map_guard);
+                    send_ok(request, None, None);
+                } else {
                     map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                     drop(map_guard);
                     send_err(
                         request,
                         format!("Library '{name}' is not modifiable and cannot be deleted"),
                     );
-                } else {
-                    libs.retain(|l| l.name.as_str() != name.as_str());
-                    map_guard.libraries = ComponentLibraryVec::from_vec(libs);
-                    drop(map_guard);
-                    send_ok(request, None, None);
                 }
             } else {
                 map_guard.libraries = ComponentLibraryVec::from_vec(libs);
@@ -22992,11 +22995,7 @@ fn serve_debug_event(
                 .iter_mut()
                 .find(|l| l.name.as_str() == library.as_str())
             {
-                if !lib.modifiable {
-                    map_guard.libraries = ComponentLibraryVec::from_vec(libs);
-                    drop(map_guard);
-                    send_err(request, format!("Library '{library}' is not modifiable"));
-                } else {
+                if lib.modifiable {
                     let mut comps = core::mem::replace(&mut lib.components, Vec::new().into())
                         .into_library_owned_vec();
                     comps.retain(|c| c.id.name.as_str() != name.as_str());
@@ -23009,6 +23008,10 @@ fn serve_debug_event(
                         needs_update = true;
                     }
                     send_ok(request, None, None);
+                } else {
+                    map_guard.libraries = ComponentLibraryVec::from_vec(libs);
+                    drop(map_guard);
+                    send_err(request, format!("Library '{library}' is not modifiable"));
                 }
             } else {
                 map_guard.libraries = ComponentLibraryVec::from_vec(libs);
@@ -23038,11 +23041,7 @@ fn serve_debug_event(
                 .iter_mut()
                 .find(|l| l.name.as_str() == library.as_str())
             {
-                if !lib.modifiable {
-                    map_guard.libraries = ComponentLibraryVec::from_vec(libs);
-                    drop(map_guard);
-                    send_err(request, format!("Library '{library}' is not modifiable"));
-                } else {
+                if lib.modifiable {
                     let mut comps = core::mem::replace(&mut lib.components, Vec::new().into())
                         .into_library_owned_vec();
                     if let Some(comp) = comps
@@ -23109,6 +23108,10 @@ fn serve_debug_event(
                             format!("Component '{name}' not found in library '{library}'"),
                         );
                     }
+                } else {
+                    map_guard.libraries = ComponentLibraryVec::from_vec(libs);
+                    drop(map_guard);
+                    send_err(request, format!("Library '{library}' is not modifiable"));
                 }
             } else {
                 map_guard.libraries = ComponentLibraryVec::from_vec(libs);
@@ -23402,11 +23405,7 @@ fn serve_debug_event(
                 .iter_mut()
                 .find(|l| l.name.as_str() == library.as_str())
             {
-                if !lib.modifiable {
-                    map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
-                    drop(map_guard);
-                    send_err(request, format!("Library '{library}' is not modifiable"));
-                } else {
+                if lib.modifiable {
                     let mut comps = core::mem::replace(&mut lib.components, Vec::new().into())
                         .into_library_owned_vec();
                     if let Some(comp) = comps
@@ -23436,6 +23435,10 @@ fn serve_debug_event(
                         drop(map_guard);
                         send_err(request, format!("Component '{name}' not found"));
                     }
+                } else {
+                    map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
+                    drop(map_guard);
+                    send_err(request, format!("Library '{library}' is not modifiable"));
                 }
             } else {
                 map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
