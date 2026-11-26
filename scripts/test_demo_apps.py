@@ -574,6 +574,27 @@ class IosBuildQaScriptTest(unittest.TestCase):
         self.assertNotRegex(code, r"\brm\b")
 
 
+class MacosBashTest(unittest.TestCase):
+    """macOS runners (and Macs) have bash 3.2, where `"${array[@]}"` of an EMPTY array is an "unbound variable" error under `set -u`:
+    the first macOS desktop library of the pipeline died at its first command with `target_flag[@]: unbound variable`
+    (run 45779775681), because the host build has no --target. The scripts that run on a Mac expand an array only the empty-safe
+    way, `${array[@]+"${array[@]}"}`."""
+
+    SCRIPTS = ("demo_lib.sh", "build-ios.sh", "ci/ios_smoke.sh", "ci/ios_build_qa.sh")
+
+    def test_no_script_that_runs_on_a_mac_expands_an_array_the_bash_3_2_cannot(self):
+        for name in self.SCRIPTS:
+            text = (HERE / name).read_text(encoding="utf-8")
+            # an array expansion in double quotes that is not the inner half of `${array[@]+"${array[@]}"}` (that one follows a `+`)
+            unsafe = [text.count("\n", 0, m.start()) + 1 for m in re.finditer(r'(?<!\+)"\$\{(\w+)\[@\]\}"', text)]
+            self.assertEqual(unsafe, [], f"{name}: lines {unsafe} expand an array that may be empty")
+
+    def test_the_host_build_of_the_desktop_library_survives_an_empty_target(self):
+        text = (HERE / "demo_lib.sh").read_text(encoding="utf-8")
+        self.assertIn('${target_flag[@]+"${target_flag[@]}"}', text)
+        self.assertNotIn('"${target_flag[@]}" -p', text)
+
+
 class MobileLibCommandTest(unittest.TestCase):
     """`demo_apps.py mobile-lib <package>`: which library variant a phone app links (the manifest's mobile_lib)."""
 
