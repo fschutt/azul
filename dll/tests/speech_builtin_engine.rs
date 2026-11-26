@@ -108,6 +108,7 @@ fn transcribe(wav: &str, language: &str) -> azul::desktop::extra::speech::recogn
         timeout_ms: 30_000,
         clock: &clock,
         cancel: &never,
+        flowing: &|| {},
     })
 }
 

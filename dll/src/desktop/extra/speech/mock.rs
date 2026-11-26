@@ -178,6 +178,10 @@ impl Recognizer for MockSpeech {
         let timeout = u64::from(call.timeout_ms);
         let step = self.next_step();
         self.last = Some(step.clone());
+        // A scripted recognizer's sound flows from the start of a call it listens in.
+        if !matches!(step, Step::Refuse { .. }) {
+            (call.flowing)();
+        }
         match step {
             Step::Refuse { outcome, message } => Answer::none(outcome, &message),
             Step::Silence => {

@@ -91,6 +91,7 @@ pub struct SpeechWord {
     pub start_ms: u32,
     pub end_ms: u32,
     pub probability: f32,
+    pub biased: bool,
 }
 
 #[cfg(any(target_arch = "wasm32", az_engine_stubs))]

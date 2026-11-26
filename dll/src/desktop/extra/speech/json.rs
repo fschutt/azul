@@ -314,6 +314,7 @@ pub fn transcript(text: &str) -> Result<Transcript, String> {
                 start_ms,
                 end_ms: millis(end).max(start_ms),
                 probability: super::recognizer::clamp01(probability as f32),
+                biased: false,
             })
         })
         .collect();

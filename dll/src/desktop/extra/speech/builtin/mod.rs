@@ -44,7 +44,10 @@ pub use self::{
     audio::{Vad, MODEL_RATE},
     engine::{CactusEngine, Engine, EngineError},
 };
-use super::recognizer::{Answer, Kind, Listen, Outcome, Readiness, Recognizer};
+use super::{
+    recognizer::{Answer, Kind, Listen, Outcome, Readiness, Recognizer},
+    vocabulary::Vocabulary,
+};
 
 /// What the app registered did, as a status the app can show.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -173,8 +176,8 @@ pub struct Builtin {
     state: State,
     microphone: Box<dyn MicrophoneSource>,
     tuning: Tuning,
-    /// One keyword a line, kept to the limits.
-    keywords: String,
+    /// What the model is asked to favour, kept to the limits; its words are marked in an answer.
+    vocabulary: Vocabulary,
     /// The quietest the room was in the last call: the next call starts from it.
     floor: f32,
 }
@@ -211,7 +214,7 @@ impl Builtin {
             state: State::Discover(exe_dir),
             microphone,
             tuning,
-            keywords: String::new(),
+            vocabulary: Vocabulary::default(),
             floor: 0.0004,
         }
     }
@@ -223,7 +226,7 @@ impl Builtin {
             state: State::Refused(message),
             microphone,
             tuning: Tuning::default(),
-            keywords: String::new(),
+            vocabulary: Vocabulary::default(),
             floor: 0.0004,
         }
     }
@@ -258,7 +261,7 @@ impl Builtin {
             state: State::Ready(engine),
             microphone,
             tuning,
-            keywords: String::new(),
+            vocabulary: Vocabulary::default(),
             floor: 0.0004,
         })
     }
@@ -382,36 +385,13 @@ impl Builtin {
         };
     }
 
-    /// The words the model should favour (names, jargon): one a line, at most the limit, each
-    /// kept to its length. Answers the word about what was cut.
+    /// The words the model should favour (names, jargon): at most the limit, each kept to its
+    /// length. Answers the word about what was cut. The words of an answer that are among them
+    /// are marked `biased`.
     pub fn set_keywords(&mut self, words: &[String]) -> Option<String> {
-        let mut kept = Vec::new();
-        let mut cut = false;
-        for word in words {
-            let clean: String = word.chars().filter(|c| !c.is_control()).collect();
-            let clean = clean.trim();
-            if clean.is_empty() {
-                continue;
-            }
-            if kept.len() >= self.tuning.max_keywords {
-                cut = true;
-                break;
-            }
-            let clean: String = if clean.chars().count() > self.tuning.max_keyword_chars {
-                cut = true;
-                clean.chars().take(self.tuning.max_keyword_chars).collect()
-            } else {
-                clean.to_string()
-            };
-            kept.push(clean);
-        }
-        self.keywords = kept.join("\n");
-        cut.then(|| {
-            format!(
-                "the vocabulary was cut to {} words of at most {} characters",
-                self.tuning.max_keywords, self.tuning.max_keyword_chars
-            )
-        })
+        let (vocabulary, note) = Vocabulary::from_words(words, self.tuning.max_keywords, self.tuning.max_keyword_chars);
+        self.vocabulary = vocabulary;
+        note.map(|note| format!("{}: {note}", Kind::Builtin.describe()))
     }
 }
 
@@ -490,6 +470,7 @@ impl Recognizer for Builtin {
         let timeout_ms = u64::from(call.timeout_ms);
         let mut raw = Vec::new();
         let mut last_sound_at = call.clock.now_ms();
+        let mut flowed = false;
         let mut progress = Progress::Waiting;
         while progress != Progress::Done && endpointer.elapsed_ms() < timeout_ms && !(call.cancel)() {
             raw.clear();
@@ -504,6 +485,11 @@ impl Recognizer for Builtin {
                 continue;
             }
             last_sound_at = call.clock.now_ms();
+            if !flowed {
+                // The first sound of this call: a UI may say "speak now".
+                flowed = true;
+                (call.flowing)();
+            }
             progress = endpointer.push(&resampler.process(&raw));
         }
         // The microphone is off before the (heavier) transcription starts.
@@ -532,7 +518,7 @@ impl Recognizer for Builtin {
         let State::Ready(engine) = &mut self.state else {
             return Answer::none(Outcome::Unavailable, "the built-in recognizer is not set up");
         };
-        let reply = match engine.transcribe(&segment.samples, code, &self.keywords) {
+        let reply = match engine.transcribe(&segment.samples, code, &self.vocabulary.joined()) {
             Ok(reply) => reply,
             Err(why) => return Answer::none(Outcome::Failed, &format!("the speech engine failed: {why}")),
         };
@@ -545,7 +531,9 @@ impl Recognizer for Builtin {
         if transcript.text.is_empty() {
             return Answer::none(Outcome::NothingHeard, "nothing was said");
         }
-        let mut answer = Answer::heard_words(transcript.words, &transcript.language, began_unix_ms + segment.start_ms);
+        let mut words = transcript.words;
+        self.vocabulary.mark(&mut words);
+        let mut answer = Answer::heard_words(words, &transcript.language, began_unix_ms + segment.start_ms);
         answer.text = transcript.text;
         if let Some(note) = note {
             answer.message = note;

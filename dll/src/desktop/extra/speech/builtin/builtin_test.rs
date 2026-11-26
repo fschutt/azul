@@ -176,6 +176,7 @@ fn listen(rig: &mut Rig, language: &str, timeout_ms: u32) -> super::super::recog
         timeout_ms,
         clock: &*rig.clock,
         cancel: &never,
+        flowing: &|| {},
     })
 }
 
@@ -298,6 +299,7 @@ fn cancelling_in_the_middle_of_speech_transcribes_what_was_said() {
         timeout_ms: 10_000,
         clock: &*rig.clock,
         cancel: &cancel,
+        flowing: &|| {},
     });
     assert_eq!(answer.outcome, Outcome::Heard, "what was said until the stop is not thrown away");
     let calls = rig.seen.lock().unwrap().calls.clone();
@@ -338,6 +340,7 @@ fn a_recognizer_that_is_not_set_up_says_how_to_set_it_up() {
         timeout_ms: 1_000,
         clock: &clock,
         cancel: &never,
+        flowing: &|| {},
     });
     assert_eq!(answer.outcome, Outcome::Unavailable);
     assert_eq!(answer.message, message);
@@ -376,10 +379,11 @@ fn the_vocabulary_is_handed_to_the_engine_and_kept_to_the_limits() {
     let many: Vec<String> = (0..500).map(|i| format!("word{i}")).collect();
     let note = rig.builtin.set_keywords(&many).expect("cut");
     assert!(note.contains("cut to 200 words"), "{note}");
-    assert_eq!(rig.builtin.keywords.lines().count(), 200);
+    assert!(note.starts_with("the built-in recognizer"), "it says who cut it: {note}");
+    assert_eq!(rig.builtin.vocabulary.joined().lines().count(), 200);
     let long = vec!["x".repeat(500)];
     assert!(rig.builtin.set_keywords(&long).is_some());
-    assert_eq!(rig.builtin.keywords.chars().count(), 64);
+    assert_eq!(rig.builtin.vocabulary.joined().chars().count(), 64);
 }
 
 #[test]
@@ -491,9 +495,96 @@ fn a_recognizer_that_looks_for_its_files_says_where_it_looked_and_opens_no_micro
         timeout_ms: 1_000,
         clock: &clock,
         cancel: &never,
+        flowing: &|| {},
     });
     assert_eq!(answer.outcome, Outcome::Unavailable);
     assert!(answer.message.contains(&dir.display().to_string()), "{}", answer.message);
     assert_eq!(*opened.lock().unwrap(), 0, "the microphone stays off when there is no model");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Favouring a word pulls the probability of the RIGHT word down (a correct "enum" came out at
+/// 0.32 with the vocabulary): the word says it was favoured, so nobody reads the number as doubt.
+#[test]
+fn a_word_of_the_vocabulary_is_marked_so_its_probability_is_not_read_as_doubt() {
+    let reply = r#"{"text":"Rename the enum, AzReview and the speech session.","language":"en","words":[{"word":"Rename","start":0.0,"end":0.4,"probability":0.99},{"word":"the","start":0.4,"end":0.5,"probability":1.0},{"word":"enum,","start":0.5,"end":0.9,"probability":0.32},{"word":"AzReview","start":0.9,"end":1.5,"probability":0.55},{"word":"and","start":1.5,"end":1.6,"probability":1.0},{"word":"the","start":1.6,"end":1.7,"probability":1.0},{"word":"speech","start":1.7,"end":2.0,"probability":0.9},{"word":"session.","start":2.0,"end":2.4,"probability":0.7}]}"#;
+    let mut rig = rig(Ok(reply.to_string()), 16_000, takes(16_000, 500, 1_000, 1_500), None);
+    // Case and punctuation do not matter; a phrase marks each of its words.
+    let _ = rig.builtin.set_keywords(&["ENUM".to_string(), "azreview".to_string(), "speech session".to_string()]);
+    let answer = listen(&mut rig, "en", 10_000);
+    let marked: Vec<(&str, bool)> = answer.words.iter().map(|w| (w.text.as_str(), w.biased)).collect();
+    assert_eq!(
+        marked,
+        vec![
+            ("Rename", false),
+            ("the", false),
+            ("enum,", true),
+            ("AzReview", true),
+            ("and", false),
+            ("the", false),
+            ("speech", true),
+            ("session.", true)
+        ]
+    );
+    // Without a vocabulary nothing is marked.
+    let mut plain = rig_with_reply(reply);
+    let answer = listen(&mut plain, "en", 10_000);
+    assert!(answer.words.iter().all(|w| !w.biased));
+}
+
+fn rig_with_reply(reply: &str) -> Rig {
+    rig(Ok(reply.to_string()), 16_000, takes(16_000, 500, 1_000, 1_500), None)
+}
+
+/// What a UI shows "speak now" from: the first sound of the microphone, not the start of the call
+/// (the microphone takes a moment to start), once; and never when no microphone could be opened.
+#[test]
+fn the_flowing_signal_comes_once_with_the_first_sound_and_not_with_the_start_of_the_call() {
+    // The microphone is open but delivers nothing for two reads.
+    let mut script = vec![Take::Sound(Vec::new()), Take::Sound(Vec::new())];
+    script.extend(takes(16_000, 500, 1_000, 1_500));
+    let mut rig = rig(Ok(GERMAN_REPLY.to_string()), 16_000, script, None);
+    let signalled = Arc::new(Mutex::new(Vec::new()));
+    let flowing = {
+        let (signalled, clock) = (Arc::clone(&signalled), rig.clock.clone());
+        move || signalled.lock().unwrap().push(clock.now_ms())
+    };
+    let never = || false;
+    let answer = rig.builtin.listen(&Listen {
+        language: "de",
+        timeout_ms: 10_000,
+        clock: &*rig.clock,
+        cancel: &never,
+        flowing: &flowing,
+    });
+    assert_eq!(answer.outcome, Outcome::Heard, "{}", answer.message);
+    let at = signalled.lock().unwrap().clone();
+    assert_eq!(at.len(), 1, "once: {at:?}");
+    assert!(at[0] >= 20, "after the two empty reads, not at the start: {at:?}");
+
+    // No microphone: nothing flowed, nothing is signalled.
+    let mut refused = rig_with_refusal();
+    let count = Arc::new(Mutex::new(0u32));
+    let counter = {
+        let count = Arc::clone(&count);
+        move || *count.lock().unwrap() += 1
+    };
+    let answer = refused.builtin.listen(&Listen {
+        language: "de",
+        timeout_ms: 10_000,
+        clock: &*refused.clock,
+        cancel: &never,
+        flowing: &counter,
+    });
+    assert_eq!(answer.outcome, Outcome::Denied);
+    assert_eq!(*count.lock().unwrap(), 0);
+}
+
+fn rig_with_refusal() -> Rig {
+    rig(
+        Ok(String::new()),
+        16_000,
+        Vec::new(),
+        Some((Outcome::Denied, "the microphone is turned off".to_string())),
+    )
 }

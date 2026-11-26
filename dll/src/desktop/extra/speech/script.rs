@@ -8,7 +8,8 @@
 //!                {"say": [["delete", 0, 300, 0.99], ["it", 300, 500, 0.8]]},
 //!                {"silence": true},
 //!                {"fail": "the model ran out of memory", "after_ms": 400, "partial": "delete the"} ],
-//!   "then": "repeat"
+//!   "then": "repeat",
+//!   "preference": "native_first"
 //! }
 //! ```
 //!
@@ -17,11 +18,14 @@
 //! `unavailable`, with a `message`) and `fail` (a message, `after_ms`, the `partial` text said so
 //! far). `delay_ms` (200 by default) is when the words are said, `language` what was recognised.
 //! `then` is what happens after the last step: `silence` (the default) or `repeat` (the last
-//! step again). A recognizer that has no list in the script hears nothing.
+//! step again). A recognizer that has no list in the script hears nothing. `preference` is who is
+//! asked first: `automatic` (the default: by the call's language and the vocabulary, as a real run
+//! does), `native_first` or `builtin_first`.
 
 use super::{
     json::{self, Value},
     mock::{words_of, Step, Then},
+    order::Preference,
     recognizer::{Outcome, Word},
 };
 
@@ -41,6 +45,8 @@ pub struct Script {
     /// The built-in recognizer; `None`: hears nothing.
     pub builtin: Option<Vec<Step>>,
     pub then: Then,
+    /// Who is asked first (`automatic` unless the script says).
+    pub preference: Preference,
 }
 
 /// The script a plain text makes (the old `AZ_SPEECH_HEARD`): that text is heard on every call.
@@ -75,6 +81,7 @@ pub fn parse(text: &str) -> Result<Script, String> {
         native: None,
         builtin: None,
         then: Then::Silence,
+        preference: Preference::Automatic,
     };
     for (key, value) in members {
         match key.as_str() {
@@ -85,6 +92,14 @@ pub fn parse(text: &str) -> Result<Script, String> {
                     Some("silence") => Then::Silence,
                     Some("repeat") => Then::RepeatLast,
                     _ => return Err("\"then\" is \"silence\" or \"repeat\"".to_string()),
+                }
+            }
+            "preference" => {
+                script.preference = match value.as_text() {
+                    Some("automatic") => Preference::Automatic,
+                    Some("native_first") => Preference::NativeFirst,
+                    Some("builtin_first") => Preference::BuiltinFirst,
+                    _ => return Err("\"preference\" is \"automatic\", \"native_first\" or \"builtin_first\"".to_string()),
                 }
             }
             other => return Err(format!("the script has a member nobody knows: \"{other}\"")),

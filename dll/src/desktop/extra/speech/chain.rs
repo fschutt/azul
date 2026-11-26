@@ -98,6 +98,27 @@ impl Chain {
         }
     }
 
+    /// Puts the recognizer of `kind` first: the others keep their order, and what the session
+    /// learned about each (a refusal) stays with it. Does nothing when the chain has none of
+    /// that kind.
+    pub fn set_first(&mut self, kind: Kind) {
+        if let Some(at) = self.links.iter().position(|link| link.recognizer.kind() == kind) {
+            if at > 0 {
+                let link = self.links.remove(at);
+                self.links.insert(0, link);
+            }
+        }
+    }
+
+    /// Whether the recognizer of `kind` is in the chain, not marked refused, and says it can
+    /// listen.
+    pub fn is_ready(&mut self, kind: Kind) -> bool {
+        self.links
+            .iter_mut()
+            .find(|link| link.recognizer.kind() == kind)
+            .is_some_and(|link| link.health == Health::Ready && matches!(link.recognizer.readiness(), Readiness::Ready))
+    }
+
     /// The limits a call is kept to.
     pub fn set_limits(&mut self, limits: Limits) {
         self.limits = limits;
@@ -146,6 +167,18 @@ impl Chain {
     /// Listens for up to `timeout_ms` in `language` (kept to the limits), with the first
     /// recognizer that is not refused; `cancel` ends the call early.
     pub fn listen(&mut self, language: &str, timeout_ms: u32, cancel: &dyn Fn() -> bool) -> Heard {
+        self.listen_with(language, timeout_ms, cancel, &|| {})
+    }
+
+    /// The same, and `flowing` is called once when sound reaches the recognizer that listens
+    /// (see [`Listen::flowing`]).
+    pub fn listen_with(
+        &mut self,
+        language: &str,
+        timeout_ms: u32,
+        cancel: &dyn Fn() -> bool,
+        flowing: &dyn Fn(),
+    ) -> Heard {
         let (timeout_ms, time_note) = self.limits.cap_listen_ms(timeout_ms);
         let (language, language_note) = self.limits.cap_language(language);
         let notes: Vec<String> = time_note.into_iter().chain(language_note).collect();
@@ -170,6 +203,7 @@ impl Chain {
                 timeout_ms,
                 clock: &*clock,
                 cancel,
+                flowing,
             });
             match answer.outcome {
                 Outcome::Heard | Outcome::NothingHeard => {

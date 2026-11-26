@@ -394,3 +394,68 @@ fn the_vocabulary_goes_to_the_recognizers_that_take_one_and_their_words_about_it
     let mut quiet = Chain::new(clock).with(Box::new(MockSpeech::new(Kind::Native, vec![])));
     assert_eq!(quiet.set_vocabulary(&words), None);
 }
+
+#[test]
+fn a_kind_can_be_put_first_and_the_others_keep_their_order_and_what_the_session_learned() {
+    let mut rig = rig(
+        vec![say(500, "from the system", "en-US"), say(500, "from the system again", "en-US")],
+        vec![say(500, "from the model", "en"), say(500, "from the model again", "en")],
+    );
+    rig.chain.set_first(Kind::Builtin);
+    let order: Vec<Kind> = rig.chain.states().iter().map(|state| state.kind).collect();
+    assert_eq!(order, [Kind::Builtin, Kind::Native]);
+    let heard = listen(&mut rig, 5_000);
+    assert_eq!(heard.by, Some(Kind::Builtin), "the one put first is asked first");
+    assert_eq!((calls(&rig.builtin_calls), calls(&rig.native_calls)), (1, 0));
+    // And back: the native recognizer first again.
+    rig.chain.set_first(Kind::Native);
+    assert_eq!(listen(&mut rig, 5_000).by, Some(Kind::Native));
+    // A kind the chain does not hold changes nothing.
+    rig.chain.set_first(Kind::Scripted);
+    let order: Vec<Kind> = rig.chain.states().iter().map(|state| state.kind).collect();
+    assert_eq!(order, [Kind::Native, Kind::Builtin]);
+}
+
+#[test]
+fn a_refusal_stays_with_its_recognizer_when_the_order_changes() {
+    let mut rig = rig(
+        vec![refuse(Outcome::Denied, "the microphone is turned off")],
+        vec![say(500, "first", "en"), say(500, "second", "en")],
+    );
+    let heard = listen(&mut rig, 5_000);
+    assert_eq!(heard.by, Some(Kind::Builtin));
+    // The refused one is put first: it is skipped (remembered), the other answers, and nothing is said twice.
+    rig.chain.set_first(Kind::Native);
+    let heard = listen(&mut rig, 5_000);
+    assert_eq!(heard.by, Some(Kind::Builtin));
+    assert_eq!(heard.answer.message, "", "the refusal was said when it happened");
+    assert_eq!(calls(&rig.native_calls), 1, "the refused recognizer was not asked again");
+}
+
+#[test]
+fn a_recognizer_is_ready_when_it_is_there_not_refused_and_says_it_can_listen() {
+    // The scripted recognizer says what its next step is going to be: a refusal is not "ready".
+    let mut rig = rig(vec![say(100, "hi", "en"), refuse(Outcome::Unavailable, "no usage text")], vec![say(100, "hello", "en")]);
+    assert!(rig.chain.is_ready(Kind::Native));
+    assert!(rig.chain.is_ready(Kind::Builtin));
+    assert!(!rig.chain.is_ready(Kind::Scripted), "none of that kind is in the chain");
+    let _ = listen(&mut rig, 5_000);
+    assert!(!rig.chain.is_ready(Kind::Native), "it says it cannot listen now");
+    // Asked, it refuses, and is marked for the session; the built-in recognizer answers.
+    rig.chain.set_first(Kind::Native);
+    let heard = listen(&mut rig, 5_000);
+    assert_eq!(heard.by, Some(Kind::Builtin));
+    assert!(!rig.chain.is_ready(Kind::Native), "refused for the session");
+    assert!(rig.chain.is_ready(Kind::Builtin));
+}
+
+#[test]
+fn the_flowing_signal_reaches_the_recognizer_that_listens_and_only_that_one() {
+    let mut rig = rig(vec![refuse(Outcome::Denied, "no")], vec![say(100, "from the model", "en")]);
+    let count = AtomicU32::new(0);
+    let heard = rig.chain.listen_with("en", 5_000, &|| false, &|| {
+        count.fetch_add(1, Ordering::SeqCst);
+    });
+    assert_eq!(heard.by, Some(Kind::Builtin));
+    assert_eq!(count.load(Ordering::SeqCst), 1, "the refused one never had sound, the other signalled once");
+}

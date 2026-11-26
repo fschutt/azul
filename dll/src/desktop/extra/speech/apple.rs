@@ -15,7 +15,7 @@ use std::ffi::c_void;
 use std::{
     ffi::{c_char, CStr, CString},
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Condvar, Mutex, OnceLock, PoisonError,
     },
     time::{Duration, Instant},
@@ -31,6 +31,7 @@ use super::{
     authorization::{self, Access, Decision, Gate, Gates, Refusal},
     builtin::{Microphone, MicrophoneSource},
     recognizer::{Answer, Outcome, Readiness, Word},
+    vocabulary::Vocabulary,
     SpeechStatus,
 };
 
@@ -279,6 +280,8 @@ struct Hearing {
     text: String,
     /// When the transcription last changed: a long pause ends the listening.
     changed_at: Option<Instant>,
+    /// The first buffer of sound came from the microphone.
+    audio: bool,
     /// The task gave its final answer (or failed).
     done: bool,
     error: Option<String>,
@@ -409,8 +412,16 @@ fn refused(why: Refusal, message: &str) -> Answer {
     )
 }
 
-/// Listens for up to `timeout_ms` in `language` (a BCP 47 tag; empty for the system's).
-pub fn listen(language: &str, timeout_ms: u32, cancel: &dyn Fn() -> bool) -> Answer {
+/// Listens for up to `timeout_ms` in `language` (a BCP 47 tag; empty for the system's), favouring
+/// the words of `vocabulary` (`contextualStrings`: measured with TTS voices, a compound such as
+/// `CssError` is then written as spelt, which the recognizer does not do unasked).
+pub fn listen(
+    language: &str,
+    timeout_ms: u32,
+    cancel: &dyn Fn() -> bool,
+    vocabulary: &Vocabulary,
+    flowing: &dyn Fn(),
+) -> Answer {
     if avfoundation().is_none() || speech_framework().is_none() {
         return Answer::none(Outcome::Unavailable, "the Speech framework is not on this system");
     }
@@ -453,7 +464,7 @@ pub fn listen(language: &str, timeout_ms: u32, cancel: &dyn Fn() -> bool) -> Ans
         }
     }
     objc2::rc::autoreleasepool(|_| unsafe {
-        listen_with_recognizer(language, Duration::from_millis(u64::from(timeout_ms)), cancel)
+        listen_with_recognizer(language, Duration::from_millis(u64::from(timeout_ms)), cancel, vocabulary, flowing)
     })
 }
 
@@ -487,7 +498,35 @@ pub fn readiness() -> Readiness {
     }
 }
 
-unsafe fn listen_with_recognizer(language: &str, timeout: Duration, cancel: &dyn Fn() -> bool) -> Answer {
+/// Hands the vocabulary to a request as `contextualStrings`: phrases the recognizer should
+/// favour, even when they are not in the system's vocabulary.
+unsafe fn set_contextual_strings(request: *mut AnyObject, vocabulary: &Vocabulary) {
+    if vocabulary.is_empty() {
+        return;
+    }
+    let Some(array_cls) = class("NSMutableArray") else {
+        return;
+    };
+    let array: *mut AnyObject = unsafe { msg_send![array_cls, array] };
+    if array.is_null() {
+        return;
+    }
+    for entry in vocabulary.entries() {
+        let text = unsafe { nsstring(entry) };
+        if !text.is_null() {
+            let _: () = unsafe { msg_send![array, addObject: text] };
+        }
+    }
+    let _: () = unsafe { msg_send![request, setContextualStrings: array] };
+}
+
+unsafe fn listen_with_recognizer(
+    language: &str,
+    timeout: Duration,
+    cancel: &dyn Fn() -> bool,
+    vocabulary: &Vocabulary,
+    flowing: &dyn Fn(),
+) -> Answer {
     let (Some(recognizer_cls), Some(request_cls), Some(engine_cls), Some(queue_cls)) = (
         class("SFSpeechRecognizer"),
         class("SFSpeechAudioBufferRecognitionRequest"),
@@ -527,6 +566,7 @@ unsafe fn listen_with_recognizer(language: &str, timeout: Duration, cancel: &dyn
     let _: () = unsafe { msg_send![recognizer, setQueue: queue] };
     let request: *mut AnyObject = unsafe { msg_send![request_cls, new] };
     let _: () = unsafe { msg_send![request, setShouldReportPartialResults: true] };
+    unsafe { set_contextual_strings(request, vocabulary) };
 
     // The microphone: every buffer of the input goes to the request.
     let engine: *mut AnyObject = unsafe { msg_send![engine_cls, new] };
@@ -544,10 +584,18 @@ unsafe fn listen_with_recognizer(language: &str, timeout: Duration, cancel: &dyn
         return Answer::none(Outcome::Unavailable, "there is no microphone to listen with");
     }
     let request_ptr = request as usize;
+    let shared: Arc<(Mutex<Hearing>, Condvar)> = Arc::new((Mutex::new(Hearing::default()), Condvar::new()));
+    let tap_shared = Arc::clone(&shared);
+    let first_buffer = AtomicBool::new(false);
     let tap = RcBlock::new(move |buffer: *mut AnyObject, _when: *mut AnyObject| {
         if !buffer.is_null() {
             let request = request_ptr as *mut AnyObject;
             let _: () = unsafe { msg_send![request, appendAudioPCMBuffer: buffer] };
+            if !first_buffer.swap(true, Ordering::SeqCst) {
+                // Sound reaches the recognizer: the listening call hears of it at once.
+                tap_shared.0.lock().unwrap_or_else(PoisonError::into_inner).audio = true;
+                tap_shared.1.notify_all();
+            }
         }
     });
     let _: () = unsafe {
@@ -580,7 +628,6 @@ unsafe fn listen_with_recognizer(language: &str, timeout: Duration, cancel: &dyn
     }
 
     // The task reports partial transcriptions, then a final one (or an error).
-    let shared: Arc<(Mutex<Hearing>, Condvar)> = Arc::new((Mutex::new(Hearing::default()), Condvar::new()));
     let reply = Arc::clone(&shared);
     let handler = RcBlock::new(move |result: *mut AnyObject, error: *mut AnyObject| {
         let (text, is_final, segments) = if result.is_null() {
@@ -618,6 +665,7 @@ unsafe fn listen_with_recognizer(language: &str, timeout: Duration, cancel: &dyn
     // recognizer has a moment for its final transcription.
     let deadline = Instant::now() + timeout;
     let mut audio_ended_at: Option<Instant> = None;
+    let mut signalled = false;
     let heard = loop {
         let now = {
             let (lock, changed) = &*shared;
@@ -627,6 +675,10 @@ unsafe fn listen_with_recognizer(language: &str, timeout: Duration, cancel: &dyn
                 .unwrap_or_else(PoisonError::into_inner);
             guard.clone()
         };
+        if now.audio && !signalled {
+            signalled = true;
+            flowing();
+        }
         if now.done {
             break now;
         }
@@ -646,7 +698,8 @@ unsafe fn listen_with_recognizer(language: &str, timeout: Duration, cancel: &dyn
     drop(handler);
 
     if !heard.text.trim().is_empty() {
-        let words = words_of_segments(&heard.segments);
+        let mut words = words_of_segments(&heard.segments);
+        vocabulary.mark(&mut words);
         let mut answer = Answer::heard_words(words, language, started_unix_ms);
         answer.text = heard.text.trim().to_string();
         // The recognizer's confidence per word is 0 until its final answer: the old rule stands

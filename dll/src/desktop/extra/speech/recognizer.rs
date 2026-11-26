@@ -40,6 +40,10 @@ pub struct Word {
     pub end_ms: u32,
     /// How sure the recognizer is of this word, 0 to 1.
     pub probability: f32,
+    /// The word is one of the vocabulary the recognizer was told to favour: favouring pulls a
+    /// right word's probability down (a correct "enum" came out at 0.32), so a consumer must not
+    /// read the probability of a biased word as doubt.
+    pub biased: bool,
 }
 
 impl Word {
@@ -50,6 +54,7 @@ impl Word {
             start_ms,
             end_ms,
             probability,
+            biased: false,
         }
     }
 }
@@ -198,6 +203,10 @@ pub struct Listen<'a> {
     pub clock: &'a dyn Clock,
     /// Whether the caller wants the call to end now.
     pub cancel: &'a dyn Fn() -> bool,
+    /// Called once, as soon as sound reaches the recognizer in this call: the microphone is open
+    /// and delivering, so a UI may say "speak now". Never called when no sound can come (the
+    /// microphone was refused). A recognizer that cannot tell calls it when it begins to listen.
+    pub flowing: &'a dyn Fn(),
 }
 
 impl Listen<'_> {

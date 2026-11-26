@@ -62,8 +62,10 @@ mod json;
 #[cfg(target_os = "linux")]
 pub mod linux;
 pub mod mock;
+pub mod order;
 pub mod recognizer;
 pub mod script;
+pub mod vocabulary;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
@@ -86,7 +88,9 @@ use self::{
     builtin::{Builtin, BuiltinStatus, Tuning},
     chain::{Chain, Health},
     mock::{words_of, MockSpeech},
+    order::Preference,
     recognizer::{Answer, Kind, Limits, Listen, Outcome, Readiness, Recognizer, SharedClock, SystemClock, Word},
+    vocabulary::Vocabulary,
 };
 
 /// The platforms without a speech backend yet (the BSDs): nothing to say with.
@@ -177,6 +181,41 @@ impl From<Kind> for SpeechRecognizer {
     }
 }
 
+/// Which recognizer is asked first. The chain falls through on a refusal whatever the order, so the
+/// order only decides who answers when both could.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum SpeechPreference {
+    /// By the language and the vocabulary, as measured on 24 clips of real read speech and on
+    /// 12 sentences of TTS voices: English goes to the built-in model (5.8 % word errors against
+    /// 10.0 % for the system's), German and every other language to the system's recognizer
+    /// (German 7.8 % against 12.6 %), and so does any call while the vocabulary holds an
+    /// identifier (`CssError`, `snake_case`): the system's recognizer writes it as spelt (3 of 3
+    /// voices), the built-in model does not (0 of 3). The built-in model is never first when it
+    /// is not set up. [`SpeechSession::recognizers`] says which order the last call had and why.
+    Automatic,
+    /// The system's recognizer first; the built-in model when it refuses.
+    NativeFirst,
+    /// The built-in model first; the system's recognizer when it refuses.
+    BuiltinFirst,
+}
+
+impl Default for SpeechPreference {
+    fn default() -> Self {
+        Self::Automatic
+    }
+}
+
+impl From<SpeechPreference> for Preference {
+    fn from(preference: SpeechPreference) -> Self {
+        match preference {
+            SpeechPreference::Automatic => Self::Automatic,
+            SpeechPreference::NativeFirst => Self::NativeFirst,
+            SpeechPreference::BuiltinFirst => Self::BuiltinFirst,
+        }
+    }
+}
+
 /// One recognised word and when it was said.
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq)]
@@ -189,6 +228,11 @@ pub struct SpeechWord {
     pub end_ms: u32,
     /// How sure the recognizer is of this word, 0 to 1.
     pub probability: f32,
+    /// The word is one of the vocabulary the built-in recognizer was told to favour
+    /// ([`SpeechSession::set_vocabulary`]). Favouring pulls the probability of a RIGHT word down
+    /// (a correct "enum" came out at 0.32), so do not read the probability of a biased word as
+    /// doubt.
+    pub biased: bool,
 }
 
 impl_option!(SpeechWord, OptionSpeechWord, copy = false, [Debug, Clone, PartialEq]);
@@ -211,6 +255,7 @@ impl From<&Word> for SpeechWord {
             start_ms: word.start_ms,
             end_ms: word.end_ms,
             probability: word.probability,
+            biased: word.biased,
         }
     }
 }
@@ -453,6 +498,17 @@ struct SessionInner {
     limits: Mutex<SpeechLimits>,
     /// The vocabulary handed to the built-in model, kept for when it is registered.
     vocabulary: Mutex<Vec<String>>,
+    /// Sound is reaching the recognizer of the call that runs.
+    flowing: AtomicBool,
+    /// What the app asked for: who is asked first.
+    preference: Mutex<Preference>,
+    /// Whether the vocabulary holds an identifier the system's recognizer takes (so it goes first).
+    identifiers: AtomicBool,
+    /// Whether the system's recognizer takes a vocabulary at all (macOS and iOS; a scripted run
+    /// plays the platform where it does).
+    native_takes_vocabulary: bool,
+    /// The language of the last call: the status lines say who goes first for it.
+    last_language: Mutex<String>,
     /// Where the executable lives: the files are looked for there.
     exe_dir: Option<PathBuf>,
     /// A scripted run: nothing real is loaded, a registration is answered from the script.
@@ -529,21 +585,32 @@ impl SpeechSession {
         let exe_dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(std::path::Path::to_path_buf));
         let clock: SharedClock = Arc::new(SystemClock::new());
         let scripted = backend_for(hooks) == Backend::Headless;
-        let chain = if scripted {
-            scripted_chain(hooks, clock)
-        } else {
-            platform_chain(clock, exe_dir.as_deref())
-        };
-        Self::from_chain(chain, exe_dir, scripted)
+        if scripted {
+            let (chain, preference) = scripted_chain(hooks, clock);
+            return Self::from_chain(chain, exe_dir, true, preference, true);
+        }
+        let chain = platform_chain(clock, exe_dir.as_deref());
+        Self::from_chain(chain, exe_dir, false, Preference::Automatic, NATIVE_TAKES_VOCABULARY)
     }
 
-    fn from_chain(chain: Chain, exe_dir: Option<PathBuf>, scripted: bool) -> Self {
+    fn from_chain(
+        chain: Chain,
+        exe_dir: Option<PathBuf>,
+        scripted: bool,
+        preference: Preference,
+        native_takes_vocabulary: bool,
+    ) -> Self {
         let inner = Arc::new(SessionInner {
             chain: Mutex::new(chain),
             cancel: AtomicBool::new(false),
             lines: Mutex::new(Vec::new()),
             limits: Mutex::new(SpeechLimits::default()),
             vocabulary: Mutex::new(Vec::new()),
+            flowing: AtomicBool::new(false),
+            preference: Mutex::new(preference),
+            identifiers: AtomicBool::new(false),
+            native_takes_vocabulary,
+            last_language: Mutex::new(String::new()),
             exe_dir,
             scripted,
         });
@@ -557,7 +624,7 @@ impl SpeechSession {
     /// A session on `chain` (for the tests of the chain through the public face).
     #[cfg(test)]
     pub(crate) fn on_chain(chain: Chain) -> Self {
-        Self::from_chain(chain, None, true)
+        Self::from_chain(chain, None, true, Preference::Automatic, true)
     }
 
     fn inner(&self) -> Option<&SessionInner> {
@@ -634,8 +701,34 @@ impl SpeechSession {
         };
         let words: Vec<String> = words.as_slice().iter().map(|w| w.as_str().to_string()).collect();
         let note = inner.chain.lock().unwrap_or_else(PoisonError::into_inner).set_vocabulary(&words);
+        // An identifier among the phrases the system's recognizer takes puts it first.
+        let (taken, _) = Vocabulary::from_words(&words, NATIVE_PHRASES, NATIVE_PHRASE_CHARS);
+        inner
+            .identifiers
+            .store(inner.native_takes_vocabulary && taken.has_identifier(), Ordering::SeqCst);
         *inner.vocabulary.lock().unwrap_or_else(PoisonError::into_inner) = words;
+        inner.refresh_lines();
         AzString::from(note.unwrap_or_default())
+    }
+
+    /// Whether sound is reaching the recognizer in the call that runs: false until the
+    /// microphone delivers its first sound (it takes a moment to start: about 270 ms on a Mac),
+    /// true from then until the call ends. A window shows "speak now" from the moment it turns
+    /// true: what is said before is lost. Poll it from another thread while `listen_blocking`
+    /// runs on a worker thread. A recognizer that cannot tell (Windows, Android) makes it true
+    /// when it begins to listen.
+    #[must_use]
+    pub fn audio_flowing(&self) -> bool {
+        self.inner().is_some_and(|inner| inner.flowing.load(Ordering::SeqCst))
+    }
+
+    /// Who is asked first: [`SpeechPreference::Automatic`] by default.
+    pub fn set_preference(&self, preference: SpeechPreference) {
+        let Some(inner) = self.inner() else {
+            return;
+        };
+        *inner.preference.lock().unwrap_or_else(PoisonError::into_inner) = preference.into();
+        inner.refresh_lines();
     }
 
     /// What the recognizers are asked to keep to; the defaults are [`SpeechLimits::default`].
@@ -660,10 +753,18 @@ impl SpeechSession {
             return SpeechHeard::none(HeardStatus::Unavailable, "this speech session is closed");
         };
         inner.cancel.store(false, Ordering::SeqCst);
+        inner.flowing.store(false, Ordering::SeqCst);
         let heard = {
             let mut chain = inner.chain.lock().unwrap_or_else(PoisonError::into_inner);
-            chain.listen(language.as_str(), timeout_ms, &|| inner.cancel.load(Ordering::SeqCst))
+            let _ = inner.arrange(&mut chain, language.as_str());
+            chain.listen_with(
+                language.as_str(),
+                timeout_ms,
+                &|| inner.cancel.load(Ordering::SeqCst),
+                &|| inner.flowing.store(true, Ordering::SeqCst),
+            )
         };
+        inner.flowing.store(false, Ordering::SeqCst);
         inner.refresh_lines();
         answer_to_heard(heard.answer, heard.by)
     }
@@ -705,22 +806,45 @@ enum BuiltinSource {
 }
 
 impl SessionInner {
-    /// The status lines of the chain as they stand now. Called with the chain free (after a
-    /// call or a change).
+    /// Puts who goes first for a call in `language` first in `chain` (the rule is
+    /// [`order::choose`]) and remembers the language for the status lines.
+    fn arrange(&self, chain: &mut Chain, language: &str) -> order::Order {
+        let language: String = language.chars().take(64).collect();
+        let preference = *self.preference.lock().unwrap_or_else(PoisonError::into_inner);
+        let identifiers = self.identifiers.load(Ordering::SeqCst);
+        let order = order::choose(preference, &language, identifiers, chain.is_ready(Kind::Builtin));
+        chain.set_first(order.first);
+        *self.last_language.lock().unwrap_or_else(PoisonError::into_inner) = language;
+        order
+    }
+
+    /// The status lines of the chain as they stand now, in the order the next call would try
+    /// them (for the language of the last one), the first with why. Called with the chain free
+    /// (after a call or a change).
     fn refresh_lines(&self) {
-        let states = match self.chain.try_lock() {
-            Ok(mut chain) => chain.states(),
+        let language = self.last_language.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        let (states, order) = match self.chain.try_lock() {
+            Ok(mut chain) => {
+                let order = self.arrange(&mut chain, &language);
+                (chain.states(), order)
+            }
             Err(_) => return,
         };
+        // Who goes first only needs saying when there is a choice: two recognizers that can listen.
+        let choice = states.iter().filter(|state| state.health == Health::Ready).count() >= 2;
         let lines = states
             .iter()
-            .map(|state| {
+            .enumerate()
+            .map(|(index, state)| {
                 let kind = match state.kind {
                     Kind::Native => "native",
                     Kind::Builtin => "built-in",
                     Kind::Scripted => "scripted",
                 };
                 match &state.health {
+                    Health::Ready if choice && index == 0 && state.kind == order.first => {
+                        format!("{kind} | {} | ready; tried first: {}", state.label, order.why)
+                    }
                     Health::Ready => format!("{kind} | {} | ready", state.label),
                     Health::Refused { outcome, message } => {
                         let word = match outcome {
@@ -742,7 +866,7 @@ impl SessionInner {
 /// executable until the app registers it).
 fn platform_chain(clock: SharedClock, exe_dir: Option<&std::path::Path>) -> Chain {
     Chain::new(clock)
-        .with(Box::new(NativeRecognizer))
+        .with(Box::new(NativeRecognizer::default()))
         .with(Box::new(Builtin::discover(
             exe_dir.map(std::path::Path::to_path_buf),
             capture::platform_source(),
@@ -752,9 +876,9 @@ fn platform_chain(clock: SharedClock, exe_dir: Option<&std::path::Path>) -> Chai
 
 /// The chain of a headless or E2E test run: what `AZ_SPEECH_SCRIPT` scripts, else what
 /// `AZ_SPEECH_HEARD` holds (heard on every call, at once) or nothing.
-fn scripted_chain(hooks: &azul_core::run_mode::TestHooks, clock: SharedClock) -> Chain {
+fn scripted_chain(hooks: &azul_core::run_mode::TestHooks, clock: SharedClock) -> (Chain, Preference) {
     let Some(path) = hooks.speech_script.as_deref().filter(|path| !path.is_empty()) else {
-        return Chain::new(clock).with(Box::new(HeadlessRecognizer));
+        return (Chain::new(clock).with(Box::new(HeadlessRecognizer)), Preference::Automatic);
     };
     let read = std::fs::read_to_string(path).map_err(|e| e.to_string()).and_then(|text| script::parse(&text));
     match read {
@@ -765,20 +889,35 @@ fn scripted_chain(hooks: &azul_core::run_mode::TestHooks, clock: SharedClock) ->
                     chain = chain.with(Box::new(MockSpeech::new(kind, steps).then(script.then)));
                 }
             }
-            chain
+            (chain, script.preference)
         }
-        Err(why) => Chain::new(clock).with(Box::new(MockSpeech::new(
-            Kind::Scripted,
-            vec![mock::Step::Refuse {
-                outcome: Outcome::Unavailable,
-                message: format!("{SPEECH_SCRIPT_VAR} {}: {why}", path.to_string_lossy()),
-            }],
-        ))),
+        Err(why) => (
+            Chain::new(clock).with(Box::new(MockSpeech::new(
+                Kind::Scripted,
+                vec![mock::Step::Refuse {
+                    outcome: Outcome::Unavailable,
+                    message: format!("{SPEECH_SCRIPT_VAR} {}: {why}", path.to_string_lossy()),
+                }],
+            ))),
+            Preference::Automatic,
+        ),
     }
 }
 
+/// Whether the system's recognizer of this platform takes a vocabulary.
+const NATIVE_TAKES_VOCABULARY: bool = cfg!(any(target_os = "ios", target_os = "macos"));
+
+/// The most phrases the system's recognizer is given (Apple's guidance for `contextualStrings`:
+/// 100 or fewer, short ones), each at most [`NATIVE_PHRASE_CHARS`] characters.
+const NATIVE_PHRASES: usize = 100;
+const NATIVE_PHRASE_CHARS: usize = 64;
+
 /// The platform's own recognizer as a link of the chain.
-struct NativeRecognizer;
+#[derive(Default)]
+struct NativeRecognizer {
+    /// What it is asked to favour: on macOS and iOS (`contextualStrings`), nowhere else yet.
+    vocabulary: Vocabulary,
+}
 
 impl Recognizer for NativeRecognizer {
     fn kind(&self) -> Kind {
@@ -793,9 +932,29 @@ impl Recognizer for NativeRecognizer {
         native_readiness()
     }
 
+    fn set_vocabulary(&mut self, words: &[String]) -> Option<String> {
+        #[cfg(any(target_os = "ios", target_os = "macos"))]
+        {
+            let (vocabulary, note) = Vocabulary::from_words(words, NATIVE_PHRASES, NATIVE_PHRASE_CHARS);
+            self.vocabulary = vocabulary;
+            note.map(|note| format!("{}: {note}", Kind::Native.describe()))
+        }
+        #[cfg(not(any(target_os = "ios", target_os = "macos")))]
+        {
+            let _ = words;
+            None
+        }
+    }
+
     fn listen(&mut self, call: &Listen<'_>) -> Answer {
         let began = call.clock.unix_ms();
-        let mut answer = native_listen(&language_tag(call.language), call.timeout_ms.max(1), call.cancel);
+        let mut answer = native_listen(
+            &language_tag(call.language),
+            call.timeout_ms.max(1),
+            call.cancel,
+            &self.vocabulary,
+            call.flowing,
+        );
         if answer.started_unix_ms == 0 && answer.outcome == Outcome::Heard {
             answer.started_unix_ms = began;
         }
@@ -881,15 +1040,23 @@ fn native_readiness() -> Readiness {
 }
 
 /// Listens on the platform's recognizer.
-fn native_listen(language: &str, timeout_ms: u32, cancel: &dyn Fn() -> bool) -> Answer {
+fn native_listen(
+    language: &str,
+    timeout_ms: u32,
+    cancel: &dyn Fn() -> bool,
+    vocabulary: &Vocabulary,
+    flowing: &dyn Fn(),
+) -> Answer {
     #[cfg(any(target_os = "ios", target_os = "macos"))]
     {
-        platform::listen(language, timeout_ms, cancel)
+        platform::listen(language, timeout_ms, cancel, vocabulary, flowing)
     }
     #[cfg(not(any(target_os = "ios", target_os = "macos")))]
     {
-        // The other platforms' recognizers answer at the end of their own call: a cancel waits for it.
-        let _ = cancel;
+        // The other platforms' recognizers answer at the end of their own call (a cancel waits for
+        // it), take no vocabulary yet, and cannot say when sound begins to flow: from the start.
+        let _ = (cancel, vocabulary);
+        flowing();
         heard_to_answer(&platform::listen(language, timeout_ms))
     }
 }
@@ -1066,7 +1233,7 @@ pub(crate) fn listen_with(backend: Backend, language: &str, timeout_ms: u32) -> 
             heard
         }
         Backend::Platform => answer_to_heard(
-            native_listen(&language_tag(language), timeout_ms.max(1), &|| false),
+            native_listen(&language_tag(language), timeout_ms.max(1), &|| false, &Vocabulary::default(), &|| {}),
             Some(Kind::Native),
         ),
     }
