@@ -288,7 +288,7 @@ use self::{
 };
 use super::{
     common::{compose::ComposeAction, gl::GlFunctions},
-    x11::{accessibility::LinuxAccessibilityAdapter, dlopen::Gtk3Im},
+    x11::accessibility::LinuxAccessibilityAdapter,
 };
 use crate::{
     desktop::{
@@ -561,8 +561,10 @@ impl Drop for SeatKeyboard {
 pub struct WaylandWindow {
     wayland: Rc<Wayland>,
     xkb: Rc<Xkb>,
-    gtk_im: Option<Rc<Gtk3Im>>, // Optional GTK IM context for IME (fallback)
-    gtk_im_context: Option<*mut dlopen::GtkIMContext>, // GTK IM context instance (fallback)
+    /// libgtk-3's input method context, handed the caret rectangle after the text-input v3 protocol. Loaded at the FIRST
+    /// caret position (`sync_ime_position_to_os`), not when the window is created: libgtk-3 pulls in GDK, Pango, Cairo,
+    /// GIO and about a hundred more libraries (see `linux/gtk_im.rs`).
+    gtk_im: std::cell::OnceCell<Option<super::gtk_im::GtkImFallback>>,
     text_input_manager: Option<*mut defines::zwp_text_input_manager_v3>, /* Wayland text-input
                                  * v3 manager */
     text_input: Option<*mut defines::zwp_text_input_v3>, // Wayland text-input v3 instance
@@ -2287,40 +2289,16 @@ impl WaylandWindow {
         // Extract create_callback before consuming options
         let create_callback = options.create_callback.clone();
 
+        // The marks of the app's start (`AZ_STARTUP=1`): a handle of its own, the window moves out of here.
+        let startup = resources.app_shared.startup_handle();
+        startup.mark("wayland:new_begin");
         let wayland = Wayland::new().map_err(|e| {
             WindowError::PlatformError(format!("Failed to load libwayland-client: {:?}", e))
         })?;
         let xkb = Xkb::new().map_err(|e| {
             WindowError::PlatformError(format!("Failed to load libxkbcommon: {:?}", e))
         })?;
-
-        // Try to load GTK3 IM context for IME support (optional, fail silently)
-        let (gtk_im, gtk_im_context) = match Gtk3Im::new() {
-            Ok(gtk) => {
-                log_debug!(
-                    LogCategory::Platform,
-                    "[Wayland] GTK3 IM context loaded for IME support"
-                );
-                let ctx = unsafe { (gtk.gtk_im_context_simple_new)() };
-                if !ctx.is_null() {
-                    (Some(gtk), Some(ctx))
-                } else {
-                    log_warn!(
-                        LogCategory::Platform,
-                        "[Wayland] Failed to create GTK IM context instance"
-                    );
-                    (None, None)
-                }
-            }
-            Err(e) => {
-                log_debug!(
-                    LogCategory::Platform,
-                    "[Wayland] GTK3 IM not available (IME positioning disabled): {:?}",
-                    e
-                );
-                (None, None)
-            }
-        };
+        startup.mark("wayland:libs_loaded");
 
         let display = unsafe { (wayland.wl_display_connect)(std::ptr::null()) };
         if display.is_null() {
@@ -2328,6 +2306,7 @@ impl WaylandWindow {
                 "Failed to connect to Wayland display".into(),
             ));
         }
+        startup.mark("wayland:display_connected");
 
         let event_queue = unsafe { (wayland.wl_display_create_queue)(display) };
         let registry = unsafe { (wayland.wl_display_get_registry)(display) };
@@ -2388,8 +2367,7 @@ impl WaylandWindow {
         let mut window = Self {
             wayland: wayland.clone(),
             xkb,
-            gtk_im,
-            gtk_im_context,
+            gtk_im: std::cell::OnceCell::new(),
             text_input_manager: None, // Will be populated if compositor supports text-input v3
             text_input: None,
             text_input_active: false,
@@ -2550,6 +2528,7 @@ impl WaylandWindow {
                 .map_err(|e| {
                     WindowError::PlatformError(format!("Accessibility init failed: {}", e))
                 })?;
+            startup.mark("wayland:a11y_initialized");
         }
 
         // 'static: the proxy keeps the pointer (a stack-local would be a
@@ -2599,6 +2578,7 @@ impl WaylandWindow {
                     .into(),
             ));
         }
+        startup.mark("wayland:globals_bound");
 
         window.surface =
             unsafe { (window.wayland.wl_compositor_create_surface)(window.compositor) };
@@ -2956,6 +2936,13 @@ impl WaylandWindow {
             }
         };
         window.render_mode = render_mode;
+        startup.mark_with("render_backend", || {
+            format!(
+                "backend={} requested={} device=wayland",
+                if matches!(window.render_mode, RenderMode::Gpu(..)) { "gpu" } else { "cpu" },
+                if force_cpu { "cpu" } else if force_gpu { "gpu" } else { "auto" }
+            )
+        });
 
         // Initialize WebRender on the GPU context; if it fails (e.g. shaders won't
         // compile on this driver) fall back to CPU rendering for this window rather
@@ -2992,6 +2979,7 @@ impl WaylandWindow {
 
         unsafe { (window.wayland.wl_surface_commit)(window.surface) };
         unsafe { (window.wayland.wl_display_flush)(display) };
+        startup.mark("wayland:surface_committed");
 
         // TODO: Window positioning on Wayland
         // Wayland does not support programmatic window positioning - the compositor
@@ -3193,6 +3181,7 @@ impl WaylandWindow {
         // Apply initial window state for fields not set during window creation
         window.apply_initial_window_state();
 
+        startup.mark("wayland:new_done");
         Ok(window)
     }
 
@@ -11288,8 +11277,11 @@ impl WaylandWindow {
                 }
             }
 
-            // Fallback to GTK IM context (works across X11 and Wayland)
-            if let (Some(ref gtk_im), Some(ctx)) = (&self.gtk_im, self.gtk_im_context) {
+            // Fallback to GTK IM context (works across X11 and Wayland): loaded now, the first time
+            if let Some(fallback) = self
+                .gtk_im
+                .get_or_init(|| super::gtk_im::load(self.common.app.startup(), "Wayland"))
+            {
                 let gdk_rect = dlopen::GdkRectangle {
                     x: rect.origin.x as i32,
                     y: rect.origin.y as i32,
@@ -11298,7 +11290,7 @@ impl WaylandWindow {
                 };
 
                 unsafe {
-                    (gtk_im.gtk_im_context_set_cursor_location)(ctx, &gdk_rect);
+                    (fallback.gtk.gtk_im_context_set_cursor_location)(fallback.context, &gdk_rect);
                 }
             }
         }

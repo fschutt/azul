@@ -16,6 +16,8 @@
 //! soname only.
 
 pub mod common;
+/// libgtk-3's input method context, loaded when a text field first has a caret to hand over (not at window creation).
+pub(crate) mod gtk_im;
 /// The switches of the Linux shell, typed (read once at the start of the app).
 pub mod linux_settings;
 pub mod registry;
