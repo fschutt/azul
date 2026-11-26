@@ -6,14 +6,18 @@
 
 use std::collections::BTreeMap;
 
+use azul_review_link::access::ScreenId;
 use azul_review_link::frame::{
-    is_safe_relative_path, ButtonSet, Context, Entry, EntryKind, FileState, Frame, PenMark, PenState, Phase, Rect, Reply, ReplyStatus,
-    Rows, ThumbFormat, Thumbnail, ViewportOp,
+    is_safe_relative_path, AgentFinished, ButtonSet, Context, Entry, EntryKind, FileState, FinishKind, Frame, HostSettings, PageSurface,
+    PenMark, PenState, Phase, Rect, Reply, ReplyStatus, ReturnPoint, Rows, Surface, ThumbFormat, Thumbnail, ViewportOp,
+    WhiteboardSurface,
 };
 use azul_review_link::limits::{Capped, MAX_ROWS};
 use azul_review_link::link::Millis;
 use azul_review_link::pace::Pacer;
-use azul_review_link::viewport::{apply_gesture, fit_width, reset, resolve_focus};
+use azul_review_link::viewport::{
+    apply_gesture_in, clamp_view_in, fit_width_in, page_at, reset_to_page_top, resolve_focus, snap_to_page_top, step_page, Space,
+};
 
 /// The lines the log keeps.
 pub const LOG_LINES: usize = 200;
@@ -22,6 +26,34 @@ pub const LOG_LINES: usize = 200;
 pub const THUMB_W: u16 = 144;
 /// See [`THUMB_W`].
 pub const THUMB_H: u16 = 204;
+
+/// The picture of a whiteboard's overview: raw pixels, twice as wide as high (the board's shape in the simulator).
+pub const BOARD_THUMB_W: u16 = 224;
+/// See [`BOARD_THUMB_W`].
+pub const BOARD_THUMB_H: u16 = 112;
+
+/// The shape of the Mac's window, its height over its width: at the fitted width it shows this much of the surface's width in
+/// height (a little over half a page).
+pub const WINDOW_SHAPE: f32 = 0.75;
+
+/// What the pen is over on the simulated Mac.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SimSurface {
+    /// The pages of the code review.
+    Pages,
+    /// The architecture whiteboard.
+    Board,
+}
+
+/// The board the simulated Mac shows.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SimBoard {
+    pub id: u32,
+    pub name: String,
+    /// The box round the items: its width over its height.
+    pub aspect: f32,
+    pub items: u32,
+}
 
 /// How a conversation goes, from its start: received at once, an agent working after 0.3 s, a suggestion waiting after
 /// 4 s, done after 9 s.
@@ -65,12 +97,29 @@ pub struct SimMac {
     pub online: bool,
     tree: BTreeMap<String, Vec<Entry>>,
     pub file: String,
-    pub page: u32,
     pub page_count: u32,
     pub line: u32,
+    /// What the Mac shows now, in the units of the surface it is on (see `azul_review_link::frame`).
     pub view: Rect,
     pub page_aspect: f32,
+    /// The break between two pages, in page widths.
+    pub page_gap: f32,
+    /// What the pen is over.
+    pub surface: SimSurface,
+    /// The whiteboard, when the pen is over it.
+    pub board: SimBoard,
+    /// The pen on the surface it is over.
     pub pen: Option<PenMark>,
+    /// The view, and the pen, of the surface that is not shown now (kept so that going back finds them).
+    other_view: Rect,
+    other_pen: Option<PenMark>,
+    /// What the user settled on the Mac that the phone obeys.
+    pub settings: HostSettings,
+    settings_sent: bool,
+    /// Where "Continue reviewing" goes back to.
+    pub return_point: Option<ReturnPoint>,
+    /// Frames queued by the panel (an agent that finished), sent on the next tick.
+    outbox: Vec<Frame>,
     /// The pen walks over the page by itself.
     pub pen_walk: bool,
     pub buttons: ButtonSet,
@@ -90,6 +139,8 @@ pub struct SimMac {
     pub armed_region: bool,
     /// Every line of the log is also printed (for a script that drives the simulator).
     pub trace: bool,
+    /// A conversation that reaches a suggestion or its end also says so with an `AgentFinished` (the demo's buzz).
+    pub announce_finished: bool,
 }
 
 /// The files and folders of the workspace the simulator browses (a folder's name ends with `/`).
@@ -192,12 +243,20 @@ impl SimMac {
             online: true,
             tree,
             file: "layout/src/solver3/fc.rs".to_string(),
-            page: 2,
             page_count: 9,
             line: 1337,
             view: SimMac::default_view(),
             page_aspect: 794.0 / 1123.0,
+            page_gap: 0.04,
+            surface: SimSurface::Pages,
+            board: SimBoard { id: 1, name: "Layout engine".to_string(), aspect: 2.0, items: 14 },
             pen: Some(PenMark { x: 0.34, y: 0.21, down: false }),
+            other_view: Rect { x: 0.0, y: 0.0, w: 0.5, h: 0.5 * WINDOW_SHAPE },
+            other_pen: Some(PenMark { x: 0.5, y: 0.25, down: false }),
+            settings: HostSettings::default(),
+            settings_sent: false,
+            return_point: None,
+            outbox: Vec::new(),
             pen_walk: false,
             buttons: ButtonSet::defaults(),
             conversations: Vec::new(),
@@ -214,15 +273,60 @@ impl SimMac {
             buttons_sent: false,
             armed_region: false,
             trace: false,
+            announce_finished: false,
         };
         mac.page_count = mac.pages_of(&mac.file);
-        mac.page = 2;
+        // the third page, a little below its top
+        let page = mac.page_surface();
+        mac.view = Rect { y: page.page_top(2) + 0.12, ..SimMac::default_view() };
+        mac.pen = Some(PenMark { x: 0.34, y: page.page_top(2) + 0.12 + 0.2, down: false });
         mac
     }
 
     /// What the Mac shows of a page that was just opened: the top left, a little over a half of the width.
     fn default_view() -> Rect {
-        Rect { x: 0.0, y: 0.0, w: 0.625, h: 0.4 }
+        Rect { x: 0.0, y: 0.0, w: 0.625, h: 0.625 * WINDOW_SHAPE }
+    }
+
+    /// The pages of the file under review, as the phone is told of them.
+    #[must_use]
+    pub fn page_surface(&self) -> PageSurface {
+        let open = !self.file.is_empty();
+        PageSurface {
+            file: self.file.clone(),
+            page_index: if open { self.page() } else { 0 },
+            page_count: if open { self.page_count } else { 0 },
+            line: if open { self.line } else { 0 },
+            line_count: if open { 600 + (hash(&self.file) % 3000) as u32 } else { 0 },
+            aspect: self.page_aspect,
+            gap: self.page_gap,
+        }
+    }
+
+    /// The page the middle of the view is on (the page of the pages, whichever surface is shown: the other one keeps its own
+    /// view).
+    #[must_use]
+    pub fn page(&self) -> u32 {
+        let pages = PageSurface { page_count: self.page_count, aspect: self.page_aspect, gap: self.page_gap, ..PageSurface::empty() };
+        let view = if self.surface == SimSurface::Pages { self.view } else { self.other_view };
+        page_at(&pages, view.y + view.h / 2.0)
+    }
+
+    /// Where a view may go on the surface that is shown.
+    #[must_use]
+    pub fn space(&self) -> Space {
+        match self.surface {
+            SimSurface::Pages => Space::of_pages(&self.page_surface()),
+            SimSurface::Board => Space::of_board(self.board.aspect),
+        }
+    }
+
+    /// The box the pen and the view may be in: the surface's own extent.
+    fn extent(&self) -> (f32, f32) {
+        match self.surface {
+            SimSurface::Pages => (1.0, self.page_surface().column_height()),
+            SimSurface::Board => (1.0, 1.0 / self.board.aspect),
+        }
     }
 
     /// How many pages the file has (3 to 12, by its name).
@@ -260,24 +364,54 @@ impl SimMac {
         Rows { request_id, dir: path.to_string(), offset, entries: all[start..end].to_vec(), more: end < all.len() }
     }
 
-    /// AzReview opens `path` at `line` (the first unreviewed line when none is given).
+    /// AzReview opens `path` at `line` (the first unreviewed line when none is given): the pen is over the pages then.
     pub fn open_file(&mut self, now: Millis, path: &str, line: Option<u32>) {
         if !self.is_file(path) {
             self.say(now, format!("refused to open {path:?}: not a file of the workspace"));
             return;
         }
+        self.show_pages();
         self.file = path.to_string();
-        self.page = 0;
         self.page_count = self.pages_of(path);
         self.line = line.unwrap_or(1 + ((hash(path) >> 8) % 400) as u32);
         self.view = SimMac::default_view();
+        self.pen = Some(PenMark { x: 0.34, y: 0.2, down: false });
         self.gesture = None;
         self.thumb_id += 1;
         self.say(now, format!("open {path}:{}", self.line));
     }
 
+    /// Puts the pen over the pages (the whiteboard keeps its view for when the pen goes back).
+    fn show_pages(&mut self) {
+        if self.surface == SimSurface::Board {
+            self.swap_surface();
+        }
+    }
+
+    /// Swaps the surface and the view and the pen of the one that is not shown.
+    fn swap_surface(&mut self) {
+        self.surface = if self.surface == SimSurface::Pages { SimSurface::Board } else { SimSurface::Pages };
+        std::mem::swap(&mut self.view, &mut self.other_view);
+        std::mem::swap(&mut self.pen, &mut self.other_pen);
+        self.gesture = None;
+        self.thumb_id += 1;
+    }
+
+    /// The pen goes over `surface` (the panel's choice).
+    pub fn show_surface(&mut self, now: Millis, surface: SimSurface) {
+        if self.surface != surface {
+            self.swap_surface();
+            let words = match surface {
+                SimSurface::Pages => "over the pages".to_string(),
+                SimSurface::Board => format!("over the whiteboard {:?}", self.board.name),
+            };
+            self.say(now, format!("the pen is {words}"));
+        }
+    }
+
     /// The phone's viewport command.
     pub fn apply(&mut self, now: Millis, op: ViewportOp) {
+        let space = self.space();
         match op {
             ViewportOp::Gesture { id, phase, pan_x, pan_y, zoom, focus } => {
                 let (base, about) = match self.gesture {
@@ -290,7 +424,7 @@ impl SimMac {
                         (base, about)
                     }
                 };
-                self.view = apply_gesture(base, (pan_x, pan_y), zoom, about);
+                self.view = apply_gesture_in(base, (pan_x, pan_y), zoom, about, space);
                 let note = match phase {
                     Phase::Begin => Some("begin"),
                     Phase::End => Some("end"),
@@ -303,26 +437,89 @@ impl SimMac {
                 }
                 if phase == Phase::End {
                     self.gesture = None;
+                    if self.settings.snap_to_page_top && self.surface == SimSurface::Pages {
+                        let before = self.page();
+                        self.view = snap_to_page_top(self.view, &self.page_surface());
+                        self.say(now, format!("snapped to the top of page {}", self.page() + 1));
+                        if self.page() != before {
+                            self.thumb_id += 1;
+                        }
+                    }
                 }
             }
             ViewportOp::Fit => {
-                self.view = fit_width(self.view);
+                self.view = fit_width_in(self.view, space);
                 self.say(now, "fit width".to_string());
             }
             ViewportOp::Reset => {
-                self.view = reset(self.view);
+                self.view = match self.surface {
+                    SimSurface::Pages => reset_to_page_top(self.view, &self.page_surface()),
+                    SimSurface::Board => {
+                        let view = clamp_view_in(self.view, space);
+                        clamp_view_in(Rect { x: 0.0, y: 0.0, w: 1.0, h: view.h / view.w }, space)
+                    }
+                };
                 self.say(now, "reset view".to_string());
             }
             ViewportOp::PageStep(step) => {
-                let target = (i64::from(self.page) + i64::from(step)).clamp(0, i64::from(self.page_count.saturating_sub(1))) as u32;
-                if target != self.page {
-                    self.page = target;
-                    self.thumb_id += 1;
-                    self.view.y = 0.0;
-                    self.view = azul_review_link::viewport::clamp_view(self.view);
+                if self.surface == SimSurface::Pages {
+                    let before = self.page();
+                    self.view = step_page(self.view, &self.page_surface(), i32::from(step));
+                    if self.page() != before {
+                        self.thumb_id += 1;
+                    }
+                    self.say(now, format!("page {} of {}", self.page() + 1, self.page_count));
+                } else {
+                    self.say(now, "page step: a whiteboard has no pages".to_string());
                 }
-                self.say(now, format!("page {} of {}", self.page + 1, self.page_count));
             }
+        }
+    }
+
+    /// The user jumps to an agent's conversation: the review position is saved as the return point (the first jump only: a jump
+    /// from one conversation to another does not overwrite it), and the Mac shows the conversation's file.
+    pub fn jump_to_conversation(&mut self, now: Millis) {
+        if self.return_point.is_none() && self.surface == SimSurface::Pages && !self.file.is_empty() {
+            let name = self.file.rsplit('/').next().unwrap_or(&self.file).to_string();
+            let (page, line) = (self.page(), self.line);
+            self.return_point = Some(ReturnPoint { file: self.file.clone(), page_index: page, line, label: format!("{name} p{} l{line}", page + 1) });
+        }
+        self.show_pages();
+        self.file = "core/src/dom.rs".to_string();
+        self.page_count = self.pages_of(&self.file);
+        self.line = 212;
+        self.view = SimMac::default_view();
+        self.thumb_id += 1;
+        let saved = self.return_point.as_ref().map_or("nothing", |p| p.label.as_str()).to_string();
+        self.say(now, format!("jumped to the conversation in core/src/dom.rs, return point: {saved}"));
+    }
+
+    /// "Continue reviewing": back to the return point, which is then cleared.
+    pub fn continue_reviewing(&mut self, now: Millis) {
+        let Some(point) = self.return_point.take() else {
+            self.say(now, "continue reviewing: there is no return point".to_string());
+            return;
+        };
+        self.open_file(now, &point.file, Some(point.line));
+        let page = self.page_surface();
+        let top = page.page_top(point.page_index.min(self.page_count.saturating_sub(1)));
+        self.view = clamp_view_in(Rect { y: top, ..self.view }, self.space());
+        self.thumb_id += 1;
+        self.say(now, format!("continue reviewing: back to {}", point.label));
+    }
+
+    /// An agent finished: the phone is told on the next tick.
+    pub fn agent_finished(&mut self, now: Millis, kind: FinishKind) {
+        let conversation_id = self.conversations.len() as u32 + 1;
+        self.outbox.push(Frame::AgentFinished(AgentFinished { conversation_id, file: self.file.clone(), line: self.line, kind }));
+        self.say(now, format!("an agent finished: {kind:?}"));
+    }
+
+    /// The user changed a setting on the Mac: the phone is told on the next tick.
+    pub fn set_settings(&mut self, settings: HostSettings) {
+        if self.settings != settings {
+            self.settings = settings;
+            self.settings_sent = false;
         }
     }
 
@@ -351,7 +548,7 @@ impl SimMac {
     pub fn context(&self) -> Context {
         if self.armed_region {
             Context::Region
-        } else if self.pen.is_some() && !self.file.is_empty() {
+        } else if self.pen.is_some() && !self.file.is_empty() && self.surface == SimSurface::Pages {
             Context::Line
         } else {
             Context::Page
@@ -362,27 +559,33 @@ impl SimMac {
         match self.context() {
             Context::Region => "the marked region".to_string(),
             Context::Line => format!("line {}", self.line),
-            Context::Page => format!("page {}", self.page + 1),
+            Context::Page => format!("page {}", self.page() + 1),
         }
     }
 
     /// The pen state as it is now, without counting up.
     fn snapshot(&self) -> PenState {
+        let surface = match self.surface {
+            SimSurface::Pages => Surface::Page(self.page_surface()),
+            SimSurface::Board => Surface::Whiteboard(WhiteboardSurface {
+                board_id: self.board.id,
+                name: self.board.name.clone(),
+                aspect: self.board.aspect,
+                item_count: self.board.items,
+            }),
+        };
+        let has_picture = self.surface == SimSurface::Board || !self.file.is_empty();
         PenState {
             seq: 0,
+            screen: ScreenId::MAIN,
             folder: "azul".to_string(),
-            file: self.file.clone(),
-            page_index: self.page,
-            page_count: if self.file.is_empty() { 0 } else { self.page_count },
-            line: if self.file.is_empty() { 0 } else { self.line },
-            line_count: if self.file.is_empty() { 0 } else { 600 + (hash(&self.file) % 3000) as u32 },
-            page_w: 794.0,
-            page_h: 794.0 / self.page_aspect,
+            surface,
             view: self.view,
             zoom: azul_review_link::viewport::zoom_of(self.view),
             pen: self.pen,
-            thumb_id: if self.file.is_empty() { 0 } else { self.thumb_id },
+            thumb_id: if has_picture { self.thumb_id } else { 0 },
             context: self.context(),
+            return_point: self.return_point.clone(),
         }
     }
 
@@ -392,15 +595,24 @@ impl SimMac {
         PenState { seq: self.seq, ..self.snapshot() }
     }
 
-    /// The picture of the page on screen.
+    /// The picture of what is on screen: the page in view, or the overview of the whiteboard's items.
     #[must_use]
     pub fn thumbnail(&self) -> Thumbnail {
-        Thumbnail {
-            id: self.thumb_id,
-            width: THUMB_W,
-            height: THUMB_H,
-            format: ThumbFormat::Rgba8,
-            bytes: render_page(hash(&self.file) ^ (u64::from(self.page) + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15)),
+        match self.surface {
+            SimSurface::Pages => Thumbnail {
+                id: self.thumb_id,
+                width: THUMB_W,
+                height: THUMB_H,
+                format: ThumbFormat::Rgba8,
+                bytes: render_page(hash(&self.file) ^ (u64::from(self.page()) + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15)),
+            },
+            SimSurface::Board => Thumbnail {
+                id: self.thumb_id,
+                width: BOARD_THUMB_W,
+                height: BOARD_THUMB_H,
+                format: ThumbFormat::Rgba8,
+                bytes: render_board(u64::from(self.board.id)),
+            },
         }
     }
 
@@ -416,22 +628,45 @@ impl SimMac {
             let v = self.view;
             let (fx, fy) = (0.5 + 0.38 * (p * 1.3).sin(), 0.5 + 0.34 * (p * 0.9 + 1.0).sin());
             let down = (p * 0.5).sin() > 0.55;
-            self.pen = Some(PenMark { x: (v.x + v.w * fx).clamp(0.0, 1.0), y: (v.y + v.h * fy).clamp(0.0, 1.0), down });
-            self.line = 1 + ((self.pen.map_or(0.0, |m| m.y) + self.page as f32) * 55.0) as u32;
+            let (width, height) = self.extent();
+            self.pen = Some(PenMark { x: (v.x + v.w * fx).clamp(0.0, width), y: (v.y + v.h * fy).clamp(0.0, height), down });
+            if self.surface == SimSurface::Pages {
+                let pages = self.page_surface();
+                let at = self.pen.map_or(0.0, |m| m.y);
+                let page = page_at(&pages, at);
+                let within = ((at - pages.page_top(page)) / pages.page_height()).clamp(0.0, 1.0);
+                self.line = 1 + ((within + page as f32) * 55.0) as u32;
+            }
         }
         for conv in &mut self.conversations {
             let elapsed = now.saturating_sub(conv.started);
             let due = STAGES.iter().filter(|(at, _)| elapsed >= *at).count();
             while conv.stage < due {
-                out.push(Frame::Reply(Reply { request_id: conv.request_id, status: STAGES[conv.stage].1 }));
+                let status = STAGES[conv.stage].1;
+                out.push(Frame::Reply(Reply { request_id: conv.request_id, status }));
+                if self.announce_finished {
+                    let kind = match status {
+                        ReplyStatus::Suggested => Some(FinishKind::Suggestion),
+                        ReplyStatus::Done => Some(FinishKind::Done),
+                        _ => None,
+                    };
+                    if let Some(kind) = kind {
+                        out.push(Frame::AgentFinished(AgentFinished { conversation_id: conv.request_id, file: conv.path.clone(), line: 1, kind }));
+                    }
+                }
                 conv.stage += 1;
             }
+        }
+        if !self.settings_sent {
+            self.settings_sent = true;
+            out.push(Frame::Settings(self.settings));
         }
         if !self.buttons_sent {
             self.buttons_sent = true;
             out.push(Frame::Buttons(self.buttons.clone()));
         }
-        if self.thumb_sent != self.thumb_id && !self.file.is_empty() {
+        out.append(&mut self.outbox);
+        if self.thumb_sent != self.thumb_id && (!self.file.is_empty() || self.surface == SimSurface::Board) {
             self.thumb_sent = self.thumb_id;
             out.push(Frame::Thumbnail(self.thumbnail()));
         }
@@ -456,6 +691,8 @@ impl SimMac {
         self.thumb_sent = 0;
         self.last_sent = None;
         self.buttons_sent = false;
+        self.settings_sent = false;
+        self.outbox.clear();
         self.pen_pacer.clear();
     }
 
@@ -553,6 +790,59 @@ fn render_page(seed: u64) -> Vec<u8> {
             put(x, y + 1, colour);
         }
         y += 5;
+    }
+    px
+}
+
+/// The overview of a whiteboard's items: boxes joined by lines, on a dark canvas. The same `seed` always draws the same board.
+fn render_board(seed: u64) -> Vec<u8> {
+    let (w, h) = (usize::from(BOARD_THUMB_W), usize::from(BOARD_THUMB_H));
+    let mut px = vec![0u8; w * h * 4];
+    let mut put = |x: i32, y: i32, c: [u8; 3]| {
+        if x >= 0 && y >= 0 && (x as usize) < w && (y as usize) < h {
+            let i = (y as usize * w + x as usize) * 4;
+            px[i..i + 4].copy_from_slice(&[c[0], c[1], c[2], 255]);
+        }
+    };
+    for y in 0..h as i32 {
+        for x in 0..w as i32 {
+            // a faint dot grid
+            let dot = x % 14 == 0 && y % 14 == 0;
+            put(x, y, if dot { [58, 60, 70] } else { [34, 35, 42] });
+        }
+    }
+    let mut state = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+    let mut next = move || {
+        state ^= state >> 12;
+        state ^= state << 25;
+        state ^= state >> 27;
+        state.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 33
+    };
+    // a grid of boxes with a little jitter, joined by lines
+    let accents: [[u8; 3]; 4] = [[90, 175, 255], [255, 159, 10], [48, 209, 88], [191, 90, 242]];
+    let mut centres = Vec::new();
+    for row in 0..3 {
+        for col in 0..4 {
+            let cx = 28 + col * 56 + (next() % 10) as i32;
+            let cy = 22 + row * 34 + (next() % 8) as i32;
+            centres.push((cx, cy, accents[(next() % 4) as usize]));
+        }
+    }
+    for pair in 0..centres.len() {
+        let (x0, y0, _) = centres[pair];
+        let (x1, y1, _) = centres[(pair * 5 + 3) % centres.len()];
+        let steps = (x1 - x0).abs().max((y1 - y0).abs()).max(1);
+        for t in 0..=steps {
+            put(x0 + (x1 - x0) * t / steps, y0 + (y1 - y0) * t / steps, [110, 112, 125]);
+        }
+    }
+    for (cx, cy, accent) in centres {
+        for dy in -8i32..=8 {
+            for dx in -17i32..=17 {
+                let edge = dy.abs() == 8 || dx.abs() == 17;
+                put(cx + dx, cy + dy, if edge { accent } else { [52, 54, 64] });
+            }
+        }
     }
     px
 }

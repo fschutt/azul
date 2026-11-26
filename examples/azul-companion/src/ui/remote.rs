@@ -10,17 +10,19 @@ use azul::{
     vec::U8Vec,
     widgets::{Spinner, SpinnerStyle},
 };
-use azul_review_link::frame::{Context, FileState, ReplyStatus, ThumbFormat};
+use azul_review_link::frame::{Context, FileState, PenState, ReplyStatus, ReturnPoint, Surface, ThumbFormat};
 use azul_review_link::view::Session;
 
 use super::glue::{self, with_action};
 use super::kit::{column, div, icon, px, row, shorten_middle, tap, text, text_clip, Cx};
 use super::{Action, Screen, DONE_SHOWN_MS};
-use crate::layout::{pad_geometry, Zone, DEFAULT_ASPECT, STRIP_W};
+use crate::layout::{Zone, STRIP_W};
+use crate::padscene;
 use crate::theme as th;
 
 /// The id of the pad's block (the pad's events measure themselves against it).
 pub const PAD_ID: &str = "pad";
+
 
 /// The remote in the shape the phone is held.
 #[must_use]
@@ -32,11 +34,20 @@ pub fn dom(cx: &Cx) -> Dom {
     }
 }
 
+/// The return point to offer, if the Mac has one.
+fn return_point<'a>(cx: &'a Cx<'_>) -> Option<&'a ReturnPoint> {
+    cx.view().pen.as_ref().and_then(|p| p.return_point.as_ref())
+}
+
 fn portrait(cx: &Cx) -> Dom {
     let z = &cx.z;
-    column(&format!("width: {}; height: {};", px(z.safe.w), px(z.safe.h)))
+    let mut screen = column(&format!("width: {}; height: {};", px(z.safe.w), px(z.safe.h)))
         .with_child(header(cx, z.header, false))
-        .with_child(file_bar(cx, z.filebar))
+        .with_child(file_bar(cx, z.filebar));
+    if let Some(point) = return_point(cx) {
+        screen.add_child(ribbon(cx, point, z.ribbon));
+    }
+    screen
         .with_child(pad(cx, z.pad, z.pad.x - z.safe.x))
         .with_child(controls(cx, z.controls))
         .with_child(context_line(cx, z.context))
@@ -57,6 +68,47 @@ fn landscape(cx: &Cx) -> Dom {
         .with_child(side_panel(cx))
 }
 
+/// What a return point says in a few words: the Mac's label, or the file, page and line.
+fn return_words(cx: &Cx, point: &ReturnPoint) -> String {
+    if !point.label.is_empty() {
+        return point.label.clone();
+    }
+    let file = point.file.rsplit('/').next().unwrap_or(&point.file).to_string();
+    let page = (point.page_index + 1).to_string();
+    if point.line > 0 {
+        cx.tf("return-where", &[("file", &file), ("page", &page), ("line", &point.line.to_string())])
+    } else {
+        cx.tf("return-where-nolines", &[("file", &file), ("page", &page)])
+    }
+}
+
+/// "Back to fc.rs p3 l1337" and the button that goes there: over the pad (portrait) or at the top of the side panel (landscape)
+/// while AzReview holds a return point. `zone` is `Zones::ribbon`.
+fn ribbon(cx: &Cx, point: &ReturnPoint, zone: Zone) -> Dom {
+    let words = return_words(cx, point);
+    let inner = zone.w - 2.0 * cx.z.gutter;
+    row(&format!("width: {}; height: {}; padding: 0px {}; flex-shrink: 0;", px(zone.w), px(zone.h), px(cx.z.gutter)))
+        .with_child(
+            row(&format!(
+                "width: {}; height: 50px; padding: 0px 3px 0px 12px; gap: 8px; border-radius: 13px; background: {};",
+                px(inner),
+                th::tint(th::ACCENT, 0.18)
+            ))
+            .with_class("az-row")
+            .with_child(icon("undo", 20.0, th::ACCENT))
+            .with_child(text_clip(&cx.tf("return-back", &[("where", &words)]), &format!("flex-grow: 1; min-width: 0px; font-size: 14px; color: {};", th::TEXT)))
+            .with_child(
+                tap(
+                    &cx.tf("return-name", &[("where", &words)]),
+                    &format!("height: 44px; padding: 0px 14px; border-radius: 10px; background: {}; flex-shrink: 0;", th::ACCENT),
+                    cx,
+                    Action::ContinueReviewing,
+                )
+                .with_child(text(&cx.t("return-continue"), "font-size: 14px; font-weight: 600; color: #ffffff; white-space: nowrap;")),
+            ),
+        )
+}
+
 // ---- the lines above the pad
 
 /// The colour and the words of the connection.
@@ -69,17 +121,45 @@ fn connection(cx: &Cx) -> (&'static str, String) {
     }
 }
 
-/// The path of the file under review, the page and the line, as two pieces of words.
+/// The file under review and where in it (over the pages), or the board and how much is on it (over the whiteboard), as two
+/// pieces of words.
 fn file_words(cx: &Cx, path_chars: usize, basename: bool) -> (String, String) {
     match &cx.view().pen {
-        Some(pen) if !pen.file.is_empty() => {
-            let place = cx.tf("remote-page", &[("n", &(pen.page_index + 1).to_string()), ("m", &pen.page_count.max(1).to_string())]);
-            let place = if pen.line > 0 { format!("{place}  ·  {}", cx.tf("remote-line", &[("n", &pen.line.to_string())])) } else { place };
-            let shown = if basename { pen.file.rsplit('/').next().unwrap_or(&pen.file) } else { pen.file.as_str() };
+        Some(PenState { surface: Surface::Page(page), .. }) if !page.file.is_empty() => {
+            let place = cx.tf("remote-page", &[("n", &(page.page_index + 1).to_string()), ("m", &page.page_count.max(1).to_string())]);
+            let place = if page.line > 0 { format!("{place}  ·  {}", cx.tf("remote-line", &[("n", &page.line.to_string())])) } else { place };
+            let shown = if basename { page.file.rsplit('/').next().unwrap_or(&page.file) } else { page.file.as_str() };
             (shorten_middle(shown, path_chars), place)
+        }
+        Some(PenState { surface: Surface::Whiteboard(board), .. }) => {
+            let items = match board.item_count {
+                0 => cx.t("board-empty"),
+                1 => cx.t("board-item"),
+                n => cx.tf("board-items", &[("n", &n.to_string())]),
+            };
+            let _ = path_chars;
+            (String::new(), items)
         }
         _ => (cx.t("remote-no-file"), String::new()),
     }
+}
+
+/// Which surface the pen is over: "Code review", or "Whiteboard" and the board's name.
+fn surface_chip(cx: &Cx) -> Dom {
+    let (glyph, label) = match cx.view().pen.as_ref().map(|p| &p.surface) {
+        Some(Surface::Whiteboard(board)) if !board.name.is_empty() => {
+            ("dashboard", cx.tf("surface-board-named", &[("name", &shorten_middle(&board.name, 16))]))
+        }
+        Some(Surface::Whiteboard(_)) => ("dashboard", cx.t("surface-board")),
+        _ => ("description", cx.t("surface-code")),
+    };
+    row(&format!(
+        "height: 26px; padding: 0px 10px 0px 8px; gap: 6px; border-radius: 13px; background: {}; flex-shrink: 1; min-width: 0px;",
+        th::tint(th::ACCENT, 0.18)
+    ))
+    .with_class("az-row")
+    .with_child(icon(glyph, 16.0, th::ACCENT))
+    .with_child(text_clip(&label, &format!("font-size: 12px; font-weight: 600; color: {}; min-width: 0px;", th::ACCENT)))
 }
 
 fn gear(cx: &Cx) -> Dom {
@@ -96,10 +176,14 @@ fn header(cx: &Cx, zone: Zone, with_file: bool) -> Dom {
     };
     let mut bar = row(&format!("width: {}; height: {}; padding: 0px {}; gap: 10px;", px(zone.w), px(zone.h), px(cx.z.gutter)))
         .with_child(div(&format!("width: 10px; height: 10px; border-radius: 5px; background: {colour}; flex-shrink: 0;")))
-        .with_child(text_clip(&name, "font-size: 17px; font-weight: 600; flex-shrink: 1; min-width: 0px;"))
-        .with_child(text(&latency, &format!("font-size: 13px; color: {}; white-space: nowrap; flex-shrink: 0;", th::TEXT_DIM)))
-        .with_child(div("flex-grow: 1;"));
+        .with_child(text_clip(&name, "font-size: 17px; font-weight: 600; flex-shrink: 1; min-width: 0px;"));
+    // sideways the row is crowded (the chip, the file, the place): the latency is left out there, the dot says the rest
+    if !with_file {
+        bar.add_child(text(&latency, &format!("font-size: 13px; color: {}; white-space: nowrap; flex-shrink: 0;", th::TEXT_DIM)));
+    }
+    let mut bar = bar.with_child(div("flex-grow: 1;"));
     if with_file {
+        bar.add_child(surface_chip(cx));
         let (path, place) = file_words(cx, 22, true);
         bar.add_child(text_clip(&path, &format!("font-size: 13px; color: {}; flex-shrink: 1; min-width: 0px;", th::TEXT_DIM)));
         if !place.is_empty() {
@@ -112,10 +196,10 @@ fn header(cx: &Cx, zone: Zone, with_file: bool) -> Dom {
 }
 
 fn file_bar(cx: &Cx, zone: Zone) -> Dom {
-    let chars = ((zone.w - 2.0 * cx.z.gutter - 150.0) / 7.2).max(10.0) as usize;
-    let (path, place) = file_words(cx, chars, false);
+    let chars = ((zone.w - 2.0 * cx.z.gutter - 270.0) / 7.2).max(8.0) as usize;
+    let (path, place) = file_words(cx, chars, true);
     let mut bar = row(&format!("width: {}; height: {}; padding: 0px {}; gap: 8px;", px(zone.w), px(zone.h), px(cx.z.gutter)))
-        .with_child(icon("description", 18.0, th::TEXT_DIM))
+        .with_child(surface_chip(cx))
         .with_child(text_clip(&path, &format!("font-size: 14px; color: {}; flex-shrink: 1; min-width: 0px;", th::TEXT)))
         .with_child(div("flex-grow: 1;"));
     if !place.is_empty() {
@@ -136,61 +220,95 @@ fn page_picture(cx: &Cx) -> Option<ImageRef> {
     ImageRef::raw_image(raw).into_option()
 }
 
-/// The pad: the page with the viewport rectangle and the pen on it, and the strip that turns pages.
+/// A positioned box in the pad's pixels.
+fn boxed(zone: Zone, css: &str) -> Dom {
+    div(&format!(
+        "position: absolute; left: {}; top: {}; width: {}; height: {}; {css}",
+        px(zone.x),
+        px(zone.y),
+        px(zone.w.max(0.0)),
+        px(zone.h.max(0.0))
+    ))
+}
+
+/// The picture of the surface stretched over its box.
+fn stretched(cx: &Cx, image: ImageRef, name_key: &str) -> Dom {
+    Dom::create_image(image)
+        .with_css("position: absolute; left: 0px; top: 0px; width: 100%; height: 100%;")
+        .with_accessibility_info(AccessibilityInfo::named(cx.t(name_key).as_str(), AccessibilityRole::Graphic))
+}
+
+/// The pad: the sheets of the pages (or the board) under the frame that stands for what the Mac shows, the pen on it, and
+/// the strip that turns pages.
 fn pad(cx: &Cx, zone: Zone, margin_left: f32) -> Dom {
     let view = cx.view();
-    let aspect = view.pen.as_ref().filter(|p| p.page_w > 0.0 && p.page_h > 0.0).map(|p| p.page_w / p.page_h);
-    let g = pad_geometry(zone.w, zone.h, aspect);
     let lost = matches!(view.session, Session::Lost { .. });
-    let mut page = div(&format!(
-        "position: absolute; left: {}; top: {}; width: {}; height: {}; background: #fbfaf6; border-radius: 3px; overflow: hidden; opacity: {};",
-        px(g.page.x),
-        px(g.page.y),
-        px(g.page.w),
-        px(g.page.h),
+    let placeholder = PenState::empty();
+    let state = view.pen.as_ref().unwrap_or(&placeholder);
+    let shown = cx.root.shown_view().unwrap_or(state.view);
+    let scene = padscene::scene(&state.surface, shown, state.pen, (zone.w, zone.h));
+    // the sheets reach beyond the pad and are clipped by it: the layout check measures them through this clip
+    let mut surface = div(&format!(
+        "position: absolute; left: 0px; top: 0px; width: {}; height: {}; overflow: hidden; opacity: {};",
+        px(scene.content.w),
+        px(scene.content.h),
         if lost { "0.4" } else { "1.0" }
-    ));
-    if let Some(image) = page_picture(cx) {
-        page.add_child(
-            Dom::create_image(image)
-                .with_css("position: absolute; left: 0px; top: 0px; width: 100%; height: 100%;")
-                .with_accessibility_info(AccessibilityInfo::named(cx.t("remote-picture").as_str(), AccessibilityRole::Graphic)),
+    ))
+    .with_class("az-scroll");
+    let picture = if view.thumb_is_current() { page_picture(cx) } else { None };
+    for sheet in &scene.sheets {
+        let mut node = boxed(
+            sheet.rect,
+            &format!(
+                "background: {}; border: 1px solid #d9d7cf; border-radius: 3px; overflow: hidden;",
+                if sheet.current { "#fbfaf6" } else { "#e9e7e0" }
+            ),
         );
-    }
-    if let Some(shown) = cx.root.shown_view() {
-        let (x0, y0) = (shown.x.clamp(0.0, 1.0), shown.y.clamp(0.0, 1.0));
-        let (x1, y1) = ((shown.x + shown.w).clamp(0.0, 1.0), (shown.y + shown.h).clamp(0.0, 1.0));
-        let (w, h) = (((x1 - x0) * g.page.w).max(8.0), ((y1 - y0) * g.page.h).max(8.0));
-        page.add_child(div(&format!(
-            "position: absolute; left: {}; top: {}; width: {}; height: {}; border: 2px solid {}; background: {}; border-radius: 3px;",
-            px(x0 * g.page.w),
-            px(y0 * g.page.h),
-            px(w),
-            px(h),
-            th::ACCENT,
-            th::tint(th::ACCENT, 0.16)
-        )));
-    }
-    if let Some(mark) = view.pen.as_ref().and_then(|p| p.pen) {
-        if (0.0..=1.0).contains(&mark.x) && (0.0..=1.0).contains(&mark.y) {
-            let size = if mark.down { 16.0 } else { 12.0 };
-            page.add_child(div(&format!(
-                "position: absolute; left: {}; top: {}; width: {}; height: {}; border-radius: {}; background: {}; border: 2px solid #ffffff;",
-                px(mark.x * g.page.w - size / 2.0),
-                px(mark.y * g.page.h - size / 2.0),
-                px(size),
-                px(size),
-                px(size / 2.0),
-                th::PEN_DOT
-            )));
+        if sheet.current {
+            if let Some(image) = picture.clone() {
+                node.add_child(stretched(cx, image, "remote-picture"));
+            }
         }
+        if sheet.rect.h >= 36.0 {
+            node.add_child(text(
+                &(sheet.index + 1).to_string(),
+                "position: absolute; left: 6px; top: 3px; font-size: 11px; font-weight: 600; color: #8a8a90;",
+            ));
+        }
+        surface.add_child(node);
+    }
+    if let Some(board) = scene.board {
+        let mut node = boxed(board, "background: #22232a; border: 1px solid #3a3c46; border-radius: 6px; overflow: hidden;");
+        if let Some(image) = picture.clone() {
+            node.add_child(stretched(cx, image, "remote-picture-board"));
+        }
+        surface.add_child(node);
+    }
+    surface.add_child(boxed(
+        scene.frame,
+        &format!("border: 2px solid {}; background: {}; border-radius: 3px;", th::ACCENT, th::tint(th::ACCENT, 0.16)),
+    ));
+    if let Some((x, y, down)) = scene.pen {
+        let size = if down { 16.0 } else { 12.0 };
+        surface.add_child(boxed(
+            Zone { x: x - size / 2.0, y: y - size / 2.0, w: size, h: size },
+            &format!("border-radius: {}; background: {}; border: 2px solid #ffffff;", px(size / 2.0), th::PEN_DOT),
+        ));
+    }
+    if let Some(mini) = scene.minimap {
+        let mut inset = boxed(mini.board, "background: #1a1b20; border: 1px solid #5a5c68; border-radius: 4px; overflow: hidden;");
+        if let Some(image) = picture {
+            inset.add_child(stretched(cx, image, "remote-overview"));
+        }
+        surface.add_child(inset);
+        surface.add_child(boxed(mini.frame, &format!("border: 1.5px solid {}; background: {};", th::ACCENT, th::tint(th::ACCENT, 0.25))));
     }
     let strip = column(&format!(
         "position: absolute; left: {}; top: 0px; width: {}; height: {}; align-items: center; justify-content: space-between; \
          padding: 6px 0px; border-left: 1px solid {}; background: {};",
-        px(g.strip.x),
-        px(g.strip.w),
-        px(g.strip.h),
+        px(zone.w - STRIP_W.min(zone.w)),
+        px(STRIP_W.min(zone.w)),
+        px(zone.h),
         th::SEPARATOR,
         th::tint("#ffffff", 0.03)
     ))
@@ -207,8 +325,10 @@ fn pad(cx: &Cx, zone: Zone, margin_left: f32) -> Dom {
     .with_id(PAD_ID)
     .with_class("az-surface")
     .with_accessibility_info(AccessibilityInfo::named(cx.t("remote-pad").as_str(), AccessibilityRole::Application))
-    .with_child(page)
-    .with_child(strip);
+    .with_child(surface);
+    if scene.board.is_none() {
+        node.add_child(strip);
+    }
     if cx.root.ui.hint && view.pen.is_some() && !lost {
         node.add_child(hint(cx, zone));
     }
@@ -238,7 +358,8 @@ fn lost_banner(cx: &Cx, zone: Zone) -> Dom {
 
 /// The gestures, said once over the page until the first one is made.
 fn hint(cx: &Cx, zone: Zone) -> Dom {
-    let width = (zone.w - STRIP_W - 40.0).max(120.0);
+    let board = cx.view().pen.as_ref().is_some_and(|p| p.board().is_some());
+    let width = (zone.w - if board { 0.0 } else { STRIP_W } - 40.0).max(120.0);
     div(&format!(
         "position: absolute; left: {}; bottom: 22px; width: {}; padding: 10px 14px; border-radius: 12px; background: {}; \
          color: #ffffff; font-size: 13px; text-align: center;",
@@ -246,26 +367,48 @@ fn hint(cx: &Cx, zone: Zone) -> Dom {
         px(width),
         th::tint("#000000", 0.66)
     ))
-    .with_child(text(&cx.t("remote-hint"), "font-size: 13px; text-align: center; color: #ffffff;"))
+    .with_child(text(&cx.t(if board { "remote-hint-board" } else { "remote-hint" }), "font-size: 13px; text-align: center; color: #ffffff;"))
 }
 
 fn round_key(cx: &Cx, name: String, glyph: &str, action: Action) -> Dom {
     tap(&name, &format!("width: 44px; height: 44px; border-radius: 22px; background: {};", th::SURFACE), cx, action).with_child(icon(glyph, 24.0, th::TEXT))
 }
 
+/// Sideways, where the return point has no bar of its own: a few words and the button, in place of the zoom.
+fn return_inline(cx: &Cx, point: &ReturnPoint) -> Dom {
+    let words = return_words(cx, point);
+    row("flex-grow: 1; min-width: 0px; justify-content: flex-end; gap: 6px;")
+        .with_child(icon("undo", 16.0, th::TEXT_DIM))
+        .with_child(text_clip(&words, &format!("flex-shrink: 1; min-width: 0px; font-size: 13px; color: {};", th::TEXT_DIM)))
+        .with_child(
+            tap(
+                &cx.tf("return-name", &[("where", &words)]),
+                &format!("height: 44px; padding: 0px 12px; border-radius: 10px; background: {}; flex-shrink: 0;", th::ACCENT),
+                cx,
+                Action::ContinueReviewing,
+            )
+            .with_child(text(&cx.t("return-continue"), "font-size: 14px; font-weight: 600; color: #ffffff; white-space: nowrap;")),
+        )
+}
+
 /// Fit, reset, the pages: what a pinch and a drag do, for hands that would rather tap.
 fn controls(cx: &Cx, zone: Zone) -> Dom {
     let zoom = cx.view().pen.as_ref().map_or(1.0, |p| p.zoom);
-    row(&format!("width: {}; height: {}; padding: 0px {}; gap: 8px;", px(zone.w), px(zone.h), px(cx.z.gutter)))
+    let pages = cx.view().pen.as_ref().is_none_or(|p| p.page().is_some());
+    let mut keys = row(&format!("width: {}; height: {}; padding: 0px {}; gap: 8px;", px(zone.w), px(zone.h), px(cx.z.gutter)))
         .with_child(round_key(cx, cx.t("remote-fit"), "fit_screen", Action::Fit))
-        .with_child(round_key(cx, cx.t("remote-reset"), "restart_alt", Action::ResetView))
-        .with_child(round_key(cx, cx.t("remote-prev"), "navigate_before", Action::PageStep(-1)))
-        .with_child(round_key(cx, cx.t("remote-next"), "navigate_next", Action::PageStep(1)))
-        .with_child(div("flex-grow: 1;"))
-        .with_child(text(
+        .with_child(round_key(cx, cx.t("remote-reset"), "restart_alt", Action::ResetView));
+    if pages {
+        keys.add_child(round_key(cx, cx.t("remote-prev"), "navigate_before", Action::PageStep(-1)));
+        keys.add_child(round_key(cx, cx.t("remote-next"), "navigate_next", Action::PageStep(1)));
+    }
+    match return_point(cx).filter(|_| cx.env.landscape()) {
+        Some(point) => keys.with_child(return_inline(cx, point)),
+        None => keys.with_child(div("flex-grow: 1;")).with_child(text(
             &cx.tf("remote-zoom", &[("percent", &format!("{:.0}", zoom * 100.0))]),
             &format!("font-size: 15px; font-weight: 600; color: {}; white-space: nowrap;", th::TEXT_DIM),
-        ))
+        )),
+    }
 }
 
 // ---- the buttons
@@ -273,11 +416,12 @@ fn controls(cx: &Cx, zone: Zone) -> Dom {
 /// What the buttons act on, in words.
 fn context_words(cx: &Cx) -> String {
     match &cx.view().pen {
-        Some(pen) if !pen.file.is_empty() => match pen.context {
+        Some(PenState { surface: Surface::Page(page), context, .. }) if !page.file.is_empty() => match context {
             Context::Region => cx.t("remote-context-region"),
-            Context::Line => cx.tf("remote-context-line", &[("n", &pen.line.to_string())]),
-            Context::Page => cx.tf("remote-context-page", &[("n", &(pen.page_index + 1).to_string())]),
+            Context::Line => cx.tf("remote-context-line", &[("n", &page.line.to_string())]),
+            Context::Page => cx.tf("remote-context-page", &[("n", &(page.page_index + 1).to_string())]),
         },
+        Some(PenState { surface: Surface::Whiteboard(_), .. }) => cx.t("remote-context-board"),
         _ => cx.t("remote-context-none"),
     }
 }
@@ -432,5 +576,3 @@ pub fn state_colour(state: FileState) -> Option<&'static str> {
     }
 }
 
-/// The page's shape when the Mac has not said.
-pub const FALLBACK_ASPECT: f32 = DEFAULT_ASPECT;

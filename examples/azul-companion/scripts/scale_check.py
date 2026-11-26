@@ -3,7 +3,8 @@
 with `transform: scale()`, and the pointer must still mean the same thing on the phone. Checked through the debug port, with
 synthetic events fed to the app (the user's real cursor is never touched):
 
-  drag   a drag of 100 phone pixels across the pad sends the same pan (to 0.01) at 100, 75 and 50 percent;
+  drag   a drag of 100 phone pixels across the pad sends the same pan (to 0.01) at 100, 75 and 50 percent (the content follows
+         the finger: to the right is a pan to the left);
   tap    a tap on the settings gear, at the place the gear is painted, opens the settings (the pad is gone) at 75 percent;
   edge   a drag that leaves the pad (the pointer stays captured by it): reported, not failed. Known engine gap: for a
          captured pointer outside the node `get_cursor_relative_to_node` measures against the UNtransformed rect.
@@ -126,7 +127,8 @@ def real_window(binary, port, out_png):
         sim.drag(sim.painted(cx, cy), sim.painted(cx + 100.0, cy))
         pan = sim.last_pan()
         print(f"  drag of 100 phone px, pan sent: {pan}")
-        ok &= pan is not None and abs(pan[0] + 0.16) <= 0.01
+        # the content follows the finger: a drag to the right sends the viewport to the left, and nothing sideways in y
+        ok &= pan is not None and pan[0] < -0.05 and abs(pan[1]) <= 0.01
         sim.screenshot(out_png)
         targets = [n for n in sim.nodes() if "az-target" in (n.get("classes") or []) and n["rect"]["x"] < sim.bezel["x"] + sim.bezel["width"]]
         top = min(t["rect"]["y"] for t in targets)

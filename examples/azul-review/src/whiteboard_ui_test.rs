@@ -69,6 +69,8 @@ fn picture(w: u32, h: u32) -> Arc<CutoutImage> {
 
 fn source() -> Source {
     Source {
+        rev: String::new(),
+        sha256: String::new(),
         file: "src/lib.rs".to_string(),
         page: 0,
         first_line: 10,

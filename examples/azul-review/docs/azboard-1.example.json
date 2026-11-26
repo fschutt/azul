@@ -1,0 +1,311 @@
+{
+  "format": "azboard/1",
+  "generator": "AzReview 0.1.0",
+  "board": {
+    "id": "b1",
+    "name": "From the DOM to the pixels",
+    "created_ms": 1764140000000,
+    "modified_ms": 1764143600000
+  },
+  "workspace": {
+    "name": "azul",
+    "repo": {
+      "remote": "https://github.com/fschutt/azul.git",
+      "web_url": "https://github.com/fschutt/azul",
+      "host": "github",
+      "rev": "fb2c1540972fd27d8dfccc187e449cd54a5e77ca",
+      "branch": "master",
+      "dirty": false
+    }
+  },
+  "author": "Example Author",
+  "canvas": {
+    "unit": "px",
+    "origin": "top-left",
+    "view": {
+      "x": -40,
+      "y": -40,
+      "zoom": 0.8
+    },
+    "bounds": {
+      "x": 0,
+      "y": 0,
+      "width": 1720,
+      "height": 262
+    }
+  },
+  "next_id": 10,
+  "assets": {
+    "img-1": {
+      "type": "image/png",
+      "width": 280,
+      "height": 112,
+      "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAARgAAABwCAYAAADFXm8PAAABm0lEQVR42u3csQ0EIQxFQToiRKL/lggggRYsIoQnmAJOe3rB92rLmmNH9Fa/Ev3dwL0iMIDACAwIjMAAAuPhg8AIDCQIDIDAAAIDCAyAkRejNwKDwCAwAiMwIDAIDAKDwCAwAiMw4EwNCAwgMAACAxh5MZqCwAgMCIzAgMAgMCAwAgMCIzDgTA0gMIDAAAID8EpgDL+Q74ghMIDAAAIjMCAwAgMIDCAwAAIDCAwgMABGXnxeAoFBYBAYgREYEBgEBoFBYBAYgREYcKYGBAYQGACBAYy8YNQWGIFBYBAYEBiB8adGYARGYBAYBAYERmAAgQEQGEBgAIy8GEURGAQGgREYgQGBQWAQGAQGgREYgQFnakBgAIEBEBjAyAv8NfoLDCAwgMAIDAiMwAACAwgMgMAAAgMIDICRF3BFAgRGYEBgBAYQGEBgBAbwJi/gPRhAYAAEBvAmL2DkFRhAYACB8VBAYAQGEBhAYABnagCBAQQGwMhLrtERgQGBERiBQWAQGAQGgQGBERiBQWBwpgYEBhAYAIEBBAYQGIBrB89YPMFhMlOIAAAAAElFTkSuQmCC"
+    },
+    "img-2": {
+      "type": "image/png",
+      "width": 280,
+      "height": 112,
+      "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAARgAAABwCAYAAADFXm8PAAABp0lEQVR42u3csQ3EIBBFQToiRKL/lggggRYWiQDEBFOBfS/4e3Iavc2IWjIcE33veFsSGAQGgUFgEBgQGAQGgUFgEBg+CAyAwAACAwgMgJHXyAgCIzAgMAIDCIzAgMAIDAiMwADO1IDAAAIDIDCAkRcjNQiMwIDAIDAIDAIDAiMwIDAIDM7UAAIDCAwgMAC3BMYwi5FbYAQGgUFgEBgERmAQGIERGAQGgQGBERgAgQEEBhAYACMvGKUFBgRGYAQGBEZgQGAEBgRGYAQGBMaZGhAYQGAABAYw8oLPLwiMwCAwCAwCg8CAwAiMwCAwCAwCgzM1IDAAAgMIDCAwRl6MxggMCIzACAwCIzACg8AgMCAwAiMwCAzO1IDAAAIDIDCAkReMvgIjMAgMAoPAIDAgMAIjMAgMAgN+7M7UgMAACAwgMIDAGHmB3dFcYACBAQRGYEBgBAYQGEBgAAQGEBhAYACMvGCEFRhAYAQGBEZgQGAEBhAYgQGBcaYGBAYQGACBAfyTF/C5BoEBBAYQGA8FBEZgAIEBBAZwpgYQGEBgAIy8gCsS8GBgFq9fiNjQQUSZAAAAAElFTkSuQmCC"
+    },
+    "img-3": {
+      "type": "image/png",
+      "width": 280,
+      "height": 112,
+      "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAARgAAABwCAYAAADFXm8PAAABaUlEQVR42u3ZoQ0AIAxFQTZCkrD/SggwMAKVhJ64BSqe+C1rjh3RWwWSiHbhpggMIDCAwAACIzCAwAAJAgMgMIDAAAID8H5gDGdGQgRGYBAYBAaBQWAERmAQGIFBYBAYBAaBARAYQGAAgQEw8mJ0RmBAYARGYBAYBAaBQWBAYARGYBAYvKkBgQEEBkBgACMvRlEERmAEBgQGgUFgEBgERmAEBgQGgcGbGhAYAIEBBAYQGCMvRmAEBoFBYARGYBAYgUFgEBgEBoERGIEBb2pAYACBARAYQGAAgQEQGEBgAIEBEBhAYACBARAYQGAAgQEQGEBgAIEBEBhAYACBARAYQGAAgQEQGEBgAIEBEBhAYAAEBhAYQGAABAYQGEBgAAQGEBhAYAAEBhAYQGAABAYQGEBgAAQGEBhAYAAEBhAYQGAABAYQGEBgAAQGEBhAYBwCEBhAYAAEBhAYQGAABAYQGEBgAAQGEBjgGwecfoCclz8YSgAAAABJRU5ErkJggg=="
+    },
+    "img-4": {
+      "type": "image/png",
+      "width": 280,
+      "height": 112,
+      "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAARgAAABwCAYAAADFXm8PAAABbklEQVR42u3ZsQkAIAxFwWxkKbj/Shba6BBKELniJoi84htz9JWh1cJFWXeDEyEwAgMCg8AgMAIjMCAwAgMCg8AgMAACAwgMIDAAHwTGsGskRmAERmBAYATG40dgBEZgEBiBERgQGAQGgQEEBkBgAIEBBMbIi9EbgQGBERiBQWAERmAQGAQGBEZgBAaBERgAgQEEBhAYACMvRlUERmAQGIERGAQGgUFgEBiBQWAERmAQGHxTAwIDIDCAwAACY6QFI7rAgMAIDCAwAgMCIzAgMAIDCAyAwAACAwgMgMAAAgMIDIDAAAIDCAyAwAACAwgMgMAAAgMIDIDAAAIDCAyAwAACAyAwgMAAAgMgMIDAAAIDIDCAwAACAyAwgMAAAgMgMIDAAAIDIDCAwAACAyAwgMAAAgMgMIDAAAIDIDCAwAACAyAwgMAACAwgMIDAAAgMIDCAwAAIDCAwgMAACAwgMIDAAAgMIDCAwAAIDPCMDc5YEHakpKvwAAAAAElFTkSuQmCC"
+    },
+    "img-5": {
+      "type": "image/png",
+      "width": 280,
+      "height": 112,
+      "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAARgAAABwCAYAAADFXm8PAAABlUlEQVR42u3dsQ2AIBRFUTaiNHH/lSiwwRUIoYF3irOAxlv8T7B8vY0Z71OBRbPf2W2KwIDACAwIjMAAAiMwIDACAwITEBgAgQEEBhAYgPOHvF4GCIzAAAIDCIzAgMAIDCAwgDU1IDAAAgMIDCAwrmsAdixlBAYQGEBgAIERGEBggITAADgHAwgMIDAATvICtkiAwAgMIDCAwAACIzCAk7yAczCAwAAIDOAkL6QONREYEBiBAYERGBAYBAYERmBAYKypAQQGEBhAYAAMeTFURWBAYARGYBAYBAaBQWBAYARGYBAYrKkBgQEEBkBgAENeIHMoLjAgMAIDCAwgMAIDAiMwQEJgAAQGEBhAYADOH/J6GSAwAgMIDCAwAgMCIzCAwADW1IDAAAgMIDCAwLiuwY/FQGAEBgQGgUFgBEZgQGAEBgQGgUFgPARAYACBARAYwHUNgMAIDCAwgMAAAiMwgMAA1tSAwAAIDCAwgCGv6xMAgREYEBiBAYERGEBgBAYERmBAYAAEBhAYQGAADHkNeUFgBAZC/UlU3Caww7msAAAAAElFTkSuQmCC"
+    }
+  },
+  "items": [
+    {
+      "kind": "cutout",
+      "id": 1,
+      "x": 0,
+      "y": 0,
+      "width": 280,
+      "height": 112,
+      "label": "The DOM an app's layout callback returns",
+      "image": {
+        "asset": "img-1",
+        "scale": 1
+      },
+      "source": {
+        "path": "core/src/dom.rs",
+        "line_start": 4852,
+        "line_end": 4862,
+        "hash": "sha256:e6ae97b4b4e1f3035449a2ce2a776b33a44166b8e05e68b188a22c6c64e4b888",
+        "rev": "fb2c1540972fd27d8dfccc187e449cd54a5e77ca",
+        "permalink": "https://github.com/fschutt/azul/blob/fb2c1540972fd27d8dfccc187e449cd54a5e77ca/core/src/dom.rs#L4852-L4862",
+        "language": "rust",
+        "code": [
+          "#[repr(C)]",
+          "#[derive(PartialEq, Clone)]",
+          "pub struct Dom {",
+          "    /// The data for the root node of this DOM (or sub-DOM).",
+          "    pub root: NodeData,",
+          "    /// The children of this DOM node.",
+          "    pub children: DomVec,",
+          "    /// Ordered list of CSS stylesheets to apply to this DOM subtree.",
+          "    /// Stylesheets are applied in push order during the single deferred cascade pass.",
+          "    /// Later entries override earlier ones (higher cascade priority).",
+          "    pub css: azul_css::css::CssVec,"
+        ]
+      }
+    },
+    {
+      "kind": "cutout",
+      "id": 2,
+      "x": 360,
+      "y": 150,
+      "width": 280,
+      "height": 112,
+      "label": "The DOM with its CSS cascaded",
+      "image": {
+        "asset": "img-2",
+        "scale": 1
+      },
+      "source": {
+        "path": "core/src/styled_dom.rs",
+        "line_start": 1093,
+        "line_end": 1114,
+        "hash": "sha256:6bc32e4ee1a5c425764fa7947c3a9fb457dff2f7f85e0dcf77b44b1f86244afa",
+        "rev": "fb2c1540972fd27d8dfccc187e449cd54a5e77ca",
+        "permalink": "https://github.com/fschutt/azul/blob/fb2c1540972fd27d8dfccc187e449cd54a5e77ca/core/src/styled_dom.rs#L1093-L1114",
+        "language": "rust",
+        "code": [
+          "#[derive(Debug, PartialEq, Clone)]",
+          "#[repr(C)]",
+          "pub struct StyledDom {",
+          "    pub root: NodeHierarchyItemId,",
+          "    pub node_hierarchy: NodeHierarchyItemVec,",
+          "    pub node_data: NodeDataVec,",
+          "    pub styled_nodes: StyledNodeVec,",
+          "    pub cascade_info: CascadeInfoVec,",
+          "    pub nodes_with_window_callbacks: NodeHierarchyItemIdVec,",
+          "    pub nodes_with_datasets: NodeHierarchyItemIdVec,",
+          "    /// Every node that can take focus (`NodeData::is_focusable`: a link, a",
+          "    /// button, an input, a contenteditable node, a node with a tab index or",
+          "    /// a focus callback), ascending. Derived from `node_data`",
+          "    /// (`DerivedNodeLists`): a Tab press reads this list, not every node.",
+          "    pub focusable_nodes: NodeHierarchyItemIdVec,",
+          "    /// Every node with a marker (`NodeData::get_marker`), ascending. Derived",
+          "    /// from `node_data` (`DerivedNodeLists`): a lookup by marker compares",
+          "    /// the markers of these nodes, not of every node.",
+          "    pub nodes_with_markers: NodeHierarchyItemIdVec,",
+          "    pub tag_ids_to_node_ids: TagIdToNodeIdMappingVec,",
+          "    pub non_leaf_nodes: ParentWithNodeDepthVec,",
+          "    pub css_property_cache: CssPropertyCachePtr,"
+        ]
+      }
+    },
+    {
+      "kind": "cutout",
+      "id": 3,
+      "x": 720,
+      "y": 0,
+      "width": 280,
+      "height": 112,
+      "label": "Layout: boxes, text, positions",
+      "image": {
+        "asset": "img-3",
+        "scale": 1
+      },
+      "source": {
+        "path": "layout/src/solver3/mod.rs",
+        "line_start": 775,
+        "line_end": 779,
+        "hash": "sha256:485a0b3a65830e40b3b9cb33ab8b16ba03bd154a908ddc1542385246ff1bc839",
+        "rev": "fb2c1540972fd27d8dfccc187e449cd54a5e77ca",
+        "permalink": "https://github.com/fschutt/azul/blob/fb2c1540972fd27d8dfccc187e449cd54a5e77ca/layout/src/solver3/mod.rs#L775-L779",
+        "language": "rust",
+        "code": [
+          "pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(",
+          "    cache: &mut LayoutCache,",
+          "    text_cache: &mut TextLayoutCache,",
+          "    new_dom: &StyledDom,",
+          "    viewport: LogicalRect,"
+        ]
+      }
+    },
+    {
+      "kind": "cutout",
+      "id": 4,
+      "x": 1080,
+      "y": 150,
+      "width": 280,
+      "height": 112,
+      "label": "The display list becomes pixels",
+      "image": {
+        "asset": "img-4",
+        "scale": 1
+      },
+      "source": {
+        "path": "webrender/core/src/renderer/mod.rs",
+        "line_start": 1224,
+        "line_end": 1228,
+        "hash": "sha256:a450ce5e6cd00d9bd8c4c6fb33c86594eb6261e426c35794daf6f7efc1c3f493",
+        "rev": "fb2c1540972fd27d8dfccc187e449cd54a5e77ca",
+        "permalink": "https://github.com/fschutt/azul/blob/fb2c1540972fd27d8dfccc187e449cd54a5e77ca/webrender/core/src/renderer/mod.rs#L1224-L1228",
+        "language": "rust",
+        "code": [
+          "    pub fn render(",
+          "        &mut self,",
+          "        device_size: DeviceIntSize,",
+          "        buffer_age: usize,",
+          "    ) -> Result<RenderResults, Vec<RendererError>> {"
+        ]
+      }
+    },
+    {
+      "kind": "cutout",
+      "id": 5,
+      "x": 1440,
+      "y": 0,
+      "width": 280,
+      "height": 112,
+      "label": "One shell per platform shows them",
+      "image": {
+        "asset": "img-5",
+        "scale": 1
+      },
+      "source": {
+        "path": "dll/src/desktop/shell2/mod.rs",
+        "line_start": 1,
+        "line_end": 19,
+        "hash": "sha256:5745158fa638d9953ae2e7e04fdfde5d8112b586582a9324347bab4bfc92b45f",
+        "rev": "fb2c1540972fd27d8dfccc187e449cd54a5e77ca",
+        "permalink": "https://github.com/fschutt/azul/blob/fb2c1540972fd27d8dfccc187e449cd54a5e77ca/dll/src/desktop/shell2/mod.rs#L1-L19",
+        "language": "rust",
+        "code": [
+          "//! shell2 - Modern windowing system abstraction.",
+          "//!",
+          "//! This module provides a clean, platform-agnostic windowing API with:",
+          "//! - Dynamic library loading (Linux, Windows) to avoid linker errors",
+          "//! - CPU/GPU compositor selection per window",
+          "//! - Clean trait-based architecture",
+          "//! - Support for macOS, Windows, Linux (X11 + Wayland)",
+          "//!",
+          "//! # Architecture",
+          "//!",
+          "//! ```text",
+          "//! shell2/",
+          "//! ├── common/          Platform-agnostic traits and types",
+          "//! ├── macos/           AppKit implementation (static linking)",
+          "//! ├── windows/         Win32 implementation (dynamic loading)",
+          "//! ├── linux/",
+          "//! │   ├── x11/         X11 implementation (dynamic loading)",
+          "//! │   └── wayland/     Wayland implementation (dynamic loading)",
+          "//! └── headless/        Headless testing backend"
+        ]
+      }
+    },
+    {
+      "kind": "arrow",
+      "id": 6,
+      "from": {
+        "item": 1,
+        "anchor": "auto"
+      },
+      "to": {
+        "item": 2,
+        "anchor": "auto"
+      },
+      "bend": 0.12,
+      "label": "styled"
+    },
+    {
+      "kind": "arrow",
+      "id": 7,
+      "from": {
+        "item": 2,
+        "anchor": "auto"
+      },
+      "to": {
+        "item": 3,
+        "anchor": "auto"
+      },
+      "bend": -0.12,
+      "label": "laid out"
+    },
+    {
+      "kind": "arrow",
+      "id": 8,
+      "from": {
+        "item": 3,
+        "anchor": "auto"
+      },
+      "to": {
+        "item": 4,
+        "anchor": "auto"
+      },
+      "bend": 0.12,
+      "label": "display list"
+    },
+    {
+      "kind": "arrow",
+      "id": 9,
+      "from": {
+        "item": 4,
+        "anchor": "auto"
+      },
+      "to": {
+        "item": 5,
+        "anchor": "auto"
+      },
+      "bend": -0.12,
+      "label": "drawn in a window"
+    }
+  ],
+  "snapshots": []
+}

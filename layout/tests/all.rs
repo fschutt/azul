@@ -200,6 +200,8 @@ mod cpurender_image_probe;
 mod cross_block_selection;
 #[path = "css_zoom_scales_flex_items_grid_items_and_blocks_alike.rs"]
 mod css_zoom_scales_flex_items_grid_items_and_blocks_alike;
+#[path = "css_zoom_scales_the_fixed_tracks_of_a_grid.rs"]
+mod css_zoom_scales_the_fixed_tracks_of_a_grid;
 #[path = "delete_keyed_to_caret_owner.rs"]
 mod delete_keyed_to_caret_owner;
 #[path = "damage_raster_reports_what_it_painted.rs"]
@@ -488,12 +490,16 @@ mod test_style_tag_parsing;
 mod test_text_layout;
 #[path = "text_align_last_text_justify_and_text_indent_place_the_words_of_a_line.rs"]
 mod text_align_last_text_justify_and_text_indent_place_the_words_of_a_line;
+#[path = "text_decoration_color_and_thickness_paint_the_lines_they_are_set_on.rs"]
+mod text_decoration_color_and_thickness_paint_the_lines_they_are_set_on;
 #[path = "text_rendering_optimize_speed_turns_the_kerning_and_the_ligatures_off.rs"]
 mod text_rendering_optimize_speed_turns_the_kerning_and_the_ligatures_off;
 #[path = "text_shadow_wraps_the_text_it_shadows_in_the_display_list.rs"]
 mod text_shadow_wraps_the_text_it_shadows_in_the_display_list;
 #[path = "text_transform_changes_the_letters_that_are_drawn.rs"]
 mod text_transform_changes_the_letters_that_are_drawn;
+#[path = "text_underline_offset_and_position_place_the_underline_of_a_box.rs"]
+mod text_underline_offset_and_position_place_the_underline_of_a_box;
 #[path = "text_wrap_balances_and_pretty_breaks_a_paragraph_and_nowrap_keeps_it_on_one_line.rs"]
 mod text_wrap_balances_and_pretty_breaks_a_paragraph_and_nowrap_keeps_it_on_one_line;
 #[path = "text3_baseline_exact.rs"]

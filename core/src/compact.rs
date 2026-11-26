@@ -27,6 +27,7 @@ use azul_css::{
             position::LayoutZIndex,
         },
         property::CssProperty,
+        style::text::{StyleTextDecorationColor, StyleTextDecorationThickness},
     },
 };
 
@@ -2831,6 +2832,20 @@ fn update_dom_declared_flags(prop: &CssProperty, flags: &mut u64) {
         CssProperty::TextWrap(v) => {
             if v.get_property().is_some_and(|wrap| *wrap != StyleTextWrap::Wrap) {
                 *flags |= DOM_HAS_TEXT_WRAP;
+            }
+        }
+        CssProperty::TextDecorationColor(v) => {
+            if v.get_property()
+                .is_some_and(|color| *color != StyleTextDecorationColor::CurrentColor)
+            {
+                *flags |= DOM_HAS_TEXT_DECORATION_COLOR;
+            }
+        }
+        CssProperty::TextDecorationThickness(v) => {
+            if v.get_property()
+                .is_some_and(|thickness| *thickness != StyleTextDecorationThickness::Auto)
+            {
+                *flags |= DOM_HAS_TEXT_DECORATION_THICKNESS;
             }
         }
         CssProperty::FontVariantPosition(v) => {

@@ -5,17 +5,16 @@
 
 use std::time::Instant;
 
-use azul_review_link::frame::{is_safe_relative_path, ButtonSet, Focus, Phase, QuickButton, Rect, ReplyStatus};
+use azul_review_link::frame::{is_safe_relative_path, AgentFinished, ButtonSet, Focus, Haptic, Phase, QuickButton, Rect, ReplyStatus};
 use azul_review_link::limits::Capped;
 use azul_review_link::link::Millis;
 use azul_review_link::phone::PhoneApi;
 use azul_review_link::view::{PhoneView, Session};
-use azul_review_link::viewport::{apply_gesture, resolve_focus};
+use azul_review_link::viewport::{apply_gesture_in, resolve_focus, PanDirection, Space};
 
 use crate::env::{Env, Lang};
 use crate::l10n::Strings;
 use crate::pad::{PadOut, PadScale, PadState};
-use crate::layout::DEFAULT_ASPECT;
 
 pub mod chrome;
 pub mod editor;
@@ -74,6 +73,12 @@ pub enum Action {
     Strip(i8),
     /// The first-use hint over the pad was dismissed.
     DismissHint,
+    /// "Continue reviewing": back to the return point.
+    ContinueReviewing,
+    /// "Try it without a Mac": a pretend Mac answers.
+    Demo,
+    /// Back from the demo to the real connection.
+    LeaveDemo,
     /// The simulator's panel.
     Sim(crate::sim::SimAction),
 }
@@ -112,6 +117,12 @@ pub struct Ui {
     pub opened: Option<(String, Millis)>,
     /// A line shown for a moment at the bottom ("Saved in AzReview").
     pub toast: Option<(String, Millis)>,
+    /// How many agents that finished the phone has taken note of.
+    pub finished_seen: u32,
+    /// The agent that finished last, shown for a moment.
+    pub finished_note: Option<(AgentFinished, Millis)>,
+    /// The buzz the phone owes (the shell plays it on its next turn).
+    pub haptic: Option<Haptic>,
 }
 
 /// A gesture in progress, from the Mac's view at its start.
@@ -171,6 +182,9 @@ impl Ui {
             suppress_click_until: 0,
             opened: None,
             toast: None,
+            finished_seen: 0,
+            finished_note: None,
+            haptic: None,
         }
     }
 }
@@ -199,13 +213,16 @@ pub struct Root {
     pub started: Instant,
     /// The simulator's extras (the fake Mac's panel); `None` on a phone.
     pub sim: Option<crate::sim::Extras>,
+    /// The demo is on: a pretend Mac answers (the real connection waits in `stashed`).
+    pub demo: bool,
+    stashed: Option<Box<dyn PhoneApi>>,
 }
 
 impl Root {
     /// An app with this connection.
     #[must_use]
     pub fn new(api: Box<dyn PhoneApi>, env: EnvSource) -> Root {
-        Root { api, ui: Ui::new(), strings: Strings::builtin(), env, started: Instant::now(), sim: None }
+        Root { api, ui: Ui::new(), strings: Strings::builtin(), env, started: Instant::now(), sim: None, demo: false, stashed: None }
     }
 
     /// Milliseconds since the app started.
@@ -232,7 +249,7 @@ impl Root {
     pub fn shown_view(&self) -> Option<Rect> {
         let pen = self.api.view().pen.as_ref()?;
         match (self.ui.pad.live(), self.ui.live_base) {
-            (Some(live), Some(base)) if live.id == base.id => Some(apply_gesture(base.base, live.pan, live.zoom, base.about)),
+            (Some(live), Some(base)) if live.id == base.id => Some(apply_gesture_in(base.base, live.pan, live.zoom, base.about, space_of(&pen.surface))),
             _ => Some(pen.view),
         }
     }
@@ -266,6 +283,27 @@ impl Root {
                     *seen = now_seen;
                     changed = true;
                 }
+            }
+        }
+        let (count, finished, settings) = {
+            let v = self.api.view();
+            (v.finished_count, v.finished.clone(), v.settings)
+        };
+        if count != self.ui.finished_seen {
+            // news: an agent finished (a count that went down is a fresh connection, nothing to announce)
+            if count.wrapping_sub(self.ui.finished_seen) as i32 > 0 {
+                if let Some(done) = finished {
+                    self.ui.haptic = settings.haptic_for(done.kind);
+                    self.ui.finished_note = Some((done, now));
+                }
+            }
+            self.ui.finished_seen = count;
+            changed = true;
+        }
+        if let Some((_, at)) = &self.ui.finished_note {
+            if now.saturating_sub(*at) > FINISHED_SHOWN_MS {
+                self.ui.finished_note = None;
+                changed = true;
             }
         }
         if let Some((_, at)) = self.ui.toast {
@@ -449,6 +487,18 @@ impl Root {
                 self.ui.hint = false;
                 true
             }
+            Action::ContinueReviewing => {
+                self.api.continue_reviewing(now);
+                true
+            }
+            Action::Demo => {
+                self.start_demo();
+                true
+            }
+            Action::LeaveDemo => {
+                self.leave_demo();
+                true
+            }
             Action::Sim(action) => match self.sim.take() {
                 Some(mut sim) => {
                     let changed = sim.perform(self, now, action);
@@ -460,9 +510,41 @@ impl Root {
         }
     }
 
-    /// What the pad's pointer and pinch events become. `pad_w` is the pad's width in logical pixels.
-    pub fn pad_event(&mut self, now: Millis, event: PadEvent, pad_w: f32) -> bool {
-        let pen = self.api.view().pen.clone();
+    /// The demo: the screens talk to a pretend Mac inside the app (its pen walks on its own, a button press starts a conversation
+    /// that ends in a suggestion and a result, each of which announces itself) and nothing is sent anywhere.
+    pub fn start_demo(&mut self) {
+        if self.demo {
+            return;
+        }
+        let mut mac = crate::sim::mac::SimMac::new();
+        mac.name = "Demo Mac".to_string();
+        mac.pen_walk = true;
+        mac.announce_finished = true;
+        let phone = crate::sim::phone::SimPhone::new(std::sync::Arc::new(std::sync::Mutex::new(mac)), std::sync::Arc::new(std::sync::Mutex::new(Vec::new())));
+        self.stashed = Some(std::mem::replace(&mut self.api, Box::new(phone)));
+        self.demo = true;
+        self.ui = Ui::new();
+    }
+
+    /// Leaves the demo: the real connection is back, as it was.
+    pub fn leave_demo(&mut self) {
+        if let Some(real) = self.stashed.take() {
+            self.api = real;
+        }
+        self.demo = false;
+        self.ui = Ui::new();
+    }
+
+    /// The buzz the phone owes, once (the shell plays it).
+    pub fn take_haptic(&mut self) -> Option<Haptic> {
+        self.ui.haptic.take()
+    }
+
+    /// What the pad's pointer and pinch events become. `pad` is the pad's size in logical pixels.
+    pub fn pad_event(&mut self, now: Millis, event: PadEvent, pad: (f32, f32)) -> bool {
+        let view = self.api.view();
+        let pen = view.pen.clone();
+        let direction = PanDirection::from_reverse(view.settings.reverse_pan);
         let outs = match (event, &pen) {
             (PadEvent::Cancel, _) => self.ui.pad.cancel(),
             (_, None) => return false,
@@ -471,8 +553,10 @@ impl Root {
             (PadEvent::Up { x, y }, _) => self.ui.pad.pointer_up(now, x, y),
             (PadEvent::Pinch { scale, began, ended }, _) => self.ui.pad.pinch(now, scale, began, ended),
             (PadEvent::Move { x, y }, Some(pen)) => {
-                let aspect = if pen.page_h > 0.0 && pen.page_w > 0.0 { pen.page_w / pen.page_h } else { DEFAULT_ASPECT };
-                self.ui.pad.pointer_move(now, x, y, &PadScale { pad_w, view: pen.view, page_aspect: aspect })
+                // the scale of the view the gesture began on: the sheets under the finger keep their size while it drags
+                let base = self.ui.live_base.map_or(pen.view, |b| b.base);
+                let px_per_unit = crate::padscene::px_per_unit(pad, pen.page().is_some(), base);
+                self.ui.pad.pointer_move(now, x, y, &PadScale { px_per_unit, direction })
             }
         };
         let moved = !outs.is_empty() || self.ui.pad.live().is_some();
@@ -499,8 +583,20 @@ impl Root {
     }
 }
 
+/// Where the view may go on a surface.
+#[must_use]
+pub fn space_of(surface: &azul_review_link::frame::Surface) -> Space {
+    match surface {
+        azul_review_link::frame::Surface::Page(page) => Space::of_pages(page),
+        azul_review_link::frame::Surface::Whiteboard(board) => Space::of_board(board.aspect),
+    }
+}
+
 /// How long after a long press a click is taken for its release, not a press.
 pub const LONG_PRESS_RELEASE_MS: Millis = 600;
+
+/// How long the line about an agent that finished stays at the bottom.
+pub const FINISHED_SHOWN_MS: Millis = 5_000;
 
 /// How long a "Done" tick stays on a quick button.
 pub const DONE_SHOWN_MS: Millis = 6_000;

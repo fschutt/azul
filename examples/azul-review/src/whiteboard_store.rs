@@ -2,31 +2,31 @@
 //! bytes in, the bytes out; the zip around them and the PNG codec are azul's and live in the glue
 //! (`whiteboard_archive`), the disk is the data drive's.
 //!
-//! A board is a set of entries: `board.json` (the manifest: format, workspace, the view, the items
-//! in the order they are drawn) and one `img-<id>.png` for each cutout that has a picture, written
-//! as it was made (the PNG is encoded once, when the cutout is captured). The format is versioned
-//! (`azreview-board/1`): a key this version does not know is ignored, an item it does not understand
-//! is left out and counted, a file of a newer major version is refused with a sentence. Reading is
-//! tolerant and bounded: a missing or damaged picture leaves its cutout with the lines it was made
-//! from, a damaged manifest is an error and never a panic, and what is read is kept inside the board's
-//! caps.
+//! A board is a set of entries: `board.json` (the document, `azboard/1`: [`crate::whiteboard_azboard`]) and one
+//! `img-<id>.png` for each cutout that has a picture, written as it was made (the PNG is encoded once, when the cutout
+//! is captured). The document is the publishable one: the zip is only the way to keep it with its pictures. Reading is
+//! tolerant and bounded: a key this version does not know is ignored, an item it does not understand is left out and
+//! counted, a file of a newer major version is refused with a sentence, a missing or damaged picture leaves its cutout
+//! with the lines it was made from, a damaged manifest is an error and never a panic, and what is read is kept inside
+//! the board's caps. The format the first version wrote (`azreview-board/1`) is still read.
 //!
-//! One board per workspace: [`board_name`] names its file after the workspace's folder and a hash of
-//! its whole path. One write at a time ([`SaveGate`]); a file that cannot be read is kept as it is
-//! under [`quarantine_name`] before the board that replaces it is written.
+//! Each board has a file of its own: [`board_name`] names the file of the one-board version after the workspace's
+//! folder and a hash of its whole path (the first board of a workspace is kept in it still), `whiteboard_boards` names
+//! the others. One write at a time ([`SaveGate`]); a file that cannot be read is kept as it is under
+//! [`quarantine_name`] before the board that replaces it is written.
 
 use crate::{
-    whiteboard::{Anchor, Arrow, BoardData, Cutout, End, ImageSlot, Item, ItemId, Limits, Source},
+    whiteboard::{Arrow, BoardData, Cutout, ImageSlot, Item, ItemId, Limits, Source},
+    whiteboard_azboard::{self as azboard, end_of, f32_of, point_of, Meta},
     whiteboard_cutout::Raster,
-    whiteboard_geom::{Pt, Rect, Side, View},
-    whiteboard_json::{self as json, num, push_string, Json},
+    whiteboard_geom::{Pt, Rect, View},
+    whiteboard_json::{self as json, Json},
 };
 
-/// The format a manifest names, and the one this version reads and writes.
-pub const FORMAT: &str = "azreview-board/1";
-const FORMAT_PREFIX: &str = "azreview-board/";
-/// The newest major version this version reads.
-pub const FORMAT_MAJOR: u32 = 1;
+/// The format the first version wrote, which is still read.
+const LEGACY_PREFIX: &str = "azreview-board/";
+/// The newest major version of it, which is the only one there was.
+const LEGACY_MAJOR: u32 = 1;
 /// The manifest's name among the entries.
 pub const MANIFEST: &str = "board.json";
 /// The largest picture file that is read, bytes.
@@ -50,149 +50,13 @@ pub fn picture_name(id: ItemId) -> String {
     format!("img-{id}.png")
 }
 
-fn hex(v: u64) -> String {
-    format!("{v:016x}")
-}
-
-fn push_point(out: &mut String, p: Pt) {
-    out.push('[');
-    out.push_str(&num(p.x));
-    out.push(',');
-    out.push_str(&num(p.y));
-    out.push(']');
-}
-
-fn push_end(out: &mut String, end: &End) {
-    match end {
-        End::Free(p) => {
-            out.push_str("{\"free\":");
-            push_point(out, *p);
-            out.push('}');
-        }
-        End::Item { id, anchor } => {
-            out.push_str(&format!("{{\"item\":{id},\"anchor\":"));
-            match anchor {
-                Anchor::Auto => out.push_str("\"auto\""),
-                Anchor::Side(s) => {
-                    out.push_str("\"side\",\"side\":");
-                    push_string(out, s.name());
-                }
-                Anchor::Point { u, v } => {
-                    out.push_str(&format!("\"point\",\"u\":{},\"v\":{}", num(*u), num(*v)));
-                }
-            }
-            out.push('}');
-        }
-    }
-}
-
-fn push_source(out: &mut String, s: &Source) {
-    out.push_str("{\"file\":");
-    push_string(out, &s.file);
-    out.push_str(&format!(
-        ",\"page\":{},\"first_line\":{},\"last_line\":{},\"file_hash\":\"{}\",\"range_hash\":\"{}\",\"shape\":[",
-        s.page,
-        s.first_line,
-        s.last_line,
-        hex(s.file_hash),
-        hex(s.range_hash)
-    ));
-    for (i, p) in s.shape.iter().enumerate() {
-        if i > 0 {
-            out.push(',');
-        }
-        push_point(out, *p);
-    }
-    out.push_str("],\"lines\":[");
-    for (i, l) in s.lines.iter().enumerate() {
-        if i > 0 {
-            out.push(',');
-        }
-        push_string(out, l);
-    }
-    out.push_str("]}");
-}
-
-fn push_item(out: &mut String, item: &Item, has_png: bool) {
-    match item {
-        Item::Cutout(c) => {
-            out.push_str(&format!(
-                "{{\"kind\":\"cutout\",\"id\":{},\"x\":{},\"y\":{},\"w\":{},\"h\":{},\"label\":",
-                c.id,
-                num(c.rect.x),
-                num(c.rect.y),
-                num(c.rect.w),
-                num(c.rect.h)
-            ));
-            push_string(out, &c.label);
-            match &c.image {
-                ImageSlot::Ready(img) if has_png => out.push_str(&format!(
-                    ",\"image\":{},\"scale\":{},\"image_w\":{},\"image_h\":{}",
-                    json_string(&picture_name(c.id)),
-                    num(img.scale),
-                    img.width,
-                    img.height
-                )),
-                ImageSlot::Ready(_) => out.push_str(",\"image\":null,\"state\":\"failed\",\"why\":\"no picture was kept\""),
-                ImageSlot::Pending => out.push_str(",\"image\":null,\"state\":\"pending\""),
-                ImageSlot::Failed(why) => {
-                    out.push_str(",\"image\":null,\"state\":\"failed\",\"why\":");
-                    push_string(out, why);
-                }
-            }
-            out.push_str(",\"source\":");
-            push_source(out, &c.source);
-            out.push('}');
-        }
-        Item::Arrow(a) => {
-            out.push_str(&format!("{{\"kind\":\"arrow\",\"id\":{},\"from\":", a.id));
-            push_end(out, &a.from);
-            out.push_str(",\"to\":");
-            push_end(out, &a.to);
-            out.push_str(&format!(",\"bend\":{},\"label\":", num(a.bend)));
-            push_string(out, &a.label);
-            out.push('}');
-        }
-    }
-}
-
-fn json_string(s: &str) -> String {
-    let mut out = String::new();
-    push_string(&mut out, s);
-    out
-}
-
-/// The entries a board is kept as: the manifest, then a picture for each cutout that has a PNG. The
-/// workspace is the folder's path as the person knows it; `saved_ms` is the time (Unix milliseconds).
+/// The entries a board is kept as: the document, then a picture for each cutout that has a PNG. `meta` says which
+/// board it is and where it lies.
 #[must_use]
-pub fn write(data: &BoardData, workspace: &str, saved_ms: u64) -> Vec<Entry> {
-    let mut pictures = Vec::new();
-    let mut out = String::with_capacity(512 + data.items.len() * 256);
-    out.push_str("{\n  \"format\": ");
-    push_string(&mut out, FORMAT);
-    out.push_str(",\n  \"workspace\": ");
-    push_string(&mut out, workspace);
-    out.push_str(&format!(",\n  \"saved_ms\": {saved_ms},\n  \"next_id\": {},\n", data.next_id));
-    out.push_str(&format!(
-        "  \"view\": {{\"x\": {}, \"y\": {}, \"zoom\": {}}},\n  \"items\": [",
-        num(data.view.pan.x),
-        num(data.view.pan.y),
-        num(data.view.zoom)
-    ));
-    for (i, item) in data.items.iter().enumerate() {
-        out.push_str(if i > 0 { ",\n    " } else { "\n    " });
-        let png = match item {
-            Item::Cutout(Cutout { image: ImageSlot::Ready(img), id, .. }) if !img.png.is_empty() => {
-                pictures.push(Entry { name: picture_name(*id), bytes: img.png.clone() });
-                true
-            }
-            _ => false,
-        };
-        push_item(&mut out, item, png);
-    }
-    out.push_str("\n  ]\n}\n");
-    let mut entries = vec![Entry { name: MANIFEST.to_string(), bytes: out.into_bytes() }];
-    entries.extend(pictures);
+pub fn write(data: &BoardData, meta: &Meta) -> Vec<Entry> {
+    let written = azboard::document(data, meta, &azboard::Pictures::Entries);
+    let mut entries = vec![Entry { name: MANIFEST.to_string(), bytes: written.text.into_bytes() }];
+    entries.extend(written.pictures);
     entries
 }
 
@@ -215,8 +79,8 @@ pub trait ImageCodec {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Loaded {
     pub data: BoardData,
-    pub workspace: String,
-    pub saved_ms: u64,
+    /// What the file says besides the items: which board it is, when it was kept, where its code lies.
+    pub meta: Meta,
     /// Items of the file that could not be used (unknown kind, missing what they need, more than
     /// [`MAX_ITEMS_READ`]).
     pub left_out: usize,
@@ -280,39 +144,16 @@ impl StoreError {
     }
 }
 
-fn f32_of(j: &Json, key: &str) -> Option<f32> {
-    j.get(key)?.as_f32().filter(|v| v.is_finite())
-}
-
-fn point_of(j: &Json) -> Option<Pt> {
-    let a = j.as_arr()?;
-    let (x, y) = (a.first()?.as_f32()?, a.get(1)?.as_f32()?);
-    (x.is_finite() && y.is_finite()).then(|| Pt::new(x, y))
-}
-
-fn end_of(j: &Json) -> Option<End> {
-    if let Some(p) = j.get("free") {
-        return point_of(p).map(End::Free);
-    }
-    let id = j.get("item")?.as_u64()?;
-    let anchor = match j.get("anchor").and_then(Json::as_str) {
-        Some("side") => j.get("side").and_then(Json::as_str).and_then(Side::from_name).map_or(Anchor::Auto, Anchor::Side),
-        Some("point") => match (f32_of(j, "u"), f32_of(j, "v")) {
-            (Some(u), Some(v)) => Anchor::Point { u, v },
-            _ => Anchor::Auto,
-        },
-        _ => Anchor::Auto,
-    };
-    Some(End::Item { id, anchor })
-}
-
 fn source_of(j: &Json) -> Option<Source> {
+    let file = j.get("file")?.as_str().filter(|f| azboard::safe_path(f))?;
     let hash = |key: &str| -> u64 {
         j.get(key).and_then(Json::as_str).filter(|h| h.len() <= 16).and_then(|h| u64::from_str_radix(h, 16).ok()).unwrap_or(0)
     };
     let line = |key: &str| u32::try_from(j.get(key).and_then(Json::as_u64)?).ok();
     Some(Source {
-        file: j.get("file")?.as_str()?.to_string(),
+        rev: String::new(),
+        sha256: String::new(),
+        file: file.to_string(),
         page: line("page").unwrap_or(0),
         first_line: line("first_line")?,
         last_line: line("last_line")?,
@@ -328,18 +169,55 @@ fn source_of(j: &Json) -> Option<Source> {
 }
 
 /// What reading the pictures has used up.
-struct Budget<'a> {
+pub struct Budget<'a> {
     limits: &'a Limits,
     pixels: u64,
     unreadable: usize,
 }
 
+impl<'a> Budget<'a> {
+    #[must_use]
+    pub const fn new(limits: &'a Limits) -> Self {
+        Self { limits, pixels: 0, unreadable: 0 }
+    }
+
+    /// How many pictures were named and could not be had.
+    #[must_use]
+    pub const fn unreadable(&self) -> usize {
+        self.unreadable
+    }
+}
+
 /// A picture that could not be had: counted, and the reason kept with the cutout.
-fn failed(budget: &mut Budget<'_>, why: &str) -> ImageSlot {
+pub fn failed(budget: &mut Budget<'_>, why: &str) -> ImageSlot {
     budget.unreadable += 1;
     ImageSlot::Failed(why.to_string())
 }
 
+/// The picture in the PNG `bytes` (shown at `scale`), if it is one that fits what is left of the board's room.
+pub fn decode_slot(bytes: Vec<u8>, scale: f32, budget: &mut Budget<'_>, codec: &dyn ImageCodec) -> ImageSlot {
+    if bytes.len() > MAX_PICTURE_BYTES {
+        return failed(budget, "the picture's file is larger than a picture may be");
+    }
+    let decoded = match codec.decode_png(&bytes) {
+        Ok(d) => d,
+        Err(why) => return failed(budget, &format!("the picture could not be read: {why}")),
+    };
+    let px = u64::from(decoded.width) * u64::from(decoded.height);
+    if px > budget.limits.max_image_px {
+        return failed(budget, "the picture has more pixels than the board may keep");
+    }
+    if budget.pixels + px > budget.limits.max_total_px {
+        return failed(budget, "there is no room for it among the pictures of the board");
+    }
+    let Some(raster) = Raster::from_straight(decoded.width, decoded.height, decoded.rgba) else {
+        return failed(budget, "the picture's pixels do not fit its size");
+    };
+    budget.pixels += px;
+    ImageSlot::Ready(raster.into_shared_image(scale, bytes))
+}
+
+/// The picture of an item of the first version's manifest.
 fn picture_of(
     j: &Json,
     budget: &mut Budget<'_>,
@@ -355,26 +233,8 @@ fn picture_of(
     let Some(bytes) = picture(name) else {
         return failed(budget, "the picture is missing from the file");
     };
-    if bytes.len() > MAX_PICTURE_BYTES {
-        return failed(budget, "the picture's file is larger than a picture may be");
-    }
-    let decoded = match codec.decode_png(&bytes) {
-        Ok(d) => d,
-        Err(why) => return failed(budget, &format!("the picture could not be read: {why}")),
-    };
-    let px = u64::from(decoded.width) * u64::from(decoded.height);
-    if px > budget.limits.max_image_px {
-        return failed(budget, "the picture has more pixels than the board may keep");
-    }
-    if budget.pixels + px > budget.limits.max_total_px {
-        return failed(budget, "there is no room for it among the pictures of the board");
-    }
     let scale = f32_of(j, "scale").filter(|s| *s > 0.0).unwrap_or(1.0);
-    let Some(raster) = Raster::from_straight(decoded.width, decoded.height, decoded.rgba) else {
-        return failed(budget, "the picture's pixels do not fit its size");
-    };
-    budget.pixels += px;
-    ImageSlot::Ready(raster.into_shared_image(scale, bytes))
+    decode_slot(bytes, scale, budget, codec)
 }
 
 /// The central directory of a zip archive, as far as sizes go: each entry's name and the size it declares for itself
@@ -448,25 +308,54 @@ pub fn read(
     codec: &dyn ImageCodec,
     limits: &Limits,
 ) -> Result<Loaded, StoreError> {
-    if manifest.len() > json::MAX_TEXT {
+    read_capped(manifest, picture, codec, limits, json::MAX_TEXT)
+}
+
+/// [`read`] for a document that may be longer than a manifest is: `max_text` bytes at most (a file that holds its
+/// pictures in itself, [`crate::whiteboard_export`]).
+///
+/// # Errors
+/// The manifest is no board file, is of a newer major version, or is longer than `max_text`.
+pub fn read_capped(
+    manifest: &[u8],
+    picture: &dyn Fn(&str) -> Option<Vec<u8>>,
+    codec: &dyn ImageCodec,
+    limits: &Limits,
+    max_text: usize,
+) -> Result<Loaded, StoreError> {
+    if manifest.len() > max_text {
         return Err(StoreError::TooLarge { bytes: manifest.len() });
     }
     let text = std::str::from_utf8(manifest).map_err(|_| StoreError::NotABoard("it is not text".to_string()))?;
-    let root = json::parse(text).map_err(|e| StoreError::NotABoard(format!("{} (byte {})", e.why, e.at)))?;
+    let root = json::parse_with(text, max_text).map_err(|e| StoreError::NotABoard(format!("{} (byte {})", e.why, e.at)))?;
     let Json::Obj(_) = root else {
         return Err(StoreError::NotABoard("it is not an object".to_string()));
     };
     let format = root.get("format").and_then(Json::as_str).ok_or_else(|| StoreError::NotABoard("it names no format".to_string()))?;
-    let major = format
-        .strip_prefix(FORMAT_PREFIX)
-        .and_then(|v| v.parse::<u32>().ok())
-        .filter(|m| *m >= 1)
-        .ok_or_else(|| StoreError::NotABoard(format!("its format \"{format}\" is not one of AzReview's boards")))?;
-    if major > FORMAT_MAJOR {
+    let major_of = |prefix: &str| format.strip_prefix(prefix).and_then(|v| v.parse::<u32>().ok()).filter(|m| *m >= 1);
+    if let Some(major) = major_of(azboard::FORMAT_PREFIX) {
+        if major > azboard::FORMAT_MAJOR {
+            return Err(StoreError::TooNew { found: major });
+        }
+        return Ok(azboard::read_root(&root, picture, codec, limits));
+    }
+    let Some(major) = major_of(LEGACY_PREFIX) else {
+        return Err(StoreError::NotABoard(format!("its format \"{format}\" is not one of AzReview's boards")));
+    };
+    if major > LEGACY_MAJOR {
         return Err(StoreError::TooNew { found: major });
     }
+    Ok(read_legacy(&root, picture, codec, limits))
+}
 
-    let mut budget = Budget { limits, pixels: 0, unreadable: 0 };
+/// The folder's own name of a workspace path (what the first version kept the whole path of).
+pub fn folder_name(path: &str) -> String {
+    path.replace('\\', "/").trim_end_matches('/').rsplit('/').next().unwrap_or_default().chars().filter(|c| !c.is_control()).take(200).collect()
+}
+
+/// The board the first version's manifest holds.
+fn read_legacy(root: &Json, picture: &dyn Fn(&str) -> Option<Vec<u8>>, codec: &dyn ImageCodec, limits: &Limits) -> Loaded {
+    let mut budget = Budget::new(limits);
     let mut items = Vec::new();
     let mut left_out = 0;
     let mut max_id = 0;
@@ -527,13 +416,12 @@ pub fn read(
         zoom: f32_of(v, "zoom").unwrap_or(1.0),
     });
     let next_id = root.get("next_id").and_then(Json::as_u64).unwrap_or(0).max(max_id + 1);
-    Ok(Loaded {
-        data: BoardData { items, view, next_id },
-        workspace: root.get("workspace").and_then(Json::as_str).unwrap_or_default().to_string(),
-        saved_ms: root.get("saved_ms").and_then(Json::as_u64).unwrap_or(0),
-        left_out,
-        unreadable_pictures: budget.unreadable,
-    })
+    let meta = Meta {
+        workspace_name: folder_name(root.get("workspace").and_then(Json::as_str).unwrap_or_default()),
+        modified_ms: root.get("saved_ms").and_then(Json::as_u64).unwrap_or(0),
+        ..Meta::default()
+    };
+    Loaded { data: BoardData { items, view, next_id }, meta, left_out, unreadable_pictures: budget.unreadable }
 }
 
 /// FNV-1a over `text`'s bytes.

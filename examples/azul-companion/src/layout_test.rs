@@ -181,3 +181,49 @@ fn the_page_is_centred_in_the_room_the_strip_leaves() {
     assert!((g.page.x + g.page.w / 2.0 - room_x).abs() < 0.01, "{g:?}");
     assert!((g.page.y + g.page.h / 2.0 - 250.0).abs() < 0.01, "{g:?}");
 }
+
+// ---- the bar that goes back to where the review was
+
+#[test]
+fn without_a_return_point_the_zones_are_what_they_were_and_the_ribbon_has_no_height() {
+    for env in envs() {
+        let plain = zones(&env);
+        assert_eq!(plain, zones_with(&env, false), "{env:?}");
+        assert_eq!(plain.ribbon.h, 0.0, "{env:?}");
+    }
+}
+
+#[test]
+fn a_return_point_takes_its_ribbon_from_the_pad_in_portrait_and_nothing_in_landscape() {
+    for env in envs() {
+        let plain = zones(&env);
+        let with = zones_with(&env, true);
+        if env.landscape() {
+            assert_eq!(with, plain, "sideways the button sits in the controls row and no zone moves: {env:?}");
+            assert_eq!(with.ribbon.h, 0.0, "{env:?}");
+        } else {
+            assert!((with.ribbon.h - RIBBON_H).abs() < 0.01 && with.ribbon.w > 0.0, "{env:?}: {:?}", with.ribbon);
+            assert_eq!((with.safe, with.header, with.filebar, with.tabs, with.side), (plain.safe, plain.header, plain.filebar, plain.tabs, plain.side), "{env:?}");
+            assert!((with.pad.h - (plain.pad.h - RIBBON_H)).abs() < 0.01, "the pad gives way: {env:?}");
+            assert!((with.ribbon.y - plain.pad.y).abs() < 0.01 && (with.pad.y - with.ribbon.bottom()).abs() < 0.01, "the ribbon is over the pad: {env:?}");
+            assert_eq!((with.controls.h, with.context.h, with.dock.h), (plain.controls.h, plain.context.h, plain.dock.h), "{env:?}");
+        }
+    }
+}
+
+#[test]
+fn with_a_ribbon_nothing_overlaps_and_the_pad_is_still_big_enough_to_use() {
+    for env in envs() {
+        let z = zones_with(&env, true);
+        let mut all = named(&z);
+        all.push(("ribbon", z.ribbon));
+        for (i, (a, za)) in all.iter().enumerate() {
+            for (b, zb) in &all[i + 1..] {
+                if za.h > 0.0 && zb.h > 0.0 {
+                    assert!(!za.overlaps(zb), "{a} {za:?} and {b} {zb:?} overlap in {env:?}");
+                }
+            }
+        }
+        assert!(z.pad.w >= 200.0 && z.pad.h >= 160.0, "the pad is {} x {} in {env:?}", z.pad.w, z.pad.h);
+    }
+}

@@ -164,7 +164,7 @@ extern "C" fn on_op(mut data: RefAny, mut info: CallbackInfo, name: AzString, ar
         let mut note = Note::listening(id, add.page, 120.0, add.y, &language);
         note.text = add.text.clone();
         note.state = NoteState::Done;
-        s.notes.push(note);
+        s.start_conversation(note);
         s.sync_chip(id);
         if add.open {
             s.open_conv = Some(id);

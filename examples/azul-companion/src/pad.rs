@@ -1,15 +1,16 @@
 //! The touch pad's gestures, as a state machine that knows nothing of azul: pointer down / move / up and the pinch of
-//! the shell go in, what the phone sends to the Mac comes out. A drag moves the page (the content follows the
-//! finger: the viewport goes the other way), a pinch zooms around the pen, two quick taps fit the width, a tap on
-//! the strip along the edge turns the page.
+//! the shell go in, what the phone sends to the Mac comes out. A drag moves the surface (by default the content follows
+//! the finger and the viewport goes the other way: the sign is `viewport::finger_to_pan`'s, said once there), a pinch
+//! zooms around the pen, two quick taps fit the width, a tap on the strip along the edge turns the page.
 //!
 //! A drag does not start until the finger has moved a few pixels (the slop): a tap, a double tap and the jitter of a
 //! resting finger send nothing to the Mac. Once it has started, every update carries the CUMULATIVE pan and zoom of
 //! the gesture (see `azul_review_link::viewport`), so a dropped update loses nothing and the same numbers drive the
 //! rectangle the phone draws at once.
 
-use azul_review_link::frame::{Phase, Rect};
+use azul_review_link::frame::Phase;
 use azul_review_link::link::Millis;
+use azul_review_link::viewport::{finger_to_pan, PanDirection};
 
 /// How far a finger must move before it is a drag, in logical pixels.
 pub const SLOP: f32 = 6.0;
@@ -20,15 +21,14 @@ pub const DOUBLE_TAP_DISTANCE: f32 = 40.0;
 /// A swipe on the page strip must be this long to turn a page.
 pub const STRIP_SWIPE: f32 = 36.0;
 
-/// What the pad needs to turn pixels into page fractions.
+/// What the pad needs to turn pixels into the viewport's movement.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PadScale {
-    /// The pad's width in logical pixels: a drag across all of it moves the content by one viewport.
-    pub pad_w: f32,
-    /// The part of the page the Mac shows now.
-    pub view: Rect,
-    /// The page's width over its height.
-    pub page_aspect: f32,
+    /// Pixels a unit of the surface takes on the pad (`padscene::px_per_unit`): the sheets under the finger move by the
+    /// finger's own number of pixels.
+    pub px_per_unit: f32,
+    /// Which way the viewport goes when the finger moves (the Mac's setting; see `viewport::finger_to_pan`).
+    pub direction: PanDirection,
 }
 
 /// What the pad asks of the Mac.
@@ -73,18 +73,6 @@ struct Active {
     zoom_base: f32,
     /// A pinch ended while the finger stayed down: the next move starts from where it is, so the pan does not jump.
     rebase: bool,
-}
-
-/// The page fractions one logical pixel of finger moves the view: the same speed along and across, a drag over the
-/// pad's whole width moving the content by one viewport.
-fn pan_per_pixel(scale: &PadScale) -> (f32, f32) {
-    if !(scale.pad_w.is_finite() && scale.pad_w > 0.0) {
-        return (0.0, 0.0);
-    }
-    let view_w = if scale.view.w.is_finite() && scale.view.w > 0.0 { scale.view.w } else { 1.0 };
-    let aspect = if scale.page_aspect.is_finite() && scale.page_aspect > 0.0 { scale.page_aspect } else { crate::layout::DEFAULT_ASPECT };
-    let per_px = view_w / scale.pad_w;
-    (per_px, per_px * aspect)
 }
 
 fn gesture(a: &Active, phase: Phase) -> PadOut {
@@ -135,8 +123,8 @@ impl PadState {
                 if active.rebase {
                     active.rebase = false;
                 } else {
-                    let (sx, sy) = pan_per_pixel(scale);
-                    active.pan = (active.pan.0 - (x - active.last.0) * sx, active.pan.1 - (y - active.last.1) * sy);
+                    let (dx, dy) = finger_to_pan((x - active.last.0, y - active.last.1), scale.px_per_unit, scale.direction);
+                    active.pan = (active.pan.0 + dx, active.pan.1 + dy);
                 }
                 active.last = (x, y);
                 self.gesture = Some(active);
@@ -173,7 +161,7 @@ impl PadState {
     pub fn pinch(&mut self, now: Millis, scale: f32, began: bool, ended: bool) -> Vec<PadOut> {
         let _ = now;
         let sane = scale.is_finite() && scale > 0.0;
-        if (!sane && !(ended && self.pinching)) || (ended && self.gesture.is_none()) {
+        if (!sane && (!ended || !self.pinching)) || (ended && self.gesture.is_none()) {
             return Vec::new();
         }
         let mut out = Vec::new();

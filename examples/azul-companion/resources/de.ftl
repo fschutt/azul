@@ -40,6 +40,9 @@ pair-connected-body = Von hier aus verschiebst und zoomst du die Seite, blätter
 pair-start = Los geht's
 pair-back = Zurück
 pair-scan-soon = Das Scannen des Codes kommt mit der nächsten Version. Installiere die App vorerst über das Kabel aus AzReview: das koppelt sie.
+pair-demo = Ohne Mac ausprobieren
+settings-leave-demo = Demo beenden
+settings-demo-note = Das ist eine Demo: ein vorgetäuschter Mac antwortet. Es wird nichts an deinen echten Mac geschickt.
 
 # ---- when it does not work
 fail-retry = Erneut versuchen
@@ -85,8 +88,27 @@ remote-page-strip = Wischen für die nächste oder vorherige Seite
 remote-context-line = Die Tasten gelten für Zeile { $n }
 remote-context-region = Die Tasten gelten für den markierten Bereich
 remote-context-page = Die Tasten gelten für Seite { $n }
+remote-context-board = Die Tasten gelten für das Whiteboard
 remote-context-none = Öffne in AzReview eine Datei, um die Tasten zu nutzen
 remote-lost = Verbindung verloren. Neuer Versuch
+remote-hint-board = Ziehen verschiebt das Board. Zwei Finger zoomen. Doppeltippen passt das Board an.
+remote-picture-board = Das Whiteboard in AzReview, der Teil auf dem Mac ist markiert
+remote-overview = Übersicht des Whiteboards
+surface-code = Code-Review
+surface-board = Whiteboard
+surface-board-named = Whiteboard { $name }
+board-items = { $n } Elemente
+board-item = 1 Element
+board-empty = Leeres Board
+return-back = Zurück zu { $where }
+return-where = { $file } S{ $page } Z{ $line }
+return-where-nolines = { $file } S{ $page }
+return-continue = Weiter prüfen
+return-name = Weiter prüfen: zurück zu { $where }
+finished-done = Agent fertig: { $where }
+finished-suggestion = Agent hat einen Vorschlag: { $where }
+finished-noaction = Agent hat nichts zu tun gefunden: { $where }
+finished-failed = Agent konnte nicht antworten: { $where }
 
 # ---- the four quick buttons
 button-state-sending = Sende
