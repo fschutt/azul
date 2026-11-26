@@ -134,6 +134,11 @@ pub struct AndroidWindow {
     /// that changed a pixel had to claim it had changed the DOM.
     needs_rerender: bool,
 
+    /// `WindowCreateOptions::create_callback`, kept until the first `InitWindow` fires it (the shell used to
+    /// DROP it: an app that starts a timer or a worker there was dead on a phone). Taken out when it fires,
+    /// so it runs once per window lifetime.
+    create_callback: azul_layout::callbacks::OptionCallback,
+
     /// Last touch position of an in-progress one-finger pan, in logical px.
     ///
     /// Android delivers absolute positions; the scroll funnel wants deltas, so
@@ -177,6 +182,9 @@ impl AndroidWindow {
             &config.system_style,
             app_shared.mode(),
         );
+        // The app's create callback, kept for the first InitWindow (every other shell fires it when its window
+        // exists; this one dropped it).
+        let create_callback = options.create_callback;
         // `WindowCreateOptions::window_state` is already a `FullWindowState`,
         // mirroring how `HeadlessWindow::new` consumes it. No constructor call.
         let full_window_state = options.window_state;
@@ -248,6 +256,7 @@ impl AndroidWindow {
             selection_toolbar_shown: false,
             ime_dirty: false,
             needs_rerender: false,
+            create_callback,
             touch_pan_last: None,
             primary_pointer_id: None,
             pan_pointer_id: None,
@@ -443,11 +452,6 @@ impl AndroidWindow {
         // inert. `headless/mod.rs` already carries this exact fix and the same
         // explanation; both mobile backends were missing the one line.
         self.common.rebuild_cpu_hit_tester();
-
-        // Drain lifecycle events (Mount / AfterMount / Unmount) produced by this
-        // layout's reconciliation — the SAME step headless + X11 run. Without it,
-        // EventFilter::Component(AfterMount) callbacks never fire on Android (e.g.
-        // the MapWidget's first tile fetch never starts).
 
         // #27 native backbuffer: Android stays LEGACY by design.
         // `ANativeWindow_lock` rotates double/triple buffers with NO content
@@ -1573,6 +1577,17 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                         // WindowResized) it tags the pass `Resize`.
                         let reason = resize_reason(window);
                         window.common.request_regeneration(reason);
+                        // The app's `WindowCreateOptions::create_callback`, ONCE per window lifetime, as the
+                        // desktop shells fire it: the window exists (the surface, its real size and density),
+                        // nothing is laid out yet. An app starts its timers, workers, locale and requests
+                        // here; the pass below applies what the callback asked for.
+                        let callback = core::mem::replace(
+                            &mut window.create_callback,
+                            azul_layout::callbacks::OptionCallback::None,
+                        );
+                        crate::desktop::shell2::common::create_callback::invoke_create_callback(
+                            window, callback,
+                        );
                     }
                 }
                 let _ = window.process_window_events(0);
