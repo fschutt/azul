@@ -82,8 +82,17 @@ public final class AzulGeolocation {
                     ? LocationManager.GPS_PROVIDER
                     : LocationManager.NETWORK_PROVIDER;
             if (!manager.isProviderEnabled(provider)) {
-                provider = fine ? LocationManager.GPS_PROVIDER
-                                : LocationManager.NETWORK_PROVIDER;
+                // The preferred provider is switched off (updates on it deliver nothing): the OTHER one, if it
+                // is on and the permission allows it. The fallback used to be `fine ? GPS : NETWORK`, which is
+                // GPS again when GPS was the one that was off. GPS needs the fine permission; the network
+                // provider works with either.
+                String other = LocationManager.GPS_PROVIDER.equals(provider)
+                        ? LocationManager.NETWORK_PROVIDER
+                        : LocationManager.GPS_PROVIDER;
+                boolean allowed = !LocationManager.GPS_PROVIDER.equals(other) || fine;
+                if (allowed && manager.isProviderEnabled(other)) {
+                    provider = other;
+                }
             }
             manager.requestLocationUpdates(provider, Math.max(0, minIntervalMs), 0f, listener,
                     activity.getMainLooper());
