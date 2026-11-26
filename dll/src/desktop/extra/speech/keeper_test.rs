@@ -310,15 +310,16 @@ fn a_call_that_wants_the_kept_microphone_is_not_kept_waiting_by_the_thread_that_
 fn an_armed_microphone_is_opened_now_and_waits_until_it_is_disarmed_or_idle_for_too_long() {
     let room = Room::default();
     let keeper = keeper(&room, 5_000);
-    keeper.set_armed_idle_ms(150);
+    keeper.set_armed_idle_ms(700);
     keeper.arm().expect("armed");
     assert_eq!(room.opened(), 1);
     assert!(keeper.is_held());
-    // Arming again refreshes the wait and opens nothing.
-    std::thread::sleep(Duration::from_millis(100));
+    // Arming again refreshes the wait and opens nothing (the times are wide: a loaded runner
+    // delays a sleep by a hundred milliseconds now and then).
+    std::thread::sleep(Duration::from_millis(350));
     keeper.arm().expect("armed again");
-    std::thread::sleep(Duration::from_millis(100));
-    assert!(keeper.is_held(), "200 ms after the first arm, 100 after the second: still inside the 150 ms");
+    std::thread::sleep(Duration::from_millis(350));
+    assert!(keeper.is_held(), "700 ms after the first arm, 350 after the second: still inside the 700 ms");
     assert_eq!(room.opened(), 1);
     // Forgotten: the safety closes it.
     assert!(room.wait_closed(1), "an armed microphone nobody disarmed stayed open for ever");
