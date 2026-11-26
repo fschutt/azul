@@ -1,9 +1,23 @@
-//! AzCompanion: the AzReview phone companion.
+//! AzCompanion: the AzReview phone companion: the phone as the touch surface of a desk with a pen tablet.
+//!
+//! WHAT IT DOES: the pad shows the Mac's surface (the pages of the code review as a column of sheets with their breaks, or the
+//! architecture whiteboard) scrolling under a frame that stands for what the Mac shows; a drag moves the content with the
+//! finger (the Mac's setting "reverse the pan direction" flips it; the sign is `viewport::finger_to_pan`'s, said once), a pinch
+//! zooms around the pen, two quick taps fit the width; four quick buttons send the user's recurring instructions; the files
+//! of the workspace; "Continue reviewing" goes back to where the review was before the user jumped to an agent's conversation.
+//!
+//! WHAT IT CANNOT DO, and does not pretend to: it is a remote control that needs the connection, and a phone app that is
+//! suspended cannot hold a LAN connection. Haptics (a success buzz when an agent is done, a warning when it has a suggestion
+//! that waits) and the line about it work while the app is open. A sideloaded app with a free Apple account has no push
+//! notifications (no APNs), so nothing reaches a closed app; an Android phone's own "touch feedback" setting still decides
+//! whether a buzz is felt.
 pub mod env;
 pub mod l10n;
 pub mod theme;
 pub mod layout;
+pub mod offline;
 pub mod pad;
+pub mod padscene;
 pub mod sim;
 pub mod ui;
 
@@ -28,6 +42,24 @@ const HELP: &str = "companion_sim: the AzReview phone companion in a window\n\
   --window-shot FILE                    one screenshot of the whole simulator window, then quit\n\
   --trace                               print every line of the panel's log too (for a script that drives the window)\n\
   --list-scenes                         the scenes and what they show\n";
+
+/// The phone's app: the screens in the shape the phone is held, on a connection that has no network layer yet (the first
+/// screen says so by not finding a Mac; "Try it without a Mac" shows the rest). Runs until the app is closed.
+pub fn start() {
+    let root = Root::new(Box::new(offline::OfflinePhone::new()), EnvSource::Window);
+    let mut config = AppConfig::create();
+    config.set_mode(azul::option::OptionDarkLightMode::Some(azul::css::DarkLightMode::Dark));
+    let app = App::create(RefAny::new(root), config);
+    app.run(glue::phone_window_options("AzReview Companion"));
+}
+
+/// Android has no `main`: the system loads the library and calls into libazul, which reads the window options this puts
+/// aside (it must run before that, which is what a load-time constructor is for).
+#[cfg(target_os = "android")]
+#[ctor::ctor]
+fn azul_android_init() {
+    start();
+}
 
 /// Runs the simulator with its command line.
 pub fn run_sim(args: Vec<String>) {

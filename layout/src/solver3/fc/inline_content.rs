@@ -115,8 +115,12 @@ pub(super) fn collect_and_measure_inline_content<T: ParsedFontTrait>(
     // `text-decoration` is not inherited: `<p style="text-decoration:
     // underline">text</p>` drew no line.
     if let Some(root) = ifc_root_style_dom_id(tree, ifc_root_index) {
-        let around = crate::solver3::getters::propagated_text_decoration(ctx.styled_dom, root);
-        if around != crate::text3::cache::TextDecoration::default() {
+        let around = crate::solver3::getters::propagated_text_decoration(
+            ctx.styled_dom,
+            root,
+            PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
+        );
+        if around.has_lines() {
             for item in &mut content {
                 if let InlineContent::Text(run) = item {
                     let with = run.style.text_decoration.with(around);

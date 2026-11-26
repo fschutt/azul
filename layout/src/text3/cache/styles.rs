@@ -243,22 +243,107 @@ pub enum FontStyle {
     Oblique,
 }
 
+/// The colour a line of a [`TextDecoration`] is painted in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum DecorationColor {
+    /// The colour of the text the line crosses: a line that no box of a document sets (the
+    /// editor's, the composition of an input method) and the text API's.
+    #[default]
+    Text,
+    /// `currentcolor` of the box with this id, which sets the line: its used `color`, read when
+    /// the line is painted - a colour that changes without a new layout is followed - and not the
+    /// colour of the text under the line, which a box inside may have changed (CSS Text
+    /// Decoration 3, 2.1: the line is the decorating box's).
+    CurrentOf(NodeId),
+    /// A colour the box set with `text-decoration-color` (a `system:` colour is a token the
+    /// display list resolves against the theme).
+    Color(ColorU),
+}
+
+/// The thickness of a line of a [`TextDecoration`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum LineThickness {
+    /// `auto`: the thickness the font size suggests.
+    #[default]
+    Auto,
+    /// `from-font`: the thickness the font names. The faces' own metrics are not read yet, so it
+    /// is `auto`, as the property allows for a face that names none.
+    FromFont,
+    /// A length in px: what `text-decoration-thickness` said, an `em` or a percentage resolved
+    /// against the font size of the box that sets the line, a zoom applied, capped.
+    Px(azul_css::props::basic::FloatValue),
+}
+
+/// How one kind of line of a [`TextDecoration`] is painted: the paint of the box that sets it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct LinePaint {
+    pub color: DecorationColor,
+    pub thickness: LineThickness,
+}
+
+/// The lines drawn over the text of a run (`text-decoration`), and how each kind is painted.
+///
+/// Each kind has the paint of the box that sets it, so that an underline of one box and a
+/// line-through of another are two lines of two paints under one run. The paint of a kind that is
+/// off is [`LinePaint::default`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct TextDecoration {
     pub underline: bool,
     pub strikethrough: bool,
     pub overline: bool,
+    /// How the underline is painted.
+    pub underline_paint: LinePaint,
+    /// How the line-through is painted.
+    pub strikethrough_paint: LinePaint,
+    /// How the overline is painted.
+    pub overline_paint: LinePaint,
 }
 
 impl TextDecoration {
-    /// Both sets of lines: a run's own and those it carries from the boxes
-    /// around it (`solver3::getters::propagated_text_decoration`).
+    /// Both sets of lines: a run's own (`self`) and those it carries from the boxes around it
+    /// (`outer`, `solver3::getters::propagated_text_decoration`). A kind both set is the inner
+    /// box's, with its paint.
     #[must_use]
-    pub const fn with(self, other: Self) -> Self {
+    pub const fn with(self, outer: Self) -> Self {
+        let (underline, underline_paint) = if self.underline {
+            (true, self.underline_paint)
+        } else {
+            (outer.underline, outer.underline_paint)
+        };
+        let (strikethrough, strikethrough_paint) = if self.strikethrough {
+            (true, self.strikethrough_paint)
+        } else {
+            (outer.strikethrough, outer.strikethrough_paint)
+        };
+        let (overline, overline_paint) = if self.overline {
+            (true, self.overline_paint)
+        } else {
+            (outer.overline, outer.overline_paint)
+        };
         Self {
-            underline: self.underline || other.underline,
-            strikethrough: self.strikethrough || other.strikethrough,
-            overline: self.overline || other.overline,
+            underline,
+            strikethrough,
+            overline,
+            underline_paint,
+            strikethrough_paint,
+            overline_paint,
+        }
+    }
+
+    /// Whether any kind of line is on.
+    #[must_use]
+    pub const fn has_lines(&self) -> bool {
+        self.underline || self.strikethrough || self.overline
+    }
+
+    /// These lines, each kind that is on painted as `paint` says.
+    #[must_use]
+    pub const fn painted(self, paint: LinePaint) -> Self {
+        Self {
+            underline_paint: if self.underline { paint } else { self.underline_paint },
+            strikethrough_paint: if self.strikethrough { paint } else { self.strikethrough_paint },
+            overline_paint: if self.overline { paint } else { self.overline_paint },
+            ..self
         }
     }
 
@@ -274,18 +359,15 @@ impl TextDecoration {
             StyleTextDecoration::None => Self::default(),
             StyleTextDecoration::Underline => Self {
                 underline: true,
-                strikethrough: false,
-                overline: false,
+                ..Self::default()
             },
             StyleTextDecoration::Overline => Self {
-                underline: false,
-                strikethrough: false,
                 overline: true,
+                ..Self::default()
             },
             StyleTextDecoration::LineThrough => Self {
-                underline: false,
                 strikethrough: true,
-                overline: false,
+                ..Self::default()
             },
         }
     }

@@ -40,6 +40,9 @@ pair-connected-body = You can pan and zoom the page, browse the files and use yo
 pair-start = Start
 pair-back = Back
 pair-scan-soon = Scanning the code comes with the next version. For now, install the app from AzReview over the cable: that pairs it.
+pair-demo = Try it without a Mac
+settings-leave-demo = Leave the demo
+settings-demo-note = This is a demo: a pretend Mac is answering. Nothing is sent to your real Mac.
 
 # ---- when it does not work
 fail-retry = Try again
@@ -87,6 +90,24 @@ remote-context-region = The buttons act on the marked region
 remote-context-page = The buttons act on page { $n }
 remote-context-none = Open a file in AzReview to use the buttons
 remote-lost = Connection lost. Trying again
+remote-hint-board = Drag to move the board. Pinch to zoom. Double-tap to fit the board.
+remote-picture-board = The whiteboard in AzReview, with the part the Mac shows marked
+remote-overview = Overview of the whiteboard
+surface-code = Code review
+surface-board = Whiteboard
+surface-board-named = Whiteboard { $name }
+board-items = { $n } items
+board-item = 1 item
+board-empty = Empty board
+return-back = Back to { $where }
+return-where = { $file } p{ $page } l{ $line }
+return-where-nolines = { $file } p{ $page }
+return-continue = Continue reviewing
+return-name = Continue reviewing: go back to { $where }
+finished-done = Agent finished: { $where }
+finished-suggestion = Agent has a suggestion: { $where }
+finished-noaction = Agent found nothing to do: { $where }
+finished-failed = Agent could not answer: { $where }
 
 # ---- the four quick buttons
 button-state-sending = Sending

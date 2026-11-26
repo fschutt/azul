@@ -486,6 +486,8 @@ mod test_style_tag_parsing;
 mod test_text_layout;
 #[path = "text_align_last_text_justify_and_text_indent_place_the_words_of_a_line.rs"]
 mod text_align_last_text_justify_and_text_indent_place_the_words_of_a_line;
+#[path = "text_decoration_color_and_thickness_paint_the_lines_they_are_set_on.rs"]
+mod text_decoration_color_and_thickness_paint_the_lines_they_are_set_on;
 #[path = "text_rendering_optimize_speed_turns_the_kerning_and_the_ligatures_off.rs"]
 mod text_rendering_optimize_speed_turns_the_kerning_and_the_ligatures_off;
 #[path = "text_shadow_wraps_the_text_it_shadows_in_the_display_list.rs"]
