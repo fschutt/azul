@@ -525,6 +525,44 @@ class PurposeStringsTest(unittest.TestCase):
         self.assertIn("AZ_IOS_SYMBOL_JSON", (HERE / "demo_build.py").read_text(encoding="utf-8"))
 
 
+class SymbolGateStatusTest(unittest.TestCase):
+    """The numbers of scripts/ci/ios_symbol_gate.py (min_os, imports, unchecked, violations[...]) travel in the small results artifact as
+    <App>.<column>.symbols.json (AZ_IOS_SYMBOL_JSON) and the status table shows them next to the iOS files, as information."""
+
+    def test_the_counts_of_the_gate_are_in_the_cell_and_in_the_files_table(self):
+        m = demo_apps.load()
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "AzWidgets.ios-sim.result.json").write_text(json.dumps({
+                "app": "AzWidgets", "column": "ios-sim", "status": "built", "size": 2048, "shipped_size": 2048, "seconds": 60,
+                "engine_crates": [], "artifact": "AzWidgets-ios-sim.app.zip"}))
+            (root / "AzWidgets.ios-sim.symbols.json").write_text(json.dumps({
+                "min_os": "16.0", "imports": 412, "unchecked": 37, "violations": []}))
+            (root / "AzWidgets.ios-sim-e2e.symbols.json").write_text(json.dumps({"min_os": "16.0", "imports": 999, "unchecked": 1, "violations": []}))
+            (root / "broken.symbols.json").write_text("{not json")
+            data, md = demo_apps.status([root], m=m)
+        cell = next(r for r in data["apps"] if r["app"] == "AzWidgets")["cells"]["ios-sim"]
+        self.assertEqual(cell["symbols"], {"min_os": "16.0", "imports": 412, "unchecked": 37, "violations": 0})
+        self.assertIn("412 imports, 37 unchecked, 0 violations", md)
+        self.assertEqual(data["summary"]["symbol_violations"], [])
+
+    def test_a_violation_is_listed_by_app_and_column(self):
+        m = demo_apps.load()
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "AzMaps.ios-device.symbols.json").write_text(json.dumps({
+                "min_os": "16.0", "imports": 10, "unchecked": 0,
+                "violations": [{"name": "_AVCaptureDeviceTypeExternal", "lib": "AVFoundation", "weak": False, "why": "iOS 17.0"}]}))
+            data, _ = demo_apps.status([root], m=m)
+        self.assertEqual(data["summary"]["symbol_violations"], ["AzMaps/ios-device"])
+
+    def test_an_app_without_the_numbers_shows_nothing(self):
+        data, md = demo_apps.status([], m=demo_apps.load())
+        cell = next(r for r in data["apps"] if r["app"] == "AzWidgets")["cells"]["ios-sim"]
+        self.assertNotIn("symbols", cell)
+        self.assertNotIn("unchecked", md)
+
+
 class FeaturesCommandTest(unittest.TestCase):
     """`demo_apps.py features <leg> <variant>`: the cargo features of a library of the plan, for the scripts that build one by hand
     (scripts/ci/ios_build_qa.sh): the same string the workflow's lib job gets, android-activity included on Android."""
@@ -855,9 +893,20 @@ class AfterTapTest(unittest.TestCase):
         next(a for a in m["app"] if a["package"] == "AzCompanion")["smoke"]["probe_tap"] = ""
         self.assertTrue(any("AzCompanion" in e and "probe_tap" in e for e in demo_apps.check(m)))
 
+    def test_the_probe_can_be_left_out_and_the_build_and_boot_script_can_run_both_ways(self):
+        # run 45787048273: the key pressed after the toast of the probe did nothing, and the page scrolled; whether the toast layer
+        # or the key is at fault is told by the same test with the key pressed FIRST, in a fresh process
+        smoke = (HERE / "ci" / "android_smoke.sh").read_text(encoding="utf-8")
+        self.assertIn('AZ_SMOKE_NO_PROBE', smoke)
+        build = (HERE / "ci" / "android_build_smoke.sh").read_text(encoding="utf-8")
+        self.assertIn("AZ_SMOKE_BOTH_WAYS", build)
+        self.assertIn("AZ_SMOKE_NO_PROBE=1 bash scripts/ci/android_smoke.sh demo-out/smoke-noprobe", build)
+
     def test_the_android_boot_test_turns_the_apps_info_log_on_for_an_app_with_a_press(self):
         text = (HERE / "ci" / "android_smoke.sh").read_text(encoding="utf-8")
-        self.assertIn("setprop debug.az.log info", text)    # AZ_LOG=info: the app's own lines of what a press did ("tap <Action>")
+        # AZ_LOG=info: the app's own lines of what a press did ("tap <Action>"); AZ_SMOKE_LOG=debug adds the shell's `[Android] motion
+        # <Down|Up> at (x,y) -> <result>` line per touch event
+        self.assertIn('setprop debug.az.log "${AZ_SMOKE_LOG:-info}"', text)
         self.assertIn("screenshot-probe.png", text)
         self.assertIn("--probe-label", text)
 

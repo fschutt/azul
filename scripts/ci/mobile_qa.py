@@ -411,7 +411,9 @@ class Step:
 
 class Run:
     def __init__(self, out, platform, meta):
-        self.out = Path(out)
+        # ABSOLUTE: the Simulator's launchd opens `simctl launch --stdout=<path>` itself, in its own root (`//demo-out/qa/...` of a
+        # run folder given as `demo-out/qa`: "Read-only file system", the app never started, exit(78) in 100 ms)
+        self.out = Path(out).resolve()
         self.shots_dir = self.out / "shots"
         self.logs_dir = self.out / "logs"
         for d in (self.out, self.shots_dir, self.logs_dir):

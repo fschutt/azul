@@ -7194,6 +7194,9 @@ impl MacOSWindow {
         // A worker wakes the main queue when it has something to say, so no window
         // polls its workers every frame (`wake_main_for_threads`).
         azul_layout::thread::set_thread_wake(Some(wake_main_for_threads));
+        // The marks of the app's start (`AZ_STARTUP=1`): a handle of its own, the window moves out of here.
+        let startup = app_shared.startup_handle();
+        startup.mark("window:new_begin");
 
         // If background_color is None and no material effect, use system window background
         // Note: When a material is set, the renderer will use transparent clear color automatically
@@ -7359,6 +7362,7 @@ impl MacOSWindow {
             "[MacOSWindow::new] Content view created, backend: {:?}",
             backend
         );
+        startup.mark_with("window:content_view_created", || format!("backend={backend:?}"));
 
         // Create window style mask
         log_trace!(
@@ -7435,6 +7439,7 @@ impl MacOSWindow {
                 }
             };
         log_trace!(LogCategory::Window, "[MacOSWindow::new] NSWindow created");
+        startup.mark("window:nswindow_allocated");
         // We hold the window in a `Retained` (+1) and release it in `Drop`.
         // NSWindow's default `releasedWhenClosed = YES` makes `close()` release
         // it TOO — for a window that is closed and then dropped (every popup
@@ -7762,6 +7767,7 @@ impl MacOSWindow {
                 }
             };
 
+            startup.mark("webrender_ready");
             renderer.set_external_image_handler(Box::new(WrCompositor::default()));
 
             let render_api = sender.create_api();
@@ -7834,6 +7840,12 @@ impl MacOSWindow {
             }
         };
 
+        startup.mark_with("render_backend", || {
+            format!(
+                "backend={} requested={requested_backend:?} device=macos {renderer_type:?}",
+                if renderer_type == RendererType::Hardware { "gpu" } else { "cpu" }
+            )
+        });
         // Initialize window state with actual HiDPI factor from screen
         let actual_dpi = (actual_hidpi_factor * BASE_DPI) as u32; // Convert scale factor to DPI
         // Read before the window state takes its fields out of `options`.
@@ -7893,6 +7905,7 @@ impl MacOSWindow {
             })?,
         };
 
+        startup.mark("window:layout_window_built");
         // Set document_id and id_namespace for this window (if GPU path)
         if let Some(did) = wr_document_id {
             layout_window.document_id = did;
@@ -8083,6 +8096,7 @@ impl MacOSWindow {
             released: false,
         };
 
+        startup.mark("window:struct_built");
         // The titlebar in the mode the window will show, before it is ever
         // drawn: a window opened under a dark pin on a light desktop must not
         // flash a light titlebar.
@@ -8160,6 +8174,7 @@ impl MacOSWindow {
                 LogCategory::Callbacks,
                 "[Window Init] create_callback completed"
             );
+            startup.mark("window:create_callback_done");
         }
 
         // Register debug timer is now done from run() with explicit channel + component map
@@ -8169,6 +8184,12 @@ impl MacOSWindow {
             LogCategory::Layout,
             "[Window Init] Performing initial layout"
         );
+        // It IS the layout the window was born owing, with the create callback's asks already applied: it
+        // retires the requests that stand when it begins, as the headless shell's first layout and every
+        // desktop backend's first frame do. Left raised, the first `drawRect:` rebuilt the DOM a second time
+        // for nothing (the user's layout callback, the styled DOM, the equivalence check: the startup
+        // timeline of 2026-11-26 counted it). A request the layout's own lifecycle callbacks raise stays.
+        let initial_layout_epoch = window.common.regen_epoch();
         if let Err(e) = window.regenerate_layout() {
             log_warn!(
                 LogCategory::Layout,
@@ -8176,7 +8197,11 @@ impl MacOSWindow {
                 e
             );
         }
+        window
+            .common
+            .clear_regeneration_unless_reraised(initial_layout_epoch);
 
+        startup.mark("window:initial_layout_done");
         // A window created to fit its content (a window-drawn menu) takes the size
         // its first layout measured, before it is ever shown.
         if options.size_to_content {
@@ -8185,6 +8210,7 @@ impl MacOSWindow {
 
         // Install the application menu bar from the root DOM's menu_bar (if any).
         window.apply_menu_bar_from_dom();
+        startup.mark("window:menu_bar_applied");
 
         // Initialize accessibility adapter after first layout
         #[cfg(feature = "a11y")]
@@ -8194,15 +8220,17 @@ impl MacOSWindow {
                 "[Window Init] Initializing accessibility support"
             );
             window.init_accessibility();
+            startup.mark("window:a11y_initialized");
         }
 
-        // Request a regeneration so drawRect will build and send the transaction
-        window
-            .common
-            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        // No regeneration is requested here: the initial layout above is the one the first frame shows. What
+        // the first `drawRect:` still owes is the TRANSACTION (the display list sent to WebRender, the CPU
+        // frame): `display_list_initialized` stays false until it has built it, and the frame path rebuilds the
+        // display list from the layout that is there (`render_and_present_in_draw_rect`).
 
         // Detect current monitor and set monitor_id
         window.detect_current_monitor();
+        startup.mark("window:monitor_detected");
 
         // Initialize CVDisplayLink for VSYNC (if enabled and available)
         if let Err(e) = window.initialize_display_link() {
@@ -8213,6 +8241,7 @@ impl MacOSWindow {
             );
             // Not a fatal error - window will still work, just without VSYNC
         }
+        startup.mark("window:display_link_ready");
 
         // Apply initial background material if not Opaque
         // This must be done after the window struct is built but before showing
@@ -8275,6 +8304,7 @@ impl MacOSWindow {
             }
             // Ordering the window in lays its titlebar out: again.
             window.apply_traffic_light_position();
+            startup.mark("window:ordered_in");
         } else {
             log_debug!(
                 LogCategory::Window,
@@ -8320,6 +8350,7 @@ impl MacOSWindow {
             LogCategory::Window,
             "[Window Init] Window initialization complete"
         );
+        startup.mark("window:new_done");
         Ok(window)
     }
 
@@ -8401,6 +8432,7 @@ impl MacOSWindow {
             &mut debug_messages,
             relayout_reason,
             borrows.settings,
+            borrows.startup,
         )?;
 
         // Forward layout debug messages to the debug server's log queue
@@ -10553,6 +10585,7 @@ impl MacOSWindow {
         if shown_after_draw(shows_document, self.blank_first_draws) {
             self.awaiting_first_frame = false;
             self.window.setAlphaValue(1.0);
+            self.mark_first_present(shows_document);
         } else {
             // The frame WebRender is building asks for the draw that shows
             // it; the request keeps a window whose frame never comes on its
@@ -10560,6 +10593,14 @@ impl MacOSWindow {
             self.blank_first_draws += 1;
             self.request_redraw();
         }
+    }
+
+    /// The first frame is on its way to the screen: the startup timeline (`AZ_STARTUP=1`) marks the first
+    /// present and prints its table (the later marks print as lines of their own).
+    fn mark_first_present(&self, shows_document: bool) {
+        self.common.app.startup().mark_first_present(|| {
+            format!("shows_document={shows_document} blank_draws_before={}", self.blank_first_draws)
+        });
     }
 
     /// Whether the GPU renderer's current frame holds this window's
@@ -10636,6 +10677,9 @@ impl MacOSWindow {
         // reports as a frame's render cost next to its relayout.
         let _probe = azul_layout::probe::Probe::span("draw_rect_render_present");
         log_trace!(LogCategory::Rendering, "[render_and_present] START");
+        // The startup timeline (`AZ_STARTUP=1`): where the first frame's render begins and ends (the layout, the
+        // display list and the raster or the WebRender transaction), so the blit to the window is what is left.
+        self.common.app.startup().mark_once("frame:first_render_begin");
         self.sync_window_backdrop();
 
         // NOTE: Timer callbacks are NOT invoked here — they run in the
@@ -10753,9 +10797,17 @@ impl MacOSWindow {
         // NOTE: Timer callbacks are invoked in the NSTimer tick_timers callback,
         // NOT here. See tick_timers in GLView/CPUView.
 
-        // Force layout on first frame — layout_results is empty until the first
-        // regenerate_layout() call. Both GPU and CPU paths need this.
-        if !self.common.display_list_initialized {
+        // A layout on the first frame ONLY when none has run: `layout_results` is empty until the first
+        // regenerate_layout() call (the window constructor runs it, so a window that was made has results
+        // and its first frame builds the display list from them; the layout is not run a second time).
+        // Both GPU and CPU paths need results.
+        if crate::desktop::shell2::common::first_frame::first_frame_owes_layout(
+            self.common.display_list_initialized,
+            self.common
+                .layout_window
+                .as_ref()
+                .is_some_and(|lw| !lw.layout_results.is_empty()),
+        ) {
             self.common
                 .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
         }
@@ -11596,6 +11648,7 @@ impl MacOSWindow {
             LogCategory::Rendering,
             "[render_and_present] FRAME COMPLETE"
         );
+        self.common.app.startup().mark_once("frame:first_render_done");
 
         // `<webview>`s where this frame put them (after its layout and its
         // scroll): placements and queued ops to WebKit. No callback runs

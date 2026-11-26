@@ -372,6 +372,22 @@ class StartTimelineTests(unittest.TestCase):
         self.assertEqual(q.summarize_timelines([]), {})
 
 
+class RunFolderTests(unittest.TestCase):
+    def test_the_run_folder_is_absolute_even_when_it_was_given_relative(self):
+        # `simctl launch --stdout=<path>` is opened by the Simulator's own launchd, whose root is not the runner's folder
+        import os
+        import tempfile
+        old = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp:
+            os.chdir(tmp)
+            try:
+                run = q.Run("demo-out/qa", "ios", {})
+                self.assertTrue(run.out.is_absolute() and run.logs_dir.is_absolute() and run.shots_dir.is_absolute())
+                self.assertTrue(str(run.logs_dir).endswith("demo-out/qa/logs"))
+            finally:
+                os.chdir(old)
+
+
 class MarkerTests(unittest.TestCase):
     LOG = """\
 11-26 08:10:01.100  3000  3020 I RustStdoutStderr: AZPAINT_STROKES 0

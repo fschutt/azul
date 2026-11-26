@@ -65,6 +65,14 @@ autofix_agrees() {
   cargo run -r -p azul-doc -- check layout 2>&1 | tail -8
 }
 
+# The goldens of the css code generator: api.json does not feed them, and a run says so.
+goldens() {
+  section "CSS CODEGEN GOLDENS"
+  cargo test -p azul-css --features codegen,parser --test codegen_goldens --test codegen_structure > /tmp/goldens.log 2>&1
+  echo "goldens exit $?"
+  verdict /tmp/goldens.log 10
+}
+
 source_gates() {
   section "SRCGATE"
   cargo test -p azul-srcgate 2>&1 | grep -E "^test result|FAILED|failed|panicked" | sort | uniq -c
@@ -229,6 +237,10 @@ case "$part" in
   static)
     static_linux
     ;;
+  autofix)
+    autofix_agrees
+    goldens
+    ;;
   all)
     speech_tests
     layout_tests
@@ -242,7 +254,7 @@ case "$part" in
     macos
     ;;
   *)
-    echo "usage: bash scripts/check_speech.sh gate | static | all | macos"
+    echo "usage: bash scripts/check_speech.sh gate | autofix | static | all | macos"
     ;;
 esac
 section "END"

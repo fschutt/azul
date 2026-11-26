@@ -62,12 +62,18 @@ pub mod debug_server;
 #[cfg(feature = "e2e-test")]
 pub mod e2e_test;
 pub mod event;
+/// What the first frame of a window owes layout: none where the constructor ran one (the startup timeline
+/// counted a second one on macOS), the one pure decision, unit-tested.
+pub mod first_frame;
 /// When a vsync-driven frame pump runs (the macOS display link): the one
 /// pure decision, unit-tested.
 pub mod frame_pacer;
 /// Whether a pass of the GPU path waits for the renderer's threads after its
 /// send (audit A4-31): the one pure decision, unit-tested.
 pub mod frame_schedule;
+/// The decisions of the iOS shell that need no UIKit (safe-area insets, the keyboard's cover, the
+/// names of its Objective-C classes, the pieces of a log line), so a host can test them.
+pub mod ios_logic;
 pub mod layout;
 /// The runtime gate for every `log_*!` macro, plus RAII enter/exit spans.
 /// Logging is gated here by atomics — never by a cargo feature.

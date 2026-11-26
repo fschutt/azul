@@ -64,6 +64,9 @@ const CURSOR_SET_ALWAYS: &str = "AZ_CURSOR_SET_ALWAYS";
 const TELEMETRY_CHANNEL: &str = "AZ_TELEMETRY_CHANNEL";
 /// `AZ_DUMP_SYSTEM_STYLE`: print what the desktop detection found.
 const DUMP_SYSTEM_STYLE: &str = "AZ_DUMP_SYSTEM_STYLE";
+/// `AZ_STARTUP`: record the startup timeline ([`crate::desktop::startup_timeline`]) and print it at
+/// the first present.
+const STARTUP: &str = "AZ_STARTUP";
 
 /// The channel the telemetry reports when the environment names none.
 const DEFAULT_TELEMETRY_CHANNEL: &str = "default";
@@ -165,6 +168,15 @@ pub fn validation_from_value(value: Option<&str>) -> bool {
     }
 }
 
+/// Does this `AZ_STARTUP` value turn the startup timeline on?
+///
+/// Unset, empty and the negative words are off (`AZ_STARTUP=0` means what it looks like); anything
+/// else is on, because a user who typed the variable at all meant to see the timeline.
+#[must_use]
+pub fn startup_from_value(value: Option<&str>) -> bool {
+    validation_from_value(value)
+}
+
 /// The settings of the app start and of the platform shells.
 // Each flag is its own switch of a debugging session: a set of enums would only rename them.
 #[allow(clippy::struct_excessive_bools)]
@@ -246,6 +258,9 @@ pub struct ShellSettings {
     pub telemetry_channel: String,
     /// `AZ_DUMP_SYSTEM_STYLE=1`: print what the desktop detection found.
     pub dump_system_style: bool,
+    /// `AZ_STARTUP` is on ([`startup_from_value`]): the app records the startup timeline and prints
+    /// it at the first present (on Android `adb shell setprop debug.az.startup 1`).
+    pub startup_timeline: bool,
     /// The names of the knobs of [`gated_knobs`] that are set to something that is not empty.
     gated_knobs_set: Vec<&'static str>,
 }
@@ -294,6 +309,7 @@ impl ShellSettings {
                 .var(TELEMETRY_CHANNEL)
                 .unwrap_or_else(|| DEFAULT_TELEMETRY_CHANNEL.to_owned()),
             dump_system_style: env.var(DUMP_SYSTEM_STYLE).as_deref() == Some("1"),
+            startup_timeline: startup_from_value(env.var(STARTUP).as_deref()),
             gated_knobs_set: gated_knobs()
                 .iter()
                 .filter(|knob| not_empty(knob.name).is_some())
@@ -307,6 +323,19 @@ impl ShellSettings {
     #[must_use]
     pub const fn validation_enabled(&self) -> bool {
         cfg!(debug_assertions) || self.validate
+    }
+
+    /// Nobody is at the screen to answer a dialog: a script drives the run (`AZ_E2E`), or the
+    /// backend is the headless one (`AZ_BACKEND=headless`: no window exists, a harness talks to the
+    /// app through the debug server). Nothing may wait on a dialog then - the fatal-panic modal
+    /// among them, which a headless run showed (osascript) and waited on for good, so a panic in
+    /// the layout pass froze the app instead of ending it with its message.
+    #[must_use]
+    pub fn unattended(&self) -> bool {
+        self.e2e_run
+            || crate::desktop::shell2::common::compositor::AzBackend::headless_selected_by(
+                self.backend.as_deref(),
+            )
     }
 
     /// The knobs that are set in the environment but that this build cannot honour (their cargo
