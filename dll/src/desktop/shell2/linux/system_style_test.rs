@@ -154,3 +154,33 @@ fn the_theme_watcher_connects_to_the_bus_the_app_read_and_to_nothing_else() {
         "a bus nobody listens on"
     );
 }
+
+// ── The kernel version comes from the kernel's release text, not from a `uname` process ────────
+
+#[test]
+fn a_kernel_release_text_names_the_os_version() {
+    let linux = |id: u32| OsVersion::new(OsFamily::Linux, id);
+    assert_eq!(linux_version_of("6.5.0-44-generic"), linux(6005));
+    assert_eq!(linux_version_of("6.5.0-44-generic\n"), linux(6005), "the file ends in a newline");
+    assert_eq!(linux_version_of("5.15.0-1070-azure"), linux(5015));
+    assert_eq!(linux_version_of("6.8"), linux(6008));
+    assert_eq!(linux_version_of("6.8-rc1"), linux(6008), "a release candidate has the minor of its release");
+    assert_eq!(linux_version_of("4.19.317"), linux(4019));
+}
+
+#[test]
+fn text_that_is_no_kernel_release_is_an_unknown_version() {
+    for text in ["", "\n", "garbage", "6", "x.5", "6.x", "-1.2"] {
+        assert_eq!(linux_version_of(text), OsVersion::unknown(), "{text:?}");
+    }
+}
+
+#[test]
+fn the_discovery_starts_no_uname_process() {
+    // A start before the first frame is not the place for a process whose answer the kernel keeps in a file.
+    let source = include_str!("system_style.rs");
+    let start = source.find("fn detect_linux_version(").expect("the function is there");
+    let body = &source[start..start + source[start..].find("\n}\n").expect("it ends")];
+    assert!(body.contains("/proc/sys/kernel/osrelease"), "it reads the kernel's file");
+    assert!(!body.contains("uname"), "and spawns nothing: {body}");
+}
