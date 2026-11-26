@@ -4,8 +4,8 @@
 # status and navigation bars, touch targets under 48 dp, text boxes crossing an edge), the engine's frame and the device's frame of
 # each, the system dark mode asked of the engine (did the window's mode change, did the picture), and the app's own script (AzPaint:
 # a stroke and its undo; AzWriter: typing and the keyboard; AzMaps: the sidebar toggle and a double tap).
-#   scripts/remote.sh run <ref> ubuntu-22.04 'bash scripts/ci/qa_android_audit.sh quick' --artifacts 'demo-out/qa/**'
-# The APKs are named <App>-e2e-android-x86_64.apk (scripts/ci/android_build_all.sh).
+#   scripts/remote.sh run <ref> ubuntu-22.04 'gh run download <build run id> -n remote-Linux -D apks && bash scripts/ci/qa_android_audit.sh apks/demo-out/apps' --artifacts 'demo-out/qa/**'
+# The APKs are named <App>-e2e-android-x86_64.apk (scripts/ci/android_build_all.sh); the job fetches them from the build run's artifact itself.
 set -uo pipefail
 dir="${1:?directory of the *-e2e-android-x86_64.apk files}"
 apks=()
