@@ -272,7 +272,7 @@ const APP_ROOT_BASE: &str = "ui";
 // with a note), a missing component is an empty div with a note.
 
 /// A component's markup, as the code export reads it.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComponentMarkup {
     /// The template WITH its `{placeholders}` and nested instances as tags
     /// (`is_template`), or what the component renders with its default data.
@@ -799,7 +799,7 @@ fn split_template(raw: &str, params: &[FragmentParam]) -> Expr {
     let mut parts: Vec<Expr> = Vec::new();
     let mut lit = String::new();
     let mut rest = raw;
-    while let Some(pos) = rest.find(|c: char| c == '{' || c == '}') {
+    while let Some(pos) = rest.find(['{', '}']) {
         lit.push_str(&rest[..pos]);
         let tail = &rest[pos..];
         if tail.starts_with("{{") {
@@ -1415,7 +1415,7 @@ impl CssMatcher {
         let mut cur_selfgroup_scan = 0;
         let mut cur_pathgroup_scan = 0;
         let mut valid = false;
-        let mut path_group = path_groups[cur_pathgroup_scan].clone();
+        let mut path_group = path_groups[cur_pathgroup_scan];
 
         while cur_selfgroup_scan < self_groups.len() {
             let mut advance = None;
@@ -1423,8 +1423,8 @@ impl CssMatcher {
             // scan all remaining path groups
             for (id, cg) in self_groups[cur_selfgroup_scan..].iter().enumerate() {
                 let gm = group_matches(
-                    &path_group.0,
-                    &self_groups[cur_selfgroup_scan + id].0,
+                    path_group.0,
+                    self_groups[cur_selfgroup_scan + id].0,
                     self.indices_in_parent[cur_selfgroup_scan + id],
                     self.children_length[cur_selfgroup_scan + id],
                 );
@@ -1447,7 +1447,7 @@ impl CssMatcher {
                     }
                     cur_pathgroup_scan += 1;
                     cur_selfgroup_scan += n;
-                    path_group = path_groups[cur_pathgroup_scan].clone();
+                    path_group = path_groups[cur_pathgroup_scan];
                 }
                 None => return false, // group was not found in remaining items
             }

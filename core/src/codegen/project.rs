@@ -81,7 +81,7 @@ impl CodeMode {
 }
 
 /// The markup a project's app shows.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AppMarkup {
     /// A fragment or a `<body>` with the CSS it uses (the builder's document,
     /// a subtree).
