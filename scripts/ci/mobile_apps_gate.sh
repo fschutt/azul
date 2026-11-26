@@ -105,7 +105,7 @@ run red_layout_on_the_previous_files red_layout
 
 # 1c. everything that compiles, type-checked without building a library (minutes, not an hour): the dll with its tests, the
 #     apps with theirs (they link nothing in a check)
-run dll_check cargo check -p azul-dll --features build-dll --lib --test headless_safe_area_moved --test localization_headless --test android_language_contract
+run dll_check cargo check -p azul-dll --features build-dll --lib --test headless_safe_area_moved --test localization_headless --test android_language_contract --test menu_rows_are_a_touch_target_on_a_phone
 run apps_check cargo check -p azul-appkit -p AzPaint -p AzMaps -p AzMeet -p AzWriter -p AzWidgets --lib --profile test --features azul-appkit/azul
 
 # 1d. RED of the ribbon's tests: the picker without the application button's row and the group list's rows 44 px tall, as they were
@@ -149,30 +149,37 @@ PY
 }
 run red_ribbon_without_the_file_row red_ribbon
 
-# 2. the engine through the headless shell: RED (the guard out: the precheck is always false, as it was), then GREEN
+# 2. the engine through the headless shell: RED (the guard out: the precheck is always false, as it was; the menu's touch row
+#    out), then GREEN
 red_safe_area() {
   local file=dll/src/desktop/shell2/common/layout.rs
-  python3 - "$file" <<'PY'
+  local menu=dll/src/desktop/menu_renderer.rs
+  python3 - "$file" "$menu" <<'PY'
 import sys
-path = sys.argv[1]
+path, menu = sys.argv[1], sys.argv[2]
 text = open(path).read()
 old = "let safe_area_moved_precheck = layout_window.safe_area_moved_since_layout(current_window_state);"
 open(path, "w").write(text.replace(old, "let safe_area_moved_precheck = false;"))
+text = open(menu).read()
+old = "let row_height = row_height.max(touch_item - 2.0 * pad_v);"
+open(menu, "w").write(text.replace(old, "let row_height = row_height + 0.0 * touch_item;"))
 PY
-  if git diff --quiet -- "$file"; then
-    echo "the RED step could not take the guard out of $file: the line it looks for is gone"
+  if git diff --quiet -- "$file" || git diff --quiet -- "$menu"; then
+    echo "the RED step could not take the guard out of $file or the touch row out of $menu: the line it looks for is gone"
+    git checkout -q -- "$file" "$menu"
     return 2
   fi
   local out
   out="$(mktemp)"
-  cargo test -p azul-dll --features build-dll --test headless_safe_area_moved > "$out" 2>&1
-  git checkout -q -- "$file"
+  cargo test -p azul-dll --features build-dll --test headless_safe_area_moved --test menu_rows_are_a_touch_target_on_a_phone > "$out" 2>&1
+  git checkout -q -- "$file" "$menu"
   must_fail "$out" \
     the_bars_that_arrive_after_the_first_frame_move_the_root_of_a_ui_that_never_changes \
-    insets_that_moved_with_a_rotation_take_the_root_with_them
+    insets_that_moved_with_a_rotation_take_the_root_with_them \
+    an_item_is_48_dp_on_android_and_44_pt_on_ios
 }
 run red_safe_area_without_the_guard red_safe_area
-run green_dll_tests cargo test -p azul-dll --features build-dll --test headless_safe_area_moved --test localization_headless --test android_language_contract
+run green_dll_tests cargo test -p azul-dll --features build-dll --test headless_safe_area_moved --test localization_headless --test android_language_contract --test menu_rows_are_a_touch_target_on_a_phone
 
 # 3. lints of the three engine crates, as the CI's second clippy step runs them
 run clippy cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets --features "$features" -- -D warnings

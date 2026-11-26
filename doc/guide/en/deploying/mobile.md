@@ -397,7 +397,7 @@ inside `info.get_safe_area_insets()`. The soft keyboard is a separate inset (`Sa
 does not shrink the root, the engine scrolls the focused text field into view above it.
 
 **Touch targets.** Material asks for 48 dp, Apple for 44 pt. On a phone the engine's `Button`, `TextInput` and
-`DropDown` and the rows of a `Backstage`'s navigation are at least that big in each direction (a link keeps the
+`DropDown` and the rows of a `Backstage`'s navigation and of a popup menu (a drop-down's choices, a context menu) are at least that big in each direction (a link keeps the
 height of its line, a desktop window keeps the desktop's sizes); the application button of a `Ribbon` is a row of
 its tab picker. Check boxes, switches and radio buttons
 have no such floor yet, and a node of your own with a click callback is as big as you made it: give it 48 dp.
