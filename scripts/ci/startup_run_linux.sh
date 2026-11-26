@@ -55,6 +55,6 @@ echo "--- inclusive (children), top 60 symbols"
 perf report -i out/perf.data --children --sort symbol --stdio -g none 2>/dev/null | grep -v '^#' | grep -v '^$' | head -60
 echo "=== the tests of the timeline, the settings and the app's shared state"
 cargo test --release -p azul-dll --lib --features build-dll -- startup_timeline shell_settings app_shared first_frame gtk_im style_discovery system_style env:: font_instance_store x11_libs 2>&1 | grep -E "^test |^test result|FAILED|panicked|^error|could not compile" | head -120
-echo "=== the test of the noise's floor and the variable-font tests of azul-layout (the instances of a document's stacks are made together)"
-cargo test --release -p azul-layout --lib -- the_noise_floor 2>&1 | grep -E "^test |^test result|FAILED|panicked|^error|could not compile" | head -20
+echo "=== the test of the noise's floor, the transient windows' docking tests and the variable-font tests of azul-layout (the instances of a document's stacks are made together)"
+cargo test --release -p azul-layout --lib -- the_noise_floor transient 2>&1 | grep -E "^test |^test result|FAILED|panicked|^error|could not compile" | head -60
 cargo test --release -p azul-layout --test all -- variable_font the_instances_of_all_stacks 2>&1 | grep -E "^test |^test result|FAILED|panicked|^error|could not compile" | head -40
