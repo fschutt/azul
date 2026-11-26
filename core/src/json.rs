@@ -564,7 +564,8 @@ impl Json {
         }
     }
 
-    /// Create a JSON object from key-value pairs
+    /// Create a JSON object from key-value pairs; the keys keep the order of the pairs (a key given
+    /// twice keeps its first place and takes the last value).
     // By-value is the C-ABI shape: the generated bindings hand ownership in.
     #[allow(clippy::needless_pass_by_value)]
     #[must_use]
@@ -647,7 +648,8 @@ impl Json {
         }
     }
 
-    /// Get all keys of an object
+    /// Get all keys of an object, in the order of the document (a key given twice keeps its first
+    /// place). Before 0.0.22 they came back sorted alphabetically.
     #[must_use]
     pub fn keys(&self) -> Vec<AzString> {
         if self.value_type != JsonType::Object {
@@ -679,7 +681,7 @@ impl Json {
         }
     }
 
-    /// Convert object to Vec<JsonKeyValue>
+    /// Convert object to Vec<JsonKeyValue>, in the order of the document.
     #[must_use]
     pub fn to_object(&self) -> Option<JsonKeyValueVec> {
         if self.value_type != JsonType::Object {
