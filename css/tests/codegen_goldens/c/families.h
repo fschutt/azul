@@ -111,6 +111,7 @@ static AzCssPropertyWithConditionsVec style_shorthands(void) {
             AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontVariantNumeric)),
             AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontVariantLigatures)),
             AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontVariantEastAsian)),
+            AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontVariantPosition)),
             AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontKerning)),
             AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontOpticalSizing)),
             AzCssPropertyWithConditions_simple(AzCssProperty_initial(AzCssPropertyType_FontVariationSettings)),
@@ -123,12 +124,13 @@ static AzCssPropertyWithConditionsVec style_shorthands(void) {
             AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantCaps((AzStyleFontVariantCapsValue){ .Exact = { .tag = AzStyleFontVariantCapsValue_Tag_Exact, .payload = AzStyleFontVariantCaps_Normal } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantLigatures((AzStyleFontVariantLigaturesValue){ .Exact = { .tag = AzStyleFontVariantLigaturesValue_Tag_Exact, .payload = (AzStyleFontVariantLigatures){ .common = AzStyleFontLigatureChoice_Unset, .discretionary = AzStyleFontLigatureChoice_Unset, .historical = AzStyleFontLigatureChoice_Unset, .contextual = AzStyleFontLigatureChoice_Unset } } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantEastAsian((AzStyleFontVariantEastAsianValue){ .Exact = { .tag = AzStyleFontVariantEastAsianValue_Tag_Exact, .payload = (AzStyleFontVariantEastAsian){ .jis78 = true, .jis83 = false, .jis90 = false, .jis04 = false, .simplified = false, .traditional = false, .full_width = false, .proportional_width = false, .ruby = false } } })),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantPosition((AzStyleFontVariantPositionValue){ .Exact = { .tag = AzStyleFontVariantPositionValue_Tag_Exact, .payload = AzStyleFontVariantPosition_Normal } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_fontSynthesisWeight((AzStyleFontSynthesisValue){ .Exact = { .tag = AzStyleFontSynthesisValue_Tag_Exact, .payload = AzStyleFontSynthesis_Auto } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_fontSynthesisStyle((AzStyleFontSynthesisValue){ .Exact = { .tag = AzStyleFontSynthesisValue_Tag_Exact, .payload = AzStyleFontSynthesis_Auto } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_fontSynthesisSmallCaps((AzStyleFontSynthesisValue){ .Exact = { .tag = AzStyleFontSynthesisValue_Tag_Exact, .payload = AzStyleFontSynthesis_None } })),
             AzCssPropertyWithConditions_simple(AzCssProperty_fontSynthesisPosition((AzStyleFontSynthesisValue){ .Exact = { .tag = AzStyleFontSynthesisValue_Tag_Exact, .payload = AzStyleFontSynthesis_None } })),
         },
-        26
+        28
     );
 }
 

@@ -26,3 +26,11 @@ fn what_runs_from_the_libraries_constructor_binds_no_endpoint() {
         assert!(!code.iter().any(|line| line.contains(word)), "start() must not use {word:?}: it runs before the activity has an Android context");
     }
 }
+
+#[test]
+fn the_phones_window_fills_the_surface_because_the_screens_pad_themselves_by_the_insets() {
+    // the engine insets the root by the safe area unless the window says otherwise, and the screens pad by the same insets: both together
+    // put the page one top inset too low and one pair of insets taller than the viewport (the emulator, 2026-11-26)
+    let window = glue::phone_window_options("test");
+    assert!(window.window_state.flags.extend_into_safe_area);
+}
