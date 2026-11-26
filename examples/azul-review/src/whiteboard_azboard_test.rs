@@ -8,6 +8,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use super::*;
 use crate::{
     whiteboard::{Cutout, CutoutImage, LIMITS},
+    whiteboard_history::{Evidence, Snapshot},
     whiteboard_json::parse,
     whiteboard_store::{read, read_capped, DecodedPng, StoreError, MANIFEST},
 };
@@ -599,7 +600,7 @@ const EXAMPLE: &str = include_str!("../docs/azboard-1.example.json");
 fn the_example_board_of_the_azul_tree_is_read_whole_and_its_hashes_and_links_are_what_the_format_says() {
     let loaded = read(EXAMPLE.as_bytes(), &|_| None, &AnyPng, &LIMITS).expect("the example is a board");
     assert_eq!((loaded.left_out, loaded.unreadable_pictures), (0, 0));
-    assert_eq!(loaded.data.items.len(), 9, "five cutouts and the four arrows between them");
+    assert_eq!(loaded.data.items.len(), 12, "six cutouts and the six arrows between them");
     assert_eq!(loaded.meta.board_name, "From the DOM to the pixels");
     // Every reference: its lines hash to its hash, its link is the one the format makes of its host, revision, path and lines.
     let doc = parse(EXAMPLE).expect("JSON");
@@ -623,12 +624,318 @@ fn the_example_board_of_the_azul_tree_is_read_whole_and_its_hashes_and_links_are
         assert_eq!(s.get("permalink").and_then(Json::as_str), git::permalink(web, Host::GitHub, rev, path, a, b, None).as_deref());
         assert_eq!(s.get("language").and_then(Json::as_str), language_of(path));
     }
-    assert_eq!(cutouts, 5);
-    // Written again by this version, it is the same board.
-    let again = document(&loaded.data, &loaded.meta, &Pictures::Embedded);
+    assert_eq!(cutouts, 6);
+    // Written again by this version, it is the same board, history and all.
+    let again = document_with(&loaded.data, &loaded.meta, &Pictures::Embedded, &loaded.history);
     let back = read(again.text.as_bytes(), &|_| None, &AnyPng, &LIMITS).expect("read again");
     assert_eq!(back.data.items, loaded.data.items);
     assert_eq!(back.meta.repo, loaded.meta.repo);
+    assert_eq!(back.history, loaded.history);
     assert!(!again.text.contains("/Users/"), "no path of a machine");
+}
+
+#[test]
+fn the_example_has_two_snapshots_that_check_and_say_why_with_real_revisions() {
+    let loaded = read(EXAMPLE.as_bytes(), &|_| None, &AnyPng, &LIMITS).expect("the example is a board");
+    assert_eq!((loaded.left_out, loaded.unreadable_pictures, loaded.snapshots_left_out), (0, 0, 0));
+    let h = &loaded.history;
+    assert_eq!(h.snapshots.iter().map(|s| (s.id.as_str(), s.parent.as_deref())).collect::<Vec<_>>(), vec![("s1", None), ("s2", Some("s1"))]);
+    // The hashes were made by another program (the script) by the recipe of the documentation: they check.
+    assert!(h.snapshots.iter().all(|s| s.verified), "{:?}", h.snapshots.iter().map(|s| s.verified).collect::<Vec<_>>());
+    let (s1, s2) = (&h.snapshots[0], &h.snapshots[1]);
+    assert!(s1.code.rev != s2.code.rev && s1.code.rev.as_deref().is_some_and(git::is_hash) && s2.code.rev.as_deref().is_some_and(git::is_hash));
+    assert!(s1.code.rev_time_ms < s2.code.rev_time_ms && s1.taken_ms < s2.taken_ms);
+    assert!(s1.why.contains("weak spot") && s2.why.contains("owner"), "the reasons are there");
+    assert_eq!(s2.tags, vec!["2013be9136", "6ffdbddfd2"]);
+    // What the second changed is what the two states differ in (worked out again here, as AzReview works it out).
+    assert_eq!(s2.summary, history::diff(Some(&s1.data), &s2.data));
+    assert_eq!(s1.summary, history::diff(None, &s1.data));
+    assert_eq!(s2.summary.added.iter().map(|b| b.id).collect::<Vec<_>>(), vec![6, 11, 12]);
+    assert_eq!(s2.summary.changed.iter().map(|c| c.id).collect::<Vec<_>>(), vec![1, 3], "two references point at code that changed");
+    // The links of a snapshot name the revision of that snapshot.
+    for s in &h.snapshots {
+        for item in &s.data.items {
+            if let Item::Cutout(c) = item {
+                assert_eq!(Some(c.source.rev.as_str()), s.code.rev.as_deref());
+            }
+        }
+    }
+    // The board is the second snapshot's state.
+    assert_eq!(loaded.data.items, s2.data.items);
+}
+
+// ---- the history
+
+fn snapshot(id: &str, parent: Option<&str>, data: BoardData, why: &str, before: Option<&BoardData>, n: u64) -> Snapshot {
+    let s = Snapshot {
+        id: id.to_string(),
+        parent: parent.map(str::to_string),
+        taken_ms: 1_700_000_000_000 + n,
+        author: Some("Ada Lovelace".to_string()),
+        code: Code {
+            rev: Some(REV.to_string()),
+            branch: Some("main".to_string()),
+            dirty: Some(false),
+            rev_time_ms: Some(1_699_999_000_000),
+            remote: Some("git@github.com:fschutt/azul.git".to_string()),
+            web_url: Some("https://github.com/fschutt/azul".to_string()),
+            host: Host::GitHub,
+            prefix: String::new(),
+        },
+        why: why.to_string(),
+        tags: vec!["ADR-7".to_string(), "#123".to_string()],
+        summary: history::diff(before, &data),
+        evidence: None,
+        data,
+        value: Json::Null,
+        hash: String::new(),
+        verified: false,
+        pictures: BTreeMap::new(),
+    };
+    seal(s, None)
+}
+
+/// A board of three items, and the same one a step later: the second cutout moved and a new one with an arrow to it.
+fn two_states() -> (BoardData, BoardData) {
+    let first = BoardData {
+        items: vec![
+            cutout(1, 0.0, "the parser", ImageSlot::Ready(picture(8, 4, 200)), source("src/lib.rs", 10, 20, REV)),
+            cutout(2, 400.0, "", ImageSlot::Ready(picture(6, 3, 90)), source("src/main.rs", 5, 5, REV)),
+            Item::Arrow(Arrow { id: 3, from: End::item(1), to: End::item(2), bend: 0.2, label: "calls".to_string() }),
+        ],
+        view: View { pan: Pt::new(-10.5, 4.0), zoom: 1.25 },
+        next_id: 4,
+    };
+    let mut second = first.clone();
+    if let Item::Cutout(c) = &mut second.items[1] {
+        c.rect.x = 500.0;
+    }
+    second.items.push(cutout(4, 900.0, "the solver", ImageSlot::Ready(picture(5, 5, 30)), source("src/solver.rs", 1, 9, REV)));
+    second.items.push(Item::Arrow(Arrow { id: 5, from: End::item(2), to: End::item(4), bend: 0.0, label: "asks".to_string() }));
+    second.next_id = 6;
+    (first, second)
+}
+
+fn history_of_two() -> (History, BoardData) {
+    let (first, second) = two_states();
+    let s1 = snapshot("s1", None, first.clone(), "The first cut: the parser feeds the main loop.", None, 0);
+    let s2 = snapshot("s2", Some("s1"), second.clone(), "The solver is its own box now.\nIt was inside the loop and made it too big.", Some(&first), 5_000);
+    (History { snapshots: vec![s1, s2] }, second)
+}
+
+#[test]
+fn a_snapshot_is_sealed_with_the_hash_of_its_canonical_text_and_what_explains_it() {
+    let (h, _) = history_of_two();
+    let s2 = h.get("s2").expect("s2");
+    assert!(s2.verified && whiteboard_hash::is_tagged(&s2.hash));
+    assert_eq!(s2.hash, hash_of(&s2.value), "the hash is of the value's canonical form");
+    assert_eq!(s2.hash, whiteboard_hash::tagged(crate::whiteboard_json::canonical(&s2.value).as_bytes()));
+    // What the value holds: the reason first among what explains it, the summary worked out, the code it was taken at.
+    let keys: Vec<&str> = match &s2.value {
+        Json::Obj(p) => p.iter().map(|(k, _)| k.as_str()).collect(),
+        other => panic!("an object: {other:?}"),
+    };
+    assert_eq!(keys, vec!["id", "parent", "taken_ms", "author", "code", "why", "tags", "summary", "canvas", "next_id", "items"]);
+    assert_eq!(s2.value.get("why").and_then(Json::as_str), Some("The solver is its own box now.\nIt was inside the loop and made it too big."));
+    let code = s2.value.get("code").expect("code");
+    assert_eq!(code.get("rev").and_then(Json::as_str), Some(REV));
+    assert_eq!(code.get("repo").and_then(|r| r.get("web_url")).and_then(Json::as_str), Some("https://github.com/fschutt/azul"));
+    assert_eq!(code.get("dirty").and_then(Json::as_bool), Some(false));
+    let summary = s2.value.get("summary").expect("summary");
+    assert_eq!(summary.get("added").and_then(Json::as_arr).map(<[_]>::len), Some(2));
+    assert_eq!(summary.get("moved").and_then(Json::as_arr).map(<[_]>::len), Some(1));
+    assert_eq!(s2.pictures.keys().map(String::as_str).collect::<Vec<_>>(), vec!["img-1", "img-2", "img-4"]);
+    // Sealing the same snapshot again gives the same text and hash: nothing in it depends on when or where.
+    let again = seal(s2.clone(), None);
+    assert_eq!((&again.value, &again.hash), (&s2.value, &s2.hash));
+    // The links are made with the template that was in force; another template makes another text and another hash.
+    let other = seal(s2.clone(), Some("{web}/x/{rev}/{path}"));
+    assert_eq!(other.value, s2.value, "a host of a known form has no use for a template");
+}
+
+#[test]
+fn the_history_goes_into_the_document_and_comes_back_the_same_in_every_way_the_pictures_can_go() {
+    let (history, live) = history_of_two();
+    for pictures in [Pictures::Entries, Pictures::Embedded, Pictures::Beside("b.assets".to_string())] {
+        let w = document_with(&live, &meta(), &pictures, &history);
+        let map: BTreeMap<String, Vec<u8>> = w.pictures.iter().map(|e| (format!("{}{}", if let Pictures::Beside(d) = &pictures { format!("{d}/") } else { String::new() }, e.name), e.bytes.clone())).collect();
+        let loaded = read(w.text.as_bytes(), &|n| map.get(n).cloned(), &Codec, &LIMITS).expect("read");
+        assert_eq!((loaded.left_out, loaded.unreadable_pictures, loaded.snapshots_left_out), (0, 0, 0), "{pictures:?}");
+        assert_eq!(loaded.data.items, live.items);
+        assert_eq!(loaded.history.snapshots.len(), 2);
+        for (a, b) in loaded.history.snapshots.iter().zip(&history.snapshots) {
+            assert_eq!(a, b, "snapshot {} of {pictures:?}", a.id);
+            assert!(a.verified);
+        }
+    }
+    // The text of a snapshot does not depend on where the pictures are, so the hash does not either.
+    let a = document_with(&live, &meta(), &Pictures::Embedded, &history);
+    let b = document_with(&live, &meta(), &Pictures::Entries, &history);
+    let hashes = |text: &str| {
+        let j = parse(text).expect("JSON");
+        j.get("snapshots").and_then(Json::as_arr).expect("snapshots").iter().map(|s| s.get("hash").and_then(Json::as_str).expect("hash").to_string()).collect::<Vec<_>>()
+    };
+    assert_eq!(hashes(&a.text), hashes(&b.text));
+    assert_eq!(hashes(&a.text), history.snapshots.iter().map(|s| s.hash.clone()).collect::<Vec<_>>());
+}
+
+#[test]
+fn the_pictures_of_the_snapshots_are_among_the_assets_once_whatever_number_of_snapshots_name_them() {
+    let (history, live) = history_of_two();
+    let w = document_with(&live, &meta(), &Pictures::Embedded, &history);
+    let j = parse(&w.text).expect("JSON");
+    let assets = match j.get("assets") {
+        Some(Json::Obj(p)) => p.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(),
+        other => panic!("assets: {other:?}"),
+    };
+    assert_eq!(assets, vec!["img-1", "img-2", "img-4"]);
+    assert_eq!(w.text.matches("data:image/png;base64,").count(), 3, "three pictures, in the text once each");
+    assert_eq!(w.assets, 3);
+    // A picture only an old snapshot has (its cutout is off the live board now) is still carried.
+    let mut thinner = live.clone();
+    thinner.items.retain(|i| i.id() != 4 && i.id() != 5);
+    let w = document_with(&thinner, &meta(), &Pictures::Entries, &history);
+    assert_eq!(w.pictures.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), vec!["img-1.png", "img-2.png", "img-4.png"]);
+}
+
+#[test]
+fn a_snapshot_is_written_again_exactly_as_it_was_whatever_the_settings_have_become() {
+    let (history, live) = history_of_two();
+    let mut changed = meta();
+    changed.template = Some("{web}/never/{rev}/{path}".to_string());
+    changed.repo = None;
+    let w = document_with(&live, &changed, &Pictures::Entries, &history);
+    let j = parse(&w.text).expect("JSON");
+    let snapshots = j.get("snapshots").and_then(Json::as_arr).expect("snapshots");
+    for (written, kept) in snapshots.iter().zip(&history.snapshots) {
+        assert_eq!(written.get("hash").and_then(Json::as_str), Some(kept.hash.as_str()));
+        let mut without = written.clone();
+        if let Json::Obj(p) = &mut without {
+            p.retain(|(k, _)| k != "hash");
+        }
+        assert_eq!(without, kept.value, "the snapshot's own text, not made again from the board");
+    }
+    // And a document read and written again keeps its snapshots as they were.
+    let loaded = read(w.text.as_bytes(), &|n| w.pictures.iter().find(|e| e.name == n).map(|e| e.bytes.clone()), &Codec, &LIMITS).expect("read");
+    let again = document_with(&loaded.data, &loaded.meta, &Pictures::Entries, &loaded.history);
+    let reread = read(again.text.as_bytes(), &|n| again.pictures.iter().find(|e| e.name == n).map(|e| e.bytes.clone()), &Codec, &LIMITS).expect("read");
+    assert_eq!(reread.history, loaded.history);
+}
+
+#[test]
+fn a_snapshot_that_was_changed_after_it_was_written_is_still_read_and_says_it_does_not_check() {
+    let (history, live) = history_of_two();
+    let w = document_with(&live, &meta(), &Pictures::Embedded, &history);
+    let tampered = w.text.replacen("The first cut: the parser feeds the main loop.", "The first cut: nothing to see here.", 1);
+    assert_ne!(tampered, w.text);
+    let loaded = read(tampered.as_bytes(), &|_| None, &Codec, &LIMITS).expect("read");
+    let flags: Vec<(&str, bool)> = loaded.history.snapshots.iter().map(|s| (s.id.as_str(), s.verified)).collect();
+    assert_eq!(flags, vec![("s1", false), ("s2", true)], "only the one that was changed");
+    assert_eq!(loaded.history.snapshots[0].why, "The first cut: nothing to see here.", "what is there is read");
+    // Written again it stays what it is: not healed, still unverified.
+    let again = document_with(&loaded.data, &loaded.meta, &Pictures::Embedded, &loaded.history);
+    let reread = read(again.text.as_bytes(), &|_| None, &Codec, &LIMITS).expect("read");
+    assert_eq!(reread.history.snapshots.iter().map(|s| s.verified).collect::<Vec<_>>(), vec![false, true]);
+    // A snapshot with no hash at all does not check either; one with a hash that is none the same.
+    let nohash = w.text.replacen(&format!("\"hash\": \"{}\"", history.snapshots[1].hash), "\"hash\": \"sha256:zz\"", 1);
+    let loaded = read(nohash.as_bytes(), &|_| None, &Codec, &LIMITS).expect("read");
+    assert_eq!(loaded.history.snapshots.iter().map(|s| s.verified).collect::<Vec<_>>(), vec![true, false]);
+}
+
+#[test]
+fn what_explains_a_snapshot_is_read_back_the_evidence_the_code_the_tags_and_the_summary() {
+    let (first, _) = two_states();
+    let mut s = Snapshot {
+        id: "s1".to_string(),
+        parent: None,
+        taken_ms: 5,
+        author: None,
+        code: Code { rev: Some(REV.to_string()), prefix: "examples/azul-review".to_string(), ..Code::default() },
+        why: "Because.".to_string(),
+        tags: vec!["decision".to_string()],
+        summary: history::diff(None, &first),
+        evidence: Some(Evidence { session: "rec-42".to_string(), start_ms: 1_000, end_ms: 9_500, transcript: "we split the solver\nout of the window".to_string() }),
+        data: first,
+        value: Json::Null,
+        hash: String::new(),
+        verified: false,
+        pictures: BTreeMap::new(),
+    };
+    s = seal(s, None);
+    let mut m = meta();
+    m.repo = Some(repo("examples/azul-review"));
+    let live = s.data.clone();
+    let w = document_with(&live, &m, &Pictures::Embedded, &History { snapshots: vec![s.clone()] });
+    let loaded = read(w.text.as_bytes(), &|_| None, &Codec, &LIMITS).expect("read");
+    let back = &loaded.history.snapshots[0];
+    assert_eq!(back.evidence, s.evidence);
+    assert_eq!(back.code, s.code, "the folder's place in the repository included");
+    assert_eq!(back.tags, vec!["decision"]);
+    assert_eq!(back.summary, s.summary);
+    assert_eq!((back.author.clone(), back.parent.clone(), back.taken_ms), (None, None, 5));
+    assert_eq!(back.data.items, s.data.items, "the paths are the folder's again");
+    assert!(back.verified);
+}
+
+#[test]
+fn a_history_that_is_hostile_is_cut_to_what_a_board_keeps_and_never_trusted() {
+    let (history, live) = history_of_two();
+    let w = document_with(&live, &meta(), &Pictures::Embedded, &history);
+    let mut j = parse(&w.text).expect("JSON");
+    let Json::Obj(top) = &mut j else { panic!("an object") };
+    let snaps = top.iter_mut().find(|(k, _)| k == "snapshots").map(|(_, v)| v).expect("snapshots");
+    let Json::Arr(list) = snaps else { panic!("a list") };
+    let proto = list[0].clone();
+    // The same id twice, no id, an id that is not one, and far more than a board keeps.
+    list.push(proto.clone());
+    let mut noid = proto.clone();
+    if let Json::Obj(p) = &mut noid {
+        p.retain(|(k, _)| k != "id");
+    }
+    list.push(noid);
+    for n in 0..history::MAX_SNAPSHOTS + 10 {
+        let mut s = proto.clone();
+        if let Json::Obj(p) = &mut s {
+            for (k, v) in p.iter_mut() {
+                if k == "id" {
+                    *v = Json::Str(format!("x{n}"));
+                }
+            }
+        }
+        list.push(s);
+    }
+    let text = crate::whiteboard_json::pretty(&j);
+    let loaded = read(text.as_bytes(), &|_| None, &Codec, &LIMITS).expect("read");
+    assert_eq!(loaded.history.snapshots.len(), history::MAX_SNAPSHOTS);
+    assert_eq!(loaded.history.snapshots[0].id, "s1");
+    // The repeat and the one with no id, and what was past the most (214 entries, 202 looked at).
+    assert_eq!(loaded.snapshots_left_out, 2 + 12);
+}
+
+#[test]
+fn what_looking_for_the_code_again_found_is_written_with_the_snapshot_and_read_back() {
+    use crate::{whiteboard_history::RefChange, whiteboard_relocate::RefStatus};
+    let (first, _) = two_states();
+    let mut s = snapshot("s1", None, first.clone(), "The code moved.", None, 0);
+    s.summary.references = vec![
+        RefChange { id: 1, status: RefStatus::Moved, from: (10, 20), to: (31, 41) },
+        RefChange { id: 2, status: RefStatus::Changed, from: (5, 5), to: (5, 8) },
+        RefChange { id: 3, status: RefStatus::Vanished, from: (7, 9), to: (7, 9) },
+    ];
+    let s = seal(s, None);
+    let w = document_with(&first, &meta(), &Pictures::Embedded, &History { snapshots: vec![s.clone()] });
+    let j = parse(&w.text).expect("JSON");
+    let refs = j.get("snapshots").and_then(Json::as_arr).and_then(|a| a[0].get("summary")).and_then(|s| s.get("references")).and_then(Json::as_arr).expect("references");
+    assert_eq!(refs.len(), 3);
+    assert_eq!(refs[0].get("status").and_then(Json::as_str), Some("moved"));
+    assert!(refs[2].get("to").is_none(), "what vanished has no new place");
+    let loaded = read(w.text.as_bytes(), &|_| None, &Codec, &LIMITS).expect("read");
+    assert_eq!(loaded.history.snapshots[0], s);
+    assert!(loaded.history.snapshots[0].verified, "the references are in what the hash is of");
+    // A status that is none, one that says "unchanged" and one without its lines are not references.
+    let bad = w.text.replacen("\"status\": \"moved\"", "\"status\": \"teleported\"", 1).replacen("\"status\": \"changed\"", "\"status\": \"unchanged\"", 1);
+    let loaded = read(bad.as_bytes(), &|_| None, &Codec, &LIMITS).expect("read");
+    assert_eq!(loaded.history.snapshots[0].summary.references.len(), 1, "only the vanished one is left");
+    assert!(!loaded.history.snapshots[0].verified, "and the text was changed after it was written");
 }
 

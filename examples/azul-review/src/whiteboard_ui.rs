@@ -21,13 +21,14 @@ use azul::{
 use azul_appkit::l10n::{label, t, t_args, Arg};
 
 use crate::{
-    whiteboard::{Arrow, Cutout, ImageSlot, ItemId, Notice},
+    whiteboard::{Arrow, Cutout, ImageSlot, Item, ItemId, Notice},
     whiteboard_app::{Plan, Whiteboard},
     whiteboard_boards_ui::{self as boards_ui, Switcher},
+    whiteboard_history_ui::{self as history_ui, HistoryUi},
     whiteboard_drag::{ArmedRegions, GRIP_PX},
     whiteboard_geom::{arrowhead, Curve, Pt, Size},
     whiteboard_input::{Mods, Out, PointerKind},
-    whiteboard_jump::JumpTarget,
+    whiteboard_jump::{FileView, JumpTarget},
 };
 
 /// The id of the node that takes the pointer (and the window's text of it for a script).
@@ -95,6 +96,8 @@ pub struct Panel {
     pub editing: Option<ItemId>,
     /// The header: whether the list of boards is open, which board is being renamed, what waits for a save.
     pub switcher: Switcher,
+    /// The history: whether the list of snapshots is open, the sheet that asks why.
+    pub history_ui: HistoryUi,
     /// How long the frames took (asked for by `perf_on`).
     pub perf: Perf,
     pub perf_on: bool,
@@ -113,6 +116,7 @@ impl Panel {
             hint: None,
             editing: None,
             switcher: Switcher::default(),
+            history_ui: HistoryUi::default(),
             perf: Perf::default(),
             perf_on: false,
         }
@@ -188,9 +192,20 @@ pub struct Host {
     /// ([`Plan`]); a board that was read is told to the panel with `Whiteboard::loaded`, and then to
     /// `Panel::after_wait`.
     pub on_plan: fn(&mut RefAny, Plan, &mut CallbackInfo),
+    /// Runs `f` on the panel and the workspace's files as they are now (the files the cutouts were circled in, asked through
+    /// [`crate::whiteboard_jump::FileView`]), inside the app's state: a snapshot looks for the code again before it is taken
+    /// ([`crate::whiteboard_relocate`]); whether the app has a panel.
+    pub with_files: fn(&mut RefAny, &mut dyn FnMut(&mut Panel, &dyn FileView)) -> bool,
 }
 
 impl Host {
+    pub(crate) fn run_with_files<R>(&self, mut f: impl FnMut(&mut Panel, &dyn FileView) -> R) -> Option<R> {
+        let mut app = self.app.clone();
+        let mut out = None;
+        (self.with_files)(&mut app, &mut |p, files| out = Some(f(p, files)));
+        out
+    }
+
     pub(crate) fn run<R>(&self, mut f: impl FnMut(&mut Panel) -> R) -> Option<R> {
         let mut app = self.app.clone();
         let mut out = None;
@@ -204,24 +219,29 @@ fn css_px(v: f32) -> String {
 }
 
 /// One cutout as a node: its picture (or the lines it was made from while there is none), its label under it.
-fn cutout_dom(panel: &mut Panel, c: &Cutout, selected: bool) -> Dom {
-    let view = panel.wb.board.view();
+fn cutout_dom(panel: &mut Panel, c: &Cutout, selected: bool, ghost: bool) -> Dom {
+    let view = panel.wb.display().view();
     let o = view.to_screen(c.rect.origin());
     let (w, h) = (c.rect.w * view.zoom, c.rect.h * view.zoom);
+    // A ghost is what a snapshot took off: faint, in the red of the comparison, and not a cutout of the board.
+    let (border, extra, name) = if ghost {
+        ("#c8322d", "opacity: 0.4;", format!("__azreview_whiteboard-ghost-{}", c.id))
+    } else {
+        (if selected { "#205cd6" } else { "#b9b4ab" }, "", format!("__azreview_whiteboard-cutout-{}", c.id))
+    };
     let mut node = Dom::create_div()
         .with_css(
             format!(
                 "position: absolute; left: {}; top: {}; width: {}; height: {}; overflow: hidden; background: #ffffff; \
-                 box-shadow: 0px 1px 4px rgba(0,0,0,0.3); border: 1px solid {};",
+                 box-shadow: 0px 1px 4px rgba(0,0,0,0.3); border: 1px solid {border}; {extra}",
                 css_px(o.x),
                 css_px(o.y),
                 css_px(w),
                 css_px(h),
-                if selected { "#205cd6" } else { "#b9b4ab" },
             )
             .as_str(),
         )
-        .with_id(AzString::from(format!("__azreview_whiteboard-cutout-{}", c.id)))
+        .with_id(AzString::from(name))
         .with_accessibility_info(AccessibilityInfo::named(
             AzString::from(cutout_name(c)),
             AccessibilityRole::Graphic,
@@ -235,7 +255,7 @@ fn cutout_dom(panel: &mut Panel, c: &Cutout, selected: bool) -> Dom {
                 ImageSlot::Pending => t("azreview-whiteboard-drawing"),
                 _ => t("azreview-whiteboard-picture-missing"),
             };
-            node.add_child(Dom::create_p_with_text(why.as_str()).with_css("margin: 0px; padding: 4px 6px; font-size: 10px; color: #6b665e;"));
+            node.add_child(Dom::create_p_with_text(why.as_str()).with_css("margin: 0px; padding: 4px 6px; font-family: system:ui; font-size: 10px; color: #6b665e;"));
             for line in c.source.lines.iter().take(12) {
                 node.add_child(
                     Dom::create_span_with_text(line.as_str())
@@ -244,14 +264,19 @@ fn cutout_dom(panel: &mut Panel, c: &Cutout, selected: bool) -> Dom {
             }
         }
     }
+    if !ghost {
+        if let Some(flag) = history_ui::flag_dom(panel, c.id) {
+            node.add_child(flag);
+        }
+    }
     let mut group = Dom::create_div().with_child(node);
     // The label is shown under the cutout; while it is typed, its text area ([`editor_dom`]) is, over the surface. The
     // board's ground is a fixed light colour, so the ink on it is fixed too: the system's text colour is white in dark mode.
-    if panel.editing != Some(c.id) && !c.label.is_empty() {
+    if !ghost && panel.editing != Some(c.id) && !c.label.is_empty() {
         group.add_child(
             Dom::create_span_with_text(c.label.as_str()).with_css(
                 format!(
-                    "position: absolute; left: {}; top: {}; width: {}; font-size: 11px; color: #1f1f1f; text-align: center;",
+                    "position: absolute; left: {}; top: {}; width: {}; font-family: system:ui; font-size: 11px; color: #1f1f1f; text-align: center;",
                     css_px(o.x),
                     css_px(o.y + h + 3.0),
                     css_px(w)
@@ -337,7 +362,7 @@ fn arrow_label_dom(panel: &Panel, a: &Arrow) -> Option<Dom> {
             )
             .with_child(
                 Dom::create_span_with_text(a.label.as_str()).with_css(
-                    "padding: 1px 7px; background: #f4f1ea; border: 1px solid #b9b4ab; border-radius: 8px; font-size: 11px; \
+                    "padding: 1px 7px; background: #f4f1ea; border: 1px solid #b9b4ab; border-radius: 8px; font-family: system:ui; font-size: 11px; \
                      color: #1f1f1f; white-space: pre;",
                 ),
             ),
@@ -388,16 +413,27 @@ pub fn cutout_name(c: &Cutout) -> String {
 /// The panel: the cutouts, and over them the surface that takes the pointer.
 pub fn panel_dom(panel: &mut Panel, host: &Host) -> Dom {
     let began = Instant::now();
-    let selected = panel.wb.input.selection();
-    let cutouts: Vec<Cutout> = panel.wb.board.cutouts().cloned().collect();
+    // A snapshot that is looked at has no selection: nothing of it is changed.
+    let selected = if panel.wb.viewing().is_some() { None } else { panel.wb.input.selection() };
+    let cutouts: Vec<Cutout> = panel.wb.display().cutouts().cloned().collect();
     // The board's own area, under the header: its origin is the surface's and the cutouts' (no border: the bar's rect,
     // where a drop is measured from, is the panel's own, and the header [`HEADER_PX`] is the area's offset in it).
     let mut area = Dom::create_div()
         .with_css("position: relative; flex-grow: 1; min-height: 0px; min-width: 0px; overflow: hidden; background: #f4f1ea;");
     for c in &cutouts {
-        area.add_child(cutout_dom(panel, c, selected == Some(c.id)));
+        area.add_child(cutout_dom(panel, c, selected == Some(c.id), false));
     }
-    let arrows: Vec<Arrow> = panel.wb.board.arrows().cloned().collect();
+    // What the snapshot took off, as a ghost of what it was (set against its parent).
+    let ghosts: Vec<Cutout> = panel
+        .wb
+        .viewing()
+        .and_then(|v| v.compare.as_ref())
+        .map(|c| c.removed.iter().filter_map(|i| if let Item::Cutout(c) = i { Some(c.clone()) } else { None }).collect())
+        .unwrap_or_default();
+    for g in &ghosts {
+        area.add_child(cutout_dom(panel, g, false, true));
+    }
+    let arrows: Vec<Arrow> = panel.wb.display().arrows().cloned().collect();
     for a in &arrows {
         if let Some(on_its_line) = arrow_label_dom(panel, a) {
             area.add_child(on_its_line);
@@ -408,14 +444,14 @@ pub fn panel_dom(panel: &mut Panel, host: &Host) -> Dom {
     } else if cutouts.is_empty() {
         area.add_child(
             Dom::create_p_with_text(t("azreview-whiteboard-empty").as_str())
-                .with_css("position: absolute; left: 16px; right: 16px; top: 24px; margin: 0px; color: #6b665e; font-size: 12px;"),
+                .with_css("position: absolute; left: 16px; right: 16px; top: 24px; margin: 0px; color: #6b665e; font-family: system:ui; font-size: 12px;"),
         );
     }
     if let Some(said) = panel.hint.as_deref() {
         // What the board told (a refusal, a repaired file): under the surface, over the cutouts, until the next press.
         area.add_child(Dom::create_p_with_text(said).with_css(
             "position: absolute; left: 8px; right: 8px; bottom: 8px; margin: 0px; padding: 6px 8px; background: #fff3cd; \
-             border: 1px solid #e0c36a; border-radius: 4px; font-size: 11px; color: #5a4a10;",
+             border: 1px solid #e0c36a; border-radius: 4px; font-family: system:ui; font-size: 11px; color: #5a4a10;",
         ));
     }
     if panel.drag_over {
@@ -442,8 +478,20 @@ pub fn panel_dom(panel: &mut Panel, host: &Host) -> Dom {
     if panel.switcher.open {
         root.add_child(boards_ui::popover_dom(panel, host));
     }
+    if panel.history_ui.list {
+        root.add_child(history_ui::list_dom(panel, host));
+    }
+    if let Some(banner) = history_ui::banner_dom(panel, host) {
+        root.add_child(banner);
+    }
     if let Some(pictures) = panel.switcher.export {
         root.add_child(boards_ui::export_dialog_dom(panel, host, pictures));
+    }
+    if let Some(sheet) = panel.history_ui.sheet.clone() {
+        root.add_child(history_ui::sheet_dom(panel, host, &sheet));
+    }
+    if let Some(head) = history_ui::head_dom(panel, host) {
+        root.add_child(head);
     }
     if let Some(toast) = panel.switcher.toast.as_ref() {
         root.add_child(boards_ui::toast_dom(toast, host));
@@ -579,10 +627,12 @@ pub fn paint_ghost(image: &mut RawImage, k: f32, polygon: &[Pt], offset: Pt) {
 /// The surface's picture: the arrows, the selection, the arrow being drawn, the pen's stroke.
 fn paint_surface(panel: &Panel, w: u32, h: u32, k: f32) -> RawImage {
     let mut image = RawImage::create_rgba8(w, h, vec![0_u8; w as usize * h as usize * 4], true);
-    let board = &panel.wb.board;
+    let board = panel.wb.display();
     let view = board.view();
     let input = &panel.wb.input;
-    let preview = input.preview(board);
+    // A snapshot that is looked at has no selection and no arrow being drawn.
+    let looking = panel.wb.viewing().is_some();
+    let preview = if looking { None } else { input.preview(board) };
     let screen = |p: Pt| view.to_screen(p);
     let screen_curve = |c: &Curve| Curve { a: screen(c.a), c: screen(c.c), b: screen(c.b) };
     let mut paint = Painter::new(&mut image, k);
@@ -593,7 +643,7 @@ fn paint_surface(panel: &Panel, w: u32, h: u32, k: f32) -> RawImage {
         if preview.is_some_and(|p| p.replaces == Some(id)) {
             continue;
         }
-        let selected = input.selection() == Some(id);
+        let selected = !looking && input.selection() == Some(id);
         let curve = screen_curve(&placed.curve);
         // (A straight arrow along a row or a column has a box of no height or width: the reach gives it some.)
         if !crate::whiteboard_geom::Rect::from_points(&[curve.a, curve.c, curve.b])
@@ -608,7 +658,10 @@ fn paint_surface(panel: &Panel, w: u32, h: u32, k: f32) -> RawImage {
             }
         }
     }
-    if let Some(c) = input.selection().and_then(|id| board.cutout(id)) {
+    if let Some(compare) = panel.wb.viewing().and_then(|v| v.compare.as_ref()) {
+        paint_compare(&mut paint, board, compare, &screen);
+    }
+    if let Some(c) = input.selection().filter(|_| !looking).and_then(|id| board.cutout(id)) {
         let r = c.rect;
         let (o, size) = (screen(r.origin()), (r.w * view.zoom, r.h * view.zoom));
         paint.rect(crate::whiteboard_geom::Rect::new(o.x, o.y, size.0, size.1), 1.0, ACCENT);
@@ -622,9 +675,64 @@ fn paint_surface(panel: &Panel, w: u32, h: u32, k: f32) -> RawImage {
             paint.rect(crate::whiteboard_geom::Rect::new(o.x, o.y, c.rect.w * view.zoom, c.rect.h * view.zoom), 1.5, ACCENT);
         }
     }
-    let stroke: Vec<Pt> = input.stroke().iter().map(|p| screen(*p)).collect();
+    let stroke: Vec<Pt> = if looking { Vec::new() } else { input.stroke().iter().map(|p| screen(*p)).collect() };
     paint.polyline(&stroke, 1.2, PEN);
     image
+}
+
+const ADDED: [u8; 4] = [34, 150, 70, 255];
+const TAKEN_OFF: [u8; 4] = [200, 50, 45, 255];
+const MOVED: [u8; 4] = [225, 130, 20, 255];
+
+/// What a snapshot changed since its parent, on the board: what was added outlined green, what was taken off a red ghost (its
+/// picture is a node, [`panel_dom`]; its outline and a cross are here), what moved an orange arrow from where it was.
+fn paint_compare(paint: &mut Painter<'_>, board: &crate::whiteboard::Board, c: &crate::whiteboard_app::Compare, screen: &dyn Fn(Pt) -> Pt) {
+    use crate::whiteboard_geom::Rect;
+    let on_screen = |r: Rect| {
+        let (a, b) = (screen(r.origin()), screen(Pt::new(r.right(), r.bottom())));
+        Rect::new(a.x, a.y, b.x - a.x, b.y - a.y)
+    };
+    for b in &c.summary.added {
+        if let Some(cut) = board.cutout(b.id) {
+            paint.rect(on_screen(cut.rect.inflate(3.0)), 2.5, ADDED);
+        } else if let Some(placed) = board.place_arrow(b.id) {
+            let curve = Curve { a: screen(placed.curve.a), c: screen(placed.curve.c), b: screen(placed.curve.b) };
+            paint.arrow(&curve, 2.5, ADDED);
+        }
+    }
+    for m in &c.summary.moved {
+        let Some(cut) = board.cutout(m.id) else {
+            continue;
+        };
+        let half = Pt::new(cut.rect.w * 0.5, cut.rect.h * 0.5);
+        let (from, to) = (screen(Pt::new(m.from.x + half.x, m.from.y + half.y)), screen(Pt::new(m.to.x + half.x, m.to.y + half.y)));
+        paint.arrow(&Curve::bent(from, to, 0.0), 2.0, MOVED);
+        paint.dot(from, 4.0, MOVED);
+    }
+    for item in &c.removed {
+        match item {
+            Item::Cutout(cut) => {
+                let r = on_screen(cut.rect);
+                paint.rect(r, 1.8, TAKEN_OFF);
+                paint.line(Pt::new(r.x, r.y), Pt::new(r.right(), r.bottom()), 1.5, TAKEN_OFF);
+                paint.line(Pt::new(r.right(), r.y), Pt::new(r.x, r.bottom()), 1.5, TAKEN_OFF);
+            }
+            Item::Arrow(a) => {
+                // A ghost of an arrow: a straight red line between its ends, where they can be found (the cutouts that are on the
+                // board, or among the ghosts).
+                let centre = |end: &crate::whiteboard::End| match end {
+                    crate::whiteboard::End::Free(p) => Some(*p),
+                    crate::whiteboard::End::Item { id, .. } => board
+                        .cutout(*id)
+                        .map(|c| c.rect.center())
+                        .or_else(|| c.removed.iter().find_map(|i| if let Item::Cutout(x) = i { (x.id == *id).then(|| x.rect.center()) } else { None })),
+                };
+                if let (Some(p), Some(q)) = (centre(&a.from), centre(&a.to)) {
+                    paint.arrow(&Curve::bent(screen(p), screen(q), 0.0), 1.5, TAKEN_OFF);
+                }
+            }
+        }
+    }
 }
 
 /// The surface's `RenderImageCallback`: its frame, at the pixel scale of the window.
@@ -712,7 +820,7 @@ extern "C" fn on_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     // A board that is being read takes no pointer: what it is given would be replaced by what is read.
-    if host.run(|p| p.wb.is_loading()) == Some(true) {
+    if host.run(|p| p.wb.is_loading() || p.wb.viewing().is_some()) == Some(true) {
         return Update::DoNothing;
     }
     let (Some(at), kind, mods) = (at_of(&info), kind_of(&info), mods_of(&info)) else {
@@ -739,7 +847,7 @@ extern "C" fn on_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     // A board that is being read takes no pointer: what it is given would be replaced by what is read.
-    if host.run(|p| p.wb.is_loading()) == Some(true) {
+    if host.run(|p| p.wb.is_loading() || p.wb.viewing().is_some()) == Some(true) {
         return Update::DoNothing;
     }
     let (Some(at), mods) = (at_of(&info), mods_of(&info)) else {
@@ -770,7 +878,7 @@ extern "C" fn on_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     // A board that is being read takes no pointer: what it is given would be replaced by what is read.
-    if host.run(|p| p.wb.is_loading()) == Some(true) {
+    if host.run(|p| p.wb.is_loading() || p.wb.viewing().is_some()) == Some(true) {
         return Update::DoNothing;
     }
     let (Some(at), mods) = (at_of(&info), mods_of(&info)) else {
@@ -800,7 +908,7 @@ extern "C" fn on_double(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     // A board that is being read takes no pointer: what it is given would be replaced by what is read.
-    if host.run(|p| p.wb.is_loading()) == Some(true) {
+    if host.run(|p| p.wb.is_loading() || p.wb.viewing().is_some()) == Some(true) {
         return Update::DoNothing;
     }
     let Some(at) = at_of(&info) else {
@@ -835,8 +943,7 @@ extern "C" fn on_wheel(mut data: RefAny, mut info: CallbackInfo) -> Update {
     };
     // The wheel moves the board against the hand: the board point under the pointer follows it.
     let out = host.run(|p| {
-        let Panel { wb, .. } = p;
-        wb.input.wheel(&mut wb.board, at, Pt::new(-delta.x, -delta.y), mods)
+        p.wb.wheel(at, Pt::new(-delta.x, -delta.y), mods)
     });
     // The cutouts are nodes: the view moved, so their places did.
     out.map(|_| Update::RefreshDom).unwrap_or(Update::DoNothing)
@@ -849,10 +956,23 @@ pub fn on_key(panel: &mut Panel, key: Key) -> bool {
         panel.switcher.export = None;
         return true;
     }
-    if key == Key::Escape && panel.switcher.open {
+    if key == Key::Escape && panel.history_ui.sheet.is_some() {
+        panel.history_ui.sheet = None;
+        return true;
+    }
+    if key == Key::Escape && (panel.switcher.open || panel.history_ui.list) {
         panel.switcher.open = false;
         panel.switcher.renaming = None;
+        panel.history_ui.list = false;
         return true;
+    }
+    if key == Key::Escape && panel.wb.viewing().is_some() {
+        panel.wb.back_to_live();
+        return true;
+    }
+    // A snapshot that is looked at is read-only: the board's keys wait for the board.
+    if panel.wb.viewing().is_some() {
+        return false;
     }
     let Panel { wb, .. } = panel;
     match key {

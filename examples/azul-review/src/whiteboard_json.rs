@@ -386,6 +386,115 @@ pub fn object(fields: Vec<(&str, Json)>) -> Json {
     Json::Obj(fields.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
 }
 
+/// A number as ECMAScript prints it (`Number.prototype.toString`: RFC 8785, section 3.2.2.3): the shortest digits that read
+/// back to the same double, without an exponent from 1e-6 up to 1e21, with one (`1e+21`, `1e-7`) beyond. `0` for zero (and
+/// for minus zero) and for what is no number.
+fn es_number(n: f64) -> String {
+    if n == 0.0 || !n.is_finite() {
+        return "0".to_string();
+    }
+    // Rust's `{:e}` gives the shortest digits and their exponent (`1.2345e-3`); how many of them is what is wanted: of the
+    // numbers that many digits make, ECMAScript takes the one closest to the double, and the even one when two are as close
+    // (Rust's shortest form takes the larger), which is the double correctly rounded to that many digits.
+    let shortest = format!("{:e}", n.abs());
+    let k = shortest.split_once('e').map_or(1, |(m, _)| m.chars().filter(char::is_ascii_digit).count());
+    let sci = format!("{:.*e}", k.saturating_sub(1), n.abs());
+    let (mantissa, exponent) = sci.split_once('e').unwrap_or((sci.as_str(), "0"));
+    let digits: String = mantissa.chars().filter(|c| *c != '.').collect();
+    let k = i32::try_from(digits.len()).unwrap_or(i32::MAX);
+    // The decimal point comes after `point` digits (the spec's n).
+    let point = exponent.parse::<i32>().unwrap_or(0) + 1;
+    let body = if k <= point && point <= 21 {
+        format!("{digits}{}", "0".repeat(usize::try_from(point - k).unwrap_or(0)))
+    } else if 0 < point && point <= 21 {
+        let cut = usize::try_from(point).unwrap_or(0);
+        format!("{}.{}", &digits[..cut], &digits[cut..])
+    } else if -6 < point && point <= 0 {
+        format!("0.{}{digits}", "0".repeat(usize::try_from(-point).unwrap_or(0)))
+    } else {
+        let e = point - 1;
+        let sign = if e < 0 { '-' } else { '+' };
+        if k == 1 {
+            format!("{digits}e{sign}{}", e.abs())
+        } else {
+            format!("{}.{}e{sign}{}", &digits[..1], &digits[1..], e.abs())
+        }
+    };
+    if n < 0.0 {
+        format!("-{body}")
+    } else {
+        body
+    }
+}
+
+/// A string as RFC 8785 writes it: only the quote, the backslash and the control characters are escaped (`\b \t \n \f \r`
+/// short, the others `\u00xx` in lower case); everything else, DEL and the characters past the plane 0 included, as it is.
+fn jcs_string(out: &mut String, text: &str) {
+    use std::fmt::Write;
+    out.push('"');
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\u{8}' => out.push_str("\\b"),
+            '\t' => out.push_str("\\t"),
+            '\n' => out.push_str("\\n"),
+            '\u{c}' => out.push_str("\\f"),
+            '\r' => out.push_str("\\r"),
+            c if u32::from(c) < 0x20 => {
+                let _ = write!(out, "\\u{:04x}", u32::from(c));
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+}
+
+fn jcs(v: &Json, out: &mut String) {
+    match v {
+        Json::Null => out.push_str("null"),
+        Json::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        Json::Num(n) => out.push_str(&es_number(*n)),
+        Json::Str(s) => jcs_string(out, s),
+        Json::Arr(items) => {
+            out.push('[');
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                jcs(item, out);
+            }
+            out.push(']');
+        }
+        Json::Obj(pairs) => {
+            // The members sorted by their names as sequences of UTF-16 code units (not of code points: a character past
+            // the plane 0 sorts before U+E000).
+            let mut sorted: Vec<&(String, Json)> = pairs.iter().collect();
+            sorted.sort_by(|a, b| a.0.encode_utf16().cmp(b.0.encode_utf16()));
+            out.push('{');
+            for (i, (k, item)) in sorted.into_iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                jcs_string(out, k);
+                out.push(':');
+                jcs(item, out);
+            }
+            out.push('}');
+        }
+    }
+}
+
+/// `v` in the canonical form of RFC 8785 (JCS): no white space, the members of an object sorted by name, numbers and
+/// strings as ECMAScript writes them. The same value is always the same text, which is what a hash is taken of; any
+/// JCS library gives the same bytes.
+#[must_use]
+pub fn canonical(v: &Json) -> String {
+    let mut out = String::new();
+    jcs(v, &mut out);
+    out
+}
+
 /// The longest a list or an object is that is written on one line, characters.
 const INLINE: usize = 100;
 

@@ -17,6 +17,7 @@ use crate::{
     whiteboard::{BoardData, Limits},
     whiteboard_azboard::{self as azboard, Meta, Pictures},
     whiteboard_git::{self as git, RepoFacts},
+    whiteboard_history::History,
     whiteboard_store::{self as store, ImageCodec, Loaded, StoreError},
 };
 
@@ -35,11 +36,26 @@ pub enum ExportPictures {
     Beside,
 }
 
+/// How much of a board's history an export holds.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum ExportScope {
+    /// The board as it is and all its snapshots, in order (the default).
+    #[default]
+    History,
+    /// The board as it is, with no history.
+    Board,
+    /// One snapshot: its state is the document's, and it is the only one in the document's history.
+    Snapshot(String),
+}
+
 /// What an export is given.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExportRequest {
     /// The board as it is.
     pub data: BoardData,
+    /// Its snapshots (what [`Self::scope`] holds of them is written).
+    pub history: History,
+    pub scope: ExportScope,
     /// Which board it is and what the app knows of its repository and author.
     pub meta: Meta,
     pub pictures: ExportPictures,
@@ -153,7 +169,14 @@ pub fn export(req: ExportRequest, target: &Path, timeout: Duration) -> Result<Ex
         ExportPictures::Embedded => Pictures::Embedded,
         ExportPictures::Beside => Pictures::Beside(folder_name.clone()),
     };
-    let written = azboard::document(&req.data, &meta, &pictures);
+    let written = match &req.scope {
+        ExportScope::History => azboard::document_with(&req.data, &meta, &pictures, &req.history),
+        ExportScope::Board => azboard::document(&req.data, &meta, &pictures),
+        ExportScope::Snapshot(id) => {
+            let snapshot = req.history.get(id).ok_or_else(|| format!("there is no snapshot {id}"))?;
+            azboard::document_with(&snapshot.data, &meta, &pictures, &History { snapshots: vec![snapshot.clone()] })
+        }
+    };
     let links = written.text.matches("\"permalink\"").count();
     let mut pictures_folder = None;
     if req.pictures == ExportPictures::Beside && !written.pictures.is_empty() {

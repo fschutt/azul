@@ -9,16 +9,19 @@
 use std::sync::Arc;
 
 use crate::{
-    whiteboard::{kept_lines, lines_hash, Board, BoardData, CutoutDraft, CutoutImage, ImageSlot, ItemId, Limits, Notice, Source},
-    whiteboard_azboard::Meta,
+    whiteboard::{kept_lines, lines_hash, Board, BoardData, CutoutDraft, CutoutImage, ImageSlot, Item, ItemId, Limits, Notice, Source},
+    whiteboard_azboard::{self as azboard, Meta},
     whiteboard_boards::{self as boards, BoardIndex, BoardsError},
     whiteboard_cutout::{plan, CapturePlan},
     whiteboard_drag::{Armed, ArmedRegion, ArmedRegions, Bar, Drag, Motion, Pointer, Press, RegionId, Release, Tick},
-    whiteboard_export::{self as export, ExportPictures, ExportRequest},
+    whiteboard_export::{self as export, ExportPictures, ExportRequest, ExportScope},
     whiteboard_geom::{Pt, Rect, Size},
     whiteboard_git::RepoFacts,
     whiteboard_hash,
-    whiteboard_input::BoardInput,
+    whiteboard_history::{self as history, Code, History, RefChange, Snapshot, Summary},
+    whiteboard_input::{BoardInput, Mods, Out},
+    whiteboard_jump::FileView,
+    whiteboard_relocate as relocate,
     whiteboard_lasso::{covered_lines, recognize, PageLines},
     whiteboard_settings::Settings,
     whiteboard_store::{self as store, Entry, Loaded, SaveGate, StoreError},
@@ -149,7 +152,7 @@ pub struct Whiteboard {
     protect_file: bool,
     /// The list of boards was written by a newer version: it is never replaced, so no board is kept.
     index_protected: bool,
-    saving: Option<(u64, u64, u64)>,
+    saving: Option<(u64, u64, u64, u64)>,
     /// The boards of the workspace, and which is open.
     boards: BoardIndex,
     /// The board that is open is being read: what shows is empty until [`Self::loaded`].
@@ -163,6 +166,49 @@ pub struct Whiteboard {
     settings: Settings,
     /// The workspace's folder on disk, when `workspace` (what names the files of its boards) is not itself the folder's path.
     folder: Option<std::path::PathBuf>,
+    /// The snapshots of the open board, and whether they are all kept ([`Self::needs_save`]).
+    history: History,
+    history_revision: u64,
+    saved_history_revision: u64,
+    /// A snapshot being looked at: read-only, in place of the board.
+    viewing: Option<Viewing>,
+    /// What looking for the code again found since the last snapshot: the references that moved, changed or vanished, by
+    /// cutout, with where they were first (the board flags them; the next snapshot records them).
+    relocated: std::collections::BTreeMap<ItemId, RefChange>,
+}
+
+/// A snapshot that is shown in place of the board: its own board, which nothing the person does changes the history by.
+pub struct Viewing {
+    pub id: String,
+    /// The snapshot's state as a board (its view can be panned and zoomed; nothing else of it changes).
+    pub board: Board,
+    /// What the snapshot changed since its parent, shown on the board while this is `Some`.
+    pub compare: Option<Compare>,
+}
+
+/// A snapshot set against its parent: what [`Summary`] says, and what is needed to draw it - the items that were taken off
+/// (they are not in the snapshot, so the parent's are kept to be drawn as ghosts).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Compare {
+    pub summary: Summary,
+    pub removed: Vec<Item>,
+    /// The parent's id, when there is one.
+    pub against: Option<String>,
+}
+
+/// What the sheet that takes a snapshot shows before it is taken.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Draft {
+    /// The snapshot it will follow.
+    pub parent: Option<String>,
+    /// What changed since it.
+    pub summary: Summary,
+    /// The code as it is now.
+    pub code: Code,
+    /// Pictures still being drawn: a snapshot waits for them.
+    pub pending: usize,
+    /// The references that were looked for again and are not as they were.
+    pub references: Vec<RefChange>,
 }
 
 impl Whiteboard {
@@ -195,6 +241,11 @@ impl Whiteboard {
             repo: None,
             settings: Settings::default(),
             folder: None,
+            history: History::default(),
+            history_revision: 0,
+            saved_history_revision: 0,
+            viewing: None,
+            relocated: std::collections::BTreeMap::new(),
         }
     }
 
@@ -258,9 +309,11 @@ impl Whiteboard {
     /// The export of the open board as it is now (its unkept changes too): what the Thread that writes the file is
     /// given. `folder` is where the host's workspace is, `home` where the global git config is.
     #[must_use]
-    pub fn export_request(&self, pictures: ExportPictures, home: Option<&str>, now_ms: u64) -> ExportRequest {
+    pub fn export_request(&self, pictures: ExportPictures, scope: ExportScope, home: Option<&str>, now_ms: u64) -> ExportRequest {
         ExportRequest {
             data: self.board.snapshot(),
+            history: self.history.clone(),
+            scope,
             meta: self.meta(now_ms),
             pictures,
             folder: self.folder(),
@@ -551,7 +604,7 @@ impl Whiteboard {
     /// What the whiteboard is left for another board only when nothing is lost: the open board is kept, no write
     /// runs and no board is being read.
     fn leave(&self) -> Result<(), Notice> {
-        let unkept = self.board.needs_save() && !self.protect_file;
+        let unkept = self.needs_save() && !self.protect_file;
         if self.loading || self.gate.is_busy() || unkept {
             Err(Notice::BoardBusy)
         } else {
@@ -562,6 +615,11 @@ impl Whiteboard {
     /// The open board is replaced by an empty one (then maybe read: `loading`).
     fn start_empty(&mut self, loading: bool) {
         let _repaired = self.board.replace_with(BoardData::default());
+        self.history = History::default();
+        self.history_revision = 0;
+        self.saved_history_revision = 0;
+        self.viewing = None;
+        self.relocated.clear();
         self.input = BoardInput::default();
         self.status = Status::New;
         self.saving = None;
@@ -633,7 +691,7 @@ impl Whiteboard {
         let (id, cut) = self.boards.create(name, now_ms)?;
         self.name_cut(cut);
         let file = self.boards.get(&id).map(|b| b.file.clone()).unwrap_or_default();
-        let entries = store::write(&self.board.snapshot(), &self.meta(now_ms));
+        let entries = store::write_history(&self.board.snapshot(), &self.meta(now_ms), &self.history);
         let mut plan = self.list_plan();
         plan.copy = Some(Write { name: file, entries });
         Ok(plan)
@@ -692,10 +750,13 @@ impl Whiteboard {
         self.name_cut(cut);
         self.boards.set_active(&id)?;
         self.start_empty(false);
-        let (left_out, pictures, modified) = (loaded.left_out, loaded.unreadable_pictures, loaded.meta.modified_ms);
+        let (left_out, pictures, modified) = (loaded.left_out + loaded.snapshots_left_out, loaded.unreadable_pictures, loaded.meta.modified_ms);
         let notices = self.board.replace_with(loaded.data);
+        self.history = loaded.history;
         // What was read is not what is in this board's own file (there is none): the next save writes it.
         self.board.mark_unsaved();
+        self.history_revision = 1;
+        self.saved_history_revision = 0;
         self.status = if left_out > 0 || pictures > 0 || !notices.is_empty() {
             Status::Repaired { left_out, pictures }
         } else {
@@ -708,20 +769,223 @@ impl Whiteboard {
         Ok(self.list_plan())
     }
 
+    // ---- the history
+
+    /// The snapshots of the open board, oldest first.
+    #[must_use]
+    pub const fn history(&self) -> &History {
+        &self.history
+    }
+
+    /// Whether the board, its view or its history has changes that are not kept.
+    #[must_use]
+    pub fn needs_save(&self) -> bool {
+        self.board.needs_save() || self.history_revision != self.saved_history_revision
+    }
+
+    /// What a snapshot taken now would say: what it follows, what changed since, the code as it is.
+    #[must_use]
+    pub fn snapshot_draft(&self) -> Draft {
+        let latest = self.history.latest();
+        let data = self.board.snapshot();
+        Draft {
+            parent: latest.map(|s| s.id.clone()),
+            summary: history::diff(latest.map(|s| &s.data), &data),
+            code: self.repo.as_ref().map_or_else(Code::default, Code::of),
+            pending: data.items.iter().filter(|i| matches!(i, Item::Cutout(c) if matches!(c.image, ImageSlot::Pending))).count(),
+            references: self.relocated.values().cloned().collect(),
+        }
+    }
+
+    /// Looks for the code every cutout points at again, in the files as they are now (`files`), at the revision the code is at
+    /// ([`Self::set_repo`]): a reference that moved or changed follows the code, one that vanished is left as it was, and
+    /// all that are not as they were are flagged until the next snapshot records them. Returns how many are flagged.
+    pub fn relocate_all(&mut self, files: &dyn FileView) -> usize {
+        let limits = *self.board.limits();
+        let rev = self.repo.as_ref().and_then(|r| r.rev.clone());
+        let sources: Vec<(ItemId, Source)> = self.board.cutouts().map(|c| (c.id, c.source.clone())).collect();
+        for (id, source) in sources {
+            let r = relocate::relocate(&source, files, rev.as_deref(), &limits);
+            if r.status.is_flag() {
+                // Where it first was since the last snapshot, and where it is now.
+                let from = self.relocated.get(&id).map_or(r.from, |c| c.from);
+                self.relocated.insert(id, RefChange { id, status: r.status, from, to: r.to });
+            }
+            self.board.set_source(id, &r.source);
+        }
+        self.relocated.len()
+    }
+
+    /// The references that are flagged (not as they were when the last snapshot recorded them), by cutout.
+    #[must_use]
+    pub fn flags(&self) -> &std::collections::BTreeMap<ItemId, RefChange> {
+        &self.relocated
+    }
+
+    /// The revision the code is at now, and the one the newest snapshot was taken at, when they differ: the code moved on
+    /// since the board was last kept as a snapshot. `None` for a board with no snapshot, or when either is not known.
+    #[must_use]
+    pub fn head_moved(&self) -> Option<(String, String)> {
+        let was = self.history.latest()?.code.rev.clone()?;
+        let now = self.repo.as_ref()?.rev.clone()?;
+        (was != now).then_some((was, now))
+    }
+
+    /// The board as it is now becomes a snapshot of the history: why it is as it is (`why`), the tags typed for it (`tags`,
+    /// split at commas). Its text is written once and hashed; the board is kept again by the next save.
+    ///
+    /// # Errors
+    /// A board is being read or a picture drawn ([`Notice::BoardBusy`], [`Notice::PicturesPending`]: again in a moment), or
+    /// the history is full ([`Notice::HistoryFull`]).
+    pub fn take_snapshot(&mut self, why: &str, tags: &str, now_ms: u64) -> Result<String, Notice> {
+        if self.loading {
+            return Err(Notice::BoardBusy);
+        }
+        let draft = self.snapshot_draft();
+        if draft.pending > 0 {
+            return Err(Notice::PicturesPending);
+        }
+        let data = self.board.snapshot();
+        if !self.history.has_room_for(data.items.len()) {
+            return Err(Notice::HistoryFull { snapshots: history::MAX_SNAPSHOTS, items: history::MAX_HISTORY_ITEMS });
+        }
+        let snapshot = Snapshot {
+            id: self.history.next_id(),
+            parent: draft.parent,
+            taken_ms: now_ms,
+            author: self.author_name(),
+            code: draft.code,
+            why: history::clean_why(why),
+            tags: history::parse_tags(tags),
+            summary: Summary { references: draft.references, ..draft.summary },
+            evidence: None,
+            data,
+            value: crate::whiteboard_json::Json::Null,
+            hash: String::new(),
+            verified: false,
+            pictures: std::collections::BTreeMap::new(),
+        };
+        let sealed = azboard::seal(snapshot, self.settings.permalink_template.as_deref());
+        let id = sealed.id.clone();
+        self.history.snapshots.push(sealed);
+        self.history_revision += 1;
+        // What was flagged is recorded now.
+        self.relocated.clear();
+        Ok(id)
+    }
+
+    /// Shows snapshot `id` in place of the board, read-only: the board is not touched.
+    ///
+    /// # Errors
+    /// There is no such snapshot.
+    pub fn view_snapshot(&mut self, id: &str) -> Result<(), Notice> {
+        let snapshot = self.history.get(id).ok_or(Notice::NoSuchSnapshot)?;
+        let (board, _notices) = Board::from_data(snapshot.data.clone(), *self.board.limits());
+        self.viewing = Some(Viewing { id: id.to_string(), board, compare: None });
+        Ok(())
+    }
+
+    /// The board is shown again (the snapshot that was looked at is let go of).
+    pub fn back_to_live(&mut self) {
+        self.viewing = None;
+    }
+
+    /// The snapshot that is looked at.
+    #[must_use]
+    pub const fn viewing(&self) -> Option<&Viewing> {
+        self.viewing.as_ref()
+    }
+
+    /// The board that is shown: the snapshot's while one is looked at, else the open board.
+    #[must_use]
+    pub fn display(&self) -> &Board {
+        self.viewing.as_ref().map_or(&self.board, |v| &v.board)
+    }
+
+    /// The board that is shown, for the view to be panned and zoomed: the snapshot's own board while one is looked at (its
+    /// items are not changed by anything the person does), else the open board.
+    pub fn display_mut(&mut self) -> &mut Board {
+        match self.viewing.as_mut() {
+            Some(v) => &mut v.board,
+            None => &mut self.board,
+        }
+    }
+
+    /// The wheel or a trackpad at `at`: the board that is shown is moved (or, with the command key, zoomed); a snapshot that is
+    /// looked at has its own view and nothing else of it changes.
+    pub fn wheel(&mut self, at: Pt, delta: Pt, mods: Mods) -> Out {
+        match self.viewing.as_mut() {
+            Some(v) => self.input.wheel(&mut v.board, at, delta, mods),
+            None => self.input.wheel(&mut self.board, at, delta, mods),
+        }
+    }
+
+    /// Sets the snapshot that is looked at against its parent (`on`), or takes the comparison off.
+    pub fn set_compare(&mut self, on: bool) {
+        let Some(id) = self.viewing.as_ref().map(|v| v.id.clone()) else {
+            return;
+        };
+        let compare = on.then(|| {
+            let snapshot = self.history.get(&id);
+            let parent = self.history.parent_of(&id);
+            let summary = history::diff(parent.map(|p| &p.data), snapshot.map_or(&BoardData::default(), |s| &s.data));
+            let removed: Vec<Item> = parent
+                .map(|p| p.data.items.iter().filter(|i| summary.removed.iter().any(|b| b.id == i.id())).cloned().collect())
+                .unwrap_or_default();
+            Compare { summary, removed, against: parent.map(|p| p.id.clone()) }
+        });
+        if let Some(v) = self.viewing.as_mut() {
+            v.compare = compare;
+        }
+    }
+
+    /// The board becomes what snapshot `id` was, and the new state is a snapshot of its own (`why`, `tags`): history is
+    /// appended to and nothing in it is rewritten. A board that has changes no snapshot holds is made a snapshot first (said
+    /// so in its reason), so that restoring loses nothing. The board's view and the ids it has given stay as they are; the
+    /// items are the snapshot's.
+    ///
+    /// # Errors
+    /// There is no such snapshot, a board is being read, or the history has no room for the one or two snapshots
+    /// ([`Notice::HistoryFull`]); nothing is changed then.
+    pub fn restore_snapshot(&mut self, id: &str, why: &str, tags: &str, now_ms: u64) -> Result<String, Notice> {
+        if self.loading {
+            return Err(Notice::BoardBusy);
+        }
+        let target = self.history.get(id).ok_or(Notice::NoSuchSnapshot)?.data.clone();
+        let live = self.board.snapshot();
+        let unsaved_state = history::diff(self.history.latest().map(|s| &s.data), &live);
+        let rooms = if unsaved_state.is_empty() { 1 } else { 2 };
+        if self.history.snapshots.len() + rooms > history::MAX_SNAPSHOTS || self.history.items_held() + live.items.len() + target.items.len() > history::MAX_HISTORY_ITEMS {
+            return Err(Notice::HistoryFull { snapshots: history::MAX_SNAPSHOTS, items: history::MAX_HISTORY_ITEMS });
+        }
+        if !unsaved_state.is_empty() {
+            let before = format!("The state of the board before it was restored to snapshot {id} (taken by itself).");
+            self.take_snapshot(&before, "", now_ms)?;
+        }
+        let mut data = target;
+        data.next_id = data.next_id.max(live.next_id);
+        data.view = live.view;
+        let _notices = self.board.replace_with(data);
+        self.board.mark_unsaved();
+        self.viewing = None;
+        self.relocated.clear();
+        self.take_snapshot(why, tags, now_ms)
+    }
+
     // ---- the file
 
     /// The save to write, when the board has changed since it was kept and none is being written (a save
     /// wanted while one runs is asked again when it is done: [`Self::save_done`]).
     pub fn save_job(&mut self, now_ms: u64) -> Option<SaveJob> {
-        if self.protect_file || !self.board.needs_save() || !self.gate.request() {
+        if self.protect_file || !self.needs_save() || !self.gate.request() {
             return None;
         }
         let revision = self.board.content_revision();
         let view_revision = self.board.view_revision();
-        self.saving = Some((revision, view_revision, now_ms));
+        self.saving = Some((revision, view_revision, now_ms, self.history_revision));
         Some(SaveJob {
             name: self.boards.active().file.clone(),
-            entries: store::write(&self.board.snapshot(), &self.meta(now_ms)),
+            entries: store::write_history(&self.board.snapshot(), &self.meta(now_ms), &self.history),
             revision,
             view_revision,
         })
@@ -732,8 +996,9 @@ impl Whiteboard {
     pub fn save_done(&mut self, result: &Result<(), String>) -> bool {
         let again = self.gate.finished();
         match (result, self.saving.take()) {
-            (Ok(()), Some((revision, view, at))) => {
+            (Ok(()), Some((revision, view, at, history_revision))) => {
                 self.board.mark_saved_at(revision, view);
+                self.saved_history_revision = history_revision.min(self.history_revision);
                 self.status = Status::Saved(at);
                 let open = self.boards.active().id.clone();
                 self.boards.touch(&open, at);
@@ -766,8 +1031,13 @@ impl Whiteboard {
         };
         match result {
             Ok(l) => {
-                let (items_left_out, pictures) = (l.left_out, l.unreadable_pictures);
+                let (items_left_out, pictures) = (l.left_out + l.snapshots_left_out, l.unreadable_pictures);
                 let notices = self.board.replace_with(l.data);
+                self.history = l.history;
+                self.history_revision = 0;
+                self.saved_history_revision = 0;
+                self.viewing = None;
+                self.relocated.clear();
                 self.status = if items_left_out > 0 || pictures > 0 || !notices.is_empty() {
                     Status::Repaired { left_out: items_left_out, pictures }
                 } else {
