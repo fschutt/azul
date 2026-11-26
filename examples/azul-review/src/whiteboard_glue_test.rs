@@ -159,3 +159,50 @@ fn the_box_of_lit_rows_is_where_the_page_shows_them_and_takes_lines_put_in_betwe
     assert_eq!(top, ui::PAGE_PAD + 3.0 * ui::LINE_H);
     assert_eq!(height, 5.0 * ui::LINE_H, "rows 3, the two put in, and 4 and 5");
 }
+
+// ---- what was done since the last snapshot
+
+fn header(conversation: u64, outcome: Option<crate::patch::Outcome>, said: &str, rationale: &str) -> crate::patch::ReadHeader {
+    crate::patch::ReadHeader { conversation, outcome, said: said.to_string(), rationale: rationale.to_string(), ..Default::default() }
+}
+
+#[test]
+fn a_resolved_conversation_is_a_line_for_the_reason_of_a_snapshot_in_the_words_of_how_it_ended() {
+    crate::l10n::in_english();
+    use crate::patch::Outcome;
+    let has = |line: &str, pieces: &[&str]| pieces.iter().all(|p| line.contains(p));
+    let taken = material_line(&header(3, Some(Outcome::Accepted), "rename this loop", ""));
+    assert!(has(&taken, &["Conversation", "3", "suggestions taken", "rename this loop"]), "{taken}");
+    let refused = material_line(&header(4, Some(Outcome::Rejected), "drop it", ""));
+    assert!(has(&refused, &["4", "suggestions refused", "drop it"]), "{refused}");
+    let answered = material_line(&header(5, Some(Outcome::Answered), "why is this here", ""));
+    assert!(has(&answered, &["5", "answered in words", "why is this here"]), "{answered}");
+    let closed = material_line(&header(6, Some(Outcome::Closed), "", ""));
+    assert!(has(&closed, &["6", "closed"]), "{closed}");
+    // an outcome this version does not know is a closed one
+    assert!(material_line(&header(7, None, "x", "")).contains("closed"));
+    // why the agent answered as it did follows in brackets
+    let why = material_line(&header(8, Some(Outcome::Accepted), "make it shorter", "the loop is the same"));
+    assert!(has(&why, &["8", "make it shorter", "(the loop is the same)"]), "{why}");
+}
+
+#[test]
+fn a_long_word_said_or_a_long_reason_is_cut_to_what_a_line_of_a_reason_can_hold() {
+    crate::l10n::in_english();
+    let line = material_line(&header(1, Some(crate::patch::Outcome::Accepted), &"a".repeat(500), &"b".repeat(500)));
+    assert!(line.chars().count() < 200, "{} characters", line.chars().count());
+    assert!(line.contains('\u{2026}'), "cut where something was cut: {line}");
+}
+
+#[test]
+fn only_what_is_newer_than_the_snapshot_is_material_oldest_first_and_never_more_than_the_most() {
+    let entries = vec![(300, "c".to_string()), (100, "a".to_string()), (200, "b".to_string())];
+    assert_eq!(lines_since(&entries, 0), vec!["a", "b", "c"], "no snapshot yet: everything, by the time");
+    assert_eq!(lines_since(&entries, 100), vec!["b", "c"], "a snapshot at the very moment of a line is after it");
+    assert!(lines_since(&entries, 300).is_empty());
+    let many: Vec<(u64, String)> = (1..=MAX_MATERIAL as u64 + 30).map(|i| (i, format!("line {i}"))).collect();
+    let kept = lines_since(&many, 0);
+    assert_eq!(kept.len(), MAX_MATERIAL);
+    assert_eq!(kept.last().map(String::as_str), Some(format!("line {}", MAX_MATERIAL + 30).as_str()), "the newest are kept");
+    assert_eq!(kept.first().map(String::as_str), Some("line 31"));
+}

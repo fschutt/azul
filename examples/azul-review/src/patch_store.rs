@@ -182,8 +182,13 @@ pub(crate) fn record_due(data: &RefAny, info: &mut CallbackInfo) {
         let root = s.root.to_string_lossy().into_owned();
         let now = crate::agent_window::unix_now_ms();
         let mut jobs = Vec::new();
+        // what each resolved conversation came to, as a line for the reason of the whiteboard's next snapshot
+        let mut material: Vec<String> = Vec::new();
         for note in s.notes.iter_mut().filter(|n| n.talk.due()) {
             let patch = made(note, &file, bytes.as_deref().map_err(String::as_str), now);
+            if let Some(header) = patch::read_header(&patch.text) {
+                material.push(crate::whiteboard_glue::material_line(&header));
+            }
             if let Some(gone) = superseded(note.talk.patch.as_deref(), &patch.name) {
                 jobs.push(FileJob::Delete { key: key_of(&root, &gone) });
             }
@@ -198,6 +203,11 @@ pub(crate) fn record_due(data: &RefAny, info: &mut CallbackInfo) {
             );
             jobs.push(FileJob::Put { key: key_of(&root, &patch.name), bytes: patch.text.into_bytes() });
         }
+        let glue = s.wb.get_mut();
+        for line in material {
+            glue.note_patch(now, line);
+        }
+        glue.refresh_material();
         (s.data_root.clone(), jobs)
     };
     kit::spawn_file_jobs(info, &data_root, jobs, data.clone(), TAG_PATCH, on_written);

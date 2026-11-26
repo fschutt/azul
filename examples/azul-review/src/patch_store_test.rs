@@ -140,6 +140,10 @@ fn the_patches_of_a_workspace_are_in_a_folder_of_their_own_next_to_its_progress(
     assert!(key.starts_with("review/patches-") && key.ends_with("/20251126-054012-c7.patch"), "{key}");
     assert_ne!(key_of("/work/azul", "a.patch"), key_of("/work/other", "a.patch"), "each workspace has its own folder");
     assert_eq!(key_of("/work/azul", "a.patch"), key_of("/work/azul", "a.patch"));
+    // no name is the folder itself: the prefix the whiteboard reads the headers of the patches under at the start
+    let folder = key_of("/work/azul", "");
+    assert!(folder.starts_with("review/patches-") && folder.ends_with('/'), "{folder}");
+    assert!(key.starts_with(&folder), "a patch is under it: {key} / {folder}");
 }
 
 #[test]
