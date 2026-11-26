@@ -136,6 +136,9 @@ extern "C" {
 #[link(name = "CoreGraphics", kind = "framework")]
 extern "C" {
     fn CGColorSpaceCreateDeviceRGB() -> *mut c_void;
+    /// `kCGColorSpaceSRGB`: the name of the sRGB space (`CFStringRef`, iOS 9+).
+    static kCGColorSpaceSRGB: *const c_void;
+    fn CGColorSpaceCreateWithName(name: *const c_void) -> *mut c_void;
     fn CGColorSpaceRelease(cs: *mut c_void);
     fn CGDataProviderCreateWithData(
         info: *mut c_void,
@@ -363,7 +366,18 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
         owned.copy_from_slice(pixmap.data());
         let data_ptr = Box::into_raw(owned) as *mut u8;
         unsafe {
-            let cs = CGColorSpaceCreateDeviceRGB();
+            // sRGB, which is what the CPU renderer's pixels (CSS colours) are in. A DEVICE colour
+            // space is interpreted in the display's own gamut - Display P3 on every phone of the
+            // last years - so every colour came out more saturated than the author set it.
+            // ("Device color spaces are not recommended when color preservation is important.")
+            let cs = {
+                let srgb = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+                if srgb.is_null() {
+                    CGColorSpaceCreateDeviceRGB()
+                } else {
+                    srgb
+                }
+            };
             let provider = CGDataProviderCreateWithData(
                 core::ptr::null_mut(),
                 data_ptr,
@@ -2651,7 +2665,11 @@ extern "C" fn ui_delete_backward(_this: &Object, _cmd: Sel) {
     };
     if let Some(lw) = window.common.layout_window.as_mut() {
         if let Some(focused) = lw.focus_manager.get_focused_node().copied() {
-            lw.delete_selection(focused, true);
+            // `delete_selection`'s flag is `forward`: `false` is Backspace (the C-API
+            // `DeleteBackward` passes `false`). This passed `true` - the Delete key - so the soft
+            // keyboard's Backspace did nothing at the end of a field and ate the character AFTER
+            // the caret anywhere else.
+            lw.delete_selection(focused, false);
         }
     }
     let result = window.process_window_events(0);

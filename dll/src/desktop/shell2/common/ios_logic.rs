@@ -91,6 +91,52 @@ pub const fn keyboard_event_is_ours(is_local: Option<bool>) -> bool {
     !matches!(is_local, Some(false))
 }
 
+/// A text's length in UTF-16 code units (`NSString.length`).
+#[must_use]
+pub fn utf16_len(text: &str) -> usize {
+    text.encode_utf16().count()
+}
+
+/// The UTF-16 offset of the character boundary a `utf16_offset` leads to: itself when it already
+/// is one, else (it points INSIDE a surrogate pair) the end of that character when `forward`, its
+/// start when not. Past the end is the end.
+#[must_use]
+pub fn snap_utf16_offset(text: &str, utf16_offset: usize, forward: bool) -> usize {
+    let mut units = 0usize;
+    for ch in text.chars() {
+        let next = units + ch.len_utf16();
+        if utf16_offset < next {
+            return if utf16_offset == units || !forward { units } else { next };
+        }
+        units = next;
+    }
+    units
+}
+
+/// `-positionFromPosition:offset:`, in UTF-16 units.
+///
+/// UIKit measures every offset of `UITextInput` in UTF-16 code units (`offset(from:to:)`:
+/// "the number of UTF-16 characters between one text position and another"), the engine in
+/// BYTES; the shell stored bytes, so the first non-ASCII character answered every question
+/// wrongly (an umlaut is 2 bytes for 1 unit, a kana 3, an emoji 4 for 2) and a step of one
+/// character over it landed inside it and snapped back to where it started: the tokenizer, the
+/// loupe and the selection handles could never advance.
+///
+/// `None` ("nil") when the result lies before the start or past the end of the text: "Return nil
+/// if the computed text position is less than 0 or greater than the length of the backing
+/// string" - UIKit relies on it to find where the document ends. A result inside a surrogate pair
+/// moves on to the next character boundary in the direction of travel, so every step makes
+/// progress and visits every boundary once.
+#[must_use]
+pub fn position_from_offset(text: &str, base: usize, offset: i64) -> Option<usize> {
+    let base = i64::try_from(base).ok()?;
+    let target = usize::try_from(base.checked_add(offset)?).ok()?;
+    if target > utf16_len(text) {
+        return None;
+    }
+    Some(snap_utf16_offset(text, target, offset >= 0))
+}
+
 /// The one character before `base` (`toward_start`) or after it in `text`, as a `(start, end)`
 /// byte range, for `characterRangeByExtendingPosition:inDirection:`.
 ///

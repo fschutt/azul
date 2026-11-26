@@ -346,3 +346,79 @@ fn extending_a_position_that_sits_inside_a_character_does_not_panic_and_never_in
     );
     assert_eq!(one_character_around("", 7, true), (0, 0));
 }
+
+/// 'a', u-umlaut (1 unit, 2 bytes), euro sign (1 unit, 3 bytes), an emoji (2 units, 4 bytes), 'b':
+/// six UTF-16 units, boundaries at 0 1 2 3 5 6.
+const MIXED: &str = "a\u{fc}\u{20ac}\u{1f600}b";
+
+/// What the shell did before: positions in BYTES, a step of one "character" being one byte, the
+/// result snapped back to a character boundary. Past the umlaut and the euro sign the byte steps
+/// (1 -> 2, 3 -> 4, 4 -> 5) land inside a character and snap back.
+fn the_byte_step_before_the_fix(text: &str, base_byte: usize) -> usize {
+    let target = base_byte + 1;
+    let mut offset = target.min(text.len());
+    while offset > 0 && !text.is_char_boundary(offset) {
+        offset -= 1;
+    }
+    offset
+}
+
+/// UIKit walks a document one unit at a time (`positionFromPosition:offset:1`, then the tokenizer
+/// builds words from that): the walk has to visit every character boundary exactly once and then
+/// answer nil at the end.
+#[test]
+fn stepping_through_a_document_with_wide_characters_visits_every_boundary_once() {
+    assert_eq!(utf16_len(MIXED), 6);
+
+    let mut stuck = 1usize; // after 'a'
+    for _ in 0..3 {
+        stuck = the_byte_step_before_the_fix(MIXED, stuck);
+    }
+    assert!(
+        stuck < MIXED.len(),
+        "the byte model could not leave the umlaut (this is the bug): it stalls inside the text"
+    );
+
+    let mut at = 0usize;
+    let mut forward = vec![at];
+    while let Some(next) = position_from_offset(MIXED, at, 1) {
+        forward.push(next);
+        at = next;
+    }
+    assert_eq!(forward, [0, 1, 2, 3, 5, 6], "every boundary once, the emoji's two units in one step");
+    assert_eq!(position_from_offset(MIXED, 6, 1), None, "past the end is nil");
+
+    let mut at = 6usize;
+    let mut backward = vec![at];
+    while let Some(next) = position_from_offset(MIXED, at, -1) {
+        backward.push(next);
+        at = next;
+    }
+    assert_eq!(backward, [6, 5, 3, 2, 1, 0], "and back again");
+    assert_eq!(position_from_offset(MIXED, 0, -1), None, "before the start is nil");
+}
+
+#[test]
+fn an_offset_of_several_units_lands_on_a_boundary_in_the_direction_of_travel() {
+    // 2 -> +2 = 4, inside the emoji (units 3..5): forward moves on to its end.
+    assert_eq!(position_from_offset(MIXED, 2, 2), Some(5));
+    // 5 -> -1 = 4, inside the emoji: backward moves to its start.
+    assert_eq!(position_from_offset(MIXED, 5, -1), Some(3));
+    // Zero is where it started (on a boundary).
+    assert_eq!(position_from_offset(MIXED, 3, 0), Some(3));
+    // The far ends and the overflow cases.
+    assert_eq!(position_from_offset(MIXED, 0, 6), Some(6));
+    assert_eq!(position_from_offset(MIXED, 0, 7), None);
+    assert_eq!(position_from_offset(MIXED, 6, i64::MIN), None);
+    assert_eq!(position_from_offset(MIXED, usize::MAX, 1), None);
+    assert_eq!(position_from_offset("", 0, 0), Some(0));
+    assert_eq!(position_from_offset("", 0, 1), None);
+}
+
+#[test]
+fn a_unit_offset_inside_a_surrogate_pair_snaps_by_direction() {
+    assert_eq!(snap_utf16_offset(MIXED, 4, true), 5);
+    assert_eq!(snap_utf16_offset(MIXED, 4, false), 3);
+    assert_eq!(snap_utf16_offset(MIXED, 3, true), 3, "already a boundary");
+    assert_eq!(snap_utf16_offset(MIXED, 99, true), 6, "past the end is the end");
+}

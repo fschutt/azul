@@ -392,3 +392,54 @@ fn the_ios_keyboard_notification_ignores_another_apps_keyboard() {
     at(frame, "UIKeyboardIsLocalUserInfoKey", "ui_keyboard_frame_changed");
     at(frame, "keyboard_event_is_ours(is_local)", "ui_keyboard_frame_changed");
 }
+
+/// `delete_selection(target, forward)`: `false` is Backspace (`CallbackChange::DeleteBackward`
+/// passes `false`, `DeleteForward` `true`). `UIKeyInput.deleteBackward` is the soft keyboard's
+/// Backspace; the shell passed `true` and so deleted FORWARD: nothing at the end of a field, the
+/// next character anywhere else.
+#[test]
+fn the_soft_keyboards_backspace_deletes_backward() {
+    let backspace = body(IOS_MOD_RS, "extern \"C\" fn ui_delete_backward(");
+    at(backspace, "lw.delete_selection(focused, false)", "ui_delete_backward");
+    assert!(
+        !code_of(backspace).contains("delete_selection(focused, true)"),
+        "true is the Delete key"
+    );
+}
+
+/// UIKit's positions are UTF-16 units and the engine's are bytes: every position the text-input
+/// methods take or hand out crosses the bridge, and none is sliced or stepped as if both were
+/// the same unit.
+#[test]
+fn the_ios_text_input_converts_between_utf16_units_and_bytes_at_every_seam() {
+    let code = code_of(IOS_TEXT_INPUT_RS);
+    for needle in [
+        "utf16_offset_to_byte(",
+        "byte_offset_to_utf16(",
+        "utf16_range_to_bytes(",
+        "position_from_offset(",
+        "one_character_around(",
+    ] {
+        at(&code, needle, "text_input.rs");
+    }
+    assert!(
+        !code.contains("clamp_to_char_boundary"),
+        "a UTF-16 offset becomes a byte offset on a boundary by construction"
+    );
+    // The marked text's selection is UTF-16 relative to the marked string.
+    let marked = body(IOS_TEXT_INPUT_RS, "extern \"C\" fn set_marked_text(");
+    at(marked, "utf16_range_to_bytes(&text", "set_marked_text");
+    // The range replacement counts characters, not bytes.
+    let replace = body(IOS_TEXT_INPUT_RS, "extern \"C\" fn replace_range_with_text(");
+    at(replace, "chars().count()", "replace_range_with_text");
+    assert!(!code_of(replace).contains("0..(end - start)"));
+}
+
+/// The CPU renderer's pixels are sRGB (CSS colours); handed to Core Graphics as a DEVICE colour
+/// space they are read in the display's own gamut (Display P3 on a phone) and come out more
+/// saturated than the author set them.
+#[test]
+fn the_ios_frame_is_presented_in_the_srgb_colour_space() {
+    let layer = body(IOS_MOD_RS, "extern \"C\" fn display_layer(");
+    at(layer, "CGColorSpaceCreateWithName(kCGColorSpaceSRGB)", "display_layer");
+}
