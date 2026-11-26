@@ -1974,11 +1974,17 @@ lang_lisp() {
     cp "$CODEGEN_DIR/azul.asd"  "$REPO_ROOT/examples/lisp/" 2>/dev/null || true
     cp "$LIB_PATH"              "$REPO_ROOT/examples/lisp/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/lisp" || exit 1
+    # sbcl.exe is a native Windows program: it would read "/c/Users/..." (what
+    # $HOME is in Git Bash) as a path on the current drive and not find
+    # quicklisp ("Couldn't load /c/Users/runneradmin/quicklisp/setup.lisp:
+    # file does not exist", website run 45738701245).
+    local QL="$HOME/quicklisp/setup.lisp"
+    [ "$IS_WINDOWS" = 1 ] && QL="$(cygpath -m "$QL")"
     # --dynamic-space-size 8192: the generated azul.lisp is ~110k lines of
     # defcstruct/defcfun; compiling it blows the default SBCL heap ("Heap
     # exhausted, game over"). 8 GiB is comfortable headroom.
     sbcl --dynamic-space-size 8192 --non-interactive \
-      --eval "(load \"$HOME/quicklisp/setup.lisp\")" \
+      --eval "(load \"$QL\")" \
       --eval "(push (truename \".\") asdf:*central-registry*)" \
       --eval "(ql:quickload :azul-example)" \
       --eval "(azul-hello:run-app)"
