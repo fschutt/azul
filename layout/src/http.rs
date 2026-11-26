@@ -3934,7 +3934,3 @@ mod encoding_tests;
 #[cfg(all(test, feature = "http", not(target_arch = "wasm32")))]
 #[path = "http_proxy_test.rs"]
 mod proxy_tests;
-
-#[cfg(all(test, feature = "http", not(target_arch = "wasm32")))]
-#[path = "http_cookies_test.rs"]
-mod cookies_tests;

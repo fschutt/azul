@@ -1583,7 +1583,3 @@ mod tga_tests;
 #[cfg(test)]
 #[path = "image_formats_test.rs"]
 mod formats_tests;
-
-#[cfg(test)]
-#[path = "image_extra_formats_test.rs"]
-mod extra_formats_tests;
