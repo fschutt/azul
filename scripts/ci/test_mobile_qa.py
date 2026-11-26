@@ -324,6 +324,13 @@ class ModeComparisonTests(unittest.TestCase):
         self.assertTrue(q.device_is_software("ANGLE (Apple, Apple Software Renderer)") and q.device_is_software("llvmpipe (LLVM 15)"))
         self.assertFalse(q.device_is_software("Mali-G78") or q.device_is_software(None))
 
+    def test_a_gpu_request_waits_long_for_its_first_frame(self):
+        # the first GL frame on a software renderer compiles every shader: two minutes are normal there, not a missing picture
+        self.assertEqual(q.first_frame_timeout_for("gpu", 45), 120)
+        self.assertEqual(q.first_frame_timeout_for("gpu", 300), 300)       # a longer wish stays
+        self.assertEqual(q.first_frame_timeout_for("cpu", 45), 45)
+        self.assertEqual(q.first_frame_timeout_for("auto", 45), 45)
+
 
 class ImeAndTableTests(unittest.TestCase):
     def test_the_ime_inset_says_whether_the_keyboard_is_up(self):
