@@ -266,7 +266,27 @@ conversations and their outcomes, the markers) and returns an EDL.
 * A version-3 field is never required: a generator writes what it knows, the renderer takes
   defaults for the rest, and a field it does not know is an error naming the field.
 
-### v1: the deterministic export (built: `recorder_edl.rs`, `recorder_export.rs`)
+### v1: the deterministic export (built: `recorder_edl.rs`, `recorder_export.rs`, `recorder_export_job.rs`)
+
+**Running it.** A person runs it from the recordings list: every finished recording that has a screen has an
+**Export video** button. It starts an `ExportJob` (`recorder_export_job.rs`): the export on a thread of its own, so
+that the window stays alive, with the row saying how far it is in whole percents (never 100 before the video
+exists), a **Cancel export** button in its place while it runs (and no Delete: a recording that is being exported is
+not deleted), and when it is done the video's name and size and an **Open video** button. The video is
+`export/video.mp4` in the recording's folder (the pieces ffmpeg makes on the way are in `export/.work` and are gone
+at the end, whichever way it ends), so it goes with the recording and a later run of the app shows it in the list
+again. A failed export says why in ffmpeg's or the system's words; a cancelled one says so; both can be started again.
+Closing the window or the app cancels what runs and waits for it, so nothing keeps running behind the app. The job
+calls the same renderer the command line does (`FfmpegRenderer`: the cut list for the recording as it was, the plan,
+ffmpeg); ffmpeg is looked for on the search path and then in `/opt/homebrew/bin`, `/usr/local/bin` and `/usr/bin`
+(a program started from the Finder has none of the package manager's folders on its path), and when there is none the
+row says so and how to install it.
+
+The same from the command line (`cargo run -p AzReview --example recorder_export -- SESSION [--out FILE] [--ffmpeg
+PATH]`, where `SESSION` is the recording's folder): one line each on stdout, `EXPORT_PROGRESS <percent>`, `EXPORT_NOTE
+<what did not work as asked>`, and last `EXPORT_DONE <file> <bytes>` (exit 0), `EXPORT_FAILED <why>` (1) or
+`EXPORT_CANCELLED` (130); a wrong command line is said on stderr with the usage (2). The agent's cut list (v3) is a
+mode of the same row action later (a choice next to the button), not another window.
 
 `identity_edl(manifest, file_changes)` makes the cut list that needs no judgement: one segment for each
 run (so a pause is not in the video), the screen as the base, the camera as a picture-in-picture in the

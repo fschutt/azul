@@ -1084,6 +1084,151 @@ mod e2e {
         eprintln!("ffprobe streams (codec, type, size):\n{streams}ffprobe duration: {duration:.3} s\nffprobe chapters (id, time base, start, start s, end, end s):\n{chapters}");
     }
 
+    /// What the window's Export button runs, with the real ffmpeg: a recorded session becomes `export/video.mp4` in its
+    /// own folder through an `ExportJob`; the job's fraction only goes forward, the pieces are gone at the end, and the
+    /// video is the one the doc's other tests check (h264 and aac, six seconds, a chapter for each file).
+    #[test]
+    fn a_recording_is_exported_by_a_job_to_a_video_in_its_own_folder() {
+        use crate::recorder_export_job::{ExportJob, FfmpegRenderer, JobState};
+        let Some(rig) = rig("job") else { return };
+        let started = record(&rig, true, true);
+        let job = ExportJob::start(started.dir.clone(), Box::new(FfmpegRenderer { ffmpeg: Some(rig.ffmpeg.clone()), preferred: None, out: None }));
+        let from = std::time::Instant::now();
+        let mut seen = Vec::new();
+        let made = loop {
+            match job.state() {
+                JobState::Running { fraction } => seen.push(fraction),
+                JobState::Done(made) => break made,
+                other => panic!("{other:?} after {seen:?}"),
+            }
+            assert!(from.elapsed() < Duration::from_secs(180), "the export took too long: {seen:?}");
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        assert_eq!(made.file, started.dir.join("export").join("video.mp4"));
+        assert!(seen.windows(2).all(|w| w[0] <= w[1]), "the fraction goes forward only: {seen:?}");
+        assert_eq!(fs::metadata(&made.file).unwrap().len(), made.bytes);
+        assert!(made.bytes > 10_000, "{made:?}");
+        assert!(!started.dir.join("export").join(".work").exists(), "the pieces are gone");
+        let probe = |args: &[&str]| {
+            let out = Process::new(&rig.ffprobe).args(["-v", "error"]).args(args).arg(&made.file).output().unwrap();
+            assert!(out.status.success(), "ffprobe: {}", String::from_utf8_lossy(&out.stderr));
+            String::from_utf8_lossy(&out.stdout).into_owned()
+        };
+        let streams = probe(&["-show_entries", "stream=codec_type,codec_name", "-of", "csv=p=0"]);
+        assert!(streams.contains("h264") && streams.contains("aac"), "{streams}");
+        let duration: f64 = probe(&["-show_entries", "format=duration", "-of", "csv=p=0"]).trim().parse().unwrap();
+        assert!((duration - 6.0).abs() < 0.6, "six seconds of recording, the pause not in it: {duration}");
+        assert_eq!(probe(&["-show_chapters", "-of", "csv=p=0"]).lines().count(), 3, "a chapter for each file");
+        eprintln!("job: {} bytes, {duration:.2} s, {} fraction reports", made.bytes, seen.len());
+    }
+
+    /// A cancel stops a real export quickly, leaves no half-made video and no pieces, and says so: one asked for as the
+    /// export starts must stop it (a recording of a minute and a half takes the hardware encoder seconds), one asked
+    /// for while ffmpeg is working stops that; and the same session is then exported to the end (an export that was
+    /// cancelled can be started again).
+    #[test]
+    fn a_real_export_that_is_cancelled_leaves_nothing_and_can_be_made_again() {
+        use crate::recorder_export_job::{ExportJob, FfmpegRenderer, JobState};
+        let Some(rig) = rig("jobcancel") else { return };
+        let started = record_blocks(&rig, 30, false, true);
+        let renderer = || Box::new(FfmpegRenderer { ffmpeg: Some(rig.ffmpeg.clone()), preferred: None, out: None });
+        let nothing_left = || {
+            assert!(!started.dir.join("export").join("video.mp4").exists(), "no half-made video");
+            assert!(!started.dir.join("export").join(".work").exists(), "no pieces");
+        };
+        let wait = |job: &ExportJob, limit: u64| {
+            let from = std::time::Instant::now();
+            while job.is_running() {
+                assert!(from.elapsed() < Duration::from_secs(limit), "{:?}", job.state());
+                std::thread::sleep(Duration::from_millis(2));
+            }
+        };
+
+        // Asked for at once.
+        let job = ExportJob::start(started.dir.clone(), renderer());
+        job.cancel();
+        wait(&job, 20);
+        assert_eq!(job.state(), JobState::Cancelled, "a cancel at the start stops the export");
+        nothing_left();
+        drop(job);
+
+        // Asked for while ffmpeg works.
+        let job = ExportJob::start(started.dir.clone(), renderer());
+        let from = std::time::Instant::now();
+        while !matches!(job.state(), JobState::Running { fraction } if fraction > 0.0) && job.is_running() {
+            assert!(from.elapsed() < Duration::from_secs(60), "{:?}", job.state());
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        let at_cancel = match job.state() {
+            JobState::Running { fraction } => fraction,
+            _ => 1.0,
+        };
+        let asked = std::time::Instant::now();
+        job.cancel();
+        wait(&job, 10);
+        eprintln!("cancelled at {at_cancel:.3}; {:?} after {:?}", job.state(), asked.elapsed());
+        match job.state() {
+            JobState::Cancelled => nothing_left(),
+            // An export that was more than half over when the cancel came may well have been a video by the time it
+            // was looked at, and then the video is the truth; one that had just begun must have stopped.
+            JobState::Done(_) => assert!(at_cancel >= 0.5, "the export was at {at_cancel} when it was cancelled, and went on to the end"),
+            other => panic!("{other:?}"),
+        }
+        drop(job);
+
+        // And to the end.
+        let again = ExportJob::start(started.dir.clone(), renderer());
+        wait(&again, 300);
+        assert!(matches!(again.state(), JobState::Done(_)), "{:?}", again.state());
+    }
+
+    /// An export that cannot run says why in words: a program that is not there is named.
+    #[test]
+    fn an_export_with_no_ffmpeg_says_so_in_words() {
+        use crate::recorder_export_job::{ExportJob, FfmpegRenderer, JobState};
+        let Some(rig) = rig("nojob") else { return };
+        let started = record(&rig, false, false);
+        let job = ExportJob::start(started.dir.clone(), Box::new(FfmpegRenderer { ffmpeg: Some(PathBuf::from("/no/such/ffmpeg")), preferred: None, out: None }));
+        let from = std::time::Instant::now();
+        while job.is_running() {
+            assert!(from.elapsed() < Duration::from_secs(30), "{:?}", job.state());
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        match job.state() {
+            JobState::Failed(why) => assert!(why.contains("/no/such/ffmpeg"), "{why}"),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// The command line, with the real ffmpeg: the video goes where `--out` says, the progress is printed in whole
+    /// percents, the last line says where the video is and how big, and the exit code is 0.
+    #[test]
+    fn the_command_line_exports_a_recording_where_it_is_told_to() {
+        use crate::{
+            recorder_export_cli::{export_checked, Cli},
+            recorder_export_job::FfmpegRenderer,
+        };
+        let Some(rig) = rig("cli") else { return };
+        let started = record(&rig, false, true);
+        let out_file = rig.tmp.0.join("elsewhere").join("review.mp4");
+        let cli = Cli { session: started.dir.clone(), out: Some(out_file.clone()), ffmpeg: Some(rig.ffmpeg.clone()) };
+        let mut renderer = FfmpegRenderer { ffmpeg: cli.ffmpeg.clone(), preferred: None, out: cli.out.clone() };
+        let mut printed = Vec::new();
+        let code = export_checked(&cli, &mut renderer, &mut printed);
+        let text = String::from_utf8(printed).unwrap();
+        assert_eq!(code, 0, "{text}");
+        let lines: Vec<&str> = text.lines().collect();
+        let last = lines.last().copied().unwrap_or_default();
+        assert!(last.starts_with(&format!("EXPORT_DONE {} ", out_file.display())), "{text}");
+        let bytes: u64 = last.rsplit(' ').next().unwrap().parse().unwrap();
+        assert_eq!(fs::metadata(&out_file).unwrap().len(), bytes);
+        let percents: Vec<u32> = lines.iter().filter_map(|l| l.strip_prefix("EXPORT_PROGRESS ")).map(|p| p.parse().unwrap()).collect();
+        assert!(percents.windows(2).all(|w| w[0] < w[1]), "each percent once, going forward: {percents:?}");
+        assert_eq!(percents.last(), Some(&100), "{text}");
+        assert!(!started.dir.join("export").join("video.mp4").exists(), "the video is where --out said, not in the recording's folder");
+        eprintln!("cli: {last}; {} progress lines", percents.len());
+    }
+
     /// What an export costs per hour of recording, measured with this machine's real ffmpeg on a made-up
     /// session of a minute at a 1920 x 1248 display and a 720p camera: with the camera over the screen (the
     /// pictures are composed and encoded once) and without it (the screen's files are copied). Run it by
