@@ -74,10 +74,13 @@ pub fn column(css: &str) -> Dom {
     div(&format!("display: flex; flex-direction: column; {css}"))
 }
 
-/// A line of text that must be seen whole (the layout check finds it when it is not).
+/// A line of text that must be seen whole (the layout check finds it when it is not). A label, not a document: a mouse that presses on
+/// selectable text starts a selection drag in the engine, and a press that lands near the edge of a scrolling box then scrolls the box
+/// under the pointer and loses its click (the headless probe of 26 Nov: the key 7 px above the edge of an overflowing page, pressed with no
+/// hover before). A text that is to be copied says `user-select: text` in its own `css`.
 #[must_use]
 pub fn text(words: &str, css: &str) -> Dom {
-    Dom::create_p_with_text(words).with_css(format!("{BASE}margin: 0px; {css}").as_str()).with_class("az-text")
+    Dom::create_p_with_text(words).with_css(format!("{BASE}margin: 0px; user-select: none; {css}").as_str()).with_class("az-text")
 }
 
 /// A line of text that is cut to its line on purpose (a file name, a path).
