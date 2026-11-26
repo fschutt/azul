@@ -272,6 +272,19 @@ const SIDEBAR: &str = "position: absolute; left: 10px; top: 44px; bottom: 26px; 
                        @theme(flora) { border-radius: 5px; box-shadow: 0px 2px 10px rgba(48, \
                        45, 38, 0.22); @media (prefers-color-scheme: dark) { box-shadow: 0px 2px \
                        10px rgba(0, 0, 0, 0.5); } }";
+/// The window width under which the screen is a phone's (portrait): the sidebar is a sheet, not a
+/// column. A landscape phone (852 x 393) keeps the column, which is 323 px tall there.
+const COMPACT_WIDTH: f32 = 560.0;
+/// The sidebar on a phone in portrait: a sheet across the top of the map, as tall as its content up to
+/// 62 % of the screen. The 290 px column that runs from the title to the bottom covered the whole map
+/// of a 411 dp screen (the boot picture of the Android emulator showed a grey card and no map).
+const SIDEBAR_SHEET: &str = "position: absolute; left: 8px; right: 8px; top: 44px; max-height: 62%; \
+                             display: flex; flex-direction: column; gap: 12px; padding: 12px; \
+                             background: system:window-background; color: system:text; \
+                             border-radius: 12px; box-shadow: 0px 2px 10px rgba(0,0,0,0.25); \
+                             overflow-y: auto; @theme(flora) { border-radius: 5px; box-shadow: 0px \
+                             2px 10px rgba(48, 45, 38, 0.22); @media (prefers-color-scheme: dark) { \
+                             box-shadow: 0px 2px 10px rgba(0, 0, 0, 0.5); } }";
 const COLUMN: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px;";
 const TRAVEL_PANEL: &str = "display: flex; flex-direction: column; gap: 6px;";
 const ROW: &str = "display: flex; flex-direction: row; align-items: center; gap: 6px;";
@@ -1241,10 +1254,11 @@ fn recents(s: &MapState, app: &RefAny) -> Option<Dom> {
     )
 }
 
-/// The sidebar: travel, then the recent places. Nothing else.
-fn sidebar(s: &MapState, app: &RefAny) -> Dom {
+/// The sidebar: travel, then the recent places. Nothing else. `compact`: a phone's portrait screen, where
+/// it is a sheet over the top of the map ([`SIDEBAR_SHEET`]) and not a column along its whole height.
+fn sidebar(s: &MapState, app: &RefAny, compact: bool) -> Dom {
     let mut side = Dom::create_div()
-        .with_css(SIDEBAR)
+        .with_css(if compact { SIDEBAR_SHEET } else { SIDEBAR })
         .with_id(ids::SIDEBAR)
         .with_accessibility_name(label("azmaps-sidebar"))
         .with_child(travel_panel(s, app));
@@ -1552,7 +1566,7 @@ fn screen(s: &MapState, app: &RefAny, dark: bool, insets: kit::TitleInsets) -> D
         .with_child(map_area(s, app))
         .with_child(title_area(s, app, insets));
     if s.sidebar_open {
-        root.add_child(sidebar(s, app));
+        root.add_child(sidebar(s, app, s.size.get().0 < COMPACT_WIDTH));
     }
     root.add_child(map_controls(s, app));
     // The routing server's credit beside the map's, while routes are asked of it.
@@ -2397,7 +2411,13 @@ pub fn start() {
                 k.data_root.clone(),
                 k.key(PINS_FILE),
                 k.settings.get(VIEW_KEY).and_then(|text| parse_view(text)),
-                k.settings.get(SIDEBAR_KEY) != Some("closed"),
+                // Without a choice of the user's: open on a desktop, closed on a phone, where the map is
+                // the first thing the app shows and the sidebar is a sheet over it.
+                match k.settings.get(SIDEBAR_KEY) {
+                    Some("open") => true,
+                    Some("closed") => false,
+                    _ => !cfg!(any(target_os = "android", target_os = "ios")),
+                },
             ),
             None => (PathBuf::new(), String::new(), None, true),
         };
