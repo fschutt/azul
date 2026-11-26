@@ -29,6 +29,9 @@ inline AzCssPropertyWithConditionsVec style_text() {
             AzCssPropertyWithConditions_simple(AzCssProperty_fontVariationSettings([]{ AzStyleFontVariationSettingsValue v{}; v.Exact = AzStyleFontVariationSettingsValueVariant_Exact{ AzStyleFontVariationSettingsValue_Tag_Exact, AzStyleFontVariationSettings{ AzString_copyFromBytes(reinterpret_cast<const uint8_t*>("\"wght\" 650, \"wdth\" 87.5"), 0, 23) } }; return v; }())),
             AzCssPropertyWithConditions_simple(AzCssProperty_fontOpticalSizing([]{ AzStyleFontOpticalSizingValue v{}; v.Exact = AzStyleFontOpticalSizingValueVariant_Exact{ AzStyleFontOpticalSizingValue_Tag_Exact, AzStyleFontOpticalSizing_None }; return v; }())),
             AzCssPropertyWithConditions_simple(AzCssProperty_fontKerning([]{ AzStyleFontKerningValue v{}; v.Exact = AzStyleFontKerningValueVariant_Exact{ AzStyleFontKerningValue_Tag_Exact, AzStyleFontKerning_None }; return v; }())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantPosition([]{ AzStyleFontVariantPositionValue v{}; v.Exact = AzStyleFontVariantPositionValueVariant_Exact{ AzStyleFontVariantPositionValue_Tag_Exact, AzStyleFontVariantPosition_Super }; return v; }())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_textRendering([]{ AzStyleTextRenderingValue v{}; v.Exact = AzStyleTextRenderingValueVariant_Exact{ AzStyleTextRenderingValue_Tag_Exact, AzStyleTextRendering_OptimizeLegibility }; return v; }())),
+            AzCssPropertyWithConditions_simple(AzCssProperty_textWrap([]{ AzStyleTextWrapValue v{}; v.Exact = AzStyleTextWrapValueVariant_Exact{ AzStyleTextWrapValue_Tag_Exact, AzStyleTextWrap_Balance }; return v; }())),
             AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantLigatures([]{ AzStyleFontVariantLigaturesValue v{}; v.Exact = AzStyleFontVariantLigaturesValueVariant_Exact{ AzStyleFontVariantLigaturesValue_Tag_Exact, AzStyleFontVariantLigatures{ AzStyleFontLigatureChoice_Off, AzStyleFontLigatureChoice_On, AzStyleFontLigatureChoice_Unset, AzStyleFontLigatureChoice_Unset } }; return v; }())),
             AzCssPropertyWithConditions_simple(AzCssProperty_fontVariantEastAsian([]{ AzStyleFontVariantEastAsianValue v{}; v.Exact = AzStyleFontVariantEastAsianValueVariant_Exact{ AzStyleFontVariantEastAsianValue_Tag_Exact, AzStyleFontVariantEastAsian{ true, false, false, false, false, false, true, false, true } }; return v; }())),
             AzCssPropertyWithConditions_simple(AzCssProperty_fontSynthesisWeight([]{ AzStyleFontSynthesisValue v{}; v.Exact = AzStyleFontSynthesisValueVariant_Exact{ AzStyleFontSynthesisValue_Tag_Exact, AzStyleFontSynthesis_None }; return v; }())),
@@ -78,7 +81,7 @@ inline AzCssPropertyWithConditionsVec style_text() {
             AzCssPropertyWithConditions_simple(AzCssProperty_selectionRadius([]{ AzSelectionRadiusValue v{}; v.Exact = AzSelectionRadiusValueVariant_Exact{ AzSelectionRadiusValue_Tag_Exact, AzSelectionRadius{ AzPixelValue_px(3.0f) } }; return v; }())),
             AzCssPropertyWithConditions_simple(AzCssProperty_font(AzStyleFontFamilyVec_copyFromPtr(std::vector<AzStyleFontFamily>{ AzStyleFontFamily_system(AzString_copyFromBytes(reinterpret_cast<const uint8_t*>("caption"), 0, 7)) }.data(), 1))),
         }.data(),
-        60
+        63
     );
 }
 

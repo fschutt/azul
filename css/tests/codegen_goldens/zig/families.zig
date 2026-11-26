@@ -24,6 +24,9 @@ pub fn styleText() C.AzCssPropertyWithConditionsVec {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariationSettings(C.AzStyleFontVariationSettingsValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontVariationSettings{ .inner = C.AzString_copyFromBytes("\"wght\" 650, \"wdth\" 87.5", 0, 23) } } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontOpticalSizing(C.AzStyleFontOpticalSizingValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontOpticalSizing_None } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontKerning(C.AzStyleFontKerningValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontKerning_None } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantPosition(C.AzStyleFontVariantPositionValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontVariantPosition_Super } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textRendering(C.AzStyleTextRenderingValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleTextRendering_OptimizeLegibility } })),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textWrap(C.AzStyleTextWrapValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleTextWrap_Balance } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantLigatures(C.AzStyleFontVariantLigaturesValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontVariantLigatures{ .common = C.AzStyleFontLigatureChoice_Off, .discretionary = C.AzStyleFontLigatureChoice_On, .historical = C.AzStyleFontLigatureChoice_Unset, .contextual = C.AzStyleFontLigatureChoice_Unset } } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantEastAsian(C.AzStyleFontVariantEastAsianValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontVariantEastAsian{ .jis78 = true, .jis83 = false, .jis90 = false, .jis04 = false, .simplified = false, .traditional = false, .full_width = true, .proportional_width = false, .ruby = true } } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisWeight(C.AzStyleFontSynthesisValue{ .Exact = .{ .tag = 6, .payload = C.AzStyleFontSynthesis_None } })),
@@ -72,7 +75,7 @@ pub fn styleText() C.AzCssPropertyWithConditionsVec {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_selectionColor(C.AzSelectionColor{ .inner = C.AzColorU{ .r = 255, .g = 255, .b = 255, .a = 255 } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_selectionRadius(C.AzSelectionRadiusValue{ .Exact = .{ .tag = 6, .payload = C.AzSelectionRadius{ .inner = C.AzPixelValue_px(3.0) } } })),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_font(C.AzStyleFontFamilyVec_copyFromPtr(&[_]C.AzStyleFontFamily{ C.AzStyleFontFamily_system(C.AzString_copyFromBytes("caption", 0, 7)) }, 1))),
-    }, 60);
+    }, 63);
 }
 
 // CSS: .shorthands

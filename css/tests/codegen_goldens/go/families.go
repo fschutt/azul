@@ -25,6 +25,9 @@ func StyleText() azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontVariationSettings(azul.AzStyleFontVariationSettingsValue_Exact(azul.AzStyleFontVariationSettings{Inner: azul.Str("\"wght\" 650, \"wdth\" 87.5").Raw()}))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontOpticalSizing(azul.AzStyleFontOpticalSizingValue_Exact(azul.StyleFontOpticalSizing_None))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontKerning(azul.AzStyleFontKerningValue_Exact(azul.StyleFontKerning_None))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontVariantPosition(azul.AzStyleFontVariantPositionValue_Exact(azul.StyleFontVariantPosition_Super))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_TextRendering(azul.AzStyleTextRenderingValue_Exact(azul.StyleTextRendering_OptimizeLegibility))),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_TextWrap(azul.AzStyleTextWrapValue_Exact(azul.StyleTextWrap_Balance))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontVariantLigatures(azul.AzStyleFontVariantLigaturesValue_Exact(azul.AzStyleFontVariantLigatures{Common: azul.StyleFontLigatureChoice_Off, Discretionary: azul.StyleFontLigatureChoice_On, Historical: azul.StyleFontLigatureChoice_Unset, Contextual: azul.StyleFontLigatureChoice_Unset}))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontVariantEastAsian(azul.AzStyleFontVariantEastAsianValue_Exact(azul.AzStyleFontVariantEastAsian{Jis78: true, Jis83: false, Jis90: false, Jis04: false, Simplified: false, Traditional: false, FullWidth: true, ProportionalWidth: false, Ruby: true}))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_FontSynthesisWeight(azul.AzStyleFontSynthesisValue_Exact(azul.StyleFontSynthesis_None))),
@@ -73,7 +76,7 @@ func StyleText() azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_selectionColor(azul.AzSelectionColor{Inner: azul.AzColorU{R: 255, G: 255, B: 255, A: 255}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_SelectionRadius(azul.AzSelectionRadiusValue_Exact(azul.AzSelectionRadius{Inner: azul.AzPixelValue_px(3.0)}))),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_font(azul.AzStyleFontFamilyVec_copyFromPtr(&[]azul.AzStyleFontFamily{azul.AzStyleFontFamily_System(azul.Str("caption").Raw())}[0], 1))),
-	}[0], 60)
+	}[0], 63)
 }
 
 // CSS: .shorthands

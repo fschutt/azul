@@ -25,6 +25,9 @@ function styleText() {
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontVariationSettings({ Exact: { tag: 6, payload: { inner: azul._azString("\"wght\" 650, \"wdth\" 87.5") } } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontOpticalSizing({ Exact: { tag: 6, payload: azul.StyleFontOpticalSizing.None } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontKerning({ Exact: { tag: 6, payload: azul.StyleFontKerning.None } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontVariantPosition({ Exact: { tag: 6, payload: azul.StyleFontVariantPosition.Super } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_textRendering({ Exact: { tag: 6, payload: azul.StyleTextRendering.OptimizeLegibility } })),
+        lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_textWrap({ Exact: { tag: 6, payload: azul.StyleTextWrap.Balance } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontVariantLigatures({ Exact: { tag: 6, payload: { common: azul.StyleFontLigatureChoice.Off, discretionary: azul.StyleFontLigatureChoice.On, historical: azul.StyleFontLigatureChoice.Unset, contextual: azul.StyleFontLigatureChoice.Unset } } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontVariantEastAsian({ Exact: { tag: 6, payload: { jis78: true, jis83: false, jis90: false, jis04: false, simplified: false, traditional: false, full_width: true, proportional_width: false, ruby: true } } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_fontSynthesisWeight({ Exact: { tag: 6, payload: azul.StyleFontSynthesis.None } })),
@@ -73,7 +76,7 @@ function styleText() {
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_selectionColor({ inner: { r: 255, g: 255, b: 255, a: 255 } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_selectionRadius({ Exact: { tag: 6, payload: { inner: lib.AzPixelValue_px(3.0) } } })),
         lib.AzCssPropertyWithConditions_simple(lib.AzCssProperty_font(lib.AzStyleFontFamilyVec_copyFromPtr([lib.AzStyleFontFamily_system(azul._azString("caption"))], 1))),
-    ], 60));
+    ], 63));
 }
 
 // CSS: .shorthands

@@ -7,7 +7,7 @@ local M = {}
 
 -- CSS: .text
 function M.style_text()
-    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[60]', {
+    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[63]', {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textColor(ffi.new('AzStyleTextColor', { inner = ffi.new('AzColorU', { r = 51, g = 102, b = 153, a = 255 }) }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSize(ffi.new('AzStyleFontSize', { inner = C.AzPixelValue_px(14.0) }))),
         C.AzCssPropertyWithConditions_simple(
@@ -27,6 +27,9 @@ function M.style_text()
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariationSettings(ffi.new('AzStyleFontVariationSettingsValue', { Exact = { tag = 6, payload = ffi.new('AzStyleFontVariationSettings', { inner = azul._az_string("\"wght\" 650, \"wdth\" 87.5") }) } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontOpticalSizing(ffi.new('AzStyleFontOpticalSizingValue', { Exact = { tag = 6, payload = C.AzStyleFontOpticalSizing_None } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontKerning(ffi.new('AzStyleFontKerningValue', { Exact = { tag = 6, payload = C.AzStyleFontKerning_None } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantPosition(ffi.new('AzStyleFontVariantPositionValue', { Exact = { tag = 6, payload = C.AzStyleFontVariantPosition_Super } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textRendering(ffi.new('AzStyleTextRenderingValue', { Exact = { tag = 6, payload = C.AzStyleTextRendering_OptimizeLegibility } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textWrap(ffi.new('AzStyleTextWrapValue', { Exact = { tag = 6, payload = C.AzStyleTextWrap_Balance } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantLigatures(ffi.new('AzStyleFontVariantLigaturesValue', { Exact = { tag = 6, payload = ffi.new('AzStyleFontVariantLigatures', { common = C.AzStyleFontLigatureChoice_Off, discretionary = C.AzStyleFontLigatureChoice_On, historical = C.AzStyleFontLigatureChoice_Unset, contextual = C.AzStyleFontLigatureChoice_Unset }) } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontVariantEastAsian(ffi.new('AzStyleFontVariantEastAsianValue', { Exact = { tag = 6, payload = ffi.new('AzStyleFontVariantEastAsian', { jis78 = true, jis83 = false, jis90 = false, jis04 = false, simplified = false, traditional = false, full_width = true, proportional_width = false, ruby = true }) } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSynthesisWeight(ffi.new('AzStyleFontSynthesisValue', { Exact = { tag = 6, payload = C.AzStyleFontSynthesis_None } }))),
@@ -75,7 +78,7 @@ function M.style_text()
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_selectionColor(ffi.new('AzSelectionColor', { inner = ffi.new('AzColorU', { r = 255, g = 255, b = 255, a = 255 }) }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_selectionRadius(ffi.new('AzSelectionRadiusValue', { Exact = { tag = 6, payload = ffi.new('AzSelectionRadius', { inner = C.AzPixelValue_px(3.0) }) } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_font(C.AzStyleFontFamilyVec_copyFromPtr(ffi.new('AzStyleFontFamily[1]', { C.AzStyleFontFamily_system(azul._az_string("caption")) }), 1))),
-    }), 60)
+    }), 63)
 end
 
 -- CSS: .shorthands
