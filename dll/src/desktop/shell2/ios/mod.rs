@@ -1178,6 +1178,28 @@ fn find_protocol(name: &str, adopters: &[&str]) -> Option<&'static Protocol> {
     })
 }
 
+/// A protocol by name, REGISTERED by this shell when the runtime has no object for it at all.
+///
+/// The last resort of the protocols the keyboard hangs on (`UIKeyInput`, `UITextInput`): if the
+/// name lookup and the search through the classes that adopt them both come back empty (as the
+/// delegate protocol's did on the iOS 26.2 simulator), a class that skipped them would never raise
+/// the keyboard. The runtime compares protocol conformance BY NAME, so an empty protocol of the
+/// right name makes `conformsToProtocol:` true and UIKit then sends the selectors the class
+/// implements. `objc_allocateProtocol` answers nil for a name that is taken: then there is
+/// nothing to register and nothing to lose.
+fn register_protocol_by_name(name: &str) -> Option<&'static Protocol> {
+    let mut decl = objc::declare::ProtocolDecl::new(name)?;
+    if let Some(root) = Protocol::get("NSObject") {
+        decl.add_protocol(root);
+    }
+    log_info!(
+        LogCategory::Platform,
+        "[iOS] the protocol {} was not known to the runtime: registered by name",
+        name
+    );
+    Some(decl.register())
+}
+
 /// Dynamically register an empty NSObject subclass whose only purpose
 /// is to be the `target:` of every gesture recognizer. UIKit expects an
 /// Objective-C object; an empty subclass is the cheapest legal one.
@@ -1592,7 +1614,9 @@ fn get_or_create_view_class() -> Option<&'static Class> {
         // the way the note above warns about. The three methods are already
         // added; declaring conformance is what makes UIKit ASK for them and
         // raise the keyboard.
-        match find_protocol("UIKeyInput", TEXT_INPUT_ADOPTERS) {
+        match find_protocol("UIKeyInput", TEXT_INPUT_ADOPTERS)
+            .or_else(|| register_protocol_by_name("UIKeyInput"))
+        {
             Some(p) => decl.add_protocol(p),
             None => log_error!(
                 LogCategory::Input,
@@ -1606,7 +1630,9 @@ fn get_or_create_view_class() -> Option<&'static Class> {
         // missing a method can never be advertised as conforming - UIKit
         // probes for the protocol and then calls straight into it.
         text_input::register(&mut decl);
-        if let Some(p) = find_protocol("UITextInput", TEXT_INPUT_ADOPTERS) {
+        if let Some(p) = find_protocol("UITextInput", TEXT_INPUT_ADOPTERS)
+            .or_else(|| register_protocol_by_name("UITextInput"))
+        {
             decl.add_protocol(p);
         }
 

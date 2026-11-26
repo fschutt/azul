@@ -523,3 +523,18 @@ fn the_audio_users_of_the_ios_build_set_an_audio_session_before_their_engine() {
         "AvfSink::open",
     );
 }
+
+/// The keyboard hangs on `UIKeyInput` and `UITextInput`: when neither the name nor the classes
+/// that adopt them yield a protocol object, they are registered by name (conformance is by name),
+/// not skipped.
+#[test]
+fn the_keyboard_protocols_are_registered_by_name_when_the_runtime_has_none() {
+    let class = body(IOS_MOD_RS, "fn get_or_create_view_class()");
+    assert_eq!(
+        class.matches("register_protocol_by_name(").count(),
+        2,
+        "UIKeyInput and UITextInput"
+    );
+    at(IOS_MOD_RS, "fn register_protocol_by_name(", "the shell");
+    at(IOS_MOD_RS, "ProtocolDecl::new(name)", "register_protocol_by_name");
+}
