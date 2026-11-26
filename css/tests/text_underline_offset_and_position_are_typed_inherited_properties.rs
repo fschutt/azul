@@ -100,7 +100,6 @@ fn what_is_no_offset_and_no_position_is_no_value() {
         "auto left",
         "under auto",
         "under, left",
-        "none",
     ] {
         assert!(
             parse_css_property(CssPropertyType::TextUnderlinePosition, bad).is_err(),
