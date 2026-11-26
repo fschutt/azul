@@ -442,7 +442,79 @@ def displayed_ms(text, package=""):
     return found
 
 
-def report_modes(run, step, results, expect_gpu, platform):
+LOGCAT_LINE = re.compile(r"^(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d)\.(\d{3})\s+(\d+)\s+(\d+)\s+\w\s+(\S.*?):\s(.*)$")
+
+
+def _logcat_ms(m):
+    """Milliseconds since the start of the month of a `logcat -v threadtime` line (a start never spans a month)."""
+    day, hour, minute, second, milli = (int(m.group(i)) for i in (2, 3, 4, 5, 6))
+    return (((day * 24 + hour) * 60 + minute) * 60 + second) * 1000 + milli
+
+
+def start_timelines(text, package):
+    """One record per start of `package` in a `logcat -v threadtime` dump, in milliseconds after the system's `START u0 {cmp=<package>/..}`:
+    `proc` (the fork was asked for), `main` (the engine's `android_main entered`, its first line), `displayed` (the system's
+    own `Displayed ... +NNNms`: the window's first frame, which can be a blank one) and `present` (the first `present full`
+    of the engine, AZ_DUMP_PRESENT=1: the first picture of the app). Keys are missing for what the log does not show."""
+    records, by_pid = [], {}
+    for line in text.splitlines():
+        m = LOGCAT_LINE.match(line)
+        if not m:
+            continue
+        pid, tag, msg, now = m.group(7), m.group(9), m.group(10), _logcat_ms(m)
+        if tag == "ActivityTaskManager" and msg.startswith("START u0 ") and f"cmp={package}/" in msg:
+            records.append({"t0": now})
+        elif tag == "ActivityManager" and records and (forked := re.match(r"Start proc (\d+):" + re.escape(package) + "/", msg)):
+            rec = next((r for r in reversed(records) if "proc" not in r), None)
+            if rec is not None:
+                rec["proc"] = now - rec["t0"]
+                by_pid[forked.group(1)] = rec
+        elif tag == "ActivityTaskManager" and msg.startswith(f"Displayed {package}/"):
+            shown = re.search(r": \+(?:(\d+)s)?(\d+)ms", msg)
+            rec = next((r for r in reversed(records) if "displayed" not in r), None)
+            if shown and rec is not None:
+                rec["displayed"] = int(shown.group(1) or 0) * 1000 + int(shown.group(2))
+        elif tag == "RustStdoutStderr" and pid in by_pid:
+            rec = by_pid[pid]
+            if "android_main entered" in msg and "main" not in rec:
+                rec["main"] = now - rec["t0"]
+            elif "present full" in msg and "present" not in rec and "main" in rec:
+                rec["present"] = now - rec["t0"]
+    return [{k: v for k, v in r.items() if k != "t0"} for r in records]
+
+
+def summarize_timelines(records):
+    """The median of each mark over the records that have it: {mark: {"median", "min", "max", "n"}}."""
+    out = {}
+    for key in ("proc", "main", "displayed", "present"):
+        values = sorted(r[key] for r in records if key in r)
+        if values:
+            out[key] = {"median": values[len(values) // 2], "min": values[0], "max": values[-1], "n": len(values)}
+    gaps = sorted(r["present"] - r["main"] for r in records if "present" in r and "main" in r)
+    if gaps:
+        out["main_to_present"] = {"median": gaps[len(gaps) // 2], "min": gaps[0], "max": gaps[-1], "n": len(gaps)}
+    return out
+
+
+SOFTWARE_DEVICE = re.compile(r"swiftshader|llvmpipe|softpipe|swrast|software renderer|android emulator|apple software|angle.*(swiftshader|software)", re.I)
+
+
+def device_is_software(device):
+    """Does the contract line's `device=` text name a software GL renderer (SwiftShader, llvmpipe, 'Apple Software Renderer', ...)?"""
+    return bool(device and SOFTWARE_DEVICE.search(device))
+
+
+GPU_FIRST_FRAME_SECONDS = 120
+
+
+def first_frame_timeout_for(mode, base):
+    """How long to wait for the first frame of an AZ_BACKEND run. A `gpu` request on a software GL (every CI emulator and Simulator)
+    compiles each WebRender shader at its first use (an LLVM JIT) and can take about two minutes to the first frame; waiting
+    less would call a slow start a missing picture. The other modes keep the normal wait."""
+    return max(base, GPU_FIRST_FRAME_SECONDS) if mode == "gpu" else base
+
+
+def report_modes(run, step, results, expect_gpu, platform, hardware=False):
     """The verdict of the AZ_BACKEND runs. `results[mode]` = {ran, requested, device, rgba, dims, first_frame_s,
     displayed_ms, frames: {median, p95, n} | None}. Says, per mode, WHICH backend ran: a request for the GPU that ran
     the CPU renderer is a FINDING (informational while the build has no GPU path, a FAILURE once `--expect-gpu` says it
@@ -463,18 +535,33 @@ def report_modes(run, step, results, expect_gpu, platform):
             bits.append(f"scroll frame time median {f['median']:.1f} / p95 {f['p95']:.1f} ms (n={f['n']})")
         summary.append(f"{mode}: " + ", ".join(bits))
         step.note(f"AZ_BACKEND={mode}: " + ", ".join(bits))
+        software = (not hardware) or device_is_software(r.get("device"))
         if mode == "cpu":
             step.check("requested cpu: the CPU renderer ran", ran in ("cpu", "unknown"), f"ran {ran}", required=True)
-        elif mode in ("gpu", "auto"):
+        elif mode == "gpu":
+            # `gpu` FORCES the GL path on any renderer that works, a software GL included (SwiftShader, 'Apple Software Renderer')
             if ran == "gpu":
-                step.check(f"requested {mode}: the GPU renderer ran", True, r.get("device") or "")
+                step.check("requested gpu: the GL renderer ran", True, r.get("device") or "")
             elif ran == "cpu":
-                step.check(f"requested {mode}: the GPU renderer ran", False,
-                           f"requested {mode}, ran cpu: the CPU renderer drew the page (finding; the GPU path is not in this build)",
-                           required=expect_gpu and mode == "gpu")
+                step.check("requested gpu: the GL renderer ran", False,
+                           "requested gpu, ran cpu: the CPU renderer drew the page (finding while the build has no GL path; a failure with --expect-gpu)",
+                           required=expect_gpu)
             else:
-                step.check(f"requested {mode}: the engine says which renderer ran", False,
-                           "no `[render] backend=` line in the engine's log: it cannot be told which renderer drew", required=expect_gpu and mode == "gpu")
+                step.check("requested gpu: the engine says which renderer ran", False,
+                           "no `[render] backend=` line in the engine's log: it cannot be told which renderer drew", required=expect_gpu)
+        else:
+            # `auto` takes the GL path ONLY on a hardware renderer with ES >= 3.0; on a software GL (every CI emulator and
+            # Simulator) it runs the CPU renderer with one diagnostic line: 'requested auto, ran cpu' is then the DESIGN
+            if ran == "unknown":
+                step.check("requested auto: the engine says which renderer ran", False,
+                           "no `[render] backend=` line in the engine's log: it cannot be told which renderer drew", required=False)
+            elif software:
+                step.check("requested auto on a software GL: the CPU renderer runs (by design)", ran == "cpu",
+                           f"ran {ran}" + ("" if ran == "cpu" else ": auto took the GL path on a software renderer, it must wait for hardware"),
+                           required=True)
+            else:
+                step.check("requested auto on a hardware GPU: the GL renderer runs", ran == "gpu",
+                           f"ran {ran} on {r.get('device') or '?'}", required=expect_gpu)
     run.meta["render_modes"] = " | ".join(summary)
     run.render_table = []
     for mode in ("cpu", "gpu", "auto"):
@@ -848,7 +935,7 @@ def android_scenarios(args):
             dev.sh(f"setprop debug.az.env 'AZ_LOG=info;AZ_DUMP_PRESENT=1;AZ_BACKEND={mode}'")
             dev.adb("logcat", "-c")
             dev.launch(cold=True)
-            t = dev.wait_for_front(timeout=args.first_frame_timeout)
+            t = dev.wait_for_front(timeout=first_frame_timeout_for(mode, args.first_frame_timeout))
             dev.settle(2.5)
             sig = dev.look(s, f"AZ_BACKEND-{mode}")
             rgba, dims = dev.last_rgba, dev.dims
@@ -861,7 +948,7 @@ def android_scenarios(args):
             dev.settle(1.0)
             results[mode] = {"ran": ran, "requested": requested, "device": device, "rgba": rgba, "dims": dims, "first_frame_s": t,
                              "displayed_ms": displayed_ms(text, args.package), "frames": frames}
-        report_modes(run, s, results, args.expect_gpu, "android")
+        report_modes(run, s, results, args.expect_gpu, "android", hardware=args.hardware)
         dev.sh("setprop debug.az.env 'AZ_LOG=info;AZ_DUMP_PRESENT=1'")
         dev.launch(cold=True)       # the default start again: what the later steps compare with
         dev.wait_for_front(timeout=args.first_frame_timeout)
@@ -879,12 +966,13 @@ def android_scenarios(args):
             return {"min": v[0], "median": v[len(v) // 2], "max": v[-1], "n": len(v)}
 
         def series(pkg, act, label):
-            times = []
+            times, timelines = [], []
             dev.adb("logcat", "-b", "events", "-c")
             for i in range(args.series + 1):            # the first run only warms the page cache: not counted
                 dev.sh(f"am force-stop {pkg}")
                 dev.home()
                 time.sleep(2.5)
+                mark = dev.now_mark()
                 out = dev.sh(f"am start -W -n {pkg}/{act}", timeout=120)
                 total = re.search(r"TotalTime: (\d+)", out)
                 this = re.search(r"ThisTime: (\d+)", out)
@@ -893,12 +981,26 @@ def android_scenarios(args):
                     times.append({"total": int(total.group(1)), "this": int(this.group(1)) if this else None,
                                   "wait": int(wait.group(1)) if wait else None})
                 time.sleep(3.0)
+                if i > 0:
+                    # what the user waits for: the system's START of the activity -> the engine's first line -> the first picture
+                    # (the logcat of this start only; the engine logs at AZ_LOG=info with AZ_DUMP_PRESENT=1 on the QA's default env)
+                    text = dev.adb("logcat", "-d", "-v", "threadtime", timeout=120)
+                    timelines += start_timelines("\n".join(l for l in text.splitlines() if l[:18] >= mark), pkg)[-1:]
             events = dev.adb("logcat", "-b", "events", "-d", "-v", "threadtime", timeout=60)
             dev.save_log(f"events-{label}.txt", "\n".join(l for l in events.splitlines() if pkg in l))
+            dev.save_log(f"start-timeline-{label}.json", json.dumps({"records": timelines, "summary": summarize_timelines(timelines)}, indent=1))
             dev.sh(f"am force-stop {pkg}")
-            return times
+            return times, timelines
 
-        mine = series(args.package, dev.resolve_activity(), "app")
+        mine, mine_timelines = series(args.package, dev.resolve_activity(), "app")
+        tl = summarize_timelines(mine_timelines)
+        if tl:
+            def at(key):
+                return f"{tl[key]['median']} ms" if key in tl else "n/a"
+            run.meta["start_timeline_ms"] = (f"from the system's START: fork {at('proc')}, android_main {at('main')}, system Displayed {at('displayed')}, "
+                                             f"first full present of the engine {at('present')}; the engine's share (android_main to first present) {at('main_to_present')} "
+                                             f"(medians of n={tl.get('present', {}).get('n', 0)})")
+            s.note(run.meta["start_timeline_ms"])
         if mine:
             st = stats([t["total"] for t in mine])
             run.meta["cold_start_series_ms"] = f"median {st['median']} min {st['min']} max {st['max']} (n={st['n']})"
@@ -907,7 +1009,7 @@ def android_scenarios(args):
         if args.floor_apk:
             out = dev.adb("install", "-r", "-t", args.floor_apk, timeout=120)
             s.check("the floor APK installs", "Success" in out, out.strip()[-120:], required=False)
-            floor = series("com.azul.floor", ".FloorActivity", "floor")
+            floor, _floor_timelines = series("com.azul.floor", ".FloorActivity", "floor")
             if floor:
                 fs = stats([t["total"] for t in floor])
                 run.meta["floor_start_series_ms"] = f"median {fs['median']} min {fs['min']} max {fs['max']} (n={fs['n']})"
@@ -1619,7 +1721,7 @@ def ios_scenarios(args):
         results = {}
         for mode in ("cpu", "gpu", "auto"):
             dev.launch(extra_env={"AZ_BACKEND": mode}, cold=True)
-            t = dev.wait_for_front(timeout=args.first_frame_timeout)
+            t = dev.wait_for_front(timeout=first_frame_timeout_for(mode, args.first_frame_timeout))
             dev.settle(2.5)
             sig = dev.look(s, f"AZ_BACKEND-{mode}")
             full = dev.last_rgba_full()
@@ -1627,7 +1729,7 @@ def ios_scenarios(args):
             s.check(f"AZ_BACKEND={mode}: the app draws", t is not None and not is_flat(sig), f"first frame after {t:.1f} s" if t is not None else "no frame")
             results[mode] = {"ran": ran, "requested": requested, "device": device, "rgba": full[0] if full else None,
                              "dims": (full[1], full[2]) if full else dev.dims, "first_frame_s": t, "displayed_ms": None, "frames": None}
-        report_modes(run, s, results, args.expect_gpu, "ios")
+        report_modes(run, s, results, args.expect_gpu, "ios", hardware=args.hardware)
         dev.launch(cold=True)       # the default start again: the picture the later steps compare with
         dev.wait_for_front(timeout=args.first_frame_timeout)
         dev.settle(2.0)
@@ -1783,6 +1885,7 @@ def main(argv):
     a.add_argument("--only", default="", help="comma list of step numbers to run besides 00-02, e.g. 03,08,09,12 (a first look at another app)")
     a.add_argument("--series", type=int, default=0, help="N cold starts to measure (0: none)")
     a.add_argument("--expect-gpu", action="store_true", help="the build has a GPU renderer: a gpu request that ran the CPU one FAILS")
+    a.add_argument("--hardware", action="store_true", help="the device has a real GPU (a phone, not a CI emulator): `auto` must then run the GL renderer")
     a.add_argument("--floor-apk", default="", help="the floor APK (an empty Java Activity) measured the same way")
     a.add_argument("--tap-label", default="", help="press the button the accessibility tree names this (step 03e)")
     i = sub.add_parser("ios")
@@ -1794,6 +1897,7 @@ def main(argv):
     i.add_argument("--label", default="AzWidgets")
     i.add_argument("--first-frame-timeout", type=int, default=45)
     i.add_argument("--expect-gpu", action="store_true", help="the build has a GPU renderer: a gpu request that ran the CPU one FAILS")
+    i.add_argument("--hardware", action="store_true", help="the device has a real GPU (a phone, not a CI Simulator): `auto` must then run the GL renderer")
     i.add_argument("--only", default="", help="comma list of step numbers to run besides 00-02")
     args = ap.parse_args(argv)
     run = android_scenarios(args) if args.platform == "android" else ios_scenarios(args)

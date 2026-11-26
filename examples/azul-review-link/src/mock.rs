@@ -27,13 +27,16 @@ pub struct Knobs {
     pub bytes_per_second: Option<u64>,
     /// Nothing gets through: a dial fails and what is sent is dropped without a word.
     pub down: bool,
+    /// The local network finds an endpoint by its key alone, wherever it is now (the engine's local discovery): a dial of a bare key
+    /// reaches the endpoint at its current address. Off: only a ticket of the address it has now leads there.
+    pub discovery: bool,
     /// Seeds the generator behind the loss and the jitter.
     pub seed: u64,
 }
 
 impl Default for Knobs {
     fn default() -> Self {
-        Knobs { latency_ms: 5, jitter_ms: 0, loss_percent: 0, reorder_percent: 0, bytes_per_second: None, down: false, seed: 1 }
+        Knobs { latency_ms: 5, jitter_ms: 0, loss_percent: 0, reorder_percent: 0, bytes_per_second: None, down: false, discovery: false, seed: 1 }
     }
 }
 
@@ -235,7 +238,12 @@ impl Link for MockLink {
 
     fn connect(&mut self, now: Millis, ticket: &str) -> Result<(), String> {
         let parsed = ticket.strip_prefix("mt-").and_then(|rest| rest.rsplit_once('-')).and_then(|(id, epoch)| Some((id.to_string(), epoch.parse::<u32>().ok()?)));
-        let Some((target, epoch)) = parsed else {
+        // a bare key: found on the local network, at the address the endpoint has now
+        let by_key = || {
+            let net = lock(&self.net.inner);
+            net.knobs.discovery.then(|| net.endpoints.get(ticket).map(|e| (ticket.to_string(), e.epoch))).flatten()
+        };
+        let Some((target, epoch)) = parsed.or_else(by_key) else {
             return Err(format!("not an endpoint ticket: {ticket:?}"));
         };
         if target == self.id {

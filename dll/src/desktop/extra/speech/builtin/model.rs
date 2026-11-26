@@ -215,6 +215,7 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 /// `bytes` as megabytes with one decimal.
+// A size for a sentence: the precision a u64 loses in an f64 is far below the one decimal that is shown.
 #[allow(clippy::cast_precision_loss)]
 fn megabytes(bytes: u64) -> String {
     format!("{:.1} MB", bytes as f64 / 1_000_000.0)

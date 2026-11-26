@@ -6143,16 +6143,6 @@ impl core::fmt::Debug for DebugServerHandle {
 
 #[cfg(feature = "std")]
 #[cfg(feature = "e2e-server-http")]
-impl std::fmt::Debug for DebugServerHandle {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DebugServerHandle")
-            .field("port", &self.port)
-            .finish_non_exhaustive()
-    }
-}
-
-#[cfg(feature = "std")]
-#[cfg(feature = "e2e-server-http")]
 impl DebugServerHandle {
     /// Signal the server to shut down
     pub fn shutdown(&self) {
