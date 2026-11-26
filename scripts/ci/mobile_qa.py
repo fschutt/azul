@@ -1736,6 +1736,25 @@ class IOS:
         """What the RUNNING process wrote since it started: the console of the cold launch that started it."""
         return self.console_text(self.process_launch or None)
 
+    def process_marker(self):
+        """How much the running process has written so far: the line counts of its two console files. `process_since` gives what it
+        wrote after. (Not `len(process_console().splitlines())`: that text has a blank line where the two files are joined, which
+        moves by one every time the file grows, and the first new line would be lost.)"""
+        counts = []
+        for suffix in ("out", "err"):
+            f = self.run.logs_dir / f"console-{self.process_launch or self.launch_count}.{suffix}.txt"
+            counts.append(len(f.read_text(errors="replace").splitlines()) if f.exists() else 0)
+        return tuple(counts)
+
+    def process_since(self, marker):
+        """The lines the running process wrote after `marker` (from `process_marker`): stdout's, then stderr's."""
+        lines = []
+        for suffix, seen in zip(("out", "err"), marker):
+            f = self.run.logs_dir / f"console-{self.process_launch or self.launch_count}.{suffix}.txt"
+            if f.exists():
+                lines += f.read_text(errors="replace").splitlines()[seen:]
+        return lines
+
     # -- the engine's debug server (a `mobile-e2e` app; the Simulator shares the host's loopback)
     def server_op(self, port, op, timeout=30, **params):
         """One request to the debug server. -> the decoded answer; raises OSError / URLError when nothing answers."""
@@ -1771,7 +1790,7 @@ class IOS:
         width = find_key(state, "logical_width") or self.dims[0] / scale
         height = find_key(state, "logical_height") or self.dims[1] / scale
         x, top, bottom = width * 0.5, height * 0.3, height * 0.7
-        before = len(self.process_console().splitlines())
+        before = self.process_marker()
         self.server_op(port, "touch_start", id=1, x=x, y=bottom)
         self.server_op(port, "wait_frame")
         t0 = time.time()
@@ -1788,16 +1807,16 @@ class IOS:
         self.server_op(port, "touch_end", id=1)
         self.server_op(port, "wait_frame")
         self.settle(1.5)
-        lines = self.process_console().splitlines()[before:]
+        lines = self.process_since(before)
         return summarize_frames(swipe_windows("\n".join(lines))), made, took
 
     def idle_windows(self, seconds=4.0):
         """Nothing touches the app for `seconds`: the engine's frames lines of full seconds written meanwhile. A window that is not
         animating presents nothing, so there must be none: one is a window that draws continuously while it shows the same picture
         (power). -> [the dicts of `engine_frames`]"""
-        before = len(self.process_console().splitlines())
+        before = self.process_marker()
         time.sleep(seconds)
-        return swipe_windows("\n".join(self.process_console().splitlines()[before:]))
+        return swipe_windows("\n".join(self.process_since(before)))
 
     def look(self, step, name, expect_changed_from=None, allow_launcher=False):
         sig, w, h, fname = self.capture(name)
@@ -2154,7 +2173,7 @@ def ios_scenarios(args):
 
     def s_background(s):
         pid0 = dev.pid()
-        console_before = len(dev.process_console().splitlines())
+        console_before = dev.process_marker()
         before = dev.look(s, "before-background")
         dev.open_other_app()
         dev.settle(3.0)
@@ -2176,7 +2195,7 @@ def ios_scenarios(args):
         if gpu_run:
             # Apple's rule: an app in the background issues no GL command. The Simulator does not enforce it (a phone kills the app);
             # the engine's own lines do prove it: it says when its GL commands stop and when they are allowed again
-            g = gl_in_background(dev.process_console().splitlines()[console_before:])
+            g = gl_in_background(dev.process_since(console_before))
             s.check("GL: the engine stopped its GL commands when the app went to the background", g["stopped"] >= 1,
                     f"{g['stopped']} `GL commands stopped` line(s) on the console")
             s.check("GL: no GL command between the background and the return (no frame, no failed GL action)", not g["inside"],
@@ -2226,7 +2245,7 @@ def ios_scenarios(args):
     run.step("08-rotate", "rotate the device left and back while the app runs (Simulator menu through osascript)", s_rotate, needs_app=True)
 
     def s_memory(s):
-        console_before = len(dev.process_console().splitlines())
+        console_before = dev.process_marker()
         before = dev.look(s, "before-memory-warning")
         ok, msg = dev.gui_menu("Debug", "Simulate Memory Warning")
         s.note(f"Debug > Simulate Memory Warning: {'sent' if ok else 'FAILED: ' + msg}")
@@ -2235,7 +2254,7 @@ def ios_scenarios(args):
         dev.look(s, "after-memory-warning")
         dev.alive_step(s)
         if gpu_run:
-            released = [l for l in dev.process_console().splitlines()[console_before:] if MEMORY_RELEASED.search(l)]
+            released = [l for l in dev.process_since(console_before) if MEMORY_RELEASED.search(l)]
             s.check("GL: the engine released the renderer's caches at the memory warning", bool(released), f"{len(released)} line(s) on the console",
                     required=ok)
 

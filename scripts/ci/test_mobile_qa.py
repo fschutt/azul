@@ -456,6 +456,254 @@ class EngineContractTests(unittest.TestCase):
             self.assertIn(f'"{spec}"', text, spec)
 
 
+class FakeIOS(q.IOS):
+    """The iOS device of mobile_qa.py with nothing behind it: the steps run for real, the Simulator is a script. Its console is
+    what an engine with (or without) the GPU path and its failure hooks writes, so the step functions of `ios_scenarios` are
+    tested as they are: the checks they make, the launches they make, the words they read."""
+
+    hooks = True            # the engine honours AZ_GPU_FAIL (a mobile-e2e build)
+    gpu = True              # the engine has the GPU path at all
+    gl_lines = True         # the engine writes the GL stop / allow lines around a stay in the background
+    frame_in_background = False   # ... and a frame line between them (a GL command in the background)
+    swipe = ("[render] frames n=60 over_ms=1003 interval_ms median=16.7 p95=33.4 max=50.1 draw_ms median=5.0 p95=9.8",
+             "[render] frames n=58 over_ms=1002 interval_ms median=17.2 p95=21.0 max=33.4 draw_ms median=4.4 p95=7.9")
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.running = False
+        self.launches = []
+        w, h = 40, 80
+        top, bottom = (250, 250, 250, 255), (30, 60, 90, 255)
+        app = bytes(top) * (w * (h // 2)) + bytes(bottom) * (w * (h - h // 2))
+        home = bytes((200, 40, 40, 255)) * (w * (h // 2)) + bytes((40, 40, 200, 255)) * (w * (h - h // 2))
+        other = bytes((20, 160, 20, 255)) * (w * h)
+        sig = lambda px: q.signature_rgba(px, w, h)
+        self.sigs = {"home": sig(home), "app": sig(app), "other": sig(other)}
+        self.dims = (w, h)
+
+    # -- the Simulator: nothing runs
+    def x(self, *cmd, timeout=120, env=None):
+        return 0, "", ""
+
+    def simctl(self, *args, timeout=120, env=None):
+        if args[:1] == ("list",):
+            return 0, json.dumps({"devices": {"com.apple.CoreSimulator.SimRuntime.iOS-26-2": [{"udid": self.udid, "name": "azul-qa"}]}}), ""
+        return 0, "", ""
+
+    def to_file(self, log_name, *cmd, timeout=600):
+        return 0, ""
+
+    def fire(self, *args, wait=25):
+        return ""
+
+    def pid(self):
+        return "4242" if self.running else ""
+
+    def crash_reports(self, since_stamp=None):
+        return []
+
+    def settle(self, seconds=2.0):
+        pass
+
+    def wait_for_front(self, timeout=45):
+        return 1.0
+
+    def rss_mb(self):
+        return 250.0
+
+    def capture(self, name, keep=True):
+        key = "home" if name.startswith("home") else ("other" if "other-app" in name else "app")
+        fname = ""
+        if keep:
+            self.shot_count += 1
+            fname = f"{self.shot_count:02d}-{name}.png"
+        return self.sigs[key], self.dims[0], self.dims[1], fname
+
+    def last_rgba_full(self):
+        w, h = 12, 12
+        return bytes((90, 90, 90, 255)) * (w * h), w, h
+
+    def gui_keystroke(self, char_code):
+        return False, "the Simulator GUI steps are off"
+
+    def gui_menu(self, menu, item):
+        return False, "the Simulator GUI steps are off"
+
+    # -- the debug server and the engine's lines
+    def server_up(self, port, seconds=8):
+        return {"data": {"window": {"dpi": 288.0, "logical_width": 402.0, "logical_height": 874.0}}}
+
+    def swipe_frame_stats(self, port, state, seconds=4.0):
+        return q.summarize_frames(q.swipe_windows("\n".join(self.swipe))), 90, seconds
+
+    def idle_windows(self, seconds=4.0):
+        return []
+
+    def console_for(self, env):
+        mode = env.get("AZ_BACKEND", "")
+        spec = env.get("AZ_GPU_FAIL")
+        lines = ["[iOS] application:didFinishLaunching: ok"]
+        if mode in ("gpu", "auto") and self.gpu:
+            if spec and self.hooks:
+                lines += [f"[render] gpu unavailable at {q.gpu_fail_stage(spec)}: injected by AZ_GPU_FAIL; drawing on the CPU",
+                          f"[render] backend=cpu requested={mode} device=software"]
+            elif mode == "auto":
+                lines += ["[render] gpu unavailable at probe: auto takes only a hardware renderer; drawing on the CPU",
+                          "[render] backend=cpu requested=auto device=software"]
+            else:
+                lines += ["[render] backend=gpu requested=gpu device=Apple Software Renderer",
+                          "[iOS GPU] first frame 1206x2622: 41 draw calls, drawn in 900 ms, 70000 ms after the GPU path began",
+                          *self.swipe]
+        else:
+            lines.append(f"[render] backend=cpu requested={mode or 'cpu'} device=software")
+        return "\n".join(lines) + "\n"
+
+    def launch(self, extra_env=None, cold=True):
+        self.launch_count += 1
+        env = dict(self.base_env)
+        env.update(extra_env or {})
+        out_f = self.run.logs_dir / f"console-{self.launch_count}.out.txt"
+        err_f = self.run.logs_dir / f"console-{self.launch_count}.err.txt"
+        out_f.write_text("", encoding="utf-8")
+        if cold:
+            self.process_launch = self.launch_count
+            self.running = True
+            err_f.write_text(self.console_for(env), encoding="utf-8")
+        else:
+            err_f.write_text("", encoding="utf-8")
+            if self.gpu and self.base_env.get("AZ_BACKEND") == "gpu" and self.gl_lines:
+                self.append_to_process_console("[iOS GPU] GL commands allowed again (Resumed)")
+        self.launches.append((dict(env), cold))
+        return {"rc": 0, "pid": "4242", "out": "x: 4242", "err": "", "console": (out_f, err_f)}
+
+    def append_to_process_console(self, *lines):
+        path = self.run.logs_dir / f"console-{self.process_launch}.err.txt"
+        path.write_text(path.read_text(encoding="utf-8") + "\n".join(lines) + "\n", encoding="utf-8")
+
+    def open_other_app(self, bundle="com.apple.Preferences"):
+        if self.gpu and self.base_env.get("AZ_BACKEND") == "gpu" and self.gl_lines:
+            self.append_to_process_console("[iOS GPU] GL commands stopped (Backgrounded)")
+            if self.frame_in_background:
+                self.append_to_process_console("[render] frames n=9 over_ms=1000 interval_ms median=1.0 p95=2.0 max=3.0")
+        return ""
+
+
+class IosScenarioTests(unittest.TestCase):
+    """`ios_scenarios` run against a fake Simulator: what the iOS GPU steps check, launch and conclude."""
+
+    def run_steps(self, only, device=None, **opts):
+        import argparse
+        import tempfile
+        from unittest import mock
+        args = argparse.Namespace(out="", udid="U", bundle="com.azul.AzWidgets", exe="AzWidgets", app="", label="t", first_frame_timeout=45,
+                                  expect_gpu=True, hardware=False, only=only, backend="", expect_hooks=False, debug_port=0)
+        for k, v in opts.items():
+            setattr(args, k, v)
+        holder = {}
+        factory = device or FakeIOS
+
+        def make(*a, **k):
+            holder["dev"] = factory(*a, **k)
+            return holder["dev"]
+
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(q, "IOS", make):
+            args.out = d
+            run = q.ios_scenarios(args)
+            steps = {s.name: s for s in run.steps}
+            return steps, holder["dev"], run
+
+    def failed(self, step):
+        return [f"{c['what']}: {c['detail']}" for c in step.checks if not c["ok"] and c["required"]] + ([step.error] if step.error else [])
+
+    def test_a_working_gpu_build_passes_the_render_modes_and_every_injected_failure(self):
+        steps, dev, run = self.run_steps("03,04", expect_hooks=True, debug_port=8795)
+        for name in ("04-render-modes", "04b-gpu-fallback"):
+            self.assertTrue(steps[name].ok, (name, self.failed(steps[name])))
+        # one cold launch per stage of the failure plan, each with a console file of its own, and the default start again
+        injected = [env for env, cold in dev.launches if "AZ_GPU_FAIL" in env]
+        self.assertEqual([e["AZ_GPU_FAIL"] for e in injected],
+                         ["library", "functions", "context", "make_current", "surface", "probe", "renderer", "document", "shaders", "frame", "lost:2"])
+        self.assertIn("11 of 11 failures were injected", " ".join(steps["04b-gpu-fallback"].notes))
+        # the frame times of the scripted swipe reach the standing table, with the keys it reads
+        row = [r for r in run.render_table if r["requested"] == "gpu"][0]
+        self.assertEqual((row["median"], row["p95"], row["n"]), ("16.9", "33.4", 118))
+        self.assertEqual(run.meta["rss_mb_gpu"], 250)
+
+    def test_a_build_without_the_failure_hook_is_probed_once_and_fails_only_when_the_hook_is_expected(self):
+        class NoHook(FakeIOS):
+            hooks = False
+
+        steps, dev, _run = self.run_steps("04", device=NoHook)
+        self.assertTrue(steps["04b-gpu-fallback"].ok, self.failed(steps["04b-gpu-fallback"]))
+        self.assertIn("hook not built in", " ".join(steps["04b-gpu-fallback"].notes))
+        self.assertEqual(len([1 for env, _ in dev.launches if "AZ_GPU_FAIL" in env]), 1, "the other ten stages are skipped")
+        steps, _dev, _run = self.run_steps("04", device=NoHook, expect_hooks=True)
+        self.assertFalse(steps["04b-gpu-fallback"].ok)
+        self.assertTrue(any("failure hook" in f for f in self.failed(steps["04b-gpu-fallback"])))
+
+    def test_a_build_with_no_gpu_path_says_so_in_the_failure_step(self):
+        class CpuOnly(FakeIOS):
+            gpu = False
+
+        steps, dev, _run = self.run_steps("04", device=CpuOnly, expect_gpu=False)
+        note = " ".join(steps["04b-gpu-fallback"].notes)
+        self.assertIn("without a fallback line", note)
+        self.assertEqual(len([1 for env, _ in dev.launches if "AZ_GPU_FAIL" in env]), 1)
+
+    def test_a_gpu_run_requires_the_lines_that_prove_no_gl_command_in_the_background(self):
+        steps, dev, _run = self.run_steps("07", backend="gpu")
+        self.assertTrue(steps["07-background-10s"].ok, self.failed(steps["07-background-10s"]))
+        self.assertTrue(any("GL commands" in c["what"] or "GL command" in c["what"] for c in steps["07-background-10s"].checks))
+        # every launch of the run asked for the GPU, and a first frame is waited for as long as a software GL needs
+        self.assertTrue(all(env.get("AZ_BACKEND") == "gpu" for env, _cold in dev.launches))
+
+        class Silent(FakeIOS):
+            gl_lines = False
+
+        steps, _dev, _run = self.run_steps("07", device=Silent, backend="gpu")
+        self.assertFalse(steps["07-background-10s"].ok)
+        self.assertTrue(any("stopped its GL commands" in f for f in self.failed(steps["07-background-10s"])))
+
+        class Frames(FakeIOS):
+            frame_in_background = True
+
+        steps, _dev, _run = self.run_steps("07", device=Frames, backend="gpu")
+        self.assertFalse(steps["07-background-10s"].ok)
+        self.assertTrue(any("no GL command between" in f for f in self.failed(steps["07-background-10s"])))
+
+    def test_the_default_run_makes_no_gl_check_and_asks_the_app_for_nothing(self):
+        steps, dev, _run = self.run_steps("07")
+        self.assertTrue(steps["07-background-10s"].ok, self.failed(steps["07-background-10s"]))
+        self.assertFalse(any("GL" in c["what"] for c in steps["07-background-10s"].checks))
+        self.assertTrue(all("AZ_BACKEND" not in env for env, _cold in dev.launches))
+
+    def test_the_lines_after_a_marker_are_exactly_the_new_lines_of_both_files(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            run = q.Run(d, "ios", {})
+            dev = q.IOS(run, "U", "b", "e")
+            dev.launch_count = dev.process_launch = 3
+            out, err = run.logs_dir / "console-3.out.txt", run.logs_dir / "console-3.err.txt"
+            out.write_text("o1\no2\n", encoding="utf-8")
+            err.write_text("e1\n", encoding="utf-8")
+            marker = dev.process_marker()
+            self.assertEqual(marker, (2, 1))
+            self.assertEqual(dev.process_since(marker), [])
+            err.write_text("e1\ne2\ne3\n", encoding="utf-8")        # the process writes on: the FIRST new line must not be lost
+            out.write_text("o1\no2\no3\n", encoding="utf-8")
+            self.assertEqual(dev.process_since(marker), ["o3", "e2", "e3"])
+            self.assertEqual(dev.process_since((0, 0)), ["o1", "o2", "o3", "e1", "e2", "e3"])
+            # a console that does not exist yet has nothing
+            dev.launch_count = dev.process_launch = 9
+            self.assertEqual(dev.process_marker(), (0, 0))
+            self.assertEqual(dev.process_since((0, 0)), [])
+
+    def test_a_gpu_lifecycle_run_waits_for_the_first_frame_as_long_as_the_modes_step(self):
+        import argparse
+        steps, dev, _run = self.run_steps("07", backend="gpu", first_frame_timeout=45)
+        self.assertEqual(_run.meta["backend"], "gpu")
+
+
 LOGCAT_START = """\
 11-26 07:41:11.070   517   886 I ActivityTaskManager: START u0 {flg=0x10000000 cmp=com.azul.AzWidgets/com.azul.app.AzulActivity} with LAUNCH_SINGLE_TOP from uid 2000 (BAL_ALLOW_PERMISSION) result code=0
 11-26 07:41:11.083   517   546 I ActivityManager: Start proc 2878:com.azul.AzWidgets/u0a141 for next-top-activity {com.azul.AzWidgets/com.azul.app.AzulActivity}
