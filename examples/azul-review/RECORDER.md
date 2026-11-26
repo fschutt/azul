@@ -65,6 +65,14 @@ spans a chunk and a half). A crash costs at most one chunk, and the file is cut 
 is ordinary fragmented MP4 that ffmpeg and HandBrake read as it is, so combining it with the screen track
 is a cheap overlay and not a re-encode of the camera (section 10).
 
+**The video encoder is got ready at the start.** The first VideoToolbox session of a process is 0.3 to 0.4 s (the
+framework, the hardware encoder, the engine's own probe), and opened at the first picture of the camera it held the
+window's thread that long (a stack sample of the demo: 173 of 1536 samples of the main thread in
+`AzVideoEncoder::open`, timers and the pointer stood still). A recording that takes pictures now asks the factory to
+get ready when it starts (`CodecFactory::warm_up`, once for the recorder's life; the azul factory opens and drops a
+128 x 128 session on a thread of its own, `recorder_codec::in_background`), a second or more before the first picture
+comes. A voice-only recording and a refused start ask for nothing.
+
 **The camera's files carry the voice** (`recorder-camera-voice`, on by default): a camera file is one fragmented
 MP4 of two tracks, the picture (H.264, track 1) and a copy of the microphone's voice (Opus, track 2), so that
 the one file plays with its sound in any player and opens in HandBrake. Every fragment closes where the
