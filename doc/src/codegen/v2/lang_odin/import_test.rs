@@ -56,6 +56,9 @@ fn the_file_imports_the_library_once_per_system_and_nowhere_else() {
     assert!(lines.iter().all(|l| l.starts_with('\t')), "both imports sit inside their `when` branch: {:?}", lines);
 }
 
+/// The name api.json gives the Windows flows of the install steps.
+const WINDOWS: &str = "windows";
+
 fn repo_file(rel: &str) -> String {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join(rel);
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {}", path.display(), e))
@@ -79,7 +82,7 @@ fn windows_install_steps() -> Vec<String> {
     let flows = odin(&api).expect("api.json has the Odin install steps")["install"].as_array().expect("flows");
     let windows = flows
         .iter()
-        .find(|f| f["os"].as_array().is_some_and(|os| os.iter().any(|o| o == "windows")))
+        .find(|f| f["os"].as_array().is_some_and(|os| os.iter().any(|o| o == WINDOWS)))
         .expect("a Windows flow of the Odin install steps");
     windows["steps"].as_array().expect("steps").iter().filter_map(|s| s["content"].as_str()).map(String::from).collect()
 }
