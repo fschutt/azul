@@ -159,6 +159,58 @@ pub mod loading {
         system_ui.insert(0, family.to_string());
     }
 
+    /// What [`check_system_ui_font`] found.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum SystemUiFontCheck {
+        /// The system UI font of the platform is a scanned font.
+        Found,
+        /// The first family of the platform's UI font list (the desktop's own font on Linux) is
+        /// in no scanned font - the name is carried -: `system-ui` resolves to the rest of its
+        /// list, or to the generic fallbacks, so UI text is set in another font than the one the
+        /// platform draws its UI in.
+        PrimaryMissing(String),
+    }
+
+    /// Whether the system UI font of the platform is in `cache`.
+    ///
+    /// Text in `system:ui` or `system-ui` is set in the `system-ui` generic family, which the
+    /// cache resolves through its list for the platform ([`browser_generic_families`]): "System
+    /// Font" (San Francisco) then Helvetica Neue on macOS, Segoe UI Variable on Windows, the
+    /// desktop's own font before the list on Linux ([`use_system_ui_font`], `detected`). That is
+    /// what is checked, by the first family of the list: the family the OS reports for its UI
+    /// font is no name to look up on every platform - macOS answers `.AppleSystemUIFont`, the
+    /// private alias CoreText has for San Francisco, which the name table of `SFNS.ttf` does not
+    /// carry - so `detected` is looked up only where it joins the list (Linux).
+    #[must_use]
+    pub fn check_system_ui_font(
+        cache: &FcFontCache,
+        detected: &str,
+        os: OperatingSystem,
+    ) -> SystemUiFontCheck {
+        use rust_fontconfig::FcPattern;
+
+        let primary = if os == OperatingSystem::Linux && !detected.trim().is_empty() {
+            Some(detected.trim().to_string())
+        } else {
+            platform_of(os).and_then(|platform| {
+                azul_css::system::SystemFontType::Ui
+                    .get_fallback_chain(&platform)
+                    .first()
+                    .map(|family| (*family).to_string())
+            })
+        };
+        if let Some(primary) = primary {
+            let pattern = FcPattern {
+                name: Some(primary.clone()),
+                ..Default::default()
+            };
+            if cache.query(&pattern, &mut Vec::new()).is_none() {
+                return SystemUiFontCheck::PrimaryMissing(primary);
+            }
+        }
+        SystemUiFontCheck::Found
+    }
+
     /// [`prefer_system_ui_font`] applied to `cache` (shared state, as
     /// [`use_browser_generic_families`]); a no-op when the font is first
     /// already, so the memoized chains survive. The dll calls it on Linux

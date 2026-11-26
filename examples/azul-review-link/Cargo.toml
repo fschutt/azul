@@ -1,0 +1,32 @@
+[package]
+name = "azul-review-link"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = """
+    azul-review-link: what the AzReview phone companion and AzReview say to each other. The wire
+    frames (a versioned, capped, total-decoding binary encoding), the pairing, the link seam (a mock
+    for every test; azul's iroh endpoint for the real run, behind the feature `azul`), the host a
+    Mac runs and the client a phone runs. No azul types in the default build: the phone app and
+    AzReview both depend on it.
+"""
+publish = false
+
+[lib]
+name = "azul_review_link"
+path = "src/lib.rs"
+
+[dependencies]
+# SHA-256 and HMAC-SHA256 for the pairing (the proof of the one-time secret, the six-digit code).
+# Both are in Cargo.lock already (sha2 0.10 by azul-layout's updater, hmac 0.12 beside it): no new crate.
+sha2 = "0.10"
+hmac = "0.12"
+# The iroh transport (iroh_link.rs): only with the feature `azul`, which the phone app and AzReview turn
+# on; they choose link-dynamic or link-static for azul-dll themselves.
+azul = { path = "../../dll", package = "azul-dll", default-features = false, optional = true }
+
+[features]
+default = []
+# The Link over azul's IrohEndpoint (the local network, relay off). The consumer enables link-dynamic or
+# link-static on azul-dll; the default build of this crate stays free of azul.
+azul = ["dep:azul"]

@@ -35,9 +35,16 @@
 //! # Build / link requirements
 //!
 //! `foreign import azul "system:azul"` emits `-lazul` to the linker; the
-//! user drops `libazul.{so,dylib}` / `azul.dll` on the library path
-//! (`-extra-linker-flags:"-L."`). The generated `azul.odin` is meant to
-//! live in an `azul/` subdirectory imported via `import azul "azul"`.
+//! user drops `libazul.{so,dylib}` on the library path
+//! (`-extra-linker-flags:"-L."`). On Windows Odin hands the name of a `system:`
+//! library to the MSVC linker as it is, and `link.exe` reads a name without an
+//! extension as an object file: `system:azul` reached it as `azul`, and the
+//! link stopped with `LNK1181: cannot open input file 'azul.obj'`. So the
+//! Windows import is `system:azul.lib` (what Odin's own `core:sys/windows`
+//! does, `system:Kernel32.lib`): the import library of the release, `azul.dll.lib`,
+//! under that name, and `azul.dll` next to the program. The generated
+//! `azul.odin` is meant to live in an `azul/` subdirectory imported via
+//! `import azul "azul"`.
 
 pub mod fields;
 pub mod functions;
@@ -65,7 +72,7 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     emit_header(&mut b);
     b.line("package azul");
     b.blank();
-    b.line(&format!("foreign import azul \"system:{}\"", LIB_NAME));
+    emit_foreign_import(&mut b);
     b.blank();
 
     // Track every emitted top-level name so a duplicate (a struct + a
@@ -80,6 +87,22 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     fields::generate_field_accessors(&mut b, ir, config);
 
     Ok(b.finish())
+}
+
+/// The import of the native library: the bare name where the linker adds the
+/// prefix and the extension itself (`-lazul`), the import library's file name
+/// on Windows (see the module documentation: `link.exe` takes a bare name for
+/// an object file).
+fn emit_foreign_import(b: &mut CodeBuilder) {
+    b.line("when ODIN_OS == .Windows {");
+    b.indent();
+    b.line(&format!("foreign import azul \"system:{}.lib\"", LIB_NAME));
+    b.dedent();
+    b.line("} else {");
+    b.indent();
+    b.line(&format!("foreign import azul \"system:{}\"", LIB_NAME));
+    b.dedent();
+    b.line("}");
 }
 
 fn emit_header(b: &mut CodeBuilder) {
@@ -100,8 +123,11 @@ fn emit_header(b: &mut CodeBuilder) {
     b.line("// Idiomatic aliases without the `Az` prefix (App_create :: AzApp_create) are");
     b.line("// emitted at the bottom; the raw Az* symbols remain available.");
     b.line("//");
-    b.line("// Build: place libazul.{so,dylib}/azul.dll on the link path and build with");
+    b.line("// Build: place libazul.{so,dylib} on the link path and build with");
     b.line("//   odin build . -extra-linker-flags:\"-L.\"");
+    b.line("// On Windows put azul.dll next to the program and the import library of the");
+    b.line("// release, azul.dll.lib, under the name azul.lib in the directory you build in;");
+    b.line("// then plain `odin build .` (the import below names azul.lib).");
     b.line("// ============================================================================");
     b.blank();
 }
@@ -392,6 +418,10 @@ pub fn should_emit_function(func: &FunctionDef, ir: &CodegenIR, config: &Codegen
     }
     true
 }
+
+#[cfg(test)]
+#[path = "import_test.rs"]
+mod import_test;
 
 #[cfg(test)]
 mod field_access_tests {
