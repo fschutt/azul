@@ -481,6 +481,34 @@ pub fn time_text(unix_ms: u64) -> String {
     format!("{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{s:02}Z")
 }
 
+/// The Unix time in milliseconds of a time [`time_text`] wrote (`2025-11-26T05:40:12Z`); `None` for any other text. What a header
+/// says is compared with the moments the board keeps (a snapshot's), which are Unix times.
+#[must_use]
+pub fn unix_ms_of(text: &str) -> Option<u64> {
+    let b = text.as_bytes();
+    if b.len() != 20 || b[4] != b'-' || b[7] != b'-' || b[10] != b'T' || b[13] != b':' || b[16] != b':' || b[19] != b'Z' {
+        return None;
+    }
+    let num = |from: usize, to: usize| -> Option<i64> {
+        let digits = text.get(from..to)?;
+        digits.bytes().all(|c| c.is_ascii_digit()).then(|| digits.parse::<i64>().ok()).flatten()
+    };
+    let (y, mo, d) = (num(0, 4)?, num(5, 7)?, num(8, 10)?);
+    let (h, mi, s) = (num(11, 13)?, num(14, 16)?, num(17, 19)?);
+    if !(1..=12).contains(&mo) || !(1..=31).contains(&d) || h > 23 || mi > 59 || s > 60 {
+        return None;
+    }
+    // the days of the civil calendar, in whole numbers (the inverse of `civil`)
+    let year = y - i64::from(mo <= 2);
+    let era = year.div_euclid(400);
+    let yoe = year - era * 400;
+    let doy = (153 * ((mo + 9) % 12) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    let secs = days * 86_400 + h * 3_600 + mi * 60 + s;
+    u64::try_from(secs).ok().map(|secs| secs * 1000)
+}
+
 /// The name of a patch: it sorts by the time and says which conversation (`20251126-054012-c7.patch`).
 #[must_use]
 pub fn file_name(conversation: u64, unix_ms: u64) -> String {

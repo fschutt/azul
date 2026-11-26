@@ -655,36 +655,15 @@ pub struct MicThread {
     commands: std::sync::mpsc::Sender<MicCmd>,
 }
 
-/// A handle on the window's speech session for the microphone's thread.
-///
-/// The engine's session is shared between threads by design: "a clone is another handle on the same session, so a worker thread
-/// can listen while the window asks `cancel` or `recognizers`" (its chain, its microphone and its state are behind locks). The
-/// generated binding does not say so (its handle holds a raw pointer, so it is not `Send`), which is what this says.
-struct SharedSession(SpeechSession);
-
-// SAFETY: a handle is one reference to a session that the engine made to be used from several threads at once (see above); the
-// thread uses only `arm`, `disarm` and `set_standby`, which the engine documents as safe to call at any time and from any
-// thread, and it drops its handle when it ends.
-unsafe impl Send for SharedSession {}
-
-impl SharedSession {
-    /// The handle, inside the thread. (A method and not the field: a closure that named the field would capture only the
-    /// field, which is not `Send`.)
-    fn into_inner(self) -> SpeechSession {
-        self.0
-    }
-}
-
 impl MicThread {
-    /// Starts the thread for `session` (a clone of the window's: the same session); `None` where no thread could be started.
+    /// Starts the thread for `session` (a clone of the window's: the same session, which the engine made to be used from several
+    /// threads at once and its binding says so: it is `Send` and `Sync`); `None` where no thread could be started.
     #[must_use]
     pub fn start(session: SpeechSession) -> Option<Self> {
         let (commands, asked) = std::sync::mpsc::channel::<MicCmd>();
-        let session = SharedSession(session);
         std::thread::Builder::new()
             .name("mic-standby".to_string())
             .spawn(move || {
-                let session = session.into_inner();
                 // the thread ends with the window: the sender is dropped and nothing is asked any more
                 while let Ok(command) = asked.recv() {
                     match command {
@@ -1236,6 +1215,11 @@ extern "C" fn on_message(mut app: RefAny, mut msg: RefAny, mut info: CallbackInf
             }
             Out::Text(said) => {
                 println!("AZREVIEW_DICTATION text {note_id} {}", said.text);
+                // While the reason of a snapshot is being written on the whiteboard, what is said is the reason's, not the note's
+                // (the note, which heard nothing, is not kept).
+                if s.wb.get_mut().panel.dictated(said.text.trim()) {
+                    return Update::RefreshDom;
+                }
                 let mut said = said;
                 if said.started_unix_ms == 0 {
                     said.started_unix_ms = crate::agent_window::unix_now_ms();

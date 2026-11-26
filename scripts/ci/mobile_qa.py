@@ -272,6 +272,20 @@ def parse_ime_shown(text):
     return bool(re.search(r"(mInputShown|isInputViewShown|mIsInputViewShown)=true", text))
 
 
+def parse_ime_inset(text):
+    """The IME's inset source in `dumpsys window` (API 30+): `InsetsSource type=ime frame=[0,1360][1080,2400] visible=true`
+    (older: `mType=ITYPE_IME ... mVisible=true`). -> True / False, None when no such line is there. The inset is the
+    window system's own account of the keyboard, which `dumpsys input_method` stopped giving a stable field for (API 34:
+    the keyboard was on the screen while `mInputShown` said nothing)."""
+    seen = None
+    for line in text.splitlines():
+        if re.search(r"type=ime\b|ITYPE_IME", line):
+            m = re.search(r"\b(?:visible|mVisible)=(true|false)", line)
+            if m:
+                seen = (m.group(1) == "true") or bool(seen)
+    return seen
+
+
 def parse_bounds(xml_text):
     """[(label, cx, cy)] for the nodes of a `uiautomator dump` that carry a text or a content description."""
     found = []
@@ -354,6 +368,8 @@ class Run:
         self.platform, self.meta, self.steps = platform, dict(meta), []
         self.t0 = time.time()
         self.recover = None
+        self.render_table = []       # rows of the "Render backends" section of qa.md (filled by report_modes)
+        self.render_diff = None
         self.only = None             # {"03", "08", ...}: run only these steps (00-02, the device and the install, always run)
         self.extra_shots = 100       # diff images are numbered from 100 so they never collide with a step's own pictures
 
@@ -388,6 +404,7 @@ class Run:
 
     def write(self):
         doc = {"platform": self.platform, "meta": self.meta, "ok": all(s.ok for s in self.steps),
+               "render": {"table": self.render_table, "cpu_against_gpu": self.render_diff},
                "steps": [s.as_json() for s in self.steps]}
         (self.out / "qa.json").write_text(json.dumps(doc, indent=2), encoding="utf-8")
         lines = [f"# {self.platform} QA: {self.meta.get('label', '')}", "",
@@ -398,6 +415,20 @@ class Run:
             res = "PASS" if s.ok else "FAIL"
             why = "; ".join(f"{c['what']} ({c['detail']})" if c["detail"] else c["what"] for c in bad) or s.error
             lines.append(f"| {s.name} | {res} | {s.seconds:.0f} | {s.what} | {(why if not s.ok else '; '.join(s.notes))[:300]} |")
+        # The standing section every run fills the same way (the GPU work reads and writes the same columns):
+        # one row per AZ_BACKEND request, which renderer RAN, and the numbers per backend
+        if self.render_table:
+            lines += ["", "## Render backends: requested against ran", "",
+                      "| requested | ran | device | Displayed ms | first frame seen s | scroll frame ms median | p95 | frames |",
+                      "|---|---|---|---|---|---|---|---|"]
+            for r in self.render_table:
+                lines.append("| {requested} | {ran} | {device} | {displayed} | {first} | {median} | {p95} | {n} |".format(**r))
+            if self.render_diff:
+                d = self.render_diff
+                lines += ["", f"cpu against gpu, pixel by pixel (a pixel differs above {PIXEL_TOLERANCE}/255; pass below {MAX_DIFFERING_SHARE * 100:.0f} % "
+                          f"of the pixels and a mean difference below {MAX_MEAN_DIFF}/255): {d['share'] * 100:.2f} % of the pixels differ, "
+                          f"mean {d['mean_abs']:.2f}/255, max {d['max_abs']}" + (f", box {d['bbox']}" if d.get("bbox") else "")
+                          + f" - {'PASS' if d['ok'] else 'FAIL'}; the diff image is shots/{d['image']}"]
         (self.out / "qa.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -445,6 +476,17 @@ def report_modes(run, step, results, expect_gpu, platform):
                 step.check(f"requested {mode}: the engine says which renderer ran", False,
                            "no `[render] backend=` line in the engine's log: it cannot be told which renderer drew", required=expect_gpu and mode == "gpu")
     run.meta["render_modes"] = " | ".join(summary)
+    run.render_table = []
+    for mode in ("cpu", "gpu", "auto"):
+        r = results.get(mode)
+        if not r:
+            continue
+        f = r.get("frames") or {}
+        run.render_table.append({
+            "requested": mode, "ran": r["ran"], "device": (r.get("device") or "-")[:60],
+            "displayed": r["displayed_ms"] if r.get("displayed_ms") is not None else "n/a",
+            "first": f"{r['first_frame_s']:.1f}" if r.get("first_frame_s") is not None else "n/a",
+            "median": f"{f['median']:.1f}" if f else "n/a", "p95": f"{f['p95']:.1f}" if f else "n/a", "n": f["n"] if f else "n/a"})
     cpu, gpu = results.get("cpu"), results.get("gpu")
     if cpu and gpu and cpu.get("rgba") and gpu.get("rgba") and cpu["dims"] == gpu["dims"]:
         w, h = cpu["dims"]
@@ -453,6 +495,7 @@ def report_modes(run, step, results, expect_gpu, platform):
         write_png(run.shots_dir / fname, w, h, d["image"])
         step.shots.append(fname)
         verdict = d["share"] < MAX_DIFFERING_SHARE and d["mean_abs"] < MAX_MEAN_DIFF
+        run.render_diff = {"share": d["share"], "mean_abs": d["mean_abs"], "max_abs": d["max_abs"], "bbox": d["bbox"], "ok": verdict, "image": fname}
         step.check("the cpu and gpu pictures agree", verdict,
                    f"{d['share'] * 100:.2f} % of the pixels differ by more than {PIXEL_TOLERANCE}/255 (limit {MAX_DIFFERING_SHARE * 100:.0f} %), "
                    f"mean |diff| {d['mean_abs']:.2f}/255 (limit {MAX_MEAN_DIFF}), max {d['max_abs']}"
@@ -479,6 +522,7 @@ class Android:
         self.last_rgba = None
         self.dims = (0, 0)
         self.shot_count = 0
+        self.ime_dumps = 0
 
     # -- plumbing
     def adb(self, *args, timeout=90, binary=False):
@@ -506,7 +550,41 @@ class Android:
         return self.package in self.focus()
 
     def ime_shown(self):
+        """Is the soft keyboard up? The window system's IME inset first, the input method service's own fields as a
+        fallback; the raw dumps of the first calls go to logs/ime-*.txt so the detection can be checked against them."""
+        inset = parse_ime_inset(self.sh("dumpsys window | grep -iE 'type=ime|ITYPE_IME'"))
+        if self.ime_dumps < 3:
+            self.ime_dumps += 1
+            self.save_log(f"ime-{self.ime_dumps}.txt", "== dumpsys window (ime lines)\n" + self.sh("dumpsys window | grep -iE 'type=ime|ITYPE_IME|InputMethod'")
+                          + "\n== dumpsys input_method\n" + self.sh("dumpsys input_method | head -n 120"))
+        if inset is not None:
+            return inset
         return parse_ime_shown(self.sh("dumpsys input_method | grep -E 'mInputShown|isInputViewShown'"))
+
+    def find_label(self, label):
+        """The centre of the first on-screen accessibility node named `label` (uiautomator dump of the window), or None."""
+        self.sh("uiautomator dump /sdcard/qa-ui.xml", timeout=40)
+        for name, cx, cy in parse_bounds(self.sh("cat /sdcard/qa-ui.xml")):
+            if name == label and cx > 0 and cy > 0:
+                return cx, cy
+        return None
+
+    def tap_label(self, label, fallback=None):
+        """Tap the node named `label`; when the tree does not show it, tap `fallback` (x, y) instead. -> (x, y, how)"""
+        found = self.find_label(label)
+        if found:
+            self.tap(*found)
+            return found[0], found[1], "accessibility tree"
+        if fallback:
+            self.tap(*fallback)
+            return fallback[0], fallback[1], "fixed position"
+        return None, None, "not found"
+
+    def hide_ime(self):
+        """BACK closes the keyboard when it is up (and only then: BACK on a closed keyboard leaves the app)."""
+        if self.ime_shown():
+            self.back()
+            time.sleep(1.5)
 
     def resolve_activity(self):
         if self.activity:
@@ -695,6 +773,7 @@ def android_scenarios(args):
         dev.sh("wm density reset")
         dev.sh("cmd uimode night no")
         if dev.alive() and dev.foreground():
+            dev.hide_ime()           # a keyboard an earlier step left up covers half of every later picture
             return
         s.note(f"recovered: the app was {'not in front' if dev.alive() else 'dead'} before this step; started it again")
         dev.launch(cold=True)
@@ -844,6 +923,38 @@ def android_scenarios(args):
     if args.series:
         run.step("03d-cold-start-series", "N cold starts from the launcher: the app against the floor (an empty Java Activity)", s_series, needs_app=True)
 
+    def s_tap_label(s):
+        """Press the button the accessibility tree names `--tap-label`: a tap, then a long press, then a tap 40 px higher, each
+        followed by 3 s and a picture; the step passes when ANY of them changes the screen, and says which did. (AzCompanion's
+        'Try it without a Mac' changed nothing on a tap: is it the touch path or the button?)"""
+        mark = dev.now_mark()
+        before = dev.look(s, "before-label-tap")
+        found = dev.find_label(args.tap_label)
+        s.check(f"the accessibility tree names {args.tap_label!r} with a position", bool(found), str(found))
+        if not found:
+            return
+        x, y = found
+        run.meta["tap_label_at"] = f"{args.tap_label!r} ({x}, {y})"
+        s.note(f"{args.tap_label!r} is at ({x}, {y}) in the accessibility tree")
+        outcomes = []
+        for how, action in (("tap", lambda: dev.tap(x, y)),
+                            ("long press 800 ms", lambda: dev.swipe(x, y, x, y, 800)),
+                            ("tap 40 px higher", lambda: dev.tap(x, y - 40))):
+            action()
+            dev.settle(3.0)
+            sig = dev.look(s, "after-" + how.split(" ")[0] + ("-" + how.split(" ")[1] if how.startswith("tap 40") else ""))
+            d = sig_diff(sig, before)
+            outcomes.append((how, d))
+            if d > SAME_BELOW:
+                break
+        s.check("pressing the button changes the screen", any(d > SAME_BELOW for _h, d in outcomes),
+                "; ".join(f"{h}: differs {d:.3f}" for h, d in outcomes))
+        dev.alive_and_front(s)
+        dev.no_crash_since(s, mark)
+
+    if args.tap_label:
+        run.step("03e-tap-label", f"press the button {args.tap_label!r} (a tap, a long press, a tap 40 px higher): the screen must change", s_tap_label, needs_app=True)
+
     def s_ui_dump(s):
         dev.sh("uiautomator dump /sdcard/qa-ui.xml", timeout=40)
         xml = dev.sh("cat /sdcard/qa-ui.xml")
@@ -877,11 +988,11 @@ def android_scenarios(args):
     def s_tap_dark(s):
         mark = dev.now_mark()
         before = dev.look(s, "before-tap")
-        x, y = at("dark")
-        dev.tap(x, y)
+        x, y, how = dev.tap_label("Dark", fallback=at("dark"))
+        s.note(f"tapped Dark at ({x:.0f}, {y:.0f}) from the {how}")
         dev.settle(1.5)
         after = dev.look(s, "after-tap-dark", expect_changed_from=before)
-        dev.tap(*at("system"))   # back to the system scheme
+        dev.tap_label("System", fallback=at("system"))   # back to the system scheme
         dev.settle(1.0)
         dev.alive_and_front(s)
         dev.no_crash_since(s, mark)
@@ -891,11 +1002,11 @@ def android_scenarios(args):
     def s_keyboard(s):
         mark = dev.now_mark()
         s.check("the keyboard is hidden before the tap", not dev.ime_shown(), "", required=False)
-        x, y = at("text_input")
-        dev.tap(x, y)
+        x, y, how = dev.tap_label("TextInput", fallback=at("text_input"))
+        s.note(f"tapped the TextInput field at ({x:.0f}, {y:.0f}) from the {how}")
         dev.settle(2.5)
         shown = dev.ime_shown()
-        s.check("tapping a text field shows the soft keyboard", shown, "input_method says " + ("shown" if shown else "hidden"))
+        s.check("tapping a text field shows the soft keyboard", shown, "the window system says " + ("shown" if shown else "hidden"))
         dev.sh("input text hello%sazul")
         dev.settle(1.0)
         typed = dev.look(s, "keyboard-and-text")
@@ -948,7 +1059,8 @@ def android_scenarios(args):
         s.check("the app is back in front", t is not None, f"after {t:.1f} s" if t is not None else "not back after 30 s")
         dev.settle(1.5)
         after = dev.look(s, "resumed")
-        s.check("the picture is the one from before", sig_diff(after, before) < 0.05, f"differs {sig_diff(after, before):.3f}", required=False)
+        # REQUIRED: a window that came back black (the surface was recreated and nothing asked for a repaint) is a failure
+        s.check("the window shows the picture it had before (it was repainted after the return)", sig_diff(after, before) < 0.08, f"differs {sig_diff(after, before):.3f}")
         dev.alive_and_front(s)
         dev.no_crash_since(s, mark)
 
@@ -967,7 +1079,7 @@ def android_scenarios(args):
         dev.settle(1.5)
         after = dev.look(s, "after-10s-background")
         s.check("same process as before", dev.pid() == pid0, f"{pid0} -> {dev.pid()}", required=False)
-        s.check("the picture is the one from before", sig_diff(after, before) < 0.05, f"differs {sig_diff(after, before):.3f}", required=False)
+        s.check("the window shows the picture it had before (it was repainted after the return)", sig_diff(after, before) < 0.08, f"differs {sig_diff(after, before):.3f}")
         dev.no_crash_since(s, mark)
 
     run.step("10-background-10s", "ten seconds in the background, then back", s_background, needs_app=True)
@@ -989,8 +1101,16 @@ def android_scenarios(args):
         mark = dev.now_mark()
         base = dev.look(s, "light-system")
         dev.sh("cmd uimode night yes")
+        # SLOW or MISSING? the picture after 3 s and again after 6 s: a change by 3 s is fine, a change only by 6 s says the
+        # theme arrives late, no change at 6 s says the app never took the system's night mode
+        dev.settle(3.0)
+        sig3, *_r = dev.capture("system-dark-3s")
+        d3 = sig_diff(sig3, base)
         dev.settle(3.0)
         dark = dev.look(s, "system-dark", expect_changed_from=base)
+        d6 = sig_diff(dark, base)
+        verdict = "changed by 3 s" if d3 > SAME_BELOW else ("changed only by 6 s: SLOW" if d6 > SAME_BELOW else "did not change in 6 s: MISSING")
+        s.note(f"the app's picture against the light one: {d3:.3f} at 3 s, {d6:.3f} at 6 s: {verdict}")
         dev.alive_and_front(s)
         dev.sh("cmd uimode night no")
         dev.settle(2.5)
@@ -1625,6 +1745,7 @@ def main(argv):
     a.add_argument("--series", type=int, default=0, help="N cold starts to measure (0: none)")
     a.add_argument("--expect-gpu", action="store_true", help="the build has a GPU renderer: a gpu request that ran the CPU one FAILS")
     a.add_argument("--floor-apk", default="", help="the floor APK (an empty Java Activity) measured the same way")
+    a.add_argument("--tap-label", default="", help="press the button the accessibility tree names this (step 03e)")
     i = sub.add_parser("ios")
     i.add_argument("--out", required=True)
     i.add_argument("--udid", required=True)
