@@ -183,24 +183,26 @@ extern "C" fn layout_for_test(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
 }
 
 /// The review tells the recording which file it is on: opening a file while a recording goes is an event of the
-/// recording (what the export's chapters are made of), and nothing is written when nothing records.
+/// recording (what the export's chapters are made of), and nothing is written when nothing records. The window's
+/// own call (`AppState::open_file`) reaches the recording through the hook the host gives the state.
 ///
-/// Mutation: a file that is opened and not told; an event written when nothing records.
+/// Mutation: a state that is not given the host's hook; an event written when nothing records.
 #[test]
 fn opening_a_file_while_recording_is_an_event_of_the_recording() {
     let file = |name: &str| crate::code::SourceFile { path: PathBuf::from(name), display: name.to_string(), lines: vec![String::from("fn a() {}"), String::from("fn b() {}")] };
     let mut state = crate::AppState::create(PathBuf::new(), vec![file("a.rs"), file("src/b.rs")], RefAny::new(0u8), PathBuf::new());
     let (app, _tmp) = app_rig(quiet());
-    state.recorder = Some(app);
+    state.recorder = Arc::new(app.host.hook());
+    state.recording = Some(app);
     // Nothing records: the file opens and nothing is written anywhere.
     state.open_file(0);
-    assert!(state.recorder.as_ref().unwrap().host.current().is_none());
+    assert!(state.recording.as_ref().unwrap().host.current().is_none());
     // A recording goes: the next file is in its events.
-    assert!(state.recorder.as_mut().unwrap().host.start(ALL, Devices::default(), DISPLAY, &[DISPLAY]));
+    assert!(state.recording.as_mut().unwrap().host.start(ALL, Devices::default(), DISPLAY, &[DISPLAY]));
     state.open_file(1);
-    let name = state.recorder.as_ref().unwrap().host.current().expect("a recording is going");
-    let dir = state.recorder.as_ref().unwrap().host.path_of(&name);
-    state.recorder.as_mut().unwrap().host.stop();
+    let name = state.recording.as_ref().unwrap().host.current().expect("a recording is going");
+    let dir = state.recording.as_ref().unwrap().host.path_of(&name);
+    state.recording.as_mut().unwrap().host.stop();
     let dir = dir.unwrap_or_else(|| panic!("the folder of {name}"));
     let events = fs::read_to_string(dir.join("events.jsonl")).unwrap();
     let line = events.lines().find(|l| l.contains("\"nav.file\"")).unwrap_or_else(|| panic!("a nav.file event in {events}"));

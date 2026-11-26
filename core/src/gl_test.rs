@@ -1472,3 +1472,380 @@ mod gl_state_restore_tests {
         )
     }
 }
+
+#[cfg(test)]
+mod paint_stroke_state_tests {
+    //! A brush stroke on a texture leaves the GL state as the renderer had it, sets its attribute arrays on a
+    //! vertex array of its own, and composites as premultiplied alpha. The driver here is a fake that tracks
+    //! the state the stroke touches.
+
+    use core::cell::RefCell;
+
+    use super::*;
+
+    #[derive(Clone, Debug, PartialEq)]
+    struct Gl {
+        framebuffer: u32,
+        vertex_array: u32,
+        program: u32,
+        array_buffer: u32,
+        element_buffer: u32,
+        renderbuffer: u32,
+        texture: u32,
+        viewport: [i32; 4],
+        blend: bool,
+        scissor: bool,
+        blend_func: [u32; 4],
+        /// The vertex array that was bound at each `glVertexAttribPointer`.
+        attribs_set_on: Vec<u32>,
+        /// What was set at each `glDrawArrays`: (the blend function, the scissor test, the vertex array).
+        drawn_with: Vec<([u32; 4], bool, u32)>,
+        /// The vertices of each dab (pos.x, pos.y, uv.x, uv.y per corner).
+        dabs: Vec<[f32; 16]>,
+        next_name: u32,
+    }
+
+    /// What the renderer had: a framebuffer, vertex array and program of its own, the whole window as the
+    /// viewport, a scissor on, no blending.
+    fn renderers() -> Gl {
+        Gl {
+            framebuffer: 9,
+            vertex_array: 5,
+            program: 33,
+            array_buffer: 12,
+            element_buffer: 13,
+            renderbuffer: 4,
+            texture: 77,
+            viewport: [0, 0, 2560, 1490],
+            blend: false,
+            scissor: true,
+            blend_func: [gl::ONE, gl::ONE_MINUS_SRC_ALPHA, gl::ONE, gl::ONE_MINUS_SRC_ALPHA],
+            attribs_set_on: Vec::new(),
+            drawn_with: Vec::new(),
+            dabs: Vec::new(),
+            next_name: 100,
+        }
+    }
+
+    std::thread_local! {
+        static GL: RefCell<Gl> = RefCell::new(renderers());
+    }
+
+    fn with<R>(f: impl FnOnce(&mut Gl) -> R) -> R {
+        GL.with(|g| f(&mut g.borrow_mut()))
+    }
+
+    extern "system" fn get_integer(name: u32, out: *mut i32) {
+        with(|g| {
+            let v: &[i32] = &match name {
+                gl::FRAMEBUFFER_BINDING => [g.framebuffer as i32, 0, 0, 0],
+                gl::VERTEX_ARRAY_BINDING => [g.vertex_array as i32, 0, 0, 0],
+                gl::CURRENT_PROGRAM => [g.program as i32, 0, 0, 0],
+                gl::ARRAY_BUFFER_BINDING => [g.array_buffer as i32, 0, 0, 0],
+                gl::ELEMENT_ARRAY_BUFFER_BINDING => [g.element_buffer as i32, 0, 0, 0],
+                gl::RENDERBUFFER_BINDING => [g.renderbuffer as i32, 0, 0, 0],
+                gl::TEXTURE_BINDING_2D => [g.texture as i32, 0, 0, 0],
+                gl::VIEWPORT => g.viewport,
+                gl::BLEND_SRC_RGB => [g.blend_func[0] as i32, 0, 0, 0],
+                gl::BLEND_DST_RGB => [g.blend_func[1] as i32, 0, 0, 0],
+                gl::BLEND_SRC_ALPHA => [g.blend_func[2] as i32, 0, 0, 0],
+                gl::BLEND_DST_ALPHA => [g.blend_func[3] as i32, 0, 0, 0],
+                _ => [0; 4],
+            };
+            let n = if name == gl::VIEWPORT { 4 } else { 1 };
+            for (i, x) in v.iter().take(n).enumerate() {
+                // SAFETY: the loader passes a buffer of the size the query names.
+                unsafe { *out.add(i) = *x };
+            }
+        });
+    }
+
+    extern "system" fn get_boolean(name: u32, out: *mut u8) {
+        let on = with(|g| match name {
+            gl::BLEND => g.blend,
+            gl::SCISSOR_TEST => g.scissor,
+            _ => false,
+        });
+        // SAFETY: the loader passes a buffer of one GLboolean.
+        unsafe { *out = u8::from(on) };
+    }
+
+    extern "system" fn gen_names(n: i32, out: *mut u32) {
+        with(|g| {
+            for i in 0..n.max(0) {
+                g.next_name += 1;
+                // SAFETY: the loader passes a buffer of `n` GLuints.
+                unsafe { *out.add(i as usize) = g.next_name };
+            }
+        });
+    }
+
+    extern "system" fn bind_framebuffer(_target: u32, name: u32) {
+        with(|g| g.framebuffer = name);
+    }
+    extern "system" fn bind_vertex_array(name: u32) {
+        with(|g| g.vertex_array = name);
+    }
+    extern "system" fn bind_texture(_target: u32, name: u32) {
+        with(|g| g.texture = name);
+    }
+    extern "system" fn bind_renderbuffer(_target: u32, name: u32) {
+        with(|g| g.renderbuffer = name);
+    }
+    extern "system" fn bind_buffer(target: u32, name: u32) {
+        with(|g| {
+            if target == gl::ELEMENT_ARRAY_BUFFER {
+                g.element_buffer = name;
+            } else {
+                g.array_buffer = name;
+            }
+        });
+    }
+    extern "system" fn use_program(name: u32) {
+        with(|g| g.program = name);
+    }
+    extern "system" fn viewport(x: i32, y: i32, w: i32, h: i32) {
+        with(|g| g.viewport = [x, y, w, h]);
+    }
+    extern "system" fn enable(cap: u32) {
+        with(|g| match cap {
+            gl::BLEND => g.blend = true,
+            gl::SCISSOR_TEST => g.scissor = true,
+            _ => {}
+        });
+    }
+    extern "system" fn disable(cap: u32) {
+        with(|g| match cap {
+            gl::BLEND => g.blend = false,
+            gl::SCISSOR_TEST => g.scissor = false,
+            _ => {}
+        });
+    }
+    extern "system" fn blend_func(src: u32, dst: u32) {
+        with(|g| g.blend_func = [src, dst, src, dst]);
+    }
+    extern "system" fn blend_func_separate(src_rgb: u32, dst_rgb: u32, src_a: u32, dst_a: u32) {
+        with(|g| g.blend_func = [src_rgb, dst_rgb, src_a, dst_a]);
+    }
+    extern "system" fn vertex_attrib_pointer(_i: u32, _n: i32, _t: u32, _norm: u8, _stride: i32, _p: *const c_void) {
+        with(|g| {
+            let vao = g.vertex_array;
+            g.attribs_set_on.push(vao);
+        });
+    }
+    extern "system" fn draw_arrays(_mode: u32, _first: i32, _count: i32) {
+        with(|g| {
+            let seen = (g.blend_func, g.scissor, g.vertex_array);
+            g.drawn_with.push(seen);
+        });
+    }
+    extern "system" fn uniform_location(_program: u32, _name: *const i8) -> i32 {
+        1
+    }
+    extern "system" fn nothing_u32(_a: u32) {}
+    extern "system" fn nothing_u32_u32(_a: u32, _b: u32) {}
+    extern "system" fn nothing_names(_n: i32, _names: *const u32) {}
+    extern "system" fn nothing_texture(_a: u32, _b: u32, _c: u32, _d: u32, _e: i32) {}
+    extern "system" fn nothing_uniform4(_l: i32, _a: f32, _b: f32, _c: f32, _d: f32) {}
+    extern "system" fn nothing_uniform1(_l: i32, _a: f32) {}
+    extern "system" fn nothing_pixel_store(_name: u32, _value: i32) {}
+    extern "system" fn nothing_data(_t: u32, size: isize, p: *const c_void, _u: u32) {
+        if size == 64 && !p.is_null() {
+            let mut dab = [0.0_f32; 16];
+            // SAFETY: the stroke hands over the 16 floats of a dab, 64 bytes.
+            dab.copy_from_slice(unsafe { core::slice::from_raw_parts(p.cast::<f32>(), 16) });
+            with(|g| g.dabs.push(dab));
+        }
+    }
+    /// A framebuffer whose rows are numbered: row `i` of `h` is filled with the byte `i + 1`.
+    extern "system" fn read_pixels(_x: i32, _y: i32, w: i32, h: i32, _f: u32, _t: u32, out: *mut c_void) {
+        let out = out.cast::<u8>();
+        for row in 0..h.max(0) as usize {
+            for byte in 0..(w.max(0) as usize) * 4 {
+                // SAFETY: the loader passes a buffer of w * h * 4 bytes.
+                unsafe { *out.add(row * (w as usize) * 4 + byte) = (row + 1) as u8 };
+            }
+        }
+    }
+
+    fn driver() -> GenericGlContext {
+        // SAFETY: every field is a function pointer, null is valid for each.
+        let mut gl: GenericGlContext = unsafe { core::mem::zeroed() };
+        macro_rules! set {
+            ($field:ident, $f:expr, $ty:ty) => {
+                gl.$field = ($f as $ty) as *const () as *mut c_void;
+            };
+        }
+        set!(glGetIntegerv, get_integer, extern "system" fn(u32, *mut i32));
+        set!(glGetBooleanv, get_boolean, extern "system" fn(u32, *mut u8));
+        set!(glGenFramebuffers, gen_names, extern "system" fn(i32, *mut u32));
+        set!(glGenBuffers, gen_names, extern "system" fn(i32, *mut u32));
+        set!(glGenVertexArrays, gen_names, extern "system" fn(i32, *mut u32));
+        set!(glBindFramebuffer, bind_framebuffer, extern "system" fn(u32, u32));
+        set!(glBindVertexArray, bind_vertex_array, extern "system" fn(u32));
+        set!(glBindTexture, bind_texture, extern "system" fn(u32, u32));
+        set!(glBindRenderbuffer, bind_renderbuffer, extern "system" fn(u32, u32));
+        set!(glBindBuffer, bind_buffer, extern "system" fn(u32, u32));
+        set!(glUseProgram, use_program, extern "system" fn(u32));
+        set!(glViewport, viewport, extern "system" fn(i32, i32, i32, i32));
+        set!(glEnable, enable, extern "system" fn(u32));
+        set!(glDisable, disable, extern "system" fn(u32));
+        set!(glBlendFunc, blend_func, extern "system" fn(u32, u32));
+        set!(glBlendFuncSeparate, blend_func_separate, extern "system" fn(u32, u32, u32, u32));
+        set!(glVertexAttribPointer, vertex_attrib_pointer, extern "system" fn(u32, i32, u32, u8, i32, *const c_void));
+        set!(glDrawArrays, draw_arrays, extern "system" fn(u32, i32, i32));
+        set!(glGetUniformLocation, uniform_location, extern "system" fn(u32, *const i8) -> i32);
+        set!(glEnableVertexAttribArray, nothing_u32, extern "system" fn(u32));
+        set!(glDisableVertexAttribArray, nothing_u32, extern "system" fn(u32));
+        set!(glDeleteProgram, nothing_u32, extern "system" fn(u32));
+        set!(glDeleteBuffers, nothing_names, extern "system" fn(i32, *const u32));
+        set!(glDeleteFramebuffers, nothing_names, extern "system" fn(i32, *const u32));
+        set!(glDeleteVertexArrays, nothing_names, extern "system" fn(i32, *const u32));
+        set!(glFramebufferTexture2D, nothing_texture, extern "system" fn(u32, u32, u32, u32, i32));
+        set!(glUniform4f, nothing_uniform4, extern "system" fn(i32, f32, f32, f32, f32));
+        set!(glUniform1f, nothing_uniform1, extern "system" fn(i32, f32));
+        set!(glBufferData, nothing_data, extern "system" fn(u32, isize, *const c_void, u32));
+        set!(glPixelStorei, nothing_pixel_store, extern "system" fn(u32, i32));
+        set!(glReadPixels, read_pixels, extern "system" fn(i32, i32, i32, i32, u32, u32, *mut c_void));
+        gl
+    }
+
+    /// A context whose brush shader is program 77 (the driver here compiles nothing).
+    fn painting_context() -> GlContextPtr {
+        GlContextPtr {
+            ptr: ManuallyDrop::new(Box::new(Rc::new(GlContextPtrInner {
+                ptr: Rc::new(driver()),
+                svg_shader: 0,
+                svg_multicolor_shader: 0,
+                fxaa_shader: 0,
+                brush_shader: 77,
+                glsl_version: AzString::from_const_str("150"),
+            }))),
+            renderer_type: RendererType::Hardware,
+            run_destructor: true,
+        }
+    }
+
+    /// One stroke of a soft brush on a 64 x 32 texture, on a driver in the renderer's state.
+    fn one_stroke() -> Gl {
+        with(|g| *g = renderers());
+        let mut texture = Texture::create(
+            21,
+            TextureFlags {
+                is_opaque: false,
+                is_video_texture: false,
+            },
+            PhysicalSizeU32 { width: 64, height: 32 },
+            ColorU::TRANSPARENT,
+            painting_context(),
+            RawImageFormat::RGBA8,
+        );
+        let mut brush = Brush::new(ColorU { r: 200, g: 20, b: 20, a: 255 }, 4.0);
+        brush.flow = 0.5;
+        texture.paint_stroke(8.0, 16.0, 40.0, 16.0, brush);
+        with(|g| g.clone())
+    }
+
+    #[test]
+    fn a_stroke_leaves_the_bindings_the_viewport_and_the_switches_as_the_renderer_had_them() {
+        let after = one_stroke();
+        let before = renderers();
+        assert_eq!(after.framebuffer, before.framebuffer, "the framebuffer");
+        assert_eq!(after.vertex_array, before.vertex_array, "the vertex array");
+        assert_eq!(after.program, before.program, "the program");
+        assert_eq!(after.array_buffer, before.array_buffer, "the array buffer");
+        assert_eq!(after.element_buffer, before.element_buffer, "the element buffer");
+        assert_eq!(after.renderbuffer, before.renderbuffer, "the renderbuffer");
+        assert_eq!(after.texture, before.texture, "the texture");
+        assert_eq!(after.viewport, before.viewport, "the viewport");
+        assert_eq!(after.blend, before.blend, "blending");
+        assert_eq!(after.scissor, before.scissor, "the scissor test");
+        assert_eq!(after.blend_func, before.blend_func, "the blend function");
+    }
+
+    #[test]
+    fn a_stroke_sets_its_attribute_arrays_on_a_vertex_array_of_its_own() {
+        let after = one_stroke();
+        let renderers_vao = renderers().vertex_array;
+        assert!(!after.attribs_set_on.is_empty(), "the stroke set attribute pointers");
+        assert!(
+            after.attribs_set_on.iter().all(|vao| *vao != 0 && *vao != renderers_vao),
+            "the renderer's vertex array is not changed, and a core profile needs one: {:?}",
+            after.attribs_set_on
+        );
+    }
+
+    #[test]
+    fn a_stroke_draws_with_the_scissor_off_and_the_premultiplied_blend() {
+        let after = one_stroke();
+        assert!(!after.drawn_with.is_empty(), "the stroke drew its dabs");
+        for (func, scissor, _vao) in &after.drawn_with {
+            assert!(!scissor, "a scissor left on would cut the dabs to its rectangle");
+            assert_eq!(
+                *func,
+                [gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA, gl::ONE, gl::ONE_MINUS_SRC_ALPHA],
+                "the colour times the dab's alpha, the alpha 'over'"
+            );
+        }
+    }
+
+    /// One dab of a soft brush with its centre at texture row `y` of a 64 x 32 texture.
+    fn dab_at(y: f32) -> [f32; 16] {
+        with(|g| *g = renderers());
+        let mut texture = Texture::create(
+            21,
+            TextureFlags {
+                is_opaque: false,
+                is_video_texture: false,
+            },
+            PhysicalSizeU32 { width: 64, height: 32 },
+            ColorU::TRANSPARENT,
+            painting_context(),
+            RawImageFormat::RGBA8,
+        );
+        texture.paint_dot(20.0, y, Brush::new(ColorU { r: 9, g: 9, b: 9, a: 255 }, 2.0));
+        with(|g| g.dabs.first().copied().expect("a dab was drawn"))
+    }
+
+    #[test]
+    fn a_dab_near_the_top_of_a_texture_lands_in_the_first_rows_of_its_memory() {
+        // The compositor shows row 0 of a texture at the top of its box, as the SVG shader writes it: a
+        // stroke at the top of the picture must be painted in the first rows, not the last.
+        let (top, bottom) = (dab_at(3.0), dab_at(29.0));
+        let ys = |d: &[f32; 16]| [d[1], d[5], d[9], d[13]];
+        assert!(ys(&top).iter().all(|y| *y < -0.5), "NDC y of a dab 3 rows from the top of 32: {:?}", ys(&top));
+        assert!(ys(&bottom).iter().all(|y| *y > 0.5), "and 3 rows from the bottom: {:?}", ys(&bottom));
+    }
+
+    #[test]
+    fn the_corners_of_a_dab_run_counter_clockwise_so_a_culling_renderer_keeps_them() {
+        let d = dab_at(10.0);
+        let p = |i: usize| (d[i * 4], d[i * 4 + 1]);
+        let area = |a: (f32, f32), b: (f32, f32), c: (f32, f32)| (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0);
+        assert!(area(p(0), p(1), p(2)) > 0.0, "the first triangle of the strip");
+        assert!(area(p(1), p(3), p(2)) > 0.0, "and the second (the strip alternates)");
+    }
+
+    #[test]
+    fn reading_a_texture_back_keeps_the_order_of_its_rows_and_the_framebuffer_binding() {
+        with(|g| *g = renderers());
+        let texture = Texture::create(
+            21,
+            TextureFlags {
+                is_opaque: false,
+                is_video_texture: false,
+            },
+            PhysicalSizeU32 { width: 2, height: 3 },
+            ColorU::TRANSPARENT,
+            painting_context(),
+            RawImageFormat::RGBA8,
+        );
+        let image = texture.copy_to_raw_image();
+        let RawImageData::U8(bytes) = &image.pixels else {
+            panic!("8-bit pixels");
+        };
+        let first_bytes_of_rows: Vec<u8> = (0..3).map(|row| bytes.as_ref()[row * 8]).collect();
+        assert_eq!(first_bytes_of_rows, vec![1, 2, 3], "row 0 stays row 0: the memory is top-down");
+        assert_eq!(with(|g| g.framebuffer), 9, "the renderer's framebuffer is bound again");
+    }
+}

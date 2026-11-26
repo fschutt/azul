@@ -9,7 +9,11 @@
 //! light that stays on in a pause is a surprise). The camera alone can also be asked for to look at (the
 //! preview).
 
-use std::{collections::VecDeque, path::PathBuf};
+use std::{
+    collections::VecDeque,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 use azul_appkit::phrase::{Arg, Phrase, Text};
 
@@ -18,6 +22,7 @@ use crate::{
     recorder_codec::RawFrame,
     recorder_events::EventSink,
     recorder_fs::{delete_recording, list_recordings, recover_all, RecordingInfo},
+    recorder_hook::RecorderHook,
     recorder_manifest::{is_safe_relative, AppInfo, HostInfo, Workspace},
     recorder_panel::{access_perm, duration_text, hud, notice_note, rows, size_text, start_error_text, Access, Hud, Note, Row, Severity},
     recorder_screen::{Tapped, TapFrame},
@@ -136,9 +141,45 @@ pub fn consumer_size(display_w: u32, display_h: u32, max_width: u32) -> (u32, u3
     }
 }
 
+/// What the review's window tells a recorder ([`RecorderHook`]): each event goes to the sink of the session that is
+/// recording and is dropped when none is. One handle goes to the window's state at the start and stays there; the host
+/// puts the sink in it when a session begins and takes it out when the session ends, whichever way it ends.
+#[derive(Clone, Default)]
+pub struct SessionHook {
+    sink: Arc<Mutex<Option<EventSink>>>,
+}
+
+impl SessionHook {
+    /// The sink of the session that records now, or none.
+    fn set(&self, sink: Option<EventSink>) {
+        if let Ok(mut slot) = self.sink.lock() {
+            *slot = sink;
+        }
+    }
+
+    /// A session is recording: what is told goes somewhere (a caller that has to build its fields may skip that
+    /// work when nothing would take them).
+    #[must_use]
+    pub fn is_open(&self) -> bool {
+        self.sink.lock().is_ok_and(|slot| slot.is_some())
+    }
+}
+
+impl RecorderHook for SessionHook {
+    fn event(&self, kind: &str, fields: &str) {
+        // The sink never blocks (a full queue drops the event and counts it), so holding the lock for the call is short.
+        if let Ok(slot) = self.sink.lock() {
+            if let Some(sink) = slot.as_ref() {
+                RecorderHook::event(sink, kind, fields);
+            }
+        }
+    }
+}
+
 /// The recorder, its settings and what the panel keeps.
 pub struct RecorderHost {
     recorder: Recorder,
+    hook: SessionHook,
     settings: RecorderSettings,
     facts: Facts,
     /// What the system said of the devices when the recording began.
@@ -171,6 +212,7 @@ impl RecorderHost {
     pub fn new(settings: RecorderSettings, facts: Facts, deps: Deps) -> Self {
         Self {
             recorder: Recorder::new(settings.clone(), deps),
+            hook: SessionHook::default(),
             settings,
             facts,
             access: Accesses { screen: Access::NotAsked, camera: Access::NotAsked, microphone: Access::NotAsked },
@@ -181,6 +223,13 @@ impl RecorderHost {
             recent: VecDeque::new(),
             recordings: Vec::new(),
         }
+    }
+
+    /// What the window tells the recorder about the review: the events go to the recording that is going, if any. Made
+    /// once and kept by the window's state.
+    #[must_use]
+    pub fn hook(&self) -> SessionHook {
+        self.hook.clone()
     }
 
     /// The settings it runs with.
@@ -299,6 +348,7 @@ impl RecorderHost {
         };
         match self.recorder.start(request) {
             Ok(_) => {
+                self.hook.set(self.recorder.event_sink());
                 self.access = access;
                 self.display = Some(display);
                 self.recent.clear();
@@ -316,6 +366,7 @@ impl RecorderHost {
 
     /// Stops the recording: its files are finished, it is in the list, and the panel says where it was saved.
     pub fn stop(&mut self) {
+        self.hook.set(None);
         let Some(finished) = self.recorder.stop("stopped") else { return };
         self.display = None;
         let saved = Phrase::new("azreview-rec-notice-saved")
@@ -335,6 +386,8 @@ impl RecorderHost {
     /// The timer's tick: the recorder looks after the disk, the idle time and the length of the session.
     pub fn tick(&mut self) {
         let notices = self.recorder.tick();
+        // The recorder ends a session by itself at its length limit: the events then have nowhere to go.
+        self.hook.set(self.recorder.event_sink());
         self.absorb(notices);
     }
 

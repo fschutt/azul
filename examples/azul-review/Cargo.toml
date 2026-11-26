@@ -28,12 +28,15 @@ name = "AzReview"
 path = "src/main.rs"
 
 # What macOS shows when AzReview first asks for a permission (azul-doc's `bundle macos` writes them
-# into the Info.plist). Without the two keys the system's speech recognition refuses an app (an
-# unbundled `target/release/AzReview` has neither: dictation answers "unavailable" and says why),
-# and the voice clips' microphone is refused.
+# into the Info.plist). Without a key the system refuses the app that asks (and, for the camera, kills it at the
+# first access): the microphone for the voice clips and the dictation, speech recognition for the dictation, the
+# camera for the presenter. A bare `target/release/AzReview` has no Info.plist: started from the Terminal it is
+# the Terminal's permissions that count (the Terminal holds speech and the microphone), so dictation listens;
+# as an .app the keys below are what the system's prompts say.
 [package.metadata.bundle]
 usage = [
     "NSCameraUsageDescription=AzReview shows your camera in the recording window and records it with the session when you ask it to.",
     "NSMicrophoneUsageDescription=AzReview records your voice clips and listens while you dictate a note with the pen at rest.",
     "NSSpeechRecognitionUsageDescription=AzReview turns what you say, while the pen rests on the code, into a note.",
+    "NSCameraUsageDescription=AzReview records your camera while you present a review, so you can explain the code in a video.",
 ]

@@ -1,14 +1,18 @@
 use azul::{
     audio::AudioConfig,
     callbacks::{ButtonOnClickCallbackType, CallbackType},
-    dom::{AccessibilityInfo, AccessibilityRole, DomNodeId, NodeId, RenderImageCallback},
+    dom::{
+        AccessibilityInfo, AccessibilityRole, DomNodeId, NodeId, RenderImageCallback, VirtualKeyCode,
+        VirtualKeyCodeCombo,
+    },
+    option::OptionVirtualKeyCodeCombo,
     image::ImageRef,
     menu::{Menu, MenuItem, StringMenuItem},
     prelude::*,
     shells::{ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
     vec::MenuItemVec,
-    widgets::{AlertKind, Button, InfoBar, LevelMeter, MicrophoneWidget},
+    widgets::{AlertKind, InfoBar, LevelMeter, MicrophoneWidget, Spinner, SpinnerStyle},
 };
 use azul_appkit::{
     l10n::{label, t, t_args, Arg},
@@ -19,19 +23,23 @@ use crate::{
     code, column, ids,
     ink::{self, InkCanvas, Layer},
     model::{Note, Semantic},
-    voice, AppState,
+    AppState,
 };
 
 /// A column that takes the rest of its parent.
 const COLUMN: &str = "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
                       min-width: 0px;";
 
+/// The measures of a page, one place for them: the whiteboard's cutouts are laid out by the same numbers, so a
+/// cutout is as wide and as high per line as the page it was taken from.
 pub const LINE_H: f32 = 15.0;
-const PAGE_W: f32 = 1000.0;
-const GUTTER_W: f32 = 52.0;
+pub(crate) const PAGE_W: f32 = 1000.0;
+pub(crate) const GUTTER_W: f32 = 52.0;
 
-const MARGIN_GUTTER_W: f32 = 260.0;
+pub(crate) const MARGIN_GUTTER_W: f32 = 260.0;
 pub const PAGE_PAD: f32 = 32.0;
+/// How wide the code column of a page is (the page, less the notes' margin and the padding).
+pub(crate) const CODE_W: f32 = PAGE_W - MARGIN_GUTTER_W - PAGE_PAD;
 const PAGE_GAP: f32 = 24.0;
 
 pub const METER_PACKET_SAMPLES: usize = 4096;
@@ -76,17 +84,43 @@ pub fn redraw_ink(info: &mut CallbackInfo, layer: Layer) {
     }
 }
 
-pub fn sample(info: &mut CallbackInfo) -> Option<(crate::model::InkPoint, bool)> {
+/// The pointer as a stroke sees it.
+#[derive(Debug, Clone, Copy)]
+pub struct Sampled {
+    /// Where, in the pen layer's px, with the pen's pressure and tilt (a mouse's are the defaults).
+    pub point: crate::model::InkPoint,
+    /// The pen's eraser end is down.
+    pub eraser: bool,
+    /// A button or the pen's tip is down, as the window says: the button is the tip's too on a pen.
+    pub pressed: bool,
+    /// A pen drives the pointer.
+    pub pen: bool,
+    /// The pen's pressure while its tip is down (0 for a mouse or a trackpad, and for a pen in the air).
+    pub pressure: f32,
+}
+
+pub fn sample(info: &mut CallbackInfo) -> Option<Sampled> {
     let p = info.get_cursor_relative_to_node().into_option()?;
-    if let Some(pen) = info.get_pen_state().into_option() {
+    let button = info.get_current_mouse_state().left_down;
+    let pen = info.get_pen_state().into_option();
+    if let Some(pen) = &pen {
         if pen.in_contact {
-            return Some((
-                ink::point_from(p.x, p.y, pen.pressure, pen.tilt.x_tilt, pen.tilt.y_tilt),
-                pen.is_eraser,
-            ));
+            return Some(Sampled {
+                point: ink::point_from(p.x, p.y, pen.pressure, pen.tilt.x_tilt, pen.tilt.y_tilt),
+                eraser: pen.is_eraser,
+                pressed: true,
+                pen: true,
+                pressure: pen.pressure,
+            });
         }
     }
-    Some((ink::point_from(p.x, p.y, 0.0, 0.0, 0.0), false))
+    Some(Sampled {
+        point: ink::point_from(p.x, p.y, 0.0, 0.0, 0.0),
+        eraser: false,
+        pressed: button,
+        pen: pen.is_some(),
+        pressure: 0.0,
+    })
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -162,30 +196,157 @@ pub extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
             .with_child(kit::title_row(crate::SPEC.name))
             .with_child(kit::settings_page_with_reload(
                 &s.kit,
-                vec![column::settings_section(&s, &data)],
+                settings_sections(&s, &data),
                 &data,
                 column::reload_settings,
             ))
     } else {
-        main_view(&s, &data)
+        main_view(&s, &data, info.get_window_width())
     };
     // The scope as the window's body: no UA margin, the full window height,
     // the app theme's ground and ink in both modes.
-    ShellThemeScope::create(Dom::create_div().with_css(COLUMN).with_child(content))
+    let body = ShellThemeScope::create(Dom::create_div().with_css(COLUMN).with_child(content))
         .with_accent(ShellThemeAccent::Slate)
         .body()
-        .with_menu_bar(menu_bar(&data))
-        .with_callback(
-            EventFilter::Window(WindowEventFilter::VirtualKeyDown),
-            data.clone(),
-            crate::on_key,
-        )
+        .with_menu_bar(menu_bar(&data));
+    with_window_listeners(body, &data)
 }
 
-/// The review window: the title row (it moves the window), the page rail,
-/// and the pages - what went wrong over them, and the files flying out over
-/// them while the switch has them out.
-pub fn main_view(s: &AppState, data: &RefAny) -> Dom {
+/// What the window as a whole listens to: the keys, and what ends a stroke wherever it happens - the button let go
+/// anywhere, the pointer leaving the window, the WINDOW losing the focus (not an element: `FocusLost` of a window
+/// listener is the blur of the element that had the focus, and a press on the page blurs the file picked in the tree).
+pub(crate) fn with_window_listeners(body: Dom, data: &RefAny) -> Dom {
+    body.with_callback(
+        EventFilter::Window(WindowEventFilter::VirtualKeyDown),
+        data.clone(),
+        crate::on_key,
+    )
+    .with_callback(
+        EventFilter::Window(WindowEventFilter::LeftMouseUp),
+        data.clone(),
+        crate::on_window_up,
+    )
+    .with_callback(
+        EventFilter::Window(WindowEventFilter::MouseLeave),
+        data.clone(),
+        crate::on_window_left,
+    )
+    .with_callback(
+        EventFilter::Window(WindowEventFilter::WindowFocusLost),
+        data.clone(),
+        crate::on_focus_lost,
+    )
+}
+
+/// The width of the tree's switch, which sits next to the traffic lights.
+const SWITCH_W: f32 = 28.0;
+
+/// The review window: the file tree (the whole height of the window, it pushes the rest to the right), and beside it a
+/// column of the top bar, the middle (the page strip, the pages, the right bar and its panel) and the bottom bar.
+/// `window_w` is the window's width now (logical px): below `layout::OVERLAY_BELOW_W` the tree covers the pages.
+pub fn main_view(s: &AppState, data: &RefAny, window_w: f32) -> Dom {
+    let chrome = kit::tabs_in_titlebar();
+    let reserved = chrome.left.max(0.0) + SWITCH_W + 12.0;
+    let solved = crate::layout::solve(window_w, &s.panels, &s.slide, reserved);
+    let has_files = !s.files.is_empty();
+    let mut root = Dom::create_div().with_css(
+        "position: relative; display: flex; flex-direction: row; flex-grow: 1; min-height: 0px; min-width: 0px;",
+    );
+    if has_files && solved.tree_w > 0.0 {
+        root.add_child(tree_column(s, data, &solved));
+    }
+    root.add_child(main_column(s, data, &solved));
+    if has_files {
+        root.add_child(tree_switch(s, data, chrome.left.max(0.0) + 6.0));
+    }
+    if let Some(overlay) = overlay_slot(s, data) {
+        root.add_child(overlay);
+    }
+    root
+}
+
+/// The file tree: as tall as the window, `solved.tree_w` wide while it slides, its rows laid out at the width it
+/// slides out to; no heading. Where there is no room to push the pages it covers them.
+fn tree_column(s: &AppState, data: &RefAny, solved: &crate::layout::Solved) -> Dom {
+    let placement = if solved.overlay {
+        "position: absolute; left: 0px; top: 0px; bottom: 0px; z-index: 5; box-shadow: 0px 0px 24px rgba(0,0,0,0.35);"
+    } else {
+        "position: relative; flex-shrink: 0;"
+    };
+    let inner = Dom::create_div()
+        .with_css(
+            format!(
+                "display: flex; flex-direction: column; flex-grow: 1; flex-shrink: 0; min-height: 0px; width: {:.0}px;",
+                solved.tree_full_w
+            )
+            .as_str(),
+        )
+        // The traffic lights and the switch are over this band; it moves the window.
+        .with_child(
+            Dom::create_div()
+                .with_css(format!("height: {}px; flex-shrink: 0; -azul-app-region: drag;", crate::layout::TOP_H).as_str()),
+        )
+        .with_child(file_list(s, data));
+    Dom::create_div()
+        .with_id(ids::TREE)
+        .with_css(
+            format!(
+                "display: flex; flex-direction: column; width: {:.0}px; overflow: hidden; background: \
+                 system:window-background; border-right: 1px solid system:separator; {placement}",
+                solved.tree_w
+            )
+            .as_str(),
+        )
+        .with_child(inner)
+        .with_child(grip(crate::layout::Panel::Tree, "right: 0px;", data))
+}
+
+/// A panel's edge, to be dragged: a thin strip along the edge that takes the pointer while the button is down.
+fn grip(panel: crate::layout::Panel, edge: &str, data: &RefAny) -> Dom {
+    let (id, name) = match panel {
+        crate::layout::Panel::Tree => (ids::TREE_GRIP, label("azreview-resize-tree")),
+        crate::layout::Panel::Right => (ids::RIGHT_GRIP, label("azreview-resize-panel")),
+    };
+    Dom::create_div()
+        .with_id(id)
+        .with_css(
+            format!(
+                "position: absolute; top: 0px; bottom: 0px; {edge} width: {}px; cursor: col-resize; z-index: 6;",
+                crate::layout::GRIP_W
+            )
+            .as_str(),
+        )
+        .with_accessibility_info(AccessibilityInfo::named(name, AccessibilityRole::Grip))
+        .with_dataset(OptionRefAny::Some(RefAny::new(GripTag { panel })))
+        .with_callback(EventFilter::Hover(HoverEventFilter::LeftMouseDown), data.clone(), crate::on_grip_down)
+        .with_callback(EventFilter::Hover(HoverEventFilter::MouseMove), data.clone(), crate::on_grip_move)
+        .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), data.clone(), crate::on_grip_up)
+}
+
+/// Which panel's edge a grip is.
+#[derive(Debug, Clone, Copy)]
+pub struct GripTag {
+    pub panel: crate::layout::Panel,
+}
+
+pub fn grip_of(info: &mut CallbackInfo) -> Option<crate::layout::Panel> {
+    info.get_dataset(info.get_hit_node())
+        .into_option()
+        .and_then(|mut d| d.downcast_ref::<GripTag>().map(|t| t.panel))
+}
+
+/// The column beside the tree: the top bar, the middle, the bottom bar.
+fn main_column(s: &AppState, data: &RefAny, solved: &crate::layout::Solved) -> Dom {
+    Dom::create_div()
+        .with_css(COLUMN)
+        .with_child(top_bar(s, data, solved.top_pad_left))
+        .with_child(middle(s, data, solved))
+        .with_child(bottom_bar(s, data))
+}
+
+/// The middle: the page strip at the left, the pages (what went wrong over them), the side column of dictated notes,
+/// the right bar and, beside it, the right panel.
+fn middle(s: &AppState, data: &RefAny, solved: &crate::layout::Solved) -> Dom {
     let mut pages = Dom::create_div().with_css(
         "position: relative; display: flex; flex-direction: column; flex-grow: 1; min-height: \
          0px; min-width: 0px;",
@@ -194,22 +355,21 @@ pub fn main_view(s: &AppState, data: &RefAny) -> Dom {
         pages.add_child(problem_bar(problem, data));
     }
     pages.add_child(sheet(s, data));
-    if s.sidebar_open {
-        pages.add_child(flyout(s, data));
-    }
-    // The pages and, beside them, the side column of dictated notes.
-    let mut body = Dom::create_div().with_css(
+    let mut row = Dom::create_div().with_css(
         "display: flex; flex-direction: row; flex-grow: 1; min-height: 0px; min-width: 0px;",
     );
-    body.add_child(pages);
-    if s.voice.notes_open {
-        body.add_child(column::column(s, data));
+    if s.file().is_some() {
+        row.add_child(page_strip(s, data));
     }
-    Dom::create_div()
-        .with_css(COLUMN)
-        .with_child(title_row(s, data))
-        .with_child(page_rail(s, data))
-        .with_child(body)
+    row.add_child(pages);
+    if s.voice.notes_open {
+        row.add_child(column::column(s, data));
+    }
+    row.add_child(right_bar(data));
+    if solved.right_w > 0.0 {
+        row.add_child(right_panel(s, solved.right_w, data));
+    }
+    row
 }
 
 /// What went wrong (a session that was not written), over the pages until
@@ -222,53 +382,136 @@ fn problem_bar(problem: &str, data: &RefAny) -> Dom {
         .dom()
 }
 
-/// The window's top row; there is no title bar. The row moves the window
-/// (`-azul-app-region: drag`; macOS's traffic lights sit at its left, in the
-/// room `TabsInTitlebar` leaves them, and it is as tall as their bar) and
-/// holds the files' switch, the five meanings (keys 1 to 5) and the nib.
-fn title_row(s: &AppState, data: &RefAny) -> Dom {
+/// The folder under review as the top bar names it: the folder's own name, and the whole path (the chip's
+/// tooltip). None for no folder.
+fn folder_names(root: &std::path::Path) -> Option<(String, String)> {
+    if root.as_os_str().is_empty() {
+        return None;
+    }
+    let whole = root.display().to_string();
+    let name = root
+        .file_name()
+        .map_or_else(|| whole.clone(), |n| n.to_string_lossy().into_owned());
+    Some((name, whole))
+}
+
+/// The window's top row; there is no title bar. The row moves the window (`-azul-app-region: drag`; macOS's traffic
+/// lights sit at its left, in the room `TabsInTitlebar` leaves them, and it is as tall as their bar). At its left the
+/// folder (the button and its name), in its middle the five meanings (keys 1 to 5) and the nib, centred on the
+/// window; at its right the notes' switch, the recording, save and the settings. `left_pad` is what keeps it clear of
+/// the traffic lights and the tree's switch while the tree is not wide enough to be under them.
+fn top_bar(s: &AppState, data: &RefAny, left_pad: f32) -> Dom {
     let chrome = kit::tabs_in_titlebar();
     let mut row = Dom::create_div().with_css(
         format!(
-            "display: flex; flex-direction: row; align-items: center; gap: 3px; height: 28px; \
+            "display: flex; flex-direction: row; align-items: center; gap: 3px; height: {}px; \
              box-sizing: border-box; padding: 0px {:.0}px 0px {:.0}px; flex-shrink: 0; \
              user-select: none; -azul-app-region: drag;",
+            crate::layout::TOP_H,
             6.0 + chrome.right.max(0.0),
-            6.0 + chrome.left.max(0.0),
+            6.0 + left_pad,
         )
         .as_str(),
     );
-    row.add_child(sidebar_switch(s, data));
-    row.add_child(Dom::create_div().with_css("width: 8px; flex-shrink: 0;"));
-    for (i, sem) in Semantic::ALL.iter().enumerate() {
-        row.add_child(meaning_key(i, *sem, *sem == s.ink_meaning(), data));
+    // The two ends take the same room (`flex: 1 1 0`), so what is between them is centred.
+    let mut left = Dom::create_div().with_css(
+        "display: flex; flex-direction: row; align-items: center; gap: 3px; flex: 1 1 0px; min-width: 0px; \
+         justify-content: flex-start;",
+    );
+    left.add_child(open_folder_button(data));
+    if let Some(chip) = folder_chip(s) {
+        left.add_child(chip);
     }
-    row.add_child(Dom::create_div().with_css("width: 8px; flex-shrink: 0;"));
-    row.add_child(nib_key(s, data));
-    row.add_child(Dom::create_div().with_css("width: 8px; flex-shrink: 0;"));
-    row.add_child(column::switch(s, data));
+    row.add_child(left);
+    let mut centre = Dom::create_div().with_css(
+        "display: flex; flex-direction: row; align-items: center; gap: 3px; flex-shrink: 0;",
+    );
+    for (i, spec) in crate::pens::PENS.iter().enumerate() {
+        centre.add_child(pen_key(i, spec.semantic, i == s.pens.selected(), s.pens.nib_of(i), data));
+    }
+    row.add_child(centre);
+    let mut right = Dom::create_div().with_css(
+        "display: flex; flex-direction: row; align-items: center; gap: 4px; flex: 1 1 0px; min-width: 0px; \
+         justify-content: flex-end;",
+    );
+    if let Some(presenter) = presenter_slot(s, data) {
+        right.add_child(presenter);
+    }
+    for tool in tools(s, data) {
+        right.add_child(tool);
+    }
+    row.add_child(right);
     row
 }
 
-/// The files' switch: flies the files out over the pages, folds them away.
-fn sidebar_switch(s: &AppState, data: &RefAny) -> Dom {
+/// The title row's "Open folder...": a folder icon and the words, a key of its own (the folder dialog; the
+/// session menu has it with its key, Mod+O).
+fn open_folder_button(data: &RefAny) -> Dom {
+    let name = label("azreview-open-folder");
+    with_tip(
+        key(
+            "padding: 0px 8px; background: system:control-background; border: 1px solid system:separator; \
+             color: system:text; :hover { background: system:selection-background; }",
+            name.clone(),
+            data.clone(),
+            crate::on_open_folder,
+        ),
+        &name,
+    )
+    .with_id(ids::OPEN_FOLDER_BAR)
+    .with_child(Dom::create_icon("folder_open").with_css("font-size: 14px;"))
+    .with_child(Dom::create_span_with_text(name.as_str()))
+}
+
+/// Which folder is under review: its name, the file open after it; the whole path is the tooltip (the title
+/// bar is the app's own, so the window's title shows nothing). None while there is no folder.
+fn folder_chip(s: &AppState) -> Option<Dom> {
+    let (name, whole) = folder_names(&s.root)?;
+    let file = s.file().map(|f| f.display.clone());
+    let tip = match &file {
+        Some(f) => format!("{whole}/{f}"),
+        None => whole,
+    };
+    let mut chip = Dom::create_div()
+        .with_id(ids::FOLDER_CHIP)
+        .with_css(
+            "display: flex; flex-direction: row; align-items: center; gap: 6px; min-width: 0px; flex-shrink: 1; \
+             overflow: hidden; white-space: nowrap; font-size: 11px; padding: 0px 4px;",
+        )
+        .with_child(
+            Dom::create_span_with_text(name.as_str())
+                .with_css("font-weight: 600; color: system:text; flex-shrink: 0; max-width: 220px;"),
+        );
+    if let Some(file) = file {
+        chip.add_child(
+            Dom::create_span_with_text(file.as_str())
+                .with_css("color: system:secondary-text; min-width: 0px; overflow: hidden;"),
+        );
+    }
+    Some(with_tip(chip, &AzString::from(tip.as_str())))
+}
+
+/// The files' switch, next to the traffic lights: the tree slides out and pushes the pages, or slides in. It stays
+/// where it is whether the tree is out or not.
+fn tree_switch(s: &AppState, data: &RefAny, left: f32) -> Dom {
     let name = label("azreview-files-switch");
-    let face = if s.sidebar_open {
+    let look = if s.panels.tree_open {
         "padding: 0px 3px; background: system:control-background; border: 1px solid \
          system:separator; color: system:text;"
     } else {
         QUIET
     };
-    with_tip(key(face, name.clone(), data.clone(), crate::on_toggle_sidebar), &name)
+    let face = format!("position: absolute; left: {left:.0}px; top: 3px; z-index: 10; {look}");
+    with_tip(key(&face, name.clone(), data.clone(), crate::on_toggle_sidebar), &name)
         .with_id(ids::SIDEBAR_TOGGLE)
         .with_child(Dom::create_icon("view_sidebar").with_css("font-size: 15px;"))
 }
 
-/// Meaning `sem` (key `i + 1`): its icon and digit on a tint of its colour,
-/// filled while it is the meaning the pen writes.
-fn meaning_key(i: usize, sem: Semantic, active: bool, data: &RefAny) -> Dom {
+/// Pen `i` (key `i + 1`): the icon of its meaning and its digit on a tint of its colour, filled while it is the pen in
+/// hand, and then also the icon of its nib. A click takes the pen, a double click (or its key again) takes its next nib.
+fn pen_key(i: usize, sem: Semantic, selected: bool, nib: Option<crate::model::Tool>, data: &RefAny) -> Dom {
     let c = sem.color();
-    let face = if active {
+    let face = if selected {
         format!(
             "background: rgba({0},{1},{2},1.0); color: #ffffff; border: 1px solid \
              rgba({0},{1},{2},1.0);",
@@ -281,33 +524,25 @@ fn meaning_key(i: usize, sem: Semantic, active: bool, data: &RefAny) -> Dom {
             c.r, c.g, c.b
         )
     };
-    let name = AzString::from(crate::l10n::word("meaning", sem.label()));
-    with_tip(key(&face, name.clone(), data.clone(), crate::on_pick_semantic), &name)
+    let meaning = crate::l10n::word("meaning", sem.label());
+    let name = match nib {
+        Some(nib) => AzString::from(format!("{meaning}: {}", crate::l10n::word("nib", nib.label()))),
+        None => AzString::from(meaning),
+    };
+    let mut dom = with_tip(key(&face, name.clone(), data.clone(), crate::on_pick_semantic), &name)
         .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: i })))
+        .with_callback(EventFilter::Hover(HoverEventFilter::DoubleClick), data.clone(), crate::on_pen_double_click)
         .with_child(Dom::create_icon(sem.icon()).with_css("font-size: 13px;"))
-        .with_child(Dom::create_span_with_text(format!("{}", i + 1).as_str()).with_css("font-size: 10px;"))
+        .with_child(Dom::create_span_with_text(format!("{}", i + 1).as_str()).with_css("font-size: 10px;"));
+    if let (true, Some(nib)) = (selected, nib) {
+        dom.add_child(Dom::create_icon(nib.icon()).with_css("font-size: 12px; opacity: 0.9;"));
+    }
+    dom
 }
 
-/// The nib the pen draws with (marker, pen, audio pen); a click takes the
-/// next one.
-fn nib_key(s: &AppState, data: &RefAny) -> Dom {
-    let nib = crate::l10n::word("nib", s.tool.label());
-    let name = AzString::from(format!("{}: {nib}", t("azreview-cycle-nib")));
-    key(
-        "background: transparent; border: 1px dashed system:separator; color: system:text; \
-         :hover { background: system:control-background; }",
-        name,
-        data.clone(),
-        crate::on_cycle_tool,
-    )
-    .with_child(Dom::create_icon(s.tool.icon()).with_css("font-size: 14px;"))
-    .with_child(Dom::create_span_with_text(nib.as_str()))
-}
-
-/// The files, flying out over the pages from the left like macOS's sidebar
-/// in a narrow window: out while the switch has them out, folded away when a
-/// file is picked or with Escape.
-fn flyout(s: &AppState, data: &RefAny) -> Dom {
+/// The files, as the rows of the tree: the folders as headings, the files as buttons, the open one lit. A pick opens
+/// the file and leaves the tree as it is.
+fn file_list(s: &AppState, data: &RefAny) -> Dom {
     let mut list = Dom::create_div()
         .with_css(
             "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; overflow-y: \
@@ -325,7 +560,7 @@ fn flyout(s: &AppState, data: &RefAny) -> Dom {
                 continue;
             }
             list.add_child(finder_row(
-                comp, depth, "folder", "system:accent", false, None, data,
+                comp, depth, "folder", "system:accent", false, None, None, data,
             ));
         }
         prev = dirs.iter().map(|c| (*c).to_string()).collect();
@@ -337,38 +572,20 @@ fn flyout(s: &AppState, data: &RefAny) -> Dom {
             "system:secondary-text",
             s.current == Some(i),
             Some(i),
+            s.chips.file_state(&f.display),
             data,
         ));
     }
-    Dom::create_div()
-        .with_id(ids::FLYOUT)
-        .with_css(
-            "position: absolute; top: 6px; left: 6px; bottom: 6px; width: 260px; display: flex; \
-             flex-direction: column; background: system:window-background; border: 1px solid \
-             system:separator; border-radius: 8px; box-shadow: 0px 6px 20px rgba(0,0,0,0.28); \
-             overflow: hidden;",
-        )
-        .with_child(
-            Dom::create_div()
-                .with_css(
-                    "display: flex; flex-direction: row; align-items: center; padding: 4px 6px 4px \
-                     10px; flex-shrink: 0; border-bottom: 1px solid system:separator;",
-                )
-                .with_child(
-                    Dom::create_span_with_text(label("azreview-files"))
-                        .with_css("font-size: 11px; color: system:secondary-text; flex-grow: 1;"),
-                )
-                .with_child(open_folder_key(data)),
-        )
-        .with_child(list)
+    list
 }
 
-/// The flyout's "Open folder": a folder dialog, the folder's files in the flyout.
-fn open_folder_key(data: &RefAny) -> Dom {
-    let name = label("azreview-open-folder");
-    with_tip(key(QUIET, name.clone(), data.clone(), crate::on_open_folder), &name)
-        .with_id(ids::OPEN_FOLDER)
-        .with_child(Dom::create_icon("folder_open").with_css("font-size: 15px;"))
+/// The primary modifier of a menu item's key: Command on a Mac, Control elsewhere.
+const fn cmd_key() -> VirtualKeyCode {
+    if cfg!(target_os = "macos") {
+        VirtualKeyCode::LWin
+    } else {
+        VirtualKeyCode::LControl
+    }
 }
 
 fn menu_bar(data: &RefAny) -> Menu {
@@ -399,9 +616,12 @@ fn menu_bar(data: &RefAny) -> Menu {
     items.push(MenuItem::String(ink));
 
     let mut session = StringMenuItem::create(label("azreview-menu-session"));
-    session = session.with_child(MenuItem::String(
-        StringMenuItem::create(label("azreview-open-folder")).with_callback(data.clone(), crate::on_open_folder),
-    ));
+    let mut open = StringMenuItem::create(label("azreview-open-folder"))
+        .with_callback(data.clone(), crate::on_open_folder);
+    open.accelerator = OptionVirtualKeyCodeCombo::Some(VirtualKeyCodeCombo {
+        keys: vec![cmd_key(), VirtualKeyCode::O].into(),
+    });
+    session = session.with_child(MenuItem::String(open));
     session = session.with_child(MenuItem::String(
         StringMenuItem::create(label("azreview-save-now")).with_callback(data.clone(), crate::on_menu_save),
     ));
@@ -412,7 +632,22 @@ fn menu_bar(data: &RefAny) -> Menu {
     session = session.with_child(MenuItem::String(
         StringMenuItem::create(label("azreview-menu-recorder")).with_callback(data.clone(), crate::on_menu_recorder),
     ));
+    session = session.with_child(MenuItem::String(
+        StringMenuItem::create(label("azreview-save-pointer-log"))
+            .with_callback(data.clone(), crate::on_menu_pointer_log),
+    ));
     items.push(MenuItem::String(session));
+
+    // The panels: their keys (Mod+B, Mod+Shift+B) are heard by the window, not by the menu, which would make a
+    // second toggle of the same press.
+    let mut view = StringMenuItem::create(label("azreview-menu-view"));
+    view = view.with_child(MenuItem::String(
+        StringMenuItem::create(label("azreview-files-switch")).with_callback(data.clone(), crate::on_toggle_sidebar),
+    ));
+    view = view.with_child(MenuItem::String(
+        StringMenuItem::create(label("azreview-right-bar")).with_callback(data.clone(), crate::on_toggle_right),
+    ));
+    items.push(MenuItem::String(view));
 
     Menu::create(MenuItemVec::copy_from_ptr(&items[0], items.len()))
 }
@@ -443,6 +678,7 @@ fn finder_row(
     icon_color: &str,
     selected: bool,
     index: Option<usize>,
+    mark: Option<crate::chips::State>,
     data: &RefAny,
 ) -> Dom {
     // A selected file: flat's accent row; under flora flora's selection (the soft wash and
@@ -485,7 +721,17 @@ fn finder_row(
             .as_str(),
         ),
     );
-    row.add_child(Dom::create_span_with_text(label));
+    row.add_child(Dom::create_span_with_text(label).with_css("flex-grow: 1; min-width: 0px; overflow: hidden;"));
+    // What the file's conversations come to: the spinner for an agent at work, yellow for a suggestion that waits, green
+    // when all are done; a file nobody talked about has no mark.
+    if let Some(state) = mark {
+        let id = match state {
+            crate::chips::State::Working => ids::FILE_MARK_WORKING,
+            crate::chips::State::Suggested => ids::FILE_MARK_SUGGESTED,
+            crate::chips::State::Done => ids::FILE_MARK_DONE,
+        };
+        row.add_child(state_mark(state, 13).with_id(id).with_accessibility_name(state_word(state)));
+    }
     match index {
         Some(i) => row
             .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: i })))
@@ -532,45 +778,201 @@ fn microphone(data: &RefAny) -> Dom {
 
 pub const STRIP_ID: &str = ids::STRIP_NAME;
 
-/// The page numbers - the one in view lit, a click scrolls the strip to its
-/// page - and the tools: the voice meter while recording, record, save and
-/// the settings, all one height.
-fn page_rail(s: &AppState, data: &RefAny) -> Dom {
-    let mut rail = Dom::create_div().with_css(
-        "display: flex; flex-direction: row; align-items: center; gap: 4px; padding: 3px 8px; \
-         border-bottom: 1px solid system:separator; flex-shrink: 0; user-select: none;",
-    );
-    let mut pages = Dom::create_div().with_id(ids::PAGES).with_css(
-        "display: flex; flex-direction: row; align-items: center; gap: 3px; flex-grow: 1; \
-         flex-shrink: 1; flex-basis: 0px; min-width: 0px; overflow-x: auto; overflow-y: hidden;",
+/// The page numbers, one under the other at the left of the pages, without a scrollbar - the one in view lit, a
+/// click scrolls the pages to it.
+fn page_strip(s: &AppState, data: &RefAny) -> Dom {
+    let mut strip = Dom::create_div().with_id(ids::PAGES).with_css(
+        format!(
+            "display: flex; flex-direction: column; align-items: center; gap: 3px; width: {}px; flex-shrink: 0; \
+             padding: 6px 0px; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; \
+             border-right: 1px solid system:separator; user-select: none;",
+            crate::layout::STRIP_W
+        )
+        .as_str(),
     );
     if let Some(file) = s.file() {
         for page in 0..file.page_count() {
-            pages.add_child(page_pill(page, page == s.visible_page, data));
+            strip.add_child(page_pill(page, page == s.visible_page, data));
         }
     }
-    rail.add_child(pages);
+    strip
+}
 
+/// The tools at the top bar's right end: the voice meter while recording, record, save and the settings, all one
+/// height.
+fn tools(s: &AppState, data: &RefAny) -> Vec<Dom> {
+    let mut out = Vec::new();
     let rec = s.recording.is_some();
     if rec {
-        rail.add_child(meter(s));
+        out.push(meter(s));
         // The capture runs while it is mounted: its frames are the clip's samples.
-        rail.add_child(microphone(data));
+        out.push(microphone(data));
     }
     let (icon, name) = if rec {
         ("fiber_manual_record", "azreview-stop-recording")
     } else {
         ("mic", "azreview-record")
     };
-    rail.add_child(tool(icon, label(name), rec, data, crate::on_toggle_record).with_id(ids::RECORD));
-    rail.add_child(
-        tool("save", label("azreview-save"), false, data, crate::on_save_button).with_id(ids::SAVE),
-    );
-    rail.add_child(
+    out.push(tool(icon, label(name), rec, data, crate::on_toggle_record).with_id(ids::RECORD));
+    out.push(tool("save", label("azreview-save"), false, data, crate::on_save_button).with_id(ids::SAVE));
+    out.push(
         tool("settings", label("azreview-settings"), false, data, crate::on_settings_open)
             .with_id(ids::SETTINGS),
     );
-    rail
+    out
+}
+
+/// The thin bar at the window's right edge: its key opens and closes the whiteboard's panel.
+fn right_bar(data: &RefAny) -> Dom {
+    let name = label("azreview-right-bar");
+    Dom::create_div()
+        .with_id(ids::RIGHT_BAR)
+        .with_css(
+            format!(
+                "display: flex; flex-direction: column; align-items: center; width: {}px; flex-shrink: 0; \
+                 padding-top: 6px; border-left: 1px solid system:separator; user-select: none;",
+                crate::layout::RIGHT_BAR_W
+            )
+            .as_str(),
+        )
+        .with_child(
+            with_tip(key(QUIET, name.clone(), data.clone(), crate::on_toggle_right), &name)
+                .with_id(ids::RIGHT_TOGGLE)
+                .with_child(Dom::create_icon("dashboard").with_css("font-size: 14px;")),
+        )
+}
+
+/// The right panel: the whiteboard's place, `width` wide while it slides, its edge to be dragged. What fills it is
+/// `right_panel_content`.
+fn right_panel(s: &AppState, width: f32, data: &RefAny) -> Dom {
+    Dom::create_div()
+        .with_id(ids::RIGHT_PANEL)
+        .with_css(
+            format!(
+                "position: relative; display: flex; flex-direction: column; width: {width:.0}px; flex-shrink: 0; \
+                 overflow: hidden; background: system:window-background; border-left: 1px solid system:separator;"
+            )
+            .as_str(),
+        )
+        .with_child(right_panel_content(s, data))
+        .with_child(grip(crate::layout::Panel::Right, "left: 0px;", data))
+}
+
+// ==== The places other modules plug into ====
+//
+// The layout owns the room and these functions say what goes in it; each is the one place to change when the module
+// that fills it lands (FLOW.md lists them):
+//
+// * `right_panel_content`: the whiteboard's panel (`whiteboard_ui::panel_dom`), which fills its parent;
+// * `presenter_slot`: the presenter's key in the top bar (the recorder's start / stop), and `overlay_slot` the
+//   picture in picture of the camera over the pages;
+// * `settings_sections`: the sections of the settings page after the dictation's (the agents and their models, the
+//   recorder's devices, the speech recogniser's chain);
+// * the bottom bar's conversations come from `AppState::chips` (the agent pool's messages set their states).
+
+/// What fills the right panel: a word about what it will be, until the whiteboard is mounted in it.
+fn right_panel_content(_s: &AppState, _data: &RefAny) -> Dom {
+    Dom::create_div()
+        .with_css("padding: 16px; font-size: 12px; color: system:secondary-text;")
+        .with_child(Dom::create_span_with_text(label("azreview-whiteboard-placeholder")))
+}
+
+/// The presenter's key in the top bar (`None` until the recorder is mounted).
+#[must_use]
+fn presenter_slot(_s: &AppState, _data: &RefAny) -> Option<Dom> {
+    None
+}
+
+/// The picture in picture over the pages: the camera preview while the presenter records (`None` until mounted).
+#[must_use]
+fn overlay_slot(_s: &AppState, _data: &RefAny) -> Option<Dom> {
+    None
+}
+
+/// The sections of the settings page, in order: the dictation's, then what the other modules add.
+fn settings_sections(s: &AppState, data: &RefAny) -> Vec<kit::AppSection> {
+    vec![column::settings_section(s, data)]
+}
+
+/// The bottom bar: the conversations of the open file, one chip each (a blue spinner while its agent works, yellow
+/// when it has suggested something, green when it is done); a click goes to where it is anchored. Many chips scroll
+/// along the bar without a scrollbar.
+fn bottom_bar(s: &AppState, data: &RefAny) -> Dom {
+    let mut bar = Dom::create_div().with_id(ids::BOTTOM_BAR).with_css(
+        format!(
+            "display: flex; flex-direction: row; align-items: center; gap: 6px; height: {}px; \
+             flex-shrink: 0; padding: 0px 10px; border-top: 1px solid system:separator; font-size: 11px; \
+             color: system:secondary-text; user-select: none; overflow-x: auto; overflow-y: hidden; \
+             scrollbar-width: none;",
+            crate::layout::BOTTOM_H
+        )
+        .as_str(),
+    );
+    let chips = s.open_chips();
+    if chips.is_empty() {
+        bar.add_child(Dom::create_span_with_text(label("azreview-agents-none")));
+    }
+    for (i, chip) in chips.into_iter().enumerate() {
+        bar.add_child(chip_key(i, chip, data));
+    }
+    bar
+}
+
+/// The colour of a conversation's state: blue while it works, yellow when a suggestion waits, green when done.
+const fn state_colour(state: crate::chips::State) -> &'static str {
+    match state {
+        crate::chips::State::Working => "#5aafff",
+        crate::chips::State::Suggested => "#e5a800",
+        crate::chips::State::Done => "#2fa84f",
+    }
+}
+
+/// What a state is called for the screen reader and the tooltip.
+fn state_word(state: crate::chips::State) -> AzString {
+    label(match state {
+        crate::chips::State::Working => "azreview-chip-working",
+        crate::chips::State::Suggested => "azreview-chip-suggested",
+        crate::chips::State::Done => "azreview-chip-done",
+    })
+}
+
+/// The mark of a state: the macOS spinner while an agent works, a dot in the colour of the state otherwise.
+fn state_mark(state: crate::chips::State, size: isize) -> Dom {
+    match state {
+        crate::chips::State::Working => Spinner::with_size(size)
+            .with_color(ColorU { r: 90, g: 175, b: 255, a: 255 })
+            .with_indicator(SpinnerStyle::Spokes)
+            .dom(),
+        _ => Dom::create_div().with_css(
+            format!(
+                "width: {size}px; height: {size}px; border-radius: {}px; background: {}; flex-shrink: 0;",
+                size / 2,
+                state_colour(state)
+            )
+            .as_str(),
+        ),
+    }
+}
+
+/// A conversation's chip: its mark and the first words, a key named by the words and the state; `i` is its place among
+/// the open file's conversations.
+fn chip_key(i: usize, chip: &crate::chips::Chip, data: &RefAny) -> Dom {
+    let state = state_word(chip.state);
+    let title = if chip.title.is_empty() { AzString::from(format!("{}", chip.id).as_str()) } else { AzString::from(chip.title.as_str()) };
+    let name = AzString::from(format!("{}: {}", title.as_str(), state.as_str()).as_str());
+    with_tip(
+        key(
+            "padding: 0px 8px; gap: 6px; background: system:control-background; border: 1px solid \
+             system:separator; color: system:text; max-width: 220px;",
+            name.clone(),
+            data.clone(),
+            crate::on_chip_click,
+        ),
+        &name,
+    )
+    .with_dataset(OptionRefAny::Some(RefAny::new(IndexTag { index: i })))
+    .with_child(state_mark(chip.state, 14))
+    .with_child(Dom::create_span_with_text(title.as_str()).with_css("overflow: hidden; white-space: nowrap;"))
 }
 
 /// Page `page`'s number: as wide as the number and its padding, lit while
@@ -627,44 +1029,44 @@ pub fn strip_scroll_x(info: &CallbackInfo) -> Option<f32> {
         .map(|offset| offset.x)
 }
 
-/// Scrolls the page numbers' row so page `page`'s number is in view. Its
-/// place in the row is the widths of the numbers before it and their gaps.
+/// Scrolls the page numbers' column so page `page`'s number is in view. Its place in the column is the heights of the
+/// numbers before it and their gaps.
 pub fn reveal_pill(info: &mut CallbackInfo, page: usize) {
     const GAP: f32 = 3.0;
     let dom = info.get_hit_node().dom;
-    let row = info.get_node_id_by_id_attribute(dom, ids::PAGES_NAME);
-    let Some(index) = row.into_raw().checked_sub(1) else {
+    let column = info.get_node_id_by_id_attribute(dom, ids::PAGES_NAME);
+    let Some(index) = column.into_raw().checked_sub(1) else {
         return;
     };
-    let row_node = DomNodeId { dom, node: row };
-    let Some(view) = info.get_node_rect(row_node).into_option() else {
+    let column_node = DomNodeId { dom, node: column };
+    let Some(view) = info.get_node_rect(column_node).into_option() else {
         return;
     };
-    let mut left = 0.0;
-    let mut pill = info.get_first_child(row_node).into_option();
+    let mut top = 0.0;
+    let mut pill = info.get_first_child(column_node).into_option();
     for _ in 0..page {
         let Some(p) = pill else {
             return;
         };
-        left += info.get_node_rect(p).into_option().map_or(0.0, |r| r.size.width) + GAP;
+        top += info.get_node_rect(p).into_option().map_or(0.0, |r| r.size.height) + GAP;
         pill = info.get_next_sibling(p).into_option();
     }
-    let Some(width) = pill.and_then(|p| info.get_node_rect(p).into_option()).map(|r| r.size.width)
+    let Some(height) = pill.and_then(|p| info.get_node_rect(p).into_option()).map(|r| r.size.height)
     else {
         return;
     };
     let scrolled = info
         .get_scroll_offset_for_node(dom, NodeId::create(index))
         .into_option()
-        .map_or(0.0, |offset| offset.x);
-    let target = if left < scrolled {
-        left
-    } else if left + width > scrolled + view.size.width {
-        left + width - view.size.width
+        .map_or(0.0, |offset| offset.y);
+    let target = if top < scrolled {
+        top
+    } else if top + height > scrolled + view.size.height {
+        top + height - view.size.height
     } else {
         return;
     };
-    info.scroll_to(dom, row, LogicalPosition::create(target.max(0.0), 0.0));
+    info.scroll_to(dom, column, LogicalPosition::create(0.0, target.max(0.0)));
 }
 
 pub fn scroll_to_page(info: &mut CallbackInfo, page: usize) {
@@ -683,33 +1085,60 @@ fn sheet(s: &AppState, data: &RefAny) -> Dom {
          flex-direction: column; overflow: hidden; padding: 18px;",
     );
     if s.file().is_none() {
-        // No file open: none to review under the folder, or none picked yet.
-        let says = if s.root.as_os_str().is_empty() {
-            // No folder at all (an app started from the Finder): nothing to look under yet.
-            AzString::from(t("azreview-no-folder"))
+        // No file open: no folder yet (the app started with none to review), none to review under it, or none
+        // picked. The way out is in the page itself, large.
+        let (says, explains) = if s.root.as_os_str().is_empty() {
+            (
+                AzString::from(t("azreview-no-folder")),
+                Some(AzString::from(t("azreview-no-folder-hint"))),
+            )
         } else if s.files.is_empty() {
-            AzString::from(t_args(
-                "azreview-no-files",
-                &[("folder", Arg::from(s.root.display().to_string()))],
-            ))
+            (
+                AzString::from(t_args(
+                    "azreview-no-files",
+                    &[("folder", Arg::from(s.root.display().to_string()))],
+                )),
+                None,
+            )
         } else {
-            label("azreview-open-file")
+            (label("azreview-open-file"), None)
         };
-        area.add_child(
-            Dom::create_p_with_text(says)
-                .with_css("margin: 0px; color: system:secondary-text; padding: 40px 40px 12px 40px;"),
+        let mut panel = Dom::create_div()
+            .with_css(
+                "flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: \
+                 center; gap: 14px; padding: 40px; text-align: center;",
+            )
+            .with_child(Dom::create_icon("folder_open").with_css("font-size: 56px; color: system:secondary-text;"))
+            .with_child(
+                Dom::create_p_with_text(says)
+                    .with_css("margin: 0px; font-size: 18px; font-weight: 600; color: system:text;"),
+            );
+        if let Some(explains) = explains {
+            panel.add_child(
+                Dom::create_p_with_text(explains)
+                    .with_css("margin: 0px; font-size: 13px; color: system:secondary-text; max-width: 420px;"),
+            );
+        }
+        let name = label("azreview-open-folder");
+        panel.add_child(
+            Dom::create_node(NodeType::Button)
+                .with_css(
+                    "display: flex; flex-direction: row; align-items: center; align-self: center; gap: 10px; \
+                     height: 44px; padding: 0px 22px; font-size: 15px; border-radius: 8px; border: 0px solid \
+                     transparent; background: system:accent; color: system:accent-text; cursor: pointer; \
+                     margin-top: 6px;",
+                )
+                .with_accessibility_name(name.clone())
+                .with_callback(
+                    EventFilter::Hover(HoverEventFilter::Click),
+                    data.clone(),
+                    crate::on_open_folder,
+                )
+                .with_id(ids::OPEN_FOLDER_EMPTY)
+                .with_child(Dom::create_icon("folder_open").with_css("font-size: 20px;"))
+                .with_child(Dom::create_span_with_text(name.as_str())),
         );
-        // Nothing to review here (an app started from the Finder has the root of the disk as its
-        // folder): the way out is in the empty page itself.
-        area.add_child(
-            Dom::create_div().with_css("padding: 0px 40px;").with_child(
-                Button::create(label("azreview-open-folder"))
-                    .with_icon("folder_open")
-                    .with_on_click(data.clone(), crate::on_open_folder as ButtonOnClickCallbackType)
-                    .dom()
-                    .with_id(ids::OPEN_FOLDER_EMPTY),
-            ),
-        );
+        area.add_child(panel);
         return area;
     }
     area.add_child(
@@ -772,7 +1201,7 @@ extern "C" fn sheets_virtual_view(
 
         let mut row = Dom::create_div()
             .with_css("display: flex; flex-direction: row; align-items: flex-start;");
-        let listening = s.voice.running_note().filter(|_| s.voice.is_listening());
+        let listening = s.voice.ready_note();
         for page in first..first + count {
             row.add_child(page_sheet(&cb_app, file, page, &s.notes, listening));
         }
@@ -833,24 +1262,32 @@ fn page_sheet(
         ),
     );
 
-    let mut col = Dom::create_div().with_css(
-        format!(
-            "position: relative; display: flex; flex-direction: column; width: {}px; overflow: \
-             hidden; user-select: none;",
-            (PAGE_W - MARGIN_GUTTER_W - PAGE_PAD) as isize,
-        )
-        .as_str(),
-    );
-    for (i, line) in lines.iter().enumerate() {
-        col.add_child(code_row(first_line + i, line.as_str()));
-    }
-    sheet.add_child(col);
+    sheet.add_child(page_code_column(first_line, lines));
     // The markers of the dictated notes: over the code, under the pen layer (they take no stroke).
     for marker in column::markers(notes, page, listening) {
         sheet.add_child(marker);
     }
     sheet.add_child(ink_layer(data, page, Layer::Pen));
     sheet
+}
+
+/// The code of a page as the page shows it: a row per line, its number in the gutter and then the line, a column
+/// `CODE_W` wide whose rows are `LINE_H` tall. The whiteboard's cutout renders this same column for the lines it holds,
+/// so that it looks like the page it was taken from.
+#[must_use]
+pub fn page_code_column(first_line: usize, lines: &[String]) -> Dom {
+    let mut col = Dom::create_div().with_css(
+        format!(
+            "position: relative; display: flex; flex-direction: column; width: {}px; overflow: \
+             hidden; user-select: none;",
+            CODE_W as isize,
+        )
+        .as_str(),
+    );
+    for (i, line) in lines.iter().enumerate() {
+        col.add_child(code_row(first_line + i, line.as_str()));
+    }
+    col
 }
 
 /// One line of code: its number in the gutter, then the line.
@@ -931,16 +1368,17 @@ fn ink_layer(data: &RefAny, page: usize, layer: Layer) -> Dom {
         data.clone(),
         crate::on_cycle_tool_back,
     )
-    // The pointer off the page, or the pen out of the tablet's range: no rest to time.
+    // The pointer off the page, or the pen out of the tablet's range: no rest to time, and a stroke whose
+    // release was not heard is over.
     .with_callback(
         EventFilter::Hover(HoverEventFilter::MouseLeave),
         data.clone(),
-        voice::on_pointer_left,
+        crate::on_ink_leave,
     )
     .with_callback(
         EventFilter::Hover(HoverEventFilter::PenLeave),
         data.clone(),
-        voice::on_pointer_left,
+        crate::on_ink_leave,
     )
 }
 
@@ -1065,12 +1503,12 @@ mod tests {
             .collect()
     }
 
-    /// No title bar: the title row moves the window (macOS's traffic lights
+    /// No title bar: the top bar moves the window (macOS's traffic lights
     /// in it), and what sits in it stays pressable.
     #[test]
-    fn the_title_row_moves_the_window_and_its_controls_stay_controls() {
+    fn the_top_bar_moves_the_window_and_its_controls_stay_controls() {
         let s = app(2);
-        let row = title_row(&s, &RefAny::new(0u8));
+        let row = top_bar(&s, &RefAny::new(0u8), 0.0);
         assert!(declares(&row, "AppRegion(Exact(Drag))"), "the row moves the window");
         let controls = buttons(&row);
         assert!(!controls.is_empty());
@@ -1084,47 +1522,66 @@ mod tests {
     }
 
     #[test]
-    fn the_title_row_holds_the_sidebar_switch_and_the_five_meanings() {
+    fn the_top_bar_holds_the_five_meanings_and_the_files_switch_is_over_the_tree() {
         let s = app(2);
-        let row = title_row(&s, &RefAny::new(0u8));
-        assert!(with_id(&row, &ids::SIDEBAR_TOGGLE).is_some(), "the files' switch");
+        let row = top_bar(&s, &RefAny::new(0u8), 0.0);
         let shown = texts(&row);
         for digit in ["1", "2", "3", "4", "5"] {
             assert!(shown.iter().any(|t| t == digit), "meaning {digit} in {shown:?}");
         }
         assert!(!shown.iter().any(|t| t == "AzReview"), "no title: {shown:?}");
+        let view = main_view(&s, &RefAny::new(0u8), 1280.0);
+        assert!(with_id(&view, &ids::SIDEBAR_TOGGLE).is_some(), "the files' switch, next to the traffic lights");
     }
 
     #[test]
     fn the_window_has_no_status_bar() {
         let s = app(2);
-        let view = main_view(&s, &RefAny::new(0u8));
+        let view = main_view(&s, &RefAny::new(0u8), 1280.0);
         assert!(nodes(&view)
             .iter()
             .all(|n| !n.root.has_class(azul::str::String::from("__azul-native-statusbar"))));
     }
 
     #[test]
-    fn the_files_fly_out_over_the_pages_and_fold_away() {
-        let mut s = app(2);
-        s.sidebar_open = true;
-        let view = main_view(&s, &RefAny::new(0u8));
-        let flyout = with_id(&view, &ids::FLYOUT).expect("the files fly out");
-        assert!(declares(flyout, "Position(Exact(Absolute))"), "over the pages, not beside them");
-        assert!(texts(flyout).iter().any(|t| t == "f1.rs"), "it lists the files");
-
-        s.sidebar_open = false;
-        let view = main_view(&s, &RefAny::new(0u8));
-        assert!(with_id(&view, &ids::FLYOUT).is_none(), "folded away");
+    fn the_tree_is_a_column_beside_the_pages_that_pushes_them_and_has_no_heading() {
+        let s = app(2);
+        let view = main_view(&s, &RefAny::new(0u8), 1280.0);
+        let tree = with_id(&view, &ids::TREE).expect("the file tree");
+        assert!(!declares(tree, "Position(Exact(Absolute))"), "beside the pages, not over them");
+        let shown = texts(tree);
+        assert!(shown.iter().any(|t| t == "f1.rs"), "it lists the files: {shown:?}");
+        assert!(!shown.iter().any(|t| t == "Files"), "no heading, it takes room: {shown:?}");
+        // the tree is the first of the window's columns, the pages' column after it
+        let root_children: Vec<_> = view.children.as_slice().iter().map(|c| c.root.has_id(ids::TREE.clone())).collect();
+        assert_eq!(root_children.first(), Some(&true), "the tree comes first (the pages are pushed to its right)");
     }
 
     #[test]
-    fn picking_a_file_opens_it_and_folds_the_files_away() {
+    fn a_closed_tree_is_not_in_the_window_and_the_switch_still_is() {
         let mut s = app(2);
-        s.sidebar_open = true;
+        s.panels.tree_open = false;
+        s.slide = crate::layout::Slide::settled(&s.panels);
+        let view = main_view(&s, &RefAny::new(0u8), 1280.0);
+        assert!(with_id(&view, &ids::TREE).is_none());
+        assert!(with_id(&view, &ids::SIDEBAR_TOGGLE).is_some());
+    }
+
+    #[test]
+    fn where_there_is_no_room_to_push_the_tree_covers_the_pages() {
+        let s = app(2);
+        let view = main_view(&s, &RefAny::new(0u8), 600.0);
+        let tree = with_id(&view, &ids::TREE).expect("the file tree");
+        assert!(declares(tree, "Position(Exact(Absolute))"), "over the pages");
+    }
+
+    #[test]
+    fn picking_a_file_opens_it_and_leaves_the_tree_as_it_is() {
+        let mut s = app(2);
+        assert!(s.panels.tree_open, "premise: the tree is out");
         s.open_file(1);
         assert_eq!(s.current, Some(1));
-        assert!(!s.sidebar_open, "the flyout gets out of the way of the pages");
+        assert!(s.panels.tree_open, "a pick does not fold the tree");
     }
 
     /// An icon is enough for record, save and settings; the name is for the
@@ -1132,7 +1589,7 @@ mod tests {
     #[test]
     fn record_save_and_settings_are_icon_only_buttons() {
         let s = app(1);
-        let rail = page_rail(&s, &RefAny::new(0u8));
+        let rail = top_bar(&s, &RefAny::new(0u8), 0.0);
         for id in [&ids::RECORD, &ids::SAVE, &ids::SETTINGS] {
             let button = with_id(&rail, id).unwrap_or_else(|| panic!("{} in the rail", id.as_str()));
             assert!(matches!(button.root.node_type, NodeType::Button), "{}", id.as_str());
@@ -1145,10 +1602,13 @@ mod tests {
     /// and a click on the pages rang the document pane).
     #[test]
     fn every_control_of_the_window_is_a_button() {
-        let mut s = app(2);
-        s.sidebar_open = true;
-        let view = main_view(&s, &RefAny::new(0u8));
+        let s = app(2);
+        let view = main_view(&s, &RefAny::new(0u8), 1280.0);
         for n in nodes(&view) {
+            // A panel's edge is dragged, not pressed: it takes the pointer and no focus.
+            if n.root.has_id(ids::TREE_GRIP.clone()) || n.root.has_id(ids::RIGHT_GRIP.clone()) {
+                continue;
+            }
             // What answers a press (the strip only listens to its scroll).
             let pressed = n.root.callbacks.as_slice().iter().any(|c| {
                 matches!(
@@ -1177,11 +1637,11 @@ mod tests {
     fn a_failed_save_is_told_over_the_pages_until_dismissed() {
         let mut s = app(1);
         s.problem = Some("the disk is full".to_string());
-        let view = main_view(&s, &RefAny::new(0u8));
+        let view = main_view(&s, &RefAny::new(0u8), 1280.0);
         assert!(texts(&view).iter().any(|t| t.contains("the disk is full")));
 
         s.problem = None;
-        let view = main_view(&s, &RefAny::new(0u8));
+        let view = main_view(&s, &RefAny::new(0u8), 1280.0);
         assert!(!texts(&view).iter().any(|t| t.contains("the disk is full")));
     }
 

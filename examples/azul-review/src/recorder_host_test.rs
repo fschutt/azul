@@ -480,3 +480,60 @@ fn the_lock_of_the_screen_pauses_and_the_unlock_resumes() {
     r.host.session_locked(false);
     assert_eq!(r.host.hud().dot, Dot::Recording);
 }
+
+// ---- what the review's window tells the recorder ----
+
+/// What the window tells the recorder reaches the recording that is going and nothing else: the hook is open while
+/// a recording runs (and only then), an event told during it is in that recording's events in the recorder's words,
+/// and a second recording's events go to the second folder, none of them to the first.
+///
+/// Mutation: a hook that is not given the sink when a recording starts; one that keeps the sink of the recording
+/// that ended; one that keeps a first recording's sink for the second.
+#[test]
+fn what_the_window_tells_the_recorder_reaches_the_recording_that_is_going_and_nothing_else() {
+    let mut r = rig();
+    let hook = r.host.hook();
+    assert!(!hook.is_open(), "nothing records: nothing takes what is told");
+    hook.event("nav.file", r#"{"file":"before.rs","lines":1}"#);
+
+    assert!(r.start());
+    assert!(hook.is_open());
+    r.clock.advance_ms(500);
+    hook.event("nav.file", r#"{"file":"first.rs","lines":2}"#);
+    let first = r.host.path_of(&r.host.current().unwrap()).unwrap();
+    r.host.stop();
+    assert!(!hook.is_open(), "a recording that ended takes nothing more");
+    hook.event("nav.file", r#"{"file":"between.rs","lines":3}"#);
+
+    r.clock.advance_ms(2_000);
+    assert!(r.start());
+    assert!(hook.is_open());
+    hook.event("nav.file", r#"{"file":"second.rs","lines":4}"#);
+    let second = r.host.path_of(&r.host.current().unwrap()).unwrap();
+    assert_ne!(first, second);
+    r.host.stop();
+
+    let events = |dir: &std::path::Path| fs::read_to_string(dir.join("events.jsonl")).unwrap();
+    let (a, b) = (events(&first), events(&second));
+    let line = a.lines().find(|l| l.contains("first.rs")).unwrap_or_else(|| panic!("the first's event is in {a}"));
+    assert!(line.contains(r#""k":"nav.file""#) && line.contains(r#""lines":2"#), "{line}");
+    assert!(!a.contains("before.rs") && !a.contains("between.rs") && !a.contains("second.rs"), "{a}");
+    assert!(b.contains("second.rs") && !b.contains("first.rs") && !b.contains("between.rs") && !b.contains("before.rs"), "{b}");
+}
+
+/// A recording the recorder ends by itself (the session's length is up) takes nothing more either: the hook is closed
+/// by the tick that saw it end, not left holding a sink that goes nowhere.
+///
+/// Mutation: a tick that leaves the hook as it was.
+#[test]
+fn a_recording_that_ends_by_its_length_closes_the_hook() {
+    let mut r = rig_with(RecorderSettings { max_session_us: 5_000_000, ..quiet() });
+    let hook = r.host.hook();
+    assert!(r.start());
+    assert!(hook.is_open());
+    r.clock.advance_ms(6_000);
+    r.host.tick();
+    assert_eq!(r.host.hud().dot, Dot::Idle, "the recording ended at its length");
+    assert!(!hook.is_open());
+}
+

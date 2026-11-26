@@ -6,9 +6,11 @@
        fresh data folder (`--data-dir`); it opens the first file (`AZREVIEW_FILE README.md`);
     2. the window is filled: the sheet strip reaches down to the window's bottom (there is no
        status bar);
-    3. the files fly out over the pages at the start (the sheet strip starts under the flyout,
-       not beside it); a click on `lib.rs` in them opens it (`AZREVIEW_FILE src/lib.rs`) and
-       folds the files away, and the pages stay where they were;
+    3. the file tree is the first column at the start, beside the pages (the sheet strip starts where the tree
+       ends: the tree pushes the pages to the right, it does not cover them), the first file is open; the
+       switch next to the traffic lights slides it away and back; a click on `lib.rs` in it opens it
+       (`AZREVIEW_FILE src/lib.rs`) and the tree stays as it is, the pages where they were; the top bar has a
+       labeled Open folder... button and names the folder, and a window started with no folder says so;
     4. a stroke drawn with the mouse on the first page is kept (`AZREVIEW_STROKES 1`) and the
        session is written on a Thread to review/src_lib.rs.azreview.zip (`AZREVIEW_SAVED ...`):
        a zip whose session.json holds the stroke;
@@ -56,7 +58,33 @@ from azlin_e2e import Failure
 TAG = "azreview"
 WIDTH, HEIGHT = 1280, 820
 STRIP = "__azreview_sheet-strip"
-FLYOUT = "__azreview_flyout"
+TREE = "__azreview_tree"
+SIDEBAR_TOGGLE = "__azreview_sidebar-toggle"
+
+
+def state(app):
+    """What AzReview says its state is (the debug op `azreview_state`): pen, meaning, nib, panels."""
+    answer = app.must("azreview_state")
+    return answer["data"]["value"]["result"]["state"]
+
+
+def settled(app, node_id, tries=40):
+    """The rect of `node_id` once it stops moving (a panel slides for about 180 ms)."""
+    last = None
+    for _ in range(tries):
+        now = app.rect(node_id)
+        if now is not None and now == last:
+            return now
+        last = now
+        time.sleep(0.1)
+    raise Failure("%s keeps moving: %s" % (node_id, last))
+
+
+def show_files(app):
+    """The tree is out at the start; if it is not, the switch next to the traffic lights slides it out."""
+    if not app.has_id(TREE):
+        app.click(selector="#" + SIDEBAR_TOGGLE)
+    app.until("the file tree is out", lambda: app.has_id(TREE))
 ARCHIVE = "review/src_lib.rs.azreview.zip"
 
 
@@ -99,27 +127,38 @@ def body(args, logs, out):
         if not strip or strip.get("height", 0) < 300 or strip.get("y", 0) + strip.get("height", 0) > HEIGHT:
             raise Failure("the sheet strip does not fill the document: %s" % strip)
         app.screenshot(os.path.join(out, "1-readme.png"))
-        # The files fly out OVER the pages: the sheet strip keeps its place under the flyout
-        # (it does not start where the flyout ends), and keeps it when the files fold away.
+        # The file tree is out at the start, beside the pages: it pushes them to its right.
+        if not app.has_id(TREE):
+            raise Failure("the file tree is not out at the start")
+        tree = app.rect(TREE)
+        if not tree or tree.get("width", 0) <= 0:
+            raise Failure("the file tree has no width: %s" % tree)
+        if strip["x"] < tree["x"] + tree["width"] - 1.0:
+            raise Failure("the tree covers the pages instead of pushing them: tree %s, strip %s" % (tree, strip))
+        # The top bar says which folder it is and has the way to another one, in words.
+        if not app.has_id("__azreview_open-folder-bar") or not app.has_id("__azreview_folder-chip"):
+            raise Failure("the top bar has no Open folder... button or no folder name")
+        # The switch slides the tree away and back; the pages follow it.
         under = strip
-        flyout = app.rect(FLYOUT)
-        if not flyout or flyout.get("width", 0) <= 0:
-            raise Failure("the files do not fly out at the start: %s" % flyout)
-        if under["x"] >= flyout["x"] + flyout["width"]:
-            raise Failure("the files lie beside the pages, not over them: flyout %s, strip %s"
-                          % (flyout, under))
+        app.click(selector="#" + SIDEBAR_TOGGLE)
+        app.until("the tree is away", lambda: not app.has_id(TREE))
+        away = settled(app, STRIP)
+        if away["x"] >= under["x"] - 1.0:
+            raise Failure("the pages did not move left when the tree slid away: %s -> %s" % (under, away))
+        show_files(app)
+        back = settled(app, STRIP)
+        if abs(back["x"] - under["x"]) > 1.0:
+            raise Failure("the pages did not come back with the tree: %s -> %s" % (under, back))
 
-        if not app.has_id("__azreview_open-folder"):
-            raise Failure("the files have no Open folder button")
-
-        # Open lib.rs from the files.
+        # Open lib.rs from the tree: it opens and the tree stays.
         app.click(text="lib.rs")
         app.expect_line("AZREVIEW_FILE", os.path.join("src", "lib.rs"), "a click opens lib.rs")
         app.frame(2)
-        app.until("the files folded away", lambda: not app.has_id(FLYOUT))
+        if not app.has_id(TREE):
+            raise Failure("a pick of a file folded the tree")
         folded = app.rect(STRIP)
         if abs(folded.get("x", 0) - under["x"]) > 1.0:
-            raise Failure("the pages moved when the files folded away: %s -> %s" % (under, folded))
+            raise Failure("the pages moved when a file was picked: %s -> %s" % (under, folded))
 
         # Draw a stroke on the first page.
         strip = app.rect(STRIP)
@@ -156,9 +195,13 @@ def body(args, logs, out):
 
         # A meaning the marker cannot write (key 3, a question) takes the pen; scope (key 1) the marker again.
         app.key("3")
-        app.until("the pen for a question", lambda: "pen" in app.texts())
+        app.until("the question pen with its pen nib",
+                  lambda: (state(app)["meaning"], state(app)["nib"]) == ("question", "pen"))
+        app.key("3")
+        app.until("its next nib, the audio pen", lambda: state(app)["nib"] == "audio pen")
         app.key("1")
-        app.until("the marker for scope", lambda: "marker" in app.texts())
+        app.until("the scope pen with the marker",
+                  lambda: (state(app)["meaning"], state(app)["nib"]) == ("scope", "marker"))
 
         # Mod+Z takes the stroke back, Mod+Shift+Z brings it again; each is written to the archive.
         app.key("z", primary=True)
@@ -249,13 +292,15 @@ def dictation(args, logs, out, binary, fake):
     extra = {"AZ_SPEECH_HEARD": HEARD} if fake else {}
     app = e2e.App("review-dictation", binary,
                   [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en",
-                   "--dwell-ms", "400", "--dwell-input", "any", "--silence-ms", "6000"],
+                   "--dwell-ms", "400", "--dwell-input", "any", "--silence-ms", "6000",
+                   "--standby", "near", "--standby-idle-ms", "5000"],
                   args.debug_port + 1, logs, args.timeout, extra_env=extra)
     try:
         app.until("AzReview's window", lambda: app.has_id(STRIP))
         app.frame(2)
+        show_files(app)
         app.click(text="lib.rs")
-        app.until("the files folded away", lambda: not app.has_id(FLYOUT))
+        app.frame(3)
         strip = app.rect(STRIP)
         base = (strip["x"] + 160.0, strip["y"] + 140.0)
 
@@ -270,9 +315,18 @@ def dictation(args, logs, out, binary, fake):
             app.until("dictation %d ended (%s)" % (n, cause),
                       lambda: (app.frame(1), app.count("AZREVIEW_DICTATION", r"ended %d %s" % (n, cause)) > 0)[1])
 
+        # 0. Nothing is open before the pointer comes near a page (the policy only counts under the e2e server: no
+        # test opens a microphone).
+        before = state(app)["standby"]
+        if not before["enabled"] or before["armed"] or before["arms"] != 0 or before["mode"] != "near":
+            raise Failure("the standby before the pointer came near a page: %s" % before)
         # 1. A rest starts a note that listens.
         rest_at(0.0, 0.0, "the first dictation to start", 1)
         app.until("the side column", lambda: app.has_id("__azreview_notes"))
+        near = state(app)["standby"]
+        if not near["armed"] or near["arms"] != 1:
+            raise Failure("the pointer came near a page and the microphone was not asked to open once: %s" % near)
+        app.until("AZREVIEW_STANDBY armed", lambda: app.count("AZREVIEW_STANDBY", r"armed") == 1)
         if fake:
             app.until("the marker on the page", lambda: app.has_id("__azreview_marker-1", every_dom=True))
             app.until("the words in the column", lambda: app.shows(HEARD))
@@ -341,6 +395,13 @@ def dictation(args, logs, out, binary, fake):
             app.click(selector="#__azreview_note-delete-5")
             app.until("the note gone", lambda: not app.has_id("__azreview_note-5"))
             app.screenshot(os.path.join(out, "7-notes.png"))
+            # 8. The pointer has been away for the idle time (5 s, from the end of the last dictation): the microphone
+            # is asked to close, once, and the standby's timer ends with it.
+            app.until("the microphone closed after the idle time", lambda: not state(app)["standby"]["armed"])
+            closed = state(app)["standby"]
+            if closed["disarms"] != 1:
+                raise Failure("the idle time closed the microphone %s times: %s" % (closed["disarms"], closed))
+            app.until("AZREVIEW_STANDBY disarmed", lambda: app.count("AZREVIEW_STANDBY", r"disarmed") == 1)
         else:
             # The real recogniser refuses (the binary has no Info.plist, or no microphone is there):
             # the user is told over the pages, and the empty note is not kept.
@@ -386,8 +447,9 @@ def restore(args, logs, out, binary):
     try:
         app.until("AzReview's window", lambda: app.has_id(STRIP))
         app.frame(2)
+        show_files(app)
         app.click(text="lib.rs")
-        app.until("the files folded away", lambda: not app.has_id(FLYOUT))
+        app.frame(3)
         app.until("the saved session back", lambda: app.count("AZREVIEW_LOADED", r"1 0") > 0)
         strip = app.rect(STRIP)
         x0, y0 = strip["x"] + 200.0, strip["y"] + 220.0
@@ -419,7 +481,14 @@ def notes_in(path):
 def run_all(args, logs, out):
     binary = e2e.find_binary("AzReview", args.bin, "AZREVIEW_BIN")
     body(args, logs, out)
-    dictation(args, logs, out, binary, fake_speech())
+    # The dictation steps need the fake speech backend (a libazul with the test hooks). Without it the real recogniser
+    # would be asked, and where the terminal holds the microphone and speech permissions it LISTENS: a test must never
+    # open the microphone, so the steps are skipped.
+    if fake_speech():
+        dictation(args, logs, out, binary, True)
+    else:
+        print("[azreview] SKIPPED: the dictation steps (this libazul has no test hooks: the real recogniser would listen "
+              "to the microphone)", flush=True)
     restore(args, logs, out, binary)
     return True
 
