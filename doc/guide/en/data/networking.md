@@ -130,6 +130,13 @@ let client = HttpClient::create(HttpClientConfig::create().with_dns_cache_secs(3
 The default is `0`, one lookup per request. A host that changes its address
 is reached again once its cached answer expires.
 
+A build made with the `http-cookies` Cargo feature (in no shipped set) gives
+every `HttpClient` a cookie jar: a cookie that a server sets comes back with the
+later requests that go through the same client, and its clones, to that
+server. A request without a client opens its own connection and keeps no
+cookie, and a build without the feature has no jar: an app that needs a session
+sets its `Cookie` header itself.
+
 The same idea applies to threads. `ThreadPool::create(n)` starts `n` workers,
 and `pool.create_thread(...)` returns an ordinary `Thread` whose body runs on
 one of them, so many short jobs don't each start an OS thread.
@@ -244,6 +251,7 @@ extern "C" fn pump(mut data: RefAny, _info: TimerCallbackInfo) -> TimerCallbackR
 - `IrohConfig::with_relay_only(true)` binds no UDP socket, so there is never a direct path and nothing is hole-punched: every packet goes through the relay (`relay_mode` `Default` or `Custom`; with relays disabled `bind` fails). Use it on networks that block UDP, or to test a relay. A local relay for tests is iroh's own server in dev mode, `iroh-relay --dev` (plain HTTP on port 3340), reached with `with_relay_url("http://127.0.0.1:3340")`.
 - Nothing arrives unless you poll `recv`, so drive it from a timer.
 - For rooms, `IrohLoadBalancer` picks the peers that forward media for everyone (`backbone_size`, `select_backbone`), and `IrohTileRole::rendition_height` picks the resolution a video tile should request.
+- A build made with the `iroh-portmapper` Cargo feature (in no shipped set) also asks the router for a port by UPnP, NAT-PMP and PCP, which iroh's portmapper does as soon as the feature is on. It changes the user's router, it starts with a multicast of its own (SSDP), and relays and hole punching already cover the internet, so the shipped libraries leave it out; build with it for a home network whose router blocks hole punching.
 
 ### Finding a peer on the local network
 
