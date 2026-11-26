@@ -244,3 +244,15 @@ fn the_list_is_capped_and_the_announcements_it_refused_are_counted() {
     }
     assert_eq!(told, MAX_NEARBY_PEERS);
 }
+
+#[test]
+fn a_failure_of_the_lookup_is_kept_for_the_status_and_the_first_reason_stays() {
+    let nearby = Nearby::new(own());
+    assert_eq!(nearby.trouble(), None);
+    nearby.set_trouble("Local Network access is denied".to_string());
+    nearby.set_trouble("a second thing".to_string());
+    assert_eq!(
+        nearby.trouble().as_deref(),
+        Some("Local Network access is denied")
+    );
+}

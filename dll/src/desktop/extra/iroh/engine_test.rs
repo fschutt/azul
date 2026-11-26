@@ -382,6 +382,24 @@ fn a_neighbour_that_stops_announcing_is_reported_gone_and_leaves_the_list() {
     assert!(engine.nearby_peers().is_empty());
 }
 
+#[test]
+fn a_lookup_that_fails_late_says_so_in_the_status_and_the_endpoint_works_on() {
+    let network = Changing::default();
+    let engine = bound(&config(), &network);
+    assert_eq!(engine.local_discovery_status(), "on");
+    network
+        .network()
+        .set_trouble("Local Network access is denied for this app".to_string());
+    let status = engine.local_discovery_status();
+    assert!(
+        status.starts_with("on")
+            && status
+                .contains("looking for nearby endpoints failed: Local Network access is denied"),
+        "{status}"
+    );
+    assert!(engine.is_bound());
+}
+
 /// What the endpoint publishes to a lookup of its own, as the local-network lookups are given it.
 #[derive(Debug, Default)]
 struct Hears {
