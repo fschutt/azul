@@ -23,6 +23,22 @@
 //! every enum-bearing record is mis-laid-out and the first layout callback dies with an EBusError.
 //! The `initialization` block re-checks the sizes at load time.
 //!
+//! # Compiling on Linux: `-Aas`
+//!
+//! fpc 3.2 (measured with 3.2.2 on Ubuntu 22.04, x86-64) gives every routine and every piece of data
+//! of a unit a section of its own, `.text.n_<symbol>` with a `.rela.text.n_<symbol>` beside it. This
+//! unit has about 45,000 routines and 111,742 such sections; the ELF writer built into fpc cannot
+//! number more than 65,279. The object file it writes does not describe itself: GNU ld skips it
+//! (`azul.o has a corrupt string table index`) and the program fails to link with `undefined
+//! reference`s to the unit's own symbols, while compiling the unit says nothing. No directive in the
+//! source changes that (`{$SMARTLINK OFF}` does nothing, `{$OUTPUT_FORMAT}` is not a directive of
+//! fpc 3.2) and neither does `-CX- -XX-`; without its 22,000 value-layer forwarders the unit still has
+//! ~67,000 sections, and the wrapper classes refer to each other and cannot be spread over units, so
+//! the unit is not split. A Linux user compiles with `-Aas` (GNU `as` writes the object file, with the
+//! extended section numbering), and the header of the unit, the guide, the install steps in api.json
+//! and the Pascal leg of the language board all say so. The tests of this module (`unit_test.rs`)
+//! fail when the unit is past the limit and one of them does not.
+//!
 //! # Output structure (high-level)
 //!
 //! ```pascal
@@ -67,6 +83,10 @@ pub mod options;
 pub mod types;
 pub mod values;
 pub mod wrappers;
+
+#[cfg(test)]
+#[path = "unit_test.rs"]
+mod unit_test;
 
 /// Library name used in `external 'azul';`.
 ///
@@ -198,6 +218,11 @@ fn emit_header(builder: &mut CodeBuilder) {
     builder.line("  layout and 4-byte enums so values passed by value match the Rust");
     builder.line("  extern \"C\" ABI. Consumed wrapper objects (by-value self / args) free");
     builder.line("  themselves; see the wrapper class comments.");
+    builder.line("");
+    builder.line("  Linux: compile with -Aas. fpc 3.2 gives every routine and every piece of data of");
+    builder.line("  a unit a section of its own; this unit has ~112,000, the ELF writer inside fpc");
+    builder.line("  numbers 65,279 at most, and GNU ld then skips the object (\"azul.o has a corrupt");
+    builder.line("  string table index\"). -Aas has GNU as write it (see the Pascal guide).");
     builder
         .line("  ============================================================================ }");
     builder.blank();

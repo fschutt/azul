@@ -49,15 +49,29 @@ curl -O https://azul.rs/ui/release/$VERSION/azul.dll
 
 curl -O https://azul.rs/ui/release/$VERSION/azul.pas
 curl -O https://azul.rs/ui/release/$VERSION/hello-world.pas
-fpc -Fl. hello-world.pas
-DYLD_LIBRARY_PATH=. ./hello-world # hello-world.exe on Windows
+fpc -Fl. hello-world.pas        # macOS, Windows
+fpc -Aas -Fl. hello-world.pas   # Linux (see below)
+DYLD_LIBRARY_PATH=. ./hello-world # LD_LIBRARY_PATH=. on Linux, hello-world.exe on Windows
 ```
 
 
 The bindings link the library by name, so `-Fl.` (the library search path) 
-is the only flag you need. You will find the precompiled `.so` and `.dylib` 
+is the only flag you need, except on Linux. You will find the precompiled `.so` and `.dylib` 
 files for various different architectures on the release page, download and 
 rename it to link properly.
+
+### Why Linux needs `-Aas`
+
+fpc 3.2 gives every routine and every piece of data of a unit a section of its own in the object
+file, and `azul.pas` has about 112,000 of them, more than the 65,279 that the ELF writer built into
+fpc can number. It writes an object file whose header does not describe it, GNU `ld` prints
+`azul.o has a corrupt string table index - ignoring`, drops the whole unit, and the link fails with
+`undefined reference` to symbols the unit defines (`VMT_$AZUL_$$_TDOM`, `INIT$_$AZUL`), while
+compiling the unit reports nothing. `-Aas` has fpc write the object file with GNU `as`, which has no
+such limit; it needs `as` (package `binutils`, which fpc needs for linking anyway) and adds a few
+seconds. A directive in the unit cannot do the same: `{$SMARTLINK OFF}` changes nothing. On macOS the
+object file is Mach-O, which has no such limit, and no flag is needed. In a Lazarus project on Linux,
+put `-Aas` under Project Options, Compiler Options, Other, Custom options.
 
 ### Building from source
 
@@ -233,13 +247,14 @@ without any implicit captured variables.
 From the directory containing `azul.pas`, `hello-world.pas` and the native library:
 
 ```sh
-fpc -Fl. hello-world.pas
-
 # macOS
+fpc -Fl. hello-world.pas
 DYLD_LIBRARY_PATH=. ./hello-world
 # Linux
+fpc -Aas -Fl. hello-world.pas
 LD_LIBRARY_PATH=. ./hello-world
 # Windows
+fpc -Fl. hello-world.pas
 hello-world.exe
 ```
 

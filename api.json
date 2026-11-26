@@ -5055,7 +5055,7 @@
                             "os": [
                                 "linux"
                             ],
-                            "description": "Debian / Ubuntu: install libazul from the self-hosted apt repository, then compile the generated unit and the hello-world with fpc (the unit links `azul` by name, resolved from /usr/lib)",
+                            "description": "Debian / Ubuntu: install libazul from the self-hosted apt repository, then compile the generated unit and the hello-world with fpc (the unit links `azul` by name, resolved from /usr/lib); -Aas because fpc 3.2 gives every routine of azul.pas a section of its own, about 112,000, and the ELF writer inside fpc cannot number more than 65,279",
                             "steps": [
                                 {
                                     "type": "command",
@@ -5075,7 +5075,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "fpc hello-world.pas"
+                                    "content": "fpc -Aas hello-world.pas"
                                 },
                                 {
                                     "type": "command",
@@ -5089,7 +5089,7 @@
                             "os": [
                                 "linux"
                             ],
-                            "description": "Download the prebuilt library, the generated azul.pas unit, and the hello-world source, then build with the Free Pascal Compiler",
+                            "description": "Download the prebuilt library, the generated azul.pas unit, and the hello-world source, then build with the Free Pascal Compiler; -Aas because fpc 3.2 gives every routine of azul.pas a section of its own, about 112,000, and the ELF writer inside fpc cannot number more than 65,279",
                             "steps": [
                                 {
                                     "type": "command",
@@ -5105,7 +5105,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "fpc -Fl. hello-world.pas"
+                                    "content": "fpc -Aas -Fl. hello-world.pas"
                                 },
                                 {
                                     "type": "command",
