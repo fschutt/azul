@@ -35,6 +35,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use crate::codegen::{
     doc::{render, Doc},
@@ -415,32 +416,35 @@ fn item_method(m: &Module, item: &Item) -> (bool, String) {
     let comments = item_comments(&Smalltalk, item);
     let mut out = String::new();
     if !comments.is_empty() {
-        out.push_str(&format!("\"{}\"\n", comments.join("\n").replace('"', "''")));
+        let _ = writeln!(out, "\"{}\"", comments.join("\n").replace('"', "''"));
     }
     let name = method_name(item);
     match item_doc(&Smalltalk, item) {
         Ok(doc) if !item.params.is_empty() => {
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 "{{ #category : 'ui' }}\n{class} class >> {} [\n    ^ {}\n]\n",
                 keyword_header(item),
                 render(&doc, "    ", 1)
-            ));
+            );
             out.push_str(&defaults_method(item, class));
             (true, out)
         }
         Ok(doc) => {
             let category = if item.ty == "Dom" { "ui" } else { "styles" };
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 "{{ #category : '{category}' }}\n{class} class >> {name} [\n    ^ {}\n]\n",
                 render(&doc, "    ", 1)
-            ));
+            );
             (true, out)
         }
         Err(reason) => {
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 "\"{name}: not expressible with the Smalltalk bindings: {}\"\n",
                 reason.replace('"', "''")
-            ));
+            );
             (false, out)
         }
     }
@@ -484,10 +488,11 @@ impl CodegenBackend for Smalltalk {
             out.push_str(&item_method(m, item).1);
         }
         if let Some(lib) = &m.library {
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 "\n\"{}\"\n",
                 registration_note(lib, NO_CALLBACKS).join("\n").replace('"', "''")
-            ));
+            );
         }
         out
     }
@@ -515,10 +520,11 @@ impl CodegenBackend for Smalltalk {
         );
         for item in m.items.iter().filter(|i| item_method(m, i).0) {
             let name = method_name(item);
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "Transcript show: '{name}: ', AzulStyles {name} len printString, ' \
                  properties'; cr.\n"
-            ));
+            );
         }
         vec![
             GeneratedFile {

@@ -275,23 +275,25 @@ fn odin_params(item: &Item) -> (String, String) {
 fn item_fn(item: &Item) -> (bool, String) {
     let mut out = String::new();
     for line in &item_comments(&Odin, item) {
-        out.push_str(&format!("// {line}\n"));
+        let _ = writeln!(out, "// {line}");
     }
     let name = item.name.snake();
     match item_doc(&Odin, item) {
         Ok(doc) => {
             let (sig, unused) = odin_params(item);
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 "{name} :: proc({sig}) -> azul.Az{} {{\n{unused}\treturn {}\n}}\n",
                 item.ty,
                 render(&doc, "\t", 1)
-            ));
+            );
             (true, out)
         }
         Err(reason) => {
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 "// {name}: not expressible with the Odin bindings: {reason}\n"
-            ));
+            );
             (false, out)
         }
     }
@@ -580,13 +582,14 @@ impl CodegenBackend for Odin {
         for item in m.items.iter().filter(|i| item_fn(i).0) {
             let name = item.name.snake();
             if item.ty == "Dom" {
-                main.push_str(&format!("\t_ = {name}()\n\tfmt.println(\"{name}: built\")\n"));
+                let _ = write!(main, "\t_ = {name}()\n\tfmt.println(\"{name}: built\")\n");
                 continue;
             }
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "\t{name}_value := {name}()\n\tfmt.println(\"{name}:\", {name}_value.len, \
                  \"properties\")\n"
-            ));
+            );
         }
         main.push_str("}\n");
         vec![

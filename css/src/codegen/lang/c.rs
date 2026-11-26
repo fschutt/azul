@@ -19,6 +19,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use crate::codegen::{
     doc::{render, Doc},
@@ -254,15 +255,16 @@ fn c_param_type(ty: &str) -> String {
 fn item_fn(item: &Item) -> String {
     let mut out = String::new();
     for line in &item_comments(&C, item) {
-        out.push_str(&format!("/* {} */\n", block_comment_safe(line)));
+        let _ = writeln!(out, "/* {} */", block_comment_safe(line));
     }
     let body = render(&expr_doc_top(&C, &item.value), "    ", 1);
     let (sig, unused) = c_params(item, &c_param_type);
-    out.push_str(&format!(
+    let _ = write!(
+        out,
         "static Az{} {}({sig}) {{\n{unused}    return {body};\n}}\n",
         item.ty,
         item.name.snake()
-    ));
+    );
     out
 }
 
@@ -368,15 +370,16 @@ impl CodegenBackend for C {
         for item in &m.items {
             // the local must not shadow the function it is initialised from
             let name = item.name.snake();
-            main.push_str(&format!("    Az{} {name}_value = {name}();\n", item.ty));
+            let _ = writeln!(main, "    Az{} {name}_value = {name}();", item.ty);
             if item.ty.ends_with("Vec") {
-                main.push_str(&format!(
+                let _ = write!(
+                    main,
                     "    printf(\"{name}: %zu properties\\n\", {name}_value.len);\n"
-                ));
+                );
             } else {
-                main.push_str(&format!("    printf(\"{name}: built\\n\");\n"));
+                let _ = write!(main, "    printf(\"{name}: built\\n\");\n");
             }
-            main.push_str(&format!("    Az{}_delete(&{name}_value);\n", item.ty));
+            let _ = writeln!(main, "    Az{}_delete(&{name}_value);", item.ty);
         }
         main.push_str("    return 0;\n}\n");
         vec![

@@ -29,6 +29,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use super::linear::{item_blocker, linear_comments, lower_to_statements, LinearSyntax};
 use crate::codegen::{
@@ -372,24 +373,27 @@ fn item_program(item: &Item) -> (bool, String) {
     for line in linear_comments(item, &st) {
         out.push_str(&comment(&line));
     }
-    out.push_str(&format!(
+    let _ = write!(
+        out,
         "IDENTIFICATION DIVISION.\nPROGRAM-ID. {id}.\nDATA DIVISION.\nWORKING-STORAGE \
          SECTION.\nCOPY \"azul.cpy\".\n"
-    ));
+    );
     for (n, t) in &st.decls {
         out.push_str(&declaration(n, t));
     }
-    out.push_str(&format!(
+    let _ = write!(
+        out,
         "LINKAGE SECTION.\n01  ls-result USAGE {}.\nPROCEDURE DIVISION USING ls-result.\n",
         typedef(&item.ty)
-    ));
+    );
     for s in &st.body {
-        out.push_str(&format!("    {s}\n"));
+        let _ = writeln!(out, "    {s}");
     }
-    out.push_str(&format!(
+    let _ = write!(
+        out,
         "    MOVE {} TO ls-result\n    GOBACK.\nEND PROGRAM {id}.\n",
         st.result
-    ));
+    );
     (true, out)
 }
 
@@ -432,16 +436,17 @@ impl CodegenBackend for Cobol {
              DIVISION.\nWORKING-STORAGE SECTION.\nCOPY \"azul.cpy\".\n",
         );
         for (i, item) in built.iter().enumerate() {
-            main.push_str(&format!("01  ws-value-{} USAGE {}.\n", i + 1, typedef(&item.ty)));
+            let _ = writeln!(main, "01  ws-value-{} USAGE {}.", i + 1, typedef(&item.ty));
         }
         main.push_str("PROCEDURE DIVISION.\n");
         for (i, item) in built.iter().enumerate() {
             let id = program_id(item);
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "    CALL \"{id}\" USING BY REFERENCE ws-value-{} END-CALL\n    DISPLAY \"{id}: \
                  built\"\n",
                 i + 1
-            ));
+            );
         }
         main.push_str("    STOP RUN.\nEND PROGRAM MAIN-STYLES.\n");
         vec![

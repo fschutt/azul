@@ -30,6 +30,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use super::linear::{item_blocker, linear_comments, lower_to_statements, LinearSyntax};
 use crate::codegen::{
@@ -413,32 +414,32 @@ fn item_fn(item: &Item) -> (bool, String) {
     let st = lower_to_statements(&Fortran, &item.value);
     let mut out = String::new();
     for line in linear_comments(item, &st) {
-        out.push_str(&format!("  ! {line}\n"));
+        let _ = writeln!(out, "  ! {line}");
     }
     let params: Vec<String> = item.params.iter().map(|p| f_param(&p.name)).collect();
-    out.push_str(&format!("  function {name}({}) result(r)\n", params.join(", ")));
+    let _ = writeln!(out, "  function {name}({}) result(r)", params.join(", "));
     for p in &item.params {
         let ty = if p.ty == "String" {
             "character(len=*)".to_string()
         } else {
             format!("type(Az{})", p.ty)
         };
-        out.push_str(&format!("    {ty}, intent(in) :: {}\n", f_param(&p.name)));
+        let _ = writeln!(out, "    {ty}, intent(in) :: {}", f_param(&p.name));
     }
-    out.push_str(&format!("    type(Az{}) :: r\n", item.ty));
+    let _ = writeln!(out, "    type(Az{}) :: r", item.ty);
     for (n, t) in &st.decls {
         match t.strip_prefix("ARRAY ") {
             Some(rest) => {
                 let (len, ty) = rest.split_once(' ').unwrap_or((rest, ""));
-                out.push_str(&format!("    {ty}, target :: {n}({len})\n"));
+                let _ = writeln!(out, "    {ty}, target :: {n}({len})");
             }
-            None => out.push_str(&format!("    {t} :: {n}\n")),
+            None => { let _ = write!(out, "    {t} :: {n}\n"); },
         }
     }
     for s in &st.body {
-        out.push_str(&format!("    {s}\n"));
+        let _ = writeln!(out, "    {s}");
     }
-    out.push_str(&format!("    r = {}\n  end function {name}\n", st.result));
+    let _ = write!(out, "    r = {}\n  end function {name}\n", st.result);
     (true, out)
 }
 
@@ -480,13 +481,13 @@ impl CodegenBackend for Fortran {
         );
         for (ok, name, _) in &fns {
             if *ok {
-                out.push_str(&format!("  public :: {name}\n"));
+                let _ = writeln!(out, "  public :: {name}");
             }
         }
         if let Some(lib) = &m.library {
             out.push('\n');
             for line in registration_note(lib, REGISTRATION_BLOCKER) {
-                out.push_str(&format!("  ! {line}\n"));
+                let _ = writeln!(out, "  ! {line}");
             }
         }
         out.push_str("\ncontains\n");
@@ -494,7 +495,7 @@ impl CodegenBackend for Fortran {
             out.push('\n');
             out.push_str(body);
         }
-        out.push_str(&format!("\nend module {module}\n"));
+        let _ = write!(out, "\nend module {module}\n");
         out
     }
 
@@ -521,23 +522,25 @@ impl CodegenBackend for Fortran {
             main = main.replace("  use azul_styles\n", "  use azul_ui\n");
         }
         for item in &built {
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "  type(Az{}) :: {}_value\n",
                 item.ty,
                 fn_name(item)
-            ));
+            );
         }
         main.push('\n');
         for item in &built {
             let name = fn_name(item);
             if item.ty == "Dom" {
-                main.push_str(&format!("  {name}_value = {name}()\n  print '(A)', '{name}: built'\n"));
+                let _ = write!(main, "  {name}_value = {name}()\n  print '(A)', '{name}: built'\n");
                 continue;
             }
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "  {name}_value = {name}()\n  print '(A, I0, A)', '{name}: ', {name}_value%len_, \
                  ' properties'\n"
-            ));
+            );
         }
         main.push_str("end program main\n");
         vec![

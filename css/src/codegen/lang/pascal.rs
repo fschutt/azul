@@ -155,30 +155,31 @@ fn item_fn(item: &Item) -> (String, String) {
     let decl = format!("function {name}: {ty};");
     let mut out = String::new();
     if let Some(reason) = item_blocker(&Pascal, item) {
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "{{ not expressible with the Pascal bindings: {} }}\n{decl}\nbegin\n  \
              FillChar(Result, SizeOf(Result), 0);\nend;\n",
             reason.replace('}', ")")
-        ));
+        );
         return (decl, out);
     }
     let st = lower_to_statements(&Pascal, &item.value);
     for line in linear_comments(item, &st) {
-        out.push_str(&format!("{{ {} }}\n", line.replace('}', ")")));
+        let _ = writeln!(out, "{{ {} }}", line.replace('}', ")"));
     }
     out.push_str(&decl);
     out.push('\n');
     if !st.decls.is_empty() {
         out.push_str("var\n");
         for (n, t) in &st.decls {
-            out.push_str(&format!("  {n}: {t};\n"));
+            let _ = writeln!(out, "  {n}: {t};");
         }
     }
     out.push_str("begin\n");
     for s in &st.body {
-        out.push_str(&format!("  {s}\n"));
+        let _ = writeln!(out, "  {s}");
     }
-    out.push_str(&format!("  Result := {};\nend;\n", st.result));
+    let _ = write!(out, "  Result := {};\nend;\n", st.result);
     (decl, out)
 }
 
@@ -283,7 +284,7 @@ fn pas_str(s: &str) -> String {
                 out.push('\'');
                 quoted = false;
             }
-            out.push_str(&format!("#${b:02X}"));
+            let _ = write!(out, "#${b:02X}");
         }
     }
     if quoted {
@@ -475,18 +476,20 @@ fn dom_item_fn(item: &Item) -> (String, String) {
     };
     let mut out = String::new();
     for line in &item_comments(&syntax, item) {
-        out.push_str(&format!("{{ {} }}\n", pas_comment(line)));
+        let _ = writeln!(out, "{{ {} }}", pas_comment(line));
     }
     match item_doc(&syntax, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "{decl}\nbegin\n  Result := {};\nend;\n",
             render(&doc, "  ", 1)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "{{ not expressible with the Pascal bindings: {} }}\n{decl}\nbegin\n  Result := \
              nil;\nend;\n",
             pas_comment(&reason)
-        )),
+        ); },
     }
     (decl, out)
 }
@@ -812,14 +815,15 @@ impl CodegenBackend for Pascal {
              }}\nprogram Main;\n\n{{$mode delphi}}\n\nuses Azul, Styles;\n\nvar\n"
         );
         for item in &m.items {
-            main.push_str(&format!("  {}Value: TAz{};\n", item.name.upper_camel(), item.ty));
+            let _ = writeln!(main, "  {}Value: TAz{};", item.name.upper_camel(), item.ty);
         }
         main.push_str("begin\n");
         for item in &m.items {
             let name = item.name.upper_camel();
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "  {name}Value := {name};\n  WriteLn('{name}: ', {name}Value.len, ' properties');\n"
-            ));
+            );
         }
         main.push_str("end.\n");
         vec![

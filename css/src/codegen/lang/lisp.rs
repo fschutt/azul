@@ -29,6 +29,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use crate::codegen::{
     doc::{render, Doc},
@@ -370,7 +371,7 @@ fn fn_name_of(name: &Ident) -> String {
 fn item_fn(item: &Item) -> (bool, String) {
     let mut out = String::new();
     for line in &item_comments(&Lisp, item) {
-        out.push_str(&format!(";; {line}\n"));
+        let _ = writeln!(out, ";; {line}");
     }
     let name = fn_name(item);
     match item_doc(&Lisp, item) {
@@ -381,17 +382,19 @@ fn item_fn(item: &Item) -> (bool, String) {
             } else {
                 format!("  (declare (ignore {}))\n", unused.join(" "))
             };
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 "(defun {name} {}\n{ignore}  {})\n",
                 lambda_list(item),
                 render(&doc, "  ", 1)
-            ));
+            );
             (true, out)
         }
         Err(reason) => {
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 ";; {name}: not expressible with the Common Lisp bindings: {reason}\n"
-            ));
+            );
             (false, out)
         }
     }
@@ -434,10 +437,10 @@ impl CodegenBackend for Lisp {
         );
         for (ok, name, _) in &fns {
             if *ok {
-                out.push_str(&format!(" #:{name}"));
+                let _ = write!(out, " #:{name}");
             }
         }
-        out.push_str(&format!("))\n\n(in-package #:{package})\n"));
+        let _ = write!(out, "))\n\n(in-package #:{package})\n");
         if module_any(m, &|e| matches!(e, Expr::Vec { .. })) {
             out.push('\n');
             out.push_str(HELPERS);
@@ -455,7 +458,7 @@ impl CodegenBackend for Lisp {
         if let Some(lib) = &m.library {
             out.push('\n');
             for line in registration_note(lib, REGISTRATION_BLOCKER) {
-                out.push_str(&format!(";; {line}\n"));
+                let _ = writeln!(out, ";; {line}");
             }
         }
         out
@@ -486,9 +489,10 @@ impl CodegenBackend for Lisp {
         );
         for item in m.items.iter().filter(|i| item_fn(i).0) {
             let name = fn_name(item);
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "\n  (format t \"{name}: ~a properties~%\" (getf ({name}) 'azul-internal::len))"
-            ));
+            );
         }
         main.push_str(")\n");
         vec![

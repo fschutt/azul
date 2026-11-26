@@ -21,6 +21,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use crate::codegen::{
     doc::{render, Doc},
@@ -165,22 +166,24 @@ const CSS_STR: &str = "sub css_str {
 fn item_fn(item: &Item) -> (bool, String) {
     let mut out = String::new();
     for line in &item_comments(&Perl, item) {
-        out.push_str(&format!("# {line}\n"));
+        let _ = writeln!(out, "# {line}");
     }
     let name = item.name.snake();
     let body = native_list(&Perl, &item.value, "[", "]").map_or_else(|| item_doc(&Perl, item), Ok);
     match body {
         Ok(doc) => {
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 "sub {name} {{\n    return {};\n}}\n",
                 render(&doc, "    ", 1)
-            ));
+            );
             (true, out)
         }
         Err(reason) => {
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 "# {name}: not expressible with the Perl bindings: {reason}\n"
-            ));
+            );
             (false, out)
         }
     }
@@ -227,10 +230,11 @@ impl CodegenBackend for Perl {
         );
         for item in m.items.iter().filter(|i| item_fn(i).0) {
             let name = item.name.snake();
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "my ${name} = AzulStyles::{name}();\nprint \"{name}: \", scalar(@${name}), \" \
                  properties\\n\";\n"
-            ));
+            );
         }
         vec![
             GeneratedFile {

@@ -12,6 +12,7 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
+use core::fmt::Write;
 
 pub use super::ir::is_droppable_vec;
 use super::{
@@ -555,7 +556,7 @@ pub fn c_escape(s: &str) -> String {
             b'\r' => out.push_str("\\r"),
             b'\t' => out.push_str("\\t"),
             0x20..=0x7e => out.push(char::from(b)),
-            _ => out.push_str(&format!("\\{b:03o}")),
+            _ => { let _ = write!(out, "\\{b:03o}"); },
         }
     }
     out

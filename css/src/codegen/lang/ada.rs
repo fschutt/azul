@@ -434,21 +434,21 @@ fn item_fn(item: &Item) -> (Option<String>, String) {
     let st = lower_to_statements(&Ada, &item.value);
     let mut out = String::new();
     for line in linear_comments(item, &st) {
-        out.push_str(&format!("   --  {line}\n"));
+        let _ = writeln!(out, "   --  {line}");
     }
-    out.push_str(&format!("   {decl} is\n"));
+    let _ = writeln!(out, "   {decl} is");
     let unused: Vec<String> = unused_params(item).iter().map(|p| ada_param(&p.name)).collect();
     if !unused.is_empty() {
-        out.push_str(&format!("      pragma Unreferenced ({});\n", unused.join(", ")));
+        let _ = writeln!(out, "      pragma Unreferenced ({});", unused.join(", "));
     }
     for (n, t) in &st.decls {
-        out.push_str(&format!("      {n} : {t};\n"));
+        let _ = writeln!(out, "      {n} : {t};");
     }
     out.push_str("   begin\n");
     for s in &st.body {
-        out.push_str(&format!("      {s}\n"));
+        let _ = writeln!(out, "      {s}");
     }
-    out.push_str(&format!("      return {};\n   end {name};\n", st.result));
+    let _ = write!(out, "      return {};\n   end {name};\n", st.result);
     (Some(format!("   {decl};\n")), out)
 }
 
@@ -472,7 +472,7 @@ fn spec_and_body(m: &Module) -> (String, String) {
     if registration.is_some() {
         spec.push_str("with System;\n");
     }
-    spec.push_str(&format!("with Azul; use Azul;\n\npackage {package} is\n\n"));
+    let _ = write!(spec, "with Azul; use Azul;\n\npackage {package} is\n\n");
     for (decl, _) in &fns {
         if let Some(d) = decl {
             spec.push_str(d);
@@ -484,7 +484,7 @@ fn spec_and_body(m: &Module) -> (String, String) {
     if let Some((reg_spec, _)) = &registration {
         spec.push_str(reg_spec);
     }
-    spec.push_str(&format!("\nend {package};\n"));
+    let _ = write!(spec, "\nend {package};\n");
     let strings = m.app.is_some()
         || registration.is_some()
         || module_any(m, &|e| matches!(e, Expr::Str(_) | Expr::Param(_) | Expr::Concat(_)));
@@ -492,7 +492,7 @@ fn spec_and_body(m: &Module) -> (String, String) {
     if strings {
         body.push_str("with Interfaces.C;\n\n");
     }
-    body.push_str(&format!("package body {package} is\n"));
+    let _ = writeln!(body, "package body {package} is");
     if strings {
         body.push('\n');
         body.push_str(TO_AZ_STRING);
@@ -508,16 +508,17 @@ fn spec_and_body(m: &Module) -> (String, String) {
         } else {
             format!("Az_Dom_With_Child (Az_Dom_Create_Body, {root})")
         };
-        body.push_str(&format!(
+        let _ = write!(
+            body,
             "\n   function Layout (Data : Az_RefAny; Info : Az_LayoutCallbackInfo) return Az_Dom \
              is\n      pragma Unreferenced (Data, Info);\n   begin\n      return {value};\n   end \
              Layout;\n"
-        ));
+        );
     }
     if let Some((_, reg_body)) = &registration {
         body.push_str(reg_body);
     }
-    body.push_str(&format!("\nend {package};\n"));
+    let _ = write!(body, "\nend {package};\n");
     (spec, body)
 }
 
@@ -852,18 +853,20 @@ impl CodegenBackend for Ada {
             .collect();
         for item in &built {
             let name = unit_name(item);
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "   {name}_Value : constant Az_{} := Styles.{name};\n",
                 item.ty
-            ));
+            );
         }
         main.push_str("begin\n");
         for item in &built {
             let name = unit_name(item);
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "   Ada.Text_IO.Put_Line\n     (\"{name}:\" & Interfaces.C.size_t'Image \
                  ({name}_Value.Len) & \" properties\");\n"
-            ));
+            );
         }
         if built.is_empty() {
             main.push_str("   null;\n");

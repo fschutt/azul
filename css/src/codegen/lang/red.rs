@@ -17,6 +17,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use crate::codegen::{
     doc::{render, Doc},
@@ -122,23 +123,25 @@ fn item_fn(item: &Item) -> (bool, String) {
     match item_doc(&Red, item) {
         Ok(doc) => {
             for line in &item_comments(&Red, item) {
-                out.push_str(&format!(";; {line}\n"));
+                let _ = writeln!(out, ";; {line}");
             }
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 "{name}: func [return: [Az{}! value]][\n    {}\n]\n",
                 item.ty,
                 render(&doc, "    ", 1)
-            ));
+            );
             (true, out)
         }
         Err(reason) => {
             // one line for the whole style (not one note per property)
             for line in &item.doc {
-                out.push_str(&format!(";; {line}\n"));
+                let _ = writeln!(out, ";; {line}");
             }
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 ";; {name}: not expressible with the Red/System bindings: {reason}\n"
-            ));
+            );
             (false, out)
         }
     }

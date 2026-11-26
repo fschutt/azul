@@ -470,22 +470,24 @@ const fn is_union(e: &Expr) -> bool {
 fn item_fn(item: &Item) -> (bool, String) {
     let mut out = String::new();
     for line in &item_comments(&Racket, item) {
-        out.push_str(&format!(";; {line}\n"));
+        let _ = writeln!(out, ";; {line}");
     }
     let name = fn_name(item);
     match item_doc(&Racket, item) {
         Ok(doc) => {
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 "(define {}\n  {})\n",
                 header(&name, item),
                 render(&doc, "  ", 1)
-            ));
+            );
             (true, out)
         }
         Err(reason) => {
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 ";; {name}: not expressible with the Racket bindings: {reason}\n"
-            ));
+            );
             (false, out)
         }
     }
@@ -523,11 +525,11 @@ impl CodegenBackend for Racket {
         );
         for (ok, name, _) in &fns {
             if *ok {
-                out.push_str(&format!(" {name}"));
+                let _ = write!(out, " {name}");
             }
         }
         if let Some(lib) = &m.library {
-            out.push_str(&format!(" register-{}-library", Ident::from_text(&lib.name).kebab()));
+            let _ = write!(out, " register-{}-library", Ident::from_text(&lib.name).kebab());
         }
         out.push_str(")\n");
         if m.library.is_some() || module_any(m, &|e| matches!(e, Expr::Vec { .. })) {
@@ -589,11 +591,12 @@ impl CodegenBackend for Racket {
         );
         for item in m.items.iter().filter(|i| item_fn(i).0) {
             let name = fn_name(item);
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "\n(define {name}-value ({name}))\n(printf \"{name}: ~a properties~n\" (Az{}-len \
                  {name}-value))\n",
                 item.ty
-            ));
+            );
         }
         vec![
             GeneratedFile {

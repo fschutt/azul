@@ -272,9 +272,9 @@ fn item_fn(item: &Item) -> (bool, String) {
     let st = lower_to_statements(&V, &item.value);
     let mut out = String::new();
     for line in linear_comments(item, &st) {
-        out.push_str(&format!("// {line}\n"));
+        let _ = writeln!(out, "// {line}");
     }
-    out.push_str(&format!("fn {name}({}) azul.Az{} {{\n", v_params(item), item.ty));
+    let _ = writeln!(out, "fn {name}({}) azul.Az{} {{", v_params(item), item.ty);
     // A DOM temporary is declared by its first value (V rejects a zero
     // struct literal of a type with reference fields): `mut` only when a
     // later statement assigns it again.
@@ -286,15 +286,15 @@ fn item_fn(item: &Item) -> (bool, String) {
             let keyword = if assigned.len() > 1 { "mut " } else { "" };
             body[assigned[0]] = format!("{keyword}{n} := {}", &body[assigned[0]][first.len()..]);
         } else if t.starts_with('[') {
-            out.push_str(&format!("\tmut {n} := {t}\n"));
+            let _ = writeln!(out, "\tmut {n} := {t}");
         } else {
-            out.push_str(&format!("\tmut {n} := {t}{{}}\n"));
+            let _ = writeln!(out, "\tmut {n} := {t}{{}}");
         }
     }
     for s in &body {
-        out.push_str(&format!("\t{s}\n"));
+        let _ = writeln!(out, "\t{s}");
     }
-    out.push_str(&format!("\treturn {}\n}}\n", st.result));
+    let _ = write!(out, "\treturn {}\n}}\n", st.result);
     (true, out)
 }
 
@@ -554,13 +554,14 @@ impl CodegenBackend for V {
         for item in m.items.iter().filter(|i| item_fn(i).0) {
             let name = item.name.snake();
             if item.ty == "Dom" {
-                main.push_str(&format!("\t_ := {name}()\n\tprintln('{name}: built')\n"));
+                let _ = write!(main, "\t_ := {name}()\n\tprintln('{name}: built')\n");
                 continue;
             }
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "\t{name}_value := {name}()\n\tprintln('{name}: ${{{name}_value.len}} \
                  properties')\n"
-            ));
+            );
         }
         main.push_str("}\n");
         vec![

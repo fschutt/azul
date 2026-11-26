@@ -119,7 +119,7 @@ fn zig_escape(s: &str) -> String {
             b'\r' => out.push_str("\\r"),
             b'\t' => out.push_str("\\t"),
             0x20..=0x7e => out.push(char::from(b)),
-            _ => out.push_str(&format!("\\x{b:02x}")),
+            _ => { let _ = write!(out, "\\x{b:02x}"); },
         }
     }
     out
@@ -313,7 +313,7 @@ fn azConcat(parts: []const []const u8) C.AzString {
 fn dom_item_fn(item: &Item) -> String {
     let mut out = String::new();
     for line in &item_comments(&Zig, item) {
-        out.push_str(&format!("// {line}\n"));
+        let _ = writeln!(out, "// {line}");
     }
     let name = item.name.lower_camel();
     let params = item
@@ -327,14 +327,16 @@ fn dom_item_fn(item: &Item) -> String {
         .map(|p| format!("    _ = {};\n", zig_param(&p.name)))
         .collect();
     match item_doc(&Zig, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "pub fn {name}({params}) C.Az{} {{\n{unused}    return {};\n}}\n",
             item.ty,
             render(&doc, "    ", 1)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "// not expressible with the Zig bindings: {reason}\n"
-        )),
+        ); },
     }
     out
 }
@@ -552,18 +554,20 @@ fn item_fn(item: &Item) -> String {
     }
     let mut out = String::new();
     for line in &item_comments(&Zig, item) {
-        out.push_str(&format!("// {line}\n"));
+        let _ = writeln!(out, "// {line}");
     }
     let name = item.name.lower_camel();
     match item_doc(&Zig, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "pub fn {name}() C.Az{} {{\n    return {};\n}}\n",
             item.ty,
             render(&doc, "    ", 1)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "// not expressible with the Zig bindings: {reason}\n"
-        )),
+        ); },
     }
     out
 }
@@ -628,10 +632,11 @@ impl CodegenBackend for Zig {
         );
         for item in &m.items {
             let name = item.name.lower_camel();
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "    const {name} = styles.{name}();\n    std.debug.print(\"{name}: {{d}} \
                  properties\\n\", .{{{name}.len}});\n"
-            ));
+            );
         }
         main.push_str("}\n");
         vec![

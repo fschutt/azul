@@ -29,6 +29,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use crate::codegen::{
     doc::{render, Doc},
@@ -200,7 +201,7 @@ impl WrapperDomSyntax for RubyDom {
         for p in parts {
             match p {
                 ConcatPart::Lit(s) => out.push_str(&escape_quoted(s, &['#'], &unicode_braced)),
-                ConcatPart::Param(i) => out.push_str(&format!("#{{{}}}", ruby_param(i))),
+                ConcatPart::Param(i) => { let _ = write!(out, "#{{{}}}", ruby_param(i)); },
             }
         }
         out.push('"');
@@ -225,7 +226,7 @@ fn dom_item_fn(item: &Item) -> String {
     let syntax = WrapperDom(RubyDom);
     let mut out = String::new();
     for line in &item_comments(&syntax, item) {
-        out.push_str(&format!("  # {line}\n"));
+        let _ = writeln!(out, "  # {line}");
     }
     let name = item.name.snake();
     let params = if item.params.is_empty() {
@@ -243,14 +244,16 @@ fn dom_item_fn(item: &Item) -> String {
         format!("({list})")
     };
     match item_doc(&syntax, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "  def self.{name}{params}\n    {}\n  end\n",
             render(&doc, "  ", 2)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "  # not expressible with the Ruby bindings: {reason}\n  def self.{name}{params}\n    \
              nil\n  end\n"
-        )),
+        ); },
     }
     out
 }
@@ -347,18 +350,20 @@ end
 fn item_fn(item: &Item) -> String {
     let mut out = String::new();
     for line in &item_comments(&Ruby, item) {
-        out.push_str(&format!("  # {line}\n"));
+        let _ = writeln!(out, "  # {line}");
     }
     let name = item.name.snake();
     match item_doc(&Ruby, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "  def self.{name}\n    {}\n  end\n",
             render(&doc, "  ", 2)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "  # not expressible with the Ruby bindings: {reason}\n  def self.{name}\n    nil\n  \
              end\n"
-        )),
+        ); },
     }
     out
 }
@@ -394,7 +399,7 @@ impl CodegenBackend for Ruby {
             out.push_str(HELPERS);
             out.push('\n');
         }
-        out.push_str(&format!("module {}\n", module_name(m)));
+        let _ = writeln!(out, "module {}", module_name(m));
         if css {
             out.push_str("  N = Azul::Native\n");
         }
@@ -412,7 +417,7 @@ impl CodegenBackend for Ruby {
         if let Some(lib) = &m.library {
             out.push('\n');
             for line in registration_note(lib, NO_REGISTRATION) {
-                out.push_str(&format!("# {line}\n"));
+                let _ = writeln!(out, "# {line}");
             }
         }
         out
@@ -441,9 +446,10 @@ impl CodegenBackend for Ruby {
         );
         for item in &m.items {
             let name = item.name.snake();
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "\n{name} = AzulStyles.{name}\nputs \"{name}: #{{{name}[:len]}} properties\"\n"
-            ));
+            );
         }
         vec![
             GeneratedFile {

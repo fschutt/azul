@@ -31,6 +31,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use crate::codegen::{
     doc::{render, Doc},
@@ -197,7 +198,7 @@ fn julia_interp(parts: &[ConcatPart<'_>]) -> String {
     for p in parts {
         match p {
             ConcatPart::Lit(s) => out.push_str(&escape_quoted(s, &['$'], &unicode_u4)),
-            ConcatPart::Param(i) => out.push_str(&format!("$({})", julia_param(i))),
+            ConcatPart::Param(i) => { let _ = write!(out, "$({})", julia_param(i)); },
         }
     }
     out.push('"');
@@ -236,7 +237,7 @@ end
 fn dom_item_fn(item: &Item) -> String {
     let mut out = String::new();
     for line in &item_comments(&Julia, item) {
-        out.push_str(&format!("# {line}\n"));
+        let _ = writeln!(out, "# {line}");
     }
     let name = item.name.snake();
     let params = item
@@ -249,13 +250,15 @@ fn dom_item_fn(item: &Item) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     match item_doc(&Julia, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "function {name}({params})\n    {}\nend\n",
             render(&doc, "    ", 1)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "# not expressible with the Julia bindings: {reason}\n"
-        )),
+        ); },
     }
     out
 }
@@ -347,17 +350,19 @@ fn item_fn(item: &Item) -> String {
     }
     let mut out = String::new();
     for line in &item_comments(&Julia, item) {
-        out.push_str(&format!("# {line}\n"));
+        let _ = writeln!(out, "# {line}");
     }
     let name = item.name.snake();
     match item_doc(&Julia, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "function {name}()\n    {}\nend\n",
             render(&doc, "    ", 1)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "# not expressible with the Julia bindings: {reason}\n"
-        )),
+        ); },
     }
     out
 }
@@ -401,7 +406,7 @@ impl CodegenBackend for Julia {
         if let Some(lib) = &m.library {
             out.push('\n');
             for line in registration_note(lib, NO_REGISTRATION) {
-                out.push_str(&format!("# {line}\n"));
+                let _ = writeln!(out, "# {line}");
             }
         }
         out
@@ -427,9 +432,10 @@ impl CodegenBackend for Julia {
         );
         for item in &m.items {
             let name = item.name.snake();
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "\n{name}_value = {name}()\nprintln(\"{name}: \", {name}_value.len, \" properties\")\n"
-            ));
+            );
         }
         vec![
             GeneratedFile {

@@ -29,6 +29,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use crate::codegen::{
     doc::{render, Doc},
@@ -257,7 +258,7 @@ const STR_HELPER: &str = r"proc azStr(s: string): AzString =
 fn dom_item_fn(item: &Item) -> String {
     let mut out = String::new();
     for line in &item_comments(&Nim, item) {
-        out.push_str(&format!("# {line}\n"));
+        let _ = writeln!(out, "# {line}");
     }
     let name = item.name.lower_camel();
     let params = item
@@ -270,14 +271,16 @@ fn dom_item_fn(item: &Item) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     match item_doc(&Nim, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "proc {name}*({params}): Az{} =\n  {}\n",
             item.ty,
             render(&doc, "  ", 1)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "# not expressible with the Nim bindings: {reason}\n"
-        )),
+        ); },
     }
     out
 }
@@ -360,18 +363,20 @@ fn item_fn(item: &Item) -> String {
     }
     let mut out = String::new();
     for line in &item_comments(&Nim, item) {
-        out.push_str(&format!("# {line}\n"));
+        let _ = writeln!(out, "# {line}");
     }
     let name = item.name.lower_camel();
     match item_doc(&Nim, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "proc {name}*(): Az{} =\n  {}\n",
             item.ty,
             render(&doc, "  ", 1)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "# not expressible with the Nim bindings: {reason}\n"
-        )),
+        ); },
     }
     out
 }
@@ -408,7 +413,7 @@ impl CodegenBackend for Nim {
         if let Some(lib) = &m.library {
             out.push('\n');
             for line in registration_note(lib, NO_REGISTRATION) {
-                out.push_str(&format!("# {line}\n"));
+                let _ = writeln!(out, "# {line}");
             }
         }
         out
@@ -433,9 +438,10 @@ impl CodegenBackend for Nim {
         );
         for item in &m.items {
             let name = item.name.lower_camel();
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "\nlet {name}Value = {name}()\necho \"{name}: \", {name}Value.len, \" properties\"\n"
-            ));
+            );
         }
         vec![
             GeneratedFile {

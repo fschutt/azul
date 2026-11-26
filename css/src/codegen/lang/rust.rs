@@ -14,6 +14,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use crate::codegen::{
     doc::{render, Doc},
@@ -182,7 +183,7 @@ fn param_type(ty: &str) -> String {
 fn item_fn(item: &Item) -> String {
     let mut out = String::new();
     for line in &item_comments(&Rust, item) {
-        out.push_str(&format!("/// {line}\n"));
+        let _ = writeln!(out, "/// {line}");
     }
     let body = render(&expr_doc_top(&Rust, &item.value), "    ", 1);
     let params = item
@@ -195,11 +196,12 @@ fn item_fn(item: &Item) -> String {
         .iter()
         .map(|p| format!("    let _ = {};\n", param_ident(&p.name)))
         .collect();
-    out.push_str(&format!(
+    let _ = write!(
+        out,
         "pub fn {}({params}) -> {} {{\n{unused}    {body}\n}}\n",
         item.name.snake(),
         item.ty
-    ));
+    );
     out
 }
 
@@ -268,35 +270,39 @@ fn rust_registration(m: &Module, lib: &LibrarySpec) -> String {
         let item_fn = item.name.snake();
         let sn = Ident::from_text(&c.name).snake();
         let defaults: Vec<String> = item.params.iter().map(|p| format!("{:?}", p.default_text())).collect();
-        s.push_str(&format!(
+        let _ = write!(
+            s,
             "\n/// `{}:{}` with its default arguments.\npub fn {item_fn}_default() -> Dom {{\n    \
              {item_fn}({})\n}}\n",
             lib.name,
             c.name,
             defaults.join(", ")
-        ));
-        s.push_str(&format!(
+        );
+        let _ = write!(
+            s,
             "\nextern \"C\" fn {sn}_render_fn(\n    _def: &ComponentDef,\n    model: \
              &ComponentDataModel,\n    _map: &ComponentMap,\n) -> ResultStyledDomRenderDomError \
              {{\n"
-        ));
+        );
         let mut args: Vec<String> = Vec::new();
         if item.params.is_empty() {
             s.push_str("    let _ = model;\n");
         }
         for p in &item.params {
             let local = format!("arg_{}", p.name.snake());
-            s.push_str(&format!(
+            let _ = write!(
+                s,
                 "    let {local} = model_string(model, {:?}, {:?});\n",
                 p.name.snake(),
                 p.default_text()
-            ));
+            );
             args.push(format!("&{local}"));
         }
-        s.push_str(&format!(
+        let _ = write!(
+            s,
             "    ResultStyledDomRenderDomError::Ok(StyledDom::create_from_dom({item_fn}({})))\n}}\n",
             args.join(", ")
-        ));
+        );
         let fields = if item.params.is_empty() {
             "ComponentDataFieldVec::create()".to_string()
         } else {
@@ -315,7 +321,8 @@ fn rust_registration(m: &Module, lib: &LibrarySpec) -> String {
                 .collect();
             format!("vec![\n{items}            ]\n            .into()")
         };
-        s.push_str(&format!(
+        let _ = write!(
+            s,
             "\nfn {sn}_def() -> ComponentDef {{\n    ComponentDef {{\n        id: \
              ComponentId::create({}, {}),\n        display_name: {},\n        description: {},\n   \
              \x20    // The CSS is applied per node by {item_fn}.\n        css: {},\n        \
@@ -331,10 +338,11 @@ fn rust_registration(m: &Module, lib: &LibrarySpec) -> String {
             az_str(""),
             az_str(&c.data_model),
             az_str(&c.data_model_description),
-        ));
+        );
         defs.push(format!("{sn}_def()"));
     }
-    s.push_str(&format!(
+    let _ = write!(
+        s,
         "\n/// The component library `{}`:\n/// `config.add_component_library({:?}, \
          register_{lsn}_library);`\npub extern \"C\" fn register_{lsn}_library() -> \
          ComponentLibrary {{\n    ComponentLibrary {{\n        name: {},\n        version: {},\n \
@@ -351,7 +359,7 @@ fn rust_registration(m: &Module, lib: &LibrarySpec) -> String {
         } else {
             format!("vec![{}].into()", defs.join(", "))
         },
-    ));
+    );
     if any_params {
         s.push_str(RUST_REGISTRATION_HELPERS);
     }
@@ -408,7 +416,7 @@ impl CodegenBackend for Rust {
             if module == "str" {
                 continue; // strings are spelled `azul::str::String::from(..)`
             }
-            out.push_str(&format!("#[allow(unused_imports)]\nuse azul::{module}::*;\n"));
+            let _ = write!(out, "#[allow(unused_imports)]\nuse azul::{module}::*;\n");
         }
         for item in &m.items {
             out.push('\n');
@@ -452,13 +460,15 @@ impl CodegenBackend for Rust {
         for item in &m.items {
             let name = item.name.snake();
             if item.ty.ends_with("Vec") {
-                main.push_str(&format!(
+                let _ = write!(
+                    main,
                     "    let {name} = styles::{name}();\n    println!(\"{name}: {{}} properties\", {name}.len());\n"
-                ));
+                );
             } else {
-                main.push_str(&format!(
+                let _ = write!(
+                    main,
                     "    let _{name} = styles::{name}();\n    println!(\"{name}: built\");\n"
-                ));
+                );
             }
         }
         main.push_str("}\n");

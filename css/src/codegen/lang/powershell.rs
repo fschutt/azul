@@ -558,22 +558,24 @@ fn ps_registration(m: &Module, lib: &LibrarySpec) -> String {
 fn item_fn(item: &Item) -> (bool, String) {
     let mut out = String::new();
     for line in &item_comments(&PowerShell, item) {
-        out.push_str(&format!("# {line}\n"));
+        let _ = writeln!(out, "# {line}");
     }
     let name = fn_name(item);
     match item_doc(&PowerShell, item) {
         Ok(doc) => {
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 "function {name} {{\n{}    return {}\n}}\n",
                 param_block(item),
                 render(&doc, "    ", 1)
-            ));
+            );
             (true, out)
         }
         Err(reason) => {
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 "# {name}: not expressible with the PowerShell bindings: {reason}\n"
-            ));
+            );
             (false, out)
         }
     }
@@ -647,9 +649,10 @@ impl CodegenBackend for PowerShell {
         for item in m.items.iter().filter(|i| item_fn(i).0) {
             let name = fn_name(item);
             let var = item.name.lower_camel();
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "${var} = {name}\nWrite-Host \"{name}: $(${var}.len) properties\"\n"
-            ));
+            );
         }
         vec![
             GeneratedFile {

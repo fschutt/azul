@@ -26,6 +26,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use crate::codegen::{
     doc::{render, Doc},
@@ -196,7 +197,7 @@ impl WrapperDomSyntax for KotlinDom {
         for p in parts {
             match p {
                 ConcatPart::Lit(s) => out.push_str(&kotlin_str_body(s)),
-                ConcatPart::Param(i) => out.push_str(&format!("${{{}}}", kotlin_param(i))),
+                ConcatPart::Param(i) => { let _ = write!(out, "${{{}}}", kotlin_param(i)); },
             }
         }
         out.push('"');
@@ -220,7 +221,7 @@ fn dom_item_fn(item: &Item) -> String {
     let syntax = WrapperDom(KotlinDom);
     let mut out = String::new();
     for line in &item_comments(&syntax, item) {
-        out.push_str(&format!("// {line}\n"));
+        let _ = writeln!(out, "// {line}");
     }
     let name = item.name.lower_camel();
     let params = item
@@ -233,13 +234,15 @@ fn dom_item_fn(item: &Item) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     match item_doc(&syntax, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "fun {name}({params}): Dom {{\n    return {}\n}}\n",
             render(&doc, "    ", 1)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "// not expressible with the Kotlin bindings: {reason}\nfun {name}({params}): Dom? = null\n"
-        )),
+        ); },
     }
     out
 }
@@ -302,7 +305,7 @@ internal fun azStr(s: String): AzString.ByValue {
 fn item_fn(item: &Item) -> String {
     let mut out = String::new();
     for line in &item_comments(&Kotlin, item) {
-        out.push_str(&format!("// {line}\n"));
+        let _ = writeln!(out, "// {line}");
     }
     let name = item.name.lower_camel();
     let ty = if is_c_like_enum(&item.ty) {
@@ -311,13 +314,15 @@ fn item_fn(item: &Item) -> String {
         format!("Az{}.ByValue", item.ty)
     };
     match item_doc(&Kotlin, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "fun {name}(): {ty} {{\n    return {}\n}}\n",
             render(&doc, "    ", 1)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "// not expressible with the Kotlin bindings: {reason}\nfun {name}(): {ty}? = null\n"
-        )),
+        ); },
     }
     out
 }
@@ -371,7 +376,7 @@ impl CodegenBackend for Kotlin {
         if let Some(lib) = &m.library {
             out.push('\n');
             for line in registration_note(lib, NO_REGISTRATION) {
-                out.push_str(&format!("// {line}\n"));
+                let _ = writeln!(out, "// {line}");
             }
         }
         out
@@ -403,9 +408,10 @@ impl CodegenBackend for Kotlin {
         let mut main = String::from("package com.azul\n\nfun main() {\n");
         for item in &m.items {
             let name = item.name.lower_camel();
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "    val {name}Value = {name}()\n    println(\"{name}: ${{{name}Value.len}} properties\")\n"
-            ));
+            );
         }
         main.push_str("}\n");
         vec![

@@ -26,6 +26,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use crate::codegen::{
     doc::{render, Doc},
@@ -247,7 +248,7 @@ fn dom_item_method(item: &Item) -> String {
     let syntax = WrapperDom(JavaDom);
     let mut out = String::new();
     for line in &item_comments(&syntax, item) {
-        out.push_str(&format!("    // {line}\n"));
+        let _ = writeln!(out, "    // {line}");
     }
     let name = item.name.lower_camel();
     let params = item
@@ -257,14 +258,16 @@ fn dom_item_method(item: &Item) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     match item_doc(&syntax, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "    public static Dom {name}({params}) {{\n        return {};\n    }}\n",
             render(&doc, "    ", 2)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "    // not expressible with the Java bindings: {reason}\n    public static Dom \
              {name}({params}) {{\n        return null;\n    }}\n"
-        )),
+        ); },
     }
     out
 }
@@ -350,7 +353,7 @@ const HELPERS: &str = r"final class AzulCodegen {
 fn item_method(item: &Item) -> String {
     let mut out = String::new();
     for line in &item_comments(&Java, item) {
-        out.push_str(&format!("    // {line}\n"));
+        let _ = writeln!(out, "    // {line}");
     }
     let name = item.name.lower_camel();
     let ty = if is_c_like_enum(&item.ty) {
@@ -359,14 +362,16 @@ fn item_method(item: &Item) -> String {
         format!("Az{}.ByValue", item.ty)
     };
     match item_doc(&Java, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "    public static {ty} {name}() {{\n        return {};\n    }}\n",
             render(&doc, "    ", 2)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "    // not expressible with the Java bindings: {reason}\n    public static {ty} \
              {name}() {{\n        return null;\n    }}\n"
-        )),
+        ); },
     }
     out
 }
@@ -405,9 +410,10 @@ impl CodegenBackend for Java {
                  java.util.function.BiFunction;\nimport java.util.function.Consumer;\n",
             );
         }
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "\npublic final class {class} {{\n    private {class}() {{}}\n"
-        ));
+        );
         for item in &m.items {
             out.push('\n');
             if is_dom_item(item) {
@@ -424,7 +430,7 @@ impl CodegenBackend for Java {
         if let Some(lib) = &m.library {
             out.push('\n');
             for line in registration_note(lib, NO_REGISTRATION) {
-                out.push_str(&format!("// {line}\n"));
+                let _ = writeln!(out, "// {line}");
             }
         }
         out
@@ -453,10 +459,11 @@ impl CodegenBackend for Java {
         );
         for item in &m.items {
             let name = item.name.lower_camel();
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "        AzCssPropertyWithConditionsVec.ByValue {name} = AzulStyles.{name}();\n        \
                  System.out.println(\"{name}: \" + {name}.len + \" properties\");\n"
-            ));
+            );
         }
         main.push_str("    }\n}\n");
         vec![

@@ -355,28 +355,31 @@ fn params_sig(item: &Item) -> String {
 fn item_fn(item: &Item) -> String {
     let mut out = String::new();
     for line in &item_comments(&Crystal, item) {
-        out.push_str(&format!("  # {line}\n"));
+        let _ = writeln!(out, "  # {line}");
     }
     let name = item.name.snake();
     if let Some(list) =
         native_list(&Crystal, &item.value, "[", "] of Azul::CssPropertyWithConditions")
     {
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "  def self.{name} : Array(Azul::CssPropertyWithConditions)\n    {}\n  end\n",
             render(&list, "  ", 2)
-        ));
+        );
         return out;
     }
     match item_doc(&Crystal, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "  def self.{name}{} : Azul::{}\n    {}\n  end\n",
             params_sig(item),
             item.ty,
             render(&doc, "  ", 2)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "  # {name}: not expressible with the Crystal bindings: {reason}\n"
-        )),
+        ); },
     }
     out
 }
@@ -449,11 +452,12 @@ impl CodegenBackend for Crystal {
             let name = item.name.snake();
             let module = module_name(m);
             if item.ty == "Dom" {
-                main.push_str(&format!("{name} = {module}.{name}\nputs \"{name}: built\"\n"));
+                let _ = write!(main, "{name} = {module}.{name}\nputs \"{name}: built\"\n");
             } else {
-                main.push_str(&format!(
+                let _ = write!(
+                    main,
                     "{name} = {module}.{name}\nputs \"{name}: #{{{name}.size}} properties\"\n"
-                ));
+                );
             }
         }
         vec![

@@ -29,6 +29,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use crate::codegen::{
     doc::{render, Doc},
@@ -250,7 +251,7 @@ fn php_joined(parts: &[ConcatPart<'_>]) -> String {
 fn dom_item_fn(item: &Item) -> String {
     let mut out = String::new();
     for line in &item_comments(&PhpDom, item) {
-        out.push_str(&format!("// {line}\n"));
+        let _ = writeln!(out, "// {line}");
     }
     let name = item.name.snake();
     let params = item
@@ -263,15 +264,17 @@ fn dom_item_fn(item: &Item) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     match item_doc(&PhpDom, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "function {name}({params}): \\FFI\\CData\n{{\n    $L = \\Azul\\Azul::lib();\n    return \
              {};\n}}\n",
             render(&doc, "    ", 1)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "// not expressible with the PHP bindings: {reason}\nfunction {name}({params})\n{{\n    \
              return null;\n}}\n"
-        )),
+        ); },
     }
     out
 }
@@ -381,18 +384,20 @@ function azul_str(string $s)
 fn item_fn(item: &Item) -> String {
     let mut out = String::new();
     for line in &item_comments(&Php, item) {
-        out.push_str(&format!("// {line}\n"));
+        let _ = writeln!(out, "// {line}");
     }
     let name = item.name.snake();
     match item_doc(&Php, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "function {name}()\n{{\n    $L = \\Azul\\Azul::lib();\n    return {};\n}}\n",
             render(&doc, "    ", 1)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "// not expressible with the PHP bindings: {reason}\nfunction {name}()\n{{\n    return \
              null;\n}}\n"
-        )),
+        ); },
     }
     out
 }
@@ -434,7 +439,7 @@ impl CodegenBackend for Php {
         if let Some(lib) = &m.library {
             out.push('\n');
             for line in registration_note(lib, NO_REGISTRATION) {
-                out.push_str(&format!("// {line}\n"));
+                let _ = writeln!(out, "// {line}");
             }
         }
         out
@@ -459,9 +464,10 @@ impl CodegenBackend for Php {
         );
         for item in &m.items {
             let name = item.name.snake();
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "\n${name} = {name}();\necho '{name}: ' . ${name}->len . \" properties\\n\";\n"
-            ));
+            );
         }
         vec![
             GeneratedFile {

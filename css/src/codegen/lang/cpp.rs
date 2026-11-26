@@ -18,6 +18,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use super::c::{c_param, C};
 use crate::codegen::{
@@ -220,7 +221,7 @@ fn cpp_param_type(ty: &str) -> String {
 fn item_fn(item: &Item) -> String {
     let mut out = String::new();
     for line in &item_comments(&Cpp, item) {
-        out.push_str(&format!("// {line}\n"));
+        let _ = writeln!(out, "// {line}");
     }
     let body = render(&expr_doc_top(&Cpp, &item.value), "    ", 1);
     let sig = item
@@ -233,11 +234,12 @@ fn item_fn(item: &Item) -> String {
         .iter()
         .map(|p| format!("    (void){};\n", cpp_param(&p.name)))
         .collect();
-    out.push_str(&format!(
+    let _ = write!(
+        out,
         "inline Az{} {}({sig}) {{\n{unused}    return {body};\n}}\n",
         item.ty,
         item.name.snake()
-    ));
+    );
     out
 }
 
@@ -343,15 +345,16 @@ impl CodegenBackend for Cpp {
         let mut main = String::from("#include <cstdio>\n#include \"styles.hpp\"\n\nint main() {\n");
         for item in &m.items {
             let name = item.name.snake();
-            main.push_str(&format!("    Az{} {name}_value = {name}();\n", item.ty));
+            let _ = writeln!(main, "    Az{} {name}_value = {name}();", item.ty);
             if item.ty.ends_with("Vec") {
-                main.push_str(&format!(
+                let _ = write!(
+                    main,
                     "    std::printf(\"{name}: %zu properties\\n\", {name}_value.len);\n"
-                ));
+                );
             } else {
-                main.push_str(&format!("    std::printf(\"{name}: built\\n\");\n"));
+                let _ = write!(main, "    std::printf(\"{name}: built\\n\");\n");
             }
-            main.push_str(&format!("    Az{}_delete(&{name}_value);\n", item.ty));
+            let _ = writeln!(main, "    Az{}_delete(&{name}_value);", item.ty);
         }
         main.push_str("    return 0;\n}\n");
         vec![

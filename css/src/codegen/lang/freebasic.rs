@@ -291,22 +291,22 @@ fn item_fn(item: &Item) -> (bool, String) {
     let st = lower_to_statements(&FreeBasic, &item.value);
     let mut out = String::new();
     for line in linear_comments(item, &st) {
-        out.push_str(&format!("' {line}\n"));
+        let _ = writeln!(out, "' {line}");
     }
-    out.push_str(&format!("Function {name}({}) As Az{}\n", params_decl(item), item.ty));
+    let _ = writeln!(out, "Function {name}({}) As Az{}", params_decl(item), item.ty);
     for (n, t) in &st.decls {
         match t.strip_prefix("ARRAY ") {
             Some(rest) => {
                 let (last, ty) = rest.split_once(' ').unwrap_or((rest, ""));
-                out.push_str(&format!("    Dim {n}(0 To {last}) As {ty}\n"));
+                let _ = writeln!(out, "    Dim {n}(0 To {last}) As {ty}");
             }
-            None => out.push_str(&format!("    Dim {n} As {t}\n")),
+            None => { let _ = write!(out, "    Dim {n} As {t}\n"); },
         }
     }
     for s in &st.body {
-        out.push_str(&format!("    {s}\n"));
+        let _ = writeln!(out, "    {s}");
     }
-    out.push_str(&format!("    Return {}\nEnd Function\n", st.result));
+    let _ = write!(out, "    Return {}\nEnd Function\n", st.result);
     (true, out)
 }
 
@@ -607,16 +607,18 @@ impl CodegenBackend for FreeBasic {
         for item in m.items.iter().filter(|i| item_fn(i).0) {
             let name = fn_name(item);
             if item.ty == "Dom" {
-                main.push_str(&format!(
+                let _ = write!(
+                    main,
                     "Dim {name}Value As AzDom = {name}()\nPrint \"{name}: built\"\n"
-                ));
+                );
                 continue;
             }
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "Dim {name}Value As Az{} = {name}()\nPrint \"{name}: \"; {name}Value.len; \" \
                  properties\"\n",
                 item.ty
-            ));
+            );
         }
         vec![
             GeneratedFile {

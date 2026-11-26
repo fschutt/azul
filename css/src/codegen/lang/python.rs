@@ -20,6 +20,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use crate::codegen::{
     doc::{render, Doc},
@@ -180,7 +181,7 @@ impl ExprSyntax for Python {
 fn item_def(item: &Item) -> String {
     let mut out = String::new();
     for line in &item_comments(&Python, item) {
-        out.push_str(&format!("# {line}\n"));
+        let _ = writeln!(out, "# {line}");
     }
     let name = item.name.snake();
     // Parameters default to the values the item was made with.
@@ -200,18 +201,21 @@ fn item_def(item: &Item) -> String {
     let body = native_list(&Python, &item.value, "[", "]").map_or_else(|| item_doc(&Python, item), Ok);
     match body {
         // A builder chain spans lines: inside parentheses.
-        Ok(doc) if matches!(doc, Doc::Chain { .. }) && doc.is_multiline() => out.push_str(&format!(
+        Ok(doc) if matches!(doc, Doc::Chain { .. }) && doc.is_multiline() => { let _ = write!(
+            out,
             "def {name}({params}):\n    return (\n        {}\n    )\n",
             render(&doc, "    ", 2)
-        )),
-        Ok(doc) => out.push_str(&format!(
+        ); },
+        Ok(doc) => { let _ = write!(
+            out,
             "def {name}({params}):\n    return {}\n",
             render(&doc, "    ", 1)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "def {name}({params}):\n    # not expressible with the Python bindings: {reason}\n    \
              return None\n"
-        )),
+        ); },
     }
     out
 }
@@ -276,13 +280,14 @@ impl CodegenBackend for Python {
             out.push_str(&item_def(item));
         }
         if let Some(lib) = &m.library {
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 "\n# Registering the `{}` library (AppConfig.add_component_library) needs a\n# \
                  ComponentDef whose render function is a native callback, which the Python\n# \
                  bindings cannot build: register it from the Rust, C or C++ export. Each\n# \
                  render_* function above keeps the component's defaults as its keyword defaults.\n",
                 lib.name.replace(['\n', '\r'], " ")
-            ));
+            );
         }
         out
     }
@@ -308,9 +313,10 @@ impl CodegenBackend for Python {
             names.join(", ")
         );
         for name in &names {
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "\n{name}_value = {name}()\nprint(\"{name}: %d properties\" % len({name}_value))\n"
-            ));
+            );
         }
         vec![
             GeneratedFile {
