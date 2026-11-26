@@ -107,6 +107,7 @@ style_shorthands :: proc() -> azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.AzCssPropertyType.FontVariantNumeric)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.AzCssPropertyType.FontVariantLigatures)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.AzCssPropertyType.FontVariantEastAsian)),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.AzCssPropertyType.FontVariantPosition)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.AzCssPropertyType.FontKerning)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.AzCssPropertyType.FontOpticalSizing)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_initial(azul.AzCssPropertyType.FontVariationSettings)),
@@ -119,11 +120,12 @@ style_shorthands :: proc() -> azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontVariantCaps(azul.AzStyleFontVariantCapsValue{Exact = {tag = 6, payload = azul.AzStyleFontVariantCaps.Normal}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontVariantLigatures(azul.AzStyleFontVariantLigaturesValue{Exact = {tag = 6, payload = azul.AzStyleFontVariantLigatures{common = azul.AzStyleFontLigatureChoice.Unset, discretionary = azul.AzStyleFontLigatureChoice.Unset, historical = azul.AzStyleFontLigatureChoice.Unset, contextual = azul.AzStyleFontLigatureChoice.Unset}}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontVariantEastAsian(azul.AzStyleFontVariantEastAsianValue{Exact = {tag = 6, payload = azul.AzStyleFontVariantEastAsian{jis78 = true, jis83 = false, jis90 = false, jis04 = false, simplified = false, traditional = false, full_width = false, proportional_width = false, ruby = false}}})),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontVariantPosition(azul.AzStyleFontVariantPositionValue{Exact = {tag = 6, payload = azul.AzStyleFontVariantPosition.Normal}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontSynthesisWeight(azul.AzStyleFontSynthesisValue{Exact = {tag = 6, payload = azul.AzStyleFontSynthesis.Auto}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontSynthesisStyle(azul.AzStyleFontSynthesisValue{Exact = {tag = 6, payload = azul.AzStyleFontSynthesis.Auto}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontSynthesisSmallCaps(azul.AzStyleFontSynthesisValue{Exact = {tag = 6, payload = azul.AzStyleFontSynthesis.None}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_fontSynthesisPosition(azul.AzStyleFontSynthesisValue{Exact = {tag = 6, payload = azul.AzStyleFontSynthesis.None}})),
-	}[0], 26)
+	}[0], 28)
 }
 
 // CSS: .box
