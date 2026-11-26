@@ -18,6 +18,7 @@ use iroh_mdns_address_lookup::MdnsAddressLookup;
 use super::{
     discovery::{announce_filter, Held, LocalDiscovery, LocalLookup},
     multicast_lock,
+    nearby::Nearby,
 };
 
 /// How often an endpoint asks the local network for peers (and so how long a new peer can stay
@@ -34,6 +35,7 @@ impl LocalDiscovery for MdnsDiscovery {
         endpoint: &Endpoint,
         announce: bool,
         ignored: &Arc<AtomicU64>,
+        nearby: &Arc<Nearby>,
     ) -> Result<Option<Held>, String> {
         // Android's Wi-Fi chip drops multicast unless the app holds this lock; nothing to hold
         // elsewhere. Taken first: a refused lock means nothing would arrive.
@@ -45,7 +47,7 @@ impl LocalDiscovery for MdnsDiscovery {
             .build(endpoint.id())
             .map_err(|e| format!("{e:#}"))?;
         let services = endpoint.address_lookup().map_err(|e| format!("{e:#}"))?;
-        services.add(LocalLookup::new(mdns, ignored.clone()));
+        services.add(LocalLookup::new(mdns, ignored.clone(), nearby.clone()));
         Ok(held)
     }
 }

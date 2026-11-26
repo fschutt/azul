@@ -1,5 +1,6 @@
+use azul_css::AzString;
 #[cfg(az_iroh_engine)]
-use azul_css::{AzString, StringVec};
+use azul_css::StringVec;
 
 use super::*;
 
@@ -8,6 +9,25 @@ fn a_handle_that_is_not_bound_has_no_discovery_status_and_nothing_to_clear() {
     let handle = IrohEndpoint::default();
     assert_eq!(handle.local_discovery_status().as_str(), "");
     assert!(!handle.clear_allowed_peers());
+}
+
+#[test]
+fn a_handle_that_is_not_bound_advertises_nothing_and_has_no_neighbours() {
+    let handle = IrohEndpoint::default();
+    assert!(!handle.set_advertised(AzString::from_const_str("azreview/1;n=Studio Mac")));
+    assert!(handle.nearby_peers().as_ref().is_empty());
+}
+
+#[cfg(az_iroh_engine)]
+#[test]
+fn a_bound_handle_takes_an_advertised_text_and_lists_nobody_without_discovery() {
+    let handle = IrohEndpoint::bind(quiet_config());
+    assert!(handle.is_bound());
+    // switched off: the text is kept for when discovery is on, nothing is announced and nobody is heard
+    assert!(handle.set_advertised(AzString::from_const_str("azreview/1;n=Studio Mac")));
+    assert!(handle.set_advertised(AzString::from_const_str("")));
+    assert!(handle.nearby_peers().as_ref().is_empty());
+    assert_eq!(handle.local_discovery_status().as_str(), "off");
 }
 
 #[cfg(az_iroh_engine)]
@@ -30,7 +50,10 @@ fn next_of(endpoint: &IrohEndpoint, kind: IrohEventKind, errors: &mut Vec<String
             }
             Some(_) => {}
             None => {
-                assert!(std::time::Instant::now() < deadline, "no {kind:?} within 20 s");
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "no {kind:?} within 20 s"
+                );
                 std::thread::sleep(std::time::Duration::from_millis(5));
             }
         }
@@ -59,7 +82,10 @@ fn a_bound_handle_reports_its_discovery_and_goes_back_to_accepting_every_peer() 
                 refused.push(event.text.as_str().to_string());
             }
         }
-        assert!(std::time::Instant::now() < deadline, "the stranger was not refused");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the stranger was not refused"
+        );
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
     assert!(refused[0].contains("not an allowed peer"), "{}", refused[0]);

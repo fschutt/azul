@@ -110,6 +110,14 @@ const LEDGER: &[Row] = &[
         reason: "needs a network that carries multicast between two endpoints of one process; a CI runner's does not (X-EDGE-C-2)",
     },
     Row {
+        file: "dll/src/desktop/extra/iroh/engine_test.rs",
+        test: "two_endpoints_list_each_other_over_real_mdns",
+        kind: Kind::Hardware,
+        id: None,
+        owner: "dll/iroh",
+        reason: "needs a network that carries multicast between two endpoints of one process, and a wait for an announcement to expire; a CI runner's network does not (X-EDGE-C-2)",
+    },
+    Row {
         file: "dll/src/desktop/extra/screencap/dmabuf.rs",
         test: "egl_init_and_query",
         kind: Kind::Hardware,
@@ -348,7 +356,8 @@ const COUNTS: &[(Kind, usize)] = &[
     (Kind::Diagnostic, 5),
     // + the built-in speech recogniser's real-engine test (dll/tests/speech_builtin_engine.rs): 11 -> 12.
     // + the two real-network tests of iroh's local discovery (extra/iroh/engine_test.rs, bonjour_test.rs): 12 -> 14.
-    (Kind::Hardware, 14),
+    // + the listing of the endpoints of the local network over real mDNS (extra/iroh/engine_test.rs): 14 -> 15.
+    (Kind::Hardware, 15),
 ];
 
 /// The crates whose sources are scanned (`src/` and `tests/` of each).

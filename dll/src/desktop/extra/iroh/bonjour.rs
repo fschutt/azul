@@ -35,6 +35,7 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 
 use super::{
     discovery::{Held, LocalDiscovery, LocalLookup},
+    nearby::Nearby,
     dns_wire::{
         assemble, describe_error, host_key, instance_fullname, instance_label, ip_from_sockaddr,
         parse_srv, DOMAIN, SERVICE_TYPE,
@@ -176,9 +177,10 @@ impl LocalDiscovery for BonjourDiscovery {
         endpoint: &Endpoint,
         _announce: bool,
         ignored: &Arc<AtomicU64>,
+        nearby: &Arc<Nearby>,
     ) -> Result<Option<Held>, String> {
         let services = endpoint.address_lookup().map_err(|e| format!("{e:#}"))?;
-        services.add(LocalLookup::new(BonjourLookup, ignored.clone()));
+        services.add(LocalLookup::new(BonjourLookup, ignored.clone(), nearby.clone()));
         Ok(None)
     }
 }
