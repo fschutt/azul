@@ -1808,6 +1808,12 @@ pub const DOM_HAS_FONT_VARIANT_EAST_ASIAN: u64 = 1 << 36;
 /// ONE bit for `font-synthesis-weight`, `-style`, `-small-caps` and `-position`: any of
 /// them with a value other than `auto`.
 pub const DOM_HAS_FONT_SYNTHESIS: u64 = 1 << 37;
+/// The DOM declares `text-wrap` with a value other than its initial one.
+pub const DOM_HAS_TEXT_WRAP: u64 = 1 << 38;
+/// The DOM declares `font-variant-position` with a value other than its initial one.
+pub const DOM_HAS_FONT_VARIANT_POSITION: u64 = 1 << 39;
+/// The DOM declares `text-rendering` with a value other than its initial one.
+pub const DOM_HAS_TEXT_RENDERING: u64 = 1 << 40;
 pub const SCROLLBAR_GUTTER_AUTO: u8 = 0;
 pub const SCROLLBAR_GUTTER_STABLE: u8 = 1;
 pub const SCROLLBAR_GUTTER_BOTH_EDGES: u8 = 2;
@@ -5228,8 +5234,11 @@ mod autotest_generated {
             DOM_HAS_FONT_VARIANT_LIGATURES,
             DOM_HAS_FONT_VARIANT_EAST_ASIAN,
             DOM_HAS_FONT_SYNTHESIS,
+            DOM_HAS_TEXT_WRAP,
+            DOM_HAS_FONT_VARIANT_POSITION,
+            DOM_HAS_TEXT_RENDERING,
         ];
-        assert_eq!(flags.len(), 38, "the word has 38 of its 64 bits taken");
+        assert_eq!(flags.len(), 41, "the word has 41 of its 64 bits taken");
 
         let mut seen = 0u64;
         for f in flags {
