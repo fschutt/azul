@@ -210121,14 +210121,14 @@
                         ],
                         "struct_fields": [
                             {
+                                "trust_roots": {
+                                    "type": "TrustRoots"
+                                },
+                                "allowed_peers": {
+                                    "type": "OptionStringVec"
+                                },
                                 "alpn": {
                                     "type": "String"
-                                },
-                                "relay_mode": {
-                                    "type": "IrohRelayMode"
-                                },
-                                "relay_only": {
-                                    "type": "bool"
                                 },
                                 "relay_url": {
                                     "type": "String"
@@ -210136,17 +210136,20 @@
                                 "secret_key": {
                                     "type": "U8Vec"
                                 },
-                                "trust_roots": {
-                                    "type": "TrustRoots"
+                                "relay_mode": {
+                                    "type": "IrohRelayMode"
                                 },
-                                "allowed_peers": {
-                                    "type": "OptionStringVec"
+                                "max_frame_bytes": {
+                                    "type": "u32"
                                 },
                                 "port": {
                                     "type": "u16"
                                 },
-                                "max_frame_bytes": {
-                                    "type": "u32"
+                                "relay_only": {
+                                    "type": "bool"
+                                },
+                                "local_discovery": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -210301,6 +210304,31 @@
                                     "type": "IrohConfig"
                                 },
                                 "fn_body": "object.with_trust_roots(trust_roots)"
+                            },
+                            "with_local_discovery": {
+                                "doc": [
+                                    "Returns the config with local-network discovery switched on or off. On (the default), the",
+                                    "endpoint finds peers on the local network by their endpoint id alone (mDNS), so a phone",
+                                    "finds a Mac whose address changed without the ticket's saved addresses or a relay, and it",
+                                    "announces itself there: its endpoint id (a public key) and its network addresses, to the",
+                                    "local link only (multicast, never routed; its relay is not announced). Turn it off for a",
+                                    "server or an app that must not announce itself to the network it sits on. An endpoint",
+                                    "that accepts nobody (`with_allowed_peers` with an empty list) only looks and does not",
+                                    "announce, and `relay_only` never uses it. When the network or the OS refuses multicast",
+                                    "the endpoint works without it; `IrohEndpoint::local_discovery_status` says why."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "local_discovery": "bool"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "IrohConfig"
+                                },
+                                "fn_body": "object.with_local_discovery(local_discovery)"
                             }
                         },
                         "repr": "C"
@@ -210816,6 +210844,40 @@
                                     "type": "bool"
                                 },
                                 "fn_body": "object.set_allowed_peers(peers)"
+                            },
+                            "clear_allowed_peers": {
+                                "doc": [
+                                    "Accepts incoming connections from every peer again, from the next connection on: the",
+                                    "list of `with_allowed_peers` or `set_allowed_peers` is cleared (an app that accepts only",
+                                    "its paired devices opens its pairing window this way, and closes it again with",
+                                    "`set_allowed_peers`). Returns false when nothing is bound."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.clear_allowed_peers()"
+                            },
+                            "local_discovery_status": {
+                                "doc": [
+                                    "What local-network discovery does for this endpoint: `off` (switched off by the config,",
+                                    "or `relay_only`), `on`, or `unavailable: <reason>` when the network or the OS refused it",
+                                    "(no multicast, no permission): the endpoint works without it. Empty when nothing is",
+                                    "bound."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "object.local_discovery_status().into()"
                             }
                         },
                         "repr": "C"
