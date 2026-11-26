@@ -2883,3 +2883,7 @@ mod priority_contract {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "api_promises_test.rs"]
+mod promises_tests;

@@ -22,7 +22,8 @@ use azul_appkit::l10n::{t, t_args, Arg};
 
 use crate::{
     whiteboard_app::{Plan, HEADER_PX},
-    whiteboard_export::ExportPictures,
+    whiteboard_export::{ExportPictures, ExportScope},
+    whiteboard_history_ui as history_ui,
     whiteboard_store::Loaded,
     whiteboard_ui::{say, Host, Panel},
 };
@@ -47,6 +48,8 @@ pub enum BoardAction {
     OpenExport,
     /// Where the pictures of the export go.
     Pictures(ExportPictures),
+    /// How much of the history the export holds.
+    Scope(ExportScope),
     CloseExport,
     /// Export the open board as the sheet says: the host asks where.
     Export,
@@ -74,6 +77,8 @@ pub struct Switcher {
     pub pending: Option<BoardAction>,
     /// The export sheet, open: where the pictures go.
     pub export: Option<ExportPictures>,
+    /// How much of the history the export holds.
+    pub export_scope: ExportScope,
     /// A file that was read and waits for the open board to be kept before it becomes a board of its own.
     pub pending_import: Option<Box<Loaded>>,
 }
@@ -140,6 +145,14 @@ impl Panel {
             }
             BoardAction::OpenExport => {
                 self.switcher.export = Some(ExportPictures::default());
+                // The snapshot that is looked at is what is exported, unless another is chosen.
+                self.switcher.export_scope = self.wb.viewing().map_or(ExportScope::History, |v| ExportScope::Snapshot(v.id.clone()));
+                Ok(Plan::default())
+            }
+            BoardAction::Scope(scope) => {
+                if self.switcher.export.is_some() {
+                    self.switcher.export_scope = scope.clone();
+                }
                 Ok(Plan::default())
             }
             BoardAction::Pictures(p) => {
@@ -153,7 +166,10 @@ impl Panel {
                 Ok(Plan::default())
             }
             BoardAction::Export => Ok(match self.switcher.export.take() {
-                Some(pictures) => Plan { export: Some(self.wb.export_request(pictures, None, now)), ..Plan::default() },
+                Some(pictures) => {
+                    let scope = std::mem::take(&mut self.switcher.export_scope);
+                    Plan { export: Some(self.wb.export_request(pictures, scope, None, now)), ..Plan::default() }
+                }
                 None => Plan::default(),
             }),
             BoardAction::Import => Ok(Plan { import: true, ..Plan::default() }),
@@ -269,13 +285,17 @@ pub(crate) fn header_dom(panel: &Panel, host: &Host) -> Dom {
         "__azreview_whiteboard-board-new",
         "font-size: 12px; padding: 1px 8px; margin-left: 4px; flex-shrink: 0;",
     );
-    Dom::create_div()
+    let mut header = Dom::create_div()
         .with_css(format!(
             "display: flex; flex-direction: row; align-items: center; flex-shrink: 0; height: {HEADER_PX}px; \
              padding: 0px 6px; background: system:window-background; border-bottom: 1px solid system:separator;"
         ).as_str())
         .with_child(switcher)
-        .with_child(new)
+        .with_child(new);
+    for b in history_ui::header_buttons(panel, host) {
+        header.add_child(b);
+    }
+    header
 }
 
 /// The list of boards under the header: one row for each, the open one marked.
@@ -365,7 +385,7 @@ pub(crate) fn export_dialog_dom(panel: &Panel, host: &Host, pictures: ExportPict
         Some(a) => t_args("azreview-whiteboard-export-author", &[("author", Arg::from(a))]),
         None => t("azreview-whiteboard-export-author-none"),
     };
-    let paragraph = |text: String| Dom::create_p_with_text(text.as_str()).with_css("margin: 0px 0px 6px 0px; font-size: 11px; color: system:text;");
+    let paragraph = |text: String| Dom::create_p_with_text(text.as_str()).with_css("margin: 0px 0px 6px 0px; font-family: system:ui; font-size: 11px; color: system:text;");
     let choice = |key: &str, chosen: bool, cb: ButtonOnClickCallbackType, id: &str| {
         button(
             &format!("{} {}", if chosen { "\u{25c9}" } else { "\u{25cb}" }, t(key)),
@@ -388,10 +408,11 @@ pub(crate) fn export_dialog_dom(panel: &Panel, host: &Host, pictures: ExportPict
         )
         .with_child(
             Dom::create_p_with_text(t_args("azreview-whiteboard-export-title", &[("name", Arg::from(name))]).as_str())
-                .with_css("margin: 0px 0px 6px 0px; font-size: 12px; font-weight: bold; color: system:text;"),
+                .with_css("margin: 0px 0px 6px 0px; font-family: system:ui; font-size: 12px; font-weight: bold; color: system:text;"),
         )
         .with_child(paragraph(t("azreview-whiteboard-export-what")))
         .with_child(paragraph(author))
+        .with_child(scope_choices(panel, host))
         .with_child(
             Dom::create_div()
                 .with_css("display: flex; flex-direction: column; margin-bottom: 6px;")
@@ -420,6 +441,55 @@ pub(crate) fn export_dialog_dom(panel: &Panel, host: &Host, pictures: ExportPict
         )
 }
 
+/// What the export holds of the history: asked only of a board that has one.
+fn scope_choices(panel: &Panel, host: &Host) -> Dom {
+    let snapshots = panel.wb.history().snapshots.len();
+    let mut box_ = Dom::create_div().with_css("display: flex; flex-direction: column; margin-bottom: 6px;");
+    if snapshots == 0 {
+        return box_.with_css("display: none;");
+    }
+    let chosen = &panel.switcher.export_scope;
+    let choice = |text: String, on: bool, scope: ExportScope, id: &str| {
+        button(
+            &format!("{} {text}", if on { "\u{25c9}" } else { "\u{25cb}" }),
+            &text,
+            RefAny::new(ScopeTap { host: host.clone(), scope }),
+            on_scope,
+            id,
+            "font-size: 11px; padding: 2px 6px; margin-bottom: 2px; text-align: left;",
+        )
+    };
+    box_.add_child(choice(
+        t_args("azreview-whiteboard-export-scope-history", &[("n", Arg::from(snapshots))]),
+        *chosen == ExportScope::History,
+        ExportScope::History,
+        "__azreview_whiteboard-export-scope-history",
+    ));
+    box_.add_child(choice(t("azreview-whiteboard-export-scope-board"), *chosen == ExportScope::Board, ExportScope::Board, "__azreview_whiteboard-export-scope-board"));
+    if let Some(v) = panel.wb.viewing() {
+        box_.add_child(choice(
+            t_args("azreview-whiteboard-export-scope-snapshot", &[("id", Arg::from(v.id.clone()))]),
+            *chosen == ExportScope::Snapshot(v.id.clone()),
+            ExportScope::Snapshot(v.id.clone()),
+            "__azreview_whiteboard-export-scope-snapshot",
+        ));
+    }
+    box_
+}
+
+/// What a scope button carries.
+struct ScopeTap {
+    host: Host,
+    scope: ExportScope,
+}
+
+extern "C" fn on_scope(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some((host, scope)) = data.downcast_ref::<ScopeTap>().map(|t| (t.host.clone(), t.scope.clone())) else {
+        return Update::DoNothing;
+    };
+    act(&host, BoardAction::Scope(scope), &mut info)
+}
+
 /// The field a board's name is typed in (Enter or leaving it keeps the name, Escape drops it).
 fn rename_field(host: &Host, id: &str, name: &str) -> Dom {
     let tag = tap(host, id);
@@ -445,7 +515,7 @@ pub(crate) fn toast_dom(toast: &Toast, host: &Host) -> Dom {
         )
         .with_child(
             Dom::create_p_with_text(toast.text.as_str())
-                .with_css("flex-grow: 1; margin: 0px; font-size: 11px; color: #ffffff; overflow: hidden;"),
+                .with_css("flex-grow: 1; margin: 0px; font-family: system:ui; font-size: 11px; color: #ffffff; overflow: hidden;"),
         );
     if let Some(id) = &toast.undo {
         bar.add_child(button(
@@ -463,7 +533,7 @@ pub(crate) fn toast_dom(toast: &Toast, host: &Host) -> Dom {
 /// The words over the board while its file is read.
 pub(crate) fn loading_dom() -> Dom {
     Dom::create_p_with_text(t("azreview-whiteboard-board-loading").as_str())
-        .with_css("position: absolute; left: 16px; right: 16px; top: 24px; margin: 0px; color: #6b665e; font-size: 12px;")
+        .with_css("position: absolute; left: 16px; right: 16px; top: 24px; margin: 0px; color: #6b665e; font-family: system:ui; font-size: 12px;")
 }
 
 // ---- the clicks
@@ -489,6 +559,10 @@ extern "C" fn on_toggle(mut data: RefAny, _info: CallbackInfo) -> Update {
     host.run(|p| {
         p.switcher.open = !p.switcher.open;
         p.switcher.renaming = None;
+        if p.switcher.open {
+            p.history_ui.list = false;
+            p.history_ui.sheet = None;
+        }
     });
     Update::RefreshDom
 }

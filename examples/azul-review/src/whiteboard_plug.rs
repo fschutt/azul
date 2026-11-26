@@ -46,7 +46,7 @@ use crate::{
     whiteboard_git,
     whiteboard_glue::Flash,
     whiteboard_io,
-    whiteboard_jump::{jump, JumpTarget},
+    whiteboard_jump::{jump, FileView, JumpTarget},
     whiteboard_settings::{self, Settings},
     whiteboard_store::{self, StoreError},
     whiteboard_ui::{self, Host, Key, Panel},
@@ -140,10 +140,25 @@ fn with_panel(app: &mut RefAny, f: &mut dyn FnMut(&mut Panel)) -> bool {
     with_glue(app, |g, _| f(&mut g.panel)).is_some()
 }
 
+/// The panel and the workspace's files as they are now: a snapshot looks for the code the cutouts point at again with them
+/// (the references that moved, changed or went are flagged and recorded).
+fn with_files(app: &mut RefAny, f: &mut dyn FnMut(&mut Panel, &dyn FileView)) -> bool {
+    let mut handle = app.clone();
+    let Some(state) = handle.downcast_ref::<AppState>() else {
+        return false;
+    };
+    let Ok(mut glue) = state.wb.try_borrow_mut() else {
+        return false;
+    };
+    let view = WorkspaceView::new(state.source.clone(), state.root.clone());
+    f(&mut glue.panel, &view);
+    true
+}
+
 /// What the panel's callbacks reach the app through.
 #[must_use]
 pub fn host(app: &RefAny) -> Host {
-    Host { app: app.clone(), with: with_panel, on_jump, on_changed, on_plan }
+    Host { app: app.clone(), with: with_panel, on_jump, on_changed, on_plan, with_files }
 }
 
 /// The panel, for the right of the window: the board as it is now. Nothing (an empty box) when the board is being

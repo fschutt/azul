@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use super::*;
 use crate::{
+    whiteboard_relocate::RefStatus,
     stroke_fixtures as fx,
     whiteboard::{CutoutDraft, CutoutImage, ImageSlot, Item, Source, LIMITS},
     whiteboard_boards::{self as boards, BoardIndex},
@@ -436,6 +437,8 @@ fn a_board_read_with_a_missing_picture_or_a_repair_says_how_many() {
     let loaded = crate::whiteboard_store::Loaded {
         data: crate::whiteboard::BoardData::default(),
         meta: crate::whiteboard_azboard::Meta { modified_ms: 1, ..Default::default() },
+        history: Default::default(),
+        snapshots_left_out: 0,
         left_out: 2,
         unreadable_pictures: 3,
     };
@@ -754,7 +757,7 @@ fn an_export_is_the_board_as_it_is_now_with_its_unkept_changes_and_where_the_fol
     wb.set_repo(Some(repo_facts()));
     drop_a_loop(&mut wb, 1_000);
     assert!(wb.board.needs_save());
-    let req = wb.export_request(ExportPictures::Beside, None, 9_000);
+    let req = wb.export_request(ExportPictures::Beside, ExportScope::default(), None, 9_000);
     assert_eq!(req.data.items.len(), 1, "the change that is not kept yet is in it");
     assert_eq!(req.folder, std::path::PathBuf::from("/work/azul/examples/azul-review/src"));
     assert_eq!((req.meta.board_id.as_str(), req.meta.board_name.as_str(), req.meta.modified_ms), ("b1", "Board 1", 9_000));
@@ -764,7 +767,7 @@ fn an_export_is_the_board_as_it_is_now_with_its_unkept_changes_and_where_the_fol
     assert_eq!(wb.export_file_name(), "Board-1.azboard.json");
     // The folder of a host whose workspace is the folder itself is the workspace.
     let plain = Whiteboard::new("/work/azul");
-    assert_eq!(plain.export_request(ExportPictures::Embedded, None, 1).folder, std::path::PathBuf::from("/work/azul"));
+    assert_eq!(plain.export_request(ExportPictures::Embedded, ExportScope::default(), None, 1).folder, std::path::PathBuf::from("/work/azul"));
 }
 
 fn loaded(name: &str, items: usize, left_out: usize) -> Loaded {
@@ -780,7 +783,14 @@ fn loaded(name: &str, items: usize, left_out: usize) -> Loaded {
         }));
     }
     data.next_id = items as u64 + 1;
-    Loaded { data, meta: crate::whiteboard_azboard::Meta { board_name: name.to_string(), ..Default::default() }, left_out, unreadable_pictures: 0 }
+    Loaded {
+        data,
+        meta: crate::whiteboard_azboard::Meta { board_name: name.to_string(), ..Default::default() },
+        history: Default::default(),
+        snapshots_left_out: 0,
+        left_out,
+        unreadable_pictures: 0,
+    }
 }
 
 #[test]
@@ -841,5 +851,353 @@ fn a_drop_on_the_header_lands_at_the_top_of_the_board_with_the_whole_cutout_in_v
     let c = wb.board.cutout(low.id).expect("the cutout");
     let centre = wb.board.view().to_screen(c.rect.center());
     assert!((centre.y - (400.0 - 30.0 - HEADER_PX)).abs() < 1.0, "{centre:?}");
+}
+
+// ---- the history
+
+/// A cutout dropped on the board with its picture drawn.
+fn drop_with_picture(wb: &mut Whiteboard, now: u64) -> ItemId {
+    let job = drop_a_loop(wb, now);
+    let image = CutoutImage { width: job.plan.px_w, height: job.plan.px_h, scale: 2.0, rgba: vec![255; (job.plan.px_w * job.plan.px_h * 4) as usize], png: vec![0x89, b'P', b'N', b'G'] };
+    assert!(wb.image_ready(job.id, Ok(image)));
+    job.id
+}
+
+fn kept(wb: &mut Whiteboard, now: u64) {
+    let _job = wb.save_job(now).expect("a save");
+    assert!(!wb.save_done(&Ok(())));
+}
+
+#[test]
+fn a_snapshot_is_the_board_as_it_is_with_its_reason_its_tags_and_the_code_it_was_taken_at() {
+    let mut wb = Whiteboard::new("/work/azul");
+    wb.set_repo(Some(repo_facts()));
+    drop_with_picture(&mut wb, 1_000);
+    kept(&mut wb, 2_000);
+    assert!(!wb.needs_save());
+    let id = wb.take_snapshot("  The loop is the parser's front door.\n", "ADR-7, #123", 3_000).expect("a snapshot");
+    assert_eq!(id, "s1");
+    assert!(wb.needs_save(), "a snapshot is a change of the file even when the board is as it was");
+    let s = wb.history().get("s1").expect("s1");
+    assert_eq!((s.parent.as_deref(), s.taken_ms, s.author.as_deref()), (None, 3_000, Some("Ada Lovelace")));
+    assert_eq!(s.why, "The loop is the parser's front door.");
+    assert_eq!(s.tags, vec!["ADR-7", "#123"]);
+    assert_eq!((s.code.rev.as_deref(), s.code.branch.as_deref(), s.code.prefix.as_str()), (Some(REV), Some("main"), "examples/azul-review/src"));
+    assert_eq!(s.summary.counts(), (1, 0, 0, 0), "the first snapshot: everything is new");
+    assert_eq!(s.data.items.len(), 1);
+    assert!(s.verified && crate::whiteboard_hash::is_tagged(&s.hash));
+    assert_eq!(s.pictures.len(), 1, "the picture is kept with it");
+    // It is kept with the board.
+    kept(&mut wb, 4_000);
+    assert!(!wb.needs_save());
+}
+
+#[test]
+fn a_snapshot_waits_for_the_pictures_that_are_being_drawn() {
+    let mut wb = Whiteboard::new("/work/azul");
+    let job = drop_a_loop(&mut wb, 1_000);
+    assert_eq!(wb.snapshot_draft().pending, 1);
+    assert_eq!(wb.take_snapshot("why", "", 2_000).err(), Some(Notice::PicturesPending));
+    assert!(wb.history().is_empty());
+    let image = CutoutImage { width: job.plan.px_w, height: job.plan.px_h, scale: 2.0, rgba: vec![255; (job.plan.px_w * job.plan.px_h * 4) as usize], png: vec![1] };
+    assert!(wb.image_ready(job.id, Ok(image)));
+    assert_eq!(wb.snapshot_draft().pending, 0);
+    assert!(wb.take_snapshot("why", "", 2_000).is_ok());
+}
+
+#[test]
+fn the_next_snapshot_follows_the_last_and_says_what_changed_since() {
+    let mut wb = Whiteboard::new("/work/azul");
+    wb.set_repo(Some(repo_facts()));
+    let first = drop_with_picture(&mut wb, 1_000);
+    wb.take_snapshot("one", "", 2_000).expect("s1");
+    // The board as it is now has nothing a snapshot would not hold.
+    assert!(wb.snapshot_draft().summary.is_empty());
+    assert_eq!(wb.snapshot_draft().parent.as_deref(), Some("s1"));
+    let second = drop_with_picture(&mut wb, 30_000);
+    wb.board.set_label(first, "the first").expect("a label");
+    let draft = wb.snapshot_draft();
+    assert_eq!(draft.summary.counts(), (1, 0, 0, 1), "one added, the first relabelled");
+    wb.take_snapshot("two: a second box and a name for the first", "", 31_000).expect("s2");
+    let s2 = wb.history().get("s2").expect("s2");
+    assert_eq!(s2.parent.as_deref(), Some("s1"));
+    assert_eq!(s2.summary.added.iter().map(|b| b.id).collect::<Vec<_>>(), vec![second]);
+    assert_eq!(wb.history().parent_of("s2").map(|s| s.id.as_str()), Some("s1"));
+    assert_eq!(wb.history().next_id(), "s3");
+}
+
+#[test]
+fn the_history_is_kept_with_the_board_and_comes_back_with_it_checked() {
+    let mut wb = Whiteboard::new("/work/azul");
+    wb.set_repo(Some(repo_facts()));
+    let _ = wb.index_loaded(None, false, "Board 1", 500);
+    wb.loaded_none();
+    drop_with_picture(&mut wb, 1_000);
+    wb.take_snapshot("first reason", "t1", 2_000).expect("s1");
+    drop_with_picture(&mut wb, 30_000);
+    wb.take_snapshot("second reason", "", 31_000).expect("s2");
+    let job = wb.save_job(40_000).expect("a save");
+    // What a restart reads: the entries of the zip, read by the store.
+    let manifest = job.entries.iter().find(|e| e.name == store::MANIFEST).expect("the manifest").bytes.clone();
+    let pictures: std::collections::BTreeMap<String, Vec<u8>> = job.entries.iter().map(|e| (e.name.clone(), e.bytes.clone())).collect();
+    struct Png;
+    impl store::ImageCodec for Png {
+        fn decode_png(&self, png: &[u8]) -> Result<DecodedPng, String> {
+            Ok(DecodedPng { width: 2, height: 2, rgba: vec![255; 16 + png.len() * 0] })
+        }
+    }
+    let loaded = store::read(&manifest, &|n| pictures.get(n).cloned(), &Png, &LIMITS).expect("read");
+    assert_eq!(loaded.history.snapshots.len(), 2);
+    assert!(loaded.history.snapshots.iter().all(|s| s.verified));
+    assert_eq!(loaded.history.snapshots[1].why, "second reason");
+    let mut fresh = Whiteboard::new("/work/azul");
+    let _ = fresh.index_loaded(None, false, "Board 1", 500);
+    fresh.loaded(Ok(loaded), None, 50_000);
+    assert_eq!(fresh.history().snapshots.len(), 2);
+    assert!(!fresh.needs_save(), "what was read is what is on disk");
+    assert_eq!(fresh.history().latest().map(|s| s.id.as_str()), Some("s2"));
+}
+
+#[test]
+fn a_snapshot_is_looked_at_read_only_in_place_of_the_board() {
+    let mut wb = Whiteboard::new("/work/azul");
+    let a = drop_with_picture(&mut wb, 1_000);
+    wb.take_snapshot("one", "", 2_000).expect("s1");
+    let b = drop_with_picture(&mut wb, 30_000);
+    assert_eq!(wb.board.len(), 2);
+    assert_eq!(wb.view_snapshot("nope").err(), Some(Notice::NoSuchSnapshot));
+    wb.view_snapshot("s1").expect("viewing");
+    assert_eq!(wb.display().len(), 1, "the snapshot has the one cutout");
+    assert!(wb.display().cutout(a).is_some() && wb.display().cutout(b).is_none());
+    assert_eq!(wb.board.len(), 2, "the board is untouched");
+    assert_eq!(wb.viewing().map(|v| v.id.as_str()), Some("s1"));
+    // Its view can be panned; the board's is not.
+    let before = wb.board.view();
+    wb.display_mut().set_view(crate::whiteboard_geom::View { pan: Pt::new(40.0, 30.0), zoom: 1.5 });
+    assert_eq!(wb.display().view().zoom, 1.5);
+    assert_eq!(wb.board.view(), before);
+    wb.back_to_live();
+    assert!(wb.viewing().is_none());
+    assert_eq!(wb.display().len(), 2);
+}
+
+#[test]
+fn a_snapshot_set_against_its_parent_shows_what_was_taken_off_as_what_the_parent_had() {
+    let mut wb = Whiteboard::new("/work/azul");
+    let a = drop_with_picture(&mut wb, 1_000);
+    let b = drop_with_picture(&mut wb, 30_000);
+    wb.take_snapshot("both", "", 31_000).expect("s1");
+    let removed = wb.board.cutouts().find(|c| c.id == b).map(|c| c.id).expect("b");
+    wb.board.remove(removed).expect("removed");
+    wb.board.move_live(a, Pt::new(500.0, 300.0));
+    assert!(wb.board.commit_live());
+    wb.take_snapshot("b went, a moved", "", 40_000).expect("s2");
+    wb.view_snapshot("s2").expect("viewing");
+    assert!(wb.viewing().is_some_and(|v| v.compare.is_none()));
+    wb.set_compare(true);
+    let compare = wb.viewing().and_then(|v| v.compare.clone()).expect("a comparison");
+    assert_eq!(compare.against.as_deref(), Some("s1"));
+    assert_eq!(compare.summary.removed.iter().map(|b| b.id).collect::<Vec<_>>(), vec![b]);
+    assert_eq!(compare.removed.iter().map(Item::id).collect::<Vec<_>>(), vec![b], "the parent's item, to be drawn as a ghost");
+    assert_eq!(compare.summary.moved.iter().map(|m| m.id).collect::<Vec<_>>(), vec![a], "and the first one moved");
+    wb.set_compare(false);
+    assert!(wb.viewing().is_some_and(|v| v.compare.is_none()));
+    // The first snapshot has no parent: everything in it is new.
+    wb.view_snapshot("s1").expect("viewing");
+    wb.set_compare(true);
+    let first = wb.viewing().and_then(|v| v.compare.clone()).expect("a comparison");
+    assert_eq!((first.against, first.summary.added.len(), first.removed.len()), (None, 2, 0));
+}
+
+#[test]
+fn restoring_makes_the_old_state_a_new_snapshot_and_loses_nothing() {
+    let mut wb = Whiteboard::new("/work/azul");
+    let a = drop_with_picture(&mut wb, 1_000);
+    wb.take_snapshot("just a", "", 2_000).expect("s1");
+    let b = drop_with_picture(&mut wb, 30_000);
+    wb.take_snapshot("a and b", "", 31_000).expect("s2");
+    // A change that no snapshot holds: the board's first cutout gets a label.
+    wb.board.set_label(a, "unsnapshotted").expect("a label");
+    let next_before = wb.board.snapshot().next_id;
+    let id = wb.restore_snapshot("s1", "back to just a", "ADR-9", 50_000).expect("restored");
+    assert_eq!(id, "s4", "s3 holds what the board was before, s4 is the restored state");
+    assert_eq!(wb.history().snapshots.len(), 4);
+    let before = wb.history().get("s3").expect("s3");
+    assert!(before.why.contains("before it was restored to snapshot s1"), "{}", before.why);
+    assert_eq!(before.data.items.len(), 2, "what the board was, with its unsnapshotted label");
+    let restored = wb.history().get("s4").expect("s4");
+    assert_eq!((restored.parent.as_deref(), restored.why.as_str(), restored.tags.clone()), (Some("s3"), "back to just a", vec!["ADR-9".to_string()]));
+    assert_eq!(restored.data.items.len(), 1);
+    assert_eq!(wb.board.len(), 1, "the board is the snapshot's state");
+    assert!(wb.board.cutout(b).is_none() && wb.board.cutout(a).is_some_and(|c| c.label.is_empty()), "as s1 had it");
+    assert!(wb.board.snapshot().next_id >= next_before, "ids are never given twice, restored or not");
+    assert!(wb.needs_save());
+    // The snapshots that were there are as they were.
+    assert_eq!(wb.history().get("s1").map(|s| s.data.items.len()), Some(1));
+    assert_eq!(wb.history().get("s2").map(|s| s.data.items.len()), Some(2));
+    // When the board has nothing that is not held, no snapshot of it is made first.
+    wb.restore_snapshot("s2", "again", "", 60_000).expect("restored again");
+    assert_eq!(wb.history().snapshots.len(), 5);
+    assert_eq!(wb.restore_snapshot("nope", "x", "", 1).err(), Some(Notice::NoSuchSnapshot));
+}
+
+#[test]
+fn the_history_is_full_at_the_most_snapshots_and_nothing_is_lost_by_it() {
+    let mut wb = Whiteboard::new("/work/azul");
+    for n in 0..crate::whiteboard_history::MAX_SNAPSHOTS {
+        wb.take_snapshot("x", "", n as u64).unwrap_or_else(|e| panic!("snapshot {n}: {e:?}"));
+    }
+    let err = wb.take_snapshot("one too many", "", 999_999).err();
+    assert!(matches!(err, Some(Notice::HistoryFull { .. })), "{err:?}");
+    assert_eq!(wb.history().snapshots.len(), crate::whiteboard_history::MAX_SNAPSHOTS);
+    assert!(matches!(wb.restore_snapshot("s1", "x", "", 1).err(), Some(Notice::HistoryFull { .. })));
+    assert_eq!(wb.board.len(), 0, "a restore that cannot be made changes nothing");
+}
+
+#[test]
+fn each_board_has_its_own_history_and_the_history_is_not_carried_to_another_board() {
+    let mut wb = Whiteboard::new("/work/azul");
+    let _ = wb.index_loaded(None, false, "Board 1", 500);
+    wb.loaded_none();
+    wb.take_snapshot("on board one", "", 1_000).expect("s1");
+    kept(&mut wb, 2_000);
+    wb.new_board("Board 2", 3_000).expect("a new board");
+    assert!(wb.history().is_empty(), "the new board starts with none");
+    assert!(!wb.needs_save());
+    wb.take_snapshot("on board two", "", 4_000).expect("s1 of board two");
+    assert_eq!(wb.history().get("s1").map(|s| s.why.as_str()), Some("on board two"));
+}
+
+// ---- the code moves on
+
+/// The files of a workspace as lines, for the references to be looked for again in.
+#[derive(Default)]
+struct MemFiles(std::collections::BTreeMap<String, Vec<String>>);
+
+impl crate::whiteboard_jump::FileView for MemFiles {
+    fn file_hash(&self, file: &str) -> Option<u64> {
+        self.0.get(file).map(|l| lines_hash(l))
+    }
+
+    fn line_count(&self, file: &str) -> Option<u32> {
+        self.0.get(file).map(|l| u32::try_from(l.len()).unwrap_or(u32::MAX))
+    }
+
+    fn lines(&self, file: &str, first: u32, last: u32) -> Option<Vec<String>> {
+        let all = self.0.get(file)?;
+        Some(all.get((first.saturating_sub(1) as usize)..(last as usize).min(all.len()))?.to_vec())
+    }
+
+    fn find_block(&self, file: &str, block: &[String], near: u32) -> Option<u32> {
+        crate::whiteboard_jump::find_block_in(self.0.get(file)?, block, near)
+    }
+}
+
+/// `src/lib.rs` with the line the loop circles (line 12) in its place.
+fn lib_rs(above: usize) -> MemFiles {
+    let mut lines: Vec<String> = (1..12).map(|i| format!("    // filler line number {i}")).collect();
+    lines.push(facts().covered[0].clone());
+    lines.extend((13..40).map(|i| format!("    // filler line number {i}")));
+    let mut all: Vec<String> = (0..above).map(|i| format!("    // inserted above {i}")).collect();
+    all.extend(lines);
+    let mut files = MemFiles::default();
+    files.0.insert("src/lib.rs".to_string(), all);
+    files
+}
+
+#[test]
+fn looking_for_the_code_again_follows_what_moved_flags_it_and_the_next_snapshot_records_it() {
+    let mut wb = Whiteboard::new("/work/azul");
+    wb.set_repo(Some(repo_facts()));
+    let id = drop_with_picture(&mut wb, 1_000);
+    // Nothing moved: nothing is flagged, the revision is the one the code is at.
+    assert_eq!(wb.relocate_all(&lib_rs(0)), 0);
+    assert!(wb.flags().is_empty());
+    wb.take_snapshot("first", "", 2_000).expect("s1");
+    // Three lines were put above: the reference follows.
+    let mut newer = repo_facts();
+    newer.rev = Some("2222222222222222222222222222222222222222".to_string());
+    wb.set_repo(Some(newer));
+    assert_eq!(wb.relocate_all(&lib_rs(3)), 1);
+    let c = wb.board.cutout(id).expect("the cutout");
+    assert_eq!((c.source.first_line, c.source.last_line), (15, 15), "it points at the new place");
+    assert_eq!(c.source.rev, "2222222222222222222222222222222222222222", "and names the revision the code is at");
+    let flag = wb.flags().get(&id).expect("flagged");
+    assert_eq!((flag.status, flag.from, flag.to), (RefStatus::Moved, (12, 12), (15, 15)));
+    assert_eq!(wb.snapshot_draft().references.len(), 1, "the sheet says so");
+    // Looking again does not lose the flag, and it still says where the reference first was.
+    assert_eq!(wb.relocate_all(&lib_rs(3)), 1);
+    assert_eq!(wb.flags().get(&id).map(|f| (f.from, f.to)), Some(((12, 12), (15, 15))));
+    // The snapshot records it, and what it recorded is flagged no more.
+    wb.take_snapshot("the code moved", "", 3_000).expect("s2");
+    let s2 = wb.history().get("s2").expect("s2");
+    assert_eq!(s2.summary.references, vec![RefChange { id, status: RefStatus::Moved, from: (12, 12), to: (15, 15) }]);
+    assert_eq!(s2.summary.changed.iter().map(|c| (c.id, c.what.clone())).collect::<Vec<_>>(), vec![(id, vec!["reference"])]);
+    assert!(wb.flags().is_empty());
+    // A reference whose code is gone is flagged and left as it was.
+    assert_eq!(wb.relocate_all(&MemFiles::default()), 1);
+    assert_eq!(wb.flags().get(&id).map(|f| f.status), Some(RefStatus::Vanished));
+    assert_eq!(wb.board.cutout(id).map(|c| c.source.first_line), Some(15), "the place it had");
+}
+
+#[test]
+fn the_code_moved_on_is_told_when_the_revision_differs_from_the_last_snapshot_s() {
+    let mut wb = Whiteboard::new("/work/azul");
+    assert_eq!(wb.head_moved(), None, "no repository");
+    wb.set_repo(Some(repo_facts()));
+    assert_eq!(wb.head_moved(), None, "no snapshot to have moved from");
+    wb.take_snapshot("first", "", 1_000).expect("s1");
+    assert_eq!(wb.head_moved(), None, "the code is where the snapshot is");
+    let mut newer = repo_facts();
+    newer.rev = Some("2222222222222222222222222222222222222222".to_string());
+    wb.set_repo(Some(newer));
+    assert_eq!(wb.head_moved(), Some((REV.to_string(), "2222222222222222222222222222222222222222".to_string())));
+    wb.take_snapshot("second", "", 2_000).expect("s2");
+    assert_eq!(wb.head_moved(), None, "a snapshot at the new revision answers it");
+    let mut none = repo_facts();
+    none.rev = None;
+    wb.set_repo(Some(none));
+    assert_eq!(wb.head_moved(), None, "no revision known: nothing to say");
+}
+
+#[test]
+fn the_history_is_full_at_the_most_text_too_so_that_the_boards_file_stays_one_that_can_be_read() {
+    let mut wb = Whiteboard::new("/work/azul");
+    // 40 cutouts, each with the most code a cutout keeps (200 lines of 300 characters): about 2.4 MB of text a snapshot.
+    for i in 0..40 {
+        let source = Source {
+            rev: String::new(),
+            sha256: String::new(),
+            file: format!("src/f{i}.rs"),
+            page: 0,
+            first_line: 1,
+            last_line: 200,
+            shape: Vec::new(),
+            file_hash: 1,
+            range_hash: 2,
+            lines: (0..200).map(|n| format!("{n:04} {}", "x".repeat(290))).collect(),
+        };
+        let image = Arc::new(CutoutImage { width: 2, height: 2, scale: 2.0, rgba: vec![255; 16], png: vec![1] });
+        wb.board.add_cutout(CutoutDraft::ready(Pt::new(i as f32 * 300.0, 0.0), image, source)).expect("room");
+    }
+    let mut taken = 0;
+    let err = loop {
+        match wb.take_snapshot("heavy", "", taken) {
+            Ok(_) => taken += 1,
+            Err(e) => break e,
+        }
+        assert!(taken < 20, "the text of the history was never counted");
+    };
+    assert!(matches!(err, Notice::HistoryFull { megabytes: 12, .. }), "{err:?}");
+    assert!(wb.history().bytes() <= crate::whiteboard_history::MAX_HISTORY_BYTES);
+    assert!((4..=6).contains(&taken), "{taken} snapshots of about 2.4 MB");
+    // The file that is written is one that can be read again.
+    let job = wb.save_job(99).expect("a save");
+    let manifest = job.entries.iter().find(|e| e.name == store::MANIFEST).expect("the manifest");
+    assert!(manifest.bytes.len() < crate::whiteboard_json::MAX_TEXT, "{} bytes", manifest.bytes.len());
+    // A restore that does not fit changes nothing.
+    let before = wb.board.len();
+    assert!(matches!(wb.restore_snapshot("s1", "no room", "", 100).err(), Some(Notice::HistoryFull { .. })));
+    assert_eq!((wb.board.len(), wb.history().snapshots.len()), (before, taken as usize));
 }
 

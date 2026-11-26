@@ -419,6 +419,8 @@ pub struct Recorder {
     deps: Deps,
     state: State,
     session: Option<Session>,
+    /// The video encoder was asked to get ready ([`CodecFactory::warm_up`]): once for the recorder's life.
+    warmed: bool,
 }
 
 /// How often the disk is asked, microseconds.
@@ -435,6 +437,7 @@ impl Recorder {
             deps,
             state: State::Idle,
             session: None,
+            warmed: false,
         }
     }
 
@@ -486,6 +489,13 @@ impl Recorder {
         if let DiskState::Full = disk_state((self.deps.free_bytes)(&req.recordings_dir), s.min_free_bytes) {
             let free = (self.deps.free_bytes)(&req.recordings_dir).unwrap_or(0);
             return Err(StartError::DiskFull { free, min_free: s.min_free_bytes });
+        }
+        // The video encoder gets ready while the camera and the screen are still starting: the first picture is a
+        // second or more away, and the first session of a hardware encoder is a few hundred milliseconds that the
+        // window's thread would otherwise spend at that picture. Once; a start that is refused above warms nothing.
+        if (s.screen || s.camera) && !self.warmed {
+            self.warmed = true;
+            self.deps.factory.warm_up();
         }
         let unix_ms = (self.deps.unix_ms)();
         let clock = (self.deps.make_clock)(unix_ms);
