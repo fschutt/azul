@@ -1526,6 +1526,29 @@ struct SheetStrip {
     app: RefAny,
 }
 
+/// Which pages the strip builds for a window `viewport_w` wide scrolled `scroll_x` (px of the screen, whatever the zoom) when the pages are
+/// drawn at `zoom`, of `total` pages: the first (one before the first in view, so that a page is there before it comes in), how many, and
+/// the page that is leftmost.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct StripWindow {
+    pub first: usize,
+    pub count: usize,
+    pub leftmost: usize,
+}
+
+/// The pages the strip builds, see [`StripWindow`]. At a zoom of 1 this is what it always was; a page is `page_stride() * zoom` of the screen
+/// at another zoom.
+pub(crate) fn strip_window(scroll_x: f32, viewport_w: f32, zoom: f32, total: usize) -> StripWindow {
+    let zoom = if zoom.is_finite() && zoom > 0.0 { zoom } else { 1.0 };
+    let stride_on_screen = page_stride() * zoom;
+    let leftmost = page_at(scroll_x / zoom, total);
+    let first_visible = (scroll_x.max(0.0) / stride_on_screen) as usize;
+    let first = first_visible.saturating_sub(1);
+    let visible = (viewport_w / stride_on_screen).ceil() as usize + 2;
+    let count = visible.max(2).min(total.saturating_sub(first));
+    StripWindow { first, count, leftmost }
+}
+
 extern "C" fn sheets_virtual_view(
     mut data: RefAny,
     info: VirtualViewCallbackInfo,
@@ -1552,15 +1575,10 @@ extern "C" fn sheets_virtual_view(
         // The pages are drawn at the zoom (the phone's pad zooms them: 1.0 is how they have always been drawn): the strip scrolls in the
         // px of the screen, a page is `stride * zoom` of them, and what the pages are told of the window is in their own px.
         let zoom = s.page_zoom();
-        let stride_on_screen = stride * zoom;
         let viewport_w = info.bounds.get_logical_size().width;
         let viewport_h = info.bounds.get_logical_size().height;
         let scrolled = info.scroll_offset.x.max(0.0);
-        let leftmost = page_at(info.scroll_offset.x / zoom, total);
-        let first_visible = (scrolled / stride_on_screen) as usize;
-        let first = first_visible.saturating_sub(1);
-        let visible = (viewport_w / stride_on_screen).ceil() as usize + 2;
-        let count = visible.max(2).min(total.saturating_sub(first));
+        let StripWindow { first, count, leftmost } = strip_window(info.scroll_offset.x, viewport_w, zoom, total);
 
         // page breaks are stable: a page that has lines put in grows, and the strip is as high as the tallest
         let strip_h = page_h_with(s.most_extra_rows());
