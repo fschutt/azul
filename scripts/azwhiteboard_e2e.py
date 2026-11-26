@@ -21,6 +21,10 @@
     9. the restart: a second demo on the same data folder reads the board back (`WBDEMO_LOADED 3`: the
        two cutouts and the arrow, with their labels).
 
+The pen is not driven here: the debug server's pen_down / pen_move / pen_up only move the mouse state (the engine does
+not inject a pen state yet, see DebugEvent::PenDown), so `PointerKind::Pen` (a stroke from empty space is an arrow,
+not a pan) is covered by the unit tests of whiteboard_input and by a hand with a pen.
+
 With `--window cpu` (or `gpu`) it runs in a real window, at the display's scale, and the screenshots are the
 window as the system composited it (macOS: `screencapture -l` of the demo's own window, which also works while
 the display sleeps; the app's own capture then comes back white). The window is as large as the screen allows,
