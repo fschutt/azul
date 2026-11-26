@@ -198,6 +198,8 @@ mod cpurender_image_probe;
 mod cross_block_selection;
 #[path = "css_zoom_scales_flex_items_grid_items_and_blocks_alike.rs"]
 mod css_zoom_scales_flex_items_grid_items_and_blocks_alike;
+#[path = "css_zoom_scales_the_fixed_tracks_of_a_grid.rs"]
+mod css_zoom_scales_the_fixed_tracks_of_a_grid;
 #[path = "delete_keyed_to_caret_owner.rs"]
 mod delete_keyed_to_caret_owner;
 #[path = "damage_raster_reports_what_it_painted.rs"]
