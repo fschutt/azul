@@ -228,3 +228,66 @@ fn a_fresh_layer_is_cleared_to_nothing_not_to_transparent_white() {
     assert_eq!(c.a, 0);
     assert!(c.r <= c.a && c.g <= c.a && c.b <= c.a, "premultiplied: {c:?}");
 }
+
+// ---- ink on a page that grew: it goes down with the line it was drawn on ----
+
+fn two_lines_after_the_second() -> crate::line_map::LineMap {
+    crate::line_map::LineMap::new(
+        46,
+        vec![crate::line_map::Block { after: Some(1), lines: vec!["a".to_string(), "b".to_string()], accepted: false, conversation: 1 }],
+        32.0,
+        15.0,
+    )
+}
+
+#[test]
+fn a_stroke_is_painted_where_its_line_is_now_that_lines_were_put_in_above_it() {
+    let map = two_lines_after_the_second();
+    // two points on the sixth line of the page (index 5), a few px under its top
+    let on_line = 32.0 + 5.0 * 15.0 + 3.0;
+    let mut live = stroke(1, Semantic::Issue, &[(100.0, on_line), (120.0, on_line)]);
+    let mut shown = LiveProgress::default();
+    let mut seen: Vec<(f32, f32, f32, f32)> = Vec::new();
+    assert!(shown.paint_mapped(Some(&live), 1.0, &map, &mut |x0, y0, x1, y1, _| seen.push((x0, y0, x1, y1))));
+    assert_eq!(seen, vec![(100.0, on_line + 30.0, 120.0, on_line + 30.0)], "two rows lower, the position in the line kept");
+    // the same stroke on a page nothing was put in is where it was
+    let mut plain: Vec<(f32, f32, f32, f32)> = Vec::new();
+    LiveProgress::default().paint(Some(&live), 1.0, &mut |x0, y0, x1, y1, _| plain.push((x0, y0, x1, y1)));
+    assert_eq!(plain, vec![(100.0, on_line, 120.0, on_line)]);
+    // a point above the lines that were put in does not move, and the frame's px are the page's times the scale
+    live.points = vec![point(10.0, 32.0 + 3.0), point(30.0, 32.0 + 3.0)];
+    let mut above: Vec<(f32, f32, f32, f32)> = Vec::new();
+    LiveProgress::default().paint_mapped(Some(&live), 2.0, &map, &mut |x0, y0, x1, y1, _| above.push((x0, y0, x1, y1)));
+    assert_eq!(above, vec![(20.0, 70.0, 60.0, 70.0)]);
+}
+
+#[test]
+fn a_frame_drawn_for_another_arrangement_of_the_lines_is_drawn_anew() {
+    let mut revisions = InkRevisions::default();
+    revisions.touch(0);
+    let map = two_lines_after_the_second();
+    let plain = revisions.key_with(0, SIZE, 0);
+    let grown = revisions.key_with(0, SIZE, map.signature());
+    assert_ne!(plain, grown, "lines put in change where the ink goes");
+    assert_eq!(revisions.key(0, SIZE), plain, "key is the key of a page nothing was put in");
+    // a stroke that ended on the page is not caught up by painting its tail when the lines moved meanwhile
+    let append = ink::Append { from: 1, to: 2, id: 7 };
+    let had = revisions.key_with(0, SIZE, 0);
+    revisions.appended(0, 7);
+    let now = revisions.key_with(0, SIZE, map.signature());
+    assert_eq!(ink::catch_up(Some(had), now, Some(append), Some(Layer::Pen), Layer::Pen, Some(7)), ink::CatchUp::Whole);
+}
+
+#[test]
+fn the_cpu_frame_of_a_page_that_grew_has_its_ink_lower() {
+    let map = two_lines_after_the_second();
+    let line = 32.0 + 5.0 * 15.0 + 7.0;
+    // the marker's broad nib: a band of rows, not a hair line that may fall between two
+    let s = stroke(1, Semantic::Scope, &[(20.0, line), (60.0, line)]);
+    let plain = ink::draw_cpu(100, 200, 1.0, &[s.clone()]);
+    let grown = ink::draw_cpu_mapped(100, 200, 1.0, &map, &[s]);
+    assert!(alpha(&plain, 40, line as usize) > 0, "painted where the line was");
+    assert_eq!(alpha(&plain, 40, line as usize + 30), 0);
+    assert!(alpha(&grown, 40, line as usize + 30) > 0, "painted two rows lower");
+    assert_eq!(alpha(&grown, 40, line as usize), 0);
+}

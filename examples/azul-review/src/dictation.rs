@@ -13,6 +13,13 @@
 //! the words of the utterance so far (`Partial`: they show while the user speaks) and each utterance
 //! as it ends (`Final`: the note's text). A listener that cannot stream keeps the default, which is
 //! ready as the call begins and the call's one answer as the one utterance.
+//!
+//! A listener whose stream lasts until it is told to end (`Listener::listen_stream_until`, the engine's stream) is asked
+//! between its events whether the dictation is over (a stop was asked for, or the quiet has lasted the silence time), so a
+//! stop or the quiet ends the call where it is and what was said so far comes as the last utterance: the loop does not wait
+//! for a chunk of a few seconds to end.
+
+use std::cell::{Cell, RefCell};
 
 /// How one listen call ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,6 +107,9 @@ pub struct HeardWord {
     pub start_ms: u32,
     pub end_ms: u32,
     pub probability: f32,
+    /// The word is one of the vocabulary the recogniser was told to favour: favouring pulls the probability of a RIGHT word
+    /// down, so a low probability on a biased word is no doubt.
+    pub biased: bool,
 }
 
 /// One utterance, as the window takes it: its text, the wall-clock moment of the call that heard it and its words with
@@ -165,6 +175,23 @@ pub trait Listener {
     fn listen_stream(&mut self, language: &str, timeout_ms: u32, events: &mut dyn FnMut(Event)) -> Heard {
         events(Event::Ready);
         self.listen(language, timeout_ms)
+    }
+
+    /// The same call as a stream that lasts until it is told to end: `should_stop` is asked between the events (a few
+    /// times a second) and answers whether the dictation is to end now (a stop was asked for, or the quiet is long enough);
+    /// the listener then ends its stream the way that keeps what was said so far (the last words come as the last `Final`)
+    /// and answers. `timeout_ms` is only what a call that does not run on would take.
+    ///
+    /// The default is for a listener that does not run on: it is one [`Self::listen_stream`] call.
+    fn listen_stream_until(
+        &mut self,
+        language: &str,
+        timeout_ms: u32,
+        events: &mut dyn FnMut(Event),
+        should_stop: &mut dyn FnMut() -> bool,
+    ) -> Heard {
+        let _ = should_stop;
+        self.listen_stream(language, timeout_ms, events)
     }
 }
 
@@ -294,6 +321,26 @@ pub const CHUNK_MS: u32 = 5_000;
 /// The least time between two calls.
 pub const MIN_GAP_MS: u64 = 400;
 
+/// The shortest pause that ends an utterance worth asking the engine for, ms: the engine keeps its end-point to 200 to 3000.
+pub const MIN_ENDPOINT_MS: u64 = 200;
+/// The longest.
+pub const MAX_ENDPOINT_MS: u64 = 3_000;
+
+/// How long a pause ends an utterance, ms, inside what the engine takes, and the word about it when it was changed. 0 asks for
+/// the engine's own (600 ms, the shortest that cost English nothing; long German prose is better at 800 to 1000).
+#[must_use]
+pub fn cap_endpoint_ms(ms: u64) -> (u64, Option<String>) {
+    if ms == 0 {
+        (0, None)
+    } else if ms < MIN_ENDPOINT_MS {
+        (MIN_ENDPOINT_MS, Some(format!("the end-point of {ms} ms is shorter than the engine takes: using {MIN_ENDPOINT_MS} ms")))
+    } else if ms > MAX_ENDPOINT_MS {
+        (MAX_ENDPOINT_MS, Some(format!("the end-point of {ms} ms is longer than the engine takes: using {MAX_ENDPOINT_MS} ms")))
+    } else {
+        (ms, None)
+    }
+}
+
 /// A silence time inside what a person can mean, and the word about it when it was changed.
 #[must_use]
 pub fn cap_silence_ms(ms: u64) -> (u64, Option<String>) {
@@ -331,7 +378,10 @@ pub fn run(
     stop: &mut dyn FnMut() -> bool,
     out: &mut dyn FnMut(Out),
 ) {
-    let mut last_words = clock.now_ms();
+    // the clock is asked by the call's events and by its question whether to end: one at a time, never inside the other
+    let clock = RefCell::new(clock);
+    let now_ms = || clock.borrow_mut().now_ms();
+    let last_words = Cell::new(now_ms());
     let mut ready_told = false;
     let mut shown = String::new();
     loop {
@@ -339,37 +389,43 @@ pub fn run(
             out(Out::Ended(End::Stopped));
             return;
         }
-        let began = clock.now_ms();
+        let began = now_ms();
         let mut told_final = false;
-        let heard = listener.listen_stream(&plan.language, plan.chunk_ms, &mut |event| match event {
-            Event::State(mic) => out(Out::State(mic)),
-            Event::Ready => {
-                if !ready_told {
-                    ready_told = true;
-                    out(Out::Ready);
-                }
-            }
-            Event::Partial(text) => {
-                let text = text.trim().to_string();
-                if text != shown {
-                    if !text.is_empty() {
-                        last_words = clock.now_ms();
+        let heard = listener.listen_stream_until(
+            &plan.language,
+            plan.chunk_ms,
+            &mut |event| match event {
+                Event::State(mic) => out(Out::State(mic)),
+                Event::Ready => {
+                    if !ready_told {
+                        ready_told = true;
+                        out(Out::Ready);
                     }
-                    shown.clone_from(&text);
-                    out(Out::Partial(text));
                 }
-            }
-            Event::Final(said) => {
-                let text = said.text.trim();
-                if said.status == Status::Heard && !text.is_empty() {
-                    told_final = true;
-                    last_words = clock.now_ms();
-                    shown.clear();
-                    out(Out::Text(Said { text: text.to_string(), started_unix_ms: said.started_unix_ms, words: said.words.clone() }));
+                Event::Partial(text) => {
+                    let text = text.trim().to_string();
+                    if text != shown {
+                        if !text.is_empty() {
+                            last_words.set(now_ms());
+                        }
+                        shown.clone_from(&text);
+                        out(Out::Partial(text));
+                    }
                 }
-            }
-        });
-        let now = clock.now_ms();
+                Event::Final(said) => {
+                    let text = said.text.trim();
+                    if said.status == Status::Heard && !text.is_empty() {
+                        told_final = true;
+                        last_words.set(now_ms());
+                        shown.clear();
+                        out(Out::Text(Said { text: text.to_string(), started_unix_ms: said.started_unix_ms, words: said.words.clone() }));
+                    }
+                }
+            },
+            // a stream that runs on ends when a stop was asked for or the quiet has lasted the silence time
+            &mut || stop() || now_ms().saturating_sub(last_words.get()) >= plan.silence_ms,
+        );
+        let now = now_ms();
         match heard.status {
             Status::Heard if !told_final && !heard.text.trim().is_empty() => {
                 shown.clear();
@@ -378,7 +434,7 @@ pub fn run(
                     started_unix_ms: heard.started_unix_ms,
                     words: heard.words.clone(),
                 }));
-                last_words = now;
+                last_words.set(now);
             }
             Status::Heard | Status::Nothing => {}
             Status::Denied | Status::Unavailable | Status::Failed => {
@@ -399,13 +455,13 @@ pub fn run(
             out(Out::Ended(End::Stopped));
             return;
         }
-        if now.saturating_sub(last_words) >= plan.silence_ms {
+        if now.saturating_sub(last_words.get()) >= plan.silence_ms {
             out(Out::Ended(End::Silence));
             return;
         }
         let took = now.saturating_sub(began);
         if took < plan.min_gap_ms {
-            clock.sleep_ms(plan.min_gap_ms - took);
+            clock.borrow_mut().sleep_ms(plan.min_gap_ms - took);
         }
     }
 }
