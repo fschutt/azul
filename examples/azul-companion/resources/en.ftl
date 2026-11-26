@@ -88,6 +88,7 @@ remote-page-strip = Swipe for the next or previous page
 remote-context-line = The buttons act on line { $n }
 remote-context-region = The buttons act on the marked region
 remote-context-page = The buttons act on page { $n }
+remote-context-board = The buttons act on the whiteboard
 remote-context-none = Open a file in AzReview to use the buttons
 remote-lost = Connection lost. Trying again
 remote-hint-board = Drag to move the board. Pinch to zoom. Double-tap to fit the board.

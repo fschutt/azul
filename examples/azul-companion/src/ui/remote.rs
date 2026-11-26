@@ -176,9 +176,12 @@ fn header(cx: &Cx, zone: Zone, with_file: bool) -> Dom {
     };
     let mut bar = row(&format!("width: {}; height: {}; padding: 0px {}; gap: 10px;", px(zone.w), px(zone.h), px(cx.z.gutter)))
         .with_child(div(&format!("width: 10px; height: 10px; border-radius: 5px; background: {colour}; flex-shrink: 0;")))
-        .with_child(text_clip(&name, "font-size: 17px; font-weight: 600; flex-shrink: 1; min-width: 0px;"))
-        .with_child(text(&latency, &format!("font-size: 13px; color: {}; white-space: nowrap; flex-shrink: 0;", th::TEXT_DIM)))
-        .with_child(div("flex-grow: 1;"));
+        .with_child(text_clip(&name, "font-size: 17px; font-weight: 600; flex-shrink: 1; min-width: 0px;"));
+    // sideways the row is crowded (the chip, the file, the place): the latency is left out there, the dot says the rest
+    if !with_file {
+        bar.add_child(text(&latency, &format!("font-size: 13px; color: {}; white-space: nowrap; flex-shrink: 0;", th::TEXT_DIM)));
+    }
+    let mut bar = bar.with_child(div("flex-grow: 1;"));
     if with_file {
         bar.add_child(surface_chip(cx));
         let (path, place) = file_words(cx, 22, true);
@@ -374,11 +377,9 @@ fn round_key(cx: &Cx, name: String, glyph: &str, action: Action) -> Dom {
 /// Sideways, where the return point has no bar of its own: a few words and the button, in place of the zoom.
 fn return_inline(cx: &Cx, point: &ReturnPoint) -> Dom {
     let words = return_words(cx, point);
-    row("flex-grow: 1; min-width: 0px; justify-content: flex-end; gap: 8px;")
-        .with_child(text_clip(
-            &cx.tf("return-back", &[("where", &words)]),
-            &format!("flex-shrink: 1; min-width: 0px; font-size: 13px; color: {};", th::TEXT_DIM),
-        ))
+    row("flex-grow: 1; min-width: 0px; justify-content: flex-end; gap: 6px;")
+        .with_child(icon("undo", 16.0, th::TEXT_DIM))
+        .with_child(text_clip(&words, &format!("flex-shrink: 1; min-width: 0px; font-size: 13px; color: {};", th::TEXT_DIM)))
         .with_child(
             tap(
                 &cx.tf("return-name", &[("where", &words)]),
@@ -420,6 +421,7 @@ fn context_words(cx: &Cx) -> String {
             Context::Line => cx.tf("remote-context-line", &[("n", &page.line.to_string())]),
             Context::Page => cx.tf("remote-context-page", &[("n", &(page.page_index + 1).to_string())]),
         },
+        Some(PenState { surface: Surface::Whiteboard(_), .. }) => cx.t("remote-context-board"),
         _ => cx.t("remote-context-none"),
     }
 }
