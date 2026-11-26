@@ -206,8 +206,28 @@ impl IOSWindow {
         let Some(gpu) = self.gpu.as_mut() else {
             return;
         };
+        let was_allowed = gpu.lifecycle.gl_allowed();
+        // (a frame's events come sixty times a second: only the others are named)
+        let name = (!matches!(event, Event::Frame | Event::FramePresented)).then(|| format!("{event:?}"));
         let actions = gpu.lifecycle.step(event);
+        let is_allowed = gpu.lifecycle.gl_allowed();
+        // The two lines the QA harness reads to prove that no GL command went out in the background: the line that
+        // ends them comes after the last command of its own answer, the line that allows them before the first.
+        if !was_allowed && is_allowed {
+            log_info!(
+                LogCategory::Rendering,
+                "[iOS GPU] GL commands allowed again ({})",
+                name.as_deref().unwrap_or("-")
+            );
+        }
         self.gpu_perform_all(actions);
+        if was_allowed && !is_allowed {
+            log_info!(
+                LogCategory::Rendering,
+                "[iOS GPU] GL commands stopped ({})",
+                name.as_deref().unwrap_or("-")
+            );
+        }
     }
 
     /// May a GL command be issued now? `false` in the background; a window on the CPU never asks.
@@ -329,6 +349,10 @@ impl IOSWindow {
             Action::ReleaseCaches => {
                 if let Some(api) = self.common.render_api.as_ref() {
                     api.notify_memory_pressure();
+                    log_info!(
+                        LogCategory::Rendering,
+                        "[iOS GPU] memory pressure: the renderer's caches are released"
+                    );
                 }
                 Ok(())
             }

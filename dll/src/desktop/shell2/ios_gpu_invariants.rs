@@ -242,3 +242,25 @@ fn the_render_line_comes_from_the_decision() {
         "the line's words live in gpu_select::Decision::render_line"
     );
 }
+
+/// The two lines the QA harness reads to say that no GL command went out in the background
+/// (`scripts/ci/mobile_qa.py`: `GL_STOPPED`, `GL_ALLOWED`). The line that ends the commands is written after the
+/// last command of its own answer and the line that allows them before the first, so the order of the console is the
+/// order of the commands: a frame between the two lines is a command in the background.
+///
+/// Mutation: both lines written before the actions (a command that follows `stopped`); a line with other words.
+#[test]
+fn the_console_orders_the_gl_commands_around_the_background() {
+    let body = function_body(GPU, "pub(super) fn gpu_event");
+    let perform = body
+        .find("self.gpu_perform_all(actions)")
+        .expect("the actions are performed");
+    let allowed = body
+        .find("[iOS GPU] GL commands allowed again (")
+        .expect("the line that allows the commands is written");
+    let stopped = body
+        .find("[iOS GPU] GL commands stopped (")
+        .expect("the line that ends the commands is written");
+    assert!(allowed < perform, "`allowed again` comes before the actions that use GL");
+    assert!(stopped > perform, "`stopped` comes after the last action that uses GL");
+}
