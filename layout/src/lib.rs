@@ -179,6 +179,10 @@ use unicode_normalization as _;
 use webpki_roots as _;
 #[cfg(feature = "xml")]
 use xmlwriter as _;
+// `zune-jpeg`: the JPEG decoder of `image`. This crate names it only to ask for 0.5.8 or newer, whose
+// SIMD paths build (see the `jpeg` feature in Cargo.toml); the default features have `jpeg` now.
+#[cfg(feature = "jpeg")]
+use zune_jpeg as _;
 // `libc`: the probe feature's rusage/dladdr calls exist on unix only.
 #[cfg(all(feature = "probe", not(unix)))]
 use libc as _;
