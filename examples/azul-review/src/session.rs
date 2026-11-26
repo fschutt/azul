@@ -5,6 +5,7 @@ use azul::{
 };
 
 use crate::{
+    deletion::{self, Deleted, Deletion},
     model::{Finding, InkPoint, Note, NoteState, Semantic, Stroke, VoiceClip},
     ui, AppState,
 };
@@ -61,16 +62,11 @@ fn push_key(out: &mut String, key: &str) {
     out.push(':');
 }
 
-fn push_stroke(out: &mut String, s: &Stroke) {
+/// The samples of a stroke as a JSON list: where, how hard, how the pen was tilted and when (ms after the press).
+fn push_points(out: &mut String, points: &[InkPoint]) {
     use std::fmt::Write;
-    let _ = write!(
-        out,
-        "{{\"id\":{},\"page\":{},\"epoch\":{},\"semantic\":",
-        s.id, s.page, s.epoch
-    );
-    push_string(out, s.semantic.label());
-    out.push_str(",\"points\":[");
-    for (i, p) in s.points.iter().enumerate() {
+    out.push('[');
+    for (i, p) in points.iter().enumerate() {
         if i > 0 {
             out.push(',');
         }
@@ -84,6 +80,38 @@ fn push_stroke(out: &mut String, s: &Stroke) {
         push_num(out, p.tilt_x);
         out.push_str(",\"tilt_y\":");
         push_num(out, p.tilt_y);
+        let _ = write!(out, ",\"t\":{}", p.t_ms);
+        out.push('}');
+    }
+    out.push(']');
+}
+
+fn push_stroke(out: &mut String, s: &Stroke) {
+    use std::fmt::Write;
+    let _ = write!(
+        out,
+        "{{\"id\":{},\"page\":{},\"epoch\":{},\"started\":{},\"semantic\":",
+        s.id, s.page, s.epoch, s.started_unix_ms
+    );
+    push_string(out, s.semantic.label());
+    out.push_str(",\"points\":");
+    push_points(out, &s.points);
+    out.push('}');
+}
+
+/// A deletion as the archive keeps it: the stroke that did it (its samples, with their times) and the words it took, each
+/// with its line, its bytes and what it said.
+fn push_deletion(out: &mut String, d: &Deletion) {
+    use std::fmt::Write;
+    let _ = write!(out, "{{\"id\":{},\"page\":{},\"started\":{},\"points\":", d.id, d.page, d.started_unix_ms);
+    push_points(out, &d.points);
+    out.push_str(",\"words\":[");
+    for (i, w) in d.words.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        let _ = write!(out, "{{\"line\":{},\"start\":{},\"end\":{},\"text\":", w.line, w.start, w.end);
+        push_string(out, &w.text);
         out.push('}');
     }
     out.push_str("]}");
@@ -165,6 +193,9 @@ fn session_text(s: &AppState, clips: &[&VoiceClip]) -> String {
     push_key(&mut out, "strokes");
     push_list(&mut out, s.strokes.iter(), push_stroke);
     out.push_str(",\n");
+    push_key(&mut out, "slashes");
+    push_list(&mut out, s.slashes.iter(), push_deletion);
+    out.push_str(",\n");
     push_key(&mut out, "findings");
     push_list(&mut out, s.findings.iter(), push_finding);
     out.push_str(",\n");
@@ -230,13 +261,20 @@ pub struct Loaded {
     pub file: String,
     pub strokes: Vec<Stroke>,
     pub notes: Vec<Note>,
+    /// The words the quick slashes took.
+    pub slashes: Vec<Deletion>,
 }
 
 impl Loaded {
-    /// The id the next stroke takes (after the archive's own).
+    /// The id the next stroke takes (after the archive's own strokes and slashes: they are one series).
     #[must_use]
     pub fn next_stroke_id(&self) -> u64 {
-        self.strokes.iter().map(|s| s.id).max().map_or(1, |id| id + 1)
+        self.strokes
+            .iter()
+            .map(|s| s.id)
+            .chain(self.slashes.iter().map(|d| d.id))
+            .max()
+            .map_or(1, |id| id + 1)
     }
 
     /// The id the next note takes (after the archive's own).
@@ -291,6 +329,7 @@ fn point_from(json: &Json) -> Option<InkPoint> {
         pressure: num(json, "pressure").map_or(0.55, |p| p as f32),
         tilt_x: num(json, "tilt_x").map_or(0.0, |t| t as f32),
         tilt_y: num(json, "tilt_y").map_or(0.0, |t| t as f32),
+        t_ms: count(json, "t").map_or(0, |t| u32::try_from(t).unwrap_or(u32::MAX)),
     })
 }
 
@@ -301,6 +340,31 @@ fn stroke_from(json: &Json) -> Option<Stroke> {
         points: items(json, "points").iter().filter_map(point_from).collect(),
         id: count(json, "id")?,
         epoch: count(json, "epoch").unwrap_or(0),
+        started_unix_ms: count(json, "started").unwrap_or(0),
+    })
+}
+
+fn word_from(json: &Json) -> Option<Deleted> {
+    Some(Deleted {
+        line: usize::try_from(count(json, "line")?).ok()?,
+        start: usize::try_from(count(json, "start")?).ok()?,
+        end: usize::try_from(count(json, "end")?).ok()?,
+        text: text_of(json, "text").unwrap_or_default(),
+    })
+}
+
+/// A deletion needs its id and its page; the words and samples that cannot be read are left out.
+fn deletion_from(json: &Json) -> Option<Deletion> {
+    Some(Deletion {
+        id: count(json, "id")?,
+        page: usize::try_from(count(json, "page")?).ok()?,
+        started_unix_ms: count(json, "started").unwrap_or(0),
+        points: items(json, "points")
+            .iter()
+            .filter_map(point_from)
+            .take(deletion::MAX_POINTS)
+            .collect(),
+        words: items(json, "words").iter().filter_map(word_from).collect(),
     })
 }
 
@@ -344,6 +408,11 @@ pub fn load(archive: &[u8]) -> Result<Loaded, String> {
         file: text_of(&json, "file").unwrap_or_default(),
         strokes: items(&json, "strokes").iter().filter_map(stroke_from).collect(),
         notes: items(&json, "notes").iter().filter_map(note_from).collect(),
+        slashes: items(&json, "slashes")
+            .iter()
+            .filter_map(deletion_from)
+            .take(deletion::MAX_DELETIONS)
+            .collect(),
     })
 }
 

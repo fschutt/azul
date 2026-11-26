@@ -38,6 +38,13 @@ pub(crate) const GUTTER_W: f32 = 52.0;
 
 pub(crate) const MARGIN_GUTTER_W: f32 = 260.0;
 pub const PAGE_PAD: f32 = 32.0;
+/// The colour of a page: what a deleted word is drawn in, so that it is not there and its place is.
+pub(crate) const PAGE_BG: &str = "#ffffff";
+/// Where the code of a page starts in the ink layer's px: under the page's padding and the gutter of the line numbers.
+pub(crate) const CODE_X: f32 = PAGE_PAD + GUTTER_W;
+/// How wide a column of the page's code is, px: the advance of the monospace 11 px of the page. A word is found by it
+/// (`AppState::slash_of`), so it is checked against the window (the e2e measures the rect of a line).
+pub(crate) const CHAR_W: f32 = 6.6;
 /// How wide the code column of a page is (the page, less the notes' margin and the padding).
 pub(crate) const CODE_W: f32 = PAGE_W - MARGIN_GUTTER_W - PAGE_PAD;
 const PAGE_GAP: f32 = 24.0;
@@ -1203,7 +1210,7 @@ extern "C" fn sheets_virtual_view(
             .with_css("display: flex; flex-direction: row; align-items: flex-start;");
         let listening = s.voice.ready_note();
         for page in first..first + count {
-            row.add_child(page_sheet(&cb_app, file, page, &s.notes, listening));
+            row.add_child(page_sheet(&cb_app, file, page, &s.notes, listening, &s.hidden_ranges(page)));
         }
         (row, first, count, total, leftmost)
     };
@@ -1231,11 +1238,12 @@ fn page_sheet(
     page: usize,
     notes: &[Note],
     listening: Option<u64>,
+    hidden: &[Vec<(usize, usize)>],
 ) -> Dom {
     let (first_line, lines) = file.page(page);
     let mut sheet = Dom::create_div().with_css(
         format!(
-            "position: relative; width: {}px; height: {}px; background: #ffffff; border: 1px \
+            "position: relative; width: {}px; height: {}px; background: {PAGE_BG}; border: 1px \
              solid #b9b4ab; box-shadow: 0px 1px 4px #00000030; margin-right: {}px; flex-shrink: \
              0; box-sizing: border-box; padding: {}px; overflow: hidden;",
             PAGE_W as isize,
@@ -1262,7 +1270,7 @@ fn page_sheet(
         ),
     );
 
-    sheet.add_child(page_code_column(first_line, lines));
+    sheet.add_child(page_code_column_hidden(first_line, lines, hidden));
     // The markers of the dictated notes: over the code, under the pen layer (they take no stroke).
     for marker in column::markers(notes, page, listening) {
         sheet.add_child(marker);
@@ -1276,6 +1284,14 @@ fn page_sheet(
 /// so that it looks like the page it was taken from.
 #[must_use]
 pub fn page_code_column(first_line: usize, lines: &[String]) -> Dom {
+    page_code_column_hidden(first_line, lines, &[])
+}
+
+/// [`page_code_column`] with words hidden: `hidden[i]` are the byte ranges of line `i` a slash took, drawn in the colour of
+/// the page. The rows, their heights and the places of the other words are what they were (the pieces of a line keep each
+/// its own width), so nothing reflows and no page break moves.
+#[must_use]
+pub fn page_code_column_hidden(first_line: usize, lines: &[String], hidden: &[Vec<(usize, usize)>]) -> Dom {
     let mut col = Dom::create_div().with_css(
         format!(
             "position: relative; display: flex; flex-direction: column; width: {}px; overflow: \
@@ -1285,14 +1301,24 @@ pub fn page_code_column(first_line: usize, lines: &[String]) -> Dom {
         .as_str(),
     );
     for (i, line) in lines.iter().enumerate() {
-        col.add_child(code_row(first_line + i, line.as_str()));
+        let ranges = hidden.get(i).map_or(&[][..], Vec::as_slice);
+        col.add_child(code_row(first_line + i, line.as_str(), ranges));
     }
     col
 }
 
-/// One line of code: its number in the gutter, then the line.
-fn code_row(number: usize, line: &str) -> Dom {
+/// How a piece of a line is drawn: the ink of the code, or the colour of the page where a slash took it.
+fn piece_css(hidden: bool) -> String {
+    let color = if hidden { PAGE_BG } else { "#1f1f1f" };
+    format!("font-family: monospace; font-size: 11px; color: {color}; white-space: pre;")
+}
+
+/// One line of code: its number in the gutter, then the line (cut where words are hidden). The row and the line's
+/// text have ids for the scripts that measure them (`__azreview_line-<n>`, `__azreview_line-<n>-text`), a hidden piece
+/// one of its own (`__azreview_hidden-<n>-<byte>`).
+fn code_row(number: usize, line: &str, hidden: &[(usize, usize)]) -> Dom {
     let mut row = Dom::create_div()
+        .with_id(format!("__azreview_line-{number}").as_str())
         .with_css(format!("display: flex; flex-direction: row; height: {LINE_H}px;").as_str());
     row.add_child(
         Dom::create_span_with_text(format!("{number}").as_str()).with_css(
@@ -1304,10 +1330,41 @@ fn code_row(number: usize, line: &str) -> Dom {
             .as_str(),
         ),
     );
-    row.add_child(Dom::create_span_with_text(line).with_css(
-        "font-family: monospace; font-size: 11px; color: #1f1f1f; white-space: pre;",
-    ));
+    let text_id = format!("__azreview_line-{number}-text");
+    if hidden.is_empty() {
+        row.add_child(
+            Dom::create_span_with_text(line)
+                .with_id(text_id.as_str())
+                .with_css(piece_css(false).as_str()),
+        );
+    } else {
+        let mut pieces = Dom::create_div()
+            .with_id(text_id.as_str())
+            .with_css("display: flex; flex-direction: row; flex-shrink: 0;");
+        for piece in crate::deletion::segments(line, hidden) {
+            let mut span = Dom::create_span_with_text(&line[piece.start..piece.end])
+                .with_css(piece_css(piece.hidden).as_str());
+            if piece.hidden {
+                span = span.with_id(format!("__azreview_hidden-{number}-{}", piece.start).as_str());
+            }
+            pieces.add_child(span);
+        }
+        row.add_child(pieces);
+    }
     row
+}
+
+/// The geometry of a page's code for the agent and for finding a word: line `first_line` starts under the page's padding,
+/// the code after its gutter, a line is [`LINE_H`] high and a column [`CHAR_W`] wide.
+#[must_use]
+pub fn page_grid(first_line: usize) -> crate::agent_review::PageGrid {
+    crate::agent_review::PageGrid {
+        first_line,
+        origin_x: CODE_X,
+        origin_y: PAGE_PAD,
+        line_height: LINE_H,
+        char_width: CHAR_W,
+    }
 }
 
 /// What the screen reader is told of a picture that only decorates: nothing.
@@ -1403,7 +1460,7 @@ mod tests {
     /// quiet).
     #[test]
     fn a_code_line_and_its_number_are_text_spans() {
-        let row = code_row(7, "fn main() {}");
+        let row = code_row(7, "fn main() {}", &[]);
         let kinds: Vec<bool> = row
             .children
             .as_slice()

@@ -88,3 +88,13 @@ fn the_standby_is_told_with_what_the_policy_asked_so_far() {
     let v = parsed(&s);
     assert_eq!((v["standby"]["armed"].as_bool(), v["standby"]["disarms"].as_u64()), (Some(false), Some(1)));
 }
+
+#[test]
+fn the_deletions_are_counted_for_the_scripts_that_check_a_slash() {
+    let mut s = crate::lib_test::app_with_slash_file();
+    let v = parsed(&s);
+    assert_eq!((v["slashes"].as_u64(), v["deleted_words"].as_u64()), (Some(0), Some(0)));
+    crate::lib_test::draw_fixture(&mut s, &crate::stroke_fixtures::slash_through_a_long_word(), 0);
+    let v = parsed(&s);
+    assert_eq!((v["slashes"].as_u64(), v["deleted_words"].as_u64()), (Some(1), Some(5)));
+}

@@ -12,13 +12,14 @@ fn file() -> code::SourceFile {
 }
 
 fn stroke_at(page: usize, y: f32) -> Stroke {
-    let point = |x: f32| InkPoint { x, y, pressure: 0.5, tilt_x: 0.0, tilt_y: 0.0 };
+    let point = |x: f32| InkPoint { x, y, pressure: 0.5, tilt_x: 0.0, tilt_y: 0.0, t_ms: 0 };
     Stroke {
         page,
         semantic: Semantic::Issue,
         points: vec![point(40.0), point(90.0)],
         id: 1,
         epoch: 0,
+        started_unix_ms: 0,
     }
 }
 
@@ -50,6 +51,34 @@ fn ink_in_the_pages_padding_above_the_code_is_on_the_first_line() {
 
 pub(crate) fn app_with_file() -> AppState {
     AppState::create(PathBuf::new(), vec![file()], RefAny::new(0u8), PathBuf::new())
+}
+
+/// A file whose line 12 has a word of ten characters where the fixtures' slash is drawn (column 33 of the page: x 301.8 to
+/// 367.8), another word of three after it, and a second page (the lines after the 46th).
+pub(crate) fn app_with_slash_file() -> AppState {
+    let mut lines: Vec<String> = (0..120).map(|i| format!("fn f{i}() {{}}")).collect();
+    lines[11] = format!("{}abcdefghij klm = 1;", " ".repeat(33));
+    lines[code::LINES_PER_PAGE + 11] = format!("{}pqrstuvwxy zzz = 2;", " ".repeat(33));
+    let f = code::SourceFile { path: PathBuf::from("f.rs"), display: "f.rs".to_string(), lines };
+    AppState::create(PathBuf::new(), vec![f], RefAny::new(0u8), PathBuf::new())
+}
+
+/// Draws `f` on `page` as the pen does and returns how it ended: the press at its first sample, a move for each other
+/// sample (the times as the fixture has them), the release.
+pub(crate) fn draw_fixture(s: &mut AppState, f: &crate::stroke_fixtures::Fixture, page: usize) -> Option<crate::pointer::Ended> {
+    let point = |p: &crate::stroke_fixtures::Sample| InkPoint {
+        x: p.x,
+        y: p.y,
+        pressure: p.pressure,
+        tilt_x: 0.0,
+        tilt_y: 0.0,
+        t_ms: p.t_ms,
+    };
+    s.stroke_begin_at(page, point(&f.samples[0]), true, 1_764_000_000_000);
+    for p in &f.samples[1..] {
+        s.stroke_move_at(point(p), true);
+    }
+    s.stroke_end()
 }
 
 fn kept(id: u64, page: usize) -> Stroke {
@@ -132,8 +161,8 @@ fn the_eraser_takes_the_stroke_it_touches_not_one_whose_box_it_is_inside() {
     // A long diagonal: its bounding box covers the page's corner, its line does not.
     let diagonal = Stroke {
         points: vec![
-            InkPoint { x: 10.0, y: 10.0, pressure: 0.5, tilt_x: 0.0, tilt_y: 0.0 },
-            InkPoint { x: 410.0, y: 410.0, pressure: 0.5, tilt_x: 0.0, tilt_y: 0.0 },
+            InkPoint { x: 10.0, y: 10.0, pressure: 0.5, tilt_x: 0.0, tilt_y: 0.0, t_ms: 0 },
+            InkPoint { x: 410.0, y: 410.0, pressure: 0.5, tilt_x: 0.0, tilt_y: 0.0, t_ms: 0 },
         ],
         ..kept(1, 0)
     };
@@ -152,7 +181,7 @@ fn the_eraser_takes_the_stroke_it_touches_not_one_whose_box_it_is_inside() {
 #[test]
 fn a_one_point_stroke_is_hit_around_its_dab() {
     let dab = Stroke {
-        points: vec![InkPoint { x: 50.0, y: 50.0, pressure: 0.5, tilt_x: 0.0, tilt_y: 0.0 }],
+        points: vec![InkPoint { x: 50.0, y: 50.0, pressure: 0.5, tilt_x: 0.0, tilt_y: 0.0, t_ms: 0 }],
         ..kept(1, 0)
     };
     assert!(dab.is_near(53.0, 50.0, 6.0));
@@ -264,6 +293,7 @@ fn archive_of(file: &str, strokes: Vec<Stroke>, notes: Vec<crate::model::Note>) 
         file: file.to_string(),
         strokes,
         notes,
+        slashes: Vec::new(),
     }
 }
 
@@ -362,4 +392,96 @@ fn the_about_box_names_the_build_the_binary_is_made_from() {
     // `build.rs` puts the commit there (`unknown` without git): a report names its binary.
     assert!(ABOUT.version.starts_with(env!("CARGO_PKG_VERSION")), "{}", ABOUT.version);
     assert!(ABOUT.version.contains("(build ") && ABOUT.version.ends_with(')'), "{}", ABOUT.version);
+}
+
+// ---- the quick slash: words deleted without a wait ----
+
+use crate::stroke_fixtures as fx;
+
+#[test]
+fn undo_takes_a_deletion_back_and_redo_deletes_the_same_words_again() {
+    let mut s = app_with_slash_file();
+    draw_fixture(&mut s, &fx::slash(), 0);
+    assert_eq!(s.slashes.len(), 1);
+    let was = s.slashes[0].clone();
+
+    assert!(s.undo(), "a deletion is an edit");
+    assert!(s.slashes.is_empty());
+    assert!(s.hidden_ranges(0).iter().all(Vec::is_empty), "the word is back on the page");
+    assert_eq!(s.redo_stack.len(), 1);
+
+    assert!(s.redo());
+    assert_eq!(s.slashes, vec![was]);
+    assert_eq!(s.hidden_ranges(0)[11], vec![(33, 43)]);
+}
+
+#[test]
+fn undo_takes_back_the_last_edit_whether_it_was_ink_or_a_deletion() {
+    let mut s = app_with_slash_file();
+    s.keep(kept(1, 0));
+    draw_fixture(&mut s, &fx::slash(), 0);
+    assert_eq!((s.strokes.len(), s.slashes.len()), (1, 1));
+    assert!(s.undo());
+    assert_eq!((s.strokes.len(), s.slashes.len()), (1, 0), "the deletion first");
+    assert!(s.undo());
+    assert_eq!((s.strokes.len(), s.slashes.len()), (0, 0), "then the ink");
+}
+
+#[test]
+fn a_new_stroke_ends_the_branch_redo_would_have_brought_back_a_deletion_from() {
+    let mut s = app_with_slash_file();
+    draw_fixture(&mut s, &fx::slash(), 0);
+    s.undo();
+    assert_eq!(s.redo_stack.len(), 1);
+    s.keep(kept(9, 0));
+    assert!(s.redo_stack.is_empty());
+    assert!(!s.redo());
+}
+
+#[test]
+fn the_words_of_a_deletion_are_hidden_on_their_own_page_only() {
+    let mut s = app_with_slash_file();
+    draw_fixture(&mut s, &fx::slash(), 1);
+    assert_eq!(s.slashes[0].page, 1);
+    assert_eq!(s.slashes[0].words[0].line, code::LINES_PER_PAGE + 12, "the line is the file's, not the page's");
+    assert_eq!(s.slashes[0].words[0].text, "pqrstuvwxy");
+    assert_eq!(s.hidden_ranges(1)[11], vec![(33, 43)]);
+    assert!(s.hidden_ranges(0).iter().all(Vec::is_empty));
+}
+
+#[test]
+fn opening_another_file_leaves_the_deletions_behind() {
+    let mut s = app_with_slash_file();
+    draw_fixture(&mut s, &fx::slash(), 0);
+    s.files.push(file());
+    s.open_file(1);
+    assert!(s.slashes.is_empty());
+    assert!(s.history.is_empty());
+}
+
+#[test]
+fn a_session_that_comes_back_brings_its_deletions_and_the_ids_of_what_is_here_follow_them() {
+    let mut s = app_with_slash_file();
+    draw_fixture(&mut s, &fx::slash(), 0);
+    let word = s.slashes[0].clone();
+    let mut loaded = archive_of("f.rs", vec![kept(5, 0)], Vec::new());
+    loaded.slashes = vec![crate::deletion::Deletion { id: 7, ..word.clone() }];
+    assert!(s.adopt(loaded));
+    let ids: Vec<u64> = s.slashes.iter().map(|d| d.id).collect();
+    assert_eq!(ids.len(), 2);
+    assert_eq!(ids[0], 7, "the archive's own keep their ids");
+    assert!(ids[1] > 7, "what was drawn here since is renumbered past them: {ids:?}");
+    assert!(s.next_stroke_id > 7);
+}
+
+#[test]
+fn deletions_are_bounded() {
+    let mut s = app_with_slash_file();
+    let filler = crate::deletion::Deletion { id: 1, page: 0, started_unix_ms: 0, points: Vec::new(), words: Vec::new() };
+    s.slashes = vec![filler; crate::deletion::MAX_DELETIONS];
+    // at the cap a slash is ordinary ink: nothing is lost and nothing grows
+    let ended = draw_fixture(&mut s, &fx::slash(), 0);
+    assert_eq!(ended.map(|e| e.up), Some(crate::pointer::Up::Kept));
+    assert_eq!(s.slashes.len(), crate::deletion::MAX_DELETIONS);
+    assert_eq!(s.strokes.len(), 1);
 }

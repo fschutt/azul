@@ -216,6 +216,47 @@ fn the_numbers_the_cutout_renderer_lays_out_by_are_the_pages() {
     assert_eq!(CODE_W, PAGE_W - MARGIN_GUTTER_W - PAGE_PAD);
 }
 
+// ---- the words a slash took ----
+
+#[test]
+fn a_line_with_hidden_words_is_the_same_rows_with_those_words_in_the_colour_of_the_page() {
+    let lines = vec!["    abcdefghij klm".to_string(), "fn b() {}".to_string()];
+    let plain = page_code_column(7, &lines);
+    let cut = page_code_column_hidden(7, &lines, &[vec![(4, 14)], vec![]]);
+    assert_eq!(cut.children.as_slice().len(), plain.children.as_slice().len(), "a row for each line, still");
+    assert_eq!(
+        texts(&cut.children.as_slice()[0]),
+        vec!["7", "abcdefghij", " klm"],
+        "the number and the pieces of the line (the blank piece is no word)"
+    );
+    assert_eq!(
+        texts(&cut.children.as_slice()[1]),
+        texts(&plain.children.as_slice()[1]),
+        "a line with nothing hidden is as it was"
+    );
+    // the hidden piece has the colour of the page, the others the ink of the code
+    assert!(piece_css(true).contains(&format!("color: {PAGE_BG};")), "{}", piece_css(true));
+    assert!(piece_css(false).contains("color: #1f1f1f;"), "{}", piece_css(false));
+    assert!(piece_css(true).contains("white-space: pre;") && piece_css(false).contains("white-space: pre;"));
+}
+
+#[test]
+fn a_page_with_no_hidden_words_is_built_as_it_always_was() {
+    let lines = vec!["fn a() {}".to_string(), "fn b() {}".to_string()];
+    let none = vec![Vec::new(); 2];
+    let a = page_code_column(1, &lines);
+    let b = page_code_column_hidden(1, &lines, &none);
+    assert_eq!(texts(&a), texts(&b));
+    assert_eq!(nodes(&a).len(), nodes(&b).len(), "one piece to a line: not a node more");
+}
+
+#[test]
+fn the_measures_a_word_is_found_by_are_the_pages() {
+    // the code of a page starts under its padding and the gutter; a column is as wide as the page's font is
+    assert_eq!(CODE_X, PAGE_PAD + GUTTER_W);
+    assert!((CHAR_W - 6.6).abs() < f32::EPSILON, "the monospace 11 px of the page: 6.6 px a column");
+}
+
 // ---- the bottom bar of the agents ----
 
 fn with_chips(files: usize, count: usize) -> AppState {
