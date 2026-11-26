@@ -116,6 +116,33 @@ fn no_field_name_of_the_module_starts_with_an_underscore() {
     );
 }
 
+/// With no C header to include, V 0.5.2 writes no C declaration for `fn C.AzString_fromUtf8(...)`
+/// and the C compiler stops ("C function `C.AzString_fromUtf8` was declared in V, but the C
+/// compiler did not see a matching C declaration", run 45764257231): the V declaration of a symbol
+/// that a library provides carries `@[c_extern]`.
+#[test]
+fn every_c_function_the_module_declares_is_marked_extern() {
+    let lines: Vec<&str> = generated().lines().collect();
+    let mut declared = 0;
+    let mut bare = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        if line.starts_with("fn C.") {
+            declared += 1;
+            if i == 0 || lines[i - 1] != "@[c_extern]" {
+                bare.push(*line);
+            }
+        }
+    }
+    assert!(declared > 10_000, "only {declared} `fn C.` declarations found: the scan does not read the module");
+    assert!(
+        bare.is_empty(),
+        "{} of the {} C functions of azul.v are not marked `@[c_extern]`; the first: {:?}",
+        bare.len(),
+        declared,
+        &bare[..bare.len().min(3)]
+    );
+}
+
 #[test]
 fn the_example_spells_the_enum_values_it_uses_as_the_module_does() {
     let module = blocks(generated());
