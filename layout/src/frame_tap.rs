@@ -107,6 +107,15 @@ pub struct FrameTap {
     told: Arc<AtomicU64>,
 }
 
+/// A tap's data is what the handler that registered it was given, often a clone of a node's dataset: a rebuild that
+/// merges the dataset keeps one allocation and drops the other, and a tap that still held a clone of the dropped one
+/// would tell the frames to a copy the app never reads.
+impl azul_core::refany::RefAnyHolder for FrameTap {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        visit(&mut self.data);
+    }
+}
+
 impl FrameTap {
     /// A tap that calls `callback` with a handle on `data`.
     #[must_use]
@@ -199,6 +208,8 @@ pub fn deliver(
         damage: I32VecRef::from(changed),
         pixels: U8VecRef::from(&pixels[..bytes]),
     };
+    // direct-cb-call: `FrameTapCallback` is a plain function with no context of a binding's to hand on (a language
+    // that keeps its callables behind a host handle cannot tap a frame yet), so it has no `invoke`.
     (tap.callback.cb)(tap.data.clone(), info);
 }
 

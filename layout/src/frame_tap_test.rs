@@ -226,3 +226,26 @@ fn the_info_prints_its_sizes_and_not_the_frame() {
     assert_eq!(text, "FrameTapInfo { 2x2 px at 1x, 1 rects, 16 bytes }");
     assert!(!text.contains('['), "the rectangles are counted, not listed: {text}");
 }
+
+/// A tap's data is something a rebuild's merge has to reach: the walk of a holder hands it out, and what the walk puts
+/// in its place is what the tap is called with from then on.
+///
+/// Mutation: a walk that hands out nothing; one that hands out a copy of the data and not the tap's own.
+#[test]
+fn the_data_of_a_tap_is_handed_to_the_walk_that_repoints_what_a_rebuild_replaced() {
+    use azul_core::refany::RefAnyHolder;
+    let (mut tap, log) = tap_with_log();
+    let other = RefAny::new(Log(Vec::new()));
+    let mut visited = 0;
+    tap.for_each_refany(&mut |data| {
+        visited += 1;
+        assert_eq!(data.sharing_info.ptr, log.sharing_info.ptr, "the tap's own data, not a copy");
+        *data = other.clone();
+    });
+    assert_eq!(visited, 1);
+    // The next frame is told to what the walk put there.
+    deliver(&tap, &frame(4, 4), 4, 4, 16, 1.0, &FrameDamage::Full);
+    assert_eq!(heard(other).len(), 1);
+    assert!(heard(log).is_empty());
+}
+

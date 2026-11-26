@@ -3145,8 +3145,9 @@ pub struct LayoutWindow {
 
 /// What a window keeps that can hold a clone of a node's data: its laid-out
 /// trees, the trees still leaving, the animation tracks, the timers and
-/// threads its handlers started, the unmount handlers waiting to run and the
-/// nodes its views were last invoked for.
+/// threads its handlers started, the frame tap a handler registered, the
+/// unmount handlers waiting to run and the nodes its views were last invoked
+/// for.
 impl RefAnyHolder for LayoutWindow {
     fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
         let results = self.layout_results.values_mut();
@@ -3170,6 +3171,9 @@ impl RefAnyHolder for LayoutWindow {
         }
         for thread in self.threads.values_mut() {
             thread.for_each_refany(visit);
+        }
+        if let Some(tap) = self.frame_tap.as_mut() {
+            tap.for_each_refany(visit);
         }
         for (callback, _) in &mut self.pending_unmount_invocations {
             callback.for_each_refany(visit);
