@@ -66,8 +66,8 @@ fn opening_a_file_changes_what_the_pen_state_says() {
     phone.open_file(100, "core/src/dom.rs", Some(9));
     run(&mut phone, 100, 200);
     let pen = phone.view().pen.as_ref().unwrap();
-    assert_eq!(pen.file, "core/src/dom.rs");
-    assert_eq!(pen.line, 9);
+    assert_eq!(pen.file(), "core/src/dom.rs");
+    assert_eq!(pen.page().map(|p| p.line), Some(9));
 }
 
 #[test]

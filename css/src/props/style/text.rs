@@ -684,6 +684,88 @@ impl PrintAsCssValue for StyleTextDecoration {
     }
 }
 
+// -- StyleTextDecorationColor --
+
+/// `text-decoration-color` (CSS Text Decoration 3): the colour of the lines `text-decoration`
+/// draws. Not inherited.
+///
+/// The initial value, `currentcolor`, paints a line in the `color` of the box that sets it - not in
+/// the colour of the text it crosses, which a box inside may have changed.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C, u8)]
+pub enum StyleTextDecorationColor {
+    /// `currentcolor`: the colour of the box that sets the line
+    #[default]
+    CurrentColor,
+    /// A colour (a `system:` keyword stays the token the layout resolves against the theme)
+    Color(ColorU),
+}
+
+impl PrintAsCssValue for StyleTextDecorationColor {
+    fn print_as_css_value(&self) -> String {
+        match self {
+            Self::CurrentColor => String::from("currentcolor"),
+            Self::Color(color) => color.to_css_value(),
+        }
+    }
+}
+
+#[cfg(feature = "codegen")]
+impl FormatAsRustCode for StyleTextDecorationColor {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            Self::CurrentColor => "StyleTextDecorationColor::CurrentColor".to_string(),
+            Self::Color(color) => format!(
+                "StyleTextDecorationColor::Color({})",
+                crate::codegen::format::format_color_value(color)
+            ),
+        }
+    }
+}
+
+// -- StyleTextDecorationThickness --
+
+/// `text-decoration-thickness` (CSS Text Decoration 4): how thick the lines `text-decoration`
+/// draws are. Not inherited.
+///
+/// A length is the thickness itself; an `em` and a percentage (of one em) are parts of the font
+/// size of the box that sets the line, whatever the font size of the text under it.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C, u8)]
+pub enum StyleTextDecorationThickness {
+    /// `auto`: the thickness the font size suggests
+    #[default]
+    Auto,
+    /// `from-font`: the thickness the font names; one that names none is `auto`
+    FromFont,
+    /// A length, or a percentage of the font size
+    Length(PixelValue),
+}
+
+impl PrintAsCssValue for StyleTextDecorationThickness {
+    fn print_as_css_value(&self) -> String {
+        match self {
+            Self::Auto => String::from("auto"),
+            Self::FromFont => String::from("from-font"),
+            Self::Length(length) => length.print_as_css_value(),
+        }
+    }
+}
+
+#[cfg(feature = "codegen")]
+impl FormatAsRustCode for StyleTextDecorationThickness {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            Self::Auto => "StyleTextDecorationThickness::Auto".to_string(),
+            Self::FromFont => "StyleTextDecorationThickness::FromFont".to_string(),
+            Self::Length(length) => format!(
+                "StyleTextDecorationThickness::Length({})",
+                crate::codegen::format::format_pixel_value(length)
+            ),
+        }
+    }
+}
+
 // -- StyleVerticalAlign --
 
 /// CSS 2.2 §10.8.1 vertical-align property values
@@ -2529,6 +2611,50 @@ pub fn parse_style_text_decoration(
             InvalidValueErr(other),
         )),
     }
+}
+
+#[cfg(feature = "parser")]
+/// Parses a `text-decoration-color` value: `currentcolor` (in any case) or a colour, a `system:`
+/// keyword included.
+///
+/// # Errors
+///
+/// Returns an error if `input` is neither.
+pub fn parse_style_text_decoration_color(
+    input: &str,
+) -> Result<StyleTextDecorationColor, InvalidValueErr<'_>> {
+    let input = input.trim();
+    if input.eq_ignore_ascii_case("currentcolor") {
+        return Ok(StyleTextDecorationColor::CurrentColor);
+    }
+    crate::props::basic::color::parse_color_or_system_token(input)
+        .map(StyleTextDecorationColor::Color)
+        .map_err(|_| InvalidValueErr(input))
+}
+
+#[cfg(feature = "parser")]
+/// Parses a `text-decoration-thickness` value: `auto`, `from-font` (in any case), a length or a
+/// percentage. A thickness below nothing is no thickness.
+///
+/// # Errors
+///
+/// Returns an error if `input` is none of these or is negative.
+pub fn parse_style_text_decoration_thickness(
+    input: &str,
+) -> Result<StyleTextDecorationThickness, InvalidValueErr<'_>> {
+    let input = input.trim();
+    if input.eq_ignore_ascii_case("auto") {
+        return Ok(StyleTextDecorationThickness::Auto);
+    }
+    if input.eq_ignore_ascii_case("from-font") {
+        return Ok(StyleTextDecorationThickness::FromFont);
+    }
+    let length = crate::props::basic::pixel::parse_pixel_value(input)
+        .map_err(|_| InvalidValueErr(input))?;
+    if length.number.get() < 0.0 {
+        return Err(InvalidValueErr(input));
+    }
+    Ok(StyleTextDecorationThickness::Length(length))
 }
 
 #[cfg(feature = "parser")]

@@ -179,6 +179,23 @@ azreview-whiteboard-board-undo = Rückgängig
 azreview-whiteboard-board-deleted = Whiteboard "{ $name }" gelöscht
 azreview-whiteboard-board-rename-name = Name des Whiteboards { $name }
 azreview-whiteboard-board-loading = Das Whiteboard wird geöffnet ...
+azreview-whiteboard-board-imported = Importiertes Whiteboard
+azreview-whiteboard-export = Exportieren ...
+azreview-whiteboard-export-name = Das geöffnete Whiteboard als JSON-Datei exportieren
+azreview-whiteboard-import = Importieren ...
+azreview-whiteboard-import-name = Eine Whiteboard-Datei als neues Whiteboard öffnen
+azreview-whiteboard-export-title = "{ $name }" als JSON-Datei exportieren
+azreview-whiteboard-export-what = Eine Datei mit den Ausschnitten und Pfeilen und zu jedem Ausschnitt dem Code, den er zeigt, einem Link auf diese Zeilen in der Revision, in der sie eingekreist wurden, und dem Bild. Ein Web-Viewer kann sie öffnen.
+azreview-whiteboard-export-author = Die Datei nennt ihren Autor: { $author } (der Name, mit dem git eingerichtet ist; die Einstellung whiteboard-author ändert ihn oder lässt ihn weg).
+azreview-whiteboard-export-author-none = Die Datei nennt keinen Autor (die Einstellung whiteboard-author steht auf off, oder git hat keinen Namen).
+azreview-whiteboard-export-pictures-inside = Bilder in der Datei
+azreview-whiteboard-export-pictures-beside = Bilder in einem Ordner neben der Datei
+azreview-whiteboard-export-go = Datei wählen ...
+azreview-whiteboard-export-cancel = Abbrechen
+azreview-whiteboard-exported = Exportiert nach { $path }: { $pictures } Bilder, { $links } Links auf Code.
+azreview-whiteboard-export-failed = Der Export ist fehlgeschlagen: { $why }
+azreview-whiteboard-imported = "{ $name }" aus { $file } geöffnet.
+azreview-whiteboard-import-failed = Diese Datei konnte nicht geöffnet werden: { $why }
 
 ## Diktieren und die Seitenspalte der Notizen
 

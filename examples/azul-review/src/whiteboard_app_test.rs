@@ -48,6 +48,11 @@ fn word() -> Pt {
 
 /// A loop round the word armed at `now`, lifted by a hold and dropped on the bar: the job it leaves.
 fn drop_a_loop(wb: &mut Whiteboard, now: u64) -> CutoutJob {
+    drop_a_loop_at(wb, now, Pt::new(1_100.0, 200.0))
+}
+
+/// The same, dropped at `drop` (the window's point).
+fn drop_a_loop_at(wb: &mut Whiteboard, now: u64, drop: Pt) -> CutoutJob {
     let c = chars();
     let region = wb
         .arm_stroke(0, &pts(&fx::closed_loop()), &lines_of_page(&c), PAGE, 5, now)
@@ -57,7 +62,6 @@ fn drop_a_loop(wb: &mut Whiteboard, now: u64) -> CutoutJob {
     assert_eq!(wb.page_tick(now + 100 + 300), Some(Tick::Held(region)));
     let far = Pt::new(word().x + 60.0, word().y);
     assert!(matches!(wb.page_motion(Pt::new(far.x + 100.0, far.y + 50.0), now + 600, &bar()), Motion::Lifted(r) if r == region));
-    let drop = Pt::new(1_100.0, 200.0);
     let release = wb.page_release(drop, &bar());
     let Release::Dropped { region: r, at_bar } = release else { panic!("dropped: {release:?}") };
     assert_eq!(r, region);
@@ -288,8 +292,7 @@ fn a_board_read_with_a_missing_picture_or_a_repair_says_how_many() {
     let mut wb = Whiteboard::new("/w");
     let loaded = crate::whiteboard_store::Loaded {
         data: crate::whiteboard::BoardData::default(),
-        workspace: "/w".to_string(),
-        saved_ms: 1,
+        meta: crate::whiteboard_azboard::Meta { modified_ms: 1, ..Default::default() },
         left_out: 2,
         unreadable_pictures: 3,
     };
@@ -314,7 +317,7 @@ fn index_of(effect: &Effect) -> BoardIndex {
 
 /// The board is changed (a cutout is put on it) and not kept.
 fn change(wb: &mut Whiteboard) {
-    let source = Source { file: "src/lib.rs".to_string(), page: 0, first_line: 1, last_line: 2, shape: Vec::new(), file_hash: 1, range_hash: 2, lines: Vec::new() };
+    let source = Source { rev: String::new(), sha256: String::new(), file: "src/lib.rs".to_string(), page: 0, first_line: 1, last_line: 2, shape: Vec::new(), file_hash: 1, range_hash: 2, lines: Vec::new() };
     wb.board.add_cutout(CutoutDraft::pending(Pt::new(0.0, 0.0), Size::new(100.0, 50.0), source)).expect("room");
     assert!(wb.board.needs_save());
 }
@@ -522,3 +525,178 @@ fn the_list_is_written_again_only_when_it_changed_and_a_kept_board_is_told_to_it
     assert_eq!(index_of(&effect).get("b1").map(|b| b.modified_ms), Some(4_000));
     assert!(wb.take_index_effect().is_none(), "once");
 }
+
+// ---- what a cutout knows of the code, and the board as a file to share
+
+const REV: &str = "0123456789abcdef0123456789abcdef01234567";
+
+fn repo_facts() -> RepoFacts {
+    RepoFacts {
+        rev: Some(REV.to_string()),
+        branch: Some("main".to_string()),
+        remote_url: Some("https://github.com/fschutt/azul".to_string()),
+        web_url: Some("https://github.com/fschutt/azul".to_string()),
+        host: crate::whiteboard_git::Host::GitHub,
+        author: Some("Ada Lovelace".to_string()),
+        prefix: "examples/azul-review/src".to_string(),
+        dirty: None,
+    }
+}
+
+#[test]
+fn a_cutout_names_the_revision_it_was_circled_at_and_the_hash_of_all_the_lines_it_covers() {
+    let mut wb = Whiteboard::new("/work/azul");
+    wb.set_repo(Some(repo_facts()));
+    let job = drop_a_loop(&mut wb, 1_000);
+    let c = wb.board.cutout(job.id).expect("the cutout");
+    assert_eq!(c.source.rev, REV);
+    assert_eq!(c.source.sha256, crate::whiteboard_hash::lines_tagged(&facts().covered));
+    // A workspace that is no repository has no revision to name (the hash of the lines is there all the same).
+    let mut bare = Whiteboard::new("/work/other");
+    let job = drop_a_loop(&mut bare, 1_000);
+    let c = bare.board.cutout(job.id).expect("the cutout");
+    assert_eq!(c.source.rev, "");
+    assert!(crate::whiteboard_hash::is_tagged(&c.source.sha256));
+    // The hash is of every line covered, also those the board keeps only part of.
+    let many: Vec<String> = (0..300).map(|i| format!("line {i}")).collect();
+    let limits = Limits { max_source_lines: 50, ..LIMITS };
+    let mut small = Whiteboard::with_limits("/work/small", limits);
+    let c = chars();
+    let region = small.arm_stroke(0, &pts(&fx::closed_loop()), &lines_of_page(&c), PAGE, 5, 0).expect("armed");
+    let facts = SourceFacts { file: "a.rs".to_string(), file_hash: 1, covered: many.clone() };
+    let job = small.drop_region(region, Pt::new(1_100.0, 200.0), facts, 2.0, PAGE).expect("a cutout");
+    let c = small.board.cutout(job.id).expect("the cutout");
+    assert_eq!(c.source.lines.len(), 50);
+    assert_eq!(c.source.sha256, crate::whiteboard_hash::lines_tagged(&many));
+}
+
+#[test]
+fn the_author_is_what_the_setting_says_with_git_s_name_as_the_default_and_never_the_email() {
+    let mut wb = Whiteboard::new("/work/azul");
+    assert_eq!(wb.author_name(), None, "no repository, no name");
+    wb.set_repo(Some(repo_facts()));
+    assert_eq!(wb.author_name().as_deref(), Some("Ada Lovelace"));
+    let (settings, _) = Settings::parse(&|k| (k == crate::whiteboard_settings::KEY_AUTHOR).then(|| "off".to_string()));
+    wb.set_settings(settings);
+    assert_eq!(wb.author_name(), None);
+    let (settings, _) = Settings::parse(&|k| (k == crate::whiteboard_settings::KEY_AUTHOR).then(|| "The Team".to_string()));
+    wb.set_settings(settings);
+    assert_eq!(wb.author_name().as_deref(), Some("The Team"));
+}
+
+#[test]
+fn a_save_is_the_document_of_the_open_board_with_its_name_and_the_repository() {
+    let mut wb = Whiteboard::new("/work/azul");
+    wb.set_repo(Some(repo_facts()));
+    drop_a_loop(&mut wb, 1_000);
+    let job = wb.save_job(5_000).expect("a save");
+    let manifest = job.entries.iter().find(|e| e.name == store::MANIFEST).expect("the manifest");
+    let doc = crate::whiteboard_json::parse(std::str::from_utf8(&manifest.bytes).expect("text")).expect("JSON");
+    assert_eq!(doc.get("format").and_then(|f| f.as_str()), Some("azboard/1"));
+    let board = doc.get("board").expect("board");
+    assert_eq!(board.get("id").and_then(|f| f.as_str()), Some("b1"));
+    assert_eq!(board.get("modified_ms").and_then(|f| f.as_u64()), Some(5_000));
+    assert_eq!(doc.get("workspace").and_then(|w| w.get("name")).and_then(|f| f.as_str()), Some("azul"));
+    assert_eq!(doc.get("author").and_then(|f| f.as_str()), Some("Ada Lovelace"));
+    let text = std::str::from_utf8(&manifest.bytes).expect("text");
+    assert!(text.contains("\"path\": \"examples/azul-review/src/src/lib.rs\""), "the path in the repository: {text}");
+    assert!(text.contains(&format!("/blob/{REV}/examples/azul-review/src/src/lib.rs#L12")), "a link to the line at the revision: {text}");
+    assert!(!text.contains("/work/"), "nothing of where the folder is");
+}
+
+#[test]
+fn an_export_is_the_board_as_it_is_now_with_its_unkept_changes_and_where_the_folder_is() {
+    let mut wb = Whiteboard::new("whiteboard-demo");
+    wb.set_folder(Some(std::path::PathBuf::from("/work/azul/examples/azul-review/src")));
+    wb.set_repo(Some(repo_facts()));
+    drop_a_loop(&mut wb, 1_000);
+    assert!(wb.board.needs_save());
+    let req = wb.export_request(ExportPictures::Beside, None, 9_000);
+    assert_eq!(req.data.items.len(), 1, "the change that is not kept yet is in it");
+    assert_eq!(req.folder, std::path::PathBuf::from("/work/azul/examples/azul-review/src"));
+    assert_eq!((req.meta.board_id.as_str(), req.meta.board_name.as_str(), req.meta.modified_ms), ("b1", "Board 1", 9_000));
+    assert_eq!(req.meta.workspace_name, "src", "the folder's name");
+    assert_eq!(req.pictures, ExportPictures::Beside);
+    assert_eq!(req.meta.author.as_deref(), Some("Ada Lovelace"));
+    assert_eq!(wb.export_file_name(), "Board-1.azboard.json");
+    // The folder of a host whose workspace is the folder itself is the workspace.
+    let plain = Whiteboard::new("/work/azul");
+    assert_eq!(plain.export_request(ExportPictures::Embedded, None, 1).folder, std::path::PathBuf::from("/work/azul"));
+}
+
+fn loaded(name: &str, items: usize, left_out: usize) -> Loaded {
+    let mut data = crate::whiteboard::BoardData::default();
+    for i in 0..items {
+        let source = Source { rev: String::new(), sha256: String::new(), file: format!("src/f{i}.rs"), page: 0, first_line: 1, last_line: 3, shape: Vec::new(), file_hash: 0, range_hash: 0, lines: Vec::new() };
+        data.items.push(Item::Cutout(crate::whiteboard::Cutout {
+            id: i as u64 + 1,
+            rect: Rect::new(i as f32 * 300.0, 0.0, 200.0, 100.0),
+            image: ImageSlot::Failed("no picture".to_string()),
+            label: format!("c{i}"),
+            source,
+        }));
+    }
+    data.next_id = items as u64 + 1;
+    Loaded { data, meta: crate::whiteboard_azboard::Meta { board_name: name.to_string(), ..Default::default() }, left_out, unreadable_pictures: 0 }
+}
+
+#[test]
+fn a_file_that_was_read_becomes_a_new_board_that_is_open_and_not_kept_yet() {
+    let mut wb = Whiteboard::new("/work/azul");
+    let _ = wb.index_loaded(None, false, "Board 1", 1_000);
+    wb.loaded_none();
+    let plan = wb.import_board(loaded("Parser", 2, 0), "Imported", 2_000).expect("imported");
+    assert_eq!(wb.active_board(), ("b2", "Parser"), "named for what the file calls it");
+    assert_eq!(wb.board.len(), 2);
+    assert!(wb.board.needs_save(), "it has no file of its own yet");
+    assert_eq!(plan.effects.len(), 1, "the list is written");
+    assert!(plan.load.is_none() && plan.copy.is_none());
+    assert!(matches!(wb.status, Status::Loaded { items: 2, .. }));
+    // It is kept in its own file by the next save, and the one-board file is not touched.
+    let job = wb.save_job(3_000).expect("a save");
+    assert!(job.name.contains(".b2."), "{}", job.name);
+    // A file that calls itself nothing gets the name the app gives; one with items left out says so.
+    assert!(!wb.save_done(&Ok(())));
+    let _ = wb.import_board(loaded("  ", 1, 3), "Imported", 4_000).expect("imported");
+    assert_eq!(wb.active_board(), ("b3", "Imported"));
+    assert!(matches!(wb.status, Status::Repaired { left_out: 3, .. }));
+    assert!(wb.take_notices().iter().any(|n| matches!(n, Notice::BoardRepaired { dropped: 3 })));
+}
+
+#[test]
+fn a_file_is_not_taken_while_the_open_board_is_not_kept_and_not_past_the_most_boards() {
+    let mut wb = Whiteboard::new("/work/azul");
+    let _ = wb.index_loaded(None, false, "Board 1", 1_000);
+    wb.loaded_none();
+    drop_a_loop(&mut wb, 1_000);
+    assert_eq!(wb.can_leave(), Err(Notice::BoardBusy));
+    assert_eq!(wb.import_board(loaded("x", 1, 0), "Imported", 2_000).err(), Some(Notice::BoardBusy));
+    assert_eq!(wb.boards().boards().count(), 1, "nothing changed");
+    // Kept: it goes.
+    let _job = wb.save_job(3_000).expect("a save");
+    assert!(!wb.save_done(&Ok(())));
+    assert_eq!(wb.can_leave(), Ok(()));
+    for n in 2..=boards::MAX_BOARDS {
+        wb.import_board(loaded("b", 0, 0), "Imported", 4_000).unwrap_or_else(|e| panic!("board {n}: {e:?}"));
+        let _ = wb.save_job(5_000);
+        let _ = wb.save_done(&Ok(()));
+    }
+    assert_eq!(wb.import_board(loaded("one more", 0, 0), "Imported", 6_000).err(), Some(Notice::TooManyBoards { limit: boards::MAX_BOARDS }));
+}
+
+#[test]
+fn a_drop_on_the_header_lands_at_the_top_of_the_board_with_the_whole_cutout_in_view() {
+    let mut wb = Whiteboard::new("/work/azul");
+    // The bar starts at y 30: a drop at 40 is 10 px into the bar, over its 30 px header.
+    let job = drop_a_loop_at(&mut wb, 1_000, Pt::new(1_100.0, 40.0));
+    let c = wb.board.cutout(job.id).expect("the cutout");
+    let top = wb.board.view().to_screen(c.rect.origin()).y;
+    assert!(top >= -0.5, "the cutout's top is on the board: {top}");
+    assert!(top < 1.0, "and at the top of it: {top}");
+    // A drop well under the header is where it was dropped.
+    let low = drop_a_loop_at(&mut wb, 20_000, Pt::new(1_100.0, 400.0));
+    let c = wb.board.cutout(low.id).expect("the cutout");
+    let centre = wb.board.view().to_screen(c.rect.center());
+    assert!((centre.y - (400.0 - 30.0 - HEADER_PX)).abs() < 1.0, "{centre:?}");
+}
+

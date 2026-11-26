@@ -114,7 +114,7 @@ const COMBINED_CSS_PROPERTIES_KEY_MAP: [(CombinedCssPropertyType, &str); 34] = [
     (CombinedCssPropertyType::BorderWidth, "stroke-width"),
 ];
 
-const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 224] = [
+const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 226] = [
     (CssPropertyType::Display, "display"),
     (CssPropertyType::Float, "float"),
     (CssPropertyType::BoxSizing, "box-sizing"),
@@ -238,6 +238,8 @@ const CSS_PROPERTY_KEY_MAP: [(CssPropertyType, &str); 224] = [
     (CssPropertyType::FontVariationSettings, "font-variation-settings"),
     (CssPropertyType::FontOpticalSizing, "font-optical-sizing"),
     (CssPropertyType::FontKerning, "font-kerning"),
+    (CssPropertyType::TextDecorationColor, "text-decoration-color"),
+    (CssPropertyType::TextDecorationThickness, "text-decoration-thickness"),
     (CssPropertyType::TextWrap, "text-wrap"),
     (CssPropertyType::FontVariantPosition, "font-variant-position"),
     (CssPropertyType::TextRendering, "text-rendering"),
@@ -596,6 +598,8 @@ pub type StyleFontStretchValue = CssPropertyValue<StyleFontStretch>;
 pub type StyleFontVariationSettingsValue = CssPropertyValue<StyleFontVariationSettings>;
 pub type StyleFontOpticalSizingValue = CssPropertyValue<StyleFontOpticalSizing>;
 pub type StyleFontKerningValue = CssPropertyValue<StyleFontKerning>;
+pub type StyleTextDecorationColorValue = CssPropertyValue<StyleTextDecorationColor>;
+pub type StyleTextDecorationThicknessValue = CssPropertyValue<StyleTextDecorationThickness>;
 pub type StyleTextWrapValue = CssPropertyValue<StyleTextWrap>;
 pub type StyleFontVariantPositionValue = CssPropertyValue<StyleFontVariantPosition>;
 pub type StyleTextRenderingValue = CssPropertyValue<StyleTextRendering>;
@@ -994,6 +998,10 @@ pub enum CssProperty {
     FontOpticalSizing(StyleFontOpticalSizingValue),
     /// `font-kerning`: the pair adjustments of the face on or off.
     FontKerning(StyleFontKerningValue),
+    /// `text-decoration-color`: the colour of the lines of `text-decoration`.
+    TextDecorationColor(StyleTextDecorationColorValue),
+    /// `text-decoration-thickness`: the thickness of the lines of `text-decoration`.
+    TextDecorationThickness(StyleTextDecorationThicknessValue),
     /// `text-wrap`: how the lines of a paragraph are broken (balanced, as a whole, or not at all).
     TextWrap(StyleTextWrapValue),
     /// `font-variant-position`: the subscript or superscript forms of the glyphs.
@@ -1292,6 +1300,8 @@ pub enum CssPropertyType {
     FontVariationSettings,
     FontOpticalSizing,
     FontKerning,
+    TextDecorationColor,
+    TextDecorationThickness,
     TextWrap,
     FontVariantPosition,
     TextRendering,
@@ -1517,6 +1527,8 @@ impl CssPropertyType {
         Self::FontVariationSettings,
         Self::FontOpticalSizing,
         Self::FontKerning,
+        Self::TextDecorationColor,
+        Self::TextDecorationThickness,
         Self::TextWrap,
         Self::FontVariantPosition,
         Self::TextRendering,
@@ -1785,6 +1797,8 @@ impl CssPropertyType {
             Self::FontVariationSettings => "font-variation-settings",
             Self::FontOpticalSizing => "font-optical-sizing",
             Self::FontKerning => "font-kerning",
+            Self::TextDecorationColor => "text-decoration-color",
+            Self::TextDecorationThickness => "text-decoration-thickness",
             Self::TextWrap => "text-wrap",
             Self::FontVariantPosition => "font-variant-position",
             Self::TextRendering => "text-rendering",
@@ -2040,7 +2054,7 @@ impl CssPropertyType {
             ColumnRuleColor, ColumnRuleStyle, Cursor, Direction, DominantBaseline, Filter,
             FontFamily, FontFeatureSettings, FontSize, FontStyle, FontVariantCaps,
             FontVariantNumeric, FontWeight, HangingPunctuation, Height,
-            FontStretch, FontVariationSettings, FontOpticalSizing, FontKerning, TextWrap, FontVariantPosition, TextRendering, FontVariantLigatures, FontVariantEastAsian, FontSynthesisWeight, FontSynthesisStyle, FontSynthesisSmallCaps, FontSynthesisPosition,
+            FontStretch, FontVariationSettings, FontOpticalSizing, FontKerning, TextDecorationColor, TextDecorationThickness, TextWrap, FontVariantPosition, TextRendering, FontVariantLigatures, FontVariantEastAsian, FontSynthesisWeight, FontSynthesisStyle, FontSynthesisSmallCaps, FontSynthesisPosition,
             HyphenationLanguage, Hyphens, InitialLetter, InitialLetterAlign, InitialLetterWrap,
             LetterSpacing, LineBreak, LineClamp, LineFitEdge, LineHeight, MaxHeight, MaxWidth,
             MinHeight, MinWidth, MixBlendMode, ObjectFit, ObjectPosition, Opacity,
@@ -2127,7 +2141,7 @@ impl CssPropertyType {
             // inherits but doesn't directly reflow).
             FontFamily | FontSize | FontWeight | FontStyle | FontVariantNumeric | FontVariantCaps
             | FontFeatureSettings | LetterSpacing | WordSpacing | LineHeight | TextAlign | TextJustify | TextIndent | WhiteSpace | TabSize
-            | FontStretch | FontVariationSettings | FontOpticalSizing | FontKerning | TextWrap | FontVariantPosition | TextRendering | FontVariantLigatures | FontVariantEastAsian | FontSynthesisWeight | FontSynthesisStyle | FontSynthesisSmallCaps | FontSynthesisPosition
+            | FontStretch | FontVariationSettings | FontOpticalSizing | FontKerning | TextDecorationColor | TextDecorationThickness | TextWrap | FontVariantPosition | TextRendering | FontVariantLigatures | FontVariantEastAsian | FontSynthesisWeight | FontSynthesisStyle | FontSynthesisSmallCaps | FontSynthesisPosition
             | Hyphens | WordBreak | OverflowWrap | LineBreak | TextAlignLast | TextOrientation
             | HyphenationLanguage | TextCombineUpright | TextDecoration | HangingPunctuation
             | InitialLetter | LineClamp | Direction | VerticalAlign | UnicodeBidi | TextBoxTrim
@@ -3747,6 +3761,7 @@ pub fn parse_css_property(
         CssPropertyType::FontOpticalSizing |
         CssPropertyType::FontKerning |
         CssPropertyType::TextRendering |
+        CssPropertyType::TextDecorationThickness |
         CssPropertyType::FontSynthesisWeight |
         CssPropertyType::FontSynthesisStyle |
         CssPropertyType::FontSynthesisSmallCaps |
@@ -4240,6 +4255,16 @@ pub fn parse_css_property(
             ),
             CssPropertyType::FontKerning => CssProperty::FontKerning(
                 parse_style_font_kerning(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::TextDecorationColor => CssProperty::TextDecorationColor(
+                parse_style_text_decoration_color(value)
+                    .map_err(|_| CssParsingError::GenericParseError)?
+                    .into(),
+            ),
+            CssPropertyType::TextDecorationThickness => CssProperty::TextDecorationThickness(
+                parse_style_text_decoration_thickness(value)
                     .map_err(|_| CssParsingError::GenericParseError)?
                     .into(),
             ),
@@ -5539,6 +5564,8 @@ impl_from_css_prop!(StyleFontStretch, CssProperty::FontStretch);
 impl_from_css_prop!(StyleFontVariationSettings, CssProperty::FontVariationSettings);
 impl_from_css_prop!(StyleFontOpticalSizing, CssProperty::FontOpticalSizing);
 impl_from_css_prop!(StyleFontKerning, CssProperty::FontKerning);
+impl_from_css_prop!(StyleTextDecorationColor, CssProperty::TextDecorationColor);
+impl_from_css_prop!(StyleTextDecorationThickness, CssProperty::TextDecorationThickness);
 impl_from_css_prop!(StyleTextWrap, CssProperty::TextWrap);
 impl_from_css_prop!(StyleFontVariantPosition, CssProperty::FontVariantPosition);
 impl_from_css_prop!(StyleTextRendering, CssProperty::TextRendering);
@@ -5792,6 +5819,8 @@ impl CssProperty {
             Self::FontVariationSettings(v) => v.get_css_value_fmt(),
             Self::FontOpticalSizing(v) => v.get_css_value_fmt(),
             Self::FontKerning(v) => v.get_css_value_fmt(),
+            Self::TextDecorationColor(v) => v.get_css_value_fmt(),
+            Self::TextDecorationThickness(v) => v.get_css_value_fmt(),
             Self::TextWrap(v) => v.get_css_value_fmt(),
             Self::FontVariantPosition(v) => v.get_css_value_fmt(),
             Self::TextRendering(v) => v.get_css_value_fmt(),
@@ -6387,6 +6416,8 @@ impl CssProperty {
             Self::FontVariationSettings(v) => v.css_wide_keyword(),
             Self::FontOpticalSizing(v) => v.css_wide_keyword(),
             Self::FontKerning(v) => v.css_wide_keyword(),
+            Self::TextDecorationColor(v) => v.css_wide_keyword(),
+            Self::TextDecorationThickness(v) => v.css_wide_keyword(),
             Self::TextWrap(v) => v.css_wide_keyword(),
             Self::FontVariantPosition(v) => v.css_wide_keyword(),
             Self::TextRendering(v) => v.css_wide_keyword(),
@@ -6615,6 +6646,8 @@ impl CssProperty {
             Self::FontVariationSettings(_) => CssPropertyType::FontVariationSettings,
             Self::FontOpticalSizing(_) => CssPropertyType::FontOpticalSizing,
             Self::FontKerning(_) => CssPropertyType::FontKerning,
+            Self::TextDecorationColor(_) => CssPropertyType::TextDecorationColor,
+            Self::TextDecorationThickness(_) => CssPropertyType::TextDecorationThickness,
             Self::TextWrap(_) => CssPropertyType::TextWrap,
             Self::FontVariantPosition(_) => CssPropertyType::FontVariantPosition,
             Self::TextRendering(_) => CssPropertyType::TextRendering,
@@ -7190,6 +7223,14 @@ impl CssProperty {
     #[must_use]
     pub const fn font_kerning(input: StyleFontKerning) -> Self {
         Self::FontKerning(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn text_decoration_color(input: StyleTextDecorationColor) -> Self {
+        Self::TextDecorationColor(CssPropertyValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn text_decoration_thickness(input: StyleTextDecorationThickness) -> Self {
+        Self::TextDecorationThickness(CssPropertyValue::Exact(input))
     }
     #[must_use]
     pub const fn text_wrap(input: StyleTextWrap) -> Self {
@@ -8611,6 +8652,20 @@ impl CssProperty {
         }
     }
     #[must_use]
+    pub const fn as_text_decoration_color(&self) -> Option<&StyleTextDecorationColorValue> {
+        match self {
+            Self::TextDecorationColor(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
+    pub const fn as_text_decoration_thickness(&self) -> Option<&StyleTextDecorationThicknessValue> {
+        match self {
+            Self::TextDecorationThickness(f) => Some(f),
+            _ => None,
+        }
+    }
+    #[must_use]
     pub const fn as_text_wrap(&self) -> Option<&StyleTextWrapValue> {
         match self {
             Self::TextWrap(f) => Some(f),
@@ -8808,7 +8863,7 @@ impl CssProperty {
             TransformOrigin, UnicodeBidi, UserSelect, VerticalAlign, Visibility, WhiteSpace,
             Widows, Width, WordBreak, WordSpacing, WrapFlow, WrapThrough, WritingMode, ZIndex,
             Zoom, BackgroundClip, FontVariantNumeric, FontVariantCaps, FontFeatureSettings, CounterSet,
-            Quotes, BackgroundOrigin, BackgroundColor, FontStretch, FontVariationSettings, FontOpticalSizing, FontKerning, TextWrap, FontVariantPosition, TextRendering, FontVariantLigatures, FontVariantEastAsian, FontSynthesisWeight, FontSynthesisStyle, FontSynthesisSmallCaps, FontSynthesisPosition,
+            Quotes, BackgroundOrigin, BackgroundColor, FontStretch, FontVariationSettings, FontOpticalSizing, FontKerning, TextDecorationColor, TextDecorationThickness, TextWrap, FontVariantPosition, TextRendering, FontVariantLigatures, FontVariantEastAsian, FontSynthesisWeight, FontSynthesisStyle, FontSynthesisSmallCaps, FontSynthesisPosition,
         };
         match self {
             CaretColor(c) => c.is_initial(),
@@ -9006,6 +9061,8 @@ impl CssProperty {
             FontVariationSettings(c) => c.is_initial(),
             FontOpticalSizing(c) => c.is_initial(),
             FontKerning(c) => c.is_initial(),
+            TextDecorationColor(c) => c.is_initial(),
+            TextDecorationThickness(c) => c.is_initial(),
             TextWrap(c) => c.is_initial(),
             FontVariantPosition(c) => c.is_initial(),
             TextRendering(c) => c.is_initial(),
@@ -9510,6 +9567,14 @@ impl CssProperty {
     #[must_use]
     pub const fn const_font_kerning(input: StyleFontKerning) -> Self {
         Self::FontKerning(StyleFontKerningValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_text_decoration_color(input: StyleTextDecorationColor) -> Self {
+        Self::TextDecorationColor(StyleTextDecorationColorValue::Exact(input))
+    }
+    #[must_use]
+    pub const fn const_text_decoration_thickness(input: StyleTextDecorationThickness) -> Self {
+        Self::TextDecorationThickness(StyleTextDecorationThicknessValue::Exact(input))
     }
     #[must_use]
     pub const fn const_text_wrap(input: StyleTextWrap) -> Self {
@@ -10366,6 +10431,14 @@ pub fn format_static_css_prop(prop: &CssProperty, tabs: usize) -> String {
         CssProperty::FontKerning(p) => format!(
             "CssProperty::FontKerning({})",
             print_css_property_value(p, tabs, "StyleFontKerning")
+        ),
+        CssProperty::TextDecorationColor(p) => format!(
+            "CssProperty::TextDecorationColor({})",
+            print_css_property_value(p, tabs, "StyleTextDecorationColor")
+        ),
+        CssProperty::TextDecorationThickness(p) => format!(
+            "CssProperty::TextDecorationThickness({})",
+            print_css_property_value(p, tabs, "StyleTextDecorationThickness")
         ),
         CssProperty::TextWrap(p) => format!(
             "CssProperty::TextWrap({})",

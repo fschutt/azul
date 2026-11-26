@@ -1407,6 +1407,7 @@ mod autotest_generated {
                 underline: true,
                 strikethrough: false,
                 overline: false,
+                ..TextDecoration::default()
             };
         });
         let l = layout(vec![

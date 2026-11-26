@@ -73,6 +73,7 @@ version = "0.1.0"
 dependencies = [
  "azul-dll",
  "azul-review-link",
+ "ctor",
 ]
 
 [[package]]
@@ -328,6 +329,7 @@ dependencies = [
  "azul-dll",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]

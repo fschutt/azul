@@ -829,3 +829,29 @@ fn lines_the_suggestions_would_put_in_grow_the_page_that_has_the_line_they_follo
     assert_eq!(map.to_display(ui::PAGE_PAD + 3.0 * ui::LINE_H + 2.0), ui::PAGE_PAD + 3.0 * ui::LINE_H + 2.0);
     assert_eq!(map.to_display(ui::PAGE_PAD + 4.0 * ui::LINE_H + 2.0), ui::PAGE_PAD + 6.0 * ui::LINE_H + 2.0);
 }
+
+// ---- the ink an agent is told of ----
+
+#[test]
+fn the_agent_is_told_of_the_ink_near_the_note_it_is_asked_about_and_of_none_for_a_note_that_is_not_there() {
+    let mut s = app_with_file();
+    let near = stroke_at(0, ui::PAGE_PAD + 20.0);
+    let mut far = stroke_at(0, ui::PAGE_PAD + 600.0);
+    far.id = 2;
+    s.strokes.push(near);
+    s.strokes.push(far);
+    s.notes.push(Note {
+        id: 9,
+        page: 0,
+        x: 60.0,
+        y: ui::PAGE_PAD + 30.0,
+        text: "this".to_string(),
+        language: String::new(),
+        state: model::NoteState::Done,
+        talk: conversation::Conversation::default(),
+    });
+    let told = s.strokes_for_request(9);
+    assert_eq!(told.iter().map(|t| t.id).collect::<Vec<_>>(), vec![1], "the near stroke, not the far one");
+    assert_eq!(told[0].samples.len(), 2);
+    assert!(s.strokes_for_request(404).is_empty());
+}
