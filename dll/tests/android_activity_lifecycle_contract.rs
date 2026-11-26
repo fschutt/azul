@@ -161,3 +161,18 @@ fn the_apps_private_folders_are_in_the_environment_before_the_library_loads() {
     }
     assert!(prepare.contains("getFilesDir()") && prepare.contains("getCacheDir()"));
 }
+
+/// Coming back to the app (HOME and back, the recents screen, a dialog of another app that covered it) the
+/// surface may have lost what it showed without the shell being told (QA run 45776829730: a black window after
+/// HOME + RESUME that stayed black until something redrew it; the system sends `RedrawNeeded` when it knows, a
+/// compositor that dropped the layer's buffers does not always): `Resume` posts the frame the shell holds once, whole.
+///
+/// Mutation: `Resume` a no-op (the state of 0f3e1eb093: "No-op for now").
+#[test]
+fn resuming_posts_the_frame_the_shell_holds_once_whole() {
+    let src = read("dll/src/desktop/shell2/android/mod.rs");
+    let at = src.find("MainEvent::Resume { .. } =>").expect("the shell handles Resume");
+    let arm = method_body(&src[at..], "=>");
+    assert!(arm.contains("present.redraw_needed()"), "Resume must post the held frame whole: {arm}");
+    assert!(arm.contains("needs_rerender = true"), "and ask for the frame to be made again: {arm}");
+}

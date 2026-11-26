@@ -32,7 +32,8 @@ real commit; its pictures are small stand-ins), `make_example.py` (what wrote th
 **Canvas.** px, x to the right, y downwards, from the top-left corner; the canvas has no edge and its origin is
 arbitrary. `bounds` is the rectangle that holds everything (where a viewer fits the picture); `view` is how the person last
 looked at it. **Ids** are positive integers that name an item for ever: an id is never given twice on a board, so an arrow's
-`item` is stable, and so is a comment that refers to an item.
+`item` is stable, and so is a comment that refers to an item. **Times** (`created_ms`, `modified_ms`, a snapshot's `taken_ms` and
+`rev_time_ms`) are Unix time in milliseconds, UTC.
 
 **Cutout.** `x`, `y`, `width`, `height` (how large it is shown), `label` (what the person wrote under it), `image`
 (`asset`: a key of `assets`; `scale`: device pixels of the picture for one px of the canvas), and `source`:

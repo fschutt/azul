@@ -137,6 +137,12 @@ def web_of(remote):
     return "https://github.com/%s" % m.group(1) if m else None
 
 
+def recent(ms):
+    """Whether `ms` is a Unix time in milliseconds of the last few days (what a board and a snapshot are dated with; the
+    time since the panel started is a small number, and a date of 1970 on a snapshot's banner is what it looks like)."""
+    return isinstance(ms, (int, float)) and abs(time.time() * 1000.0 - ms) < 3 * 86400 * 1000.0
+
+
 def check_document(doc, board_name, author, repo, pictures_from):
     """What a published board must hold. `repo` is {rev, web} of the checkout the demo was pointed at (or None);
     `pictures_from(asset)` gives the PNG bytes an asset names."""
@@ -144,6 +150,9 @@ def check_document(doc, board_name, author, repo, pictures_from):
         raise Failure("the document's format is %r" % doc.get("format"))
     if doc["board"]["name"] != board_name or doc.get("author") != author:
         raise Failure("the document names board %r by %r, expected %r by %r" % (doc["board"]["name"], doc.get("author"), board_name, author))
+    for key in ("created_ms", "modified_ms"):
+        if not recent(doc["board"].get(key)):
+            raise Failure("the board's %s is %r: not a Unix time of the last days" % (key, doc["board"].get(key)))
     if doc["canvas"].get("unit") != "px" or "view" not in doc["canvas"]:
         raise Failure("the canvas has no unit or view: %s" % doc["canvas"])
     if not isinstance(doc.get("snapshots"), list):
@@ -400,6 +409,8 @@ def code_moves(args, logs, out, binary, root):
             return read_board(board_file(data, "b1"))[0]["snapshots"][-1]
 
         s1 = sheet_snapshot("Before the code moves.", "12a-before-the-move.png")
+        if not recent(s1.get("taken_ms")):
+            raise Failure("the first snapshot is dated %r: not a Unix time of the last days" % s1.get("taken_ms"))
         if s1["code"].get("rev") != r1 or any(i["source"].get("rev") != r1 for i in s1["items"] if i["kind"] == "cutout"):
             raise Failure("the first snapshot is not at the first revision: %s" % json.dumps(s1["code"]))
         # The code moves on: seven lines above, the last line of the second cutout edited; a commit.
@@ -420,6 +431,7 @@ def code_moves(args, logs, out, binary, root):
         words = " ".join(app.texts())
         if "moved from %s to %s" % (r1[:7], r2[:7]) not in words or "2 things that were done" not in words:
             raise Failure("the question does not say what moved: %s" % words[:500])
+        inside_the_bar(app, ["head-take", "head-dismiss"], "the question")
         shoot(app, os.path.join(out, "12b-the-question.png"))
         app.click("#__azreview_whiteboard-head-take")
         app.until("the sheet", lambda: app.has_id("__azreview_whiteboard-sheet"))
@@ -427,6 +439,7 @@ def code_moves(args, logs, out, binary, root):
         words = " ".join(app.texts())
         if "1 moved, 1 changed, 0 gone" not in words:
             raise Failure("the sheet does not say what the code did: %s" % words[:600])
+        inside_the_bar(app, ["sheet-save", "sheet-cancel"], "the sheet")
         shoot(app, os.path.join(out, "12c-flags-and-sheet.png"))
         app.click("#__azreview_whiteboard-sheet-save")
         app.until("the second snapshot is kept", lambda: len(read_board(board_file(data, "b1"))[0].get("snapshots", [])) == 2)
@@ -478,6 +491,15 @@ def code_moves(args, logs, out, binary, root):
     finally:
         app.stop()
     print("[azwhiteboard] code that moves on: moved %s -> %s, changed %s -> %s, snapshot at %s" % ([a1, b1], [a1 + 7, b1 + 7], [a2, b2], [a2 + 7, b2 + 7], r2[:7]))
+
+
+def inside_the_bar(app, stems, what):
+    """Every button `__azreview_whiteboard-<stem>` lies inside the bar: a button that runs out of it cannot be pressed."""
+    bar = app.box("#" + SURFACE)
+    for stem in stems:
+        box = app.box("#__azreview_whiteboard-%s" % stem)
+        if box["x"] < bar["x"] - 0.5 or box["x"] + box["width"] > bar["x"] + bar["width"] + 0.5:
+            raise Failure("%s: the button %s lies at x %.0f..%.0f, the bar at %.0f..%.0f" % (what, stem, box["x"], box["x"] + box["width"], bar["x"], bar["x"] + bar["width"]))
 
 
 def snapshot_hash_of(snapshot):
@@ -884,6 +906,8 @@ def body(args, logs, out):
             raise Failure("the first snapshot is %s" % json.dumps({k: s1.get(k) for k in ("id", "parent", "why", "tags", "author")}))
         if s1["hash"] != snapshot_hash(s1):
             raise Failure("the snapshot's hash %s is not what a JCS library gives, %s" % (s1["hash"], snapshot_hash(s1)))
+        if not recent(s1.get("taken_ms")):
+            raise Failure("the snapshot is dated %r: not a Unix time of the last days" % s1.get("taken_ms"))
         if len(s1["summary"]["added"]) != 3 or s1["summary"]["moved"] or s1["summary"]["removed"]:
             raise Failure("the first snapshot's summary is %s" % json.dumps(s1["summary"]))
         if repo and (s1["code"].get("rev") != repo["rev"] or (repo["web"] and s1["code"]["repo"].get("web_url") != repo["web"])):
@@ -916,6 +940,7 @@ def body(args, logs, out):
         if why1 not in app.texts() or not any("read-only" in w for w in app.texts()):
             raise Failure("the banner does not say why and that it is read-only: %s" % app.texts())
         app.frame(2)
+        inside_the_bar(app, ["compare", "restore", "back"], "the banner")
         seen = app.rect("__azreview_whiteboard-cutout-2")
         if abs(seen["x"] - live_before["x"]) > 1.5 or abs(seen["x"] - live_after["x"]) < 20.0:
             raise Failure("the snapshot shows the second cutout at %s, it was at %s and is at %s" % (seen["x"], live_before["x"], live_after["x"]))

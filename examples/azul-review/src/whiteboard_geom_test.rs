@@ -287,6 +287,35 @@ fn a_polygon_as_an_svg_path_is_a_closed_line_with_short_numbers() {
 }
 
 #[test]
+fn a_ring_drains_clockwise_from_the_top_and_is_nothing_when_the_time_is_up() {
+    let c = Pt::new(100.0, 50.0);
+    let full = ring_arc(c, 10.0, 1.0);
+    assert_eq!(full.len(), 49, "48 segments to the circle");
+    assert!(close_pt(full[0], Pt::new(100.0, 40.0)) && close_pt(full[48], Pt::new(100.0, 40.0)), "it starts and ends at the top");
+    assert!(close_pt(full[12], Pt::new(110.0, 50.0)), "a quarter on, clockwise on a screen whose y runs down: the right");
+    assert!(full.iter().all(|p| close(p.dist(c), 10.0)), "all on the ring");
+    // Half is left: from the bottom, by the left, to the top.
+    let half = ring_arc(c, 10.0, 0.5);
+    assert!(close_pt(half[0], Pt::new(100.0, 60.0)), "{:?}", half[0]);
+    assert!(close_pt(*half.last().expect("points"), Pt::new(100.0, 40.0)));
+    assert!(half.iter().skip(1).take(half.len() - 2).all(|p| p.x <= 100.5), "the left half");
+    // The arc is as long as the time left, and ends at the top whatever is left.
+    for f in [0.02, 0.1, 0.33, 0.9, 1.0] {
+        let arc = ring_arc(c, 10.0, f);
+        assert!(arc.len() >= 3, "{f}");
+        assert!(close_pt(*arc.last().expect("points"), Pt::new(100.0, 40.0)), "{f}");
+        let length = path_length(&arc);
+        assert!((length - std::f32::consts::TAU * 10.0 * f).abs() < 0.6 + 0.5 * f, "{f}: {length}");
+    }
+    assert!(ring_arc(c, 10.0, 0.0).is_empty() && ring_arc(c, 10.0, -1.0).is_empty(), "nothing left");
+    assert_eq!(ring_arc(c, 10.0, 7.0), full, "more than all is all");
+    for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        assert!(ring_arc(c, 10.0, bad).len() <= 49, "{bad}");
+    }
+    assert!(ring_arc(c, f32::NAN, 1.0).is_empty());
+}
+
+#[test]
 fn a_view_maps_the_screen_to_the_board_and_back_and_zooms_around_a_point() {
     let v = View { pan: Pt::new(100.0, 50.0), zoom: 2.0 };
     let board = v.to_board(Pt::new(40.0, 20.0));

@@ -2,7 +2,7 @@
 
 use super::*;
 
-const CAPABILITIES: [Capability; 19] = [
+static CAPABILITIES: [Capability; 19] = [
     Capability::Camera,
     Capability::Microphone,
     Capability::ScreenCapture,

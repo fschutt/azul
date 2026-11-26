@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # android_build_all.sh: every phone app of scripts/demo_apps.toml for Android x86_64 (the emulator's ABI) in ONE job on ONE Linux runner:
 # the plain phone library and the iroh one, the apps against them (AzWidgets, AzMaps, AzPaint, AzMeet, AzWriter, AzCompanion), and the QA
-# variant of AzWidgets (the `mobile-e2e` library: debug server, e2e scripting and test hooks; an ARTIFACT, never shipped).
+# variants of the apps that say `e2e = true` in the manifest (the `mobile-e2e` library: debug server, e2e scripting and test hooks;
+# ARTIFACTS, never shipped).
 #
 #   bash scripts/ci/android_build_all.sh [<rust-target>]            default x86_64-linux-android
 #
@@ -66,7 +67,17 @@ PY
 start=$(date +%s)
 python3 scripts/demo_build.py android --target "$target" --apps "$apps" --libs demo-out/libs --out demo-out/apps \
   --results demo-out/results --variant ""
-python3 scripts/demo_build.py android --target "$target" --apps AzWidgets --libs demo-out/libs --out demo-out/apps \
+e2e_apps="$(python3 - "$col" <<'PY'
+import json, sys
+col = sys.argv[1]
+plan = {}
+for line in open("demo-out/plan.txt"):
+    key, _, value = line.rstrip("\n").partition("=")
+    plan[key] = value
+print(next(e["apps"] for e in json.loads(plan["apps_android"])["include"] if e["leg"] == col and e["variant"] == "mobile-e2e"))
+PY
+)"
+python3 scripts/demo_build.py android --target "$target" --apps "$e2e_apps" --libs demo-out/libs --out demo-out/apps \
   --results demo-out/results --variant mobile-e2e
 echo "APPS SECONDS: $(( $(date +%s) - start ))"
 ls -la demo-out/apps

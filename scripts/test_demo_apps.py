@@ -260,7 +260,7 @@ class E2eVariantTest(unittest.TestCase):
         entries = {e["leg"]: e for k in ("apps_android", "apps_ios") for e in plan[k] if e.get("variant") == "mobile-e2e"}
         self.assertEqual(sorted(entries), ["android-x86_64", "ios-sim"])
         for leg, e in entries.items():
-            self.assertEqual(e["apps"], "AzWidgets")
+            self.assertEqual(sorted(e["apps"].split()), sorted(a["package"] for a in self.m["app"] if a.get("e2e")))
             self.assertEqual(e["lib_artifacts"], f"demolib-{leg}-mobile-e2e")
             self.assertTrue(e["artifact"].startswith("demoe2e-"), e["artifact"])   # a name the shipped-files patterns never match
             self.assertTrue(e["results_artifact"].startswith("demoresults-"))
@@ -315,7 +315,8 @@ class E2eVariantTest(unittest.TestCase):
 
     def test_the_real_manifest_passes_its_own_check_with_the_variant_in_it(self):
         self.assertTrue(self.m["lib"]["mobile-e2e"]["artifact_only"])
-        self.assertEqual([a["package"] for a in self.m["app"] if a.get("e2e")], ["AzWidgets"])
+        # the phone apps whose QA variant the layout audit and the scripted checks of the phone QA drive
+        self.assertEqual([a["package"] for a in self.m["app"] if a.get("e2e")], ["AzWidgets", "AzMaps", "AzPaint", "AzMeet", "AzWriter"])
         self.assertEqual([e for e in demo_apps.check(self.m) if "e2e" in e], [])
 
     def test_a_qa_file_never_becomes_a_release_asset_or_a_page_link(self):
@@ -649,6 +650,27 @@ class IosBuildQaScriptTest(unittest.TestCase):
         self.assertNotRegex(code, r"\brm\b")
 
 
+class MacosBashTest(unittest.TestCase):
+    """macOS runners (and Macs) have bash 3.2, where `"${array[@]}"` of an EMPTY array is an "unbound variable" error under `set -u`:
+    the first macOS desktop library of the pipeline died at its first command with `target_flag[@]: unbound variable`
+    (run 45779775681), because the host build has no --target. The scripts that run on a Mac expand an array only the empty-safe
+    way, `${array[@]+"${array[@]}"}`."""
+
+    SCRIPTS = ("demo_lib.sh", "build-ios.sh", "ci/ios_smoke.sh", "ci/ios_build_qa.sh")
+
+    def test_no_script_that_runs_on_a_mac_expands_an_array_the_bash_3_2_cannot(self):
+        for name in self.SCRIPTS:
+            text = (HERE / name).read_text(encoding="utf-8")
+            # an array expansion in double quotes that is not the inner half of `${array[@]+"${array[@]}"}` (that one follows a `+`)
+            unsafe = [text.count("\n", 0, m.start()) + 1 for m in re.finditer(r'(?<!\+)"\$\{(\w+)\[@\]\}"', text)]
+            self.assertEqual(unsafe, [], f"{name}: lines {unsafe} expand an array that may be empty")
+
+    def test_the_host_build_of_the_desktop_library_survives_an_empty_target(self):
+        text = (HERE / "demo_lib.sh").read_text(encoding="utf-8")
+        self.assertIn('${target_flag[@]+"${target_flag[@]}"}', text)
+        self.assertNotIn('"${target_flag[@]}" -p', text)
+
+
 class MobileLibCommandTest(unittest.TestCase):
     """`demo_apps.py mobile-lib <package>`: which library variant a phone app links (the manifest's mobile_lib)."""
 
@@ -710,8 +732,10 @@ class AndroidBuildAllScriptTest(unittest.TestCase):
         shipped = next(e["apps"] for e in plan["apps_android"] if e["leg"] == "android-x86_64" and e["variant"] == "")
         self.assertEqual(sorted(shipped.split()), ["AzCompanion", "AzMaps", "AzMeet", "AzPaint", "AzWidgets", "AzWriter"])
         qa = next(e["apps"] for e in plan["apps_android"] if e["leg"] == "android-x86_64" and e["variant"] == "mobile-e2e")
-        self.assertEqual(qa, "AzWidgets")
-        self.assertIn("--apps AzWidgets", self.text.split("--variant mobile-e2e")[0].rsplit("demo_build.py", 1)[1])
+        self.assertEqual(sorted(qa.split()), sorted(a["package"] for a in m["app"] if a.get("e2e")))
+        # the script asks the plan which apps the QA variant has, it does not name them
+        self.assertIn('--apps "$e2e_apps"', self.text.split("--variant mobile-e2e")[0].rsplit("demo_build.py", 1)[1])
+        self.assertIn('e["variant"] == "mobile-e2e"', self.text)
 
     def test_it_deletes_only_on_a_runner(self):
         lines = self.text.splitlines()
@@ -905,6 +929,15 @@ class AfterTapTest(unittest.TestCase):
         m = demo_apps.load()
         next(a for a in m["app"] if a["package"] == "AzCompanion")["smoke"]["probe_tap"] = ""
         self.assertTrue(any("AzCompanion" in e and "probe_tap" in e for e in demo_apps.check(m)))
+
+    def test_the_probe_can_be_left_out_and_the_build_and_boot_script_can_run_both_ways(self):
+        # run 45787048273: the key pressed after the toast of the probe did nothing, and the page scrolled; whether the toast layer
+        # or the key is at fault is told by the same test with the key pressed FIRST, in a fresh process
+        smoke = (HERE / "ci" / "android_smoke.sh").read_text(encoding="utf-8")
+        self.assertIn('AZ_SMOKE_NO_PROBE', smoke)
+        build = (HERE / "ci" / "android_build_smoke.sh").read_text(encoding="utf-8")
+        self.assertIn("AZ_SMOKE_BOTH_WAYS", build)
+        self.assertIn("AZ_SMOKE_NO_PROBE=1 bash scripts/ci/android_smoke.sh demo-out/smoke-noprobe", build)
 
     def test_the_android_boot_test_turns_the_apps_info_log_on_for_an_app_with_a_press(self):
         text = (HERE / "ci" / "android_smoke.sh").read_text(encoding="utf-8")
