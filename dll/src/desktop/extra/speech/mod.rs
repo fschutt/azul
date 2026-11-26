@@ -1127,7 +1127,11 @@ impl SpeechSession {
     /// The chain, in the order it is tried, one line each, for a status line:
     /// `native | <name> | ready` or `built-in | <name> | unavailable: <why>`. A recognizer that
     /// refused (in this session or by what it says about itself) shows its outcome, `denied`,
-    /// `unavailable` or `failed`, and the reason.
+    /// `unavailable` or `failed`, and the reason. When two recognizers can listen the first line
+    /// ends with `; tried first: <why>`: which one goes first for the language of the last call
+    /// and why (English: the built-in model made fewer errors; German and other languages: the
+    /// system's recognizer did; an identifier in the vocabulary: the system's recognizer writes it as
+    /// spelt; as the app asked, see [`SpeechSession::set_preference`]).
     #[must_use]
     pub fn recognizers(&self) -> StringVec {
         let lines = self
