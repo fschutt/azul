@@ -72,6 +72,8 @@ pub(super) struct IosGpu {
     new_frame_ready: Arc<(Mutex<bool>, Condvar)>,
     /// The display list must be sent again (a renderer was made after a layout already ran).
     resend: bool,
+    /// The line of the QA harness is written (once the GPU path is up, or after it fell back).
+    reported: bool,
 }
 
 impl IosGpu {
@@ -87,6 +89,7 @@ impl IosGpu {
             device: None,
             new_frame_ready: Arc::new((Mutex::new(false), Condvar::new())),
             resend: false,
+            reported: false,
         }
     }
 }
@@ -116,11 +119,23 @@ impl IOSWindow {
         self.backend = RenderBackend::Gpu;
         let surface = self.gpu_surface();
         self.gpu_event(Event::SurfaceCreated(surface));
-        if self.backend == RenderBackend::Gpu {
-            let device = self.gpu.as_ref().and_then(|gpu| gpu.device.clone());
-            let decision = decide(request, device.map(Ok));
-            self.gpu_report(&decision);
+        // up now, or waiting for a view that has no size yet (the line is written when it is up)
+        self.gpu_report_when_up();
+    }
+
+    /// The line of a GPU window that came up: once, the first time the machine is ready. (A window that fell
+    /// back wrote its lines at the fall back.)
+    fn gpu_report_when_up(&mut self) {
+        let Some(gpu) = self.gpu.as_mut() else {
+            return;
+        };
+        if gpu.reported || gpu.lifecycle.phase() != Phase::Ready {
+            return;
         }
+        gpu.reported = true;
+        let request = gpu.request;
+        let device = gpu.device.clone();
+        self.gpu_report(&decide(request, device.map(Ok)));
     }
 
     /// The lines about the renderer this window got: the fallback's diagnostic, then the contract line.
@@ -464,6 +479,7 @@ impl IOSWindow {
     /// The display tick's GPU work: do what is owed (a layout, a repaint, a frame WebRender finished) and, if
     /// something was, draw and present one frame. Nothing is done while the app is not active.
     pub(super) fn gpu_tick(&mut self) {
+        self.gpu_report_when_up();
         let Some(gpu) = self.gpu.as_ref() else {
             return;
         };
@@ -524,7 +540,18 @@ impl IOSWindow {
         }
         let _ = crate::desktop::shell2::common::webview::sync(self);
 
-        self.gpu_event(Event::Frame);
+        // The first frame of a renderer waits until WebRender has built one (its notifier sets the flag the
+        // tick reads): a render before that draws nothing. Later frames draw what WebRender has, at once.
+        let built = self.gpu.as_ref().is_some_and(|gpu| {
+            gpu.new_frame_ready
+                .0
+                .lock()
+                .map(|flag| *flag)
+                .unwrap_or(false)
+        });
+        if built || self.common.display_list_initialized {
+            self.gpu_event(Event::Frame);
+        }
     }
 
     /// Send the display list of the layout that exists to WebRender (a full transaction).
