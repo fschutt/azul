@@ -5,6 +5,7 @@
                                        release-page generator agree (fails with every disagreement)
     demo_apps.py plan [--e2e]          the build matrices of a `demos` run, as GITHUB_OUTPUT lines (--e2e: also the
                                        artifact-only QA variant of the phone libazul and the apps that ask for it)
+    demo_apps.py features <leg> <variant>   the cargo features of one phone library of the plan (android-x86_64 mobile-e2e, ...)
     demo_apps.py assets [<package>]    the file names every app is built as, one per line
     demo_apps.py weights <status.json> the weight the measured build seconds of a run suggest for each app
     demo_apps.py status <dir> ...      merge the result files of a run into demo-status.json / .md
@@ -668,6 +669,20 @@ def main(argv):
         for line in write_github_output(out):
             print(line)
         return 0
+    if cmd == "features":
+        # demo_apps.py features <leg> <variant>: the cargo features of one phone library of the plan (the QA variant included), for the
+        # scripts that build one by hand (scripts/ci/ios_build_qa.sh)
+        if len(rest) != 2:
+            print("usage: demo_apps.py features <leg> <variant>   (leg: android-arm64, android-x86_64, ios-device, ios-sim)", file=sys.stderr)
+            return 2
+        planned = plan(e2e=True)
+        for key in ("libs_android", "libs_ios"):
+            for entry in planned[key]:
+                if entry["leg"] == rest[0] and entry["variant"] == rest[1]:
+                    print(entry["features"])
+                    return 0
+        print(f"demo_apps: the plan builds no library {rest[1]} for {rest[0]}", file=sys.stderr)
+        return 1
     if cmd == "assets":
         m = load()
         for a in m["app"]:
