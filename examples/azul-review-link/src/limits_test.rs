@@ -59,3 +59,11 @@ fn the_oldest_azreview_is_a_version_of_three_numbers() {
     assert_eq!(parts.len(), 3, "{MIN_AZREVIEW_VERSION}");
     assert!(parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit())), "{MIN_AZREVIEW_VERSION}");
 }
+
+#[test]
+fn the_phone_gives_up_a_dial_after_the_hello_window_and_waits_longer_when_the_address_is_thought_changed() {
+    const _: () = assert!(DIAL_TIMEOUT_MS > HELLO_TIMEOUT_MS, "a dial may take longer than a hello");
+    const _: () = assert!(RECONNECT_SLOW_MS > RECONNECT_MAX_MS && RECONNECT_MAX_MS > RECONNECT_FIRST_MS);
+    const _: () = assert!(THUMB_RETRY_MS > THUMB_WAIT_MS);
+    const _: () = assert!(ADDRESS_CHANGED_AFTER >= 3, "one failed dial is not a changed address");
+}

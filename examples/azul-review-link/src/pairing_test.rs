@@ -215,3 +215,16 @@ fn a_secret_is_sixteen_bytes() {
     assert_eq!(new_secret(&mut SeededEntropy(3)).len(), PAIRING_SECRET_BYTES);
     assert_ne!(new_secret(&mut SeededEntropy(3)), new_secret(&mut SeededEntropy(4)));
 }
+
+#[test]
+fn a_ticket_is_letters_digits_dashes_and_underscores_and_not_longer_than_any_ticket() {
+    assert!(is_valid_ticket("mt-ab12-1"));
+    assert!(is_valid_ticket("Ticket_with-Mixed_Case09"));
+    assert!(!is_valid_ticket(""), "an empty ticket is no ticket");
+    assert!(!is_valid_ticket("has space"));
+    assert!(!is_valid_ticket("new\nline"));
+    assert!(!is_valid_ticket("colon:inside"), "the colon is the offer's separator");
+    assert!(!is_valid_ticket("ünïcode"));
+    assert!(is_valid_ticket(&"a".repeat(MAX_TICKET_BYTES)));
+    assert!(!is_valid_ticket(&"a".repeat(MAX_TICKET_BYTES + 1)));
+}

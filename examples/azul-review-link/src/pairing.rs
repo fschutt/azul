@@ -88,7 +88,7 @@ impl PairingOffer {
         };
         let secret = from_hex_fixed::<PAIRING_SECRET_BYTES>(secret).ok_or(OfferError::BadSecret)?;
         let check = from_hex_fixed::<4>(check).ok_or(OfferError::BadCheck)?;
-        if ticket.is_empty() || !ticket.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        if !is_valid_ticket(ticket) {
             return Err(OfferError::BadTicket);
         }
         if offer_check(&secret, ticket) != check {
@@ -96,6 +96,13 @@ impl PairingOffer {
         }
         Ok(PairingOffer { ticket: ticket.to_string(), secret })
     }
+}
+
+/// Whether `ticket` can be a dialing string: not empty, no longer than any ticket, and only the characters a ticket has (so that it
+/// cannot carry the separator of an offer, a line break or anything a screen or a file would have to escape).
+#[must_use]
+pub fn is_valid_ticket(ticket: &str) -> bool {
+    !ticket.is_empty() && ticket.len() <= MAX_TICKET_BYTES && ticket.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 /// Where random bytes come from (a seam: the system's in the app, a counter in a test).
