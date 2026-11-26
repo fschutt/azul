@@ -587,6 +587,14 @@ fn the_first_words_of_an_answer_without_text_count_its_suggestions() {
 }
 
 #[test]
+fn the_first_words_of_an_answer_that_does_nothing_say_so_and_why() {
+    let reply = r#"{"action": "none", "reason": "a test phrase"}"#;
+    let response = run(Ok(reply.to_string()), 1, false).0.expect("answered");
+    assert_eq!(response.first_words(40), "no action: a test phrase");
+    assert!(response.reply().is_some_and(|r| r.is_no_action()));
+}
+
+#[test]
 fn a_request_knows_its_task_and_its_conversation() {
     let r = request(Task::Exploration);
     assert_eq!(r.task(), Task::Exploration);

@@ -962,10 +962,15 @@ pub(crate) struct LogicalItemsKey<'a> {
 }
 
 /// Key for caching the Bidi reordering stage.
+///
+/// The `unicode-bidi` mode is part of it: an override puts every letter at the level of the
+/// block and `plaintext` leaves the paragraph level to the text, so the same items in the same
+/// base direction resolve to other levels under each.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub(crate) struct BidiRunsKey {
     pub(crate) logical_items_id: CacheId,
     pub(crate) base_direction: BidiDirection,
+    pub(crate) unicode_bidi: UnicodeBidi,
 }
 
 /// Key for caching the shaping stage.
@@ -1086,6 +1091,7 @@ impl TextShapingCache {
         let runs_key = BidiRunsKey {
             logical_items_id,
             base_direction,
+            unicode_bidi: unicode_bidi_val,
         };
         let bidi_runs_id = calculate_id(&runs_key);
         self.touch_stage(bidi_runs_id);

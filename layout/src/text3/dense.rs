@@ -1313,7 +1313,7 @@ pub fn get_glyph_runs_simple_dense(dense: &DenseText) -> Vec<SimpleGlyphRun> {
                 && r.background_content == style.background_content
                 && r.border == style.border
                 && r.font_size_px == style.font_size_px
-                && r.asks_for_bold == style.asks_for_bold()
+                && r.asks_for_bold == style.asks_for_synthetic_bold()
                 && r.text_decoration == style.text_decoration
                 && r.source_node_id == source_node_id
         });
@@ -1330,7 +1330,7 @@ pub fn get_glyph_runs_simple_dense(dense: &DenseText) -> Vec<SimpleGlyphRun> {
                 border: style.border,
                 font_hash: run.font_hash,
                 font_size_px: style.font_size_px,
-                asks_for_bold: style.asks_for_bold(),
+                asks_for_bold: style.asks_for_synthetic_bold(),
                 text_decoration: style.text_decoration,
                 is_ime_preview: false,
                 source_node_id,
@@ -1486,7 +1486,7 @@ pub fn get_glyph_runs_pdf_dense<T: ParsedFontTrait>(
 
         // Bold asked of a face with no bold cut is drawn thickened.
         let synthetic_bold =
-            crate::text3::cache::needs_synthetic_bold(style.asks_for_bold(), font.weight_class());
+            crate::text3::cache::needs_synthetic_bold(style.asks_for_synthetic_bold(), font.weight_class());
         // The reference predicate, evaluated per CLUSTER (all compared
         // fields are uniform within a cluster in dense scope).
         let merges = current_run.as_ref().is_some_and(|r| {

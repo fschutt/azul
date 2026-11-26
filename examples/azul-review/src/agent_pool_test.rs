@@ -322,6 +322,39 @@ fn the_worker_runs_on_a_thread_of_its_own_and_the_ticket_cancels_it_from_here() 
 }
 
 #[test]
+fn the_line_of_an_agent_that_did_nothing_has_its_reason_and_the_one_of_what_it_heard_has_that() {
+    let mut pool = Pool::default();
+    let t = ticket(&mut pool);
+    let none = Reply::nothing("a test phrase, \"hello\"\nnot an instruction");
+    let make: Factory = Box::new(move || {
+        Ok(Box::new(MockBackend::scripted(vec![Step::reply(
+            10, &none,
+        )])))
+    });
+    let messages = run(spec(make), &t);
+    assert_eq!(
+        messages[1].log_line(Task::Editing),
+        "AZREVIEW_AGENT done 4 editing mock items=0 ms=10 no_action=\"a test phrase, 'hello' not an instruction\""
+    );
+    let heard = Reply {
+        answer: "done".to_string(),
+        heard_as: Some("rename foo to count".to_string()),
+        ..Reply::default()
+    };
+    let make: Factory = Box::new(move || {
+        Ok(Box::new(MockBackend::scripted(vec![Step::reply(
+            10, &heard,
+        )])))
+    });
+    let t = ticket(&mut pool);
+    let messages = run(spec(make), &t);
+    assert_eq!(
+        messages[1].log_line(Task::Editing),
+        "AZREVIEW_AGENT done 4 editing mock items=0 ms=10 heard_as=\"rename foo to count\""
+    );
+}
+
+#[test]
 fn the_scripts_read_one_line_per_message() {
     let mut pool = Pool::default();
     let t = ticket(&mut pool);
@@ -332,6 +365,7 @@ fn the_scripts_read_one_line_per_message() {
             lines: vec!["// x".to_string()],
         }],
         intent: None,
+        ..Reply::default()
     };
     let make: Factory = Box::new(move || {
         Ok(Box::new(MockBackend::scripted(vec![Step::reply(

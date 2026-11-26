@@ -3759,6 +3759,9 @@ pub fn parse_css_property(
         // wrap-through: none keeps a box's lines off the exclusion boxes
         // around it; read back as "no value" it took the initial `wrap`
         CssPropertyType::WrapThrough |
+        // text-justify: none turns the justification off (CSS Text 3 s6.4); as the
+        // generic keyword it read back as "no value": the initial `auto`, which justifies.
+        CssPropertyType::TextJustify |
         // font-optical-sizing / font-kerning / font-synthesis-*: none turns the
         // feature off; font-variant-ligatures: none turns every ligature off.
         // As the generic keyword each read back as "no value": the initial
