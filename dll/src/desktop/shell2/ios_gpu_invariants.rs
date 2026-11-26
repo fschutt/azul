@@ -264,3 +264,25 @@ fn the_console_orders_the_gl_commands_around_the_background() {
     assert!(allowed < perform, "`allowed again` comes before the actions that use GL");
     assert!(stopped > perform, "`stopped` comes after the last action that uses GL");
 }
+
+/// "It never costs you the window": WebRender asserts about its GL context in places, and a panic that leaves
+/// `display_tick` (an `extern "C"` function) ends the process. The two calls that can panic, making the renderer and
+/// drawing a frame, are caught and become the failure of their stage (`renderer`, `frame`): the machine then rebuilds
+/// once and falls back to the CPU renderer.
+///
+/// Mutation: either call made without `catch_unwind`.
+#[test]
+fn a_webrender_panic_is_a_failed_stage_not_the_end_of_the_app() {
+    let build = function_body(GPU, "fn gpu_build_renderer");
+    assert!(build.contains("catch_unwind"), "create_webrender_instance is not guarded");
+    assert!(
+        build.find("catch_unwind").unwrap() < build.find("create_webrender_instance").unwrap(),
+        "the guard comes before the call"
+    );
+    let draw = function_body(GPU, "fn gpu_draw_frame");
+    assert!(draw.contains("catch_unwind"), "renderer.render is not guarded");
+    assert!(
+        draw.find("catch_unwind").unwrap() < draw.find("renderer.render(").unwrap(),
+        "the guard comes before the call"
+    );
+}

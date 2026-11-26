@@ -484,13 +484,31 @@ impl IOSWindow {
             window_state: self.common.current_window_state().clone(),
             ..WindowCreateOptions::default()
         };
-        let (mut renderer, sender) = webrender::create_webrender_instance(
-            gl.clone(),
-            Box::new(notifier),
-            default_renderer_options(&options, create_program_cache(&gl), None),
-            None,
-        )
-        .map_err(|e| GpuFallback::new(GpuStage::Renderer, &format!("create_webrender_instance: {e:?}")))?;
+        // WebRender asserts about its GL context in places; a panic here is a GPU that cannot be used, not a reason to end the
+        // app: it becomes the stage's failure and the window is drawn on the CPU
+        let created = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            webrender::create_webrender_instance(
+                gl.clone(),
+                Box::new(notifier),
+                default_renderer_options(&options, create_program_cache(&gl), None),
+                None,
+            )
+        }));
+        let (mut renderer, sender) = match created {
+            Ok(Ok(made)) => made,
+            Ok(Err(e)) => {
+                return Err(GpuFallback::new(
+                    GpuStage::Renderer,
+                    &format!("create_webrender_instance: {e:?}"),
+                ))
+            }
+            Err(payload) => {
+                return Err(GpuFallback::new(
+                    GpuStage::Renderer,
+                    &format!("create_webrender_instance panicked: {}", panic_text(payload.as_ref())),
+                ))
+            }
+        };
         renderer.set_external_image_handler(Box::new(Compositor::default()));
         let mut render_api = sender.create_api();
         log_info!(
@@ -702,9 +720,20 @@ impl IOSWindow {
         let (width, height) = drawable.size();
         let size = webrender::api::units::DeviceIntSize::new(width.max(1), height.max(1));
         let started = Instant::now();
-        let results = renderer
-            .render(size, 0)
-            .map_err(|errors| GpuFallback::new(GpuStage::Frame, &format!("render: {errors:?}")))?;
+        // a panic while drawing leaves WebRender in an unknown state: it is a lost context (one rebuild, which leaks this
+        // renderer without a GL command, then the CPU), not the end of the app
+        let results = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| renderer.render(size, 0))) {
+            Ok(Ok(results)) => results,
+            Ok(Err(errors)) => {
+                return Err(GpuFallback::new(GpuStage::Frame, &format!("render: {errors:?}")))
+            }
+            Err(payload) => {
+                return Err(GpuFallback::new(
+                    GpuStage::Frame,
+                    &format!("render panicked: {}", panic_text(payload.as_ref())),
+                ))
+            }
+        };
         let draw_calls = results.stats.total_draw_calls as u64;
         drawable.present(context)?;
         let render_us = elapsed_us(started);
@@ -810,6 +839,15 @@ fn plist_backend() -> Option<String> {
         }
         Some(CStr::from_ptr(bytes).to_string_lossy().into_owned())
     }
+}
+
+/// What a panic said (`panic!("...")` carries a `&str` or a `String`).
+fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
+    payload
+        .downcast_ref::<&str>()
+        .map(|text| (*text).to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "a panic with no text".to_string())
 }
 
 /// The teardown paths make the context current when they can: what they delete is deleted either way, a context that
