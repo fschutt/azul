@@ -618,6 +618,27 @@ pub fn svg_path(poly: &[Pt]) -> String {
     d
 }
 
+/// The part of a ring (round `centre`, `radius` from it) that is left when `fraction` of its time is: a full circle at 1 that
+/// drains clockwise from the top (the end of the arc stays at the top, its start moves round), nothing at 0. The points of
+/// a polyline, 48 segments to the full circle; `fraction` is held to 0..=1 and is nothing when it is no number.
+#[must_use]
+pub fn ring_arc(centre: Pt, radius: f32, fraction: f32) -> Vec<Pt> {
+    const SEGMENTS: f32 = 48.0;
+    let left = if fraction.is_finite() { fraction.clamp(0.0, 1.0) } else { 0.0 };
+    if left <= 0.0 || !radius.is_finite() {
+        return Vec::new();
+    }
+    let steps = (left * SEGMENTS).ceil().max(2.0) as usize;
+    let top = -std::f32::consts::FRAC_PI_2;
+    let start = top + std::f32::consts::TAU * (1.0 - left);
+    (0..=steps)
+        .map(|i| {
+            let a = start + std::f32::consts::TAU * left * (i as f32 / steps as f32);
+            Pt::new(centre.x + radius * a.cos(), centre.y + radius * a.sin())
+        })
+        .collect()
+}
+
 /// Which part of the board the window shows: `pan` is the board point at the window's top-left,
 /// `zoom` how many window px a board px is.
 #[derive(Debug, Clone, Copy, PartialEq)]

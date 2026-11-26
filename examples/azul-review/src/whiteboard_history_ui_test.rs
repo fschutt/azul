@@ -425,6 +425,24 @@ fn what_was_done_since_the_last_snapshot_starts_the_reason_when_the_code_moved()
     assert!(texts(&head_dom(&panel_with_question(), &host()).expect("a bar")).iter().any(|w| w.contains("2 things that were done")));
 }
 
+#[test]
+fn what_was_done_since_is_cut_to_forty_lines_of_two_hundred_characters_and_says_how_many_are_left_out() {
+    let mut p = panel();
+    p.history_ui.material = (1..=100).map(|i| format!("{i}: {}\nsecond line\u{7}", "x".repeat(300))).collect();
+    add(&mut p, 0.0);
+    snapshot(&mut p, "first");
+    moved_to(&mut p, NEWER);
+    p.history_action(HistoryAction::OpenSheet);
+    let why = p.history_ui.sheet.as_ref().map(|s| s.why.clone()).expect("a sheet");
+    let lines: Vec<&str> = why.lines().collect();
+    assert_eq!(lines[0], "Since the last snapshot:");
+    assert_eq!(lines.len(), MAX_MATERIAL_LINES + 3, "the intro, forty lines, the line that counts, the blank line: {why}");
+    assert!(lines[1].starts_with("- 1: x") && lines[1].chars().count() == 2 + MAX_MATERIAL_CHARS, "{}", lines[1]);
+    assert!(!why.contains("second line") && !why.contains('\u{7}'), "a line is one line, with no control characters");
+    assert_eq!(lines[MAX_MATERIAL_LINES + 1], "- ... and 60 more");
+    assert!(why.ends_with("\n\n"));
+}
+
 /// A panel that has a snapshot and a revision that moved on, with two things done since.
 fn panel_with_question() -> Panel {
     let mut p = panel();
