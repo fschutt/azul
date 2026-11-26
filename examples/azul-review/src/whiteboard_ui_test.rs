@@ -34,8 +34,35 @@ fn area(dom: &Dom) -> &Dom {
     &dom.children.as_slice()[1]
 }
 
+/// A workspace with no files at all (nothing is found again).
+struct NoFiles;
+
+impl crate::whiteboard_jump::FileView for NoFiles {
+    fn file_hash(&self, _: &str) -> Option<u64> {
+        None
+    }
+
+    fn line_count(&self, _: &str) -> Option<u32> {
+        None
+    }
+
+    fn lines(&self, _: &str, _: u32, _: u32) -> Option<Vec<String>> {
+        None
+    }
+}
+
+fn with_files(app: &mut RefAny, f: &mut dyn FnMut(&mut Panel, &dyn crate::whiteboard_jump::FileView)) -> bool {
+    match app.downcast_mut::<Panel>() {
+        Some(mut p) => {
+            f(&mut p, &NoFiles);
+            true
+        }
+        None => false,
+    }
+}
+
 fn host() -> Host {
-    Host { app: RefAny::new(Panel::new("/work/azul")), with, on_jump, on_changed, on_plan }
+    Host { app: RefAny::new(Panel::new("/work/azul")), with, on_jump, on_changed, on_plan, with_files }
 }
 
 fn nodes(dom: &Dom) -> Vec<&Dom> {

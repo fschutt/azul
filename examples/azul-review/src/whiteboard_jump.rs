@@ -20,6 +20,33 @@ pub trait FileView {
     fn find_block(&self, _file: &str, _block: &[String], _near: u32) -> Option<u32> {
         None
     }
+    /// Where in the file the line `text` is now (compared with the ends trimmed): the place nearest `near` (from 1). The
+    /// default reads the file's lines; `None` when the file is gone, cannot be read as lines or has no such line.
+    fn find_line(&self, file: &str, text: &str, near: u32) -> Option<u32> {
+        let count = self.line_count(file)?;
+        find_line_in(&self.lines(file, 1, count)?, text, near)
+    }
+}
+
+/// The number (from 1) of the line of `lines` that is `text` (with the ends trimmed) and nearest `near` (the earlier of two
+/// as near); `None` for no such line or an empty `text`.
+#[must_use]
+pub fn find_line_in(lines: &[String], text: &str, near: u32) -> Option<u32> {
+    let want = text.trim();
+    if want.is_empty() {
+        return None;
+    }
+    let mut best: Option<(u32, u32)> = None;
+    for (i, line) in lines.iter().enumerate() {
+        if line.trim() == want {
+            let number = u32::try_from(i + 1).unwrap_or(u32::MAX);
+            let d = number.abs_diff(near);
+            if best.is_none_or(|(_, bd)| d < bd) {
+                best = Some((number, d));
+            }
+        }
+    }
+    best.map(|(n, _)| n)
 }
 
 /// How the lines are now, against how they were when they were circled.

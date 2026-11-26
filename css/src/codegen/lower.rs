@@ -208,80 +208,24 @@ fn fixed_point_of(text: &str) -> isize {
     text.parse::<f32>().map_or(0, |v| FloatValue::new(v).number)
 }
 
-/// The pure-data form of `e`: every api.json constructor call the lowering
-/// emits is replaced by the value it builds - `CssProperty::width(x)` by
-/// `CssProperty::Width(LayoutWidthValue::Exact(x))`, `CssProperty::auto(T)`
-/// by `CssProperty::T(<alias>::Auto)`, `PixelValue::px(1.5)` /
+/// The pure-data form of `e`.
+///
+/// Every api.json constructor call the lowering emits is replaced by the value
+/// it builds - `CssProperty::width(x)` by
+/// `CssProperty::Width(LayoutWidthValue::Exact(x))`, `CssProperty::auto(T)` by
+/// `CssProperty::T(<alias>::Auto)`, `PixelValue::px(1.5)` /
 /// `FloatValue::create(..)` by their structs (`FloatValue { number: 1500 }`).
-/// `CssPropertyWithConditions::*` calls stay (their `apply_if` is a Vec).
-/// For bindings that expose the Rust data types natively but not the
-/// constructor functions (Haskell's `Azul.Types`).
+/// `CssPropertyWithConditions::*` calls stay (their `apply_if` is a Vec). For
+/// bindings that expose the Rust data types natively but not the constructor
+/// functions (Haskell's `Azul.Types`).
 #[must_use]
 pub fn desugar_calls(e: &Expr) -> Expr {
-    use super::lower_types::{css_property_alias, css_property_variant_of_ctor};
     match e {
         Expr::Call {
             class,
             method,
             args,
-        } => {
-            let args: Vec<Expr> = args.iter().map(desugar_calls).collect();
-            let alias_value = |variant: &str, value_variant: &str, payload: Vec<Expr>| {
-                let alias = css_property_alias(variant).unwrap_or("CssPropertyValue");
-                Expr::variant(
-                    "CssProperty",
-                    EnumShape::TaggedShadowed,
-                    variant,
-                    vec![Expr::variant(
-                        alias,
-                        EnumShape::Generic {
-                            base: "CssPropertyValue",
-                            arg: "",
-                        },
-                        value_variant,
-                        payload,
-                    )],
-                )
-            };
-            let float_value = |text: &str| {
-                Expr::strukt(
-                    "FloatValue",
-                    vec![(
-                        "number",
-                        Expr::int(i128::try_from(fixed_point_of(text)).unwrap_or(0), Prim::Isize),
-                    )],
-                )
-            };
-            let pixel = |metric: Expr, text: &str| {
-                Expr::strukt("PixelValue", vec![("metric", metric), ("number", float_value(text))])
-            };
-            let metric = |m: &str| Expr::unit("SizeMetric", EnumShape::CLike, m);
-            match (class.as_str(), method.as_str(), args.as_slice()) {
-                ("CssProperty", "auto" | "none" | "initial" | "inherit", [Expr::Variant { variant, .. }]) => {
-                    let kw = match method.as_str() {
-                        "auto" => "Auto",
-                        "none" => "None",
-                        "initial" => "Initial",
-                        _ => "Inherit",
-                    };
-                    alias_value(variant, kw, Vec::new())
-                }
-                ("CssProperty", ctor, [x]) => match css_property_variant_of_ctor(ctor) {
-                    Some(variant) => alias_value(variant, "Exact", vec![x.clone()]),
-                    None => Expr::call(class, method, args.clone()),
-                },
-                ("FloatValue", "create", [Expr::Float { text, .. }]) => float_value(text),
-                ("PixelValue", "px", [Expr::Float { text, .. }]) => pixel(metric("Px"), text),
-                ("PixelValue", "pt", [Expr::Float { text, .. }]) => pixel(metric("Pt"), text),
-                ("PixelValue", "em", [Expr::Float { text, .. }]) => pixel(metric("Em"), text),
-                ("PixelValue", "rem", [Expr::Float { text, .. }]) => pixel(metric("Rem"), text),
-                ("PixelValue", "percent", [Expr::Float { text, .. }]) => {
-                    pixel(metric("Percent"), text)
-                }
-                ("PixelValue", "from_metric", [m, Expr::Float { text, .. }]) => pixel(m.clone(), text),
-                _ => Expr::call(class, method, args.clone()),
-            }
-        }
+        } => desugar_call(class, method, args),
         Expr::Variant {
             ty,
             shape,
@@ -329,6 +273,68 @@ pub fn desugar_calls(e: &Expr) -> Expr {
         | Expr::Param(_)
         | Expr::Unsupported { .. } => e.clone(),
     }
+}
+
+/// [`desugar_calls`] of one constructor call `class::method(args)`.
+fn desugar_call(class: &str, method: &str, args: &[Expr]) -> Expr {
+    use super::lower_types::{css_property_alias, css_property_variant_of_ctor};
+    let args: Vec<Expr> = args.iter().map(desugar_calls).collect();
+    let alias_value = |variant: &str, value_variant: &str, payload: Vec<Expr>| {
+        let alias = css_property_alias(variant).unwrap_or("CssPropertyValue");
+        Expr::variant(
+            "CssProperty",
+            EnumShape::TaggedShadowed,
+            variant,
+            vec![Expr::variant(
+                alias,
+                EnumShape::Generic {
+                    base: "CssPropertyValue",
+                    arg: "",
+                },
+                value_variant,
+                payload,
+            )],
+        )
+    };
+    let float_value = |text: &str| {
+        Expr::strukt(
+            "FloatValue",
+            vec![(
+                "number",
+                Expr::int(i128::try_from(fixed_point_of(text)).unwrap_or(0), Prim::Isize),
+            )],
+        )
+    };
+    let pixel = |metric: Expr, text: &str| {
+        Expr::strukt("PixelValue", vec![("metric", metric), ("number", float_value(text))])
+    };
+    let metric = |m: &str| Expr::unit("SizeMetric", EnumShape::CLike, m);
+    match (class, method, args.as_slice()) {
+        ("CssProperty", "auto" | "none" | "initial" | "inherit", [Expr::Variant { variant, .. }]) => {
+            let kw = match method {
+                "auto" => "Auto",
+                "none" => "None",
+                "initial" => "Initial",
+                _ => "Inherit",
+            };
+            alias_value(variant, kw, Vec::new())
+        }
+        ("CssProperty", ctor, [x]) => css_property_variant_of_ctor(ctor).map_or_else(
+            || Expr::call(class, method, args.clone()),
+            |variant| alias_value(variant, "Exact", vec![x.clone()]),
+        ),
+        ("FloatValue", "create", [Expr::Float { text, .. }]) => float_value(text),
+        ("PixelValue", "px", [Expr::Float { text, .. }]) => pixel(metric("Px"), text),
+        ("PixelValue", "pt", [Expr::Float { text, .. }]) => pixel(metric("Pt"), text),
+        ("PixelValue", "em", [Expr::Float { text, .. }]) => pixel(metric("Em"), text),
+        ("PixelValue", "rem", [Expr::Float { text, .. }]) => pixel(metric("Rem"), text),
+        ("PixelValue", "percent", [Expr::Float { text, .. }]) => {
+            pixel(metric("Percent"), text)
+        }
+        ("PixelValue", "from_metric", [m, Expr::Float { text, .. }]) => pixel(m.clone(), text),
+        _ => Expr::call(class, method, args.clone()),
+    }
+
 }
 
 // ------------------------------------------------ values the ABI cannot build
@@ -384,10 +390,10 @@ pub(crate) fn prop_value<T: Lower>(
     ctor: Option<&'static str>,
 ) -> Expr {
     match v {
-        CssPropertyValue::Exact(x) => match ctor {
-            Some(c) => Expr::call("CssProperty", c, vec![x.lower()]),
-            None => wrapped_value(variant, alias, inner, ctor, "Exact", vec![x.lower()]),
-        },
+        CssPropertyValue::Exact(x) => ctor.map_or_else(
+            || wrapped_value(variant, alias, inner, ctor, "Exact", vec![x.lower()]),
+            |c| Expr::call("CssProperty", c, vec![x.lower()]),
+        ),
         CssPropertyValue::Auto => keyword(variant, "auto"),
         CssPropertyValue::None => keyword(variant, "none"),
         CssPropertyValue::Initial => keyword(variant, "initial"),
@@ -468,10 +474,11 @@ impl Lower for CssPropertyWithConditions {
 }
 
 /// Wrap a lowered `CssProperty` in the most idiomatic
-/// `CssPropertyWithConditions` constructor api.json has for `conditions`
-/// (`simple`, `on_hover`, `on_active`, `on_focus`, `when_disabled`,
-/// `dark_mode`, `light_mode`, `on_windows` / `on_macos` / `on_linux`,
-/// `on_os`, `with_condition`, `with_conditions`).
+/// `CssPropertyWithConditions` constructor api.json has for `conditions`.
+///
+/// They are `simple`, `on_hover`, `on_active`, `on_focus`, `when_disabled`,
+/// `dark_mode`, `light_mode`, `on_windows` / `on_macos` / `on_linux`, `on_os`,
+/// `with_condition` and `with_conditions`.
 #[must_use]
 pub fn lower_with_conditions(property: Expr, conditions: &[DynamicSelector]) -> Expr {
     if matches!(property, Expr::Unsupported { .. }) {
@@ -550,11 +557,13 @@ fn note_if_unsupported(e: &Expr, prop: &CssProperty, notes: &mut Vec<String>) {
 }
 
 /// A stylesheet as named styles: one `CssPropertyWithConditionsVec` per base
-/// selector, in first-appearance order. The trailing pseudo-states of a
-/// selector (`.btn:hover`) and the rule's `@media` / `@os` / `@theme` /
-/// `@lang` conditions become `apply_if` conditions; the rest of the selector
-/// names the style (`.btn-primary` -> `style_btn_primary`). `@keyframes` are
-/// not part of a flat style (see [`lower_stylesheet`]).
+/// selector, in first-appearance order.
+///
+/// The trailing pseudo-states of a selector (`.btn:hover`) and the rule's
+/// `@media` / `@os` / `@theme` / `@lang` conditions become `apply_if`
+/// conditions; the rest of the selector names the style (`.btn-primary` ->
+/// `style_btn_primary`). `@keyframes` are not part of a flat style (see
+/// [`lower_stylesheet`]).
 #[must_use]
 pub fn lower_styles(css: &Css) -> Module {
     struct Group {
@@ -596,18 +605,15 @@ pub fn lower_styles(css: &Css) -> Module {
             states.into_iter().map(DynamicSelector::PseudoState).collect();
         conditions.extend(rule.conditions.as_slice().iter().cloned());
 
-        let idx = match groups.iter().position(|g| g.base == base) {
-            Some(i) => i,
-            None => {
-                groups.push(Group {
-                    base: base.clone(),
-                    selectors: Vec::new(),
-                    props: Vec::new(),
-                    notes: Vec::new(),
-                });
-                groups.len() - 1
-            }
-        };
+        let idx = groups.iter().position(|g| g.base == base).unwrap_or_else(|| {
+            groups.push(Group {
+                base: base.clone(),
+                selectors: Vec::new(),
+                props: Vec::new(),
+                notes: Vec::new(),
+            });
+            groups.len() - 1
+        });
         let g = &mut groups[idx];
         let shown = if full.is_empty() { "*".to_string() } else { full };
         let shown = if rule.conditions.as_slice().is_empty() {
@@ -621,10 +627,10 @@ pub fn lower_styles(css: &Css) -> Module {
         for decl in rule.declarations.as_slice() {
             let (prop, dynamic_id) = match decl {
                 CssDeclaration::Static(p) => (p.clone(), None),
-                CssDeclaration::Dynamic(d) => match decl.var_reference() {
-                    Some(r) => (crate::custom_properties::resolve_var(r, &own_vars), None),
-                    None => (d.default_value.clone(), Some(d.dynamic_id.as_str())),
-                },
+                CssDeclaration::Dynamic(d) => decl.var_reference().map_or_else(
+                    || (d.default_value.clone(), Some(d.dynamic_id.as_str())),
+                    |r| (crate::custom_properties::resolve_var(r, &own_vars), None),
+                ),
                 CssDeclaration::CustomProperty(_) => continue,
             };
             let e = lower_declaration(&prop, dynamic_id, &conditions, &mut g.notes);

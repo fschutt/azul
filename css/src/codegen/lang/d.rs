@@ -28,6 +28,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use crate::codegen::{
     doc::{render, Doc},
@@ -195,25 +196,28 @@ impl ExprSyntax for D {
 fn dom_item_fn(item: &Item) -> String {
     let mut out = String::new();
     for line in &item_comments(&D, item) {
-        out.push_str(&format!("// {line}\n"));
+        let _ = writeln!(out, "// {line}");
     }
     let name = item.name.lower_camel();
     let params = item
         .params
         .iter()
-        .map(|p| match &p.default {
-            Some(d) => format!("string {} = {}", d_param(&p.name), expr_doc(&D, d).flat()),
-            None => format!("string {}", d_param(&p.name)),
+        .map(|p| {
+            p.default.as_ref().map_or_else(
+                || format!("string {}", d_param(&p.name)),
+                |d| format!("string {} = {}", d_param(&p.name), expr_doc(&D, d).flat()),
+            )
         })
         .collect::<Vec<_>>()
         .join(", ");
     match item_doc(&D, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "{} {name}({params})\n{{\n    return {};\n}}\n",
             item.ty,
             render(&doc, "    ", 1)
-        )),
-        Err(reason) => out.push_str(&format!("// not expressible with the D bindings: {reason}\n")),
+        ); },
+        Err(reason) => { let _ = writeln!(out, "// not expressible with the D bindings: {reason}"); },
     }
     out
 }
@@ -268,7 +272,7 @@ fn item_fn(item: &Item) -> String {
     }
     let mut out = String::new();
     for line in &item_comments(&D, item) {
-        out.push_str(&format!("// {line}\n"));
+        let _ = writeln!(out, "// {line}");
     }
     let name = item.name.lower_camel();
     let ty = if is_droppable_vec(&item.ty) {
@@ -277,11 +281,12 @@ fn item_fn(item: &Item) -> String {
         item.ty.clone()
     };
     match item_doc(&D, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "{ty} {name}()\n{{\n    return {};\n}}\n",
             render(&doc, "    ", 1)
-        )),
-        Err(reason) => out.push_str(&format!("// not expressible with the D bindings: {reason}\n")),
+        ); },
+        Err(reason) => { let _ = writeln!(out, "// not expressible with the D bindings: {reason}"); },
     }
     out
 }
@@ -320,7 +325,7 @@ impl CodegenBackend for D {
         if let Some(lib) = &m.library {
             out.push('\n');
             for line in registration_note(lib, NO_REGISTRATION) {
-                out.push_str(&format!("// {line}\n"));
+                let _ = writeln!(out, "// {line}");
             }
         }
         out
@@ -350,21 +355,22 @@ impl CodegenBackend for D {
         );
         for item in &m.items {
             let name = item.name.lower_camel();
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "    auto {name}Value = {name}();\n    writeln(\"{name}: \", {name}Value.length, \" \
                  properties\");\n"
-            ));
+            );
         }
         main.push_str("}\n");
-        let mut files = Vec::new();
-        files.push(GeneratedFile {
-            path: "styles.d".to_string(),
-            contents: self.emit_module(m),
-        });
-        files.push(GeneratedFile {
-            path: "main.d".to_string(),
-            contents: main,
-        });
-        files
+        vec![
+            GeneratedFile {
+                path: "styles.d".to_string(),
+                contents: self.emit_module(m),
+            },
+            GeneratedFile {
+                path: "main.d".to_string(),
+                contents: main,
+            },
+        ]
     }
 }
