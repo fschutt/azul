@@ -25,6 +25,9 @@ Xvfb :99 -screen 0 1280x800x24 >/dev/null 2>&1 &
 sleep 2
 export DISPLAY=:99
 export LD_LIBRARY_PATH="$PWD/out"
+echo "=== what loading the libraries of a window costs in a bare process, in the order the X11 shell takes them (the first run: libraries not yet in the page cache; the next two: warm); libgtk-3 and the call of its IM context were loaded by every window at creation"
+cc -O1 -o out/dlopen_cost scripts/ci/dlopen_cost.c -ldl
+for n in 1 2 3; do echo "--- run $n"; ./out/dlopen_cost libX11.so.6 libxkbcommon.so.0 libEGL.so.1 libgtk-3.so.0 -- gtk_im_context_simple_new; done
 echo "=== 9 starts under Xvfb, CPU renderer, no desktop session; the first start has no font cache (cold), the others have it (warm)"
 export XDG_CACHE_HOME="$(mktemp -d)"
 python3 scripts/ci/startup_measure.py --exe "$PWD/out/AzWidgets" --runs 9 --label "AzWidgets linux release, Xvfb, CPU renderer, no desktop session" --json out/startup-linux-plain.json
