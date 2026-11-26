@@ -512,12 +512,12 @@ impl BuilderDocument {
     }
 
     #[must_use]
-    pub(super) fn can_undo(&self) -> bool {
+    pub(super) const fn can_undo(&self) -> bool {
         !self.undo.is_empty()
     }
 
     #[must_use]
-    pub(super) fn can_redo(&self) -> bool {
+    pub(super) const fn can_redo(&self) -> bool {
         !self.redo.is_empty()
     }
 
@@ -548,7 +548,7 @@ impl BuilderDocument {
         }
     }
 
-    fn alloc_uid(&mut self) -> u64 {
+    const fn alloc_uid(&mut self) -> u64 {
         let uid = self.next_uid;
         self.next_uid += 1;
         uid
@@ -991,7 +991,7 @@ pub(super) struct BuilderSession {
 impl BuilderSession {
     /// Whether the builder has taken over the window.
     #[must_use]
-    pub(super) fn is_active(&self) -> bool {
+    pub(super) const fn is_active(&self) -> bool {
         self.doc.is_some()
     }
 
@@ -1610,7 +1610,7 @@ struct XmlWriter<'m> {
 }
 
 impl<'m> XmlWriter<'m> {
-    fn new(map: &'m ComponentMap) -> Self {
+    const fn new(map: &'m ComponentMap) -> Self {
         Self {
             map,
             css: String::new(),

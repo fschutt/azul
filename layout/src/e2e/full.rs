@@ -532,7 +532,7 @@ mod pending_screenshot_tests {
 
 /// Typed response data variants
 #[cfg(feature = "std")]
-fn profile_kind_memory() -> ProfileKind {
+const fn profile_kind_memory() -> ProfileKind {
     ProfileKind::Memory
 }
 
@@ -5064,7 +5064,7 @@ pub enum MouseButton {
 
 /// Default touch / pen force when the JSON test doesn't supply one. 0.5
 /// is the same "pressure unavailable" sentinel `TouchPoint` documents.
-fn default_force() -> f32 {
+const fn default_force() -> f32 {
     0.5
 }
 
@@ -6657,7 +6657,7 @@ fn notification_event_from_op(
 
 /// The name `assert_global_hotkeys` reports a status with: the failure's
 /// reason for a `Failed` one.
-fn global_hotkey_status_name(status: &azul_core::global_hotkey::GlobalHotkeyStatus) -> &'static str {
+const fn global_hotkey_status_name(status: &azul_core::global_hotkey::GlobalHotkeyStatus) -> &'static str {
     use azul_core::global_hotkey::{GlobalHotkeyError as E, GlobalHotkeyStatus as S};
     match status {
         S::NotRegistered => "not_registered",
@@ -6690,7 +6690,7 @@ fn global_hotkey_status_matches(
 }
 
 /// The name `assert_global_hotkeys` spells an owner with.
-fn global_hotkey_owner_name(owner: azul_core::global_hotkey::GlobalHotkeyOwner) -> &'static str {
+const fn global_hotkey_owner_name(owner: azul_core::global_hotkey::GlobalHotkeyOwner) -> &'static str {
     use azul_core::global_hotkey::GlobalHotkeyOwner as O;
     match owner {
         O::App => "app",
@@ -7240,15 +7240,15 @@ pub struct E2eSetup {
 }
 
 #[cfg(feature = "std")]
-fn default_width() -> u32 {
+const fn default_width() -> u32 {
     800
 }
 #[cfg(feature = "std")]
-fn default_height() -> u32 {
+const fn default_height() -> u32 {
     600
 }
 #[cfg(feature = "std")]
-fn default_dpi() -> u32 {
+const fn default_dpi() -> u32 {
     96
 }
 
@@ -7321,7 +7321,7 @@ pub const E2E_PLATFORMS: &[&str] = &["linux", "windows", "macos", "ios", "androi
 /// `"android"`, ...), and `"web"` on wasm32.
 #[cfg(feature = "std")]
 #[must_use]
-pub fn e2e_host_platform() -> &'static str {
+pub const fn e2e_host_platform() -> &'static str {
     if cfg!(target_arch = "wasm32") {
         "web"
     } else {
@@ -8720,7 +8720,7 @@ fn eval_assert_scroll(
 /// OFF by default, on purpose: a missing reference must be RED, never a silent
 /// "record whatever azul does today and call it expected".
 #[cfg(feature = "std")]
-fn e2e_record_mode(callback_info: &azul_layout::callbacks::CallbackInfo) -> bool {
+const fn e2e_record_mode(callback_info: &azul_layout::callbacks::CallbackInfo) -> bool {
     callback_info
         .get_layout_window()
         .settings
@@ -9019,7 +9019,7 @@ fn damage_of(
 }
 
 #[cfg(feature = "std")]
-fn damage_kind_str(d: &azul_layout::window::FrameDamage) -> &'static str {
+const fn damage_kind_str(d: &azul_layout::window::FrameDamage) -> &'static str {
     if d.is_none() {
         "none"
     } else if d.is_full() {
@@ -11052,7 +11052,7 @@ fn dom_node_is_live(lw: &azul_layout::window::LayoutWindow, id: azul_core::dom::
 
 /// Human name of the active drag kind, for diagnostics.
 #[cfg(feature = "std")]
-fn drag_kind_str(d: &azul_core::drag::DragContext) -> &'static str {
+const fn drag_kind_str(d: &azul_core::drag::DragContext) -> &'static str {
     use azul_core::drag::ActiveDragType;
     match d.drag_type {
         ActiveDragType::TextSelection(_) => "text-selection",
@@ -11067,7 +11067,7 @@ fn drag_kind_str(d: &azul_core::drag::DragContext) -> &'static str {
 /// The `(DomId, NodeId)` an active drag hangs off, if it has one. Window
 /// move/resize and file drops are not node-anchored.
 #[cfg(feature = "std")]
-fn drag_source_node(
+const fn drag_source_node(
     d: &azul_core::drag::DragContext,
 ) -> Option<(azul_core::dom::DomId, azul_core::dom::NodeId)> {
     use azul_core::drag::ActiveDragType;
@@ -12472,7 +12472,7 @@ pub(crate) struct ManagerFingerprint {
 
 #[cfg(feature = "std")]
 impl ManagerFingerprint {
-    fn new(population: usize, digest: String) -> Self {
+    const fn new(population: usize, digest: String) -> Self {
         Self { population, digest }
     }
 }
@@ -24259,7 +24259,7 @@ impl DebugPollPace {
     /// One tick. `worked`: a request was served or a scenario is still
     /// suspended. Returns the new interval when the timer must be re-armed
     /// at a different rate.
-    pub fn on_tick(&mut self, worked: bool) -> Option<u64> {
+    pub const fn on_tick(&mut self, worked: bool) -> Option<u64> {
         if worked {
             self.quiet_ms = 0;
             if self.busy {
@@ -24705,7 +24705,7 @@ pub struct DebugWakeSeen {
 impl DebugWakeSeen {
     /// Is `generation` an announcement this window has not re-armed for
     /// yet? Remembers it.
-    pub fn take_at(&mut self, generation: u64) -> bool {
+    pub const fn take_at(&mut self, generation: u64) -> bool {
         if generation == self.seen {
             return false;
         }
