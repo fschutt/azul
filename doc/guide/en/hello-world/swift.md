@@ -166,7 +166,7 @@ Linux:
 ```sh
 # compile
 swiftc -emit-library \
-       -emit-module \ 
+       -emit-module \
        -module-name Azul \
        -parse-as-library -j8 \
        -I. Azul/*.swift \
@@ -211,13 +211,14 @@ DYLD_LIBRARY_PATH=. ./hello-world
 Windows (use the Git Bash, ideally):
 
 ```sh
-# compile
-swiftc -emit-library \
+# compile (a static library, see below)
+swiftc -emit-library -static \
+       -use-ld=lld-link \
        -emit-module \
        -module-name Azul \
        -parse-as-library -j8 \
-       -I. Azul/*.swift azul.dll.lib \
-       -o AzulSwift.dll
+       -I. Azul/*.swift \
+       -o AzulSwift.lib
 
 # link
 swiftc -I. hello-world.swift \
@@ -226,6 +227,16 @@ swiftc -I. hello-world.swift \
 
 ./hello-world.exe
 ```
+
+On Windows the `Azul` module is a static library, not a DLL. It declares more
+than the 65,535 symbols one DLL can export (the compiler writes about 77,000
+export directives for it), so building `AzulSwift.dll` stops with
+`LINK : fatal error LNK1189: library limit of 65535 objects exceeded`; an
+archive has no export table. `-use-ld=lld-link` makes the driver archive the
+objects with the LLVM linker of the Swift toolchain: without it the driver runs
+`link /LIB` from `PATH`, which in the Git Bash is its own `link` command and
+fails with `extra operand '/OUT:AzulSwift.lib'`. `azul.dll` is still loaded when
+the program starts, so keep it next to `hello-world.exe` (or on `PATH`).
 
 You should see the window pictured on the [hello-world landing page](../hello-world.md). 
 Click the button: the counter should increment, the layout callback then re-runs, and the new value renders.
