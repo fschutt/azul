@@ -3,7 +3,8 @@
 #
 #   scripts/remote.sh run <full sha> ubuntu-22.04 'MOBILE_APPS_BASE=<sha of master before the fixes> bash scripts/ci/mobile_apps_gate.sh' \
 #     --codegen --artifacts 'autofix.diff'
-#   MOBILE_APPS_ONLY=<step> in front of the command runs that one step (the RED of the layout tests builds no azul-dll: no --codegen).
+#   MOBILE_APPS_ONLY=<step>,<step> in front of the command runs those steps only (the RED of the layout tests builds no azul-dll:
+#   no --codegen; the checks of the dll, the apps and the two phone shells are the quick first run after a change).
 #
 # Needs the bindings (remote.sh --codegen) for every step that builds azul-dll. A step that fails does not stop the ones after
 # it, so one run says everything that is wrong; the last lines are one `STEP <name> <exit>` each and the exit code of the script
@@ -18,9 +19,11 @@ only="${MOBILE_APPS_ONLY:-}"
 run() {
   local name="$1"
   shift
-  if [ -n "$only" ] && [ "$only" != "$name" ]; then
-    return 0
-  fi
+  case ",$only," in
+    ",,") ;;
+    *",$name,"*) ;;
+    *) return 0 ;;
+  esac
   echo "=== STEP $name: $* ==="
   "$@"
   local code=$?
@@ -86,6 +89,11 @@ red_layout() {
 }
 run red_layout_on_the_previous_files red_layout
 
+# 1c. everything that compiles, type-checked without building a library (minutes, not an hour): the dll with its tests, the
+#     apps with theirs (they link nothing in a check)
+run dll_check cargo check -p azul-dll --features build-dll --lib --test headless_safe_area_moved --test localization_headless --test android_language_contract
+run apps_check cargo check -p azul-appkit -p AzPaint -p AzMaps -p AzMeet -p AzWriter -p AzWidgets --lib --profile test --features azul-appkit/azul
+
 # 2. the engine through the headless shell: RED (the guard out: the precheck is always false, as it was), then GREEN
 red_safe_area() {
   local file=dll/src/desktop/shell2/common/layout.rs
@@ -117,7 +125,7 @@ run clippy cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets --
 # 4. the apps over the C ABI, against the library of this tree (a copy of it in a folder of its own, as the CI's
 #    lib tests do: they link-dynamic against that file)
 run cabi_build cargo build -p azul-dll --features build-dll
-if [ -z "$only" ]; then
+if [ -z "$only" ] || [ "${only#*cabi_build}" != "$only" ]; then
   cabi_dir="$(mktemp -d)"
   cp target/debug/libazul.so "$cabi_dir/" 2>/dev/null
   export AZ_LINK_PATH="$cabi_dir"
