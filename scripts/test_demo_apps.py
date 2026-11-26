@@ -525,6 +525,44 @@ class PurposeStringsTest(unittest.TestCase):
         self.assertIn("AZ_IOS_SYMBOL_JSON", (HERE / "demo_build.py").read_text(encoding="utf-8"))
 
 
+class SymbolGateStatusTest(unittest.TestCase):
+    """The numbers of scripts/ci/ios_symbol_gate.py (min_os, imports, unchecked, violations[...]) travel in the small results artifact as
+    <App>.<column>.symbols.json (AZ_IOS_SYMBOL_JSON) and the status table shows them next to the iOS files, as information."""
+
+    def test_the_counts_of_the_gate_are_in_the_cell_and_in_the_files_table(self):
+        m = demo_apps.load()
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "AzWidgets.ios-sim.result.json").write_text(json.dumps({
+                "app": "AzWidgets", "column": "ios-sim", "status": "built", "size": 2048, "shipped_size": 2048, "seconds": 60,
+                "engine_crates": [], "artifact": "AzWidgets-ios-sim.app.zip"}))
+            (root / "AzWidgets.ios-sim.symbols.json").write_text(json.dumps({
+                "min_os": "16.0", "imports": 412, "unchecked": 37, "violations": []}))
+            (root / "AzWidgets.ios-sim-e2e.symbols.json").write_text(json.dumps({"min_os": "16.0", "imports": 999, "unchecked": 1, "violations": []}))
+            (root / "broken.symbols.json").write_text("{not json")
+            data, md = demo_apps.status([root], m=m)
+        cell = next(r for r in data["apps"] if r["app"] == "AzWidgets")["cells"]["ios-sim"]
+        self.assertEqual(cell["symbols"], {"min_os": "16.0", "imports": 412, "unchecked": 37, "violations": 0})
+        self.assertIn("412 imports, 37 unchecked, 0 violations", md)
+        self.assertEqual(data["summary"]["symbol_violations"], [])
+
+    def test_a_violation_is_listed_by_app_and_column(self):
+        m = demo_apps.load()
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "AzMaps.ios-device.symbols.json").write_text(json.dumps({
+                "min_os": "16.0", "imports": 10, "unchecked": 0,
+                "violations": [{"name": "_AVCaptureDeviceTypeExternal", "lib": "AVFoundation", "weak": False, "why": "iOS 17.0"}]}))
+            data, _ = demo_apps.status([root], m=m)
+        self.assertEqual(data["summary"]["symbol_violations"], ["AzMaps/ios-device"])
+
+    def test_an_app_without_the_numbers_shows_nothing(self):
+        data, md = demo_apps.status([], m=demo_apps.load())
+        cell = next(r for r in data["apps"] if r["app"] == "AzWidgets")["cells"]["ios-sim"]
+        self.assertNotIn("symbols", cell)
+        self.assertNotIn("unchecked", md)
+
+
 class FeaturesCommandTest(unittest.TestCase):
     """`demo_apps.py features <leg> <variant>`: the cargo features of a library of the plan, for the scripts that build one by hand
     (scripts/ci/ios_build_qa.sh): the same string the workflow's lib job gets, android-activity included on Android."""
