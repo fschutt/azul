@@ -46,4 +46,5 @@ usage = [
     "NSMicrophoneUsageDescription=AzReview records your voice clips and listens while you dictate a note with the pen at rest.",
     "NSSpeechRecognitionUsageDescription=AzReview turns what you say, while the pen rests on the code, into a note.",
     "NSCameraUsageDescription=AzReview records your camera while you present a review, so you can explain the code in a video.",
+    "NSLocalNetworkUsageDescription=AzReview talks to the AzReview companion on your phone over your local network, only while you have turned the phone companion on in the settings.",
 ]
