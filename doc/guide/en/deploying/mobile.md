@@ -312,6 +312,11 @@ That is the *entire* difference from a desktop app.
 - `WindowCreateOptions::create_callback` runs once per window, when the window's surface first exists (Android's first
   `InitWindow`: the real size and density are in the window state) and before its first layout, as on the desktop
   shells. Start the timers and workers that live as long as the window there.
+- A finger is a *tap candidate* until it has moved more than the touch slop (8 dp, the engine's logical pixel) from where
+  it landed: inside the slop nothing scrolls, a release is a click at the landing point and a long press stays a long
+  press; the move that crosses it makes the contact a pan for good (the page does not jump by the slop) and its release
+  clicks nothing. A mouse, a stylus and an eraser have no slop. A widget a finger drags (a slider, a map, a paint canvas)
+  therefore starts to move 8 dp after the touch under a finger and at once under a stylus.
 
 ### Package the APK (no Android Studio)
 
