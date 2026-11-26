@@ -232,6 +232,8 @@ mod font_synthesis_switches_off_the_faked_bold_and_the_faked_small_capitals;
 mod font_variant_east_asian_asks_the_font_for_its_east_asian_forms;
 #[path = "font_variant_ligatures_and_font_kerning_turn_the_features_off.rs"]
 mod font_variant_ligatures_and_font_kerning_turn_the_features_off;
+#[path = "font_variant_position_asks_the_font_for_its_subscript_and_superscript_forms.rs"]
+mod font_variant_position_asks_the_font_for_its_subscript_and_superscript_forms;
 #[path = "font_variation_settings_win_over_the_properties_they_overlap.rs"]
 mod font_variation_settings_win_over_the_properties_they_overlap;
 #[path = "text_ink_is_not_cut_at_its_line_box.rs"]
@@ -482,10 +484,14 @@ mod test_style_tag_parsing;
 mod test_text_layout;
 #[path = "text_align_last_text_justify_and_text_indent_place_the_words_of_a_line.rs"]
 mod text_align_last_text_justify_and_text_indent_place_the_words_of_a_line;
+#[path = "text_rendering_optimize_speed_turns_the_kerning_and_the_ligatures_off.rs"]
+mod text_rendering_optimize_speed_turns_the_kerning_and_the_ligatures_off;
 #[path = "text_shadow_wraps_the_text_it_shadows_in_the_display_list.rs"]
 mod text_shadow_wraps_the_text_it_shadows_in_the_display_list;
 #[path = "text_transform_changes_the_letters_that_are_drawn.rs"]
 mod text_transform_changes_the_letters_that_are_drawn;
+#[path = "text_wrap_balances_and_pretty_breaks_a_paragraph_and_nowrap_keeps_it_on_one_line.rs"]
+mod text_wrap_balances_and_pretty_breaks_a_paragraph_and_nowrap_keeps_it_on_one_line;
 #[path = "text3_baseline_exact.rs"]
 mod text3_baseline_exact;
 #[path = "text3_brutal_selection.rs"]
@@ -1337,6 +1343,8 @@ mod one_counter_property_names_several_counters;
 mod the_quotes_property_picks_the_quotation_marks;
 #[path = "the_search_hint_lies_inside_the_address_bars_search_box_in_every_theme.rs"]
 mod the_search_hint_lies_inside_the_address_bars_search_box_in_every_theme;
+#[path = "the_system_ui_font_is_looked_for_where_text_looks_for_it.rs"]
+mod the_system_ui_font_is_looked_for_where_text_looks_for_it;
 #[path = "a_narrow_settings_window_keeps_every_control_whole_and_inside.rs"]
 mod a_narrow_settings_window_keeps_every_control_whole_and_inside;
 #[path = "a_string_list_style_type_is_the_marker.rs"]

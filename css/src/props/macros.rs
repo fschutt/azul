@@ -608,6 +608,15 @@ macro_rules! css_property_from_type {
             CssPropertyType::FontKerning => {
                 CssProperty::FontKerning(CssPropertyValue::$content_type)
             }
+            CssPropertyType::TextWrap => {
+                CssProperty::TextWrap(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::FontVariantPosition => {
+                CssProperty::FontVariantPosition(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::TextRendering => {
+                CssProperty::TextRendering(CssPropertyValue::$content_type)
+            }
             CssPropertyType::FontVariantLigatures => {
                 CssProperty::FontVariantLigatures(CssPropertyValue::$content_type)
             }

@@ -185,6 +185,9 @@ pub struct Note {
     /// The language the speech was recognised in (a BCP 47 tag; empty: the system's).
     pub language: String,
     pub state: NoteState,
+    /// The conversation the note began: the text above is its first message, this is what came after (the agent's
+    /// answers, the reviewer's follow-ups, what the dictation heard and where the conversation stands).
+    pub talk: crate::conversation::Conversation,
 }
 
 impl Note {
@@ -199,6 +202,7 @@ impl Note {
             text: String::new(),
             language: language.to_string(),
             state: NoteState::Listening,
+            talk: crate::conversation::Conversation::default(),
         }
     }
 }

@@ -52,6 +52,15 @@ azul-doc autofix debug api <T>       # Debug type: api.json vs workspace
 azul-doc autofix debug file <path>   # Debug parsing a specific Rust source file
 ```
 
+**A new type needs two passes.** One run of `autofix` (with `explain`, `patch safe`, `patch` and
+`normalize`, the sequence of the CI job) adds a new type, and only the next run finds that an
+alias of a generic (a `StyleFooValue`, a `CssPropertyValue<StyleFoo>`) is one: it patches the
+`type_alias` into the entry. Without the second pass `azul.h` lacks the alias and the C ABI check
+of `azul-dll` fails with hundreds of "cannot transmute between types of different sizes". Run the
+sequence until it changes nothing (`git diff --quiet api.json`) and commit that `api.json`: the CI
+job runs it once and demands no difference. A variant named `Super`, `Self` or `Crate` has no
+binding either (`r#super` is no raw identifier in Rust).
+
 ### `normalize` — Clean Up api.json
 
 ```bash

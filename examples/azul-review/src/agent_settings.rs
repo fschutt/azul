@@ -1133,7 +1133,7 @@ impl AgentSettings {
 /// A tiny request for the "test this backend" button: no strokes, one line of code, one sentence.
 #[must_use]
 pub fn test_request(language: &str) -> Request {
-    Request::Review(ReviewRequest {
+    Request::Review(ReviewRequest { symbols: String::new(),
         task: Task::Editing,
         conversation: 0,
         language: language.to_string(),

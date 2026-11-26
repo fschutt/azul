@@ -1,15 +1,11 @@
-//! The side column: the notes dictated at the pen's rests, one card each (where it is anchored, its
-//! words - live while it listens, editable afterwards - and a delete button), the "listening" state
-//! and the stop button over them; the markers the notes put on the pages; the settings page's
-//! dictation section.
+//! The markers the notes put on the pages (a round badge at the anchor, the note's number or a microphone while it
+//! listens), what a note's controls carry, and the settings page's dictation section. The conversations themselves are in
+//! the margin of their pages (`conv_ui.rs`).
 
 use azul::{
-    callbacks::{
-        ButtonOnClickCallbackType, SegmentedOnChangeCallbackType, TextAreaOnFocusLostCallbackType,
-        TextAreaOnTextInputCallbackType,
-    },
+    callbacks::SegmentedOnChangeCallbackType,
     prelude::*,
-    widgets::{Button, Segmented, SegmentedState, TextArea},
+    widgets::{Segmented, SegmentedState},
 };
 use azul_appkit::{
     l10n::{label, labels, t, t_args, Arg},
@@ -23,13 +19,12 @@ use crate::{
     dwell::{self, Allow},
     ids,
     model::Note,
+    speech_gate::Session as SpeechState,
     standby::{self, Standby},
     switches::{self, KEY_INPUT, KEY_REST, KEY_SILENCE, KEY_STANDBY, KEY_STANDBY_IDLE},
     ui, voice, AppState,
 };
 
-/// The column's width, px.
-pub const COLUMN_W: f32 = 300.0;
 /// The marker's diameter on the page, px.
 pub const MARKER_D: f32 = 22.0;
 
@@ -47,7 +42,7 @@ pub struct NoteTag {
 }
 
 /// The place a note names: its page and the line of the file under its anchor.
-fn place(file: Option<&SourceFile>, note: &Note) -> String {
+pub(crate) fn place(file: Option<&SourceFile>, note: &Note) -> String {
     let first = file.map_or(1, |f| f.page(note.page).0);
     t_args(
         "azreview-note-place",
@@ -56,11 +51,6 @@ fn place(file: Option<&SourceFile>, note: &Note) -> String {
             ("line", Arg::from(first + ui::line_of(note.y))),
         ],
     )
-}
-
-/// The notes of the open file, in the order they were made, with the number each one shows.
-fn numbered(s: &AppState) -> impl Iterator<Item = (usize, &Note)> {
-    s.notes.iter().enumerate().map(|(i, n)| (i + 1, n))
 }
 
 /// A round badge: the note's number, or the microphone while it listens. The same on the page
@@ -116,178 +106,6 @@ pub fn markers(notes: &[Note], page: usize, listening: Option<u64>) -> Vec<Dom> 
         .filter(|(_, n)| n.page == page)
         .map(|(i, n)| marker(n, i + 1, listening == Some(n.id)))
         .collect()
-}
-
-/// The column's header: its title, and while a dictation runs the "listening" pill and the stop button.
-fn header(s: &AppState, data: &RefAny) -> Dom {
-    let mut row = Dom::create_div().with_css(
-        "display: flex; flex-direction: row; align-items: center; gap: 6px; padding: 7px 10px; \
-         flex-shrink: 0; border-bottom: 1px solid system:separator; user-select: none;",
-    );
-    row.add_child(Dom::create_icon("speaker_notes").with_css("font-size: 15px; color: system:secondary-text;"));
-    row.add_child(
-        Dom::create_span_with_text(label("azreview-notes"))
-            .with_css("font-size: 11px; color: system:secondary-text; flex-grow: 1;"),
-    );
-    // The column's own way out: the top bar no longer has a key for it.
-    let close = label("azreview-notes-switch");
-    row.add_child(
-        ui::with_tip(ui::key(ui::QUIET, close.clone(), data.clone(), voice::on_toggle_notes), &close)
-            .with_id(ids::NOTES_TOGGLE)
-            .with_child(Dom::create_icon("close").with_css("font-size: 14px;")),
-    );
-    if s.voice.running.is_some() {
-        // Going (not asked to stop yet) is what the stop button is for; "listening" is the microphone taking words.
-        let going = s.voice.is_listening();
-        let ready = s.voice.is_ready();
-        row.add_child(
-            Dom::create_div()
-                .with_id(ids::LISTENING)
-                .with_css(
-                    "display: flex; flex-direction: row; align-items: center; gap: 4px; font-size: \
-                     11px; color: #d62d20; flex-shrink: 0;",
-                )
-                .with_child(Dom::create_icon(if ready { "mic" } else { "hourglass_top" }).with_css("font-size: 14px;"))
-                .with_child(Dom::create_span_with_text(label(if ready {
-                    "azreview-listening"
-                } else if going {
-                    "azreview-dictation-opening"
-                } else {
-                    "azreview-finishing"
-                }))),
-        );
-        if going {
-            row.add_child(
-                Button::create(label("azreview-dictation-stop"))
-                    .with_icon("stop")
-                    .with_on_click(data.clone(), voice::on_stop as ButtonOnClickCallbackType)
-                    .dom()
-                    .with_id(ids::DICTATION_STOP)
-                    .with_accessibility_name(label("azreview-dictation-stop")),
-            );
-        }
-    }
-    row
-}
-
-/// What the empty column says: how to start, or that the pen's rest is off.
-fn hint(s: &AppState) -> Dom {
-    let cfg = s.voice.dwell.config();
-    let words = if cfg.allow == Allow::Off {
-        t("azreview-notes-off")
-    } else {
-        let seconds = format!("{:.1}", cfg.rest_ms as f64 / 1_000.0);
-        t_args(
-            if cfg.allow == Allow::Pen {
-                "azreview-notes-hint-pen"
-            } else {
-                "azreview-notes-hint-any"
-            },
-            &[("seconds", Arg::from(seconds))],
-        )
-    };
-    Dom::create_p_with_text(words.as_str())
-        .with_id(ids::NOTES_HINT)
-        .with_css("margin: 0px; padding: 10px 4px; font-size: 12px; color: system:secondary-text;")
-}
-
-/// One note's card.
-fn card(s: &AppState, data: &RefAny, number: usize, note: &Note) -> Dom {
-    let running = s.voice.running_note() == Some(note.id);
-    let listening = s.voice.ready_note() == Some(note.id);
-    let tag = RefAny::new(NoteTag {
-        app: data.clone(),
-        id: note.id,
-    });
-    let mut head = Dom::create_div().with_css("display: flex; flex-direction: row; align-items: center; gap: 8px;");
-    head.add_child(badge(number, listening, 18.0));
-    head.add_child(
-        Dom::create_span_with_text(place(s.file(), note).as_str())
-            .with_css("font-size: 11px; color: system:secondary-text; flex-grow: 1;"),
-    );
-    head.add_child(
-        Button::create("")
-            .with_icon("delete")
-            .with_on_click(tag.clone(), voice::on_note_delete as ButtonOnClickCallbackType)
-            .dom()
-            .with_id(format!("__azreview_note-delete-{}", note.id).as_str())
-            .with_accessibility_name(t_args("azreview-note-delete", &[("n", Arg::from(number))])),
-    );
-    let body = if running {
-        // While the words come in they are shown, not edited: the dictation owns the text.
-        let words = if note.text.is_empty() {
-            t("azreview-note-waiting")
-        } else {
-            note.text.clone()
-        };
-        let mut body = Dom::create_div()
-            .with_css("display: flex; flex-direction: column; gap: 2px;")
-            .with_child(Dom::create_p_with_text(words.as_str()).with_css(
-                "margin: 0px; font-size: 13px; line-height: 1.35; white-space: pre-wrap; \
-                 overflow-wrap: anywhere;",
-            ));
-        // The words of the utterance being spoken, before the recogniser has made them the note's.
-        if !s.voice.partial().is_empty() {
-            body.add_child(
-                Dom::create_p_with_text(s.voice.partial())
-                    .with_id(format!("__azreview_note-partial-{}", note.id).as_str())
-                    .with_css(
-                        "margin: 0px; font-size: 13px; line-height: 1.35; white-space: pre-wrap; \
-                         overflow-wrap: anywhere; color: system:secondary-text; font-style: italic;",
-                    ),
-            );
-        }
-        body
-    } else {
-        TextArea::create()
-            .with_text(note.text.as_str())
-            .with_placeholder(label("azreview-note-placeholder"))
-            .with_accessibility_name(t_args("azreview-note-name", &[("n", Arg::from(number))]))
-            .with_on_text_input(tag.clone(), voice::on_note_text as TextAreaOnTextInputCallbackType)
-            .with_on_focus_lost(tag, voice::on_note_blur as TextAreaOnFocusLostCallbackType)
-            .dom()
-            .with_id(format!("__azreview_note-text-{}", note.id).as_str())
-            .with_css("min-height: 84px;")
-    };
-    Dom::create_div()
-        .with_id(format!("__azreview_note-{}", note.id).as_str())
-        .with_css(
-            "display: flex; flex-direction: column; gap: 6px; padding: 8px; flex-shrink: 0; \
-             border: 1px solid system:separator; border-radius: 6px; background: \
-             system:control-background;",
-        )
-        .with_child(head)
-        .with_child(body)
-}
-
-/// The side column of the window.
-#[must_use]
-pub fn column(s: &AppState, data: &RefAny) -> Dom {
-    let mut list = Dom::create_div().with_css(
-        "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; overflow-y: auto; \
-         overflow-x: hidden; padding: 8px; gap: 8px;",
-    );
-    if s.notes.is_empty() {
-        list.add_child(hint(s));
-    } else {
-        for (number, note) in numbered(s) {
-            list.add_child(card(s, data, number, note));
-        }
-    }
-    Dom::create_div()
-        .with_id(ids::NOTES)
-        .with_css(
-            format!(
-                "display: flex; flex-direction: column; width: {}px; flex-shrink: 0; min-height: \
-                 0px; box-sizing: border-box; border-left: 1px solid system:separator; \
-                 background: system:window-background;",
-                COLUMN_W as isize
-            )
-            .as_str(),
-        )
-        .with_accessibility_name(label("azreview-notes"))
-        .with_child(header(s, data))
-        .with_child(list)
 }
 
 // ==== The settings page's dictation section ====
@@ -429,6 +247,13 @@ fn speech_status(s: &AppState) -> Dom {
                 col.add_child(Dom::create_span_with_text(line.as_str()));
             }
         }
+    } else if s.voice.gate.state() == SpeechState::Making {
+        col.add_child(Dom::create_span_with_text(t("azreview-speech-making").as_str()));
+    }
+    if let Some(why) = s.voice.gate.failure() {
+        col.add_child(Dom::create_span_with_text(
+            t_args("azreview-speech-failed", &[("why", Arg::from(why.to_string()))]).as_str(),
+        ));
     }
     col
 }

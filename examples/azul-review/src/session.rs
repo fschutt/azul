@@ -5,7 +5,9 @@ use azul::{
 };
 
 use crate::{
+    conversation::{Conversation, Phase, Said, Who},
     deletion::{self, Deleted, Deletion},
+    dictation::HeardWord,
     model::{Finding, InkPoint, Note, NoteState, Semantic, Stroke, VoiceClip},
     ui, AppState,
 };
@@ -22,7 +24,7 @@ fn bytes(v: &[u8]) -> U8Vec {
 }
 
 /// A JSON string literal of `text`, escaped (quotes, backslashes, control characters; the rest as it is).
-fn push_string(out: &mut String, text: &str) {
+pub(crate) fn push_string(out: &mut String, text: &str) {
     use std::fmt::Write;
     out.push('"');
     for c in text.chars() {
@@ -129,7 +131,77 @@ fn push_note(out: &mut String, n: &Note, first_line_of_page: usize) {
     push_string(out, &n.language);
     out.push_str(",\"text\":");
     push_string(out, &n.text);
+    push_talk(out, &n.talk);
     out.push('}');
+}
+
+/// What a conversation keeps beyond the note's words: only what is not the draft nobody asked about, so that an
+/// archive of plain notes is what it was.
+fn push_talk(out: &mut String, talk: &Conversation) {
+    use std::fmt::Write;
+    if talk.phase != Phase::Draft {
+        out.push_str(",\"phase\":");
+        push_string(out, talk.phase.name());
+    }
+    if talk.asked > 0 {
+        let _ = write!(out, ",\"asked\":{}", talk.asked);
+    }
+    if talk.pending > 0 {
+        let _ = write!(out, ",\"pending\":{}", talk.pending);
+    }
+    if let Some(heard) = &talk.heard_as {
+        out.push_str(",\"heard_as\":");
+        push_string(out, heard);
+    }
+    if let Some(problem) = &talk.problem {
+        out.push_str(",\"problem\":");
+        push_string(out, problem);
+    }
+    if !talk.turns.is_empty() {
+        out.push_str(",\"turns\":[");
+        for (i, t) in talk.turns.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            out.push_str("{\"who\":");
+            push_string(out, t.who.name());
+            out.push_str(",\"text\":");
+            push_string(out, &t.text);
+            let _ = write!(out, ",\"at\":{}}}", t.at_unix_ms);
+        }
+        out.push(']');
+    }
+    if !talk.said.is_empty() {
+        out.push_str(",\"said\":[");
+        for (i, said) in talk.said.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            out.push_str("{\"text\":");
+            push_string(out, &said.text);
+            let _ = write!(out, ",\"started\":{}", said.started_unix_ms);
+            if let Some(Some(understood)) = talk.understood.get(i) {
+                out.push_str(",\"u\":");
+                push_string(out, understood);
+            }
+            if !said.words.is_empty() {
+                out.push_str(",\"words\":[");
+                for (j, w) in said.words.iter().enumerate() {
+                    if j > 0 {
+                        out.push(',');
+                    }
+                    out.push_str("{\"t\":");
+                    push_string(out, &w.text);
+                    let _ = write!(out, ",\"s\":{},\"e\":{},\"p\":", w.start_ms, w.end_ms);
+                    push_num(out, w.probability);
+                    out.push('}');
+                }
+                out.push(']');
+            }
+            out.push('}');
+        }
+        out.push(']');
+    }
 }
 
 fn push_finding(out: &mut String, f: &Finding) {
@@ -285,12 +357,12 @@ impl Loaded {
 }
 
 /// The value under `key` of the object `json`.
-fn key(json: &Json, key: &str) -> Option<Json> {
+pub(crate) fn key(json: &Json, key: &str) -> Option<Json> {
     json.get_key(key).into_option()
 }
 
 /// A number under `key` (an integer counts: `1` and `1.0` are the same number to a reader).
-fn num(json: &Json, name: &str) -> Option<f64> {
+pub(crate) fn num(json: &Json, name: &str) -> Option<f64> {
     let v = key(json, name)?;
     v.as_float()
         .into_option()
@@ -298,7 +370,7 @@ fn num(json: &Json, name: &str) -> Option<f64> {
 }
 
 /// A whole number under `key`, not below 0.
-fn count(json: &Json, name: &str) -> Option<u64> {
+pub(crate) fn count(json: &Json, name: &str) -> Option<u64> {
     let v = key(json, name)?;
     let i = v
         .as_int()
@@ -307,7 +379,7 @@ fn count(json: &Json, name: &str) -> Option<u64> {
     u64::try_from(i).ok()
 }
 
-fn text_of(json: &Json, name: &str) -> Option<String> {
+pub(crate) fn text_of(json: &Json, name: &str) -> Option<String> {
     key(json, name)?
         .as_string()
         .into_option()
@@ -315,7 +387,7 @@ fn text_of(json: &Json, name: &str) -> Option<String> {
 }
 
 /// The items of the list under `key` (none when it is missing or no list).
-fn items(json: &Json, name: &str) -> Vec<Json> {
+pub(crate) fn items(json: &Json, name: &str) -> Vec<Json> {
     key(json, name)
         .and_then(|list| list.to_array().into_option())
         .map(|list| list.as_slice().to_vec())
@@ -378,7 +450,44 @@ fn note_from(json: &Json) -> Option<Note> {
         text: text_of(json, "text").unwrap_or_default(),
         language: text_of(json, "language").unwrap_or_default(),
         state: NoteState::Done,
+        talk: talk_from(json),
     })
+}
+
+/// The conversation a note's JSON holds (a draft with nothing said where it holds none); a turn, an utterance or a
+/// phase that cannot be read is left out, the rest kept, and what a conversation keeps is held to its bounds.
+fn talk_from(json: &Json) -> Conversation {
+    let mut talk = Conversation::default();
+    talk.phase = text_of(json, "phase").and_then(|p| Phase::parse(&p)).unwrap_or(Phase::Draft);
+    talk.asked = count(json, "asked").and_then(|n| u32::try_from(n).ok()).unwrap_or(0);
+    talk.pending = count(json, "pending").and_then(|n| usize::try_from(n).ok()).unwrap_or(0);
+    talk.heard_as = text_of(json, "heard_as");
+    talk.problem = text_of(json, "problem");
+    for turn in items(json, "turns") {
+        let who = text_of(&turn, "who").and_then(|w| Who::parse(&w));
+        let text = text_of(&turn, "text");
+        if let (Some(who), Some(text)) = (who, text) {
+            let _ = talk.push(who, &text, count(&turn, "at").unwrap_or(0));
+        }
+    }
+    for said in items(json, "said") {
+        let Some(text) = text_of(&said, "text") else { continue };
+        let words = items(&said, "words")
+            .iter()
+            .filter_map(|w| {
+                Some(HeardWord {
+                    text: text_of(w, "t")?,
+                    start_ms: u32::try_from(count(w, "s")?).ok()?,
+                    end_ms: u32::try_from(count(w, "e")?).ok()?,
+                    probability: num(w, "p")? as f32,
+                })
+            })
+            .collect();
+        talk.hear_understood(Said { text, started_unix_ms: count(&said, "started").unwrap_or(0), words }, text_of(&said, "u"));
+    }
+    // an agent that was working when the window closed is not working now
+    talk.restored();
+    talk
 }
 
 /// Reads an archive [`archive`] wrote, or an older one; the keys a later version adds are ignored,

@@ -121,6 +121,7 @@ use azul_css::{
             StyleUserSelectValue, StyleVerticalAlignValue, StyleVisibilityValue,
             StyleWhiteSpaceValue, StyleWordBreakValue, StyleWordSpacingValue, StyleZoomValue, StyleBackgroundClipVecValue,
             StyleFontFeatureSettingsValue, StyleFontKerningValue, StyleFontOpticalSizingValue,
+            StyleFontVariantPositionValue, StyleTextRenderingValue, StyleTextWrapValue,
             StyleFontStretchValue, StyleFontSynthesisValue, StyleFontVariantCapsValue,
             StyleFontVariantEastAsianValue, StyleFontVariantLigaturesValue,
             StyleFontVariantNumericValue, StyleFontVariationSettingsValue, WidowsValue,
@@ -5375,6 +5376,24 @@ impl CssPropertyCache {
         StyleFontKerningValue,
         FontKerning,
         as_font_kerning
+    );
+    impl_get_prop!(
+        get_text_wrap,
+        StyleTextWrapValue,
+        TextWrap,
+        as_text_wrap
+    );
+    impl_get_prop!(
+        get_font_variant_position,
+        StyleFontVariantPositionValue,
+        FontVariantPosition,
+        as_font_variant_position
+    );
+    impl_get_prop!(
+        get_text_rendering,
+        StyleTextRenderingValue,
+        TextRendering,
+        as_text_rendering
     );
     impl_get_prop!(
         get_font_variant_ligatures,

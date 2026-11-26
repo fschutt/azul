@@ -224,7 +224,7 @@ fn an_answer_bigger_than_the_limit_is_refused_and_not_cut_short() {
 // ==== the API backends through it ====
 
 fn request() -> Request {
-    Request::Review(ReviewRequest {
+    Request::Review(ReviewRequest { symbols: String::new(),
         task: Task::Editing,
         conversation: 1,
         language: "en".to_string(),

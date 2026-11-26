@@ -106,3 +106,108 @@ fn the_mock_conversations_cover_every_state_over_the_given_files() {
     assert_eq!(mock(0, &files).len(), 0);
     assert_eq!(mock(5, &[]).len(), 0, "no file, no conversation");
 }
+
+#[test]
+fn a_conversation_nobody_waits_on_has_no_colour_of_its_own_and_never_outranks_one_that_works_or_waits() {
+    assert!(State::Done > State::Failed);
+    assert!(State::Failed > State::Draft);
+    let mut chips = Chips::default();
+    chips.push(chip(1, "a.rs", State::Draft));
+    chips.push(chip(2, "a.rs", State::Failed));
+    assert_eq!(chips.file_state("a.rs"), Some(State::Failed), "the most unresolved is still the answer");
+    assert_eq!(chips.counts("a.rs"), Counts::default(), "a draft and a failure are none of working, waiting and done");
+    chips.push(chip(3, "a.rs", State::Done));
+    assert_eq!(chips.file_state("a.rs"), Some(State::Done));
+}
+
+#[test]
+fn a_chip_is_kept_by_its_file_and_its_number_and_changed_in_place() {
+    let mut chips = Chips::default();
+    assert_eq!(chips.upsert(chip(1, "a.rs", State::Working)), Pushed::Kept);
+    assert_eq!(chips.upsert(chip(1, "b.rs", State::Done)), Pushed::Kept, "the same number in another file is another conversation");
+    assert_eq!(chips.len(), 2);
+    let mut changed = chip(1, "a.rs", State::Suggested);
+    changed.title = "new words".to_string();
+    assert_eq!(chips.upsert(changed), Pushed::Kept);
+    assert_eq!(chips.len(), 2, "replaced, not added");
+    let a = chips.of_file("a.rs");
+    assert_eq!((a[0].state, a[0].title.as_str()), (State::Suggested, "new words"));
+    assert_eq!(chips.of_file("b.rs")[0].state, State::Done);
+}
+
+#[test]
+fn a_chip_goes_with_its_conversation() {
+    let mut chips = Chips::default();
+    chips.push(chip(1, "a.rs", State::Working));
+    chips.push(chip(1, "b.rs", State::Working));
+    assert!(chips.remove("a.rs", 1));
+    assert!(!chips.remove("a.rs", 1), "it was gone already");
+    assert_eq!(chips.len(), 1);
+    assert_eq!(chips.of_file("b.rs").len(), 1);
+}
+
+#[test]
+fn the_files_chips_are_taken_out_when_asked_for_the_ones_of_another_kind_stay() {
+    let mut chips = Chips::default();
+    chips.push(chip(1, "a.rs", State::Done));
+    chips.push(chip(2, "a.rs", State::Working));
+    chips.push(chip(3, "b.rs", State::Done));
+    assert_eq!(chips.remove_resting("a.rs"), 1, "only what nobody works on or waits on");
+    assert_eq!(chips.of_file("a.rs").iter().map(|c| c.id).collect::<Vec<_>>(), vec![2]);
+    assert_eq!(chips.of_file("b.rs").len(), 1);
+}
+
+fn ids(items: &[BarItem<'_>]) -> Vec<String> {
+    items
+        .iter()
+        .map(|i| match i {
+            BarItem::Chip(c) => c.id.to_string(),
+            BarItem::MoreDone(n) => format!("+{n}"),
+        })
+        .collect()
+}
+
+#[test]
+fn the_bar_shows_what_works_first_then_what_waits_then_the_rest_and_the_done_ones_last() {
+    let list = vec![
+        chip(1, "a.rs", State::Done),
+        chip(2, "a.rs", State::Suggested),
+        chip(3, "a.rs", State::Draft),
+        chip(4, "a.rs", State::Working),
+        chip(5, "a.rs", State::Failed),
+        chip(6, "a.rs", State::Working),
+    ];
+    let refs: Vec<&Chip> = list.iter().collect();
+    assert_eq!(ids(&bar_items(&refs, 10)), vec!["4", "6", "2", "5", "3", "1"]);
+}
+
+#[test]
+fn many_done_conversations_are_folded_into_a_count_and_the_newest_stay() {
+    let list: Vec<Chip> = (1..=40).map(|i| chip(i, "a.rs", State::Done)).collect();
+    let refs: Vec<&Chip> = list.iter().collect();
+    let items = bar_items(&refs, 6);
+    assert_eq!(items.len(), 7);
+    assert_eq!(ids(&items), vec!["35", "36", "37", "38", "39", "40", "+34"], "the six newest, then how many more");
+    // none, one and many
+    assert!(bar_items(&[], 6).is_empty());
+    let one = [&list[0]];
+    assert_eq!(ids(&bar_items(&one, 6)), vec!["1"]);
+    // what works is never folded
+    let mut busy: Vec<Chip> = (1..=30).map(|i| chip(i, "a.rs", State::Working)).collect();
+    busy.push(chip(99, "a.rs", State::Done));
+    let refs: Vec<&Chip> = busy.iter().collect();
+    assert_eq!(bar_items(&refs, 0).len(), 31, "thirty at work and the done one folded into a count of one");
+    assert_eq!(ids(&bar_items(&refs, 0)).last().map(String::as_str), Some("+1"));
+}
+
+#[test]
+fn the_state_of_a_conversation_is_set_by_its_file_and_number() {
+    let mut chips = Chips::default();
+    chips.push(chip(1, "a.rs", State::Working));
+    chips.push(chip(1, "b.rs", State::Working));
+    assert!(chips.set_state_of("b.rs", 1, State::Done));
+    assert_eq!(chips.of_file("a.rs")[0].state, State::Working, "the same number in another file is not touched");
+    assert_eq!(chips.of_file("b.rs")[0].state, State::Done);
+    assert!(!chips.set_state_of("c.rs", 1, State::Done));
+    assert!(!chips.set_state_of("a.rs", 9, State::Done));
+}

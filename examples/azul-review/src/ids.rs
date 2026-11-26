@@ -25,9 +25,9 @@ pub const SAVE: AzString = AzString::from_const_str("__azreview_save");
 pub const SETTINGS: AzString = AzString::from_const_str("__azreview_settings");
 /// The side column of notes, its title row's switch, its hint when empty, its "listening" pill, its
 /// stop button.
-pub const NOTES: AzString = AzString::from_const_str("__azreview_notes");
-pub const NOTES_TOGGLE: AzString = AzString::from_const_str("__azreview_notes-toggle");
-pub const NOTES_HINT: AzString = AzString::from_const_str("__azreview_notes-hint");
+pub const SYMBOLS_STATUS: AzString = AzString::from_const_str("__azreview_symbols-status");
+pub const BAR_MORE_DONE: AzString = AzString::from_const_str("__azreview_bar-more-done");
+pub const BAR_FEWER_DONE: AzString = AzString::from_const_str("__azreview_bar-fewer-done");
 pub const LISTENING: AzString = AzString::from_const_str("__azreview_listening");
 pub const DICTATION_STOP: AzString = AzString::from_const_str("__azreview_dictation-stop");
 /// The settings page's dictation rows.
@@ -54,6 +54,8 @@ pub const RIGHT_PANEL: AzString = AzString::from_const_str("__azreview_right-pan
 pub const RIGHT_GRIP: AzString = AzString::from_const_str("__azreview_right-grip");
 /// The settings page's list of the recognisers and their state.
 pub const SPEECH_STATUS: AzString = AzString::from_const_str("__azreview_speech-status");
+/// The sentence at the foot of the tree about how much of the workspace is reviewed.
+pub const REVIEWED: AzString = AzString::from_const_str("__azreview_reviewed");
 /// The settings page's line about the microphone's state.
 pub const MIC_STATUS: AzString = AzString::from_const_str("__azreview_mic-status");
 /// The bottom bar of the agents at work.

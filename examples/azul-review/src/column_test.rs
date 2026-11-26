@@ -1,6 +1,5 @@
-//! The side column of notes and the markers on the pages, built without a window: what the column
-//! says when it is empty, what a card of a note holds while it listens and after, that every control
-//! has a name for the screen reader, where a marker sits.
+//! The markers on the pages and the dictation's settings, built without a window: where a marker sits, what the
+//! settings page offers. (The conversations are tested in `conv_ui_test.rs`.)
 
 use std::path::PathBuf;
 
@@ -9,10 +8,8 @@ use azul::{prelude::*, str::String as AzString};
 use super::*;
 use crate::{
     code::SourceFile,
-    dictation::{Cause, Mic},
-    dwell::Config,
+    dictation::Mic,
     model::{Note, NoteState},
-    voice::Running,
 };
 
 fn app() -> AppState {
@@ -21,6 +18,7 @@ fn app() -> AppState {
         path: PathBuf::from("f.rs"),
         display: "f.rs".to_string(),
         lines: (0..100).map(|i| format!("fn f{i}() {{}}")).collect(),
+        big: None,
     };
     AppState::create(PathBuf::new(), vec![file], RefAny::new(0u8), PathBuf::new())
 }
@@ -58,132 +56,7 @@ fn done(id: u64, page: usize, y: f32, text: &str) -> Note {
         text: text.to_string(),
         language: "en-US".to_string(),
         state: NoteState::Done,
-    }
-}
-
-#[test]
-fn the_empty_column_says_how_to_start_with_the_rest_time_of_the_settings() {
-    let s = app();
-    let col = column(&s, &RefAny::new(0u8));
-    let hint = with_id(&col, "__azreview_notes-hint").expect("a hint when there is no note");
-    let said = texts(hint).join(" ");
-    assert!(said.contains("1.2 s"), "{said}");
-    assert!(said.contains("pen"), "{said}");
-    assert!(with_id(&col, "__azreview_dictation-stop").is_none(), "nothing listens: no stop button");
-}
-
-#[test]
-fn with_the_pen_off_the_empty_column_says_so() {
-    let mut s = app();
-    s.voice.dwell.set_config(Config { allow: Allow::Off, ..s.voice.dwell.config() });
-    let col = column(&s, &RefAny::new(0u8));
-    let said = texts(with_id(&col, "__azreview_notes-hint").expect("a hint")).join(" ");
-    assert!(said.contains("off"), "{said}");
-}
-
-#[test]
-fn a_finished_note_is_a_card_with_its_place_and_a_text_area_that_has_a_name() {
-    let mut s = app();
-    // The fourth line of page 0: 3 lines under the page's padding; its words are the user's to edit.
-    s.notes.push(done(1, 0, ui::PAGE_PAD + 3.0 * ui::LINE_H + 2.0, "the bound is off by one"));
-    let col = column(&s, &RefAny::new(0u8));
-    assert!(with_id(&col, "__azreview_note-1").is_some(), "a card");
-    let place = texts(with_id(&col, "__azreview_note-1").expect("a card")).join(" | ");
-    assert!(place.contains("Page 1, line 4"), "{place}");
-    let area = with_id(&col, "__azreview_note-text-1").expect("a text area for the words");
-    assert!(!area.root.accessibility.is_null(), "the text area names itself to a screen reader");
-    assert!(with_id(&col, "__azreview_notes-hint").is_none(), "no hint once there is a note");
-}
-
-#[test]
-fn a_note_that_listens_shows_its_words_but_does_not_let_them_be_edited() {
-    let mut s = app();
-    let mut note = done(1, 0, 40.0, "so far");
-    note.state = NoteState::Listening;
-    s.notes.push(note);
-    s.voice.running = Some(Running::for_test(1, 1));
-    let col = column(&s, &RefAny::new(0u8));
-    assert!(with_id(&col, "__azreview_note-text-1").is_none(), "the dictation owns the text while it listens");
-    assert!(texts(&col).iter().any(|t| t == "so far"), "{:?}", texts(&col));
-    assert!(with_id(&col, "__azreview_listening").is_some(), "the listening pill");
-    let stop = with_id(&col, "__azreview_dictation-stop").expect("a stop button");
-    assert!(!stop.root.accessibility.is_null(), "the stop button has a name");
-}
-
-#[test]
-fn a_dictation_says_listening_when_its_microphone_is_ready_and_before_that_that_it_is_opening() {
-    let mut s = app();
-    let mut note = done(1, 0, 40.0, "");
-    note.state = NoteState::Listening;
-    s.notes.push(note);
-    s.voice.running = Some(Running::for_test(1, 1));
-    let col = column(&s, &RefAny::new(0u8));
-    let pill = texts(with_id(&col, "__azreview_listening").expect("the pill")).join(" ");
-    assert!(pill.contains("Opening the microphone"), "{pill}");
-    assert!(!pill.contains("Listening"), "nobody can be heard yet: {pill}");
-    assert!(with_id(&col, "__azreview_dictation-stop").is_some(), "a dictation that is opening can be called off");
-
-    if let Some(r) = s.voice.running.as_mut() {
-        r.ready = true;
-    }
-    let col = column(&s, &RefAny::new(0u8));
-    let pill = texts(with_id(&col, "__azreview_listening").expect("the pill")).join(" ");
-    assert!(pill.contains("Listening") && !pill.contains("Opening"), "{pill}");
-}
-
-#[test]
-fn the_words_so_far_show_under_the_words_of_the_note_while_it_listens_and_nowhere_else() {
-    let mut s = app();
-    let mut note = done(1, 0, 40.0, "this loop");
-    note.state = NoteState::Listening;
-    s.notes.push(note);
-    let mut running = Running::for_test(1, 1);
-    running.ready = true;
-    running.partial = "is off by".to_string();
-    s.voice.running = Some(running);
-    let col = column(&s, &RefAny::new(0u8));
-    let live = with_id(&col, "__azreview_note-partial-1").expect("the words so far");
-    assert_eq!(texts(live), vec!["is off by".to_string()]);
-    assert!(texts(&col).iter().any(|t| t == "this loop"), "the text of the note stays: {:?}", texts(&col));
-
-    // none while nothing is being said, and none for a note that is not the one that listens
-    if let Some(r) = s.voice.running.as_mut() {
-        r.partial.clear();
-    }
-    assert!(with_id(&column(&s, &RefAny::new(0u8)), "__azreview_note-partial-1").is_none());
-    s.notes.push(done(2, 0, 80.0, "another"));
-    if let Some(r) = s.voice.running.as_mut() {
-        r.partial = "so far".to_string();
-    }
-    assert!(with_id(&column(&s, &RefAny::new(0u8)), "__azreview_note-partial-2").is_none());
-}
-
-#[test]
-fn a_dictation_that_finishes_has_no_stop_button_and_says_so() {
-    let mut s = app();
-    s.notes.push(done(1, 0, 40.0, "words"));
-    let mut running = Running::for_test(1, 1);
-    running.stopping = Some(Cause::Key);
-    s.voice.running = Some(running);
-    let col = column(&s, &RefAny::new(0u8));
-    assert!(with_id(&col, "__azreview_dictation-stop").is_none(), "it was stopped already");
-    let pill = texts(with_id(&col, "__azreview_listening").expect("the pill stays until the last call ends")).join(" ");
-    assert!(pill.contains("Finishing"), "{pill}");
-}
-
-#[test]
-fn every_button_of_the_column_is_named_for_the_screen_reader() {
-    let mut s = app();
-    s.notes.push(done(1, 0, 40.0, "one"));
-    s.notes.push(done(2, 0, 80.0, "two"));
-    let col = column(&s, &RefAny::new(0u8));
-    let buttons: Vec<&Dom> = nodes(&col)
-        .into_iter()
-        .filter(|n| matches!(n.root.node_type, NodeType::Button))
-        .collect();
-    assert_eq!(buttons.len(), 3, "a delete button per note and the column's own close key");
-    for b in buttons {
-        assert!(!b.root.accessibility.is_null(), "a button without a name: {:?}", texts(b));
+        talk: crate::conversation::Conversation::default(),
     }
 }
 

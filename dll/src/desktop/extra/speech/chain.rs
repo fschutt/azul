@@ -8,8 +8,10 @@
 //! over. The answer says which recognizer gave it ([`Heard::by`]) and, once, what happened to the
 //! ones before it. std only.
 
+use std::cell::Cell;
+
 use super::recognizer::{
-    Answer, Kind, Limits, Listen, Outcome, Readiness, Recognizer, SharedClock,
+    Answer, Event, EventKind, Kind, Limits, Listen, Outcome, Readiness, Recognizer, SharedClock, StreamOptions,
 };
 
 /// How many failures in a row make a recognizer refused for the session.
@@ -51,6 +53,13 @@ pub struct Chain {
     links: Vec<Link>,
     clock: SharedClock,
     limits: Limits,
+}
+
+impl std::fmt::Debug for Chain {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let links: Vec<(Kind, &Health)> = self.links.iter().map(|link| (link.recognizer.kind(), &link.health)).collect();
+        f.debug_struct("Chain").field("links", &links).field("limits", &self.limits).finish_non_exhaustive()
+    }
 }
 
 /// What one refused try left behind, for the message.
@@ -96,6 +105,33 @@ impl Chain {
             Some(link) => *link = Self::link(recognizer),
             None => self.links.push(Self::link(recognizer)),
         }
+    }
+
+    /// Puts the recognizer of `kind` first: the others keep their order, and what the session
+    /// learned about each (a refusal) stays with it. Does nothing when the chain has none of
+    /// that kind.
+    pub fn set_first(&mut self, kind: Kind) {
+        if let Some(at) = self.links.iter().position(|link| link.recognizer.kind() == kind) {
+            if at > 0 {
+                let link = self.links.remove(at);
+                self.links.insert(0, link);
+            }
+        }
+    }
+
+    /// Whether the recognizer of `kind` is in the chain, not marked refused, and says it can
+    /// listen.
+    pub fn is_ready(&mut self, kind: Kind) -> bool {
+        self.links
+            .iter_mut()
+            .find(|link| link.recognizer.kind() == kind)
+            .is_some_and(|link| link.health == Health::Ready && matches!(link.recognizer.readiness(), Readiness::Ready))
+    }
+
+    /// Whether a recognizer of the chain is initialised.
+    #[must_use]
+    pub fn is_warm(&self) -> bool {
+        self.links.iter().any(|link| link.recognizer.warm())
     }
 
     /// The limits a call is kept to.
@@ -146,6 +182,18 @@ impl Chain {
     /// Listens for up to `timeout_ms` in `language` (kept to the limits), with the first
     /// recognizer that is not refused; `cancel` ends the call early.
     pub fn listen(&mut self, language: &str, timeout_ms: u32, cancel: &dyn Fn() -> bool) -> Heard {
+        self.listen_with(language, timeout_ms, cancel, &|| {})
+    }
+
+    /// The same, and `flowing` is called once when sound reaches the recognizer that listens
+    /// (see [`Listen::flowing`]).
+    pub fn listen_with(
+        &mut self,
+        language: &str,
+        timeout_ms: u32,
+        cancel: &dyn Fn() -> bool,
+        flowing: &dyn Fn(),
+    ) -> Heard {
         let (timeout_ms, time_note) = self.limits.cap_listen_ms(timeout_ms);
         let (language, language_note) = self.limits.cap_language(language);
         let notes: Vec<String> = time_note.into_iter().chain(language_note).collect();
@@ -170,6 +218,7 @@ impl Chain {
                 timeout_ms,
                 clock: &*clock,
                 cancel,
+                flowing,
             });
             match answer.outcome {
                 Outcome::Heard | Outcome::NothingHeard => {
@@ -209,6 +258,154 @@ impl Chain {
             }
         }
         Self::nobody(&notes, &trail, partial)
+    }
+
+    /// Listens as a stream with the first recognizer that is not refused (the same order and the
+    /// same hand-over on a refusal as [`Self::listen`], but a recognizer that gave an event
+    /// before it failed or refused is not replaced: its end is the stream's). `emit` gets every
+    /// event, stamped with the time since the stream began and who gave it, and at the end an
+    /// `Ended` event with the answer this returns. `flowing` is called once, with the `Ready`
+    /// event. `stop` ends the stream after the utterance that runs, `cancel` now.
+    pub fn stream_with(
+        &mut self,
+        language: &str,
+        options: &StreamOptions,
+        cancel: &dyn Fn() -> bool,
+        stop: &dyn Fn() -> bool,
+        flowing: &dyn Fn(),
+        emit: &dyn Fn(Event),
+    ) -> Heard {
+        let (language, language_note) = self.limits.cap_language(language);
+        let (max_ms, time_note) = if options.max_ms == 0 {
+            (self.limits.max_stream_ms, None)
+        } else if options.max_ms > self.limits.max_stream_ms {
+            (
+                self.limits.max_stream_ms,
+                Some(format!(
+                    "the stream time of {} ms is longer than one stream may take: using {} ms",
+                    options.max_ms, self.limits.max_stream_ms
+                )),
+            )
+        } else {
+            (options.max_ms, None)
+        };
+        let notes: Vec<String> = time_note.into_iter().chain(language_note).collect();
+        let clock = self.clock.clone();
+        let began = clock.now_ms();
+        let at = || clock.now_ms().saturating_sub(began);
+        let ready_sent = Cell::new(false);
+        let heard = self.stream_links(&language, options, max_ms, cancel, stop, &notes, &|kind, by, answer| {
+            if kind == EventKind::Ready && ready_sent.replace(true) {
+                return;
+            }
+            if kind == EventKind::Ready {
+                flowing();
+            }
+            emit(Event {
+                kind,
+                at_ms: at(),
+                answer,
+                by,
+            });
+        });
+        emit(Event {
+            kind: EventKind::Ended,
+            at_ms: at(),
+            answer: heard.answer.clone(),
+            by: heard.by,
+        });
+        heard
+    }
+
+    fn stream_links(
+        &mut self,
+        language: &str,
+        options: &StreamOptions,
+        max_ms: u32,
+        cancel: &dyn Fn() -> bool,
+        stop: &dyn Fn() -> bool,
+        notes: &[String],
+        emit: &dyn Fn(EventKind, Option<Kind>, Answer),
+    ) -> Heard {
+        let mut trail: Vec<Refusal> = Vec::new();
+        let mut partial: Option<Answer> = None;
+        let clock = self.clock.clone();
+        for link in &mut self.links {
+            let kind = link.recognizer.kind();
+            if let Health::Refused { outcome, message } = &link.health {
+                trail.push(Refusal {
+                    kind,
+                    outcome: *outcome,
+                    message: message.clone(),
+                    fresh: false,
+                });
+                continue;
+            }
+            let emitted = Cell::new(false);
+            let sink = |event: EventKind, answer: Answer| {
+                emitted.set(true);
+                emit(event, Some(kind), answer);
+            };
+            let flow = || {
+                emitted.set(true);
+                emit(EventKind::Ready, Some(kind), Answer::none(Outcome::Heard, ""));
+            };
+            let answer = link.recognizer.listen_stream(
+                &Listen {
+                    language,
+                    timeout_ms: max_ms,
+                    clock: &*clock,
+                    cancel,
+                    flowing: &flow,
+                },
+                options,
+                stop,
+                &sink,
+            );
+            match answer.outcome {
+                Outcome::Heard | Outcome::NothingHeard => {
+                    link.failures = 0;
+                    return Self::answered(answer, kind, notes, &trail);
+                }
+                Outcome::Denied | Outcome::Unavailable => {
+                    link.health = Health::Refused {
+                        outcome: answer.outcome,
+                        message: answer.message.clone(),
+                    };
+                    if emitted.get() {
+                        return Self::answered(answer, kind, notes, &trail);
+                    }
+                    trail.push(Refusal {
+                        kind,
+                        outcome: answer.outcome,
+                        message: answer.message,
+                        fresh: true,
+                    });
+                }
+                Outcome::Failed => {
+                    link.failures = link.failures.saturating_add(1);
+                    if link.failures >= FAILURES_IN_A_ROW {
+                        link.health = Health::Refused {
+                            outcome: Outcome::Failed,
+                            message: answer.message.clone(),
+                        };
+                    }
+                    if emitted.get() {
+                        return Self::answered(answer, kind, notes, &trail);
+                    }
+                    trail.push(Refusal {
+                        kind,
+                        outcome: Outcome::Failed,
+                        message: answer.message.clone(),
+                        fresh: true,
+                    });
+                    if !answer.text.is_empty() {
+                        partial = Some(answer);
+                    }
+                }
+            }
+        }
+        Self::nobody(notes, &trail, partial)
     }
 
     /// The answer of the recognizer that listened, with the word about the ones before it that

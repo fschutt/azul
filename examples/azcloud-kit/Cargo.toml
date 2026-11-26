@@ -116,3 +116,7 @@ path = "src/lib.rs"
 name = "azsync"
 path = "src/bin/azsync.rs"
 required-features = ["state-db"]
+# The command line has no unit tests of its own: the sync chaos harness drives it as a process. cargo built an
+# empty test harness for it under `--features state-db`, which `zero_test_guard.sh --strict` (the CI step
+# "Run azcloud-kit tests") rightly refuses: a harness that runs 0 tests is not a pass.
+test = false
