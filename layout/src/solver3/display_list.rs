@@ -7143,17 +7143,25 @@ where
     /// The face a run is drawn in: `font_hash`, thickened (synthetic bold)
     /// when the run asks for bold and the face has no bold cut, the way
     /// Chrome draws a bold word in a family with only a regular face.
-    fn run_face(&self, font_hash: u64, asks_for_bold: bool) -> FontHash {
+    fn run_face(&self, font_hash: u64, asks_for_bold: bool, asks_for_italic: bool) -> FontHash {
         let face = FontHash::from_hash(font_hash);
-        if !asks_for_bold {
+        if !asks_for_bold && !asks_for_italic {
             return face;
         }
-        let face_weight = self
+        let (face_weight, face_has_italic) = self
             .ctx
             .font_manager
             .get_font_by_hash(font_hash)
-            .and_then(|font| font.weight_class());
-        face.with_synthetic_bold(text3::cache::needs_synthetic_bold(true, face_weight))
+            .map_or((None, None), |font| {
+                (font.weight_class(), font.has_italic_design())
+            });
+        face.with_synthetic_bold(
+            asks_for_bold && text3::cache::needs_synthetic_bold(true, face_weight),
+        )
+        .with_synthetic_italic(text3::cache::needs_synthetic_italic(
+            asks_for_italic,
+            face_has_italic,
+        ))
     }
 
     /// The SOLID OPAQUE color a text run inside this IFC PROBABLY sits on, or
@@ -11490,7 +11498,11 @@ where
             if g.font_hash != run_hash && !run.is_empty() {
                 self.push_run(builder, 
                     core::mem::take(&mut run),
-                    self.run_face(run_hash, style.asks_for_synthetic_bold()),
+                    self.run_face(
+                        run_hash,
+                        style.asks_for_synthetic_bold(),
+                        style.asks_for_synthetic_italic(),
+                    ),
                     style.font_size_px,
                     color,
                     content_box,
@@ -11513,7 +11525,11 @@ where
         if !run.is_empty() {
             self.push_run(builder, 
                 run,
-                self.run_face(run_hash, style.asks_for_synthetic_bold()),
+                self.run_face(
+                        run_hash,
+                        style.asks_for_synthetic_bold(),
+                        style.asks_for_synthetic_italic(),
+                    ),
                 style.font_size_px,
                 color,
                 content_box,
@@ -12274,6 +12290,7 @@ where
             glyphs,
             font_size_px: style.font_size_px,
             asks_for_bold: style.asks_for_synthetic_bold(),
+            asks_for_italic: style.asks_for_synthetic_italic(),
             color: super::getters::get_used_text_color(sd, dom_id, &state),
             cuts,
         })
@@ -12301,7 +12318,11 @@ where
                 if g.font_hash != run_hash && !run.is_empty() {
                     self.push_run(builder, 
                         core::mem::take(&mut run),
-                        self.run_face(run_hash, ellipsis.asks_for_bold),
+                        self.run_face(
+                            run_hash,
+                            ellipsis.asks_for_bold,
+                            ellipsis.asks_for_italic,
+                        ),
                         ellipsis.font_size_px,
                         ellipsis.color,
                         clip_rect,
@@ -12321,7 +12342,11 @@ where
             if !run.is_empty() {
                 self.push_run(builder, 
                     run,
-                    self.run_face(run_hash, ellipsis.asks_for_bold),
+                    self.run_face(
+                            run_hash,
+                            ellipsis.asks_for_bold,
+                            ellipsis.asks_for_italic,
+                        ),
                     ellipsis.font_size_px,
                     ellipsis.color,
                     clip_rect,
@@ -13061,7 +13086,11 @@ where
                         builder.next_text_selection_colors = Some((live_color, *selected_color));
                         self.push_run(builder, 
                             normal,
-                            self.run_face(glyph_run.font_hash, glyph_run.asks_for_bold),
+                            self.run_face(
+                                glyph_run.font_hash,
+                                glyph_run.asks_for_bold,
+                                glyph_run.asks_for_italic,
+                            ),
                             glyph_run.font_size_px,
                             live_color,
                             clip_rect,
@@ -13074,7 +13103,11 @@ where
                         builder.next_text_selection_colors = Some((live_color, *selected_color));
                         self.push_run(builder, 
                             selected,
-                            self.run_face(glyph_run.font_hash, glyph_run.asks_for_bold),
+                            self.run_face(
+                                glyph_run.font_hash,
+                                glyph_run.asks_for_bold,
+                                glyph_run.asks_for_italic,
+                            ),
                             glyph_run.font_size_px,
                             *selected_color,
                             clip_rect,
@@ -13089,7 +13122,11 @@ where
                 None => {
                     self.push_run(builder, 
                         offset_glyphs,
-                        self.run_face(glyph_run.font_hash, glyph_run.asks_for_bold),
+                        self.run_face(
+                                glyph_run.font_hash,
+                                glyph_run.asks_for_bold,
+                                glyph_run.asks_for_italic,
+                            ),
                         glyph_run.font_size_px,
                         live_color,
                         clip_rect,
@@ -16973,6 +17010,9 @@ struct TextOverflowEllipsis {
     /// The root's text asks for bold: the ellipsis is thickened like the
     /// text it ends when its face has no bold cut.
     asks_for_bold: bool,
+    /// And for italic: the ellipsis is slanted like the text it ends when its face has no italic
+    /// design.
+    asks_for_italic: bool,
     color: ColorU,
     cuts: Vec<EllipsisCut>,
 }

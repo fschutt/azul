@@ -133,6 +133,14 @@ pub trait ParsedFontTrait: Send + Clone + ShallowClone {
     fn weight_class(&self) -> Option<u16> {
         None
     }
+
+    /// Whether the face has an italic or oblique design (OS/2 `fsSelection`, the slope of the
+    /// caret). The display list slants text that asks for italic from a face that says `false`
+    /// (synthetic italic). A backend that cannot tell says `None`, and its faces are drawn as
+    /// they are.
+    fn has_italic_design(&self) -> Option<bool> {
+        None
+    }
 }
 
 /// Trait for loading fonts from raw bytes.

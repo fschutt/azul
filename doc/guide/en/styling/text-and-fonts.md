@@ -186,7 +186,7 @@ longhands take `auto` (fake it, the initial value) or `none`; the shorthand is `
 |----------|------------------|
 | `font-synthesis-weight` | the thickened bold of a text that asks for a weight of 600 or more from a face that has no bold cut: in both rasterizers and in the PDF writer (the run is filled and stroked) |
 | `font-synthesis-small-caps` | the small capitals of `font-variant-caps` that the shaper builds from scaled capitals (at 0.7 of the size) where the font has no `smcp`: `none` sets the text as it is |
-| `font-synthesis-style` | the slant of an italic that a family has no face for. Parsed, inherited and carried by the style of the run; **no consumer yet**: the engine draws no synthetic italic or oblique (see "What is not drawn yet") |
+| `font-synthesis-style` | the slant of an italic that a family has no face for. The run of a text that asks for `italic` or `oblique` from a face whose OS/2 `fsSelection` and caret slope say it is upright is marked in the display list (`FontHash::synthetic_italic`, as the thickening is); **no renderer slants it yet**: it is drawn upright (see "What is not drawn yet") |
 | `font-synthesis-position` | the smaller, raised glyphs of a super- or subscript that a font has no `sups` or `subs` for. Parsed, inherited and carried by the style of the run; **no consumer yet**: a `font-variant-position` that the font has no feature for is drawn plain |
 
 ## Vertical text
@@ -378,7 +378,7 @@ what they say. Each row says what the layout does today.
 
 | property | today |
 |----------|-------|
-| `font-synthesis-style`, `font-synthesis-position` | parsed and inherited, with no consumer: a `font-style: italic` text in a family without an italic face is drawn upright (the engine fakes no slant, in neither rasterizer nor in a PDF), and a super- or subscript is not faked either |
+| `font-synthesis-style`, `font-synthesis-position` | `font-synthesis-style` marks the run of a faked italic (`FontHash::synthetic_italic`) and no renderer slants it yet: a `font-style: italic` text in a family without an italic face is drawn upright, in neither rasterizer nor in a PDF; `font-synthesis-position` is parsed and inherited with no consumer: a super- or subscript is not faked |
 | `text-orientation: upright`, `sideways` | parsed; in a vertical block `upright` sets the line direction to left-to-right as the spec says, and no value turns a glyph: the text is `mixed` |
 | `hanging-punctuation` | applied by the greedy line breaker and the positioning of every line; not by the breaker of `text-wrap: balance` and `pretty` (which count the mark in the line) and not by the intrinsic sizes (a box sized to its content holds the mark); the marks are the brackets and quotes and the stops and commas of Latin, CJK and fullwidth text |
 | `initial-letter` | makes room: the lines beside the first letter start after a box N lines high, and the letter is drawn at the size of the text, not bigger and not moved into the room |

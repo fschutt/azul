@@ -1314,6 +1314,7 @@ pub fn get_glyph_runs_simple_dense(dense: &DenseText) -> Vec<SimpleGlyphRun> {
                 && r.border == style.border
                 && r.font_size_px == style.font_size_px
                 && r.asks_for_bold == style.asks_for_synthetic_bold()
+                && r.asks_for_italic == style.asks_for_synthetic_italic()
                 && r.text_decoration == style.text_decoration
                 && r.source_node_id == source_node_id
         });
@@ -1331,6 +1332,7 @@ pub fn get_glyph_runs_simple_dense(dense: &DenseText) -> Vec<SimpleGlyphRun> {
                 font_hash: run.font_hash,
                 font_size_px: style.font_size_px,
                 asks_for_bold: style.asks_for_synthetic_bold(),
+                asks_for_italic: style.asks_for_synthetic_italic(),
                 text_decoration: style.text_decoration.clone(),
                 is_ime_preview: false,
                 source_node_id,
@@ -1487,6 +1489,10 @@ pub fn get_glyph_runs_pdf_dense<T: ParsedFontTrait>(
         // Bold asked of a face with no bold cut is drawn thickened.
         let synthetic_bold =
             crate::text3::cache::needs_synthetic_bold(style.asks_for_synthetic_bold(), font.weight_class());
+        let synthetic_italic = crate::text3::cache::needs_synthetic_italic(
+            style.asks_for_synthetic_italic(),
+            font.has_italic_design(),
+        );
         // The reference predicate, evaluated per CLUSTER (all compared
         // fields are uniform within a cluster in dense scope).
         let merges = current_run.as_ref().is_some_and(|r| {
@@ -1495,6 +1501,7 @@ pub fn get_glyph_runs_pdf_dense<T: ParsedFontTrait>(
                 && r.background_color == style.background_color
                 && r.font_size_px == style.font_size_px
                 && r.synthetic_bold == synthetic_bold
+                && r.synthetic_italic == synthetic_italic
                 && r.text_decoration == style.text_decoration
                 && r.line_index == line_index
                 && r.direction == run.direction
@@ -1512,6 +1519,7 @@ pub fn get_glyph_runs_pdf_dense<T: ParsedFontTrait>(
                 font_hash: run.font_hash,
                 font_size_px: style.font_size_px,
                 synthetic_bold,
+                synthetic_italic,
                 text_decoration: style.text_decoration.clone(),
                 line_index,
                 direction: run.direction,

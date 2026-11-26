@@ -262,6 +262,13 @@ impl ParsedFontTrait for FontRef {
             .us_weight_class;
         (weight > 0).then_some(weight)
     }
+
+    fn has_italic_design(&self) -> Option<bool> {
+        let metrics = &crate::font_ref_to_parsed_font(self).pdf_font_metrics;
+        // OS/2 `fsSelection`: bit 0 is italic, bit 9 oblique; a face with no OS/2 table (0) says
+        // by the slope of its caret (hhea): upright is 0.
+        Some(metrics.fs_selection & 0b10_0000_0001 != 0 || metrics.caret_slope_run != 0)
+    }
 }
 
 /// Extension trait for `FontRef` to provide access to font bytes and metrics

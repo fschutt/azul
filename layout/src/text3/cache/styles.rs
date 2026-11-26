@@ -257,8 +257,7 @@ pub fn needs_synthetic_bold(asks_for_bold: bool, face_weight: Option<u16>) -> bo
 /// design (`Some(false)`). A face that does not say is never slanted.
 #[must_use]
 pub fn needs_synthetic_italic(asks_for_italic: bool, face_has_italic: Option<bool>) -> bool {
-    let _ = (asks_for_italic, face_has_italic);
-    false
+    asks_for_italic && face_has_italic == Some(false)
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -870,6 +869,15 @@ impl StyleProperties {
     #[must_use]
     pub fn asks_for_synthetic_bold(&self) -> bool {
         self.font_synthesis.weight && self.asks_for_bold()
+    }
+
+    /// Whether a face without an italic design is drawn slanted for this text: it asks for an
+    /// italic or oblique style ([`Self::is_italic`]) and `font-synthesis-style` is not `none`.
+    /// The one question every synthetic italic - the display list's, the PDF run's - is decided
+    /// by.
+    #[must_use]
+    pub fn asks_for_synthetic_italic(&self) -> bool {
+        self.font_synthesis.style && self.is_italic()
     }
 
     /// Whether the text reads as italic: oblique is a slanted rendering of an

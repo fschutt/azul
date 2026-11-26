@@ -48,6 +48,12 @@ pub struct SimpleGlyphRun {
     /// ([`crate::text3::cache::needs_synthetic_bold`]). A face can serve a
     /// regular and a bold run alike, so runs break where this changes.
     pub asks_for_bold: bool,
+    /// The run's style asks for an italic or oblique design and lets it be faked
+    /// (`font-synthesis-style` is not `none`:
+    /// [`crate::text3::cache::StyleProperties::asks_for_synthetic_italic`]). The display list
+    /// draws the run slanted when its face has no italic design
+    /// ([`crate::text3::cache::needs_synthetic_italic`]), so runs break where this changes.
+    pub asks_for_italic: bool,
     /// Text decoration (underline, strikethrough, overline)
     pub text_decoration: crate::text3::cache::TextDecoration,
     /// Whether this is an IME composition preview (should be rendered with special styling)
@@ -190,6 +196,8 @@ pub struct CompactGlyphRun {
     pub font_size_px: f32,
     /// See [`SimpleGlyphRun::asks_for_bold`].
     pub asks_for_bold: bool,
+    /// See [`SimpleGlyphRun::asks_for_italic`].
+    pub asks_for_italic: bool,
     pub text_decoration: crate::text3::cache::TextDecoration,
     pub is_ime_preview: bool,
     pub source_node_id: Option<NodeId>,
@@ -208,6 +216,7 @@ impl From<SimpleGlyphRun> for CompactGlyphRun {
             font_hash: r.font_hash,
             font_size_px: r.font_size_px,
             asks_for_bold: r.asks_for_bold,
+            asks_for_italic: r.asks_for_italic,
             text_decoration: r.text_decoration,
             is_ime_preview: r.is_ime_preview,
             source_node_id: r.source_node_id,
@@ -230,6 +239,7 @@ impl CompactGlyphRun {
             font_hash: self.font_hash,
             font_size_px: self.font_size_px,
             asks_for_bold: self.asks_for_bold,
+            asks_for_italic: self.asks_for_italic,
             text_decoration: self.text_decoration.clone(),
             is_ime_preview: self.is_ime_preview,
             source_node_id: self.source_node_id,
@@ -252,6 +262,7 @@ pub fn simple_runs_bit_equal(a: &SimpleGlyphRun, b: &SimpleGlyphRun) -> bool {
         && a.font_hash == b.font_hash
         && f(a.font_size_px, b.font_size_px)
         && a.asks_for_bold == b.asks_for_bold
+        && a.asks_for_italic == b.asks_for_italic
         && a.text_decoration == b.text_decoration
         && a.is_ime_preview == b.is_ime_preview
         && a.source_node_id == b.source_node_id
@@ -307,6 +318,7 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                     let font_hash = glyph.font_hash;
                     let font_size_px = style.font_size_px;
                     let asks_for_bold = style.asks_for_synthetic_bold();
+                    let asks_for_italic = style.asks_for_synthetic_italic();
                     let text_decoration = &style.text_decoration;
 
                     let absolute_position = LogicalPosition {
@@ -330,6 +342,7 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                             && run.border == glyph_border
                             && run.font_size_px == font_size_px
                             && run.asks_for_bold == asks_for_bold
+                            && run.asks_for_italic == asks_for_italic
                             && run.text_decoration == *text_decoration
                             && run.source_node_id == source_node_id
                         {
@@ -347,6 +360,7 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                                 font_hash,
                                 font_size_px,
                                 asks_for_bold,
+                                asks_for_italic,
                                 text_decoration: text_decoration.clone(),
                                 is_ime_preview: false,
                                 source_node_id,
@@ -365,6 +379,7 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                             font_hash,
                             font_size_px,
                             asks_for_bold,
+                            asks_for_italic,
                             text_decoration: text_decoration.clone(),
                             is_ime_preview: false,
                             source_node_id,
@@ -496,6 +511,9 @@ pub struct PdfGlyphRun<T: ParsedFontTrait> {
     /// screen draws it. A PDF writes such a run filled and stroked, the
     /// stroke [`SYNTHETIC_BOLD_STROKE_EM`] of the font size wide.
     pub synthetic_bold: bool,
+    /// Draw the face slanted: the run asks for italic and its face has no italic design
+    /// ([`crate::text3::cache::needs_synthetic_italic`]), as the screen draws it.
+    pub synthetic_italic: bool,
     /// Text decoration flags
     pub text_decoration: crate::text3::cache::TextDecoration,
     /// The line index this run belongs to (for breaking runs at line boundaries)
@@ -614,6 +632,10 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
                 style.asks_for_synthetic_bold(),
                 font.weight_class(),
             );
+            let synthetic_italic = crate::text3::cache::needs_synthetic_italic(
+                style.asks_for_synthetic_italic(),
+                font.has_italic_design(),
+            );
 
             // Calculate absolute glyph position on baseline
             let glyph_position = Point {
@@ -640,6 +662,7 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
                     || run.background_color != glyph_background
                     || run.font_size_px != font_size_px
                     || run.synthetic_bold != synthetic_bold
+                    || run.synthetic_italic != synthetic_italic
                     || run.text_decoration != *text_decoration
                     || run.line_index != line_index
                     || run.direction != direction
@@ -667,6 +690,7 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
                     font_hash,
                     font_size_px,
                     synthetic_bold,
+                    synthetic_italic,
                     text_decoration: text_decoration.clone(),
                     line_index,
                     direction,
