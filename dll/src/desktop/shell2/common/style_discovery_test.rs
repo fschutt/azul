@@ -62,6 +62,36 @@ fn the_windows_style_discovery_starts_no_process() {
     }
 }
 
+/// One listing answers every key: the keys of the schema come out with the values `gsettings get` printed for them
+/// (strings unquoted, numbers and booleans as they are, a list as its text), so the discovery that asked per key reads
+/// the same answers from one process.
+///
+/// Mutation: the quotes kept; the value cut at its first blank; the key and the value mixed up; a line of another
+/// shape that panics.
+#[test]
+fn a_gsettings_listing_gives_the_keys_of_the_schema_with_their_values() {
+    let listing = "org.gnome.desktop.interface font-name 'Cantarell 11'\n\
+                   org.gnome.desktop.interface color-scheme 'prefer-dark'\n\
+                   org.gnome.desktop.interface cursor-size 24\n\
+                   org.gnome.desktop.interface enable-animations true\n\
+                   org.gnome.desktop.interface text-scaling-factor 1.25\n\
+                   org.gnome.desktop.interface toolbar-style 'both-horiz'\n\
+                   org.gnome.desktop.interface some-list ['a', 'b']\n\
+                   \n\
+                   (process:1234): GLib-GIO-WARNING **: something\n\
+                   org.gnome.desktop.interface\n";
+    let keys = parse_gsettings_listing(listing);
+    assert_eq!(keys.get("font-name").map(String::as_str), Some("Cantarell 11"));
+    assert_eq!(keys.get("color-scheme").map(String::as_str), Some("prefer-dark"));
+    assert_eq!(keys.get("cursor-size").map(String::as_str), Some("24"));
+    assert_eq!(keys.get("enable-animations").map(String::as_str), Some("true"));
+    assert_eq!(keys.get("text-scaling-factor").map(String::as_str), Some("1.25"));
+    assert_eq!(keys.get("some-list").map(String::as_str), Some("['a', 'b']"));
+    assert_eq!(keys.get("missing"), None, "a key the schema does not have is no answer");
+    assert_eq!(keys.len(), 7, "the warning and the empty lines are no keys: {keys:?}");
+    assert!(parse_gsettings_listing("").is_empty());
+}
+
 fn utf16le(text: &str) -> Vec<u8> {
     text.encode_utf16().chain(core::iter::once(0)).flat_map(u16::to_le_bytes).collect()
 }

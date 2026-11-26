@@ -46,6 +46,43 @@ pub fn reg_value_text(name: &str, ty: u32, bytes: &[u8]) -> Option<String> {
     Some(format!("    {name}    {type_name}    {data}\r\n"))
 }
 
+/// What `gsettings list-recursively <schema>` printed, as the keys of the schema with their values: one line per key,
+/// `<schema> <key> <value>`, the value as `gsettings get` prints it (GVariant text: `'Cantarell 11'`, `uint32 11`,
+/// `true`, `['a', 'b']`). One process answers every key of the schema; the Linux discovery used to run `gsettings get`
+/// once per key (about thirty processes on a GNOME desktop, each of which loads GLib and dconf). The value is returned
+/// with the blanks around it dropped and the quotes of a string stripped, exactly as `gsettings get` was read. Lines of
+/// another shape (a warning, an empty line) are skipped.
+#[must_use]
+pub fn parse_gsettings_listing(listing: &str) -> std::collections::BTreeMap<String, String> {
+    let mut keys = std::collections::BTreeMap::new();
+    for line in listing.lines() {
+        let line = line.trim();
+        let Some((schema, rest)) = line.split_once(char::is_whitespace) else {
+            continue;
+        };
+        // A schema id is dotted words (`org.gnome.desktop.interface`); anything else is not a key line.
+        if !schema.contains('.')
+            || !schema
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        {
+            continue;
+        }
+        let rest = rest.trim_start();
+        let Some((key, value)) = rest.split_once(char::is_whitespace) else {
+            continue;
+        };
+        if key.is_empty() {
+            continue;
+        }
+        keys.insert(
+            key.to_owned(),
+            value.trim().trim_matches('\'').to_owned(),
+        );
+    }
+    keys
+}
+
 /// The line of a step of `App::create`.
 #[must_use]
 pub fn step_line(step: &str, micros: u64) -> String {
