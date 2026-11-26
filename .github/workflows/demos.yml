@@ -210,6 +210,26 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
         with:
           toolchain: 1.91.0
+      - name: MinGW-w64, as the library and the demo jobs of rust.yml have it (the image's, else chocolatey's)
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          if command -v gcc >/dev/null 2>&1; then
+            echo "gcc already on PATH: $(gcc --version | head -1)"
+            exit 0
+          fi
+          if [ -x /c/msys64/mingw64/bin/gcc.exe ]; then
+            echo "using the image's MinGW-w64 at C:\msys64\mingw64\bin"
+            echo "C:\msys64\mingw64\bin" >> "$GITHUB_PATH"
+            exit 0
+          fi
+          for attempt in 1 2 3; do
+            if choco install mingw --version 16.1.0 -y --no-progress; then exit 0; fi
+            echo "::warning::choco install mingw failed (attempt $attempt/3); retrying"
+            sleep 15
+          done
+          echo "::error::MinGW unavailable: no gcc on PATH, none in the image, and choco failed 3x"
+          exit 1
       - name: Download generated bindings
         if: steps.cache.outputs.cache-hit != 'true'
         uses: ./.github/actions/codegen-tree
@@ -443,6 +463,25 @@ jobs:
       - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026-09-03; the toolchain itself is pinned via with:
         with:
           toolchain: 1.91.0
+      - name: MinGW-w64, as the library and the demo jobs of rust.yml have it (the image's, else chocolatey's)
+        shell: bash
+        run: |
+          if command -v gcc >/dev/null 2>&1; then
+            echo "gcc already on PATH: $(gcc --version | head -1)"
+            exit 0
+          fi
+          if [ -x /c/msys64/mingw64/bin/gcc.exe ]; then
+            echo "using the image's MinGW-w64 at C:\msys64\mingw64\bin"
+            echo "C:\msys64\mingw64\bin" >> "$GITHUB_PATH"
+            exit 0
+          fi
+          for attempt in 1 2 3; do
+            if choco install mingw --version 16.1.0 -y --no-progress; then exit 0; fi
+            echo "::warning::choco install mingw failed (attempt $attempt/3); retrying"
+            sleep 15
+          done
+          echo "::error::MinGW unavailable: no gcc on PATH, none in the image, and choco failed 3x"
+          exit 1
       - name: Download generated bindings
         uses: ./.github/actions/codegen-tree
         with:
