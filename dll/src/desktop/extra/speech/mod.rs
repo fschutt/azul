@@ -566,7 +566,13 @@ pub struct SpeechStreamOptions {
     /// Report what an utterance has come to while it goes on (the built-in recognizer decodes
     /// the growing utterance about every 500 ms; the system's gives its own).
     pub partials: bool,
-    /// How long a pause ends an utterance, ms (0: the default; kept to 200 .. 3000).
+    /// How long a pause ends an utterance, ms (kept to 200 .. 3000; 0: 600, the shortest that cost
+    /// English nothing in the measurement on 24 read clips: English word error rate 5.8 % at 600,
+    /// 800 and 1000 ms, 6.7 % at 500, 8.3 % at 400 and 300; German read paragraphs 17.2 % at 600,
+    /// 15.5 % at 800, 13.3 % at 1000 ms, so an app that dictates long German prose asks for 800 to
+    /// 1000). The system's recognizer ends an utterance when its text has not changed that long
+    /// (and then takes about 0.7 s to give the final: end of speech to final 1.3 s at 500 and
+    /// 700 ms, 2.1 s at the 1500 ms a call uses).
     pub endpoint_ms: u32,
     /// How long the stream runs at most, ms (0: until it is stopped; at most one hour).
     pub max_ms: u32,
@@ -1464,6 +1470,30 @@ impl Recognizer for NativeRecognizer {
 
     fn warm(&self) -> bool {
         self.used
+    }
+
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    fn listen_stream(
+        &mut self,
+        call: &Listen<'_>,
+        options: &StreamOptions,
+        stop: &dyn Fn() -> bool,
+        emit: &dyn Fn(EventKind, Answer),
+    ) -> Answer {
+        let answer = platform::stream(
+            &language_tag(call.language),
+            call.timeout_ms.max(1),
+            call.cancel,
+            stop,
+            options,
+            emit,
+            &self.vocabulary,
+            call.flowing,
+            &self.keeper,
+            true,
+        );
+        self.used |= matches!(answer.outcome, Outcome::Heard | Outcome::NothingHeard);
+        answer
     }
 
     fn set_vocabulary(&mut self, words: &[String]) -> Option<String> {

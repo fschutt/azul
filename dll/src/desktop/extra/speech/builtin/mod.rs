@@ -46,7 +46,7 @@ pub use self::{
 };
 use super::{
     keeper::MicKeeper,
-    recognizer::{Answer, EventKind, Kind, Listen, Outcome, Readiness, Recognizer, StreamOptions},
+    recognizer::{Answer, EventKind, Kind, Listen, Outcome, Readiness, Recognizer, StreamOptions, STREAM_ENDPOINT_MS},
     vocabulary::Vocabulary,
 };
 
@@ -492,7 +492,8 @@ impl Recognizer for Builtin {
         let first: std::cell::RefCell<Option<Answer>> = std::cell::RefCell::new(None);
         let options = StreamOptions {
             partials: false,
-            endpoint_ms: 0,
+            // A call keeps the end-point it was measured with (a stream's default is shorter).
+            endpoint_ms: self.tuning.vad.hangover_ms,
             max_ms: 0,
             max_utterances: 1,
         };
@@ -593,9 +594,8 @@ impl Builtin {
         let rate = lease.rate();
         let mut resampler = Resampler::new(rate);
         let mut vad = self.tuning.vad;
-        if options.endpoint_ms > 0 {
-            vad.hangover_ms = options.endpoint_ms.clamp(MIN_ENDPOINT_MS, MAX_ENDPOINT_MS);
-        }
+        vad.hangover_ms = if options.endpoint_ms > 0 { options.endpoint_ms } else { STREAM_ENDPOINT_MS }
+            .clamp(MIN_ENDPOINT_MS, MAX_ENDPOINT_MS);
         let mut endpointer = Endpointer::with_floor(vad, self.floor);
         // What came in while nobody listened (a kept microphone) is heard first, and does not use up
         // the time the caller asked for.

@@ -893,8 +893,11 @@ fn a_shorter_pause_ends_an_utterance_sooner() {
         events.iter().find(|(kind, _, _)| *kind == EventKind::Final).map(|(_, _, unread)| *unread).expect("a final")
     };
     // 100 ms of audio per chunk: 400 ms against 800 ms of end pause is 4 chunks that were not needed.
-    let (short, long) = (unread_at_final(400), unread_at_final(0));
-    assert!(short >= long + 3, "the final came with {short} chunks unread at 400 ms and {long} at the default");
+    let (short, long) = (unread_at_final(400), unread_at_final(800));
+    assert!(short >= long + 3, "the final came with {short} chunks unread at 400 ms and {long} at 800");
+    // The default is 600 ms.
+    assert_eq!(unread_at_final(0), unread_at_final(600));
+    assert!(unread_at_final(600) > long && unread_at_final(600) < short);
     // What is asked is kept to what an end-point can be: 5 ms is taken as 200 ms.
     assert_eq!(unread_at_final(5), unread_at_final(200));
     assert!(unread_at_final(200) >= short);

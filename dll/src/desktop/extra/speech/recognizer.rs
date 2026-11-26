@@ -253,13 +253,22 @@ pub struct Event {
     pub by: Option<Kind>,
 }
 
+/// The pause that ends an utterance in a stream when the app does not say, ms. Measured on the
+/// built-in model with 12 English clips (4 s each) and 12 German ones (read paragraphs of 18 s) cut
+/// into utterances by an end-point of 0.3 .. 1.0 s and the finals joined, word error rate against the
+/// reference: English 8.3 % at 300 and 400 ms, 6.7 % at 500, 5.8 % at 600, 800 and 1000 (2 of 12
+/// clips cut at 600 ms, 1 of 12 at 800); German 20.4 / 19.7 / 18.1 / 17.2 / 15.5 / 13.3 % at 300 /
+/// 400 / 500 / 600 / 800 / 1000 ms (every paragraph is cut at its sentence ends: 6.2 .. 2.4 utterances
+/// a clip). 600 ms is the shortest end-point that costs English nothing; an app that dictates long
+/// German prose asks for 800 to 1000 ms. A call (not a stream) keeps its 800 ms.
+pub const STREAM_ENDPOINT_MS: u32 = 600;
+
 /// What a stream is asked to do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StreamOptions {
     /// Report what an utterance has come to while it goes on.
     pub partials: bool,
-    /// How long a pause ends an utterance, ms (0: the recognizer's own, which the built-in
-    /// recognizer takes from [`super::builtin::Vad`]).
+    /// How long a pause ends an utterance, ms, kept to 200 .. 3000 (0: [`STREAM_ENDPOINT_MS`]).
     pub endpoint_ms: u32,
     /// How long the stream runs at most, ms (0: as long as the limits allow).
     pub max_ms: u32,
