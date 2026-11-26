@@ -32,13 +32,17 @@ public final class AzulPermissions {
             try {
                 activity.requestPermissions(permissions, requestCode);
             } catch (RuntimeException e) {
-                nativeOnPermissionResult(requestCode, false);
+                nativeOnPermissionResult(requestCode, false, false);
             }
         });
     }
 
     /**
      * Forward a permission result. Called from AzulActivity.
+     *
+     * Reports whether EVERY permission of the request was granted and whether ANY was: a user may
+     * grant the approximate location and refuse the precise one, which is a reduced grant, not a
+     * denial.
      *
      * @return true when at least one result was reported, so the caller knows
      *         the request belonged to azul.
@@ -54,20 +58,23 @@ public final class AzulPermissions {
         // denial, not a missing answer — reporting nothing would leave the
         // Rust side waiting on a result that is never coming.
         if (permissions.length == 0 || grantResults.length == 0) {
-            nativeOnPermissionResult(requestCode, false);
+            nativeOnPermissionResult(requestCode, false, false);
             return true;
         }
-        boolean granted = true;
+        boolean all = true;
+        boolean any = false;
         for (int r : grantResults) {
             // PackageManager.PERMISSION_GRANTED == 0
-            if (r != 0) {
-                granted = false;
-                break;
+            if (r == 0) {
+                any = true;
+            } else {
+                all = false;
             }
         }
-        nativeOnPermissionResult(requestCode, granted);
+        nativeOnPermissionResult(requestCode, all, any);
         return true;
     }
 
-    private static native void nativeOnPermissionResult(int requestCode, boolean granted);
+    private static native void nativeOnPermissionResult(int requestCode, boolean allGranted,
+                                                        boolean anyGranted);
 }

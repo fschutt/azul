@@ -57,6 +57,29 @@ xcrun simctl boot "$udid" || exit 2
 xcrun simctl bootstatus "$udid" -b >"$out/boot.log" 2>&1 || { tail -n 20 "$out/boot.log"; exit 2; }
 echo "simulator booted: $udid"
 
+# where to press a key: "name x y" (the centre of the element of idb's description whose label holds <label>), else "place x y"
+# (the point 130 pt above the bottom edge of the screen, centred: the screenshot is 3x on every modern iPhone)
+idb_centre() {   # <idb json> <label> <screenshot png>
+  python3 - "$1" "$2" "$3" <<'PY'
+import json, struct, sys
+label = sys.argv[2].lower()
+try:
+    items = json.load(open(sys.argv[1]))
+except Exception:
+    items = []
+for it in items:
+    if label in str(it.get("AXLabel") or it.get("label") or "").lower():
+        f = it.get("frame") or {}
+        if f:
+            print("name", int(f["x"] + f["width"] / 2), int(f["y"] + f["height"] / 2))
+            sys.exit(0)
+with open(sys.argv[3], "rb") as fh:
+    head = fh.read(24)
+w, h = struct.unpack(">II", head[16:24])
+print("place", w // 6, h // 3 - 130)
+PY
+}
+
 all_ok=0
 for app in "$@"; do
   if [ -d "$app" ]; then appdir="$app"; else
@@ -125,27 +148,23 @@ PY
     if [ -n "$tap_label" ] && [ "$alive" = "1" ]; then
       if command -v idb >/dev/null 2>&1; then
         idb ui describe-all --udid "$udid" --json >"$dir/ui-before.json" 2>"$dir/idb.err" || true
-        read -r how tx ty < <(python3 - "$dir/ui-before.json" "$tap_label" "$dir/screenshot.png" <<'PY'
-import json, struct, sys
-label = sys.argv[2].lower()
-try:
-    items = json.load(open(sys.argv[1]))
-except Exception:
-    items = []
-for it in items:
-    if label in str(it.get("AXLabel") or it.get("label") or "").lower():
-        f = it.get("frame") or {}
-        if f:
-            print("name", int(f["x"] + f["width"] / 2), int(f["y"] + f["height"] / 2))
-            sys.exit(0)
-# no node of that name: the point 130 pt above the bottom edge of the screen (the screenshot is 3x on every modern iPhone)
-with open(sys.argv[3], "rb") as fh:
-    head = fh.read(24)
-w, h = struct.unpack(">II", head[16:24])
-print("place", w // 6, h // 3 - 130)
-PY
-)
+        read -r how tx ty < <(idb_centre "$dir/ui-before.json" "$tap_label" "$dir/screenshot.png")
         xy="$tx $ty"
+        # A FIRST press whose effect is short ([app.smoke] probe_tap and probe_after: a toast of 2.5 s that the press below, looked at
+        # 5 s later, would never see): the picture and idb's description of 1 s after it say whether a tap reaches the app's callbacks
+        probe_label="$(python3 "$(dirname "$0")/ui_find.py" --probe-label "${name%-ios-sim}")"
+        probe_json="{}"
+        if [ -n "$probe_label" ]; then
+          read -r phow px py < <(idb_centre "$dir/ui-before.json" "$probe_label" "$dir/screenshot.png")
+          if [ "$phow" = "name" ]; then
+            idb ui tap --udid "$udid" $px $py >"$dir/probe-tap.log" 2>&1 || true
+            sleep 1
+            xcrun simctl io "$udid" screenshot "$dir/screenshot-probe.png" >/dev/null 2>&1 || true
+            idb ui describe-all --udid "$udid" --json >"$dir/ui-probe.json" 2>>"$dir/idb.err" || true
+            sleep 3
+          fi   # a key that is not on the screen presses nothing, and its texts are then not found either
+          probe_json="$(python3 "$(dirname "$0")/ui_find.py" --probe "$dir/ui-probe.json" "${name%-ios-sim}")"
+        fi
         idb ui tap --udid "$udid" $tx $ty >"$dir/tap.log" 2>&1 || tapped_err="$(tail -n 1 "$dir/tap.log")"
         sleep 5
         xcrun simctl io "$udid" screenshot "$dir/screenshot-after-tap.png" >/dev/null 2>&1 || true
@@ -155,11 +174,12 @@ PY
         # AZ_SMOKE_AFTER): looked for in idb's description of this moment (scripts/ci/ui_find.py)
         idb ui describe-all --udid "$udid" --json >"$dir/ui-after-tap.json" 2>>"$dir/idb.err" || true
         after_json="$(python3 "$(dirname "$0")/ui_find.py" --after "$dir/ui-after-tap.json" "${name%-ios-sim}")"
-        python3 - "$dir/tap.json" "$tap_label" "$how" "$xy" "$tap_alive" "$tap_fatal" "$after_json" <<'PY'
+        python3 - "$dir/tap.json" "$tap_label" "$how" "$xy" "$tap_alive" "$tap_fatal" "$after_json" "$probe_json" <<'PY'
 import json, sys
-path, label, how, xy, alive, fatal, after = sys.argv[1:]
+path, label, how, xy, alive, fatal, after, probe = sys.argv[1:]
 facts = {"label": label, "found": "by its " + how, "at": xy, "alive": alive == "1", "fatal": fatal or None}
 facts.update(json.loads(after or "{}"))
+facts.update(json.loads(probe or "{}"))
 json.dump(facts, open(path, "w"), indent=2)
 PY
         verdict_args+=(--tap "$dir/tap.json" --tap-before "$dir/screenshot.png" --tap-after "$dir/screenshot-after-tap.png")
