@@ -1838,6 +1838,10 @@ def ios_scenarios(args):
     if args.backend:
         dev.base_env["AZ_BACKEND"] = args.backend
         run.meta["backend"] = args.backend
+    if gpu_run:
+        # the first frame of a GL renderer on a software GL compiles every shader (about two minutes): every start of the
+        # lifecycle, the ones that bring the app back before a step included, waits as long as the render-mode step does
+        args.first_frame_timeout = first_frame_timeout_for("gpu", args.first_frame_timeout)
 
     def s_device(s):
         rc, out, _e = dev.simctl("list", "devices", "-j")
