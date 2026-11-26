@@ -145,25 +145,29 @@ pub enum LayoutRegenerateResult {
 /// One line per relayout rather than one per phase, because a drag produces
 /// hundreds of relayouts and 20 lines each is unreadable. Costs an `Instant::now`
 /// per boundary and nothing else when the gate is closed.
-struct PhaseTimer {
+struct PhaseTimer<'a> {
     enabled: bool,
     start: std::time::Instant,
     last: std::time::Instant,
     marks: Vec<(&'static str, f64)>,
+    /// The startup timeline (`AZ_STARTUP=1`): the pass's phases are marked on it as one line.
+    startup: &'a crate::desktop::startup_timeline::StartupTimeline,
 }
 
-impl PhaseTimer {
-    fn new() -> Self {
-        let enabled = crate::desktop::shell2::common::log_gate::should_log(
-            LogCategory::Window,
-            azul_core::log_filter::Level::Debug,
-        );
+impl<'a> PhaseTimer<'a> {
+    fn new(startup: &'a crate::desktop::startup_timeline::StartupTimeline) -> Self {
+        let enabled = startup.enabled()
+            || crate::desktop::shell2::common::log_gate::should_log(
+                LogCategory::Window,
+                azul_core::log_filter::Level::Debug,
+            );
         let now = std::time::Instant::now();
         Self {
             enabled,
             start: now,
             last: now,
             marks: Vec::new(),
+            startup,
         }
     }
 
@@ -198,6 +202,7 @@ impl PhaseTimer {
             line.push_str(&format!(" {name} {ms:.1}ms |"));
         }
         line.push_str(&format!(" rest {rest:.1}ms"));
+        self.startup.mark_with("layout_phases", || line.clone());
         log_debug!(LogCategory::Window, "{}", line);
     }
 }
@@ -247,6 +252,7 @@ pub fn regenerate_layout(
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     relayout_reason: azul_core::callbacks::RelayoutReason,
     settings: &crate::desktop::app_settings::AppSettings,
+    startup: &crate::desktop::startup_timeline::StartupTimeline,
 ) -> Result<LayoutRegenerateResult, String> {
     log_debug!(LogCategory::Layout, "[regenerate_layout] START");
     // Engine observability: the whole produce side (callback + solve + DL)
@@ -254,7 +260,7 @@ pub fn regenerate_layout(
     #[cfg(feature = "telemetry")]
     let _frame_pump = azul_layout::telemetry::FramePump::begin("layout");
     azul_layout::probe::emit_phase_heap("start");
-    let mut phases = PhaseTimer::new();
+    let mut phases = PhaseTimer::new(startup);
     // One span per stage of a rebuild (`audit/A3-window.md`, "Why a full DOM rebuild is
     // slow"): what `AZ_PROFILE=cpu` prints between the app's callback and the solver.
     let span_preamble = azul_layout::probe::Probe::span("regen_preamble");

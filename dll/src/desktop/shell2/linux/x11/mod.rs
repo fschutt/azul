@@ -118,7 +118,7 @@ use webrender::Renderer as WrRenderer;
 
 use self::{
     defines::*,
-    dlopen::{Egl, Gtk3Im, Library, Xkb, Xlib},
+    dlopen::{Egl, Library, Xkb, Xlib},
 };
 use super::common::gl::GlFunctions;
 use crate::desktop::shell2::common::debug_server::LogCategory;
@@ -2859,8 +2859,11 @@ pub struct X11Window {
     /// Optional XShape for alpha-shaped windows (loaded on first use).
     xext: Option<Rc<dlopen::Xext>>,
     xext_probed: bool,
-    pub gtk_im: Option<Rc<Gtk3Im>>, // Optional GTK IM context for IME
-    pub gtk_im_context: Option<*mut dlopen::GtkIMContext>, // GTK IM context instance
+    /// libgtk-3's input method context, the fallback that positions the IME's candidate window when there is no XIM
+    /// (`sync_ime_position_to_os`). Loaded on the FIRST position that finds no XIM, not when the window is created:
+    /// libgtk-3 pulls in GDK, Pango, Cairo, GIO and about a hundred more libraries, and a window with an XIM (the usual
+    /// one) never asks for it.
+    gtk_im: std::cell::OnceCell<Option<super::gtk_im::GtkImFallback>>,
     pub display: *mut Display,
     /// True if THIS window opened `display` (and must XCloseDisplay it on Drop +
     /// drain/dispatch its event queue). False for CHILD windows (menus/dialogs)
@@ -3586,6 +3589,9 @@ impl X11Window {
         // Extract create_callback before consuming options
         let create_callback = options.create_callback.clone();
 
+        // The marks of the app's start (`AZ_STARTUP=1`): a handle of its own, the window moves out of here.
+        let startup = resources.app_shared.startup_handle();
+        startup.mark("x11:new_begin");
         let xlib = Xlib::new()
             .map_err(|e| WindowError::PlatformError(format!("Failed to load libX11: {:?}", e)))?;
         #[cfg(target_os = "linux")]
@@ -3624,34 +3630,7 @@ impl X11Window {
         unsafe {
             (xlib.XSetErrorHandler)(Some(x11_error_handler));
         }
-
-        // Try to load GTK3 IM context for IME support (optional, fail silently)
-        let (gtk_im, gtk_im_context) = match Gtk3Im::new() {
-            Ok(gtk) => {
-                log_info!(
-                    LogCategory::Platform,
-                    "[X11] GTK3 IM context loaded for IME support"
-                );
-                let ctx = unsafe { (gtk.gtk_im_context_simple_new)() };
-                if !ctx.is_null() {
-                    (Some(gtk), Some(ctx))
-                } else {
-                    log_warn!(
-                        LogCategory::Platform,
-                        "[X11] Failed to create GTK IM context instance"
-                    );
-                    (None, None)
-                }
-            }
-            Err(e) => {
-                log_debug!(
-                    LogCategory::Platform,
-                    "[X11] GTK3 IM not available (IME positioning disabled): {:?}",
-                    e
-                );
-                (None, None)
-            }
-        };
+        startup.mark("x11:libs_loaded");
 
         // Establish the C library's LC_CTYPE locale from the environment
         // BEFORE XOpenDisplay / XOpenIM. Without this the process stays in the
@@ -3692,6 +3671,7 @@ impl X11Window {
             Some(d) => (d, false),
             None => (unsafe { (xlib.XOpenDisplay)(std::ptr::null()) }, true),
         };
+        startup.mark("x11:display_opened");
         if display.is_null() {
             return Err(WindowError::PlatformError(
                 "Failed to open X display".into(),
@@ -3842,6 +3822,7 @@ impl X11Window {
         });
 
         unsafe { (xlib.XSelectInput)(display, window_handle, event_mask) };
+        startup.mark("x11:window_created");
 
         // XInput2: select touch + pen/tablet events (best-effort; core events otherwise).
         let (
@@ -4321,6 +4302,13 @@ impl X11Window {
         };
 
         let is_cpu_mode = matches!(render_mode, RenderMode::Cpu(_));
+        startup.mark_with("render_backend", || {
+            format!(
+                "backend={} requested={} device=x11",
+                if is_cpu_mode { "cpu" } else { "gpu" },
+                if force_cpu { "cpu" } else { "auto" }
+            )
+        });
         let xkb_for_compose = xkb.clone();
         let mut common = event::CommonWindowState::new(
             FullWindowState {
@@ -4383,8 +4371,7 @@ impl X11Window {
             xrender,
             xext: None,
             xext_probed: false,
-            gtk_im,
-            gtk_im_context,
+            gtk_im: std::cell::OnceCell::new(),
             display,
             parent_window_id: options.parent_window_id,
             owns_display,
@@ -4491,6 +4478,7 @@ impl X11Window {
                 .map_err(|e| {
                     WindowError::PlatformError(format!("Accessibility init failed: {}", e))
                 })?;
+            startup.mark("x11:a11y_initialized");
         }
 
         // Defer mapping for size_to_content windows (menus): they are mapped in
@@ -4499,6 +4487,7 @@ impl X11Window {
         if !options.size_to_content {
             unsafe { (window.xlib.XMapWindow)(display, window.window) };
             unsafe { (window.xlib.XFlush)(display) };
+            startup.mark("x11:window_mapped");
         }
 
         // Try to subscribe to XRandR screen change notifications (optional)
@@ -4635,6 +4624,7 @@ impl X11Window {
         // Apply initial window state for fields not set during window creation
         window.apply_initial_window_state();
 
+        startup.mark("x11:new_done");
         Ok(window)
     }
 
@@ -6704,6 +6694,7 @@ impl X11Window {
             &mut debug_messages,
             relayout_reason,
             borrows.settings,
+            borrows.startup,
         )?;
 
         // Forward layout debug messages to the debug server's log queue
@@ -7401,6 +7392,9 @@ impl X11Window {
 
             self.common.display_list_initialized = true;
 
+            // The startup timeline (`AZ_STARTUP=1`): the first frame is on its way to the screen.
+            self.common.app.startup().mark_first_present(|| String::from("x11 cpu"));
+
             // CI testing: Exit successfully after first frame render if env var is set
             if self.common.app.settings().shell.exit_after_first_frame {
                 log_debug!(
@@ -7664,6 +7658,9 @@ impl X11Window {
         if needs_fade_frame {
             self.request_redraw();
         }
+
+        // The startup timeline (`AZ_STARTUP=1`): the first frame is on its way to the screen.
+        self.common.app.startup().mark_first_present(|| String::from("x11 gpu"));
 
         // CI testing: Exit successfully after first frame render if env var is set
         if self.common.app.settings().shell.exit_after_first_frame {
@@ -8996,8 +8993,11 @@ impl X11Window {
                 return;
             }
 
-            // Fallback to GTK IM context if XIM not available
-            if let (Some(ref gtk_im), Some(ctx)) = (&self.gtk_im, self.gtk_im_context) {
+            // Fallback to GTK IM context if XIM not available (loaded now, the first time: see `gtk_im`)
+            if let Some(fallback) = self
+                .gtk_im
+                .get_or_init(|| super::gtk_im::load(self.common.app.startup(), "X11"))
+            {
                 let gdk_rect = dlopen::GdkRectangle {
                     x: (rect.origin.x * scale) as i32,
                     y: (rect.origin.y * scale) as i32,
@@ -9006,7 +9006,7 @@ impl X11Window {
                 };
 
                 unsafe {
-                    (gtk_im.gtk_im_context_set_cursor_location)(ctx, &gdk_rect);
+                    (fallback.gtk.gtk_im_context_set_cursor_location)(fallback.context, &gdk_rect);
                 }
             }
         }

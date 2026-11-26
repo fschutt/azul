@@ -304,6 +304,39 @@ fn the_device_text_is_one_capped_line() {
     assert!(text.ends_with('~'));
 }
 
+/// The engine's GL table returns every driver string WITH its terminating NUL: no line the engine writes may carry
+/// it (a platform logger cuts or drops a line with a NUL in it: Android's dropped the whole contract line), and the
+/// version and the software test read the string as it comes.
+///
+/// Mutation: a `one_line` that only splits at whitespace.
+#[test]
+fn a_driver_string_with_its_nul_is_one_clean_line() {
+    let renderer = "Apple Software Renderer\0";
+    assert_eq!(info(renderer, "v").describe(), "Apple Software Renderer");
+    assert_eq!(info("A\0B\u{1b}[0mC \0", "v").describe(), "A B [0mC");
+    assert_eq!(info("\0\0", "v").describe(), "unknown");
+    // the contract line and the fallback line carry no control character
+    let device = DeviceInfo {
+        vendor: "Apple Inc.\0".to_string(),
+        renderer: renderer.to_string(),
+        version: "OpenGL ES 3.0 APPLE-23.0.2\0".to_string(),
+        glsl: "OpenGL ES GLSL ES 3.00\0".to_string(),
+    };
+    assert_eq!(device.gles_version(), Some((3, 0)));
+    assert!(device.is_es3());
+    assert!(device.is_software());
+    let decision = decide(GpuRequest::Gpu, Some(Ok(device)));
+    assert_eq!(
+        decision.render_line(),
+        "[render] backend=gpu requested=gpu device=Apple Software Renderer"
+    );
+    let cause = GpuFallback::new(GpuStage::Probe, "bad\0cause");
+    let fallback = decide(GpuRequest::Gpu, Some(Err(cause)));
+    for line in [fallback.render_line(), fallback.fallback_line().unwrap_or_default()] {
+        assert!(!line.chars().any(char::is_control), "{line:?}");
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // the decision
 // ---------------------------------------------------------------------------------------------

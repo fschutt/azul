@@ -18,6 +18,7 @@ What it lists, per orientation (every list names the node: tag#id.class, the rol
     cut text      text-bearing boxes that cross the window's edge or the edge of an ancestor that clips its children
     sideways      scroll containers whose content is wider than they are (`get_scroll_states`: the engine's own measure of a page
                   that does not fit the width), and the scroll offsets of the moment the boxes were read
+    raw keys      nodes whose text is a localisation KEY instead of words (`azmeet-loading-key`: the bundle did not load)
 What it can NOT say: a text clipped inside its own box. The debug server reports boxes, not glyph extents; it is listed under
 `not_measured` in every report so nobody reads an empty list as "nothing is clipped".
 """
@@ -36,6 +37,8 @@ TEXT_ROLES = {"Label", "Paragraph", "Heading", "StaticText", "Button", "Link", "
 NOT_MEASURED = ["a text clipped inside its own box (a long word in a narrow button, an ellipsis): the debug server reports boxes, "
                 "not glyph extents, so this needs an engine op that returns each text's laid-out size"]
 LIST_LIMIT = 40
+# a Fluent message id shown instead of its text: an app's own prefix (azmeet-...) with at least one dash, or any lower-case word chain with two
+RAW_KEY = __import__("re").compile(r"^(?:az[a-z0-9]*(?:-[a-z0-9]+)+|[a-z][a-z0-9]*(?:-[a-z0-9]+){2,})$")
 
 
 # ---- the system's own account of the bars -------------------------------------------------------------------------------------
@@ -294,6 +297,17 @@ def audit(layout_answer, a11y_answer, state_answer, bars, orientation, scroll_an
             cut.append(_entry(layout_by_id.get(a.get("node_id")), a, box, why))
     cut.sort(key=lambda e: (e["y"], e["x"]))
     result["cut_text"] = {"count": len(cut), "top": cut}
+
+    # -- text that is a localisation key
+    raw = []
+    for a in a11y:
+        name = a.get("name")
+        if a.get("hidden") or a.get("dom_id") not in (0, None) or not isinstance(name, str) or not RAW_KEY.match(name.strip()):
+            continue
+        b = a.get("bounds")
+        box = tuple(v / scale for v in b) if b else (0.0, 0.0, 0.0, 0.0)
+        raw.append(_entry(layout_by_id.get(a.get("node_id")), a, box, "the text is a message id, not words"))
+    result["raw_keys"] = {"count": len(raw), "top": raw}
     return result
 
 
@@ -337,6 +351,9 @@ def report_markdown(audits, label=""):
         c = a["cut_text"]
         out += [f"### Text-bearing boxes that cross an edge: {c['count']}", ""]
         out += _table(c["top"], ["node", "role", "text", "x", "y", "w", "h", "why"])
+        rk = a["raw_keys"]
+        out += [f"### Text that is a localisation key instead of words: {rk['count']}", ""]
+        out += _table(rk["top"], ["node", "role", "text", "x", "y", "w", "h"])
         sw = a["sideways_scroll"]
         out += [f"### Scroll containers whose content is wider than the container: {sw['count']} of {sw['scrollers']} (the page scrolls sideways)", ""]
         if sw["top"]:
@@ -350,6 +367,21 @@ def report_markdown(audits, label=""):
     return "\n".join(out) + "\n"
 
 
+def compare_words(tree_a, tree_b):
+    """The texts of two accessibility trees of the same app in two languages, node by node (the DOM index): -> {"named": nodes with a text
+    in both, "changed": how many differ, "share": changed / named, "sample": [(a, b), ...] the first changed pairs, "raw_keys_b": the texts of
+    `tree_b` that are message ids}. A language that did arrive changes the texts of an app that registers a bundle; ids in the second tree mean
+    the bundle did not load."""
+    def names(tree):
+        return {n.get("node_id"): str(n.get("name")) for n in a11y_nodes(tree)
+                if n.get("node_id") is not None and n.get("name") and n.get("dom_id") in (0, None)}
+    a, b = names(tree_a), names(tree_b)
+    both = [k for k in a if k in b]
+    changed = [(a[k], b[k]) for k in both if a[k] != b[k]]
+    return {"named": len(both), "changed": len(changed), "share": (len(changed) / len(both)) if both else 0.0, "sample": changed[:8],
+            "raw_keys_b": sorted({v for v in b.values() if RAW_KEY.match(v.strip())})}
+
+
 def summary_line(a):
     """One line for a step's note: the counts of the lists."""
     if a.get("error"):
@@ -358,7 +390,8 @@ def summary_line(a):
     return (f"{a['orientation']} {a['window_dp'][0]:.0f}x{a['window_dp'][1]:.0f} dp: {a['edge_right']['count']} boxes cross the right edge "
             f"({a['edge_right']['outer']} outermost), {a['edge_left']['count']} the left, {u['tappable']['count']} tappable and {u['text']['count']} text boxes "
             f"under a bar, {a['small_targets']['small']} of {a['small_targets']['tappable']} tappable nodes under {MIN_TARGET_DP:.0f} dp, "
-            f"{a['cut_text']['count']} text boxes cross an edge, {a['sideways_scroll']['count']} scroll containers are wider than they are")
+            f"{a['cut_text']['count']} text boxes cross an edge, {a['sideways_scroll']['count']} scroll containers are wider than they are, "
+            f"{a['raw_keys']['count']} texts are raw keys")
 
 
 def load_dir(logs_dir, orientation):

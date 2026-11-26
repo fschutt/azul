@@ -325,6 +325,9 @@ def e2e_session(args):
         t = result["small_targets"]
         s.check(f"{orient}: every tappable node is at least {la.MIN_TARGET_DP:.0f} dp in both directions", t["small"] == 0,
                 f"{t['small']} of {t['tappable']} are smaller", required=False)
+        rk = result["raw_keys"]
+        s.check(f"{orient}: no text is a localisation key (a missing translation)", rk["count"] == 0,
+                f"{rk['count']}: " + ", ".join(repr(e['text']) for e in rk["top"][:4] if e.get("text")), required=False)
         sw = result["sideways_scroll"]
         s.check(f"{orient}: no scroll container is wider than the window (the page does not scroll sideways)", sw["count"] == 0,
                 f"{sw['count']} do: " + ", ".join(f"{e['node']} {e['content_w']} dp in {e['container_w']}" for e in sw["top"][:3]), required=False)
@@ -390,6 +393,54 @@ def e2e_session(args):
 
     if args.platform == "android" and args.audit_only:
         run.step("e30-system-dark-mode", "cmd uimode night yes: did the engine's mode change (get_mode), did the picture", s_dark)
+
+    # ---- the language: per-app locale de-DE while the app runs (the ConfigChanged path) and at a cold start, then back to en-US
+    def s_locale(s):
+        pkg = args.package
+
+        def tree():
+            return srv.op("get_accessibility_tree", timeout=90)
+
+        def wait_server(what):
+            took, answer = srv.ready(args.server_timeout)
+            s.check(f"the debug server answers again after {what}", took is not None, f"after {took:.1f} s" if took is not None else str(answer))
+            return took is not None
+
+        base, pid0 = tree(), dev.pid()
+        dev.sh(f"cmd locale set-app-locales {pkg} --locales de-DE")
+        dev.settle(4.0)
+        try:
+            srv.op("wait_frame", timeout=15)
+        except Exception as ex:  # noqa: BLE001
+            s.note(f"wait_frame: {str(ex)[:100]}")
+        running = tree()
+        device_shot(s, "locale-de-running")
+        held = dev.sh(f"cmd locale get-app-locales {pkg}").strip()[:80]
+        w = la.compare_words(base, running)
+        run.meta["locale_running"] = f"{w['changed']}/{w['named']} texts changed, same process {dev.pid() == pid0}"
+        s.note(f"app locales held: {held}; running switch en -> de: {w['changed']} of {w['named']} named nodes changed ({w['share'] * 100:.0f} %); first: {w['sample'][:3]}")
+        s.check("the language switched while the app ran, without a restart", dev.pid() == pid0 and bool(pid0), f"pid {pid0} -> {dev.pid()}")
+        s.check("the words changed with the language (texts of the same nodes differ)", w["changed"] > 0, f"{w['changed']} of {w['named']}; {w['sample'][:2]}", required=False)
+        s.check("no text is a message id after the switch", not w["raw_keys_b"], f"{w['raw_keys_b'][:4]}", required=False)
+        # a cold start in German: the words must be German at the first frame
+        dev.sh(f"am force-stop {pkg}")
+        dev.home()
+        time.sleep(2.0)
+        dev.launch(cold=True)
+        dev.wait_for_front(timeout=args.first_frame_timeout)
+        if wait_server("a cold start in German"):
+            dev.settle(2.0)
+            cold = tree()
+            device_shot(s, "locale-de-cold")
+            c = la.compare_words(base, cold)
+            run.meta["locale_cold"] = f"{c['changed']}/{c['named']} texts changed"
+            s.note(f"cold start in German: {c['changed']} of {c['named']} named nodes differ from English; first: {c['sample'][:3]}")
+            s.check("the cold start in German shows words, not message ids", not c["raw_keys_b"], f"{c['raw_keys_b'][:4]}", required=False)
+        dev.sh(f"cmd locale set-app-locales {pkg} --locales en-US")
+        dev.settle(3.0)
+
+    if args.platform == "android" and args.audit_only:
+        run.step("e35-language-de-and-back", "cmd locale set-app-locales de-DE: while the app runs and at a cold start, the texts of the same nodes against English", s_locale)
 
     # ---- the scripted check of one app (--script)
     def tap_node(s, selector):
