@@ -261,6 +261,7 @@ fn cutout_dom(panel: &mut Panel, c: &Cutout, selected: bool, ghost: bool) -> Dom
         ));
     match panel.image_of(c) {
         Some(image) => {
+            // the cutout's node is named (where it comes from, its label): its picture only decorates it
             node.add_child(Dom::create_image(image).with_accessibility_info(decorative()).with_css("width: 100%; height: 100%;"));
         }
         None => {

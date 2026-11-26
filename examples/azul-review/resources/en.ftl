@@ -323,6 +323,13 @@ azreview-dictation-unavailable = Dictation is not available here: { $why }
 azreview-dictation-failed = Dictation failed: { $why }
 azreview-load-failed = The saved session could not be read: { $why }
 azreview-category-dictation = Dictation
+azreview-menu-whiteboard-help = Using the whiteboard...
+azreview-category-whiteboard = Whiteboard
+azreview-whiteboard-armed-when = A circle waits to be taken
+azreview-armed-8 = 8 s
+azreview-armed-15 = 15 s
+azreview-armed-30 = 30 s
+azreview-armed-60 = 60 s
 azreview-dictation-when = Start by resting
 azreview-dictation-off = Off
 azreview-dictation-pen = Pen
@@ -422,7 +429,6 @@ azreview-agent-problem-unknown-field = { $field }: no such setting ({ $word })
 ## The layout: the file tree, the right bar, the bottom bar
 
 azreview-right-bar = Show or hide the whiteboard
-azreview-whiteboard-placeholder = The whiteboard: circle code with the pen, drag it here and draw arrows between the cutouts.
 azreview-agents-none = No agents are working.
 azreview-resize-tree = Change the width of the file tree
 azreview-resize-panel = Change the width of the whiteboard

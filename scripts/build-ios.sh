@@ -35,6 +35,8 @@
 #                          it (AZ_LINK_PATH; no engine crate compiles) and only its own bin is built
 #   AZ_IOS_STRINGS_DIR=... a folder of <lang>.lproj/InfoPlist.strings copied into the bundle
 #   AZ_IOS_BUILD_JSON=...  where cargo's JSON log goes (read by scripts/demo_gate.py)
+#   AZ_IOS_SYMBOL_JSON=... where scripts/ci/ios_symbol_gate.py writes its numbers (default: nowhere); the gate fails the
+#                          build when the binary imports a symbol newer than MIN_OS or not on iOS
 
 set -euo pipefail
 
@@ -243,6 +245,15 @@ if [[ -n "${AZ_IOS_STRINGS_DIR:-}" && -d "${AZ_IOS_STRINGS_DIR}" ]]; then
 fi
 # The executable without its symbols (the release profile keeps line tables for profiling).
 strip -S -x "$BUNDLE_DIR/$APP_NAME" 2>/dev/null || true
+
+# A binary that imports a symbol which the oldest iOS it claims (MIN_OS) does not have dies at launch with "Symbol not found", and
+# the Simulator, newer than MIN_OS, never shows it. scripts/ci/ios_symbol_gate.py reads the availability the SDK's headers declare
+# for every strong undefined import (xcrun nm -m -u) and fails on a symbol newer than MIN_OS or not on iOS at all. Only when the
+# gate is there (the cache azul-doc materializes this script into does not carry it); AZ_IOS_SYMBOL_JSON names where its numbers go.
+if [[ -f "$ASSET_ROOT/scripts/ci/ios_symbol_gate.py" ]]; then
+    python3 "$ASSET_ROOT/scripts/ci/ios_symbol_gate.py" --binary "$BUNDLE_DIR/$APP_NAME" --min-os "$MIN_OS" \
+        --sdk "$(xcrun --sdk "$SDK_SHORT" --show-sdk-path)" --json "${AZ_IOS_SYMBOL_JSON:-/dev/null}"
+fi
 
 # PlistBuddy converts XML → binary plist (smaller; iOS prefers binary).
 if command -v /usr/libexec/PlistBuddy >/dev/null 2>&1; then

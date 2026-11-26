@@ -3300,14 +3300,37 @@ impl Brush {
 /// `t` is `distance / radius` in `[0, 1]`; `hardness` in `[0, 1]`. Single source
 /// of truth for the dab profile -- the GPU brush shader computes the identical
 /// `1 - smoothstep(hardness, 1, t)` so CPU and GPU strokes match.
-#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[inline]
 #[must_use]
 pub fn brush_dab_coverage(t: f32, hardness: f32) -> f32 {
-    let edge0 = hardness.clamp(0.0, 1.0);
-    let denom = (1.0 - edge0).max(1.0e-4);
-    let x = ((t - edge0) / denom).clamp(0.0, 1.0);
-    1.0 - (x * x * (3.0 - 2.0 * x))
+    DabProfile::new(hardness).coverage(t)
+}
+
+/// The part of the dab profile that depends on the hardness alone, worked out once per brush and not at every
+/// pixel: [`brush_dab_coverage`] and the CPU brush both read the profile through this one type.
+#[derive(Clone, Copy)]
+struct DabProfile {
+    /// The hardness clamped to `0..=1`: the distance (over the radius) up to which the dab is fully opaque.
+    edge0: f32,
+    /// The width of the falloff, `1 - edge0`, never below `1e-4` so that a hard edge does not divide by zero.
+    denom: f32,
+}
+
+impl DabProfile {
+    #[inline]
+    fn new(hardness: f32) -> Self {
+        let edge0 = hardness.clamp(0.0, 1.0);
+        let denom = (1.0 - edge0).max(1.0e-4);
+        Self { edge0, denom }
+    }
+
+    /// `1 - smoothstep(hardness, 1, t)` for `t = distance / radius`.
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    #[inline]
+    fn coverage(self, t: f32) -> f32 {
+        let x = ((t - self.edge0) / self.denom).clamp(0.0, 1.0);
+        1.0 - (x * x * (3.0 - 2.0 * x))
+    }
 }
 
 impl RawImage {
@@ -3387,109 +3410,425 @@ impl RawImage {
     /// coordinates, alpha-over compositing a radial-falloff disc. Only 8-bit
     /// `RGBA8`/`BGRA8` images are painted (other formats are left untouched).
     /// This is the CPU mirror of the GPU brush shader.
-    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
-    #[allow(
-        clippy::cast_possible_truncation,
-        clippy::cast_precision_loss,
-        clippy::cast_sign_loss
-    )] // image/graphics: bounded pixel/colour/dimension/unit casts
-    #[allow(clippy::cast_possible_wrap)] // image/graphics: bounded pixel/colour casts
     pub fn paint_dot(&mut self, cx: f32, cy: f32, brush: Brush) {
-        let r = brush.radius;
-        // `!(r > 0.0)` intentionally also rejects NaN (`r <= 0.0` would not).
-        #[allow(clippy::neg_cmp_op_on_partial_ord)]
-        if !(r > 0.0) || self.width == 0 || self.height == 0 {
+        self.paint_dot_metered(cx, cy, brush, &mut NoMeter);
+    }
+
+    /// CPU painting: stamp a stroke by spacing dabs along the segment
+    /// (`x0`,`y0`)->(`x1`,`y1`). Call once per pointer move with the previous and
+    /// current positions for a continuous line.
+    pub fn paint_stroke(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, brush: Brush) {
+        self.paint_stroke_metered(x0, y0, x1, y1, brush, &mut NoMeter);
+    }
+
+    /// [`Self::paint_dot`], counting the work in `meter`.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // image/graphics: bounded pixel/dimension casts
+    fn paint_dot_metered<M: BrushMeter>(&mut self, cx: f32, cy: f32, brush: Brush, meter: &mut M) {
+        let Some(stamp) = Stamp::new(self.width, self.height, self.data_format, brush) else {
             return;
-        }
-        let bgr = match self.data_format {
-            RawImageFormat::RGBA8 => false,
-            RawImageFormat::BGRA8 => true,
-            _ => return,
         };
         let (w, h) = (self.width as i32, self.height as i32);
         let buf: &mut [u8] = match self.pixels {
             RawImageData::U8(ref mut v) => v.as_mut(),
             _ => return,
         };
+        stamp_dab(buf, w, h, cx, cy, &stamp, meter);
+    }
+
+    /// [`Self::paint_stroke`], counting the work in `meter`.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // image/graphics: bounded pixel/dimension casts
+    fn paint_stroke_metered<M: BrushMeter>(
+        &mut self,
+        x0: f32,
+        y0: f32,
+        x1: f32,
+        y1: f32,
+        brush: Brush,
+        meter: &mut M,
+    ) {
+        let Some(stamp) = Stamp::new(self.width, self.height, self.data_format, brush) else {
+            return;
+        };
+        let (w, h) = (self.width as i32, self.height as i32);
+        let Some(dabs) = StrokeDabs::plan(x0, y0, x1, y1, brush.radius, brush.spacing, w, h) else {
+            return;
+        };
+        let buf: &mut [u8] = match self.pixels {
+            RawImageData::U8(ref mut v) => v.as_mut(),
+            _ => return,
+        };
+        for i in dabs.indices() {
+            let (cx, cy) = dabs.position(i);
+            stamp_dab(buf, w, h, cx, cy, &stamp, meter);
+        }
+    }
+}
+
+/// The work a brush does, counted in the units its time follows. This is the seam the tests read
+/// (`resources_brush_test.rs`): the library passes [`NoMeter`], which counts nothing and compiles away.
+trait BrushMeter {
+    /// A dab was stamped: its box was looked at.
+    fn dab(&mut self);
+    /// A row of a dab's box that the disc reaches was scanned.
+    fn row(&mut self);
+    /// A pixel of a scanned row was tested against the disc.
+    fn pixel(&mut self);
+    /// A distance was taken (a square root) because the soft edge needs it for the pixel's coverage.
+    fn root(&mut self);
+    /// A pixel was composited.
+    fn blend(&mut self);
+}
+
+/// The meter of the library: nothing is counted.
+struct NoMeter;
+
+impl BrushMeter for NoMeter {
+    #[inline]
+    fn dab(&mut self) {}
+    #[inline]
+    fn row(&mut self) {}
+    #[inline]
+    fn pixel(&mut self) {}
+    #[inline]
+    fn root(&mut self) {}
+    #[inline]
+    fn blend(&mut self) {}
+}
+
+/// Everything about a brush that is the same for every dab of a stroke, worked out once per stroke.
+#[derive(Clone, Copy)]
+struct Stamp {
+    /// The radius in pixels: positive, not NaN.
+    radius: f32,
+    /// A pixel is inside the disc when its squared distance from the centre (summed in `f64` from the `f32`
+    /// offsets) is at most this: the square of the radius plus half an ulp, which is as far as the distance, a
+    /// hypotenuse rounded to the nearest `f32`, still reads as not more than the radius.
+    outer2: f64,
+    /// Up to this squared distance the coverage is exactly 1 (the distance over the radius is at most the
+    /// hardness), so the pixel needs no distance: a hair under the exact square of `hardness * radius`, so
+    /// that rounding cannot send a pixel here that the exact test would give a coverage below 1.
+    core2: f64,
+    profile: DabProfile,
+    /// The opacity of the brush: its `flow` times the alpha of its colour.
+    flow: f32,
+    /// The three colour channels in the order of the image's bytes (red first in `RGBA8`, blue first in `BGRA8`).
+    color: [f32; 3],
+    /// The bytes a pixel becomes under a dab that covers it fully: the colour, opaque, in the image's byte order.
+    solid: [u8; 4],
+}
+
+impl Stamp {
+    /// The stamp of `brush` on an image of `width` x `height` pixels in `format`; `None` when nothing would be
+    /// painted whatever the dab: a radius that is not positive (or NaN), an empty image, a format other than
+    /// 8-bit `RGBA8` / `BGRA8`.
+    // `!(r > 0.0)` intentionally also rejects NaN (`r <= 0.0` would not).
+    #[allow(clippy::neg_cmp_op_on_partial_ord)]
+    fn new(width: usize, height: usize, format: RawImageFormat, brush: Brush) -> Option<Self> {
+        let radius = brush.radius;
+        if !(radius > 0.0) || width == 0 || height == 0 {
+            return None;
+        }
+        let bgr = match format {
+            RawImageFormat::RGBA8 => false,
+            RawImageFormat::BGRA8 => true,
+            _ => return None,
+        };
+        let profile = DabProfile::new(brush.hardness);
         let flow = brush.flow.clamp(0.0, 1.0) * (f32::from(brush.color.a) / 255.0);
-        let (cr, cg, cb) = (
-            f32::from(brush.color.r),
-            f32::from(brush.color.g),
-            f32::from(brush.color.b),
-        );
-        let x0 = (cx - r).floor().max(0.0) as i32;
-        let y0 = (cy - r).floor().max(0.0) as i32;
-        let x1 = ((cx + r).ceil() as i32).min(w);
-        let y1 = ((cy + r).ceil() as i32).min(h);
-        for y in y0..y1 {
-            for x in x0..x1 {
-                let dx = x as f32 + 0.5 - cx;
-                let dy = y as f32 + 0.5 - cy;
-                let dist = dx.hypot(dy);
-                if dist > r {
-                    continue;
-                }
-                let a = brush_dab_coverage(dist / r, brush.hardness) * flow;
-                if a <= 0.0 {
-                    continue;
-                }
-                let idx = ((y * w + x) as usize) * 4;
-                // `width`/`height` are public and may exceed the actual buffer;
-                // trust the buffer, not the claimed dimensions, so a mismatch
-                // skips the pixel instead of indexing out of bounds.
-                if idx + 4 > buf.len() {
-                    continue;
-                }
-                let (ri, gi, bi, ai) = if bgr {
-                    (idx + 2, idx + 1, idx, idx + 3)
-                } else {
-                    (idx, idx + 1, idx + 2, idx + 3)
-                };
-                let inv = 1.0 - a;
-                buf[ri] = (cr * a + f32::from(buf[ri]) * inv)
-                    .round()
-                    .clamp(0.0, 255.0) as u8;
-                buf[gi] = (cg * a + f32::from(buf[gi]) * inv)
-                    .round()
-                    .clamp(0.0, 255.0) as u8;
-                buf[bi] = (cb * a + f32::from(buf[bi]) * inv)
-                    .round()
-                    .clamp(0.0, 255.0) as u8;
-                buf[ai] = ((a + (f32::from(buf[ai]) / 255.0) * inv) * 255.0)
-                    .round()
-                    .clamp(0.0, 255.0) as u8;
+        let (r, g, b) = (brush.color.r, brush.color.g, brush.color.b);
+        let (color, solid) = if bgr {
+            ([f32::from(b), f32::from(g), f32::from(r)], [b, g, r, 255])
+        } else {
+            ([f32::from(r), f32::from(g), f32::from(b)], [r, g, b, 255])
+        };
+        let radius_wide = f64::from(radius);
+        // The next `f32` above the radius (NaN for an infinite one: then nothing is outside).
+        let above = f64::from(f32::from_bits(radius.to_bits().wrapping_add(1)));
+        let outer = f64::midpoint(radius_wide, above);
+        let core = f64::from(profile.edge0) * radius_wide;
+        Some(Self {
+            radius,
+            outer2: outer * outer,
+            core2: core * core * (1.0 - 1.0e-6),
+            profile,
+            flow,
+            color,
+            solid,
+        })
+    }
+}
+
+/// `x.floor() as i32` (saturating, NaN is 0) without a call into the math library.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // image/graphics: bounded pixel casts
+#[inline]
+fn floor_i32(x: f32) -> i32 {
+    let t = x as i32;
+    if (t as f32) > x {
+        t.saturating_sub(1)
+    } else {
+        t
+    }
+}
+
+/// `x.ceil() as i32` (saturating, NaN is 0) without a call into the math library.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // image/graphics: bounded pixel casts
+#[inline]
+fn ceil_i32(x: f32) -> i32 {
+    let t = x as i32;
+    if (t as f32) < x {
+        t.saturating_add(1)
+    } else {
+        t
+    }
+}
+
+/// `v.round().clamp(0.0, 255.0) as u8` (NaN is 0) without a call into the math library: the whole part, which an
+/// `as` cast saturates into `0..=255` (NaN and the negatives are 0), and one more when the fraction is a half or
+/// more (a value above 255 stays 255).
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // image/graphics: bounded colour casts
+#[inline]
+fn to_byte(v: f32) -> u8 {
+    let whole = v as u8;
+    whole.saturating_add(u8::from(v - f32::from(whole) >= 0.5))
+}
+
+/// The pixel `px` under a dab of opacity `a` (below 1): the brush colour over it.
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[inline]
+fn composite(px: &mut [u8; 4], color: [f32; 3], a: f32) {
+    let inv = 1.0 - a;
+    px[0] = to_byte(color[0] * a + f32::from(px[0]) * inv);
+    px[1] = to_byte(color[1] * a + f32::from(px[1]) * inv);
+    px[2] = to_byte(color[2] * a + f32::from(px[2]) * inv);
+    px[3] = to_byte((a + (f32::from(px[3]) / 255.0) * inv) * 255.0);
+}
+
+/// Stamps one dab centred at (`cx`, `cy`) into `buf`, the bytes of a `w` x `h` image: every pixel whose centre
+/// is within the radius gets the brush colour over it by the coverage of the soft edge.
+///
+/// The box of the dab is walked row by row; a row the disc does not reach is skipped whole, a pixel outside the
+/// disc costs a comparison. A pixel in the hard core (coverage exactly 1) needs no distance, and only a pixel on
+/// the soft edge takes one square root (the old code took a `hypotf` call for every pixel of the box).
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_wrap
+)] // image/graphics: bounded pixel/dimension casts
+#[allow(clippy::many_single_char_names)] // domain-standard coordinate names
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+fn stamp_dab<M: BrushMeter>(buf: &mut [u8], w: i32, h: i32, cx: f32, cy: f32, s: &Stamp, meter: &mut M) {
+    meter.dab();
+    let r = s.radius;
+    let x0 = floor_i32(cx - r).max(0);
+    let y0 = floor_i32(cy - r).max(0);
+    let x1 = ceil_i32(cx + r).min(w);
+    let y1 = ceil_i32(cy + r).min(h);
+    if x0 >= x1 || y0 >= y1 {
+        return;
+    }
+    let width = w as usize;
+    for y in y0..y1 {
+        let dy = f64::from(y as f32 + 0.5 - cy);
+        let dy2 = dy * dy;
+        if dy2 > s.outer2 {
+            continue;
+        }
+        // `width` and `height` are public and may exceed the actual buffer: trust the buffer, not the claimed
+        // dimensions, so a mismatch skips the pixels instead of indexing out of bounds.
+        let start = (y as usize).saturating_mul(width).saturating_mul(4);
+        if start >= buf.len() {
+            break;
+        }
+        let end = start.saturating_add(width.saturating_mul(4)).min(buf.len());
+        let row = &mut buf[start..end];
+        let first = x0 as usize;
+        let last = (x1 as usize).min(row.len() / 4);
+        if first >= last {
+            continue;
+        }
+        meter.row();
+        for (i, chunk) in row[first * 4..last * 4].chunks_exact_mut(4).enumerate() {
+            let Ok(px) = <&mut [u8; 4]>::try_from(chunk) else {
+                continue;
+            };
+            meter.pixel();
+            let dx = f64::from((first + i) as f32 + 0.5 - cx);
+            let d2 = dx * dx + dy2;
+            if d2 > s.outer2 {
+                continue;
+            }
+            let a = if d2 <= s.core2 {
+                s.flow
+            } else {
+                meter.root();
+                let dist = d2.sqrt() as f32;
+                s.profile.coverage(dist / r) * s.flow
+            };
+            if a <= 0.0 {
+                continue;
+            }
+            meter.blend();
+            if a >= 1.0 {
+                *px = s.solid;
+            } else {
+                composite(px, s.color, a);
             }
         }
     }
+}
 
-    /// CPU painting: stamp a stroke by spacing dabs along the segment
-    /// (`x0`,`y0`)->(`x1`,`y1`). Call once per pointer move with the previous and
-    /// current positions for a continuous line.
-    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
-    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // image/graphics:
-                                                                            // bounded pixel/colour/
-                                                                            // dimension/unit casts
-    pub fn paint_stroke(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, brush: Brush) {
+/// The dabs of one stroke segment that are stamped. A stroke puts a dab every step along the segment, `n + 1`
+/// of them, the `i`-th at `i / n` of the way; only those whose box can touch the image stamp anything, so only
+/// those are walked: a segment far off the image, or a very long one that crosses it, costs what the part in view
+/// costs. The CPU brush ([`RawImage::paint_stroke`]) and the GPU brush ([`Texture::paint_stroke`]) walk the same
+/// dabs.
+#[derive(Clone, Copy)]
+pub(crate) struct StrokeDabs {
+    x0: f32,
+    y0: f32,
+    dx: f32,
+    dy: f32,
+    /// The end of the segment: where the one dab of a stroke shorter than a step goes.
+    end: (f32, f32),
+    /// The number of steps, `0` for a stroke of one dab at its end.
+    n: i32,
+    /// The first and the last dab (of `0..=n`) that can touch the image.
+    first: i32,
+    last: i32,
+}
+
+impl StrokeDabs {
+    /// The dabs of the segment (`x0`,`y0`)->(`x1`,`y1`) for a brush of `radius` and `spacing` on a `w` x `h`
+    /// image (or texture); `None` when there are none: a segment with an endpoint that is not finite (or whose
+    /// length is not), or no dab that reaches the image.
+    #[allow(clippy::cast_possible_truncation)] // image/graphics: bounded dab count
+    pub(crate) fn plan(
+        x0: f32,
+        y0: f32,
+        x1: f32,
+        y1: f32,
+        radius: f32,
+        spacing: f32,
+        w: i32,
+        h: i32,
+    ) -> Option<Self> {
         let dx = x1 - x0;
         let dy = y1 - y0;
         let len = dx.hypot(dy);
-        // A non-finite length (infinite / NaN endpoint) would make `n` saturate
-        // to i32::MAX and the `for i in 0..=n` loop run ~2.1 billion times. Bail
-        // rather than spin: an infinite segment has no finite dabs to stamp.
+        // A non-finite length (infinite / NaN endpoint) would make `n` saturate to i32::MAX: a stroke with no
+        // finite dabs to stamp.
         if !len.is_finite() {
-            return;
+            return None;
         }
-        let step = (brush.radius * brush.spacing.max(0.01)).max(0.5);
+        let step = (radius * spacing.max(0.01)).max(0.5);
         let n = (len / step).floor() as i32;
         if n <= 0 {
-            self.paint_dot(x1, y1, brush);
-            return;
+            // One dab, at the end of the segment.
+            return dab_reaches(x1, y1, radius, w, h)
+                .then_some(Self { x0, y0, dx, dy, end: (x1, y1), n: 0, first: 0, last: 0 });
         }
-        for i in 0..=n {
-            let t = i as f32 / n as f32;
-            self.paint_dot(x0 + dx * t, y0 + dy * t, brush);
+        let (first, last) = dabs_reaching(x0, y0, dx, dy, n, radius, w, h)?;
+        Some(Self { x0, y0, dx, dy, end: (x1, y1), n, first, last })
+    }
+
+    /// The indices of the dabs to stamp.
+    pub(crate) const fn indices(&self) -> core::ops::RangeInclusive<i32> {
+        self.first..=self.last
+    }
+
+    /// The centre of dab `i`.
+    #[allow(clippy::cast_precision_loss)] // image/graphics: bounded dab count
+    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    pub(crate) fn position(&self, i: i32) -> (f32, f32) {
+        if self.n <= 0 {
+            return self.end;
+        }
+        let t = i as f32 / self.n as f32;
+        (self.x0 + self.dx * t, self.y0 + self.dy * t)
+    }
+}
+
+/// The first and the last dab of `0..=n` of a stroke from (`x0`,`y0`) by (`dx`,`dy`) whose box can touch a
+/// `w` x `h` image, `None` if none can.
+///
+/// A dab at `cx` reaches the image only if `ceil(cx + r) > 0` and `floor(cx - r) < w` (and the same along `y`:
+/// [`dab_reaches`]): the box [`stamp_dab`] scans is empty otherwise. The position of dab `i` moves in one direction with `i` (the
+/// same `f32` steps the stroke takes, so the rounding is the stroke's), so each of the four conditions holds on a
+/// run of dabs that begins at the first or ends at the last: found by halving, not by walking.
+#[allow(clippy::cast_precision_loss)] // image/graphics: bounded dab count
+#[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+#[allow(clippy::many_single_char_names)] // domain-standard coordinate names
+fn dabs_reaching(x0: f32, y0: f32, dx: f32, dy: f32, n: i32, r: f32, w: i32, h: i32) -> Option<(i32, i32)> {
+    // A stroke of a few dabs is cheaper walked than searched; the dabs that miss are turned away by their box.
+    if n <= 3 {
+        return Some((0, n));
+    }
+    let steps = n as f32;
+    let at = |p0: f32, d: f32, i: i32| p0 + d * (i as f32 / steps);
+    let along = |p0: f32, d: f32, size: i32| {
+        let from = monotone_run(n, |i| not_before(at(p0, d, i), r))?;
+        let to = monotone_run(n, |i| not_after(at(p0, d, i), r, size))?;
+        intersect(from, to)
+    };
+    intersect(along(x0, dx, w)?, along(y0, dy, h)?)
+}
+
+/// A dab at `p` along one axis is not entirely before the image (the box [`stamp_dab`] scans does not end at or
+/// before 0).
+fn not_before(p: f32, r: f32) -> bool {
+    ceil_i32(p + r) > 0
+}
+
+/// A dab at `p` along one axis is not entirely after the image (the box does not begin at or after `size`).
+fn not_after(p: f32, r: f32, size: i32) -> bool {
+    floor_i32(p - r) < size
+}
+
+/// Whether the box of a dab of radius `r` at (`cx`, `cy`) touches a `w` x `h` image: the dab stamps nothing when not.
+fn dab_reaches(cx: f32, cy: f32, r: f32, w: i32, h: i32) -> bool {
+    not_before(cx, r) && not_after(cx, r, w) && not_before(cy, r) && not_after(cy, r, h)
+}
+
+/// The indices of `0..=n` that `holds` for, when it holds for a run that begins at 0 or ends at `n` (a condition
+/// that only ever turns from false to true, or from true to false, as `i` grows); `None` if for none.
+fn monotone_run(n: i32, holds: impl Fn(i32) -> bool) -> Option<(i32, i32)> {
+    match (holds(0), holds(n)) {
+        (true, true) => Some((0, n)),
+        (false, false) => None,
+        (false, true) => {
+            // False at `lo`, true at `hi`: halve to the first that holds.
+            let (mut lo, mut hi) = (0, n);
+            while hi - lo > 1 {
+                let mid = lo + (hi - lo) / 2;
+                if holds(mid) {
+                    hi = mid;
+                } else {
+                    lo = mid;
+                }
+            }
+            Some((hi, n))
+        }
+        (true, false) => {
+            // True at `lo`, false at `hi`: halve to the last that holds.
+            let (mut lo, mut hi) = (0, n);
+            while hi - lo > 1 {
+                let mid = lo + (hi - lo) / 2;
+                if holds(mid) {
+                    lo = mid;
+                } else {
+                    hi = mid;
+                }
+            }
+            Some((0, lo))
         }
     }
+}
+
+/// The part two runs of indices have in common.
+fn intersect(a: (i32, i32), b: (i32, i32)) -> Option<(i32, i32)> {
+    let (first, last) = (a.0.max(b.0), a.1.min(b.1));
+    (first <= last).then_some((first, last))
 }
 
 /// Multiplies the RGB channels of a single 4-byte BGRA/RGBA pixel by its alpha.
@@ -5131,6 +5470,10 @@ pub fn add_resources(
 #[cfg(test)]
 #[path = "resources_test.rs"]
 mod resources_test;
+
+#[cfg(test)]
+#[path = "resources_brush_test.rs"]
+mod resources_brush_test;
 
 /// Configuration for the debug server and remote control capabilities.
 #[derive(Debug, Copy, Clone)]

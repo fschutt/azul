@@ -64,6 +64,10 @@ case "$kind" in
     dir="$(profile_dir release)"
     cp "$dir/libazul.so" "$out/libazul.so"
     "$ndkbin/llvm-strip" --strip-unneeded "$out/libazul.so"
+    # A device with 16 KiB pages (Android 15 and later) cannot load a library whose PT_LOAD segments are aligned to 4 KiB, NDK 27's
+    # default: the rustflags of the Android targets in .cargo/config.toml link it with 16 KiB, and this fails the lib job, with the
+    # file's name, when they did not take effect (RUSTFLAGS in the environment would replace them)
+    python3 scripts/android_elf_check.py "$out/libazul.so"
     ;;
   ios)
     # The oldest iOS the apps' Info.plist names (build-ios.sh MIN_OS): rustc and the C parts of the engine (cc-rs) both read it
@@ -94,6 +98,13 @@ for f in libazul.so libazul.a azul.lib; do
   if [ -f "$out/$f" ]; then lib="$out/$f"; break; fi
 done
 [ -n "$lib" ] || { echo "::error::no library staged in $out"; exit 1; }
+# A library built WITHOUT the cargo feature test-hooks must not hold its marker (nothing that ships reads stand-ins or failure
+# injections from the environment), one built WITH it must (the negative control: a check that cannot fail checks nothing).
+# scripts/check_no_test_hooks.py; the feature is only ever in an artifact-only variant (demo_apps.py check).
+case ",$features," in
+  *,test-hooks,*) python3 scripts/check_no_test_hooks.py --expect-marker=test-hooks "$lib" ;;
+  *)              python3 scripts/check_no_test_hooks.py "$lib" ;;
+esac
 sum="$( (sha256sum "$lib" 2>/dev/null || shasum -a 256 "$lib") | cut -d' ' -f1)"
 size="$(wc -c < "$lib" | tr -d ' ')"
 python3 - "$out/libazul.info.json" "$kind" "${target:-host}" "$features" "$(git rev-parse HEAD)" "$(( $(date +%s) - started ))" "$size" "$sum" "$(basename "$lib")" <<'PY'

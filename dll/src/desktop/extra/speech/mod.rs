@@ -780,7 +780,14 @@ impl core::fmt::Debug for SpeechSession {
     }
 }
 
-// SAFETY: the session behind the pointer is `Sync` (its parts are mutexes and an atomic).
+// SAFETY: a handle is one `Arc` reference of a `SessionInner`, which is made to be used from several
+// threads at once: a worker thread listens while the window asks `cancel`, `recognizers`, `arm` or
+// `state`. Every field of it is behind a lock (the chain, the status lines, the limits, the vocabulary,
+// the settings) or an atomic (the cancel and flowing flags, the counters), the microphone's keeper
+// is the same, and the pointer is never read except through that `Arc`. A clone is one more reference,
+// the last handle to go frees the session. The bindings generated for the C ABI repeat this
+// declaration (api.json: `custom_impls` Send and Sync, read from here by autofix) for their mirror of
+// the type, and `session_test` moves each handle to a thread.
 unsafe impl Send for SpeechSession {}
 unsafe impl Sync for SpeechSession {}
 
@@ -1263,7 +1270,12 @@ impl core::fmt::Debug for SpeechStream {
     }
 }
 
-// SAFETY: the stream behind the pointer is `Sync` (its parts are mutexes and atomics).
+// SAFETY: a handle is one `Arc` reference of a `StreamShared`: the queue of events is behind a lock with
+// its condition variable, the stop, cancel and running flags are atomics, and the thread of the stream
+// holds only a `Weak` of it. `poll_events`, `wait_events`, `stop`, `cancel` and `is_running` may be
+// called from any thread, also at the same time (a worker thread waits for events while the window
+// stops the stream). The generated bindings repeat this declaration for their mirror of the type
+// (api.json `custom_impls` Send and Sync, read from here by autofix).
 unsafe impl Send for SpeechStream {}
 unsafe impl Sync for SpeechStream {}
 
@@ -1518,7 +1530,7 @@ fn platform_chain(clock: SharedClock, exe_dir: Option<&std::path::Path>, keeper:
 /// `AZ_SPEECH_HEARD` holds (heard on every call, at once) or nothing.
 fn scripted_chain(hooks: &azul_core::run_mode::TestHooks, clock: SharedClock) -> (Chain, Preference) {
     let Some(path) = hooks.speech_script.as_deref().filter(|path| !path.is_empty()) else {
-        return (Chain::new(clock).with(Box::new(HeadlessRecognizer)), Preference::Automatic);
+        return (Chain::new(clock).with(Box::new(HeadlessRecognizer::new())), Preference::Automatic);
     };
     let read = std::fs::read_to_string(path).map_err(|e| e.to_string()).and_then(|text| script::parse(&text));
     match read {
@@ -1647,7 +1659,20 @@ impl Recognizer for NativeRecognizer {
 
 /// What a headless run hears (`AZ_SPEECH_HEARD`, or the test's own), at once, with every word 300 ms
 /// long: the old stand-in as a link of the chain.
-struct HeadlessRecognizer;
+struct HeadlessRecognizer {
+    /// What it hears now (the process' `AZ_SPEECH_HEARD` unless a test says otherwise).
+    heard: Box<dyn Fn() -> SpeechHeard + Send>,
+}
+
+impl HeadlessRecognizer {
+    fn new() -> Self {
+        Self::hearing(Box::new(headless::heard))
+    }
+
+    fn hearing(heard: Box<dyn Fn() -> SpeechHeard + Send>) -> Self {
+        Self { heard }
+    }
+}
 
 impl Recognizer for HeadlessRecognizer {
     fn kind(&self) -> Kind {
@@ -1663,9 +1688,73 @@ impl Recognizer for HeadlessRecognizer {
     }
 
     fn listen(&mut self, call: &Listen<'_>) -> Answer {
-        with_timed_words(heard_to_answer(&headless::heard()), call.clock.unix_ms())
+        with_timed_words(heard_to_answer(&(self.heard)()), call.clock.unix_ms())
+    }
+
+    /// The stand-in as a stream: what it hears is ONE utterance (a partial per word if asked, then the
+    /// final), then the room is quiet (`Quiet` every second) until the heard text changes (a new
+    /// utterance: a test or a script sets `AZ_SPEECH_HEARD` again), the time is up, the utterances
+    /// asked for are heard, or the stream is stopped or cancelled. It hears at once: its words carry
+    /// the 300 ms each of [`with_timed_words`] but nothing waits for them.
+    fn listen_stream(
+        &mut self,
+        call: &Listen<'_>,
+        options: &StreamOptions,
+        stop: &dyn Fn() -> bool,
+        emit: &dyn Fn(EventKind, Answer),
+    ) -> Answer {
+        let began = call.clock.now_ms();
+        let budget = u64::from(call.timeout_ms);
+        (call.flowing)();
+        let mut finals = 0u32;
+        let mut last_text: Option<String> = None;
+        let mut quiet_since = began;
+        loop {
+            let now = call.clock.now_ms();
+            if stop()
+                || (call.cancel)()
+                || now.saturating_sub(began) >= budget
+                || (options.max_utterances > 0 && finals >= options.max_utterances)
+            {
+                break;
+            }
+            let heard = (self.heard)();
+            if heard.status == HeardStatus::Heard && last_text.as_deref() != Some(heard.text.as_str()) {
+                let answer = with_timed_words(heard_to_answer(&heard), call.clock.unix_ms());
+                if options.partials {
+                    for at in 0..answer.words.len() {
+                        let mut partial =
+                            Answer::heard_words(answer.words[..=at].to_vec(), &answer.language, answer.started_unix_ms);
+                        partial.text = answer.words[..=at].iter().map(|w| w.text.as_str()).collect::<Vec<_>>().join(" ");
+                        emit(EventKind::Partial, partial);
+                    }
+                }
+                last_text = Some(heard.text.as_str().to_string());
+                finals += 1;
+                quiet_since = now;
+                emit(EventKind::Final, answer);
+                continue;
+            }
+            // Nothing new: the room is quiet (a second of it is reported), and the stand-in looks
+            // again in a moment, at stop and cancel as often as the wait slices.
+            let slice = call.wait(STAND_IN_POLL_MS.min(budget.saturating_sub(now.saturating_sub(began))));
+            if call.clock.now_ms().saturating_sub(quiet_since) >= STAND_IN_QUIET_MS {
+                quiet_since = call.clock.now_ms();
+                emit(EventKind::Quiet, Answer::none(Outcome::NothingHeard, "nothing was said"));
+            }
+            if slice == 0 && call.clock.now_ms() == now {
+                // A clock that does not move (no wait took any time): do not spin on it.
+                break;
+            }
+        }
+        Answer::none(if finals > 0 { Outcome::Heard } else { Outcome::NothingHeard }, "")
     }
 }
+
+/// How often the stand-in looks again at what it hears while a stream runs, ms.
+const STAND_IN_POLL_MS: u64 = 100;
+/// How long the stand-in's room is quiet before the stream says so, ms.
+const STAND_IN_QUIET_MS: u64 = 1_000;
 
 /// What the old headless stand-in heard, with a word's time: 300 ms for each, one after the other
 /// from the start, the audio dated `unix_ms`.

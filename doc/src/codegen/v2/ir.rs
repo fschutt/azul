@@ -1148,6 +1148,13 @@ pub struct TypeTraits {
 
     /// Can be deserialized with serde
     pub is_deserialize: bool,
+
+    /// The engine declares the type `Send` by hand (`unsafe impl Send for X {}`): a handle that holds a
+    /// raw pointer to state that is shared between threads on purpose
+    pub is_send: bool,
+
+    /// The engine declares the type `Sync` by hand
+    pub is_sync: bool,
 }
 
 impl TypeTraits {
@@ -1224,6 +1231,8 @@ impl TypeTraits {
                 "Debug" => traits.is_debug = true,
                 "Serialize" => traits.is_serialize = true,
                 "Deserialize" => traits.is_deserialize = true,
+                "Send" => traits.is_send = true,
+                "Sync" => traits.is_sync = true,
                 _ => {}
             }
         }

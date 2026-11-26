@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The floor APK of the startup measurements (scripts/floor-apk/build.sh): the manifest of a demo APK (scripts/android/AndroidManifest.xml)
+  with the same SDK levels, the same activity flags and the same launcher entry, and a plain Java Activity instead of the engine's
+  NativeActivity: no library, no permission, nothing of azul.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.azul.floor"
+    android:versionCode="1"
+    android:versionName="1.0">
+
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
+
+    <application
+        android:label="AzFloor"
+        android:hasCode="true">
+
+        <activity
+            android:name="com.azul.floor.FloorActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|density|uiMode"
+            android:launchMode="singleTop"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
