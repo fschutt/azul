@@ -68293,6 +68293,12 @@
                                 },
                                 "on_consumer_frame": {
                                     "type": "OptionOnConsumerFrame"
+                                },
+                                "excluded_apps": {
+                                    "type": "StringVec",
+                                    "doc": [
+                                        "The apps whose windows are left out of the picture, by bundle id (at most eight, read when the capture starts); every window of such an app, the ones that open later too."
+                                    ]
                                 }
                             }
                         ],
@@ -68396,6 +68402,37 @@
                                     "type": "ScreenCaptureWidget"
                                 },
                                 "fn_body": "object.with_consumer(consumer)"
+                            },
+                            "add_excluded_app": {
+                                "doc": [
+                                    "Leave the windows of the app with this bundle id (com.apple.notificationcenterui) out of the picture. Read when the capture starts; at most eight apps."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "bundle_id": "String"
+                                    }
+                                ],
+                                "fn_body": "object.add_excluded_app(bundle_id)"
+                            },
+                            "with_excluded_app": {
+                                "doc": [
+                                    "Builder form of [`add_excluded_app`](Self::add_excluded_app)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "bundle_id": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ScreenCaptureWidget"
+                                },
+                                "fn_body": "object.with_excluded_app(bundle_id)"
                             },
                             "set_on_consumer_frame": {
                                 "doc": [

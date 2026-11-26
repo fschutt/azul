@@ -264,6 +264,8 @@ pub struct CaptureRequest {
     pub exclude_self: bool,
     /// Screens: whether the cursor is in the picture (cameras ignore it).
     pub show_cursor: bool,
+    /// Screens: the apps whose windows are left out of the picture.
+    pub exclude: Exclusions,
     /// The pixel format the widget asked for (its config's
     /// `output_format`). A backend that can produce it without a conversion
     /// delivers it ([`CaptureRead::FrameIn`]: BGRA8 or NV12 on Apple); one
@@ -285,8 +287,15 @@ impl CaptureRequest {
             fps: 0,
             exclude_self: true,
             show_cursor: true,
+            exclude: Exclusions::NONE,
             format: azul_core::resources::RawImageFormat::RGBA8,
         }
+    }
+
+    /// The same request leaving these apps out of the picture.
+    #[must_use]
+    pub const fn with_exclusions(self, exclude: Exclusions) -> Self {
+        Self { exclude, ..self }
     }
 
     /// The same request for frames in `format`.
@@ -313,6 +322,62 @@ impl CaptureRequest {
         } else {
             default
         }
+    }
+}
+
+/// How many apps a capture can leave out of its picture.
+pub const MAX_EXCLUDED_APPS: usize = 8;
+/// The longest a bundle id may be, in bytes.
+pub const BUNDLE_ID_BYTES: usize = 96;
+
+/// The apps a screen capture leaves out of its picture, by bundle id (`com.apple.notificationcenterui`): all
+/// of their windows, the ones that open later too. A fixed capacity, so that a [`CaptureRequest`] stays
+/// `Copy`; what does not fit is said ([`Exclusions::from_apps`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Exclusions {
+    apps: [[u8; BUNDLE_ID_BYTES]; MAX_EXCLUDED_APPS],
+    count: u8,
+}
+
+impl Exclusions {
+    /// Nobody is left out.
+    pub const NONE: Self = Self { apps: [[0; BUNDLE_ID_BYTES]; MAX_EXCLUDED_APPS], count: 0 };
+
+    /// The exclusions of the apps named by `ids`, and what could not be kept, in words: a blank id is
+    /// skipped, an id twice is once, an id over [`BUNDLE_ID_BYTES`] bytes is left out, and no more than
+    /// [`MAX_EXCLUDED_APPS`] are kept.
+    #[must_use]
+    pub fn from_apps<'a>(ids: impl IntoIterator<Item = &'a str>) -> (Self, Vec<String>) {
+        let mut out = Self::NONE;
+        let mut notes = Vec::new();
+        for id in ids.into_iter().map(str::trim).filter(|id| !id.is_empty()) {
+            if id.len() > BUNDLE_ID_BYTES {
+                notes.push(format!("the bundle id {id:?} is {} bytes, over the most of {BUNDLE_ID_BYTES}: it is not left out of the capture", id.len()));
+            } else if out.apps().any(|known| known == id) {
+                continue;
+            } else if usize::from(out.count) == MAX_EXCLUDED_APPS {
+                notes.push(format!("more than {MAX_EXCLUDED_APPS} apps to leave out of the capture: the rest are not"));
+                break;
+            } else {
+                out.apps[usize::from(out.count)][..id.len()].copy_from_slice(id.as_bytes());
+                out.count += 1;
+            }
+        }
+        (out, notes)
+    }
+
+    /// The bundle ids, in the order given.
+    pub fn apps(&self) -> impl Iterator<Item = &str> + '_ {
+        self.apps[..usize::from(self.count)].iter().map(|bytes| {
+            let end = bytes.iter().position(|&b| b == 0).unwrap_or(BUNDLE_ID_BYTES);
+            core::str::from_utf8(&bytes[..end]).unwrap_or("")
+        })
+    }
+
+    /// Whether nobody is left out.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.count == 0
     }
 }
 

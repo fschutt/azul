@@ -29,12 +29,12 @@ use azul_core::{
     task::{ThreadId, ThreadReceiver, ThreadSendMsg},
     video::{FrameConsumer, FrameConsumerVec},
 };
-use azul_css::AzString;
+use azul_css::{AzString, StringVec};
 
 use super::capture_common::{
     frame_resampler, present_captured, preview_size_for_node, run_capture_loop, screen_backend,
     send_capture_targets, test_pattern_vtable, CaptureRequest, CaptureSession, CaptureTargets,
-    CapturedFrames, OnConsumerFrame, OnConsumerFrameCallback, OnVideoFrame, OnVideoFrameCallback,
+    CapturedFrames, Exclusions, OnConsumerFrame, OnConsumerFrameCallback, OnVideoFrame, OnVideoFrameCallback,
     OptionOnConsumerFrame, OptionOnVideoFrame, TestPattern, REOPEN_COOLDOWN_MS,
 };
 use crate::{
@@ -88,6 +88,8 @@ pub struct ScreenCaptureWidgetState {
     pub control: Option<std::sync::mpsc::Sender<ThreadSendMsg>>,
     /// The tile's last reported device size.
     pub preview: Option<(u32, u32)>,
+    /// The apps the capture leaves out (read when the capture starts).
+    pub exclude: Exclusions,
 }
 
 impl ScreenCaptureWidgetState {
@@ -116,6 +118,9 @@ pub struct ScreenCaptureWidget {
     pub consumers: FrameConsumerVec,
     /// Optional hook receiving each consumer's cut (see `consumers`).
     pub on_consumer_frame: OptionOnConsumerFrame,
+    /// The apps whose windows are left out of the picture, by bundle id (at most eight, read when the
+    /// capture starts); every window of such an app, the ones that open later too.
+    pub excluded_apps: StringVec,
 }
 
 impl ScreenCaptureWidget {
@@ -127,7 +132,23 @@ impl ScreenCaptureWidget {
             on_frame: OptionOnVideoFrame::None,
             consumers: FrameConsumerVec::from_const_slice(&[]),
             on_consumer_frame: OptionOnConsumerFrame::None,
+            excluded_apps: StringVec::from_const_slice(&[]),
         }
+    }
+
+    /// Leave the windows of the app with this bundle id (`com.apple.notificationcenterui`) out of the
+    /// picture. Read when the capture starts; at most eight apps (what is more is said in the log).
+    pub fn add_excluded_app(&mut self, bundle_id: AzString) {
+        let mut all: Vec<AzString> = self.excluded_apps.as_ref().to_vec();
+        all.push(bundle_id);
+        self.excluded_apps = all.into();
+    }
+
+    /// Builder form of [`add_excluded_app`](Self::add_excluded_app).
+    #[must_use]
+    pub fn with_excluded_app(mut self, bundle_id: AzString) -> Self {
+        self.add_excluded_app(bundle_id);
+        self
     }
 
     /// Register a consumer of the captured frames (see
@@ -199,6 +220,10 @@ impl ScreenCaptureWidget {
     #[must_use]
     pub fn dom(self) -> Dom {
         let marker = super::capture_common::next_capture_marker("screencap");
+        let (exclude, notes) = Exclusions::from_apps(self.excluded_apps.as_ref().iter().map(AzString::as_str));
+        for note in notes {
+            eprintln!("[screencap] {note}");
+        }
         let state = ScreenCaptureWidgetState {
             config: self.config,
             started: false,
@@ -210,6 +235,7 @@ impl ScreenCaptureWidget {
             thread_id: None,
             control: None,
             preview: None,
+            exclude,
         };
         let dataset = RefAny::new(state);
 
@@ -285,7 +311,7 @@ extern "C" fn screencap_on_after_mount(mut data: RefAny, mut info: CallbackInfo)
         s.started = true;
         s.preview = preview;
         ScreencapThreadInit {
-            request: capture_request(&s.config),
+            request: capture_request(&s.config).with_exclusions(s.exclude),
             targets: s.targets(),
             floor: capture_floor(s.on_frame.is_some()),
         }
@@ -412,6 +438,7 @@ extern "C" fn merge_screencap_state(mut new_data: RefAny, mut old_data: RefAny) 
             // The reconciled NODE carries the NEW build's marker string, so
             // the surviving allocation must resolve by that string too.
             old_g.marker = new_g.marker.clone();
+            old_g.exclude = new_g.exclude;
             if worker_cares {
                 let targets = old_g.targets();
                 if let Some(snd) = old_g.control.as_ref() {
@@ -558,6 +585,7 @@ mod autotest_generated {
             thread_id: None,
             control: None,
             preview: None,
+            exclude: Exclusions::NONE,
         })
     }
 
@@ -657,6 +685,7 @@ mod autotest_generated {
             thread_id: None,
             control: None,
             preview: None,
+            exclude: Exclusions::NONE,
         })
     }
 
@@ -1289,6 +1318,38 @@ mod autotest_generated {
         assert_eq!(capture_request(&ScreenCaptureConfig::new(ScreenCaptureSource::Display(3))).display_id, 0);
     }
 
+    /// The apps a widget leaves out of its picture reach the request the worker opens the capture with,
+    /// and the type keeps what it is given in order, once each, with a word for what does not fit.
+    ///
+    /// Mutation: an app that is not copied into the state; one that is copied twice; no cap of eight.
+    #[test]
+    fn the_apps_a_widget_leaves_out_reach_the_request_of_the_capture() {
+        let widget = ScreenCaptureWidget::create(ScreenCaptureConfig::default())
+            .with_excluded_app("com.apple.notificationcenterui".into())
+            .with_excluded_app("com.example.Secret".into())
+            .with_excluded_app("com.apple.notificationcenterui".into());
+        assert_eq!(widget.excluded_apps.as_ref().len(), 3, "the widget keeps the list as it was given");
+        let (exclude, notes) = Exclusions::from_apps(widget.excluded_apps.as_ref().iter().map(AzString::as_str));
+        assert_eq!(exclude.apps().collect::<Vec<_>>(), vec!["com.apple.notificationcenterui", "com.example.Secret"]);
+        assert!(notes.is_empty(), "{notes:?}");
+        let request = capture_request(&ScreenCaptureConfig::default()).with_exclusions(exclude);
+        assert_eq!(request.exclude, exclude);
+        assert_eq!(capture_request(&ScreenCaptureConfig::default()).exclude, Exclusions::NONE, "nobody by default");
+        // Over the cap, over the length, blank, twice.
+        let many: Vec<String> = (0..11).map(|i| format!("com.example.app{i}")).collect();
+        let long = "x".repeat(97);
+        let mut ids: Vec<&str> = many.iter().map(String::as_str).collect();
+        ids.insert(1, "  ");
+        ids.insert(2, long.as_str());
+        ids.insert(3, "com.example.app0");
+        let (exclude, notes) = Exclusions::from_apps(ids);
+        assert_eq!(exclude.apps().count(), 8);
+        assert_eq!(exclude.apps().last(), Some("com.example.app7"));
+        assert_eq!(notes.len(), 2, "one for the long id, one for the rest: {notes:?}");
+        assert!(notes[0].contains("97") && notes[1].contains('8'), "{notes:?}");
+        assert!(Exclusions::NONE.is_empty() && !exclude.is_empty());
+    }
+
     // ------------------------------------------------------------------
     // screencap_worker
     // ------------------------------------------------------------------
@@ -1602,6 +1663,7 @@ mod autotest_generated {
             thread_id: None,
             control: None,
             preview: None,
+            exclude: Exclusions::NONE,
         });
         let old_data = state(DEFAULT_CFG, false, None);
 

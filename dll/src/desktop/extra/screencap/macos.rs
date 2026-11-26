@@ -530,27 +530,35 @@ pub(super) fn open(request: &CaptureRequest) -> u64 {
                 );
             }
         }
-        if filter.is_null() && request.exclude_self {
+        // The apps left out of the picture - this process's own when `exclude_self`, and the apps whose
+        // bundle ids the request names (their windows that open later too): one filter for all of them.
+        if filter.is_null() && (request.exclude_self || !request.exclude.is_empty()) {
             let apps: *mut AnyObject = msg_send![&*content, applications];
             if !apps.is_null() {
                 let apps = &*(apps as *const NSArray<AnyObject>);
                 let me = std::process::id() as i32;
+                let mut left_out: Vec<Retained<AnyObject>> = Vec::new();
                 for i in 0..apps.count() {
                     let app: *mut AnyObject = msg_send![apps, objectAtIndex: i];
                     let pid: i32 = msg_send![&*app, processID];
-                    if pid == me {
-                        let ours: Retained<NSArray<AnyObject>> = NSArray::from_retained_slice(&[
-                            Retained::retain(app).expect("non-null app"),
-                        ]);
-                        let f: *mut AnyObject = msg_send![sc_filter, alloc];
-                        filter = msg_send![
-                            f,
-                            initWithDisplay: display,
-                            excludingApplications: &*ours,
-                            exceptingWindows: &*empty
-                        ];
-                        break;
+                    let bundle: *mut AnyObject = msg_send![&*app, bundleIdentifier];
+                    let bundle_id = if bundle.is_null() { String::new() } else { (*(bundle as *const NSString)).to_string() };
+                    let named = !bundle_id.is_empty() && request.exclude.apps().any(|id| id == bundle_id);
+                    if (request.exclude_self && pid == me) || named {
+                        if let Some(app) = Retained::retain(app) {
+                            left_out.push(app);
+                        }
                     }
+                }
+                if !left_out.is_empty() {
+                    let list: Retained<NSArray<AnyObject>> = NSArray::from_retained_slice(&left_out);
+                    let f: *mut AnyObject = msg_send![sc_filter, alloc];
+                    filter = msg_send![
+                        f,
+                        initWithDisplay: display,
+                        excludingApplications: &*list,
+                        exceptingWindows: &*empty
+                    ];
                 }
             }
         }

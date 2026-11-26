@@ -400,6 +400,7 @@ fn camera_session(
             exclude_self: false,
             display_id: 0,
             show_cursor: true,
+            exclude: super::capture_common::Exclusions::NONE,
             format,
         },
         floor,
