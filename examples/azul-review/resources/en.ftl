@@ -120,6 +120,15 @@ azreview-rec-state-recovered = Recovered after the app ended
 azreview-rec-state-unfinished = Not finished
 azreview-rec-state-damaged = Cannot be read
 azreview-rec-row-problem = { $why }
+azreview-rec-export = Export video
+azreview-rec-export-cancel = Cancel export
+azreview-rec-export-open = Open video
+azreview-rec-export-running = Making the video: { $percent } %
+azreview-rec-export-done = Video: { $name } ({ $size })
+azreview-rec-export-failed = The video could not be made: { $why }
+azreview-rec-export-cancelled = The export was cancelled.
+azreview-rec-export-note = Note: { $note }
+azreview-rec-error-export = { $name } was not exported: { $why }
 
 ## Whiteboard
 

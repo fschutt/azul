@@ -10,7 +10,7 @@
 //! preview).
 
 use std::{
-    collections::VecDeque,
+    collections::{BTreeMap, VecDeque},
     path::PathBuf,
     sync::{Arc, Mutex},
 };
@@ -21,12 +21,13 @@ use crate::{
     recorder::{Deps, DesktopSample, Notice, Recorder, StartRequest, State, TrackName},
     recorder_codec::RawFrame,
     recorder_events::EventSink,
+    recorder_export_job::{video_path, ExportJob, FfmpegRenderer, JobState, Renderer},
     recorder_fs::{delete_recording, list_recordings, recover_all, RecordingInfo},
     recorder_hook::RecorderHook,
-    recorder_manifest::{is_safe_relative, AppInfo, HostInfo, Workspace},
+    recorder_manifest::{is_safe_relative, AppInfo, HostInfo, SessionState, Workspace},
     recorder_panel::{access_perm, duration_text, hud, notice_note, rows, size_text, start_error_text, Access, Hud, Note, Row, Severity},
     recorder_screen::{Tapped, TapFrame},
-    recorder_settings::{RecorderSettings, ScreenKind},
+    recorder_settings::{RecorderSettings, ScreenKind, DEFAULT_FFMPEG},
 };
 
 /// How many notices the panel keeps.
@@ -191,6 +192,17 @@ pub struct RecorderHost {
     error: Option<Text>,
     recent: VecDeque<Note>,
     recordings: Vec<RecordingInfo>,
+    /// The exports of this run of the app, by the recording's name (a finished one stays until it is made again).
+    exports: BTreeMap<String, ExportJob>,
+    /// What an export is made with: ffmpeg; a test puts its own.
+    renderer: Box<dyn Fn() -> Box<dyn Renderer>>,
+}
+
+/// The ffmpeg the settings name, when they name one: the default is where a Mac's package manager usually puts it,
+/// not a choice, and a machine that has it elsewhere is not told that the default was not there.
+#[must_use]
+pub fn named_ffmpeg(settings: &RecorderSettings) -> Option<PathBuf> {
+    (settings.ffmpeg != std::path::Path::new(DEFAULT_FFMPEG)).then(|| settings.ffmpeg.clone())
 }
 
 fn allows(access: Access) -> bool {
@@ -210,6 +222,7 @@ impl RecorderHost {
     /// A host with no recording going.
     #[must_use]
     pub fn new(settings: RecorderSettings, facts: Facts, deps: Deps) -> Self {
+        let renderer = Self::ffmpeg_renderer(&settings);
         Self {
             recorder: Recorder::new(settings.clone(), deps),
             hook: SessionHook::default(),
@@ -222,7 +235,20 @@ impl RecorderHost {
             error: None,
             recent: VecDeque::new(),
             recordings: Vec::new(),
+            exports: BTreeMap::new(),
+            renderer,
         }
+    }
+
+    /// The real renderer: ffmpeg, the one the settings name when they name one (and it can be run).
+    fn ffmpeg_renderer(settings: &RecorderSettings) -> Box<dyn Fn() -> Box<dyn Renderer>> {
+        let named = named_ffmpeg(settings);
+        Box::new(move || Box::new(FfmpegRenderer { ffmpeg: None, preferred: named.clone(), out: None }))
+    }
+
+    /// What exports are made with from now on (the real one is ffmpeg).
+    pub fn set_renderer(&mut self, make: Box<dyn Fn() -> Box<dyn Renderer>>) {
+        self.renderer = make;
     }
 
     /// What the window tells the recorder about the review: the events go to the recording that is going, if any. Made
@@ -465,7 +491,74 @@ impl RecorderHost {
     /// The rows of the list as it was last read.
     #[must_use]
     pub fn rows(&self) -> Vec<Row> {
-        rows(&self.recordings, self.facts.decimal)
+        let jobs: BTreeMap<String, JobState> = self.exports.iter().map(|(name, job)| (name.clone(), job.state())).collect();
+        rows(&self.recordings, self.facts.decimal, &jobs)
+    }
+
+    // ---- exporting a recording ----
+
+    fn refuse_export(&mut self, name: &str, why: &str) -> bool {
+        self.push(Severity::Warning, Text::from(Phrase::new("azreview-rec-error-export").arg("name", name).arg("why", why)));
+        false
+    }
+
+    /// Makes a video of the recording called `name`, on a thread of its own; `false` (and the panel says why) when
+    /// it cannot be: it is not a recording of the list, it is being recorded or exported now, it is not finished, or
+    /// it has no screen (the video is made of the screen's pictures).
+    pub fn export(&mut self, name: &str) -> bool {
+        let Some(path) = self.path_of(name) else { return self.refuse_export(name, "it is not a recording of the list") };
+        if self.current().is_some_and(|n| n == name) {
+            return self.refuse_export(name, "it is being recorded now");
+        }
+        if self.exports.get(name).is_some_and(ExportJob::is_running) {
+            return self.refuse_export(name, "it is being exported already");
+        }
+        let Some(info) = self.recordings.iter().find(|r| r.name == name) else { return self.refuse_export(name, "it is not a recording of the list") };
+        if !matches!(info.state, Some(SessionState::Complete | SessionState::Recovered)) {
+            return self.refuse_export(name, "it is not finished");
+        }
+        if !info.tracks.contains(&"screen") {
+            return self.refuse_export(name, "it has no screen: the video is made of the screen's pictures");
+        }
+        self.exports.insert(name.to_string(), ExportJob::start(path, (self.renderer)()));
+        true
+    }
+
+    /// Asks the export of the recording called `name` to stop.
+    pub fn cancel_export(&mut self, name: &str) {
+        if let Some(job) = self.exports.get(name) {
+            job.cancel();
+        }
+    }
+
+    /// The video of the recording called `name`, when it has one.
+    #[must_use]
+    pub fn video_of(&self, name: &str) -> Option<PathBuf> {
+        self.path_of(name).map(|dir| video_path(&dir)).filter(|video| video.is_file())
+    }
+
+    /// One mark for each export of this run: it changes when the row of that recording would look different (how far
+    /// it is, that it is done, failed or cancelled), so that the window draws again then and not otherwise.
+    #[must_use]
+    pub fn export_marks(&self) -> Vec<(String, u8)> {
+        self.exports
+            .iter()
+            .map(|(name, job)| {
+                let mark = match job.state() {
+                    JobState::Running { fraction } => (fraction.clamp(0.0, 1.0) * 100.0).floor().min(99.0) as u8,
+                    JobState::Done(_) => 100,
+                    JobState::Failed(_) => 101,
+                    JobState::Cancelled => 102,
+                };
+                (name.clone(), mark)
+            })
+            .collect()
+    }
+
+    /// An export is going: the window keeps looking at it.
+    #[must_use]
+    pub fn exports_running(&self) -> bool {
+        self.exports.values().any(ExportJob::is_running)
     }
 
     /// Puts right the recordings an earlier run of the app left cut off, and says how many; how many.
@@ -494,9 +587,17 @@ impl RecorderHost {
     /// Deletes the recording called `name`: only a recording that is not being written. What is refused is said.
     pub fn delete(&mut self, name: &str) -> bool {
         let going = self.current().is_some_and(|n| n == name);
-        let result = if going { Err(String::from("it is being recorded now")) } else { delete_recording(&self.dir(), name).map_err(|e| e.to_string()) };
+        let exporting = self.exports.get(name).is_some_and(ExportJob::is_running);
+        let result = if going {
+            Err(String::from("it is being recorded now"))
+        } else if exporting {
+            Err(String::from("it is being exported now"))
+        } else {
+            delete_recording(&self.dir(), name).map_err(|e| e.to_string())
+        };
         match result {
             Ok(_) => {
+                self.exports.remove(name);
                 self.refresh();
                 true
             }

@@ -4,11 +4,12 @@
 
 use std::{
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicU32, Ordering},
-        Arc,
+        atomic::{AtomicBool, AtomicU32, Ordering},
+        Arc, Mutex,
     },
+    time::{Duration, Instant},
 };
 
 use azul_appkit::phrase::{Arg, Phrase, Text};
@@ -18,6 +19,7 @@ use crate::{
     recorder::{DesktopSample, FrontApp},
     recorder_clock::{Clock, MockClock},
     recorder_codec::{MockFactory, PixelFormat, RawFrame},
+    recorder_export_job::{Failure, Made, Renderer},
     recorder_manifest::{AppInfo, HostInfo, Workspace},
     recorder_panel::{Access, Do, Dot, Severity},
     recorder_settings::{RecorderSettings, ScreenKind},
@@ -535,5 +537,253 @@ fn a_recording_that_ends_by_its_length_closes_the_hook() {
     r.host.tick();
     assert_eq!(r.host.hud().dot, Dot::Idle, "the recording ended at its length");
     assert!(!hook.is_open());
+}
+
+// ---- exporting a recording ----
+
+/// What the test does to the renderers it gives the host: lets them finish, and says what they were given.
+#[derive(Default, Clone)]
+struct Gate {
+    /// The renderers wait for this before they make the video.
+    release: Arc<AtomicBool>,
+    /// What the renderers were asked to export, and whether any saw a cancel.
+    given: Arc<Mutex<Vec<PathBuf>>>,
+    saw_cancel: Arc<AtomicBool>,
+}
+
+struct Gated(Gate);
+
+impl Renderer for Gated {
+    fn render(&mut self, session: &Path, cancel: &AtomicBool, progress: &mut dyn FnMut(f64)) -> Result<Made, Failure> {
+        self.0.given.lock().unwrap().push(session.to_path_buf());
+        progress(0.5);
+        while !self.0.release.load(Ordering::SeqCst) {
+            if cancel.load(Ordering::SeqCst) {
+                self.0.saw_cancel.store(true, Ordering::SeqCst);
+                return Err(Failure::Cancelled);
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        let file = crate::recorder_export_job::video_path(session);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(&file, vec![0_u8; 2_000_000]).unwrap();
+        Ok(Made { file, bytes: 2_000_000, notes: Vec::new() })
+    }
+}
+
+impl Rig {
+    /// The host exports with renderers that wait for the gate.
+    fn gated(&mut self) -> Gate {
+        let gate = Gate::default();
+        let g = gate.clone();
+        self.host.set_renderer(Box::new(move || Box::new(Gated(g.clone()))));
+        gate
+    }
+
+    /// A recording of two seconds with a screen, a camera and a voice, stopped: its name.
+    fn recorded(&mut self) -> String {
+        assert!(self.start());
+        for i in 0..20_u8 {
+            self.clock.advance_ms(100);
+            self.host.screen_frame(RawFrame { width: 1920, height: 1248, format: PixelFormat::Rgba8, bytes: vec![i; 1920 * 1248 * 4] }, 1.0);
+            self.host.audio_chunk(&vec![0.1; 4_800], 48_000, 1);
+            self.host.tick();
+        }
+        let name = self.host.current().expect("a recording goes");
+        self.host.stop();
+        name
+    }
+
+    fn row(&self, name: &str) -> crate::recorder_panel::Row {
+        self.host.rows().into_iter().find(|r| r.name == name).expect("the recording is in the list")
+    }
+
+    fn wait_for(&self, name: &str, what: &str, done: impl Fn(&crate::recorder_panel::ExportLine) -> bool) {
+        let from = Instant::now();
+        while !done(&self.row(name).export) {
+            assert!(from.elapsed() < Duration::from_secs(5), "{what}: {:?}", self.row(name).export);
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    /// The last warning the panel keeps, as the key and its `why`.
+    fn last_export_refusal(&self) -> Option<String> {
+        let note = self.host.recent().last()?;
+        let p = note.text.phrase("azreview-rec-error-export")?;
+        Some(format!("{:?}", p.get("why")))
+    }
+}
+
+/// A finished recording is exported by a job of the host: the row says how far it is, then names the video and
+/// offers it; the renderer is given the recording's own folder, and the video is where the recording is.
+///
+/// Mutation: a job given another folder; a row that does not follow the job; a video that is not found afterwards.
+#[test]
+fn a_finished_recording_is_exported_by_a_job_and_the_row_follows_it() {
+    use crate::recorder_panel::{ExportLine, RowDo};
+    let mut r = rig();
+    let gate = r.gated();
+    let name = r.recorded();
+    assert!(r.row(&name).actions.iter().any(|b| b.what == RowDo::Export), "a finished recording with a screen");
+    assert_eq!(r.row(&name).export, ExportLine::None);
+    assert!(r.host.video_of(&name).is_none(), "no video yet");
+
+    assert!(r.host.export(&name));
+    r.wait_for(&name, "the job reports", |e| matches!(e, ExportLine::Running { percent: 50 }));
+    assert_eq!(gate.given.lock().unwrap().clone(), vec![r.host.path_of(&name).unwrap()], "the renderer is given the recording's folder");
+    assert!(r.row(&name).actions.iter().any(|b| b.what == RowDo::CancelExport));
+
+    gate.release.store(true, Ordering::SeqCst);
+    r.wait_for(&name, "the job ends", |e| matches!(e, ExportLine::Done { .. }));
+    let row = r.row(&name);
+    assert_eq!(row.export, ExportLine::Done { name: String::from("video.mp4"), size: String::from("2 MB"), notes: Vec::new() });
+    assert!(row.actions.iter().any(|b| b.what == RowDo::OpenVideo));
+    let video = r.host.video_of(&name).expect("the video is there");
+    assert_eq!(video, r.host.path_of(&name).unwrap().join("export").join("video.mp4"));
+    // A fresh read of the folder (the next run of the app) finds the same video.
+    r.host.refresh();
+    assert_eq!(r.row(&name).export, ExportLine::Done { name: String::from("video.mp4"), size: String::from("2 MB"), notes: Vec::new() });
+}
+
+/// What cannot be exported is said, in the panel's notes, and no job is started: the recording that is being
+/// recorded, one that has no screen, a name that is not a recording, and one that is being exported already.
+///
+/// Mutation: an export of the recording that is being written; one of a recording without a screen; a second job
+/// for a recording that is exported already; a refusal that is not said.
+#[test]
+fn what_cannot_be_exported_is_said_and_starts_nothing() {
+    let mut r = rig();
+    let gate = r.gated();
+    let name = r.recorded();
+    // The recording that is going: a second one, not finished.
+    r.clock.advance_ms(2_000);
+    assert!(r.start());
+    let going = r.host.current().unwrap();
+    assert_ne!(going, name);
+    r.host.refresh();
+    assert!(!r.host.export(&going));
+    assert!(r.last_export_refusal().unwrap().contains("being recorded"), "{:?}", r.last_export_refusal());
+    r.host.stop();
+    // A name that is not a recording.
+    assert!(!r.host.export("../elsewhere"));
+    assert!(!r.host.export("no-such-recording"));
+    assert!(r.last_export_refusal().unwrap().contains("not a recording"), "{:?}", r.last_export_refusal());
+    // One that is exported already.
+    assert!(r.host.export(&name));
+    assert!(!r.host.export(&name));
+    assert!(r.last_export_refusal().unwrap().contains("already"), "{:?}", r.last_export_refusal());
+    r.wait_for(&name, "the job reports", |e| matches!(e, crate::recorder_panel::ExportLine::Running { percent: 50 }));
+    let given = gate.given.lock().unwrap().clone();
+    assert_eq!(given.len(), 1, "one job only: {given:?}");
+    gate.release.store(true, Ordering::SeqCst);
+    r.wait_for(&name, "the job ends", |e| matches!(e, crate::recorder_panel::ExportLine::Done { .. }));
+
+    // A recording the app left unfinished (a crash that was not put right): the notes say it was still being written.
+    let dir = r.host.path_of(&name).unwrap();
+    let notes = fs::read_to_string(dir.join("manifest.json")).unwrap();
+    assert!(notes.contains("\"complete\""), "{notes}");
+    let unfinished = dir.parent().unwrap().join("2026-01-02_00-00-00");
+    fs::create_dir_all(&unfinished).unwrap();
+    fs::write(unfinished.join("manifest.json"), notes.replace("\"complete\"", "\"recording\"")).unwrap();
+    r.host.refresh();
+    assert!(!r.host.export("2026-01-02_00-00-00"));
+    assert!(r.last_export_refusal().unwrap().contains("not finished"), "{:?}", r.last_export_refusal());
+    // A folder that appeared since the list was read is not exported before the list has it.
+    let newcomer = dir.parent().unwrap().join("2026-01-03_00-00-00");
+    fs::create_dir_all(&newcomer).unwrap();
+    fs::write(newcomer.join("manifest.json"), &notes).unwrap();
+    assert!(!r.host.export("2026-01-03_00-00-00"));
+    assert!(r.last_export_refusal().unwrap().contains("not a recording of the list"), "{:?}", r.last_export_refusal());
+
+    // A recording with no screen (the camera and the voice alone).
+    let mut r = rig_with(RecorderSettings { screen: false, ..quiet() });
+    let _gate = r.gated();
+    let name = r.recorded();
+    assert!(!r.host.export(&name));
+    assert!(r.last_export_refusal().unwrap().contains("no screen"), "{:?}", r.last_export_refusal());
+}
+
+/// A cancel stops the job and the row says so and offers to start again; a recording that is being exported is not
+/// deleted, and one that is not is, with the job's word about it.
+///
+/// Mutation: a cancel that is not passed on; a recording deleted under its export; a delete that leaves the job.
+#[test]
+fn an_export_can_be_cancelled_and_a_recording_under_export_is_not_deleted() {
+    use crate::recorder_panel::{ExportLine, RowDo};
+    let mut r = rig();
+    let gate = r.gated();
+    let name = r.recorded();
+    assert!(r.host.export(&name));
+    r.wait_for(&name, "the job reports", |e| matches!(e, ExportLine::Running { .. }));
+    assert!(!r.host.delete(&name), "not while it is exported");
+    assert!(r.host.path_of(&name).is_some());
+    assert!(r.host.recent().last().unwrap().text.phrase("azreview-rec-error-delete").is_some());
+    r.host.cancel_export(&name);
+    r.wait_for(&name, "the job is cancelled", |e| matches!(e, ExportLine::Cancelled));
+    assert!(gate.saw_cancel.load(Ordering::SeqCst));
+    assert!(r.row(&name).actions.iter().any(|b| b.what == RowDo::Export), "it can be started again");
+    // Again, and this time to the end.
+    assert!(r.host.export(&name));
+    gate.release.store(true, Ordering::SeqCst);
+    r.wait_for(&name, "the job ends", |e| matches!(e, ExportLine::Done { .. }));
+    assert!(r.host.delete(&name), "the job is over: the recording can go");
+    assert!(r.host.path_of(&name).is_none());
+    assert!(r.host.rows().is_empty());
+    assert!(r.host.export_marks().is_empty(), "the job of a recording that is gone is gone");
+}
+
+/// The window is told when an export's line changes (the marks differ between how far it is, that it is done and that
+/// it was cancelled), so that it draws again then and not otherwise.
+///
+/// Mutation: marks that do not change with the progress; marks that do not tell done from cancelled.
+#[test]
+fn the_marks_of_the_exports_change_when_a_row_would_look_different() {
+    let mut r = rig();
+    let gate = r.gated();
+    let name = r.recorded();
+    assert!(r.host.export_marks().is_empty(), "nothing exported: nothing to watch");
+    assert!(r.host.export(&name));
+    r.wait_for(&name, "the job reports", |e| matches!(e, crate::recorder_panel::ExportLine::Running { percent: 50 }));
+    let running = r.host.export_marks();
+    assert_eq!(running.len(), 1);
+    assert_eq!(running[0].0, name);
+    assert!(r.host.exports_running());
+    r.host.cancel_export(&name);
+    r.wait_for(&name, "the job is cancelled", |e| matches!(e, crate::recorder_panel::ExportLine::Cancelled));
+    let cancelled = r.host.export_marks();
+    assert_ne!(cancelled, running);
+    assert!(!r.host.exports_running());
+    assert!(r.host.export(&name));
+    gate.release.store(true, Ordering::SeqCst);
+    r.wait_for(&name, "the job ends", |e| matches!(e, crate::recorder_panel::ExportLine::Done { .. }));
+    let done = r.host.export_marks();
+    assert_ne!(done, cancelled);
+    assert_ne!(done, running);
+}
+
+/// A host that is let go while an export runs cancels it and waits for it: nothing is left running behind the app.
+///
+/// Mutation: a host that leaves its jobs running.
+#[test]
+fn a_host_that_is_let_go_cancels_the_exports_it_runs() {
+    let mut r = rig();
+    let gate = r.gated();
+    let name = r.recorded();
+    assert!(r.host.export(&name));
+    r.wait_for(&name, "the job reports", |e| matches!(e, crate::recorder_panel::ExportLine::Running { .. }));
+    let Rig { host, tmp, .. } = r;
+    drop(host);
+    assert!(gate.saw_cancel.load(Ordering::SeqCst), "the renderer was told to stop, and had stopped when the host was gone");
+    drop(tmp);
+}
+
+/// The ffmpeg of the settings is the export's own only when the person named one: the default is not a choice.
+///
+/// Mutation: the default taken as a choice; a named one dropped.
+#[test]
+fn the_ffmpeg_of_the_settings_is_named_only_when_the_person_named_it() {
+    assert_eq!(named_ffmpeg(&RecorderSettings::default()), None);
+    let custom = RecorderSettings { ffmpeg: PathBuf::from("/opt/tools/ffmpeg"), ..RecorderSettings::default() };
+    assert_eq!(named_ffmpeg(&custom), Some(PathBuf::from("/opt/tools/ffmpeg")));
 }
 

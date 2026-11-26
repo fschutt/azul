@@ -6,10 +6,13 @@
 //! Numbers that are not whole counts (a size, a time) are text made here, with the language's decimal mark
 //! passed in: Fluent's arguments are strings and counts.
 
+use std::collections::BTreeMap;
+
 use azul_appkit::phrase::{Arg, Phrase, Text};
 
 use crate::{
     recorder::{Indicator, Notice, PauseReason, Perm, StartError, State, TrackName},
+    recorder_export_job::{JobState, VIDEO_FILE},
     recorder_fs::RecordingInfo,
     recorder_manifest::SessionState,
     recorder_policy::DiskState,
@@ -351,6 +354,61 @@ pub fn access_perm(track: TrackName, access: Access, who: &str) -> Perm {
     }
 }
 
+/// What a row's button does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RowDo {
+    /// Show the recording's folder.
+    Reveal,
+    Delete,
+    /// Make a video of the recording.
+    Export,
+    CancelExport,
+    /// Open the video that was made.
+    OpenVideo,
+}
+
+/// A button of a row: what it does and its words.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RowButton {
+    pub what: RowDo,
+    pub label: Phrase,
+}
+
+/// What a row says of the export of its recording.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExportLine {
+    /// Nothing: no video was asked for, and none is in the folder.
+    None,
+    /// Being made, in whole percents (never 100: that is for a video that exists).
+    Running { percent: u8 },
+    /// Made: the video's file name and size, and what did not work as asked on the way.
+    Done { name: String, size: String, notes: Vec<String> },
+    /// Could not be made, in the words of the system or of ffmpeg.
+    Failed(String),
+    Cancelled,
+}
+
+/// The words of an export line, or none for a recording nothing was done with.
+#[must_use]
+pub fn export_text(line: &ExportLine) -> Option<Text> {
+    Some(match line {
+        ExportLine::None => return None,
+        ExportLine::Running { percent } => Text::from(Phrase::new("azreview-rec-export-running").arg("percent", u32::from(*percent))),
+        ExportLine::Done { name, size, .. } => Text::from(Phrase::new("azreview-rec-export-done").arg("name", name.as_str()).arg("size", size.as_str())),
+        ExportLine::Failed(why) => Text::from(Phrase::new("azreview-rec-export-failed").arg("why", why.as_str())),
+        ExportLine::Cancelled => Text::key("azreview-rec-export-cancelled"),
+    })
+}
+
+/// What did not work as asked when the video was made, one line each (under the line that names the video).
+#[must_use]
+pub fn export_notes(line: &ExportLine) -> Vec<Text> {
+    match line {
+        ExportLine::Done { notes, .. } => notes.iter().map(|note| Text::from(Phrase::new("azreview-rec-export-note").arg("note", note.as_str()))).collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// One recording of the list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Row {
@@ -365,25 +423,71 @@ pub struct Row {
     pub state: Phrase,
     /// What is wrong with it, when something is.
     pub problem: Option<Text>,
+    /// What is known of its video.
+    pub export: ExportLine,
+    /// The buttons it has, in order.
+    pub actions: Vec<RowButton>,
 }
 
-/// The rows of the list, in the order given (the newest first).
+/// What a recording's export is: what the job says when one was started in this run of the app (it knows more than
+/// the folder), else the video an earlier run left in the folder.
+fn export_line(job: Option<&JobState>, video_bytes: Option<u64>, decimal: char) -> ExportLine {
+    match (job, video_bytes) {
+        (Some(JobState::Running { fraction }), _) => ExportLine::Running { percent: (fraction.clamp(0.0, 1.0) * 100.0).floor().min(99.0) as u8 },
+        (Some(JobState::Done(made)), _) => ExportLine::Done { name: VIDEO_FILE.to_string(), size: size_text(made.bytes, decimal), notes: made.notes.clone() },
+        (Some(JobState::Failed(why)), _) => ExportLine::Failed(why.clone()),
+        (Some(JobState::Cancelled), _) => ExportLine::Cancelled,
+        (None, Some(bytes)) => ExportLine::Done { name: VIDEO_FILE.to_string(), size: size_text(bytes, decimal), notes: Vec::new() },
+        (None, None) => ExportLine::None,
+    }
+}
+
+/// The buttons of a row: a finished recording that has a screen can be exported (or the export cancelled while it
+/// runs), a video that exists can be opened, the folder can be shown, and the recording deleted unless it is being
+/// exported.
+fn actions(exportable: bool, export: &ExportLine) -> Vec<RowButton> {
+    let running = matches!(export, ExportLine::Running { .. });
+    let button = |what: RowDo, key: &str| RowButton { what, label: Phrase::new(key) };
+    let mut out = Vec::new();
+    if running {
+        out.push(button(RowDo::CancelExport, "azreview-rec-export-cancel"));
+    } else if exportable {
+        out.push(button(RowDo::Export, "azreview-rec-export"));
+    }
+    if matches!(export, ExportLine::Done { .. }) {
+        out.push(button(RowDo::OpenVideo, "azreview-rec-export-open"));
+    }
+    out.push(button(RowDo::Reveal, "azreview-rec-reveal"));
+    if !running {
+        out.push(button(RowDo::Delete, "azreview-rec-delete"));
+    }
+    out
+}
+
+/// The rows of the list, in the order given (the newest first); `exports` are the jobs of this run of the app by the
+/// recording's name.
 #[must_use]
-pub fn rows(list: &[RecordingInfo], decimal: char) -> Vec<Row> {
+pub fn rows(list: &[RecordingInfo], decimal: char, exports: &BTreeMap<String, JobState>) -> Vec<Row> {
     list.iter()
-        .map(|r| Row {
-            name: r.name.clone(),
-            when: when_text(&r.name),
-            length: duration_text(r.recorded_us),
-            size: size_text(r.bytes, decimal),
-            tracks: r.tracks.clone(),
-            state: Phrase::new(match r.state {
-                Some(SessionState::Complete) => "azreview-rec-state-complete",
-                Some(SessionState::Recovered) => "azreview-rec-state-recovered",
-                Some(SessionState::Recording) => "azreview-rec-state-unfinished",
-                None => "azreview-rec-state-damaged",
-            }),
-            problem: r.problem.as_deref().map(|why| Text::from(Phrase::new("azreview-rec-row-problem").arg("why", why))),
+        .map(|r| {
+            let export = export_line(exports.get(&r.name), r.video_bytes, decimal);
+            let exportable = matches!(r.state, Some(SessionState::Complete | SessionState::Recovered)) && r.tracks.contains(&"screen");
+            Row {
+                name: r.name.clone(),
+                when: when_text(&r.name),
+                length: duration_text(r.recorded_us),
+                size: size_text(r.bytes, decimal),
+                tracks: r.tracks.clone(),
+                state: Phrase::new(match r.state {
+                    Some(SessionState::Complete) => "azreview-rec-state-complete",
+                    Some(SessionState::Recovered) => "azreview-rec-state-recovered",
+                    Some(SessionState::Recording) => "azreview-rec-state-unfinished",
+                    None => "azreview-rec-state-damaged",
+                }),
+                problem: r.problem.as_deref().map(|why| Text::from(Phrase::new("azreview-rec-row-problem").arg("why", why))),
+                actions: actions(exportable, &export),
+                export,
+            }
         })
         .collect()
 }

@@ -1,11 +1,14 @@
 //! The recorder's panel as words and numbers: what the indicator, the panel and the list show, from what the
 //! recorder reports. No window, no azul: the tests check keys and arguments, not a language.
 
+use std::{collections::BTreeMap, path::PathBuf};
+
 use azul_appkit::phrase::{Arg, Phrase, Text};
 
 use super::*;
 use crate::{
     recorder::{Indicator, Notice, PauseReason, StartError, State, TrackName},
+    recorder_export_job::{JobState, Made},
     recorder_fs::RecordingInfo,
     recorder_manifest::SessionState,
     recorder_policy::DiskState,
@@ -370,7 +373,11 @@ fn a_recording_that_did_not_start_says_why() {
 // ---- the list of recordings ----
 
 fn info(name: &str, state: Option<SessionState>, recorded_us: u64, bytes: u64, tracks: &[&'static str], problem: Option<&str>) -> RecordingInfo {
-    RecordingInfo { name: name.to_string(), state, started_unix_ms: Some(1), recorded_us, bytes, tracks: tracks.to_vec(), problem: problem.map(str::to_string) }
+    RecordingInfo { name: name.to_string(), state, started_unix_ms: Some(1), recorded_us, bytes, tracks: tracks.to_vec(), problem: problem.map(str::to_string), video_bytes: None }
+}
+
+fn no_exports() -> BTreeMap<String, JobState> {
+    BTreeMap::new()
 }
 
 /// A row says when (the folder's name is the local time), how long, how big, which tracks and how it stands.
@@ -383,7 +390,7 @@ fn a_row_of_the_list_says_when_how_long_how_big_and_how_it_stands() {
         info("2026-11-25_09-30-05", Some(SessionState::Recovered), 61_000_000, 12_000_000, &["screen"], None),
         info("2026-11-24_08-00-00", Some(SessionState::Recording), 5_000_000, 1_000_000, &["screen", "audio"], None),
     ];
-    let rows = rows(&list, '.');
+    let rows = rows(&list, '.', &no_exports());
     assert_eq!(rows.len(), 3);
     assert_eq!(rows[0].name, "2026-11-26_10-00-00");
     assert_eq!(rows[0].when, "2026-11-26 10:00:00");
@@ -403,7 +410,7 @@ fn a_row_of_the_list_says_when_how_long_how_big_and_how_it_stands() {
 #[test]
 fn a_damaged_recording_is_a_row_with_the_words_of_what_is_wrong() {
     let list = [info("old-copy", None, 0, 4_096, &[], Some("the manifest does not parse"))];
-    let rows = rows(&list, '.');
+    let rows = rows(&list, '.', &no_exports());
     assert_eq!(rows[0].when, "old-copy");
     assert_eq!(rows[0].state, Phrase::new("azreview-rec-state-damaged"));
     let problem = rows[0].problem.as_ref().expect("the words");
@@ -419,5 +426,124 @@ fn a_damaged_recording_is_a_row_with_the_words_of_what_is_wrong() {
 }
 
 fn rows_when(name: &str) -> String {
-    rows(&[info(name, Some(SessionState::Complete), 0, 0, &[], None)], '.').remove(0).when
+    rows(&[info(name, Some(SessionState::Complete), 0, 0, &[], None)], '.', &no_exports()).remove(0).when
 }
+
+// ---- the export of a recording ----
+
+const NAME: &str = "2026-11-26_10-00-00";
+
+fn made(bytes: u64) -> Made {
+    Made { file: PathBuf::from(format!("/rec/{NAME}/export/video.mp4")), bytes, notes: Vec::new() }
+}
+
+fn row_with(state: Option<SessionState>, tracks: &[&'static str], job: Option<JobState>, video_bytes: Option<u64>) -> Row {
+    let mut one = info(NAME, state, 60_000_000, 5_000_000, tracks, None);
+    one.video_bytes = video_bytes;
+    let jobs: BTreeMap<String, JobState> = job.map(|j| (NAME.to_string(), j)).into_iter().collect();
+    rows(&[one], '.', &jobs).remove(0)
+}
+
+fn whats(row: &Row) -> Vec<RowDo> {
+    row.actions.iter().map(|b| b.what).collect()
+}
+
+/// A finished recording that has a screen can be exported; one that is still being written, one that cannot be read
+/// and one with no screen cannot (the video is made of the screen's pictures), and the words of each button are the
+/// ones the language files have.
+///
+/// Mutation: an export offered for a recording that is not finished; one offered for a recording with no screen; a
+/// recovered recording left out.
+#[test]
+fn only_a_finished_recording_with_a_screen_is_offered_for_export() {
+    let all = ["screen", "camera", "audio"];
+    assert_eq!(whats(&row_with(Some(SessionState::Complete), &all, None, None)), vec![RowDo::Export, RowDo::Reveal, RowDo::Delete]);
+    assert_eq!(whats(&row_with(Some(SessionState::Recovered), &all, None, None)), vec![RowDo::Export, RowDo::Reveal, RowDo::Delete]);
+    assert_eq!(whats(&row_with(Some(SessionState::Recording), &all, None, None)), vec![RowDo::Reveal, RowDo::Delete], "not finished");
+    assert_eq!(whats(&row_with(None, &all, None, None)), vec![RowDo::Reveal, RowDo::Delete], "cannot be read");
+    assert_eq!(whats(&row_with(Some(SessionState::Complete), &["camera", "audio"], None, None)), vec![RowDo::Reveal, RowDo::Delete], "no screen");
+    let labels: Vec<_> = row_with(Some(SessionState::Complete), &all, None, None).actions.iter().map(|b| b.label.key.clone()).collect();
+    assert_eq!(labels, vec!["azreview-rec-export", "azreview-rec-reveal", "azreview-rec-delete"]);
+}
+
+/// A running export says how far it is in whole percents (never 100 before it is over), offers to cancel it instead
+/// of starting another, and keeps the recording from being deleted under it.
+///
+/// Mutation: a running export that can be started again; a recording that can be deleted while it is exported; a
+/// percent that rounds up to 100.
+#[test]
+fn a_running_export_says_how_far_it_is_and_can_be_cancelled_and_not_deleted() {
+    let row = row_with(Some(SessionState::Complete), &["screen"], Some(JobState::Running { fraction: 0.376 }), None);
+    assert_eq!(row.export, ExportLine::Running { percent: 37 });
+    assert_eq!(whats(&row), vec![RowDo::CancelExport, RowDo::Reveal]);
+    let text = export_text(&row.export).expect("words");
+    assert_eq!(text.phrase("azreview-rec-export-running").unwrap().get("percent"), Some(&Arg::from(37_u32)));
+    let nearly = row_with(Some(SessionState::Complete), &["screen"], Some(JobState::Running { fraction: 0.9999 }), None);
+    assert_eq!(nearly.export, ExportLine::Running { percent: 99 }, "100 is for when the video exists");
+    let all = row_with(Some(SessionState::Complete), &["screen"], Some(JobState::Running { fraction: 1.0 }), None);
+    assert_eq!(all.export, ExportLine::Running { percent: 99 }, "the last piece is still being joined");
+    let start = row_with(Some(SessionState::Complete), &["screen"], Some(JobState::Running { fraction: 0.0 }), None);
+    assert_eq!(start.export, ExportLine::Running { percent: 0 });
+}
+
+/// A video that was made is named with its size and can be opened (and made again); the one an earlier run of the app
+/// left in the folder is shown the same way; a job's word is newer than the folder's.
+///
+/// Mutation: a video that cannot be opened; one on disk that is not shown; the folder's video preferred to the job's.
+#[test]
+fn a_video_that_was_made_is_named_with_its_size_and_can_be_opened_or_made_again() {
+    let done = row_with(Some(SessionState::Complete), &["screen"], Some(JobState::Done(made(48_300_000))), None);
+    assert_eq!(done.export, ExportLine::Done { name: String::from("video.mp4"), size: String::from("48 MB"), notes: Vec::new() });
+    assert_eq!(whats(&done), vec![RowDo::Export, RowDo::OpenVideo, RowDo::Reveal, RowDo::Delete]);
+    let text = export_text(&done.export).expect("words");
+    let p = text.phrase("azreview-rec-export-done").unwrap();
+    assert_eq!((p.get("name"), p.get("size")), (Some(&Arg::from("video.mp4")), Some(&Arg::from("48 MB"))));
+    // An earlier run's video, no job in this one.
+    let before = row_with(Some(SessionState::Complete), &["screen"], None, Some(2_100_000_000));
+    assert_eq!(before.export, ExportLine::Done { name: String::from("video.mp4"), size: String::from("2.1 GB"), notes: Vec::new() });
+    assert!(whats(&before).contains(&RowDo::OpenVideo));
+    // A job that is running now speaks for the recording, not the video that is on the disk from before.
+    let again = row_with(Some(SessionState::Complete), &["screen"], Some(JobState::Running { fraction: 0.5 }), Some(1_000_000));
+    assert_eq!(again.export, ExportLine::Running { percent: 50 });
+    assert!(!whats(&again).contains(&RowDo::OpenVideo), "the old video is being made again: it is not offered while it is");
+}
+
+/// A failed export says why, in the words it gave, and can be tried again; a cancelled one says so and can too; a
+/// recording nothing was done with says nothing.
+///
+/// Mutation: a failure that loses its words; a cancelled export that cannot be started again.
+#[test]
+fn a_failed_or_cancelled_export_says_so_and_can_be_tried_again() {
+    let failed = row_with(Some(SessionState::Complete), &["screen"], Some(JobState::Failed(String::from("ffmpeg was not found"))), None);
+    assert_eq!(failed.export, ExportLine::Failed(String::from("ffmpeg was not found")));
+    assert_eq!(whats(&failed), vec![RowDo::Export, RowDo::Reveal, RowDo::Delete]);
+    let text = export_text(&failed.export).expect("words");
+    assert_eq!(text.phrase("azreview-rec-export-failed").unwrap().get("why"), Some(&Arg::from("ffmpeg was not found")));
+    let cancelled = row_with(Some(SessionState::Complete), &["screen"], Some(JobState::Cancelled), None);
+    assert_eq!(cancelled.export, ExportLine::Cancelled);
+    assert_eq!(export_text(&cancelled.export), Some(Text::key("azreview-rec-export-cancelled")));
+    assert_eq!(whats(&cancelled), vec![RowDo::Export, RowDo::Reveal, RowDo::Delete]);
+    let none = row_with(Some(SessionState::Complete), &["screen"], None, None);
+    assert_eq!(none.export, ExportLine::None);
+    assert_eq!(export_text(&none.export), None);
+}
+
+/// What did not work as asked is said under the video that was made (a rounded camera that came out as a rectangle),
+/// one line each; a video from an earlier run has none to say.
+///
+/// Mutation: notes that are not kept; notes that are not drawn.
+#[test]
+fn what_did_not_work_as_asked_is_said_under_the_video() {
+    let mut with_notes = made(1_000_000);
+    with_notes.notes = vec![String::from("this ffmpeg cannot round the camera: it is a rectangle"), String::from("second thing")];
+    let row = row_with(Some(SessionState::Complete), &["screen"], Some(JobState::Done(with_notes)), None);
+    let ExportLine::Done { notes, .. } = &row.export else { panic!("{:?}", row.export) };
+    assert_eq!(notes.len(), 2);
+    let lines = export_notes(&row.export);
+    assert_eq!(lines.len(), 2);
+    assert_eq!(lines[0].phrase("azreview-rec-export-note").unwrap().get("note"), Some(&Arg::from("this ffmpeg cannot round the camera: it is a rectangle")));
+    let plain = row_with(Some(SessionState::Complete), &["screen"], Some(JobState::Done(made(1_000_000))), None);
+    assert!(export_notes(&plain.export).is_empty());
+    assert!(export_notes(&ExportLine::Failed(String::from("x"))).is_empty());
+}
+
