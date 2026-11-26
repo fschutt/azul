@@ -99,7 +99,7 @@ fn wrapper(class: &str, c_method: &str) -> String {
 }
 
 /// `(f a b)`, one argument per line when `broken`.
-fn form(f: String, args: Vec<Doc>, broken: bool) -> Doc {
+fn form(f: &str, args: Vec<Doc>, broken: bool) -> Doc {
     if args.is_empty() {
         return Doc::text(format!("({f})"));
     }
@@ -140,17 +140,17 @@ impl ExprSyntax for Racket {
     }
 
     fn string(&self, s: &str) -> Doc {
-        form("string->azul-string".to_string(), vec![Doc::text(quoted(s))], false)
+        form("string->azul-string", vec![Doc::text(quoted(s))], false)
     }
 
     fn call(&self, class: &str, method: &str, args: Vec<Doc>, broken: bool) -> Doc {
-        form(wrapper(class, &snake_to_lower_camel(method)), args, broken)
+        form(&wrapper(class, &snake_to_lower_camel(method)), args, broken)
     }
 
     fn variant(&self, ty: &str, shape: EnumShape, variant: &str, args: Vec<Doc>, broken: bool) -> Doc {
         match shape {
             EnumShape::CLike => Doc::text(format!("Az{ty}_{variant}")),
-            EnumShape::Tagged => form(wrapper(ty, &variant_ctor_method(variant)), args, broken),
+            EnumShape::Tagged => form(&wrapper(ty, &variant_ctor_method(variant)), args, broken),
             // By field name: see `CSS_UNION`.
             EnumShape::TaggedShadowed | EnumShape::Generic { .. } => {
                 let vs = format!("Az{ty}_Variant_{variant}");
@@ -164,26 +164,26 @@ impl ExprSyntax for Racket {
                     parts.push(Doc::text(format!("set-{vs}-payload!")));
                     parts.push(payload);
                 }
-                form("css-union".to_string(), parts, broken)
+                form("css-union", parts, broken)
             }
         }
     }
 
     fn strukt(&self, ty: &str, fields: Vec<(String, Doc)>, broken: bool) -> Doc {
         let values = fields.into_iter().map(|(_, v)| v).collect();
-        form(format!("make-Az{ty}"), values, broken)
+        form(&format!("make-Az{ty}"), values, broken)
     }
 
     fn vec(&self, ty: &str, elem: &str, items: Vec<Doc>, broken: bool) -> Doc {
         if items.is_empty() {
-            return form(wrapper(ty, "create"), Vec::new(), false);
+            return form(&wrapper(ty, "create"), Vec::new(), false);
         }
         form(
-            "css-vec".to_string(),
+            "css-vec",
             vec![
                 Doc::text(wrapper(ty, "copyFromPtr")),
                 Doc::text(format!("_Az{elem}")),
-                form("list".to_string(), items, broken),
+                form("list", items, broken),
             ],
             broken,
         )
@@ -191,7 +191,7 @@ impl ExprSyntax for Racket {
 
     fn unsupported(&self, what: &str) -> Doc {
         form(
-            "error".to_string(),
+            "error",
             vec![Doc::text(quoted(&format!("not expressible: {what}")))],
             false,
         )
@@ -206,16 +206,16 @@ impl ExprSyntax for Racket {
     fn method(&self, recv: Doc, class: &str, method: &str, args: Vec<Doc>, layout: MethodLayout) -> Doc {
         let mut all = vec![recv];
         all.extend(args);
-        form(wrapper(class, &snake_to_lower_camel(method)), all, layout.node_tall)
+        form(&wrapper(class, &snake_to_lower_camel(method)), all, layout.node_tall)
     }
 
     fn param(&self, name: &Ident) -> Doc {
-        form("string->azul-string".to_string(), vec![Doc::text(rkt_param(name))], false)
+        form("string->azul-string", vec![Doc::text(rkt_param(name))], false)
     }
 
     /// `(string->azul-string (string-append "by " author))`.
     fn concat(&self, parts: &[ConcatPart<'_>]) -> Doc {
-        form("string->azul-string".to_string(), vec![string_append(parts)], false)
+        form("string->azul-string", vec![string_append(parts)], false)
     }
 
     fn item_call_limitation(&self) -> Option<&'static str> {
@@ -224,7 +224,7 @@ impl ExprSyntax for Racket {
 
     /// `(render-card "Hi" title)`: another function of the module.
     fn item_call(&self, item: &Ident, _params: &[Ident], args: Vec<Doc>, broken: bool) -> Doc {
-        form(fn_name_of(item), args, broken)
+        form(&fn_name_of(item), args, broken)
     }
 
     /// A Racket string: a literal, a parameter passed on, or
@@ -248,7 +248,7 @@ fn string_append(parts: &[ConcatPart<'_>]) -> Doc {
             ConcatPart::Param(i) => Doc::text(rkt_param(i)),
         })
         .collect();
-    form("string-append".to_string(), args, false)
+    form("string-append", args, false)
 }
 
 /// `(name [title "Hello"] ..)`: parameters are optional with their
@@ -334,6 +334,88 @@ const REGISTRATION_HELPERS: &str = r";; The String value of the data-model field
    (string->azul-string description)))
 ";
 
+/// One component of the library: what is written for it, and the call that makes its
+/// `ComponentDef`.
+fn racket_component(s: &mut String, lib: &LibrarySpec, c: &ComponentSpec, item: &Item) -> String {
+    let az = |s: &str| format!("(string->azul-string {})", quoted(s));
+    let item_fn = fn_name(item);
+    let ck = Ident::from_text(&c.name).kebab();
+    let defaults: Vec<String> = item.params.iter().map(|p| quoted(p.default_text())).collect();
+    let call = if defaults.is_empty() {
+        format!("({item_fn})")
+    } else {
+        format!("({item_fn} {})", defaults.join(" "))
+    };
+    let _ = write!(
+        s,
+        "\n;; `{}:{}` with its default arguments.\n(define ({item_fn}-default)\n  {call})\n",
+        one_line(&lib.name),
+        one_line(&c.name)
+    );
+    let args: Vec<String> = item
+        .params
+        .iter()
+        .map(|p| {
+            format!(
+                "(model-string m {} {})",
+                quoted(&p.name.snake()),
+                quoted(p.default_text())
+            )
+        })
+        .collect();
+    let render_call = if args.is_empty() {
+        format!("({item_fn})")
+    } else {
+        format!("({item_fn} {})", args.join(" "))
+    };
+    let _ = write!(
+        s,
+        "\n(define {ck}-render-fn\n  (function-ptr\n   (lambda (def model component-map)\n     \
+         (define m (ptr-ref model _AzComponentDataModel))\n     \
+         (result-styled-dom-render-dom-error-ok (styled-dom-create-from-dom {render_call})))\n   \
+         (_fun _pointer _pointer _pointer -> _AzResultStyledDomRenderDomError)))\n"
+    );
+    let fields = if item.params.is_empty() {
+        "(component-data-field-vec-create)".to_string()
+    } else {
+        let mut f = String::from(
+            "(css-vec\n     component-data-field-vec-copy-from-ptr\n     \
+             _AzComponentDataField\n     (list",
+        );
+        for (i, p) in item.params.iter().enumerate() {
+            let desc = c.field_descriptions.get(i).map_or("", String::as_str);
+            let _ = write!(
+                f,
+                "\n      (string-field {} {} {})",
+                quoted(&p.name.snake()),
+                quoted(p.default_text()),
+                quoted(desc)
+            );
+        }
+        f.push_str("))");
+        f
+    };
+    let _ = write!(
+        s,
+        "\n(define ({ck}-def)\n  (make-AzComponentDef\n   (component-id-create {} {})\n   \
+         {}\n   {}\n   ;; The CSS is applied per node by {item_fn}.\n   {}\n   \
+         AzComponentSource_UserDefined\n   (make-AzComponentDataModel\n    {}\n    {}\n    \
+         {fields})\n   {ck}-render-fn\n   {}\n   (option-string-none)))\n",
+        az(&lib.name),
+        az(&c.name),
+        az(&c.display_name),
+        az(&c.description),
+        az(""),
+        az(&c.data_model),
+        az(&c.data_model_description),
+        // `(component-codegen-render-function)`
+        Racket
+            .variant("ComponentCodegen", EnumShape::Tagged, "RenderFunction", Vec::new(), false)
+            .flat(),
+    );
+    format!("({ck}-def)")
+}
+
 /// The registration of a component library (`m.library`): per component a
 /// default-arguments wrapper, a render function made a C function pointer
 /// with `function-ptr` (kept alive by its module-level definition), and its
@@ -357,82 +439,7 @@ fn racket_registration(m: &Module, lib: &LibrarySpec) -> String {
     }
     let mut defs: Vec<String> = Vec::new();
     for (c, item) in &components {
-        let item_fn = fn_name(item);
-        let ck = Ident::from_text(&c.name).kebab();
-        let defaults: Vec<String> = item.params.iter().map(|p| quoted(p.default_text())).collect();
-        let call = if defaults.is_empty() {
-            format!("({item_fn})")
-        } else {
-            format!("({item_fn} {})", defaults.join(" "))
-        };
-        let _ = write!(
-            s,
-            "\n;; `{}:{}` with its default arguments.\n(define ({item_fn}-default)\n  {call})\n",
-            one_line(&lib.name),
-            one_line(&c.name)
-        );
-        let args: Vec<String> = item
-            .params
-            .iter()
-            .map(|p| {
-                format!(
-                    "(model-string m {} {})",
-                    quoted(&p.name.snake()),
-                    quoted(p.default_text())
-                )
-            })
-            .collect();
-        let render_call = if args.is_empty() {
-            format!("({item_fn})")
-        } else {
-            format!("({item_fn} {})", args.join(" "))
-        };
-        let _ = write!(
-            s,
-            "\n(define {ck}-render-fn\n  (function-ptr\n   (lambda (def model component-map)\n     \
-             (define m (ptr-ref model _AzComponentDataModel))\n     \
-             (result-styled-dom-render-dom-error-ok (styled-dom-create-from-dom {render_call})))\n   \
-             (_fun _pointer _pointer _pointer -> _AzResultStyledDomRenderDomError)))\n"
-        );
-        let fields = if item.params.is_empty() {
-            "(component-data-field-vec-create)".to_string()
-        } else {
-            let mut f = String::from(
-                "(css-vec\n     component-data-field-vec-copy-from-ptr\n     \
-                 _AzComponentDataField\n     (list",
-            );
-            for (i, p) in item.params.iter().enumerate() {
-                let desc = c.field_descriptions.get(i).map_or("", String::as_str);
-                let _ = write!(
-                    f,
-                    "\n      (string-field {} {} {})",
-                    quoted(&p.name.snake()),
-                    quoted(p.default_text()),
-                    quoted(desc)
-                );
-            }
-            f.push_str("))");
-            f
-        };
-        let _ = write!(
-            s,
-            "\n(define ({ck}-def)\n  (make-AzComponentDef\n   (component-id-create {} {})\n   \
-             {}\n   {}\n   ;; The CSS is applied per node by {item_fn}.\n   {}\n   \
-             AzComponentSource_UserDefined\n   (make-AzComponentDataModel\n    {}\n    {}\n    \
-             {fields})\n   {ck}-render-fn\n   {}\n   (option-string-none)))\n",
-            az(&lib.name),
-            az(&c.name),
-            az(&c.display_name),
-            az(&c.description),
-            az(""),
-            az(&c.data_model),
-            az(&c.data_model_description),
-            // `(component-codegen-render-function)`
-            Racket
-                .variant("ComponentCodegen", EnumShape::Tagged, "RenderFunction", Vec::new(), false)
-                .flat(),
-        );
-        defs.push(format!("({ck}-def)"));
+        defs.push(racket_component(&mut s, lib, c, item));
     }
     let components = if defs.is_empty() {
         "(component-def-vec-create)".to_string()
@@ -457,7 +464,7 @@ fn racket_registration(m: &Module, lib: &LibrarySpec) -> String {
     s
 }
 
-fn is_union(e: &Expr) -> bool {
+const fn is_union(e: &Expr) -> bool {
     matches!(
         e,
         Expr::Variant {
@@ -470,22 +477,24 @@ fn is_union(e: &Expr) -> bool {
 fn item_fn(item: &Item) -> (bool, String) {
     let mut out = String::new();
     for line in &item_comments(&Racket, item) {
-        out.push_str(&format!(";; {line}\n"));
+        let _ = writeln!(out, ";; {line}");
     }
     let name = fn_name(item);
     match item_doc(&Racket, item) {
         Ok(doc) => {
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 "(define {}\n  {})\n",
                 header(&name, item),
                 render(&doc, "  ", 1)
-            ));
+            );
             (true, out)
         }
         Err(reason) => {
-            out.push_str(&format!(
-                ";; {name}: not expressible with the Racket bindings: {reason}\n"
-            ));
+            let _ = writeln!(
+                out,
+                ";; {name}: not expressible with the Racket bindings: {reason}"
+            );
             (false, out)
         }
     }
@@ -523,11 +532,11 @@ impl CodegenBackend for Racket {
         );
         for (ok, name, _) in &fns {
             if *ok {
-                out.push_str(&format!(" {name}"));
+                let _ = write!(out, " {name}");
             }
         }
         if let Some(lib) = &m.library {
-            out.push_str(&format!(" register-{}-library", Ident::from_text(&lib.name).kebab()));
+            let _ = write!(out, " register-{}-library", Ident::from_text(&lib.name).kebab());
         }
         out.push_str(")\n");
         if m.library.is_some() || module_any(m, &|e| matches!(e, Expr::Vec { .. })) {
@@ -589,11 +598,12 @@ impl CodegenBackend for Racket {
         );
         for item in m.items.iter().filter(|i| item_fn(i).0) {
             let name = fn_name(item);
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "\n(define {name}-value ({name}))\n(printf \"{name}: ~a properties~n\" (Az{}-len \
                  {name}-value))\n",
                 item.ty
-            ));
+            );
         }
         vec![
             GeneratedFile {

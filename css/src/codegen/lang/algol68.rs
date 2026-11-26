@@ -27,6 +27,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use super::linear::{item_blocker, linear_comments, lower_to_statements, LinearSyntax};
 use crate::codegen::{
@@ -326,14 +327,14 @@ fn item_proc(item: &Item) -> (bool, String) {
         out.push_str(&comment(&line));
         out.push('\n');
     }
-    out.push_str(&format!("PROC {name} = {}:\nBEGIN\n", mode(&item.ty)));
+    let _ = write!(out, "PROC {name} = {}:\nBEGIN\n", mode(&item.ty));
     for (n, t) in &st.decls {
-        out.push_str(&format!("   {t} {n};\n"));
+        let _ = writeln!(out, "   {t} {n};");
     }
     for s in &st.body {
-        out.push_str(&format!("   {s}\n"));
+        let _ = writeln!(out, "   {s}");
     }
-    out.push_str(&format!("   {}\nEND;\n", st.result));
+    let _ = write!(out, "   {}\nEND;\n", st.result);
     (true, out)
 }
 
@@ -382,7 +383,7 @@ impl CodegenBackend for Algol68 {
         let built: Vec<&Item> = m.items.iter().filter(|i| item_proc(i).0).collect();
         for item in &built {
             let name = proc_name(item);
-            main.push_str(&format!("{} {name} value = {name};\n", mode(&item.ty)));
+            let _ = writeln!(main, "{} {name} value = {name};", mode(&item.ty));
         }
         let prints: Vec<String> = built
             .iter()

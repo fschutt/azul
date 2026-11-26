@@ -3,7 +3,7 @@
 //!
 //! The bindings declare every CSS constructor under its C name
 //! (`AzCssProperty_width`, enum members `AzLayoutDisplay_Flex`), but a VB6
-//! `Declare` can neither pass a user-defined type ByVal nor return one, and
+//! `Declare` can neither pass a user-defined type `ByVal` nor return one, and
 //! every CSS constructor does both - the generator marks each of them
 //! `SKIPPED` and declares a signature VB6 rejects (`As AzCssProperty`
 //! result). The out-pointer twins libazul exports for exactly this case
@@ -17,6 +17,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use crate::codegen::{
     doc::{render, Doc},
@@ -102,21 +103,22 @@ fn item_fn(item: &Item) -> (bool, String) {
     match item_doc(&Vb6, item) {
         Ok(doc) => {
             for line in &item_comments(&Vb6, item) {
-                out.push_str(&format!("' {line}\n"));
+                let _ = writeln!(out, "' {line}");
             }
-            out.push_str(&format!(
+            let _ = write!(
+                out,
                 "Public Function {name}() As Az{}\n    {name} = {}\nEnd Function\n",
                 item.ty,
                 render(&doc, "    ", 1)
-            ));
+            );
             (true, out)
         }
         Err(reason) => {
             // one line for the whole style (not one note per property)
             for line in &item.doc {
-                out.push_str(&format!("' {line}\n"));
+                let _ = writeln!(out, "' {line}");
             }
-            out.push_str(&format!("' {name}: not expressible with the VB6 bindings: {reason}\n"));
+            let _ = writeln!(out, "' {name}: not expressible with the VB6 bindings: {reason}");
             (false, out)
         }
     }
