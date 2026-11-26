@@ -11,14 +11,13 @@ use super::*;
 
 /// A directory that does not exist yet, named for the test (unique to this process and test).
 fn fresh_dir(name: &str) -> PathBuf {
-    static NEXT: AtomicUsize = AtomicUsize::new(0);
     let nanos = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
     std::env::temp_dir().join(format!(
-        "azul-fontinst-{}-{nanos}-{}-{name}",
+        "azul-fontinst-{}-{nanos}-{:?}-{name}",
         std::process::id(),
-        NEXT.fetch_add(1, Ordering::SeqCst)
+        std::thread::current().id()
     ))
 }
 
