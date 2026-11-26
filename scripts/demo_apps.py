@@ -295,6 +295,8 @@ def plan(m=None):
     # the buttons the boot tests press after the first screenshot: {package: label}
     out["smoke_taps"] = json.dumps({a["package"]: a["smoke"]["tap"] for a in m["app"]
                                     if (a.get("smoke") or {}).get("tap")}, sort_keys=True)
+    out["smoke_expects"] = json.dumps({a["package"]: a["smoke"]["expect"] for a in m["app"]
+                                       if (a.get("smoke") or {}).get("expect")}, sort_keys=True)
     return out
 
 
@@ -374,6 +376,9 @@ def boot_text(r):
         return None
     if r.get("alive") and not r.get("fatal"):
         text = "boots" + ("" if r.get("screen_nonblank") else " (blank screen)")
+        exp = r.get("expect")
+        if exp:
+            text += f", \"{exp.get('text')}\" " + ("shown" if exp.get("found") else "NOT SHOWN")
         tap = r.get("tap")
         if tap:
             text += f", \"{tap.get('label')}\" pressed {tap.get('found')}: " + ("fine" if tap.get("alive") and not tap.get("fatal") else "CRASHED")

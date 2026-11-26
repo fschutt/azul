@@ -68,7 +68,7 @@ for apk in "$@"; do
   badging="$("$aapt2" dump badging "$apk" 2>/dev/null)"
   pkg="$(echo "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
   act="$(echo "$badging" | sed -n "s/^launchable-activity: name='\([^']*\)'.*/\1/p" | head -n 1)"
-  alive=0; fatal=""; rust_lines=0; nonblank=0
+  alive=0; fatal=""; rust_lines=0; nonblank=0; expect_text=""; expect_found=""
   if [ -z "$pkg" ] || [ -z "$act" ]; then
     fatal="no package or launchable activity in the APK's badging"
   else
@@ -90,6 +90,13 @@ import sys
 data = open(sys.argv[1], "rb").read()
 sys.exit(0 if data[:8] == b"\x89PNG\r\n\x1a\n" and len(data) > 8000 else 1)
 PY
+      # The text the manifest expects on the first screen ([app.smoke] expect): in uiautomator's dump of it.
+      expect_text="$(python3 -c 'import json,os,sys; print(json.loads(os.environ.get("AZ_SMOKE_EXPECTS") or "{}").get(sys.argv[1], ""))' "${app%-android-x86_64}")"
+      expect_found=""
+      if [ -n "$expect_text" ] && [ "$alive" = "1" ]; then
+        adb shell uiautomator dump /sdcard/ui-first.xml >/dev/null 2>&1 && adb pull /sdcard/ui-first.xml "$dir/ui-first.xml" >/dev/null 2>&1
+        if grep -qiF -- "$expect_text" "$dir/ui-first.xml" 2>/dev/null; then expect_found="yes"; else expect_found="no"; fi
+      fi
       # A button the manifest names ([app.smoke] tap): press it, wait, and look again. Found by its accessibility
       # name in uiautomator's dump; else where the app's own notes put it (130 dp above the bottom edge, centred).
       tap_label="$(python3 -c 'import json,os,sys; print(json.loads(os.environ.get("AZ_SMOKE_TAPS") or "{}").get(sys.argv[1], ""))' "${app%-android-x86_64}")"
@@ -135,13 +142,15 @@ PY
       adb uninstall "$pkg" >/dev/null 2>&1 || true
     fi
   fi
-  python3 - "$dir/result.json" "$app" "$pkg" "$alive" "$fatal" "${rust_lines:-0}" "$nonblank" "$dir/tap.json" <<'PY'
+  python3 - "$dir/result.json" "$app" "$pkg" "$alive" "$fatal" "${rust_lines:-0}" "$nonblank" "$dir/tap.json" "${expect_text:-}" "${expect_found:-}" <<'PY'
 import json, os, sys
-path, app, pkg, alive, fatal, rust, nonblank, tap = sys.argv[1:]
+path, app, pkg, alive, fatal, rust, nonblank, tap, expect, found = sys.argv[1:]
 r = {"app": app, "package": pkg, "booted": True, "alive": alive == "1", "fatal": fatal or None,
      "rust_log_lines": int(rust), "screen_nonblank": nonblank == "1"}
 if os.path.exists(tap):
     r["tap"] = json.load(open(tap))
+if expect:
+    r["expect"] = {"text": expect, "found": found == "yes"}
 json.dump(r, open(path, "w"), indent=2)
 PY
   echo "[$([ "$alive" = 1 ] && [ -z "$fatal" ] && echo PASS || echo FAIL)] $app: alive=$alive fatal=${fatal:-none} rust_lines=${rust_lines:-0} screen=$nonblank"

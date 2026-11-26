@@ -51,6 +51,7 @@ jobs:
       apps_android: ${{ steps.plan.outputs.apps_android }}
       apps_ios: ${{ steps.plan.outputs.apps_ios }}
       smoke_taps: ${{ steps.plan.outputs.smoke_taps }}
+      smoke_expects: ${{ steps.plan.outputs.smoke_expects }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -609,6 +610,7 @@ jobs:
       - name: Start every app on an emulator
         env:
           AZ_SMOKE_TAPS: ${{ needs.plan.outputs.smoke_taps }}
+          AZ_SMOKE_EXPECTS: ${{ needs.plan.outputs.smoke_expects }}
         run: bash scripts/ci/android_smoke.sh demosmoke-android 15 apks/*.apk
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
