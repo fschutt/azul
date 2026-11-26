@@ -11,7 +11,7 @@
 //! These tests read the example and the module and fail when the example calls a name that neither
 //! of them defines.
 
-use std::{collections::BTreeSet, sync::OnceLock};
+use std::{collections::BTreeSet, path::Path, sync::OnceLock};
 
 use super::super::config::CodegenConfig;
 
@@ -121,4 +121,23 @@ fn the_example_calls_only_names_the_module_or_the_example_defines() {
         "examples/racket/hello-world.rkt calls names that neither racket/base, the example nor the generated azul.rkt define: {:?}",
         unknown
     );
+}
+
+/// Racket compiles the ~155,000-line module on every run: 13m21s on ubuntu-22.04 and 13m04s on
+/// windows-2022 (website run 45738701245: the leg got to the example's unbound identifier after
+/// that), and the 15 minutes the board gave it were not enough on macos-15 (killed, rc 143).
+#[test]
+fn the_board_gives_the_leg_the_time_the_module_takes_to_compile() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/e2e_language_matrix.sh");
+    let script = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {}", path.display(), e));
+    let line = script
+        .lines()
+        .find(|l| l.trim_start().starts_with("racket) ["))
+        .expect("a racket floor in run_one of the language board");
+    let floor: u32 = line
+        .rsplit("LANG_TIMEOUT=")
+        .next()
+        .and_then(|t| t.trim().trim_end_matches(";;").trim().parse().ok())
+        .unwrap_or_else(|| panic!("no number after LANG_TIMEOUT= in `{}`", line));
+    assert!(floor >= 1500, "the racket floor is {floor} s, the module alone takes 801 s on a fast runner and more than 900 s on macos-15");
 }

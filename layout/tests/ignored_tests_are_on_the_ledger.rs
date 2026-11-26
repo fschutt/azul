@@ -94,6 +94,22 @@ const LEDGER: &[Row] = &[
         reason: NEEDS_DISPLAY,
     },
     Row {
+        file: "dll/src/desktop/extra/iroh/bonjour_test.rs",
+        test: "bonjour_finds_what_the_mdns_lookup_announces",
+        kind: Kind::Hardware,
+        id: None,
+        owner: "dll/iroh",
+        reason: "needs a Mac on a network that carries multicast and the Local Network permission (X-EDGE-C-2)",
+    },
+    Row {
+        file: "dll/src/desktop/extra/iroh/engine_test.rs",
+        test: "two_endpoints_find_each_other_by_id_over_real_mdns",
+        kind: Kind::Hardware,
+        id: None,
+        owner: "dll/iroh",
+        reason: "needs a network that carries multicast between two endpoints of one process; a CI runner's does not (X-EDGE-C-2)",
+    },
+    Row {
         file: "dll/src/desktop/extra/screencap/dmabuf.rs",
         test: "egl_init_and_query",
         kind: Kind::Hardware,
@@ -331,7 +347,8 @@ const COUNTS: &[(Kind, usize)] = &[
     // + the halo dilation's timing (layout/src/cpurender/raster.rs): 4 -> 5.
     (Kind::Diagnostic, 5),
     // + the built-in speech recogniser's real-engine test (dll/tests/speech_builtin_engine.rs): 11 -> 12.
-    (Kind::Hardware, 12),
+    // + the two real-network tests of iroh's local discovery (extra/iroh/engine_test.rs, bonjour_test.rs): 12 -> 14.
+    (Kind::Hardware, 14),
 ];
 
 /// The crates whose sources are scanned (`src/` and `tests/` of each).

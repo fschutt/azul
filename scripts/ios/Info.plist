@@ -8,6 +8,10 @@
     @VERSION@      — short version string, e.g. 1.0
     @BUILD@        — build number, integer
     @MIN_OS@       — minimum iOS version, e.g. 16.0
+    @EXTRA_PLIST@  — extra keys from the environment of build-ios.sh: the usage descriptions
+                     of AZ_IOS_USAGE and, for an app that uses IrohEndpoint, the Local Network
+                     entries of AZ_IOS_LOCAL_NETWORK (NSLocalNetworkUsageDescription and
+                     NSBonjourServices = _irohv1._udp)
 -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -41,5 +45,6 @@
         <string>UIInterfaceOrientationLandscapeLeft</string>
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
+@EXTRA_PLIST@
 </dict>
 </plist>

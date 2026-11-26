@@ -196,6 +196,8 @@ mod click_into_a_virtual_view_page;
 mod cpurender_image_probe;
 #[path = "cross_block_selection.rs"]
 mod cross_block_selection;
+#[path = "css_zoom_scales_flex_items_grid_items_and_blocks_alike.rs"]
+mod css_zoom_scales_flex_items_grid_items_and_blocks_alike;
 #[path = "delete_keyed_to_caret_owner.rs"]
 mod delete_keyed_to_caret_owner;
 #[path = "damage_raster_reports_what_it_painted.rs"]

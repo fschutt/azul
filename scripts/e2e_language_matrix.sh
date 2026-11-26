@@ -2345,7 +2345,10 @@ run_one() {  # per-lang worker: re-exec --single under a timeout.
   # a long racket does not block the gating shipped rows.
   local LANG_TIMEOUT="$LANG_TIMEOUT"
   case "$lang" in
-    racket) [ "$LANG_TIMEOUT" -lt 900 ] && LANG_TIMEOUT=900 ;;
+    # The module alone takes 13m21s to compile on ubuntu and 13m04s on windows (runs 45738701245:
+    # the leg reached the example's unbound identifier after that), and more than the 15 minutes
+    # it was given on macos-15 (killed at 900 s, rc 143): 30 minutes, not a hang.
+    racket) [ "$LANG_TIMEOUT" -lt 1800 ] && LANG_TIMEOUT=1800 ;;
     # dune compiles the ~150 generated OCaml units and cabal the ~200
     # generated Haskell modules from scratch on the first run: minutes, not
     # a hang (each was one multi-megabyte file before the 2026-09 split).
