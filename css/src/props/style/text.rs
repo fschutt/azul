@@ -776,6 +776,7 @@ impl FormatAsRustCode for StyleTextDecorationThickness {
 /// The offset moves no overline and no line-through.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C, u8)]
+#[allow(variant_size_differences)]
 pub enum StyleTextUnderlineOffset {
     /// `auto`: the place the font size suggests
     #[default]
