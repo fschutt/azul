@@ -4,6 +4,7 @@
 //! `ui/mod.rs` and tested there.
 
 use azul::{
+    app::AppLogLevel,
     callbacks::{TextAreaOnTextInputCallbackType, TextInputOnTextInputCallbackType},
     dom::DomNodeId,
     gesture::{HapticPattern, HapticTarget},
@@ -42,10 +43,12 @@ pub struct FieldCtx {
 }
 
 /// A tap (a click, a press of Enter or Space on a focused key): does what the key says.
-pub extern "C" fn on_act(mut data: RefAny, info: CallbackInfo) -> Update {
+pub extern "C" fn on_act(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some((mut root_ref, action)) = data.downcast_ref::<ActCtx>().map(|c| (c.root.clone(), c.action.clone())) else {
         return Update::DoNothing;
     };
+    // a line for a trace (AZ_LOG=info): did the tap reach the key, and which key
+    info.log(AppLogLevel::Info, AzString::from(format!("AzCompanion: tap {action:?}").as_str()));
     // "Paste pairing code": the text is on the system clipboard now
     let action = match action {
         Action::PairPaste(_) => Action::PairPaste(clipboard_text(&info)),
