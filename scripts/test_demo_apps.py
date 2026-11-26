@@ -9,6 +9,7 @@ import contextlib
 import io
 import json
 import pathlib
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -412,6 +413,39 @@ class AndroidLevelsTest(unittest.TestCase):
         self.assertTrue(any("below" in e for e in demo_apps.check(m)))
         m["android"] = {}
         self.assertTrue(any("target_sdk" in e for e in demo_apps.check(m)))
+
+
+class FloorApkTest(unittest.TestCase):
+    """scripts/floor-apk: the APK of an empty Java Activity that the startup measurements compare the demo apps with: the same
+    levels, key and launch path as the demo APKs, and nothing of azul in it."""
+
+    def setUp(self):
+        self.dir = demo_apps.ROOT / "scripts" / "floor-apk"
+
+    def test_the_floor_has_the_sdk_levels_of_the_demo_apks(self):
+        manifest = (self.dir / "AndroidManifest.xml").read_text(encoding="utf-8")
+        android = demo_apps.load()["android"]
+        self.assertIn(f'android:minSdkVersion="{android["min_sdk"]}"', manifest)
+        self.assertIn(f'android:targetSdkVersion="{android["target_sdk"]}"', manifest)
+
+    def test_the_floor_launches_like_a_demo_app_and_is_a_java_activity_without_a_native_library(self):
+        manifest = (self.dir / "AndroidManifest.xml").read_text(encoding="utf-8")
+        for needle in ("android.intent.action.MAIN", "android.intent.category.LAUNCHER", 'android:exported="true"',
+                       'android:launchMode="singleTop"', 'android:hasCode="true"'):
+            self.assertIn(needle, manifest)
+        self.assertNotIn("lib_name", manifest)
+        java = (self.dir / "FloorActivity.java").read_text(encoding="utf-8")
+        self.assertIn("extends Activity", java)
+        for forbidden in ("loadLibrary", "extends NativeActivity", "import com.azul"):
+            self.assertNotIn(forbidden, java)
+
+    def test_the_build_script_signs_with_the_key_of_the_demo_apks_and_uses_no_cargo(self):
+        script = (self.dir / "build.sh").read_text(encoding="utf-8")
+        self.assertIn("scripts/android/debug.keystore", script)
+        for tool in ("aapt2", "d8", "zipalign", "apksigner", "javac"):
+            self.assertIn(tool, script)
+        self.assertNotIn("cargo", "\n".join(l for l in script.splitlines() if not l.lstrip().startswith("#")))
+        self.assertEqual(subprocess.run(["bash", "-n", str(self.dir / "build.sh")]).returncode, 0)
 
 
 class ApkGateTest(unittest.TestCase):
