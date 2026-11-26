@@ -2579,6 +2579,7 @@ impl IOSWindow {
             &mut debug_messages,
             relayout_reason,
             borrows.settings,
+            borrows.startup,
         )?;
 
         if let Some(msgs) = debug_messages {

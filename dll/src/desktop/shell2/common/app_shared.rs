@@ -21,7 +21,7 @@
 
 use std::sync::{
     atomic::{AtomicU8, Ordering},
-    Mutex, PoisonError,
+    Arc, Mutex, PoisonError,
 };
 
 use azul_core::{
@@ -30,7 +30,7 @@ use azul_core::{
 };
 use azul_layout::{appenv::GpuProvisionHooks, window::LayoutWindow};
 
-use crate::desktop::app_settings::AppSettings;
+use crate::desktop::{app_settings::AppSettings, startup_timeline::StartupTimeline};
 
 /// What the app chose and configured that every window of it reads: the light / dark mode and the
 /// language it chose (and may switch), the platform's natural-scrolling preference, the two
@@ -55,6 +55,22 @@ pub struct AppShared {
     /// What the environment asked of the app, read once at its start. An app that never read the
     /// process (a test, a tool) holds the empty environment's.
     settings: AppSettings,
+    /// The marks of this app's start (`AZ_STARTUP=1`): shared with every window and worker thread
+    /// of the app, off (and free) unless the settings asked.
+    startup: Arc<StartupTimeline>,
+}
+
+/// The startup timeline an app that was not handed one makes for itself: recording when its
+/// settings ask for it, printing through the engine's own log.
+fn startup_timeline_of(settings: &AppSettings) -> Arc<StartupTimeline> {
+    Arc::new(
+        StartupTimeline::new(
+            settings.shell.startup_timeline,
+            std::time::Instant::now(),
+            None,
+        )
+        .with_sink(crate::desktop::shell2::common::log_gate::startup_line),
+    )
 }
 
 /// `0` follows the desktop, `1` pins light, `2` pins dark.
@@ -80,6 +96,18 @@ impl AppShared {
     /// must see a switch on, a host that reads its own source).
     #[must_use]
     pub fn with_settings(config: &AppConfig, settings: AppSettings) -> Self {
+        let startup = startup_timeline_of(&settings);
+        Self::with_startup(config, settings, startup)
+    }
+
+    /// [`Self::with_settings`] for an app whose start is already being timed (`App::create` made
+    /// the timeline at its first line and marked the steps before the app existed).
+    #[must_use]
+    pub fn with_startup(
+        config: &AppConfig,
+        settings: AppSettings,
+        startup: Arc<StartupTimeline>,
+    ) -> Self {
         Self {
             mode: AtomicU8::new(mode_code(config.mode)),
             locale: Mutex::new(None),
@@ -88,6 +116,7 @@ impl AppShared {
             expose_system_media_controls: config.expose_system_media_controls,
             gpu_provision: None,
             settings,
+            startup,
         }
     }
 
@@ -97,7 +126,18 @@ impl AppShared {
     /// once here, and the GPU provisioning hooks.
     #[must_use]
     pub fn for_app(config: &AppConfig, settings: AppSettings) -> Self {
-        let mut shared = Self::with_settings(config, settings);
+        let startup = startup_timeline_of(&settings);
+        Self::for_app_with_startup(config, settings, startup)
+    }
+
+    /// [`Self::for_app`] for an app whose start is already being timed.
+    #[must_use]
+    pub fn for_app_with_startup(
+        config: &AppConfig,
+        settings: AppSettings,
+        startup: Arc<StartupTimeline>,
+    ) -> Self {
+        let mut shared = Self::with_startup(config, settings, startup);
         if config.natural_scroll == NaturalScroll::System {
             shared.set_system_natural_scroll(
                 crate::desktop::extra::natural_scroll::read_system_preference(),
@@ -111,6 +151,19 @@ impl AppShared {
     #[must_use]
     pub const fn settings(&self) -> &AppSettings {
         &self.settings
+    }
+
+    /// The marks of this app's start (`AZ_STARTUP=1`): every layer marks on it, a mark of an app
+    /// that did not ask is a test of a bool.
+    #[must_use]
+    pub fn startup(&self) -> &StartupTimeline {
+        &self.startup
+    }
+
+    /// The same timeline as a handle a worker thread can keep.
+    #[must_use]
+    pub fn startup_handle(&self) -> Arc<StartupTimeline> {
+        Arc::clone(&self.startup)
     }
 
     /// The app's mode: `None` follows the desktop.

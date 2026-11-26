@@ -36,7 +36,7 @@ use azul_css::AzString;
 
 use crate::{
     managers::{NodeIdMap, NodeIdRemap},
-    text3::cache::InlineContent,
+    text3::cache::{InlineContent, StyledRun},
 };
 
 /// The text overlay entry: an IFC root's edited inline content, layered over
@@ -589,6 +589,30 @@ impl ContentOverlay {
         self.text.remove(&(dom_id, node_id))
     }
 
+    /// Drops the text entries of `dom_id` for nodes the DOM does not have (it has `node_count`, ids
+    /// `0..node_count`) and makes the runs of the entries that stay name no text node the DOM does
+    /// not have; returns the nodes of the entries dropped.
+    ///
+    /// The ids an entry holds - its key, and the text node of every run - are those of the DOM it was
+    /// typed in, and follow a rebuilt DOM only through the remap of the generation
+    /// ([`NodeIdRemap`]). One that slipped past it must not reach an index of the new DOM (a page
+    /// that shrank by a node before a typed field left a run naming the last id: out of range).
+    pub(crate) fn drop_text_outside(&mut self, dom_id: DomId, node_count: usize) -> Vec<NodeId> {
+        let mut dropped = Vec::new();
+        self.text.retain(|&(d, node_id), entry| {
+            if d != dom_id {
+                return true;
+            }
+            if node_id.index() >= node_count {
+                dropped.push(node_id);
+                return false;
+            }
+            forget_sources_outside(&mut entry.content, node_count);
+            true
+        });
+        dropped
+    }
+
     /// The pending structural deltas of `dom` (empty slice = none).
     #[must_use]
     pub fn pending_structure(&self, dom_id: DomId) -> &[PendingStructure] {
@@ -781,6 +805,16 @@ impl NodeIdRemap for ContentOverlay {
         crate::managers::remap_dom_keys(&mut self.image_dirty, dom, map);
         crate::managers::remap_background_slots(&mut self.backgrounds, dom, map);
         crate::managers::remap_dom_keys(&mut self.text, dom, map);
+        // The runs of an edit name the text nodes they came from, in the ids of the DOM the edit was
+        // typed in: they follow their nodes as the key does, and a run whose node is gone names none
+        // (its text still shows, as the text of a run no node owns does).
+        for ((entry_dom, _), entry) in &mut self.text {
+            if *entry_dom == dom {
+                for_each_run_mut(&mut entry.content, &mut |run| {
+                    run.source_node_id = run.source_node_id.and_then(|old| map.resolve(old));
+                });
+            }
+        }
         // A preview follows its nodes to their new ids, as the edit it shows
         // stays pending: a remap is any reconcile, a relayout of a DOM built
         // again from the same model included. The preview ends where the edit
@@ -794,6 +828,33 @@ impl NodeIdRemap for ContentOverlay {
             }
         }
     }
+}
+
+/// Calls `f` on every styled run of `content`: the text runs, the runs of a marker, and those inside a ruby.
+pub(crate) fn for_each_run_mut(content: &mut [InlineContent], f: &mut impl FnMut(&mut StyledRun)) {
+    for item in content {
+        match item {
+            InlineContent::Text(run) | InlineContent::Marker { run, .. } => f(run),
+            InlineContent::Ruby { base, text, .. } => {
+                for_each_run_mut(base, f);
+                for_each_run_mut(text, f);
+            }
+            InlineContent::Image(_)
+            | InlineContent::Shape(_)
+            | InlineContent::Space(_)
+            | InlineContent::LineBreak(_)
+            | InlineContent::Tab { .. } => {}
+        }
+    }
+}
+
+/// Makes every run of `content` that names a text node outside a DOM of `node_count` nodes name none.
+pub(crate) fn forget_sources_outside(content: &mut [InlineContent], node_count: usize) {
+    for_each_run_mut(content, &mut |run| {
+        if run.source_node_id.is_some_and(|source| source.index() >= node_count) {
+            run.source_node_id = None;
+        }
+    });
 }
 
 impl StructuralPreview {
@@ -1797,3 +1858,7 @@ mod tests {
         assert_eq!(overlay.image_dirty(dom0(), NodeId::new(1)), None);
     }
 }
+
+#[cfg(test)]
+#[path = "overlay_test.rs"]
+mod overlay_test;

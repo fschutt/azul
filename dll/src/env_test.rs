@@ -61,10 +61,51 @@ fn a_listing_without_our_properties_is_empty() {
 
 #[test]
 fn the_reader_of_a_desktop_has_no_properties() {
-    // `read` runs `getprop` on Android only
+    // `read` asks the system's property area on Android only
     if !cfg!(target_os = "android") {
         assert_eq!(AndroidProperties::read(), AndroidProperties::default());
     }
+}
+
+/// The entries the property area gives (a name and a value each) become the same variables the text of
+/// `getprop` did: the reader that asks bionic and the parser of a listing agree.
+///
+/// Mutation: a prefix other than `debug.az.`; the env property parsed as a named one; an empty value kept.
+#[test]
+fn the_entries_of_the_property_area_become_variables_like_a_listing_does() {
+    let entries = [
+        ("dalvik.vm.heapsize", "512m"),
+        ("debug.az.e2e", "/data/local/tmp/x.json"),
+        ("debug.az.empty", ""),
+        ("debug.az.", "nothing"),
+        ("debug.az.env", "AZ_LOG=debug; AZ_BACKEND = cpu ;broken"),
+    ];
+    let properties = AndroidProperties::from_entries(entries);
+    assert_eq!(properties.named("AZ_E2E"), Some("/data/local/tmp/x.json"));
+    assert_eq!(properties.named("AZ_EMPTY"), None);
+    assert_eq!(properties.named("AZ_"), None);
+    assert_eq!(properties.pair("AZ_LOG"), Some("debug"));
+    assert_eq!(properties.pair("AZ_BACKEND"), Some("cpu"));
+    assert_eq!(
+        AndroidProperties::from_listing(LISTING),
+        AndroidProperties::from_entries(LISTING.lines().filter_map(split_property)),
+        "a listing is its entries"
+    );
+}
+
+/// The start spawns no process to read its environment: `getprop` forked and executed a binary that
+/// listed every property of the phone, once per reader, and a start makes several. The reader of Android
+/// asks bionic. (A source gate in the manner of the others of this tree: the file is read as text.)
+///
+/// Mutation: the old `Command::new("getprop")` in the reader.
+#[test]
+fn the_reader_of_the_environment_spawns_no_process() {
+    let source = include_str!("env.rs");
+    let spawn = ["Command", "::new"].concat();
+    assert!(
+        !source.contains(&spawn),
+        "dll/src/env.rs spawns a process: every reader of the environment would pay a fork and an exec on a phone"
+    );
 }
 
 #[test]

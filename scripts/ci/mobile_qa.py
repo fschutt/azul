@@ -482,6 +482,7 @@ class Run:
         self.platform, self.meta, self.steps = platform, dict(meta), []
         self.t0 = time.time()
         self.recover = None
+        self.extra_md = []           # further sections of qa.md (the startup timeline), lines
         self.render_table = []       # rows of the "Render backends" section of qa.md (filled by report_modes)
         self.render_diff = None
         self.only = None             # {"03", "08", ...}: run only these steps (00-02, the device and the install, always run)
@@ -543,6 +544,8 @@ class Run:
                           f"of the pixels and a mean difference below {MAX_MEAN_DIFF}/255): {d['share'] * 100:.2f} % of the pixels differ, "
                           f"mean {d['mean_abs']:.2f}/255, max {d['max_abs']}" + (f", box {d['bbox']}" if d.get("bbox") else "")
                           + f" - {'PASS' if d['ok'] else 'FAIL'}; the diff image is shots/{d['image']}"]
+        if self.extra_md:
+            lines += [""] + self.extra_md
         (self.out / "qa.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -610,6 +613,51 @@ def start_timelines(text, package):
             elif "present full" in msg and "present" not in rec and "main" in rec:
                 rec["present"] = now - rec["t0"]
     return [{k: v for k, v in r.items() if k != "t0"} for r in records]
+
+
+def startup_lines(text):
+    """The engine's own startup timeline in a logcat dump (AZ_STARTUP, `adb shell setprop debug.az.startup 1`), at the first present of a
+    start: -> (table, headline, marks): the `[startup] ...` lines as printed, the object of `[startup-json] {...}` (first_present_ms,
+    before_library_ms, layout_passes, render_backend) and the array of `[startup-marks] [...]`; None for what is not there."""
+    table, headline, marks = [], None, None
+    for line in text.splitlines():
+        m = re.search(r"RustStdoutStderr:\s*(\[startup(?:-json|-marks)?\].*?)\s*$", line)
+        if not m:
+            continue
+        body = m.group(1)
+        try:
+            if body.startswith("[startup-json] "):
+                headline = json.loads(body[len("[startup-json] "):])
+            elif body.startswith("[startup-marks] "):
+                marks = json.loads(body[len("[startup-marks] "):])
+            else:
+                table.append(body)
+        except ValueError:
+            continue
+    return table, headline, marks
+
+
+def cpu_profile_lines(text):
+    """The `[CPU] ...` lines of the engine's layout profile (`setprop debug.az.profile cpu`) and the `[startup]` ones, in order."""
+    found = []
+    for line in text.splitlines():
+        m = re.search(r"RustStdoutStderr:\s*(\[(?:CPU|startup)\].*?)\s*$", line)
+        if m:
+            found.append(m.group(1))
+    return found
+
+
+def median_start(per_start_texts):
+    """Of the logcat dumps of N cold starts, the index of the one whose `first_present_ms` is the median (None when none printed one)."""
+    firsts = []
+    for i, text in enumerate(per_start_texts):
+        _t, headline, _m = startup_lines(text)
+        if headline and isinstance(headline.get("first_present_ms"), (int, float)):
+            firsts.append((headline["first_present_ms"], i))
+    if not firsts:
+        return None
+    firsts.sort()
+    return firsts[len(firsts) // 2][1]
 
 
 def summarize_timelines(records):
@@ -1088,6 +1136,45 @@ def android_scenarios(args):
 
     run.step("03b-render-modes", "AZ_BACKEND=cpu, gpu, auto: which renderer ran, first frame, scroll frame times, cpu against gpu pixel by pixel", s_modes, needs_app=True)
 
+    def startup_section(s, texts):
+        """The engine's own startup timeline (`setprop debug.az.startup 1`, master from d35a2a4b6f on): the logcat of the whole series in one
+        file, the `[startup]` table of the start whose first present is the median, scripts/ci/startup_measure.py on the logcat when it
+        can read one, and one more cold start with `debug.az.profile cpu` for the layout passes' own tables."""
+        dev.save_log("logcat-series.txt", "\n".join(texts))
+        idx = median_start(texts)
+        s.check("the engine printed its startup timeline at the first present of a start (debug.az.startup 1)", idx is not None,
+                f"{sum(1 for t in texts if startup_lines(t)[1])} of {len(texts)} starts have a [startup-json] line", required=False)
+        if idx is not None:
+            table, headline, _marks = startup_lines(texts[idx])
+            dev.save_log("startup-median.txt", "\n".join(table))
+            run.meta["startup_first_present_ms"] = f"{headline.get('first_present_ms')} (median start of {len(texts)}; before_library {headline.get('before_library_ms')}, layout passes {headline.get('layout_passes')})"
+            run.extra_md += ["## Startup timeline of the median cold start (the engine's own `[startup]` lines)", "", "```"] + table[:60] + ["```", ""]
+        measure = Path(__file__).resolve().parent / "startup_measure.py"
+        if measure.exists() and "--from-log" in subprocess.run([sys.executable, str(measure), "--help"], capture_output=True, text=True).stdout:
+            done = subprocess.run([sys.executable, str(measure), "--from-log", str(run.logs_dir / "logcat-series.txt"), "--label", f"{args.label} android emulator"],
+                                  capture_output=True, text=True, timeout=120)
+            dev.save_log("startup-measure.txt", done.stdout + done.stderr)
+            run.extra_md += ["## scripts/ci/startup_measure.py on the series' logcat", "", "```"] + (done.stdout + done.stderr).splitlines()[:80] + ["```", ""]
+        else:
+            s.note("startup_measure.py has no --from-log here: the series' logcat is in logs/logcat-series.txt for it")
+        # one more cold start with the layout profile on
+        dev.sh("setprop debug.az.profile cpu")
+        dev.sh(f"am force-stop {args.package}")
+        dev.home()
+        time.sleep(2.5)
+        mark = dev.now_mark()
+        dev.launch(cold=True)
+        dev.wait_for_front(timeout=args.first_frame_timeout)
+        dev.settle(4.0)
+        text = dev.adb("logcat", "-d", "-v", "threadtime", timeout=120)
+        lines = cpu_profile_lines("\n".join(l for l in text.splitlines() if l[:18] >= mark))
+        dev.save_log("startup-cpu-profile.txt", "\n".join(lines))
+        s.check("the layout profile printed its tables (debug.az.profile cpu)", any(l.startswith("[CPU]") for l in lines), f"{len(lines)} lines", required=False)
+        if lines:
+            run.extra_md += ["## The layout passes' own tables of one cold start (`debug.az.profile cpu`, the `[CPU]` and `[startup]` lines)", "", "```"] + lines[:120] + ["```", ""]
+        dev.sh("setprop debug.az.profile ''")
+        dev.sh("setprop debug.az.startup ''")
+
     def s_series(s):
         """N cold starts of the app (and of the floor APK, an empty Java Activity, when one is given), each from the
         launcher with the process gone: `am start -W` TotalTime / ThisTime / WaitTime, and the system's own events
@@ -1097,7 +1184,7 @@ def android_scenarios(args):
             return {"min": v[0], "median": v[len(v) // 2], "max": v[-1], "n": len(v)}
 
         def series(pkg, act, label):
-            times, timelines = [], []
+            times, timelines, texts = [], [], []
             dev.adb("logcat", "-b", "events", "-c")
             for i in range(args.series + 1):            # the first run only warms the page cache: not counted
                 dev.sh(f"am force-stop {pkg}")
@@ -1116,14 +1203,18 @@ def android_scenarios(args):
                     # what the user waits for: the system's START of the activity -> the engine's first line -> the first picture
                     # (the logcat of this start only; the engine logs at AZ_LOG=info with AZ_DUMP_PRESENT=1 on the QA's default env)
                     text = dev.adb("logcat", "-d", "-v", "threadtime", timeout=120)
-                    timelines += start_timelines("\n".join(l for l in text.splitlines() if l[:18] >= mark), pkg)[-1:]
+                    fresh = "\n".join(l for l in text.splitlines() if l[:18] >= mark)
+                    texts.append(fresh)
+                    timelines += start_timelines(fresh, pkg)[-1:]
             events = dev.adb("logcat", "-b", "events", "-d", "-v", "threadtime", timeout=60)
             dev.save_log(f"events-{label}.txt", "\n".join(l for l in events.splitlines() if pkg in l))
             dev.save_log(f"start-timeline-{label}.json", json.dumps({"records": timelines, "summary": summarize_timelines(timelines)}, indent=1))
             dev.sh(f"am force-stop {pkg}")
-            return times, timelines
+            return times, timelines, texts
 
-        mine, mine_timelines = series(args.package, dev.resolve_activity(), "app")
+        if args.startup:
+            dev.sh("setprop debug.az.startup 1")       # the engine's startup timeline (AZ_STARTUP has no environment on Android)
+        mine, mine_timelines, mine_texts = series(args.package, dev.resolve_activity(), "app")
         tl = summarize_timelines(mine_timelines)
         if tl:
             def at(key):
@@ -1140,7 +1231,7 @@ def android_scenarios(args):
         if args.floor_apk:
             out = dev.adb("install", "-r", "-t", args.floor_apk, timeout=120)
             s.check("the floor APK installs", "Success" in out, out.strip()[-120:], required=False)
-            floor, _floor_timelines = series("com.azul.floor", ".FloorActivity", "floor")
+            floor, _floor_timelines, _floor_texts = series("com.azul.floor", ".FloorActivity", "floor")
             if floor:
                 fs = stats([t["total"] for t in floor])
                 run.meta["floor_start_series_ms"] = f"median {fs['median']} min {fs['min']} max {fs['max']} (n={fs['n']})"
@@ -1148,6 +1239,8 @@ def android_scenarios(args):
                 if mine:
                     s.note(f"the app costs {st['median'] - fs['median']} ms more than the floor at the median")
             dev.sh("pm uninstall com.azul.floor")
+        if args.startup:
+            startup_section(s, mine_texts)
         dev.launch(cold=True)
         dev.wait_for_front(timeout=args.first_frame_timeout)
         dev.settle(2.5)
@@ -2201,6 +2294,7 @@ def main(argv):
     a.add_argument("--expect-gpu", action="store_true", help="the build has a GPU renderer: a gpu request that ran the CPU one FAILS")
     a.add_argument("--hardware", action="store_true", help="the device has a real GPU (a phone, not a CI emulator): `auto` must then run the GL renderer")
     a.add_argument("--floor-apk", default="", help="the floor APK (an empty Java Activity) measured the same way")
+    a.add_argument("--startup", action="store_true", help="with --series: the engine's own startup timeline (debug.az.startup 1) of every start, the median start's table, one start with the layout profile")
     a.add_argument("--tap-label", default="", help="press the button the accessibility tree names this (step 03e)")
     i = sub.add_parser("ios")
     i.add_argument("--out", required=True)
