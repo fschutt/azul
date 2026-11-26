@@ -372,6 +372,37 @@ class StartTimelineTests(unittest.TestCase):
         self.assertEqual(q.summarize_timelines([]), {})
 
 
+STARTUP_LOG = """\
+11-26 09:00:01.000  1  2 I RustStdoutStderr: [startup] mark                    ms
+11-26 09:00:01.001  1  2 I RustStdoutStderr: [startup] first_present        612.0
+11-26 09:00:01.002  1  2 I RustStdoutStderr: [startup-json] {"first_present_ms": 612.0, "before_library_ms": 310.0, "layout_passes": 2}
+11-26 09:00:01.003  1  2 I RustStdoutStderr: [startup-marks] [{"mark": "first_present", "ms": 612.0}]
+11-26 09:00:01.004  1  2 I RustStdoutStderr: [startup-json] {broken
+11-26 09:00:02.000  1  2 I RustStdoutStderr: [CPU] === layout pass 1: 41.2 ms
+11-26 09:00:02.001  1  2 I RustStdoutStderr: AZPAINT_STROKES 0
+"""
+
+
+class StartupLinesTests(unittest.TestCase):
+    def test_the_table_the_headline_and_the_marks_are_told_apart(self):
+        table, headline, marks = q.startup_lines(STARTUP_LOG)
+        self.assertEqual(table, ["[startup] mark                    ms", "[startup] first_present        612.0"])
+        self.assertEqual(headline, {"first_present_ms": 612.0, "before_library_ms": 310.0, "layout_passes": 2})     # the broken one is skipped
+        self.assertEqual(marks, [{"mark": "first_present", "ms": 612.0}])
+
+    def test_a_log_without_a_timeline_gives_nothing(self):
+        self.assertEqual(q.startup_lines("11-26 09:00:01.000  1  2 I RustStdoutStderr: hello"), ([], None, None))
+
+    def test_the_cpu_profile_keeps_its_tables_and_the_startup_lines_in_order(self):
+        self.assertEqual(q.cpu_profile_lines(STARTUP_LOG)[-1], "[CPU] === layout pass 1: 41.2 ms")
+        self.assertEqual(len(q.cpu_profile_lines(STARTUP_LOG)), 3)        # two [startup] table lines and the [CPU] one; the json and marks lines are other tags
+
+    def test_the_median_start_is_the_one_in_the_middle_of_the_first_presents(self):
+        starts = [STARTUP_LOG, STARTUP_LOG.replace("612.0", "700.0"), STARTUP_LOG.replace("612.0", "650.0"), "no timeline here"]
+        self.assertEqual(q.median_start(starts), 2)           # 612, 650, 700 -> 650 is the start number 2
+        self.assertIsNone(q.median_start(["nothing"]))
+
+
 class RunFolderTests(unittest.TestCase):
     def test_the_run_folder_is_absolute_even_when_it_was_given_relative(self):
         # `simctl launch --stdout=<path>` is opened by the Simulator's own launchd, whose root is not the runner's folder
