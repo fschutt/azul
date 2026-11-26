@@ -48,6 +48,35 @@ class ParseTimeline(unittest.TestCase):
         self.assertEqual(sm.parse_timeline("[startup-json] " + json.dumps(HEADLINE))["marks"], [])
 
 
+class ParseTimelines(unittest.TestCase):
+    def test_a_log_of_three_starts_gives_three_timelines_in_order(self):
+        starts = []
+        for i, first in enumerate((310.5, 305.25, 330.0)):
+            head = dict(HEADLINE, first_present_ms=first)
+            marks = [dict(m, at_ms=m["at_ms"] + i) for m in MARKS]
+            starts.append("11-26 06:59:3%d.1  2535  2561 I RustStdoutStderr: [startup-json] %s" % (i, json.dumps(head)))
+            starts.append("11-26 06:59:3%d.1  2535  2561 I RustStdoutStderr: [startup-marks] %s" % (i, json.dumps(marks)))
+            starts.append("11-26 06:59:3%d.2  2535  2561 I other: noise" % i)
+        timelines = sm.parse_timelines("\n".join(starts))
+        self.assertEqual([t["first_present_ms"] for t in timelines], [310.5, 305.25, 330.0])
+        self.assertTrue(all(len(t["marks"]) == 4 for t in timelines))
+        self.assertEqual(timelines[2]["marks"][0]["at_ms"], 14.5)
+
+    def test_a_cut_marks_line_leaves_the_timeline_without_marks(self):
+        text = "[startup-json] " + json.dumps(HEADLINE) + "\n[startup-marks] [{\"i\": 1, \"name\": \"libr"
+        timelines = sm.parse_timelines(text)
+        self.assertEqual(len(timelines), 1)
+        self.assertEqual(timelines[0]["marks"], [])
+
+    def test_the_old_single_line_with_the_marks_inside_is_one_timeline(self):
+        text = "[startup-json] " + json.dumps(dict(HEADLINE, marks=MARKS))
+        timelines = sm.parse_timelines(text)
+        self.assertEqual(len(timelines[0]["marks"]), 4)
+
+    def test_a_text_without_a_timeline_has_none(self):
+        self.assertEqual(sm.parse_timelines("nothing\nhere"), [])
+
+
 class Steps(unittest.TestCase):
     def test_a_step_counts_from_the_previous_mark_of_the_same_thread(self):
         steps = {name: step for name, _thread, _at, step, _detail in sm.with_steps(MARKS)}
