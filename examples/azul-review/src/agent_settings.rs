@@ -48,7 +48,15 @@ pub static PRESETS: [(BackendKind, &[&str]); 5] = [
         BackendKind::ClaudePrint,
         &["haiku", "sonnet", "opus", "fable"],
     ),
-    (BackendKind::AnthropicApi, &[]),
+    (
+        BackendKind::AnthropicApi,
+        &[
+            "claude-haiku-5-5",
+            "claude-sonnet-5-5",
+            "claude-opus-5-5",
+            "claude-fable-5-2",
+        ],
+    ),
     (
         BackendKind::GeminiCli,
         &[
@@ -80,14 +88,34 @@ pub fn presets(backend: BackendKind) -> &'static [&'static str] {
     &[]
 }
 
+/// What the aliases of the Claude CLI stand for on the API (the API has no aliases: its ids are
+/// undated and name the newest model of the family, as the aliases do). Data, to be updated when a
+/// model is released.
+pub static API_MODELS: [(&str, &str); 4] = [
+    ("haiku", "claude-haiku-5-5"),
+    ("sonnet", "claude-sonnet-5-5"),
+    ("opus", "claude-opus-5-5"),
+    ("fable", "claude-fable-5-2"),
+];
+
+/// The API's id for a CLI alias (an id given as it is stays).
+#[must_use]
+pub fn api_model(alias: &str) -> &str {
+    API_MODELS
+        .iter()
+        .find(|(a, _)| *a == alias)
+        .map_or(alias, |(_, id)| id)
+}
+
 /// The model a task starts with on `backend`.
 #[must_use]
 pub fn default_model(task: Task, backend: BackendKind) -> &'static str {
     match backend {
         BackendKind::ClaudePrint => task.spec().claude_model,
+        BackendKind::AnthropicApi => api_model(task.spec().claude_model),
         BackendKind::GeminiApi => "gemini-2.5-flash",
         BackendKind::Mock => "mock",
-        BackendKind::GeminiCli | BackendKind::AnthropicApi => "",
+        BackendKind::GeminiCli => "",
     }
 }
 
@@ -322,6 +350,11 @@ pub enum ProblemKind {
     NotANumber {
         word: String,
     },
+    /// Not one of the words a row allows.
+    NotAChoice {
+        word: String,
+        choices: String,
+    },
     OutOfRange {
         value: u64,
         min: u32,
@@ -378,6 +411,7 @@ impl Problem {
         match self.kind {
             ProblemKind::UnknownBackend { .. } => "azreview-agent-problem-unknown-backend",
             ProblemKind::NotANumber { .. } => "azreview-agent-problem-not-a-number",
+            ProblemKind::NotAChoice { .. } => "azreview-agent-problem-not-a-choice",
             ProblemKind::OutOfRange { .. } => "azreview-agent-problem-out-of-range",
             ProblemKind::KeyRefInvalid => "azreview-agent-problem-key-invalid",
             ProblemKind::KeyLooksLikeSecret => "azreview-agent-problem-key-secret",
@@ -396,6 +430,10 @@ impl Problem {
             | ProblemKind::NotANumber { word }
             | ProblemKind::UnknownField { word } => {
                 args.push(("word", word.clone()));
+            }
+            ProblemKind::NotAChoice { word, choices } => {
+                args.push(("word", word.clone()));
+                args.push(("choices", choices.clone()));
             }
             ProblemKind::OutOfRange {
                 value,
@@ -426,6 +464,9 @@ impl Problem {
                 "{field}: \"{word}\" is not a backend: use claude-print, anthropic-api, gemini-cli, gemini-api or mock"
             ),
             ProblemKind::NotANumber { word } => format!("{field}: \"{word}\" is no number"),
+            ProblemKind::NotAChoice { word, choices } => {
+                format!("{field}: \"{word}\" is not one of the choices ({choices})")
+            }
             ProblemKind::OutOfRange { value, min, max, used } => {
                 format!("{field}: {value} is outside {min} to {max}, using {used}")
             }
@@ -459,6 +500,8 @@ pub struct TaskSettings {
     pub budget_cents: u32,
     /// The most turns of a `claude -p` call (0: no limit).
     pub max_turns: u32,
+    /// How hard the model thinks: `low`, `medium`, `high`, `xhigh`, `max` (empty: the model's own).
+    pub effort: String,
     /// The reference to the key as written (`env:NAME`, `keychain:ITEM`; empty: none).
     pub key: String,
     /// The program to run (empty: look for it).
@@ -481,6 +524,7 @@ impl TaskSettings {
             max_output_tokens: spec.max_output_tokens,
             budget_cents: spec.budget_cents,
             max_turns: spec.max_turns,
+            effort: String::new(),
             key: String::new(),
             program: String::new(),
             base_url: String::new(),
@@ -519,6 +563,8 @@ impl TaskSettings {
 pub enum FieldKind {
     Backend,
     Model,
+    /// One of these words, or none.
+    Choice(&'static [&'static str]),
     /// A whole number between the two.
     Number {
         min: u32,
@@ -535,9 +581,9 @@ pub enum FieldKind {
 pub struct FieldSpec {
     /// The row's word in the settings file and in [`AgentSettings::get`] and [`AgentSettings::set`].
     pub key: &'static str,
-    /// The localization key of its label.
+    /// The localization key of its label: also the accessibility name of the row's control.
     pub label: &'static str,
-    /// The localization key of its hint.
+    /// The localization key of its hint: also the control's accessibility description.
     pub hint: &'static str,
     pub kind: FieldKind,
     /// The backends it matters to.
@@ -550,8 +596,11 @@ const ANTHROPIC: BackendKind = BackendKind::AnthropicApi;
 const GEMINI_API: BackendKind = BackendKind::GeminiApi;
 const MOCK: BackendKind = BackendKind::Mock;
 
+/// The levels of effort a model may be asked for.
+pub static EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+
 /// The rows, in the order the panel shows them.
-pub static FIELDS: [FieldSpec; 10] = [
+pub static FIELDS: [FieldSpec; 11] = [
     FieldSpec {
         key: "backend",
         label: "azreview-agent-field-backend",
@@ -596,6 +645,13 @@ pub static FIELDS: [FieldSpec; 10] = [
         hint: "azreview-agent-hint-max-turns",
         kind: FieldKind::Number { min: 0, max: 100 },
         applies: &[CLAUDE],
+    },
+    FieldSpec {
+        key: "effort",
+        label: "azreview-agent-field-effort",
+        hint: "azreview-agent-hint-effort",
+        kind: FieldKind::Choice(&EFFORTS),
+        applies: &[CLAUDE, ANTHROPIC],
     },
     FieldSpec {
         key: "key",
@@ -804,6 +860,7 @@ impl AgentSettings {
             "max-tokens" => t.max_output_tokens.to_string(),
             "budget" => t.budget_cents.to_string(),
             "max-turns" => t.max_turns.to_string(),
+            "effort" => t.effort.clone(),
             "key" => t.key.clone(),
             "program" => t.program.clone(),
             "base-url" => t.base_url.clone(),
@@ -883,6 +940,17 @@ impl AgentSettings {
                     _ => entry.max_turns = used,
                 }
                 Ok(note)
+            }
+            FieldKind::Choice(choices) => {
+                let word = value.to_ascii_lowercase();
+                if !word.is_empty() && !choices.contains(&word.as_str()) {
+                    return Err(err(ProblemKind::NotAChoice {
+                        word: value.to_string(),
+                        choices: choices.join(", "),
+                    }));
+                }
+                entry.effort = word;
+                Ok(None)
             }
             FieldKind::KeyRef => {
                 let key = KeyRef::parse(value).map_err(err)?;
