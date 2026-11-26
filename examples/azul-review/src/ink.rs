@@ -632,6 +632,7 @@ pub fn point_from(x: f32, y: f32, pressure: f32, tilt_x: f32, tilt_y: f32) -> In
         },
         tilt_x,
         tilt_y,
+        t_ms: 0,
     }
 }
 

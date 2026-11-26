@@ -23,9 +23,10 @@ use azul::{
 };
 
 use crate::{
+    deletion::{self, Deletion},
     ink::Layer,
     model::{InkPoint, Stroke, VoiceClip},
-    AppState, CLIP_RATE,
+    slash, ui, AppState, CLIP_RATE,
 };
 
 /// How many events the log keeps.
@@ -263,6 +264,8 @@ pub enum Up {
     Dab,
     /// A stroke, kept.
     Kept,
+    /// A quick slash across words: it took them (it is no ink), what Mod+Z takes back.
+    Slashed,
 }
 
 /// A stroke that ended: its layer and page (to be drawn anew) and what it came to.
@@ -304,12 +307,28 @@ pub fn refresh_after_move(stroke_live: bool, asked: azul::callbacks::Update) -> 
     }
 }
 
+/// The wall clock now, Unix ms.
+fn unix_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+}
+
 impl AppState {
-    /// A press at `point` of `page`: a stroke begins there. A stroke still live (its release was not
-    /// heard) ends first, kept as it was. `pen`: the pointer is a pen (a mouse or a trackpad is not).
+    /// A press at `point` of `page`: a stroke begins there, and its clock starts. A stroke still live (its release was
+    /// not heard) ends first, kept as it was. `pen`: the pointer is a pen (a mouse or a trackpad is not).
     pub fn stroke_begin(&mut self, page: usize, point: InkPoint, pen: bool) -> Began {
+        let began = self.stroke_begin_at(page, point, pen, unix_now_ms());
+        self.live_clock = Some(std::time::Instant::now());
+        began
+    }
+
+    /// [`Self::stroke_begin`] for a stroke that began at `started_unix_ms` (the wall clock, Unix ms): the samples of
+    /// the stroke carry the times they are given (`stroke_move_at`), the first is the start of them.
+    pub fn stroke_begin_at(&mut self, page: usize, point: InkPoint, pen: bool, started_unix_ms: u64) -> Began {
         let stale = self.stroke_end();
         self.live_pen = pen;
+        self.live_clock = None;
         let id = self.next_stroke_id;
         self.next_stroke_id += 1;
         let semantic = self.pens.semantic();
@@ -317,9 +336,10 @@ impl AppState {
         self.live = Some(Stroke {
             page,
             semantic,
-            points: vec![point],
+            points: vec![InkPoint { t_ms: 0, ..point }],
             id,
             epoch,
+            started_unix_ms,
         });
         if self.pens.tool().records_audio() && self.recording.is_none() {
             self.recording = Some(VoiceClip {
@@ -339,8 +359,16 @@ impl AppState {
     /// The pointer is at `point`; `pressed`: a button or the pen's tip is down. While a stroke is live
     /// the point is its next one - when the pointer is pressed. A stroke live under a pointer that is
     /// not pressed lost its release: it ends here (it would grow, from the last pressed point, with every
-    /// move of the hovering pointer).
+    /// move of the hovering pointer). The point is stamped with the time since the press.
     pub fn stroke_move(&mut self, point: InkPoint, pressed: bool) -> Moved {
+        let t_ms = self
+            .live_clock
+            .map_or(0, |c| u32::try_from(c.elapsed().as_millis()).unwrap_or(u32::MAX));
+        self.stroke_move_at(InkPoint { t_ms, ..point }, pressed)
+    }
+
+    /// [`Self::stroke_move`] with the time the point carries (ms after the press).
+    pub fn stroke_move_at(&mut self, point: InkPoint, pressed: bool) -> Moved {
         if self.live.is_none() {
             return Moved::Nothing;
         }
@@ -361,11 +389,43 @@ impl AppState {
         Moved::Grew(Layer::of(live.semantic))
     }
 
+    /// The words a finished stroke takes, if it is a quick slash across any: the slash is recognised from its samples
+    /// (`slash.rs`), the words by the rule of `deletion.rs` on the lines of its page.
+    fn slash_of(&self, stroke: &Stroke) -> Option<Deletion> {
+        let samples: Vec<slash::Sample> = stroke
+            .points
+            .iter()
+            .map(|p| slash::Sample { x: p.x, y: p.y, t_ms: p.t_ms })
+            .collect();
+        let line = slash::recognise(&samples)?;
+        let file = self.file()?;
+        let (first_line, lines) = file.page(stroke.page);
+        let words = deletion::words_hit(&line, &ui::page_grid(first_line), lines);
+        if words.is_empty() {
+            return None;
+        }
+        if self.slashes.len() >= deletion::MAX_DELETIONS {
+            eprintln!(
+                "[AzReview] {} words are deleted in this file already, the most it keeps: this slash is ink like any other",
+                deletion::MAX_DELETIONS
+            );
+            return None;
+        }
+        Some(Deletion {
+            id: stroke.id,
+            page: stroke.page,
+            started_unix_ms: stroke.started_unix_ms,
+            points: stroke.points.iter().take(deletion::MAX_POINTS).copied().collect(),
+            words,
+        })
+    }
+
     /// The release - over the pen layer or anywhere in the window - the pointer leaving the window,
     /// the window losing its focus: the stroke that is live ends. A tap is dropped (it cycles the nib,
     /// or does nothing while a dictation listens); a stroke is kept.
     pub fn stroke_end(&mut self) -> Option<Ended> {
         let done = self.live.take()?;
+        self.live_clock = None;
         let layer = Layer::of(done.semantic);
         let page = done.page;
         if done.points.len() < CLICK_POINT_LIMIT {
@@ -380,6 +440,13 @@ impl AppState {
                 Up::Click
             };
             Some(Ended { layer, page, up })
+        } else if let Some(deletion) = self.slash_of(&done) {
+            self.delete_words(deletion);
+            Some(Ended {
+                layer,
+                page,
+                up: Up::Slashed,
+            })
         } else {
             self.keep(done);
             Some(Ended {

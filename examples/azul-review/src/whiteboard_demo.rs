@@ -247,7 +247,7 @@ extern "C" fn on_page_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
         let id = d.next_id;
         d.next_id += 1;
         let semantic = Semantic::Issue;
-        d.live = Some(Stroke { page: 0, semantic, points: vec![ink::point_from(local.x, local.y, 0.0, 0.0, 0.0)], id, epoch: 0 });
+        d.live = Some(Stroke { page: 0, semantic, points: vec![ink::point_from(local.x, local.y, 0.0, 0.0, 0.0)], id, epoch: 0, started_unix_ms: 0 });
     }
     if !matches!(press, Press::Elsewhere) {
         let hit = info.get_hit_node();

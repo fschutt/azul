@@ -10,6 +10,10 @@
 //! generated unit is Delphi-mode too). It does *not* depend on the Lazarus
 //! Component Library (LCL); azul provides its own windowing, so the example
 //! is a console program from Lazarus' point of view.
+//!
+//! Its custom options are `-Aas`: fpc 3.2 writes the object file of `azul.pas` with a section per
+//! routine, more than the ELF writer inside fpc can number, so on Linux GNU `as` has to write it
+//! (the reason is in `lang_pascal/mod.rs`). macOS accepts the flag and says so in two warnings.
 
 /// Emit a Lazarus `.lpi` for an example named `<name>` (without
 /// extension). Assumes there is a sibling `<name>.pas` file containing a
@@ -78,6 +82,9 @@ pub fn generate_lpi(name: &str) -> String {
         </Win32>
       </Options>
     </Linking>
+    <Other>
+      <CustomOptions Value="-Aas"/>
+    </Other>
   </CompilerOptions>
   <Debugging>
     <Exceptions Count="3">

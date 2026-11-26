@@ -456,7 +456,8 @@ def restore(args, logs, out, binary):
         app.must("mouse_move", x=x0, y=y0)
         app.must("mouse_down", x=x0, y=y0)
         for i in range(1, 12):
-            app.must("mouse_move", x=x0 + i * 14.0, y=y0 + (i % 4) * 3.0)
+            # a zigzag 18 px tall: ink, not a quick level slash across words (which takes them)
+            app.must("mouse_move", x=x0 + i * 14.0, y=y0 + (i % 4) * 6.0)
             app.frame(1)
         app.must("mouse_up", x=x0 + 12 * 14.0, y=y0)
         app.frame(2)
@@ -473,6 +474,131 @@ def restore(args, logs, out, binary):
     app.log("PASS: the saved session came back and a new stroke was added to it (ids %s)" % ids)
 
 
+SLASH_LINE = 3
+SLASH_TEXT = "pub fn step_2(x: u32) -> u32 { x + 2 }"
+# the words of that line a slash from column 3.8 to column 24.2 takes (each covered fully; "pub" and the second "u32" not at all)
+SLASH_TAKEN = ["fn", "step_2", "(", "x", ":", "u32", ")", "->"]
+SLASH_COLS = (3.8, 24.2)
+
+
+def line_rects(app, first, last):
+    """The rect of the text of every line from `first` to `last` that is on the screen."""
+    out = {}
+    for n in range(first, last + 1):
+        node = "__azreview_line-%d-text" % n
+        if app.has_id(node, every_dom=True):
+            out[n] = app.rect(node, every_dom=True)
+    return out
+
+
+def css_of(app, node):
+    """The computed CSS the debug server tells of `#node`, in whichever of the window's DOMs it is (the pages are a
+    VirtualView's)."""
+    for dom in app.dom_ids():
+        if app._has_in("#%s" % node, dom):
+            return app.value("get_node_css_properties", selector="#%s" % node, dom_id=dom)
+    raise Failure("no DOM of the window has #%s" % node)
+
+
+def slash(args, logs, out, binary):
+    """The quick slash, in a real window: a quick level stroke across words takes them - they are drawn in the
+    colour of the page and every line keeps its rect - Mod+Z gives them back, Mod+Shift+Z takes them again. No
+    microphone: the dwell is off."""
+    data_dir = os.path.join(logs, "data-slash")
+    folder = os.path.join(logs, "folder-slash")
+    os.makedirs(data_dir, exist_ok=True)
+    fixture(folder)
+    app = e2e.App("review-slash", binary,
+                  [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en",
+                   "--dwell-input", "off", "--standby", "off"],
+                  args.debug_port + 3, logs, args.timeout)
+    try:
+        app.until("AzReview's window", lambda: app.has_id(STRIP))
+        app.frame(2)
+        show_files(app)
+        app.click(text="lib.rs")
+        app.frame(3)
+        text = "__azreview_line-%d-text" % SLASH_LINE
+        app.until("the third line of lib.rs", lambda: app.has_id(text, every_dom=True))
+        before = line_rects(app, 1, 30)
+        line = before[SLASH_LINE]
+        cw = line["width"] / len(SLASH_TEXT)
+        app.log("the page's columns are %.3f px wide (the slash finds words by 6.6)" % cw)
+        if abs(cw - 6.6) > 0.08:
+            raise Failure("a column of the page is %.3f px, not 6.6: a word is found %.1f px off at column 40"
+                          % (cw, abs(cw - 6.6) * 40))
+
+        # The slash: down, two moves, up - as quick as the debug server's requests are. The rects of the lines are in the
+        # pages' own DOM (a VirtualView's), whose origin is the strip's corner: the pointer is in the window's.
+        strip = app.rect(STRIP)
+        x0 = strip["x"] + line["x"] + SLASH_COLS[0] * cw
+        x1 = strip["x"] + line["x"] + SLASH_COLS[1] * cw
+        y = strip["y"] + line["y"] + line["height"] / 2.0
+        app.must("mouse_move", x=x0, y=y)
+        app.must("mouse_down", x=x0, y=y)
+        app.must("mouse_move", x=(x0 + x1) / 2.0, y=y - 1.0)
+        app.must("mouse_move", x=x1 - 4.0, y=y)
+        app.must("mouse_up", x=x1, y=y)
+        app.frame(3)
+        log = [e for e in app.must("azreview_pointer_log")["data"]["value"]["result"]["events"]
+               if e["kind"] in ("down", "up")]
+        if len(log) >= 2:
+            app.log("the stroke took %d ms between the press and the release (the log's clock)" % (log[-1]["ms"] - log[-2]["ms"]))
+        st = state(app)
+        if st["slashes"] != 1 or st["deleted_words"] != len(SLASH_TAKEN):
+            raise Failure("the slash took %s word(s) in %s slash(es), expected %d: %s"
+                          % (st["deleted_words"], st["slashes"], len(SLASH_TAKEN), log))
+        app.until("AZREVIEW_SLASH %d" % len(SLASH_TAKEN), lambda: app.count("AZREVIEW_SLASH", r"%d" % len(SLASH_TAKEN)) == 1)
+        if st["tree_open"] is not True:
+            raise Failure("the slash moved a panel: %s" % st)
+
+        # The words are drawn in the colour of the page, where they were; nothing else moved. Words that touch are one
+        # piece of the line: "step_2(x:" is one, "u32)" another.
+        pieces = [(4, 2), (7, 9), (17, 4), (22, 2)]  # (the column it starts in, how many columns it takes)
+        for start, cols in pieces:
+            node = "__azreview_hidden-%d-%d" % (SLASH_LINE, start)
+            app.until("the hidden piece at column %d" % start, lambda node=node: app.has_id(node, every_dom=True))
+            said = json.dumps(css_of(app, node)).lower()
+            if "ffffff" not in said and "255, 255, 255" not in said and "255,255,255" not in said:
+                raise Failure("the hidden piece at column %d is not in the colour of the page: %s" % (start, said[:300]))
+            rect = app.rect(node, every_dom=True)
+            want_x = line["x"] + start * cw
+            if abs(rect["x"] - want_x) > 0.6 or abs(rect["y"] - line["y"]) > 0.6 or abs(rect["width"] - cols * cw) > 0.8:
+                raise Failure("the hidden piece at column %d moved or changed its size: %s, it was to be at x %.1f, %d columns"
+                              % (start, rect, want_x, cols))
+        after = line_rects(app, 1, 30)
+        for n, was in before.items():
+            now = after.get(n)
+            # a line cut into pieces is the sum of the widths of its pieces: a 32nd of a pixel off at most, no more
+            if not now or any(abs(now[k] - was[k]) > 0.1 for k in ("x", "y", "width", "height")):
+                raise Failure("line %d moved or changed its size: %s -> %s" % (n, was, now))
+        app.screenshot(os.path.join(out, "8-slash.png"))
+
+        # Mod+Z gives the words back; Mod+Shift+Z takes them again.
+        app.key("z", primary=True)
+        app.until("the words back", lambda: state(app)["slashes"] == 0 and not app.has_id("__azreview_hidden-%d-7" % SLASH_LINE, every_dom=True))
+        again = line_rects(app, 1, 30)
+        if again != before:
+            raise Failure("undo changed the lines' rects")
+        app.screenshot(os.path.join(out, "9-slash-undone.png"))
+        app.key("z", primary=True, shift=True)
+        app.until("the words taken again", lambda: state(app)["slashes"] == 1 and app.has_id("__azreview_hidden-%d-7" % SLASH_LINE, every_dom=True))
+
+        # It is in the archive: a second window on the same data folder has the words hidden.
+        path = os.path.join(data_dir, ARCHIVE)
+        app.until("the archive with the deletion", lambda: os.path.exists(path) and len(read_session(path).get("slashes", [])) == 1)
+        words = [w["text"] for w in read_session(path)["slashes"][0]["words"]]
+        if words != SLASH_TAKEN:
+            raise Failure("the archive holds %s, not %s" % (words, SLASH_TAKEN))
+        no_lint(app, "the slash run")
+    except Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
+        raise
+    finally:
+        app.stop()
+    app.log("PASS: a quick slash took %d words, drew them in the colour of the page, moved no line, and undo, redo and the archive have them" % len(SLASH_TAKEN))
+
+
 def notes_in(path):
     with zipfile.ZipFile(path) as z:
         return json.loads(z.read("session.json").decode("utf-8")).get("notes", [])
@@ -480,6 +606,11 @@ def notes_in(path):
 
 def run_all(args, logs, out):
     binary = e2e.find_binary("AzReview", args.bin, "AZREVIEW_BIN")
+    # AZREVIEW_E2E_ONLY=slash runs that step alone (the others each take minutes).
+    only = os.environ.get("AZREVIEW_E2E_ONLY", "")
+    if only == "slash":
+        slash(args, logs, out, binary)
+        return True
     body(args, logs, out)
     # The dictation steps need the fake speech backend (a libazul with the test hooks). Without it the real recogniser
     # would be asked, and where the terminal holds the microphone and speech permissions it LISTENS: a test must never
@@ -489,6 +620,7 @@ def run_all(args, logs, out):
     else:
         print("[azreview] SKIPPED: the dictation steps (this libazul has no test hooks: the real recogniser would listen "
               "to the microphone)", flush=True)
+    slash(args, logs, out, binary)
     restore(args, logs, out, binary)
     return True
 

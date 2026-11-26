@@ -91,6 +91,9 @@ pub struct InkPoint {
     pub pressure: f32,
     pub tilt_x: f32,
     pub tilt_y: f32,
+    /// When the pen was here, ms after the stroke began (0 where no time was recorded: an archive written
+    /// before the times, a test).
+    pub t_ms: u32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -100,6 +103,9 @@ pub struct Stroke {
     pub points: Vec<InkPoint>,
     pub id: u64,
     pub epoch: u64,
+    /// The wall-clock moment the stroke began, Unix ms (0: not known): a sample's moment is this plus its `t_ms`, the
+    /// clock the speech recogniser's words are timed on, so a word can be tied to the strokes drawn while it was said.
+    pub started_unix_ms: u64,
 }
 
 /// How far (`x`, `y`) is from the segment `a` to `b`.

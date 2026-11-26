@@ -11,7 +11,7 @@ pub const OP_NAME: &str = "azreview_state";
 
 /// The state as JSON: `pen` (the place of the pen in hand), `meaning`, `nib`, `tree_open`, `tree_w`, `right_open`,
 /// `right_w`, `chips` (the open file's conversations), `mic` (the microphone's state), `dictating` (a dictation runs),
-/// `ready` (its microphone takes words), `partial` (the words so far), `standby` (the policy: `mode`, `enabled`, `armed`, `arms`,
+/// `ready` (its microphone takes words), `partial` (the words so far), `slashes` and `deleted_words` (what quick slashes took), `standby` (the policy: `mode`, `enabled`, `armed`, `arms`,
 /// `disarms`).
 #[must_use]
 pub fn state_json(s: &AppState) -> String {
@@ -28,6 +28,8 @@ pub fn state_json(s: &AppState) -> String {
         "dictating": s.voice.running.is_some(),
         "ready": s.voice.is_ready(),
         "partial": s.voice.partial(),
+        "slashes": s.slashes.len(),
+        "deleted_words": s.slashes.iter().map(|d| d.words.len()).sum::<usize>(),
         "standby": {
             "mode": s.voice.arming.config().standby.name(),
             "enabled": s.voice.can_arm,
@@ -43,7 +45,7 @@ pub fn state_json(s: &AppState) -> String {
 pub fn register_ops(config: &mut AppConfig) {
     let def = format!(
         "{{\"name\":\"{OP_NAME}\",\"summary\":\"what AzReview's state is\",\
-         \"description\":\"pen, meaning, nib, tree_open, tree_w, right_open, right_w, chips, mic, dictating, ready, partial, standby.\",\"args\":[],\"examples\":[]}}"
+         \"description\":\"pen, meaning, nib, tree_open, tree_w, right_open, right_w, chips, mic, dictating, ready, partial, slashes, deleted_words, standby.\",\"args\":[],\"examples\":[]}}"
     );
     let json = Json::parse(AzString::from(def.as_str()))
         .into_result()

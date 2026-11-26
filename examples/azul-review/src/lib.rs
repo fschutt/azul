@@ -67,6 +67,7 @@ pub mod chips;
 pub mod chips_op;
 pub mod code;
 pub mod column;
+pub mod deletion;
 pub mod dictation;
 pub mod dwell;
 pub mod ids;
@@ -99,6 +100,7 @@ pub mod recorder_track;
 pub mod recorder_wb;
 pub mod recorder_writer;
 pub mod session;
+pub mod slash;
 pub mod standby;
 pub mod stroke_features;
 /// The pen strokes every gesture is tested on (a loop, a slash, an underline, a scribble): shared by the
@@ -205,7 +207,12 @@ pub struct AppState {
     pub files: Vec<code::SourceFile>,
     pub current: Option<usize>,
     pub strokes: Vec<Stroke>,
+    /// The words of the open file that quick slashes took, in the order they were (the page draws them in its own
+    /// colour; nothing is written to the file).
+    pub slashes: Vec<deletion::Deletion>,
     pub live: Option<Stroke>,
+    /// The clock of the live stroke: its samples are stamped with the time since the press.
+    pub live_clock: Option<std::time::Instant>,
     /// The revisions of each page's kept strokes: an ink layer draws its
     /// frame anew when its page's changes (`ink::InkRevisions`).
     pub ink: ink::InkRevisions,
@@ -278,7 +285,9 @@ impl AppState {
             current: if files.is_empty() { None } else { Some(0) },
             files,
             strokes: Vec::new(),
+            slashes: Vec::new(),
             live: None,
+            live_clock: None,
             ink: ink::InkRevisions::default(),
             next_stroke_id: 1,
             pens: pens::Pens::new(),
@@ -368,10 +377,12 @@ impl AppState {
         self.voice.pending = None;
         self.current = index;
         self.strokes.clear();
+        self.slashes.clear();
         self.notes.clear();
         self.history.clear();
         self.redo_stack.clear();
         self.live = None;
+        self.live_clock = None;
         self.ink.open();
         self.visible_page = 0;
     }
@@ -491,6 +502,30 @@ impl AppState {
         self.rederive();
     }
 
+    /// Keeps a slash's deletion (what Mod+Z takes back): the words it took are drawn in the colour of the page from now
+    /// on. The stroke itself is not kept as ink; the clip an audio pen records forgets its id.
+    pub fn delete_words(&mut self, deletion: deletion::Deletion) {
+        if let Some(clip) = self.recording.as_mut() {
+            clip.stroke_ids.retain(|id| *id != deletion.id);
+        }
+        self.ink.touch(deletion.page);
+        self.history.push(Edit::Slashed(deletion.clone()));
+        self.redo_stack.clear();
+        self.slashes.push(deletion);
+    }
+
+    /// The byte ranges of each line of `page` that slashes took, for the page to draw in its own colour.
+    #[must_use]
+    pub fn hidden_ranges(&self, page: usize) -> Vec<Vec<(usize, usize)>> {
+        match self.file() {
+            Some(file) if !self.slashes.is_empty() => {
+                let (first_line, lines) = file.page(page);
+                deletion::hidden_ranges(&self.slashes, first_line, lines)
+            }
+            _ => Vec::new(),
+        }
+    }
+
     /// Takes the last edit back; whether there was one.
     pub fn undo(&mut self) -> bool {
         let Some(edit) = self.history.pop() else {
@@ -504,6 +539,10 @@ impl AppState {
             Edit::Erased(stroke, index) => {
                 self.strokes.insert((*index).min(self.strokes.len()), stroke.clone());
                 self.ink.touch(stroke.page);
+            }
+            Edit::Slashed(deletion) => {
+                self.slashes.retain(|d| d.id != deletion.id);
+                self.ink.touch(deletion.page);
             }
         }
         self.redo_stack.push(edit);
@@ -524,6 +563,10 @@ impl AppState {
             Edit::Erased(stroke, _) => {
                 self.strokes.retain(|s| s.id != stroke.id);
                 self.ink.touch(stroke.page);
+            }
+            Edit::Slashed(deletion) => {
+                self.slashes.push(deletion.clone());
+                self.ink.touch(deletion.page);
             }
         }
         self.history.push(edit);
@@ -572,6 +615,9 @@ impl AppState {
             stroke.id += stroke_base;
             stroke.epoch += epoch_after;
         }
+        for deletion in &mut self.slashes {
+            deletion.id += stroke_base;
+        }
         for note in &mut self.notes {
             note.id += note_base;
         }
@@ -591,10 +637,14 @@ impl AppState {
         let mut strokes = loaded.strokes;
         strokes.append(&mut self.strokes);
         self.strokes = strokes;
+        let mut slashes = loaded.slashes;
+        slashes.append(&mut self.slashes);
+        self.slashes = slashes;
         let mut notes = loaded.notes;
         notes.append(&mut self.notes);
         self.notes = notes;
-        let pages: std::collections::BTreeSet<usize> = self.strokes.iter().map(|s| s.page).collect();
+        let pages: std::collections::BTreeSet<usize> =
+            self.strokes.iter().map(|s| s.page).chain(self.slashes.iter().map(|d| d.page)).collect();
         for page in pages {
             self.ink.touch(page);
         }
@@ -1460,6 +1510,16 @@ fn finish_stroke(data: &mut RefAny, info: &mut CallbackInfo, ended: pointer::End
     match ended.up {
         pointer::Up::Click => cycle_tool(data, false),
         pointer::Up::Dab => Update::DoNothing,
+        pointer::Up::Slashed => {
+            if let Some(s) = data.downcast_ref::<AppState>() {
+                let words = s.slashes.last().map_or(0, |d| d.words.len());
+                println!("AZREVIEW_SLASH {words}");
+            }
+            save_session(data, info);
+            // The page's DOM says which words are drawn in the colour of the page.
+            info.trigger_all_virtual_view_rerender();
+            Update::RefreshDom
+        }
         pointer::Up::Kept => {
             let timer_id = {
                 let Some(mut s) = data.downcast_mut::<AppState>() else {
@@ -1527,6 +1587,8 @@ pub enum Edit {
     Added(Stroke),
     /// A stroke was erased from place `index` of the file's strokes.
     Erased(Stroke, usize),
+    /// A quick slash took words.
+    Slashed(deletion::Deletion),
 }
 
 const ANNOTATION_IDLE_MS: u64 = 1_800;

@@ -104,9 +104,10 @@ fn what_a_stroke_in_progress_has_painted_is_told() {
     let live = Stroke {
         page: 0,
         semantic: Semantic::Issue,
-        points: vec![InkPoint { x: 1.0, y: 1.0, pressure: 0.5, tilt_x: 0.0, tilt_y: 0.0 }; 5],
+        points: vec![InkPoint { x: 1.0, y: 1.0, pressure: 0.5, tilt_x: 0.0, tilt_y: 0.0, t_ms: 0 }; 5],
         id: 9,
         epoch: 0,
+        started_unix_ms: 0,
     };
     shown.paint(Some(&live), 1.0, &mut |_, _, _, _, _| {});
     assert_eq!(shown.progress(), Some((9, 5)));
@@ -128,9 +129,10 @@ fn keeping_a_stroke_tells_the_page_it_only_grew() {
     let stroke = Stroke {
         page: 0,
         semantic: Semantic::Issue,
-        points: vec![InkPoint { x: 1.0, y: 1.0, pressure: 0.5, tilt_x: 0.0, tilt_y: 0.0 }; 4],
+        points: vec![InkPoint { x: 1.0, y: 1.0, pressure: 0.5, tilt_x: 0.0, tilt_y: 0.0, t_ms: 0 }; 4],
         id: 3,
         epoch: 0,
+        started_unix_ms: 0,
     };
     s.keep(stroke);
     assert_eq!(s.ink.append_of(0).map(|a| a.id), Some(3));
