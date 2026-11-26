@@ -313,7 +313,7 @@ fn grip(panel: crate::layout::Panel, edge: &str, data: &RefAny) -> Dom {
             )
             .as_str(),
         )
-        .with_accessibility_name(name)
+        .with_accessibility_info(AccessibilityInfo::named(name, AccessibilityRole::Grip))
         .with_dataset(OptionRefAny::Some(RefAny::new(GripTag { panel })))
         .with_callback(EventFilter::Hover(HoverEventFilter::LeftMouseDown), data.clone(), crate::on_grip_down)
         .with_callback(EventFilter::Hover(HoverEventFilter::MouseMove), data.clone(), crate::on_grip_move)

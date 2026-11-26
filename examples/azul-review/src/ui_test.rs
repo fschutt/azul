@@ -294,3 +294,15 @@ fn the_window_hears_the_keys_the_pointer_leaving_and_the_button_let_go_anywhere(
         vec![EventFilter::Window(WindowEventFilter::MouseLeave)]
     );
 }
+
+#[test]
+fn the_edge_of_a_panel_is_named_for_the_screen_reader() {
+    // Its role is a grip (azul's lint refuses a named node of an unknown role: the e2e reads its output).
+    let s = reviewing("/work/proj");
+    let view = main_view(&s, &RefAny::new(0u8), 1280.0);
+    let grip = nodes(&view)
+        .into_iter()
+        .find(|n| n.root.has_id(crate::ids::TREE_GRIP.clone()))
+        .expect("the tree's grip");
+    assert!(!grip.root.accessibility.is_null(), "named");
+}
