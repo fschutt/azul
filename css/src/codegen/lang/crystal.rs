@@ -606,7 +606,7 @@ fn crystal_registration(m: &Module, lib: &LibrarySpec) -> String {
     }
     let mut defs: Vec<String> = Vec::new();
     for (c, item) in &components {
-        defs.push(crystal_component(&mut s, lib, c, item, &module));
+        defs.push(crystal_component(&mut s, lib, c, item, module));
     }
     let components = if defs.is_empty() {
         "LibAzul.azComponentDefVec_create".to_string()
