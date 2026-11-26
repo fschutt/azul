@@ -332,6 +332,95 @@ class ModeComparisonTests(unittest.TestCase):
         self.assertEqual(q.first_frame_timeout_for("auto", 45), 45)
 
 
+class GpuConsoleTests(unittest.TestCase):
+    """What the GPU path of the iOS shell writes to a console and the harness reads. The words are pinned on the Rust side
+    (shell2/common/frame_stats_test.rs, gpu_select_test.rs, ios_gpu_invariants.rs); these are the same lines with the engine's log
+    prefix (`[   <us>us][<level>][Rendering] `)."""
+
+    FALLBACK = (
+        "[  412031us][Warn][Rendering] [render] gpu unavailable at surface: injected by AZ_GPU_FAIL; drawing on the CPU\n"
+        "[  412044us][Info][Rendering] [render] backend=cpu requested=gpu device=software\n")
+    SWIPE = (
+        "[ 9812031us][Info][Rendering] [render] frames n=64 over_ms=1008 interval_ms median=16.0 p95=16.0 max=16.0 draw_ms median=4.1 p95=4.1\n"
+        "[10820113us][Info][Rendering] [render] frames n=60 over_ms=1003 interval_ms median=16.7 p95=33.4 max=50.1 draw_ms median=5.0 p95=9.8\n"
+        "[11830650us][Info][Rendering] [render] frames n=58 over_ms=1002 interval_ms median=17.2 p95=21.0 max=33.4 draw_ms median=4.4 p95=7.9\n")
+
+    def test_a_fallback_names_its_stage_and_the_contract_line_follows_it(self):
+        self.assertEqual(q.gpu_fallbacks(self.FALLBACK), [("surface", "injected by AZ_GPU_FAIL")])
+        self.assertEqual(q.backend_ran(self.FALLBACK), ("cpu", "gpu", "software"))
+        self.assertEqual(q.gpu_fallbacks("[render] backend=gpu requested=gpu device=Apple Software Renderer\n"), [])
+        self.assertEqual(q.gpu_fallbacks("nothing"), [])
+
+    def test_the_stage_a_failure_spec_asks_for_is_the_stage_the_fallback_names(self):
+        for spec, stage in (("library", "library"), ("make_current", "make_current"), ("probe", "probe"), ("surface:1", "surface"),
+                            ("Shaders", "shaders"), ("make-current", "make_current"),
+                            # a frame that cannot go out is a lost context; the second loss without a frame ends the GPU path at `lost`
+                            ("frame", "lost"), ("lost", "lost"), ("lost:2", "lost")):
+            self.assertEqual(q.gpu_fail_stage(spec), stage, spec)
+
+    def test_a_swipe_is_the_median_of_the_medians_the_worst_p95_and_all_its_frames(self):
+        lines = q.swipe_windows(self.SWIPE)
+        self.assertEqual(len(lines), 3)
+        got = q.summarize_frames(lines)
+        self.assertEqual((got["median"], got["p95"], got["n"]), (16.7, 33.4, 64 + 60 + 58))
+        self.assertEqual((got["draw_median"], got["draw_p95"]), (4.4, 9.8))
+        self.assertIsNone(q.summarize_frames([]))
+
+    def test_the_cpu_path_has_no_draw_time_and_the_numbers_still_come(self):
+        cpu = "[ 9812031us][Info][Rendering] [render] frames n=20 over_ms=1010 interval_ms median=50.0 p95=60.0 max=60.0\n"
+        got = q.summarize_frames(q.swipe_windows(cpu))
+        self.assertEqual(got, {"median": 50.0, "p95": 60.0, "n": 20})
+
+    def test_the_tail_of_a_burst_before_the_swipe_is_not_the_swipes(self):
+        # the line the first frame of a swipe writes for the burst BEFORE it: under a second (a longer burst was reported at its second)
+        tail = "[ 9000000us][Info][Rendering] [render] frames n=20 over_ms=280 interval_ms median=10.0 p95=40.0 max=40.0\n"
+        self.assertEqual(q.swipe_windows(tail + self.SWIPE), q.engine_frames(self.SWIPE))
+        self.assertEqual(q.swipe_windows(tail), [])
+        self.assertEqual(q.swipe_windows("nothing here"), [])
+
+    def test_the_summary_is_what_the_render_backends_table_reads(self):
+        import tempfile
+        w, h = 12, 12
+        px = solid(w, h, (90, 90, 90))
+        frames = q.summarize_frames(q.swipe_windows(self.SWIPE))
+        res = {"cpu": {"ran": "cpu", "requested": "cpu", "device": "software", "rgba": px, "dims": (w, h), "first_frame_s": 4.0, "displayed_ms": None,
+                       "frames": frames},
+               "gpu": {"ran": "gpu", "requested": "gpu", "device": "Apple Software Renderer", "rgba": px, "dims": (w, h), "first_frame_s": 70.0,
+                       "displayed_ms": None, "frames": frames}}
+        with tempfile.TemporaryDirectory() as d:
+            run = q.Run(d, "ios", {})
+            run.step("modes", "x", lambda s: q.report_modes(run, s, res, True, "ios"))
+            row = [r for r in run.render_table if r["requested"] == "gpu"][0]
+            self.assertEqual((row["median"], row["p95"], row["n"]), ("16.7", "33.4", 182))
+            self.assertTrue(run.steps[0].ok, [c for c in run.steps[0].checks if not c["ok"]])
+
+    def test_a_frame_between_the_stop_and_the_return_is_a_gl_command_in_the_background(self):
+        frame = "[render] frames n=9 over_ms=1000 interval_ms median=1.0 p95=2.0 max=3.0"
+        clean = ["[Info][Rendering] [iOS GPU] GL commands stopped (Backgrounded)", "(nothing for ten seconds)",
+                 "[Info][Rendering] [iOS GPU] GL commands allowed again (Resumed)", frame]
+        self.assertEqual(q.gl_in_background(clean), {"stopped": 1, "allowed": 1, "inside": []})
+        dirty = [clean[0], frame, "[Warn][Rendering] [iOS GPU] Present failed at frame: render: [...]", clean[2]]
+        got = q.gl_in_background(dirty)
+        self.assertEqual((got["stopped"], got["allowed"], len(got["inside"])), (1, 1, 2))
+        # the app that never saw the background says so: no `stopped` line is a failed check, not a pass
+        self.assertEqual(q.gl_in_background([frame]), {"stopped": 0, "allowed": 0, "inside": []})
+        # frames before the stop belong to the foreground
+        self.assertEqual(q.gl_in_background([frame, clean[0]])["inside"], [])
+        # a stay that is not over yet counts what it has
+        self.assertEqual(len(q.gl_in_background([clean[0], frame])["inside"]), 1)
+
+    def test_the_memory_warning_line(self):
+        self.assertTrue(q.MEMORY_RELEASED.search("[Info][Rendering] [iOS GPU] memory pressure: the renderer's caches are released"))
+        self.assertFalse(q.MEMORY_RELEASED.search("[iOS GPU] frame 1179x2556: 10 draw calls, 4000 us"))
+
+    def test_find_key_finds_the_first_value_anywhere_in_an_answer(self):
+        answer = {"status": "ok", "data": {"window": {"dpi": 288.0, "size": [{"logical_width": 393.0}]}}}
+        self.assertEqual(q.find_key(answer, "dpi"), 288.0)
+        self.assertEqual(q.find_key(answer, "logical_width"), 393.0)
+        self.assertIsNone(q.find_key(answer, "nope"))
+        self.assertIsNone(q.find_key(None, "dpi"))
+
+
 LOGCAT_START = """\
 11-26 07:41:11.070   517   886 I ActivityTaskManager: START u0 {flg=0x10000000 cmp=com.azul.AzWidgets/com.azul.app.AzulActivity} with LAUNCH_SINGLE_TOP from uid 2000 (BAL_ALLOW_PERMISSION) result code=0
 11-26 07:41:11.083   517   546 I ActivityManager: Start proc 2878:com.azul.AzWidgets/u0a141 for next-top-activity {com.azul.AzWidgets/com.azul.app.AzulActivity}

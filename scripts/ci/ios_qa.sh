@@ -63,8 +63,15 @@ exe="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$appdir/Info.plis
 echo "app: $appdir bundle=$bid executable=$exe"
 
 if [ "$session" = qa ] || [ "$session" = both ]; then
+  # The session names the app: `both` is the mobile-e2e app, which has the engine's failure hooks (step 04b) and its debug server (the
+  # scripted swipe of step 04 reads the frame times through it); the plain `qa` is the app that ships and has neither.
+  extra=()
+  if [ "$session" = both ]; then extra+=(--expect-hooks --debug-port "${AZ_QA_DEBUG_PORT:-8795}"); fi
+  # AZ_QA_BACKEND=gpu|cpu|auto: every step of the lifecycle starts the app with that renderer (gpu: the checks that no GL command
+  # goes out in the background are required)
   python3 "$here/mobile_qa.py" ios --out "$out" --udid "$udid" --bundle "$bid" --exe "$exe" --app "$appdir" --label "$label" \
-    ${AZ_QA_EXPECT_GPU:+--expect-gpu} ${AZ_QA_ONLY:+--only "$AZ_QA_ONLY"} 2>&1 | tee "$out/qa.log"
+    ${AZ_QA_EXPECT_GPU:+--expect-gpu} ${AZ_QA_ONLY:+--only "$AZ_QA_ONLY"} ${AZ_QA_BACKEND:+--backend "$AZ_QA_BACKEND"} \
+    ${extra[@]+"${extra[@]}"} 2>&1 | tee "$out/qa.log"
 fi
 if [ "$session" = e2e ] || [ "$session" = both ]; then
   scen=()
