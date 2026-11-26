@@ -375,10 +375,10 @@ impl Runner {
         let hit_test = {
             let scroll_manager = &self.layout_window.scroll_manager;
             let gpu = &self.layout_window.gpu_state_manager;
-            let resolve = |d: azul_core::dom::DomId, n: azul_core::dom::NodeId| {
+            let resolve = |d: DomId, n: NodeId| {
                 scroll_manager.get_current_offset(d, n)
             };
-            let resolve_tf = |d: azul_core::dom::DomId, n: azul_core::dom::NodeId| {
+            let resolve_tf = |d: DomId, n: NodeId| {
                 gpu.painted_transform_of(d, n)
             };
             let hits = self
@@ -425,10 +425,10 @@ impl Runner {
             let hit_test = {
                 let scroll_manager = &self.layout_window.scroll_manager;
                 let gpu = &self.layout_window.gpu_state_manager;
-                let resolve = |d: azul_core::dom::DomId, n: azul_core::dom::NodeId| {
+                let resolve = |d: DomId, n: NodeId| {
                     scroll_manager.get_current_offset(d, n)
                 };
-                let resolve_tf = |d: azul_core::dom::DomId, n: azul_core::dom::NodeId| {
+                let resolve_tf = |d: DomId, n: NodeId| {
                     gpu.painted_transform_of(d, n)
                 };
                 let hits =
@@ -1205,7 +1205,7 @@ impl Runner {
             let lw = &mut self.layout_window;
             let layout_results = &lw.layout_results;
             let in_release_path =
-                |press: azul_core::dom::DomNodeId, release: azul_core::dom::DomNodeId| -> bool {
+                |press: DomNodeId, release: DomNodeId| -> bool {
                     // Is `press` the release target or one of its DOM ancestors
                     // (i.e. already on the release's propagation path)?
                     if press.dom != release.dom {
@@ -3695,7 +3695,7 @@ impl Runner {
                     let state =
                         ScrollPhysicsState::new(lw.scroll_manager.get_input_queue(), physics);
                     let timer = Timer::create(
-                        azul_core::refany::RefAny::new(state),
+                        RefAny::new(state),
                         scroll_physics_timer_callback as TimerCallbackType,
                         self.system_callbacks.get_system_time_fn,
                     )
@@ -3774,8 +3774,8 @@ impl Runner {
                 // "desktop" is its system style.
                 let desktop = match self.layout_window.system_style.as_deref().map(|s| s.mode)
                 {
-                    Some(DarkLightMode::Dark) => azul_core::window::DarkLightMode::Dark,
-                    _ => azul_core::window::DarkLightMode::Light,
+                    Some(DarkLightMode::Dark) => DarkLightMode::Dark,
+                    _ => DarkLightMode::Light,
                 };
                 self.layout_window.mode = *mode;
                 let target = self.layout_window.window_mode_for(desktop);
@@ -4006,9 +4006,9 @@ impl Runner {
         // An `autofocus` node that mounted takes the focus, as in the desktop shell.
         if let Some(n) = pending.as_ref().and_then(|p| p.autofocus) {
             self.layout_window
-                .focus_mounted_autofocus(azul_core::dom::DomNodeId {
+                .focus_mounted_autofocus(DomNodeId {
                     dom: DomId::ROOT_ID,
-                    node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(n)),
+                    node: NodeHierarchyItemId::from_crate_internal(Some(n)),
                 });
         }
 

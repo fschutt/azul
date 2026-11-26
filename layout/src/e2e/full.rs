@@ -131,7 +131,7 @@ fn continuation_blocked(
     if cont.frame_wait_ticks > FRAME_BARRIER_MAX_TICKS {
         log(
             LogLevel::Warn,
-            LogCategory::DebugServer,
+            DebugServer,
             format!(
                 "[E2E] wait_frame: no frame prepared in {} ticks (frame clock {} < {}) - resuming \
                  without the barrier",
@@ -2615,7 +2615,7 @@ pub struct DragContextResponse {
     pub files: Option<Vec<String>>,
     /// Drag data (MIME type -> data)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub drag_data: Option<std::collections::BTreeMap<String, String>>,
+    pub drag_data: Option<BTreeMap<String, String>>,
     /// Current drag effect
     #[serde(skip_serializing_if = "Option::is_none")]
     pub drag_effect: Option<String>,
@@ -5136,7 +5136,7 @@ static DEBUG_PORT: OnceLock<u16> = OnceLock::new();
 // / `stop_http_server`) and stopped at process exit: nothing that does has a handle to it.
 #[cfg(feature = "std")]
 #[cfg(feature = "e2e-server")]
-static DEBUG_SERVER: std::sync::Mutex<Option<Arc<DebugServerHandle>>> = std::sync::Mutex::new(None);
+static DEBUG_SERVER: Mutex<Option<Arc<DebugServerHandle>>> = Mutex::new(None);
 /// Per-window E2E scheduler slot: the half-finished scenario run that has to
 /// survive between event-loop ticks.
 ///
@@ -6224,14 +6224,14 @@ pub fn init_recording(record: Option<&std::path::Path>) {
 /// `std::process::exit`.
 #[cfg(feature = "std")]
 #[cfg(feature = "e2e-server")]
-pub fn queue_e2e_tests(tests: Vec<E2eTest>) -> std::sync::mpsc::Receiver<DebugResponseData> {
+pub fn queue_e2e_tests(tests: Vec<E2eTest>) -> mpsc::Receiver<DebugResponseData> {
     E2E_ACTIVE.store(true, Ordering::SeqCst);
 
     let test_count = tests.len();
     let total_steps: usize = tests.iter().map(|t| t.steps.len()).sum();
     log(
         LogLevel::Info,
-        LogCategory::DebugServer,
+        DebugServer,
         format!(
             "[E2E] Queuing {test_count} test(s) with {total_steps} total step(s)"
         ),
@@ -6240,7 +6240,7 @@ pub fn queue_e2e_tests(tests: Vec<E2eTest>) -> std::sync::mpsc::Receiver<DebugRe
     for (i, test) in tests.iter().enumerate() {
         log(
             LogLevel::Debug,
-            LogCategory::DebugServer,
+            DebugServer,
             format!(
                 "[E2E]   test[{}]: '{}' ({} steps)",
                 i,
@@ -6264,7 +6264,7 @@ pub fn queue_e2e_tests(tests: Vec<E2eTest>) -> std::sync::mpsc::Receiver<DebugRe
         wait_for_render: false,
         dom_id: None,
         response_tx: tx,
-        answered: std::sync::Mutex::new(None),
+        answered: Mutex::new(None),
     };
 
     if let Some(handle) = get_debug_server() {
@@ -7090,7 +7090,7 @@ pub fn handle_event_request(
                 wait_for_render: req.wait_for_render,
                 dom_id: req.dom_id,
                 response_tx: tx,
-                answered: std::sync::Mutex::new(None),
+                answered: Mutex::new(None),
             };
 
             // Send via spmc channel, then wake the UI loop that serves it
@@ -7464,7 +7464,7 @@ pub fn evaluate_assertion(
 ) -> AssertionResult {
     log(
         LogLevel::Debug,
-        LogCategory::DebugServer,
+        DebugServer,
         format!("[E2E] evaluate_assertion: op='{op}', params={params}"),
         None,
     );
@@ -7509,14 +7509,14 @@ pub fn evaluate_assertion(
     if result.passed {
         log(
             LogLevel::Debug,
-            LogCategory::DebugServer,
+            DebugServer,
             format!("[E2E] assertion PASSED: {}", result.message),
             None,
         );
     } else {
         log(
             LogLevel::Info,
-            LogCategory::DebugServer,
+            DebugServer,
             format!(
                 "[E2E] assertion FAILED: {} (expected={:?}, actual={:?})",
                 result.message, result.expected, result.actual
@@ -14467,7 +14467,7 @@ fn resume_e2e_continuation_inner(
             if let Some(verdict) = verdict {
                 log(
                     LogLevel::Info,
-                    LogCategory::DebugServer,
+                    DebugServer,
                     format!(
                         "[E2E] {} not run: {}",
                         test.name,
@@ -14494,7 +14494,7 @@ fn resume_e2e_continuation_inner(
             if let Some(released) = e2e_input_released(callback_info.get_current_window_state()) {
                 log(
                     LogLevel::Debug,
-                    LogCategory::DebugServer,
+                    DebugServer,
                     format!(
                         "[E2E] {}: releasing the buttons, keys and touches the test before left \
                          held (yield)",
@@ -14566,7 +14566,7 @@ fn resume_e2e_continuation_inner(
                             wait_for_render: false,
                             dom_id: None,
                             response_tx: tx,
-                            answered: std::sync::Mutex::new(None),
+                            answered: Mutex::new(None),
                         };
                         let _ = process_debug_event(
                             &req,
@@ -14580,7 +14580,7 @@ fn resume_e2e_continuation_inner(
 
                 log(
                     LogLevel::Debug,
-                    LogCategory::DebugServer,
+                    DebugServer,
                     format!(
                         "[E2E] setup: window {}x{} @ {} dpi (yield for relayout)",
                         setup.window_width, setup.window_height, setup.dpi
@@ -15038,7 +15038,7 @@ fn resume_e2e_continuation_inner(
                             wait_for_render: false,
                             dom_id: step_dom_id,
                             response_tx: step_tx,
-                            answered: std::sync::Mutex::new(None),
+                            answered: Mutex::new(None),
                         };
                         let step_needs_update = process_debug_event(
                             &step_request,
@@ -15402,7 +15402,7 @@ pub extern "C" fn debug_timer_callback(
             None => {
                 log(
                     LogLevel::Error,
-                    LogCategory::DebugServer,
+                    DebugServer,
                     "[timer] Failed to downcast DebugTimerData",
                     None,
                 );
@@ -15437,7 +15437,7 @@ pub extern "C" fn debug_timer_callback(
         continuation.resume_not_before = None;
         log(
             LogLevel::Debug,
-            LogCategory::DebugServer,
+            DebugServer,
             format!(
                 "[E2E] Resuming continuation: test {}, step {}",
                 continuation.test_idx, continuation.step_idx
@@ -15480,7 +15480,7 @@ pub extern "C" fn debug_timer_callback(
     for request in mine {
         log(
             LogLevel::Debug,
-            LogCategory::DebugServer,
+            DebugServer,
             format!("Processing: {:?}", request.event),
             request.window_id.as_deref(),
         );
@@ -15547,7 +15547,7 @@ pub extern "C" fn debug_timer_callback(
     if processed_count > 0 {
         log(
             LogLevel::Debug,
-            LogCategory::DebugServer,
+            DebugServer,
             format!(
                 "[timer] Processed {processed_count} request(s), needs_update={needs_update}"
             ),
@@ -17335,7 +17335,7 @@ fn serve_debug_event(
         DebugEvent::Resize { width, height } => {
             log(
                 LogLevel::Info,
-                LogCategory::Window,
+                Window,
                 format!("Resizing to {width}x{height}"),
                 None,
             );
@@ -17371,7 +17371,7 @@ fn serve_debug_event(
         DebugEvent::Focus => {
             log(
                 LogLevel::Info,
-                LogCategory::Window,
+                Window,
                 "Window focus gained (debug)",
                 None,
             );
@@ -17389,7 +17389,7 @@ fn serve_debug_event(
         DebugEvent::Blur => {
             log(
                 LogLevel::Info,
-                LogCategory::Window,
+                Window,
                 "Window focus lost (debug)",
                 None,
             );
@@ -17597,7 +17597,7 @@ fn serve_debug_event(
                 (Some(nid), Some(true), Ok(parsed_action)) => {
                     log(
                         LogLevel::Info,
-                        LogCategory::EventLoop,
+                        EventLoop,
                         format!(
                             "Accessibility action '{action}' on node {} ({described})",
                             nid.index()
@@ -17620,7 +17620,7 @@ fn serve_debug_event(
         DebugEvent::Move { x, y } => {
             log(
                 LogLevel::Info,
-                LogCategory::Window,
+                Window,
                 format!("Moving window to ({x}, {y})"),
                 None,
             );
@@ -17645,7 +17645,7 @@ fn serve_debug_event(
             let old_dpi = callback_info.get_current_window_state().size.dpi;
             log(
                 LogLevel::Info,
-                LogCategory::Window,
+                Window,
                 format!("DPI change {old_dpi} -> {new_dpi}"),
                 None,
             );
@@ -17694,7 +17694,7 @@ fn serve_debug_event(
                 Some(choice) => {
                     log(
                         LogLevel::Info,
-                        LogCategory::Window,
+                        Window,
                         format!("App mode -> {}", mode.trim()),
                         None,
                     );
@@ -17729,7 +17729,7 @@ fn serve_debug_event(
             } else {
                 log(
                     LogLevel::Info,
-                    LogCategory::Window,
+                    Window,
                     format!("App theme -> {name}"),
                     None,
                 );
@@ -17798,7 +17798,7 @@ fn serve_debug_event(
             };
             log(
                 LogLevel::Debug,
-                LogCategory::EventLoop,
+                EventLoop,
                 format!("Debug mouse move to ({x}, {y}) seat {seat}"),
                 None,
             );
@@ -17817,7 +17817,7 @@ fn serve_debug_event(
         DebugEvent::MouseDown { x, y, button, seat } => {
             log(
                 LogLevel::Debug,
-                LogCategory::EventLoop,
+                EventLoop,
                 format!(
                     "Debug mouse down at ({x}, {y}) button {button:?} seat {seat}"
                 ),
@@ -17851,7 +17851,7 @@ fn serve_debug_event(
         DebugEvent::MouseUp { x, y, button, seat } => {
             log(
                 LogLevel::Debug,
-                LogCategory::EventLoop,
+                EventLoop,
                 format!(
                     "Debug mouse up at ({x}, {y}) button {button:?} seat {seat}"
                 ),
@@ -17915,7 +17915,7 @@ fn serve_debug_event(
                 Some((cx, cy)) => {
                     log(
                         LogLevel::Debug,
-                        LogCategory::EventLoop,
+                        EventLoop,
                         format!("Debug click at ({cx}, {cy}) button {button:?}"),
                         None,
                     );
@@ -18027,7 +18027,7 @@ fn serve_debug_event(
 
             log(
                 LogLevel::Debug,
-                LogCategory::EventLoop,
+                EventLoop,
                 format!("Debug double click at ({x}, {y}) button {button:?}"),
                 None,
             );
@@ -18079,7 +18079,7 @@ fn serve_debug_event(
 
             log(
                 LogLevel::Debug,
-                LogCategory::EventLoop,
+                EventLoop,
                 format!(
                     "Debug scroll at ({x}, {y}) delta ({delta_x}, {delta_y})"
                 ),
@@ -18141,7 +18141,7 @@ fn serve_debug_event(
                 callback_info.scroll_to(dom_id, hierarchy_id, new_pos);
                 log(
                     LogLevel::Debug,
-                    LogCategory::EventLoop,
+                    EventLoop,
                     format!(
                         "Scrolled node {:?}/{:?} from ({:.1}, {:.1}) to ({:.1}, {:.1})",
                         dom_id, node_id, current.x, current.y, new_pos.x, new_pos.y
@@ -18151,7 +18151,7 @@ fn serve_debug_event(
             } else {
                 log(
                     LogLevel::Debug,
-                    LogCategory::EventLoop,
+                    EventLoop,
                     format!("No scrollable node found at ({x}, {y})"),
                     None,
                 );
@@ -18174,7 +18174,7 @@ fn serve_debug_event(
         } => {
             log(
                 LogLevel::Debug,
-                LogCategory::EventLoop,
+                EventLoop,
                 format!("Debug wheel at ({x}, {y}) raw delta ({delta_x}, {delta_y})"),
                 None,
             );
@@ -18284,7 +18284,7 @@ fn serve_debug_event(
             let total = advance_engine_time(callback_info, *ms);
             log(
                 LogLevel::Debug,
-                LogCategory::EventLoop,
+                EventLoop,
                 format!("[E2E] tick_ms: +{ms} ms (clock offset now {total} ms)"),
                 None,
             );
@@ -18482,7 +18482,7 @@ fn serve_debug_event(
         DebugEvent::Relayout => {
             log(
                 LogLevel::Info,
-                LogCategory::Layout,
+                Layout,
                 "Forcing relayout",
                 None,
             );
@@ -18493,7 +18493,7 @@ fn serve_debug_event(
         DebugEvent::Redraw => {
             log(
                 LogLevel::Info,
-                LogCategory::Rendering,
+                Rendering,
                 "Requesting redraw",
                 None,
             );
@@ -18504,7 +18504,7 @@ fn serve_debug_event(
         DebugEvent::Close => {
             log(
                 LogLevel::Info,
-                LogCategory::EventLoop,
+                EventLoop,
                 "Close via close_window()",
                 None,
             );
@@ -18521,7 +18521,7 @@ fn serve_debug_event(
             let written = crate::pgo::dump_profile();
             log(
                 LogLevel::Info,
-                LogCategory::DebugServer,
+                DebugServer,
                 format!("dump_profile: written = {written}"),
                 None,
             );
@@ -18726,7 +18726,7 @@ fn serve_debug_event(
             // what memory did.
             log(
                 LogLevel::Info,
-                LogCategory::DebugServer,
+                DebugServer,
                 match serde_json::to_string(&r) {
                     Ok(j) => format!("[PROFILE] {j}"),
                     Err(e) => format!("[PROFILE] serialise failed: {e}"),
@@ -18985,7 +18985,7 @@ fn serve_debug_event(
         DebugEvent::TakeScreenshot => {
             log(
                 LogLevel::Info,
-                LogCategory::Rendering,
+                Rendering,
                 "Taking CPU screenshot via debug API",
                 None,
             );
@@ -19024,7 +19024,7 @@ fn serve_debug_event(
             // Straight to stderr as well as the log: a scenario's own
             // narration should be visible whatever the log level is.
             std::eprintln!("[e2e] {text}");
-            log(LogLevel::Info, LogCategory::General, text, None);
+            log(LogLevel::Info, General, text, None);
             send_ok(request, None, None);
         }
 
@@ -19042,7 +19042,7 @@ fn serve_debug_event(
         DebugEvent::TakeNativeScreenshot { render_shadow } => {
             log(
                 LogLevel::Info,
-                LogCategory::Rendering,
+                Rendering,
                 "Taking native screenshot via debug API",
                 None,
             );
@@ -19103,7 +19103,7 @@ fn serve_debug_event(
         DebugEvent::GetDom => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 "Getting DOM",
                 None,
             );
@@ -19116,7 +19116,7 @@ fn serve_debug_event(
         DebugEvent::GetHtmlString => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 "Getting HTML string",
                 None,
             );
@@ -19160,7 +19160,7 @@ fn serve_debug_event(
 
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 format!("Getting CSS properties for node {nid}"),
                 None,
             );
@@ -19287,7 +19287,7 @@ fn serve_debug_event(
 
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 format!("Getting layout for node {nid}"),
                 None,
             );
@@ -19330,7 +19330,7 @@ fn serve_debug_event(
         DebugEvent::GetAllNodesLayout => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 "Getting all nodes layout",
                 None,
             );
@@ -19383,7 +19383,7 @@ fn serve_debug_event(
         DebugEvent::ListDoms => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 "Listing live DOMs",
                 None,
             );
@@ -19395,7 +19395,7 @@ fn serve_debug_event(
             // VirtualView documents announce their host, so a caller can tell
             // "the AzWriter document" from "some other nested DOM" without
             // opening each one.
-            let vv_parent: alloc::collections::BTreeMap<usize, DomNodeIdJson> = callback_info
+            let vv_parent: BTreeMap<usize, DomNodeIdJson> = callback_info
                 .get_layout_window()
                 .virtual_view_manager
                 .get_all_virtual_view_infos()
@@ -19471,7 +19471,7 @@ fn serve_debug_event(
         DebugEvent::GetDomTree => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 "Getting DOM tree",
                 None,
             );
@@ -19506,7 +19506,7 @@ fn serve_debug_event(
         DebugEvent::GetNodeHierarchy => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 "Getting node hierarchy",
                 None,
             );
@@ -19657,7 +19657,7 @@ fn serve_debug_event(
         DebugEvent::GetLayoutTree => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 "Getting layout tree",
                 None,
             );
@@ -19716,7 +19716,7 @@ fn serve_debug_event(
         DebugEvent::GetDisplayList => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 "Getting display list",
                 None,
             );
@@ -20160,7 +20160,7 @@ fn serve_debug_event(
         DebugEvent::GetScrollStates => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 "Getting scroll states",
                 None,
             );
@@ -20206,7 +20206,7 @@ fn serve_debug_event(
         DebugEvent::GetScrollableNodes => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 "Getting scrollable nodes",
                 None,
             );
@@ -20280,7 +20280,7 @@ fn serve_debug_event(
 
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 format!("Scrolling node {nid} by ({delta_x}, {delta_y})"),
                 None,
             );
@@ -20338,7 +20338,7 @@ fn serve_debug_event(
 
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 format!("Scrolling node {nid} to position ({x}, {y})"),
                 None,
             );
@@ -20432,7 +20432,7 @@ fn serve_debug_event(
 
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 format!(
                     "Scrolling node {nid} into view (block: {block_align:?}, inline: {inline_align:?}, behavior: {scroll_behavior:?})"
                 ),
@@ -20470,7 +20470,7 @@ fn serve_debug_event(
         DebugEvent::FindNodeByText { text } => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 format!("Finding node by text: {text}"),
                 None,
             );
@@ -20540,7 +20540,7 @@ fn serve_debug_event(
         DebugEvent::ClickNode { node_id, button } => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 format!("Clicking node {node_id} with button {button:?}"),
                 None,
             );
@@ -20615,7 +20615,7 @@ fn serve_debug_event(
 
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 format!(
                     "Getting scrollbar info for node_id={node_id:?}, selector={selector:?}, text={text:?}, \
                      orientation={orientation:?}"
@@ -20670,7 +20670,7 @@ fn serve_debug_event(
                     // Fallback: try to get from layout
                     let zero_rect = azul_core::geom::LogicalRect {
                         origin: LogicalPosition { x: 0.0, y: 0.0 },
-                        size: azul_core::geom::LogicalSize {
+                        size: LogicalSize {
                             width: 0.0,
                             height: 0.0,
                         },
@@ -20695,7 +20695,7 @@ fn serve_debug_event(
 
                         let top_btn = azul_core::geom::LogicalRect {
                             origin: track.origin,
-                            size: azul_core::geom::LogicalSize {
+                            size: LogicalSize {
                                 width: track.size.width,
                                 height: button_size,
                             },
@@ -20705,7 +20705,7 @@ fn serve_debug_event(
                                 x: track.origin.x,
                                 y: track.origin.y + track.size.height - button_size,
                             },
-                            size: azul_core::geom::LogicalSize {
+                            size: LogicalSize {
                                 width: track.size.width,
                                 height: button_size,
                             },
@@ -20715,7 +20715,7 @@ fn serve_debug_event(
                                 x: track.origin.x,
                                 y: track.origin.y + thumb_y_start,
                             },
-                            size: azul_core::geom::LogicalSize {
+                            size: LogicalSize {
                                 width: track.size.width,
                                 height: thumb_height,
                             },
@@ -20730,7 +20730,7 @@ fn serve_debug_event(
 
                         let left_btn = azul_core::geom::LogicalRect {
                             origin: track.origin,
-                            size: azul_core::geom::LogicalSize {
+                            size: LogicalSize {
                                 width: button_size,
                                 height: track.size.height,
                             },
@@ -20740,7 +20740,7 @@ fn serve_debug_event(
                                 x: track.origin.x + track.size.width - button_size,
                                 y: track.origin.y,
                             },
-                            size: azul_core::geom::LogicalSize {
+                            size: LogicalSize {
                                 width: button_size,
                                 height: track.size.height,
                             },
@@ -20750,7 +20750,7 @@ fn serve_debug_event(
                                 x: track.origin.x + thumb_x_start,
                                 y: track.origin.y,
                             },
-                            size: azul_core::geom::LogicalSize {
+                            size: LogicalSize {
                                 width: thumb_width,
                                 height: track.size.height,
                             },
@@ -20846,7 +20846,7 @@ fn serve_debug_event(
         DebugEvent::GetVirtualViewStates => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 "Getting virtualized view states",
                 None,
             );
@@ -20890,7 +20890,7 @@ fn serve_debug_event(
         DebugEvent::GetVirtualViewLayout { dom_id, node_id } => {
             log(
                 LogLevel::Debug,
-                LogCategory::DebugServer,
+                DebugServer,
                 "Getting virtualized view layout",
                 None,
             );
@@ -21379,7 +21379,7 @@ fn serve_debug_event(
 
             log(
                 LogLevel::Debug,
-                LogCategory::EventLoop,
+                EventLoop,
                 format!(
                     "Debug key down: {} (shift={}, ctrl={}, alt={})",
                     key, modifiers.shift, modifiers.ctrl, modifiers.alt
@@ -21519,7 +21519,7 @@ fn serve_debug_event(
 
             log(
                 LogLevel::Debug,
-                LogCategory::EventLoop,
+                EventLoop,
                 format!(
                     "Debug key up: {} (shift={}, ctrl={}, alt={})",
                     key, modifiers.shift, modifiers.ctrl, modifiers.alt
@@ -21575,7 +21575,7 @@ fn serve_debug_event(
         DebugEvent::TextInput { text } => {
             log(
                 LogLevel::Debug,
-                LogCategory::EventLoop,
+                EventLoop,
                 format!("Received text input via debug server: '{text}'"),
                 None,
             );
@@ -21978,7 +21978,7 @@ fn serve_debug_event(
 
             log(
                 LogLevel::Info,
-                LogCategory::DebugServer,
+                DebugServer,
                 format!("[E2E] RunE2eTests: executing {} test(s)", tests.len()),
                 None,
             );
@@ -24067,7 +24067,7 @@ fn serve_debug_event(
         _ => {
             log(
                 LogLevel::Warn,
-                LogCategory::DebugServer,
+                DebugServer,
                 format!("Unhandled: {:?}", request.event),
                 None,
             );
@@ -25477,7 +25477,7 @@ fn write_shot_to_dir(dir: Option<&std::path::Path>, data_uri: &str) {
     // Numbers the files ONE process writes into the one `AZ_E2E_SHOT_DIR` (process configuration), in
     // the order the scenario asked for them, whichever window took them.
     static SHOT_N: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
-    let n = SHOT_N.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    let n = SHOT_N.fetch_add(1, Ordering::Relaxed);
     let raw = data_uri.rsplit(',').next().unwrap_or("");
     if let Ok(bytes) = base64_decode_for_shot(raw) {
         let _ = std::fs::write(dir.join(format!("shot-{n:03}.png")), bytes);
