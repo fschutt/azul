@@ -88,6 +88,7 @@ remote-page-strip = Wischen für die nächste oder vorherige Seite
 remote-context-line = Die Tasten gelten für Zeile { $n }
 remote-context-region = Die Tasten gelten für den markierten Bereich
 remote-context-page = Die Tasten gelten für Seite { $n }
+remote-context-board = Die Tasten gelten für das Whiteboard
 remote-context-none = Öffne in AzReview eine Datei, um die Tasten zu nutzen
 remote-lost = Verbindung verloren. Neuer Versuch
 remote-hint-board = Ziehen verschiebt das Board. Zwei Finger zoomen. Doppeltippen passt das Board an.
