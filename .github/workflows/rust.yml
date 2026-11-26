@@ -140,12 +140,12 @@ jobs:
       - name: The demo apps agree with the workspace (scripts/demo_apps.toml)
         run: python3 scripts/demo_apps.py check && python3 scripts/test_demo_apps.py
 
-      # The page's dead-link pruning, the release contracts and the 16 KiB gate of the Android libraries have tests of their own
-      # (std only; the manifest cases need tomllib)
-      - name: Tests of the link pruning, of the release contracts and of the Android library gate
+      # The page's dead-link pruning, the release contracts, the 16 KiB gate of the Android libraries and the symbol gate of the iOS
+      # binaries have tests of their own (std only; the manifest cases need tomllib)
+      - name: Tests of the link pruning, of the release contracts and of the Android and iOS gates
         run: >-
           python3 scripts/test_prune_dead_release_links.py && python3 scripts/test_preflight_contracts.py
-          && python3 scripts/test_android_elf_check.py
+          && python3 scripts/test_android_elf_check.py && python3 scripts/test_ios_symbol_gate.py
 
       - name: Public tree (no credentials, no agent notes)
         run: python3 scripts/check_public_tree.py --self-test && python3 scripts/check_public_tree.py
