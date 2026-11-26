@@ -487,3 +487,53 @@ fn the_recipe_scanner_sees_build_dll_a_door_by_name_and_a_missing_dist() {
         vec!["a", "b", "c"]
     );
 }
+
+// ---- the HTTP client is a named part of the gate, not a side effect of the updater ----
+
+/// azul-layout's `http` (ureq, rustls with the pure-Rust provider: no ring, no C) is in every build
+/// that has azul-layout, on a phone too: map tiles, `http_get`, the telemetry upload and an app's
+/// own requests need HTTPS there. It used to be there only because the `azul-layout` dependency
+/// names `updater` and `updater` implies `http`; the shared gate (`_internal_deps`, which
+/// `link-static` - the mobile gate of rust.yml - and `build-dll` and so `dist` all contain) now
+/// names it, so the phone keeps it when the updater is ever not named.
+#[test]
+fn the_shared_gate_names_the_http_client_for_the_desktop_and_the_mobile_sets() {
+    let table = dll_features();
+    for set in ["link-static", "build-dll", "dist"] {
+        let (features, entries) = closure(&table, set);
+        assert!(
+            features.contains("http"),
+            "the closure of `{set}` does not name the dll feature `http`: {features:?}"
+        );
+        assert!(
+            entries.contains("azul-layout?/http"),
+            "no feature of `{set}` reaches azul-layout's `http`"
+        );
+    }
+}
+
+// ---- what the shipped libazul holds because its documents promise it ----
+
+/// `hyphens: auto` on a German text, and `IcuDate::now()`: the first needs the dictionaries of every
+/// language (azul-layout's `text_layout_hyphenation_all`, which the dll could not forward at all, so
+/// no libazul that shipped hyphenated anything but English), the second azul-layout's `icu_chrono`.
+#[test]
+fn the_feature_closure_of_dist_holds_the_hyphenation_of_every_language_and_the_clock() {
+    let table = dll_features();
+    let (features, entries) = closure(&table, "dist");
+    assert!(
+        features.contains("hyphenation-all"),
+        "dist does not switch on the dll's `hyphenation-all`: {features:?}"
+    );
+    assert!(
+        entries.contains("azul-layout/text_layout_hyphenation_all"),
+        "no feature of dist reaches azul-layout's text_layout_hyphenation_all"
+    );
+    assert!(
+        entries.contains("azul-layout/icu_chrono"),
+        "no feature of dist reaches azul-layout's icu_chrono (IcuDate::now())"
+    );
+    // a build with `icu` has the clock, whatever else it has: the api declares the functions
+    let (_, icu_entries) = closure(&table, "icu");
+    assert!(icu_entries.contains("azul-layout/icu_chrono"));
+}
