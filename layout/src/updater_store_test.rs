@@ -188,7 +188,6 @@ fn the_code_that_fetches_or_installs_a_program_is_compiled_out_of_a_store_build(
         "MAX_UPDATE_BYTES",
         "check_pin",
         "staged_artifact_name",
-        "parse_content_range",
         "download_update",
         "download_update_capped",
         "download_and_verify",

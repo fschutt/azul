@@ -3,11 +3,11 @@
 //!
 //! Spellings: the raw C functions keep their C names
 //! (`azul.AzCssProperty_textColor(..)`, `azul.AzPixelValue_px(10)`); enum
-//! variants are Go-side builders `azul.Az<Enum>_<Variant>(..)` (PascalCase
+//! variants are Go-side builders `azul.Az<Enum>_<Variant>(..)` (`PascalCase`
 //! variant: `azul.AzLayoutWidth_Px(..)`, `azul.AzLayoutWidthValue_Exact(..)`,
 //! unit `azul.AzLayoutWidth_Auto()`), the C variant constructors are not
 //! bound; C-like enum values are typed constants without the `Az` prefix
-//! (`azul.LayoutDisplay_Flex`); structs have PascalCase exported fields
+//! (`azul.LayoutDisplay_Flex`); structs have `PascalCase` exported fields
 //! (`azul.AzColorU{R: 255, ..}`); a Vec is copied from a slice
 //! (`azul.AzXxxVec_copyFromPtr(&[]azul.AzXxx{..}[0], n)`); strings come from
 //! `azul.Str("..").Raw()`. `azul.LoadLibrary("")` must run before any call,
@@ -28,6 +28,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use crate::codegen::{
     doc::{render, Doc},
@@ -226,7 +227,7 @@ fn dom_item_fn(item: &Item) -> String {
     let syntax = WrapperDom(GoDom);
     let mut out = String::new();
     for line in &item_comments(&syntax, item) {
-        out.push_str(&format!("// {line}\n"));
+        let _ = writeln!(out, "// {line}");
     }
     let name = item.name.upper_camel();
     let params = item
@@ -236,14 +237,16 @@ fn dom_item_fn(item: &Item) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     match item_doc(&syntax, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "func {name}({params}) *azul.Dom {{\n\treturn {}\n}}\n",
             render(&doc, "\t", 1)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "// not expressible with the Go bindings: {reason}\nfunc {name}({params}) *azul.Dom \
              {{\n\treturn nil\n}}\n"
-        )),
+        ); },
     }
     out
 }
@@ -290,20 +293,22 @@ fn go_mod(module: &str) -> String {
 fn item_fn(item: &Item) -> String {
     let mut out = String::new();
     for line in &item_comments(&Go, item) {
-        out.push_str(&format!("// {line}\n"));
+        let _ = writeln!(out, "// {line}");
     }
     let name = item.name.upper_camel();
     match item_doc(&Go, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "func {name}() azul.Az{} {{\n\treturn {}\n}}\n",
             item.ty,
             render(&doc, "\t", 1)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "// not expressible with the Go bindings: {reason}\nfunc {name}() (v azul.Az{}) \
              {{\n\treturn\n}}\n",
             item.ty
-        )),
+        ); },
     }
     out
 }
@@ -350,7 +355,7 @@ impl CodegenBackend for Go {
         if let Some(lib) = &m.library {
             out.push('\n');
             for line in registration_note(lib, NO_REGISTRATION) {
-                out.push_str(&format!("// {line}\n"));
+                let _ = writeln!(out, "// {line}");
             }
         }
         out
@@ -381,9 +386,10 @@ impl CodegenBackend for Go {
         for item in &m.items {
             let name = item.name.upper_camel();
             let var = item.name.lower_camel();
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "\t{var} := styles.{name}()\n\tfmt.Printf(\"{name}: %d properties\\n\", {var}.Len)\n"
-            ));
+            );
         }
         main.push_str("}\n");
         vec![

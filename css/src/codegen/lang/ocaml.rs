@@ -15,7 +15,7 @@
 //! the payload's alignment.
 //!
 //! A DOM goes through the idiomatic modules instead (`lang_ocaml/wrappers.rs`):
-//! snake_case functions of the class module that take OCaml strings
+//! `snake_case` functions of the class module that take OCaml strings
 //! (`Dom.create_div ()`, `SmallAriaInfo.label ".."`), and by-value `self`
 //! methods that take the receiver FIRST and return a new `Dom.t`, so a chain
 //! is a pipeline through `Fun.flip` (`|> Fun.flip Dom.with_child (..)`). A
@@ -30,6 +30,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use crate::codegen::{
     doc::{render, Doc},
@@ -120,14 +121,16 @@ impl ExprSyntax for OCaml {
             ),
             EnumShape::Generic { arg, .. } => {
                 let tag = union_tag(ty, variant).unwrap_or(0);
-                let payload = match args.into_iter().next() {
-                    Some(p) => app(
-                        "Some".to_string(),
-                        vec![app(format!("az_payload {}", ctype(arg)), vec![p], broken)],
-                        broken,
-                    ),
-                    None => Doc::text("None"),
-                };
+                let payload = args.into_iter().next().map_or_else(
+                    || Doc::text("None"),
+                    |p| {
+                        app(
+                            "Some".to_string(),
+                            vec![app(format!("az_payload {}", ctype(arg)), vec![p], broken)],
+                            broken,
+                        )
+                    },
+                );
                 app(
                     format!("az_union {} {tag}", ctype(ty)),
                     vec![payload],
@@ -216,18 +219,20 @@ let az_payload t x p =
 fn item_fn(item: &Item) -> String {
     let mut out = String::new();
     for line in &item_comments(&OCaml, item) {
-        out.push_str(&format!("(* {} *)\n", line.replace("*)", "* )")));
+        let _ = writeln!(out, "(* {} *)", line.replace("*)", "* )"));
     }
     let name = item.name.snake();
     match item_doc(&OCaml, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "let {name} () =\n  {}\n",
             render(&doc, "  ", 1)
-        )),
-        Err(reason) => out.push_str(&format!(
-            "(* not expressible with the OCaml bindings: {} *)\n",
+        ); },
+        Err(reason) => { let _ = writeln!(
+            out,
+            "(* not expressible with the OCaml bindings: {} *)",
             reason.replace("*)", "* )")
-        )),
+        ); },
     }
     out
 }
@@ -374,7 +379,7 @@ fn dom_item_fn(item: &Item) -> String {
     let syntax = WrapperDom(OCamlDom);
     let mut out = String::new();
     for line in &item_comments(&syntax, item) {
-        out.push_str(&format!("(* {} *)\n", ml_comment(line)));
+        let _ = writeln!(out, "(* {} *)", ml_comment(line));
     }
     let mut params: Vec<String> = item
         .params
@@ -394,23 +399,23 @@ fn dom_item_fn(item: &Item) -> String {
     match item_doc(&syntax, item) {
         Ok(doc) => {
             // dune's dev profile makes an unused variable an error.
-            let unused: String = unused_params(item)
-                .iter()
-                .map(|p| format!("  let _ = {} in\n", ml_param(&p.name)))
-                .collect();
-            out.push_str(&format!("{head}\n{unused}  {}\n", render(&doc, "  ", 1)));
+            let unused: String = unused_params(item).iter().fold(String::new(), |mut acc, p| {
+                let _ = writeln!(acc, "  let _ = {} in", ml_param(&p.name));
+                acc
+            });
+            let _ = write!(out, "{head}\n{unused}  {}\n", render(&doc, "  ", 1));
         }
         Err(reason) => {
-            let unused: String = item
-                .params
-                .iter()
-                .map(|p| format!("  let _ = {} in\n", ml_param(&p.name)))
-                .collect();
-            out.push_str(&format!(
+            let unused: String = item.params.iter().fold(String::new(), |mut acc, p| {
+                let _ = writeln!(acc, "  let _ = {} in", ml_param(&p.name));
+                acc
+            });
+            let _ = write!(
+                out,
                 "(* not expressible with the OCaml bindings: {} *)\n{head}\n{unused}  failwith {}\n",
                 ml_comment(&reason),
                 ml_str(&format!("not expressible: {reason}"))
-            ));
+            );
         }
     }
     out
@@ -501,7 +506,7 @@ impl CodegenBackend for OCaml {
         if let Some(lib) = &m.library {
             out.push('\n');
             for line in registration_note(lib, NO_REGISTRATION) {
-                out.push_str(&format!("(* {} *)\n", ml_comment(&line)));
+                let _ = writeln!(out, "(* {} *)", ml_comment(&line));
             }
         }
         out
@@ -534,9 +539,10 @@ impl CodegenBackend for OCaml {
         for (i, item) in m.items.iter().enumerate() {
             let name = item.name.snake();
             let sep = if i + 1 < m.items.len() { ";" } else { "" };
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "  ignore (Styles.{name} ());\n  print_endline \"{name}: built\"{sep}\n"
-            ));
+            );
         }
         if m.items.is_empty() {
             main.push_str("  ()\n");
