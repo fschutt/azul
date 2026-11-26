@@ -13,6 +13,8 @@ not reach (or that the platform has no equivalent of) is a grey cell that says s
   3-system-changes            memory pressure, dark mode, text size / font scale, display density
   4-dying-and-coming-back     BACK and start again, force-stop, killed in the background, 300 random touches
   5-cpu-against-gpu           AZ_BACKEND cpu / gpu / auto and the pixel diff of cpu against gpu
+  6-phone-fit                 (only with --sheet 6-phone-fit, columns = the apps of an audit run: <out>/audit/<app>/shots) the engine's
+                              frame and the device's frame of portrait and landscape, and the dark mode as the device shows it
 A cell is the picture at 216 x 480; the full pictures stay in the runs' shots/ directories.
 """
 import argparse
@@ -58,6 +60,14 @@ SHEETS = {
         ("AZ_BACKEND=auto", ["AZ_BACKEND-auto"], ["AZ_BACKEND-auto"]),
         ("diff cpu / gpu (red = differs)", ["diff-cpu-vs-gpu"], ["diff-cpu-vs-gpu"]),
     ],
+    "6-phone-fit": [
+        ("portrait: engine's frame", ["engine-frame-portrait"], []),
+        ("portrait: device screencap", ["device-frame-portrait"], []),
+        ("landscape: engine's frame", ["engine-frame-landscape"], []),
+        ("landscape: device screencap", ["device-frame-landscape"], []),
+        ("system dark mode: device", ["dark-after"], []),
+        ("the app's own check", ["paint-after-stroke", "writer-typed", "maps-sidebar-tapped"], []),
+    ],
     "4-dying-and-coming-back": [
         ("after BACK", ["after-back"], []),
         ("start again after BACK", ["relaunch-after-back"], []),
@@ -84,7 +94,7 @@ def magick(*args):
 
 def find_shot(shots_dir, stems):
     for stem in stems:
-        hits = sorted(Path(shots_dir).glob(f"[0-9]*-{stem}.png"))
+        hits = sorted(Path(shots_dir).glob(f"[0-9]*-{stem}.png")) or sorted(Path(shots_dir).glob(f"{stem}.png"))   # the engine's frames have no number
         if hits:
             return hits[0]
     return None
@@ -109,12 +119,14 @@ def cell(shot, caption, work, name, missing_text):
     return labelled
 
 
-def build(out_dir, columns):
+def build(out_dir, columns, only=None):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix="azgallery-"))     # temp files stay in the system temp folder: nothing is deleted
     made = []
     for sheet, cells in SHEETS.items():
+        if (only and sheet not in only) or (not only and sheet == "6-phone-fit"):
+            continue
         rows = []
         for ri, (title, shots_dir) in enumerate(columns):
             ios = title.lower().startswith("ios")
@@ -156,12 +168,13 @@ def main(argv):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", required=True)
     ap.add_argument("--column", action="append", required=True, help='"title=path/to/shots"')
+    ap.add_argument("--sheet", action="append", default=[], help="only this sheet (its name, e.g. 6-phone-fit); default: every sheet but 6-phone-fit")
     args = ap.parse_args(argv)
     cols = []
     for c in args.column:
         title, _, path = c.rpartition("=")
         cols.append((title, path))
-    build(args.out, cols)
+    build(args.out, cols, only=args.sheet or None)
     return 0
 
 
