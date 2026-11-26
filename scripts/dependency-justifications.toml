@@ -746,6 +746,7 @@ swarm-discovery = "The multicast peer discovery (mDNS records on UDP 5353, pure 
 hickory-proto = "DNS wire format (messages, names, records) that swarm-discovery builds and parses its mDNS packets with; no resolver and no sockets (default features off)."
 acto = "The small actor runtime swarm-discovery runs its sender, receiver and updater on (build.rs only sets a cfg for the compiler channel)."
 smol_str = "Small-string type (0.1) that acto names its actors with."
+critical-section = "The lock primitive once_cell is built with where hickory-proto (the DNS codec of swarm-discovery, behind IrohConfig.local_discovery) turns on once_cell's `critical-section` feature."
 iroh-relay = "iroh's relay client: the fallback path when two peers find no direct route."
 iroh-dns = "iroh's DNS/pkarr endpoint discovery, pulled by iroh and iroh-relay."
 n0-dns-resolver = "DNS resolver behind iroh-dns."
