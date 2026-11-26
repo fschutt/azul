@@ -129,11 +129,11 @@ permissions = [
 [app.known_failing]
 android = "the crate has no cdylib and no ctor entry point yet"
 ios = "the crate has no AzCompanion bin (main.rs) yet"
-[app.ios.plist]
-NSLocalNetworkUsageDescription = "AzReview Companion finds AzReview on your Mac over your Wi-Fi to use your phone as its remote control."
-NSBonjourServices = ["_irohv1._udp"]
+[app.ios]
+# build-ios.sh writes NSLocalNetworkUsageDescription and NSBonjourServices = [_irohv1._udp] from this text
+local_network = "AzReview Companion finds AzReview on your Mac over your Wi-Fi to use your phone as its remote control."
+[app.ios.usage]
 NSCameraUsageDescription = "AzReview Companion scans the pairing code AzReview shows on your Mac."
-UIDeviceFamily = [1]
 [app.ios.strings.de]
 NSLocalNetworkUsageDescription = "AzReview Companion findet AzReview auf deinem Mac über dein WLAN, damit dein Telefon als Fernbedienung dient."
 NSCameraUsageDescription = "AzReview Companion liest den Kopplungscode, den AzReview auf deinem Mac zeigt."

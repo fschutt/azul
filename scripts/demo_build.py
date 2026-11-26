@@ -341,11 +341,13 @@ def phone(args, job, kind):
         else:
             env.update(AZ_IOS_DRYRUN="1", AZ_IOS_LINK_LIB=str(lib), AZ_IOS_BUILD_JSON=str(json_log), APP_NAME=pkg,
                        BUNDLE_ID=app["bundle_id"], DISPLAY_NAME=app["name"], VERSION="0.2.0", BUILD=ver["build"])
-            plist = (app.get("ios") or {}).get("plist") or {}
-            if plist:
-                pj = work / "plist-extra.json"
-                pj.write_text(json.dumps(plist), encoding="utf-8")
-                env["AZ_IOS_PLIST_EXTRA"] = str(pj)
+            ios = app.get("ios") or {}
+            if ios.get("local_network"):
+                env["AZ_IOS_LOCAL_NETWORK"] = ios["local_network"]
+            if ios.get("usage"):
+                env["AZ_IOS_USAGE"] = "\n".join(f"{k}={v}" for k, v in sorted(ios["usage"].items()))
+            if ios.get("bonjour_services"):
+                env["AZ_IOS_BONJOUR_SERVICES"] = ",".join(ios["bonjour_services"])
             sd = strings_dir(app, work / "strings")
             if sd:
                 env["AZ_IOS_STRINGS_DIR"] = str(sd)
