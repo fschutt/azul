@@ -753,7 +753,48 @@ class AfterTapTest(unittest.TestCase):
         smoke = next(a for a in m["app"] if a["package"] == "AzCompanion")["smoke"]
         self.assertEqual(smoke["after_tap"], ["Demo Mac"])
         self.assertEqual(smoke["after_tap_gone"], ["Connect to AzReview"])
-        self.assertEqual(json.loads(demo_apps.plan(m)["smoke_after"]), {"AzCompanion": {"found": ["Demo Mac"], "gone": ["Connect to AzReview"]}})
+        self.assertEqual(json.loads(demo_apps.plan(m)["smoke_after"]),
+                         {"AzCompanion": {"found": ["Demo Mac"], "gone": ["Connect to AzReview"], "probe_tap": "Scan QR code",
+                                          "probe_found": ["Scanning the code comes with the next version"]}})
+
+    def test_a_first_press_with_a_short_effect_is_looked_at_one_second_after_it(self):
+        # "Scan QR code" only shows a toast of 2.5 s ("Scanning the code comes with the next version ..."): if it is on the screen 1 s after
+        # the press, a tap reaches the app's callbacks; if not, none does (the input path)
+        passed, reason = smoke_verdict.judge(self.tap(probe_label="Scan QR code", probe_found={"Scanning the code": False},
+                                                      after_found={"Demo Mac": True}))
+        self.assertFalse(passed)
+        self.assertIn('1 s after pressing "Scan QR code"', reason)
+        self.assertIn('"Scanning the code"', reason)
+        self.assertTrue(smoke_verdict.judge(self.tap(probe_label="Scan QR code", probe_found={"Scanning the code": True},
+                                                     after_found={"Demo Mac": True}))[0])
+
+    def test_the_probe_answers_come_from_the_dump_of_that_moment(self):
+        env = {"AZ_SMOKE_AFTER": json.dumps({"AzCompanion": {"found": ["Demo Mac"], "gone": [], "probe_tap": "Scan QR code",
+                                                              "probe_found": ["scanning the code"]}})}
+        with tempfile.TemporaryDirectory() as d:
+            path = pathlib.Path(d) / "probe.xml"
+            path.write_text('<hierarchy><node text="Scanning the code comes with the next version." content-desc="" /></hierarchy>')
+            self.assertEqual(ui_find.probe(str(path), "AzCompanion", env), {"probe_label": "Scan QR code", "probe_found": {"scanning the code": True}})
+            self.assertEqual(ui_find.probe(str(path), "AzWidgets", env), {})
+            self.assertEqual(ui_find.probe_label("AzCompanion", env), "Scan QR code")
+            self.assertEqual(ui_find.probe_label("AzWidgets", env), "")
+
+    def test_a_probe_needs_a_tap_and_a_list_of_texts(self):
+        m = demo_apps.load()
+        next(a for a in m["app"] if a["package"] == "AzWidgets")["smoke"] = {"probe_tap": "X", "probe_after": ["y"]}
+        self.assertTrue(any("AzWidgets" in e and "probe" in e and "tap" in e for e in demo_apps.check(m)))
+        m = demo_apps.load()
+        next(a for a in m["app"] if a["package"] == "AzCompanion")["smoke"]["probe_after"] = "text"
+        self.assertTrue(any("AzCompanion" in e and "probe_after" in e and "list" in e for e in demo_apps.check(m)))
+        m = demo_apps.load()
+        next(a for a in m["app"] if a["package"] == "AzCompanion")["smoke"]["probe_tap"] = ""
+        self.assertTrue(any("AzCompanion" in e and "probe_tap" in e for e in demo_apps.check(m)))
+
+    def test_the_android_boot_test_turns_the_apps_info_log_on_for_an_app_with_a_press(self):
+        text = (HERE / "ci" / "android_smoke.sh").read_text(encoding="utf-8")
+        self.assertIn("setprop debug.az.log info", text)    # AZ_LOG=info: the app's own lines of what a press did ("tap <Action>")
+        self.assertIn("screenshot-probe.png", text)
+        self.assertIn("--probe-label", text)
 
     def test_a_text_after_a_tap_needs_a_tap_and_is_a_list_of_texts(self):
         m = demo_apps.load()
@@ -769,6 +810,8 @@ class AfterTapTest(unittest.TestCase):
             text = (HERE / "ci" / name).read_text(encoding="utf-8")
             self.assertIn("AZ_SMOKE_AFTER", text, name)
             self.assertIn("ui_find.py", text, name)
+            self.assertIn("--probe-label", text, name)     # the first press with a short effect (a toast), looked at 1 s after it
+            self.assertIn("screenshot-probe.png", text, name)
 
 
 class ApkGateTest(unittest.TestCase):

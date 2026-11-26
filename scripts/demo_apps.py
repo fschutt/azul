@@ -209,12 +209,19 @@ def check(m=None):
                 err(f"{where} mobile_lib {lib!r} is artifact_only: a shipped app never links a QA variant of the library")
         # [app.smoke] after_tap / after_tap_gone: lists of texts for the screen after the button `tap` was pressed
         smoke = a.get("smoke") or {}
-        for key in ("after_tap", "after_tap_gone"):
+        for key in ("after_tap", "after_tap_gone", "probe_after"):
             if key in smoke:
                 if not isinstance(smoke[key], list) or not all(isinstance(t, str) and t.strip() for t in smoke[key]):
                     err(f"{where} [app.smoke] {key} must be a list of texts")
                 elif not smoke.get("tap"):
                     err(f"{where} [app.smoke] {key} is looked for after a button was pressed and the app names no `tap`")
+        if "probe_tap" in smoke:
+            if not isinstance(smoke["probe_tap"], str) or not smoke["probe_tap"].strip():
+                err(f"{where} [app.smoke] probe_tap must name the key of the first press")
+            elif not smoke.get("tap"):
+                err(f"{where} [app.smoke] probe_tap is a press before the `tap` one and the app names no `tap`")
+            elif not smoke.get("probe_after"):
+                err(f"{where} [app.smoke] probe_tap needs probe_after, the texts that must be on the screen 1 s after it")
         # the purpose strings of iOS: a usage key is `NS...UsageDescription` with a text, and an app that asks for a sensor on
         # Android has its key for iOS (the permissions are the list of what the app is allowed to use on a phone)
         usage = (a.get("ios") or {}).get("usage") or {}
@@ -399,9 +406,12 @@ def plan(m=None, e2e=False):
     out["smoke_expects"] = json.dumps({a["package"]: a["smoke"]["expect"] for a in m["app"]
                                        if (a.get("smoke") or {}).get("expect")}, sort_keys=True)
     # what must be on the screen once the button was pressed, and what must be gone: {package: {"found": [...], "gone": [...]}}
-    out["smoke_after"] = json.dumps({a["package"]: {"found": a["smoke"].get("after_tap", []), "gone": a["smoke"].get("after_tap_gone", [])}
+    # and a FIRST press with a short effect (a toast) with what must be on the screen 1 s later (probe_tap, probe_found)
+    out["smoke_after"] = json.dumps({a["package"]: {"found": a["smoke"].get("after_tap", []), "gone": a["smoke"].get("after_tap_gone", []),
+                                                    "probe_tap": a["smoke"].get("probe_tap", ""), "probe_found": a["smoke"].get("probe_after", [])}
                                      for a in m["app"] if (a.get("smoke") or {}).get("tap")
-                                     and (a["smoke"].get("after_tap") or a["smoke"].get("after_tap_gone"))}, sort_keys=True)
+                                     and (a["smoke"].get("after_tap") or a["smoke"].get("after_tap_gone") or a["smoke"].get("probe_tap"))},
+                                    sort_keys=True)
     return out
 
 
