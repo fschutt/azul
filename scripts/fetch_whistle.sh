@@ -139,6 +139,10 @@ if [ "$static_engine" = 1 ]; then
     "$dest/static/libcactus.a" "$want"
   lib="static/libcactus.a"
   echo "wrote  $dest/$lib ($(wc -c < "$dest/$lib" | tr -d ' ') bytes)"
+  case "$tag" in
+    windows-*) echo "note: the release's Windows archives are MinGW builds on libc++: only the windows-gnu Rust targets can link them, not MSVC" ;;
+    linux-*) echo "note: the Linux archives are glibc builds on libc++ (libc++ and libc++abi, not libstdc++): see dll/build.rs" ;;
+  esac
 else
   # The wheel is unpacked in a temporary folder; nothing here deletes it (delete it when you like).
   work="$(mktemp -d)"

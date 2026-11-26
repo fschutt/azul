@@ -1665,8 +1665,18 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
             MainEvent::Destroy => {
                 window.close();
             }
-            MainEvent::Pause | MainEvent::Resume { .. } => {
+            MainEvent::Pause => {
                 // No-op for now; future: pause timers, stop animations.
+            }
+            MainEvent::Resume { .. } => {
+                // Back in front (HOME and back, recents, another app's dialog that covered this one): the
+                // surface may have lost what it showed without a `RedrawNeeded` (a black window until
+                // something redrew it, QA run 45776829730). The frame the shell holds is posted once,
+                // whole; a shell with no frame or no surface yet gets its first from InitWindow's request.
+                if window.present.has_frame() && has_surface(window) {
+                    window.present.redraw_needed();
+                    window.needs_rerender = true;
+                }
             }
             _ => {}
         },
@@ -1823,6 +1833,8 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                         action_pointer_id = p.pointer_id();
                     }
 
+                    let tool = p.tool_type();
+
                     // The finger this PointerUp is about is lifting — it still
                     // appears in pointers(), but it is no longer touching.
                     // (Stylus lift is handled separately below via the action.)
@@ -1842,11 +1854,12 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                             major: 0.0,
                             minor: 0.0,
                             orientation_rad: 0.0,
-                            tool_type: azul_core::window::TouchToolType::Unknown,
+                            // What touches (`MotionEvent.getToolType`): the engine tells a finger, which
+                            // scrolls, from a mouse or a stylus, which select by dragging.
+                            tool_type: touch_tool_of(tool),
                         });
                     }
 
-                    let tool = p.tool_type();
                     if matches!(tool, ToolType::Stylus | ToolType::Eraser) {
                         let pressure = p.pressure().clamp(0.0, 1.0);
                         let tilt_rad = p.axis_value(Axis::Tilt);
@@ -2408,6 +2421,19 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
     if let Some(lw) = window.common.layout_window.as_mut() {
         lw.gesture_drag_manager.clear_native_gesture();
         lw.gesture_drag_manager.note_pinch_dispatched();
+    }
+}
+
+/// What touches, as the engine names it. `ToolType` has a hidden catch-all for a tool a newer NDK adds: Unknown.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn touch_tool_of(tool: ToolType) -> azul_core::window::TouchToolType {
+    use azul_core::window::TouchToolType as Engine;
+    match tool {
+        ToolType::Finger => Engine::Finger,
+        ToolType::Stylus => Engine::Stylus,
+        ToolType::Eraser => Engine::Eraser,
+        ToolType::Mouse => Engine::Mouse,
+        _ => Engine::Unknown,
     }
 }
 

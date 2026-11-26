@@ -114,6 +114,16 @@ impl Rig {
     }
 }
 
+/// Waits until the writer thread has taken everything the recorder sent it so far. The writer works in its own time (a loaded
+/// machine is slower at it), so a byte count read while it is still taking pictures is not the count of what was sent: a
+/// transcript line goes through the same queue, in order, and is counted after the commands before it, so when it is counted
+/// the pictures and the voice sent before it are written. Needs a recording that is going.
+fn writer_caught_up(r: &mut Rig) {
+    let counted = r.rec.writer_status().unwrap().transcript_lines;
+    r.rec.transcript(TranscriptLine { t0_us: 0, t1_us: 1, text: String::new(), lang: String::from("en"), engine: String::from("mock"), conv: None, words: Vec::new() });
+    wait_for("the writer has taken what was sent", || r.rec.writer_status().unwrap().transcript_lines > counted);
+}
+
 /// A window picture of `w` x `h`, every byte `fill`.
 fn window(w: u32, h: u32, fill: u8) -> Vec<u8> {
     vec![fill; w as usize * h as usize * 4]
@@ -283,11 +293,15 @@ fn a_changed_window_is_encoded_with_its_settle_repeats_and_an_idle_one_costs_not
     let started = r.start();
     assert!(tap(&mut r.rec, 320, 200, 7, Damage::Full).is_some());
     r.run(2_000, 20); // the change at once, then the three repeats at 120, 400 and 1200 ms
-    wait_for("the screen segment", || r.rec.writer_status().unwrap().screen_bytes > 400);
+    // The count of bytes is read after the writer has taken all four pictures: read at the first byte count over 400 it was
+    // 669 of the final 837 on a loaded runner (the writer was still at the fourth), and the minute of nothing below then
+    // "wrote" 168 bytes.
+    writer_caught_up(&mut r);
     let after_settles = r.rec.screen_stats().unwrap();
     assert_eq!((after_settles.changes_sent, after_settles.settles_sent), (1, 3));
     // A minute of nothing: no frames, no bytes.
     let before = r.rec.writer_status().unwrap().screen_bytes;
+    assert!(before > 400, "the four pictures are written: {before}");
     r.run(60_000, 100);
     assert_eq!(r.rec.screen_stats().unwrap(), after_settles);
     assert_eq!(r.rec.writer_status().unwrap().screen_bytes, before);

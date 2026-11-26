@@ -12884,11 +12884,14 @@ pub trait PlatformWindow {
         // (armed drag-autoscroll, scrolled the UI to the top), and anchor ==
         // current made every selection range empty.
         {
-            let (left_down, pos) = {
+            let (left_down, pos, finger_down) = {
                 let st = self.get_current_window_state();
                 (
                     st.mouse_state.left_down,
                     st.mouse_state.cursor_position.get_position(),
+                    // A finger drags to scroll: it does not arm a selection drag over text
+                    // (`touch_selection`), only a selection handle does.
+                    super::touch_selection::finger_is_down(st.touch_state.touch_points.as_ref()),
                 )
             };
             // WHAT ARMS A SELECTION DRAG. This used to be "the press landed on a
@@ -13001,11 +13004,12 @@ pub trait PlatformWindow {
                     // anchor no `TextSelectionDrag` is ever built - the held
                     // handle would never receive a move.
                     let press_on_handle = pos.is_some_and(|p| lw.selection_handle_at(p).is_some());
-                    lw.text_selection_drag_anchor = if press_on_editable || press_on_handle {
-                        pos
-                    } else {
-                        None
-                    };
+                    lw.text_selection_drag_anchor = super::touch_selection::press_selection_anchor(
+                        press_on_editable,
+                        press_on_handle,
+                        finger_down,
+                        pos,
+                    );
                 } else if !left_down {
                     lw.text_selection_drag_anchor = None;
                     // The finger lifted: whatever handle was held is released.
