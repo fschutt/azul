@@ -23,6 +23,7 @@ use azul::{
     misc::{Capability, PermissionState},
     prelude::*,
     screen::{ScreenCaptureConfig, ScreenCaptureSource},
+    shells::{ShellThemeAccent, ShellThemeScope},
     str::String as AzString,
     task::TerminateTimer,
     time::SystemTimeDiff,
@@ -64,13 +65,15 @@ pub struct RecorderApp {
     pub tick_stats: TickStats,
     /// Where the clock of [`Self::tick_stats`] starts.
     origin: Instant,
+    /// When the tick that runs began, on that clock.
+    tick_began_us: u64,
 }
 
 impl RecorderApp {
     /// An app side with no window yet.
     #[must_use]
     pub fn new(host: RecorderHost) -> Self {
-        Self { host, display: None, timer: None, shown: Shown::default(), ticks: 0, window_open: false, tick_stats: TickStats::default(), origin: Instant::now() }
+        Self { host, display: None, timer: None, shown: Shown::default(), ticks: 0, window_open: false, tick_stats: TickStats::default(), origin: Instant::now(), tick_began_us: 0 }
     }
 
     /// Microseconds on the clock of [`Self::tick_stats`].
@@ -356,7 +359,10 @@ pub fn hud_dom(host: &Host, hotkey_note: Option<String>) -> Dom {
                 .with_css("width: 1px; height: 1px; overflow: hidden; flex-shrink: 0;"),
         );
     }
-    Dom::create_body().with_child(page).with_callback(
+    // The window's ground and ink are the app theme's, in both modes, as the review window has them (`ShellThemeScope`: no
+    // UA margin, the full window height). A body with no ground drew a Mac in dark mode's near-white text on the default
+    // white: in a `--shot` of the demo the buttons and the hints were not there to be seen.
+    ShellThemeScope::create(page).with_accent(ShellThemeAccent::Slate).body().with_callback(
         EventFilter::Window(WindowEventFilter::CloseRequested),
         RefAny::new(Press { host: host.clone(), what: Do::Stop }),
         on_close,
@@ -572,6 +578,7 @@ extern "C" fn on_tick(mut data: RefAny, _info: TimerCallbackInfo) -> TimerCallba
         .run(|app| {
             app.ticks = app.ticks.wrapping_add(1);
             let now = app.now_us();
+            app.tick_began_us = now;
             app.tick_stats.tick(now);
             app.ticks % DESKTOP_EVERY == 0 && app.host.hud().dot != Dot::Idle
         })
@@ -594,6 +601,8 @@ extern "C" fn on_tick(mut data: RefAny, _info: TimerCallbackInfo) -> TimerCallba
         };
         let changed = now != app.shown;
         app.shown = now;
+        let worked = app.now_us().saturating_sub(app.tick_began_us);
+        app.tick_stats.worked(worked);
         changed
     });
     TimerCallbackReturn { should_update: if changed == Some(true) { Update::RefreshDom } else { Update::DoNothing }, should_terminate: TerminateTimer::Continue }

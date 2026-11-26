@@ -1579,3 +1579,7 @@ pub mod encode {
 #[cfg(test)]
 #[path = "image_tga_test.rs"]
 mod tga_tests;
+
+#[cfg(test)]
+#[path = "image_formats_test.rs"]
+mod formats_tests;

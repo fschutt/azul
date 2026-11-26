@@ -346,6 +346,7 @@ def phone(args, job, kind):
             cmd = ["bash", "scripts/build-android.sh", args.target, pkg, app["bundle_id"], pkg]
         else:
             env.update(AZ_IOS_DRYRUN="1", AZ_IOS_LINK_LIB=str(lib), AZ_IOS_BUILD_JSON=str(json_log), APP_NAME=pkg,
+                       AZ_IOS_SYMBOL_JSON=str(job.results / f"{pkg}.{column}{'-e2e' if variant else ''}.symbols.json"),
                        BUNDLE_ID=app["bundle_id"], DISPLAY_NAME=app["name"] + (" e2e" if variant else ""), VERSION="0.2.0",
                        BUILD=ver["build"])
             ios = app.get("ios") or {}

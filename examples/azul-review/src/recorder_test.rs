@@ -13,7 +13,7 @@ use std::{
 use super::*;
 use crate::{
     recorder_clock::MockClock,
-    recorder_codec::{MockFactory, PixelFormat, VideoScript},
+    recorder_codec::{AudioCodec, CodecFactory, MockFactory, PixelFormat, VideoCodec, VideoScript},
     recorder_manifest::{SessionState, Word},
     recorder_mp4::{recorder_mp4_test::tracks_of, scan},
     recorder_screen::{Damage, Rect},
@@ -53,6 +53,10 @@ fn quiet() -> RecorderSettings {
 }
 
 fn rig_with(settings: RecorderSettings, factory: MockFactory) -> Rig {
+    rig_with_factory(settings, Box::new(factory))
+}
+
+fn rig_with_factory(settings: RecorderSettings, factory: Box<dyn CodecFactory>) -> Rig {
     let clock = MockClock::at(0);
     let free = Arc::new(AtomicU64::new(500 * GB));
     let (c, f) = (clock.clone(), Arc::clone(&free));
@@ -60,7 +64,7 @@ fn rig_with(settings: RecorderSettings, factory: MockFactory) -> Rig {
         unix_ms: Box::new(|| 1_764_108_000_000),
         make_clock: Box::new(move |_| Arc::new(c.clone()) as Arc<dyn Clock>),
         free_bytes: Box::new(move |_| Some(f.load(Ordering::SeqCst))),
-        factory: Box::new(factory),
+        factory,
     };
     Rig { rec: Recorder::new(settings, deps), clock, free, tmp: Tmp::new() }
 }
@@ -197,6 +201,78 @@ fn a_start_is_refused_in_words_when_it_cannot_be() {
     fs::write(&file, "x").unwrap();
     let err = blocked.rec.start(request(&file)).unwrap_err();
     assert!(matches!(err, StartError::Io(_)), "{err}");
+}
+
+// ---- the video encoder's warm-up ----
+
+/// The stand-in encoders, and a count of how often the factory was asked to get ready.
+struct Warming {
+    inner: MockFactory,
+    asked: Arc<AtomicU32>,
+}
+
+impl CodecFactory for Warming {
+    fn video(&self, width: u32, height: u32, kbps: u32) -> Result<Box<dyn VideoCodec>, String> {
+        self.inner.video(width, height, kbps)
+    }
+
+    fn audio(&self, sample_rate: u32, channels: u16, kbps: u32) -> Result<Box<dyn AudioCodec>, String> {
+        self.inner.audio(sample_rate, channels, kbps)
+    }
+
+    fn warm_up(&self) {
+        self.asked.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+fn warming_rig(settings: RecorderSettings) -> (Rig, Arc<AtomicU32>) {
+    let asked = Arc::new(AtomicU32::new(0));
+    let factory = Warming { inner: MockFactory::default(), asked: Arc::clone(&asked) };
+    (rig_with_factory(settings, Box::new(factory)), asked)
+}
+
+/// A recording that takes pictures asks the factory to get the video encoder ready (the first session of a hardware
+/// encoder is a few hundred milliseconds that the window's thread would spend at the first picture), once for the
+/// recorder's life: a second start does not ask again. A recording of the voice alone asks nothing, and neither does a
+/// start that is refused (nothing to record, a full disk, one that is going already).
+///
+/// Mutation: no warm-up at all; one for a voice-only recording; one at every start; one before the refusals (disk full,
+/// nothing to record); one that is not remembered (asked again at the second start).
+#[test]
+fn a_recording_with_pictures_gets_the_video_encoder_ready_once_and_nothing_else_does() {
+    let (mut r, asked) = warming_rig(quiet());
+    r.start();
+    assert_eq!(asked.load(Ordering::SeqCst), 1, "the camera and the screen are pictures");
+    assert_eq!(r.rec.start(request(&r.tmp.0)).unwrap_err(), StartError::Busy);
+    assert_eq!(asked.load(Ordering::SeqCst), 1, "a start that is refused as busy asks nothing");
+    r.rec.stop("user");
+    r.start();
+    assert_eq!(asked.load(Ordering::SeqCst), 1, "once for the recorder's life: the second start does not ask again");
+
+    for (what, settings) in [
+        ("the camera alone", RecorderSettings { screen: false, microphone: false, ..quiet() }),
+        ("the screen alone", RecorderSettings { camera: false, microphone: false, ..quiet() }),
+    ] {
+        let (mut one, asked) = warming_rig(settings);
+        one.start();
+        assert_eq!(asked.load(Ordering::SeqCst), 1, "{what} is pictures");
+    }
+
+    let (mut voice, asked) = warming_rig(RecorderSettings { screen: false, camera: false, ..quiet() });
+    voice.start();
+    assert_eq!(asked.load(Ordering::SeqCst), 0, "a voice has no video encoder to get ready");
+
+    let (mut nothing, asked) = warming_rig(RecorderSettings { screen: false, camera: false, microphone: false, ..quiet() });
+    assert_eq!(nothing.rec.start(request(&nothing.tmp.0)).unwrap_err(), StartError::NothingToRecord);
+    assert_eq!(asked.load(Ordering::SeqCst), 0, "nothing to record: nothing to get ready");
+
+    let (mut full, asked) = warming_rig(quiet());
+    full.free.store(9 * GB, Ordering::SeqCst);
+    assert!(matches!(full.rec.start(request(&full.tmp.0)).unwrap_err(), StartError::DiskFull { .. }));
+    assert_eq!(asked.load(Ordering::SeqCst), 0, "a full disk refuses the start before anything is got ready");
+    full.free.store(500 * GB, Ordering::SeqCst);
+    full.start();
+    assert_eq!(asked.load(Ordering::SeqCst), 1, "and the start that goes through asks");
 }
 
 // ---- the screen ----

@@ -27,8 +27,8 @@ SHEETS = {
     "1-first-frame-and-touch": [
         ("launcher before", ["home-baseline"], ["home-baseline"]),
         ("first frame", ["portrait"], ["portrait", "AZ_BACKEND-cpu"]),
-        ("AZ_BACKEND=gpu", [], ["AZ_BACKEND-gpu"]),
-        ("AZ_BACKEND=auto", [], ["AZ_BACKEND-auto"]),
+        ("AZ_BACKEND=gpu", ["AZ_BACKEND-gpu"], ["AZ_BACKEND-gpu"]),
+        ("AZ_BACKEND=auto", ["AZ_BACKEND-auto"], ["AZ_BACKEND-auto"]),
         ("scrolled by a swipe", ["scrolled-down"], []),
         ("scrolled back up", ["scrolled-back-up"], []),
         ("tap on Dark", ["after-tap-dark"], []),
