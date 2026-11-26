@@ -544,7 +544,7 @@ pub fn regenerate_layout(
     let window_localizer: Option<&(dyn core::any::Any + Send + Sync)> = layout_window
         .fluent_localizer
         .as_ref()
-        .map(|localizer| localizer as &(dyn core::any::Any + Send + Sync));
+        .map(|localizer| -> &(dyn core::any::Any + Send + Sync) { localizer });
     #[cfg(not(feature = "fluent"))]
     let window_localizer: Option<&(dyn core::any::Any + Send + Sync)> = None;
     let layout_ref_data = LayoutCallbackInfoRefData {
