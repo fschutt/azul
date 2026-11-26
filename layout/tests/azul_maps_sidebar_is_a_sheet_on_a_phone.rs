@@ -137,9 +137,16 @@ fn on_a_portrait_phone_the_sheet_leaves_the_map_visible_below_it() {
         "below the title row, inside the bars: {}",
         sheet.origin.y
     );
+    // `max-height` caps the content box: the sheet's 12 px of padding come on top of it.
     assert!(
-        sheet.size.height <= 0.62 * root.size.height + 1.0,
+        sheet.size.height <= 0.62 * root.size.height + 24.0 + 1.0,
         "14 rows of 48 px are 672 px and the sheet is capped at 62 % of the screen: {} of {}",
+        sheet.size.height,
+        root.size.height
+    );
+    assert!(
+        sheet.size.height >= 0.5 * root.size.height,
+        "the cap, not the content, ended it: {} of {}",
         sheet.size.height,
         root.size.height
     );
