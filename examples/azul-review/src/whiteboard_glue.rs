@@ -106,8 +106,8 @@ pub fn send_point(bar_w: f32, already: usize) -> Pt {
 /// The most lines of material the window keeps (the sheet of a snapshot cuts what it shows further).
 pub const MAX_MATERIAL: usize = 200;
 /// The longest part of what was said, and of why, a line of material keeps, characters.
-const MATERIAL_SAID: usize = 90;
-const MATERIAL_WHY: usize = 80;
+const MATERIAL_SAID: usize = 80;
+const MATERIAL_WHY: usize = 60;
 
 /// `text` cut to `max` characters, with an ellipsis where something was cut.
 fn cut(text: &str, max: usize) -> String {
