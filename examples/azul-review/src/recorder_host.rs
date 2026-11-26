@@ -27,6 +27,10 @@ use crate::{
 /// How many notices the panel keeps.
 const KEPT_NOTICES: usize = 20;
 
+/// The id of the recorder in a capture's consumers (`FrameConsumer`): its picture of the screen is cut for this
+/// one, at the size [`RecorderHost::wants`] asks for.
+pub const RECORDER_CONSUMER: u32 = 8;
+
 /// What the app knows about itself and its machine, once.
 #[derive(Debug, Clone)]
 pub struct Facts {

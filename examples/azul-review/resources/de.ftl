@@ -103,6 +103,15 @@ azreview-rec-notice-recovered = { $count ->
  }
 azreview-rec-error-delete = { $name } wurde nicht gelöscht: { $why }
 azreview-rec-error-recover = { $name } konnte nicht wiederhergestellt werden: { $why }
+azreview-rec-window-title = Aufnahme
+azreview-rec-hotkey-description = Die Aufnahme pausieren oder fortsetzen
+azreview-rec-hotkey-unavailable = Die Pausentaste ist nicht verfügbar: ein anderes Programm hat sie.
+azreview-rec-preview-on = Kamera zeigen
+azreview-rec-preview-off = Kamera ausblenden
+azreview-rec-preview = Kameravorschau
+azreview-rec-list-title = Aufnahmen
+azreview-rec-reveal = Ordner zeigen
+azreview-rec-delete = Löschen
 azreview-rec-who-unknown = das Programm, das AzReview gestartet hat
 azreview-rec-state-complete = Vollständig
 azreview-rec-state-recovered = Nach dem Ende der App wiederhergestellt

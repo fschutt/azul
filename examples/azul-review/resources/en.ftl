@@ -103,6 +103,15 @@ azreview-rec-notice-recovered = { $count ->
  }
 azreview-rec-error-delete = { $name } was not deleted: { $why }
 azreview-rec-error-recover = { $name } could not be put right: { $why }
+azreview-rec-window-title = Recording
+azreview-rec-hotkey-description = Pause or resume the recording
+azreview-rec-hotkey-unavailable = The pause key is not available: another program has it.
+azreview-rec-preview-on = Show the camera
+azreview-rec-preview-off = Hide the camera
+azreview-rec-preview = Camera preview
+azreview-rec-list-title = Recordings
+azreview-rec-reveal = Show folder
+azreview-rec-delete = Delete
 azreview-rec-who-unknown = the program that started AzReview
 azreview-rec-state-complete = Complete
 azreview-rec-state-recovered = Recovered after the app ended

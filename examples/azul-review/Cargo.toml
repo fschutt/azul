@@ -33,6 +33,7 @@ path = "src/main.rs"
 # and the voice clips' microphone is refused.
 [package.metadata.bundle]
 usage = [
+    "NSCameraUsageDescription=AzReview shows your camera in the recording window and records it with the session when you ask it to.",
     "NSMicrophoneUsageDescription=AzReview records your voice clips and listens while you dictate a note with the pen at rest.",
     "NSSpeechRecognitionUsageDescription=AzReview turns what you say, while the pen rests on the code, into a note.",
 ]
