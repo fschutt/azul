@@ -212,6 +212,17 @@ impl Nearby {
     pub(super) fn refused(&self) -> u64 {
         self.refused.load(Ordering::Relaxed)
     }
+
+    /// The lookup that feeds the list failed (the system's Bonjour refused it): the first reason
+    /// is kept, for the status.
+    pub(super) fn set_trouble(&self, reason: String) {
+        let _ = reason;
+    }
+
+    /// Why the lookup that feeds the list failed, when it did.
+    pub(super) fn trouble(&self) -> Option<String> {
+        None
+    }
 }
 
 #[cfg(test)]
