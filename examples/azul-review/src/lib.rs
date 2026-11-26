@@ -1220,6 +1220,13 @@ impl AppState {
         self.open.as_ref()
     }
 
+    /// A conversation begins: its note is kept with the revision the workspace is at now (what its suggestions will be made against;
+    /// the patch of its resolution says it), read from the files of `.git`.
+    pub fn start_conversation(&mut self, mut note: Note) {
+        note.talk.base = patch_store::base_of(&self.root);
+        self.notes.push(note);
+    }
+
     /// Where the lines of `page` are drawn: the lines the suggestions of the conversations would put in (the ones that wait
     /// and the ones that were taken) are rows of the page, which grows by them; nothing else moves (page breaks are stable).
     /// A page nobody put lines in is plain.

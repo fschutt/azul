@@ -578,3 +578,28 @@ fn a_word_the_recogniser_was_told_to_favour_is_kept_as_biased_and_the_others_say
     assert!(written.get_index(0).into_option().and_then(|w| w.get_key("b").into_option()).is_some());
     assert!(written.get_index(1).into_option().and_then(|w| w.get_key("b").into_option()).is_none());
 }
+
+#[test]
+fn the_revision_a_conversation_began_at_travels_with_it_and_what_is_no_hash_is_dropped() {
+    let mut s = state();
+    let mut n = note(1, 0, "rename it");
+    n.talk.base = Some("0123456789abcdef0123456789abcdef01234567".to_string());
+    s.notes.push(n);
+    s.notes.push(note(2, 0, "and this"));
+    let (_, bytes) = archive(&s);
+    let json = session_json(&bytes);
+    let second = json.get_key("notes").into_option().and_then(|n| n.get_index(1).into_option()).expect("a second note");
+    assert!(second.get_key("base").into_option().is_none(), "a note with no revision writes none");
+    let back = load(&bytes).expect("it loads");
+    assert_eq!(back.notes[0].talk.base.as_deref(), Some("0123456789abcdef0123456789abcdef01234567"));
+    assert_eq!(back.notes[1].talk.base, None);
+    // an archive somebody edited: a base that is no hash is not kept
+    let long = "a".repeat(200);
+    for bad in ["../../etc/passwd", "not a hash", "", long.as_str()] {
+        let text = format!(
+            r#"{{"format":"azreview/1","root":"/w","file":"a.rs","strokes":[],"notes":[{{"id":1,"page":0,"x":1.0,"y":2.0,"language":"en","text":"x","base":"{bad}"}}],"findings":[],"clips":[]}}"#
+        );
+        let loaded = load(&zip_of(&text)).expect("it loads");
+        assert_eq!(loaded.notes[0].talk.base, None, "{bad:?}");
+    }
+}
