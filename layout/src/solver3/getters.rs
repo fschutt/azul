@@ -7421,6 +7421,93 @@ pub fn select_variable_instances(
     }
 }
 
+/// Makes, on several threads, the instances [`select_variable_instances`] is about to ask for.
+///
+/// The first layout of a window asks one instance per distinct (variable face, coordinates) of its text: a
+/// gallery that sets macOS's `SFNS.ttf` in several weights and sizes (`opsz` is the size) asks for eight, each
+/// ABOUT 12 ms in a release build, one after the other in the first frame (108 ms of a 331 ms first layout in the
+/// startup timeline of 2026-11-26: 9 MiB more resident after the font step, eight instances of 1.2 MB). An
+/// instance is a pure function of the file and the coordinates, and the cache makes it outside its locks, so the
+/// DISTINCT pairs go to a few threads and the sequential pass that follows finds them made. The chains do not
+/// change: it is the same cache and the same instances, only made earlier and together.
+///
+/// `chains` are the chains resolved so far and `requests` the request each of them is drawn at.
+fn prefetch_variable_instances(
+    chains: &HashMap<FontChainKeyOrRef, FontFallbackChain>,
+    requests: &[(FontChainKeyOrRef, FontRequest)],
+    fc_cache: &FcFontCache,
+) {
+    let mut wanted: Vec<(FontId, Vec<(rust_fontconfig::FcAxisTag, f32)>)> = Vec::new();
+    let mut per_face: HashMap<FontId, usize> = HashMap::new();
+    for (key, request) in requests {
+        let Some(chain) = chains.get(key) else {
+            continue;
+        };
+        for group in &chain.css_fallbacks {
+            let Some(face) = group.fonts.first() else {
+                continue;
+            };
+            let Some(variation) = fc_cache.variation(&face.id) else {
+                continue;
+            };
+            let coordinates = font_coordinates(request, &variation);
+            if wanted.iter().any(|(id, known)| *id == face.id && *known == coordinates) {
+                continue;
+            }
+            // The cache keeps a bounded number of instances per face and answers beyond it with the nearest
+            // one: which ones come first decides that, so only the first few go to threads (the order of the
+            // requests, as in the sequential pass) and a face asked for more is left to that pass.
+            let made = per_face.entry(face.id).or_insert(0);
+            if *made < PREFETCH_INSTANCES_PER_FACE {
+                *made += 1;
+                wanted.push((face.id, coordinates));
+            }
+        }
+    }
+    make_instances_in_parallel(fc_cache, &wanted);
+}
+
+/// The most instances of one face made together: far below the cache's bound
+/// ([`rust_fontconfig::FC_MAX_INSTANCES_PER_FACE`]), so the nearest-instance rule never depends on thread timing.
+const PREFETCH_INSTANCES_PER_FACE: usize = 8;
+
+/// The instances `wanted` (a face and the coordinates of each), made by up to eight threads that take the next
+/// one in turn. Nothing to do for fewer than two, and on the single-threaded web backend.
+#[cfg(not(feature = "web_lift"))]
+fn make_instances_in_parallel(
+    fc_cache: &FcFontCache,
+    wanted: &[(FontId, Vec<(rust_fontconfig::FcAxisTag, f32)>)],
+) {
+    let threads = std::thread::available_parallelism()
+        .map_or(1, |n| n.get())
+        .min(wanted.len())
+        .min(8);
+    if threads < 2 {
+        return;
+    }
+    let _span = crate::probe::Probe::span("variable_instance_prefetch");
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        for _ in 0..threads {
+            scope.spawn(|| loop {
+                let at = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let Some((id, coordinates)) = wanted.get(at) else {
+                    break;
+                };
+                let _ = fc_cache.variable_instance(id, coordinates);
+            });
+        }
+    });
+}
+
+/// The web backend runs on one thread: the instances are made where they are asked for.
+#[cfg(feature = "web_lift")]
+fn make_instances_in_parallel(
+    _fc_cache: &FcFontCache,
+    _wanted: &[(FontId, Vec<(rust_fontconfig::FcAxisTag, f32)>)],
+) {
+}
+
 /// The face to draw instead of `face` for `request`: its static instance when
 /// `face` is a variable font, `None` - keep `face` - when it is static, when
 /// the cache does not hold it, or when it cannot be instanced.
@@ -7521,6 +7608,8 @@ pub fn resolve_font_chains_with_registry(
 ) -> ResolvedFontChains {
     let _probe = crate::probe::Probe::span("font_chain_resolve");
     let mut chains = HashMap::new();
+    // The chains whose variable faces are still to be drawn as instances, with the request each is drawn at.
+    let mut instance_requests: Vec<(FontChainKeyOrRef, FontRequest)> = Vec::new();
     let trace_t0 = settings.trace_paginate.then(std::time::Instant::now);
     let mut unresolved: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
 
@@ -7654,8 +7743,21 @@ pub fn resolve_font_chains_with_registry(
         // A variable face a family matched is drawn as its static instance at
         // the coordinates the request asks (macOS's SFNS.ttf for every bold
         // system face, and SF Pro Text below 17px), the default instance
-        // included: shaping and the PDF never see a variable font.
-        select_variable_instances(&mut chain, &canonical_key.request, fc_cache);
+        // included: shaping and the PDF never see a variable font. Done below,
+        // for all the chains together (the instances are made in parallel).
+        instance_requests.push((cache_key.clone(), canonical_key.request.clone()));
+
+        chains.insert(cache_key, chain);
+    }
+
+    // The instances of all the chains' variable faces: the distinct ones made together, then each chain drawn
+    // at them (the cache answers; same chains as when each was made in turn).
+    prefetch_variable_instances(&chains, &instance_requests, fc_cache);
+    for (key, request) in &instance_requests {
+        let Some(chain) = chains.get_mut(key) else {
+            continue;
+        };
+        select_variable_instances(chain, request, fc_cache);
 
         // Which face each family of the stack came to, under TEXTDBG.
         if settings.trace_text {
@@ -7679,8 +7781,6 @@ pub fn resolve_font_chains_with_registry(
                 eprintln!("[TEXTDBG] CHAIN   {} -> {faces:?}", group.css_name);
             }
         }
-
-        chains.insert(cache_key, chain);
     }
 
     // NOTE: FontRefs bypass fontconfig entirely — the shaping code checks
@@ -8017,6 +8117,8 @@ pub fn resolve_font_chains_fast(
     let dbg = settings.trace_font_resolve;
 
     let mut chains: HashMap<FontChainKeyOrRef, FontFallbackChain> = HashMap::new();
+    // The chains whose variable faces are still to be drawn as instances, with the request each is drawn at.
+    let mut instance_requests: Vec<(FontChainKeyOrRef, FontRequest)> = Vec::new();
     let mut unresolved: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     // The cache the probe registers its faces in, and so the one a variable
     // face's weight instance is registered in (a shallow clone: same state).
@@ -8126,10 +8228,18 @@ pub fn resolve_font_chains_fast(
         // A variable face a family matched is drawn as its static instance at
         // the coordinates the request asks (macOS's SFNS.ttf for every bold
         // system face, and SF Pro Text below 17px), the default instance
-        // included: shaping and the PDF never see a variable font.
-        select_variable_instances(&mut chain, &canonical_key.request, &shared_cache);
+        // included: shaping and the PDF never see a variable font. Done below,
+        // for all the chains together (the instances are made in parallel).
+        instance_requests.push((cache_key.clone(), canonical_key.request.clone()));
 
         chains.insert(cache_key, chain);
+    }
+
+    prefetch_variable_instances(&chains, &instance_requests, &shared_cache);
+    for (key, request) in &instance_requests {
+        if let Some(chain) = chains.get_mut(key) {
+            select_variable_instances(chain, request, &shared_cache);
+        }
     }
 
     let mut out = ResolvedFontChains {
