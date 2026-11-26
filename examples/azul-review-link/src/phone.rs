@@ -1,5 +1,5 @@
 //! The phone's side of the conversation: what its screens ask of the connection ([`PhoneApi`]), and the client that
-//! answers it over a [`crate::link::Link`] ([`PhoneClient`], below). The screens never see a frame, a peer or a
+//! answers it over a [`crate::link::Link`] ([`crate::client::PhoneClient`]). The screens never see a frame, a peer or a
 //! socket: they read a [`PhoneView`] and call these methods, so the same screens run against the real client on a
 //! phone and against a scripted Mac in the simulator.
 
@@ -53,6 +53,11 @@ pub trait PhoneApi {
 
     /// Tries again after a failure.
     fn retry(&mut self, now: Millis);
+
+    /// Stops what is under way (a pairing, a search for the Mac) WITHOUT forgetting the Mac the phone is paired with: a phone
+    /// that has none is unpaired again, one that has one looks for it again (or, when it was already looking, stops and says
+    /// it did not find it).
+    fn cancel(&mut self, now: Millis);
 
     /// Forgets the Mac: the phone is unpaired again.
     fn forget_mac(&mut self, now: Millis);

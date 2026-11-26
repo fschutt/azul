@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # android_qa.sh: the lifecycle QA of ONE APK on an x86_64 emulator, once per GPU mode of the emulator.
 #
-#   scripts/ci/android_qa.sh <out-dir> <apk> [<gpu-modes: comma list, default swiftshader_indirect,guest>] [<label>]
+#   scripts/ci/android_qa.sh <out-dir> <apk> [<gpu-modes: comma list, default swiftshader_indirect,guest>] [<label>] [<session>]
+#
+#   session  qa (default): scripts/ci/mobile_qa.py, the lifecycle of the plain APK;
+#            e2e: scripts/ci/mobile_e2e.py, the debug server of a `mobile-e2e` APK driven from the runner (the scenario
+#                 files named in AZ_QA_SCENARIOS, space separated);
+#            both: qa, then e2e on the same boot.
 #
 # For an Ubuntu runner with KVM (without it the emulator is unusable) and the runner's Android SDK. Per GPU
 # mode <out-dir>/<mode>/ holds what scripts/ci/mobile_qa.py writes (qa.json, qa.md, shots/, logs/) and the
@@ -15,7 +20,7 @@
 # so the modes differ in how the SYSTEM composes that buffer, not in how the app renders.
 set -uo pipefail
 
-out="${1:?out-dir}"; apk="${2:?apk}"; modes="${3:-swiftshader_indirect,guest}"; label="${4:-AzWidgets}"
+out="${1:?out-dir}"; apk="${2:?apk}"; modes="${3:-swiftshader_indirect,guest}"; label="${4:-AzWidgets}"; session="${5:-qa}"
 here="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$out"
 
@@ -79,8 +84,16 @@ for mode in "${mode_list[@]}"; do
   printf '{"booted": true, "mode": "%s", "boot_seconds": %d}\n' "$mode" "$boot_s" >"$d/boot.json"
   echo "emulator booted in ${boot_s}s: $(adb shell getprop ro.product.cpu.abi | tr -d '\r'), API $(adb shell getprop ro.build.version.sdk | tr -d '\r')"
   sleep 20   # the launcher and system UI settle (a first screenshot of a booting system shows an ANR dialog)
-  python3 "$here/mobile_qa.py" android --out "$d" --apk "$apk" --package "$pkg" --activity "${act:-}" \
-    --label "$label" --gpu "$mode" ${AZ_QA_POINTS:+--points "$AZ_QA_POINTS"} 2>&1 | tee "$d/qa.log"
+  if [ "$session" = qa ] || [ "$session" = both ]; then
+    python3 "$here/mobile_qa.py" android --out "$d" --apk "$apk" --package "$pkg" --activity "${act:-}" \
+      --label "$label" --gpu "$mode" ${AZ_QA_POINTS:+--points "$AZ_QA_POINTS"} 2>&1 | tee "$d/qa.log"
+  fi
+  if [ "$session" = e2e ] || [ "$session" = both ]; then
+    scen=()
+    for f in ${AZ_QA_SCENARIOS:-}; do scen+=(--scenario "$f"); done
+    python3 "$here/mobile_e2e.py" android --out "$d/e2e" --apk "$apk" --package "$pkg" --activity "${act:-}" \
+      --label "$label e2e" ${scen[@]+"${scen[@]}"} 2>&1 | tee "$d/e2e.log"
+  fi
   adb emu kill >/dev/null 2>&1 || true
   sleep 3
   kill "$emu" 2>/dev/null || true
@@ -91,10 +104,10 @@ python3 - "$out" <<'PY'
 import json, pathlib, sys
 out = pathlib.Path(sys.argv[1])
 rows = []
-for q in sorted(out.glob("*/qa.json")):
+for q in sorted(list(out.glob("*/qa.json")) + list(out.glob("*/e2e/qa.json"))):
     d = json.loads(q.read_text())
     failed = [s["name"] for s in d["steps"] if not s["ok"]]
-    rows.append({"mode": q.parent.name, "ok": d["ok"], "steps": len(d["steps"]), "failed": failed})
+    rows.append({"mode": str(q.parent.relative_to(out)), "ok": d["ok"], "steps": len(d["steps"]), "failed": failed})
 (out / "summary.json").write_text(json.dumps(rows, indent=2))
 for r in rows:
     print(f"[{'PASS' if r['ok'] else 'FAIL'}] gpu mode {r['mode']}: {r['steps'] - len(r['failed'])}/{r['steps']} steps" + (f"; failed: {', '.join(r['failed'])}" if r['failed'] else ""))

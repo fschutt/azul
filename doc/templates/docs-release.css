@@ -244,8 +244,15 @@ a.docs-card.is-missing .docs-card-file::after {
     font-size: 12.5px;
     line-height: 1.35;
 }
-/* a link the deploy found dead (scripts/prune_dead_release_links.py) is a span of the same cell */
+/* A link the deploy found dead (scripts/prune_dead_release_links.py) is a span of the same cell. When its
+   build failed the span carries the first error of it, which can be long in a cell this narrow: the cell
+   shows the first lines and the whole text is the title of the span. */
 .docs-content .release-demo-table .release-link-missing {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 5;
+    line-clamp: 5;
+    overflow: hidden;
     font-size: 13px;
 }
 

@@ -569,20 +569,21 @@ fn toolbar(data: &RefAny, mode_index: usize, theme: UiTheme, shown: DarkLightMod
     };
     let group = |caption: &str, control: Dom| {
         Dom::create_div()
-            .with_css("display: flex; flex-direction: row; align-items: center;")
+            .with_css("display: flex; flex-direction: row; flex-wrap: wrap; row-gap: 4px; align-items: center;")
             .with_child(Dom::create_span_with_text(caption).with_css(TOOLBAR_CAPTION_CSS))
             .with_child(control)
     };
     Dom::create_div()
         .with_css(
-            "display: flex; flex-direction: row; align-items: center; gap: 24px; flex-grow: 0; \
+            "display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; \
+             column-gap: 24px; row-gap: 8px; flex-grow: 0; \
              flex-shrink: 0; padding: 8px 24px; border-bottom: 1px solid system:separator; \
              background-color: system:window-background;",
         )
         .with_child(group(
             "Mode",
             Dom::create_div()
-                .with_css("display: flex; flex-direction: row; align-items: center; gap: 8px;")
+                .with_css("display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px;")
                 .with_child(
                     Segmented::create(strs(&["System", "Light", "Dark"]))
                         .with_selected_index(mode_index)
