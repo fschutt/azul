@@ -99,6 +99,10 @@ pub(super) struct IosGpu {
     resend: bool,
     /// The line of the QA harness is written (once the GPU path is up, or after it fell back).
     reported: bool,
+    /// When the GPU path began: the first frame says how long after it came.
+    started: Instant,
+    /// The first frame of this renderer has been reported (once).
+    first_frame_reported: bool,
 }
 
 impl IosGpu {
@@ -115,6 +119,8 @@ impl IosGpu {
             new_frame_ready: Arc::new((Mutex::new(false), Condvar::new())),
             resend: false,
             reported: false,
+            started: Instant::now(),
+            first_frame_reported: false,
         }
     }
 }
@@ -472,6 +478,7 @@ impl IOSWindow {
             // the display tick looks at the flag every frame; nothing sleeps that has to be woken
             wake: None,
         };
+        let renderer_started = Instant::now();
         let options = WindowCreateOptions {
             window_state: self.common.current_window_state().clone(),
             ..WindowCreateOptions::default()
@@ -485,6 +492,11 @@ impl IOSWindow {
         .map_err(|e| GpuFallback::new(GpuStage::Renderer, &format!("create_webrender_instance: {e:?}")))?;
         renderer.set_external_image_handler(Box::new(Compositor::default()));
         let mut render_api = sender.create_api();
+        log_info!(
+            LogCategory::Rendering,
+            "[iOS GPU] WebRender renderer created in {} ms",
+            renderer_started.elapsed().as_millis()
+        );
 
         if gpu.plan.fails(GpuStage::Document) {
             renderer.deinit();
@@ -694,6 +706,20 @@ impl IOSWindow {
         drawable.present(context)?;
         let render_us = elapsed_us(started);
         self.present_log.note(Some(render_us));
+        if let Some(gpu) = self.gpu.as_mut() {
+            if !gpu.first_frame_reported {
+                gpu.first_frame_reported = true;
+                log_info!(
+                    LogCategory::Rendering,
+                    "[iOS GPU] first frame {}x{}: {} draw calls, drawn in {} ms, {} ms after the GPU path began",
+                    width,
+                    height,
+                    draw_calls,
+                    render_us / 1000,
+                    gpu.started.elapsed().as_millis()
+                );
+            }
+        }
 
         if let Some(layout_window) = self.common.layout_window.as_ref() {
             // the frame report and `get_frame_timings` know what the GPU path did

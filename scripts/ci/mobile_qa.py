@@ -1563,6 +1563,17 @@ class IOS:
     def alive(self):
         return bool(self.pid())
 
+    def rss_mb(self):
+        """The resident memory of the app's process in MB (a Simulator app is a process of the host: `ps` reads it), or None."""
+        pid = self.pid()
+        if not pid:
+            return None
+        rc, out, _e = self.x("ps", "-o", "rss=", "-p", str(pid), timeout=20)
+        try:
+            return int(out.strip()) / 1024.0 if rc == 0 else None
+        except ValueError:
+            return None
+
     # -- the picture
     def capture(self, name, keep=True):
         """PNG from simctl; the signature from a small BMP made of it with sips. -> (signature, w, h, filename).
@@ -1927,8 +1938,13 @@ def ios_scenarios(args):
                            f"each waits for a frame)" + ("" if frames else "; no frames line of a full second (fewer than 8 frames in a second)"))
                     if frames and frames.get("draw_median") is not None:
                         s.note(f"AZ_BACKEND={mode}: the draw alone takes median {frames['draw_median']:.1f} / p95 {frames['draw_p95']:.1f} ms")
+            rss = dev.rss_mb()
+            if rss is not None:
+                run.meta[f"rss_mb_{mode}"] = round(rss)
+                s.note(f"AZ_BACKEND={mode}: resident memory {rss:.0f} MB" + (" (after the swipe)" if frames else ""))
             results[mode] = {"ran": ran, "requested": requested, "device": device, "rgba": full[0] if full else None,
-                             "dims": (full[1], full[2]) if full else dev.dims, "first_frame_s": t, "displayed_ms": None, "frames": frames}
+                             "dims": (full[1], full[2]) if full else dev.dims, "first_frame_s": t, "displayed_ms": None, "frames": frames,
+                             "rss_mb": rss}
         report_modes(run, s, results, args.expect_gpu, "ios", hardware=args.hardware)
         dev.launch(cold=True)       # the default start again: the picture the later steps compare with
         dev.wait_for_front(timeout=args.first_frame_timeout)
