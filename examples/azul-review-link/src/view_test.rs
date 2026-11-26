@@ -2,10 +2,15 @@
 //! listed (in pages), the four buttons and how far each press has got.
 
 use super::*;
-use crate::frame::{EntryKind, FileState, NoticeLevel, Reply, Rows, ThumbFormat};
+use crate::frame::{AgentFinished, EntryKind, FileState, FinishKind, HostSettings, NoticeLevel, PageSurface, Reply, ReturnPoint, Rows, Surface, ThumbFormat};
 
 fn pen(seq: u32, line: u32) -> PenState {
-    PenState { seq, file: "src/lib.rs".into(), line, thumb_id: 3, ..PenState::empty() }
+    PenState { seq, surface: Surface::Page(PageSurface { file: "src/lib.rs".into(), line, ..PageSurface::empty() }), thumb_id: 3, ..PenState::empty() }
+}
+
+/// The line under the pen of the pages in view.
+fn line(view: &PhoneView) -> Option<u32> {
+    view.pen.as_ref().and_then(|p| p.page()).map(|g| g.line)
 }
 
 fn thumb(id: u32) -> Thumbnail {
@@ -43,12 +48,12 @@ fn a_new_view_is_unpaired_with_the_default_buttons_and_nothing_else() {
 fn a_newer_pen_state_replaces_the_one_before_and_a_state_that_is_not_newer_is_ignored() {
     let mut view = PhoneView::new();
     assert!(view.apply_frame(&Frame::PenState(pen(5, 10))));
-    assert_eq!(view.pen.as_ref().map(|p| p.line), Some(10));
+    assert_eq!(line(&view), Some(10));
     assert!(!view.apply_frame(&Frame::PenState(pen(5, 99))), "the same place in the order");
     assert!(!view.apply_frame(&Frame::PenState(pen(4, 99))), "an older state that came late");
-    assert_eq!(view.pen.as_ref().map(|p| p.line), Some(10));
+    assert_eq!(line(&view), Some(10));
     assert!(view.apply_frame(&Frame::PenState(pen(6, 11))));
-    assert_eq!(view.pen.as_ref().map(|p| p.line), Some(11));
+    assert_eq!(line(&view), Some(11));
 }
 
 #[test]
@@ -66,7 +71,7 @@ fn the_order_of_pen_states_survives_the_counter_wrapping_round() {
     assert!(view.apply_frame(&Frame::PenState(pen(u32::MAX, 2))));
     assert!(view.apply_frame(&Frame::PenState(pen(0, 3))), "0 follows u32::MAX");
     assert!(!view.apply_frame(&Frame::PenState(pen(u32::MAX, 9))), "and u32::MAX is then the old one");
-    assert_eq!(view.pen.as_ref().map(|p| p.line), Some(3));
+    assert_eq!(line(&view), Some(3));
 }
 
 // ---- the picture
@@ -226,9 +231,54 @@ fn frames_that_are_the_clients_business_do_not_change_the_view() {
         Frame::Bye,
         Frame::PairAccepted { code: 1 },
         Frame::Refused(crate::frame::Refusal::NotPaired),
-        Frame::Button { request_id: 1, index: 0 },
+        Frame::Button { screen: ScreenId::MAIN, request_id: 1, index: 0 },
     ] {
         assert!(!view.apply_frame(&frame), "{}", frame.name());
     }
     assert_eq!(view, before);
+}
+
+// ---- what the Mac settled and what finished
+
+#[test]
+fn the_settings_are_the_defaults_until_the_mac_says_and_a_new_word_changes_the_view_once() {
+    let mut view = PhoneView::new();
+    assert_eq!(view.settings, HostSettings::default());
+    assert!(!view.apply_frame(&Frame::Settings(HostSettings::default())), "the same words again");
+    let reversed = HostSettings { reverse_pan: true, ..HostSettings::default() };
+    assert!(view.apply_frame(&Frame::Settings(reversed)));
+    assert_eq!(view.settings, reversed);
+    assert!(!view.apply_frame(&Frame::Settings(reversed)));
+}
+
+#[test]
+fn every_agent_that_finishes_counts_and_the_newest_is_kept() {
+    let mut view = PhoneView::new();
+    assert_eq!((view.finished_count, view.finished.clone()), (0, None));
+    let done = AgentFinished { conversation_id: 1, file: "a.rs".into(), line: 10, kind: FinishKind::Done };
+    assert!(view.apply_frame(&Frame::AgentFinished(done.clone())));
+    assert_eq!((view.finished_count, view.finished.as_ref()), (1, Some(&done)));
+    let nothing = AgentFinished { conversation_id: 2, file: "b.rs".into(), line: 0, kind: FinishKind::NoAction };
+    assert!(view.apply_frame(&Frame::AgentFinished(nothing.clone())), "the same words from another agent are news; so is one that did nothing");
+    assert_eq!((view.finished_count, view.finished.as_ref()), (2, Some(&nothing)));
+    assert!(view.apply_frame(&Frame::AgentFinished(nothing.clone())), "the same agent finishing again is news again");
+    assert_eq!(view.finished_count, 3);
+}
+
+#[test]
+fn the_screen_the_phone_looks_at_is_the_one_of_the_newest_pen_state() {
+    let mut view = PhoneView::new();
+    assert_eq!(view.screen(), ScreenId::MAIN);
+    assert!(view.apply_frame(&Frame::PenState(PenState { seq: 1, screen: ScreenId(3), ..PenState::empty() })));
+    assert_eq!(view.screen(), ScreenId(3));
+}
+
+#[test]
+fn a_return_point_comes_with_the_pen_state_and_goes_with_the_next_one_that_has_none() {
+    let mut view = PhoneView::new();
+    let point = ReturnPoint { file: "a.rs".into(), page_index: 2, line: 40, label: String::new() };
+    assert!(view.apply_frame(&Frame::PenState(PenState { seq: 1, return_point: Some(point.clone()), ..PenState::empty() })));
+    assert_eq!(view.pen.as_ref().and_then(|p| p.return_point.clone()), Some(point));
+    assert!(view.apply_frame(&Frame::PenState(PenState { seq: 2, return_point: None, ..PenState::empty() })));
+    assert_eq!(view.pen.as_ref().and_then(|p| p.return_point.clone()), None);
 }

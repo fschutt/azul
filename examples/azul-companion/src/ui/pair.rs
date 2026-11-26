@@ -47,6 +47,9 @@ fn fail_look(kind: &FailureKind) -> (&'static str, &'static str) {
     }
 }
 
+/// The id of the key that opens the demo (a boot test finds it by this).
+pub const DEMO_ID: &str = "az-demo";
+
 /// A round mark over the title.
 fn hero(glyph: &str, colour: &str, size: f32) -> Dom {
     div(&format!(
@@ -125,6 +128,14 @@ fn page(cx: &Cx) -> Page {
                 let mut keys = vec![primary(cx, &cx.t("pair-find"), Action::PairFind), secondary(cx, &cx.t("pair-scan"), Some("qr_code_scanner"), Action::PairScan)];
                 if ui.pair_again {
                     keys.push(secondary(cx, &cx.t("pair-back"), Some("arrow_back"), Action::PairBack));
+                } else if cx.root.sim.is_none() {
+                    // no Mac at hand: a pretend one inside the app, to try the touch pad, the pinch and the haptics
+                    keys.push(
+                        tap(&cx.t("pair-demo"), "width: 100%; height: 48px; border-radius: 14px; background: transparent; flex-direction: row; gap: 8px;", cx, Action::Demo)
+                            .with_id(DEMO_ID)
+                            .with_child(icon("play_circle", 22.0, th::ACCENT))
+                            .with_child(text(&cx.t("pair-demo"), &format!("font-size: 17px; font-weight: 600; color: {};", th::ACCENT))),
+                    );
                 }
                 keys
             },

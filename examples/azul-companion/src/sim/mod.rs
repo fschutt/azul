@@ -9,6 +9,7 @@
 use std::sync::{Arc, Mutex};
 
 use azul::prelude::*;
+use azul_review_link::frame::FinishKind;
 use azul_review_link::view::{FailureKind, Session};
 
 use crate::env::{Env, Lang, DEVICES};
@@ -130,6 +131,18 @@ pub enum SimAction {
     MacPage(i8),
     Latency(u64),
     Zoom(Zoom),
+    /// The pen goes over the pages or the whiteboard.
+    Surface(mac::SimSurface),
+    /// The Mac's settings the phone obeys.
+    ReversePan(bool),
+    SnapPages(bool),
+    HapticDone(bool),
+    HapticSuggestion(bool),
+    HapticFailed(bool),
+    /// An agent finished (its result, its suggestion, or nothing to do).
+    AgentFinished(FinishKind),
+    /// The user jumps to an agent's conversation (the return point is saved).
+    JumpToConversation,
 }
 
 /// The simulator's state beside the phone's.
@@ -222,6 +235,16 @@ impl Extras {
         (stage_w * scale + PANEL_W, height)
     }
 
+    /// A setting of the Mac changed: the phone is told on the Mac's next tick.
+    fn change_settings(&mut self, change: impl FnOnce(&mut azul_review_link::frame::HostSettings)) -> bool {
+        if let Ok(mut mac) = self.mac.lock() {
+            let mut settings = mac.settings;
+            change(&mut settings);
+            mac.set_settings(settings);
+        }
+        true
+    }
+
     /// Does what the panel asked. True when the screens must be built again.
     pub fn perform(&mut self, root: &mut Root, now: u64, action: SimAction) -> bool {
         let _ = now;
@@ -271,6 +294,29 @@ impl Extras {
             SimAction::Latency(ms) => {
                 self.latency = ms;
                 push(SimCommand::Latency(ms));
+                return true;
+            }
+            SimAction::Surface(surface) => {
+                if let Ok(mut mac) = self.mac.lock() {
+                    mac.show_surface(now, surface);
+                }
+                return true;
+            }
+            SimAction::ReversePan(on) => return self.change_settings(|s| s.reverse_pan = on),
+            SimAction::SnapPages(on) => return self.change_settings(|s| s.snap_to_page_top = on),
+            SimAction::HapticDone(on) => return self.change_settings(|s| s.haptic_done = on),
+            SimAction::HapticSuggestion(on) => return self.change_settings(|s| s.haptic_suggestion = on),
+            SimAction::HapticFailed(on) => return self.change_settings(|s| s.haptic_failed = on),
+            SimAction::AgentFinished(kind) => {
+                if let Ok(mut mac) = self.mac.lock() {
+                    mac.agent_finished(now, kind);
+                }
+                return true;
+            }
+            SimAction::JumpToConversation => {
+                if let Ok(mut mac) = self.mac.lock() {
+                    mac.jump_to_conversation(now);
+                }
                 return true;
             }
         }
@@ -396,6 +442,10 @@ fn panel(cx: &Cx, extras: &Extras, height: f32) -> Dom {
         Ok(m) => (m.name.clone(), m.pen_walk, m.armed_region, m.log.iter().rev().take(LOG_LINES).map(|l| (l.at, l.text.clone())).collect::<Vec<_>>()),
         Err(_) => (String::new(), false, false, Vec::new()),
     };
+    let (surface, settings, has_return) = match &mac {
+        Ok(m) => (m.surface, m.settings, m.return_point.is_some()),
+        Err(_) => (mac::SimSurface::Pages, azul_review_link::frame::HostSettings::default(), false),
+    };
     let mut devices = keys();
     for (i, d) in DEVICES.iter().enumerate() {
         devices.add_child(panel_key(d.name, extras.device == i, cx, SimAction::Device(i)));
@@ -432,6 +482,20 @@ fn panel(cx: &Cx, extras: &Extras, height: f32) -> Dom {
         .with_child(panel_key("Region marked", region, cx, SimAction::Region(!region)))
         .with_child(panel_key("Page -", false, cx, SimAction::MacPage(-1)))
         .with_child(panel_key("Page +", false, cx, SimAction::MacPage(1)));
+    let review = keys()
+        .with_child(panel_key("Over the pages", surface == mac::SimSurface::Pages, cx, SimAction::Surface(mac::SimSurface::Pages)))
+        .with_child(panel_key("Over the whiteboard", surface == mac::SimSurface::Board, cx, SimAction::Surface(mac::SimSurface::Board)))
+        .with_child(panel_key("Jump to conversation", has_return, cx, SimAction::JumpToConversation))
+        .with_child(panel_key("Agent done", false, cx, SimAction::AgentFinished(FinishKind::Done)))
+        .with_child(panel_key("Agent suggests", false, cx, SimAction::AgentFinished(FinishKind::Suggestion)))
+        .with_child(panel_key("Agent: nothing", false, cx, SimAction::AgentFinished(FinishKind::NoAction)))
+        .with_child(panel_key("Agent failed", false, cx, SimAction::AgentFinished(FinishKind::Failed)));
+    let mac_settings = keys()
+        .with_child(panel_key("Reverse pan", settings.reverse_pan, cx, SimAction::ReversePan(!settings.reverse_pan)))
+        .with_child(panel_key("Snap to page top", settings.snap_to_page_top, cx, SimAction::SnapPages(!settings.snap_to_page_top)))
+        .with_child(panel_key("Buzz: done", settings.haptic_done, cx, SimAction::HapticDone(!settings.haptic_done)))
+        .with_child(panel_key("Buzz: suggestion", settings.haptic_suggestion, cx, SimAction::HapticSuggestion(!settings.haptic_suggestion)))
+        .with_child(panel_key("Buzz: failed", settings.haptic_failed, cx, SimAction::HapticFailed(!settings.haptic_failed)));
     let mut link = keys();
     for ms in [0_u64, 12, 80, 250] {
         link.add_child(panel_key(&format!("{} ms", 2 * ms), extras.latency == ms, cx, SimAction::Latency(ms)));
@@ -462,13 +526,17 @@ fn panel(cx: &Cx, extras: &Extras, height: f32) -> Dom {
     .with_child(size)
     .with_child(heading("MOUSE AS TOUCH"))
     .with_child(text(
-        "Drag = pan. Trackpad pinch = zoom around the pen. Two quick clicks = double tap (fit width). Right click = two-finger tap (reset). The quick buttons are edited in Settings.",
+        "Drag = pan: the content follows the finger (Reverse pan flips it). Trackpad pinch = zoom around the pen. Two quick clicks = double tap (fit width). Right click = two-finger tap (reset). The quick buttons are edited in Settings.",
         "font-size: 12px; color: #a3a3ad; line-height: 1.35;",
     ))
     .with_child(heading("SESSION"))
     .with_child(scenes)
     .with_child(heading("THE MAC"))
     .with_child(mac_keys)
+    .with_child(heading("WHAT THE PEN IS OVER, AGENTS, RETURN POINT"))
+    .with_child(review)
+    .with_child(heading("THE MAC'S SETTINGS (THE PHONE OBEYS)"))
+    .with_child(mac_settings)
     .with_child(heading("LINK (ROUND TRIP)"))
     .with_child(link)
 }

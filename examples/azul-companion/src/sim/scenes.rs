@@ -6,6 +6,9 @@ use azul_review_link::frame::{PenMark, Rect};
 use azul_review_link::limits::Capped;
 use azul_review_link::view::FailureKind;
 
+use azul_review_link::frame::FinishKind;
+
+use super::mac::{SimSurface, WINDOW_SHAPE};
 use super::phone::SimCommand;
 use super::{Extras, SessionScene};
 use crate::ui::{Action, Root, Screen, Ui};
@@ -27,6 +30,10 @@ pub const ALL: &[(&str, &str)] = &[
     ("b4-remote-lost", "Remote: the link is lost"),
     ("b5-remote-region", "Remote: a region is marked"),
     ("b6-remote-long-labels", "Remote: the longest labels"),
+    ("b7-remote-break", "Remote: the view crosses a page break"),
+    ("b8-remote-board", "Remote: the pen is over the whiteboard"),
+    ("b9-remote-return", "Remote: a return point, Continue reviewing"),
+    ("b10-remote-finished", "Remote: an agent finished with a suggestion"),
     ("c1-files-root", "Files: the workspace"),
     ("c2-files-deep", "Files: a folder deep in it, the open file marked"),
     ("c3-files-long", "Files: a folder of 700 files"),
@@ -117,8 +124,9 @@ pub fn setup(name: &str, root: &mut Root, extras: &Extras, now: u64) -> bool {
         "b3-remote-zoomed" => {
             root.ui.hint = false;
             if let Ok(mut mac) = extras.mac.lock() {
-                mac.view = Rect { x: 0.18, y: 0.22, w: 0.25, h: 0.16 };
-                mac.pen = Some(PenMark { x: 0.30, y: 0.29, down: true });
+                let top = mac.page_surface().page_top(2);
+                mac.view = Rect { x: 0.18, y: top + 0.30, w: 0.25, h: 0.25 * WINDOW_SHAPE };
+                mac.pen = Some(PenMark { x: 0.30, y: top + 0.38, down: true });
                 mac.line = 214;
             }
         }
@@ -135,6 +143,36 @@ pub fn setup(name: &str, root: &mut Root, extras: &Extras, now: u64) -> bool {
             root.ui.hint = false;
             if let Ok(mut mac) = extras.mac.lock() {
                 mac.armed_region = true;
+            }
+        }
+        "b7-remote-break" => {
+            root.ui.hint = false;
+            if let Ok(mut mac) = extras.mac.lock() {
+                // the end of page 3 and the top of page 4 in one view, the pen in the break
+                let page = mac.page_surface();
+                let end = page.page_top(2) + page.page_height();
+                mac.view = Rect { x: 0.0, y: end - 0.2, w: 0.8, h: 0.8 * WINDOW_SHAPE };
+                mac.pen = Some(PenMark { x: 0.4, y: end + page.break_height() / 2.0, down: false });
+            }
+        }
+        "b8-remote-board" => {
+            root.ui.hint = false;
+            if let Ok(mut mac) = extras.mac.lock() {
+                mac.show_surface(now, SimSurface::Board);
+                mac.view = Rect { x: 0.22, y: 0.06, w: 0.42, h: 0.42 * WINDOW_SHAPE };
+                mac.pen = Some(PenMark { x: 0.36, y: 0.2, down: false });
+            }
+        }
+        "b9-remote-return" => {
+            root.ui.hint = false;
+            if let Ok(mut mac) = extras.mac.lock() {
+                mac.jump_to_conversation(now);
+            }
+        }
+        "b10-remote-finished" => {
+            root.ui.hint = false;
+            if let Ok(mut mac) = extras.mac.lock() {
+                mac.agent_finished(now, FinishKind::Suggestion);
             }
         }
         "b6-remote-long-labels" => {
