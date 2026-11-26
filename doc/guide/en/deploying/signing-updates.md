@@ -445,6 +445,12 @@ package-managed installs (dpkg/rpm, Homebrew, Flatpak/Snap, the Windows
 Store, macOS `/Applications` bundles installed by a manager) and clamps the
 mode to notify-only, so the app tells the user to update through the
 mechanism that owns the files instead of overwriting them behind its back.
+On iOS and Android (and in a desktop build made with azul-layout's `store_app`
+feature, for the Mac App Store or the Microsoft Store) the answer is
+`InstallKind::AppStore`, whatever the path of the binary: the store delivers
+the updates, and the build has no code that downloads or installs a program,
+because a store forbids an app to fetch code of its own. A check still reads
+the manifest and can tell the user that a newer version exists.
 
 The machine-wide config can clamp further: `updates.autoupdate: false` in
 `{config_dir}/azul/config.json` turns self-updating off for every azul app

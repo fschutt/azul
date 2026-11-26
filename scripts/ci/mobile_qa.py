@@ -551,6 +551,59 @@ def android_scenarios(args):
 
     run.step("03b-render-modes", "AZ_BACKEND=cpu, gpu, auto through debug.az.env (the shell has only the CPU renderer: all three alike)", s_modes, needs_app=True)
 
+    def s_series(s):
+        """N cold starts of the app (and of the floor APK, an empty Java Activity, when one is given), each from the
+        launcher with the process gone: `am start -W` TotalTime / ThisTime / WaitTime, and the system's own events
+        (am_proc_start, am_create_activity, wm_activity_launch_time) kept for the startup timeline work."""
+        def stats(values):
+            v = sorted(values)
+            return {"min": v[0], "median": v[len(v) // 2], "max": v[-1], "n": len(v)}
+
+        def series(pkg, act, label):
+            times = []
+            dev.adb("logcat", "-b", "events", "-c")
+            for i in range(args.series + 1):            # the first run only warms the page cache: not counted
+                dev.sh(f"am force-stop {pkg}")
+                dev.home()
+                time.sleep(2.5)
+                out = dev.sh(f"am start -W -n {pkg}/{act}", timeout=120)
+                total = re.search(r"TotalTime: (\d+)", out)
+                this = re.search(r"ThisTime: (\d+)", out)
+                wait = re.search(r"WaitTime: (\d+)", out)
+                if i > 0 and total:
+                    times.append({"total": int(total.group(1)), "this": int(this.group(1)) if this else None,
+                                  "wait": int(wait.group(1)) if wait else None})
+                time.sleep(3.0)
+            events = dev.adb("logcat", "-b", "events", "-d", "-v", "threadtime", timeout=60)
+            dev.save_log(f"events-{label}.txt", "\n".join(l for l in events.splitlines() if pkg in l))
+            dev.sh(f"am force-stop {pkg}")
+            return times
+
+        mine = series(args.package, dev.resolve_activity(), "app")
+        if mine:
+            st = stats([t["total"] for t in mine])
+            run.meta["cold_start_series_ms"] = f"median {st['median']} min {st['min']} max {st['max']} (n={st['n']})"
+            s.note(f"{args.package}: TotalTime ms {[t['total'] for t in mine]}; median {st['median']}")
+        s.check(f"{args.series} cold starts of the app were measured", len(mine) == args.series, f"{len(mine)} measured")
+        if args.floor_apk:
+            out = dev.adb("install", "-r", "-t", args.floor_apk, timeout=120)
+            s.check("the floor APK installs", "Success" in out, out.strip()[-120:], required=False)
+            floor = series("com.azul.floor", ".FloorActivity", "floor")
+            if floor:
+                fs = stats([t["total"] for t in floor])
+                run.meta["floor_start_series_ms"] = f"median {fs['median']} min {fs['min']} max {fs['max']} (n={fs['n']})"
+                s.note(f"floor (an empty Java Activity): TotalTime ms {[t['total'] for t in floor]}; median {fs['median']}")
+                if mine:
+                    s.note(f"the app costs {st['median'] - fs['median']} ms more than the floor at the median")
+            dev.sh("pm uninstall com.azul.floor")
+        dev.launch(cold=True)
+        dev.wait_for_front(timeout=args.first_frame_timeout)
+        dev.settle(2.5)
+        state["portrait"] = dev.look(s, "after-series")
+
+    if args.series:
+        run.step("03c-cold-start-series", "N cold starts from the launcher: the app against the floor (an empty Java Activity)", s_series, needs_app=True)
+
     def s_ui_dump(s):
         dev.sh("uiautomator dump /sdcard/qa-ui.xml", timeout=40)
         xml = dev.sh("cat /sdcard/qa-ui.xml")
@@ -954,6 +1007,28 @@ class IOS:
                 pass
         return found
 
+    def landscape_copy(self):
+        """A copy of the .app whose Info.plist allows only the two landscape orientations, signed ad hoc again (a
+        Simulator app needs a signature, not an identity): when an app only supports landscape the Simulator starts it
+        in landscape. Tests the landscape LAYOUT where the rotation itself cannot be pressed. -> the new .app path."""
+        import plistlib
+        import shutil
+        dst = self.run.logs_dir / "landscape-app" / Path(self.app_dir).name
+        if dst.parent.exists():
+            shutil.rmtree(dst.parent)
+        dst.parent.mkdir(parents=True)
+        shutil.copytree(self.app_dir, dst, symlinks=True)
+        info_path = dst / "Info.plist"
+        info = plistlib.loads(info_path.read_bytes())
+        both = ["UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight"]
+        info["UISupportedInterfaceOrientations"] = both
+        info["UISupportedInterfaceOrientations~ipad"] = both
+        info_path.write_bytes(plistlib.dumps(info))
+        rc, _o, err = self.x("codesign", "--force", "--sign", "-", "--timestamp=none", str(dst), timeout=120)
+        if rc != 0:
+            raise RuntimeError(f"codesign: {err.strip()[:200]}")
+        return dst
+
     def gui_keystroke(self, char_code):
         """Cmd + arrow in the Simulator app (Device > Rotate Left = Cmd-Left, Rotate Right = Cmd-Right). Needs the
         GUI app and the runner's accessibility permission for osascript. -> (ok, message)"""
@@ -1135,13 +1210,33 @@ def ios_scenarios(args):
         sig = dev.look(s, "landscape")
         w, h = dev.dims
         s.note(f"screenshot {w}x{h} after the rotation")
-        s.check("the picture changed with the rotation", sig_diff(sig, before) > SAME_BELOW, f"differs {sig_diff(sig, before):.3f}", required=False)
+        changed = sig_diff(sig, before) > SAME_BELOW
+        s.check("the picture changed with the rotation", changed, f"differs {sig_diff(sig, before):.3f}", required=False)
         dev.alive_step(s)
-        ok2, msg2 = dev.gui_keystroke(29)  # Cmd-Right: back
-        dev.settle(3.5)
-        again = dev.look(s, "portrait-again")
-        s.check("back in portrait the picture is the first one again", sig_diff(again, before) < 0.10, f"differs {sig_diff(again, before):.3f}", required=False)
-        dev.alive_step(s, " after rotating back")
+        if ok:
+            dev.gui_keystroke(29)          # Cmd-Right: back
+            dev.settle(3.5)
+            again = dev.look(s, "portrait-again")
+            s.check("back in portrait the picture is the first one again", sig_diff(again, before) < 0.10, f"differs {sig_diff(again, before):.3f}", required=False)
+            dev.alive_step(s, " after rotating back")
+        if not (ok and changed) and args.app:
+            # the rotation could not be pressed or did nothing: the landscape LAYOUT through an app that allows only landscape
+            s.note("falling back to a landscape-only copy of the app (Info.plist orientations)")
+            try:
+                copy = dev.landscape_copy()
+                rc, _o, err = dev.simctl("install", args.udid, str(copy), timeout=180)
+                s.check("the landscape-only copy installs", rc == 0, err.strip()[:160], required=False)
+                dev.launch(cold=True)
+                t = dev.wait_for_front(timeout=args.first_frame_timeout)
+                dev.settle(3.0)
+                lsig = dev.look(s, "landscape-only-app")
+                s.check("the landscape-only copy draws", t is not None and not is_flat(lsig), f"first frame after {t:.1f} s" if t is not None else "no frame", required=False)
+                s.note(f"landscape-only app screenshot {dev.dims[0]}x{dev.dims[1]}")
+            finally:
+                dev.simctl("install", args.udid, args.app, timeout=180)   # the original app again
+                dev.launch(cold=True)
+                dev.wait_for_front(timeout=args.first_frame_timeout)
+                dev.settle(2.0)
 
     run.step("08-rotate", "rotate the device left and back while the app runs (Simulator menu through osascript)", s_rotate, needs_app=True)
 
@@ -1203,6 +1298,8 @@ def main(argv):
     a.add_argument("--serial", default="")
     a.add_argument("--points", default="", help="JSON {name: [fx, fy]} overriding the tap points (fractions of the screen)")
     a.add_argument("--first-frame-timeout", type=int, default=45)
+    a.add_argument("--series", type=int, default=0, help="N cold starts to measure (0: none)")
+    a.add_argument("--floor-apk", default="", help="the floor APK (an empty Java Activity) measured the same way")
     i = sub.add_parser("ios")
     i.add_argument("--out", required=True)
     i.add_argument("--udid", required=True)

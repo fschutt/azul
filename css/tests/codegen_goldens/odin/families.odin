@@ -73,6 +73,8 @@ style_text :: proc() -> azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_textDecoration(azul.AzStyleTextDecoration.Underline)),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_textDecorationColor(azul.AzStyleTextDecorationColorValue{Exact = {tag = 6, payload = azul.AzStyleTextDecorationColor_color(azul.AzColorU{r = 204, g = 51, b = 0, a = 255})}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_textDecorationThickness(azul.AzStyleTextDecorationThicknessValue{Exact = {tag = 6, payload = azul.AzStyleTextDecorationThickness_length(azul.AzPixelValue_px(2.0))}})),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_textUnderlineOffset(azul.AzStyleTextUnderlineOffsetValue{Exact = {tag = 6, payload = azul.AzStyleTextUnderlineOffset_length(azul.AzPixelValue_px(3.0))}})),
+		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_textUnderlinePosition(azul.AzStyleTextUnderlinePositionValue{Exact = {tag = 6, payload = azul.AzStyleTextUnderlinePosition.UnderLeft}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_hyphenationLanguage(azul.AzStyleHyphenationLanguageValue{Exact = {tag = 6, payload = azul.AzStyleHyphenationLanguage{inner = css_str("en-US")}}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_exclusionMargin(azul.AzStyleExclusionMarginValue{Exact = {tag = 6, payload = azul.AzStyleExclusionMargin{inner = azul.AzFloatValue_create(10.5)}}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_caretColor(azul.AzCaretColor{inner = azul.AzColorU{r = 255, g = 0, b = 0, a = 255}})),
@@ -82,7 +84,7 @@ style_text :: proc() -> azul.AzCssPropertyWithConditionsVec {
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_selectionColor(azul.AzSelectionColor{inner = azul.AzColorU{r = 255, g = 255, b = 255, a = 255}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_selectionRadius(azul.AzSelectionRadiusValue{Exact = {tag = 6, payload = azul.AzSelectionRadius{inner = azul.AzPixelValue_px(3.0)}}})),
 		azul.AzCssPropertyWithConditions_simple(azul.AzCssProperty_font(azul.AzStyleFontFamilyVec_copyFromPtr(&[]azul.AzStyleFontFamily{azul.AzStyleFontFamily_system(css_str("caption"))}[0], 1))),
-	}[0], 65)
+	}[0], 67)
 }
 
 // CSS: .shorthands
