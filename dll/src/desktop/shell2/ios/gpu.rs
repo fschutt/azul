@@ -189,6 +189,11 @@ impl IOSWindow {
         let line = decision.render_line();
         log_info!(LogCategory::Rendering, "{}", line);
         super::system_log(&line);
+        // the startup timeline (`AZ_STARTUP=1`) says which renderer the window got, in the same words
+        self.common
+            .app
+            .startup()
+            .mark_with("render_backend", || decision.timeline_detail());
     }
 
     /// The drawable the window asks for: its size in device pixels and its scale.
@@ -435,6 +440,7 @@ impl IOSWindow {
         let context = EaglContext::new()?;
         context.make_current()?;
         gpu.context = Some(context);
+        self.common.app.startup().mark("window:gl_context_ready");
         Ok(())
     }
 
@@ -549,6 +555,7 @@ impl IOSWindow {
         if let Some(gpu) = self.gpu.as_mut() {
             gpu.resend = true;
         }
+        self.common.app.startup().mark("webrender_ready");
         Ok(())
     }
 
@@ -719,6 +726,7 @@ impl IOSWindow {
         drawable.bind();
         let (width, height) = drawable.size();
         let size = webrender::api::units::DeviceIntSize::new(width.max(1), height.max(1));
+        self.common.app.startup().mark_once("frame:first_render_begin");
         let started = Instant::now();
         // a panic while drawing leaves WebRender in an unknown state: it is a lost context (one rebuild, which leaks this
         // renderer without a GL command, then the CPU), not the end of the app
@@ -738,6 +746,12 @@ impl IOSWindow {
         drawable.present(context)?;
         let render_us = elapsed_us(started);
         self.present_log.note(Some(render_us));
+        // the startup timeline (`AZ_STARTUP=1`): the first frame is on its way to the screen
+        self.common.app.startup().mark_once("frame:first_render_done");
+        self.common
+            .app
+            .startup()
+            .mark_first_present(|| format!("ios gpu {width}x{height}"));
         if let Some(gpu) = self.gpu.as_mut() {
             if !gpu.first_frame_reported {
                 gpu.first_frame_reported = true;
