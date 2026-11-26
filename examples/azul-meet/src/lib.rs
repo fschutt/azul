@@ -243,6 +243,7 @@ use azul::{
         IrohRelayMode, IrohTileRole,
     },
     json::Json,
+    misc::{Capability, PermissionState},
     option::{OptionDarkLightMode, OptionKeyringResult, OptionString},
     prelude::*,
     str::String as AzString,
@@ -775,6 +776,11 @@ struct MeetState {
     /// The camera and the screen share are test patterns (`AZMEET_TEST_PATTERN=1`, and every
     /// headless run).
     pattern_video: bool,
+    /// The system refused the camera (a runtime permission on a phone, a privacy switch on a
+    /// desktop): the camera tile says so instead of showing a black box.
+    camera_denied: bool,
+    /// The system refused the microphone: the level meter says so instead of sitting at zero.
+    mic_denied: bool,
     /// A still of the test pattern, made once with `pattern_video`: the own camera tile and the
     /// waiting room's preview show it as a camera would show its picture.
     pattern_still: Option<ImageRef>,
@@ -954,6 +960,8 @@ impl MeetState {
             },
             video_out: BTreeMap::new(),
             pattern_video: false,
+            camera_denied: false,
+            mic_denied: false,
             pattern_still: None,
             pattern_clocks: [
                 video_wire::PatternClock::new(video_wire::PATTERN_FPS),
@@ -1605,6 +1613,8 @@ fn snapshot(s: &MeetState) -> ui::CallView {
         in_room: s.room.is_some(),
         tone_mic: s.tone_mic,
         pattern_video: s.pattern_video,
+        camera_denied: s.camera_denied,
+        mic_denied: s.mic_denied,
         pattern_still: s.pattern_still.clone(),
         mirror: s.mirror,
         screen_renditions: my_renditions(s, SCREEN_TRACK),
@@ -1665,6 +1675,29 @@ fn snapshot(s: &MeetState) -> ui::CallView {
 }
 
 /// The app's callbacks, as the window wires them (`ui::Actions`).
+/// Whether the system refuses a device: asked and denied, or restricted by a policy (a parent, an
+/// employer). Not asked yet is not a refusal: the request is on its way.
+fn refused(state: PermissionState) -> bool {
+    matches!(state, PermissionState::Denied | PermissionState::Restricted)
+}
+
+/// The system answered a permission request, or the person changed it in Settings: the camera and
+/// the microphone are looked at again, and a refusal is told on the screen (the camera tile and the
+/// level meter) instead of a black box and a bar that never moves.
+extern "C" fn on_permission_changed(mut data: RefAny, info: CallbackInfo) -> Update {
+    let camera = refused(info.get_permission_status(Capability::Camera));
+    let microphone = refused(info.get_permission_status(Capability::Microphone));
+    let Some(mut s) = data.downcast_mut::<MeetState>() else {
+        return Update::DoNothing;
+    };
+    if s.camera_denied == camera && s.mic_denied == microphone {
+        return Update::DoNothing;
+    }
+    s.camera_denied = camera;
+    s.mic_denied = microphone;
+    Update::RefreshDom
+}
+
 const ACTIONS: ui::Actions = ui::Actions {
     mic: mic_toggle,
     cam: cam_toggle,
@@ -1700,6 +1733,7 @@ const ACTIONS: ui::Actions = ui::Actions {
     join_camera_off: on_join_camera_off,
     key: on_key,
     keyring: on_keyring_result,
+    permission: on_permission_changed,
     retry_server: on_retry_server,
     new_chat_room: on_new_chat_room,
     schedule: on_schedule,
