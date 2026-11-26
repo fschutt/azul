@@ -218959,6 +218959,7 @@
                         "external": "azul_dll::unified::speech::SpeechSession",
                         "custom_impls": [
                             "Clone",
+                            "Debug",
                             "Default",
                             "Drop"
                         ],
@@ -219305,6 +219306,7 @@
                         "external": "azul_dll::unified::speech::SpeechStream",
                         "custom_impls": [
                             "Clone",
+                            "Debug",
                             "Default",
                             "Drop"
                         ],
