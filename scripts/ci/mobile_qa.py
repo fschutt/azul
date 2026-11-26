@@ -442,6 +442,21 @@ def displayed_ms(text, package=""):
     return found
 
 
+def marker_values(text, name, since=None):
+    """The values of the app's own stdout lines `NAME <value>` in a `logcat -v threadtime` dump, in order (the apps print them for
+    scripts: `AZPAINT_STROKES 1`, `AZMAPS_VIEW 48.52 9.05 14`, `AZMAPS_SIDEBAR open`); `since` = 'MM-DD HH:MM:SS' keeps the lines
+    at or after that device time. A line without a value gives ''."""
+    found = []
+    pattern = re.compile(r"RustStdoutStderr:\s*" + re.escape(name) + r"(?: (.*?))?\s*$")
+    for line in text.splitlines():
+        if since and line[:18] < since:
+            continue
+        m = pattern.search(line)
+        if m:
+            found.append(m.group(1) or "")
+    return found
+
+
 LOGCAT_LINE = re.compile(r"^(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d)\.(\d{3})\s+(\d+)\s+(\d+)\s+\w\s+(\S.*?):\s(.*)$")
 
 

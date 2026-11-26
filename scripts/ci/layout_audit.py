@@ -113,7 +113,7 @@ def _inside(inner, outer, slack=SLACK_DP):
 
 def _entry(layout, a11y, rect, why):
     l, t, r, b = rect
-    out = {"node": _name(layout) if layout else (a11y or {}).get("html_tag") or "?",
+    out = {"node": _name(layout) if layout else (a11y or {}).get("html_tag") or (a11y or {}).get("role") or "?",
            "x": round(l, 1), "y": round(t, 1), "w": round(r - l, 1), "h": round(b - t, 1), "why": why}
     if a11y:
         out["role"] = a11y.get("role")
