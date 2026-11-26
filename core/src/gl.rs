@@ -2867,6 +2867,63 @@ impl GlStateSave {
     }
 }
 
+/// What a brush stroke changes beyond the bindings [`GlStateSave`] keeps: the viewport, the scissor and blend
+/// switches and the blend function. Saved before the stroke, put back after it.
+struct PaintState {
+    bindings: GlStateSave,
+    viewport: [i32; 4],
+    blend: bool,
+    scissor: bool,
+    blend_func: [i32; 4],
+}
+
+impl PaintState {
+    fn save(gl: &GlContextPtr) -> Self {
+        let bindings = GlStateSave::save(gl);
+        let mut viewport = [0_i32; 4];
+        gl.get_integer_v(gl::VIEWPORT, (&mut viewport[..]).into());
+        let mut blend = [0_u8];
+        gl.get_boolean_v(gl::BLEND, (&mut blend[..]).into());
+        let mut scissor = [0_u8];
+        gl.get_boolean_v(gl::SCISSOR_TEST, (&mut scissor[..]).into());
+        let mut blend_func = [0_i32; 4];
+        for (slot, name) in blend_func.iter_mut().zip([
+            gl::BLEND_SRC_RGB,
+            gl::BLEND_DST_RGB,
+            gl::BLEND_SRC_ALPHA,
+            gl::BLEND_DST_ALPHA,
+        ]) {
+            gl.get_integer_v(name, (&mut core::slice::from_mut(slot)[..]).into());
+        }
+        Self {
+            bindings,
+            viewport,
+            blend: blend[0] != 0,
+            scissor: scissor[0] != 0,
+            blend_func,
+        }
+    }
+
+    // OpenGL binding: the blend function's names come back from the driver as GLint.
+    #[allow(clippy::cast_sign_loss)]
+    fn restore(&self, gl: &GlContextPtr) {
+        if self.scissor {
+            gl.enable(gl::SCISSOR_TEST);
+        }
+        if !self.blend {
+            gl.disable(gl::BLEND);
+        }
+        gl.blend_func_separate(
+            self.blend_func[0] as u32,
+            self.blend_func[1] as u32,
+            self.blend_func[2] as u32,
+            self.blend_func[3] as u32,
+        );
+        gl.viewport(self.viewport[0], self.viewport[1], self.viewport[2], self.viewport[3]);
+        self.bindings.restore(gl);
+    }
+}
+
 /// AUDIT: RAII guard that deletes a transient framebuffer + renderbuffer on
 /// scope exit. Used by `Texture::clear` and `GlShader::draw` so that a panic
 /// mid-path (e.g. an `.unwrap()` on an empty gen-list, or any GL step that
@@ -3232,16 +3289,29 @@ impl Texture {
 
         let fbo = gl.gen_framebuffers(1).get(0).copied().unwrap_or(0);
         let vbo = gl.gen_buffers(1).get(0).copied().unwrap_or(0);
-        if fbo == 0 || vbo == 0 {
+        // A vertex array of its own: a core profile has no default one, and the one the renderer left
+        // bound is the renderer's - the attribute arrays set below would change it.
+        let vao = gl.gen_vertex_arrays(1).get(0).copied().unwrap_or(0);
+        if fbo == 0 || vbo == 0 || vao == 0 {
             if fbo != 0 {
                 gl.delete_framebuffers((&[fbo][..]).into());
             }
             if vbo != 0 {
                 gl.delete_buffers((&[vbo][..]).into());
             }
+            if vao != 0 {
+                gl.delete_vertex_arrays((&[vao][..]).into());
+            }
             return;
         }
 
+        // What whoever drew before (WebRender between two frames, another canvas callback) had bound
+        // and set: put back at the end, as `clear` and `draw` do. A stroke that left its own
+        // framebuffer, program, vertex array, viewport and blend state behind drew every frame
+        // after it wrong: the window showed nothing but its background.
+        let before = PaintState::save(&gl);
+
+        gl.bind_vertex_array(vao);
         gl.bind_framebuffer(gl::FRAMEBUFFER, fbo);
         gl.framebuffer_texture_2d(
             gl::FRAMEBUFFER,
@@ -3251,8 +3321,17 @@ impl Texture {
             0,
         );
         gl.viewport(0, 0, self.size.width as i32, self.size.height as i32);
+        // A scissor the renderer left on would cut the dabs to its rectangle.
+        gl.disable(gl::SCISSOR_TEST);
         gl.enable(gl::BLEND);
-        gl.blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+        // The texture is composited as premultiplied alpha: the colour is multiplied by the dab's
+        // alpha (src alpha), the alpha is "over" (one, one minus src alpha).
+        gl.blend_func_separate(
+            gl::SRC_ALPHA,
+            gl::ONE_MINUS_SRC_ALPHA,
+            gl::ONE,
+            gl::ONE_MINUS_SRC_ALPHA,
+        );
         gl.use_program(prog);
 
         let a = (f32::from(brush.color.a) / 255.0) * brush.flow.clamp(0.0, 1.0);
@@ -3281,13 +3360,17 @@ impl Texture {
             let t = if n == 0 { 1.0 } else { i as f32 / n as f32 };
             let px = x0 + dx * t;
             let py = y0 + dy * t;
-            // dab bbox -> NDC; y is flipped so (0,0) is top-left like the CPU path.
+            // dab bbox -> NDC. The texture's y runs down as the rows of its memory do (row 0 is
+            // the top, as the SVG shader and the compositor read it): (0, 0) is the top-left like
+            // the CPU path. The picture a stroke made showed upside down in a window drawn by
+            // WebRender when y was flipped here.
             let nx = |x: f32| (x / tw) * 2.0 - 1.0;
-            let ny = |y: f32| 1.0 - (y / th) * 2.0;
+            let ny = |y: f32| (y / th) * 2.0 - 1.0;
             let (l, rr, tp, bt) = (nx(px - r), nx(px + r), ny(py - r), ny(py + r));
-            // TRIANGLE_STRIP: TL, BL, TR, BR -- interleaved (pos.x, pos.y, uv.x, uv.y).
+            // TRIANGLE_STRIP, counter-clockwise in NDC (y up): row-0 side first -- interleaved
+            // (pos.x, pos.y, uv.x, uv.y).
             let verts: [f32; 16] = [
-                l, tp, -1.0, -1.0, l, bt, -1.0, 1.0, rr, tp, 1.0, -1.0, rr, bt, 1.0, 1.0,
+                l, tp, -1.0, -1.0, rr, tp, 1.0, -1.0, l, bt, -1.0, 1.0, rr, bt, 1.0, 1.0,
             ];
             gl.buffer_data_untyped(
                 gl::ARRAY_BUFFER,
@@ -3303,15 +3386,15 @@ impl Texture {
 
         gl.disable_vertex_attrib_array(0);
         gl.disable_vertex_attrib_array(1);
-        gl.bind_buffer(gl::ARRAY_BUFFER, 0);
-        gl.disable(gl::BLEND);
-        gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
+        before.restore(&gl);
         gl.delete_buffers((&[vbo][..]).into());
         gl.delete_framebuffers((&[fbo][..]).into());
+        gl.delete_vertex_arrays((&[vao][..]).into());
     }
 
     /// Read this texture's pixels back into an RGBA8 `RawImage` (top-left origin)
-    /// -- for exporting the painted canvas to disk. Binds an FBO + glReadPixels.
+    /// -- for exporting the painted canvas to disk. Binds an FBO + glReadPixels,
+    /// and puts the framebuffer binding back as it found it.
     #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // OpenGL/graphics binding: GL-bounded numeric casts
     #[must_use]
     pub fn copy_to_raw_image(&self) -> RawImage {
@@ -3324,6 +3407,7 @@ impl Texture {
         if fbo == 0 {
             return RawImage::null_image();
         }
+        let saved = GlStateSave::save(&gl);
         gl.bind_framebuffer(gl::FRAMEBUFFER, fbo);
         gl.framebuffer_texture_2d(
             gl::FRAMEBUFFER,
@@ -3333,22 +3417,12 @@ impl Texture {
             0,
         );
         let pixels = gl.read_pixels(0, 0, w, h, gl::RGBA, gl::UNSIGNED_BYTE);
-        gl.bind_framebuffer(gl::FRAMEBUFFER, 0);
+        saved.restore(&gl);
         gl.delete_framebuffers((&[fbo][..]).into());
 
-        // glReadPixels uses a bottom-left origin; flip rows to top-left for saving.
-        let mut bytes = pixels.into_library_owned_vec();
-        let row = (w as usize) * 4;
-        let hh = h as usize;
-        if row > 0 && bytes.len() >= row * hh {
-            for y in 0..hh / 2 {
-                let yi = y * row;
-                let yo = (hh - 1 - y) * row;
-                for k in 0..row {
-                    bytes.swap(yi + k, yo + k);
-                }
-            }
-        }
+        // The rows come in the order of the texture's memory: row 0 is the top (the order
+        // `paint_stroke` paints in and the compositor shows), so there is nothing to flip.
+        let bytes = pixels.into_library_owned_vec();
         RawImage {
             pixels: RawImageData::U8(bytes.into()),
             width: w as usize,

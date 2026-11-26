@@ -27,10 +27,12 @@
 use std::path::{Path, PathBuf};
 
 use azul::{
+    app::RendererOptions,
     dialog::{FileDialog, FileOpenResult},
     dom::VirtualKeyCode,
-    option::OptionString,
+    option::{OptionRendererOptions, OptionString},
     prelude::*,
+    window::HwAcceleration,
     task::TerminateTimer,
     time::SystemTimeDiff,
 };
@@ -61,12 +63,15 @@ pub mod agent_process;
 pub mod agent_review;
 pub mod agent_settings;
 pub mod agent_stroke;
+pub mod chips;
+pub mod chips_op;
 pub mod code;
 pub mod column;
 pub mod dictation;
 pub mod dwell;
 pub mod ids;
 pub mod ink;
+pub mod layout;
 #[cfg(test)]
 mod ink_tests;
 mod l10n;
@@ -74,12 +79,15 @@ mod l10n;
 mod l10n_tests;
 pub mod model;
 pub mod perf;
+pub mod pens;
+pub mod pointer;
 pub mod recorder;
 pub mod recorder_azul;
 pub mod recorder_clock;
 pub mod recorder_codec;
 pub mod recorder_edl;
 pub mod recorder_events;
+pub mod recorder_hook;
 pub mod recorder_export;
 pub mod recorder_fs;
 pub mod recorder_manifest;
@@ -91,11 +99,13 @@ pub mod recorder_track;
 pub mod recorder_wb;
 pub mod recorder_writer;
 pub mod session;
+pub mod standby;
 pub mod stroke_features;
 /// The pen strokes every gesture is tested on (a loop, a slash, an underline, a scribble): shared by the
 /// whiteboard's lasso and the quick slash that deletes a word.
 #[cfg(test)]
 pub(crate) mod stroke_fixtures;
+pub mod state_op;
 pub mod switches;
 pub mod symbols;
 pub mod symbols_context;
@@ -108,6 +118,7 @@ pub mod symbols_spoken;
 pub mod symbols_tokens;
 pub mod symbols_vocab;
 pub mod ui;
+pub mod vocabulary;
 pub mod voice;
 pub mod whiteboard;
 pub mod whiteboard_app;
@@ -141,28 +152,47 @@ pub const SPEC: AppSpec = AppSpec {
     binary: "AzReview",
     summary: "ink-first code review",
     screens: &["review"],
-    files_help: "the folder to review (default: the current folder)",
+    files_help: "the folder to review (default: the one reviewed last; with none, the window offers Open folder)",
 };
 
 /// The About facts.
 pub const ABOUT: AboutInfo = AboutInfo {
     name: "AzReview",
-    version: env!("CARGO_PKG_VERSION"),
+    // The commit it is built from (`build.rs`): a report names its binary.
+    version: concat!(env!("CARGO_PKG_VERSION"), " (build ", env!("AZREVIEW_BUILD"), ")"),
     summary: "Ink-first code review: the files of a folder as pages, marked with a pen, with \
               voice clips. Sessions are kept in your data folder.",
     license: "MIT",
     app_folder: "review",
 };
 
+/// The window's renderer: the GPU (WebRender) draws it, as mapedit3's - a page is a big picture, the ink a
+/// texture, and the CPU renderer (the engine's default) paints the whole page again at every pen move. The
+/// engine falls back to the CPU renderer where no GL context can be made, where the driver is on its
+/// blacklist (a software GL) or WebRender cannot start; `AZ_BACKEND=cpu|gpu|auto` still wins.
+#[must_use]
+pub fn window_renderer() -> RendererOptions {
+    let mut renderer = RendererOptions::create_default();
+    renderer.hw_accel = HwAcceleration::Enabled;
+    renderer
+}
+
 /// The keys AzReview answers (the kit adds Mod+, / F1 / Escape).
-pub const SHORTCUTS: [Shortcut; 6] = [
+pub const SHORTCUTS: [Shortcut; 8] = [
     Shortcut::new("azreview-shortcuts-review", "Mod+S", "azreview-shortcut-save"),
     Shortcut::new("azreview-shortcuts-review", "Mod+O", "azreview-shortcut-open-folder"),
+    Shortcut::new("azreview-shortcuts-review", "Mod+B", "azreview-shortcut-files"),
+    Shortcut::new("azreview-shortcuts-review", "Mod+Shift+B", "azreview-shortcut-whiteboard"),
     Shortcut::new("azreview-shortcuts-review", "Mod+Z", "azreview-shortcut-undo"),
     Shortcut::new("azreview-shortcuts-review", "Pen rest", "azreview-shortcut-dictate"),
-    Shortcut::new("azreview-shortcuts-review", "1 to 9", "azreview-shortcut-meaning"),
+    Shortcut::new("azreview-shortcuts-review", "1 to 5", "azreview-shortcut-meaning"),
     Shortcut::new("azreview-shortcuts-review", "Right click", "azreview-shortcut-previous-nib"),
 ];
+
+/// The window's size when no `--size` says otherwise, and the least it may be shrunk to (it is narrow enough for
+/// the file tree to cover the pages instead of pushing them: `layout::OVERLAY_BELOW_W`).
+pub const WINDOW_DEFAULT: (f32, f32) = (1280.0, 820.0);
+pub const WINDOW_MIN: (f32, f32) = (560.0, 420.0);
 
 /// The sample rate of a voice clip, Hz (the microphone widget is asked for it).
 pub const CLIP_RATE: u32 = 48_000;
@@ -180,8 +210,12 @@ pub struct AppState {
     /// frame anew when its page's changes (`ink::InkRevisions`).
     pub ink: ink::InkRevisions,
     pub next_stroke_id: u64,
-    pub active: Semantic,
-    pub tool: Tool,
+    /// The five pens: which is in hand and the nib each has.
+    pub pens: pens::Pens,
+    /// The conversations of the folder's files (the bottom bar shows the open file's; the tree marks each file).
+    pub chips: chips::Chips,
+    /// Where what happens in the window is told to a recorder (nobody until a recorder is mounted).
+    pub recorder: std::sync::Arc<dyn recorder_hook::RecorderHook>,
     pub findings: Vec<Finding>,
     /// The notes dictated at spots of the open file (the side column, the markers on the pages).
     pub notes: Vec<Note>,
@@ -195,6 +229,15 @@ pub struct AppState {
     pub switches: switches::Switches,
     /// The ink's own timings (`AZREVIEW_PROFILE=1`).
     pub perf: perf::Perf,
+    /// The last pointer events (`AZREVIEW_EVENTS=1`, the Session menu, the debug server).
+    pub pointer_log: pointer::PointerLog,
+    /// The folder dialog is open: a second request (the menu's key and the key handler both hear Mod+O)
+    /// opens no second one.
+    pub choosing_folder: bool,
+    /// The stroke that is live was begun by a pen (not a mouse or a trackpad).
+    pub live_pen: bool,
+    /// A folder named on the command line, to be remembered as the one reviewed last once the window exists.
+    pub remember_folder: Option<PathBuf>,
     pub recording: Option<VoiceClip>,
     pub clips: Vec<VoiceClip>,
     pub level_samples: usize,
@@ -204,9 +247,16 @@ pub struct AppState {
     pub epoch: u64,
     pub idle_timer: TimerId,
     pub root: PathBuf,
-    /// The files fly out over the pages (the title row's switch; a picked
-    /// file and Escape fold them away).
-    pub sidebar_open: bool,
+    /// What is open and how wide: the file tree (the whole height of the window, it pushes the pages to the
+    /// right) and the right panel; remembered in the settings.
+    pub panels: layout::Panels,
+    /// How far each panel has slid.
+    pub slide: layout::Slide,
+    /// A drag of a panel's edge.
+    pub grip: Option<layout::Grip>,
+    /// The slide's timer runs, and the clock (ms) of its last tick.
+    pub sliding: bool,
+    pub slide_at_ms: u64,
     /// What went wrong and is told over the pages until dismissed: a session
     /// not written, an archive folder that would not open.
     pub problem: Option<String>,
@@ -220,9 +270,8 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// AzReview on the `files` of `root`, the first open and the files out
-    /// (they are what one picks from first); `kit` and `data_root` are
-    /// azul-appkit's.
+    /// AzReview on the `files` of `root`, the first open and the file tree beside the pages; `kit` and
+    /// `data_root` are azul-appkit's.
     #[must_use]
     pub fn create(root: PathBuf, files: Vec<code::SourceFile>, kit: RefAny, data_root: PathBuf) -> Self {
         Self {
@@ -232,8 +281,9 @@ impl AppState {
             live: None,
             ink: ink::InkRevisions::default(),
             next_stroke_id: 1,
-            active: Semantic::Scope,
-            tool: Tool::Marker,
+            pens: pens::Pens::new(),
+            chips: chips::Chips::default(),
+            recorder: recorder_hook::none(),
             findings: Vec::new(),
             notes: Vec::new(),
             next_note_id: 1,
@@ -242,6 +292,10 @@ impl AppState {
             voice: voice::Voice::new(dwell::Config::default(), dictation::DEFAULT_SILENCE_MS),
             switches: switches::Switches::default(),
             perf: perf::Perf::new(false),
+            pointer_log: pointer::PointerLog::default(),
+            choosing_folder: false,
+            live_pen: false,
+            remember_folder: None,
             recording: None,
             clips: Vec::new(),
             level_samples: 0,
@@ -250,7 +304,11 @@ impl AppState {
             epoch: 0,
             idle_timer: TimerId::unique(),
             root,
-            sidebar_open: true,
+            panels: layout::Panels::default(),
+            slide: layout::Slide::settled(&layout::Panels::default()),
+            grip: None,
+            sliding: false,
+            slide_at_ms: 0,
             problem: None,
             last_pad_keys: 0,
             kit,
@@ -260,26 +318,46 @@ impl AppState {
         }
     }
 
-    /// Opens file `index` (its pages start without ink) and folds the files
-    /// away, out of the pages' way.
+    /// The folder dialog may open: `false` while one is open already. Pair with [`Self::folder_dialog_closed`].
+    pub fn ask_for_folder(&mut self) -> bool {
+        if self.choosing_folder {
+            return false;
+        }
+        self.choosing_folder = true;
+        true
+    }
+
+    /// The folder dialog was answered (a folder, or none).
+    pub fn folder_dialog_closed(&mut self) {
+        self.choosing_folder = false;
+    }
+
+    /// Opens file `index` (its pages start without ink); the tree stays as it is (a pick does not fold it).
     pub fn open_file(&mut self, index: usize) {
         if index >= self.files.len() {
             return;
         }
         self.begin_file(Some(index));
-        self.sidebar_open = false;
         self.rederive();
+        if let Some(file) = self.files.get(index) {
+            self.say(
+                "nav.file",
+                &crate::recorder_events::Fields::new()
+                    .string("file", &file.display)
+                    .int("lines", i64::try_from(file.lines.len()).unwrap_or(i64::MAX)),
+            );
+        }
     }
 
-    /// Reviews another folder: its files replace the files, the first is open and the files are out
-    /// (they are what one picks from first).
+    /// Reviews another folder: its files replace the files and the first is open (a folder without files
+    /// shows the empty page, which has the button).
     pub fn open_folder(&mut self, root: PathBuf, files: Vec<code::SourceFile>) {
         self.root = root;
         self.current = None;
         self.files = files;
+        self.chips = chips::Chips::default();
         let first = if self.files.is_empty() { None } else { Some(0) };
         self.begin_file(first);
-        self.sidebar_open = true;
         self.rederive();
     }
 
@@ -298,22 +376,109 @@ impl AppState {
         self.visible_page = 0;
     }
 
-    /// Picks the meaning the ink will have. The marker only highlights (scope) and the pen writes the
-    /// rest, so picking one the nib cannot write changes the nib: the key lit in the title row is what
-    /// the next stroke is.
+    /// Tells the recorder (one call, the recorder's vocabulary).
+    fn say(&self, kind: &str, fields: &crate::recorder_events::Fields) {
+        self.recorder.event(kind, &fields.build());
+    }
+
+    /// The pen in hand, as the recorder says it.
+    fn say_pen(&self) {
+        let nib = match self.pens.tool() {
+            Tool::Marker => "marker",
+            Tool::Pen => "pen",
+            Tool::AudioPen => "audio",
+        };
+        self.say(
+            "pen.select",
+            &crate::recorder_events::Fields::new().string("meaning", self.pens.semantic().label()).string("nib", nib),
+        );
+    }
+
+    /// Takes the pen that writes `sem`: the pen lit in the top bar is what the next stroke is (each pen
+    /// has the nib it was left with).
     pub fn pick(&mut self, sem: Semantic) {
-        self.active = sem;
-        if sem.is_highlighter() {
-            self.tool = Tool::Marker;
-        } else if self.tool == Tool::Marker {
-            self.tool = Tool::Pen;
+        if let Some(index) = pens::pen_of(sem) {
+            self.select_pen(index);
         }
     }
 
-    /// The meaning the next stroke has: the nib's, over the one picked.
+    /// Takes pen `index` (a click on it).
+    pub fn select_pen(&mut self, index: usize) {
+        if self.pens.select(index) {
+            self.nib_changed();
+            self.say_pen();
+        }
+    }
+
+    /// The key of pen `index`: the pen in hand has its next nib, another pen is taken.
+    pub fn press_pen_key(&mut self, index: usize) -> pens::Pressed {
+        let pressed = self.pens.press_key(index);
+        if pressed != pens::Pressed::Ignored {
+            self.nib_changed();
+            self.say_pen();
+        }
+        pressed
+    }
+
+    /// A double click on pen `index`: it is taken and has its next nib.
+    pub fn double_click_pen(&mut self, index: usize) {
+        if index < pens::PENS.len() {
+            self.pens.double_click(index);
+            self.nib_changed();
+            self.say_pen();
+        }
+    }
+
+    /// The pen in hand has its next (or its previous) nib.
+    pub fn cycle_nib(&mut self, backward: bool) {
+        self.pens.cycle(backward);
+        self.nib_changed();
+        self.say_pen();
+    }
+
+    /// Opens or closes a panel (the tree, the right panel); the recorder is told when it changed.
+    pub fn set_panel_open(&mut self, panel: layout::Panel, open: bool) {
+        let slot = match panel {
+            layout::Panel::Tree => &mut self.panels.tree_open,
+            layout::Panel::Right => &mut self.panels.right_open,
+        };
+        if *slot == open {
+            return;
+        }
+        *slot = open;
+        self.say(
+            "layout.toggle",
+            &crate::recorder_events::Fields::new()
+                .string("panel", if panel == layout::Panel::Tree { "tree" } else { "whiteboard" })
+                .flag("open", open),
+        );
+    }
+
+    /// The conversations of the open file, in the order they began.
+    #[must_use]
+    pub fn open_chips(&self) -> Vec<&chips::Chip> {
+        self.file().map_or_else(Vec::new, |f| self.chips.of_file(&f.display))
+    }
+
+    /// The meaning the next stroke has: the meaning of the pen in hand.
     #[must_use]
     pub fn ink_meaning(&self) -> Semantic {
-        self.tool.semantic_for(self.active)
+        self.pens.semantic()
+    }
+
+    /// The nib of the pen in hand.
+    #[must_use]
+    pub fn tool(&self) -> Tool {
+        self.pens.tool()
+    }
+
+    /// What follows from the nib in hand being another: a clip that records leaves with the audio nib.
+    pub fn nib_changed(&mut self) {
+        if !self.pens.tool().records_audio() {
+            if let Some(clip) = self.recording.take() {
+                self.clips.push(clip);
+            }
+        }
     }
 
     /// Keeps a finished stroke (what Mod+Z takes back); a new stroke ends what Mod+Shift+Z would have
@@ -512,6 +677,8 @@ pub fn run() {
         }
     };
     let named_root = args.files.first().cloned();
+    // The width the window starts at (`--size`, else the default): whether the file tree starts open depends on it.
+    let start_w = args.size.map_or(WINDOW_DEFAULT.0, |size| size.0);
     // A `--shot` run is a fixture: it never takes the folder the user last reviewed.
     let remember = args.shot.is_none();
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &["dictation"], args);
@@ -536,20 +703,33 @@ pub fn run() {
             .map(|k| k.settings.values.clone())
             .unwrap_or_default()
     };
-    // The folder named on the command line; else the one reviewed last (an app started from the
-    // Finder has the root of the disk as its folder); else the current one.
+    // The folder named on the command line; else the one reviewed last; else none (the empty page offers
+    // Open folder). Never the folder the process happens to be started in.
     let root = switches::pick_root(
-        named_root,
+        named_root.clone(),
         values.get(switches::KEY_FOLDER).map(String::as_str),
         remember,
         Path::is_dir,
-        switches::usable_cwd(std::env::current_dir().unwrap_or_default()),
     );
     let files = code::load_tree(&root, 400);
     if let Some(first) = files.first() {
         println!("AZREVIEW_FILE {}", first.display);
     }
+    // A folder named on the command line is the one reviewed last from now on (not for a fixture run).
+    let remembered = named_root.filter(|_| remember && !root.as_os_str().is_empty());
     let mut state = AppState::create(root, files, kit_ref.clone(), data_root);
+    state.remember_folder = remembered;
+    let (panels, panel_notes) = layout::Panels::remembered(&|key| values.get(key).cloned());
+    for note in &panel_notes {
+        eprintln!("[AzReview] {note}");
+    }
+    let remembered_open = values.contains_key(layout::KEY_TREE_OPEN).then_some(panels.tree_open);
+    state.panels = layout::Panels {
+        tree_open: layout::initial_tree_open(remembered_open, start_w)
+            && !state.files.is_empty(),
+        ..panels
+    };
+    state.slide = layout::Slide::settled(&state.panels);
     let resolved = switches::resolve(&values, &own);
     for note in &resolved.notes {
         eprintln!("[AzReview] {note}");
@@ -562,11 +742,34 @@ pub fn run() {
         },
         resolved.silence_ms,
     );
+    state.voice.arming = standby::Arming::new(standby::Config {
+        standby: resolved.standby,
+        idle_ms: resolved.standby_idle_ms,
+    });
+    // The session cannot open the microphone ahead of a dictation yet: the policy runs only under the e2e server, where
+    // what it asks is counted and no microphone is opened.
+    state.voice.can_arm = std::env::var_os("AZ_E2E").is_some();
+    state.voice.start_standby();
     state.switches = own;
     state.perf = perf::Perf::new(std::env::var_os("AZREVIEW_PROFILE").is_some());
+    // The speech session of the window: the chain of recognisers (the system's, then the built-in one where its files
+    // are found next to the binary or in the bundle), its vocabulary, and the call a stop ends.
+    let speech = azul::speech::SpeechSession::create();
+    let builtin = speech.set_builtin_files("", "");
+    eprintln!("[AzReview] speech: the built-in recogniser is {}", voice::builtin_word(builtin));
+    state.voice.speech = Some(speech);
+    state.pointer_log = pointer::PointerLog::new(pointer::Echo::parse(
+        std::env::var("AZREVIEW_EVENTS").ok().as_deref(),
+    ));
+    if std::env::var_os("AZ_DEBUG").is_some() || std::env::var_os("AZ_E2E").is_some() {
+        pointer::register_ops(&mut config);
+        chips_op::register_ops(&mut config);
+        state_op::register_ops(&mut config);
+    }
     let app = App::create(RefAny::new(state), config);
-    let window =
-        kit::window_options(&kit_ref, ui::layout, (1280.0, 820.0), (800.0, 520.0), on_window_created);
+    let mut window =
+        kit::window_options(&kit_ref, ui::layout, WINDOW_DEFAULT, WINDOW_MIN, on_window_created);
+    window.renderer = OptionRendererOptions::Some(window_renderer());
     app.run(window);
 }
 
@@ -579,6 +782,13 @@ fn kit_of(data: &mut RefAny) -> Option<RefAny> {
 extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
     if let Some(kit_ref) = kit_of(&mut data) {
         kit::on_window_created(&kit_ref, &mut info);
+        // A folder named on the command line is the one reviewed last from now on.
+        let named = data
+            .downcast_mut::<AppState>()
+            .and_then(|mut s| s.remember_folder.take());
+        if let Some(folder) = named {
+            kit::set_value(&kit_ref, &mut info, switches::KEY_FOLDER, &folder.to_string_lossy());
+        }
     }
     // What was marked on the first file in an earlier run comes back.
     load_session(&data, &mut info);
@@ -725,7 +935,13 @@ extern "C" fn on_loaded(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo
 
 /// "Open folder": a folder dialog; the folder's files replace the files, and the folder is remembered
 /// for the next start (an app started from the Finder has no folder of its own).
-pub extern "C" fn on_open_folder(data: RefAny, _info: CallbackInfo) -> Update {
+pub extern "C" fn on_open_folder(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let may_ask = data
+        .downcast_mut::<AppState>()
+        .is_some_and(|mut s| s.ask_for_folder());
+    if !may_ask {
+        return Update::DoNothing;
+    }
     let _request = FileDialog::open_directory(
         t("azreview-choose-folder"),
         OptionString::None,
@@ -736,6 +952,9 @@ pub extern "C" fn on_open_folder(data: RefAny, _info: CallbackInfo) -> Update {
 }
 
 extern "C" fn on_folder_chosen(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
+    if let Some(mut s) = data.downcast_mut::<AppState>() {
+        s.folder_dialog_closed();
+    }
     let Some(picked) = FileOpenResult::downcast(result).into_option() else {
         return Update::DoNothing;
     };
@@ -813,15 +1032,25 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
         return Update::DoNothing;
     };
     if matches!(key, VirtualKeyCode::Escape) {
+        let overlay = layout::is_overlay(window_width(&info));
+        let mut folded = false;
         let acted = data.downcast_mut::<AppState>().is_some_and(|mut s| {
-            // What listens stops first; the files fold away on the next Escape.
+            // What listens stops first; a tree that covers the pages folds away on the next Escape (one that
+            // pushes them is part of the layout and stays).
             if s.voice.request_stop(dictation::Cause::Key) {
                 return true;
             }
-            let was = s.sidebar_open;
-            s.sidebar_open = false;
-            was
+            if overlay && s.panels.tree_open {
+                s.set_panel_open(layout::Panel::Tree, false);
+                folded = true;
+                return true;
+            }
+            false
         });
+        if folded {
+            persist_panels(&mut data, &mut info);
+            start_slide(&data, &mut info);
+        }
         return if acted { Update::RefreshDom } else { Update::DoNothing };
     }
     if matches!(key, VirtualKeyCode::S) && info.get_key_modifiers().primary_down() {
@@ -833,6 +1062,12 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     if matches!(key, VirtualKeyCode::O) && mods.primary_down() {
         info.prevent_default();
         return on_open_folder(data, info);
+    }
+    // Mod+B shows or hides the file tree, Mod+Shift+B the right panel.
+    if matches!(key, VirtualKeyCode::B) && mods.primary_down() {
+        info.prevent_default();
+        let panel = if mods.shift { layout::Panel::Right } else { layout::Panel::Tree };
+        return toggle_panel(&mut data, &mut info, panel);
     }
     // Typing in a note: the letters and digits are the note's, and Mod+Z undoes its text, not the ink.
     let typing = info.get_focused_node().into_option().is_some_and(|node| {
@@ -852,11 +1087,11 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(index) = DIGITS.iter().position(|d| *d == key) else {
         return Update::DoNothing;
     };
-    let Some(&sem) = Semantic::ALL.get(index) else {
-        return Update::DoNothing;
-    };
+    // The key of a pen takes it; the key of the pen in hand takes its next nib.
     if let Some(mut s) = data.downcast_mut::<AppState>() {
-        s.pick(sem);
+        if s.press_pen_key(index) == pens::Pressed::Ignored {
+            return Update::DoNothing;
+        }
     }
     Update::RefreshDom
 }
@@ -867,13 +1102,147 @@ pub extern "C" fn on_save_button(data: RefAny, mut info: CallbackInfo) -> Update
     Update::RefreshDom
 }
 
-/// The title row's switch: the files fly out over the pages, or fold away.
-pub extern "C" fn on_toggle_sidebar(mut data: RefAny, _info: CallbackInfo) -> Update {
+/// The window's width now, logical px.
+fn window_width(info: &CallbackInfo) -> f32 {
+    info.get_current_window_state().size.dimensions.width
+}
+
+/// The switch next to the traffic lights (and Mod+B): the file tree slides out or in.
+pub extern "C" fn on_toggle_sidebar(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    toggle_panel(&mut data, &mut info, layout::Panel::Tree)
+}
+
+/// The right bar (and Mod+Shift+B): the right panel slides out or in.
+pub extern "C" fn on_toggle_right(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    toggle_panel(&mut data, &mut info, layout::Panel::Right)
+}
+
+/// Opens or closes `panel`: what is chosen is remembered, and the slide begins.
+fn toggle_panel(data: &mut RefAny, info: &mut CallbackInfo, panel: layout::Panel) -> Update {
+    {
+        let Some(mut s) = data.downcast_mut::<AppState>() else {
+            return Update::DoNothing;
+        };
+        let open = match panel {
+            layout::Panel::Tree => s.panels.tree_open,
+            layout::Panel::Right => s.panels.right_open,
+        };
+        s.set_panel_open(panel, !open);
+    }
+    persist_panels(data, info);
+    start_slide(data, info);
+    Update::RefreshDom
+}
+
+/// What the panels are, into the settings (what is open and how wide comes back at the next start).
+fn persist_panels(data: &mut RefAny, info: &mut CallbackInfo) {
+    let Some((kit_ref, values)) = data.downcast_ref::<AppState>().map(|s| (s.kit.clone(), s.panels.to_values()))
+    else {
+        return;
+    };
+    for (key, value) in values {
+        kit::set_value(&kit_ref, info, &key, &value);
+    }
+}
+
+/// How often the slide of a panel is drawn, ms.
+const SLIDE_TICK_MS: u64 = 16;
+
+/// A panel is on its way and nothing draws it yet: one timer ticks until it has arrived.
+fn start_slide(data: &RefAny, info: &mut CallbackInfo) {
+    let mut handle = data.clone();
+    let arm = {
+        let Some(mut s) = handle.downcast_mut::<AppState>() else {
+            return;
+        };
+        if s.slide.moving(&s.panels) && !s.sliding {
+            s.sliding = true;
+            s.slide_at_ms = s.voice.now_ms();
+            true
+        } else {
+            false
+        }
+    };
+    if arm {
+        let timer = Timer::create(data.clone(), on_slide_tick, info.get_system_time_fn())
+            .with_interval(Duration::System(SystemTimeDiff::from_millis(SLIDE_TICK_MS)));
+        info.add_timer(TimerId::unique(), timer);
+    }
+}
+
+/// One step of a slide, by the time that has passed: the window is built again at the new width.
+extern "C" fn on_slide_tick(mut data: RefAny, _info: TimerCallbackInfo) -> TimerCallbackReturn {
+    let Some(mut s) = data.downcast_mut::<AppState>() else {
+        return TimerCallbackReturn::terminate_unchanged();
+    };
+    let now = s.voice.now_ms();
+    #[allow(clippy::cast_precision_loss)]
+    let passed = now.saturating_sub(s.slide_at_ms) as f32;
+    s.slide_at_ms = now;
+    let panels = s.panels;
+    s.slide = s.slide.step(&panels, passed);
+    if s.slide.moving(&panels) {
+        TimerCallbackReturn::continue_and_refresh_dom()
+    } else {
+        s.sliding = false;
+        TimerCallbackReturn::terminate_and_refresh_dom()
+    }
+}
+
+/// A press on a panel's edge: its width follows the pointer until the button is up (the node takes the pointer,
+/// so a drag that leaves the grip goes on).
+pub extern "C" fn on_grip_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(panel) = ui::grip_of(&mut info) else {
+        return Update::DoNothing;
+    };
+    let Some(x) = info.get_cursor_position().into_option().map(|p| p.x) else {
+        return Update::DoNothing;
+    };
+    let width = window_width(&info);
+    {
+        let Some(mut s) = data.downcast_mut::<AppState>() else {
+            return Update::DoNothing;
+        };
+        let solved = layout::solve(width, &s.panels, &s.slide, 0.0);
+        let start_w = match panel {
+            layout::Panel::Tree => solved.tree_full_w,
+            layout::Panel::Right => s.panels.right_w,
+        };
+        s.grip = Some(layout::Grip { panel, start_w, grab_x: x });
+    }
+    let node = info.get_hit_node();
+    info.capture_pointer(node);
+    Update::DoNothing
+}
+
+/// The pointer moves while an edge is held: the panel takes the width the pointer makes of it.
+pub extern "C" fn on_grip_move(mut data: RefAny, info: CallbackInfo) -> Update {
+    let Some(x) = info.get_cursor_position().into_option().map(|p| p.x) else {
+        return Update::DoNothing;
+    };
+    let width = window_width(&info);
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
-    s.sidebar_open = !s.sidebar_open;
+    let Some(grip) = s.grip else {
+        return Update::DoNothing;
+    };
+    let solved = layout::solve(width, &s.panels, &s.slide, 0.0);
+    let new_w = grip.width_at(x, width, solved.tree_full_w);
+    match grip.panel {
+        layout::Panel::Tree => s.panels.tree_w = new_w,
+        layout::Panel::Right => s.panels.right_w = new_w,
+    }
     Update::RefreshDom
+}
+
+/// The button is up: the edge is let go and the width is remembered.
+pub extern "C" fn on_grip_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let held = data.downcast_mut::<AppState>().is_some_and(|mut s| s.grip.take().is_some());
+    if held {
+        persist_panels(&mut data, &mut info);
+    }
+    Update::DoNothing
 }
 
 /// Dismiss on the bar that told what went wrong.
@@ -893,6 +1262,7 @@ pub extern "C" fn on_settings_open(mut data: RefAny, _info: CallbackInfo) -> Upd
     Update::RefreshDom
 }
 
+/// The pen layer's press: a stroke begins (the pen's eraser end takes the stroke under it instead).
 pub extern "C" fn on_ink_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let ms = info.get_current_mouse_state();
     if ms.right_down || ms.middle_down {
@@ -901,16 +1271,18 @@ pub extern "C" fn on_ink_down(mut data: RefAny, mut info: CallbackInfo) -> Updat
     let Some(page) = ui::page_of(&mut info) else {
         return Update::DoNothing;
     };
-    // The pen set down: a dictation it left behind ends (the stroke is the new thing it does).
-    let ended = voice::pointer(&mut data, &mut info, Some(true));
+    let Some(sampled) = ui::sample(&mut info) else {
+        return Update::DoNothing;
+    };
+    log_pointer(&mut data, &mut info, pointer::Kind::Down, Some(page), &sampled);
+    // The pen set down: a dictation it left behind ends (the stroke is the new thing it does). The window is
+    // not rebuilt for it now: a stroke begins, and the dictation's own end message rebuilds it.
+    voice::pointer(&mut data, &mut info, Some(true));
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
-    let Some((p, is_eraser)) = ui::sample(&mut info) else {
-        return Update::DoNothing;
-    };
-    if is_eraser {
-        if let Some(i) = s.eraser_target(page, p.x, p.y) {
+    if sampled.eraser {
+        if let Some(i) = s.eraser_target(page, sampled.point.x, sampled.point.y) {
             let gone = s.erase(i);
             drop(s);
             if let Some(gone) = gone {
@@ -919,31 +1291,15 @@ pub extern "C" fn on_ink_down(mut data: RefAny, mut info: CallbackInfo) -> Updat
         }
         return Update::DoNothing;
     }
-    let id = s.next_stroke_id;
-    s.next_stroke_id += 1;
-    let semantic = s.tool.semantic_for(s.active);
-    let epoch = s.epoch;
-    s.live = Some(Stroke {
-        page,
-        semantic,
-        points: vec![p],
-        id,
-        epoch,
-    });
-
-    if s.tool.records_audio() && s.recording.is_none() {
-        s.recording = Some(VoiceClip {
-            sample_rate: CLIP_RATE,
-            ..VoiceClip::default()
-        });
-    }
-    if let Some(clip) = s.recording.as_mut() {
-        clip.stroke_ids.push(id);
-    }
+    let began = s.stroke_begin(page, sampled.point, sampled.pen);
     drop(s);
+    // A stroke whose release was not heard is kept as it was.
+    if let Some(stale) = began.stale {
+        finish_stroke(&mut data, &mut info, stale);
+    }
     // The first dab shows at once; the stroke grows in the frame of its layer.
-    ui::redraw_ink(&mut info, ink::Layer::of(semantic));
-    ended
+    ui::redraw_ink(&mut info, began.layer);
+    Update::DoNothing
 }
 
 pub extern "C" fn on_cycle_tool(mut data: RefAny, _: CallbackInfo) -> Update {
@@ -961,16 +1317,7 @@ fn cycle_tool(data: &mut RefAny, backward: bool) -> Update {
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
-    s.tool = if backward {
-        s.tool.prev()
-    } else {
-        s.tool.next()
-    };
-    if !s.tool.records_audio() {
-        if let Some(clip) = s.recording.take() {
-            s.clips.push(clip);
-        }
-    }
+    s.cycle_nib(backward);
     Update::RefreshDom
 }
 
@@ -996,85 +1343,180 @@ pub extern "C" fn on_ink_move(mut data: RefAny, mut info: CallbackInfo) -> Updat
 }
 
 fn ink_move(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+    let Some(sampled) = ui::sample(info) else {
+        return Update::DoNothing;
+    };
+    let page = ui::page_of(info);
+    log_pointer(data, info, pointer::Kind::Move, page, &sampled);
     // Where the pen is, drawing or hovering: the dwell times its rest (and a dictation it has
-    // moved away from ends - the one DOM refresh a move may ask for).
-    let ended = voice::pointer(data, info, None);
+    // moved away from ends). The window is not rebuilt for that while a stroke is live: a rebuilt window
+    // replaces the pen's layer under the stroke.
+    let asked = voice::pointer(data, info, None);
+    let live = data.downcast_ref::<AppState>().is_some_and(|s| s.live.is_some());
+    let update = pointer::refresh_after_move(live, asked);
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
     if s.live.is_none() {
         // The pen's eraser end dragged over the page takes every stroke it crosses (a press takes the
         // one under it, `on_ink_down`).
-        if let Some((p, true)) = ui::sample(info) {
-            if let Some(page) = ui::page_of(info) {
-                if let Some(gone) = s.eraser_target(page, p.x, p.y).and_then(|i| s.erase(i)) {
+        if sampled.eraser {
+            if let Some(page) = page {
+                if let Some(gone) = s
+                    .eraser_target(page, sampled.point.x, sampled.point.y)
+                    .and_then(|i| s.erase(i))
+                {
                     drop(s);
                     ui::redraw_ink(info, ink::Layer::of(gone.semantic));
                 }
             }
         }
-        return ended;
+        return update;
     }
-    let Some((p, _)) = ui::sample(info) else {
-        return Update::DoNothing;
-    };
-    let Some(live) = s.live.as_mut() else {
-        return Update::DoNothing;
-    };
-    let far = live
-        .points
-        .last()
-        .is_none_or(|l| (l.x - p.x).abs() + (l.y - p.y).abs() > 0.35);
-    if !far {
-        return ended;
-    }
-    live.points.push(p);
-    let layer = ink::Layer::of(live.semantic);
-    drop(s);
-    ui::redraw_ink(info, layer);
-    ended
-}
-
-/// The pen lifts: a stroke is kept (its page's frame drawn anew with it, no
-/// new DOM - nothing else in the window shows the strokes), a click cycles
-/// the nib.
-pub extern "C" fn on_ink_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    // The pen lifted: it rests in the air where it was (not a move: nothing of a dictation ends).
-    voice::pointer(&mut data, &mut info, Some(false));
-    let (up, timer_id, layer) = {
-        let Some(mut s) = data.downcast_mut::<AppState>() else {
-            return Update::DoNothing;
-        };
-        let Some(done) = s.live.take() else {
-            return Update::DoNothing;
-        };
-        let layer = ink::Layer::of(done.semantic);
-        if done.points.len() < CLICK_POINT_LIMIT {
-            // Dropped (a click cycles the nib): the page's frame no longer shows the dab that was
-            // drawn. A kept stroke is told to the page by `keep`: the frame already shows it.
-            s.ink.touch(done.page);
-            // A touch that rests the pen on the page while a dictation listens is no click: it must
-            // not change the nib under the user's hand.
-            let up = if s.voice.running.is_some() { Up::Dab } else { Up::Click };
-            (up, s.idle_timer, layer)
-        } else {
-            s.keep(done);
-            println!("AZREVIEW_STROKES {}", s.strokes.len());
-            if let Some(line) = s.perf.summary() {
-                println!("{line}");
-            }
-            (Up::Kept, s.idle_timer, layer)
-        }
-    };
-    ui::redraw_ink(&mut info, layer);
-    match up {
-        Up::Click => on_cycle_tool(data, info),
-        Up::Dab => Update::DoNothing,
-        Up::Kept => {
-            save_session(&data, &mut info);
-            arm_idle_timer(&mut info, data, timer_id);
+    match s.stroke_move(sampled.point, sampled.pressed) {
+        pointer::Moved::Nothing => Update::DoNothing,
+        pointer::Moved::Grew(layer) => {
+            drop(s);
+            ui::redraw_ink(info, layer);
             Update::DoNothing
         }
+        pointer::Moved::Ended(ended) => {
+            drop(s);
+            finish_stroke(data, info, ended)
+        }
+    }
+}
+
+/// The pen layer's release: the stroke that is live ends.
+pub extern "C" fn on_ink_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    if let Some(sampled) = ui::sample(&mut info) {
+        let page = ui::page_of(&mut info);
+        log_pointer(&mut data, &mut info, pointer::Kind::Up, page, &sampled);
+    }
+    // The pointer lifted: it rests where it was (not a move: nothing of a dictation ends).
+    voice::pointer(&mut data, &mut info, Some(false));
+    end_stroke(&mut data, &mut info)
+}
+
+/// Every release in the window: a stroke whose release the pen layer did not hear (the pointer was off
+/// the page, over the margin, between two pages) ends all the same.
+pub extern "C" fn on_window_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    log_window(&mut data, &mut info, pointer::Kind::WindowUp);
+    end_stroke(&mut data, &mut info)
+}
+
+/// The pointer left the window: a stroke live under a pointer that is not pressed ends.
+pub extern "C" fn on_window_left(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    log_window(&mut data, &mut info, pointer::Kind::WindowLeave);
+    if info.get_current_mouse_state().left_down {
+        return Update::DoNothing;
+    }
+    end_stroke(&mut data, &mut info)
+}
+
+/// The window lost its focus (a dialog, another app): what was drawn is kept; the release that comes
+/// while another window has the focus is not heard here.
+pub extern "C" fn on_focus_lost(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    log_window(&mut data, &mut info, pointer::Kind::FocusLost);
+    // The microphone opened ahead of a dictation closes with the window going to the back.
+    voice::window_deactivated(&mut data);
+    end_stroke(&mut data, &mut info)
+}
+
+/// The pointer left a page's pen layer: the dwell's rest is over, and a stroke live under a pointer that
+/// is not pressed ends.
+pub extern "C" fn on_ink_leave(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    log_window(&mut data, &mut info, pointer::Kind::Leave);
+    let asked = voice::pointer_left(&mut data);
+    if info.get_current_mouse_state().left_down {
+        return pointer::refresh_after_move(
+            data.downcast_ref::<AppState>().is_some_and(|s| s.live.is_some()),
+            asked,
+        );
+    }
+    let ended = end_stroke(&mut data, &mut info);
+    if matches!(ended, Update::DoNothing) {
+        asked
+    } else {
+        ended
+    }
+}
+
+/// Ends the stroke that is live, if one is, and does what its end asks.
+fn end_stroke(data: &mut RefAny, info: &mut CallbackInfo) -> Update {
+    let ended = data.downcast_mut::<AppState>().and_then(|mut s| s.stroke_end());
+    match ended {
+        Some(ended) => finish_stroke(data, info, ended),
+        None => Update::DoNothing,
+    }
+}
+
+/// What a stroke that ended asks: its page's layer drawn anew; a tap cycles the nib; a kept stroke is
+/// saved and the idle timer armed.
+fn finish_stroke(data: &mut RefAny, info: &mut CallbackInfo, ended: pointer::Ended) -> Update {
+    // The ended stroke's page, from wherever the end was heard (the layer, the window): every layer is asked, and
+    // one that shows its page already draws nothing.
+    info.update_all_image_callbacks();
+    match ended.up {
+        pointer::Up::Click => cycle_tool(data, false),
+        pointer::Up::Dab => Update::DoNothing,
+        pointer::Up::Kept => {
+            let timer_id = {
+                let Some(mut s) = data.downcast_mut::<AppState>() else {
+                    return Update::DoNothing;
+                };
+                println!("AZREVIEW_STROKES {}", s.strokes.len());
+                if let Some(line) = s.perf.summary() {
+                    println!("{line}");
+                }
+                s.idle_timer
+            };
+            save_session(data, info);
+            arm_idle_timer(info, data.clone(), timer_id);
+            Update::DoNothing
+        }
+    }
+}
+
+/// Notes an event of a page's pen layer in the log.
+fn log_pointer(
+    data: &mut RefAny,
+    _info: &mut CallbackInfo,
+    kind: pointer::Kind,
+    page: Option<usize>,
+    sampled: &ui::Sampled,
+) {
+    if let Some(mut s) = data.downcast_mut::<AppState>() {
+        let live = s.live.as_ref().map(|l| l.points.len());
+        s.pointer_log.push(pointer::Logged {
+            kind,
+            page,
+            x: sampled.point.x,
+            y: sampled.point.y,
+            pressure: sampled.pressure,
+            pressed: sampled.pressed,
+            pen: sampled.pen,
+            live,
+        });
+    }
+}
+
+/// Notes an event of the window (no position) in the log.
+fn log_window(data: &mut RefAny, info: &mut CallbackInfo, kind: pointer::Kind) {
+    let ms = info.get_current_mouse_state();
+    let pen = info.get_pen_state().into_option();
+    if let Some(mut s) = data.downcast_mut::<AppState>() {
+        let live = s.live.as_ref().map(|l| l.points.len());
+        s.pointer_log.push(pointer::Logged {
+            kind,
+            page: None,
+            x: 0.0,
+            y: 0.0,
+            pressure: pen.as_ref().map_or(0.0, |p| p.pressure),
+            pressed: ms.left_down || pen.as_ref().is_some_and(|p| p.in_contact),
+            pen: pen.is_some(),
+            live,
+        });
     }
 }
 
@@ -1085,16 +1527,6 @@ pub enum Edit {
     Added(Stroke),
     /// A stroke was erased from place `index` of the file's strokes.
     Erased(Stroke, usize),
-}
-
-/// What a pen lifting did to the stroke it had down.
-enum Up {
-    /// A tap: it cycles the nib.
-    Click,
-    /// A tap while a dictation listens: nothing.
-    Dab,
-    /// A stroke, kept.
-    Kept,
 }
 
 const ANNOTATION_IDLE_MS: u64 = 1_800;
@@ -1144,8 +1576,6 @@ pub extern "C" fn on_annotation_idle(
         should_terminate: TerminateTimer::Terminate,
     }
 }
-
-const CLICK_POINT_LIMIT: usize = 3;
 
 pub extern "C" fn on_pad(mut data: RefAny, info: CallbackInfo) -> Update {
     let Some(pad) = info.get_tablet_pad().into_option() else {
@@ -1201,6 +1631,25 @@ pub extern "C" fn on_jump_to_page(mut data: RefAny, mut info: CallbackInfo) -> U
     Update::RefreshDom
 }
 
+/// A click on a conversation's chip: the pages go to where it is anchored.
+pub extern "C" fn on_chip_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(index) = ui::index_of(&mut info) else {
+        return Update::DoNothing;
+    };
+    let Some(page) = data
+        .downcast_ref::<AppState>()
+        .and_then(|s| s.open_chips().get(index).map(|c| c.page))
+    else {
+        return Update::DoNothing;
+    };
+    ui::scroll_to_page(&mut info, page);
+    let Some(mut s) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    s.visible_page = page;
+    Update::RefreshDom
+}
+
 pub extern "C" fn on_menu_semantic(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let Some(tag) = data.downcast_ref::<ui::IndexTag>().map(|t| t.index) else {
         return Update::DoNothing;
@@ -1221,6 +1670,32 @@ pub extern "C" fn on_menu_semantic(mut data: RefAny, mut info: CallbackInfo) -> 
 pub extern "C" fn on_menu_save(data: RefAny, mut info: CallbackInfo) -> Update {
     save_session(&data, &mut info);
     Update::RefreshDom
+}
+
+/// The Session menu's "Save the pointer log": the last pointer events, as text, in the sessions' folder (it
+/// is opened, to be sent along with a report of a stroke that went wrong).
+pub extern "C" fn on_menu_pointer_log(mut data: RefAny, _: CallbackInfo) -> Update {
+    let Some(mut s) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    let dir = s.data_root.join(ABOUT.app_folder);
+    let path = dir.join("pointer-events.log");
+    let text = s.pointer_log.text();
+    let written = std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&path, text));
+    match written {
+        Ok(()) => {
+            println!("AZREVIEW_POINTER_LOG {}", path.display());
+            if let Err(e) = azul_appkit::files::open_external(&dir.to_string_lossy()) {
+                s.problem = Some(e);
+                return Update::RefreshDom;
+            }
+            Update::DoNothing
+        }
+        Err(e) => {
+            s.problem = Some(format!("{}: {e}", path.display()));
+            Update::RefreshDom
+        }
+    }
 }
 
 pub extern "C" fn on_menu_reveal(mut data: RefAny, _: CallbackInfo) -> Update {
@@ -1246,9 +1721,19 @@ pub extern "C" fn on_pick_semantic(mut data: RefAny, mut info: CallbackInfo) -> 
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
-    if let Some(&sem) = Semantic::ALL.get(index) {
-        s.pick(sem);
-    }
+    s.select_pen(index);
+    Update::RefreshDom
+}
+
+/// A double click on a pen: it is taken and has its next nib.
+pub extern "C" fn on_pen_double_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(index) = ui::index_of(&mut info) else {
+        return Update::DoNothing;
+    };
+    let Some(mut s) = data.downcast_mut::<AppState>() else {
+        return Update::DoNothing;
+    };
+    s.double_click_pen(index);
     Update::RefreshDom
 }
 
@@ -1267,8 +1752,7 @@ pub extern "C" fn on_pick_file(mut data: RefAny, mut info: CallbackInfo) -> Upda
         return Update::DoNothing;
     };
     if open == Some(index) {
-        s.sidebar_open = false;
-        return Update::RefreshDom;
+        return Update::DoNothing;
     }
     let Some(file) = s.files.get(index) else {
         return Update::DoNothing;

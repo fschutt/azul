@@ -1876,13 +1876,20 @@ lang_haskell() {
 lang_pascal() {
   have fpc || { skip pascal "fpc not installed (apt: fp-compiler / brew: fpc)"; return; }
   local f; f="$(log_path pascal)"
+  # Linux: -Aas. fpc 3.2 gives every routine and every piece of data of a unit a section of its own;
+  # azul.pas has ~112,000 and the ELF writer inside fpc cannot number more than 65,279, so ld skips
+  # azul.o ("corrupt string table index") and the link fails with ~40 undefined references to the
+  # unit's own symbols (run 45674888685). GNU as writes the object file instead. macOS writes a
+  # Mach-O object (5 sections, valid: run 45725946730) and needs nothing.
+  local asflag=""
+  [ "$IS_MACOS" = 0 ] && [ "$IS_WINDOWS" = 0 ] && asflag="-Aas"
   (
     set -x
     cp "$CODEGEN_DIR/azul.pas" "$REPO_ROOT/examples/pascal/" 2>/dev/null || true
     cp "$LIB_PATH"             "$REPO_ROOT/examples/pascal/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/pascal" || exit 1
     # README build line: fpc -Mobjfpc -Sh link against libazul in CWD.
-    fpc -Mobjfpc -Sh -Fl. -k-L. -k-lazul hello-world.pas || exit 1
+    fpc -Mobjfpc -Sh $asflag -Fl. -k-L. -k-lazul hello-world.pas || exit 1
     ./hello-world
   ) >"$f" 2>&1
   finish pascal "pascal build/run failed"
@@ -2328,10 +2335,14 @@ run_one() {  # per-lang worker: re-exec --single under a timeout.
     # generated Haskell modules from scratch on the first run: minutes, not
     # a hang (each was one multi-megabyte file before the 2026-09 split).
     ocaml|haskell) [ "$LANG_TIMEOUT" -lt 900 ] && LANG_TIMEOUT=900 ;;
-    # gfortran compiles the ~140 generated modules (`make -j4`) and then the
-    # example against them; a clean build was 1m48s on an M-series Mac when
-    # the binding was one 245k-line file, and CI's ubuntu runner is slower.
-    fortran) [ "$LANG_TIMEOUT" -lt 600 ] && LANG_TIMEOUT=600 ;;
+    # gfortran compiles the ~165 generated modules (`make -j4`) and then the
+    # example against them. The chain that cannot run in parallel is the
+    # re-export modules: azul_ffi 408 s, azul 225 s, azul_types 184 s and
+    # azul_api 91 s on a 4-core ubuntu-22.04 runner, 763 s for the whole `make`
+    # (run 45707372259, 2026-11-25); the last CI run reached the example's
+    # compile after 9m31s. 600 s, which the e2e_native job passes, timed out.
+    # A floor, whatever the caller gives: 1500 s is that 763 s plus 96 %.
+    fortran) [ "$LANG_TIMEOUT" -lt 1500 ] && LANG_TIMEOUT=1500 ;;
     # cgo compiles the generated azul-go package from scratch on every run:
     # five MB of Go over 126k lines plus the probes of azul.h. 35 s with
     # clang (see lang_go for why gcc never finishes); 900 s leaves room for a
