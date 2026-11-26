@@ -118,6 +118,8 @@ mod text_rig;
 
 #[path = "a_bold_request_draws_the_bold_instance_of_a_variable_font.rs"]
 mod a_bold_request_draws_the_bold_instance_of_a_variable_font;
+#[path = "a_callback_that_asks_for_hid_is_the_first_use_of_hid.rs"]
+mod a_callback_that_asks_for_hid_is_the_first_use_of_hid;
 #[path = "a_caret_counts_bytes_in_its_own_block.rs"]
 mod a_caret_counts_bytes_in_its_own_block;
 #[path = "a_classic_thumb_stops_above_its_bottom_button.rs"]
@@ -164,6 +166,8 @@ mod app_caret_moves;
 mod app_target;
 #[path = "azul_widgets_demo_follows_the_theme.rs"]
 mod azul_widgets_demo_follows_the_theme;
+#[path = "azul_widgets_toolbar_wraps_on_a_narrow_screen.rs"]
+mod azul_widgets_toolbar_wraps_on_a_narrow_screen;
 #[path = "block_edge_keys.rs"]
 mod block_edge_keys;
 #[path = "block_merge_filter.rs"]

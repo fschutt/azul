@@ -252,11 +252,12 @@ pub enum DecorationColor {
     /// editor's, the composition of an input method) and the text API's.
     #[default]
     Text,
-    /// `currentcolor` of the box with this id, which sets the line: its used `color`, read when
-    /// the line is painted - a colour that changes without a new layout is followed - and not the
-    /// colour of the text under the line, which a box inside may have changed (CSS Text
-    /// Decoration 3, 2.1: the line is the decorating box's).
-    CurrentOf(NodeId),
+    /// `currentcolor` of the box with this node index (`NodeId::index`), which sets the line: its
+    /// used `color`, read when the line is painted - a colour that changes without a new layout
+    /// is followed - and not the colour of the text under the line, which a box inside may have
+    /// changed (CSS Text Decoration 3, 2.1: the line is the decorating box's). The index is four
+    /// bytes, as a colour is, so that the variants of the enum are of one size.
+    CurrentOf(u32),
     /// A colour the box set with `text-decoration-color` (a `system:` colour is a token the
     /// display list resolves against the theme).
     Color(ColorU),

@@ -27,6 +27,7 @@ enum Call {
     SetButtons(ButtonSet),
     BeginPairing(String),
     Retry,
+    Cancel,
     Forget,
     Continue,
 }
@@ -92,6 +93,11 @@ impl PhoneApi for TestApi {
 
     fn retry(&mut self, _now: Millis) {
         self.calls.lock().unwrap().push(Call::Retry);
+    }
+
+    fn cancel(&mut self, _now: Millis) {
+        self.calls.lock().unwrap().push(Call::Cancel);
+        self.view.session = Session::Unpaired;
     }
 
     fn forget_mac(&mut self, _now: Millis) {
@@ -305,7 +311,7 @@ fn the_pairing_buttons_go_to_the_connection() {
     root.perform(0, Action::PairFind);
     root.perform(1, Action::PairRetry);
     root.perform(2, Action::PairCancel);
-    assert_eq!(taken(&calls), [Call::Retry, Call::Retry, Call::Forget]);
+    assert_eq!(taken(&calls), [Call::Retry, Call::Retry, Call::Cancel], "cancelling a search does not forget the Mac");
 }
 
 #[test]

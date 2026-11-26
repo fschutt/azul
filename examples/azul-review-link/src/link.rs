@@ -9,6 +9,10 @@ pub type Millis = u64;
 /// A connection, as the link numbers it.
 pub type PeerHandle = u64;
 
+/// What a [`LinkEvent::Failed`] text starts with when the system did not let the app use the network (not a Mac that is
+/// missing): the phone's answer is "switch Local Network on", not "is AzReview running?".
+pub const PERMISSION_PREFIX: &str = "permission:";
+
 /// How a frame travels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Delivery {
@@ -28,7 +32,8 @@ pub enum LinkEvent {
     Connected { peer: PeerHandle, id: String },
     Disconnected { peer: PeerHandle, reason: String },
     Received { peer: PeerHandle, bytes: Vec<u8>, delivery: Delivery },
-    /// A bind, dial or transport failure.
+    /// A bind, dial or transport failure. A failure the system caused by not letting the app use the local network (the iOS
+    /// "Local Network" switch) starts with [`PERMISSION_PREFIX`]: the phone then tells the user where to switch it on.
     Failed { text: String },
 }
 
