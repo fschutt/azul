@@ -88,7 +88,7 @@ fn session(recordings: &Path, seconds: u64) -> (PathBuf, Writer) {
     );
     let transcript = open_lines(&dir.join(TRANSCRIPT_FILE)).unwrap();
     let mut w = Writer::new(
-        WriterConfig { segment_us: 300 * SEC, created_unix_s: 1_764_108_000, camera_chunk_us: 5 * SEC },
+        WriterConfig { segment_us: 300 * SEC, created_unix_s: 1_764_108_000, camera_chunk_us: 5 * SEC, voice_in_camera: false },
         m,
         Box::new(DiskStore::new(dir.clone())),
         Some(Box::new(transcript)),

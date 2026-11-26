@@ -418,6 +418,53 @@ fn the_camera_is_cut_in_chunks_of_five_seconds_a_keyframe_and_a_fragment_each() 
     assert!(m.problems().is_empty(), "{:?}", m.problems());
 }
 
+/// How many tracks a file's `moov` describes.
+fn tracks_in(file: &Path) -> usize {
+    let bytes = fs::read(file).unwrap();
+    let boxes = |data: &[u8]| -> Vec<([u8; 4], Vec<u8>)> {
+        let mut out = Vec::new();
+        let mut at = 0;
+        while at + 8 <= data.len() {
+            let size = u32::from_be_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]]) as usize;
+            if size < 8 || at + size > data.len() {
+                break;
+            }
+            out.push(([data[at + 4], data[at + 5], data[at + 6], data[at + 7]], data[at + 8..at + size].to_vec()));
+            at += size;
+        }
+        out
+    };
+    let moov = boxes(&bytes).into_iter().find(|(k, _)| k == b"moov").map(|(_, b)| b).unwrap_or_default();
+    boxes(&moov).iter().filter(|(k, _)| k == b"trak").count()
+}
+
+/// With the camera and the microphone on, the camera's files carry a copy of the voice (two tracks) and the voice
+/// has its own files as well, whole; the setting turns the copy off.
+///
+/// Mutation: a copy that is not made; the setting ignored.
+#[test]
+fn the_cameras_files_carry_a_copy_of_the_voice_and_the_setting_says_whether() {
+    for (carry, tracks) in [(true, 2), (false, 1)] {
+        let mut r = rig_with(RecorderSettings { camera_voice: carry, ..quiet() }, MockFactory::default());
+        let started = r.start();
+        for _ in 0..150 {
+            r.advance(66);
+            camera(&mut r.rec);
+            voice(&mut r.rec, 3_168, 0.2);
+            r.rec.tick();
+        }
+        r.rec.stop("user").unwrap();
+        let m = r.manifest(&started);
+        let cam = m.tracks.camera.as_ref().unwrap();
+        assert_eq!(tracks_in(&started.dir.join(&cam.segments[0].file)), tracks, "carry the voice: {carry}");
+        let audio = m.tracks.audio.as_ref().unwrap();
+        assert_eq!(tracks_in(&started.dir.join(&audio.segments[0].file)), 1, "the voice's own file, whole, either way");
+        assert!(audio.segments[0].samples > 100, "{}", audio.segments[0].samples);
+        assert_eq!(cam.segments[0].samples, 150, "the camera's samples are its pictures");
+        assert!(m.problems().is_empty(), "{:?}", m.problems());
+    }
+}
+
 #[test]
 fn the_length_of_a_chunk_is_a_setting_and_the_camera_follows_it() {
     // Two seconds: a keyframe every two seconds, and a fragment of a chunk (never under three quarters of it).

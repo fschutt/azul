@@ -514,6 +514,7 @@ impl Recorder {
                 segment_us: s.segment_us,
                 created_unix_s: unix_ms / 1_000,
                 camera_chunk_us: s.camera_chunk_us,
+                voice_in_camera: s.camera_voice,
             },
             manifest,
             Box::new(DiskStore::new(dir.clone())),

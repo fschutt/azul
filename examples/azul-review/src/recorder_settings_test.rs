@@ -30,6 +30,8 @@ fn nothing_set_is_the_defaults_with_nothing_to_say() {
     assert_eq!((d.screen_source, d.screen_display, d.screen_width), (ScreenKind::Display, 0, 1_920));
     assert_eq!(d.screen_exclude, vec![String::from("com.apple.notificationcenterui")]);
     assert_eq!((d.camera_chunk_us, d.pause_on_lock, d.pointer_hz), (5_000_000, true, 10));
+    // The camera's files carry a copy of the voice.
+    assert!(d.camera_voice);
 }
 
 #[test]
@@ -53,12 +55,14 @@ fn every_setting_is_read() {
         (KEY_CAMERA_CHUNK_SECS, "10"),
         (KEY_PAUSE_ON_LOCK, "off"),
         (KEY_POINTER_HZ, "20"),
+        (KEY_CAMERA_VOICE, "off"),
     ]);
     assert!(r.notes.is_empty(), "{:?}", r.notes);
     let s = r.settings;
     assert_eq!((s.screen_source, s.screen_display, s.screen_width), (ScreenKind::Window, 69_733_382, 2_560));
     assert_eq!(s.screen_exclude, vec![String::from("com.apple.dock"), String::from("org.mozilla.firefox")]);
     assert_eq!((s.camera_chunk_us, s.pause_on_lock, s.pointer_hz), (10_000_000, false, 20));
+    assert!(!s.camera_voice);
     assert_eq!(s.folder, Some(PathBuf::from("/Volumes/Recordings/azreview")));
     assert_eq!(s.min_free_bytes, 50 * GB);
     assert_eq!(s.segment_us, 600_000_000);

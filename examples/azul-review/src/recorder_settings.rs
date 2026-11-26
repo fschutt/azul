@@ -38,6 +38,8 @@ pub const KEY_SCREEN_WIDTH: &str = "recorder-screen-width";
 pub const KEY_SCREEN_EXCLUDE: &str = "recorder-screen-exclude";
 /// The length of a chunk of the camera track, seconds: a keyframe and a fragment every chunk.
 pub const KEY_CAMERA_CHUNK_SECS: &str = "recorder-camera-chunk-secs";
+/// The camera's files carry a copy of the voice (on or off).
+pub const KEY_CAMERA_VOICE: &str = "recorder-camera-voice";
 /// Whether a locked screen pauses the recording (`on` / `off`).
 pub const KEY_PAUSE_ON_LOCK: &str = "recorder-pause-on-lock";
 /// How many times a second the pointer's place on the display is written to the events (at most).
@@ -231,6 +233,8 @@ pub struct RecorderSettings {
     pub screen_exclude: Vec<String>,
     /// The camera's chunk, microseconds: a keyframe and a fragment every chunk.
     pub camera_chunk_us: u64,
+    /// The camera's files carry a copy of the voice as a second track.
+    pub camera_voice: bool,
     /// A locked screen pauses the recording.
     pub pause_on_lock: bool,
     /// The most samples a second of the pointer's place on the display.
@@ -256,6 +260,7 @@ impl Default for RecorderSettings {
             screen_width: DEFAULT_SCREEN_WIDTH,
             screen_exclude: DEFAULT_SCREEN_EXCLUDE.iter().map(|s| (*s).to_string()).collect(),
             camera_chunk_us: DEFAULT_CAMERA_CHUNK_SECS * 1_000_000,
+            camera_voice: true,
             pause_on_lock: true,
             pointer_hz: DEFAULT_POINTER_HZ,
         }
@@ -419,6 +424,7 @@ pub fn resolve(values: &BTreeMap<String, String>) -> Resolved {
             screen_width: u32::try_from(screen_width).unwrap_or(DEFAULT_SCREEN_WIDTH),
             screen_exclude,
             camera_chunk_us: chunk * 1_000_000,
+            camera_voice: switch(values, KEY_CAMERA_VOICE, d.camera_voice, &mut notes),
             pause_on_lock: switch(values, KEY_PAUSE_ON_LOCK, d.pause_on_lock, &mut notes),
             pointer_hz: u32::try_from(pointer_hz).unwrap_or(DEFAULT_POINTER_HZ),
         },

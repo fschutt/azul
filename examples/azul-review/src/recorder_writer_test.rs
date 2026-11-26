@@ -190,7 +190,7 @@ fn audio_track() -> Track {
 
 fn writer(store: &MemStore, transcript: Option<MemLines>) -> Writer {
     Writer::new(
-        WriterConfig { segment_us: 300 * SEC, created_unix_s: 1_764_108_000, camera_chunk_us: 5 * SEC },
+        WriterConfig { segment_us: 300 * SEC, created_unix_s: 1_764_108_000, camera_chunk_us: 5 * SEC, voice_in_camera: false },
         manifest(),
         Box::new(store.clone()),
         transcript.map(|t| Box::new(t) as Box<dyn Write + Send>),
@@ -504,4 +504,152 @@ fn a_segment_in_a_listing_is_what_the_writer_has() {
     let listed: Vec<Segment> = w.manifest().tracks.screen.as_ref().unwrap().segments.clone();
     assert_eq!(listed[0].samples, 2);
     assert_eq!(listed[0].bytes, store.file("screen/0001.mp4").len() as u64);
+}
+
+// ---- the camera's files that carry the voice ----
+
+fn with_camera_and_voice(store: &MemStore, voice_in_camera: bool) -> Writer {
+    let mut w = Writer::new(
+        WriterConfig { segment_us: 300 * SEC, created_unix_s: 1_764_108_000, camera_chunk_us: 5 * SEC, voice_in_camera },
+        manifest(),
+        Box::new(store.clone()),
+        None,
+    );
+    w.add_track("camera", Kind::Video, video_track(1280, 720)).unwrap();
+    w.add_track("audio", Kind::Opus, audio_track()).unwrap();
+    w
+}
+
+/// How many tracks the `moov` of a file describes.
+fn tracks_in(file: &[u8]) -> usize {
+    let boxes = |data: &[u8]| -> Vec<([u8; 4], Vec<u8>)> {
+        let mut out = Vec::new();
+        let mut at = 0;
+        while at + 8 <= data.len() {
+            let size = u32::from_be_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]]) as usize;
+            if size < 8 || at + size > data.len() {
+                break;
+            }
+            out.push(([data[at + 4], data[at + 5], data[at + 6], data[at + 7]], data[at + 8..at + size].to_vec()));
+            at += size;
+        }
+        out
+    };
+    let moov = boxes(file).into_iter().find(|(k, _)| k == b"moov").map(|(_, b)| b).unwrap_or_default();
+    boxes(&moov).iter().filter(|(k, _)| k == b"trak").count()
+}
+
+/// How many samples the voice's (track 2) runs of a file hold in all.
+fn voice_samples_in(file: &[u8]) -> u32 {
+    let boxes = |data: &[u8]| -> Vec<([u8; 4], Vec<u8>)> {
+        let mut out = Vec::new();
+        let mut at = 0;
+        while at + 8 <= data.len() {
+            let size = u32::from_be_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]]) as usize;
+            if size < 8 || at + size > data.len() {
+                break;
+            }
+            out.push(([data[at + 4], data[at + 5], data[at + 6], data[at + 7]], data[at + 8..at + size].to_vec()));
+            at += size;
+        }
+        out
+    };
+    let mut total = 0;
+    for (kind, moof) in boxes(file) {
+        if &kind != b"moof" {
+            continue;
+        }
+        for (k, traf) in boxes(&moof) {
+            if &k != b"traf" {
+                continue;
+            }
+            let parts = boxes(&traf);
+            let tfhd = parts.iter().find(|(k, _)| k == b"tfhd").map(|(_, b)| b.clone()).unwrap_or_default();
+            let trun = parts.iter().find(|(k, _)| k == b"trun").map(|(_, b)| b.clone()).unwrap_or_default();
+            if tfhd.len() >= 8 && u32::from_be_bytes([tfhd[4], tfhd[5], tfhd[6], tfhd[7]]) == 2 && trun.len() >= 8 {
+                total += u32::from_be_bytes([trun[4], trun[5], trun[6], trun[7]]);
+            }
+        }
+    }
+    total
+}
+
+/// The voice goes into the camera's files as well as into its own track's, and the camera's picture is what the
+/// manifest and the scanner see of the camera track: the voice's own files and the manifest's count of
+/// them are as they were.
+///
+/// Mutation: a voice that goes into the camera's files only; one that does not reach them.
+#[test]
+fn the_voice_goes_into_the_cameras_files_and_into_its_own() {
+    let store = MemStore::default();
+    let mut w = with_camera_and_voice(&store, true);
+    w.video("camera", SEC, &key(1));
+    for i in 0..100_u64 {
+        w.audio(SEC + i * 20_000, opus(i as u8));
+    }
+    for i in 1..30_u64 {
+        w.video("camera", SEC + i * 33_333, &delta(i as u8));
+    }
+    w.stop(4 * SEC, None);
+    let camera = store.file("camera/0001.mp4");
+    let voice = store.file("audio/0001.mp4");
+    assert_eq!(tracks_in(&camera), 2, "the camera's file carries a voice track");
+    assert_eq!(voice_samples_in(&camera), 100, "and every packet of the voice is in it");
+    assert_eq!(tracks_in(&voice), 1, "and the voice has its own, whole");
+    let s = scan(&mut Cursor::new(&voice)).unwrap();
+    assert_eq!(s.samples, 100, "every packet is in the voice's own file");
+    let c = scan(&mut Cursor::new(&camera)).unwrap();
+    assert_eq!(c.samples, 30, "the pictures are what the camera track counts");
+    let m = w.manifest();
+    assert_eq!(m.tracks.camera.as_ref().unwrap().segments[0].samples, 30);
+    assert_eq!(m.tracks.audio.as_ref().unwrap().segments[0].samples, 100);
+}
+
+/// A writer told not to carry the voice in the camera's files writes files of the picture alone, and the voice's
+/// own track is the same.
+///
+/// Mutation: the setting ignored.
+#[test]
+fn a_writer_that_is_not_to_carry_the_voice_writes_the_cameras_files_without_it() {
+    let store = MemStore::default();
+    let mut w = with_camera_and_voice(&store, false);
+    w.video("camera", SEC, &key(1));
+    for i in 0..50_u64 {
+        w.audio(SEC + i * 20_000, opus(i as u8));
+    }
+    w.stop(3 * SEC, None);
+    assert_eq!(tracks_in(&store.file("camera/0001.mp4")), 1);
+    assert_eq!(scan(&mut Cursor::new(&store.file("audio/0001.mp4"))).unwrap().samples, 50);
+}
+
+/// The voice before the camera's first picture has no file of the camera's to be in and is in the voice's own,
+/// and a camera that is not there takes nothing and breaks nothing.
+///
+/// Mutation: a voice that fails the audio track when there is no camera.
+#[test]
+fn the_voice_before_the_camera_began_is_in_its_own_track_only_and_no_camera_is_no_problem() {
+    let store = MemStore::default();
+    let mut w = with_camera_and_voice(&store, true);
+    for i in 0..10_u64 {
+        w.audio(i * 20_000, opus(i as u8));
+    }
+    w.video("camera", SEC, &key(1));
+    w.stop(2 * SEC, None);
+    assert_eq!(scan(&mut Cursor::new(&store.file("audio/0001.mp4"))).unwrap().samples, 10);
+    assert!(w.manifest().problems().is_empty(), "{:?}", w.manifest().problems());
+
+    // No camera track at all: the voice goes to its own and nothing is written for a camera.
+    let store = MemStore::default();
+    let mut w = Writer::new(
+        WriterConfig { segment_us: 300 * SEC, created_unix_s: 1_764_108_000, camera_chunk_us: 5 * SEC, voice_in_camera: true },
+        manifest(),
+        Box::new(store.clone()),
+        None,
+    );
+    w.add_track("audio", Kind::Opus, audio_track()).unwrap();
+    for i in 0..10_u64 {
+        assert!(w.audio(i * 20_000, opus(i as u8)).iter().all(|n| !matches!(n, Note::TrackFailed { .. })));
+    }
+    w.stop(SEC, None);
+    assert_eq!(store.names(), vec!["audio/0001.mp4"]);
 }

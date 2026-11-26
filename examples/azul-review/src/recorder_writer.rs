@@ -42,6 +42,9 @@ pub struct WriterConfig {
     pub created_unix_s: u64,
     /// The camera's chunk, microseconds: a fragment of the camera file for each.
     pub camera_chunk_us: u64,
+    /// The camera's files carry a copy of the voice as a second track (the voice has its own files as well, whole):
+    /// a camera file that plays with its sound in any player.
+    pub voice_in_camera: bool,
 }
 
 /// What the writer says back, for the recorder's log and indicator.
@@ -110,7 +113,7 @@ impl Writer {
         *slot = Some(track);
         let mut writer = TrackWriter::new(name, kind, self.cfg.segment_us, 1, self.cfg.created_unix_s).with_default_colour(colour);
         if name == "camera" {
-            writer = writer.with_limits(Limits::chunked(self.cfg.camera_chunk_us));
+            writer = writer.with_limits(Limits::chunked(self.cfg.camera_chunk_us)).with_voice(self.cfg.voice_in_camera);
         }
         self.tracks.insert(name, writer);
         self.dirty = true;
@@ -140,8 +143,15 @@ impl Writer {
         let Some(tw) = self.tracks.get_mut("audio") else {
             return Vec::new();
         };
+        // The camera's files carry the voice too: a copy of the packet, at its time, into the open segment.
+        let for_camera = self.cfg.voice_in_camera.then(|| packet.clone());
         let result = tw.push_audio(self.store.as_mut(), pts_us, packet);
-        self.after("audio", result)
+        let mut notes = self.after("audio", result);
+        if let (Some(copy), Some(camera)) = (for_camera, self.tracks.get_mut("camera")) {
+            let result = camera.push_voice(self.store.as_mut(), pts_us, copy);
+            notes.extend(self.after("camera", result));
+        }
+        notes
     }
 
     fn after(&mut self, dir: &'static str, result: Result<Vec<Change>, crate::recorder_track::TrackError>) -> Vec<Note> {
