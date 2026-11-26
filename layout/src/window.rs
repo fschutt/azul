@@ -5443,6 +5443,8 @@ impl LayoutWindow {
                 }
                 self.dom_lint_stamps.insert(*dom_id, stamp);
                 self.dom_lint_runs = self.dom_lint_runs.saturating_add(1);
+                // What the five developer lints cost a DOM that is new to them (`AZ_PROFILE=cpu` lists it).
+                let _lint_span = crate::probe::Probe::span("dom_lints");
                 crate::dom_lint::warn_text_without_block_container(&lr.styled_dom);
                 crate::dom_lint::warn_div_used_as_text_container(&lr.styled_dom);
                 crate::dom_lint::warn_interactive_without_accessibility_in(
