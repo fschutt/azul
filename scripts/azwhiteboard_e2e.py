@@ -9,13 +9,26 @@
        `WBDEMO_DROPPED`); its cutout is drawn on a Thread by the CPU renderer (`WBDEMO_RENDERED <w>x<h>`:
        the pixels of the window's scale) and the board is kept (`WBDEMO_SAVED <file>`): a zip with
        board.json and one PNG per cutout;
-    4. a second loop is lifted by pressing and holding inside it (no grip) and dropped lower on the bar;
+    4. a second loop is lifted by pressing and holding inside it (no grip: `WBDEMO_HELD`, then `WBDEMO_LIFTED`)
+       and dropped lower on the bar;
     5. an arrow is drawn from the rim of one cutout to the other; double click on a cutout jumps to its
        lines (`WBDEMO_JUMP <file> <first> <last> Fresh`);
-    6. the restart: a second demo on the same data folder reads the board back (`WBDEMO_LOADED 2`).
+    6. Delete takes the selected cutout and its arrow off the board in one step, Mod+Z brings both back,
+       Shift+Mod+Z takes them off again, Mod+Z once more (the board is kept after each);
+    7. a label is typed under the selected cutout (double click under it) and on the arrow (double click on its
+       line); the text area takes the keyboard by itself; leaving it keeps the label;
+    8. the second cutout is carried by its body and resized by its corner handle (one step each, undone by Mod+Z);
+    9. the restart: a second demo on the same data folder reads the board back (`WBDEMO_LOADED 3`: the
+       two cutouts and the arrow, with their labels).
+
+The pen is not driven here: the debug server's pen_down / pen_move / pen_up only move the mouse state (the engine does
+not inject a pen state yet, see DebugEvent::PenDown), so `PointerKind::Pen` (a stroke from empty space is an arrow,
+not a pan) is covered by the unit tests of whiteboard_input and by a hand with a pen.
 
 With `--window cpu` (or `gpu`) it runs in a real window, at the display's scale, and the screenshots are the
-window as the system composited it. Run ONE app at a time:
+window as the system composited it (macOS: `screencapture -l` of the demo's own window, which also works while
+the display sleeps; the app's own capture then comes back white). The window is as large as the screen allows,
+the bar lies against its right edge. Run ONE app at a time:
 
     python3 scripts/azwhiteboard_e2e.py --bin target/debug/examples/whiteboard_demo --out /tmp/azwhiteboard-shots
 """
@@ -24,6 +37,8 @@ import json
 import math
 import os
 import re
+import subprocess
+import sys
 import time
 import zipfile
 
@@ -58,6 +73,52 @@ def read_board(path):
     return manifest, pictures
 
 
+def window_number(pid):
+    """The window server's number of the largest window of process `pid` (macOS, through the system's own
+    JavaScript for Automation: no Python module is needed), or None."""
+    script = (
+        'ObjC.import("CoreGraphics");'
+        'var l = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo($.kCGWindowListOptionAll, 0)));'
+        'l.filter(function (w) { return w.kCGWindowOwnerPID === %d && w.kCGWindowLayer === 0; })'
+        '.map(function (w) { return w.kCGWindowNumber + " " + (w.kCGWindowBounds.Width * w.kCGWindowBounds.Height); })'
+        '.join("\\n");' % pid
+    )
+    try:
+        done = subprocess.run(["osascript", "-l", "JavaScript", "-e", script], capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    best = None
+    for line in done.stdout.split("\n"):
+        parts = line.split()
+        if len(parts) == 2 and (best is None or float(parts[1]) > best[1]):
+            best = (int(parts[0]), float(parts[1]))
+    return best[0] if best else None
+
+
+def shoot(app, path):
+    """A picture of the window. A real window is the system's capture of the demo's own window; where that cannot
+    be had (headless, another system) it is the harness's."""
+    if e2e.BACKEND != "headless" and sys.platform == "darwin":
+        app.settle()
+        number = window_number(app.process.pid)
+        if number is not None:
+            done = subprocess.run(["screencapture", "-x", "-o", "-l", str(number), path],
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if done.returncode == 0 and os.path.exists(path) and os.path.getsize(path) > 0:
+                app.log("screenshot %s (%d bytes, screencapture of window %d)" % (path, os.path.getsize(path), number))
+                return
+    app.screenshot(path)
+
+
+def double_click(app, x, y):
+    app.must("mouse_move", x=x, y=y)
+    app.frame(1)
+    for _ in range(2):
+        app.must("mouse_down", x=x, y=y)
+        app.must("mouse_up", x=x, y=y)
+    app.frame(2)
+
+
 class Demo:
     def __init__(self, app):
         self.app = app
@@ -82,8 +143,9 @@ class Demo:
         self.app.must("mouse_up", x=win[-1][0], y=win[-1][1])
         self.app.frame(2)
 
-    def carry(self, from_page, to_window, hold=0.0):
-        """Presses at a point of the page, holds, and drags to a point of the window, in steps."""
+    def carry(self, from_page, to_window, hold=0.0, shot=None):
+        """Presses at a point of the page, holds, and drags to a point of the window, in steps; with `shot`, the
+        window is shot on the way (the carried outline, a third of the way) and over the target (the bar's frame)."""
         page = self.page()
         x0, y0 = page["x"] + from_page[0], page["y"] + from_page[1]
         self.app.must("mouse_move", x=x0, y=y0)
@@ -95,6 +157,12 @@ class Demo:
             t = i / steps
             self.app.must("mouse_move", x=x0 + (to_window[0] - x0) * t, y=y0 + (to_window[1] - y0) * t)
             self.app.frame(1)
+            if shot and i == steps // 3:
+                self.app.frame(2)
+                shoot(self.app, shot % "on-the-way")
+        if shot:
+            self.app.frame(2)
+            shoot(self.app, shot % "over-the-bar")
         self.app.must("mouse_up", x=to_window[0], y=to_window[1])
         self.app.frame(3)
 
@@ -115,7 +183,60 @@ def wait_for(app, key, pattern, what):
     return app.printed(key, pattern)[-1]
 
 
+def perf_body(args, logs, out):
+    """The frame times of a full board (`WBE2E_PERF=n`: `n` cutouts and the arrows between them, `WBDEMO_FILL`):
+    a cutout dragged over the bar, the board panned by the wheel; the demo prints its own surface and layout
+    times (`WBDEMO_PERF`), which are what this run reports."""
+    binary = find_binary(args)
+    data_dir = os.path.join(logs, "data")
+    os.makedirs(data_dir, exist_ok=True)
+    argv = ["--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en"]
+    fill = os.environ.get("WBE2E_PERF", "200")
+    app = e2e.App("whiteboard-perf", binary, argv, args.debug_port, logs, args.timeout,
+                  extra_env={"WBDEMO_FILL": fill, "WBDEMO_PROFILE": "1"})
+    try:
+        app.until("the demo's window", lambda: app.has_id(SURFACE) and app.has_id(PAGE))
+        app.frame(3)
+        filled = wait_for(app, "WBDEMO_FILLED", r"\d+", "the full board")
+        demo = Demo(app)
+        # A dab on the page starts the demo's clock (its 100 ms timer prints the times every two seconds).
+        demo.draw([(600.0, 400.0), (601.0, 400.0), (602.0, 401.0)])
+        bar = app.rect(SURFACE)
+        first = app.rect("__azreview_whiteboard-cutout-1")
+        if not bar or not first:
+            raise Failure("no bar or no first cutout: %s %s" % (bar, first))
+        cx, cy = first["x"] + first["width"] / 2.0, first["y"] + first["height"] / 2.0
+        shoot(app, os.path.join(out, "p1-full.png"))
+        # The first cutout carried over the board, to and fro, a frame each step.
+        app.must("mouse_move", x=cx, y=cy)
+        app.must("mouse_down", x=cx, y=cy)
+        for i in range(1, 61):
+            t = math.sin(i / 60.0 * math.pi * 2.0)
+            app.must("mouse_move", x=cx + 90.0 * t, y=cy + 60.0 * (1.0 - math.cos(i / 60.0 * math.pi * 2.0)) / 2.0)
+            app.frame(1)
+        app.must("mouse_up", x=cx, y=cy)
+        app.frame(2)
+        # The board panned by the wheel.
+        mx, my = bar["x"] + bar["width"] / 2.0, bar["y"] + bar["height"] / 2.0
+        for i in range(24):
+            app.must("wheel", x=mx, y=my, delta_x=0.0, delta_y=-60.0 if i % 2 == 0 else 60.0)
+            app.frame(2)
+        shoot(app, os.path.join(out, "p2-panned.png"))
+        time.sleep(5.0)
+        lines = app.printed("WBDEMO_PERF", r".+")
+        if not lines:
+            raise Failure("the demo printed no frame times")
+        for line in lines[-6:]:
+            print("[azwhiteboard] perf (board of %s): %s" % (filled, line))
+    finally:
+        app.stop()
+    print("[azwhiteboard] PERF DONE")
+    return True
+
+
 def body(args, logs, out):
+    if os.environ.get("WBE2E_PERF"):
+        return perf_body(args, logs, out)
     binary = find_binary(args)
     data_dir = os.path.join(logs, "data")
     os.makedirs(data_dir, exist_ok=True)
@@ -125,7 +246,7 @@ def body(args, logs, out):
         app.until("the demo's window", lambda: app.has_id(SURFACE) and app.has_id(PAGE))
         app.frame(3)
         demo = Demo(app)
-        app.screenshot(os.path.join(out, "1-empty.png"))
+        shoot(app, os.path.join(out, "1-empty.png"))
 
         # A quick slash across a word is no loop.
         demo.draw([(300.0, 107.0), (320.0, 106.0), (340.0, 105.0), (360.0, 104.0), (380.0, 103.0), (400.0, 102.0)])
@@ -136,19 +257,28 @@ def body(args, logs, out):
         loop = ellipse(330.0, 104.0, 90.0, 26.0)
         demo.draw(loop)
         armed = wait_for(app, "WBDEMO_ARMED", r"\d+ \d+", "the loop arms its region")
-        app.screenshot(os.path.join(out, "2-armed.png"))
+        shoot(app, os.path.join(out, "2-armed.png"))
         grip = max(loop, key=lambda p: p[0] - p[1])
-        bar_x = WIDTH - BAR_W // 2
+        bar = app.rect(SURFACE)
+        if not bar or bar.get("width", 0) < 100:
+            raise Failure("the bar has no box: %s" % bar)
+        # The bar lies against the window's right edge, and the demo's idea of it (where a drop is measured
+        # from) is that edge: the surface says where it is.
+        win = app.value("get_state").get("window_state", {})
+        if abs(bar["x"] + bar["width"] - float(win.get("logical_width", bar["x"] + bar["width"]))) > 1.5:
+            raise Failure("the bar is not against the window's right edge: %s in a window %s wide" % (bar, win.get("logical_width")))
+        bar_x = bar["x"] + bar["width"] / 2.0
+        low = min(520.0, bar["y"] + bar["height"] - 90.0)
         before = app.count("WBDEMO_DROPPED")
-        demo.carry(grip, (bar_x, 220.0))
+        demo.carry(grip, (bar_x, 220.0), shot=os.path.join(out, "3-%s.png"))
         app.until("the drop", lambda: app.count("WBDEMO_DROPPED") > before)
-        size = wait_for(app, "WBDEMO_RENDERED", r"\d+x\d+", "the cutout drawn by the CPU renderer")
-        w, h = (int(v) for v in size.split("x"))
+        size = wait_for(app, "WBDEMO_RENDERED", r"\d+x\d+(?: \d+ms)?", "the cutout drawn by the CPU renderer")
+        w, h = (int(v) for v in size.split()[0].split("x"))
         if w < 100 or h < 40:
             raise Failure("the cutout's picture is %s: too small to be the loop's region" % size)
         saved = wait_for(app, "WBDEMO_SAVED", r".+", "the board kept")
         app.frame(3)
-        app.screenshot(os.path.join(out, "3-dropped.png"))
+        shoot(app, os.path.join(out, "4-dropped.png"))
         path = board_file(data_dir)
         manifest, pictures = read_board(path)
         cutouts = [i for i in manifest["items"] if i["kind"] == "cutout"]
@@ -159,12 +289,14 @@ def body(args, logs, out):
         print("[azwhiteboard] armed %s, cutout %s, kept as %s" % (armed, size, os.path.basename(saved)))
 
         # A second loop, lifted by pressing and holding inside it: no grip.
-        loop2 = ellipse(330.0, 236.0, 90.0, 26.0)
+        loop2 = ellipse(330.0, 170.0, 90.0, 26.0)
         demo.draw(loop2)
         app.until("the second loop arms", lambda: app.count("WBDEMO_ARMED") >= 2)
         before = app.count("WBDEMO_DROPPED")
-        demo.carry((330.0, 236.0), (bar_x - 20, 520.0), hold=0.6)
+        demo.carry((330.0, 170.0), (bar_x - 20, low), hold=0.6)
         app.until("the second drop", lambda: app.count("WBDEMO_DROPPED") > before)
+        if app.count("WBDEMO_HELD") < 1:
+            raise Failure("the second loop was not lifted by the hold: no WBDEMO_HELD (the demo's 100 ms timer did not tick?)")
         app.until("the second picture", lambda: app.count("WBDEMO_RENDERED") >= 2)
         app.until("the board kept again", lambda: len(read_board(board_file(data_dir))[0]["items"]) == 2)
         app.frame(3)
@@ -177,7 +309,7 @@ def body(args, logs, out):
         x1, y1 = second["x"] + second["width"] / 2.0, second["y"] + second["height"] / 2.0
         app.drag(x0, y0, x1, y1, steps=10)
         app.until("the arrow kept", lambda: any(i["kind"] == "arrow" for i in read_board(board_file(data_dir))[0]["items"]))
-        app.screenshot(os.path.join(out, "4-arrow.png"))
+        shoot(app, os.path.join(out, "5-arrow.png"))
 
         # A double click on the first cutout jumps back to its lines.
         cx, cy = first["x"] + first["width"] / 2.0, first["y"] + first["height"] / 2.0
@@ -189,8 +321,91 @@ def body(args, logs, out):
         if not re.search(r"Fresh$", jump):
             raise Failure("the jump says %r, the file is as it was" % jump)
         app.frame(2)
-        app.screenshot(os.path.join(out, "5-jumped.png"))
+        shoot(app, os.path.join(out, "6-jumped.png"))
         print("[azwhiteboard] jump: %s" % jump)
+
+        # Delete takes the selected cutout and the arrow on it off the board as ONE step; Mod+Z brings both back,
+        # Shift+Mod+Z takes them off again, and one more Mod+Z leaves the board as it was kept.
+        def items():
+            return len(read_board(board_file(data_dir))[0]["items"])
+
+        app.key("Delete")
+        app.until("the cutout and its arrow are off the board", lambda: items() == 1)
+        shoot(app, os.path.join(out, "7-deleted.png"))
+        app.key("z", primary=True)
+        app.until("one step back brings both", lambda: items() == 3)
+        app.key("z", primary=True, shift=True)
+        app.until("one step forward takes them off again", lambda: items() == 1)
+        app.key("z", primary=True)
+        app.until("and back for the restart", lambda: items() == 3)
+        shoot(app, os.path.join(out, "8-restored.png"))
+
+        # A label under a cutout: the selected cutout has its label zone under it, a double click there types the
+        # label (the text area takes the keyboard when it mounts), leaving the area keeps it.
+        def label_of(item_id):
+            found = [i for i in read_board(board_file(data_dir))[0]["items"] if i["id"] == item_id]
+            return found[0].get("label") if found else None
+
+        def arrow_id():
+            found = [i["id"] for i in read_board(board_file(data_dir))[0]["items"] if i["kind"] == "arrow"]
+            return found[0] if found else None
+
+        first, second = (app.rect("__azreview_whiteboard-cutout-%d" % i) for i in (1, 2))
+        cx, cy = first["x"] + first["width"] / 2.0, first["y"] + first["height"] / 2.0
+        app.must("mouse_move", x=cx, y=cy)
+        app.must("mouse_down", x=cx, y=cy)
+        app.must("mouse_up", x=cx, y=cy)
+        app.frame(2)
+        double_click(app, cx, first["y"] + first["height"] + 8.0)
+        area = "__azreview_whiteboard-label-1"
+        app.until("the label's text area", lambda: app.has_id(area))
+        app.frame(2)
+        focus = app.value("get_focus_state") or {}
+        has = next((d["has_focus"] for d in [focus] + list(e2e.dicts(focus)) if isinstance(d, dict) and "has_focus" in d), None)
+        print("[azwhiteboard] autofocus: %s (%s)" % ("the label's area has the keyboard" if has else "NO node has the keyboard", json.dumps(focus)[:200]))
+        app.text_input("#" + area, "the parser")
+        shoot(app, os.path.join(out, "8a-typing.png"))
+        app.key("Tab")
+        app.until("the cutout's label kept", lambda: label_of(1) == "the parser")
+        # ... and on an arrow, on its line (the straight line from where it starts to the second cutout's middle).
+        sx, sy = first["x"] + first["width"] - 3.0, first["y"] + first["height"] / 2.0
+        ex, ey = second["x"] + second["width"] / 2.0, second["y"] + second["height"] / 2.0
+        double_click(app, sx + 0.3 * (ex - sx), sy + 0.3 * (ey - sy))
+        arrow_area = "__azreview_whiteboard-label-%d" % arrow_id()
+        app.until("the arrow's text area", lambda: app.has_id(arrow_area))
+        app.text_input("#" + arrow_area, "calls")
+        app.key("Tab")
+        app.until("the arrow's label kept", lambda: label_of(arrow_id()) == "calls")
+        app.frame(2)
+        shoot(app, os.path.join(out, "8b-labelled.png"))
+
+        # Moving and resizing: the body dragged carries the cutout, the handle at the corner of the selected one
+        # resizes it with its proportions kept; each gesture is ONE step (Mod+Z puts it back).
+        def rect_of(item_id):
+            found = [i for i in read_board(board_file(data_dir))[0]["items"] if i["id"] == item_id]
+            return tuple(float(found[0][k]) for k in ("x", "y", "w", "h")) if found else None
+
+        def near(r, x, y):
+            return r is not None and abs(r[0] - x) < 3.0 and abs(r[1] - y) < 3.0
+
+        bar = app.rect(SURFACE)
+        r0 = rect_of(2)
+        second = app.rect("__azreview_whiteboard-cutout-2")
+        mx, my = second["x"] + second["width"] / 2.0, second["y"] + second["height"] / 2.0
+        app.drag(mx, my, mx - 40.0, my + 60.0, steps=8)
+        app.until("the cutout carried and kept", lambda: near(rect_of(2), r0[0] - 40.0, r0[1] + 60.0))
+        r1 = rect_of(2)
+        hx, hy = bar["x"] + r1[0] + r1[2], bar["y"] + r1[1] + r1[3]
+        app.drag(hx, hy, hx + 30.0, hy + 20.0, steps=6)
+        app.until("the cutout resized and kept", lambda: (rect_of(2) or r1)[2] > r1[2] + 12.0)
+        r2 = rect_of(2)
+        if abs(r2[2] / r2[3] - r1[2] / r1[3]) > 0.03:
+            raise Failure("the resize did not keep the proportions: %s -> %s" % (r1, r2))
+        shoot(app, os.path.join(out, "8c-resized.png"))
+        app.key("z", primary=True)
+        app.until("the resize is one step back", lambda: rect_of(2) == r1)
+        app.key("z", primary=True)
+        app.until("and the carry is one step back", lambda: rect_of(2) == r0)
     except Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
         raise
@@ -201,12 +416,13 @@ def body(args, logs, out):
     app = e2e.App("whiteboard2", binary, argv, args.debug_port, logs, args.timeout)
     try:
         app.until("the second window", lambda: app.has_id(SURFACE))
-        app.expect_line("WBDEMO_LOADED", "2", "the board read back")
+        app.expect_line("WBDEMO_LOADED", "3", "the board read back (two cutouts and the arrow)")
         app.frame(3)
         for i in (1, 2):
             if not app.rect("__azreview_whiteboard-cutout-%d" % i):
                 raise Failure("cutout %d did not come back" % i)
-        app.screenshot(os.path.join(out, "6-restarted.png"))
+        app.until("the labels are on the restarted board", lambda: {"the parser", "calls"} <= set(app.texts()))
+        shoot(app, os.path.join(out, "9-restarted.png"))
     except Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
         raise

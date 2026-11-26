@@ -64,6 +64,7 @@ azreview-whiteboard-picture-missing = Das Bild ist nicht verfügbar. Das sind di
 azreview-whiteboard-cutout-name = { $file }, Zeilen { $first } bis { $last }
 azreview-whiteboard-label-placeholder = Beschriftung hinzufügen
 azreview-whiteboard-label-name = Beschriftung von { $file }, Zeilen { $first } bis { $last }
+azreview-whiteboard-arrow-label-name = Beschriftung des Pfeils
 
 ## Diktieren und die Seitenspalte der Notizen
 

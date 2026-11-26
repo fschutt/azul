@@ -614,3 +614,189 @@ fn every_language_counts_its_lines_and_reports_itself() {
         assert_eq!(s.lang, Some(lang));
     }
 }
+
+// ---- The line of what is found, after every kind of literal ----
+
+/// Every definition's reported line must hold its name: the check the context builder makes before it
+/// shows a line, run here on a text. Returns the definitions whose line does not.
+fn wrong_lines(lang: Lang, text: &str) -> Vec<(String, u32)> {
+    let lines: Vec<&str> = text.split('\n').collect();
+    scan(lang, text)
+        .defs
+        .into_iter()
+        .filter(|d| !lines.get(d.line as usize - 1).is_some_and(|l| l.contains(d.name.as_str())))
+        .map(|d| (d.name, d.line))
+        .collect()
+}
+
+#[test]
+fn a_character_literal_of_a_backslash_or_a_quote_leaves_the_lines_after_it_where_they_are() {
+    let got = rust(&[
+        "fn first(c: char) -> bool {",
+        r"    if c != '\\' {",
+        "        return false;",
+        "    }",
+        r"    c == '\''",
+        "}",
+        "fn second() {}",
+        r#"fn third() -> char { '"' }"#,
+        "fn fourth() {}",
+        r"fn fifth() -> u8 { b'\\' }",
+        "fn sixth() {}",
+    ]);
+    let want = vec![
+        d("first", Kind::Fn, 1, 6, None),
+        d("second", Kind::Fn, 7, 1, None),
+        d("third", Kind::Fn, 8, 1, None),
+        d("fourth", Kind::Fn, 9, 1, None),
+        d("fifth", Kind::Fn, 10, 1, None),
+        d("sixth", Kind::Fn, 11, 1, None),
+    ];
+    assert_eq!(got, want);
+}
+
+#[test]
+fn every_form_of_character_literal_is_one_token_and_costs_no_line() {
+    let forms = [
+        "'a'", r"'\n'", r"'\\'", r"'\''", r#"'\"'"#, r#"'"'"#, r"'\u{1F600}'", "'é'", r"'\x41'", r"'\0'", "b'x'", r"b'\\'", r"b'\''", r"b'\n'",
+    ];
+    for form in forms {
+        let text = format!("fn first() {{ let c = {form}; }}\nfn second() {{}}\n");
+        assert_eq!(wrong_lines(Lang::Rust, &text), [], "{form}");
+        let got = rows(Lang::Rust, &text);
+        assert_eq!(got.iter().map(|r| (r.0.as_str(), r.2)).collect::<Vec<_>>(), [("first", 1), ("second", 2)], "{form}");
+        // Three on a line, the hard ones side by side.
+        let text = format!("fn first() {{ let c = [{form}, '\\\\', '\\'', {form}]; }}\nfn second() {{}}\n");
+        assert_eq!(wrong_lines(Lang::Rust, &text), [], "{form} in a row");
+    }
+}
+
+#[test]
+fn a_stray_quote_at_the_end_of_a_line_swallows_nothing_after_it() {
+    // Not Rust that compiles, but a file being edited is not either: the line count must hold.
+    for tail in ["'", r"'\", r"'\n", r"'\\", "'ab", "b'"] {
+        let text = format!("fn first() {{ let c = {tail}\n}}\nfn second() {{}}\nfn third() {{}}\n");
+        let got = rows(Lang::Rust, &text);
+        let second = got.iter().find(|r| r.0 == "second").map(|r| r.2);
+        let third = got.iter().find(|r| r.0 == "third").map(|r| r.2);
+        assert_eq!((second, third), (Some(3), Some(4)), "{tail:?}");
+    }
+}
+
+/// A small deterministic generator (no crate, no clock).
+struct Lcg(u64);
+
+impl Lcg {
+    fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        self.0 >> 33
+    }
+}
+
+/// Pieces of a Rust file with literals and comments of every kind that carry quotes, backslashes and
+/// newlines, each a few whole lines.
+static RUST_PIECES: &[&[&str]] = &[
+    &[r#"fn chars() { let a = ['\\', '\'', '\"', '\n', 'x']; }"#],
+    &[r"fn backslash(c: char) -> bool { c != '\\' }"],
+    &[r#"fn quotes() { let q = '\''; let d = '\"'; let e = '"'; }"#],
+    &[r#"fn strings() { let s = "a \\"; let t = "b \" c"; }"#],
+    &["fn multi() {", r#"    let s = "first \"#, r#"        second";"#, "}"],
+    &["fn raw() { let r = r#\"a \"quoted\" # line", "second line\"#; }"],
+    &["/* a block", "   comment with 'quote and \"string */"],
+    &["/* outer /* inner */ still outer", "*/"],
+    &[r#"// a line comment with an apostrophe it's and "quotes" and a backslash \"#],
+    &[r"/// doc with `code` and 'a' and '\'"],
+    &["fn life<'a>(x: &'a str) -> &'a str { x }"],
+    &[r#"fn bytes() { let b = [b'\\', b'\'', b'"']; }"#],
+    &["struct Held<'a> { x: &'a str }"],
+    &["fn label() { 'outer: loop { break 'outer; } }"],
+    &[r#"fn escapes() { let s = "\\\\"; let t = "\\"; let u = '\\'; }"#],
+    &["#[derive(Debug)]", "struct Attr;"],
+];
+
+#[test]
+fn the_line_of_every_definition_holds_its_name_in_files_of_random_literals_and_comments() {
+    let mut rng = Lcg(2026);
+    for round in 0..400 {
+        let mut lines: Vec<String> = Vec::new();
+        let mut want: Vec<(String, u32)> = Vec::new();
+        for k in 0..(2 + rng.next() % 12) {
+            let piece = RUST_PIECES[(rng.next() % RUST_PIECES.len() as u64) as usize];
+            lines.extend(piece.iter().map(|l| (*l).to_string()));
+            let name = format!("marker_{round}_{k}");
+            lines.push(format!("fn {name}() {{}}"));
+            want.push((name, lines.len() as u32));
+        }
+        let text = lines.join("\n") + "\n";
+        let got: Vec<(String, u32)> = scan(Lang::Rust, &text)
+            .defs
+            .into_iter()
+            .filter(|d| d.name.starts_with("marker_"))
+            .map(|d| (d.name, d.line))
+            .collect();
+        assert_eq!(got, want, "round {round}:\n{text}");
+        assert_eq!(wrong_lines(Lang::Rust, &text), [], "round {round}:\n{text}");
+    }
+}
+
+/// The code files under `dir` (a folder of the repository), the product's own exclusions and size cap.
+fn code_files_under(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let Ok(kind) = entry.file_type() else { continue };
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if kind.is_symlink() {
+            continue;
+        }
+        if kind.is_dir() {
+            if !matches!(name.as_str(), "target" | ".git" | "node_modules") {
+                code_files_under(&path, out);
+            }
+        } else if matches!(crate::symbols_source::classify(&name), crate::symbols_source::FileClass::Code(_)) {
+            out.push(path);
+        }
+    }
+}
+
+#[test]
+fn the_line_of_every_definition_in_real_files_of_every_language_holds_its_name() {
+    // A bug of this kind (a literal that ate a newline: every line after it was one too few) showed on
+    // 2,700 of the 153,000 Rust definitions of the Azul tree and on none of the fixtures; the real files
+    // are the ones that have every kind of literal.
+    // The repository this crate is in (SYMBOLS_TREE names another checkout, as for the timed scan).
+    let root = std::env::var_os("SYMBOLS_TREE")
+        .map_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."), std::path::PathBuf::from);
+    let mut files = Vec::new();
+    for dir in ["core/src", "css/src", "examples/c", "examples/cpp", "examples/python", "scripts", "tests/e2e"] {
+        let path = root.join(dir);
+        assert!(path.is_dir(), "{dir} is not a folder of the repository: the sample moved");
+        code_files_under(&path, &mut files);
+    }
+    files.sort();
+    let (mut checked, mut wrong): (usize, Vec<String>) = (0, Vec::new());
+    for path in &files {
+        let rel = path.strip_prefix(&root).unwrap_or(path).to_string_lossy().replace('\\', "/");
+        let Ok(bytes) = std::fs::read(path) else { continue };
+        if bytes.len() > crate::symbols_source::MAX_FILE_BYTES || crate::symbols_source::inspect(&bytes).is_some() {
+            continue;
+        }
+        let crate::symbols_source::FileClass::Code(lang) = crate::symbols_source::classify(&rel) else { continue };
+        let scanned = scan_code(lang, &rel, &bytes, &ScanCaps::default());
+        let text = String::from_utf8_lossy(&bytes);
+        let lines: Vec<&str> = text.split('\n').collect();
+        for def in &scanned.defs {
+            checked += 1;
+            let holds = lines.get((def.line as usize).wrapping_sub(1)).is_some_and(|l| l.contains(def.name.as_str()));
+            if !holds && wrong.len() < 10 {
+                wrong.push(format!("{rel}:{} {}", def.line, def.name));
+            } else if !holds {
+                wrong.push(String::new());
+            }
+        }
+    }
+    assert!(files.len() > 300 && checked > 10_000, "the sample is too small to mean anything: {} files, {checked} definitions", files.len());
+    let count = wrong.len();
+    wrong.retain(|w| !w.is_empty());
+    assert_eq!(count, 0, "{count} of {checked} definitions have a line that does not hold their name, the first: {wrong:?}");
+}

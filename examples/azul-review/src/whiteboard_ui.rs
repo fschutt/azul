@@ -11,7 +11,7 @@ use std::{collections::BTreeMap, time::Instant};
 
 use azul::{
     callbacks::{RenderImageCallbackInfo, TextAreaOnFocusLostCallbackType, TextAreaOnTextInputCallbackType},
-    dom::{AccessibilityInfo, AccessibilityRole, DomNodeId, NodeId, RenderImageCallback},
+    dom::{AccessibilityInfo, AccessibilityRole, AttributeType, DomNodeId, NodeId, RenderImageCallback, VirtualKeyCode},
     image::{Brush, ImageRef, RawImage, RawImageFormat},
     prelude::*,
     str::String as AzString,
@@ -21,11 +21,12 @@ use azul::{
 use azul_appkit::l10n::{label, t, t_args, Arg};
 
 use crate::{
-    whiteboard::{Cutout, ImageSlot, ItemId, Notice},
+    whiteboard::{Arrow, Cutout, ImageSlot, ItemId, Notice},
     whiteboard_app::Whiteboard,
     whiteboard_drag::{ArmedRegions, GRIP_PX},
     whiteboard_geom::{arrowhead, Curve, Pt, Size},
     whiteboard_input::{Mods, Out, PointerKind},
+    whiteboard_jump::JumpTarget,
 };
 
 /// The id of the node that takes the pointer (and the window's text of it for a script).
@@ -84,7 +85,8 @@ pub struct Panel {
     /// The size of the surface in logical px, and the window's pixel scale, as the last frame had them.
     pub viewport: Size,
     pub dpr: f32,
-    /// A region is being carried over the bar.
+    /// A region is being carried over the bar: the panel shows a frame inside its edge. It is a node, so the window
+    /// refreshes its DOM when this changes (`Motion::Dragging { over_bar }` says it, twice in a drag).
     pub drag_over: bool,
     /// What the person was last told (a refused cutout, a repaired file).
     pub hint: Option<String>,
@@ -142,6 +144,22 @@ impl Panel {
             self.hint = Some(say(&n));
         }
     }
+
+    /// A jump to a cutout's lines was made: when the file is not as it was when they were circled, the person is told
+    /// (the cutout keeps its picture); when it is, a word said before is taken back.
+    pub fn tell_jump(&mut self, target: &JumpTarget) {
+        self.hint = jump_words(target);
+    }
+}
+
+/// What a jump says about the file, in the person's language (`None` when the file is as it was).
+#[must_use]
+pub fn jump_words(target: &JumpTarget) -> Option<String> {
+    let key = target.freshness.key()?;
+    Some(t_args(
+        key,
+        &[("first", Arg::from(target.first_line as usize)), ("last", Arg::from(target.last_line as usize))],
+    ))
 }
 
 /// A notice in the person's language.
@@ -178,7 +196,7 @@ fn css_px(v: f32) -> String {
 }
 
 /// One cutout as a node: its picture (or the lines it was made from while there is none), its label under it.
-fn cutout_dom(panel: &mut Panel, host: &Host, c: &Cutout, selected: bool) -> Dom {
+fn cutout_dom(panel: &mut Panel, c: &Cutout, selected: bool) -> Dom {
     let view = panel.wb.board.view();
     let o = view.to_screen(c.rect.origin());
     let (w, h) = (c.rect.w * view.zoom, c.rect.h * view.zoom);
@@ -219,13 +237,13 @@ fn cutout_dom(panel: &mut Panel, host: &Host, c: &Cutout, selected: bool) -> Dom
         }
     }
     let mut group = Dom::create_div().with_child(node);
-    if panel.editing == Some(c.id) {
-        group.add_child(label_editor(host, c, Pt::new(o.x, o.y + h + 3.0), w));
-    } else if !c.label.is_empty() {
+    // The label is shown under the cutout; while it is typed, its text area ([`editor_dom`]) is, over the surface. The
+    // board's ground is a fixed light colour, so the ink on it is fixed too: the system's text colour is white in dark mode.
+    if panel.editing != Some(c.id) && !c.label.is_empty() {
         group.add_child(
             Dom::create_span_with_text(c.label.as_str()).with_css(
                 format!(
-                    "position: absolute; left: {}; top: {}; width: {}; font-size: 11px; color: system:text; text-align: center;",
+                    "position: absolute; left: {}; top: {}; width: {}; font-size: 11px; color: #1f1f1f; text-align: center;",
                     css_px(o.x),
                     css_px(o.y + h + 3.0),
                     css_px(w)
@@ -237,32 +255,84 @@ fn cutout_dom(panel: &mut Panel, host: &Host, c: &Cutout, selected: bool) -> Dom
     group
 }
 
-
 /// What a label's text area tells back: which cutout, and the panel it is on.
 struct LabelTag {
     host: Host,
     id: ItemId,
 }
 
-/// The text area a cutout's label is typed in, under the cutout.
-fn label_editor(host: &Host, c: &Cutout, at: Pt, w: f32) -> Dom {
-    let tag = RefAny::new(LabelTag { host: host.clone(), id: c.id });
+/// The text area the label of item `id` (a cutout's, under it; an arrow's, on its line) is typed in. `name` is
+/// what a screen reader says of it. It takes the keyboard when it mounts: the person double-clicked to type.
+fn label_editor(host: &Host, id: ItemId, text: &str, name: String, at: Pt, w: f32) -> Dom {
+    let tag = RefAny::new(LabelTag { host: host.clone(), id });
     TextArea::create()
-        .with_text(c.label.as_str())
+        .with_text(text)
         .with_placeholder(label("azreview-whiteboard-label-placeholder"))
-        .with_accessibility_name(t_args(
+        .with_accessibility_name(name)
+        .with_on_text_input(tag.clone(), on_label_text as TextAreaOnTextInputCallbackType)
+        .with_on_focus_lost(tag, on_label_blur as TextAreaOnFocusLostCallbackType)
+        .dom()
+        .with_id(format!("__azreview_whiteboard-label-{id}").as_str())
+        .with_attribute(AttributeType::Autofocus)
+        .with_css(format!("position: absolute; left: {}; top: {}; width: {}; min-height: 24px;", css_px(at.x), css_px(at.y), css_px(w)).as_str())
+}
+
+/// The width of the box an arrow's label is centred in, px: the label is as wide as its text, up to this and then
+/// some (labels are short).
+const ARROW_LABEL_W: f32 = 160.0;
+
+/// The text area the label of item `id` is being typed in, to be put over the surface (which takes every click on
+/// the panel: a text area under it could not be clicked into): under a cutout, on the line of an arrow. `None` for
+/// an item that is not on the board.
+fn editor_dom(panel: &Panel, host: &Host, id: ItemId) -> Option<Dom> {
+    let board = &panel.wb.board;
+    let view = board.view();
+    if let Some(c) = board.cutout(id) {
+        let o = view.to_screen(c.rect.origin());
+        let (w, h) = (c.rect.w * view.zoom, c.rect.h * view.zoom);
+        let name = t_args(
             "azreview-whiteboard-label-name",
             &[
                 ("file", Arg::from(c.source.file.clone())),
                 ("first", Arg::from(c.source.first_line as usize)),
                 ("last", Arg::from(c.source.last_line as usize)),
             ],
-        ))
-        .with_on_text_input(tag.clone(), on_label_text as TextAreaOnTextInputCallbackType)
-        .with_on_focus_lost(tag, on_label_blur as TextAreaOnFocusLostCallbackType)
-        .dom()
-        .with_id(format!("__azreview_whiteboard-label-{}", c.id).as_str())
-        .with_css(format!("position: absolute; left: {}; top: {}; width: {}; min-height: 24px;", css_px(at.x), css_px(at.y), css_px(w)).as_str())
+        );
+        return Some(label_editor(host, id, c.label.as_str(), name, Pt::new(o.x, o.y + h + 3.0), w));
+    }
+    let a = board.arrow(id)?;
+    let mid = view.to_screen(board.place_arrow(id)?.curve.at(0.5));
+    let name = t("azreview-whiteboard-arrow-label-name");
+    Some(label_editor(host, id, a.label.as_str(), name, Pt::new(mid.x - ARROW_LABEL_W * 0.5, mid.y - 12.0), ARROW_LABEL_W))
+}
+
+/// The label of an arrow, on its line at the middle: `None` for an arrow with no label, or one whose label is being
+/// typed ([`editor_dom`]).
+fn arrow_label_dom(panel: &Panel, a: &Arrow) -> Option<Dom> {
+    if a.label.is_empty() || panel.editing == Some(a.id) {
+        return None;
+    }
+    let board = &panel.wb.board;
+    let mid = board.view().to_screen(board.place_arrow(a.id)?.curve.at(0.5));
+    // The text sits in a pill that is as wide as the text, centred on the line's middle: a row that centres its one item.
+    Some(
+        Dom::create_div()
+            .with_css(
+                format!(
+                    "position: absolute; left: {}; top: {}; width: {}; display: flex; flex-direction: row; justify-content: center;",
+                    css_px(mid.x - ARROW_LABEL_W * 0.5),
+                    css_px(mid.y - 9.0),
+                    css_px(ARROW_LABEL_W)
+                )
+                .as_str(),
+            )
+            .with_child(
+                Dom::create_span_with_text(a.label.as_str()).with_css(
+                    "padding: 1px 7px; background: #f4f1ea; border: 1px solid #b9b4ab; border-radius: 8px; font-size: 11px; \
+                     color: #1f1f1f; white-space: pre;",
+                ),
+            ),
+    )
 }
 
 /// A character typed in a label: the label is taken when the area is left.
@@ -311,16 +381,18 @@ pub fn panel_dom(panel: &mut Panel, host: &Host) -> Dom {
     let began = Instant::now();
     let selected = panel.wb.input.selection();
     let cutouts: Vec<Cutout> = panel.wb.board.cutouts().cloned().collect();
-    let mut root = Dom::create_div().with_css(
-        format!(
-            "position: relative; flex-grow: 1; min-height: 0px; min-width: 0px; overflow: hidden; background: #f4f1ea; \
-             border: 2px solid {};",
-            if panel.drag_over { "#205cd6" } else { "transparent" }
-        )
-        .as_str(),
-    );
+    // No border on the panel: its origin is the surface's and the cutouts', and the bar's rect (where a drop is
+    // measured from) is the panel's own.
+    let mut root = Dom::create_div()
+        .with_css("position: relative; flex-grow: 1; min-height: 0px; min-width: 0px; overflow: hidden; background: #f4f1ea;");
     for c in &cutouts {
-        root.add_child(cutout_dom(panel, host, c, selected == Some(c.id)));
+        root.add_child(cutout_dom(panel, c, selected == Some(c.id)));
+    }
+    let arrows: Vec<Arrow> = panel.wb.board.arrows().cloned().collect();
+    for a in &arrows {
+        if let Some(on_its_line) = arrow_label_dom(panel, a) {
+            root.add_child(on_its_line);
+        }
     }
     if cutouts.is_empty() {
         root.add_child(
@@ -335,7 +407,18 @@ pub fn panel_dom(panel: &mut Panel, host: &Host) -> Dom {
              border: 1px solid #e0c36a; border-radius: 4px; font-size: 11px; color: #5a4a10;",
         ));
     }
+    if panel.drag_over {
+        // A region is carried over the bar: a frame inside its edge says it will be taken. Under the surface, which
+        // keeps the pointer.
+        root.add_child(Dom::create_div().with_css(
+            "position: absolute; left: 0px; top: 0px; right: 0px; bottom: 0px; border: 2px solid #205cd6;",
+        ));
+    }
     root.add_child(surface(host));
+    // The label that is being typed: its text area is over the surface, so that a click lands in it.
+    if let Some(typing) = panel.editing.and_then(|id| editor_dom(panel, host, id)) {
+        root.add_child(typing);
+    }
     if panel.perf_on {
         panel.perf.layout(u32::try_from(began.elapsed().as_micros()).unwrap_or(u32::MAX));
     }
@@ -361,6 +444,8 @@ fn surface(host: &Host) -> Dom {
 
 // ---- drawing what is not a picture
 
+/// How far past its curve an arrow paints, logical px: its head (11 px) and the line's width.
+const ARROW_REACH: f32 = 16.0;
 const ARROW: [u8; 4] = [59, 66, 82, 255];
 const ACCENT: [u8; 4] = [32, 92, 214, 255];
 const PEN: [u8; 4] = [214, 45, 32, 255];
@@ -395,9 +480,12 @@ impl Painter<'_> {
         }
     }
 
-    /// An arrow along `curve` (in screen px): its line and an open head at its end.
+    /// An arrow along `curve` (in screen px): its line and an open head at its end. The line is drawn in pieces
+    /// of about ten px (at least two, so a bend shows; at most 32): each piece is a stroke of the engine's brush.
     fn arrow(&mut self, curve: &Curve, radius: f32, rgba: [u8; 4]) {
-        self.polyline(&curve.flatten(32), radius, rgba);
+        let way = (curve.a.dist(curve.b) + curve.a.dist(curve.c) + curve.c.dist(curve.b)) * 0.5;
+        let pieces = ((way / 10.0).ceil() as usize).clamp(2, 32);
+        self.polyline(&curve.flatten(pieces), radius, rgba);
         let [tip, a, b] = arrowhead(curve.b, curve.tangent_at(1.0), 11.0, 5.0);
         self.line(a, tip, radius, rgba);
         self.line(b, tip, radius, rgba);
@@ -429,6 +517,15 @@ pub fn paint_armed(image: &mut RawImage, k: f32, regions: &ArmedRegions, page: u
     }
 }
 
+/// Paints the outline of a region `polygon` (page px) carried by `offset`, `k` device pixels to a px: what the
+/// pointer holds, while a lifted region is on its way to the bar (`Ghost::offset`). The window draws it on the
+/// layer under the pointer; the armed outline stays where the region lies.
+pub fn paint_ghost(image: &mut RawImage, k: f32, polygon: &[Pt], offset: Pt) {
+    let mut paint = Painter { image, k };
+    let carried: Vec<Pt> = polygon.iter().chain(polygon.first()).map(|p| Pt::new(p.x + offset.x, p.y + offset.y)).collect();
+    paint.polyline(&carried, 2.0, [32, 92, 214, 235]);
+}
+
 /// The surface's picture: the arrows, the selection, the arrow being drawn, the pen's stroke.
 fn paint_surface(panel: &Panel, w: u32, h: u32, k: f32) -> RawImage {
     let mut image = RawImage::create_rgba8(w, h, vec![0_u8; w as usize * h as usize * 4], true);
@@ -439,13 +536,21 @@ fn paint_surface(panel: &Panel, w: u32, h: u32, k: f32) -> RawImage {
     let screen = |p: Pt| view.to_screen(p);
     let screen_curve = |c: &Curve| Curve { a: screen(c.a), c: screen(c.c), b: screen(c.b) };
     let mut paint = Painter { image: &mut image, k };
-    for a in board.arrows() {
-        if preview.is_some_and(|p| p.replaces == Some(a.id)) {
+    // What the surface shows, in logical px: an arrow wholly off it paints nothing (its control points hold the
+    // curve), so a board of hundreds only pays for the arrows in view.
+    let on_surface = crate::whiteboard_geom::Rect::new(0.0, 0.0, w as f32 / k.max(0.01), h as f32 / k.max(0.01));
+    for (id, placed) in board.placed_arrows() {
+        if preview.is_some_and(|p| p.replaces == Some(id)) {
             continue;
         }
-        let Some(placed) = board.place_arrow(a.id) else { continue };
-        let selected = input.selection() == Some(a.id);
+        let selected = input.selection() == Some(id);
         let curve = screen_curve(&placed.curve);
+        // (A straight arrow along a row or a column has a box of no height or width: the reach gives it some.)
+        if !crate::whiteboard_geom::Rect::from_points(&[curve.a, curve.c, curve.b])
+            .is_some_and(|r| r.inflate(ARROW_REACH).intersects(&on_surface))
+        {
+            continue;
+        }
         paint.arrow(&curve, if selected { 2.0 } else { 1.5 }, if selected { ACCENT } else { ARROW });
         if selected {
             for p in [curve.a, curve.b, curve.at(0.5)] {
@@ -686,6 +791,21 @@ pub enum Key {
     Escape,
     Undo,
     Redo,
+}
+
+/// The panel's key for a press of `code` (`None` for a key it does not answer). `primary` is the platform's
+/// shortcut modifier (Cmd on macOS, Ctrl elsewhere): Delete and Backspace take the selection off, Escape lets go,
+/// Mod+Z steps back, Shift+Mod+Z and Mod+Y forward.
+#[must_use]
+pub fn key_of(code: VirtualKeyCode, primary: bool, shift: bool) -> Option<Key> {
+    match code {
+        VirtualKeyCode::Delete | VirtualKeyCode::Back if !primary => Some(Key::Delete),
+        VirtualKeyCode::Escape => Some(Key::Escape),
+        VirtualKeyCode::Z if primary && shift => Some(Key::Redo),
+        VirtualKeyCode::Z if primary => Some(Key::Undo),
+        VirtualKeyCode::Y if primary => Some(Key::Redo),
+        _ => None,
+    }
 }
 
 /// Lets the app say where the surface node is (for a script that clicks it).

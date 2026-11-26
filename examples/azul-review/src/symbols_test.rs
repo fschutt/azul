@@ -284,3 +284,20 @@ fn the_file_class_of_a_path_is_the_one_the_source_module_says() {
     // The index and the scanners agree on what a code file is.
     assert_eq!(crate::symbols_source::classify("a/b.rs"), FileClass::Code(Lang::Rust));
 }
+
+#[test]
+fn a_name_of_several_words_is_found_by_the_word_a_recogniser_writes_for_it_when_one_name_makes_it() {
+    let mut idx = Index::new(Caps::default());
+    idx.put_scanned(
+        "a.rs",
+        scanned(vec![raw("ScrollManager", Kind::Struct, 1), raw("scroll_manager", Kind::Fn, 9), raw("DataTable", Kind::Struct, 20), raw("Data_Table_x", Kind::Fn, 30)]),
+    );
+    let found = idx.lookup_joined("scrollmanager");
+    assert_eq!(names(&found), ["ScrollManager", "scroll_manager"]);
+    assert_eq!(names(&idx.lookup_joined("datatable")), ["DataTable"]);
+    assert!(idx.lookup_joined("scroll").is_empty(), "one word is a name, not a joined one");
+    assert!(idx.lookup_joined("nothing").is_empty());
+    // Two names that make one word are told apart by no one.
+    idx.put_scanned("b.rs", scanned(vec![raw("ab_c", Kind::Fn, 1), raw("a_bc", Kind::Fn, 2)]));
+    assert!(idx.lookup_joined("abc").is_empty());
+}

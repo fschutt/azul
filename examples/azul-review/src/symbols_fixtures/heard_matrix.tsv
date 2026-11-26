@@ -1,0 +1,258 @@
+# Real answers of two recognisers (Whistle w, the system's recogniser n) to speech made by three TTS voices, for the clips of the speech agent's vocabulary matrix (2026-11-26).
+# clip<TAB>engines+variants that gave this answer<TAB>word|probability|biased ...   (probability 0: not said)
+1_Daniel	wV0,wV1,wV5,wV6	Yet|0.94|0	we|1.0|0	had|0.97|0	a|0.94|0	C.|0.97|0	S.|0.6|0	S.|0.97|0	error|0.84|0	here.|0.99|0
+1_Daniel	wV2,wV3	Yet|0.94|0	we|1.0|0	had|0.97|0	a|0.94|0	C.|0.97|0	S.|0.6|0	S.|0.97|0	error|0.84|1	here.|0.99|0
+1_Daniel	wV4	Yet|0.94|0	we|1.0|0	had|0.97|0	a|0.94|0	CSS|0.6|1	error|0.87|0	here.|1.0|0
+1_Daniel	wV7	Yet|0.94|0	we|1.0|0	had|0.97|0	a|0.94|0	CSS|0.6|1	error|0.87|1	here.|1.0|0
+1_Daniel	nV0,nV6	Yeah|0.38|0	we|0.92|0	had|0.92|0	a|0.6|0	CSS|0.65|0	error|0.39|0
+1_Daniel	nV1	Yeah|0.42|0	we|0.93|0	had|0.88|0	a|0.55|0	CssError|0.53|1
+1_Daniel	nV2	Yeah|0.42|0	we|0.93|0	had|0.88|0	a|0.55|0	css|0.53|1	error|0.53|1
+1_Daniel	nV3,nV7	Yeah|0.39|0	we|0.92|0	had|0.89|0	a|0.6|0	CssError|0.41|1
+1_Daniel	nV4,nV5	Yeah|0.35|0	we|0.92|0	had|0.93|0	a|0.61|0	CSS|0.26|1	error|0.26|0
+1_Fred	wV0,wV1,wV2,wV3,wV4,wV5,wV6,wV7	Yell|0.7|0	we|0.73|0	had|0.97|0	to|0.99|0	see|0.99|0	S.|0.58|0	S.|0.84|0	ever|0.21|0	here.|0.94|0
+1_Fred	nV0,nV1,nV2,nV3,nV4,nV5,nV6,nV7	Yeah|0.32|0	we|0.86|0	had|0.77|0	to|0.71|0	see|0.04|0	several|0.04|0
+1_Samantha	wV0,wV1,wV6	Yet|0.98|0	we|1.0|0	had|0.96|0	a|0.93|0	CSS|0.75|0	error|0.98|0	here.|1.0|0
+1_Samantha	wV2,wV3	Yet|0.98|0	we|1.0|0	had|0.96|0	a|0.93|0	css|0.05|1	error|0.56|1	here.|0.99|0
+1_Samantha	wV4,wV5	Yet|0.98|0	we|1.0|0	had|0.96|0	a|0.93|0	CSS|0.75|1	error|0.98|0	here.|1.0|0
+1_Samantha	wV7	Yet|0.98|0	we|1.0|0	had|0.96|0	a|0.93|0	CSS|0.75|1	error|0.98|1	here.|1.0|0
+1_Samantha	nV0,nV6	Yeah|0.27|0	we|0.8|0	had|0.83|0	a|0.39|0	CSS|0.47|0	error|0.54|0	here|0.41|0
+1_Samantha	nV1	Yeah|0.29|0	we|0.8|0	had|0.84|0	a|0.51|0	CssError|0.63|1	here|0.43|0
+1_Samantha	nV2	Yeah|0.29|0	we|0.8|0	had|0.83|0	a|0.51|0	css|0.63|1	error|0.63|1	here|0.43|0
+1_Samantha	nV3,nV7	Yeah|0.28|0	we|0.79|0	had|0.83|0	a|0.47|0	CssError|0.52|1	here|0.42|0
+1_Samantha	nV4,nV5	Yeah|0.27|0	we|0.8|0	had|0.83|0	a|0.41|0	CSS|0.42|1	error|0.53|0	here|0.41|0
+1c_Daniel	wV0,wV1,wV5,wV6	Yet|0.94|0	we|1.0|0	had|0.97|0	a|0.94|0	C.|0.97|0	S.|0.6|0	S.|0.97|0	error|0.84|0	here.|0.99|0
+1c_Daniel	wV2,wV3	Yet|0.94|0	we|1.0|0	had|0.97|0	a|0.94|0	C.|0.97|0	S.|0.6|0	S.|0.97|0	error|0.84|1	here.|0.99|0
+1c_Daniel	wV4	Yet|0.94|0	we|1.0|0	had|0.97|0	a|0.94|0	CSS|0.6|1	error|0.87|0	here.|1.0|0
+1c_Daniel	wV7	Yet|0.94|0	we|1.0|0	had|0.97|0	a|0.94|0	CSS|0.6|1	error|0.87|1	here.|1.0|0
+1c_Daniel	nV0,nV6	Yeah|0.38|0	we|0.92|0	had|0.92|0	a|0.6|0	CSS|0.65|0	error|0.39|0
+1c_Daniel	nV1	Yeah|0.42|0	we|0.93|0	had|0.88|0	a|0.55|0	CssError|0.53|1
+1c_Daniel	nV2	Yeah|0.42|0	we|0.93|0	had|0.88|0	a|0.55|0	css|0.53|1	error|0.53|1
+1c_Daniel	nV3,nV7	Yeah|0.39|0	we|0.92|0	had|0.89|0	a|0.6|0	CssError|0.41|1
+1c_Daniel	nV4,nV5	Yeah|0.35|0	we|0.92|0	had|0.93|0	a|0.61|0	CSS|0.26|1	error|0.26|0
+1c_Fred	wV0,wV1,wV2,wV3,wV4,wV5,wV6,wV7	Yell|0.72|0	we|0.76|0	had|0.97|0	to|0.98|0	see|0.99|0	us|0.21|0	as|0.89|0	several|0.49|0	here.|0.92|0
+1c_Fred	nV0,nV1,nV2,nV3,nV4,nV5,nV6,nV7	Yeah|0.32|0	we|0.88|0	had|0.84|0	to|0.81|0	see|0.75|0	us|0.02|0	over|0.02|0	here|0.41|0
+1c_Samantha	wV0,wV1,wV6	Yet|0.98|0	we|1.0|0	had|0.96|0	a|0.93|0	CSS|0.75|0	error|0.98|0	here.|1.0|0
+1c_Samantha	wV2,wV3	Yet|0.98|0	we|1.0|0	had|0.96|0	a|0.93|0	css|0.05|1	error|0.56|1	here.|0.99|0
+1c_Samantha	wV4,wV5	Yet|0.98|0	we|1.0|0	had|0.96|0	a|0.93|0	CSS|0.75|1	error|0.98|0	here.|1.0|0
+1c_Samantha	wV7	Yet|0.98|0	we|1.0|0	had|0.96|0	a|0.93|0	CSS|0.75|1	error|0.98|1	here.|1.0|0
+1c_Samantha	nV0,nV6	Yeah|0.27|0	we|0.8|0	had|0.83|0	a|0.39|0	CSS|0.47|0	error|0.54|0	here|0.41|0
+1c_Samantha	nV1	Yeah|0.29|0	we|0.8|0	had|0.84|0	a|0.51|0	CssError|0.63|1	here|0.43|0
+1c_Samantha	nV2	Yeah|0.29|0	we|0.8|0	had|0.83|0	a|0.51|0	css|0.63|1	error|0.63|1	here|0.43|0
+1c_Samantha	nV3,nV7	Yeah|0.28|0	we|0.79|0	had|0.83|0	a|0.47|0	CssError|0.52|1	here|0.42|0
+1c_Samantha	nV4,nV5	Yeah|0.27|0	we|0.8|0	had|0.83|0	a|0.41|0	CSS|0.42|1	error|0.53|0	here|0.41|0
+2_Daniel	wV0,wV1,wV4,wV5,wV6	The|0.93|0	speech|0.96|0	session|0.98|0	is|0.99|0	closed|0.99|0	twice.|1.0|0
+2_Daniel	wV2,wV3,wV7	The|0.93|0	speech|0.96|1	session|0.98|1	is|0.99|0	closed|0.99|0	twice.|1.0|0
+2_Daniel	nV0,nV4,nV5,nV6	The|0.73|0	speech|0.96|0	session|0.98|0	is|0.98|0	closed|0.94|0	twice|0.75|0
+2_Daniel	nV1	The|0.64|0	SpeechSession|0.95|1	is|0.97|0	closed|0.86|0	twice|0.71|0
+2_Daniel	nV2	The|0.64|0	speech|0.95|1	session|0.95|1	is|0.97|0	closed|0.86|0	twice|0.71|0
+2_Daniel	nV3,nV7	The|0.52|0	SpeechSession|0.69|1	is|0.95|0	closed|0.85|0	twice|0.68|0
+2_Fred	wV0,wV1,wV4,wV5,wV6	The|0.97|0	speech|0.99|0	session|0.93|0	is|1.0|0	closed|0.93|0	twice.|0.73|0
+2_Fred	wV2,wV3,wV7	The|0.97|0	speech|0.99|1	session|0.93|1	is|1.0|0	closed|0.93|0	twice.|0.73|0
+2_Fred	nV0,nV1,nV4,nV5,nV6	Receipt|0.83|0	session|0.92|0	is|0.95|0	closed|0.92|0	twice|0.77|0
+2_Fred	nV2,nV3,nV7	Receipt|0.83|0	session|0.92|1	is|0.95|0	closed|0.92|0	twice|0.77|0
+2_Samantha	wV0,wV1,wV4,wV5,wV6	The|0.95|0	speech|0.98|0	session|0.99|0	is|0.99|0	closed|1.0|0	twice.|0.96|0
+2_Samantha	wV2,wV3,wV7	The|0.95|0	speech|0.98|1	session|0.99|1	is|0.99|0	closed|1.0|0	twice.|0.96|0
+2_Samantha	nV0,nV4,nV5,nV6	The|0.92|0	speech|0.98|0	session|0.99|0	is|0.99|0	closed|0.98|0	twice|0.92|0
+2_Samantha	nV1	The|0.81|0	SpeechSession|0.97|1	is|0.97|0	closed|0.92|0	twice|0.87|0
+2_Samantha	nV2	The|0.81|0	speech|0.97|1	session|0.97|1	is|0.97|0	closed|0.92|0	twice|0.87|0
+2_Samantha	nV3,nV7	The|0.67|0	SpeechSession|0.53|1	is|0.95|0	closed|0.9|0	twice|0.81|0
+3_Daniel	wV0,wV1,wV2,wV3,wV4,wV5	This|0.94|0	enemy|0.9|0	should|0.99|0	be|1.0|0	astrod.|0.71|0
+3_Daniel	wV6,wV7	This|0.94|0	enum|0.39|1	should|1.0|0	be|1.0|0	a|0.87|0	strock.|0.45|0
+3_Daniel	nV0,nV1,nV2,nV3,nV4,nV5,nV6,nV7	This|0.16|0	and|0.16|0	should|0.16|0	be|0.83|0	a|0.0|0	shock|0.0|0
+3_Fred	wV0,wV4,wV5	The|0.84|0	scene|0.42|0	object|0.12|0	is|0.7|0	thrived.|0.79|0
+3_Fred	wV1,wV2,wV3,wV6,wV7	The|0.84|0	seal|0.49|0	on|0.26|0	shipy|0.47|0	is|0.96|0	thrived.|0.75|0
+3_Fred	nV0,nV1,nV2,nV3,nV4,nV5,nV6,nV7	The|0.18|0	scene|0.0|0	I'm|0.0|0	gonna|0.0|0	be|0.0|0	right|0.0|0
+3_Samantha	wV0,wV1,wV2,wV3	This|0.91|0	enemy|0.91|0	should|0.99|0	be|1.0|0	as|0.35|0	dropped.|0.78|0
+3_Samantha	wV4,wV5	This|0.91|0	enemy|0.91|0	should|0.99|0	be|1.0|0	astrobbed.|0.7|0
+3_Samantha	wV6,wV7	This|0.91|0	enum|0.43|1	should|1.0|0	be|1.0|0	as|0.35|0	dropped.|0.88|0
+3_Samantha	nV0,nV1,nV2,nV3,nV4,nV5,nV6,nV7	This|0.32|0	item|0.58|0	should|0.91|0	be|0.91|0	as|0.82|0	strong|0.41|0
+4_Daniel	wV0,wV1,wV2,wV3,wV4,wV5	You|0.81|0	have|1.0|0	to|1.0|0	await|0.99|0	the|1.0|0	future|0.99|0	inside|0.95|0	an|0.5|0	async|0.78|0	function.|0.99|0
+4_Daniel	wV6,wV7	You|0.81|0	have|1.0|0	to|1.0|0	await|0.99|1	the|1.0|0	future|0.99|0	inside|0.95|0	an|0.5|0	async|0.78|1	function.|0.99|0
+4_Daniel	nV0,nV1,nV2,nV3,nV4,nV5	You|0.35|0	have|0.86|0	to|0.86|0	await|0.66|0	the|0.93|0	future|0.94|0	inside|0.86|0	in|0.41|0	a|0.41|0	simple|0.68|0	function|0.42|0
+4_Daniel	nV6,nV7	You|0.35|0	have|0.86|0	to|0.86|0	await|0.66|1	the|0.93|0	future|0.94|0	inside|0.86|0	in|0.41|0	a|0.41|0	simple|0.68|0	function|0.42|0
+4_Fred	wV0,wV1,wV2,wV3,wV4,wV5	You|0.8|0	have|0.99|0	to|0.98|0	await|0.88|0	the|0.98|0	future|0.99|0	inside|0.41|0	and|0.4|0	at|0.5|0	the|0.51|0	same|1.0|0	function.|0.9|0
+4_Fred	wV6,wV7	You|0.8|0	have|0.99|0	to|0.98|0	await|0.88|1	the|0.98|0	future|0.99|0	inside|0.41|0	and|0.4|0	at|0.5|0	the|0.51|0	same|1.0|0	function.|0.9|0
+4_Fred	nV0,nV1,nV2,nV3,nV4,nV5,nV6,nV7	You|0.32|0	have|0.59|0	to|0.59|0	away|0.72|0	the|0.41|0	view|0.56|0	with|0.29|0	your|0.34|0	inside|0.34|0	and|0.22|0	the|0.22|0	same|0.24|0	function|0.24|0
+4_Samantha	wV0,wV1,wV2,wV3,wV4,wV5	You|0.67|0	have|1.0|0	to|1.0|0	await|1.0|0	the|1.0|0	future|0.98|0	inside|0.96|0	an|0.84|0	async|0.9|0	function.|0.96|0
+4_Samantha	wV6,wV7	You|0.67|0	have|1.0|0	to|1.0|0	await|1.0|1	the|1.0|0	future|0.98|0	inside|0.96|0	an|0.84|0	async|0.9|1	function.|0.96|0
+4_Samantha	nV0,nV1,nV2,nV3,nV4,nV5	You|0.33|0	have|0.79|0	to|0.79|0	await|0.85|0	the|0.91|0	future|0.9|0	inside|0.3|0	an|0.3|0	asking|0.3|0	function|0.3|0
+4_Samantha	nV6,nV7	You|0.33|0	have|0.79|0	to|0.79|0	await|0.85|1	the|0.91|0	future|0.9|0	inside|0.3|0	an|0.3|0	asking|0.3|0	function|0.3|0
+5_Daniel	wV0,wV1,wV4,wV5,wV6	Azed|0.47|0	review|0.59|0	opens|1.0|0	the|0.99|0	folder|0.41|0	lazily.|0.91|0
+5_Daniel	wV2,wV3,wV7	Azed|0.47|0	review|0.59|1	opens|1.0|0	the|0.99|0	folder|0.41|0	lazily.|0.91|0
+5_Daniel	nV0,nV4,nV5,nV6	A|0.34|0	Z|0.59|0	review|0.9|0	opens|0.94|0	the|0.88|0	folder|0.81|0	la|0.06|0
+5_Daniel	nV1	AZ|0.04|0	review|0.04|0	opens|0.88|0	the|0.93|0	folder|0.86|0	la|0.2|0
+5_Daniel	nV2	AZ|0.05|1	review|0.05|1	opens|0.89|0	the|0.93|0	folder|0.86|0	la|0.2|0
+5_Daniel	nV3	AZ|0.04|1	review|0.04|1	opens|0.87|0	the|0.93|0	folder|0.83|0	la|0.2|0
+5_Daniel	nV7	AZ|0.06|1	review|0.06|1	opens|0.88|0	the|0.89|0	folder|0.82|0	la|0.06|0
+5_Fred	wV0,wV1,wV4,wV5,wV6	Easy|0.59|0	review|0.64|0	opens|0.97|0	the|0.94|0	folder|0.92|0	lazily.|0.98|0
+5_Fred	wV2,wV3,wV7	Easy|0.59|0	review|0.64|1	opens|0.97|0	the|0.94|0	folder|0.92|0	lazily.|0.98|0
+5_Fred	nV0,nV1,nV4,nV5,nV6	Hey|0.32|0	Siri|0.6|0	review|0.23|0	of|0.23|0	the|0.23|0	folder|0.16|0
+5_Fred	nV2,nV3,nV7	Hey|0.32|0	Siri|0.6|0	review|0.23|1	of|0.23|0	the|0.23|0	folder|0.16|0
+5_Samantha	wV0,wV1,wV4,wV5,wV6	Azy|0.59|0	review|0.46|0	opens|1.0|0	the|0.99|0	folder|0.97|0	lazily.|0.97|0
+5_Samantha	wV2,wV3,wV7	Azy|0.59|0	review|0.46|1	opens|1.0|0	the|0.99|0	folder|0.97|0	lazily.|0.97|0
+5_Samantha	nV0,nV1,nV4,nV5,nV6	Hey|0.26|0	Siri|0.66|0	review|0.87|0	opens|0.9|0	the|0.9|0	folder|0.87|0	laser|0.32|0
+5_Samantha	nV2,nV3,nV7	Hey|0.26|0	Siri|0.66|0	review|0.87|1	opens|0.9|0	the|0.9|0	folder|0.87|0	laser|0.32|0
+5b_Daniel	wV0,wV1,wV4,wV5,wV6	As|0.94|0	review|0.78|0	opens|0.99|0	the|0.96|0	folder|0.47|0	lazily.|0.9|0
+5b_Daniel	wV2,wV3,wV7	As|0.94|0	review|0.78|1	opens|0.99|0	the|0.96|0	folder|0.47|0	lazily.|0.9|0
+5b_Daniel	nV0,nV4,nV5,nV6	As|0.32|0	review|0.78|0	opens|0.94|0	the|0.93|0	folder|0.82|0	la|0.09|0
+5b_Daniel	nV1	AzReview|0.49|1	opens|0.82|0	the|0.98|0	folder|0.91|0	la|0.25|0
+5b_Daniel	nV2	Az|0.49|1	review|0.49|1	opens|0.82|0	the|0.97|0	folder|0.91|0	la|0.25|0
+5b_Daniel	nV3,nV7	AzReview|0.49|1	opens|0.82|0	the|0.98|0	folder|0.94|0	la|0.27|0
+5b_Fred	wV0,wV4,wV5,wV6	As|0.9|0	Revue|0.67|0	opens|0.9|0	the|0.74|0	folder|0.9|0	lazily.|0.96|0
+5b_Fred	wV1,wV3,wV7	Azreview|0.23|1	opens|0.77|0	the|0.88|0	folder|0.9|0	lazily.|0.96|0
+5b_Fred	wV2	Az|0.34|1	Review|0.09|1	opens|0.86|0	the|0.9|0	folder|0.91|0	lazily.|0.96|0
+5b_Fred	nV0,nV1,nV4,nV5,nV6	Add|0.03|0	review|0.03|0	of|0.03|0	the|0.03|0	folder|0.56|0	lazy|0.31|0
+5b_Fred	nV2,nV3,nV7	Add|0.03|0	review|0.03|1	of|0.03|0	the|0.03|0	folder|0.56|0	lazy|0.31|0
+5b_Samantha	wV0,wV1,wV4,wV5,wV6	As|0.93|0	review|0.6|0	opens|0.99|0	the|0.96|0	folder|0.92|0	lazily.|0.98|0
+5b_Samantha	wV2,wV3,wV7	As|0.93|0	review|0.6|1	opens|0.99|0	the|0.96|0	folder|0.92|0	lazily.|0.98|0
+5b_Samantha	nV0,nV4,nV5,nV6	As|0.32|0	review|0.76|0	opens|0.9|0	the|0.94|0	folder|0.88|0	lazily|0.39|0
+5b_Samantha	nV1	AzReview|0.48|1	opens|0.79|0	the|0.95|0	folder|0.9|0	lazily|0.42|0
+5b_Samantha	nV2	Az|0.48|1	review|0.48|1	opens|0.79|0	the|0.95|0	folder|0.9|0	lazily|0.42|0
+5b_Samantha	nV3	Az|0.48|1	review|0.48|1	opens|0.83|0	the|0.97|0	folder|0.95|0	lazily|0.48|0
+5b_Samantha	nV7	Az|0.48|1	review|0.48|1	opens|0.82|0	the|0.97|0	folder|0.95|0	lazily|0.48|0
+5c_Daniel	wV0,wV1,wV4,wV5,wV6	As|0.94|0	review|0.78|0	opens|0.99|0	the|0.96|0	folder|0.47|0	lazily.|0.9|0
+5c_Daniel	wV2,wV3,wV7	As|0.94|0	review|0.78|1	opens|0.99|0	the|0.96|0	folder|0.47|0	lazily.|0.9|0
+5c_Daniel	nV0,nV4,nV5,nV6	As|0.32|0	review|0.78|0	opens|0.94|0	the|0.93|0	folder|0.82|0	la|0.09|0
+5c_Daniel	nV1	AzReview|0.49|1	opens|0.82|0	the|0.98|0	folder|0.91|0	la|0.25|0
+5c_Daniel	nV2	Az|0.49|1	review|0.49|1	opens|0.82|0	the|0.97|0	folder|0.91|0	la|0.25|0
+5c_Daniel	nV3,nV7	AzReview|0.49|1	opens|0.82|0	the|0.98|0	folder|0.94|0	la|0.27|0
+5c_Fred	wV0,wV1,wV2,wV3,wV4,wV5,wV6,wV7	As|0.81|0	Revue|0.69|0	opens|0.84|0	the|0.6|0	folder|0.6|0	lazily.|0.97|0
+5c_Fred	nV0,nV1,nV4,nV5,nV6	Add|0.02|0	review|0.02|0	off|0.02|0	the|0.02|0	folder|0.51|0	lazy|0.33|0
+5c_Fred	nV2,nV3,nV7	Add|0.02|0	review|0.02|1	off|0.02|0	the|0.02|0	folder|0.51|0	lazy|0.33|0
+5c_Samantha	wV0,wV1,wV4,wV5,wV6	As|0.93|0	review|0.6|0	opens|0.99|0	the|0.96|0	folder|0.92|0	lazily.|0.98|0
+5c_Samantha	wV2,wV3,wV7	As|0.93|0	review|0.6|1	opens|0.99|0	the|0.96|0	folder|0.92|0	lazily.|0.98|0
+5c_Samantha	nV0,nV4,nV5,nV6	As|0.32|0	review|0.76|0	opens|0.9|0	the|0.94|0	folder|0.88|0	lazily|0.39|0
+5c_Samantha	nV1	AzReview|0.48|1	opens|0.79|0	the|0.95|0	folder|0.9|0	lazily|0.42|0
+5c_Samantha	nV2	Az|0.48|1	review|0.48|1	opens|0.79|0	the|0.95|0	folder|0.9|0	lazily|0.42|0
+5c_Samantha	nV3	Az|0.48|1	review|0.48|1	opens|0.83|0	the|0.97|0	folder|0.95|0	lazily|0.48|0
+5c_Samantha	nV7	Az|0.48|1	review|0.48|1	opens|0.82|0	the|0.97|0	folder|0.95|0	lazily|0.48|0
+6_Daniel	wV0,wV1,wV4,wV5,wV6	The|1.0|0	data|0.98|0	table|1.0|0	cell|0.96|0	renders|0.98|0	the|1.0|0	wrong|0.99|0	padding.|0.98|0
+6_Daniel	wV2,wV3,wV7	The|1.0|0	data|0.98|1	table|1.0|1	cell|0.96|1	renders|0.98|0	the|1.0|0	wrong|0.99|0	padding.|0.98|0
+6_Daniel	nV0,nV4,nV5,nV6	The|0.32|0	date|0.14|0	of|0.14|0	table|0.14|0	sell|0.53|0	renders|0.79|0	the|0.82|0	wrong|0.81|0	padding|0.42|0
+6_Daniel	nV1	The|0.68|0	DataTableCell|0.81|1	renders|0.91|0	the|0.93|0	wrong|0.95|0	padding|0.68|0
+6_Daniel	nV2	The|0.68|0	data|0.82|1	table|0.82|1	cell|0.82|1	renders|0.92|0	the|0.93|0	wrong|0.95|0	padding|0.69|0
+6_Daniel	nV3	The|0.63|0	data|0.7|1	table|0.7|1	cell|0.7|1	renders|0.89|0	the|0.93|0	wrong|0.96|0	padding|0.62|0
+6_Daniel	nV7	The|0.63|0	data|0.69|1	table|0.69|1	cell|0.69|1	renders|0.89|0	the|0.93|0	wrong|0.96|0	padding|0.62|0
+6_Fred	wV0,wV1,wV4,wV5,wV6	The|0.99|0	day|0.89|0	the|0.77|0	table|0.96|0	cell|0.96|0	renders|0.93|0	the|0.93|0	wrong|0.97|0	patty.|0.61|0
+6_Fred	wV2,wV3,wV7	The|0.99|0	data|0.05|1	table|0.97|1	cell|0.95|1	renders|0.92|0	the|0.92|0	wrong|0.98|0	pattern.|0.32|0
+6_Fred	nV0,nV1,nV4,nV5,nV6	The|0.25|0	day|0.41|0	the|0.41|0	table|0.64|0	sell|0.31|0	render|0.23|0	the|0.23|0	wrong|0.1|0	party|0.1|0
+6_Fred	nV2,nV3,nV7	The|0.25|0	day|0.41|0	the|0.41|0	table|0.64|1	sell|0.31|0	render|0.23|0	the|0.23|0	wrong|0.1|0	party|0.1|0
+6_Samantha	wV0,wV1,wV4,wV5,wV6	The|0.94|0	data|0.92|0	table|0.99|0	cell|0.56|0	renders|0.98|0	the|0.99|0	wrong|0.99|0	padding.|0.85|0
+6_Samantha	wV2,wV3,wV7	The|0.94|0	data|0.92|1	table|0.99|1	cell|0.56|1	renders|0.98|0	the|0.99|0	wrong|0.99|0	padding.|0.85|0
+6_Samantha	nV0,nV4,nV5,nV6	The|0.37|0	data|0.57|0	table|0.57|0	cell|0.53|0	renders|0.9|0	the|0.97|0	wrong|0.95|0	padding|0.5|0
+6_Samantha	nV1	The|0.6|0	DataTableCell|0.83|1	renders|0.96|0	the|0.98|0	wrong|0.97|0	padding|0.73|0
+6_Samantha	nV2	The|0.6|0	data|0.84|1	table|0.84|1	cell|0.84|1	renders|0.96|0	the|0.98|0	wrong|0.97|0	padding|0.74|0
+6_Samantha	nV3,nV7	The|0.53|0	data|0.77|1	table|0.77|1	cell|0.77|1	renders|0.95|0	the|0.98|0	wrong|0.98|0	padding|0.72|0
+7_Daniel	wV0,wV1,wV2,wV3,wV6	We|0.99|0	pass|0.94|0	the|0.96|0	JSON|0.92|0	and|0.97|0	the|1.0|0	HTML|0.93|0	in|0.99|0	the|1.0|0	dawn.|0.63|0
+7_Daniel	wV4,wV7	We|0.99|0	pass|0.94|0	the|0.96|0	JSON|0.92|1	and|0.97|0	the|1.0|0	HTML|0.93|1	in|0.99|0	the|1.0|0	DOM|0.63|1
+7_Daniel	wV5	We|0.99|0	pass|0.94|0	the|0.96|0	JSON|0.92|1	and|0.97|0	the|1.0|0	HTML|0.93|1	in|0.99|0	the|1.0|0	dawn.|0.63|0
+7_Daniel	nV0,nV1,nV2,nV3,nV6	We|0.32|0	pause|0.74|0	the|0.74|0	JSON|0.64|0	on|0.55|0	the|0.68|0	HTML|0.68|0	in|0.83|0	the|0.62|0	Dawn|0.29|0
+7_Daniel	nV4	We|0.34|0	pause|0.83|0	the|0.93|0	JSON|0.72|1	on|0.65|0	the|0.9|0	HTML|0.72|1	in|0.95|0	the|0.75|0	Dawn|0.49|0
+7_Daniel	nV5	We|0.32|0	pause|0.74|0	the|0.74|0	JSON|0.64|1	on|0.57|0	the|0.67|0	html|0.63|1	in|0.78|0	the|0.63|0	Dawn|0.25|0
+7_Daniel	nV7	We|0.34|0	pause|0.84|0	the|0.93|0	JSON|0.74|1	on|0.7|0	the|0.9|0	HTML|0.72|1	in|0.95|0	the|0.75|0	Dawn|0.49|0
+7_Fred	wV0,wV1,wV2,wV3,wV6	We|0.96|0	parse|0.77|0	the|0.95|0	J-S-O-N|0.69|0	on|0.57|0	the|0.99|0	H-P-M-L|0.88|0	in|0.33|0	the|0.99|0	Dong.|0.61|0
+7_Fred	wV4,wV7	We|0.96|0	parse|0.77|0	the|0.95|0	J|0.44|0	as|0.35|0	ON|0.46|0	on|0.47|0	the|0.99|0	HTML|0.71|1	in|0.98|0	the|0.99|0	DOM.|0.45|1
+7_Fred	wV5	We|0.96|0	parse|0.77|0	the|0.95|0	J-S-O-N|0.69|1	on|0.57|0	the|0.99|0	H-P-M-L|0.88|0	in|0.33|0	the|0.99|0	Dong.|0.61|0
+7_Fred	nV0,nV1,nV2,nV3,nV4,nV5,nV6,nV7	We|0.26|0	are|0.2|0	the|0.5|0	J|0.38|0	S|0.3|0	O|0.45|0	N|0.5|0	NG|0.08|0	HTM|0.02|0	L|0.02|0	in|0.02|0	exam|0.02|0
+7_Samantha	wV0,wV1,wV2,wV3,wV6	We|0.9|0	parse|0.84|0	the|0.99|0	JSON|0.57|0	and|0.9|0	the|1.0|0	HTML|0.82|0	in|0.97|0	the|1.0|0	DOM.|0.8|0
+7_Samantha	wV4,wV7	We|0.9|0	parse|0.84|0	the|0.99|0	JSON|0.57|1	and|0.9|0	the|1.0|0	HTML|0.82|1	in|0.97|0	the|1.0|0	DOM.|0.8|1
+7_Samantha	wV5	We|0.9|0	parse|0.84|0	the|0.99|0	Jason|0.51|0	and|0.96|0	the|1.0|0	Html|0.29|1	in|0.95|0	the|1.0|0	Dom.|0.62|1
+7_Samantha	nV0,nV1,nV2,nV3,nV6	We|0.32|0	parked|0.44|0	the|0.77|0	Jason|0.12|0	in|0.12|0	the|0.57|0	HTML|0.67|0	in|0.71|0	the|0.71|0	Dom|0.37|0
+7_Samantha	nV4	We|0.33|0	parked|0.36|0	the|0.36|0	JSON|0.26|1	in|0.26|0	the|0.83|0	HTML|0.68|1	in|0.94|0	the|0.91|0	DOM|0.55|1
+7_Samantha	nV5	We|0.32|0	parked|0.36|0	the|0.36|0	json|0.54|1	in|0.43|0	the|0.86|0	html|0.71|1	in|0.95|0	the|0.91|0	dom|0.56|1
+7_Samantha	nV7	We|0.33|0	parked|0.38|0	the|0.38|0	JSON|0.23|1	in|0.23|0	the|0.8|0	HTML|0.68|1	in|0.94|0	the|0.91|0	DOM|0.54|1
+8_Daniel	wV0,wV1,wV2,wV3,wV4,wV5	The|0.99|0	mutexes|0.77|0	held|1.0|0	across|0.99|0	the|1.0|0	await.|0.74|0
+8_Daniel	wV6,wV7	The|0.99|0	mutexes|0.77|0	held|1.0|0	across|0.99|0	the|1.0|0	await.|0.74|1
+8_Daniel	nV0,nV1,nV2,nV3,nV4,nV5	The|0.12|0	Mutex|0.12|0	is|0.12|0	held|0.91|0	across|0.88|0	the|0.62|0	weight|0.26|0
+8_Daniel	nV6	The|0.52|0	mutex|0.76|1	is|0.84|0	held|0.93|0	across|0.93|0	the|0.97|0	await|0.47|1
+8_Daniel	nV7	The|0.51|0	mutex|0.75|1	is|0.85|0	held|0.92|0	across|0.92|0	the|0.42|0	await|0.42|1
+8_Fred	wV0,wV1,wV2,wV3,wV4,wV5	The|0.93|0	move|0.12|0	of|0.93|0	Texas|0.83|0	held|0.97|0	across|0.95|0	the|0.97|0	away.|0.32|0
+8_Fred	wV6,wV7	The|0.93|0	move|0.12|0	of|0.93|0	Texas|0.83|0	held|0.97|0	across|0.95|0	the|0.97|0	await.|0.17|1
+8_Fred	nV0,nV1,nV2,nV3,nV4,nV5,nV6,nV7	Text|0.11|0	house|0.11|0	across|0.69|0	the|0.59|0	way|0.36|0
+8_Samantha	wV0,wV1,wV2,wV3,wV4,wV5	The|0.93|0	mute|0.71|0	taxes|0.62|0	held|0.99|0	across|0.97|0	the|1.0|0	await.|0.52|0
+8_Samantha	wV6,wV7	The|0.93|0	mutexes|0.63|0	held|0.99|0	across|0.96|0	the|1.0|0	await.|0.53|1
+8_Samantha	nV0,nV1,nV2,nV3,nV4,nV5,nV6,nV7	The|0.07|0	new|0.07|0	text|0.58|0	held|0.58|0	across|0.96|0	the|0.17|0	way|0.17|0
+9_Daniel	wV0,wV1,wV4,wV5	Unrabor|0.69|0	else|0.59|0	is|0.97|0	called|0.99|0	on|0.99|0	the|0.98|0	vag.|0.62|0
+9_Daniel	wV2,wV3	Unrabor|0.69|0	else|0.59|1	is|0.97|0	called|0.99|0	on|0.99|0	the|0.98|0	vag.|0.62|0
+9_Daniel	wV6	Unwrapor|0.54|0	else|0.8|0	is|0.96|0	called|0.99|0	on|0.98|0	the|0.98|0	veg.|0.56|0
+9_Daniel	wV7	Unwrapor|0.54|0	else|0.8|1	is|0.96|0	called|0.99|0	on|0.98|0	the|0.98|0	veg.|0.56|0
+9_Daniel	nV0,nV4,nV5,nV6	Unravel|0.13|0	or|0.13|0	else|0.72|0	is|0.78|0	cooled|0.46|0	on|0.66|0	the|0.38|0
+9_Daniel	nV1	Unwrap_or_else|0.31|1	is|0.75|0	cool|0.41|0	on|0.74|0	the|0.34|0
+9_Daniel	nV2	Unwrap|0.31|1	or|0.31|1	else|0.31|1	is|0.75|0	cool|0.41|0	on|0.74|0	the|0.34|0
+9_Daniel	nV3,nV7	Unwrap|0.28|1	or|0.28|1	else|0.28|1	is|0.75|0	cool|0.42|0	on|0.74|0	the|0.34|0
+9_Fred	wV0,wV4,wV5	On|0.19|0	wrap|0.71|0	or|0.27|0	else|0.97|0	is|0.61|0	called|0.98|0	on|0.97|0	the|0.4|0	veck.|0.48|0
+9_Fred	wV1	"Unrappor|0.45|0	else|0.68|0	is|0.69|0	called|0.99|0	on|0.94|0	the|0.27|0	veck.|0.57|0
+9_Fred	wV2,wV3	Unwrap|0.39|1	Or|0.0|1	Else|0.06|1	is|0.59|0	called|0.98|0	on|0.92|0	Novec.|0.56|0
+9_Fred	wV6	Unwrap|0.39|1	or|0.16|0	else|0.98|0	is|0.73|0	called|0.98|0	on|0.93|0	the|0.33|0	vec.|0.29|1
+9_Fred	wV7	Unwrap|0.39|1	or|0.16|1	else|0.98|1	is|0.73|0	called|0.98|0	on|0.93|0	the|0.33|0	vec.|0.29|1
+9_Fred	nV0,nV1,nV4,nV5	Unwrap|0.33|0	or|0.71|0	else|0.72|0	is|0.42|0	called|0.42|0	on|0.71|0	the|0.39|0	way|0.05|0
+9_Fred	nV2,nV3,nV7	Unwrap|0.46|1	or|0.46|1	else|0.46|1	is|0.42|0	called|0.42|0	on|0.83|0	the|0.56|0	way|0.05|0
+9_Fred	nV6	Unwrap|0.27|1	or|0.71|0	else|0.73|0	is|0.42|0	called|0.42|0	on|0.74|0	the|0.43|0	way|0.14|0
+9_Samantha	wV0,wV1,wV4,wV5	On|0.66|0	wrap|0.73|0	or|0.69|0	else|0.96|0	is|0.81|0	called|0.99|0	on|0.99|0	the|0.98|0	veg.|0.55|0
+9_Samantha	wV2,wV3	On|0.66|0	wrap|0.73|0	or|0.69|1	else|0.96|1	is|0.81|0	called|0.99|0	on|0.99|0	the|0.98|0	veg.|0.55|0
+9_Samantha	wV6	Unwrap|0.49|1	or|0.43|0	else|0.97|0	is|0.88|0	called|0.99|0	on|0.99|0	the|0.97|0	vec.|0.28|1
+9_Samantha	wV7	Unwrap|0.49|1	or|0.43|1	else|0.97|1	is|0.88|0	called|0.99|0	on|0.99|0	the|0.97|0	vec.|0.28|1
+9_Samantha	nV0,nV4,nV5	Or|0.01|0	else|0.74|0	is|0.8|0	called|0.9|0	on|0.93|0	the|0.22|0	back|0.22|0
+9_Samantha	nV1	Unwrap_or_else|0.51|1	is|0.81|0	called|0.87|0	on|0.91|0	the|0.66|0	back|0.41|0
+9_Samantha	nV2	Unwrap|0.51|1	or|0.51|1	else|0.51|1	is|0.81|0	called|0.87|0	on|0.91|0	the|0.66|0	back|0.41|0
+9_Samantha	nV3,nV7	Unwrap|0.32|1	or|0.32|1	else|0.32|1	is|0.79|0	called|0.89|0	on|0.91|0	the|0.68|0	back|0.35|0
+9_Samantha	nV6	Unwrap|0.21|1	or|0.21|0	else|0.8|0	is|0.81|0	called|0.91|0	on|0.93|0	the|0.22|0	back|0.22|0
+10_Daniel	wV0,wV4,wV5,wV6	The|0.97|0	scroll|0.92|0	manager|0.95|0	sends|1.0|0	an|0.99|0	HTTP|0.95|0	request.|1.0|0
+10_Daniel	wV1	The|0.97|0	scrollmanager|0.7|1	sends|0.99|0	an|0.99|0	HTTP|0.94|0	request.|1.0|0
+10_Daniel	wV2,wV3,wV7	The|0.97|0	scroll|0.92|1	manager|0.95|1	sends|1.0|0	an|0.99|0	HTTP|0.95|1	request.|1.0|1
+10_Daniel	nV0,nV1,nV4,nV5,nV6	The|0.33|0	Squirel|0.42|0	manager|0.86|0	sends|0.92|0	an|0.79|0	HTTP|0.64|0	request|0.41|0
+10_Daniel	nV2	The|0.37|0	Squirel|0.44|0	manager|0.89|1	sends|0.95|0	an|0.88|0	HTTP|0.66|1	request|0.42|1
+10_Daniel	nV3,nV7	The|0.33|0	Squirel|0.42|0	manager|0.86|1	sends|0.92|0	an|0.79|0	HTTP|0.64|1	request|0.41|1
+10_Fred	wV0,wV4,wV5,wV6	This|0.75|0	girl|0.41|0	manager|0.71|0	sends|0.99|0	an|0.99|0	HTTP|0.78|0	request.|1.0|0
+10_Fred	wV1	The|0.14|0	scrollmanager|0.61|1	sends|0.98|0	an|0.99|0	HTTP|0.83|0	request.|1.0|0
+10_Fred	wV2,wV3,wV7	The|0.14|0	scroll|0.76|1	manager|0.97|1	sends|0.99|0	an|0.99|0	HTTP|0.84|1	request.|1.0|1
+10_Fred	nV0,nV1,nV4,nV5,nV6	This|0.23|0	role|0.23|0	manager|0.82|0	sent|0.67|0	an|0.62|0	HTTP|0.52|0	request|0.62|0
+10_Fred	nV2	This|0.23|0	role|0.23|0	manager|0.82|1	sent|0.4|0	an|0.4|0	http|0.56|1	request|0.56|1
+10_Fred	nV3	This|0.21|0	role|0.21|0	manager|0.78|1	sent|0.35|0	an|0.35|0	http|0.57|1	request|0.57|1
+10_Fred	nV7	This|0.21|0	role|0.21|0	manager|0.77|1	sent|0.35|0	an|0.35|0	http|0.57|1	request|0.57|1
+10_Samantha	wV0,wV4,wV5,wV6	The|0.95|0	scroll|0.93|0	manager|0.98|0	sends|0.96|0	an|1.0|0	HTTP|0.67|0	request.|1.0|0
+10_Samantha	wV1	The|0.95|0	scrollmanager|0.71|1	sends|0.94|0	an|1.0|0	HTTP|0.65|0	request.|1.0|0
+10_Samantha	wV2,wV3,wV7	The|0.95|0	scroll|0.93|1	manager|0.98|1	sends|0.96|0	an|1.0|0	HTTP|0.67|1	request.|1.0|1
+10_Samantha	nV0,nV4,nV5,nV6	The|0.3|0	scroll|0.69|0	manager|0.91|0	sends|0.93|0	an|0.89|0	HTTP|0.64|0	request|0.41|0
+10_Samantha	nV1	The|0.41|0	ScrollManager|0.78|1	sends|0.88|0	an|0.82|0	HTTP|0.63|0	request|0.41|0
+10_Samantha	nV2	The|0.58|0	scroll|0.9|1	manager|0.9|1	sends|0.95|0	an|0.97|0	http|0.53|1	request|0.53|1
+10_Samantha	nV3	The|0.44|0	ScrollManager|0.65|1	sends|0.88|0	an|0.95|0	http|0.47|1	request|0.47|1
+10_Samantha	nV7	The|0.44|0	ScrollManager|0.64|1	sends|0.88|0	an|0.95|0	http|0.47|1	request|0.47|1
+N1_Daniel	wV0,wV1,wV2,wV3,wV4,wV5,wV6,wV7	Hello,|0.91|0	well|0.85|0	this|0.23|0	is|0.99|0	a|0.95|0	test.|0.98|0
+N1_Daniel	nV0,nV1,nV2,nV3,nV4,nV5,nV6,nV7	Hello|0.39|0	well|0.92|0	this|0.92|0	is|0.88|0	a|0.64|0	test|0.52|0
+N1_Fred	wV0,wV1,wV2,wV3,wV4,wV5,wV6,wV7	Hello|0.93|0	world,|0.59|0	this|0.99|0	is|1.0|0	a|0.87|0	test.|0.99|0
+N1_Fred	nV0,nV1,nV2,nV3,nV4,nV5,nV6,nV7	Hello|0.91|0	world|0.98|0	this|0.99|0	is|0.97|0	a|0.86|0	test|0.8|0
+N1_Samantha	wV0,wV1,wV2,wV3,wV4,wV5,wV6,wV7	Hello|0.87|0	world,|0.8|0	this|0.99|0	is|1.0|0	a|0.97|0	test.|0.97|0
+N1_Samantha	nV0,nV1,nV2,nV3,nV4,nV5,nV6,nV7	Hello|0.37|0	world|0.93|0	this|0.95|0	is|0.84|0	a|0.57|0	test|0.58|0
+N2_Daniel	wV0,wV1,wV2,wV3,wV4,wV5,wV6,wV7	We|0.86|0	can|1.0|0	see|0.99|0	errors|0.96|0	in|1.0|0	the|1.0|0	law.|0.52|0
+N2_Daniel	nV0,nV1,nV2,nV3,nV4,nV5,nV6,nV7	We|0.38|0	can|0.87|0	see|0.74|0	errors|0.6|0	in|0.89|0	the|0.82|0	Lord|0.33|0
+N2_Fred	wV0,wV1,wV2,wV3,wV4,wV5,wV6,wV7	We|0.85|0	can|0.62|0	see|1.0|0	errors|0.98|0	in|1.0|0	the|1.0|0	log.|0.53|0
+N2_Fred	nV0,nV1,nV2,nV3,nV4,nV5,nV6,nV7	We|0.32|0	can|0.52|0	see|0.78|0	errors|0.61|0	in|0.1|0	the|0.1|0	Lord|0.1|0
+N2_Samantha	wV0,wV1,wV2,wV3,wV4,wV5,wV6,wV7	We|0.89|0	can|0.99|0	see|1.0|0	errors|0.97|0	in|1.0|0	the|1.0|0	log.|0.98|0
+N2_Samantha	nV0,nV1,nV2,nV3,nV4,nV5,nV6,nV7	We|0.34|0	can|0.88|0	see|0.86|0	errors|0.83|0	in|0.83|0	the|0.25|0
+N3_Daniel	wV0,wV1,wV2,wV3,wV4,wV5,wV6,wV7	Yes,|0.79|0	so|0.96|0	that|1.0|0	is|1.0|0	right.|0.99|0
+N3_Daniel	nV0,nV1,nV2,nV3,nV4,nV5,nV6,nV7	Yes|0.97|0	so|0.99|0	that|0.99|0	is|0.99|0	right|0.95|0
+N3_Fred	wV0,wV1,wV2,wV3,wV4,wV5,wV6,wV7	"Yes,|0.72|0	sir,|0.98|0	it|0.88|0	is|0.99|0	right.|1.0|0
+N3_Fred	nV0,nV1,nV2,nV3,nV4,nV5,nV6,nV7	Yes|0.9|0	sir|0.95|0	it|0.86|0	is|0.9|0	right|0.81|0
+N3_Samantha	wV0,wV1,wV2,wV3,wV4,wV5,wV6,wV7	Yes,|0.23|0	sir,|1.0|0	that|0.99|0	is|1.0|0	right.|0.99|0
+N3_Samantha	nV0,nV1,nV2,nV3,nV4,nV5,nV6,nV7	Yes|0.96|0	sir|0.98|0	that|0.99|0	is|0.99|0	right|0.93|0
+N4_Daniel	wV0,wV1,wV2,wV3,wV4,wV5,wV6,wV7	SEOSERA.|0.62|0
+N4_Daniel	nV0,nV1,nV2,nV3,nV4,nV5,nV6,nV7	See|0.58|0	you|0.52|0	Sarah|0.42|0
+N4_Fred	wV0,wV4,wV5,wV6	See|0.83|0	you,|0.06|0	Sarah.|0.77|0
+N4_Fred	wV1,wV2,wV3,wV7	See,|0.83|0	O'Sarah!|0.55|0
+N4_Fred	nV0,nV1,nV2,nV3,nV4,nV5,nV6,nV7	See|0.04|0	Sarah|0.04|0
+N4_Samantha	wV0,wV1,wV4,wV5,wV6	See|0.81|0	us|0.96|0	error.|0.69|0
+N4_Samantha	wV2,wV3,wV7	See|0.81|0	us|0.96|0	error.|0.69|1
+N4_Samantha	nV0,nV1,nV2,nV3,nV4,nV5,nV6,nV7	See|0.01|0	ya|0.01|0
+N5_Daniel	wV0,wV1,wV2,wV3,wV4,wV5,wV6,wV7	The|0.87|0	enemy|1.0|0	is|1.0|0	in|1.0|0	the|1.0|0	room.|0.99|0
+N5_Daniel	nV0,nV1,nV2,nV3,nV4,nV5,nV6,nV7	Vietnamese|0.73|0	is|0.95|0	in|0.86|0	the|0.93|0	room|0.44|0
+N5_Fred	wV0,wV1,wV2,wV3,wV4,wV5,wV6,wV7	The|0.99|0	enemy|0.92|0	is|0.98|0	in|1.0|0	the|0.91|0	room.|1.0|0
+N5_Fred	nV0,nV1,nV2,nV3,nV4,nV5,nV6,nV7	The|0.32|0	enemy|0.57|0	is|0.66|0	in|0.63|0	the|0.44|0
+N5_Samantha	wV0,wV1,wV2,wV3,wV4,wV5,wV6,wV7	The|0.89|0	enemy|0.99|0	is|1.0|0	in|1.0|0	the|0.99|0	room.|0.99|0
+N5_Samantha	nV0,nV1,nV2,nV3,nV4,nV5,nV6,nV7	The|0.56|0	enemy|0.9|0	is|0.91|0	in|0.89|0	the|0.93|0	room|0.69|0
+N6_Daniel	wV0,wV1,wV2,wV3,wV4,wV5,wV6,wV7	He|0.96|0	was|1.0|0	awake|0.74|0	all|0.98|0	night.|1.0|0
+N6_Daniel	nV0,nV1,nV2,nV3,nV4,nV5,nV6,nV7	He|0.36|0	was|0.72|0	awake|0.28|0	all|0.28|0	night|0.42|0
+N6_Fred	wV0,wV1,wV2,wV3,wV4,wV5,wV6,wV7	He|0.89|0	was|0.93|0	away|0.87|0	all|0.18|0	night.|1.0|0
+N6_Fred	nV0,nV1,nV2,nV3,nV4,nV5,nV6,nV7	He|0.32|0	was|0.7|0	away|0.06|0	call|0.06|0
+N6_Samantha	wV0,wV1,wV2,wV3,wV4,wV5,wV6,wV7	He|0.97|0	was|1.0|0	awake|0.94|0	all|1.0|0	night.|1.0|0
+N6_Samantha	nV0,nV1,nV2,nV3,nV4,nV5,nV6,nV7	He|0.96|0	was|0.99|0	awake|0.99|0	all|0.98|0	night|0.95|0
