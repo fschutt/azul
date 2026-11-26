@@ -450,6 +450,16 @@ def device_is_software(device):
     return bool(device and SOFTWARE_DEVICE.search(device))
 
 
+GPU_FIRST_FRAME_SECONDS = 120
+
+
+def first_frame_timeout_for(mode, base):
+    """How long to wait for the first frame of an AZ_BACKEND run. A `gpu` request on a software GL (every CI emulator and Simulator)
+    compiles each WebRender shader at its first use (an LLVM JIT) and can take about two minutes to the first frame; waiting
+    less would call a slow start a missing picture. The other modes keep the normal wait."""
+    return max(base, GPU_FIRST_FRAME_SECONDS) if mode == "gpu" else base
+
+
 def report_modes(run, step, results, expect_gpu, platform, hardware=False):
     """The verdict of the AZ_BACKEND runs. `results[mode]` = {ran, requested, device, rgba, dims, first_frame_s,
     displayed_ms, frames: {median, p95, n} | None}. Says, per mode, WHICH backend ran: a request for the GPU that ran
@@ -871,7 +881,7 @@ def android_scenarios(args):
             dev.sh(f"setprop debug.az.env 'AZ_LOG=info;AZ_DUMP_PRESENT=1;AZ_BACKEND={mode}'")
             dev.adb("logcat", "-c")
             dev.launch(cold=True)
-            t = dev.wait_for_front(timeout=args.first_frame_timeout)
+            t = dev.wait_for_front(timeout=first_frame_timeout_for(mode, args.first_frame_timeout))
             dev.settle(2.5)
             sig = dev.look(s, f"AZ_BACKEND-{mode}")
             rgba, dims = dev.last_rgba, dev.dims
@@ -1642,7 +1652,7 @@ def ios_scenarios(args):
         results = {}
         for mode in ("cpu", "gpu", "auto"):
             dev.launch(extra_env={"AZ_BACKEND": mode}, cold=True)
-            t = dev.wait_for_front(timeout=args.first_frame_timeout)
+            t = dev.wait_for_front(timeout=first_frame_timeout_for(mode, args.first_frame_timeout))
             dev.settle(2.5)
             sig = dev.look(s, f"AZ_BACKEND-{mode}")
             full = dev.last_rgba_full()
