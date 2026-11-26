@@ -8102,9 +8102,11 @@ impl MacOSWindow {
         // `init_accessibility`, after it, so the first layout pass built a tree that nobody asked for (8.6 ms of
         // the first frame in the startup timeline of 2026-11-26).
         #[cfg(feature = "a11y")]
-        if !window.a11y_eager() {
-            if let Some(lw) = window.common.layout_window.as_mut() {
-                lw.a11y_manager.on_demand = true;
+        {
+            if !window.a11y_eager() {
+                if let Some(lw) = window.common.layout_window.as_mut() {
+                    lw.a11y_manager.on_demand = true;
+                }
             }
         }
         // The titlebar in the mode the window will show, before it is ever
