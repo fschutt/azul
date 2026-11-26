@@ -20,7 +20,7 @@ fn contact(tool_type: TouchToolType) -> TouchPoint {
     }
 }
 
-const AT: Option<LogicalPosition> = Some(LogicalPosition { x: 10.0, y: 20.0 });
+static AT: Option<LogicalPosition> = Some(LogicalPosition { x: 10.0, y: 20.0 });
 
 /// A fingertip on the glass drags to SCROLL; it does not select text by dragging over it (QA run 45776829730: a
 /// swipe at the top of a page, where there was nothing left to scroll, selected 'fired so far: 0)' through
