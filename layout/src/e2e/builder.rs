@@ -38,6 +38,7 @@
 use std::{
     cell::Cell,
     collections::{BTreeMap, BTreeSet},
+    fmt::Write as _,
     hash::{Hash, Hasher},
 };
 
@@ -1724,7 +1725,7 @@ fn write_open_tag(
         if !class.is_empty() {
             class.push(' ');
         }
-        class.push_str(&format!("{MARKER_PREFIX}{uid}"));
+        let _ = write!(class, "{MARKER_PREFIX}{uid}");
     }
     for (k, v) in attrs {
         if k == "text" || k == "class" {

@@ -28,7 +28,10 @@
 //! `document.json` loads the document. A file that does not apply is still
 //! SAVED — it is the user's text — and the answer says why it did not apply.
 
-use std::path::{Path, PathBuf};
+use std::{
+    fmt::Write as _,
+    path::{Path, PathBuf},
+};
 
 use azul_core::{
     styled_dom::StyledDom,
@@ -467,7 +470,7 @@ impl ProjectSession {
         let mut names = Vec::new();
         for (rel, path) in files {
             if let Ok(text) = std::fs::read_to_string(&path) {
-                css.push_str(&format!("/* {rel} */\n"));
+                let _ = writeln!(css, "/* {rel} */");
                 css.push_str(&text);
                 css.push('\n');
                 names.push(rel);

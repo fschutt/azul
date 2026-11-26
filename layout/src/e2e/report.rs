@@ -30,6 +30,7 @@
 //! `pending`.
 
 use alloc::{format, string::String, vec::Vec};
+use core::fmt::Write;
 
 use super::{E2eTest, E2eTestResult};
 
@@ -206,7 +207,7 @@ pub fn render_report(tests: &[E2eTest], results: &[E2eTestResult]) -> (String, E
     if !gate_failures.is_empty() {
         out.push_str("failures:\n\n");
         for (f, verdict) in &gate_failures {
-            out.push_str(&format!("---- {} ({verdict}) ----\n", f.name));
+            let _ = writeln!(out, "---- {} ({verdict}) ----", f.name);
             if *verdict == "XPASS" {
                 out.push_str(
                     "  test passed but is marked \"expect\":\"fail\" — the bug it guards is \
@@ -215,19 +216,20 @@ pub fn render_report(tests: &[E2eTest], results: &[E2eTestResult]) -> (String, E
             }
             for step in &f.steps {
                 if step.status == "fail" {
-                    out.push_str(&format!(
-                        "  step {}: {} → FAILED: {}\n",
+                    let _ = writeln!(
+                        out,
+                        "  step {}: {} → FAILED: {}",
                         step.step_index,
                         step.op,
                         step.error.as_deref().unwrap_or("unknown error")
-                    ));
+                    );
                 }
             }
             out.push('\n');
         }
         out.push_str("failures:\n");
         for (f, verdict) in &gate_failures {
-            out.push_str(&format!("    {} ({verdict})\n", f.name));
+            let _ = writeln!(out, "    {} ({verdict})", f.name);
         }
         out.push('\n');
     }
@@ -237,11 +239,12 @@ pub fn render_report(tests: &[E2eTest], results: &[E2eTestResult]) -> (String, E
     } else {
         "\x1b[32mok\x1b[0m"
     };
-    out.push_str(&format!(
+    let _ = writeln!(
+        out,
         "test result: {word}. {} passed; {} failed; {} xfailed; {} xpassed; {} skipped; {} \
-         pending; 0 measured; 0 filtered out\n",
+         pending; 0 measured; 0 filtered out",
         v.passed, v.failed, v.xfail, v.xpass, v.skipped, v.pending
-    ));
+    );
 
     (out, v)
 }

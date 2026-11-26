@@ -24,7 +24,10 @@ use alloc::{
     string::String,
     vec::Vec,
 };
-use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use core::{
+    fmt::Write as _,
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
+};
 // Import the NativeScreenshotExt trait for native screenshots
 #[cfg(feature = "std")]
 use std::sync::{mpsc, Arc, Mutex, OnceLock};
@@ -5013,7 +5016,7 @@ fn build_selector_for_node(
         .iter()
         .any(|a| a.as_id().is_some() || a.as_class().is_some());
     if !has_id_or_class {
-        selector.push_str(&alloc::format!(":nth-child({})", node_id.index() + 1));
+        let _ = write!(selector, ":nth-child({})", node_id.index() + 1);
     }
 
     Some(selector)
