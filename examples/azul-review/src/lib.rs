@@ -82,6 +82,7 @@ pub mod recorder_export;
 pub mod recorder_fs;
 pub mod recorder_manifest;
 pub mod recorder_mp4;
+pub mod recorder_panel;
 pub mod recorder_policy;
 pub mod recorder_screen;
 pub mod recorder_settings;

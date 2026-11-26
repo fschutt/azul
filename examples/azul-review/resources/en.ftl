@@ -37,6 +37,57 @@ azreview-nib-marker = marker
 azreview-nib-pen = pen
 azreview-nib-audio-pen = audio pen
 
+## Recording (the recorder's panel, src/recorder_panel.rs)
+
+azreview-rec-status-idle = Not recording
+azreview-rec-status-recording = Recording
+azreview-rec-status-paused-user = Paused by you
+azreview-rec-status-paused-idle = Paused: nothing happened for a while
+azreview-rec-status-paused-quota = Paused: the disk is nearly full
+azreview-rec-status-paused-locked = Paused: the screen is locked
+azreview-rec-described-idle = Not recording
+azreview-rec-described-recording = Recording, { $time } recorded
+azreview-rec-described-paused = Recording paused, { $time } recorded. { $why }
+azreview-rec-start = Start recording
+azreview-rec-stop = Stop recording
+azreview-rec-pause = Pause
+azreview-rec-resume = Resume
+azreview-rec-pause-described = Pause the recording (hotkey { $hotkey })
+azreview-rec-resume-described = Resume the recording (hotkey { $hotkey })
+azreview-rec-track-screen = Screen
+azreview-rec-track-camera = Camera
+azreview-rec-track-audio = Microphone
+azreview-rec-problem = { $track }: { $why }
+azreview-rec-disk-free = { $free } free on the disk.
+azreview-rec-disk-low = The disk is getting full: { $free } free.
+azreview-rec-disk-full = The disk is full ({ $free } free): the recording stays paused until there is room.
+azreview-rec-disk-unknown = The free space of the disk cannot be read: nothing is paused for it.
+azreview-rec-minutes-left = { $minutes ->
+    [one] About { $minutes } minute left.
+   *[other] About { $minutes } minutes left.
+ }
+azreview-rec-hours-left = { $hours ->
+    [one] About { $hours } hour left.
+   *[other] About { $hours } hours left.
+ }
+azreview-rec-dropped = { $count ->
+    [one] { $count } picture was dropped: the encoder was behind.
+   *[other] { $count } pictures were dropped: the encoder was behind.
+ }
+azreview-rec-will-display = Records everything on the display while it runs: every app, every window, and the pointer.
+azreview-rec-will-window = Records the window of AzReview and nothing else on the desktop.
+azreview-rec-will-own = Records only what AzReview itself shows, nothing else on the desktop.
+azreview-rec-will-camera = Records the camera.
+azreview-rec-will-voice = Records the microphone.
+azreview-rec-will-events = Keeps a log of the pen, the files opened and the words said.
+azreview-rec-denied = { $track } is not recorded: the system did not allow { $who } ({ $why })
+azreview-rec-who-unknown = the program that started AzReview
+azreview-rec-state-complete = Complete
+azreview-rec-state-recovered = Recovered after the app ended
+azreview-rec-state-unfinished = Not finished
+azreview-rec-state-damaged = Cannot be read
+azreview-rec-row-problem = { $why }
+
 ## Whiteboard
 
 azreview-whiteboard-notice-too-many-items = The whiteboard holds { $limit } items, as many as it has room for: remove one first.

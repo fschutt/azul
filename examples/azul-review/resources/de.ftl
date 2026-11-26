@@ -37,6 +37,57 @@ azreview-nib-marker = Marker
 azreview-nib-pen = Stift
 azreview-nib-audio-pen = Audiostift
 
+## Aufnahme (das Feld des Recorders, src/recorder_panel.rs)
+
+azreview-rec-status-idle = Keine Aufnahme
+azreview-rec-status-recording = Aufnahme läuft
+azreview-rec-status-paused-user = Von dir pausiert
+azreview-rec-status-paused-idle = Pausiert: länger ist nichts passiert
+azreview-rec-status-paused-quota = Pausiert: der Datenträger ist fast voll
+azreview-rec-status-paused-locked = Pausiert: der Bildschirm ist gesperrt
+azreview-rec-described-idle = Keine Aufnahme
+azreview-rec-described-recording = Aufnahme läuft, { $time } aufgenommen
+azreview-rec-described-paused = Aufnahme pausiert, { $time } aufgenommen. { $why }
+azreview-rec-start = Aufnahme starten
+azreview-rec-stop = Aufnahme beenden
+azreview-rec-pause = Pause
+azreview-rec-resume = Fortsetzen
+azreview-rec-pause-described = Aufnahme pausieren (Tastenkürzel { $hotkey })
+azreview-rec-resume-described = Aufnahme fortsetzen (Tastenkürzel { $hotkey })
+azreview-rec-track-screen = Bildschirm
+azreview-rec-track-camera = Kamera
+azreview-rec-track-audio = Mikrofon
+azreview-rec-problem = { $track }: { $why }
+azreview-rec-disk-free = { $free } frei auf dem Datenträger.
+azreview-rec-disk-low = Der Datenträger wird voll: { $free } frei.
+azreview-rec-disk-full = Der Datenträger ist voll ({ $free } frei): die Aufnahme bleibt pausiert, bis wieder Platz da ist.
+azreview-rec-disk-unknown = Der freie Platz des Datenträgers lässt sich nicht lesen: deshalb wird nichts pausiert.
+azreview-rec-minutes-left = { $minutes ->
+    [one] Noch etwa { $minutes } Minute.
+   *[other] Noch etwa { $minutes } Minuten.
+ }
+azreview-rec-hours-left = { $hours ->
+    [one] Noch etwa { $hours } Stunde.
+   *[other] Noch etwa { $hours } Stunden.
+ }
+azreview-rec-dropped = { $count ->
+    [one] { $count } Bild wurde verworfen: der Encoder kam nicht nach.
+   *[other] { $count } Bilder wurden verworfen: der Encoder kam nicht nach.
+ }
+azreview-rec-will-display = Zeichnet alles auf dem Bildschirm auf, solange es läuft: jede App, jedes Fenster und den Mauszeiger.
+azreview-rec-will-window = Zeichnet das Fenster von AzReview auf und sonst nichts auf dem Schreibtisch.
+azreview-rec-will-own = Zeichnet nur auf, was AzReview selbst zeigt, sonst nichts auf dem Schreibtisch.
+azreview-rec-will-camera = Zeichnet die Kamera auf.
+azreview-rec-will-voice = Zeichnet das Mikrofon auf.
+azreview-rec-will-events = Führt ein Protokoll über den Stift, die geöffneten Dateien und das Gesagte.
+azreview-rec-denied = { $track } wird nicht aufgezeichnet: das System hat { $who } nicht erlaubt ({ $why })
+azreview-rec-who-unknown = das Programm, das AzReview gestartet hat
+azreview-rec-state-complete = Vollständig
+azreview-rec-state-recovered = Nach dem Ende der App wiederhergestellt
+azreview-rec-state-unfinished = Nicht abgeschlossen
+azreview-rec-state-damaged = Nicht lesbar
+azreview-rec-row-problem = { $why }
+
 ## Whiteboard
 
 azreview-whiteboard-notice-too-many-items = Das Whiteboard fasst { $limit } Elemente, mehr hat nicht Platz: nimm zuerst eines weg.
