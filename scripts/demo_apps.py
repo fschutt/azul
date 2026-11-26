@@ -164,6 +164,9 @@ def check(m=None):
         for k, why in a["known_failing"].items():
             if not str(why).strip():
                 err(f"{where} known_failing.{k} needs the reason")
+        for k, why in a["engine_ok"].items():
+            if k not in ("azul-core", "azul-layout", "azul-css") or not str(why).strip():
+                err(f"{where} engine_ok.{k}: names an engine crate (azul-core, azul-layout, azul-css) and says why the app compiles it")
         manifest = tomllib.loads((d / "Cargo.toml").read_text(encoding="utf-8"))
         # an app whose build is a known failure says why in the manifest, and is not held to what it lacks
         pending = bool(a["known_failing"])
