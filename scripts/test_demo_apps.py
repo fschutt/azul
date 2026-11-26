@@ -523,6 +523,56 @@ class PurposeStringsTest(unittest.TestCase):
         self.assertIn("AZ_IOS_SYMBOL_JSON", (HERE / "demo_build.py").read_text(encoding="utf-8"))
 
 
+class FeaturesCommandTest(unittest.TestCase):
+    """`demo_apps.py features <leg> <variant>`: the cargo features of a library of the plan, for the scripts that build one by hand
+    (scripts/ci/ios_build_qa.sh): the same string the workflow's lib job gets, android-activity included on Android."""
+
+    def features(self, *argv):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = demo_apps.main(["features", *argv])
+        return code, buf.getvalue().strip()
+
+    def test_the_features_of_a_library_are_the_ones_of_the_plan(self):
+        plan = demo_apps.plan(demo_apps.load(), e2e=True)
+        for kind in ("android", "ios"):
+            for e in plan["libs_" + kind]:
+                self.assertEqual(self.features(e["leg"], e["variant"]), (0, e["features"]), e["id"])
+
+    def test_the_qa_variant_and_the_plain_one_differ_by_the_debug_server_and_the_hooks(self):
+        _, plain = self.features("ios-sim", "mobile")
+        _, qa = self.features("ios-sim", "mobile-e2e")
+        self.assertTrue(qa.startswith(plain))
+        self.assertEqual(sorted(set(qa.split(",")) - set(plain.split(","))), ["debug-server", "e2e-scripting", "test-hooks"])
+
+    def test_a_library_the_plan_does_not_build_is_an_error(self):
+        self.assertEqual(self.features("ios-sim", "no-such-variant")[0], 1)
+        self.assertEqual(self.features("linux", "mobile")[0], 1)
+        self.assertEqual(self.features("ios-sim")[0], 2)
+
+
+class IosBuildQaScriptTest(unittest.TestCase):
+    """scripts/ci/ios_build_qa.sh: build the Simulator app of one app from the `mobile` and the `mobile-e2e` library and run the QA of
+    scripts/ci/ios_qa.sh on each, in ONE macOS job."""
+
+    def setUp(self):
+        self.path = HERE / "ci" / "ios_build_qa.sh"
+        self.text = self.path.read_text(encoding="utf-8")
+
+    def test_the_script_parses_and_builds_each_variant_with_the_library_the_plan_names(self):
+        self.assertEqual(subprocess.run(["bash", "-n", str(self.path)]).returncode, 0)
+        for needle in ("demo_apps.py features", "demo_lib.sh ios", "demo_build.py ios", "--variant", "ios_qa.sh", "ios_smoke.sh"):
+            self.assertIn(needle, self.text)
+
+    def test_the_qa_variant_gets_the_e2e_session_and_the_plain_one_the_lifecycle_session(self):
+        self.assertRegex(self.text, r'mobile-e2e\)[^\n]*session=both')
+        self.assertIn("session=qa", self.text)
+
+    def test_the_script_deletes_nothing(self):
+        code = "\n".join(l for l in self.text.splitlines() if not l.lstrip().startswith("#"))
+        self.assertNotRegex(code, r"\brm\b")
+
+
 class IosPlistTest(unittest.TestCase):
     """The Info.plist of an iOS app is rendered by build-ios.sh from the texts of the manifest: this runs that section of the script
     for real (bash, sed, python3) with the environment demo_build.py gives it and reads the plist back."""
