@@ -239,8 +239,8 @@ pub fn dom(cx: &Cx) -> Dom {
     } else {
         // the keys stay clear of the system's bar (48 dp on a screen with room for it): a finger that aims at the lowest key lands on the
         // key, and not in the strip where the system's own gestures begin
-        let bottom_pad = if cx.env.short() { pad + 8.0 } else { 48.0 };
-        column(&format!(
+        let bottom_pad = if cx.env.short() { pad + 8.0 } else { crate::layout::BAR_CLEARANCE };
+        let mut page = column(&format!(
             "width: {}; height: {}; padding: {} {} {} {}; justify-content: space-between; overflow-y: auto; align-items: center;",
             px(z.safe.w),
             px(z.safe.h),
@@ -249,9 +249,13 @@ pub fn dom(cx: &Cx) -> Dom {
             px(bottom_pad),
             px(pad)
         ))
-        .with_class("az-scroll")
-        .with_child(upper)
-        .with_child(lower)
+        .with_class("az-scroll");
+        if !cx.env.short() {
+            // a screen with room for it: the page is made to fit its box, and the layout check finds anything of it that would scroll,
+            // or a key too near the bar
+            page = page.with_class("az-fit");
+        }
+        page.with_child(upper).with_child(lower)
     };
     if cx.root.ui.pair_again {
         // nothing more: Back is a key of the page
