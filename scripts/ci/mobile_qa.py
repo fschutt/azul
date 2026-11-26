@@ -30,6 +30,7 @@ import re
 import struct
 import subprocess
 import sys
+import tempfile
 import time
 import zlib
 from pathlib import Path
@@ -284,8 +285,25 @@ def parse_bounds(xml_text):
     return found
 
 
+# "has died" is NOT here: the Android shell ends its own process after BACK on purpose (libazul is not re-entrant), and the
+# system logs that as `Process ... has died`. A real crash says FATAL EXCEPTION / Fatal signal / a panic, and the exit
+# reasons (parse_exit_reasons) name it: APP CRASH, CRASH_NATIVE, ANR.
 FATAL_PATTERNS = ("FATAL EXCEPTION", "Fatal signal", "SIGSEGV", "SIGABRT", "SIGBUS", "UnsatisfiedLinkError",
-                  "dlopen failed", "panicked at", "An unexpected panic", "has died", "ANR in")
+                  "dlopen failed", "panicked at", "An unexpected panic", "ANR in")
+CRASH_EXIT_REASONS = (4, 5, 6, 7)       # ApplicationExitInfo: CRASH, CRASH_NATIVE, ANR, INITIALIZATION_FAILURE
+
+
+def parse_exit_reasons(text):
+    """The entries of `dumpsys activity exit-info <package>` -> [(timestamp, pid, reason code, reason name)], newest first."""
+    out = []
+    for m in re.finditer(r"timestamp=(\S+ \S+) pid=(\d+)[^\n]*\n\s*process=\S+ reason=(\d+) \((.*?)\) subreason=", text):
+        out.append((m.group(1), int(m.group(2)), int(m.group(3)), m.group(4)))
+    return out
+
+
+def create_activity_lines(events_text, package):
+    """The `am_create_activity` / `wm_create_activity` events of the package in the events buffer."""
+    return [l for l in events_text.splitlines() if ("am_create_activity" in l or "wm_create_activity" in l) and package in l]
 
 
 def fatal_lines(text, package):
@@ -336,6 +354,7 @@ class Run:
         self.platform, self.meta, self.steps = platform, dict(meta), []
         self.t0 = time.time()
         self.recover = None
+        self.only = None             # {"03", "08", ...}: run only these steps (00-02, the device and the install, always run)
         self.extra_shots = 100       # diff images are numbered from 100 so they never collide with a step's own pictures
 
     def next_shot_number(self):
@@ -346,6 +365,10 @@ class Run:
         """Run `fn(step)`; an exception is the step's failure, never the run's. A step that `needs_app` is
         preceded by `self.recover(step)` (when one is set): a step is judged on a live app, so the crash of an
         earlier step is reported once, by that step, and does not fail every step after it."""
+        if self.only is not None:
+            prefix = name.split("-")[0]
+            if prefix not in ("00", "01", "02", "e00", "e01") and prefix not in self.only and prefix.rstrip("abcdefghijklmnopqrstuvwxyz") not in self.only:
+                return None
         s = Step(self, name, what)
         self.steps.append(s)
         print(f"--- {name}: {what}", flush=True)
@@ -534,6 +557,12 @@ class Android:
         new = [l for l in mine if l[:18] >= mark]
         step.check("the crash log holds nothing of the app", not new, new[0][:200] if new else "")
 
+    def no_recreation_since(self, step, mark):
+        """A configuration change the manifest handles does not recreate the activity: no new create_activity event."""
+        ev = self.adb("logcat", "-b", "events", "-d", "-v", "threadtime", timeout=60)
+        new = [l for l in create_activity_lines(ev, self.package) if l[:18] >= mark]
+        step.check("the activity was not recreated by this change (the manifest lists it)", not new, new[0].split(":", 3)[-1].strip()[:120] if new else "")
+
     def now_mark(self):
         t = self.sh("date '+%m-%d %H:%M:%S'").strip()
         return t
@@ -567,8 +596,11 @@ class Android:
     def wait_for_front(self, timeout=40):
         """Seconds until the app is alive, has the focus and its screen is neither flat nor the launcher; None on timeout."""
         t0 = time.time()
+        seen_alive = False
         while time.time() - t0 < timeout:
-            if self.alive() and self.foreground():
+            alive = self.alive()
+            if alive and self.foreground():
+                seen_alive = True
                 try:
                     sig, _w, _h, _rgba = signature_android_raw(self.adb("exec-out", "screencap", binary=True, timeout=60))
                 except ValueError:
@@ -576,6 +608,10 @@ class Android:
                 if sig and not is_flat(sig) and (self.home_sig is None or sig_diff(sig, self.home_sig) > LAUNCHER_BELOW):
                     self.last_sig = sig
                     return time.time() - t0
+            elif alive:
+                seen_alive = True
+            elif seen_alive:
+                return None           # it was running and is gone: it died, waiting longer shows nothing
             time.sleep(1.0)
         return None
 
@@ -615,6 +651,7 @@ class Android:
 
 def android_scenarios(args):
     run = Run(args.out, "android", {"label": args.label, "package": args.package, "gpu": args.gpu, "apk": os.path.basename(args.apk or "")})
+    run.only = set(args.only.split(",")) if args.only else None
     dev = Android(run, args.package, args.activity, args.serial)
     pts = json.loads(args.points) if args.points else {}
     P = {  # fractions of the screen, from the Widget Showcase in portrait (AzWidgets)
@@ -805,7 +842,7 @@ def android_scenarios(args):
         state["portrait"] = dev.look(s, "after-series")
 
     if args.series:
-        run.step("03c-cold-start-series", "N cold starts from the launcher: the app against the floor (an empty Java Activity)", s_series, needs_app=True)
+        run.step("03d-cold-start-series", "N cold starts from the launcher: the app against the floor (an empty Java Activity)", s_series, needs_app=True)
 
     def s_ui_dump(s):
         dev.sh("uiautomator dump /sdcard/qa-ui.xml", timeout=40)
@@ -958,6 +995,7 @@ def android_scenarios(args):
         dev.sh("cmd uimode night no")
         dev.settle(2.5)
         dev.look(s, "system-light-again")
+        dev.no_recreation_since(s, mark)
         dev.no_crash_since(s, mark)
 
     run.step("12-system-dark-mode", "the system switches to dark mode and back (a configuration change)", s_dark, needs_app=True)
@@ -972,6 +1010,7 @@ def android_scenarios(args):
         dev.alive_and_front(s)
         dev.sh("settings put system font_scale 1.0")
         dev.settle(2.5)
+        dev.no_recreation_since(s, mark)
         dev.no_crash_since(s, mark)
 
     run.step("13-font-scale", "the system font scale goes to 1.5 and back", s_font, needs_app=True)
@@ -986,6 +1025,7 @@ def android_scenarios(args):
         dev.settle(3.0)
         dev.look(s, "density-reset")
         dev.alive_and_front(s, " after the reset")
+        dev.no_recreation_since(s, mark)
         dev.no_crash_since(s, mark)
 
     run.step("14-display-density", "the display density changes under the running app and back", s_density, needs_app=True)
@@ -1008,7 +1048,7 @@ def android_scenarios(args):
         s.note(f"pid {pid0} -> {dev.pid() or '-'}")
         dev.no_crash_since(s, mark)
 
-    run.step("15-back-then-relaunch", "BACK leaves the app; starting it again must show it again", s_back, needs_app=True)
+    run.step("15-back-then-relaunch", "BACK ends the app (its process too, on purpose); starting it again is a cold start that shows it", s_back, needs_app=True)
 
     def s_cold2(s):
         mark = dev.now_mark()
@@ -1064,6 +1104,11 @@ def android_scenarios(args):
         dev.save_log("window.txt", dev.sh("dumpsys window | grep -E 'mCurrentFocus|mFocusedApp|Rotation|mDisplayRotation' | head -20"))
         bad = fatal_lines(full, args.package)
         s.check("no fatal line of the app in the whole log", not bad, bad[0][:240] if bad else "")
+        exits = parse_exit_reasons(dev.sh(f"dumpsys activity exit-info {args.package}"))
+        crashes = [e for e in exits if e[2] in CRASH_EXIT_REASONS]
+        s.check("no exit of the app was a crash or an ANR (the system's own exit reasons)", not crashes,
+                "; ".join(f"{e[0]} pid {e[1]}: {e[3]}" for e in crashes[:3]))
+        s.note("exit reasons, newest first: " + ", ".join(f"{e[3]}" for e in exits[:8]))
         shown = [l.split("ActivityTaskManager:")[-1].strip() for l in full.splitlines() if "Displayed" in l and run.meta.get("package", "") in l]
         if shown:
             s.note("Displayed: " + " | ".join(x[:110] for x in shown[:6]))
@@ -1120,37 +1165,40 @@ class IOS:
         return bool(self.pid())
 
     # -- the picture
-    def capture(self, name):
-        """PNG from simctl; the signature from a small BMP made of it with sips. -> (signature, w, h, filename)."""
-        self.shot_count += 1
-        fname = f"{self.shot_count:02d}-{name}.png"
-        path = self.run.shots_dir / fname
+    def capture(self, name, keep=True):
+        """PNG from simctl; the signature from a small BMP made of it with sips. -> (signature, w, h, filename).
+        `keep=False` (the polls of wait_for_front) writes into the system temp folder and counts no picture: nothing of
+        this script deletes a file, temp files stay in the runner's temp folder."""
+        if keep:
+            self.shot_count += 1
+            fname = f"{self.shot_count:02d}-{name}.png"
+            path = self.run.shots_dir / fname
+        else:
+            fname = ""
+            path = Path(tempfile.gettempdir()) / f"azqa-{os.getpid()}-poll.png"
         rc, _o, err = self.simctl("io", self.udid, "screenshot", "--type=png", str(path), timeout=90)
         if rc != 0 or not path.exists():
             raise RuntimeError(f"simctl io screenshot failed: {err.strip()[:200]}")
         w, h = png_size(path)
-        small = self.run.shots_dir / f".sig-{self.shot_count}.bmp"
+        small = Path(tempfile.gettempdir()) / f"azqa-{os.getpid()}-sig-{time.time_ns()}.bmp"
         rc, _o, err = self.x("sips", "-z", "240", "120", "--setProperty", "format", "bmp", str(path), "--out", str(small), timeout=60)
         if rc != 0 or not small.exists():
             raise RuntimeError(f"sips could not reduce the picture: {err.strip()[:200]}")
         sig, _sw, _sh, _px = parse_bmp(small.read_bytes())
-        small.unlink()
         self.dims = (w, h)
-        self.last_png = path
+        if keep:
+            self.last_png = path
         return sig, w, h, fname
 
     def last_rgba_full(self):
         """The full-resolution pixels of the last picture (sips makes a BMP of the PNG). -> (rgba, w, h) | None"""
         if not getattr(self, "last_png", None):
             return None
-        big = self.run.shots_dir / f".full-{self.shot_count}.bmp"
+        big = Path(tempfile.gettempdir()) / f"azqa-{os.getpid()}-full-{time.time_ns()}.bmp"
         rc, _o, _e = self.x("sips", "--setProperty", "format", "bmp", str(self.last_png), "--out", str(big), timeout=120)
         if rc != 0 or not big.exists():
             return None
-        try:
-            _sig, w, h, rgba = parse_bmp(big.read_bytes())
-        finally:
-            big.unlink()
+        _sig, w, h, rgba = parse_bmp(big.read_bytes())
         return rgba, w, h
 
     def console_text(self, launch_no=None):
@@ -1202,18 +1250,21 @@ class IOS:
 
     def wait_for_front(self, timeout=45):
         t0 = time.time()
+        seen_alive = False
         while time.time() - t0 < timeout:
             if self.alive():
+                seen_alive = True
                 try:
-                    sig, _w, _h, _f = self.capture("poll")
+                    sig, _w, _h, _f = self.capture("poll", keep=False)
                 except RuntimeError:
                     sig = None
-                self.shot_count -= 1
-                for p in self.run.shots_dir.glob(f"{self.shot_count + 1:02d}-poll.png"):
-                    p.unlink()
                 if sig and not is_flat(sig) and (self.home_sig is None or sig_diff(sig, self.home_sig) > LAUNCHER_BELOW):
                     self.last_sig = sig
                     return time.time() - t0
+            elif seen_alive:
+                return None           # it was running and is gone: it died, waiting longer shows nothing
+            elif time.time() - t0 > 15:
+                return None           # it never started
             time.sleep(1.0)
         return None
 
@@ -1241,10 +1292,8 @@ class IOS:
         in landscape. Tests the landscape LAYOUT where the rotation itself cannot be pressed. -> the new .app path."""
         import plistlib
         import shutil
-        dst = self.run.logs_dir / "landscape-app" / Path(self.app_dir).name
-        if dst.parent.exists():
-            shutil.rmtree(dst.parent)
-        dst.parent.mkdir(parents=True)
+        # a folder of its own in the runner's temp area: nothing is deleted, nothing of the copy lands in the artifacts
+        dst = Path(tempfile.mkdtemp(prefix="azqa-landscape-")) / Path(self.app_dir).name
         shutil.copytree(self.app_dir, dst, symlinks=True)
         info_path = dst / "Info.plist"
         info = plistlib.loads(info_path.read_bytes())
@@ -1282,6 +1331,7 @@ class IOS:
 
 def ios_scenarios(args):
     run = Run(args.out, "ios", {"label": args.label, "bundle": args.bundle})
+    run.only = set(args.only.split(",")) if args.only else None
     run.t0 = time.time()
     exe = args.exe or args.bundle.rsplit(".", 1)[-1]
     dev = IOS(run, args.udid, args.bundle, exe, args.app)
@@ -1533,6 +1583,7 @@ def main(argv):
     a.add_argument("--serial", default="")
     a.add_argument("--points", default="", help="JSON {name: [fx, fy]} overriding the tap points (fractions of the screen)")
     a.add_argument("--first-frame-timeout", type=int, default=45)
+    a.add_argument("--only", default="", help="comma list of step numbers to run besides 00-02, e.g. 03,08,09,12 (a first look at another app)")
     a.add_argument("--series", type=int, default=0, help="N cold starts to measure (0: none)")
     a.add_argument("--expect-gpu", action="store_true", help="the build has a GPU renderer: a gpu request that ran the CPU one FAILS")
     a.add_argument("--floor-apk", default="", help="the floor APK (an empty Java Activity) measured the same way")
@@ -1545,6 +1596,7 @@ def main(argv):
     i.add_argument("--label", default="AzWidgets")
     i.add_argument("--first-frame-timeout", type=int, default=45)
     i.add_argument("--expect-gpu", action="store_true", help="the build has a GPU renderer: a gpu request that ran the CPU one FAILS")
+    i.add_argument("--only", default="", help="comma list of step numbers to run besides 00-02")
     args = ap.parse_args(argv)
     run = android_scenarios(args) if args.platform == "android" else ios_scenarios(args)
     failed = [s.name for s in run.steps if not s.ok]

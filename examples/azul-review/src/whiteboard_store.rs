@@ -20,6 +20,7 @@ use crate::{
     whiteboard_azboard::{self as azboard, end_of, f32_of, point_of, Meta},
     whiteboard_cutout::Raster,
     whiteboard_geom::{Pt, Rect, View},
+    whiteboard_history::History,
     whiteboard_json::{self as json, Json},
 };
 
@@ -54,7 +55,13 @@ pub fn picture_name(id: ItemId) -> String {
 /// board it is and where it lies.
 #[must_use]
 pub fn write(data: &BoardData, meta: &Meta) -> Vec<Entry> {
-    let written = azboard::document(data, meta, &azboard::Pictures::Entries);
+    write_history(data, meta, &History::default())
+}
+
+/// The entries a board and its history are kept as.
+#[must_use]
+pub fn write_history(data: &BoardData, meta: &Meta, history: &History) -> Vec<Entry> {
+    let written = azboard::document_with(data, meta, &azboard::Pictures::Entries, history);
     let mut entries = vec![Entry { name: MANIFEST.to_string(), bytes: written.text.into_bytes() }];
     entries.extend(written.pictures);
     entries
@@ -81,6 +88,10 @@ pub struct Loaded {
     pub data: BoardData,
     /// What the file says besides the items: which board it is, when it was kept, where its code lies.
     pub meta: Meta,
+    /// The snapshots of the board, oldest first.
+    pub history: History,
+    /// Snapshots of the file that could not be used (no id, an id twice, more than a board keeps).
+    pub snapshots_left_out: usize,
     /// Items of the file that could not be used (unknown kind, missing what they need, more than
     /// [`MAX_ITEMS_READ`]).
     pub left_out: usize,
@@ -421,7 +432,7 @@ fn read_legacy(root: &Json, picture: &dyn Fn(&str) -> Option<Vec<u8>>, codec: &d
         modified_ms: root.get("saved_ms").and_then(Json::as_u64).unwrap_or(0),
         ..Meta::default()
     };
-    Loaded { data: BoardData { items, view, next_id }, meta, left_out, unreadable_pictures: budget.unreadable }
+    Loaded { data: BoardData { items, view, next_id }, meta, history: History::default(), snapshots_left_out: 0, left_out, unreadable_pictures: budget.unreadable }
 }
 
 /// FNV-1a over `text`'s bytes.
