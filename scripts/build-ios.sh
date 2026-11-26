@@ -21,6 +21,13 @@
 #   AZ_IOS_FEATURES=...    cargo --features list. Default: 'std,logging,link-static,a11y'.
 #   IOS_SIGNING_IDENTITY   codesign -s value for device deploy.
 #   APP_NAME, BUNDLE_ID, DISPLAY_NAME, VERSION, BUILD, MIN_OS — Info.plist overrides.
+#   AZ_IOS_LINK_LIB=...    the prebuilt libazul.a of this target (scripts/demo_lib.sh) with its
+#                          libazul.a.native-libs next to it: the app is built with link-dynamic against
+#                          it (AZ_LINK_PATH; no engine crate compiles) and only its own bin is built
+#   AZ_IOS_PLIST_EXTRA=... a JSON file of Info.plist keys merged over the template's (usage strings,
+#                          Bonjour services, ...)
+#   AZ_IOS_STRINGS_DIR=... a folder of <lang>.lproj/InfoPlist.strings copied into the bundle
+#   AZ_IOS_BUILD_JSON=...  where cargo's JSON log goes (read by scripts/demo_gate.py)
 
 set -euo pipefail
 
@@ -81,6 +88,14 @@ if ! xcrun --sdk "$SDK_SHORT" --show-sdk-path >/dev/null 2>&1; then
     exit 3
 fi
 
+# The one libazul of this target, built once (scripts/demo_lib.sh): the app links it over the C ABI.
+LINK_LIB="${AZ_IOS_LINK_LIB:-}"
+if [[ -n "$LINK_LIB" ]]; then
+    [[ -f "$LINK_LIB" ]] || { echo "AZ_IOS_LINK_LIB=$LINK_LIB is not a file" >&2; exit 8; }
+    LINK_LIB="$(cd "$(dirname "$LINK_LIB")" && pwd)/$(basename "$LINK_LIB")"
+    export AZ_LINK_PATH="$LINK_LIB"
+fi
+
 # The workspace to BUILD. Normally this script's own parent (running from a
 # checkout), but azul-doc embeds this file and materializes it into a cache
 # directory — from there `dirname $0/..` is the cache, not a crate. So the
@@ -96,6 +111,9 @@ if [[ "$CRATE" == "azul-dll" ]]; then
     FEATURE_ARGS=(--no-default-features --features "$FEATURES")
 else
     FEATURE_ARGS=()
+    # Only the app's executable: the package's library is also a cdylib (the Android entry point), and an
+    # iPhone has no use for a second copy of the app linked as a dynamic library.
+    [[ -n "$LINK_LIB" ]] && FEATURE_ARGS=(--bin "$CRATE")
 fi
 # `${ARR[@]}` on an EMPTY array is an "unbound variable" error under `set -u`
 # in bash 3.2, which is what macOS ships and therefore what every CI runner
@@ -103,7 +121,7 @@ fi
 # five of them and this line aborted every single iOS bundle. Use the
 # empty-safe expansion.
 echo "==> cargo build --target $TARGET --release -p $CRATE ${FEATURE_ARGS[*]:-}"
-CARGO_LOG="$WORKSPACE_ROOT/target/ios-build-${CRATE}-${TARGET}.json"
+CARGO_LOG="${AZ_IOS_BUILD_JSON:-$WORKSPACE_ROOT/target/ios-build-${CRATE}-${TARGET}.json}"
 mkdir -p "$WORKSPACE_ROOT/target"
 ( cd "$WORKSPACE_ROOT" \
   && cargo build --target "$TARGET" --release -p "$CRATE" ${FEATURE_ARGS[@]+"${FEATURE_ARGS[@]}"} \
@@ -127,7 +145,8 @@ if [[ ! -f "$ARTIFACT" ]]; then
 fi
 [[ -f "$ARTIFACT" ]] || { echo "missing $ARTIFACT — cargo did not produce a binary/library" >&2; exit 4; }
 
-BUNDLE_DIR="$WORKSPACE_ROOT/target/ios-bundle/${APP_NAME}-${TARGET}.app"
+# <target>/<App>.app: the folder a zip of it carries is the app's own name, not the name of the build
+BUNDLE_DIR="$WORKSPACE_ROOT/target/ios-bundle/${TARGET}/${APP_NAME}.app"
 rm -rf "$BUNDLE_DIR"
 mkdir -p "$BUNDLE_DIR"
 
@@ -145,9 +164,41 @@ sed \
     -e "s|@MIN_OS@|$MIN_OS|g" \
     "$PLIST_TEMPLATE" > "$BUNDLE_DIR/Info.plist"
 
+# What the template cannot say: which platform the bundle is for, a launch screen (without one iOS
+# runs the app letterboxed in a small window), and the app's own keys (usage strings, Bonjour
+# services). Merged with plistlib so a value with a quote or an ampersand needs no escaping.
+python3 - "$BUNDLE_DIR/Info.plist" "$IS_SIM" "${AZ_IOS_PLIST_EXTRA:-}" <<'PY'
+import json, plistlib, sys
+path, is_sim, extra = sys.argv[1], sys.argv[2] == "1", sys.argv[3]
+with open(path, "rb") as f:
+    plist = plistlib.load(f)
+plist["CFBundleSupportedPlatforms"] = ["iPhoneSimulator" if is_sim else "iPhoneOS"]
+plist["UILaunchScreen"] = {}
+plist.pop("UILaunchStoryboardName", None)
+if extra:
+    with open(extra, encoding="utf-8") as f:
+        plist.update(json.load(f))
+with open(path, "wb") as f:
+    plistlib.dump(plist, f, fmt=plistlib.FMT_XML)
+PY
+if [[ -n "${AZ_IOS_STRINGS_DIR:-}" && -d "${AZ_IOS_STRINGS_DIR}" ]]; then
+    for lproj in "$AZ_IOS_STRINGS_DIR"/*.lproj; do
+        [[ -d "$lproj" ]] && cp -R "$lproj" "$BUNDLE_DIR/"
+    done
+fi
+# The executable without its symbols (the release profile keeps line tables for profiling).
+strip -S -x "$BUNDLE_DIR/$APP_NAME" 2>/dev/null || true
+
 # PlistBuddy converts XML → binary plist (smaller; iOS prefers binary).
 if command -v /usr/libexec/PlistBuddy >/dev/null 2>&1; then
     plutil -convert binary1 "$BUNDLE_DIR/Info.plist" 2>/dev/null || true
+fi
+
+# A Simulator app runs as an arm64 process of the Mac, and the kernel kills an arm64 executable whose
+# signature is gone (strip above removed the linker's). Ad-hoc signed, last, after the last change to the
+# bundle; the DEVICE bundle stays unsigned on purpose (AzReview signs it for the phone it is installed on).
+if (( IS_SIM == 1 )) && command -v codesign >/dev/null 2>&1; then
+    codesign --force --sign - --timestamp=none "$BUNDLE_DIR"
 fi
 
 echo "==> bundled: $BUNDLE_DIR"
