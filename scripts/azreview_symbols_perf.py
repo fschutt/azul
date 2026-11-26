@@ -78,7 +78,10 @@ def body(args, logs, out):
         files = app.rect(FILES)
         x, y = files["x"] + 60.0, files["y"] + 200.0
 
-        # the wheel from the first moment: frames painted while the index is built (and the lines are counted)
+        # every folder opened at once (the tree has rows to scroll through), then the wheel from the first moment: the frames
+        # painted while the index is built (and the lines are counted)
+        opened = app.must("azreview_expand_all")["data"]["value"]["result"]
+        result["rows"] = opened["rows"]
         app.must("reset_frame_counters")
         t0 = time.perf_counter()
         per_step = []
