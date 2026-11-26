@@ -9,8 +9,9 @@ An app BOOTS when all of these hold, and the verdict says which one failed first
      front leaves it behind) and, where the platform can say so, the system names the app as the resumed one (`--resumed yes`),
   4. the window of the picture (the rows between the system's bars) is more than one flat colour: it drew something,
   5. no fatal line of the app in the log and no crash report (`--fatal`, empty when none),
-  6. the button the manifest names (`--tap`: a JSON file {label, found, alive, fatal}) did not take the app down, and the text it
-     expects on the first screen (`--expect-found`) is there when it names one.
+  6. the button the manifest names (`--tap`: a JSON file {label, found, alive, fatal}) did not take the app down AND changed the
+     screen (`--tap-before`, `--tap-after`: the same 98.5 percent rule; a button that does nothing is not a working app, and the
+     manifest says what must come up), and the text it expects on the first screen (`--expect-found`) is there when it names one.
 Informational only, never part of the verdict: the platform's own launch numbers of an Android app, `launch_ms` (the TotalTime
 `am start -W` printed, --start-log) and `displayed_ms` (the "Displayed <package>/<activity>: +1s234ms" line of the activity manager
 in the log, --logcat); the status table shows them next to the verdict.
@@ -71,6 +72,9 @@ def judge(facts):
     tap = facts.get("tap")
     if tap and (not tap.get("alive") or tap.get("fatal")):
         return False, f"after pressing \"{tap.get('label')}\": {tap.get('fatal') or 'the app is gone'}"
+    if tap and tap.get("changed_screen") is False:
+        return False, (f"pressing \"{tap.get('label')}\" changed nothing on the screen ({tap['screen_similarity'] * 100:.1f}% of the "
+                       f"pixels are the same as before): the app ignored the tap or its action did nothing")
     expect = facts.get("expect")
     if expect and not expect.get("found"):
         return False, f"the first screen does not show \"{expect.get('text')}\""
@@ -90,12 +94,25 @@ def main(argv):
     ap.add_argument("--after")
     ap.add_argument("--resumed", default="")
     ap.add_argument("--tap")
+    ap.add_argument("--tap-before", help="the screenshot before the button was pressed")
+    ap.add_argument("--tap-after", help="the screenshot after it")
     ap.add_argument("--expect-text", default="")
     ap.add_argument("--expect-found", default="")
+    ap.add_argument("--band", default="", help="TOP,BOTTOM: the rows of the screenshot between the system bars, as fractions of the "
+                    "height (default 0.08,0.94; the Android emulator 0.045,0.94, an iPhone 0.075,0.965)")
     ap.add_argument("--start-log")
     ap.add_argument("--logcat")
     ap.add_argument("--extra", default="{}")
     a = ap.parse_args(argv)
+    band = png_nonblank.DEFAULT_BAND
+    if a.band:
+        try:
+            top, bottom = (float(x) for x in a.band.split(","))
+        except ValueError:
+            ap.error("--band wants TOP,BOTTOM, two fractions of the height")
+        if not 0.0 <= top < bottom <= 1.0:
+            ap.error("--band wants 0 <= TOP < BOTTOM <= 1")
+        band = (top, bottom)
 
     facts = {"app": a.app, "id": a.id, "booted": True, "alive": a.alive == "1", "alive_after": a.alive_after == "1",
              "fatal": a.fatal or None, "rust_log_lines": int(a.rust_lines or 0), "resumed": a.resumed or None}
@@ -110,7 +127,8 @@ def main(argv):
         except Exception as e:  # noqa: BLE001  (torn off by a hiccup of the emulator, or not a PNG)
             facts["screenshot_error"] = f"cannot be read: {str(e)[:100]}"
     if after is not None:
-        facts["drawn_fraction"] = round(png_nonblank.drawn_fraction(after), 5)
+        facts["band"] = list(band)
+        facts["drawn_fraction"] = round(png_nonblank.drawn_fraction(after, band), 5)
         facts["screen_nonblank"] = facts["drawn_fraction"] >= png_nonblank.DRAWN_FRACTION
         if a.baseline and os.path.exists(a.baseline):
             try:
@@ -121,6 +139,13 @@ def main(argv):
                 facts["compare_error"] = str(e)[:120]
     if a.tap and os.path.exists(a.tap):
         facts["tap"] = json.load(open(a.tap))
+        if a.tap_before and a.tap_after and os.path.exists(a.tap_before) and os.path.exists(a.tap_after):
+            try:
+                sim = png_compare.same_fraction(png_compare.decode(a.tap_before), png_compare.decode(a.tap_after))
+                facts["tap"]["screen_similarity"] = round(sim, 4)
+                facts["tap"]["changed_screen"] = sim < png_compare.SAME
+            except Exception as e:  # noqa: BLE001  (pictures that cannot be read say nothing about the button)
+                facts["tap"]["compare_error"] = str(e)[:120]
     if a.expect_text:
         facts["expect"] = {"text": a.expect_text, "found": a.expect_found == "yes"}
     for key, path, parse in (("launch_ms", a.start_log, parse_total_time), ("displayed_ms", a.logcat, lambda t: parse_displayed(t, a.id))):
