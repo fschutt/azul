@@ -132,7 +132,12 @@ impl Mailbox {
     fn report(&mut self, id: WebViewId, request: u64, event: WebViewEvent) {
         self.reports.push(WebViewReport { id, request, event });
         if !self.wake_view.is_null() {
-            let _: () = unsafe { msg_send![self.wake_view, setNeedsDisplay] };
+            // The layer, which `displayLayer:` is a delegate method of (see `request_display` in `ios/mod.rs`): a
+            // request sent to the view does not reach a view that has no `drawRect:`.
+            let layer: *mut AnyObject = unsafe { msg_send![self.wake_view, layer] };
+            if !layer.is_null() {
+                let _: () = unsafe { msg_send![layer, setNeedsDisplay] };
+            }
         }
     }
 

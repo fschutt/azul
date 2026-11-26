@@ -222,8 +222,8 @@ fn the_ios_shell_acts_on_a_result_at_the_weight_the_pass_classified_it() {
     );
 
     // A relayout that was already performed is not thrown away by a regeneration.
-    let layer = body(IOS_MOD_RS, "extern \"C\" fn display_layer(");
-    let only = layer.find("take_relayout_only()").expect("display_layer reads relayout-only");
+    let layer = body(IOS_MOD_RS, "fn present_pending_frame(");
+    let only = layer.find("take_relayout_only()").expect("the frame function reads relayout-only");
     let regenerate = layer.find("regeneration_pending()").expect("and the regeneration");
     assert!(only < regenerate, "relayout-only is tested before the regeneration request");
 }
@@ -445,8 +445,8 @@ fn the_ios_text_input_converts_between_utf16_units_and_bytes_at_every_seam() {
 /// saturated than the author set them.
 #[test]
 fn the_ios_frame_is_presented_in_the_srgb_colour_space() {
-    let layer = body(IOS_MOD_RS, "extern \"C\" fn display_layer(");
-    at(layer, "CGColorSpaceCreateWithName(kCGColorSpaceSRGB)", "display_layer");
+    let layer = body(IOS_MOD_RS, "fn present_pending_frame(");
+    at(layer, "CGColorSpaceCreateWithName(kCGColorSpaceSRGB)", "present_pending_frame");
 }
 
 /// A Rust `extern static` is a STRONG import: the Mach-O requires the symbol and dyld refuses to
@@ -614,5 +614,47 @@ fn the_touch_handler_applies_the_touch_slop_and_never_clicks_a_cancelled_gesture
     assert!(
         !code.contains("2 | 3 if primary_in_set => ms.left_down = false"),
         "a cancelled touch is released by the plan, not as an ended one (a click)"
+    );
+}
+
+/// THE BLACK WINDOW of the first Simulator launch (iOS 26.2: the app ran, the display link ticked, the debug server
+/// answered, and nothing was ever laid out or drawn). The render view implements `displayLayer:` (the layer's delegate
+/// method) and NOT `drawRect:`, and every request for a frame was `-[UIView setNeedsDisplay]` sent to the VIEW: UIKit
+/// documents that call for a view that draws in `drawRect:`, a view without one is given no backing store to draw
+/// into, and the request did not reach `displayLayer:`. So (1) every request goes to the view's LAYER
+/// (`request_display`), the object `displayLayer:` is a delegate method of, and (2) the display tick, which runs
+/// at the screen's refresh rate while a frame is owed, produces that frame itself (`present_pending_frame`, the body
+/// of `displayLayer:`) instead of waiting for Core Animation to ask: the first layout never depends on a
+/// UIKit call whose rules are not ours.
+#[test]
+fn a_frame_is_requested_from_the_layer_and_the_display_tick_produces_it_itself() {
+    for (file, source) in [("ios/mod.rs", IOS_MOD_RS), ("ios/webview.rs", IOS_WEBVIEW_RS)] {
+        let code = code_of(source);
+        let mut rest = code.as_str();
+        let mut sends = 0;
+        while let Some(at) = rest.find("setNeedsDisplay") {
+            sends += 1;
+            rest = &rest[at + "setNeedsDisplay".len()..];
+        }
+        assert_eq!(
+            sends, 1,
+            "{file}: a redraw request is sent to the layer (one place: `request_display`, the web views' report), never to the view itself"
+        );
+    }
+    at(
+        &code_of(IOS_WEBVIEW_RS),
+        "msg_send![self.wake_view, layer]",
+        "the web views' report asks the render view's layer",
+    );
+    let request = body(IOS_MOD_RS, "unsafe fn request_display(");
+    at(request, "msg_send![view, layer]", "request_display: the layer of the view");
+    at(request, "setNeedsDisplay", "request_display");
+    let layer_delegate = body(IOS_MOD_RS, "extern \"C\" fn display_layer(");
+    at(layer_delegate, "present_pending_frame(", "displayLayer: delegates to the one frame function");
+    let tick = body(IOS_MOD_RS, "extern \"C\" fn display_tick(");
+    let tick_code = code_of(tick);
+    assert!(
+        tick_code.contains("present_pending_frame("),
+        "the display tick produces the owed frame itself: the first layout does not wait for Core Animation to ask"
     );
 }

@@ -247,6 +247,23 @@ unsafe fn set_display_link_paused(paused: bool) {
     }
 }
 
+/// Ask Core Animation for a frame: `displayLayer:` runs at the next display pass.
+///
+/// The request goes to the view's LAYER, the object `displayLayer:` is a delegate method of. It used to be
+/// `-[UIView setNeedsDisplay]` sent to the view: UIKit documents that call for a view that draws in `drawRect:`, and
+/// this view implements `displayLayer:` instead (a view without `drawRect:` is given no backing store to draw into),
+/// so the request did not reliably reach it - the first launch on the Simulator never laid out nor drew anything
+/// (a black window). The display tick no longer waits for this call either: see [`present_pending_frame`].
+unsafe fn request_display(view: *mut Object) {
+    if view.is_null() {
+        return;
+    }
+    let layer: *mut Object = msg_send![view, layer];
+    if !layer.is_null() {
+        let _: () = msg_send![layer, setNeedsDisplay];
+    }
+}
+
 // ─── AzulView (UIView subclass) ───────────────────────────────────────
 
 extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
@@ -268,7 +285,17 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
         Some(w) => w,
         None => return,
     };
+    present_pending_frame(window, layer);
+}
 
+/// Produce the frame the window owes, and hand it to `layer`: run the layout the pending regeneration asks for (or
+/// only repaint), rasterise, and give the pixels to Core Animation as the layer's contents.
+///
+/// The body of `displayLayer:`, and called by the display tick as well: the tick runs at the screen's refresh
+/// rate while a frame is owed, so the first layout and every later frame come from the one thing that certainly
+/// runs, not from Core Animation's decision to ask. Assigning `layer.contents` outside `displayLayer:` is a plain
+/// main-thread property write; the commit is the run loop's.
+fn present_pending_frame(window: &mut IOSWindow, layer: *mut Object) {
     // `<webview>`s first: their reports (a delegate asked for this pass) may
     // ask for a rebuild or a repaint, which this pass then makes.
     window.pump_webviews_if_any();
@@ -419,6 +446,14 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
                     frames_now.saturating_add(1),
                     core::sync::atomic::Ordering::Relaxed,
                 );
+                if frames_at_last_present.is_none() {
+                    log_info!(
+                        LogCategory::Window,
+                        "[iOS] the first frame is handed to the layer: {}x{} pixels",
+                        pw,
+                        ph
+                    );
+                }
                 // The first frame is handed to the layer: marks `first_present` once and prints the table
                 // when the timeline is on (AZ_STARTUP=1); a test of a bool otherwise.
                 window
@@ -937,9 +972,9 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
         lw.gesture_drag_manager.note_pinch_dispatched();
     }
 
-    // Ask the view to redraw — displayLayer: will pick up the new layout.
+    // Ask for a frame - displayLayer: / the display tick will pick up the new layout.
     let view = this as *const Object as *mut Object;
-    let _: () = unsafe { msg_send![view, setNeedsDisplay] };
+    unsafe { request_display(view) };
 }
 
 extern "C" fn touches_began(this: &Object, _cmd: Sel, touches: *mut Object, event: *mut Object) {
@@ -976,7 +1011,7 @@ extern "C" fn layout_subviews(this: &Object, _cmd: Sel) {
     // this very override.
     let this_mut = this as *const Object as *mut Object;
     let _: () = unsafe { msg_send![super(this_mut, class!(UIView)), layoutSubviews] };
-    let _: () = unsafe { msg_send![this as *const Object as *mut Object, setNeedsDisplay] };
+    unsafe { request_display(this as *const Object as *mut Object) };
     if let Some(window) = unsafe { azul_ios_window() } {
         let bounds: CGRect = unsafe { msg_send![this as *const Object as *mut Object, bounds] };
         let w = bounds.size.width as f32;
@@ -1438,8 +1473,14 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
                 .common
                 .request_regeneration(RelayoutReason::ModeChange);
         }
+        // A frame is owed (a layout the window was born owing, a regeneration a callback asked for, a repaint): produce it
+        // HERE, at the screen's refresh rate, instead of asking Core Animation to call `displayLayer:` and waiting for it.
+        // The first launch on the Simulator ran this tick (the debug server's timer ticked) and never laid out nor drew
+        // anything: the request for the frame was the only thing between a pending layout and the screen, and it did not
+        // arrive. `present()` stays the way every OTHER path (a touch, a gesture, a webview report) asks for a frame.
         if window.common.regeneration_pending() || window.needs_rerender {
-            let _ = window.present();
+            let layer: *mut Object = unsafe { msg_send![view, layer] };
+            present_pending_frame(window, layer);
         }
     }
 }
@@ -2400,9 +2441,7 @@ impl IOSWindow {
 
     pub fn present(&mut self) -> Result<(), WindowError> {
         let view = &*self.ui_view as *const Object as *mut Object;
-        unsafe {
-            let _: () = msg_send![view, setNeedsDisplay];
-        }
+        unsafe { request_display(view) };
         Ok(())
     }
     /// Re-raster the CURRENT layout into `cpu_backend.last_frame` without
