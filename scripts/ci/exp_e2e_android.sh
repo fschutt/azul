@@ -13,6 +13,7 @@ yes | "$SDKM" --licenses >/dev/null 2>&1 || true
 "$SDKM" --install "ndk;27.0.12077973" "build-tools;34.0.0" "platforms;android-34" >/dev/null
 export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.0.12077973"
 export JAVA_HOME="${JAVA_HOME_17_X64:-$JAVA_HOME}"
+python3 -m pip install --quiet --user tomli || true   # the runner's Python 3.10 has no tomllib
 rustup target add "$target"
 case "$target" in aarch64-linux-android) col=android-arm64 ;; x86_64-linux-android) col=android-x86_64 ;; esac
 mkdir -p demo-out/libs demo-out/apps demo-out/results
