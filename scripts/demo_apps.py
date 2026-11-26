@@ -147,6 +147,19 @@ def check(m=None):
             f"add it, with its platforms (an app that does not belong on the page says why in `known_failing`)")
     for pkg in sorted(set(names) - set(workspace)):
         err(f"{pkg} is in scripts/demo_apps.toml but is no AzXxx package of the workspace")
+    # the SDK levels the manifest records are the ones the template of the Android manifest says
+    android = m.get("android", {})
+    template = (ROOT / "scripts" / "android" / "AndroidManifest.xml").read_text(encoding="utf-8")
+    for key, attr in (("min_sdk", "minSdkVersion"), ("target_sdk", "targetSdkVersion")):
+        want = android.get(key)
+        if isinstance(want, bool) or not isinstance(want, int):
+            err(f"[android] {key} must be a number (the {attr} of scripts/android/AndroidManifest.xml), not {want!r}")
+            continue
+        found = re.search(rf'android:{attr}="(\d+)"', template)
+        if not found or int(found.group(1)) != want:
+            err(f"[android] {key} = {want} but scripts/android/AndroidManifest.xml says {attr}=\"{found.group(1) if found else '?'}\"")
+    if all(isinstance(android.get(k), int) for k in ("min_sdk", "target_sdk")) and android["target_sdk"] < android["min_sdk"]:
+        err(f"[android] target_sdk {android['target_sdk']} is below min_sdk {android['min_sdk']}")
     libs = m.get("lib", {})
     for name, lib in artifact_only_libs(m).items():
         bad = [t for t in lib.get("targets", []) if t not in MOBILE_TARGETS]
