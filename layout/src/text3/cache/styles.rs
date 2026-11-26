@@ -506,17 +506,28 @@ pub struct HangingPunctuation {
     pub first: bool,
     /// `last`: a closing bracket or quote at the end of the last line of the block.
     pub last: bool,
-    /// `force-end`: a stop or comma at the end of a line, whether or not it fits.
-    pub force_end: bool,
-    /// `allow-end`: a stop or comma at the end of a line, if it does not otherwise fit.
-    pub allow_end: bool,
+    /// `force-end` or `allow-end`: a stop or comma at the end of a line.
+    pub end: HangEnd,
+}
+
+/// What `hanging-punctuation` does with a stop or comma that ends a line (the two keywords
+/// exclude each other).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub enum HangEnd {
+    /// It stays in the line.
+    #[default]
+    None,
+    /// `force-end`: it hangs, whether or not it fits.
+    Force,
+    /// `allow-end`: it hangs if it does not otherwise fit.
+    Allow,
 }
 
 impl HangingPunctuation {
     /// Whether any mark may hang.
     #[must_use]
     pub const fn is_enabled(self) -> bool {
-        self.first || self.last || self.force_end || self.allow_end
+        self.first || self.last || !matches!(self.end, HangEnd::None)
     }
 }
 
