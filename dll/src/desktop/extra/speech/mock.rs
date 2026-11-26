@@ -228,7 +228,7 @@ impl Recognizer for MockSpeech {
                         }
                     }
                     if !cut && delay > waited {
-                        waited += call.wait(delay - waited);
+                        call.wait(delay - waited);
                     }
                     if cut || (call.cancel)() {
                         // Cancelled in the middle of it: no final for the utterance that was cut.

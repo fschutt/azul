@@ -354,7 +354,7 @@ fn a_recognizer_that_is_not_set_up_says_how_to_set_it_up() {
 fn the_noise_floor_of_one_call_starts_the_next() {
     let mut rig = rig(Ok(GERMAN_REPLY.to_string()), 16_000, takes(16_000, 2_000, 0, 0), None);
     let before = rig.builtin_floor();
-    let _ = listen(&mut rig, "en", 2_000);
+    drop(listen(&mut rig, "en", 2_000));
     assert!(rig.builtin_floor() != before, "the room was measured");
 }
 
@@ -374,7 +374,7 @@ fn the_vocabulary_is_handed_to_the_engine_and_kept_to_the_limits() {
         "line\nbreak".to_string(),
     ]);
     assert_eq!(note, None);
-    let _ = listen(&mut rig, "de", 10_000);
+    drop(listen(&mut rig, "de", 10_000));
     assert_eq!(
         rig.seen.lock().unwrap().calls[0].2,
         "AzReview\naz review\nNeckarbrücke\nlinebreak",
@@ -461,7 +461,7 @@ fn registering_files_that_are_not_there_names_what_is_missing_and_where_it_looke
     assert_eq!(failure.status, BuiltinStatus::EngineMissing);
     assert!(failure.message.contains(engine_file_name(std::env::consts::OS)), "{}", failure.message);
     assert!(failure.message.contains("speech"), "the places it looked in are named: {}", failure.message);
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(std::fs::remove_dir_all(&dir));
 }
 
 #[test]
@@ -505,7 +505,7 @@ fn a_recognizer_that_looks_for_its_files_says_where_it_looked_and_opens_no_micro
     assert_eq!(answer.outcome, Outcome::Unavailable);
     assert!(answer.message.contains(&dir.display().to_string()), "{}", answer.message);
     assert_eq!(*opened.lock().unwrap(), 0, "the microphone stays off when there is no model");
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(std::fs::remove_dir_all(&dir));
 }
 
 /// Favouring a word pulls the probability of the RIGHT word down (a correct "enum" came out at
@@ -515,7 +515,7 @@ fn a_word_of_the_vocabulary_is_marked_so_its_probability_is_not_read_as_doubt() 
     let reply = r#"{"text":"Rename the enum, AzReview and the speech session.","language":"en","words":[{"word":"Rename","start":0.0,"end":0.4,"probability":0.99},{"word":"the","start":0.4,"end":0.5,"probability":1.0},{"word":"enum,","start":0.5,"end":0.9,"probability":0.32},{"word":"AzReview","start":0.9,"end":1.5,"probability":0.55},{"word":"and","start":1.5,"end":1.6,"probability":1.0},{"word":"the","start":1.6,"end":1.7,"probability":1.0},{"word":"speech","start":1.7,"end":2.0,"probability":0.9},{"word":"session.","start":2.0,"end":2.4,"probability":0.7}]}"#;
     let mut rig = rig(Ok(reply.to_string()), 16_000, takes(16_000, 500, 1_000, 1_500), None);
     // Case and punctuation do not matter; a phrase marks each of its words.
-    let _ = rig.builtin.set_keywords(&["ENUM".to_string(), "azreview".to_string(), "speech session".to_string()]);
+    drop(rig.builtin.set_keywords(&["ENUM".to_string(), "azreview".to_string(), "speech session".to_string()]));
     let answer = listen(&mut rig, "en", 10_000);
     let marked: Vec<(&str, bool)> = answer.words.iter().map(|w| (w.text.as_str(), w.biased)).collect();
     assert_eq!(
@@ -732,7 +732,7 @@ fn a_kept_microphone_serves_the_next_call_and_speech_that_began_in_the_gap_is_no
 fn what_was_kept_for_the_next_call_does_not_use_up_its_time() {
     let mut rig = kept_rig(5_000);
     rig.room.push_takes(0, 600, 1_200);
-    let _ = kept_listen(&mut rig, 10_000);
+    drop(kept_listen(&mut rig, 10_000));
     // A second and a half of room comes in while nobody listens; then 400 ms of room and 600 ms of
     // voice with the call, which has two seconds: the voice is inside them, only if the time that
     // was kept does not count.
@@ -771,7 +771,7 @@ fn a_microphone_that_is_not_kept_is_closed_before_the_engine_runs() {
     // The old behaviour with a keeper that keeps nothing: opened for the call, closed at its end.
     let mut rig = kept_rig(0);
     rig.room.push_takes(600, 1_200, 1_500);
-    let _ = kept_listen(&mut rig, 10_000);
+    drop(kept_listen(&mut rig, 10_000));
     assert_eq!((*rig.room.opened.lock().unwrap(), *rig.room.closed.lock().unwrap()), (1, 1));
     assert!(!rig.keeper.is_held());
 }

@@ -439,7 +439,7 @@ fn a_recognizer_is_ready_when_it_is_there_not_refused_and_says_it_can_listen() {
     assert!(rig.chain.is_ready(Kind::Native));
     assert!(rig.chain.is_ready(Kind::Builtin));
     assert!(!rig.chain.is_ready(Kind::Scripted), "none of that kind is in the chain");
-    let _ = listen(&mut rig, 5_000);
+    drop(listen(&mut rig, 5_000));
     assert!(!rig.chain.is_ready(Kind::Native), "it says it cannot listen now");
     // Asked, it refuses, and is marked for the session; the built-in recognizer answers.
     rig.chain.set_first(Kind::Native);

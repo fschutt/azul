@@ -1022,7 +1022,7 @@ impl MicrophoneSource for AppleMicrophoneSource {
             }
         }
         objc2::rc::autoreleasepool(|_| unsafe { AppleMicrophone::start() })
-            .map(|microphone| Box::new(microphone) as Box<dyn Microphone>)
+            .map(|microphone| -> Box<dyn Microphone> { Box::new(microphone) })
     }
 }
 
@@ -1097,7 +1097,7 @@ impl AppleMicrophone {
         };
         let _: () = unsafe { msg_send![engine, prepare] };
         let mut error: *mut AnyObject = core::ptr::null_mut();
-        let started: bool = unsafe { msg_send![engine, startAndReturnError: &mut error as *mut *mut AnyObject] };
+        let started: bool = unsafe { msg_send![engine, startAndReturnError: core::ptr::addr_of_mut!(error)] };
         if !started {
             let why = unsafe { describe(error) };
             unsafe {

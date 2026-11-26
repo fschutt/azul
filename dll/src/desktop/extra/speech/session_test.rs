@@ -83,7 +83,7 @@ fn the_status_lines_name_each_recognizer_and_why_one_is_not_used() {
     assert_eq!(before.len(), 2);
     assert!(before[0].starts_with("native | ") && before[0].ends_with("| unavailable: no usage text"), "{before:?}");
     assert!(before[1].starts_with("built-in | ") && before[1].ends_with("| ready"), "{before:?}");
-    let _ = session.listen_blocking(AzString::from(String::new()), 5_000);
+    drop(session.listen_blocking(AzString::from(String::new()), 5_000));
     let after = lines(&session);
     assert!(after[0].contains("unavailable: no usage text"), "{after:?}");
     session.reset();
@@ -112,7 +112,7 @@ fn a_clone_is_another_handle_on_the_same_session() {
     assert!(closed.recognizers().as_slice().is_empty());
     closed.cancel();
     closed.reset();
-    let _ = closed.clone();
+    drop(closed.clone());
 }
 
 #[test]
@@ -206,7 +206,7 @@ fn a_test_run_follows_the_script_its_hook_names() {
     };
     let heard = SpeechSession::with_hooks(&bad).listen_blocking(AzString::from("en".to_string()), 500);
     assert!(heard.message.as_str().contains("nobody knows"), "{}", heard.message.as_str());
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(std::fs::remove_dir_all(&dir));
 }
 
 /// Without a script a headless run is the old stand-in: what `AZ_SPEECH_HEARD` holds is heard at
@@ -283,7 +283,7 @@ fn an_identifier_in_the_vocabulary_puts_the_system_recognizer_first_even_in_engl
     let lines = lines_of(&session);
     assert!(lines[0].starts_with("native | ") && lines[0].contains("tried first: an identifier is in the vocabulary"), "{lines:?}");
     // Without it the language decides again.
-    let _ = session.set_vocabulary(words_list(&[]));
+    drop(session.set_vocabulary(words_list(&[])));
     assert!(lines_of(&session)[0].starts_with("built-in | "), "{:?}", lines_of(&session));
 }
 
@@ -329,7 +329,7 @@ fn a_script_can_pin_the_order_and_by_default_follows_the_language() {
     assert_eq!(ask(&pinned, "en").recognizer, SpeechRecognizer::Native);
     let other = run("builtin.json", &format!("{{{both}, \"preference\": \"builtin_first\"}}"));
     assert_eq!(ask(&other, "de").recognizer, SpeechRecognizer::Builtin);
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(std::fs::remove_dir_all(&dir));
 }
 
 /// A UI polls this while the call runs on a worker thread: false before sound reaches the
@@ -453,7 +453,7 @@ fn the_state_goes_from_cold_through_armed_and_warm_to_listening_and_back() {
     session.disarm();
     assert_eq!((session.state(), closed.load(Ordering::SeqCst)), (SpeechState::Cold, 1));
     // A call initialises the recognizer (a scripted one does not touch the microphone).
-    let _ = ask(&session, "en");
+    drop(ask(&session, "en"));
     assert_eq!(session.state(), SpeechState::Warm, "initialised, microphone closed");
     // A call that kept the microphone leaves the session armed until it is let go.
     keeper.acquire().expect("a microphone").finish(true);
@@ -471,7 +471,7 @@ fn the_state_goes_from_cold_through_armed_and_warm_to_listening_and_back() {
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
     listening.cancel();
-    let _ = handle.join().expect("the worker");
+    drop(handle.join().expect("the worker"));
     assert_ne!(listening.state(), SpeechState::Listening, "the call ended");
     assert_eq!(SpeechSession::default().state(), SpeechState::Cold, "a closed session has nothing");
 }
@@ -482,7 +482,7 @@ fn the_standby_decides_what_stays_open_and_arm_says_why_when_it_cannot() {
     // Off: nothing is kept, and an arm says so.
     session.set_standby(SpeechStandby::Off);
     assert!(session.arm().as_str().contains("off"), "{}", session.arm().as_str());
-    let _ = ask(&session, "en");
+    drop(ask(&session, "en"));
     assert!(!keeper.is_held(), "off: the call closed the microphone");
     // On demand (the default): kept for mic_keep_ms after a call (a scripted call does not use the
     // microphone: the keeper is asked as a recognizer that listens with it would).

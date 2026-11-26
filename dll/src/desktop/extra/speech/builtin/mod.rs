@@ -654,7 +654,7 @@ impl Builtin {
         let mut cancelled = false;
         let mut engine_failed = false;
         let mut failure: Option<Answer> = None;
-        let mut final_answer = |this: &mut Self, segment: audio::Segment, note: &mut Option<String>| -> Result<(), Answer> {
+        let final_answer = |this: &mut Self, segment: audio::Segment, note: &mut Option<String>| -> Result<(), Answer> {
             match this.decode(&segment, code, audio_began_unix_ms)? {
                 Some(mut answer) => {
                     if let Some(note) = note.take() {

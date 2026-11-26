@@ -943,7 +943,7 @@ impl SpeechSession {
             Err(failure) => (Builtin::refused(inner.keeper.clone(), failure.message), failure.status),
         };
         let vocabulary = inner.vocabulary.lock().unwrap_or_else(PoisonError::into_inner).clone();
-        let _ = recognizer.set_keywords(&vocabulary);
+        drop(recognizer.set_keywords(&vocabulary));
         let mut chain = inner.chain.lock().unwrap_or_else(PoisonError::into_inner);
         chain.replace(Box::new(recognizer));
         drop(chain);
@@ -1386,14 +1386,14 @@ fn run_stream(session: &SpeechSession, shared: &std::sync::Weak<StreamShared>, l
     {
         let mut chain = inner.chain.lock().unwrap_or_else(PoisonError::into_inner);
         let _ = inner.arrange(&mut chain, language);
-        let _ = chain.stream_with(
+        drop(chain.stream_with(
             language,
             &options,
             &cancelled,
             &stopped,
             &|| inner.flowing.store(true, Ordering::SeqCst),
             &push,
-        );
+        ));
     }
     inner.flowing.store(false, Ordering::SeqCst);
     if let Some(shared) = shared.upgrade() {

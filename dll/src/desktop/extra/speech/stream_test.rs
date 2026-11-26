@@ -259,7 +259,7 @@ fn a_closed_stream_has_no_events_and_is_not_running() {
     assert!(!closed.is_running());
     closed.stop();
     closed.cancel();
-    let _ = closed.clone();
+    drop(closed.clone());
     // A stream of a closed session ends at once with that.
     let events = events_until_ended(&SpeechSession::default().start_stream(AzString::from("en".to_string()), options(true, 1, 0)));
     assert_eq!(kinds(&events), [SpeechEventKind::Ended]);

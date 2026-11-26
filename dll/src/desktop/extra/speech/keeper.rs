@@ -161,7 +161,7 @@ fn keep_loop(weak: &Weak<Shared>) {
         let mut held = shared.held_by_thread();
         let Some(kept) = held.as_mut() else {
             // Nothing to keep: wait for a call to give a microphone back (or for the keeper to go).
-            let _ = shared.changed.wait_timeout(held, IDLE_CHECK).unwrap_or_else(PoisonError::into_inner);
+            drop(shared.changed.wait_timeout(held, IDLE_CHECK).unwrap_or_else(PoisonError::into_inner));
             continue;
         };
         if shared.limit_of(kept).is_some_and(|limit| limit.is_zero() || kept.idle_since.elapsed() >= limit) {

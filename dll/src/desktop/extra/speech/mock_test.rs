@@ -220,12 +220,12 @@ fn a_scripted_recognizer_says_sound_flows_when_it_listens_and_not_when_it_refuse
             },
         ],
     );
-    let _ = call(&mut mock);
+    drop(call(&mut mock));
     assert_eq!(flowed.load(Ordering::SeqCst), 1, "a say");
-    let _ = call(&mut mock);
+    drop(call(&mut mock));
     assert_eq!(flowed.load(Ordering::SeqCst), 2, "a silence");
-    let _ = call(&mut mock);
+    drop(call(&mut mock));
     assert_eq!(flowed.load(Ordering::SeqCst), 2, "a refusal never listened");
-    let _ = call(&mut mock);
+    drop(call(&mut mock));
     assert_eq!(flowed.load(Ordering::SeqCst), 3, "a failure part-way listened first");
 }
