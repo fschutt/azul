@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests of the pure parts of scripts/ci/mobile_qa.py (no device needed): the picture signatures, the BMP and PNG
 code, and the readers of what dumpsys / uiautomator / logcat print.   python3 -I scripts/ci/test_mobile_qa.py"""
+import json
 import struct
 import sys
 import unittest
@@ -86,13 +87,10 @@ class SignatureTests(unittest.TestCase):
     def test_the_png_writer_makes_a_png_that_inflates_to_the_pixels(self):
         w, h = 5, 3
         px = bytes(range(w * h * 4))
-        path = Path(__file__).resolve().parent / "_test_out.png"
-        try:
-            q.write_png(path, w, h, px)
-            data = path.read_bytes()
-        finally:
-            if path.exists():
-                path.unlink()
+        import tempfile
+        path = Path(tempfile.mkdtemp(prefix="azqa-test-")) / "out.png"     # a temp folder of its own: nothing is deleted
+        q.write_png(path, w, h, px)
+        data = path.read_bytes()
         self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
         width, height = struct.unpack(">II", data[16:24])
         self.assertEqual((width, height), (w, h))
@@ -212,13 +210,10 @@ class BmpVariantTests(unittest.TestCase):
         self.assertEqual(len(sig), q.COLS * q.ROWS * 3)
 
     def test_png_size_reads_the_header(self):
-        path = Path(__file__).resolve().parent / "_test_size.png"
-        try:
-            q.write_png(path, 7, 9, bytes(7 * 9 * 4))
-            self.assertEqual(q.png_size(path), (7, 9))
-        finally:
-            if path.exists():
-                path.unlink()
+        import tempfile
+        path = Path(tempfile.mkdtemp(prefix="azqa-test-")) / "size.png"     # a temp folder of its own: nothing is deleted
+        q.write_png(path, 7, 9, bytes(7 * 9 * 4))
+        self.assertEqual(q.png_size(path), (7, 9))
 
 
 class ModeComparisonTests(unittest.TestCase):
@@ -297,6 +292,91 @@ class ModeComparisonTests(unittest.TestCase):
                 finding = [c for c in run.steps[0].checks if "GPU renderer ran" in c["what"]]
                 self.assertTrue(finding and not finding[0]["ok"])      # the finding is there in both cases
                 self.assertIn("render_modes", run.meta)
+
+
+class ImeAndTableTests(unittest.TestCase):
+    def test_the_ime_inset_says_whether_the_keyboard_is_up(self):
+        shown = "      InsetsSource type=ime frame=[0,1364][1080,2400] visible=true flags= \n"
+        hidden = "      InsetsSource type=ime frame=[0,2400][1080,2400] visible=false flags= \n"
+        older = "    InsetsSource: mType=ITYPE_IME mFrame=[0,1400][1080,2400] mVisible=true\n"
+        self.assertTrue(q.parse_ime_inset(shown))
+        self.assertFalse(q.parse_ime_inset(hidden))
+        self.assertTrue(q.parse_ime_inset(older))
+        self.assertFalse(q.parse_ime_inset(hidden + "  InsetsSource type=statusBars frame=[0,0][1080,128] visible=true\n"))
+        self.assertIsNone(q.parse_ime_inset("nothing about the keyboard here\n"))
+
+    def test_the_standing_render_section_is_in_qa_md_and_qa_json(self):
+        import tempfile
+        w, h = 12, 12
+        px = solid(w, h, (90, 90, 90))
+        res = {m: {"ran": "cpu", "requested": None, "device": "software", "rgba": px, "dims": (w, h), "first_frame_s": 0.5,
+                   "displayed_ms": 944, "frames": {"median": 25.2, "p95": 47.2, "n": 117}} for m in ("cpu", "gpu", "auto")}
+        with tempfile.TemporaryDirectory() as d:
+            run = q.Run(d, "android", {"label": "t"})
+            run.step("modes", "x", lambda s: q.report_modes(run, s, res, False, "android"))
+            md = (Path(d) / "qa.md").read_text()
+            self.assertIn("## Render backends: requested against ran", md)
+            self.assertIn("| gpu | cpu | software | 944 | 0.5 | 25.2 | 47.2 | 117 |", md)
+            self.assertIn("cpu against gpu, pixel by pixel", md)
+            doc = json.loads((Path(d) / "qa.json").read_text())
+            self.assertEqual(len(doc["render"]["table"]), 3)
+            self.assertTrue(doc["render"]["cpu_against_gpu"]["ok"])
+
+
+class LayoutOverflowTests(unittest.TestCase):
+    def test_nodes_crossing_the_right_edge_are_found_widest_first_without_their_children(self):
+        import mobile_e2e as e
+        nodes = [
+            {"node_id": 0, "tag": "body", "id": None, "classes": [], "rect": {"x": 0.0, "y": 0.0, "width": 411.4, "height": 817.5}},
+            {"node_id": 1, "tag": "div", "id": None, "classes": [], "rect": {"x": 42.0, "y": 1970.0, "width": 480.0, "height": 270.0}},
+            {"node_id": 2, "tag": "button", "id": "video-overlay", "classes": ["b"], "rect": {"x": 42.0, "y": 2000.0, "width": 480.0, "height": 40.0}},
+            {"node_id": 3, "tag": "p", "id": None, "classes": [], "rect": {"x": 85.0, "y": 2094.0, "width": 394.0, "height": 42.0}},
+            {"node_id": 4, "tag": "span", "id": None, "classes": [], "rect": None},
+            {"node_id": 5, "tag": "div", "id": None, "classes": [], "rect": {"x": 500.0, "y": 10.0, "width": 50.0, "height": 10.0}},   # entirely off to the right: not 'crossing'
+        ]
+        answer = {"status": "ok", "data": {"type": "all_nodes_layout", "value": {"dom_id": 0, "node_count": 6, "nodes": nodes}}}
+        count, top = e.layout_overflow(answer, 411.4)
+        self.assertEqual(count, 3)                       # the video box, the button inside it, the paragraph
+        self.assertEqual(top[0][:2], ("div", None))      # the widest first
+        self.assertTrue(all(t[1] != "video-overlay" for t in top))   # the button starts at the same x inside the box: not listed again
+        self.assertEqual(e.layout_overflow({"data": {}}, 411.4), (0, []))
+
+
+class ExitReasonTests(unittest.TestCase):
+    EXIT = """ACTIVITY MANAGER PROCESS EXIT INFO (dumpsys activity exit-info)
+  package: com.azul.AzWidgets
+    Historical Process Exit for uid=10141
+        ApplicationExitInfo #0:
+          timestamp=2026-11-26 07:02:04.972 pid=3889 realUid=10141 packageUid=10141 definingUid=10141 user=0
+          process=com.azul.AzWidgets reason=4 (APP CRASH(EXCEPTION)) subreason=0 (UNKNOWN) status=0
+          importance=100 pss=0.00 rss=0.00 description=crash state=empty trace=null
+        ApplicationExitInfo #1:
+          timestamp=2026-11-26 07:01:58.140 pid=3791 realUid=10141 packageUid=10141 definingUid=10141 user=0
+          process=com.azul.AzWidgets reason=10 (USER REQUESTED) subreason=24 (KILL BACKGROUND) status=0
+        ApplicationExitInfo #2:
+          timestamp=2026-11-26 07:01:50.767 pid=3095 realUid=10141 packageUid=10141 definingUid=10141 user=0
+          process=com.azul.AzWidgets reason=2 (SIGNALED) subreason=0 (UNKNOWN) status=9
+"""
+
+    def test_the_exit_reasons_are_read_and_only_crashes_count(self):
+        got = q.parse_exit_reasons(self.EXIT)
+        self.assertEqual([g[2] for g in got], [4, 10, 2])
+        self.assertEqual(got[0][3], "APP CRASH(EXCEPTION)")
+        self.assertEqual([g for g in got if g[2] in q.CRASH_EXIT_REASONS], [got[0]])   # a self-kill (SIGNALED) is not a crash
+
+    def test_has_died_is_not_a_fatal_line_but_a_crash_is(self):
+        died = "11-26 06:57:07.897 516 1880 I ActivityManager: Process com.azul.AzWidgets (pid 2528) has died: fg  TOP"
+        self.assertEqual(q.fatal_lines(died, "com.azul.AzWidgets"), [])
+        crash = "11-26 06:57:07.858 2528 2528 E AndroidRuntime: FATAL EXCEPTION: main (com.azul.AzWidgets)"
+        self.assertEqual(len(q.fatal_lines(crash, "com.azul.AzWidgets")), 1)
+
+    def test_activity_creations_are_found_in_the_events_buffer(self):
+        ev = ("11-26 06:57:55.100   516  1234 I wm_create_activity: [0,12345,8,com.azul.AzWidgets/com.azul.app.AzulActivity,android.intent.action.MAIN,NULL,NULL,268435456]\n"
+              "11-26 06:57:56.100   516  1234 I wm_create_activity: [0,12346,9,com.other.app/.Main,android.intent.action.MAIN,NULL,NULL,0]\n"
+              "11-26 06:57:57.100   516  1234 I am_proc_start: [0,1,2,3]\n")
+        got = q.create_activity_lines(ev, "com.azul.AzWidgets")
+        self.assertEqual(len(got), 1)
+        self.assertTrue(got[0][:18] >= "11-26 06:57:55")
 
 
 if __name__ == "__main__":

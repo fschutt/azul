@@ -159,6 +159,23 @@ fn a_loop_on_the_second_page_is_armed_with_the_numbers_of_that_pages_lines() {
 }
 
 #[test]
+fn a_loop_whose_stroke_is_taken_back_or_erased_is_not_armed_any_more() {
+    let mut s = app_with_slash_file();
+    draw_fixture(&mut s, &stroke_fixtures::closed_loop(), 0).expect("ended");
+    arm_last(&s).expect("armed");
+    assert_eq!(s.wb.borrow().panel.wb.armed.len(), 1);
+    assert!(s.undo(), "the loop is taken back");
+    assert_eq!(s.wb.borrow().panel.wb.armed.len(), 0, "its stroke is not on the page: nor is the loop armed");
+    // the stroke comes back, the loop is not armed again by it; the pen arms it when it is drawn
+    assert!(s.redo());
+    assert_eq!(s.wb.borrow().panel.wb.armed.len(), 0);
+    arm_last(&s).expect("armed again");
+    let at = s.strokes.len() - 1;
+    s.erase(at).expect("the stroke is erased");
+    assert_eq!(s.wb.borrow().panel.wb.armed.len(), 0, "an erased loop is no loop");
+}
+
+#[test]
 fn a_page_shows_the_layer_of_loops_only_while_a_loop_waits_on_it() {
     let mut s = app_with_slash_file();
     assert!(!page_has_regions(&s, 0));
@@ -193,4 +210,39 @@ fn the_ids_of_the_pieces_of_a_page_name_their_page_and_their_loop() {
     assert_eq!(overlay_id(3), "__azreview_wb-overlay-3");
     assert_eq!(chip_id(5), "__azreview_wb-chip-5");
     assert_eq!(send_id(5), "__azreview_wb-send-5");
+}
+
+// ---- a rest that is for the board
+
+#[test]
+fn a_pen_that_rests_on_the_grip_of_a_loop_is_reaching_for_it_and_is_not_asking_to_be_listened_to() {
+    let mut s = app_with_slash_file();
+    draw_fixture(&mut s, &stroke_fixtures::closed_loop(), 0).expect("ended");
+    let (id, ..) = arm_last(&s).expect("armed");
+    let grip = s.wb.borrow().panel.wb.armed.get(id).expect("armed").grip;
+    // on the grip, and a little way round it
+    assert!(rest_is_for_the_board(&s, 0, grip.center()));
+    assert!(rest_is_for_the_board(&s, 0, Pt::new(grip.right() + 5.0, grip.center().y)));
+    // far from it, on the loop's far side, on another page
+    assert!(!rest_is_for_the_board(&s, 0, Pt::new(grip.center().x - 150.0, grip.center().y)));
+    assert!(!rest_is_for_the_board(&s, 1, grip.center()));
+    // a loop that is gone has no grip
+    s.wb.borrow_mut().panel.wb.armed.clear();
+    assert!(!rest_is_for_the_board(&s, 0, grip.center()));
+}
+
+#[test]
+fn while_a_press_on_a_loop_is_followed_no_rest_asks_to_be_listened_to_anywhere() {
+    let mut s = app_with_slash_file();
+    draw_fixture(&mut s, &stroke_fixtures::closed_loop(), 0).expect("ended");
+    let (id, ..) = arm_last(&s).expect("armed");
+    let inside = {
+        let g = s.wb.borrow();
+        let r = g.panel.wb.armed.get(id).expect("armed");
+        Pt::new(r.bounds.x + 20.0, r.bounds.y + r.bounds.h / 2.0)
+    };
+    assert!(!rest_is_for_the_board(&s, 0, Pt::new(10.0, 10.0)));
+    let press = s.wb.borrow_mut().panel.wb.page_press(Pointer { page: 0, in_page: inside, in_window: inside }, 5);
+    assert!(matches!(press, Press::Inside(_)), "{press:?}");
+    assert!(rest_is_for_the_board(&s, 0, Pt::new(10.0, 10.0)), "the press is followed: the hand is at the board");
 }

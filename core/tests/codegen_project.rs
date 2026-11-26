@@ -204,7 +204,7 @@ fn an_unknown_language_is_refused_with_the_list() {
         components: &components,
         libraries: Vec::new(),
     };
-    let err = project_files("klingon", &spec).err().expect("refused");
+    let err = project_files("klingon", &spec).expect_err("refused");
     assert!(err.contains("available:"), "{err}");
 }
 

@@ -171,6 +171,10 @@ def check(m=None):
     if all(isinstance(android.get(k), int) for k in ("min_sdk", "target_sdk")) and android["target_sdk"] < android["min_sdk"]:
         err(f"[android] target_sdk {android['target_sdk']} is below min_sdk {android['min_sdk']}")
     libs = m.get("lib", {})
+    for name, lib in libs.items():
+        if "test-hooks" in str(lib.get("features", "")).split(",") and not lib.get("artifact_only"):
+            err(f"lib {name} has the cargo feature test-hooks and is not artifact_only: a build that reads stand-ins and failure "
+                f"injections from the environment must never ship (scripts/check_no_test_hooks.py)")
     for name, lib in artifact_only_libs(m).items():
         bad = [t for t in lib.get("targets", []) if t not in MOBILE_TARGETS]
         if bad or not lib.get("targets"):
@@ -202,6 +206,14 @@ def check(m=None):
                     f"{[k for k in libs if k != 'desktop']}, not {lib!r}")
             elif libs[lib].get("artifact_only"):
                 err(f"{where} mobile_lib {lib!r} is artifact_only: a shipped app never links a QA variant of the library")
+        # [app.smoke] after_tap / after_tap_gone: lists of texts for the screen after the button `tap` was pressed
+        smoke = a.get("smoke") or {}
+        for key in ("after_tap", "after_tap_gone"):
+            if key in smoke:
+                if not isinstance(smoke[key], list) or not all(isinstance(t, str) and t.strip() for t in smoke[key]):
+                    err(f"{where} [app.smoke] {key} must be a list of texts")
+                elif not smoke.get("tap"):
+                    err(f"{where} [app.smoke] {key} is looked for after a button was pressed and the app names no `tap`")
         # the purpose strings of iOS: a usage key is `NS...UsageDescription` with a text, and an app that asks for a sensor on
         # Android has its key for iOS (the permissions are the list of what the app is allowed to use on a phone)
         usage = (a.get("ios") or {}).get("usage") or {}
@@ -385,6 +397,10 @@ def plan(m=None, e2e=False):
                                     if (a.get("smoke") or {}).get("tap")}, sort_keys=True)
     out["smoke_expects"] = json.dumps({a["package"]: a["smoke"]["expect"] for a in m["app"]
                                        if (a.get("smoke") or {}).get("expect")}, sort_keys=True)
+    # what must be on the screen once the button was pressed, and what must be gone: {package: {"found": [...], "gone": [...]}}
+    out["smoke_after"] = json.dumps({a["package"]: {"found": a["smoke"].get("after_tap", []), "gone": a["smoke"].get("after_tap_gone", [])}
+                                     for a in m["app"] if (a.get("smoke") or {}).get("tap")
+                                     and (a["smoke"].get("after_tap") or a["smoke"].get("after_tap_gone"))}, sort_keys=True)
     return out
 
 
@@ -500,6 +516,12 @@ def boot_text(r):
             text += f", first window {r['displayed_ms']} ms (the platform's own number)"
         elif r.get("launch_ms") is not None:
             text += f", launched in {r['launch_ms']} ms (the platform's own number)"
+        # the engine's own mark (AZ_STARTUP=1): the first frame it handed to the OS, counted from the process creation
+        if r.get("first_present_ms") is not None:
+            text += f", first present {r['first_present_ms']:.0f} ms (the engine's mark)"
+        backend = re.search(r"backend=(\w+)", str(r.get("render_backend") or ""))
+        if backend:
+            text += f", {backend.group(1)} renderer"
     elif r.get("alive") and not r.get("fatal"):
         text = "boots" + ("" if r.get("screen_nonblank") else " (blank screen)")
     else:

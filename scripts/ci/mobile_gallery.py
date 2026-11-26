@@ -19,6 +19,7 @@ import argparse
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 CELL_W, CELL_H = 216, 480
@@ -36,7 +37,7 @@ SHEETS = {
         ("text field + keyboard", ["keyboard-and-text"], []),
     ],
     "2-rotation-and-leaving": [
-        ("landscape", ["landscape"], ["landscape"]),
+        ("landscape", ["landscape"], ["landscape-only-app", "landscape"]),
         ("landscape after a tap", ["landscape-after-tap"], []),
         ("portrait again", ["portrait-again"], ["portrait-again"]),
         ("home pressed", ["home-pressed"], ["other-app-in-front"]),
@@ -95,7 +96,13 @@ def cell(shot, caption, work, name, missing_text):
         magick("-size", f"{CELL_W}x{CELL_H}", "xc:#383838", "-fill", "#aaaaaa", "-gravity", "center", "-pointsize", "14",
                "-annotate", "+0+0", missing_text, out)
     else:
-        magick(shot, "-resize", f"{CELL_W}x{CELL_H}", "-background", "#202020", "-gravity", "center", "-extent", f"{CELL_W}x{CELL_H}", out)
+        size = subprocess.run(["magick", "identify", "-format", "%w %h", str(shot)], capture_output=True).stdout.split()
+        landscape = len(size) == 2 and int(size[0]) > int(size[1])
+        if landscape:
+            # a landscape picture gets a cell as wide as the portrait ones are tall: 480 x 216 inside a 480 x 480 cell
+            magick(shot, "-resize", f"{CELL_H}x{CELL_W}", "-background", "#202020", "-gravity", "center", "-extent", f"{CELL_H}x{CELL_H}", out)
+        else:
+            magick(shot, "-resize", f"{CELL_W}x{CELL_H}", "-background", "#202020", "-gravity", "center", "-extent", f"{CELL_W}x{CELL_H}", out)
     labelled = work / f"{name}-l.png"
     magick(out, "-background", "#202020", "-gravity", "south", "-splice", "0x26", "-fill", "white", "-pointsize", "13",
            "-annotate", "+0+4", caption, labelled)
@@ -105,8 +112,7 @@ def cell(shot, caption, work, name, missing_text):
 def build(out_dir, columns):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    work = out_dir / ".work"
-    work.mkdir(exist_ok=True)
+    work = Path(tempfile.mkdtemp(prefix="azgallery-"))     # temp files stay in the system temp folder: nothing is deleted
     made = []
     for sheet, cells in SHEETS.items():
         rows = []
@@ -116,7 +122,7 @@ def build(out_dir, columns):
             for ci, (caption, a_stems, i_stems) in enumerate(cells):
                 stems = i_stems if ios else a_stems
                 shot = find_shot(shots_dir, stems) if stems else None
-                why = "no such step on this platform" if not stems else "not reached (the app was gone)"
+                why = "no such step on this platform" if not stems else "no picture of this step in this run"
                 parts.append(cell(shot, caption, work, f"{sheet}-{ri}-{ci}", why))
             strip = work / f"{sheet}-{ri}-strip.png"
             magick(*parts, "+append", strip)
@@ -130,9 +136,7 @@ def build(out_dir, columns):
         magick(*rows, "-append", sheet_png)
         made.append(sheet_png)
         print("wrote", sheet_png)
-    for p in work.glob("*.png"):
-        p.unlink()
-    work.rmdir()
+    print("temp files left in", work)
     return made
 
 
