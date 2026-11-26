@@ -254,6 +254,66 @@ fn what_is_no_board_is_said_so_and_a_newer_board_is_told_apart() {
     assert!(matches!(read(&[0xff, 0xfe, 0x00], &|_| None, &Codec, &LIMITS), Err(StoreError::NotABoard(_))));
 }
 
+/// The bytes of a zip that is nothing but a central directory and its end record: one entry for each (name, the size
+/// it declares unpacked). Enough for the directory to be read; nothing is in it to unpack.
+fn directory_only(entries: &[(&str, u32)]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for (name, size) in entries {
+        out.extend_from_slice(&0x0201_4b50_u32.to_le_bytes());
+        out.extend_from_slice(&[0_u8; 20]); // versions, flags, method, time, date, crc, compressed size
+        out.extend_from_slice(&size.to_le_bytes());
+        out.extend_from_slice(&u16::try_from(name.len()).expect("a short name").to_le_bytes());
+        out.extend_from_slice(&[0_u8; 16]); // extra, comment, disk, internal and external attributes, offset
+        out.extend_from_slice(name.as_bytes());
+    }
+    let size = u32::try_from(out.len()).expect("small");
+    out.extend_from_slice(&0x0605_4b50_u32.to_le_bytes());
+    out.extend_from_slice(&[0_u8; 4]); // disks
+    out.extend_from_slice(&u16::try_from(entries.len()).expect("few").to_le_bytes());
+    out.extend_from_slice(&u16::try_from(entries.len()).expect("few").to_le_bytes());
+    out.extend_from_slice(&size.to_le_bytes());
+    out.extend_from_slice(&0_u32.to_le_bytes()); // the directory starts at the start
+    out.extend_from_slice(&[0_u8; 2]); // no comment
+    out
+}
+
+#[test]
+fn the_sizes_an_archive_declares_are_read_from_its_directory_alone() {
+    let zip = directory_only(&[("board.json", 2_000), ("img-1.png", 9_000), ("img-2.png", 1)]);
+    assert_eq!(
+        declared_sizes(&zip),
+        Some(vec![("board.json".to_string(), 2_000), ("img-1.png".to_string(), 9_000), ("img-2.png".to_string(), 1)])
+    );
+    assert_eq!(declared_sizes(&directory_only(&[])), Some(Vec::new()), "an empty archive");
+    // What is no zip, or is cut short anywhere, or is ZIP64, is not read - and is never a panic.
+    assert_eq!(declared_sizes(b"not a zip at all, but long enough to hold an end record"), None);
+    assert_eq!(declared_sizes(&[]), None);
+    for cut in 0..zip.len() {
+        let _ = declared_sizes(&zip[..cut]);
+    }
+    assert_eq!(declared_sizes(&directory_only(&[("big.png", u32::MAX)])), None, "ZIP64 marks its sizes so");
+    // A directory that points past the end of the file.
+    let mut lying = zip.clone();
+    let at = lying.len() - 6;
+    lying[at..at + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+    assert_eq!(declared_sizes(&lying), None);
+}
+
+#[test]
+fn an_archive_that_declares_more_than_a_board_may_be_is_refused_before_anything_is_unpacked() {
+    let ok = directory_only(&[("board.json", 40_000), ("img-1.png", 5_000_000), ("img-2.png", 5_000_000)]);
+    assert_eq!(check_unpacked(&ok, &LIMITS), Ok(()));
+    // One entry larger than any picture file is.
+    let big = directory_only(&[("board.json", 40_000), ("img-1.png", MAX_PICTURE_BYTES as u32 + 1)]);
+    assert_eq!(check_unpacked(&big, &LIMITS), Err(40_000 + MAX_PICTURE_BYTES as u64 + 1));
+    // Many entries that are each fine and together are not: 40 Mpx of 4 bytes is 160 MB, and all the room is that and a manifest.
+    let many: Vec<(String, u32)> = (0..60).map(|i| (format!("img-{i}.png"), 60_000_000)).collect();
+    let many: Vec<(&str, u32)> = many.iter().map(|(n, s)| (n.as_str(), *s)).collect();
+    assert!(check_unpacked(&directory_only(&many), &LIMITS).is_err(), "3.6 GB of pictures");
+    // What cannot be read as a directory is the reader's to judge.
+    assert_eq!(check_unpacked(b"garbage", &LIMITS), Ok(()));
+}
+
 #[test]
 fn a_manifest_that_is_too_large_is_refused_before_it_is_read() {
     let big = vec![b' '; crate::whiteboard_json::MAX_TEXT + 1];

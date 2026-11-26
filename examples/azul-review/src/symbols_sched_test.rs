@@ -513,3 +513,32 @@ fn every_reason_to_skip_a_file_has_its_own_key() {
     keys.dedup();
     assert_eq!(keys.len(), SkipReason::ALL.len());
 }
+
+#[test]
+#[ignore = "X-EDGE-C-2: a measurement on a real tree, by hand: cargo test --release -p AzReview --lib -- --ignored --nocapture a_scan_of_a_real_tree_is_timed (the folder is SYMBOLS_TREE, else the repository)"]
+fn a_scan_of_a_real_tree_is_timed() {
+    let root = std::env::var("SYMBOLS_TREE")
+        .map_or_else(|_| std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."), std::path::PathBuf::from);
+    let focus = std::env::var("SYMBOLS_FOCUS").ok();
+    let source = Arc::new(crate::symbols_source::DiskSource::new(root.clone()));
+    let started = Instant::now();
+    let indexer = Indexer::start(source, focus.as_deref(), IndexerSettings::default(), ActivityGate::new());
+    assert!(indexer.wait_idle(Duration::from_secs(300)), "the scan of {} did not end in 300 s", root.display());
+    let total = started.elapsed();
+    let stats = indexer.index().stats();
+    let p = indexer.progress();
+    println!(
+        "{}: {} files read of {} found ({} ignored), {} definitions, {} names, {} lines, {:.1} MB read, about {:.1} MB held, {:?}",
+        root.display(),
+        p.files_done,
+        p.files_found,
+        p.files_ignored,
+        stats.defs,
+        stats.names,
+        stats.lines,
+        stats.bytes_read as f64 / 1e6,
+        stats.est_bytes as f64 / 1e6,
+        total
+    );
+    assert!(stats.defs > 0 && p.idle);
+}
