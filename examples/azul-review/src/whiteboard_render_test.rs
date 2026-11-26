@@ -17,8 +17,8 @@ fn lines() -> Vec<String> {
 }
 
 fn stroke(semantic: Semantic, y: f32, id: u64) -> Stroke {
-    let p = |x: f32| InkPoint { x, y, pressure: 0.6, tilt_x: 0.0, tilt_y: 0.0 };
-    Stroke { page: 0, semantic, points: vec![p(120.0), p(200.0), p(280.0)], id, epoch: 0 }
+    let p = |x: f32| InkPoint { x, y, pressure: 0.6, tilt_x: 0.0, tilt_y: 0.0, t_ms: 0 };
+    Stroke { page: 0, semantic, points: vec![p(120.0), p(200.0), p(280.0)], id, epoch: 0, started_unix_ms: 0 }
 }
 
 /// A loop (a box, as a lasso's outline can be) round lines 3 to 5 (y 62 to 107) and the first 40 characters.
