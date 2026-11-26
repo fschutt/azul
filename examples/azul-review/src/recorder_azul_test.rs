@@ -1,12 +1,18 @@
 //! azul's encoders behind the recorder's traits. What these can do depends on the machine: on a Mac
 //! VideoToolbox and AudioToolbox open and the tests encode for real; elsewhere the factory refuses in
-//! words and the tests check the words; on a virtual machine the encoder may open and then refuse every
-//! picture (no hardware encoder behind it). Each half says what it does here, a half that cannot run says
-//! `SKIPPED` and why, and a run that sets `AZ_REQUIRE_ENCODERS=1` (the one on a Mac that checks the
-//! adapters) fails instead of skipping: a test that passed without testing anything is no test.
+//! words and the tests check the words; on a virtual machine the encoder opens but is slow, and a realtime
+//! encoder refuses a picture while it is behind, so the pictures are paced (asked again after taking what the
+//! encoder has made). Each half says what it does here, a half that cannot run says `SKIPPED` and why, and a
+//! run that sets `AZ_REQUIRE_ENCODERS=1` (the one on a Mac that checks the adapters) fails instead of
+//! skipping: a test that passed without testing anything is no test.
+
+use std::time::{Duration, Instant};
 
 use super::*;
 use crate::recorder_mp4::{annexb_to_avcc, opus_packet_samples, VideoConfig};
+
+/// How long a real encoder may take no picture before the test gives up on it.
+const REFUSED_FOR: Duration = Duration::from_secs(10);
 
 /// The test needs the machine's real encoder and this machine does not give it: say so and go, or, under
 /// `AZ_REQUIRE_ENCODERS=1`, fail.
@@ -37,14 +43,24 @@ fn real_video(w: u32, h: u32, pictures: u32) -> Option<Vec<Vec<u8>>> {
         }
     };
     eprintln!("video encoder: {} (hardware: {})", codec.name(), codec.hardware());
+    let mut aus = Vec::new();
     for i in 0..pictures {
-        if !codec.submit(picture(w, h, i), i % 30 == 0) {
-            skipped("the real video encoder", &format!("it opened ({}, hardware: {}) and refused picture {i}: a machine without an H.264 encoder behind it", codec.name(), codec.hardware()));
-            return None;
+        let began = Instant::now();
+        // A realtime encoder refuses a picture while it still has three to work through (it drops rather than
+        // queue latency): a slow one, such as the paravirtual one of a virtual machine, is behind from the fifth
+        // picture of a burst. A producer that is paced asks again after taking what the encoder has made.
+        while !codec.submit(picture(w, h, i), i % 30 == 0) {
+            while let Some(au) = codec.poll() {
+                aus.push(au);
+            }
+            if began.elapsed() >= REFUSED_FOR {
+                skipped("the real video encoder", &format!("it opened ({}, hardware: {}) and took no picture for {} s (picture {i})", codec.name(), codec.hardware(), REFUSED_FOR.as_secs()));
+                return None;
+            }
+            std::thread::sleep(Duration::from_millis(5));
         }
     }
     codec.flush();
-    let mut aus = Vec::new();
     while let Some(au) = codec.poll() {
         aus.push(au);
     }
