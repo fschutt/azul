@@ -27,6 +27,7 @@ use azul::{
     widgets::{Segmented, SegmentedState},
 };
 use azul_appkit::{
+    files::{FileJob, FileOutcome},
     l10n::{label, labels, t, t_args, Arg},
     ui as kit,
 };
@@ -44,7 +45,7 @@ use crate::{
     whiteboard_drag::RegionId,
     whiteboard_export::{self, ExportRequest},
     whiteboard_git,
-    whiteboard_glue::Flash,
+    whiteboard_glue::{lines_since, material_line, Flash},
     whiteboard_io,
     whiteboard_jump::{jump, FileView, JumpTarget},
     whiteboard_settings::{self, Settings},
@@ -60,6 +61,14 @@ use crate::{
 pub const ARM_MS_DEFAULT: u64 = 15_000;
 /// The settings' key of the tip of the first loop.
 pub const KEY_TIP_SEEN: &str = "whiteboard-tip-seen";
+/// How many lines of what was done the window keeps (the oldest go first).
+pub const MAX_PATCH_LINES: usize = 500;
+/// How often the repository is looked at (its files, no process), ms: a commit made meanwhile is noticed.
+const REPO_TICK_MS: u64 = 5_000;
+/// The write-back tag of the read of the patch files at the start.
+const TAG_PATCHES: u64 = 6;
+/// How much of a patch file is looked at for its header, bytes (a header is a dozen lines of words).
+const MAX_HEADER_BYTES: usize = 16 * 1024;
 
 /// The whiteboard of the open workspace and what the app keeps beside it.
 pub struct Glue {
@@ -81,6 +90,16 @@ pub struct Glue {
     pub tip_for: Option<RegionId>,
     /// The page holds the pointer for a press on a loop (so that the carry over the bar is heard): it is let go of at the release.
     pub(crate) captured: bool,
+    /// What was done in this workspace, one line each with the moment it was done (Unix ms): the conversations that were resolved,
+    /// from the headers of their patch files. The part newer than the newest snapshot is the material of the next one.
+    patches: Vec<(u64, String)>,
+    /// The revision the repository was at when it was last looked at (the files of `.git`, every few seconds).
+    rev: Option<String>,
+    /// The quarter second of the panel's clock the ring of the loops was last drawn in.
+    redrawn: u64,
+    /// The loops (their ids) the pages were last built for: when the loops that wait are others (one is armed, was let go of or
+    /// its stroke was erased) the pages are built again.
+    tick_ids: Vec<u64>,
     saving_to: Option<PathBuf>,
     exporting: Option<ExportRequest>,
     pub(crate) render_started: Vec<(ItemId, Instant)>,
@@ -104,10 +123,36 @@ impl Glue {
             tip_shown: false,
             tip_for: None,
             captured: false,
+            patches: Vec::new(),
+            rev: None,
+            redrawn: u64::MAX,
+            tick_ids: Vec::new(),
             saving_to: None,
             exporting: None,
             render_started: Vec::new(),
             timer: None,
+        }
+    }
+
+    /// A conversation was resolved at `time_ms` (Unix): its line is material for the reason of the next snapshot. A line already
+    /// known is not added twice; the oldest go when there are more than [`MAX_PATCH_LINES`].
+    pub fn note_patch(&mut self, time_ms: u64, line: String) {
+        if self.patches.iter().any(|(t, l)| *t == time_ms && *l == line) {
+            return;
+        }
+        self.patches.push((time_ms, line));
+        self.patches.sort_by_key(|(t, _)| *t);
+        let extra = self.patches.len().saturating_sub(MAX_PATCH_LINES);
+        self.patches.drain(..extra);
+    }
+
+    /// What the panel offers for the reason of a snapshot is what was done since the newest one was taken (nothing is offered
+    /// until the code moved: the panel decides when it is used). Called whenever the lines or the snapshots change.
+    pub fn refresh_material(&mut self) {
+        let since = self.panel.wb.history().latest().map_or(0, |s| s.taken_ms);
+        let lines = lines_since(&self.patches, since);
+        if self.panel.history_ui.material != lines {
+            self.panel.history_ui.material = lines;
         }
     }
 
@@ -228,8 +273,8 @@ fn configure(glue: &mut Glue, s: &AppState) {
     glue.panel.wb.set_settings(settings);
     glue.tip_shown = tip.as_deref() == Some("1");
     if glue.persist {
-        let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from);
-        let facts = whiteboard_git::read(&s.root, home.as_deref());
+        let facts = whiteboard_git::read(&s.root, home_folder().as_deref());
+        glue.rev = facts.as_ref().and_then(|f| f.rev.clone());
         glue.panel.wb.set_folder(Some(s.root.clone()));
         glue.panel.wb.set_repo(facts);
     }
@@ -246,12 +291,99 @@ pub fn start(data: &RefAny, info: &mut CallbackInfo) {
         }
         let index = g.files.join(g.panel.wb.index_name());
         let legacy = g.files.join(whiteboard_store::board_name(g.panel.wb.workspace()));
-        Some((index, legacy))
+        Some((index, legacy, s.root.to_string_lossy().into_owned(), s.data_root.clone(), s.workspace))
     })
     .flatten();
-    if let Some((index, legacy)) = looks {
-        whiteboard_io::spawn_start(info, data, index, legacy, on_started as WriteBackCallbackType);
+    let Some((index, legacy, root, data_root, workspace)) = looks else {
+        return;
+    };
+    whiteboard_io::spawn_start(info, data, index, legacy, on_started as WriteBackCallbackType);
+    // what was done in this workspace before: the headers of the patch files the resolved conversations wrote
+    let prefix = crate::patch_store::key_of(&root, "");
+    kit::spawn_file_jobs(info, &data_root, vec![FileJob::GetAll { prefix, suffix: ".patch".to_string() }], data.clone(), TAG_PATCHES, on_patches_read);
+    // the repository is looked at every few seconds (its files only): a commit made meanwhile is told to the board
+    let tick = RefAny::new(RepoTick { app: data.clone(), workspace });
+    let timer = Timer::create(tick, on_repo_tick, info.get_system_time_fn()).with_interval(Duration::System(SystemTimeDiff::from_millis(REPO_TICK_MS)));
+    info.add_timer(TimerId::unique(), timer);
+}
+
+/// What the timer that looks at the repository is given: the app and the workspace it was started for (it ends with it).
+struct RepoTick {
+    app: RefAny,
+    workspace: u64,
+}
+
+fn home_folder() -> Option<PathBuf> {
+    std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from)
+}
+
+/// The repository as its files say it now; whether the revision changed (then the board is told, and asks whether the code that
+/// moved is to be kept as a snapshot).
+fn refresh_repo(g: &mut Glue, s: &AppState) -> bool {
+    let facts = whiteboard_git::read(&s.root, home_folder().as_deref());
+    let rev = facts.as_ref().and_then(|f| f.rev.clone());
+    if rev == g.rev {
+        return false;
     }
+    g.rev = rev;
+    g.panel.wb.set_repo(facts);
+    true
+}
+
+extern "C" fn on_repo_tick(mut data: RefAny, _info: TimerCallbackInfo) -> TimerCallbackReturn {
+    let Some((mut app, workspace)) = data.downcast_ref::<RepoTick>().map(|t| (t.app.clone(), t.workspace)) else {
+        return TimerCallbackReturn::terminate_unchanged();
+    };
+    let changed = {
+        let Some(state) = app.downcast_ref::<AppState>() else {
+            return TimerCallbackReturn::terminate_unchanged();
+        };
+        // another workspace was opened: its own timer looks at its own repository
+        if state.workspace != workspace {
+            return TimerCallbackReturn::terminate_unchanged();
+        }
+        let Ok(mut glue) = state.wb.try_borrow_mut() else {
+            return TimerCallbackReturn::continue_unchanged();
+        };
+        if !glue.persist {
+            return TimerCallbackReturn::terminate_unchanged();
+        }
+        refresh_repo(&mut glue, &state)
+    };
+    if changed {
+        TimerCallbackReturn::continue_and_refresh_dom()
+    } else {
+        TimerCallbackReturn::continue_unchanged()
+    }
+}
+
+/// The headers of the patch files were read: what each conversation came to is a line of material for the next snapshot.
+extern "C" fn on_patches_read(app: RefAny, mut msg: RefAny, _info: CallbackInfo) -> Update {
+    let Some(reply) = kit::take_reply(&mut msg) else {
+        return Update::DoNothing;
+    };
+    let mut lines: Vec<(u64, String)> = Vec::new();
+    for outcome in &reply.outcomes {
+        if let FileOutcome::GotAll { files, .. } = outcome {
+            // the names sort by time: the newest are the last
+            for (_key, bytes) in files.iter().rev().take(MAX_PATCH_LINES) {
+                let head = String::from_utf8_lossy(&bytes[..bytes.len().min(MAX_HEADER_BYTES)]);
+                let Some(header) = crate::patch::read_header(&head) else {
+                    continue;
+                };
+                if let Some(time) = crate::patch::unix_ms_of(&header.time) {
+                    lines.push((time, material_line(&header)));
+                }
+            }
+        }
+    }
+    with_glue(&app, |g, _| {
+        for (time, line) in lines {
+            g.note_patch(time, line);
+        }
+        g.refresh_material();
+    });
+    Update::DoNothing
 }
 
 /// The list of boards was read (or there is none): what it holds is the list now, and the board that is open is read.
@@ -311,6 +443,7 @@ extern "C" fn on_board_read(mut app: RefAny, mut msg: RefAny, mut info: Callback
         };
         g.collect();
         g.started = true;
+        g.refresh_material();
         let items = g.panel.wb.board.len();
         (effects, g.panel.after_wait(), g.files.clone(), items)
     }) else {
@@ -335,6 +468,8 @@ impl Glue {
 /// another is wanted after it).
 pub fn on_changed(app: &mut RefAny, info: &mut CallbackInfo) {
     let job = with_glue(app, |g, _| {
+        // a snapshot taken is a change: what was done since it is what is offered for the next
+        g.refresh_material();
         if !g.persist || !g.started {
             return None;
         }
@@ -647,6 +782,8 @@ fn go_to(app: &mut RefAny, info: &mut CallbackInfo, target: &JumpTarget) {
 
 /// How often the board's own clock is looked at while something waits on it, ms.
 const TICK_MS: u64 = 100;
+/// How often the ring round the grip of a loop that waits is drawn again, ms.
+const REDRAW_MS: u64 = 250;
 
 /// A timer that looks at the clock for what waits on it (an armed loop, a press that may be held, the bar that undoes a
 /// deletion, the lines that are lit) while there is anything: it ends itself when nothing is left.
@@ -698,6 +835,13 @@ pub fn tick_at(g: &mut Glue, now: u64) -> Ticked {
     if g.panel.wb.expire(now) {
         out.pages_changed = true;
     }
+    // the words and the layer of the loops are built for the loops that wait: others (a loop was armed, let go of, or its stroke
+    // was erased or taken back) are a new build of the pages
+    let ids: Vec<u64> = g.panel.wb.armed.all().iter().map(|r| r.id).collect();
+    if ids != g.tick_ids {
+        g.tick_ids = ids;
+        out.pages_changed = true;
+    }
     if g.panel.expire_toast(now) {
         out.panel_changed = true;
     }
@@ -705,7 +849,13 @@ pub fn tick_at(g: &mut Glue, now: u64) -> Ticked {
         g.flash = None;
         out.pages_changed = true;
     }
-    out.redraw = !g.panel.wb.armed.is_empty();
+    // The ring round a grip runs out slowly: it is drawn again four times a second, not at every look at the clock (a page's layer
+    // of loops is an image of the page, and ten of them a second were 12 percent of a core headless).
+    let slot = now / REDRAW_MS;
+    out.redraw = !g.panel.wb.armed.is_empty() && slot != g.redrawn;
+    if out.redraw {
+        g.redrawn = slot;
+    }
     out.more = g.has_time_in_it();
     if !out.more {
         g.timer = None;

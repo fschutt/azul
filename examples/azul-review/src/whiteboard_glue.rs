@@ -101,6 +101,56 @@ pub fn send_point(bar_w: f32, already: usize) -> Pt {
     Pt::new((w * 0.5 + aside).clamp(0.0, w), crate::whiteboard_app::HEADER_PX + 90.0 + n as f32 * 52.0)
 }
 
+// ---- what was done since the last snapshot
+
+/// The most lines of material the window keeps (the sheet of a snapshot cuts what it shows further).
+pub const MAX_MATERIAL: usize = 200;
+/// The longest part of what was said, and of why, a line of material keeps, characters.
+const MATERIAL_SAID: usize = 90;
+const MATERIAL_WHY: usize = 80;
+
+/// `text` cut to `max` characters, with an ellipsis where something was cut.
+fn cut(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text.to_string();
+    }
+    let mut out: String = text.chars().take(max.saturating_sub(1)).collect();
+    out.push('\u{2026}');
+    out
+}
+
+/// One line for the reason of a snapshot: what a conversation that was resolved came to, from the header of the patch file that
+/// was written for it (what was said, how it ended, why the agent answered as it did), in the person's language.
+#[must_use]
+pub fn material_line(h: &crate::patch::ReadHeader) -> String {
+    use crate::patch::Outcome;
+    use azul_appkit::l10n::{t_args, Arg};
+    let key = match h.outcome {
+        Some(Outcome::Accepted) => "azreview-whiteboard-material-accepted",
+        Some(Outcome::Rejected) => "azreview-whiteboard-material-rejected",
+        Some(Outcome::Answered) => "azreview-whiteboard-material-answered",
+        Some(Outcome::Closed) | None => "azreview-whiteboard-material-closed",
+    };
+    let mut line = t_args(key, &[("n", Arg::from(usize::try_from(h.conversation).unwrap_or(usize::MAX))), ("said", Arg::from(cut(h.said.trim(), MATERIAL_SAID)))]);
+    let why = h.rationale.trim();
+    if !why.is_empty() {
+        line.push_str(" (");
+        line.push_str(&cut(why, MATERIAL_WHY));
+        line.push(')');
+    }
+    line
+}
+
+/// The lines of material that are newer than `since_ms` (the moment the newest snapshot was taken; 0 for none), oldest first, at
+/// most [`MAX_MATERIAL`] (the newest of them).
+#[must_use]
+pub fn lines_since(entries: &[(u64, String)], since_ms: u64) -> Vec<String> {
+    let mut newer: Vec<&(u64, String)> = entries.iter().filter(|(time, _)| *time > since_ms).collect();
+    newer.sort_by_key(|(time, _)| *time);
+    let skip = newer.len().saturating_sub(MAX_MATERIAL);
+    newer.into_iter().skip(skip).map(|(_, line)| line.clone()).collect()
+}
+
 // ---- the lines a jump went to
 
 /// How long the lines a jump went to are lit, ms.
