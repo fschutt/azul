@@ -133,8 +133,8 @@ fn on_a_portrait_phone_the_sheet_leaves_the_map_visible_below_it() {
         sheet.size.width
     );
     assert!(
-        (sheet.origin.y - (root.origin.y + 44.0)).abs() <= 1.0,
-        "below the title row, inside the bars: {}",
+        (sheet.origin.y - (root.origin.y + 60.0)).abs() <= 1.0,
+        "below the title row (56 dp, the app bar of the 48 dp keys), inside the bars: {}",
         sheet.origin.y
     );
     // `max-height` caps the content box: the sheet's 12 px of padding come on top of it.

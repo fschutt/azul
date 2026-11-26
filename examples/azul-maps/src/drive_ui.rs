@@ -74,7 +74,7 @@ const CAR_MARKER: u64 = u64::MAX - 10;
 /// than [`crate::COMPACT_WIDTH`]) as wide as the screen less 8 px each side. The two fixed widths ran out of the screen
 /// on both sides of a 411 dp phone (by 25 and 75 dp).
 const BANNER_SPOT: &str = "position: absolute; left: 50%; top: 48px; width: 460px; margin-left: -230px;";
-const BANNER_SPOT_PHONE: &str = "position: absolute; left: 8px; right: 8px; top: 48px;";
+const BANNER_SPOT_PHONE: &str = "position: absolute; left: 8px; right: 8px; top: 64px;";
 const BANNER: &str = "display: flex; flex-direction: row; align-items: center; gap: 14px; \
                       padding: 12px 16px; border-radius: 12px; background: #0b6e4f; color: #ffffff; \
                       box-shadow: 0px 2px 10px rgba(0,0,0,0.35);";

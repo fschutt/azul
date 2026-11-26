@@ -247,6 +247,8 @@ const TITLE_AREA: &str = "position: absolute; left: 0px; top: 0px; right: 0px; d
                           flex-direction: row; align-items: center; gap: 6px; -azul-app-region: drag;";
 /// The title area's height without window controls taller than its buttons, px.
 const TITLE_HEIGHT: f32 = 40.0;
+/// The same on a phone, where its buttons are a finger tall (48 dp) and the row is Material's app bar.
+const TITLE_HEIGHT_PHONE: f32 = 56.0;
 /// The title area's own room at each end, beside the window controls' room, px.
 const TITLE_PAD: f32 = 10.0;
 /// A control in the drag region keeps its clicks.
@@ -278,7 +280,7 @@ const COMPACT_WIDTH: f32 = 560.0;
 /// The sidebar on a phone in portrait: a sheet across the top of the map, as tall as its content up to
 /// 62 % of the screen. The 290 px column that runs from the title to the bottom covered the whole map
 /// of a 411 dp screen (the boot picture of the Android emulator showed a grey card and no map).
-const SIDEBAR_SHEET: &str = "position: absolute; left: 8px; right: 8px; top: 44px; max-height: 62%; \
+const SIDEBAR_SHEET: &str = "position: absolute; left: 8px; right: 8px; top: 60px; max-height: 62%; \
                              display: flex; flex-direction: column; gap: 12px; padding: 12px; \
                              background: system:window-background; color: system:text; \
                              border-radius: 12px; box-shadow: 0px 2px 10px rgba(0,0,0,0.25); \
@@ -840,10 +842,10 @@ fn tool(app: &RefAny, icon: &str, name: &str, id: AzString, on_click: ButtonOnCl
 /// The title area over the map: the window moves by it; the sidebar's
 /// button on the left, the settings on the right, no text.
 /// The title area's CSS, clear of the window's own controls where they sit over it.
-fn title_area_css(insets: kit::TitleInsets) -> String {
+fn title_area_css(insets: kit::TitleInsets, phone: bool) -> String {
     format!(
         "{TITLE_AREA} height: {:.0}px; padding: 0px {:.0}px 0px {:.0}px;",
-        insets.height.max(TITLE_HEIGHT),
+        insets.height.max(if phone { TITLE_HEIGHT_PHONE } else { TITLE_HEIGHT }),
         insets.right + TITLE_PAD,
         insets.left + TITLE_PAD
     )
@@ -854,7 +856,7 @@ fn title_area_css(insets: kit::TitleInsets) -> String {
 fn title_area(s: &MapState, app: &RefAny, insets: kit::TitleInsets) -> Dom {
     let toggle_name = label(if s.sidebar_open { "azmaps-hide-sidebar" } else { "azmaps-show-sidebar" });
     Dom::create_div()
-        .with_css(title_area_css(insets).as_str())
+        .with_css(title_area_css(insets, s.size.get().0 < COMPACT_WIDTH).as_str())
         .with_id(ids::TITLE)
         .with_child(
             Dom::create_div().with_css(NO_DRAG).with_child(
@@ -2603,16 +2605,24 @@ mod title_area_tests {
 
     #[test]
     fn the_title_area_keeps_the_window_controls_room_on_the_side_they_sit() {
-        let mac = title_area_css(kit::TitleInsets { left: 78.0, right: 0.0, height: 28.0 });
+        let mac = title_area_css(kit::TitleInsets { left: 78.0, right: 0.0, height: 28.0 }, false);
         assert!(mac.contains("padding: 0px 10px 0px 88px;"), "{mac}");
-        let windows = title_area_css(kit::TitleInsets { left: 0.0, right: 138.0, height: 32.0 });
+        let windows = title_area_css(kit::TitleInsets { left: 0.0, right: 138.0, height: 32.0 }, false);
         assert!(windows.contains("padding: 0px 148px 0px 10px;"), "the caption buttons keep their room: {windows}");
     }
 
     #[test]
     fn the_title_area_is_at_least_as_tall_as_its_buttons_and_the_window_controls() {
-        assert!(title_area_css(kit::TitleInsets { left: 0.0, right: 0.0, height: 28.0 }).contains("height: 40px;"));
-        assert!(title_area_css(kit::TitleInsets { left: 0.0, right: 0.0, height: 46.0 }).contains("height: 46px;"));
+        assert!(title_area_css(kit::TitleInsets { left: 0.0, right: 0.0, height: 28.0 }, false).contains("height: 40px;"));
+        assert!(title_area_css(kit::TitleInsets { left: 0.0, right: 0.0, height: 46.0 }, false).contains("height: 46px;"));
+    }
+
+    #[test]
+    fn the_title_area_of_a_phone_is_an_app_bar_for_48_dp_keys() {
+        let phone = title_area_css(kit::TitleInsets { left: 0.0, right: 0.0, height: 28.0 }, true);
+        assert!(phone.contains("height: 56px;"), "{phone}");
+        let tall = title_area_css(kit::TitleInsets { left: 0.0, right: 0.0, height: 64.0 }, true);
+        assert!(tall.contains("height: 64px;"), "window controls taller than the bar keep their height: {tall}");
     }
 }
 
