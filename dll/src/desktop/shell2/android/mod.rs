@@ -56,6 +56,8 @@ use crate::{
 pub mod accessibility;
 mod bridge;
 pub mod clipboard;
+/// The GPU path of the window: EGL and WebRender over the lifecycle executor of `common::gles_gpu`.
+mod gpu;
 /// `<webview>`: `android.webkit.WebView`s through the `AzulWebView` bridge.
 #[cfg(feature = "jni")]
 mod webview;
@@ -74,10 +76,12 @@ pub enum AndroidEvent {
     Close,
 }
 
-/// Rendering backend selector. CPU only on day 1 (mirrors the headless backend).
+/// Rendering backend selector: the CPU renderer (`ANativeWindow_lock`), or WebRender over EGL and OpenGL ES (`AZ_BACKEND=gpu|auto`,
+/// `hw_accel`; `gpu.rs`). A window that asked for the GPU and could not get it is a `Cpu` window again, with one diagnostic line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RenderBackend {
     Cpu,
+    Gpu,
 }
 
 /// Android platform window backed by an `ANativeWindow`.
@@ -93,8 +97,13 @@ pub struct AndroidWindow {
     /// Currently-attached `ANativeWindow`. Released on `TerminateWindow`.
     #[cfg(feature = "ndk")]
     pub native_window: Option<NativeWindow>,
-    /// Rendering backend selector (always Cpu for now).
+    /// Which renderer draws this window now (`Gpu` only while `gpu` runs).
     pub backend: RenderBackend,
+    /// The GPU path (`gpu.rs`): `Some` while the window asked for the GPU renderer and it has not ended.
+    gpu: Option<crate::desktop::shell2::common::gles_gpu::GlesGpu>,
+    /// The system asked for the window's content again while the GPU path draws (`RedrawNeeded`, a new surface): the next iteration
+    /// presents the last frame once more.
+    gpu_present_owed: bool,
     /// `false` once `MainEvent::Destroy` arrives; breaks the outer loop.
     pub is_open: bool,
     /// What the Java UI thread may touch (`bridge::UiBridge`): the queues it pushes events onto (the IME's
@@ -177,6 +186,8 @@ impl AndroidWindow {
             &config.system_style,
             app_shared.mode(),
         );
+        // What the GPU path makes its renderer from (the resolved background colour, the debug flags), kept before the state moves.
+        let gpu_options = options.clone();
         // `WindowCreateOptions::window_state` is already a `FullWindowState`,
         // mirroring how `HeadlessWindow::new` consumes it. No constructor call.
         let full_window_state = options.window_state;
@@ -232,12 +243,14 @@ impl AndroidWindow {
         common.set_layout_window(layout_window);
         common.cpu_hit_tester = Some(azul_layout::headless::CpuHitTester::new());
 
-        Ok(Self {
+        let mut window = Self {
             common,
             cpu_backend: CpuBackend::for_config(&config),
             #[cfg(feature = "ndk")]
             native_window: None,
             backend: RenderBackend::Cpu,
+            gpu: None,
+            gpu_present_owed: false,
             is_open: true,
             icon_provider,
             font_registry,
@@ -253,7 +266,11 @@ impl AndroidWindow {
             pan_pointer_id: None,
             #[cfg(feature = "jni")]
             webviews: None,
-        })
+        };
+        // What the window asks of the renderer (`AZ_BACKEND`, `hw_accel`): the CPU renderer writes its contract line here, a GPU request
+        // builds the executor that brings the path up at `InitWindow`.
+        window.init_gpu(&gpu_options);
+        Ok(window)
     }
 
     pub fn is_open(&self) -> bool {
@@ -318,6 +335,8 @@ impl AndroidWindow {
         self.common.a11y_dirty = false;
     }
     pub fn close(&mut self) {
+        // The GPU path first (its surface, then the renderer in a current context, then the context).
+        self.gpu_shutdown();
         // See CommonWindowState::deinit_renderer — webrender requires it.
         self.common.deinit_renderer();
         self.is_open = false;
@@ -334,6 +353,10 @@ impl AndroidWindow {
     /// frame during a drag on AzWriter, against 6 ms for the same frame when the
     /// callback is skipped.
     pub fn rerender_cpu(&mut self) {
+        // The GPU path draws with WebRender (`gpu_submit` after the pass): no raster here.
+        if self.backend == RenderBackend::Gpu {
+            return;
+        }
         #[cfg(feature = "cpurender")]
         {
             let ws = self.common.current_window_state();
@@ -727,6 +750,8 @@ pub fn android_main(app: AndroidApp) {
         let waker = app.create_waker();
         window.bridge.set_waker(move || waker.wake());
     }
+    // The compiled programs of the GPU renderer are kept in the app's cache directory (`internal_data_path` is its private files directory).
+    window.set_shader_cache_dir(app.internal_data_path());
 
     // Outer driver loop — exits when MainEvent::Destroy clears window.is_open.
     while window.is_open() {
@@ -879,6 +904,8 @@ pub fn android_main(app: AndroidApp) {
         }
 
         let mut frame_dirty = false;
+        // This iteration laid the window out (the GPU path sends a full frame then, a lightweight one for a repaint).
+        let mut regenerated = false;
         // No layout and no frame without a surface (`android_core::lifecycle`): android-activity
         // delivers ONE event per poll and the first is `Start`, long before `InitWindow`, so the app's
         // layout callback used to run at the default window size and 96 dpi, a first layout nobody
@@ -894,7 +921,10 @@ pub fn android_main(app: AndroidApp) {
                 // raised earlier in the same iteration is already satisfied.
                 window.needs_rerender = false;
                 match window.regenerate_layout() {
-                    Ok(_) => frame_dirty = true,
+                    Ok(_) => {
+                        frame_dirty = true;
+                        regenerated = true;
+                    }
                     Err(e) => {
                         log_error!(
                             LogCategory::Layout,
@@ -923,10 +953,17 @@ pub fn android_main(app: AndroidApp) {
         // has nothing new to post.
         if frame_dirty {
             window.ime_dirty = true;
-            let _ = render_frame(&mut window);
+            if window.backend == RenderBackend::Gpu {
+                // The GPU path: the display lists go to WebRender now, the frame is presented below once it is built.
+                window.gpu_submit(regenerated);
+            } else {
+                let _ = render_frame(&mut window);
+            }
             // Where this frame put the `<webview>`s.
             let _ = crate::desktop::shell2::common::webview::sync(&mut window);
         }
+        // The GPU path presents when WebRender has built a frame (it wakes this loop) or the system asked for the content again.
+        window.gpu_present();
 
         // THE SOFT KEYBOARD the engine asked for while it handled this iteration's events (a text field took
         // the focus) is raised AFTER the mirror below is published: the IME calls `onCreateInputConnection`
@@ -973,6 +1010,8 @@ fn trim_memory(window: &mut AndroidWindow, level: i32) {
         plan.release_caches,
         plan.purge_allocator
     );
+    // The GPU renderer's caches (and, with no window on screen, the renderer and the context): `gpu.rs`.
+    window.gpu_trim(level);
     if plan.release_caches {
         #[cfg(feature = "cpurender")]
         {
@@ -1559,6 +1598,9 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                         window.native_window = Some(nw);
                         // A surface that is new to the shell: its buffers hold nothing of ours.
                         window.present.surface_changed();
+                        // The GPU path takes the surface now, before any CPU frame is drawn on it (an ANativeWindow has one
+                        // producer): on a failure the window is a CPU window from here on, with one diagnostic line.
+                        window.gpu_surface_created();
                         // On the launch InitWindow this preserves the queued
                         // `Initial`; on a re-attach (rotation recreates the
                         // surface with new dimensions and does NOT deliver
@@ -1571,6 +1613,9 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
             }
             MainEvent::TerminateWindow { .. } => {
                 log_debug!(LogCategory::Window, "[Android] TerminateWindow");
+                // The EGL surface goes BEFORE the ANativeWindow is released below (NDK: do not touch the window after this
+                // callback returns); the GPU path's context and renderer stay.
+                window.gpu_surface_destroyed();
                 #[cfg(feature = "ndk")]
                 {
                     window.native_window = None;
@@ -1596,6 +1641,8 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                                 ws.size.dimensions.height = logical_h;
                             });
                     }
+                    // The GPU path's frame follows the surface's size.
+                    window.gpu_resized();
                 }
                 let reason = resize_reason(window);
                 window.common.request_regeneration(reason);
@@ -1632,6 +1679,9 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                                 ws.size.dimensions.height = logical_h;
                             });
                     }
+                    // A new density is a new scale of the GPU path's frame.
+                    #[cfg(feature = "ndk")]
+                    window.gpu_resized();
                     window.common.request_regeneration(reason);
                     let _ = window.process_window_events(0);
                 }
@@ -1644,7 +1694,10 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 // every resize). That is a PRESENT, not a new DOM: the frame the shell holds is posted
                 // whole. A shell that has no frame yet gets its first one from the regeneration that
                 // InitWindow queued.
-                if window.present.has_frame() {
+                if window.backend == RenderBackend::Gpu {
+                    // The GPU path renders what WebRender holds and swaps it again.
+                    window.gpu_present_owed = true;
+                } else if window.present.has_frame() {
                     window.present.redraw_needed();
                     window.needs_rerender = true;
                 }

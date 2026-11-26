@@ -265,6 +265,12 @@ impl GlesGpu {
         self.mark = Some(mark);
     }
 
+    /// Where the compiled programs are kept between runs; takes effect when the next renderer is made (the app's directory is known
+    /// once the activity is, which is after the window).
+    pub fn set_shader_cache_dir(&mut self, dir: Option<PathBuf>) {
+        self.shader_cache_dir = dir;
+    }
+
     fn note(&self, name: &'static str, detail: &str) {
         if let Some(mark) = &self.mark {
             mark(name, detail);
