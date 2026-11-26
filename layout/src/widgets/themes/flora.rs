@@ -2081,6 +2081,11 @@ pub fn button(mut btn: Button) -> Dom {
         // The keyboard ring, last: it wins the Left and Bottom slots over a
         // hovered rim and a pressed well. A disabled command keeps its stop.
         container_style.extend(double_ring(2));
+        // A finger needs room: 48 dp on Android, 44 pt on iOS, nothing on a desktop (a link is
+        // text on its line: it keeps the line's height).
+        if btn_type != crate::widgets::button::ButtonType::Link {
+            container_style.extend(super::decl::touch_target_floor());
+        }
     } else if disabled {
         // A caller's style (a ribbon button's): no hover / pressed paint,
         // dimmed - the shared rule.
@@ -2510,6 +2515,8 @@ pub fn text_input(mut ti: TextInput) -> Dom {
         // The design system's field (see `field_skin`), the states last.
         container_style.extend(field_skin());
         container_style.extend(field_states());
+        // A finger needs room: 48 dp on Android, 44 pt on iOS, nothing on a desktop.
+        container_style.extend(super::decl::touch_target_floor());
     } else {
         // A caller's field (a PDF form's, on paper): only the night twins it
         // left open, and the shared ring.
