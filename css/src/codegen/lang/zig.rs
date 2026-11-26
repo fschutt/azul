@@ -85,7 +85,7 @@ static PRIMITIVES: &[&str] = &[
     "undefined", "usize", "void",
 ];
 
-/// A parameter's Zig name (snake_case, Zig's style for parameters). A
+/// A parameter's Zig name (`snake_case`, Zig's style for parameters). A
 /// keyword, a primitive (`u8`, `i32`, `bool`, ...) or a container-level
 /// declaration of the module (`std`, `azul`) gets a trailing `_`: Zig
 /// rejects a parameter that shadows one.

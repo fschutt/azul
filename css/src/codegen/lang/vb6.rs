@@ -3,7 +3,7 @@
 //!
 //! The bindings declare every CSS constructor under its C name
 //! (`AzCssProperty_width`, enum members `AzLayoutDisplay_Flex`), but a VB6
-//! `Declare` can neither pass a user-defined type ByVal nor return one, and
+//! `Declare` can neither pass a user-defined type `ByVal` nor return one, and
 //! every CSS constructor does both - the generator marks each of them
 //! `SKIPPED` and declares a signature VB6 rejects (`As AzCssProperty`
 //! result). The out-pointer twins libazul exports for exactly this case

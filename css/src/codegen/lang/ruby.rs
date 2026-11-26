@@ -2,7 +2,7 @@
 //! `doc/src/codegen/v2/lang_ruby`).
 //!
 //! The generated code uses the raw layer `Azul::Native` (aliased `N`): the
-//! attached C functions under their snake_case names
+//! attached C functions under their `snake_case` names
 //! (`N.az_css_property_text_color(..)`, `N.az_layout_width_px(..)`), the enum
 //! constant modules (`N::AzLayoutDisplay::Flex`), and the `FFI::Struct`
 //! classes. Ruby's FFI structs are filled with statements, and a nested
@@ -12,7 +12,7 @@
 //! `azul.rb`). Strings go through `Azul._az_string`.
 //!
 //! A DOM goes through the wrapper classes instead (`lang_ruby/wrappers.rs`):
-//! factories keep the api snake_case name (`Azul::Dom.create_div`,
+//! factories keep the api `snake_case` name (`Azul::Dom.create_div`,
 //! `Azul::SmallAriaInfo.label(..)`), a by-value `self` method consumes its
 //! receiver and returns a new `Dom` (`.with_child(..)`, chained with the dot
 //! leading the line), string arguments are Ruby strings (the wrappers convert

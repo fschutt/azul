@@ -2,7 +2,7 @@
 //!
 //! Spellings (from the generated `dll_api_external.rs` / `reexports.rs`):
 //! types without the `Az` prefix under `azul::<api module>::*`; api.json
-//! constructors keep their snake_case names (`CssProperty::text_color`,
+//! constructors keep their `snake_case` names (`CssProperty::text_color`,
 //! `FloatValue::create`); enums are native Rust enums (variants, and
 //! `LayoutWidthValue::Exact(..)` through the `CssPropertyValue<T>` alias);
 //! structs have pub fields; `XxxVec: From<Vec<Xxx>>`; `azul::str::String:

@@ -3,11 +3,11 @@
 //!
 //! Spellings: the raw C functions keep their C names
 //! (`azul.AzCssProperty_textColor(..)`, `azul.AzPixelValue_px(10)`); enum
-//! variants are Go-side builders `azul.Az<Enum>_<Variant>(..)` (PascalCase
+//! variants are Go-side builders `azul.Az<Enum>_<Variant>(..)` (`PascalCase`
 //! variant: `azul.AzLayoutWidth_Px(..)`, `azul.AzLayoutWidthValue_Exact(..)`,
 //! unit `azul.AzLayoutWidth_Auto()`), the C variant constructors are not
 //! bound; C-like enum values are typed constants without the `Az` prefix
-//! (`azul.LayoutDisplay_Flex`); structs have PascalCase exported fields
+//! (`azul.LayoutDisplay_Flex`); structs have `PascalCase` exported fields
 //! (`azul.AzColorU{R: 255, ..}`); a Vec is copied from a slice
 //! (`azul.AzXxxVec_copyFromPtr(&[]azul.AzXxx{..}[0], n)`); strings come from
 //! `azul.Str("..").Raw()`. `azul.LoadLibrary("")` must run before any call,

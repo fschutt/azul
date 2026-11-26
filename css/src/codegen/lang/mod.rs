@@ -68,7 +68,7 @@ pub trait ExprSyntax {
     fn boolean(&self, b: bool) -> String;
     /// An api.json `String` built from `s`.
     fn string(&self, s: &str) -> Doc;
-    /// `class::method(args)` (api.json snake_case method name).
+    /// `class::method(args)` (api.json `snake_case` method name).
     fn call(&self, class: &str, method: &str, args: Vec<Doc>, broken: bool) -> Doc;
     /// An enum variant (`args` empty for a unit variant).
     fn variant(&self, ty: &str, shape: EnumShape, variant: &str, args: Vec<Doc>, broken: bool) -> Doc;

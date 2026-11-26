@@ -397,7 +397,7 @@ impl CodegenBackend for Swift {
     }
 }
 
-/// The SwiftPM manifest of an executable named `name` (its sources in
+/// The `SwiftPM` manifest of an executable named `name` (its sources in
 /// `Sources/<name>`).
 fn package(name: &str) -> String {
     PACKAGE.replace("AzulStyles", name)

@@ -2,7 +2,7 @@
 //! `require "azul"`).
 //!
 //! Spellings: every class wraps its C type (`Azul::CssProperty`), static
-//! functions are snake_case class methods of the C method name with
+//! functions are `snake_case` class methods of the C method name with
 //! `create` -> `new` and `create_x` -> `x` (`Azul::CssProperty.text_color(..)`,
 //! `Azul::FloatValue.new(1.0_f32)`), a variant constructor likewise
 //! (`Azul::LayoutWidth.px(..)`, `Azul::LayoutWidth.auto`); C-like enums are
@@ -104,7 +104,7 @@ fn class_method(c_method: &str) -> String {
 
 /// The instance-method name of the C method `c_method` (`method_name` of
 /// `lang_crystal/wrappers.rs`, instance case). The lowering only emits the
-/// `with_*` builder methods, which keep their snake_case name; the
+/// `with_*` builder methods, which keep their `snake_case` name; the
 /// `get_` / `is_` / `set_` renames need the return type and never apply.
 fn instance_method(c_method: &str) -> String {
     let raw = snake(c_method);

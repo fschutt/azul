@@ -4,7 +4,7 @@
 //! `NativeMethods.Az<Class>_<lowerCamel>(..)` (api.json constructors and the
 //! enum variant constructors alike); C-like enums are C# enums WITHOUT the
 //! `Az` prefix (`LayoutDisplay.Flex`, `CssPropertyType.Width`); structs and
-//! tagged unions keep it and have public snake_case fields, so a struct is
+//! tagged unions keep it and have public `snake_case` fields, so a struct is
 //! an object initialiser (`new AzColorU { r = 255, .. }`) and a union member
 //! of an explicit-layout union is too (`new AzLayoutWidthValue { Exact = new
 //! AzLayoutWidthValueVariant_Exact { tag = AzLayoutWidthValue_Tag.Exact,
@@ -14,7 +14,7 @@
 //! an `AzString` from UTF-8 bytes like the generated wrappers do.
 //!
 //! A DOM goes through the wrapper classes instead (`lang_csharp/wrappers.rs`):
-//! static factories and methods are PascalCase (`Dom.CreateDiv()`,
+//! static factories and methods are `PascalCase` (`Dom.CreateDiv()`,
 //! `SmallAriaInfo.Label(..)`), a by-value `self` method consumes its
 //! receiver and returns a new `Dom` (`.WithChild(..)`, chained), and string
 //! arguments are C# `string`s. A DOM module is `namespace AzulUi`, `static

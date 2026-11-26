@@ -245,7 +245,7 @@ fn pas_ctor(method: &str) -> String {
 }
 
 /// The wrapper-class method of api.json `method` (`idiomatic_method_name`
-/// in `lang_pascal/wrappers.rs`): PascalCase, `_X` after a `TObject`
+/// in `lang_pascal/wrappers.rs`): `PascalCase`, `_X` after a `TObject`
 /// member, `_` after a reserved word (`with_child` -> `WithChild`).
 fn pas_method(method: &str) -> String {
     let name = snake_to_upper_camel(method);

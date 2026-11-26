@@ -1,7 +1,7 @@
 //! The language-neutral IR every printer consumes.
 //!
 //! An [`Expr`] describes *how to construct a value through the azul bindings*,
-//! in api.json vocabulary (class names without the `Az` prefix, snake_case
+//! in api.json vocabulary (class names without the `Az` prefix, `snake_case`
 //! method names). It is produced exactly once, by [`super::lower`], and each
 //! language printer only decides how to *spell* the six node kinds:
 //!
@@ -22,7 +22,7 @@
 //! printers turn each into a function (or the language's closest equivalent)
 //! returning the value.
 //!
-//! **DOM construction** (AzBuilder's "Subtree → code" / "Component → code",
+//! **DOM construction** (`AzBuilder`'s "Subtree → code" / "Component → code",
 //! lowered in `azul_core::codegen::dom`) adds four node kinds:
 //!
 //! | node | api.json concept | C spelling |
@@ -159,7 +159,7 @@ pub enum Expr {
     /// An api.json `String` (C `AzString`) built from a literal.
     Str(String),
     /// A static api.json constructor / function: `class::method(args)`.
-    /// `method` is the api.json snake_case name (`"text_color"`).
+    /// `method` is the api.json `snake_case` name (`"text_color"`).
     Call {
         class: String,
         method: String,
@@ -190,7 +190,7 @@ pub enum Expr {
     Unsupported { what: String },
     /// A by-value `self` method of api.json class `class` on `recv` (the
     /// builder methods: `Dom.with_child`, `Dom.with_css`, ...). `method` is
-    /// the api.json snake_case name. A chain of them nests: the innermost
+    /// the api.json `snake_case` name. A chain of them nests: the innermost
     /// `recv` is the constructor.
     Method {
         recv: alloc::boxed::Box<Expr>,

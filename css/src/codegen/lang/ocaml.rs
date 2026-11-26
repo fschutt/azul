@@ -15,7 +15,7 @@
 //! the payload's alignment.
 //!
 //! A DOM goes through the idiomatic modules instead (`lang_ocaml/wrappers.rs`):
-//! snake_case functions of the class module that take OCaml strings
+//! `snake_case` functions of the class module that take OCaml strings
 //! (`Dom.create_div ()`, `SmallAriaInfo.label ".."`), and by-value `self`
 //! methods that take the receiver FIRST and return a new `Dom.t`, so a chain
 //! is a pipeline through `Fun.flip` (`|> Fun.flip Dom.with_child (..)`). A

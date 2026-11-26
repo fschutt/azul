@@ -2,7 +2,7 @@
 //! `doc/src/codegen/v2/lang_ada`).
 //!
 //! Spellings: every C function is imported as `Az_<Type>_<Method>` with the
-//! method in Pascal_Snake (`AzCssProperty_textColor` ->
+//! method in `Pascal_Snake` (`AzCssProperty_textColor` ->
 //! `Az_CssProperty_Text_Color`, variant constructor `AzLayoutWidth_px` ->
 //! `Az_LayoutWidth_Px`, reserved words get `_K`: `Az_OptionString_Some_K`);
 //! a nullary function is called without parentheses. Types are `Az_<Type>`,

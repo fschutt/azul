@@ -1,4 +1,4 @@
-//! Lua (LuaJIT FFI): the `azul` module (`target/codegen/azul.lua`, generated
+//! Lua (`LuaJIT` FFI): the `azul` module (`target/codegen/azul.lua`, generated
 //! by `doc/src/codegen/v2/lang_lua`).
 //!
 //! The generated code drives the raw C library the module exports as
@@ -11,7 +11,7 @@
 //! and strings with the unarmed `azul._az_string` (the C call consumes it).
 //!
 //! A DOM goes through the wrapper layer instead (`lang_lua/wrappers.rs`):
-//! static factories under the api snake_case name (`azul.Dom.create_div()`,
+//! static factories under the api `snake_case` name (`azul.Dom.create_div()`,
 //! `azul.SmallAriaInfo.label(..)`), by-value `self` methods called with `:`
 //! that consume the receiver and return a new `AzDom` (`:with_child(..)`,
 //! chained one link per line), Lua string arguments (the wrappers convert
