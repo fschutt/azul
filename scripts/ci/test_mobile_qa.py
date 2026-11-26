@@ -527,6 +527,20 @@ class StartupLinesTests(unittest.TestCase):
         self.assertIsNone(q.median_start(["nothing"]))
 
 
+class CheckedTests(unittest.TestCase):
+    XML = ('''<hierarchy><node index="2" text="" class="android.widget.RadioButton" content-desc="Dark" checkable="true" checked="true" clickable="true" bounds="[519,251][588,291]">'''
+           '''<node index="0" text="" class="android.widget.TextView" content-desc="Dark" checkable="false" checked="false" bounds="[519,251][588,291]" />'''
+           '''<node index="1" text="" class="android.widget.RadioButton" content-desc="System" checkable="true" checked="false" bounds="[1,2][3,4]" /></hierarchy>''')
+
+    def test_the_checkable_node_of_that_name_tells_if_it_is_checked(self):
+        self.assertTrue(q.node_checked(self.XML, "Dark"))
+        self.assertFalse(q.node_checked(self.XML, "System"))
+
+    def test_a_name_that_is_not_checkable_or_not_there_is_none(self):
+        self.assertIsNone(q.node_checked(self.XML, "Nothing"))
+        self.assertIsNone(q.node_checked('<node content-desc="Label" checkable="false" checked="false" />', "Label"))
+
+
 class FlatTests(unittest.TestCase):
     def sig(self, fill, paint=()):
         """A 40 x 80 signature of one colour with rectangles of another: paint = [(row0, row1, col0, col1, (r, g, b)), ...]."""

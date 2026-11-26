@@ -405,6 +405,16 @@ def parse_ime_inset(text):
     return seen
 
 
+def node_checked(xml_text, label):
+    """Is the checkable node named `label` (content-desc or text) of a `uiautomator dump` checked? True / False, None when no such node.
+    (The segmented 'Dark' item of AzWidgets is a RadioButton: a click flips its `checked`.)"""
+    for m in re.finditer(r"<node\b([^>]*)>", xml_text):
+        attrs = dict(re.findall(r'([\w-]+)="([^"]*)"', m.group(1)))
+        if attrs.get("checkable") == "true" and label in (attrs.get("content-desc"), attrs.get("text")):
+            return attrs.get("checked") == "true"
+    return None
+
+
 def parse_bounds(xml_text):
     """[(label, cx, cy)] for the nodes of a `uiautomator dump` that carry a text or a content description."""
     found = []
@@ -1331,6 +1341,40 @@ def android_scenarios(args):
         dev.no_crash_since(s, mark)
 
     run.step("06-tap-mode-button", "a tap on the Mode switch (Dark) changes the page", s_tap_dark, needs_app=True)
+
+    def s_slop(s):
+        """The Android shell's touch slop (a finger pans only after 8 dp): a tap that wobbles 3 px is still a click, and a swipe that
+        starts on a button does not click it when the finger lifts. Read from the accessibility tree's `checked` of the Dark item."""
+        mark = dev.now_mark()
+
+        def checked(label):
+            dev.sh("uiautomator dump /sdcard/qa-ui.xml", timeout=40)
+            return node_checked(dev.sh("cat /sdcard/qa-ui.xml"), label)
+
+        found = dev.find_label("Dark")
+        if not found or checked("Dark") is None:
+            s.note("no checkable node named Dark: these checks are AzWidgets' (the segmented Mode control); skipped")
+            return
+        x, y = found
+        dev.sh(f"input touchscreen swipe {x} {y} {x + 3} {y + 3} 60")
+        dev.settle(1.5)
+        wobble = checked("Dark")
+        dev.look(s, "slop-after-wobbling-tap")
+        s.check("a tap that moves 3 px is still a click (touch slop)", wobble is True, f"Dark checked: {wobble}")
+        dev.tap_label("System", fallback=at("system"))
+        dev.settle(1.0)
+        s.check("back to System by a plain tap", checked("Dark") is False, f"Dark checked: {checked('Dark')}")
+        dev.swipe(x, y, x, y + 300, 250)             # starts on the button, moves far past the slop, lifts
+        dev.settle(1.5)
+        swiped = checked("Dark")
+        dev.look(s, "slop-after-swipe-from-button")
+        s.check("a swipe that starts on a button does not click it when the finger lifts", swiped is False, f"Dark checked: {swiped}")
+        dev.tap_label("System", fallback=at("system"))
+        dev.settle(1.0)
+        dev.alive_and_front(s)
+        dev.no_crash_since(s, mark)
+
+    run.step("06b-touch-slop", "a tap that wobbles 3 px clicks; a swipe from a button does not click it", s_slop, needs_app=True)
 
     def s_keyboard(s):
         mark = dev.now_mark()
