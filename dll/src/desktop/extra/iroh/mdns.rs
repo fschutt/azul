@@ -13,11 +13,13 @@ use std::{
 };
 
 use iroh::Endpoint;
-use iroh_mdns_address_lookup::MdnsAddressLookup;
+use iroh_mdns_address_lookup::{DiscoveryEvent, MdnsAddressLookup};
+use n0_future::StreamExt;
 
 use super::{
     discovery::{announce_filter, Held, LocalDiscovery, LocalLookup},
     multicast_lock,
+    nearby::Nearby,
 };
 
 /// How often an endpoint asks the local network for peers (and so how long a new peer can stay
@@ -34,6 +36,7 @@ impl LocalDiscovery for MdnsDiscovery {
         endpoint: &Endpoint,
         announce: bool,
         ignored: &Arc<AtomicU64>,
+        nearby: &Arc<Nearby>,
     ) -> Result<Option<Held>, String> {
         // Android's Wi-Fi chip drops multicast unless the app holds this lock; nothing to hold
         // elsewhere. Taken first: a refused lock means nothing would arrive.
@@ -45,7 +48,24 @@ impl LocalDiscovery for MdnsDiscovery {
             .build(endpoint.id())
             .map_err(|e| format!("{e:#}"))?;
         let services = endpoint.address_lookup().map_err(|e| format!("{e:#}"))?;
-        services.add(LocalLookup::new(mdns, ignored.clone()));
+        // The endpoints of the network as they announce themselves, whether a dial asks for them
+        // or not: the lookup tells a subscriber of each new or changed announcement and of each
+        // that expired. The task waits on the stream only (the lookup it was made from is not
+        // kept), so it ends when the endpoint, and with it the lookup, is gone.
+        let feed = mdns.clone();
+        let list = nearby.clone();
+        tokio::spawn(async move {
+            let mut events = feed.subscribe().await;
+            drop(feed);
+            while let Some(event) = events.next().await {
+                match event {
+                    DiscoveryEvent::Discovered { endpoint_info, .. } => list.seen(&endpoint_info),
+                    DiscoveryEvent::Expired { endpoint_id } => list.gone(&endpoint_id),
+                    _ => {}
+                }
+            }
+        });
+        services.add(LocalLookup::new(mdns, ignored.clone(), nearby.clone()));
         Ok(held)
     }
 }
