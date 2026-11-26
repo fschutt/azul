@@ -81,6 +81,10 @@ compile_checks() {
   cargo check -p azul-dll --no-default-features --features "link-dynamic" > /tmp/dyncheck.log 2>&1
   echo "link-dynamic check exit $?"
   grep -E "^error" -A8 /tmp/dyncheck.log | head -30
+  section "ENGINE PROFILE (azul-dll without the desktop: the stubs of the unified speech module)"
+  cargo check -p azul-dll --no-default-features --features engine > /tmp/enginecheck.log 2>&1
+  echo "engine profile check exit $?"
+  grep -E "^error" -A8 /tmp/enginecheck.log | head -30
   section "CLIPPY (azul-layout with the updater, the lint set CI holds the library to)"
   rustup component add clippy > /dev/null 2>&1
   cargo clippy -p azul-layout --features updater --lib -- -D warnings > /tmp/clippy.log 2>&1
