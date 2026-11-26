@@ -458,8 +458,17 @@ fn registering_files_that_are_not_there_names_what_is_missing_and_where_it_looke
     let dir = std::env::temp_dir().join(format!("azul-speech-builtin-test-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("a scratch folder");
     let failure = Builtin::from_files("", "", Some(&dir), source(), Tuning::default()).err().expect("no files");
-    assert_eq!(failure.status, BuiltinStatus::EngineMissing);
-    assert!(failure.message.contains(engine_file_name(std::env::consts::OS)), "{}", failure.message);
+    #[cfg(not(feature = "speech-engine-static"))]
+    {
+        assert_eq!(failure.status, BuiltinStatus::EngineMissing);
+        assert!(failure.message.contains(engine_file_name(std::env::consts::OS)), "{}", failure.message);
+    }
+    // A build with the static engine has it in the program: what is missing is the model.
+    #[cfg(feature = "speech-engine-static")]
+    {
+        assert_eq!(failure.status, BuiltinStatus::ModelMissing);
+        assert!(failure.message.contains(MODEL_FILE_NAME), "{}", failure.message);
+    }
     assert!(failure.message.contains("speech"), "the places it looked in are named: {}", failure.message);
     drop(std::fs::remove_dir_all(&dir));
 }
@@ -1087,4 +1096,158 @@ fn a_microphone_that_fails_mid_stream_gives_what_was_said_and_then_the_failure()
     assert_eq!(events[0].0, EventKind::Final);
     assert!(events[0].1.starts_with("Bitte verschiebe"), "{}", events[0].1);
     assert_eq!(*rig.opened.lock().unwrap(), 1);
+}
+
+// ---- the model the program fetches (the store) ----
+
+mod with_a_store {
+    use std::sync::{Arc, Mutex};
+
+    use super::super::{
+        engine_file_name,
+        model::model_test::{body, scratch, wait_for, Fake, TEST_MODEL},
+        Builtin, BuiltinStatus, DownloadPolicy, ModelPhase, ModelStore, Tuning, MODEL_FILE_NAME,
+    };
+    use super::{FakeSource, Outcome, Readiness, Recognizer};
+
+    fn mic() -> Box<FakeSource> {
+        Box::new(FakeSource { rate: 16_000, takes: None, refuse: None, opened: Arc::new(Mutex::new(0)) })
+    }
+
+    /// A folder with a file where the engine library is looked for (nothing loads it in these tests: the
+    /// places only ask that there is one) and no model.
+    fn folder_with_an_engine(name: &str) -> std::path::PathBuf {
+        let dir = scratch(name);
+        std::fs::create_dir_all(&dir).expect("a scratch folder");
+        std::fs::write(dir.join(engine_file_name(std::env::consts::OS)), b"not a library, only a file").expect("a file");
+        dir
+    }
+
+    #[test]
+    fn a_model_that_is_not_next_to_the_program_is_asked_of_the_store_which_asks_before_it_fetches() {
+        let dir = folder_with_an_engine("builtin-asks");
+        let fake = Fake::new(body());
+        let store = ModelStore::new(&TEST_MODEL, fake.clone(), Some(dir.join("models")));
+        let mut builtin = Builtin::discover(Some(dir.clone()), mic(), Tuning::default()).with_store(store.clone());
+        // Ask (the default): the model is the user's to allow, and the sentence says what and how.
+        match builtin.readiness() {
+            Readiness::Refused { outcome, message } => {
+                assert_eq!(outcome, Outcome::Unavailable);
+                assert!(message.contains("needs its speech model") && message.contains("allow_model_download"), "{message}");
+            }
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+        assert_eq!(fake.calls(), 0, "nothing is fetched before the app allows it");
+        // Allowed: the download runs, and the next question finds the model.
+        store.allow();
+        wait_for(&store, "the model", |s| s.phase == ModelPhase::Present);
+        assert_eq!(builtin.readiness(), Readiness::Ready);
+        let read = Builtin::read_model("", Some(&dir), Some(&store), &Tuning::default()).expect("the store's file");
+        assert_eq!(read, body());
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn a_question_about_readiness_starts_no_download_but_a_call_that_needs_the_model_does() {
+        let dir = folder_with_an_engine("builtin-automatic");
+        let fake = Fake::new(body());
+        let store = ModelStore::new(&TEST_MODEL, fake.clone(), Some(dir.join("models")));
+        store.set_policy(DownloadPolicy::Automatic);
+        let mut builtin = Builtin::discover(Some(dir.clone()), mic(), Tuning::default()).with_store(store.clone());
+        // The status lines ask this often; none of them is a need.
+        for _ in 0..3 {
+            assert!(matches!(builtin.readiness(), Readiness::Refused { .. }));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert_eq!(fake.calls(), 0, "a status line does not start a download of 17 MB");
+        // A call that needs the model: the policy says fetch it, and until it is there the answer says so.
+        let failure = Builtin::read_model("", Some(&dir), Some(&store), &Tuning::default()).expect_err("not there yet");
+        assert_eq!(failure.status, BuiltinStatus::ModelMissing);
+        wait_for(&store, "the model", |s| s.phase == ModelPhase::Present);
+        assert_eq!(fake.calls(), 1);
+        assert_eq!(builtin.readiness(), Readiness::Ready);
+        assert_eq!(Builtin::read_model("", Some(&dir), Some(&store), &Tuning::default()).expect("there now"), body());
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn a_call_that_needs_the_model_with_ask_gets_the_question_for_the_user_and_fetches_nothing() {
+        let dir = folder_with_an_engine("builtin-need-ask");
+        let fake = Fake::new(body());
+        let store = ModelStore::new(&TEST_MODEL, fake.clone(), Some(dir.join("models")));
+        let failure = Builtin::read_model("", Some(&dir), Some(&store), &Tuning::default()).expect_err("not allowed yet");
+        assert_eq!(failure.status, BuiltinStatus::ModelMissing);
+        assert!(failure.message.contains("allow_model_download"), "{}", failure.message);
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert_eq!(fake.calls(), 0);
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    /// A model that is only not there yet is no verdict: the recognizer stays one that is asked again. (Needs an
+    /// engine that opens in a unit test: the one the feature `speech-engine-static` links.)
+    #[cfg(feature = "speech-engine-static")]
+    #[test]
+    fn a_model_that_is_not_there_yet_does_not_refuse_the_recognizer_for_good() {
+        let dir = folder_with_an_engine("builtin-not-yet");
+        let fake = Fake::new(body());
+        let store = ModelStore::new(&TEST_MODEL, fake.clone(), Some(dir.join("models")));
+        let mut builtin = Builtin::discover(Some(dir.clone()), mic(), Tuning::default()).with_store(store.clone());
+        let first = builtin.load_discovered().expect("the model waits for the user's consent");
+        assert!(first.contains("allow_model_download"), "{first}");
+        assert!(matches!(builtin.state, super::super::State::Discover(_)), "it is asked again, not refused");
+        // Allowed and fetched: the next call gets as far as the engine, which does not take a test file.
+        store.allow();
+        wait_for(&store, "the model", |s| s.phase == ModelPhase::Present);
+        assert_eq!(builtin.load_discovered(), None);
+        match &builtin.state {
+            super::super::State::Refused(message) => assert!(message.contains("does not take the model"), "{message}"),
+            other => panic!("expected the engine's refusal of a model that is none, got a different state ({})", match other {
+                super::super::State::Ready(_) => "ready",
+                _ => "discover",
+            }),
+        }
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn a_model_next_to_the_program_is_used_and_nothing_is_fetched() {
+        let dir = folder_with_an_engine("builtin-next-to");
+        std::fs::write(dir.join(MODEL_FILE_NAME), b"a model").expect("a model file");
+        let fake = Fake::new(body());
+        let store = ModelStore::new(&TEST_MODEL, fake.clone(), Some(dir.join("models")));
+        store.set_policy(DownloadPolicy::Automatic);
+        let mut builtin = Builtin::discover(Some(dir.clone()), mic(), Tuning::default()).with_store(store);
+        assert_eq!(builtin.readiness(), Readiness::Ready);
+        assert_eq!(fake.calls(), 0);
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn without_an_engine_the_model_is_not_fetched_at_all() {
+        // No library here and none linked: a model would be 17 MB for nothing. (A build with the static
+        // engine has the engine, and then the model is what is missing: Automatic fetches it.)
+        let dir = scratch("builtin-no-engine");
+        std::fs::create_dir_all(&dir).expect("a scratch folder");
+        let fake = Fake::new(body());
+        let store = ModelStore::new(&TEST_MODEL, fake.clone(), Some(dir.join("models")));
+        store.set_policy(DownloadPolicy::Automatic);
+        let mut builtin = Builtin::discover(Some(dir.clone()), mic(), Tuning::default()).with_store(store.clone());
+        if cfg!(feature = "speech-engine-static") {
+            // The engine is in the program: a call that needs the model is what fetches it.
+            drop(Builtin::read_model("", Some(&dir), Some(&store), &Tuning::default()));
+            wait_for(&store, "the model", |s| s.phase == ModelPhase::Present);
+            assert_eq!(fake.calls(), 1);
+        } else {
+            match builtin.readiness() {
+                Readiness::Refused { message, .. } => {
+                    assert!(message.contains(engine_file_name(std::env::consts::OS)), "{message}");
+                }
+                Readiness::Ready => panic!("no model, no engine: not ready"),
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            assert_eq!(fake.calls(), 0);
+            assert_ne!(store.state().phase, ModelPhase::Downloading);
+        }
+        drop(std::fs::remove_dir_all(&dir));
+    }
 }

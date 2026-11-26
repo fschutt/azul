@@ -1007,6 +1007,29 @@ class VerdictTest(unittest.TestCase):
             self.assertEqual(self.verdict(d, black_under(6, 152))[0], 1)
             self.assertEqual(self.verdict(d, black_under(11, 155))[0], 1)
 
+    def test_a_button_that_changed_nothing_on_the_screen_fails_the_app_that_was_asked_to_press_it(self):
+        # AzCompanion on the emulator, 2026-11-26: "Try it without a Mac" was found by its name and pressed, the app lived, and the
+        # three screenshots before and after were the same picture: the remote did not come up, which the manifest says it must
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "home.png").write_bytes(synthetic_png(96, 160, home_screen))
+            (root / "before.png").write_bytes(synthetic_png(96, 160, app_screen))
+            (root / "same.png").write_bytes(synthetic_png(96, 160, app_screen))
+            (root / "other.png").write_bytes(synthetic_png(96, 160, lambda x, y: (30, 90, 200, 255) if (x + y) % 5 else (250, 250, 250, 255)))
+            (root / "tap.json").write_text(json.dumps({"label": "Try it", "found": "by its name", "alive": True, "fatal": None}))
+            base = ["--out", str(root / "r.json"), "--app", "AzX", "--id", "com.azul.AzX", "--alive", "1", "--alive-after", "1",
+                    "--baseline", str(root / "home.png"), "--after", str(root / "before.png"), "--tap", str(root / "tap.json")]
+            self.assertEqual(smoke_verdict.main(base + ["--tap-before", str(root / "before.png"), "--tap-after", str(root / "same.png")]), 1)
+            r = json.loads((root / "r.json").read_text())
+            self.assertIn('"Try it"', r["reason"])
+            self.assertIn("changed nothing", r["reason"])
+            self.assertFalse(r["tap"]["changed_screen"])
+            self.assertEqual(smoke_verdict.main(base + ["--tap-before", str(root / "before.png"), "--tap-after", str(root / "other.png")]), 0)
+            self.assertTrue(json.loads((root / "r.json").read_text())["tap"]["changed_screen"])
+            # without the two pictures the question is not asked
+            self.assertEqual(smoke_verdict.main(base), 0)
+            self.assertNotIn("changed_screen", json.loads((root / "r.json").read_text())["tap"])
+
     def test_a_band_that_is_no_two_fractions_is_refused(self):
         with tempfile.TemporaryDirectory() as d:
             for bad in ("0.9,0.1", "0.1", "a,b", "-0.1,0.9", "0.1,1.5"):
