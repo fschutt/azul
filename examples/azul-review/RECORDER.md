@@ -273,6 +273,17 @@ video; progress comes from ffmpeg's own `time=` lines. The end-to-end test recor
 encoders that replay real H.264 and Opus, makes the cut list, exports it with a real ffmpeg and checks
 streams, length, chapters and a clean decode with ffprobe.
 
+What this ffmpeg can do is asked and tried before the plan is made, never read from its version (`probe`): the
+encoders it lists (`ffmpeg -encoders`), and whether its route for rounded corners works, by making ONE picture
+of a blue made-up screen with a red made-up camera through the very graph the export uses (the camera split, one
+copy a grey mask whose corners are quarter circles, `alphamerge`, `overlay`) and reading the camera's corners,
+its middle and the screen back as RGB. An ffmpeg that fails the try (or does not answer within 30 seconds)
+gets a rectangle, and the plan says so in `Plan.notes` before the export runs. The try found a real fault the
+first time it ran: the first version of the mask made the camera grey on ffmpeg 9 (`split` gives all its
+pictures one pixel format, so a `format=gray` straight after it grayed the other copy too); the
+`scale=iw:ih` in front of the `format=gray` is the fix (a `scale` is a conversion), and the end-to-end test
+compares colours, not grey, since a grey camera passed a test that looked at the grey.
+
 **A screen alone is joined, not encoded.** When the cut list asks for nothing the recorded pictures cannot
 give as they are (one segment, no camera over the screen, no zoom, no speed, no caption, a cut that begins
 and ends at files, every file the output's size, no gap between two files), the plan is ONE ffmpeg command:

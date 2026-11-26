@@ -70,7 +70,7 @@ fn edl(segments: Vec<EdlSegment>) -> Edl {
     e
 }
 
-const ENC: Encoders = Encoders { videotoolbox: true, libx264: true, aac: true };
+static ENC: Capabilities = Capabilities { videotoolbox: true, libx264: true, aac: true, rounding: true };
 
 fn plan_of(e: &Edl) -> Plan {
     build_plan(&session(), e, Path::new("/rec/s"), Path::new("/work"), Path::new("/out/video.mp4"), ENC).unwrap()
@@ -96,7 +96,7 @@ fn screen_alone() -> Manifest {
     m
 }
 
-fn plan_for(m: &Manifest, e: &Edl, enc: Encoders) -> Result<Plan, String> {
+fn plan_for(m: &Manifest, e: &Edl, enc: Capabilities) -> Result<Plan, String> {
     build_plan(m, e, Path::new("/rec/s"), Path::new("/work"), Path::new("/out/video.mp4"), enc)
 }
 
@@ -269,11 +269,11 @@ fn the_encoder_is_the_hardware_one_when_there_is_one_and_x264_when_not() {
     assert!(hw.contains("-c:v h264_videotoolbox -b:v 8000k"), "{hw}");
     assert!(hw.contains("-c:a aac -b:a 160k"), "{hw}");
     let e = edl(vec![segment("a", 10, 30)]);
-    let sw = build_plan(&session(), &e, Path::new("/rec/s"), Path::new("/work"), Path::new("/out/video.mp4"), Encoders { videotoolbox: false, libx264: true, aac: true }).unwrap();
+    let sw = build_plan(&session(), &e, Path::new("/rec/s"), Path::new("/work"), Path::new("/out/video.mp4"), Capabilities { videotoolbox: false, libx264: true, aac: true, rounding: true }).unwrap();
     assert!(args_of(&sw.commands[0]).contains("-c:v libx264 -preset veryfast -b:v 8000k"));
-    let none = build_plan(&session(), &e, Path::new("/rec/s"), Path::new("/work"), Path::new("/out/video.mp4"), Encoders { videotoolbox: false, libx264: false, aac: true });
+    let none = build_plan(&session(), &e, Path::new("/rec/s"), Path::new("/work"), Path::new("/out/video.mp4"), Capabilities { videotoolbox: false, libx264: false, aac: true, rounding: true });
     assert!(none.unwrap_err().contains("no H.264 encoder"));
-    let no_aac = build_plan(&session(), &e, Path::new("/rec/s"), Path::new("/work"), Path::new("/out/video.mp4"), Encoders { videotoolbox: true, libx264: true, aac: false });
+    let no_aac = build_plan(&session(), &e, Path::new("/rec/s"), Path::new("/work"), Path::new("/out/video.mp4"), Capabilities { videotoolbox: true, libx264: true, aac: false, rounding: true });
     assert!(no_aac.unwrap_err().contains("no AAC encoder"));
 }
 
@@ -339,8 +339,9 @@ fn the_title_of_the_video_is_in_its_metadata() {
 #[test]
 fn the_encoders_ffmpeg_lists_are_read() {
     let text = " V....D libx264              libx264 H.264 / AVC\n V....D h264_videotoolbox    VideoToolbox H.264 Encoder (codec h264)\n A....D aac                  AAC (Advanced Audio Coding)\n V....D mjpeg  MJPEG\n";
-    assert_eq!(parse_encoders(text), Encoders { videotoolbox: true, libx264: true, aac: true });
-    assert_eq!(parse_encoders(" V....D mjpeg  MJPEG\n"), Encoders { videotoolbox: false, libx264: false, aac: false });
+    // (Only the encoders are read from the list: the rounded corners are found by trying, `probe`.)
+    assert_eq!(parse_encoders(text), Capabilities { videotoolbox: true, libx264: true, aac: true, rounding: false });
+    assert_eq!(parse_encoders(" V....D mjpeg  MJPEG\n"), Capabilities { videotoolbox: false, libx264: false, aac: false, rounding: false });
     assert_eq!(parse_encoders(" V....D hevc_videotoolbox   VideoToolbox H.265\n").videotoolbox, false, "only the H.264 one counts");
 }
 
@@ -492,9 +493,9 @@ fn a_screen_alone_of_one_run_at_its_own_size_is_joined_with_the_pictures_copied(
     assert_eq!(p.extra_lists, vec![(PathBuf::from("/work/audio_pieces.txt"), String::from("file '/rec/s/audio/0001.mp4'\nfile '/rec/s/audio/0002.mp4'\n"))]);
     assert!(p.metadata.1.contains("title=src/lib.rs"), "{}", p.metadata.1);
     // It needs no video encoder at all, and an AAC one only for the voice.
-    let none = Encoders { videotoolbox: false, libx264: false, aac: true };
+    let none = Capabilities { videotoolbox: false, libx264: false, aac: true, rounding: true };
     assert!(plan_for(&m, &e, none).is_ok());
-    let no_aac = Encoders { aac: false, ..ENC };
+    let no_aac = Capabilities { aac: false, ..ENC };
     assert_eq!(plan_for(&m, &e, no_aac).unwrap_err(), "no AAC encoder in this ffmpeg");
     let mut silent = m.clone();
     silent.tracks.audio = None;
@@ -553,13 +554,14 @@ fn anything_the_pictures_cannot_give_as_they_are_is_encoded() {
     late.tracks.screen.as_mut().unwrap().segments[0].start_us = 3 * SEC;
     assert!(encoded(&late, &base), "the picture begins three seconds into the run");
     // And without a video encoder, it cannot be done.
-    let none = Encoders { videotoolbox: false, libx264: false, aac: true };
+    let none = Capabilities { videotoolbox: false, libx264: false, aac: true, rounding: true };
     assert!(plan_for(&m, &zoomed, none).unwrap_err().contains("no H.264 encoder"));
 }
 
 /// The camera is a fifth of the picture, in the bottom right corner a margin from the edges, a rectangle
-/// unless the cut list says `rounded`: then it gets an alpha channel and the corners are cut out by a
-/// quarter circle before it is laid over the screen.
+/// unless the cut list says `rounded`: then the picture is split, a grey mask with the corners cut out by
+/// quarter circles is made from one copy and becomes the alpha of the other (`alphamerge`) before it is laid
+/// over the screen.
 ///
 /// Mutation: the rounding that stays on a rectangle; a rounded camera without its mask.
 #[test]
@@ -568,11 +570,120 @@ fn the_camera_is_overlaid_a_fifth_wide_in_the_bottom_right_corner_and_rounded_wh
     let f = filter_of(&plan_of(&e).commands[0]);
     assert!(f.contains("scale=256:-2"), "a fifth of 1280: {f}");
     assert!(f.contains("overlay=x=W-w-24:y=H-h-24"), "{f}");
-    assert!(!f.contains("geq") && !f.contains("yuva420p"), "a rectangle has no mask: {f}");
+    assert!(!f.contains("geq") && !f.contains("alphamerge") && f.contains("[cam]"), "a rectangle has no mask: {f}");
     e.style.camera.shape = String::from("rounded");
     let f = filter_of(&plan_of(&e).commands[0]);
-    assert!(f.contains("scale=256:-2,format=yuva420p,geq=lum='p(X,Y)':cb='p(X,Y)':cr='p(X,Y)':a='if(gt(abs(W/2-X),W/2-28)"), "a radius of a ninth of 256: {f}");
-    assert!(f.contains("[cam]") && f.find("geq").unwrap() < f.find("[cam]").unwrap(), "the mask is made before the overlay: {f}");
+    assert!(f.contains("scale=256:-2,fps=30,tpad=stop_mode=clone:stop_duration=60.000000[cam_raw]"), "the camera comes in raw: {f}");
+    assert!(
+        f.contains("[cam_raw]split[cam_a][cam_b];[cam_b]scale=iw:ih,format=gray,geq=lum='if(gt(abs(W/2-X),W/2-28)*gt(abs(H/2-Y),H/2-28)"),
+        "a radius of a ninth of 256, the mask made from a copy of the camera (converted, so that the copy's grey is not the camera's): {f}"
+    );
+    assert!(f.contains("[cam_a][cam_m]alphamerge[cam]"), "{f}");
+    assert!(f.find("alphamerge").unwrap() < f.find("[b1][cam]overlay").unwrap(), "the mask is made before the overlay: {f}");
+}
+
+// ---- what this ffmpeg can do, found by trying ----
+
+/// The picture of the rounding probe as ffmpeg gives it back when the route worked: a blue screen of
+/// `PROBE_SIDE` x `PROBE_SIDE` with the red camera on it, the camera's four corners cut away (down to the
+/// screen) in squares of `cut` pixels, as RGB bytes.
+fn probe_picture(cut: usize) -> Vec<u8> {
+    let (x0, y0, w, h) = (PROBE_CAM_X, PROBE_CAM_Y, PROBE_CAM_W, PROBE_CAM_H);
+    let mut rgb = Vec::with_capacity(PROBE_SIDE * PROBE_SIDE * 3);
+    for y in 0..PROBE_SIDE {
+        for x in 0..PROBE_SIDE {
+            let on_camera = (x0..x0 + w).contains(&x) && (y0..y0 + h).contains(&y);
+            let (cx, cy) = (x.wrapping_sub(x0), y.wrapping_sub(y0));
+            let cut_away = on_camera && (cx < cut || cx + cut >= w) && (cy < cut || cy + cut >= h);
+            rgb.extend_from_slice(if on_camera && !cut_away { &[250, 5, 5] } else { &[5, 5, 250] });
+        }
+    }
+    rgb
+}
+
+/// The probe reads the picture ffmpeg made back: the camera's four corners show the screen, its middle and the
+/// middles of its edges are the camera, the outside is the screen; anything else is said in words.
+///
+/// Mutation: a judge that accepts a camera that still has its corners; one that accepts a camera that is gone;
+/// one that accepts a rounding that eats the edges.
+#[test]
+fn the_probe_judges_the_picture_it_gets_back_and_says_what_is_wrong_in_words() {
+    assert_eq!(rounding_worked(&probe_picture(7)), Ok(()));
+    let square = rounding_worked(&probe_picture(0)).unwrap_err();
+    assert!(square.contains("corner") && square.contains("camera"), "{square}");
+    let mut gone = probe_picture(0);
+    for px in gone.chunks_exact_mut(3) {
+        px.copy_from_slice(&[5, 5, 250]);
+    }
+    let gone = rounding_worked(&gone).unwrap_err();
+    assert!(gone.contains("picture is gone"), "a mask that cut everything away: {gone}");
+    let mut eaten = probe_picture(7);
+    let at = ((PROBE_CAM_Y + 1) * PROBE_SIDE + PROBE_CAM_X + PROBE_CAM_W / 2) * 3;
+    eaten[at..at + 3].copy_from_slice(&[5, 5, 250]);
+    let eaten = rounding_worked(&eaten).unwrap_err();
+    assert!(eaten.contains("edge"), "a rounding that cuts the middle of an edge: {eaten}");
+    let mut no_screen = probe_picture(7);
+    let outside = (2 * PROBE_SIDE + 2) * 3;
+    no_screen[outside..outside + 3].copy_from_slice(&[250, 5, 5]);
+    assert!(rounding_worked(&no_screen).unwrap_err().contains("outside"), "the screen is missing where the camera is not");
+    assert!(rounding_worked(&[]).unwrap_err().contains("0 bytes"));
+    assert!(rounding_worked(&probe_picture(7)[..100]).unwrap_err().contains("100 bytes"));
+}
+
+/// The probe makes ONE picture of a made-up blue screen and a made-up red camera through the very graph the
+/// export uses (the same function makes both), so what it finds out is about the route the export takes.
+///
+/// Mutation: a probe with a graph of its own; a probe that never overlays the camera.
+#[test]
+fn the_probe_makes_one_picture_through_the_graph_the_export_uses() {
+    let args = rounding_probe_args();
+    let text = args.join(" ");
+    let at = args.iter().position(|a| a == "-filter_complex").expect("a filter graph");
+    let graph = &args[at + 1];
+    assert!(graph.contains(&rounding_graph(PROBE_CAM_W as u32)), "the export's route, not one of its own: {graph}");
+    assert!(graph.contains(&format!("overlay=x={PROBE_CAM_X}:y={PROBE_CAM_Y}")) && graph.ends_with("format=rgb24[v]"), "{graph}");
+    assert!(graph.contains(&format!("scale={PROBE_CAM_W}:-2")), "the camera is scaled as the export scales it: {graph}");
+    assert!(text.contains("-map [v] -frames:v 1 -f rawvideo -pix_fmt rgb24 -"), "{text}");
+    assert!(text.contains(&format!("color=c=blue:s={PROBE_SIDE}x{PROBE_SIDE}")), "{text}");
+}
+
+/// What a plan does when ffmpeg was tried at rounding corners and could not: the camera stays a rectangle, the
+/// plan says so (a person reads that before the export runs), and nothing is said where nothing is lost.
+///
+/// Mutation: a plan that rounds where the probe said it cannot; one that is silent about the rectangle; one
+/// that complains where a rectangle was asked for.
+#[test]
+fn a_rounded_camera_on_an_ffmpeg_that_cannot_round_stays_a_rectangle_and_the_plan_says_so() {
+    let mut e = edl(vec![segment("a", 0, 60)]);
+    e.style.camera.shape = String::from("rounded");
+    let cannot = Capabilities { rounding: false, ..ENC };
+    let p = plan_for(&session(), &e, cannot).unwrap();
+    let f = filter_of(&p.commands[0]);
+    assert!(!f.contains("alphamerge") && !f.contains("geq") && !f.contains("cam_raw"), "{f}");
+    assert!(f.contains("[b1][cam]overlay=x=W-w-24:y=H-h-24"), "the camera is still there, a rectangle: {f}");
+    assert_eq!(p.notes.len(), 1, "{:?}", p.notes);
+    assert!(p.notes[0].contains("rounded") && p.notes[0].contains("rectangle"), "{}", p.notes[0]);
+    let p = plan_for(&session(), &e, ENC).unwrap();
+    assert!(filter_of(&p.commands[0]).contains("alphamerge") && p.notes.is_empty(), "{:?}", p.notes);
+    e.style.camera.shape = String::from("rect");
+    assert!(plan_for(&session(), &e, cannot).unwrap().notes.is_empty(), "a rectangle was asked for");
+    // And a cut list without the camera in it has nothing to say either.
+    e.style.camera.shape = String::from("rounded");
+    for seg in &mut e.segments {
+        seg.camera = false;
+    }
+    assert!(plan_for(&session(), &e, cannot).unwrap().notes.is_empty(), "no camera in the cuts");
+}
+
+/// An ffmpeg that is not there or fails at once is an error in words: nothing is guessed about it.
+#[test]
+fn an_ffmpeg_that_will_not_start_or_fails_is_an_error_in_words() {
+    let err = probe(Path::new("/no/such/ffmpeg")).unwrap_err();
+    assert!(err.contains("/no/such/ffmpeg"), "{err}");
+    if Path::new("/usr/bin/false").is_file() {
+        let err = probe(Path::new("/usr/bin/false")).unwrap_err();
+        assert!(err.contains("failed"), "{err}");
+    }
 }
 
 // ---- the whole way, with a real ffmpeg (skipped where there is none) ----
@@ -606,6 +717,74 @@ mod e2e {
     /// A tool of the ffmpeg family, where it is usually installed.
     fn find_tool(name: &str) -> Option<PathBuf> {
         ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"].iter().map(|d| Path::new(d).join(name)).find(|p| p.is_file())
+    }
+
+    /// A stand-in for ffmpeg: a shell script that answers `-encoders` with a list and everything else with `body`.
+    #[cfg(unix)]
+    fn stand_in(name: &str, body: &str) -> (Tmp, PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = Tmp(std::env::temp_dir().join(format!("azreview-standin-{name}-{}", std::process::id())));
+        let _ = fs::remove_dir_all(&tmp.0);
+        fs::create_dir_all(&tmp.0).unwrap();
+        let path = tmp.0.join("ffmpeg");
+        let script = format!("#!/bin/sh\ncase \"$*\" in\n*-encoders*) echo ' V....D libx264              libx264 H.264'; echo ' A....D aac                  AAC';;\n*) {body};;\nesac\n");
+        fs::write(&path, script).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        (tmp, path)
+    }
+
+    /// The whole probe against stand-ins: an ffmpeg that gives a picture with the corners cut says it can round; one
+    /// that gives the camera's square says it cannot (and why, in words); one that gives nothing readable says
+    /// so; one that never answers is given up on, and killed, at the time limit.
+    #[cfg(unix)]
+    #[test]
+    fn the_probe_finds_out_by_trying_what_a_stand_in_ffmpeg_can_do() {
+        let rounded = probe_picture(7);
+        let square = probe_picture(0);
+        let (tmp, good) = stand_in("good", &format!("printf '{}'", escape_octal(&rounded)));
+        let found = probe(&good).unwrap();
+        assert!(found.caps.rounding && found.caps.libx264 && found.caps.aac && !found.caps.videotoolbox, "{found:?}");
+        assert!(found.notes.is_empty(), "{:?}", found.notes);
+        drop(tmp);
+        let (tmp, flat) = stand_in("flat", &format!("printf '{}'", escape_octal(&square)));
+        let found = probe(&flat).unwrap();
+        assert!(!found.caps.rounding && found.caps.libx264, "the encoders are still found: {found:?}");
+        assert_eq!(found.notes.len(), 1, "{:?}", found.notes);
+        assert!(found.notes[0].contains("rounded corners") && found.notes[0].contains("corner"), "{}", found.notes[0]);
+        drop(tmp);
+        let (tmp, nothing) = stand_in("nothing", "printf 'xx'");
+        let found = probe(&nothing).unwrap();
+        assert!(!found.caps.rounding && found.notes[0].contains("2 bytes"), "{:?}", found.notes);
+        drop(tmp);
+        let (tmp, failing) = stand_in("failing", "echo 'No such filter: geq' >&2; exit 1");
+        let found = probe(&failing).unwrap();
+        assert!(!found.caps.rounding && found.notes[0].contains("No such filter"), "what ffmpeg said is in the note: {:?}", found.notes);
+        drop(tmp);
+        let (tmp, hanging) = stand_in("hanging", "exec sleep 30");
+        let started = std::time::Instant::now();
+        let found = probe_within(&hanging, Duration::from_millis(400)).unwrap();
+        assert!(started.elapsed() < Duration::from_secs(10), "given up on at the limit");
+        assert!(!found.caps.rounding && found.notes[0].contains("did not answer"), "{:?}", found.notes);
+        drop(tmp);
+    }
+
+    /// `bytes` as the `\ddd` octal escapes `printf` reads.
+    #[cfg(unix)]
+    fn escape_octal(bytes: &[u8]) -> String {
+        bytes.iter().map(|b| format!("\\{b:03o}")).collect()
+    }
+
+    /// What a real ffmpeg answers to the question: it makes the probe's camera round (the route the export takes
+    /// works on this one, found by trying), and the log says what this ffmpeg is.
+    #[test]
+    fn a_real_ffmpeg_makes_the_probes_camera_round() {
+        let Some(ffmpeg) = find_tool("ffmpeg") else {
+            skipped("there is no ffmpeg in /opt/homebrew/bin, /usr/local/bin or /usr/bin");
+            return;
+        };
+        let found = probe(&ffmpeg).unwrap_or_else(|e| panic!("{e}"));
+        eprintln!("probe: {:?} {:?}", found.caps, found.notes);
+        assert!(found.caps.rounding, "the route did not round the made-up camera: {:?}", found.notes);
     }
 
     /// The bytes ffmpeg writes to its standard output for these arguments; `None` when it fails.
@@ -745,7 +924,7 @@ mod e2e {
     struct Rig {
         ffmpeg: PathBuf,
         ffprobe: PathBuf,
-        encoders: Encoders,
+        caps: Capabilities,
         screen: Vec<Vec<u8>>,
         camera: Vec<Vec<u8>>,
         voice: Vec<Vec<u8>>,
@@ -766,14 +945,24 @@ mod e2e {
             skipped("there is no ffmpeg and ffprobe in /opt/homebrew/bin, /usr/local/bin or /usr/bin");
             return None;
         };
-        let encoders = parse_encoders(&String::from_utf8_lossy(&Process::new(&ffmpeg).args(["-hide_banner", "-encoders"]).output().unwrap().stdout));
-        if !(encoders.aac && (encoders.libx264 || encoders.videotoolbox)) {
+        let found = match probe(&ffmpeg) {
+            Ok(found) => found,
+            Err(why) => {
+                skipped(&format!("ffmpeg cannot be asked what it can do: {why}"));
+                return None;
+            }
+        };
+        let caps = found.caps;
+        eprintln!("what this ffmpeg can do: {caps:?}{}", found.notes.iter().map(|n| format!("; {n}")).collect::<String>());
+        if !(caps.aac && (caps.libx264 || caps.videotoolbox)) {
             skipped("this ffmpeg lacks aac or an H.264 encoder");
             return None;
         }
-        let h264 = |size: &str| ffmpeg_bytes(&ffmpeg, &["-f", "lavfi", "-i", &format!("testsrc2=size={size}:rate=30"), "-t", "6", "-c:v", "libx264", "-g", "30", "-bf", "0", "-pix_fmt", "yuv420p", "-f", "h264", "-"]);
+        // The screen is the test pattern, the camera a picture of red, green and blue stripes: nothing of the camera
+        // is mistaken for the screen, and a camera that lost its colours is seen.
+        let h264 = |source: &str, size: &str| ffmpeg_bytes(&ffmpeg, &["-f", "lavfi", "-i", &format!("{source}=size={size}:rate=30"), "-t", "6", "-c:v", "libx264", "-g", "30", "-bf", "0", "-pix_fmt", "yuv420p", "-f", "h264", "-"]);
         let opus = ffmpeg_bytes(&ffmpeg, &["-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "6", "-c:a", "libopus", "-b:a", "32k", "-frame_duration", "20", "-f", "ogg", "-"]);
-        let (Some(screen), Some(camera), Some(opus)) = (h264(&format!("{}x{}", screen_size.0, screen_size.1)), h264(&format!("{}x{}", camera_size.0, camera_size.1)), opus) else {
+        let (Some(screen), Some(camera), Some(opus)) = (h264("testsrc2", &format!("{}x{}", screen_size.0, screen_size.1)), h264("rgbtestsrc", &format!("{}x{}", camera_size.0, camera_size.1)), opus) else {
             skipped("this ffmpeg cannot make the test streams (it needs libx264 and libopus)");
             return None;
         };
@@ -781,7 +970,7 @@ mod e2e {
         let tmp = Tmp(std::env::temp_dir().join(format!("azreview-e2e-{name}-{}", std::process::id())));
         let _ = fs::remove_dir_all(&tmp.0);
         fs::create_dir_all(&tmp.0).unwrap();
-        Some(Rig { ffmpeg, ffprobe, encoders, screen: split_aus(&screen), camera: split_aus(&camera), voice: ogg_packets(&opus), screen_size, camera_size, tmp })
+        Some(Rig { ffmpeg, ffprobe, caps, screen: split_aus(&screen), camera: split_aus(&camera), voice: ogg_packets(&opus), screen_size, camera_size, tmp })
     }
 
     /// A session of six seconds recorded through the recorder with the rig's encoders: the window changes ten
@@ -859,7 +1048,7 @@ mod e2e {
     #[test]
     fn a_recorded_session_becomes_a_playable_video_with_chapters() {
         let Some(rig) = rig("export") else { return };
-        let (ffmpeg, ffprobe, encoders, tmp) = (rig.ffmpeg.clone(), rig.ffprobe.clone(), rig.encoders, &rig.tmp);
+        let (ffmpeg, ffprobe, encoders, tmp) = (rig.ffmpeg.clone(), rig.ffprobe.clone(), rig.caps, &rig.tmp);
         let started = record(&rig, true, true);
 
         // The cut list and the export.
@@ -904,7 +1093,7 @@ mod e2e {
             let started = record_blocks(&rig, 20, false, camera);
             let manifest = Manifest::parse(&fs::read_to_string(started.dir.join("manifest.json")).unwrap()).unwrap();
             let edl = identity_edl(&manifest, &[]);
-            let plan = build_plan(&manifest, &edl, &started.dir, &rig.tmp.0.join(format!("work-{camera}")), &rig.tmp.0.join(format!("export/{camera}.mp4")), rig.encoders).unwrap();
+            let plan = build_plan(&manifest, &edl, &started.dir, &rig.tmp.0.join(format!("work-{camera}")), &rig.tmp.0.join(format!("export/{camera}.mp4")), rig.caps).unwrap();
             let recorded = edl.duration_us() as f64 / 1e6;
             let t0 = std::time::Instant::now();
             let report = run(&plan, &rig.ffmpeg, &AtomicBool::new(false), &mut |_| {}).unwrap_or_else(|e| panic!("{e}"));
@@ -947,7 +1136,7 @@ mod e2e {
         let manifest = Manifest::parse(&fs::read_to_string(started.dir.join("manifest.json")).unwrap()).unwrap();
         let files = file_changes(&fs::read_to_string(started.dir.join("events.jsonl")).unwrap());
         let edl = identity_edl(&manifest, &files);
-        let none = Encoders { videotoolbox: false, libx264: false, aac: rig.encoders.aac };
+        let none = Capabilities { videotoolbox: false, libx264: false, aac: rig.caps.aac, ..rig.caps };
         let plan = build_plan(&manifest, &edl, &started.dir, &rig.tmp.0.join("work"), &rig.tmp.0.join("export/copy.mp4"), none).expect("a straight copy needs no video encoder");
         assert_eq!(plan.commands.len(), 1, "{:?}", plan.commands.iter().map(|c| c.id.clone()).collect::<Vec<_>>());
         let started_at = std::time::Instant::now();
@@ -970,9 +1159,9 @@ mod e2e {
         eprintln!("straight copy: {packets} pictures copied, {} bytes, {duration:.2} s of video in {:.2} s", report.bytes, took.as_secs_f64());
     }
 
-    /// A camera with rounded corners goes through the real ffmpeg: the export decodes clean, the corner of the
-    /// camera's picture shows the SCREEN (it differs from the same corner of a rectangular camera) and the
-    /// middle of it is the same camera picture in both.
+    /// A camera with rounded corners goes through the real ffmpeg: the export decodes clean, the very corner of the
+    /// camera's picture shows the SCREEN (it is the screen alone there, and the rectangular camera is not), and
+    /// the middle of the camera is the same camera picture, colours and all, in both exports.
     #[test]
     fn a_camera_with_rounded_corners_is_exported_and_shows_the_screen_in_its_corners() {
         let Some(rig) = rig("round") else { return };
@@ -984,7 +1173,8 @@ mod e2e {
             edl.style.camera.scale = 0.5;
             edl.style.camera.margin = 0;
             let out = rig.tmp.0.join(format!("export/{shape}.mp4"));
-            let plan = build_plan(&manifest, &edl, &started.dir, &rig.tmp.0.join(format!("work-{shape}")), &out, rig.encoders).unwrap();
+            let plan = build_plan(&manifest, &edl, &started.dir, &rig.tmp.0.join(format!("work-{shape}")), &out, rig.caps).unwrap();
+            assert!(plan.notes.is_empty(), "this ffmpeg rounds (the probe said so): {:?}", plan.notes);
             let report = run(&plan, &rig.ffmpeg, &AtomicBool::new(false), &mut |_| {}).unwrap_or_else(|e| panic!("{e}"));
             let decode = Process::new(&rig.ffmpeg).args(["-v", "error", "-i"]).arg(&report.output).args(["-f", "null", "-"]).output().unwrap();
             assert!(decode.status.success() && decode.stderr.is_empty(), "{shape}: {}", String::from_utf8_lossy(&decode.stderr));
@@ -994,35 +1184,39 @@ mod e2e {
         // The camera is half the width, in the bottom right corner with no margin: 320 x 240 at (320, 120). The
         // very corner of the picture is the camera's corner: cut away in the rounded one.
         let (w, h) = (640, 360);
-        let (a, b) = (grey_frame(&rig, &rect, "1.0", w, h), grey_frame(&rig, &rounded, "1.0", w, h));
-        let corner = block_diff(&a, &b, w, (w - 6, w, h - 6, h));
+        let (a, b) = (rgb_frame(&rig, &rect, "1.0", w, h), rgb_frame(&rig, &rounded, "1.0", w, h));
+        let alone = rgb_frame(&rig, &started.dir.join("screen/0001.mp4"), "1.0", w, h);
+        let corner = (w - 10, w, h - 10, h);
+        let (rect_corner, rounded_corner) = (block_diff(&a, &alone, w, corner), block_diff(&b, &alone, w, corner));
         let middle = block_diff(&a, &b, w, (440, 520, 220, 300));
-        eprintln!("rounded against rectangular camera: the corner differs by {corner:.1}, the middle by {middle:.1}");
-        assert!(corner > 8.0, "the corner shows the screen where the rectangle showed the camera: {corner}");
-        assert!(middle < 8.0, "the rest of the camera is the camera in both: {middle}");
+        eprintln!("rounded against rectangular camera: at the corner the screen alone differs from the rectangle by {rect_corner:.1} and from the rounded one by {rounded_corner:.1}; the middle of the two exports differs by {middle:.1}");
+        assert!(rect_corner > 20.0, "the rectangle shows the camera where the screen is: {rect_corner}");
+        assert!(rounded_corner < 4.0, "the rounded corner shows the screen: {rounded_corner}");
+        assert!(middle < 8.0, "the rest of the camera is the camera, in its colours, in both: {middle}");
     }
 
-    /// One frame of `file` at `at` seconds as grey bytes, `w` x `h`.
-    fn grey_frame(rig: &Rig, file: &Path, at: &str, w: usize, h: usize) -> Vec<u8> {
+    /// One frame of `file` at `at` seconds as RGB bytes (all three channels: a picture that lost its colours is not
+    /// the picture), `w` x `h`.
+    fn rgb_frame(rig: &Rig, file: &Path, at: &str, w: usize, h: usize) -> Vec<u8> {
         let out = Process::new(&rig.ffmpeg)
             .args(["-v", "error", "-ss", at, "-i"])
             .arg(file)
-            .args(["-frames:v", "1", "-vf", &format!("scale={w}:{h}"), "-pix_fmt", "gray", "-f", "rawvideo", "-"])
+            .args(["-frames:v", "1", "-vf", &format!("scale={w}:{h}"), "-pix_fmt", "rgb24", "-f", "rawvideo", "-"])
             .output()
             .unwrap();
-        assert!(out.status.success() && out.stdout.len() == w * h, "{}", String::from_utf8_lossy(&out.stderr));
+        assert!(out.status.success() && out.stdout.len() == w * h * 3, "{}", String::from_utf8_lossy(&out.stderr));
         out.stdout
     }
 
-    /// The mean difference between two grey frames inside the block `x0..x1` x `y0..y1`.
+    /// The mean difference per colour channel between two RGB frames inside the block `x0..x1` x `y0..y1`.
     fn block_diff(a: &[u8], b: &[u8], w: usize, (x0, x1, y0, y1): (usize, usize, usize, usize)) -> f64 {
         let mut sum = 0_u64;
         for y in y0..y1 {
-            for x in x0..x1 {
-                sum += u64::from(a[y * w + x].abs_diff(b[y * w + x]));
+            for x in x0 * 3..x1 * 3 {
+                sum += u64::from(a[y * w * 3 + x].abs_diff(b[y * w * 3 + x]));
             }
         }
-        sum as f64 / ((x1 - x0) * (y1 - y0)) as f64
+        sum as f64 / ((x1 - x0) * (y1 - y0) * 3) as f64
     }
 
     /// The command of RECORDER.md section 10, the block a person copies, run as it stands on a recorded
@@ -1041,7 +1235,7 @@ mod e2e {
         let to = doc[from..].find("```").map(|i| from + i).expect("the block ends");
         let mut script = doc[from..to].to_string();
         assert!(script.contains("h264_videotoolbox"), "the doc names the Mac's encoder");
-        if !rig.encoders.videotoolbox {
+        if !rig.caps.videotoolbox {
             script = script.replace("h264_videotoolbox -b:v 4M", "libx264 -preset veryfast -crf 23");
         }
         let path = format!("{}:{}", rig.ffmpeg.parent().unwrap().display(), std::env::var("PATH").unwrap_or_default());
@@ -1062,8 +1256,8 @@ mod e2e {
         assert!(decode.status.success() && decode.stderr.is_empty(), "{}", String::from_utf8_lossy(&decode.stderr));
         // Where the camera is: the bottom right block differs from the screen alone, the top left does not.
         let (w, h) = (640, 360);
-        let with = grey_frame(&rig, &combined, "1.0", w, h);
-        let alone = grey_frame(&rig, &started.dir.join("screen/0001.mp4"), "1.0", w, h);
+        let with = rgb_frame(&rig, &combined, "1.0", w, h);
+        let alone = rgb_frame(&rig, &started.dir.join("screen/0001.mp4"), "1.0", w, h);
         let bottom_right = block_diff(&with, &alone, w, (400, 600, 100, 330));
         let top_left = block_diff(&with, &alone, w, (10, 50, 10, 50));
         eprintln!("the doc's command: {} bytes, {duration:.2} s, streams {}; the camera's corner differs by {bottom_right:.1}, the top left by {top_left:.1}", fs::metadata(&combined).unwrap().len(), streams.replace('\n', " "));
