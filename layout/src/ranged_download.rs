@@ -18,6 +18,11 @@
 //!   was stopped or broke on the wire keeps it ([`Error::Cancelled`], [`Error::Failed`]) for the resume.
 //!
 //! Checking what came (a digest) is the caller's: the file is only complete, not trusted.
+//!
+//! A store build (iOS, Android, the `store_app` feature) has this module: it fetches DATA a program asked
+//! for, the model of the speech recognizer, which an engine that is in the program reads; it is the
+//! HTTP client's own kind of code. What a store forbids, an app that fetches and installs a PROGRAM of
+//! its own, is the updater's use of it, and that is compiled out of such a build (see `updater`).
 
 use std::{io::Write as _, path::Path};
 

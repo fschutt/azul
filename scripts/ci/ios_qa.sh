@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # ios_qa.sh: the lifecycle QA of ONE Simulator app on the newest iOS runtime and a modern iPhone.
 #
-#   scripts/ci/ios_qa.sh <out-dir> <app.zip | App.app> [<label>]
+#   scripts/ci/ios_qa.sh <out-dir> <app.zip | App.app> [<label>] [<session>]
+#
+#   session  qa (default): scripts/ci/mobile_qa.py, the life of the app with simctl;
+#            e2e: scripts/ci/mobile_e2e.py, the debug server of a `mobile-e2e` app driven from the runner (scenario files
+#                 named in AZ_QA_SCENARIOS, space separated; the Simulator shares the host's loopback: no port forwarding);
+#            both: qa, then e2e on the same simulator.
 #
 # For a macOS runner with Xcode (xcrun simctl). Needs no signing (a Simulator app runs ad-hoc signed). Writes what
 # scripts/ci/mobile_qa.py writes (qa.json, qa.md, shots/, logs/) into <out-dir>. Exit 0 when the simulator ran (the
@@ -14,7 +19,7 @@
 # app's own debug server (scripts/ci/mobile_e2e.py).
 set -uo pipefail
 
-out="${1:?out-dir}"; app="${2:?app}"; label="${3:-AzWidgets}"
+out="${1:?out-dir}"; app="${2:?app}"; label="${3:-AzWidgets}"; session="${4:-qa}"
 here="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$out"
 work="$(mktemp -d)"
@@ -57,5 +62,14 @@ bid="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$appdir/Info.plis
 exe="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$appdir/Info.plist" 2>/dev/null)"
 echo "app: $appdir bundle=$bid executable=$exe"
 
-python3 "$here/mobile_qa.py" ios --out "$out" --udid "$udid" --bundle "$bid" --exe "$exe" --app "$appdir" --label "$label" 2>&1 | tee "$out/qa.log"
+if [ "$session" = qa ] || [ "$session" = both ]; then
+  python3 "$here/mobile_qa.py" ios --out "$out" --udid "$udid" --bundle "$bid" --exe "$exe" --app "$appdir" --label "$label" \
+    ${AZ_QA_EXPECT_GPU:+--expect-gpu} ${AZ_QA_ONLY:+--only "$AZ_QA_ONLY"} 2>&1 | tee "$out/qa.log"
+fi
+if [ "$session" = e2e ] || [ "$session" = both ]; then
+  scen=()
+  for f in ${AZ_QA_SCENARIOS:-}; do scen+=(--scenario "$f"); done
+  python3 "$here/mobile_e2e.py" ios --out "$out/e2e" --udid "$udid" --bundle "$bid" --exe "$exe" --apk "$appdir" \
+    --label "$label e2e" ${scen[@]+"${scen[@]}"} 2>&1 | tee "$out/e2e.log"
+fi
 exit 0

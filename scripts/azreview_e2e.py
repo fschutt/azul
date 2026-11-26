@@ -317,7 +317,8 @@ def dictation(args, logs, out, binary, fake):
         # AZ_SPEECH_HEARD answers at once on every call, which a stream would take as utterance after utterance without a pause)
         script = os.path.join(logs, "speech-dictation.json")
         with open(script, "w", encoding="utf-8") as f:
-            json.dump({"builtin": [{"say": HEARD, "delay_ms": 300, "language": "en"}, {"silence": True}], "then": "silence"}, f)
+            # every dictation of the run hears it: the script's last step is repeated for ever (seven dictations, each says something)
+            json.dump({"builtin": [{"say": HEARD, "delay_ms": 300, "language": "en"}], "then": "repeat"}, f)
         extra = {"AZ_SPEECH_SCRIPT": script}
     app = e2e.App("review-dictation", binary,
                   [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en",
@@ -341,6 +342,9 @@ def dictation(args, logs, out, binary, fake):
             app.must("mouse_move", x=x, y=y)
             app.frame(1)
             app.until(what, lambda: (app.frame(1), app.count("AZREVIEW_DICTATION", r"started %d" % n) > 0)[1])
+            if fake:
+                # the scripted recogniser says its words 300 ms after the stream began: a dictation that is ended sooner keeps nothing
+                app.until("the words of dictation %d" % n, lambda: app.count("AZREVIEW_DICTATION", r"partial %d .+" % n) > 0)
 
         def ended(n, cause):
             app.until("dictation %d ended (%s)" % (n, cause),
@@ -353,16 +357,16 @@ def dictation(args, logs, out, binary, fake):
             raise Failure("the standby before the pointer came near a page: %s" % before)
         # 1. A rest starts a note that listens.
         rest_at(0.0, 0.0, "the first dictation to start", 1)
-        app.until("the side column", lambda: app.has_id("__azreview_notes"))
+        app.until("the conversation's chip in the margin", lambda: app.has_id("__azreview_conv-1", every_dom=True))
         near = state(app)["standby"]
         if not near["armed"] or near["arms"] != 1:
             raise Failure("the pointer came near a page and the microphone was not asked to open once: %s" % near)
         app.until("AZREVIEW_STANDBY armed", lambda: app.count("AZREVIEW_STANDBY", r"armed") == 1)
         if fake:
             app.until("the marker on the page", lambda: app.has_id("__azreview_marker-1", every_dom=True))
-            app.until("the words in the column", lambda: app.shows(HEARD))
-            app.until("the listening pill", lambda: app.has_id("__azreview_listening"))
-            app.until("the stop button", lambda: app.has_id("__azreview_dictation-stop"))
+            app.until("the words in the conversation", lambda: app.shows(HEARD, every_dom=True))
+            app.until("the listening pill", lambda: app.has_id("__azreview_listening", every_dom=True))
+            app.until("the stop button", lambda: app.has_id("__azreview_dictation-stop", every_dom=True))
             app.screenshot(os.path.join(out, "5-listening.png"))
             # A stroke elsewhere on the page ends it.
             app.must("mouse_move", x=base[0] + 200.0, y=base[1] + 100.0)
@@ -373,7 +377,7 @@ def dictation(args, logs, out, binary, fake):
             app.must("mouse_up", x=base[0] + 200.0 + 84.0, y=base[1] + 121.0)
             app.frame(2)
             ended(1, "(?:moved|drew)")
-            app.until("the note editable", lambda: app.has_id("__azreview_note-text-1"))
+            app.until("the note editable", lambda: app.has_id("__azreview_note-text-1", every_dom=True))
             app.screenshot(os.path.join(out, "6-note.png"))
             path = os.path.join(data_dir, ARCHIVE)
             app.until("the archive with the note", lambda: os.path.exists(path) and notes_in(path))
@@ -385,8 +389,8 @@ def dictation(args, logs, out, binary, fake):
 
             # 2. The stop button.
             rest_at(0.0, 260.0, "the second dictation to start", 2)
-            app.until("the stop button", lambda: app.has_id("__azreview_dictation-stop"))
-            app.click(selector="#__azreview_dictation-stop")
+            app.until("the stop button", lambda: app.has_id("__azreview_dictation-stop", every_dom=True))
+            app.click(selector="#__azreview_dictation-stop", every_dom=True)
             ended(2, "button")
             # 3. Escape.
             rest_at(0.0, 0.0, "the third dictation to start", 3)
@@ -404,27 +408,39 @@ def dictation(args, logs, out, binary, fake):
             ended(5, "moved")
             # The pointer stays where it moved to: that rest starts a sixth note by itself. Escape ends it.
             app.until("the resting pointer's note", lambda: (app.frame(1), app.count("AZREVIEW_DICTATION", r"started 6") > 0)[1])
+            app.until("the words of dictation 6", lambda: app.count("AZREVIEW_DICTATION", r"partial 6 .+") > 0)
             app.key("escape")
             ended(6, "key")
             # 6. Contact dwell: the tip stays down without moving after the move - a note starts; lifting it
             #    in place neither ends it nor changes the nib (a tap would cycle the nib).
             x, y = base[0] + 300.0, base[1] + 420.0
+            nib_before = state(app)["nib"]
             app.must("mouse_move", x=x, y=y)
             app.must("mouse_down", x=x, y=y)
             app.until("the contact dwell's note", lambda: (app.frame(1), app.count("AZREVIEW_DICTATION", r"started 7") > 0)[1])
+            app.until("the words of dictation 7", lambda: app.count("AZREVIEW_DICTATION", r"partial 7 .+") > 0)
             app.must("mouse_up", x=x, y=y)
             app.frame(3)
-            if "marker" not in app.texts():
-                raise Failure("lifting the tip in place after a contact dwell cycled the nib: %s" % [t for t in app.texts() if t in ("marker", "pen", "audio pen")])
+            if state(app)["nib"] != nib_before:
+                raise Failure("lifting the tip in place after a contact dwell cycled the nib: %s, it was %s" % (state(app)["nib"], nib_before))
             if app.count("AZREVIEW_DICTATION", r"ended 7 .*") > 0:
                 raise Failure("lifting the tip in place ended the contact dwell's note")
             app.key("escape")
             ended(7, "key")
-            # The notes: five cards (each said something), all editable.
-            app.until("five notes", lambda: all(app.has_id("__azreview_note-%d" % i) for i in (1, 2, 3, 4, 5)))
-            # Delete one with its button.
-            app.click(selector="#__azreview_note-delete-5")
-            app.until("the note gone", lambda: not app.has_id("__azreview_note-5"))
+            # The conversations: a chip each in the margins of the pages (each said something).
+            looked = time.time() + 6.0
+            while time.time() < looked and not all(app.has_id("__azreview_conv-%d" % i, every_dom=True) for i in (1, 2, 3, 4, 5)):
+                app.frame(1)
+            missing = [i for i in range(1, 8) if not app.has_id("__azreview_conv-%d" % i, every_dom=True)]
+            if any(i in missing for i in (1, 2, 3, 4, 5)):
+                app.screenshot(os.path.join(out, "7b-conversations-missing.png"))
+                raise Failure("the conversations of the five dictations are not all in the margin (missing chips %s): %s" % (
+                    missing, [(n["id"], n["page"], n["asked"], n.get("said")) for n in state(app)["conversations"]["notes"]]))
+            # Delete one with its button (in its popover, which a click on its chip opens).
+            app.click(selector="#__azreview_conv-5", every_dom=True)
+            app.until("its popover", lambda: app.has_id("__azreview_note-delete-5", every_dom=True))
+            app.click(selector="#__azreview_note-delete-5", every_dom=True)
+            app.until("the conversation gone", lambda: not app.has_id("__azreview_conv-5", every_dom=True))
             app.screenshot(os.path.join(out, "7-notes.png"))
             # 8. The pointer has been away for the idle time (5 s, from the end of the last dictation): the microphone
             # is asked to close, once, and the standby's timer ends with it.
@@ -440,7 +456,7 @@ def dictation(args, logs, out, binary, fake):
             ended(1, "failed")
             app.until("the refusal told over the pages",
                       lambda: app.shows("Dictation") or app.shows("speech recognition"))
-            if app.has_id("__azreview_note-1"):
+            if app.has_id("__azreview_conv-1", every_dom=True):
                 raise Failure("a note that heard nothing was kept")
             # No recogniser at all: it cannot change before the next start, so a second rest starts nothing
             # (it says so again over the pages) instead of asking the system once more.
@@ -756,9 +772,17 @@ def dictation_stream(args, logs, out, binary):
         # 2. a stop ends it at once: the script's utterances are over, a stream waits in the quiet, and the stop key ends it
         app.must("mouse_move", x=base[0] + 300.0, y=base[1] + 200.0)
         app.until("the second dictation to start", lambda: (app.frame(1), app.count("AZREVIEW_DICTATION", r"started 2") > 0)[1])
-        app.until("its stop key", lambda: app.has_id("__azreview_dictation-stop"))
+        # the stop key is in the conversation that listens: it is there for as long as the quiet lasts (3 s), so it is looked for
+        # for that long and not until the end of the run
+        looked = time.time() + 2.5
+        while time.time() < looked and not app.has_id("__azreview_dictation-stop", every_dom=True):
+            app.frame(1)
+        if not app.has_id("__azreview_dictation-stop", every_dom=True):
+            app.screenshot(os.path.join(out, "29b-second-dictation-no-stop-key.png"))
+            raise Failure("the second dictation has no stop key: %s; dictating=%s ready=%s" % (
+                state(app)["conversations"], state(app)["dictating"], state(app)["ready"]))
         began = time.perf_counter()
-        app.click(selector="#__azreview_dictation-stop")
+        app.click(selector="#__azreview_dictation-stop", every_dom=True)
         app.until("the stop ends it", lambda: app.count("AZREVIEW_DICTATION", r"ended 2 button") > 0)
         stopped = time.perf_counter() - began
         if stopped > 5.0:

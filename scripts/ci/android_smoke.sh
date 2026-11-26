@@ -137,7 +137,7 @@ import json, sys
 path, label, how, xy, alive, fatal = sys.argv[1:]
 json.dump({"label": label, "found": how, "at": xy, "alive": alive == "1", "fatal": fatal or None}, open(path, "w"), indent=2)
 PY
-        verdict_args+=(--tap "$dir/tap.json")
+        verdict_args+=(--tap "$dir/tap.json" --tap-before "$dir/screenshot.png" --tap-after "$dir/screenshot-after-tap.png")
       fi
       # The second look, a few seconds after the last thing the app was asked to do: still there, still on the screen.
       sleep 3
@@ -156,9 +156,12 @@ PY
   fi
   [ -n "$expect_text" ] && verdict_args+=(--expect-text "$expect_text" --expect-found "$expect_found")
   [ -f "$dir/baseline.png" ] && verdict_args+=(--baseline "$dir/baseline.png" --after "$dir/screenshot-2.png")
+  # the platform's own launch numbers (informational: `am start -W` and the activity manager's "Displayed" line)
+  [ -f "$dir/start.log" ] && verdict_args+=(--start-log "$dir/start.log")
+  [ -f "$dir/logcat.txt" ] && verdict_args+=(--logcat "$dir/logcat.txt")
   # THE pass line: scripts/ci/smoke_verdict.py (alive twice, on the screen, drawn, no fatal line); nothing else decides
   python3 "$(dirname "$0")/smoke_verdict.py" --out "$dir/result.json" --app "$app" --id "${pkg:-}" --alive "$alive" --alive-after "$alive_after" \
-    --fatal "$fatal" --rust-lines "${rust_lines:-0}" --resumed "$resumed" ${verdict_args[@]+"${verdict_args[@]}"} || all_ok=1
+    --fatal "$fatal" --rust-lines "${rust_lines:-0}" --resumed "$resumed" --band 0.045,0.94 ${verdict_args[@]+"${verdict_args[@]}"} || all_ok=1
 done
 python3 - "$out" <<'PY'
 import json, pathlib, sys

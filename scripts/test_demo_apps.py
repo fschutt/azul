@@ -8,7 +8,10 @@ import argparse
 import contextlib
 import io
 import json
+import os
 import pathlib
+import plistlib
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -249,6 +252,7 @@ class E2eVariantTest(unittest.TestCase):
             feats = e["features"].split(",")
             self.assertIn("debug-server", feats)
             self.assertIn("e2e-scripting", feats)
+            self.assertIn("test-hooks", feats)   # the failure-injection hooks of the QA matrix (AZ_GPU_FAIL, ...), read only when asked
             self.assertEqual("android-activity" in feats, leg.startswith("android"))
             self.assertEqual(e["artifact"], f"demolib-{leg}-mobile-e2e")
         entries = {e["leg"]: e for k in ("apps_android", "apps_ios") for e in plan[k] if e.get("variant") == "mobile-e2e"}
@@ -273,6 +277,22 @@ class E2eVariantTest(unittest.TestCase):
         with contextlib.redirect_stdout(buf):
             self.assertEqual(demo_apps.main(["plan"]), 0)
         self.assertNotIn("mobile-e2e", buf.getvalue())
+
+    def test_only_an_artifact_only_lib_may_carry_test_hooks(self):
+        # a build with the cargo feature `test-hooks` reads stand-ins and failure injections from the environment: never what ships
+        for variant in ("mobile", "desktop", "mobile-iroh"):
+            m = demo_apps.load()
+            m["lib"][variant]["features"] += ",test-hooks"
+            errors = demo_apps.check(m)
+            self.assertTrue(any(variant in e and "test-hooks" in e and "artifact_only" in e for e in errors), (variant, errors))
+
+    def test_the_lib_script_checks_the_test_hooks_marker_both_ways(self):
+        # scripts/check_no_test_hooks.py: a library built without the feature must not hold the marker, one built with it must (the
+        # negative control: a check that cannot fail checks nothing)
+        text = (HERE / "demo_lib.sh").read_text(encoding="utf-8")
+        self.assertIn("check_no_test_hooks.py", text)
+        self.assertIn("--expect-marker=test-hooks", text)
+        self.assertRegex(text, r'case ",\$features," in\s+\*,test-hooks,\*\)')
 
     def test_an_app_never_ships_against_the_qa_lib(self):
         self.app("AzMaps")["mobile_lib"] = "mobile-e2e"
@@ -412,6 +432,146 @@ class AndroidLevelsTest(unittest.TestCase):
         self.assertTrue(any("below" in e for e in demo_apps.check(m)))
         m["android"] = {}
         self.assertTrue(any("target_sdk" in e for e in demo_apps.check(m)))
+
+
+class FloorApkTest(unittest.TestCase):
+    """scripts/floor-apk: the APK of an empty Java Activity that the startup measurements compare the demo apps with: the same
+    levels, key and launch path as the demo APKs, and nothing of azul in it."""
+
+    def setUp(self):
+        self.dir = demo_apps.ROOT / "scripts" / "floor-apk"
+
+    def test_the_floor_has_the_sdk_levels_of_the_demo_apks(self):
+        manifest = (self.dir / "AndroidManifest.xml").read_text(encoding="utf-8")
+        android = demo_apps.load()["android"]
+        self.assertIn(f'android:minSdkVersion="{android["min_sdk"]}"', manifest)
+        self.assertIn(f'android:targetSdkVersion="{android["target_sdk"]}"', manifest)
+
+    def test_the_floor_launches_like_a_demo_app_and_is_a_java_activity_without_a_native_library(self):
+        manifest = (self.dir / "AndroidManifest.xml").read_text(encoding="utf-8")
+        for needle in ("android.intent.action.MAIN", "android.intent.category.LAUNCHER", 'android:exported="true"',
+                       'android:launchMode="singleTop"', 'android:hasCode="true"'):
+            self.assertIn(needle, manifest)
+        self.assertNotIn("lib_name", manifest)
+        java = (self.dir / "FloorActivity.java").read_text(encoding="utf-8")
+        self.assertIn("extends Activity", java)
+        for forbidden in ("loadLibrary", "extends NativeActivity", "import com.azul"):
+            self.assertNotIn(forbidden, java)
+
+    def test_the_build_script_signs_with_the_key_of_the_demo_apks_and_uses_no_cargo(self):
+        script = (self.dir / "build.sh").read_text(encoding="utf-8")
+        self.assertIn("scripts/android/debug.keystore", script)
+        for tool in ("aapt2", "d8", "zipalign", "apksigner", "javac"):
+            self.assertIn(tool, script)
+        code = "\n".join(l for l in script.splitlines() if not l.lstrip().startswith("#"))
+        self.assertNotIn("cargo", code)
+        self.assertNotRegex(code, r"\brm\b")   # it is run on developers' machines too: it never deletes
+        self.assertEqual(subprocess.run(["bash", "-n", str(self.dir / "build.sh")]).returncode, 0)
+
+
+class PurposeStringsTest(unittest.TestCase):
+    """iOS refuses a camera, a microphone or a location without the Info.plist text that says why (and the engine now refuses to
+    start the feature, naming the key): the texts come from the manifest through AZ_IOS_USAGE, none is a default of the scripts."""
+
+    def setUp(self):
+        self.m = demo_apps.load()
+
+    def app(self, name):
+        return next(a for a in self.m["app"] if a["package"] == name)
+
+    def test_every_sensor_permission_an_app_asks_for_on_android_has_its_purpose_string_on_ios(self):
+        self.assertEqual([e for e in demo_apps.check(self.m) if "UsageDescription" in e], [])
+
+    def test_the_phone_apps_that_use_the_camera_the_microphone_or_the_location_say_why(self):
+        meet = self.app("AzMeet")["ios"]["usage"]
+        self.assertIn("NSCameraUsageDescription", meet)
+        self.assertIn("NSMicrophoneUsageDescription", meet)
+        self.assertIn("NSLocationWhenInUseUsageDescription", self.app("AzMaps")["ios"]["usage"])
+        self.assertIn("NSCameraUsageDescription", self.app("AzCompanion")["ios"]["usage"])
+
+    def test_a_missing_key_is_an_error_that_names_the_key_and_the_permission_it_stands_for(self):
+        del self.app("AzMeet")["ios"]["usage"]["NSMicrophoneUsageDescription"]
+        errors = demo_apps.check(self.m)
+        self.assertTrue(any("AzMeet" in e and "NSMicrophoneUsageDescription" in e and "RECORD_AUDIO" in e for e in errors), errors)
+
+    def test_a_key_that_is_no_usage_description_or_has_no_text_is_an_error(self):
+        self.app("AzMeet")["ios"]["usage"]["NSCameraUsageDescription"] = "  "
+        self.app("AzMaps")["ios"]["usage"]["CFBundleName"] = "x"
+        errors = demo_apps.check(self.m)
+        self.assertTrue(any("AzMeet" in e and "NSCameraUsageDescription" in e and "text" in e for e in errors), errors)
+        self.assertTrue(any("AzMaps" in e and "CFBundleName" in e for e in errors), errors)
+
+    def test_the_texts_say_something_to_a_person(self):
+        for a in self.m["app"]:
+            for key, text in ((a.get("ios") or {}).get("usage") or {}).items():
+                self.assertGreaterEqual(len(text), 25, (a["package"], key))
+                self.assertTrue(text.endswith("."), (a["package"], key))
+                self.assertNotRegex(text, r"(?i)todo|lorem|xxx|placeholder")
+
+    def test_the_ios_build_script_runs_the_symbol_gate_after_the_bundle_and_before_it_signs(self):
+        text = (HERE / "build-ios.sh").read_text(encoding="utf-8")
+        gate, sign = text.index('python3 "$ASSET_ROOT/scripts/ci/ios_symbol_gate.py"'), text.index("codesign --force")
+        self.assertLess(gate, sign)
+        self.assertGreater(gate, text.index("strip -S -x"))
+        self.assertIn('[[ -f "$ASSET_ROOT/scripts/ci/ios_symbol_gate.py" ]]', text)   # a checkout without the gate builds as before
+        for needle in ('--binary "$BUNDLE_DIR/$APP_NAME"', '--min-os "$MIN_OS"', '--sdk "$(xcrun --sdk "$SDK_SHORT" --show-sdk-path)"',
+                       "AZ_IOS_SYMBOL_JSON"):
+            self.assertIn(needle, text)
+
+    def test_the_builder_names_the_file_the_symbol_gate_writes_its_numbers_to(self):
+        self.assertIn("AZ_IOS_SYMBOL_JSON", (HERE / "demo_build.py").read_text(encoding="utf-8"))
+
+
+class IosPlistTest(unittest.TestCase):
+    """The Info.plist of an iOS app is rendered by build-ios.sh from the texts of the manifest: this runs that section of the script
+    for real (bash, sed, python3) with the environment demo_build.py gives it and reads the plist back."""
+
+    def render(self, package):
+        text = (HERE / "build-ios.sh").read_text(encoding="utf-8")
+        start = text.index('PLIST_EXTRA_FILE="$(mktemp)"')
+        end = text.index('rm -f "$PLIST_EXTRA_FILE"') + len('rm -f "$PLIST_EXTRA_FILE"')
+        app = next(a for a in demo_apps.load()["app"] if a["package"] == package)
+        with tempfile.TemporaryDirectory() as d:
+            bundle = pathlib.Path(d) / f"{package}.app"
+            bundle.mkdir()
+            env = dict(os.environ, **demo_build.ios_plist_env(app), ASSET_ROOT=str(demo_apps.ROOT), APP_NAME=package,
+                       BUNDLE_ID=app["bundle_id"], DISPLAY_NAME=app["name"], VERSION="0.2.0", BUILD="1", MIN_OS="16.0",
+                       BUNDLE_DIR=str(bundle))
+            subprocess.run(["bash", "-c", "set -euo pipefail\n" + text[start:end]], env=env, check=True)
+            return plistlib.loads((bundle / "Info.plist").read_bytes()), app
+
+    def test_the_companion_asks_for_the_local_network_and_names_the_bonjour_service_of_its_link(self):
+        plist, app = self.render("AzCompanion")
+        # without these two keys iOS refuses the lookup of the Mac (the denied prompt is what its "Local Network is off" screen shows)
+        self.assertEqual(plist["NSLocalNetworkUsageDescription"], app["ios"]["local_network"])
+        self.assertEqual(plist["NSBonjourServices"], ["_irohv1._udp"])
+        self.assertEqual(plist["NSCameraUsageDescription"], app["ios"]["usage"]["NSCameraUsageDescription"])
+
+    def test_an_app_that_does_not_use_the_local_network_does_not_ask_for_it(self):
+        plist, _ = self.render("AzWidgets")
+        self.assertNotIn("NSLocalNetworkUsageDescription", plist)
+        self.assertNotIn("NSBonjourServices", plist)
+        self.assertFalse([k for k in plist if k.endswith("UsageDescription")])
+
+    def test_the_meeting_app_says_why_it_wants_the_camera_and_the_microphone(self):
+        plist, app = self.render("AzMeet")
+        for key, text in app["ios"]["usage"].items():
+            self.assertEqual(plist[key], text)
+        self.assertEqual(sorted(k for k in plist if k.endswith("UsageDescription")), ["NSCameraUsageDescription", "NSMicrophoneUsageDescription"])
+
+    def test_every_phone_app_renders_a_plist_with_its_identity_and_the_oldest_ios(self):
+        for app in demo_apps.load()["app"]:
+            if "ios" not in app["platforms"]:
+                continue
+            plist, _ = self.render(app["package"])
+            self.assertEqual(plist["CFBundleIdentifier"], app["bundle_id"], app["package"])
+            self.assertEqual(plist["CFBundleExecutable"], app["package"])
+            self.assertEqual(plist["MinimumOSVersion"], "16.0")
+
+    def test_a_text_with_xml_in_it_cannot_break_the_plist(self):
+        # the texts are escaped: a quote, an ampersand and a tag are text, not markup
+        env = demo_build.ios_plist_env({"ios": {"usage": {"NSCameraUsageDescription": 'Tom & "Jerry" <b>look</b>.'}}})
+        self.assertEqual(env["AZ_IOS_USAGE"], 'NSCameraUsageDescription=Tom & "Jerry" <b>look</b>.')
 
 
 class ApkGateTest(unittest.TestCase):
@@ -672,6 +832,8 @@ class VerdictTest(unittest.TestCase):
                 "--alive-after", kw.get("alive_after", "1"), "--fatal", kw.get("fatal", ""), "--baseline", home, "--after", shot]
         if "resumed" in kw:
             argv += ["--resumed", kw["resumed"]]
+        if "band" in kw:
+            argv += ["--band", kw["band"]]
         code = smoke_verdict.main(argv)
         return code, json.loads((pathlib.Path(d) / "result.json").read_text())
 
@@ -775,6 +937,104 @@ class VerdictTest(unittest.TestCase):
             (root / "torn.png").write_bytes(synthetic_png(96, 160, app_screen)[:200])   # cut off, as a hiccup of the emulator does
             self.assertEqual(smoke_verdict.main(base + ["--baseline", str(root / "home.png"), "--after", str(root / "torn.png")]), 1)
             self.assertIn("cannot be read", json.loads((root / "r.json").read_text())["reason"])
+
+    def test_the_platforms_own_launch_numbers_are_read_from_the_logs_and_never_decide(self):
+        # `am start -W` prints TotalTime, the activity manager logs "Displayed <pkg>/<activity>: +1s234ms": informational only
+        start = "Starting: Intent { cmp=com.azul.AzWidgets/com.azul.app.AzulActivity }\nStatus: ok\nLaunchState: COLD\nTotalTime: 1311\nWaitTime: 1325\n"
+        log = ("11-26 07:01:02.123  1234  1260 I ActivityTaskManager: Displayed com.android.launcher/.Launcher: +300ms\n"
+               "11-26 07:01:04.456  1234  1260 I ActivityTaskManager: Displayed com.azul.AzWidgets/com.azul.app.AzulActivity: +1s234ms\n")
+        self.assertEqual(smoke_verdict.parse_total_time(start), 1311)
+        self.assertEqual(smoke_verdict.parse_displayed(log, "com.azul.AzWidgets"), 1234)
+        self.assertEqual(smoke_verdict.parse_displayed(log.replace("+1s234ms", "+842ms"), "com.azul.AzWidgets"), 842)
+        self.assertEqual(smoke_verdict.parse_displayed(log.replace("+1s234ms", "+2s0ms"), "com.azul.AzWidgets"), 2000)
+        self.assertIsNone(smoke_verdict.parse_displayed(log, "com.azul.AzMaps"))
+        self.assertIsNone(smoke_verdict.parse_total_time("Error: Activity class does not exist."))
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "start.log").write_text(start)
+            (root / "logcat.txt").write_text(log)
+            home = root / "home.png"
+            home.write_bytes(synthetic_png(96, 160, home_screen))
+            shot = root / "after.png"
+            shot.write_bytes(synthetic_png(96, 160, app_screen))
+            argv = ["--out", str(root / "r.json"), "--app", "AzX", "--id", "com.azul.AzWidgets", "--alive", "1", "--alive-after", "1",
+                    "--baseline", str(home), "--after", str(shot)]
+            self.assertEqual(smoke_verdict.main(argv + ["--start-log", str(root / "start.log"), "--logcat", str(root / "logcat.txt")]), 0)
+            r = json.loads((root / "r.json").read_text())
+            self.assertEqual((r["launch_ms"], r["displayed_ms"]), (1311, 1234))
+            # a log without the numbers costs nothing: the verdict is the same
+            self.assertEqual(smoke_verdict.main(argv + ["--start-log", str(root / "missing.log")]), 0)
+            self.assertNotIn("launch_ms", json.loads((root / "r.json").read_text()))
+        text = demo_apps.boot_text({"pass": True, "launch_ms": 1311, "displayed_ms": 1234})
+        self.assertEqual(text, "boots, first window 1234 ms (the platform's own number)")
+        self.assertEqual(demo_apps.boot_text({"pass": True, "launch_ms": 1311}), "boots, launched in 1311 ms (the platform's own number)")
+        self.assertEqual(demo_apps.boot_text({"pass": False, "reason": "x", "displayed_ms": 1}), "BOOT FAILED: x")
+
+    def test_an_app_that_is_a_toolbar_and_a_blank_canvas_has_drawn_on_android(self):
+        # AzPaint on the emulator, 2026-11-26: a dark toolbar under the status bar (3.75 to 11.7 percent of the height) and an empty
+        # canvas. The band of 12 to 88 percent saw a flat canvas and failed an app that had drawn: the band of an Android screenshot
+        # starts under the status bar (4.5 percent) and ends above the navigation bar (94)
+        def toolbar_and_canvas(x, y):
+            if y < 6 or y >= 152:
+                return ((x * 13 + y * 5) % 256,) * 3 + (255,)     # the system bars: many colour values
+            return (40, 40, 44, 255) if y < 19 and (x // 5) % 2 else (45, 45, 48, 255) if y < 19 else (250, 250, 247, 255)
+        with tempfile.TemporaryDirectory() as d:
+            code, r = self.verdict(d, toolbar_and_canvas, band="0.045,0.94")
+            self.assertEqual(code, 0, r["reason"])
+            self.assertTrue(r["screen_nonblank"])
+            self.assertEqual(r["band"], [0.045, 0.94])
+            # the same picture under the default band (8 to 94 percent) still sees the toolbar's lower rows
+            code, r = self.verdict(d, toolbar_and_canvas)
+            self.assertEqual(code, 0, r["reason"])
+
+    def test_each_platform_keeps_its_own_system_bars_out_of_the_band(self):
+        def black_under(top, bottom):
+            def pixel(x, y):
+                if y < top or y >= bottom:
+                    return ((x * 13 + y * 5) % 256,) * 3 + (255,)
+                return (0, 0, 0, 255)
+            return pixel
+        with tempfile.TemporaryDirectory() as d:
+            # Android: status bar 3.75 percent, navigation bar from 95 percent of the height
+            code, r = self.verdict(d, black_under(6, 152), band="0.045,0.94")
+            self.assertEqual(code, 1)
+            self.assertIn("flat colour", r["reason"])
+            # iOS: status bar and Dynamic Island 6.9 percent, home indicator from 97 percent
+            code, r = self.verdict(d, black_under(11, 155), band="0.075,0.965")
+            self.assertEqual(code, 1)
+            self.assertIn("flat colour", r["reason"])
+            # the default band is the conservative one and holds for both
+            self.assertEqual(self.verdict(d, black_under(6, 152))[0], 1)
+            self.assertEqual(self.verdict(d, black_under(11, 155))[0], 1)
+
+    def test_a_button_that_changed_nothing_on_the_screen_fails_the_app_that_was_asked_to_press_it(self):
+        # AzCompanion on the emulator, 2026-11-26: "Try it without a Mac" was found by its name and pressed, the app lived, and the
+        # three screenshots before and after were the same picture: the remote did not come up, which the manifest says it must
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            (root / "home.png").write_bytes(synthetic_png(96, 160, home_screen))
+            (root / "before.png").write_bytes(synthetic_png(96, 160, app_screen))
+            (root / "same.png").write_bytes(synthetic_png(96, 160, app_screen))
+            (root / "other.png").write_bytes(synthetic_png(96, 160, lambda x, y: (30, 90, 200, 255) if (x + y) % 5 else (250, 250, 250, 255)))
+            (root / "tap.json").write_text(json.dumps({"label": "Try it", "found": "by its name", "alive": True, "fatal": None}))
+            base = ["--out", str(root / "r.json"), "--app", "AzX", "--id", "com.azul.AzX", "--alive", "1", "--alive-after", "1",
+                    "--baseline", str(root / "home.png"), "--after", str(root / "before.png"), "--tap", str(root / "tap.json")]
+            self.assertEqual(smoke_verdict.main(base + ["--tap-before", str(root / "before.png"), "--tap-after", str(root / "same.png")]), 1)
+            r = json.loads((root / "r.json").read_text())
+            self.assertIn('"Try it"', r["reason"])
+            self.assertIn("changed nothing", r["reason"])
+            self.assertFalse(r["tap"]["changed_screen"])
+            self.assertEqual(smoke_verdict.main(base + ["--tap-before", str(root / "before.png"), "--tap-after", str(root / "other.png")]), 0)
+            self.assertTrue(json.loads((root / "r.json").read_text())["tap"]["changed_screen"])
+            # without the two pictures the question is not asked
+            self.assertEqual(smoke_verdict.main(base), 0)
+            self.assertNotIn("changed_screen", json.loads((root / "r.json").read_text())["tap"])
+
+    def test_a_band_that_is_no_two_fractions_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            for bad in ("0.9,0.1", "0.1", "a,b", "-0.1,0.9", "0.1,1.5"):
+                with self.assertRaises(SystemExit):
+                    self.verdict(d, app_screen, band=bad)
 
     def test_the_status_text_of_a_failed_boot_carries_the_reason(self):
         text = demo_apps.boot_text({"pass": False, "reason": "the home screen is still showing (99.8% of the pixels are the same)"})
