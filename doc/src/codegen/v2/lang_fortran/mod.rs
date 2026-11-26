@@ -28,9 +28,10 @@
 //!    derived type (`dom_t`, `button_t`, `app_t`) whose methods are
 //!    type-bound procedures (`call app%run(window)`), whose constructors
 //!    are also reachable through a generic interface named after the type
-//!    when one can carry all of them (`btn = button_t('Increase
-//!    counter')`, next to the flat `button_create` that keeps working),
-//!    whose `String` arguments are
+//!    when one can carry all of them (`app = app_t(model, config)`, next
+//!    to the flat `app_create` that keeps working; `Button` has none,
+//!    three of its five constructors take one string), whose `String`
+//!    arguments are
 //!    `character(len=*)`, whose unit enums are plain `integer`, and whose
 //!    callbacks are ordinary Fortran procedures matching a typed abstract
 //!    interface; plus the host-invoker runtime
@@ -968,6 +969,10 @@ pub fn pascal_to_snake_case(s: &str) -> String {
 pub fn sanitize_comment_line(s: &str) -> String {
     s.replace('\r', " ").replace('\n', " ").trim().to_string()
 }
+
+#[cfg(test)]
+#[path = "example_test.rs"]
+mod example_test;
 
 #[cfg(test)]
 mod split_tests {
