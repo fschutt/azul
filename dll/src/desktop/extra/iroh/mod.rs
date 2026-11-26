@@ -16,6 +16,8 @@ mod multicast_lock;
 #[cfg(az_iroh_engine)]
 mod nearby;
 #[cfg(az_iroh_engine)]
+mod platform;
+#[cfg(az_iroh_engine)]
 mod dns_wire;
 #[cfg(az_iroh_bonjour)]
 mod bonjour;
