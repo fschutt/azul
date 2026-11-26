@@ -3963,10 +3963,10 @@ extern "C" fn update_check_writeback(
     callback.invoke(user_data, info, check)
 }
 
-#[cfg(all(
-    test,
-    not(any(target_os = "ios", target_os = "android", feature = "store_app"))
-))]
+// two attributes, not `cfg(all(test, not(..)))`: azul-srcgate blanks an item whose attribute is
+// `cfg(test)` and reads one whose cfg says `not`, so these tests would count as shipped code
+#[cfg(test)]
+#[cfg(not(any(target_os = "ios", target_os = "android", feature = "store_app")))]
 mod tests {
     use core::cmp::Ordering;
 
@@ -6968,10 +6968,8 @@ mod tests {
     }
 }
 
-#[cfg(all(
-    test,
-    not(any(target_os = "ios", target_os = "android", feature = "store_app"))
-))]
+#[cfg(test)]
+#[cfg(not(any(target_os = "ios", target_os = "android", feature = "store_app")))]
 #[path = "updater_settings_test.rs"]
 mod settings_tests;
 
