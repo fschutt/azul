@@ -21,9 +21,12 @@ check() {
     ( "$@" > "out/check-$name.log" 2>&1; echo "$?" > "out/check-$name.rc" ) &
 }
 
-# The Win32 shell with the features of the shipped azul.dll (build-dll): the registry reads, the first-present marks
+# The Win32 shell, with the feature set scripts/mobile-check-all.sh checks it with (build-dll would drag in the database
+# stack, whose build script needs a Windows resource compiler this runner does not have): the registry reads, the
+# first-present marks, the window's steps
 check windows env CARGO_TARGET_DIR="$PWD/target-windows" \
-    cargo check -p azul-dll --lib --target x86_64-pc-windows-gnu --features build-dll --message-format short
+    cargo check -p azul-dll --lib --release --target x86_64-pc-windows-gnu --no-default-features \
+    --features std,logging,link-static,a11y --message-format short
 # The iOS shell, with the feature set scripts/mobile-check-all.sh checks it with
 check ios env CARGO_TARGET_DIR="$PWD/target-ios" \
     cargo check -p azul-dll --lib --release --target aarch64-apple-ios --no-default-features \
