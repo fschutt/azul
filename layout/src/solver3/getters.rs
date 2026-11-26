@@ -5148,11 +5148,14 @@ pub fn own_text_decoration(
         return lines;
     }
     let lines = lines.painted(decoration_paint_of(styled_dom, dom_id, node_state, viewport));
-    if lines.underline {
+    let lines = if lines.underline() {
         lines.placed(underline_place_of(styled_dom, dom_id, node_state, viewport))
     } else {
         lines
-    }
+    };
+    // The lines are the box's: what their place and thickness are parts of is ITS font size,
+    // whatever the font size of the text they are drawn under.
+    lines.sized(get_element_font_size_in_viewport(styled_dom, dom_id, node_state, viewport))
 }
 
 /// The decorations the text of the inline formatting context rooted at
@@ -5195,7 +5198,13 @@ pub fn propagated_text_decoration(
     let mut node = Some(ifc_root);
     while let Some(id) = node {
         let state = &styled_nodes[id].styled_node_state;
-        decoration = decoration.with(own_text_decoration(styled_dom, id, state, viewport));
+        // Boxes of blocks stand on the baseline of the line: no raise to tell apart. The runs
+        // that carry these lines read the raise of their own box (`TextDecoration::within`).
+        decoration = decoration.within(
+            Some(0.0),
+            &own_text_decoration(styled_dom, id, state, viewport),
+            Some(0.0),
+        );
         let out_of_flow = matches!(
             crate::solver3::positioning::get_position_type(styled_dom, Some(id)),
             LayoutPosition::Absolute | LayoutPosition::Fixed

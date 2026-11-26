@@ -18,8 +18,11 @@
 //! Not compiled by the author (house rule).
 
 use azul_core::dom::Dom;
-use azul_css::props::basic::ColorU;
-use azul_layout::solver3::display_list::{DisplayList, DisplayListItem};
+use azul_css::props::{basic::ColorU, style::text::StyleTextDecoration};
+use azul_layout::{
+    solver3::display_list::{DisplayList, DisplayListItem},
+    text3::cache::{LineKind, LineStand, TextDecoration},
+};
 
 use crate::text_rig::{block, lay_out, painted, span, text, window, MONO};
 
@@ -290,4 +293,89 @@ fn the_line_of_a_raised_box_goes_with_the_text_that_stands_on_its_baseline() {
             "the line of the raised box, on its baseline, in its size: {line:?} on {glyphs:?}"
         );
     }
+}
+
+/// The lines of a box of a font size of 20 px that sets `css`.
+fn of(css: StyleTextDecoration) -> TextDecoration {
+    TextDecoration::from_css(css).sized(20.0)
+}
+
+/// What the lines of a run are made of: the lines of the boxes around it come first - they are
+/// painted first - and the line of the run's own box last.
+#[test]
+fn the_lines_of_the_boxes_around_a_run_come_before_its_own() {
+    let own = of(StyleTextDecoration::LineThrough);
+    let around = of(StyleTextDecoration::Underline);
+    let both = own.within(Some(0.0), &around, Some(0.0));
+    let kinds: Vec<LineKind> = both.lines().iter().map(|line| line.kind).collect();
+    assert_eq!(kinds, vec![LineKind::Underline, LineKind::Strikethrough], "{both:?}");
+    assert!(matches!(both.lines()[0].stand, LineStand::Around { .. }), "{both:?}");
+    assert_eq!(both.lines()[1].stand, LineStand::Run, "{both:?}");
+}
+
+/// The line a box sets reaches the text of the box itself and, set as it is by the boxes around,
+/// the same text again: one line.
+#[test]
+fn the_same_line_of_the_box_and_of_the_boxes_around_is_one_line() {
+    let line = of(StyleTextDecoration::Underline);
+    let both = line.within(Some(0.0), &line, Some(0.0));
+    assert_eq!(both.lines().len(), 1, "{both:?}");
+    assert_eq!(both.lines()[0].stand, LineStand::Run, "{both:?}");
+    // another size is another line
+    let bigger = TextDecoration::from_css(StyleTextDecoration::Underline).sized(40.0);
+    assert_eq!(line.within(Some(0.0), &bigger, Some(0.0)).lines().len(), 2);
+}
+
+/// A run raised by 8 px over its line: the baseline of a box around it, which stands on the
+/// baseline of the line, is 8 px below the baseline of the run.
+#[test]
+fn a_raised_run_has_the_line_of_the_box_around_it_below_its_own_baseline() {
+    let own = of(StyleTextDecoration::Underline).sized(10.0);
+    let around = of(StyleTextDecoration::Underline);
+    let both = own.within(Some(8.0), &around, Some(0.0));
+    assert_eq!(both.lines().len(), 2, "{both:?}");
+    match both.lines()[0].stand {
+        LineStand::Around { raise, drop } => {
+            assert_eq!(raise.map(|up| up.get()), Some(0.0), "{both:?}");
+            assert!((drop.get() - 8.0).abs() < 1e-3, "{both:?}");
+        }
+        LineStand::Run => panic!("the line of the box around is the first: {both:?}"),
+    }
+    assert!((both.lines()[0].font_size.get() - 20.0).abs() < 1e-3, "in the size of that box");
+    // a box that is raised as the run is, is on the baseline of the run
+    let level = own.within(Some(8.0), &around, Some(8.0));
+    match level.lines()[0].stand {
+        LineStand::Around { drop, .. } => assert!(drop.get().abs() < 1e-6, "{level:?}"),
+        LineStand::Run => panic!("{level:?}"),
+    }
+}
+
+/// `top`, `bottom`, `middle`, `text-top` and `text-bottom` put a box where only the line layout
+/// knows: the line of a box around stands on the baseline of the run then.
+#[test]
+fn an_alignment_that_is_no_plain_raise_leaves_the_line_on_the_baseline_of_the_run() {
+    let own = of(StyleTextDecoration::Underline).sized(10.0);
+    let around = of(StyleTextDecoration::Underline);
+    for (run, boxed) in [(None, Some(0.0)), (Some(5.0), None), (None, None)] {
+        let both = own.within(run, &around, boxed);
+        match both.lines()[0].stand {
+            LineStand::Around { drop, .. } => assert!(drop.get().abs() < 1e-6, "{both:?}"),
+            LineStand::Run => panic!("{both:?}"),
+        }
+    }
+}
+
+/// The editor's underline and line-through are lines no box sets: switched on, they are plain
+/// lines; switched off, every line of the kind is gone.
+#[test]
+fn a_kind_of_line_is_switched_on_and_off() {
+    let none = TextDecoration::default();
+    assert!(!none.has_lines());
+    let on = none.with_kind(LineKind::Underline, true);
+    assert!(on.underline() && !on.strikethrough() && !on.overline(), "{on:?}");
+    assert_eq!(on.with_kind(LineKind::Underline, true), on, "already on");
+    assert_eq!(on.with_kind(LineKind::Underline, false), none, "off again");
+    let both = on.with_kind(LineKind::Strikethrough, true);
+    assert!(both.underline() && both.strikethrough(), "{both:?}");
+    assert_eq!(both.with_kind(LineKind::Strikethrough, false), on, "{both:?}");
 }

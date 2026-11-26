@@ -348,6 +348,23 @@ impl Ord for VerticalAlign {
     }
 }
 
+impl VerticalAlign {
+    /// How far this alignment raises a box over the baseline of its line, in px, when it is a
+    /// plain raise: `baseline` (none) and a length, `Offset`, which `sub`, `super`, lengths and
+    /// percentages fold into for the boxes inside an inline box. `None` for the values that align
+    /// a box against the line box or the content area (`top`, `bottom`, `middle`, `text-top`,
+    /// `text-bottom`) and for a `sub` or `super` that was not measured against a font size: only
+    /// the line layout knows where those put a box.
+    #[must_use]
+    pub const fn plain_raise(self) -> Option<f32> {
+        match self {
+            Self::Baseline => Some(0.0),
+            Self::Offset(up) if up.is_finite() => Some(up),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ObjectFit {
     // Stretch to fit display size

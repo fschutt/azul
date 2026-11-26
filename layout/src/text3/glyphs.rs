@@ -230,7 +230,7 @@ impl CompactGlyphRun {
             font_hash: self.font_hash,
             font_size_px: self.font_size_px,
             asks_for_bold: self.asks_for_bold,
-            text_decoration: self.text_decoration,
+            text_decoration: self.text_decoration.clone(),
             is_ime_preview: self.is_ime_preview,
             source_node_id: self.source_node_id,
             end_x: self.end_x,
@@ -307,7 +307,7 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                     let font_hash = glyph.font_hash;
                     let font_size_px = style.font_size_px;
                     let asks_for_bold = style.asks_for_synthetic_bold();
-                    let text_decoration = style.text_decoration;
+                    let text_decoration = &style.text_decoration;
 
                     let absolute_position = LogicalPosition {
                         x: pen_x + glyph.offset.x,
@@ -330,7 +330,7 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                             && run.border == glyph_border
                             && run.font_size_px == font_size_px
                             && run.asks_for_bold == asks_for_bold
-                            && run.text_decoration == text_decoration
+                            && run.text_decoration == *text_decoration
                             && run.source_node_id == source_node_id
                         {
                             run.glyphs.push(instance);
@@ -347,7 +347,7 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                                 font_hash,
                                 font_size_px,
                                 asks_for_bold,
-                                text_decoration,
+                                text_decoration: text_decoration.clone(),
                                 is_ime_preview: false,
                                 source_node_id,
                                 end_x: pen_x,
@@ -365,7 +365,7 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                             font_hash,
                             font_size_px,
                             asks_for_bold,
-                            text_decoration,
+                            text_decoration: text_decoration.clone(),
                             is_ime_preview: false,
                             source_node_id,
                             end_x: pen_x,
@@ -601,7 +601,7 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
             let glyph_background = style.background_color;
             let font_hash = glyph.font_hash;
             let font_size_px = style.font_size_px;
-            let text_decoration = style.text_decoration;
+            let text_decoration = &style.text_decoration;
             let line_index = positioned_item.line_index;
             let writing_mode = style.writing_mode;
 
@@ -640,7 +640,7 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
                     || run.background_color != glyph_background
                     || run.font_size_px != font_size_px
                     || run.synthetic_bold != synthetic_bold
-                    || run.text_decoration != text_decoration
+                    || run.text_decoration != *text_decoration
                     || run.line_index != line_index
                     || run.direction != direction
                     || run.writing_mode != writing_mode
@@ -667,7 +667,7 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
                     font_hash,
                     font_size_px,
                     synthetic_bold,
-                    text_decoration,
+                    text_decoration: text_decoration.clone(),
                     line_index,
                     direction,
                     writing_mode,
@@ -794,9 +794,9 @@ mod autotest_generated {
     use crate::text3::{
         cache::{
             BidiDirection, BreakType, ClearType, ContentIndex, Glyph, GlyphKind, GraphemeClusterId,
-            InlineBreak, InlineContent, InlineSpace, LayoutError, LayoutFontMetrics, OverflowInfo,
-            PositionedItem, Rect, ShallowClone, ShapedCluster, StyleProperties, TextDecoration,
-            VerticalMetrics, WritingMode,
+            InlineBreak, InlineContent, InlineSpace, LayoutError, LayoutFontMetrics, LineKind,
+            OverflowInfo, PositionedItem, Rect, ShallowClone, ShapedCluster, StyleProperties,
+            TextDecoration, VerticalMetrics, WritingMode,
         },
         script::{Language, Script},
     };
@@ -1403,12 +1403,7 @@ mod autotest_generated {
         let b = styled(|s| s.font_size_px = 24.0);
         let c = styled(|s| {
             s.font_size_px = 24.0;
-            s.text_decoration = TextDecoration {
-                underline: true,
-                strikethrough: false,
-                overline: false,
-                ..TextDecoration::default()
-            };
+            s.text_decoration = TextDecoration::default().with_kind(LineKind::Underline, true);
         });
         let l = layout(vec![
             // (2026-08-10, per-glyph style removed: a style change can only
@@ -1443,7 +1438,7 @@ mod autotest_generated {
         );
         assert_eq!(runs[0].font_size_px, 16.0);
         assert_eq!(runs[1].font_size_px, 24.0);
-        assert!(runs[2].text_decoration.underline);
+        assert!(runs[2].text_decoration.underline());
     }
 
     #[test]

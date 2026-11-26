@@ -9,7 +9,8 @@ use azul_core::selection::{
 };
 
 use crate::text3::cache::{
-    BreakType, ClearType, FontStyle, InlineBreak, InlineContent, StyleProperties, StyledRun,
+    BreakType, ClearType, FontStyle, InlineBreak, InlineContent, LineKind, StyleProperties,
+    StyledRun,
 };
 
 /// The character formats an edit sets or clears over the style of the run it
@@ -65,8 +66,8 @@ impl FormatOverrides {
         match format {
             TextFormat::Bold => style.is_bold(),
             TextFormat::Italic => style.is_italic(),
-            TextFormat::Underline => style.text_decoration.underline,
-            TextFormat::Strikethrough => style.text_decoration.strikethrough,
+            TextFormat::Underline => style.text_decoration.underline(),
+            TextFormat::Strikethrough => style.text_decoration.strikethrough(),
         }
     }
 
@@ -103,10 +104,12 @@ impl FormatOverrides {
             None => {}
         }
         if let Some(underline) = self.underline {
-            out.text_decoration.underline = underline;
+            out.text_decoration = out.text_decoration.with_kind(LineKind::Underline, underline);
         }
         if let Some(strikethrough) = self.strikethrough {
-            out.text_decoration.strikethrough = strikethrough;
+            out.text_decoration = out
+                .text_decoration
+                .with_kind(LineKind::Strikethrough, strikethrough);
         }
         out
     }

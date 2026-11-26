@@ -309,8 +309,8 @@ pub fn formats_of(style: &StyleProperties) -> [bool; 4] {
     [
         selector.is_some_and(|s| s.request.weight_at_least(700)),
         selector.is_some_and(|s| matches!(s.request.style, FontStyle::Italic | FontStyle::Oblique)),
-        style.text_decoration.underline,
-        style.text_decoration.strikethrough,
+        style.text_decoration.underline(),
+        style.text_decoration.strikethrough(),
     ]
 }
 
