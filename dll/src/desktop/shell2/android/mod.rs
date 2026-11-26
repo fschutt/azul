@@ -680,7 +680,7 @@ pub fn android_main(app: AndroidApp) {
     // `debug.az.env` carries `KEY=VALUE;KEY=VALUE` pairs - read once when `App::create` builds
     // the app's settings. Nothing is written into the environment.
     // Retrieve initial options stashed by `run()`
-    let (app_data, undo_manager, app_shared, config, fc_cache, font_registry, root_window) = unsafe {
+    let (app_data, undo_manager, app_shared, mut config, fc_cache, font_registry, root_window) = unsafe {
         match crate::desktop::shell2::run::ANDROID_INITIAL_OPTIONS.take() {
             Some(opts) => opts,
             None => {
@@ -696,6 +696,12 @@ pub fn android_main(app: AndroidApp) {
 
     // The startup timeline (`AZ_STARTUP=1`): the native thread has what `run()` stashed.
     app_shared.startup().mark("android:android_main_entered");
+
+    // The phone's own language, before the window takes its style: the style `App::create` made of
+    // the platform defaults says en-US for every phone, and a German phone showed English.
+    if let Some(language) = language_of(&app, config.localization.known_languages.as_slice()) {
+        config.system_style.language = language;
+    }
 
     let mut window = match AndroidWindow::new(
         root_window,
@@ -1531,6 +1537,50 @@ fn resize_reason(window: &AndroidWindow) -> RelayoutReason {
     }
 }
 
+/// The language the activity's configuration reports (the NDK's `AConfiguration_getLanguage` and
+/// `AConfiguration_getCountry`: two letters each, of the user's first language) as the BCP 47 tag the
+/// translation lookup finds a bundle for ([`SystemLanguage::from_platform_tag`]: the old Java codes
+/// `iw`, `in`, `ji` are Hebrew, Indonesian, Yiddish). `None` when the configuration names none: the
+/// style keeps the language it has.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn language_of(
+    app: &AndroidApp,
+    known: &[azul_css::system::SystemLanguage],
+) -> Option<azul_css::system::SystemLanguage> {
+    let configuration = app.config();
+    let language = configuration.language()?;
+    let tag = match configuration.country() {
+        Some(country) if !country.is_empty() => format!("{language}-{country}"),
+        _ => language,
+    };
+    azul_css::system::SystemLanguage::from_platform_tag(&tag, known)
+}
+
+/// The language of the configuration (`ConfigChanged`), when it is not the one the window's style
+/// carries: the style is replaced and the engine does the rest (`PlatformWindow::adopt_system_style`).
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn adopt_language(app: &AndroidApp, window: &mut AndroidWindow) {
+    let known: Vec<azul_css::system::SystemLanguage> = window
+        .common
+        .layout_window
+        .as_ref()
+        .map(|lw| lw.known_languages.as_ref().to_vec())
+        .unwrap_or_default();
+    let Some(language) = language_of(app, &known) else {
+        return;
+    };
+    if window.common.system_style.language == language {
+        return;
+    }
+    let mut style = (*window.common.system_style).clone();
+    style.language = language;
+    // Contract shape (snapshot → mutate → pass): the adoption is the mutation and the pass.
+    window.snapshot_window_state_baseline("android.main_event.config_changed.language");
+    if window.adopt_system_style(Arc::new(style)) {
+        window.needs_rerender = true;
+    }
+}
+
 /// The window's engine `dpi` from the configuration the system reported: a density beyond what a phone has
 /// (`MAX_DENSITY`) is capped and the log says so.
 #[cfg(all(target_os = "android", feature = "android-activity"))]
@@ -1662,6 +1712,11 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 let _ = window.process_window_events(0);
             }
             MainEvent::ConfigChanged { .. } => {
+                // The language can change while running (Settings > System > Languages; the
+                // manifest lists `locale`, so the activity is not recreated): the style carries it,
+                // and the engine translates the laid-out text again in place, or builds `layout()`
+                // again when it read the locale.
+                adopt_language(app, window);
                 // Density can change while running: fold/unfold, moving the
                 // app to an external display, the user's display-size setting.
                 // WindowResized alone misses pure-density changes (same
