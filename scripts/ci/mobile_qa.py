@@ -82,27 +82,53 @@ def signature_android_raw(raw):
 
 
 def parse_bmp(data):
-    """A 32-bit BMP as `simctl io screenshot --type=bmp` writes it. -> (signature, width, height, rgba bytes)."""
+    """A 24- or 32-bit BMP (`sips -s format bmp` writes a 32-bit V5 one, top-down, with channel masks).
+    -> (signature, width, height, rgba bytes)."""
     if data[:2] != b"BM":
         raise ValueError("not a BMP")
     offset = struct.unpack_from("<I", data, 10)[0]
+    dib = struct.unpack_from("<I", data, 14)[0]
     width, height, _planes, bpp = struct.unpack_from("<iihh", data, 18)
-    if bpp != 32:
-        raise ValueError(f"BMP with {bpp} bits per pixel")
+    compression = struct.unpack_from("<I", data, 30)[0] if dib >= 40 else 0
     bottom_up = height > 0
     height = abs(height)
-    sig = signature_rgba(data, width, height, offset=offset, order="bgra", bottom_up=bottom_up)
+    if bpp not in (24, 32):
+        raise ValueError(f"BMP with {bpp} bits per pixel")
+    # where each channel sits in a pixel's bytes (little endian): from the masks when there are any
+    index = {"r": 2, "g": 1, "b": 0, "a": 3}
+    if bpp == 32 and compression == 3 and dib >= 52:
+        masks = struct.unpack_from("<IIII", data, 54) if dib >= 56 else struct.unpack_from("<III", data, 54) + (0,)
+        for name, mask in zip("rgba", masks):
+            if mask and mask.bit_length() % 8 == 0 and (mask & (mask - 1) == 0 or mask in (0xFF, 0xFF00, 0xFF0000, 0xFF000000)):
+                index[name] = (mask.bit_length() - 1) // 8
+    step = bpp // 8
+    stride = (width * step + 3) // 4 * 4
+    xs, ys = sample_grid(width, height)
+    sig = bytearray()
+    for y in ys:
+        row = offset + ((height - 1 - y) if bottom_up else y) * stride
+        for x in xs:
+            p = row + x * step
+            sig += bytes((data[p + index["r"]], data[p + index["g"]], data[p + index["b"]]))
     rgba = bytearray(width * height * 4)
-    stride = width * 4
     for y in range(height):
         src = offset + ((height - 1 - y) if bottom_up else y) * stride
-        row = data[src:src + stride]
-        dst = y * stride
-        rgba[dst + 0:dst + stride:4] = row[2::4]
-        rgba[dst + 1:dst + stride:4] = row[1::4]
-        rgba[dst + 2:dst + stride:4] = row[0::4]
-        rgba[dst + 3:dst + stride:4] = b"\xff" * width
-    return sig, width, height, bytes(rgba)
+        row = data[src:src + width * step]
+        dst = y * width * 4
+        rgba[dst + 0:dst + width * 4:4] = row[index["r"]::step]
+        rgba[dst + 1:dst + width * 4:4] = row[index["g"]::step]
+        rgba[dst + 2:dst + width * 4:4] = row[index["b"]::step]
+        rgba[dst + 3:dst + width * 4:4] = (row[index["a"]::step] if bpp == 32 else b"\xff" * width)
+    return bytes(sig), width, height, bytes(rgba)
+
+
+def png_size(path):
+    """(width, height) of a PNG file from its IHDR."""
+    with open(path, "rb") as fh:
+        head = fh.read(24)
+    if head[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError("not a PNG")
+    return struct.unpack(">II", head[16:24])
 
 
 def write_png(path, width, height, rgba):
@@ -216,6 +242,7 @@ class Run:
         for d in (self.out, self.shots_dir, self.logs_dir):
             d.mkdir(parents=True, exist_ok=True)
         self.platform, self.meta, self.steps = platform, dict(meta), []
+        self.t0 = time.time()
 
     def step(self, name, what, fn):
         """Run `fn(step)`; an exception is the step's failure, never the run's."""
@@ -742,6 +769,353 @@ def android_scenarios(args):
     return run
 
 
+
+# ---------------------------------------------------------------------------------------------
+# iOS Simulator
+# ---------------------------------------------------------------------------------------------
+class IOS:
+    """One app on a booted simulator, driven with `xcrun simctl` (no idb: nothing to install on the runner)."""
+
+    def __init__(self, run, udid, bundle, exe, app_dir=None):
+        self.run, self.udid, self.bundle, self.exe, self.app_dir = run, udid, bundle, exe, app_dir
+        self.home_sig = None
+        self.dims = (0, 0)
+        self.shot_count = 0
+        self.launch_count = 0
+        self.started = time.strftime("%Y-%m-%dT%H:%M:%S")
+        self.gui = False
+
+    def x(self, *cmd, timeout=120, env=None):
+        try:
+            p = subprocess.run(list(cmd), capture_output=True, timeout=timeout, env=env)
+        except subprocess.TimeoutExpired:
+            return 124, "", "timeout"
+        return p.returncode, p.stdout.decode("utf-8", "replace"), p.stderr.decode("utf-8", "replace")
+
+    def simctl(self, *args, timeout=120, env=None):
+        return self.x("xcrun", "simctl", *args, timeout=timeout, env=env)
+
+    # -- state
+    def pid(self):
+        _rc, out, _err = self.simctl("spawn", self.udid, "launchctl", "list")
+        for line in out.splitlines():
+            if f"UIKitApplication:{self.bundle}" in line:
+                first = line.split()[0] if line.split() else "-"
+                return "" if first in ("-", "0") else first
+        return ""
+
+    def alive(self):
+        return bool(self.pid())
+
+    # -- the picture
+    def capture(self, name):
+        """PNG from simctl; the signature from a small BMP made of it with sips. -> (signature, w, h, filename)."""
+        self.shot_count += 1
+        fname = f"{self.shot_count:02d}-{name}.png"
+        path = self.run.shots_dir / fname
+        rc, _o, err = self.simctl("io", self.udid, "screenshot", "--type=png", str(path), timeout=90)
+        if rc != 0 or not path.exists():
+            raise RuntimeError(f"simctl io screenshot failed: {err.strip()[:200]}")
+        w, h = png_size(path)
+        small = self.run.shots_dir / f".sig-{self.shot_count}.bmp"
+        rc, _o, err = self.x("sips", "-z", "240", "120", "--setProperty", "format", "bmp", str(path), "--out", str(small), timeout=60)
+        if rc != 0 or not small.exists():
+            raise RuntimeError(f"sips could not reduce the picture: {err.strip()[:200]}")
+        sig, _sw, _sh, _px = parse_bmp(small.read_bytes())
+        small.unlink()
+        self.dims = (w, h)
+        return sig, w, h, fname
+
+    def look(self, step, name, expect_changed_from=None, allow_launcher=False):
+        sig, w, h, fname = self.capture(name)
+        step.shots.append(fname)
+        flat = flat_fraction(sig)
+        step.check("the screen is not one flat colour", flat < FLAT_FRACTION, f"{flat:.4f} of the samples share one colour ({w}x{h})")
+        if self.home_sig is not None and not allow_launcher:
+            d = sig_diff(sig, self.home_sig)
+            step.check("the screen is not the home screen", d > LAUNCHER_BELOW, f"differs {d:.3f} from the home screen")
+        if expect_changed_from is not None:
+            d = sig_diff(sig, expect_changed_from)
+            step.check("the picture changed", d > SAME_BELOW, f"differs {d:.3f} from the earlier one")
+        return sig
+
+    def alive_step(self, step, label=""):
+        step.check(f"the process is alive{label}", self.alive(), f"pid {self.pid() or '-'}")
+
+    # -- actions
+    def launch(self, extra_env=None, cold=True):
+        self.launch_count += 1
+        env = dict(os.environ)
+        env["SIMCTL_CHILD_AZ_LOG"] = "info"
+        env["SIMCTL_CHILD_RUST_BACKTRACE"] = "1"
+        for k, v in (extra_env or {}).items():
+            env["SIMCTL_CHILD_" + k] = v
+        out_f = self.run.logs_dir / f"console-{self.launch_count}.out.txt"
+        err_f = self.run.logs_dir / f"console-{self.launch_count}.err.txt"
+        cmd = ["launch"] + (["--terminate-running-process"] if cold else []) + [f"--stdout={out_f}", f"--stderr={err_f}", self.udid, self.bundle]
+        rc, out, err = self.simctl(*cmd, timeout=120, env=env)
+        m = re.search(r":\s*(\d+)\s*$", out.strip())
+        return {"rc": rc, "pid": m.group(1) if m else "", "out": out.strip(), "err": err.strip(), "console": (out_f, err_f)}
+
+    def terminate(self):
+        self.simctl("terminate", self.udid, self.bundle)
+
+    def open_other_app(self, bundle="com.apple.Preferences"):
+        return self.simctl("launch", self.udid, bundle)
+
+    def wait_for_front(self, timeout=45):
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            if self.alive():
+                try:
+                    sig, _w, _h, _f = self.capture("poll")
+                except RuntimeError:
+                    sig = None
+                self.shot_count -= 1
+                for p in self.run.shots_dir.glob(f"{self.shot_count + 1:02d}-poll.png"):
+                    p.unlink()
+                if sig and not is_flat(sig) and (self.home_sig is None or sig_diff(sig, self.home_sig) > LAUNCHER_BELOW):
+                    return time.time() - t0
+            time.sleep(1.0)
+        return None
+
+    def settle(self, seconds=2.0):
+        time.sleep(seconds)
+
+    def crash_reports(self, since_stamp=None):
+        """The .ips files the host wrote for this app since the run began (copied into logs/crash/)."""
+        found = []
+        d = Path.home() / "Library" / "Logs" / "DiagnosticReports"
+        out = self.run.logs_dir / "crash"
+        for f in sorted(d.glob(f"{self.exe}*.ips")) + sorted(d.glob(f"{self.exe}*.crash")):
+            try:
+                if f.stat().st_mtime >= self.run.t0:
+                    out.mkdir(exist_ok=True)
+                    (out / f.name).write_bytes(f.read_bytes())
+                    found.append(f.name)
+            except OSError:
+                pass
+        return found
+
+    def gui_keystroke(self, char_code):
+        """Cmd + arrow in the Simulator app (Device > Rotate Left = Cmd-Left, Rotate Right = Cmd-Right). Needs the
+        GUI app and the runner's accessibility permission for osascript. -> (ok, message)"""
+        if not self.gui:
+            self.x("open", "-a", "Simulator", "--args", "-CurrentDeviceUDID", self.udid, timeout=60)
+            time.sleep(8)
+            self.gui = True
+        rc, out, err = self.x("osascript", "-e", 'tell application "Simulator" to activate', "-e", "delay 1",
+                              "-e", f'tell application "System Events" to keystroke (ASCII character {char_code}) using {{command down}}',
+                              timeout=60)
+        return rc == 0, (err or out).strip()[:200]
+
+    def gui_menu(self, menu, item):
+        """A Simulator menu item by name (Debug > Simulate Memory Warning ...). -> (ok, message)"""
+        if not self.gui:
+            self.x("open", "-a", "Simulator", "--args", "-CurrentDeviceUDID", self.udid, timeout=60)
+            time.sleep(8)
+            self.gui = True
+        script = (f'tell application "System Events" to tell process "Simulator" to click menu item "{item}" of menu "{menu}" of menu bar 1')
+        rc, out, err = self.x("osascript", "-e", 'tell application "Simulator" to activate', "-e", "delay 1", "-e", script, timeout=60)
+        return rc == 0, (err or out).strip()[:200]
+
+
+def ios_scenarios(args):
+    run = Run(args.out, "ios", {"label": args.label, "bundle": args.bundle})
+    run.t0 = time.time()
+    exe = args.exe or args.bundle.rsplit(".", 1)[-1]
+    dev = IOS(run, args.udid, args.bundle, exe, args.app)
+    state = {"portrait": None}
+
+    def s_device(s):
+        rc, out, _e = dev.simctl("list", "devices", "-j")
+        try:
+            doc = json.loads(out)
+            for runtime, devices in doc.get("devices", {}).items():
+                for d in devices:
+                    if d.get("udid") == args.udid:
+                        run.meta.update({"device": d.get("name"), "runtime": runtime.rsplit(".", 1)[-1]})
+        except ValueError:
+            pass
+        dev.simctl("ui", args.udid, "appearance", "light")
+        dev.simctl("ui", args.udid, "content_size", "medium")
+        dev.simctl("status_bar", args.udid, "override", "--time", "9:41", "--dataNetwork", "wifi", "--wifiMode", "active",
+                   "--wifiBars", "3", "--cellularMode", "active", "--cellularBars", "4", "--batteryState", "charged", "--batteryLevel", "100")
+        s.note(f"{run.meta.get('device')} / {run.meta.get('runtime')}")
+        s.check("the simulator answers", rc == 0, run.meta.get("runtime", ""))
+
+    run.step("00-device", "the simulator is up; light appearance, medium text, a neutral status bar (9:41, full battery)", s_device)
+
+    def s_home(s):
+        dev.simctl("launch", args.udid, "com.apple.springboard")
+        dev.settle(3.0)
+        sig, w, h, fname = dev.capture("home-baseline")
+        s.shots.append(fname)
+        dev.home_sig = sig
+        s.check("the home screen is a picture", not is_flat(sig), f"{flat_fraction(sig):.3f}")
+        s.note(f"screen {w}x{h}")
+
+    run.step("01-home-baseline", "the home screen before the app starts: the picture an app must differ from", s_home)
+
+    def s_install(s):
+        if args.app:
+            rc, _o, err = dev.simctl("install", args.udid, args.app, timeout=180)
+            s.check("simctl install succeeds", rc == 0, err.strip()[:160])
+            plist = Path(args.app) / "Info.plist"
+            if plist.exists():
+                import plistlib
+                info = plistlib.loads(plist.read_bytes())
+                s.note(f"{info.get('CFBundleIdentifier')} {info.get('CFBundleShortVersionString')} min iOS {info.get('MinimumOSVersion')} orientations {info.get('UISupportedInterfaceOrientations')}")
+
+    run.step("02-install", "install the Simulator app", s_install)
+
+    def s_cold(s):
+        l = dev.launch(cold=True)
+        s.note(f"simctl launch: {l['out'] or l['err']}")
+        s.check("simctl launch reports a process id", bool(l["pid"]), l["out"] or l["err"])
+        t = dev.wait_for_front(timeout=args.first_frame_timeout)
+        s.check("a first frame appears (alive, not flat, not the home screen)", t is not None,
+                f"after {t:.1f} s" if t is not None else f"nothing after {args.first_frame_timeout} s")
+        dev.settle(3.0)
+        state["portrait"] = dev.look(s, "portrait")
+        dev.alive_step(s)
+        crashes = dev.crash_reports()
+        s.check("the host wrote no crash report for the app", not crashes, ", ".join(crashes))
+        err_txt = l["console"][1].read_text(errors="replace") if l["console"][1].exists() else ""
+        out_txt = l["console"][0].read_text(errors="replace") if l["console"][0].exists() else ""
+        panics = [ln for ln in (err_txt + out_txt).splitlines() if "panicked" in ln or "unexpected panic" in ln or "FATAL" in ln]
+        s.check("the console shows no panic", not panics, panics[0][:200] if panics else "")
+        s.note(f"console: {len(out_txt.splitlines())} stdout lines, {len(err_txt.splitlines())} stderr lines")
+
+    run.step("03-cold-start", "start the app from nothing: first frame, portrait picture, no panic, no crash report", s_cold)
+
+    def s_modes(s):
+        base = state["portrait"]
+        for mode in ("cpu", "gpu", "auto"):
+            l = dev.launch(extra_env={"AZ_BACKEND": mode}, cold=True)
+            t = dev.wait_for_front(timeout=args.first_frame_timeout)
+            dev.settle(2.5)
+            sig = dev.look(s, f"AZ_BACKEND-{mode}")
+            s.check(f"AZ_BACKEND={mode}: the app draws", t is not None and not is_flat(sig), f"first frame after {t:.1f} s" if t is not None else "no frame")
+            if base is not None:
+                s.note(f"AZ_BACKEND={mode} differs {sig_diff(sig, base):.4f} from the default start (the phone shell has one renderer, the CPU one)")
+        dev.launch(cold=True)       # the default start again: the picture the later steps compare with
+        dev.wait_for_front(timeout=args.first_frame_timeout)
+        dev.settle(2.0)
+        state["portrait"] = dev.look(s, "default-again")
+
+    run.step("04-render-modes", "AZ_BACKEND=cpu, gpu, auto through SIMCTL_CHILD_ (the shell has only the CPU renderer: all three alike)", s_modes)
+
+    def s_appearance(s):
+        base = dev.look(s, "light")
+        dev.simctl("ui", args.udid, "appearance", "dark")
+        dev.settle(3.0)
+        dark = dev.look(s, "dark", expect_changed_from=base)
+        dev.alive_step(s)
+        dev.simctl("ui", args.udid, "appearance", "light")
+        dev.settle(2.5)
+        dev.look(s, "light-again")
+
+    run.step("05-dark-mode", "the system appearance switches to dark and back (a trait change under the running app)", s_appearance)
+
+    def s_content_size(s):
+        base = dev.look(s, "text-medium")
+        dev.simctl("ui", args.udid, "content_size", "accessibility-extra-extra-extra-large")
+        dev.settle(3.0)
+        big = dev.look(s, "text-accessibility-xxxl")
+        s.check("the page reacts to the text size", sig_diff(big, base) > SAME_BELOW, f"differs {sig_diff(big, base):.3f}", required=False)
+        dev.alive_step(s)
+        dev.simctl("ui", args.udid, "content_size", "medium")
+        dev.settle(2.5)
+
+    run.step("06-text-size", "the system text size goes to the largest accessibility size and back", s_content_size)
+
+    def s_background(s):
+        pid0 = dev.pid()
+        before = dev.look(s, "before-background")
+        dev.open_other_app()
+        dev.settle(3.0)
+        away, *_ = dev.capture("other-app-in-front")
+        s.shots.append(f"{dev.shot_count:02d}-other-app-in-front.png")
+        s.check("Settings is in front now", sig_diff(away, before) > SAME_BELOW, f"differs {sig_diff(away, before):.3f}")
+        s.check("the app's process survives being backgrounded", dev.alive(), f"pid {dev.pid() or '-'}")
+        dev.settle(7.0)  # in all 10 s
+        s.check("the app's process survives 10 s in the background", dev.alive(), f"pid {dev.pid() or '-'}")
+        dev.launch(cold=False)
+        t = dev.wait_for_front(timeout=30)
+        s.check("the app is back in front", t is not None, f"after {t:.1f} s" if t is not None else "not back after 30 s")
+        dev.settle(2.0)
+        after = dev.look(s, "after-background")
+        s.check("same process as before", dev.pid() == pid0, f"{pid0} -> {dev.pid()}", required=False)
+        s.check("the picture is the one from before", sig_diff(after, before) < 0.05, f"differs {sig_diff(after, before):.3f}", required=False)
+        crashes = dev.crash_reports()
+        s.check("the host wrote no crash report for the app", not crashes, ", ".join(crashes))
+
+    run.step("07-background-10s", "another app comes to the front for 10 s, then the app again: same process, same picture", s_background)
+
+    def s_rotate(s):
+        before = dev.look(s, "before-rotate")
+        ok, msg = dev.gui_keystroke(28)    # Cmd-Left: rotate left
+        s.note(f"Simulator rotate left via osascript: {'sent' if ok else 'FAILED: ' + msg}")
+        s.check("the runner lets osascript press Cmd-Left in the Simulator", ok, msg, required=False)
+        dev.settle(3.5)
+        sig = dev.look(s, "landscape")
+        w, h = dev.dims
+        s.note(f"screenshot {w}x{h} after the rotation")
+        s.check("the picture changed with the rotation", sig_diff(sig, before) > SAME_BELOW, f"differs {sig_diff(sig, before):.3f}", required=False)
+        dev.alive_step(s)
+        ok2, msg2 = dev.gui_keystroke(29)  # Cmd-Right: back
+        dev.settle(3.5)
+        again = dev.look(s, "portrait-again")
+        s.check("back in portrait the picture is the first one again", sig_diff(again, before) < 0.10, f"differs {sig_diff(again, before):.3f}", required=False)
+        dev.alive_step(s, " after rotating back")
+
+    run.step("08-rotate", "rotate the device left and back while the app runs (Simulator menu through osascript)", s_rotate)
+
+    def s_memory(s):
+        before = dev.look(s, "before-memory-warning")
+        ok, msg = dev.gui_menu("Debug", "Simulate Memory Warning")
+        s.note(f"Debug > Simulate Memory Warning: {'sent' if ok else 'FAILED: ' + msg}")
+        s.check("the Simulator menu item was pressed", ok, msg, required=False)
+        dev.settle(3.0)
+        dev.look(s, "after-memory-warning")
+        dev.alive_step(s)
+
+    run.step("09-memory-warning", "Debug > Simulate Memory Warning while in the foreground", s_memory)
+
+    def s_cold2(s):
+        dev.terminate()
+        dev.settle(1.5)
+        s.check("the process is gone after terminate", not dev.alive(), "")
+        dev.launch(cold=True)
+        t = dev.wait_for_front(timeout=args.first_frame_timeout)
+        s.check("a second cold start shows a frame", t is not None, f"after {t:.1f} s" if t is not None else "no frame")
+        dev.settle(2.0)
+        dev.look(s, "cold-start-2")
+        dev.alive_step(s)
+
+    run.step("10-terminate-and-start-again", "kill the process, start again", s_cold2)
+
+    def s_logs(s):
+        rc, out, _e = dev.simctl("spawn", args.udid, "log", "show", "--last", "20m", "--style", "compact", "--info", "--debug", timeout=300)
+        (run.logs_dir / "log-all.txt").write_text(out, encoding="utf-8", errors="replace")
+        mine = [l for l in out.splitlines() if exe in l or "launchd_sim" in l and dev.bundle in l]
+        (run.logs_dir / "log-app.txt").write_text("\n".join(mine), encoding="utf-8")
+        rep = dev.crash_reports()
+        s.check("the host wrote no crash report for the app in the whole run", not rep, ", ".join(rep))
+        d = Path.home() / "Library" / "Logs" / "DiagnosticReports"
+        (run.logs_dir / "DiagnosticReports-ls.txt").write_text("\n".join(sorted(p.name for p in d.glob("*"))) if d.exists() else "no DiagnosticReports", encoding="utf-8")
+        consoles = sorted(run.logs_dir.glob("console-*.txt"))
+        text = "\n".join(c.read_text(errors="replace") for c in consoles)
+        bad = [l for l in text.splitlines() if "panicked" in l or "unexpected panic" in l or "FATAL" in l]
+        s.check("no panic on any console of the run", not bad, bad[0][:200] if bad else "")
+        s.note(f"{len(text.splitlines())} console lines of the app; {len(mine)} unified-log lines of the app")
+
+    run.step("11-logs", "the whole log: no crash report, no panic, what the engine said", s_logs)
+    run.write()
+    return run
+
+
 # ---------------------------------------------------------------------------------------------
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -756,14 +1130,20 @@ def main(argv):
     a.add_argument("--serial", default="")
     a.add_argument("--points", default="", help="JSON {name: [fx, fy]} overriding the tap points (fractions of the screen)")
     a.add_argument("--first-frame-timeout", type=int, default=45)
+    i = sub.add_parser("ios")
+    i.add_argument("--out", required=True)
+    i.add_argument("--udid", required=True)
+    i.add_argument("--bundle", default="com.azul.AzWidgets")
+    i.add_argument("--exe", default="")
+    i.add_argument("--app", default="", help="the .app directory to install")
+    i.add_argument("--label", default="AzWidgets")
+    i.add_argument("--first-frame-timeout", type=int, default=45)
     args = ap.parse_args(argv)
-    if args.platform == "android":
-        run = android_scenarios(args)
-        failed = [s.name for s in run.steps if not s.ok]
-        print(f"\nQA {'PASS' if not failed else 'FAIL'}: {len(run.steps) - len(failed)}/{len(run.steps)} steps"
-              + (f"; failed: {', '.join(failed)}" if failed else ""))
-        return 0   # the verdict is in qa.json; a failing app is a result, not a broken run
-    return 2
+    run = android_scenarios(args) if args.platform == "android" else ios_scenarios(args)
+    failed = [s.name for s in run.steps if not s.ok]
+    print(f"\nQA {'PASS' if not failed else 'FAIL'}: {len(run.steps) - len(failed)}/{len(run.steps)} steps"
+          + (f"; failed: {', '.join(failed)}" if failed else ""))
+    return 0   # the verdict is in qa.json; a failing app is a result, not a broken run
 
 
 if __name__ == "__main__":
