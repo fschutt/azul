@@ -9,18 +9,27 @@
 # `brew install --cask android-commandlinetools` and `sdkmanager 'ndk;27.0.12077973'`.
 # If your NDK lives elsewhere, override via environment:
 # CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=...
+# scripts/build-android.sh and scripts/demo_lib.sh do that themselves from the NDK they are pointed at (ANDROID_NDK_HOME),
+# so a Linux runner never reaches these paths.
 
 [target.x86_64-pc-windows-gnu]
 linker = "x86_64-w64-mingw32-gcc"
 ar = "x86_64-w64-mingw32-ar"
 
+# 16 KiB pages: Android 15 and later run on devices with 16 KiB memory pages, and Google requires apps that target Android 15
+# (targetSdk 35) and later to support them from 2027-02-01. NDK 27's linker aligns PT_LOAD segments to 4 KiB by default (NDK 28 to
+# 16 KiB), and a library like that cannot be loaded on such a device. These rustflags are the one place that links every Android
+# library of the workspace so, the libazul.so of the demos' lib job and the cdylib of every app alike; RUSTFLAGS in the environment
+# would REPLACE them, which is why scripts/android_elf_check.py reads the p_align of every library the pipeline builds.
 [target.aarch64-linux-android]
 linker = "/opt/homebrew/share/android-commandlinetools/ndk/27.0.12077973/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android24-clang"
 ar     = "/opt/homebrew/share/android-commandlinetools/ndk/27.0.12077973/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar"
+rustflags = ["-Clink-arg=-Wl,-z,max-page-size=16384", "-Clink-arg=-Wl,-z,common-page-size=16384"]
 
 [target.x86_64-linux-android]
 linker = "/opt/homebrew/share/android-commandlinetools/ndk/27.0.12077973/toolchains/llvm/prebuilt/darwin-x86_64/bin/x86_64-linux-android24-clang"
 ar     = "/opt/homebrew/share/android-commandlinetools/ndk/27.0.12077973/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar"
+rustflags = ["-Clink-arg=-Wl,-z,max-page-size=16384", "-Clink-arg=-Wl,-z,common-page-size=16384"]
 
 # Legacy Windows (rust9x, i686, WinXP+)
 #

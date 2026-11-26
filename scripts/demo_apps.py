@@ -3,8 +3,10 @@
 
     demo_apps.py check                 the manifest, the workspace, the manifests of the apps and the
                                        release-page generator agree (fails with every disagreement)
-    demo_apps.py plan                  the build matrices of a `demos` run, as GITHUB_OUTPUT lines
+    demo_apps.py plan [--e2e]          the build matrices of a `demos` run, as GITHUB_OUTPUT lines (--e2e: also the
+                                       artifact-only QA variant of the phone libazul and the apps that ask for it)
     demo_apps.py assets [<package>]    the file names every app is built as, one per line
+    demo_apps.py weights <status.json> the weight the measured build seconds of a run suggest for each app
     demo_apps.py status <dir> ...      merge the result files of a run into demo-status.json / .md
 
 Python 3.11+ (tomllib); the build scripts that run on every runner (demo_build.py, demo_gate.py) need
@@ -18,8 +20,11 @@ import sys
 
 try:
     import tomllib
-except ImportError:  # pragma: no cover
-    sys.exit("demo_apps.py needs Python 3.11 or later (tomllib)")
+except ImportError:  # pragma: no cover  (Python 3.10: a runner's default; the backport has the same API)
+    try:
+        import tomli as tomllib
+    except ImportError:
+        sys.exit("demo_apps.py needs Python 3.11 or later (tomllib), or the tomli package (python3 -m pip install --user tomli)")
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "scripts" / "demo_apps.toml"
@@ -62,6 +67,7 @@ def load(path=MANIFEST):
         app.setdefault("needs", [])
         app.setdefault("known_failing", {})
         app.setdefault("engine_ok", {})
+        app.setdefault("e2e", False)
     return m
 
 
@@ -69,17 +75,27 @@ def apps_of(m, platform=None):
     return [a for a in m["app"] if platform is None or platform in a["platforms"]]
 
 
-def staged_name(app, column):
-    """The file a build produces for `column` (a desktop platform or a MOBILE_TARGETS key)."""
+def staged_name(app, column, e2e=False):
+    """The file a build produces for `column` (a desktop platform or a MOBILE_TARGETS key). `e2e`: the QA build against the
+    artifact-only lib with the engine's debug server, <Name>-e2e-<column>: a phone file only, never a release asset."""
     p = app["package"]
     if column in DESKTOP:
+        if e2e:
+            raise ValueError(f"the QA variant is a phone build, not {column}")
         return f"{p}-{OS_SUFFIX[column]}{BIN_EXT.get(column, '')}"
+    if e2e:
+        p += "-e2e"
     return {
         "android-arm64": f"{p}-android-arm64.apk",
         "android-x86_64": f"{p}-android-x86_64.apk",
         "ios-device": f"{p}-ios-device.app.zip",
         "ios-sim": f"{p}-ios-sim.app.zip",
     }[column]
+
+
+def artifact_only_libs(m):
+    """{name: lib} of the library variants that are QA artifacts and never ship."""
+    return {k: v for k, v in m.get("lib", {}).items() if v.get("artifact_only")}
 
 
 def release_name(app, column):
@@ -134,7 +150,26 @@ def check(m=None):
             f"add it, with its platforms (an app that does not belong on the page says why in `known_failing`)")
     for pkg in sorted(set(names) - set(workspace)):
         err(f"{pkg} is in scripts/demo_apps.toml but is no AzXxx package of the workspace")
+    # the SDK levels the manifest records are the ones the template of the Android manifest says
+    android = m.get("android", {})
+    template = (ROOT / "scripts" / "android" / "AndroidManifest.xml").read_text(encoding="utf-8")
+    for key, attr in (("min_sdk", "minSdkVersion"), ("target_sdk", "targetSdkVersion")):
+        want = android.get(key)
+        if isinstance(want, bool) or not isinstance(want, int):
+            err(f"[android] {key} must be a number (the {attr} of scripts/android/AndroidManifest.xml), not {want!r}")
+            continue
+        found = re.search(rf'android:{attr}="(\d+)"', template)
+        if not found or int(found.group(1)) != want:
+            err(f"[android] {key} = {want} but scripts/android/AndroidManifest.xml says {attr}=\"{found.group(1) if found else '?'}\"")
+    if all(isinstance(android.get(k), int) for k in ("min_sdk", "target_sdk")) and android["target_sdk"] < android["min_sdk"]:
+        err(f"[android] target_sdk {android['target_sdk']} is below min_sdk {android['min_sdk']}")
     libs = m.get("lib", {})
+    for name, lib in artifact_only_libs(m).items():
+        bad = [t for t in lib.get("targets", []) if t not in MOBILE_TARGETS]
+        if bad or not lib.get("targets"):
+            err(f"lib {name}: targets {lib.get('targets')} must be a non-empty subset of the phone columns {list(MOBILE_TARGETS)}")
+        if "debug-server" not in str(lib.get("features", "")).split(","):
+            err(f"lib {name} is artifact_only (the QA variant with the engine's debug server) and carries no debug-server feature")
     assets = {}
     for a in apps:
         p = a["package"]
@@ -158,12 +193,22 @@ def check(m=None):
             if lib not in libs or lib == "desktop":
                 err(f"{where} is built for a phone and needs mobile_lib = one of "
                     f"{[k for k in libs if k != 'desktop']}, not {lib!r}")
+            elif libs[lib].get("artifact_only"):
+                err(f"{where} mobile_lib {lib!r} is artifact_only: a shipped app never links a QA variant of the library")
+        if a.get("e2e"):
+            qa_columns = {c for lib_ in artifact_only_libs(m).values() for c in lib_.get("targets", [])}
+            if not set(columns_of(a)) & qa_columns:
+                err(f"{where} says e2e = true but no artifact_only lib builds a column of it "
+                    f"({sorted(columns_of(a))} against {sorted(qa_columns)})")
         for k in a["known_failing"]:
             if k not in ARTIFACT_COLUMNS and k not in PLATFORMS:
                 err(f"{where} known_failing names {k!r}, which is no platform")
         for k, why in a["known_failing"].items():
             if not str(why).strip():
                 err(f"{where} known_failing.{k} needs the reason")
+        for k, why in a["engine_ok"].items():
+            if k not in ("azul-core", "azul-layout", "azul-css") or not str(why).strip():
+                err(f"{where} engine_ok.{k}: names an engine crate (azul-core, azul-layout, azul-css) and says why the app compiles it")
         manifest = tomllib.loads((d / "Cargo.toml").read_text(encoding="utf-8"))
         # an app whose build is a known failure says why in the manifest, and is not held to what it lacks
         pending = bool(a["known_failing"])
@@ -224,7 +269,8 @@ def azul_version():
     return m.group(1) if m else ""
 
 
-def plan(m=None):
+def plan(m=None, e2e=False):
+    """The matrices of a run. `e2e`: also the artifact-only QA variant (the input of the run asks for it)."""
     m = m or load()
     plan_cfg = m.get("plan", {})
     out = {"version": azul_version()}
@@ -258,6 +304,18 @@ def plan(m=None):
                 id=f"lib-{col}-{variant}", kind=kind, leg=col, variant=variant, features=features, target=target,
                 os="ubuntu-22.04" if kind == "android" else "macos-15", codegen_os="Linux" if kind == "android" else "macOS",
                 artifact=f"demolib-{col}-{variant}"))
+    if e2e:
+        wanting = [a for a in m["app"] if a.get("e2e")]
+        for variant, lib in sorted(artifact_only_libs(m).items()):
+            for col in lib["targets"]:
+                if not any(col in columns_of(a) for a in wanting):
+                    continue
+                kind = "android" if col.startswith("android") else "ios"
+                lib_jobs[kind].append(dict(
+                    id=f"lib-{col}-{variant}", kind=kind, leg=col, variant=variant,
+                    features=lib["features"] + (",android-activity" if kind == "android" else ""), target=MOBILE_TARGETS[col],
+                    os="ubuntu-22.04" if kind == "android" else "macos-15", codegen_os="Linux" if kind == "android" else "macOS",
+                    artifact=f"demolib-{col}-{variant}"))
     for k, v in lib_jobs.items():
         out["libs_" + k] = v
     # --- the desktop apps: one job per (leg, group)
@@ -274,7 +332,7 @@ def plan(m=None):
                 leg=leg, group=i, groups=len(groups), apps=" ".join(group), os=LEG_RUNNER[leg], os_suffix=OS_SUFFIX[leg],
                 bin_ext=BIN_EXT.get(leg, ""), codegen_os=LEG_CODEGEN_OS[leg], lib_artifact=f"demolib-{leg}",
                 lib_file=t["lib_file"], target=t["target"], deployment_target=t.get("deployment_target", ""),
-                artifact=f"demoapps-{leg}-{i}"))
+                artifact=f"demoapps-{leg}-{i}", results_artifact=f"demoresults-{leg}-{i}"))
     for k, v in apps_by_family.items():
         out["apps_" + k] = v
     # --- the phone apps: one job per target, every app of it against its own variant of the library
@@ -290,8 +348,23 @@ def plan(m=None):
                 leg=col, kind=kind, target=target, apps=" ".join(a["package"] for a in apps),
                 os="ubuntu-22.04" if kind == "android" else "macos-15", codegen_os="Linux" if kind == "android" else "macOS",
                 lib_artifacts=" ".join(sorted({f"demolib-{col}-{a['mobile_lib']}" for a in apps})),
-                artifact=f"demoapps-{col}"))
+                artifact=f"demoapps-{col}", results_artifact=f"demoresults-{col}", variant=""))
+        if e2e:   # the QA builds: the same app build against the artifact-only lib, in artifacts the shipped-files patterns never match
+            for variant, lib in sorted(artifact_only_libs(m).items()):
+                for col, target in MOBILE_TARGETS.items():
+                    apps = [a for a in m["app"] if a.get("e2e") and col in columns_of(a)]
+                    if col.startswith(kind) and col in lib["targets"] and apps:
+                        entries.append(dict(
+                            leg=col, kind=kind, target=target, apps=" ".join(a["package"] for a in apps),
+                            os="ubuntu-22.04" if kind == "android" else "macos-15", codegen_os="Linux" if kind == "android" else "macOS",
+                            lib_artifacts=f"demolib-{col}-{variant}", artifact=f"demoe2e-{col}",
+                            results_artifact=f"demoresults-{col}-e2e", variant=variant))
         out["apps_" + kind] = entries
+    # the buttons the boot tests press after the first screenshot: {package: label}
+    out["smoke_taps"] = json.dumps({a["package"]: a["smoke"]["tap"] for a in m["app"]
+                                    if (a.get("smoke") or {}).get("tap")}, sort_keys=True)
+    out["smoke_expects"] = json.dumps({a["package"]: a["smoke"]["expect"] for a in m["app"]
+                                       if (a.get("smoke") or {}).get("expect")}, sort_keys=True)
     return out
 
 
@@ -330,8 +403,25 @@ def read_results(dirs):
                 r = json.loads(f.read_text(encoding="utf-8"))
             except ValueError:
                 continue
+            if r.get("variant"):    # a QA build (artifact only): not the shipped cell of the same column
+                continue
             results[(r["app"], r["column"])] = r
     return results
+
+
+def read_qa_builds(dirs):
+    """The results of the artifact-only QA builds, [{app, column, variant, status, artifact, size, seconds, first_error}]."""
+    found = {}
+    for d in dirs:
+        for f in sorted(pathlib.Path(d).rglob("*.result.json")):
+            try:
+                r = json.loads(f.read_text(encoding="utf-8"))
+            except ValueError:
+                continue
+            if r.get("variant"):
+                found[(r["app"], r["column"], r["variant"])] = {k: r.get(k) for k in (
+                    "app", "column", "variant", "status", "reason", "artifact", "size", "seconds", "first_error")}
+    return [found[k] for k in sorted(found)]
 
 
 def read_smoke(dirs):
@@ -352,12 +442,55 @@ def read_smoke(dirs):
     return found
 
 
+def read_startchecks(dirs):
+    """{(package, leg): text} from the desktop start checks (demo_build.py --run-check: startcheck.<leg>.json)."""
+    found = {}
+    for d in dirs:
+        for f in sorted(pathlib.Path(d).rglob("startcheck.*.json")):
+            leg = f.name[len("startcheck."):-len(".json")]
+            try:
+                for package, text in json.loads(f.read_text(encoding="utf-8")).items():
+                    found[(package, leg)] = text
+            except ValueError:
+                continue
+    return found
+
+
+def read_libs(dirs):
+    """The libazul.info.json files the library jobs leave: [{kind, target, features, seconds, size, ...}]."""
+    libs = []
+    for d in dirs:
+        for f in sorted(pathlib.Path(d).rglob("libazul.info.json")):
+            try:
+                libs.append(json.loads(f.read_text(encoding="utf-8")))
+            except ValueError:
+                continue
+    return libs
+
+
 def boot_text(r):
     if r is None:
         return None
-    if r.get("alive") and not r.get("fatal"):
-        return "boots" + ("" if r.get("screen_nonblank") else " (blank screen)")
-    return "BOOT FAILED: " + str(r.get("fatal") or "not alive after the wait")[:90]
+    if "pass" in r:   # the verdict of scripts/ci/smoke_verdict.py: the one pass line
+        if not r["pass"]:
+            return "BOOT FAILED: " + str(r.get("reason") or "no reason given")[:110]
+        text = "boots"
+        # the platform's own launch number: informational, never part of the verdict
+        if r.get("displayed_ms") is not None:
+            text += f", first window {r['displayed_ms']} ms (the platform's own number)"
+        elif r.get("launch_ms") is not None:
+            text += f", launched in {r['launch_ms']} ms (the platform's own number)"
+    elif r.get("alive") and not r.get("fatal"):
+        text = "boots" + ("" if r.get("screen_nonblank") else " (blank screen)")
+    else:
+        return "BOOT FAILED: " + str(r.get("fatal") or "not alive after the wait")[:90]
+    exp = r.get("expect")
+    if exp:
+        text += f", \"{exp.get('text')}\" " + ("shown" if exp.get("found") else "NOT SHOWN")
+    tap = r.get("tap")
+    if tap:
+        text += f", \"{tap.get('label')}\" pressed {tap.get('found')}: " + ("fine" if tap.get("alive") and not tap.get("fatal") else "CRASHED")
+    return text
 
 
 def status(dirs, m=None, extra=None):
@@ -366,6 +499,7 @@ def status(dirs, m=None, extra=None):
     extra = extra or {}
     results = read_results(dirs)
     smoke = read_smoke(dirs)
+    starts = read_startchecks(dirs)
     rows = []
     total_files = total_bytes = total_shipped = 0
     unexplained = []
@@ -381,11 +515,16 @@ def status(dirs, m=None, extra=None):
             else:
                 cell = {k: r.get(k) for k in ("status", "reason", "artifact", "sha256", "size", "shipped_size", "seconds",
                                                "engine_crates", "first_error")}
+            cell["staged"] = staged_name(a, col)      # the file the build stages and the asset the release serves: a failed or
+            cell["release"] = release_name(a, col)    # missing cell has no `artifact`, and the page's link pruning needs the names
             if known:
                 cell["known"] = known
             boot = boot_text(smoke.get((a["package"], col)))
             if boot:
                 cell["boot"] = boot
+            start = starts.get((a["package"], col))
+            if start:
+                cell["start"] = start
             if cell["status"] in ("built", "reused"):
                 total_files += 1
                 total_bytes += cell.get("size") or 0
@@ -396,10 +535,13 @@ def status(dirs, m=None, extra=None):
         rows.append(row)
     boot_failed = sorted(f"{r['app']}/{c}" for r in rows for c, cell in r["cells"].items()
                          if str(cell.get("boot", "")).startswith("BOOT FAILED"))
+    libs = read_libs(dirs)
     summary = {
+        "libs": libs,
         "assets": total_files, "bytes": total_bytes, "shipped_bytes": total_shipped,
         "artifacts_of_the_run": extra.get("artifacts"), "runner_minutes": extra.get("runner_minutes"),
         "unexplained_failures": unexplained, "boot_failures": boot_failed, "smoke": extra.get("smoke", {}),
+        "qa_builds": read_qa_builds(dirs),
     }
     data = {"schema": 1, "apps": rows, "summary": summary}
     return data, render_markdown(data)
@@ -426,15 +568,35 @@ def render_markdown(data):
                 st = "known: " + str(cell["known"])[:60].replace("|", "/")
             if cell.get("boot") and cell["status"] in ("built", "reused"):
                 st += ", " + cell["boot"]
+            if cell.get("start") and cell["status"] in ("built", "reused"):
+                st += ", starts" if str(cell["start"]).startswith("ok") else ", NO START: " + str(cell["start"])[:60]
             cells.append(st)
             secs += int(cell.get("seconds") or 0)
             engine += len(cell.get("engine_crates") or [])
             if cell.get("size"):
                 sizes.append(f"{human(cell['size'])}/{human(cell.get('shipped_size'))}")
         lines.append(f"| {r['app']} | " + " | ".join(cells) + f" | {engine} | {secs} | {'; '.join(sizes[:2])}{' ...' if len(sizes) > 2 else ''} |")
+    files = [(r["app"], c, cell) for r in data["apps"] for c, cell in r["cells"].items() if cell.get("artifact")]
+    if files:
+        lines += ["", "### Files (what the release page links)", "",
+                  "| asset | platform | stripped | shipped | seconds | engine crates | sha256 |", "|---|---|---|---|---|---|---|"]
+        for app, col, cell in files:
+            lines.append(f"| {cell['artifact']} | {col} | {human(cell.get('size'))} | {human(cell.get('shipped_size'))} | "
+                         f"{cell.get('seconds') or 0} | {len(cell.get('engine_crates') or [])} | `{str(cell.get('sha256') or '')[:12]}` |")
     s = data["summary"]
     lines += ["", f"**{s['assets']} files, {human(s['bytes'])} stripped, {human(s['shipped_bytes'])} as shipped**; "
                   f"artifacts of the run: {s['artifacts_of_the_run']}; runner minutes: {s['runner_minutes']}."]
+    if s.get("qa_builds"):
+        lines += ["", "### QA builds with the engine's debug server (artifacts of the run, never published)", "",
+                  "| app | column | status | size | seconds |", "|---|---|---|---|---|"]
+        for q in s["qa_builds"]:
+            what = q["status"] if q["status"] == "built" else f"{q['status']}: " + str(q.get("first_error") or q.get("reason") or "?")[:70].replace("|", "/")
+            lines.append(f"| {q.get('artifact') or q['app']} | {q['column']} | {what} | {human(q.get('size'))} | {q.get('seconds') or 0} |")
+    if s["libs"]:
+        lines += ["", "### The libazul every app of a target links (built once)", "",
+                  "| target | features | seconds | size |", "|---|---|---|---|"]
+        for l in sorted(s["libs"], key=lambda l: (l.get("kind", ""), l.get("target", ""), l.get("features", ""))):
+            lines.append(f"| {l.get('target') or 'host'} ({l.get('kind')}) | {l.get('features')} | {l.get('seconds')} | {human(l.get('size'))} |")
     if s["smoke"]:
         lines += ["", "### Boot tests", ""] + [f"- {k}: {v}" for k, v in sorted(s["smoke"].items())]
     if s["boot_failures"]:
@@ -460,7 +622,7 @@ def main(argv):
                   f"{sum(len(columns_of(a)) for a in m['app'])} built files")
         return 1 if errors else 0
     if cmd == "plan":
-        out = plan()
+        out = plan(e2e="--e2e" in rest)
         for line in write_github_output(out):
             print(line)
         return 0
@@ -471,6 +633,25 @@ def main(argv):
                 continue
             for c in columns_of(a):
                 print(f"{a['package']}\t{c}\t{staged_name(a, c)}\t{release_name(a, c)}")
+        return 0
+    if cmd == "weights":
+        # demo_apps.py weights demo-status.json: the weight (1 light .. 3 heavy) the measured build seconds of each app
+        # suggest, from the mean over its desktop builds, next to the weight in the manifest
+        data = json.loads(pathlib.Path(rest[0]).read_text(encoding="utf-8"))
+        mean = {}
+        for row in data["apps"]:
+            secs = [c["seconds"] for col, c in row["cells"].items() if col in DESKTOP and c.get("status") == "built" and c.get("seconds")]
+            if secs:
+                mean[row["app"]] = sum(secs) / len(secs)
+        if not mean:
+            print("no desktop build with seconds in " + rest[0])
+            return 1
+        ordered = sorted(mean.values())
+        third = lambda v: 1 if v <= ordered[len(ordered) // 3] else (2 if v <= ordered[2 * len(ordered) // 3] else 3)
+        have = {a["package"]: a["weight"] for a in load()["app"]}
+        for app, v in sorted(mean.items(), key=lambda kv: -kv[1]):
+            mark = "" if third(v) == have.get(app) else "   <- manifest says " + str(have.get(app))
+            print(f"{app:20} {v:7.0f} s   suggested weight {third(v)}{mark}")
         return 0
     if cmd == "status":
         dirs = [d for d in rest if not d.startswith("--")]

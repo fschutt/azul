@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# ios_qa.sh: the lifecycle QA of ONE Simulator app on the newest iOS runtime and a modern iPhone.
+#
+#   scripts/ci/ios_qa.sh <out-dir> <app.zip | App.app> [<label>]
+#
+# For a macOS runner with Xcode (xcrun simctl). Needs no signing (a Simulator app runs ad-hoc signed). Writes what
+# scripts/ci/mobile_qa.py writes (qa.json, qa.md, shots/, logs/) into <out-dir>. Exit 0 when the simulator ran (the
+# verdicts are in qa.json: a failing app is a RESULT of this job, not a failure of it); 2 when the simulator itself
+# could not be started.
+#
+# What it can and cannot press on a runner: simctl launches, terminates, installs, switches the appearance and the
+# text size and takes pictures; it has no touch. Rotation and the memory warning go through the Simulator app's
+# menu with osascript (the runner may refuse the accessibility permission: the step says so). Touches need the
+# app's own debug server (scripts/ci/mobile_e2e.py).
+set -uo pipefail
+
+out="${1:?out-dir}"; app="${2:?app}"; label="${3:-AzWidgets}"
+here="$(cd "$(dirname "$0")" && pwd)"
+mkdir -p "$out"
+work="$(mktemp -d)"
+
+pick="$(python3 - <<'PY'
+import json, re, subprocess
+def sh(*a): return json.loads(subprocess.check_output(a))
+runtimes = [r for r in sh("xcrun", "simctl", "list", "runtimes", "-j")["runtimes"]
+            if r.get("isAvailable", True) and r["identifier"].startswith("com.apple.CoreSimulator.SimRuntime.iOS")]
+if not runtimes:
+    raise SystemExit("no iOS simulator runtime is installed")
+runtimes.sort(key=lambda r: [int(x) for x in r["version"].split(".")])
+rt = runtimes[-1]
+supported = {d["identifier"] for d in rt.get("supportedDeviceTypes", [])}
+types = [d for d in sh("xcrun", "simctl", "list", "devicetypes", "-j")["devicetypes"]
+         if d["name"].startswith("iPhone") and (not supported or d["identifier"] in supported)]
+def rank(d):
+    m = re.search(r"iPhone (\d+)", d["name"])
+    plain = not re.search(r"(Pro|Plus|Max|mini|SE|e\b)", d["name"])
+    return (int(m.group(1)) if m else 0, plain)
+types.sort(key=rank)
+print(rt["identifier"], types[-1]["identifier"])
+PY
+)" || { echo "$pick"; exit 2; }
+read -r runtime devtype <<<"$pick"
+echo "simulator: $runtime / $devtype"
+
+udid="$(xcrun simctl create azul-qa "$devtype" "$runtime")" || exit 2
+trap 'xcrun simctl shutdown "$udid" >/dev/null 2>&1; xcrun simctl delete "$udid" >/dev/null 2>&1' EXIT
+boot_start=$(date +%s)
+xcrun simctl boot "$udid" || exit 2
+xcrun simctl bootstatus "$udid" -b >"$out/boot.log" 2>&1 || { tail -n 20 "$out/boot.log"; exit 2; }
+echo "simulator booted in $(( $(date +%s) - boot_start )) s: $udid"
+sleep 5
+
+if [ -d "$app" ]; then appdir="$app"; else
+  d="$work/app"; mkdir -p "$d"; unzip -q "$app" -d "$d" && appdir="$(ls -d "$d"/*.app | head -n 1)"
+fi
+bid="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$appdir/Info.plist" 2>/dev/null)"
+exe="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$appdir/Info.plist" 2>/dev/null)"
+echo "app: $appdir bundle=$bid executable=$exe"
+
+python3 "$here/mobile_qa.py" ios --out "$out" --udid "$udid" --bundle "$bid" --exe "$exe" --app "$appdir" --label "$label" 2>&1 | tee "$out/qa.log"
+exit 0

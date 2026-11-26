@@ -123,3 +123,23 @@ fn the_factory_opens_stand_ins_and_can_be_told_to_fail_in_words() {
     assert_eq!(broken.video(1, 1, 1).err().unwrap(), "no H.264 encoder on this machine");
     assert_eq!(broken.audio(1, 1, 1).err().unwrap(), "no Opus encoder on this machine");
 }
+
+/// Work given to `in_background` is not waited for (the caller is back long before a slow job is done) and is done on a
+/// thread of its own with the name it was given: the video encoder's warm-up, a few hundred milliseconds on a Mac, must not
+/// be spent on the window's thread.
+///
+/// Mutation: work done on the caller's thread; a thread without the name; work that is never done.
+#[test]
+fn background_work_is_not_waited_for_and_runs_on_a_thread_of_its_own() {
+    let (done, finished) = std::sync::mpsc::channel();
+    let began = std::time::Instant::now();
+    in_background("recorder-test-background", move || {
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        let me = std::thread::current();
+        let _ = done.send((me.name().map(str::to_string), me.id()));
+    });
+    assert!(began.elapsed() < std::time::Duration::from_millis(200), "the caller waited {:?} for work of 400 ms", began.elapsed());
+    let (name, thread) = finished.recv_timeout(std::time::Duration::from_secs(10)).expect("the work was done");
+    assert_eq!(name.as_deref(), Some("recorder-test-background"));
+    assert_ne!(thread, std::thread::current().id(), "on a thread of its own");
+}

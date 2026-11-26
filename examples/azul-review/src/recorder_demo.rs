@@ -3,12 +3,17 @@
 //! is the recorder's own test window until the review window has its menu entry for it: everything it does goes
 //! through [`RecorderHost`] and [`crate::recorder_ui`], the very calls the review window makes.
 //!
-//! `recorder_demo [--record screen,camera,mic] [--auto SECONDS] [--data-dir DIR] [--language en|de]`. Recordings go to
-//! `review/recordings` of the data folder; `--record` says which of the three the recorder takes (all, when it is not
-//! given). `--auto` makes it record on its own, for a run with no one to press the button: it starts when the window
-//! is up, stops after SECONDS (2 to 600) and closes the window.
+//! `recorder_demo [--record screen,camera,mic] [--auto SECONDS [--auto-delay-ms MS]] [--data-dir DIR] [--language en|de]`.
+//! Recordings go to `review/recordings` of the data folder; `--record` says which of the three the recorder takes (all,
+//! when it is not given). `--auto` makes it record on its own, for a run with no one to press the button: it starts when
+//! the window is up (or MS milliseconds after that, so that the program's own start is over and the start of the devices
+//! is measured alone), stops after SECONDS (2 to 600) and closes the window.
 //! stdout, for scripts: `RECDEMO_RECOVERED <n>` (recordings put right at the start), `RECDEMO_READY <folder>`, and
-//! with `--auto` `RECDEMO_STARTED <folder>`, then `RECDEMO_STOPPED <folder>` (or `RECDEMO_FAILED <why>` when it did not start).
+//! with `--auto` `RECDEMO_STARTED <folder>`, then `RECDEMO_TICKS count=<n> first_ms=<ms> max_gap_ms=<ms> max_work_ms=<ms>`
+//! (how steadily the window's timer ran: the first tick's distance from the start, the longest gap between two, and the
+//! longest time one tick spent in its own work, which tells a gap that was a call of the tick from one in which the loop
+//! did not run it) and
+//! `RECDEMO_STOPPED <folder>` (or `RECDEMO_FAILED <why>` when it did not start).
 
 use std::{
     path::PathBuf,
@@ -33,8 +38,31 @@ struct Demo {
     recorder: RecorderApp,
     /// A recording on its own (`--auto`): how long it lasts.
     auto: Option<u64>,
+    /// How long after the window is up it starts, milliseconds.
+    delay_ms: u64,
+    /// When the window was up.
+    created: Option<Instant>,
     /// When it began.
     since: Option<Instant>,
+}
+
+/// Starts the recording on its own with the call the button makes, and says so; whether it is going (when it is not, it
+/// says why and the window closes).
+fn start_on_its_own(data: &mut RefAny, info: &mut CallbackInfo) -> bool {
+    let host = Host { app: data.clone(), with: with_recorder };
+    if recorder_ui::start_now(&host, info) {
+        if let Some(mut d) = data.downcast_mut::<Demo>() {
+            d.since = Some(Instant::now());
+            let folder = d.recorder.host.current().and_then(|name| d.recorder.host.path_of(&name));
+            println!("RECDEMO_STARTED {}", folder.map_or_else(String::new, |p| p.display().to_string()));
+        }
+        true
+    } else {
+        let why = data.downcast_ref::<Demo>().and_then(|d| d.recorder.host.error().map(t_text)).unwrap_or_default();
+        println!("RECDEMO_FAILED {why}");
+        info.close_window();
+        false
+    }
 }
 
 fn with_recorder(app: &mut RefAny, f: &mut dyn FnMut(&mut RecorderApp)) -> bool {
@@ -53,49 +81,58 @@ extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
 }
 
 extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let (kit_ref, auto) = data.downcast_ref::<Demo>().map_or((None, None), |d| (Some(d.kit.clone()), d.auto));
+    let (kit_ref, auto, delay_ms) = data.downcast_ref::<Demo>().map_or((None, None, 0), |d| (Some(d.kit.clone()), d.auto, d.delay_ms));
     if let Some(kit_ref) = kit_ref {
         kit::on_window_created(&kit_ref, &mut info);
     }
     if auto.is_none() {
         return Update::DoNothing;
     }
-    // A recording on its own: started with the call the button makes, stopped by a timer when its time is up.
-    let host = Host { app: data.clone(), with: with_recorder };
-    if recorder_ui::start_now(&host, &mut info) {
-        if let Some(mut d) = data.downcast_mut::<Demo>() {
-            d.since = Some(Instant::now());
-            let folder = d.recorder.host.current().and_then(|name| d.recorder.host.path_of(&name));
-            println!("RECDEMO_STARTED {}", folder.map_or_else(String::new, |p| p.display().to_string()));
-        }
-        let timer = Timer::create(data.clone(), on_auto_tick, info.get_system_time_fn()).with_interval(Duration::System(SystemTimeDiff::from_millis(250)));
-        info.add_timer(TimerId::unique(), timer);
-    } else {
-        let why = data.downcast_ref::<Demo>().and_then(|d| d.recorder.host.error().map(t_text)).unwrap_or_default();
-        println!("RECDEMO_FAILED {why}");
-        info.close_window();
+    // A recording on its own: started with the call the button makes (at once, or when its delay is over), stopped by a
+    // timer when its time is up.
+    if let Some(mut d) = data.downcast_mut::<Demo>() {
+        d.created = Some(Instant::now());
     }
+    if delay_ms == 0 && !start_on_its_own(&mut data, &mut info) {
+        return Update::RefreshDom;
+    }
+    let timer = Timer::create(data.clone(), on_auto_tick, info.get_system_time_fn()).with_interval(Duration::System(SystemTimeDiff::from_millis(250)));
+    info.add_timer(TimerId::unique(), timer);
     Update::RefreshDom
 }
 
-/// The time of a recording on its own is up: it is stopped (its files are finished) and the window closes.
+/// The timer of a recording on its own: starts it when its delay is over, and when its time is up stops it (its files are
+/// finished), says how steadily the timer ran and closes the window.
 extern "C" fn on_auto_tick(mut data: RefAny, mut info: TimerCallbackInfo) -> TimerCallbackReturn {
-    let up = data
-        .downcast_ref::<Demo>()
-        .is_none_or(|d| matches!((d.auto, d.since), (Some(seconds), Some(since)) if since.elapsed() >= StdDuration::from_secs(seconds)));
-    if !up {
-        return TimerCallbackReturn { should_update: Update::DoNothing, should_terminate: TerminateTimer::Continue };
+    let keep_going = TimerCallbackReturn { should_update: Update::DoNothing, should_terminate: TerminateTimer::Continue };
+    let (auto, delay_ms, created, since) = data.downcast_ref::<Demo>().map_or((None, 0, None, None), |d| (d.auto, d.delay_ms, d.created, d.since));
+    let Some(seconds) = auto else {
+        return TimerCallbackReturn { should_update: Update::DoNothing, should_terminate: TerminateTimer::Terminate };
+    };
+    // Not started yet: waiting for the delay to be over (the window is left alone meanwhile).
+    let Some(since) = since else {
+        if !created.is_some_and(|created| created.elapsed() >= StdDuration::from_millis(delay_ms)) {
+            return keep_going;
+        }
+        if !start_on_its_own(&mut data, &mut info.callback_info) {
+            return TimerCallbackReturn { should_update: Update::DoNothing, should_terminate: TerminateTimer::Terminate };
+        }
+        return TimerCallbackReturn { should_update: Update::RefreshDom, ..keep_going };
+    };
+    if since.elapsed() < StdDuration::from_secs(seconds) {
+        return keep_going;
     }
     if let Some(mut d) = data.downcast_mut::<Demo>() {
         let folder = d.recorder.host.current().and_then(|name| d.recorder.host.path_of(&name));
         d.recorder.host.stop();
+        println!("RECDEMO_TICKS {}", d.recorder.tick_stats.line());
         println!("RECDEMO_STOPPED {}", folder.map_or_else(String::new, |p| p.display().to_string()));
     }
     info.callback_info.close_window();
     TimerCallbackReturn { should_update: Update::DoNothing, should_terminate: TerminateTimer::Terminate }
 }
 
-/// Starts the demo window: `recorder_demo [--record screen,camera,mic] [--auto SECONDS] [--data-dir DIR] [--language en|de]`.
+/// Starts the demo window: `recorder_demo [--record screen,camera,mic] [--auto SECONDS [--auto-delay-ms MS]] [--data-dir DIR] [--language en|de]`.
 pub fn run() {
     let (auto, args) = match take_auto(std::env::args().skip(1).collect()) {
         Ok(parsed) => parsed,
@@ -139,7 +176,7 @@ pub fn run() {
     println!("RECDEMO_RECOVERED {recovered}");
     host.refresh();
     println!("RECDEMO_READY {}", dir.display());
-    let state = Demo { kit: kit_ref.clone(), recorder: RecorderApp::new(host), auto: auto.map(|a| a.seconds), since: None };
+    let state = Demo { kit: kit_ref.clone(), recorder: RecorderApp::new(host), auto: auto.as_ref().map(|a| a.seconds), delay_ms: auto.as_ref().map_or(0, |a| a.delay_ms), created: None, since: None };
     let app = App::create(RefAny::new(state), config);
     let mut window = recorder_ui::window(layout);
     window.create_callback = Some(Callback::create(on_window_created)).into();

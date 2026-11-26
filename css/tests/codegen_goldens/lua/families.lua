@@ -7,7 +7,7 @@ local M = {}
 
 -- CSS: .text
 function M.style_text()
-    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[63]', {
+    return C.AzCssPropertyWithConditionsVec_copyFromPtr(ffi.new('AzCssPropertyWithConditions[67]', {
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textColor(ffi.new('AzStyleTextColor', { inner = ffi.new('AzColorU', { r = 51, g = 102, b = 153, a = 255 }) }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_fontSize(ffi.new('AzStyleFontSize', { inner = C.AzPixelValue_px(14.0) }))),
         C.AzCssPropertyWithConditions_simple(
@@ -69,6 +69,10 @@ function M.style_text()
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_direction(ffi.new('AzStyleDirectionValue', { Exact = { tag = 6, payload = C.AzStyleDirection_Rtl } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_userSelect(C.AzStyleUserSelect_None)),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textDecoration(C.AzStyleTextDecoration_Underline)),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textDecorationColor(ffi.new('AzStyleTextDecorationColorValue', { Exact = { tag = 6, payload = C.AzStyleTextDecorationColor_color(ffi.new('AzColorU', { r = 204, g = 51, b = 0, a = 255 })) } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textDecorationThickness(ffi.new('AzStyleTextDecorationThicknessValue', { Exact = { tag = 6, payload = C.AzStyleTextDecorationThickness_length(C.AzPixelValue_px(2.0)) } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textUnderlineOffset(ffi.new('AzStyleTextUnderlineOffsetValue', { Exact = { tag = 6, payload = C.AzStyleTextUnderlineOffset_length(C.AzPixelValue_px(3.0)) } }))),
+        C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textUnderlinePosition(ffi.new('AzStyleTextUnderlinePositionValue', { Exact = { tag = 6, payload = C.AzStyleTextUnderlinePosition_UnderLeft } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_hyphenationLanguage(ffi.new('AzStyleHyphenationLanguageValue', { Exact = { tag = 6, payload = ffi.new('AzStyleHyphenationLanguage', { inner = azul._az_string("en-US") }) } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_exclusionMargin(ffi.new('AzStyleExclusionMarginValue', { Exact = { tag = 6, payload = ffi.new('AzStyleExclusionMargin', { inner = C.AzFloatValue_create(10.5) }) } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_caretColor(ffi.new('AzCaretColor', { inner = ffi.new('AzColorU', { r = 255, g = 0, b = 0, a = 255 }) }))),
@@ -78,7 +82,7 @@ function M.style_text()
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_selectionColor(ffi.new('AzSelectionColor', { inner = ffi.new('AzColorU', { r = 255, g = 255, b = 255, a = 255 }) }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_selectionRadius(ffi.new('AzSelectionRadiusValue', { Exact = { tag = 6, payload = ffi.new('AzSelectionRadius', { inner = C.AzPixelValue_px(3.0) }) } }))),
         C.AzCssPropertyWithConditions_simple(C.AzCssProperty_font(C.AzStyleFontFamilyVec_copyFromPtr(ffi.new('AzStyleFontFamily[1]', { C.AzStyleFontFamily_system(azul._az_string("caption")) }), 1))),
-    }), 63)
+    }), 67)
 end
 
 -- CSS: .shorthands

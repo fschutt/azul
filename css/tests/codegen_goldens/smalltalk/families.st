@@ -65,6 +65,10 @@ dropped a value these bindings cannot build: the Smalltalk bindings define no cl
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleTextAlignLastValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleTextTransformValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleDirectionValue` or its CssPropertyValue<T> payload
+dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleTextDecorationColorValue` or its CssPropertyValue<T> payload
+dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleTextDecorationThicknessValue` or its CssPropertyValue<T> payload
+dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleTextUnderlineOffsetValue` or its CssPropertyValue<T> payload
+dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleTextUnderlinePositionValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleHyphenationLanguageValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `StyleExclusionMarginValue` or its CssPropertyValue<T> payload
 dropped a value these bindings cannot build: the Smalltalk bindings define no class for `CaretWidthValue` or its CssPropertyValue<T> payload

@@ -732,6 +732,7 @@ impl FormatAsRustCode for StyleTextDecorationColor {
 /// size of the box that sets the line, whatever the font size of the text under it.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C, u8)]
+#[allow(variant_size_differences)]
 pub enum StyleTextDecorationThickness {
     /// `auto`: the thickness the font size suggests
     #[default]
@@ -763,6 +764,115 @@ impl FormatAsRustCode for StyleTextDecorationThickness {
                 crate::codegen::format::format_pixel_value(length)
             ),
         }
+    }
+}
+
+// -- StyleTextUnderlineOffset --
+
+/// `text-underline-offset` (CSS Text Decoration 4): how far an underline is moved from its initial
+/// place. Inherited.
+///
+/// A length moves the line down, a negative one up; an `em` and a percentage (of one em) are parts
+/// of the font size of the box that sets the line, whatever the font size of the text under it.
+/// The offset moves no overline and no line-through.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C, u8)]
+#[allow(variant_size_differences)]
+pub enum StyleTextUnderlineOffset {
+    /// `auto`: the place the font size suggests
+    #[default]
+    Auto,
+    /// A length, or a percentage of the font size
+    Length(PixelValue),
+}
+
+impl PrintAsCssValue for StyleTextUnderlineOffset {
+    fn print_as_css_value(&self) -> String {
+        match self {
+            Self::Auto => String::from("auto"),
+            Self::Length(length) => length.print_as_css_value(),
+        }
+    }
+}
+
+#[cfg(feature = "codegen")]
+impl FormatAsRustCode for StyleTextUnderlineOffset {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        match self {
+            Self::Auto => "StyleTextUnderlineOffset::Auto".to_string(),
+            Self::Length(length) => format!(
+                "StyleTextUnderlineOffset::Length({})",
+                crate::codegen::format::format_pixel_value(length)
+            ),
+        }
+    }
+}
+
+// -- StyleTextUnderlinePosition --
+
+/// `text-underline-position` (CSS Text Decoration 4): on which side of the text an underline is
+/// drawn. Inherited.
+///
+/// `auto` and `from-font` put it at the place of the font (`from-font` asks the face for that
+/// place); `under` puts it below the descenders, where the em box ends. `left` and `right` choose
+/// the side of the text an underline is drawn on in vertical text; a horizontal line has none.
+/// The keywords of the two groups, `[from-font | under]` and `[left | right]`, come in either order.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(C)]
+pub enum StyleTextUnderlinePosition {
+    #[default]
+    Auto,
+    FromFont,
+    Under,
+    Left,
+    Right,
+    FromFontLeft,
+    FromFontRight,
+    UnderLeft,
+    UnderRight,
+}
+
+impl StyleTextUnderlinePosition {
+    /// Every value with its canonical spelling, in the grammar's order.
+    pub const ALL: [(Self, &'static str); 9] = [
+        (Self::Auto, "auto"),
+        (Self::FromFont, "from-font"),
+        (Self::Under, "under"),
+        (Self::Left, "left"),
+        (Self::Right, "right"),
+        (Self::FromFontLeft, "from-font left"),
+        (Self::FromFontRight, "from-font right"),
+        (Self::UnderLeft, "under left"),
+        (Self::UnderRight, "under right"),
+    ];
+
+    /// The canonical CSS spelling of this value.
+    #[must_use]
+    pub const fn keywords(&self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::FromFont => "from-font",
+            Self::Under => "under",
+            Self::Left => "left",
+            Self::Right => "right",
+            Self::FromFontLeft => "from-font left",
+            Self::FromFontRight => "from-font right",
+            Self::UnderLeft => "under left",
+            Self::UnderRight => "under right",
+        }
+    }
+}
+
+impl PrintAsCssValue for StyleTextUnderlinePosition {
+    fn print_as_css_value(&self) -> String {
+        self.keywords().to_string()
+    }
+}
+
+#[cfg(feature = "codegen")]
+impl FormatAsRustCode for StyleTextUnderlinePosition {
+    fn format_as_rust_code(&self, _tabs: usize) -> String {
+        format!("StyleTextUnderlinePosition::{self:?}")
     }
 }
 
@@ -2627,7 +2737,7 @@ pub fn parse_style_text_decoration_color(
     if input.eq_ignore_ascii_case("currentcolor") {
         return Ok(StyleTextDecorationColor::CurrentColor);
     }
-    crate::props::basic::color::parse_color_or_system_token(input)
+    parse_color_or_system_token(input)
         .map(StyleTextDecorationColor::Color)
         .map_err(|_| InvalidValueErr(input))
 }
@@ -2655,6 +2765,66 @@ pub fn parse_style_text_decoration_thickness(
         return Err(InvalidValueErr(input));
     }
     Ok(StyleTextDecorationThickness::Length(length))
+}
+
+#[cfg(feature = "parser")]
+/// Parses a `text-underline-offset` value: `auto` (in any case), a length or a percentage.
+///
+/// # Errors
+///
+/// Returns an error if `input` is none of these.
+pub fn parse_style_text_underline_offset(
+    input: &str,
+) -> Result<StyleTextUnderlineOffset, InvalidValueErr<'_>> {
+    let input = input.trim();
+    if input.eq_ignore_ascii_case("auto") {
+        return Ok(StyleTextUnderlineOffset::Auto);
+    }
+    crate::props::basic::pixel::parse_pixel_value(input)
+        .map(StyleTextUnderlineOffset::Length)
+        .map_err(|_| InvalidValueErr(input))
+}
+
+#[cfg(feature = "parser")]
+/// Parses a `text-underline-position` value: `auto` alone, or `from-font` or `under` and `left` or
+/// `right`, each group at most once, in either order, in any case.
+///
+/// # Errors
+///
+/// Returns an error if `input` is none of these.
+pub fn parse_style_text_underline_position(
+    input: &str,
+) -> Result<StyleTextUnderlinePosition, InvalidValueErr<'_>> {
+    let input = input.trim();
+    if input.eq_ignore_ascii_case("auto") {
+        return Ok(StyleTextUnderlinePosition::Auto);
+    }
+    // `Some(true)`: under, `Some(false)`: from-font; `Some(true)`: left, `Some(false)`: right
+    let (mut under, mut left) = (None, None);
+    for word in input.split_ascii_whitespace() {
+        if word.eq_ignore_ascii_case("under") && under.is_none() {
+            under = Some(true);
+        } else if word.eq_ignore_ascii_case("from-font") && under.is_none() {
+            under = Some(false);
+        } else if word.eq_ignore_ascii_case("left") && left.is_none() {
+            left = Some(true);
+        } else if word.eq_ignore_ascii_case("right") && left.is_none() {
+            left = Some(false);
+        } else {
+            return Err(InvalidValueErr(input));
+        }
+    }
+    match (under, left) {
+        (None, None) => Err(InvalidValueErr(input)),
+        (Some(false), None) => Ok(StyleTextUnderlinePosition::FromFont),
+        (Some(true), None) => Ok(StyleTextUnderlinePosition::Under),
+        (None, Some(true)) => Ok(StyleTextUnderlinePosition::Left),
+        (None, Some(false)) => Ok(StyleTextUnderlinePosition::Right),
+        (Some(false), Some(true)) => Ok(StyleTextUnderlinePosition::FromFontLeft),
+        (Some(false), Some(false)) => Ok(StyleTextUnderlinePosition::FromFontRight),
+        (Some(true), Some(true)) => Ok(StyleTextUnderlinePosition::UnderLeft),
+        (Some(true), Some(false)) => Ok(StyleTextUnderlinePosition::UnderRight),
+    }
 }
 
 #[cfg(feature = "parser")]

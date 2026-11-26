@@ -40,6 +40,10 @@ PROC css str = (STRING s) AZSTRING:
 # dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleTextAlignLastValue` (CssPropertyValue<T>) #
 # dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleTextTransformValue` (CssPropertyValue<T>) #
 # dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleDirectionValue` (CssPropertyValue<T>) #
+# dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleTextDecorationColorValue` (CssPropertyValue<T>) #
+# dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleTextDecorationThicknessValue` (CssPropertyValue<T>) #
+# dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleTextUnderlineOffsetValue` (CssPropertyValue<T>) #
+# dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleTextUnderlinePositionValue` (CssPropertyValue<T>) #
 # dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleHyphenationLanguageValue` (CssPropertyValue<T>) #
 # dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `StyleExclusionMarginValue` (CssPropertyValue<T>) #
 # dropped a value these bindings cannot build: the ALGOL 68 bindings declare no MODE for `CaretWidthValue` (CssPropertyValue<T>) #

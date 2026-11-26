@@ -40,57 +40,111 @@ def fail(check: str, msg: str) -> None:
 
 # --------------------------------------------------------------------------
 # 1. Demo naming: package == [[bin]] name == release asset stem, all AzXxx.
+#
+# WHICH apps: every [[app]] of scripts/demo_apps.toml, the ONE list of the demo apps (rust.yml builds
+# from it, the release page is generated from it). This keeps no list of its own and does not read the
+# workflow: `scripts/demo_apps.py check` is what holds rust.yml to the manifest.
+#
+# This job runs on the runner's own python3 (3.10 on ubuntu-22.04: no tomllib), so the manifest is read
+# line by line like the Cargo.toml files below; scripts/test_preflight_contracts.py holds that reader to
+# tomllib on the real manifest.
 # --------------------------------------------------------------------------
-DEMO_DIRS = {
-    "AzWidgets": "azul-widgets",
-    "AzMaps": "azul-maps",
-    "AzPaint": "azul-paint",
-    "AzMeet": "azul-meet",
-    "AzWriter": "azul-writer",
-}
+DEMO_MANIFEST = "scripts/demo_apps.toml"
+STRING_KEY = re.compile(r'^(?P<key>[A-Za-z0-9_-]+)\s*=\s*"(?P<value>[^"]*)"')
+
+
+def parse_demo_manifest(text: str) -> list[dict]:
+    """[{"package", "dir", "pending"}] of every [[app]] of a scripts/demo_apps.toml text, in order.
+
+    `package` and `dir` are the string keys of the [[app]] table itself; `pending` is true when the app
+    has a `known_failing` table (or key): its build is listed as a known failure, with the reason, and the
+    app is not held to a binary it does not have yet. Sub-tables ([app.android], [app.ios.usage]) belong
+    to the app above them, any other table ends it."""
+    apps: list[dict] = []
+    in_app_table = False
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("["):
+            header = line.split("#", 1)[0].strip()
+            in_app_table = header == "[[app]]"
+            if in_app_table:
+                apps.append({"package": None, "dir": None, "pending": False})
+            elif header == "[app.known_failing]" and apps:
+                apps[-1]["pending"] = True
+            continue
+        if not in_app_table:
+            continue
+        m = STRING_KEY.match(line)
+        if m and m.group("key") in ("package", "dir"):
+            apps[-1][m.group("key")] = m.group("value")
+        elif line.startswith("known_failing"):
+            apps[-1]["pending"] = True  # the inline form: known_failing = { android = "why" }
+    return apps
+
+
+def cargo_names(text: str) -> tuple:
+    """(the [package] name, the name of every [[bin]]) of a Cargo.toml text."""
+    package = None
+    bins: list[str] = []
+    table = ""
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith("["):
+            table = line.split("#", 1)[0].strip()
+            continue
+        m = STRING_KEY.match(line)
+        if not m or m.group("key") != "name":
+            continue
+        if table == "[package]" and package is None:
+            package = m.group("value")
+        elif table == "[[bin]]":
+            bins.append(m.group("value"))
+    return package, bins
 
 
 def check_demo_naming() -> None:
-    for pkg, d in DEMO_DIRS.items():
-        manifest = ROOT / "examples" / d / "Cargo.toml"
-        if not manifest.is_file():
-            fail("demo-naming", f"{pkg}: examples/{d}/Cargo.toml is missing")
+    manifest = ROOT / DEMO_MANIFEST
+    if not manifest.is_file():
+        fail("demo-naming", f"{DEMO_MANIFEST} is missing: it is the one list of the demo apps")
+        return
+    text = manifest.read_text(encoding="utf-8")
+    apps = parse_demo_manifest(text)
+    tables = sum(1 for line in text.splitlines() if line.strip() == "[[app]]")
+    if not apps or len(apps) != tables:
+        fail("demo-naming", f"{DEMO_MANIFEST}: read {len(apps)} apps for {tables} [[app]] tables")
+        return
+    seen: set[str] = set()
+    for app in apps:
+        pkg, d = app["package"], app["dir"]
+        if not pkg or not d:
+            fail("demo-naming", f"{DEMO_MANIFEST}: an [[app]] without a package or a dir: {app}")
             continue
-        text = manifest.read_text()
-        m = re.search(r'(?m)^name = "([^"]+)"', text)
-        if not m or m.group(1) != pkg:
+        if pkg in seen:
+            fail("demo-naming", f"{pkg} is listed twice in {DEMO_MANIFEST}")
+        seen.add(pkg)
+        if not (pkg.startswith("Az") and len(pkg) > 2 and pkg[2].isupper() and pkg.isalnum()):
+            fail("demo-naming", f"package '{pkg}' breaks the AzXxx convention")
+        cargo = ROOT / d / "Cargo.toml"
+        if not cargo.is_file():
+            fail("demo-naming", f"{pkg}: {d}/Cargo.toml is missing")
+            continue
+        package, bins = cargo_names(cargo.read_text(encoding="utf-8"))
+        if package != pkg:
             fail(
                 "demo-naming",
-                f"examples/{d} declares package '{m.group(1) if m else '?'}', expected '{pkg}'",
+                f"{d} declares package '{package or '?'}', {DEMO_MANIFEST} says '{pkg}'",
             )
-        # [[bin]] name, if declared, must equal the package
-        in_bin = False
-        for line in text.splitlines():
-            t = line.strip()
-            if t.startswith("["):
-                in_bin = t == "[[bin]]"
-                continue
-            if in_bin and t.startswith("name"):
-                got = t.split("=", 1)[1].strip().strip('"')
-                if got != pkg:
-                    fail(
-                        "demo-naming",
-                        f"{pkg} builds a binary named '{got}'. CI stages the binary "
-                        f"cargo reports, but the release page links '<package>-<os>' — "
-                        f"a mismatch is a 404 that no job reports as an error.",
-                    )
-                in_bin = False
-        if not (pkg.startswith("Az") and len(pkg) > 2 and pkg[2].isupper()):
-            fail("demo-naming", f"package '{pkg}' breaks the AzXxx convention")
-
-    wf = (ROOT / ".github/workflows/rust.yml").read_text()
-    expected = " ".join(DEMO_DIRS)
-    if expected not in wf:
-        fail(
-            "demo-naming",
-            f"the workflow's demo loop no longer reads '{expected}' — this checker "
-            f"and the workflow disagree about what ships",
-        )
+        # the staged binary must be the one the page links: one [[bin]] is named after the package
+        # (an app whose build is a known failure says why in the manifest and is not held to it)
+        if bins and pkg not in bins and not app["pending"]:
+            fail(
+                "demo-naming",
+                f"{pkg} builds no binary named '{pkg}' (its [[bin]] are {bins}). CI stages the "
+                f"binary cargo reports, but the release page links '<package>-<os>' - "
+                f"a mismatch is a 404 that no job reports as an error.",
+            )
 
 
 # --------------------------------------------------------------------------
