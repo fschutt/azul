@@ -463,7 +463,9 @@ class FloorApkTest(unittest.TestCase):
         self.assertIn("scripts/android/debug.keystore", script)
         for tool in ("aapt2", "d8", "zipalign", "apksigner", "javac"):
             self.assertIn(tool, script)
-        self.assertNotIn("cargo", "\n".join(l for l in script.splitlines() if not l.lstrip().startswith("#")))
+        code = "\n".join(l for l in script.splitlines() if not l.lstrip().startswith("#"))
+        self.assertNotIn("cargo", code)
+        self.assertNotRegex(code, r"\brm\b")   # it is run on developers' machines too: it never deletes
         self.assertEqual(subprocess.run(["bash", "-n", str(self.dir / "build.sh")]).returncode, 0)
 
 

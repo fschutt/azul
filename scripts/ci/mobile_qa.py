@@ -30,6 +30,7 @@ import re
 import struct
 import subprocess
 import sys
+import tempfile
 import time
 import zlib
 from pathlib import Path
@@ -595,8 +596,11 @@ class Android:
     def wait_for_front(self, timeout=40):
         """Seconds until the app is alive, has the focus and its screen is neither flat nor the launcher; None on timeout."""
         t0 = time.time()
+        seen_alive = False
         while time.time() - t0 < timeout:
-            if self.alive() and self.foreground():
+            alive = self.alive()
+            if alive and self.foreground():
+                seen_alive = True
                 try:
                     sig, _w, _h, _rgba = signature_android_raw(self.adb("exec-out", "screencap", binary=True, timeout=60))
                 except ValueError:
@@ -604,6 +608,10 @@ class Android:
                 if sig and not is_flat(sig) and (self.home_sig is None or sig_diff(sig, self.home_sig) > LAUNCHER_BELOW):
                     self.last_sig = sig
                     return time.time() - t0
+            elif alive:
+                seen_alive = True
+            elif seen_alive:
+                return None           # it was running and is gone: it died, waiting longer shows nothing
             time.sleep(1.0)
         return None
 
@@ -1157,37 +1165,40 @@ class IOS:
         return bool(self.pid())
 
     # -- the picture
-    def capture(self, name):
-        """PNG from simctl; the signature from a small BMP made of it with sips. -> (signature, w, h, filename)."""
-        self.shot_count += 1
-        fname = f"{self.shot_count:02d}-{name}.png"
-        path = self.run.shots_dir / fname
+    def capture(self, name, keep=True):
+        """PNG from simctl; the signature from a small BMP made of it with sips. -> (signature, w, h, filename).
+        `keep=False` (the polls of wait_for_front) writes into the system temp folder and counts no picture: nothing of
+        this script deletes a file, temp files stay in the runner's temp folder."""
+        if keep:
+            self.shot_count += 1
+            fname = f"{self.shot_count:02d}-{name}.png"
+            path = self.run.shots_dir / fname
+        else:
+            fname = ""
+            path = Path(tempfile.gettempdir()) / f"azqa-{os.getpid()}-poll.png"
         rc, _o, err = self.simctl("io", self.udid, "screenshot", "--type=png", str(path), timeout=90)
         if rc != 0 or not path.exists():
             raise RuntimeError(f"simctl io screenshot failed: {err.strip()[:200]}")
         w, h = png_size(path)
-        small = self.run.shots_dir / f".sig-{self.shot_count}.bmp"
+        small = Path(tempfile.gettempdir()) / f"azqa-{os.getpid()}-sig-{time.time_ns()}.bmp"
         rc, _o, err = self.x("sips", "-z", "240", "120", "--setProperty", "format", "bmp", str(path), "--out", str(small), timeout=60)
         if rc != 0 or not small.exists():
             raise RuntimeError(f"sips could not reduce the picture: {err.strip()[:200]}")
         sig, _sw, _sh, _px = parse_bmp(small.read_bytes())
-        small.unlink()
         self.dims = (w, h)
-        self.last_png = path
+        if keep:
+            self.last_png = path
         return sig, w, h, fname
 
     def last_rgba_full(self):
         """The full-resolution pixels of the last picture (sips makes a BMP of the PNG). -> (rgba, w, h) | None"""
         if not getattr(self, "last_png", None):
             return None
-        big = self.run.shots_dir / f".full-{self.shot_count}.bmp"
+        big = Path(tempfile.gettempdir()) / f"azqa-{os.getpid()}-full-{time.time_ns()}.bmp"
         rc, _o, _e = self.x("sips", "--setProperty", "format", "bmp", str(self.last_png), "--out", str(big), timeout=120)
         if rc != 0 or not big.exists():
             return None
-        try:
-            _sig, w, h, rgba = parse_bmp(big.read_bytes())
-        finally:
-            big.unlink()
+        _sig, w, h, rgba = parse_bmp(big.read_bytes())
         return rgba, w, h
 
     def console_text(self, launch_no=None):
@@ -1239,18 +1250,21 @@ class IOS:
 
     def wait_for_front(self, timeout=45):
         t0 = time.time()
+        seen_alive = False
         while time.time() - t0 < timeout:
             if self.alive():
+                seen_alive = True
                 try:
-                    sig, _w, _h, _f = self.capture("poll")
+                    sig, _w, _h, _f = self.capture("poll", keep=False)
                 except RuntimeError:
                     sig = None
-                self.shot_count -= 1
-                for p in self.run.shots_dir.glob(f"{self.shot_count + 1:02d}-poll.png"):
-                    p.unlink()
                 if sig and not is_flat(sig) and (self.home_sig is None or sig_diff(sig, self.home_sig) > LAUNCHER_BELOW):
                     self.last_sig = sig
                     return time.time() - t0
+            elif seen_alive:
+                return None           # it was running and is gone: it died, waiting longer shows nothing
+            elif time.time() - t0 > 15:
+                return None           # it never started
             time.sleep(1.0)
         return None
 
@@ -1278,10 +1292,8 @@ class IOS:
         in landscape. Tests the landscape LAYOUT where the rotation itself cannot be pressed. -> the new .app path."""
         import plistlib
         import shutil
-        dst = self.run.logs_dir / "landscape-app" / Path(self.app_dir).name
-        if dst.parent.exists():
-            shutil.rmtree(dst.parent)
-        dst.parent.mkdir(parents=True)
+        # a folder of its own in the runner's temp area: nothing is deleted, nothing of the copy lands in the artifacts
+        dst = Path(tempfile.mkdtemp(prefix="azqa-landscape-")) / Path(self.app_dir).name
         shutil.copytree(self.app_dir, dst, symlinks=True)
         info_path = dst / "Info.plist"
         info = plistlib.loads(info_path.read_bytes())

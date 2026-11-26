@@ -86,13 +86,10 @@ class SignatureTests(unittest.TestCase):
     def test_the_png_writer_makes_a_png_that_inflates_to_the_pixels(self):
         w, h = 5, 3
         px = bytes(range(w * h * 4))
-        path = Path(__file__).resolve().parent / "_test_out.png"
-        try:
-            q.write_png(path, w, h, px)
-            data = path.read_bytes()
-        finally:
-            if path.exists():
-                path.unlink()
+        import tempfile
+        path = Path(tempfile.mkdtemp(prefix="azqa-test-")) / "out.png"     # a temp folder of its own: nothing is deleted
+        q.write_png(path, w, h, px)
+        data = path.read_bytes()
         self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
         width, height = struct.unpack(">II", data[16:24])
         self.assertEqual((width, height), (w, h))
@@ -212,13 +209,10 @@ class BmpVariantTests(unittest.TestCase):
         self.assertEqual(len(sig), q.COLS * q.ROWS * 3)
 
     def test_png_size_reads_the_header(self):
-        path = Path(__file__).resolve().parent / "_test_size.png"
-        try:
-            q.write_png(path, 7, 9, bytes(7 * 9 * 4))
-            self.assertEqual(q.png_size(path), (7, 9))
-        finally:
-            if path.exists():
-                path.unlink()
+        import tempfile
+        path = Path(tempfile.mkdtemp(prefix="azqa-test-")) / "size.png"     # a temp folder of its own: nothing is deleted
+        q.write_png(path, 7, 9, bytes(7 * 9 * 4))
+        self.assertEqual(q.png_size(path), (7, 9))
 
 
 class ModeComparisonTests(unittest.TestCase):
