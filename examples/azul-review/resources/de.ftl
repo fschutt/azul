@@ -173,3 +173,18 @@ azreview-agent-problem-unknown-field = { $field }: keine solche Einstellung ({ $
 azreview-agent-field-effort = Aufwand
 azreview-agent-hint-effort = Wie gründlich das Modell nachdenkt: low ist schnell und billig, max gründlich. Leer: der Standard des Modells. Ein Modell, das Aufwand nicht kennt, lehnt ihn ab: leere dann die Zeile.
 azreview-agent-problem-not-a-choice = { $field }: „{ $word }“ gehört nicht zu den Möglichkeiten ({ $choices })
+
+## Der Symbolindex: was der Prüfer sagt, dem Code zugeordnet (symbols*.rs)
+azreview-symbols-status-walking = Suche Code-Dateien: { $found } gefunden, { $done } gelesen
+azreview-symbols-status-indexing = Indiziere Code: { $done } von { $found } Dateien
+azreview-symbols-status-ready = { $found } Code-Dateien indiziert
+azreview-symbols-note-file-capped = { $file } hat mehr Definitionen, als der Index behält ({ $cap }): die ersten wurden indiziert.
+azreview-symbols-note-index-full = Der Index enthält so viele Definitionen, wie er darf ({ $cap }): der Rest des Arbeitsbereichs ist nicht indiziert.
+azreview-symbols-note-memory-full = Der Index hat den Speicher erreicht, den er belegen darf ({ $mb } MB): der Rest des Arbeitsbereichs ist nicht indiziert.
+azreview-symbols-note-too-many-files = Der Arbeitsbereich hat mehr Dateien, als der Index behält ({ $cap }): der Rest ist nicht indiziert.
+azreview-symbols-skip-unknown-type = keine Dateiart, die der Index liest
+azreview-symbols-skip-too-large = größer, als der Index liest
+azreview-symbols-skip-binary = kein Text
+azreview-symbols-skip-generated = von einem Werkzeug erzeugt
+azreview-symbols-skip-minified = Zeilen, die niemand von Hand geschrieben hat
+azreview-symbols-skip-unreadable = konnte nicht gelesen werden
