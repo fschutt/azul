@@ -3686,7 +3686,7 @@ impl Runner {
                 if recorded.is_some() && !lw.timers.contains_key(&SCROLL_MOMENTUM_TIMER_ID) {
                     use crate::{
                         scroll_timer::{scroll_physics_timer_callback, ScrollPhysicsState},
-                        timer::Timer,
+                        timer::{Timer, TimerCallbackType},
                     };
                     let physics = lw
                         .system_style
@@ -3696,9 +3696,11 @@ impl Runner {
                     let interval_ms = physics.timer_interval_ms.max(1);
                     let state =
                         ScrollPhysicsState::new(lw.scroll_manager.get_input_queue(), physics);
+                    // `Timer::create` takes `Into<TimerCallback>`: the fn item must be the fn pointer first.
+                    let callback: TimerCallbackType = scroll_physics_timer_callback;
                     let timer = Timer::create(
                         RefAny::new(state),
-                        scroll_physics_timer_callback,
+                        callback,
                         self.system_callbacks.get_system_time_fn,
                     )
                     .with_interval(azul_core::task::Duration::System(
