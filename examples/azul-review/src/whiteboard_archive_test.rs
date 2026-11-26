@@ -152,6 +152,19 @@ fn what_is_no_board_archive_is_told_so_and_never_a_panic() {
 }
 
 #[test]
+fn an_archive_whose_directory_declares_far_more_than_a_board_is_refused_before_it_is_unpacked() {
+    let (_, mut zip) = archive(&board(), "w", 1).expect("an archive");
+    assert!(load(&zip, &LIMITS).is_ok(), "the archive as it was written");
+    // The first record of the central directory (50 4b 01 02) now declares 3 GB for its entry, as a zip bomb would.
+    let at = zip.windows(4).position(|w| w == [0x50, 0x4b, 0x01, 0x02]).expect("a directory");
+    zip[at + 24..at + 28].copy_from_slice(&3_000_000_000_u32.to_le_bytes());
+    match load(&zip, &LIMITS) {
+        Err(StoreError::TooLarge { bytes }) => assert!(bytes >= 3_000_000_000, "{bytes}"),
+        other => panic!("expected TooLarge, got {:?}", other.map(|_| ())),
+    }
+}
+
+#[test]
 fn a_picture_that_is_no_png_leaves_its_cutout_with_the_lines() {
     let data = board();
     let mut entries = store::write(&data, "w", 1);

@@ -145,6 +145,10 @@ pub fn load(bytes: &[u8], limits: &Limits) -> Result<Loaded, StoreError> {
     if bytes.len() > MAX_ARCHIVE_BYTES {
         return Err(StoreError::TooLarge { bytes: bytes.len() });
     }
+    // The reader unpacks every entry as soon as it parses the archive: the directory says first what that would be.
+    if let Err(declared) = store::check_unpacked(bytes, limits) {
+        return Err(StoreError::TooLarge { bytes: usize::try_from(declared).unwrap_or(usize::MAX) });
+    }
     let zip = Zip::from_bytes(bytes.to_vec());
     if !zip.is_valid() || !zip.contains(store::MANIFEST) {
         return Err(StoreError::NotABoard("it is no archive with a board in it".to_string()));
