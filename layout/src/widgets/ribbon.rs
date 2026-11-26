@@ -1512,9 +1512,10 @@ fn theme_combo_arrow(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
 
 // -- Mobile part styles --
 //
-// Touch targets follow the platform minimum (44px). The desktop tab strip
-// and the mobile tab button are mutually exclusive via the viewport
-// condition, so exactly one is ever visible.
+// Touch targets are at least 48px (Material's touch target, which is also
+// more than Apple's 44pt). The desktop tab strip and the mobile tab button
+// are mutually exclusive via the viewport condition, so exactly one is ever
+// visible.
 
 /// The full-width tab button that replaces the tab strip on phones. Shows the
 /// ACTIVE tab's label plus a chevron that opens the tab overlay; double
@@ -1658,7 +1659,7 @@ fn theme_mobile_group_list_item(t: &RibbonTheme) -> CssPropertyWithConditionsVec
         cond_border_box(),
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
-        Cond::simple(P::const_height(LayoutHeight::const_px(44))),
+        Cond::simple(P::const_height(LayoutHeight::const_px(48))),
         Cond::simple(P::const_font_size(StyleFontSize::const_px(15))),
     ];
     v.extend(text_both(t, |p| p.text));
@@ -1759,6 +1760,14 @@ static CLS_MOBILE_TAB_OVERLAY: &[IdOrClass] = &[Class(AzString::from_const_str(
 static CLS_MOBILE_TAB_OVERLAY_ITEM: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-ribbon-mobile-tab-overlay-item",
 ))];
+/// The picker's row for the application button: a row of the picker, and the one that is the button.
+const MOBILE_FILE_ENTRY_CLASS: &str = "__azul-native-ribbon-mobile-file";
+static CLS_MOBILE_TAB_OVERLAY_FILE: &[IdOrClass] = &[
+    Class(AzString::from_const_str(
+        "__azul-native-ribbon-mobile-tab-overlay-item",
+    )),
+    Class(AzString::from_const_str(MOBILE_FILE_ENTRY_CLASS)),
+];
 static CLS_MOBILE_GROUP_LIST: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-ribbon-mobile-group-list",
 ))];
@@ -3878,6 +3887,17 @@ impl Ribbon {
         // The first tab stands right after the application button when there
         // is one: a stone of its own, over the strip's rule.
         let after_the_app_button = app_button.is_some();
+        // The touch chrome's tab picker lists the application button first
+        // ("File"): the tab strip that holds the button is not shown on a
+        // phone, and the backstage or the menu the button opens had no other
+        // way in.
+        let file_entry = match mode {
+            RibbonChromeMode::Desktop => None,
+            RibbonChromeMode::Adaptive | RibbonChromeMode::Mobile => app_button
+                .clone()
+                .into_option()
+                .map(|ab| mobile_file_entry(ab, &style)),
+        };
 
         if let Some(ab) = app_button.into_option() {
             let RibbonAppButton {
@@ -4205,6 +4225,7 @@ impl Ribbon {
                 item
             })
             .collect();
+        let overlay_items: Vec<Dom> = file_entry.into_iter().chain(overlay_items).collect();
         let mobile_tab_overlay = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_MOBILE_TAB_OVERLAY))
             .with_css_props(style.resolved_mobile_tab_overlay_style())
@@ -5184,6 +5205,41 @@ fn split_button_dom(rb: RibbonButton, large: bool, s: &RibbonStyle, theme: UiThe
         .with_children(DomVec::from_vec(vec![main, arrow]))
 }
 
+/// The application button as a row of the touch chrome's tab picker: the same label, the same click
+/// (and the same menu, hung on the row) as the button of the desktop tab strip, in the look of the
+/// picker's other rows. The picker closes when the app's click rebuilds the window, as it does for a
+/// tab.
+fn mobile_file_entry(ab: RibbonAppButton, style: &RibbonStyle) -> Dom {
+    let RibbonAppButton {
+        label,
+        on_click,
+        menu,
+    } = ab;
+    let mut row = Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_MOBILE_TAB_OVERLAY_FILE))
+        .with_css_props(style.resolved_mobile_tab_overlay_item_style())
+        .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(
+            label,
+        )]));
+    if let Some(oc) = on_click.into_option() {
+        row = row.with_callbacks(
+            vec![CoreCallbackData {
+                event: EventFilter::Hover(HoverEventFilter::Click),
+                callback: CoreCallback {
+                    cb: oc.callback.cb as *const () as usize,
+                    ctx: oc.callback.ctx,
+                },
+                refany: oc.refany,
+            }]
+            .into(),
+        );
+    }
+    if let Some(menu) = menu.into_option() {
+        crate::widgets::ribbon_file_menu::hang_on_app_button(&mut row, menu);
+    }
+    row
+}
+
 /// One item in the ribbon's theme. An embedded widget the caller left
 /// without a theme (`None`) is part of the ribbon's look and is built in
 /// `theme`; one the caller pinned keeps its pin. A gallery shows at most
@@ -5229,7 +5285,12 @@ fn item_dom(
             if drop.theme.is_none() {
                 drop.set_theme(theme);
             }
-            drop.dom()
+            // The ribbon's rows are as tall as its keys: the finger's floor of a page's drop-down (48 dp on
+            // Android) would push a row out of its 68 px band, so the band sizes it, like its buttons.
+            let mut dom = drop.dom();
+            dom.root.upsert_inline_css_property(P::const_min_height(LayoutMinHeight::const_px(0)));
+            dom.root.upsert_inline_css_property(P::const_min_width(LayoutMinWidth::const_px(0)));
+            dom
         }
         RibbonItem::Check(mut check) => {
             if check.theme.is_none() {
@@ -10239,3 +10300,8 @@ mod office_2010_kinds_tests {
 #[cfg(test)]
 #[path = "ribbon_scaling_tests.rs"]
 mod ribbon_scaling_tests;
+
+/// The touch chrome on a phone: the application button is the picker's first row, the rows are 48 px.
+#[cfg(test)]
+#[path = "ribbon_mobile_test.rs"]
+mod ribbon_mobile_test;
