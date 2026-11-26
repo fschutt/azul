@@ -829,7 +829,7 @@ fn every_plan_section_the_six_files_cite_exists_in_the_plan() {
 }
 
 #[test]
-#[ignore = "S5 fixture not landed: INT-WIRE writes the wire form of reg_link and fixtures/c4/reg_link.json (D-W1S16C1, X-DELTA-W1S16C1-17)"]
+#[ignore = "X-DELTA-W1S16C2-16: S5 fixture not landed: INT-WIRE writes the wire form of reg_link and fixtures/c4/reg_link.json (D-W1S16C1, X-DELTA-W1S16C1-17)"]
 fn reg_link_row_matches_azlin_contract_fixture() {
     let path = root().join("../azlin-contract/fixtures/c4/reg_link.json");
     let text = fs::read_to_string(&path)

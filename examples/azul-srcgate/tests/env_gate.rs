@@ -413,7 +413,7 @@ static W0: &[Allow] = &[
     Allow::exactly(
         "core/src/run_mode.rs",
         NAME,
-        10,
+        11,
         "TestHooks::from_env: the one place that knows which variable of the test run means what \
          (keyring_gate, RF38); a settings file of its own would be the same list",
     ),

@@ -1,0 +1,28 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "thought": true,
+            "text": "thinking about it"
+          },
+          {
+            "text": "{\"answer\": \"ok\", \"suggestions\": []}"
+          }
+        ]
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 1450,
+    "candidatesTokenCount": 14,
+    "totalTokenCount": 1481,
+    "thoughtsTokenCount": 17
+  },
+  "modelVersion": "gemini-2.5-flash",
+  "responseId": "0000000000000000"
+}

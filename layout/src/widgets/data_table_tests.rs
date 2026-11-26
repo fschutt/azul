@@ -1127,3 +1127,51 @@ fn rows_dragged_out_carry_the_selected_rows_and_tell_the_app() {
     )));
     assert!(events(&log).iter().any(|e| e.kind == DataTableEventKind::DragStart));
 }
+
+/// A cell without a number holds NaN (`empty()`, `create_text`), the one value the derived `==`
+/// calls unequal to itself: a blank cell was not equal to its own clone, and so not to another
+/// blank cell. The C API's `AzDataTableCell_partialEq` is this `==`; the generated conformance
+/// program found it (its derive round-trip: "a clone is not PartialEq-equal").
+#[test]
+fn a_blank_cell_equals_its_clone_and_every_other_blank_cell() {
+    let blanks = [
+        DataTableCell::empty(),
+        DataTableCell::default(),
+        DataTableCell::create_text(AzString::from("a text cell")),
+        DataTableCell::create(AzString::from(""), f64::NAN),
+        // A NaN of another sign and payload is the same blank: the order treats every NaN so.
+        DataTableCell::create(AzString::from("a text cell"), f64::from_bits(0xFFF8_0000_0000_0001)),
+    ];
+    for blank in &blanks {
+        assert!(blank.value.is_nan(), "{blank:?} has no number");
+        assert_eq!(blank, &blank.clone(), "{blank:?} and its clone");
+    }
+    assert_eq!(DataTableCell::empty(), DataTableCell::empty());
+    assert_eq!(blanks[2], blanks[4], "the same text, both without a number");
+}
+
+/// What the blank's equality leaves as it was: a cell is the text, the number and the icon.
+#[test]
+fn a_cell_differs_by_its_text_its_number_or_its_icon() {
+    let cell = DataTableCell::create(AzString::from("1.00"), 1.0);
+    assert_eq!(cell, cell.clone());
+    assert_ne!(cell, DataTableCell::create(AzString::from("1.00"), 2.0), "the number");
+    assert_ne!(cell, DataTableCell::create(AzString::from("1.0"), 1.0), "the text");
+    assert_ne!(cell, cell.clone().with_icon(AzString::from("folder")), "the icon");
+    assert_ne!(
+        DataTableCell::empty().with_icon(AzString::from("folder")),
+        DataTableCell::empty(),
+        "the icon of a blank"
+    );
+    assert_ne!(cell, DataTableCell::create(AzString::from("1.00"), f64::NAN), "a number is no blank");
+    assert_ne!(
+        DataTableCell::empty(),
+        DataTableCell::create(AzString::from(""), 0.0),
+        "a blank is not a zero"
+    );
+    assert_eq!(
+        DataTableCell::create(AzString::from("0"), 0.0),
+        DataTableCell::create(AzString::from("0"), -0.0),
+        "zero and negative zero are the same number, as `==` has it"
+    );
+}

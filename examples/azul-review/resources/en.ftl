@@ -57,6 +57,13 @@ azreview-whiteboard-jump-file-missing = The file is no longer there.
 azreview-whiteboard-store-not-a-board = This file is not a whiteboard AzReview can open ({ $why }). It is kept as it is and the whiteboard starts empty.
 azreview-whiteboard-store-too-new = This whiteboard was saved by a newer AzReview (its format is { $found }). It is left as it is and the whiteboard starts empty.
 azreview-whiteboard-store-too-large = This whiteboard's file is far larger than a whiteboard is ({ $bytes } bytes). It is kept as it is and the whiteboard starts empty.
+azreview-whiteboard-surface = Whiteboard
+azreview-whiteboard-empty = Circle some code with the pen and drag the circle to this bar to keep it here. Draw arrows between the pieces to show how they belong together.
+azreview-whiteboard-drawing = Drawing the picture...
+azreview-whiteboard-picture-missing = The picture is not available. These are the lines it shows:
+azreview-whiteboard-cutout-name = { $file }, lines { $first } to { $last }
+azreview-whiteboard-label-placeholder = Add a label
+azreview-whiteboard-label-name = Label of { $file }, lines { $first } to { $last }
 
 ## Dictation and the side column of notes
 
@@ -186,3 +193,6 @@ azreview-chip-suggested = a suggestion waits
 azreview-chip-done = done
 azreview-shortcut-files = Show or hide the files
 azreview-shortcut-whiteboard = Show or hide the whiteboard
+azreview-agent-field-effort = Effort
+azreview-agent-hint-effort = How hard the model thinks: low is fast and cheap, max is thorough. Empty: the model's own default. A model that does not know effort refuses it: clear the row then.
+azreview-agent-problem-not-a-choice = { $field }: "{ $word }" is not one of the choices ({ $choices })

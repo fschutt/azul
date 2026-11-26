@@ -55,6 +55,12 @@ pub struct Limits {
     pub max_stderr_bytes: usize,
     /// Bytes of an HTTP answer that are accepted.
     pub max_http_response_bytes: usize,
+    /// Segments of an export's cut list that are kept.
+    pub max_cut_segments: usize,
+    /// Stretches of speech an export prompt carries.
+    pub max_export_lines: usize,
+    /// Files, conversations, strokes, markers and idle gaps an export prompt lists, each.
+    pub max_export_items: usize,
 }
 
 impl Default for Limits {
@@ -80,6 +86,9 @@ impl Default for Limits {
             max_stdout_bytes: 2 * 1024 * 1024,
             max_stderr_bytes: 64 * 1024,
             max_http_response_bytes: 2 * 1024 * 1024,
+            max_cut_segments: 200,
+            max_export_lines: 600,
+            max_export_items: 40,
         }
     }
 }
@@ -112,6 +121,9 @@ impl Limits {
             max_stdout_bytes: s(self.max_stdout_bytes),
             max_stderr_bytes: s(self.max_stderr_bytes),
             max_http_response_bytes: s(self.max_http_response_bytes),
+            max_cut_segments: s(self.max_cut_segments),
+            max_export_lines: s(self.max_export_lines),
+            max_export_items: s(self.max_export_items),
         }
     }
 }
