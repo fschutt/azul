@@ -46,6 +46,9 @@ pub mod compositor2;
 pub mod webrender_settings;
 /// What the environment asks of the app start and the shells (the group D1 of the env pass)
 pub mod shell_settings;
+/// Where the first milliseconds of an app go: the marks of the start from the process creation to
+/// the first frame (`AZ_STARTUP=1`)
+pub mod startup_timeline;
 /// Client-Side Decorations (CSD) - Custom window titlebar
 pub(crate) mod csd;
 /// CSS type definitions / CSS parsing functions

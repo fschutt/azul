@@ -114,6 +114,14 @@ class AuditTests(unittest.TestCase):
         self.assertIn("clipping parent", why["Long label"])
         self.assertIn("window's right edge", why["Over the edge"])
 
+    def test_a_text_that_is_a_message_id_is_listed(self):
+        tree = [a11y(1, 1, "Label", "azmeet-loading-key", 10, 100, 200, 20), a11y(2, 2, "Label", "Loading this device's key...", 10, 130, 200, 20),
+                a11y(3, 3, "Button", "menu-file-open", 10, 160, 100, 48, clickable=True), a11y(4, 4, "Label", "e-mail", 10, 220, 50, 20),
+                a11y(5, 5, "Label", "Save-as", 10, 250, 50, 20)]
+        r = self.run_audit([node(i, "p", 0, 0, 1, 1) for i in range(1, 6)], tree)
+        self.assertEqual(sorted(e["text"] for e in r["raw_keys"]["top"]), ["azmeet-loading-key", "menu-file-open"])
+        self.assertIn("texts are raw keys", la.summary_line(r))
+
     def test_a_scroll_container_with_wider_content_is_the_page_that_scrolls_sideways(self):
         scroll = {"status": "ok", "data": {"type": "scroll_states", "value": {"scroll_states": [
             {"node_id": 27, "scroll_x": 0.0, "scroll_y": 4079.0, "content_width": 606.7, "content_height": 14189.0, "container_width": 411.4,
@@ -144,6 +152,29 @@ class AuditTests(unittest.TestCase):
         self.assertIn("# Layout audit: AzDemo", text)
         self.assertIn("Not measured: a text clipped inside its own box", text)
         self.assertIn("portrait: window 411.4 x 914.3 dp", text)
+
+
+class WordsTests(unittest.TestCase):
+    def tree(self, names):
+        return answer([a11y(i + 1, i, "Label", n, 0, i * 20, 100, 20) for i, n in enumerate(names)])
+
+    def test_a_language_that_arrived_changes_the_texts_of_the_same_nodes(self):
+        en = self.tree(["File", "Edit", "Azul Widget Showcase", "Save"])
+        de = self.tree(["Datei", "Bearbeiten", "Azul Widget Showcase", "Speichern"])
+        w = la.compare_words(en, de)
+        self.assertEqual((w["named"], w["changed"]), (4, 3))
+        self.assertEqual(w["sample"][0], ("File", "Datei"))
+        self.assertEqual(w["raw_keys_b"], [])
+
+    def test_message_ids_in_the_second_language_are_named(self):
+        en = self.tree(["File", "Loading"])
+        de = self.tree(["azpaint-file", "azpaint-loading-key"])
+        w = la.compare_words(en, de)
+        self.assertEqual(w["raw_keys_b"], ["azpaint-file", "azpaint-loading-key"])
+
+    def test_nothing_in_common_is_not_a_change(self):
+        w = la.compare_words(answer([]), self.tree(["a"]))
+        self.assertEqual((w["named"], w["changed"], w["share"]), (0, 0, 0.0))
 
 
 class CompareTests(unittest.TestCase):

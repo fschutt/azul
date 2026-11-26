@@ -41,7 +41,6 @@ FAIL css/css-tables/th-text-align.html E-TABLE # needs HTML's th rule: centred o
 FAIL css/css-text-decor/text-decoration-color.html E-DECOR # match text-decoration-color-ref.html: maxdiff 210 pixels 11946
 FAIL css/css-text-decor/text-decoration-line.html E-DECOR # text-decoration(-line) takes one line only: `underline overline line-through` does not parse, and there is no text-decoration-line longhand; gate 2026-10-17: maxdiff 255 pixels 2380
 FAIL css/css-text-decor/text-decoration-propagation-04.html E-DECOR # the reference's `text-decoration: underline overline` does not parse (one line only); the test's propagated lines are drawn; gate 2026-10-17: maxdiff 255 pixels 505
-FAIL css/css-text-decor/text-decoration-subelements-001.html E-DECOR # a mismatch test whose two sides need several lines in one text-decoration; gate 2026-10-17: maxdiff 0 pixels 0
 FAIL css/css-text-decor/text-decoration-subelements-002.html E-DECOR # several lines in one text-decoration do not parse; gate 2026-10-17: maxdiff 255 pixels 1560
 FAIL html/rendering/non-replaced-elements/tables/table-cell-width-s.html E-LEGACY # the reference's `.row { clear: both } .row div { float: left }` rows overlap: clearance does not see the floats of a previous sibling block (:first-child is fixed); gate 2026-10-06: maxdiff 255 pixels 4034
 FAIL html/rendering/non-replaced-elements/the-hr-element-0/color.html E-LEGACY # match color-ref.html: maxdiff 165 pixels 3136

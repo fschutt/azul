@@ -44,6 +44,21 @@ use azul_layout::e2e::{
 #[cfg(feature = "std")]
 #[cfg(feature = "debug-server")]
 pub fn start_debug_server(port: u16) -> (Arc<DebugServerHandle>, spmc::Receiver<DebugRequest>) {
+    start_debug_server_with_startup(
+        port,
+        Arc::new(crate::desktop::startup_timeline::StartupTimeline::disabled()),
+    )
+}
+
+/// [`start_debug_server`] for an app whose start is timed (`AZ_STARTUP=1`): `GET /startup`
+/// answers that timeline as JSON ([`crate::desktop::startup_timeline::StartupTimeline::to_json`]),
+/// so a harness (the phone QA runs) reads the numbers without parsing a log.
+#[cfg(feature = "std")]
+#[cfg(feature = "debug-server")]
+pub fn start_debug_server_with_startup(
+    port: u16,
+    startup: Arc<crate::desktop::startup_timeline::StartupTimeline>,
+) -> (Arc<DebugServerHandle>, spmc::Receiver<DebugRequest>) {
     // HTTP-only: registering the served port has no meaning for a script run.
     use std::{
         io::{Read, Write},
@@ -62,6 +77,7 @@ pub fn start_debug_server(port: u16) -> (Arc<DebugServerHandle>, spmc::Receiver<
     let (request_tx, request_rx) = spmc::channel::<DebugRequest>();
     let request_tx = Arc::new(Mutex::new(request_tx));
     let request_tx_for_thread = request_tx.clone();
+    let startup_for_thread = startup;
 
     // Try to bind - exit if port is taken
     let listener = match TcpListener::bind(format!("127.0.0.1:{}", port)) {
@@ -122,7 +138,7 @@ pub fn start_debug_server(port: u16) -> (Arc<DebugServerHandle>, spmc::Receiver<
                         stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
                         // Increase write timeout to 30s for large screenshot transfers
                         stream.set_write_timeout(Some(Duration::from_secs(30))).ok();
-                        handle_http_connection(&mut stream, &request_tx_for_thread);
+                        handle_http_connection(&mut stream, &request_tx_for_thread, &startup_for_thread);
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         // No connection pending, sleep a bit
@@ -266,6 +282,7 @@ fn read_http_request(stream: &mut std::net::TcpStream) -> Option<Vec<u8>> {
 fn handle_http_connection(
     stream: &mut std::net::TcpStream,
     request_tx: &Arc<Mutex<spmc::Sender<DebugRequest>>>,
+    startup: &crate::desktop::startup_timeline::StartupTimeline,
 ) {
     let Some(raw) = read_http_request(stream) else {
         return;
@@ -287,6 +304,17 @@ fn handle_http_connection(
 
     let method = parts[0];
     let path = parts[1];
+
+    // ── Route: GET /startup → the startup timeline (AZ_STARTUP=1) as JSON ──
+    if method == "GET" && path == "/startup" {
+        let body = startup.to_json();
+        let header = format!(
+            "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        serve_response(stream, &header, body.as_bytes());
+        return;
+    }
 
     // ── Route: GET /material-icons.ttf → serve embedded Material Icons font ──
     if method == "GET" && path == "/material-icons.ttf" {
@@ -463,8 +491,8 @@ fn handle_http_connection(
         _ => serialize_http_response(&DebugHttpResponse::Error(DebugHttpResponseError {
             request_id: None,
             message: "GET / → debugger UI, GET /debugger.css → CSS, GET /debugger.js → JS, GET \
-                      /material-icons.ttf → font, GET /health → status, POST / → debug commands \
-                      (incl. run_e2e_tests), POST /debug/compile?lang=rust → standalone project \
+                      /material-icons.ttf → font, GET /health → status, GET /startup → the startup \
+                      timeline (AZ_STARTUP=1), POST / → debug commands (incl. run_e2e_tests), POST /debug/compile?lang=rust → standalone project \
                       ZIP"
             .to_string(),
         })),
