@@ -5,6 +5,8 @@
                                        release-page generator agree (fails with every disagreement)
     demo_apps.py plan [--e2e]          the build matrices of a `demos` run, as GITHUB_OUTPUT lines (--e2e: also the
                                        artifact-only QA variant of the phone libazul and the apps that ask for it)
+    demo_apps.py features <leg> <variant>   the cargo features of one phone library of the plan (android-x86_64 mobile-e2e, ...)
+    demo_apps.py mobile-lib <package>       the library variant a phone app links (mobile, mobile-iroh)
     demo_apps.py assets [<package>]    the file names every app is built as, one per line
     demo_apps.py weights <status.json> the weight the measured build seconds of a run suggest for each app
     demo_apps.py status <dir> ...      merge the result files of a run into demo-status.json / .md
@@ -206,6 +208,21 @@ def check(m=None):
                     f"{[k for k in libs if k != 'desktop']}, not {lib!r}")
             elif libs[lib].get("artifact_only"):
                 err(f"{where} mobile_lib {lib!r} is artifact_only: a shipped app never links a QA variant of the library")
+        # [app.smoke] after_tap / after_tap_gone: lists of texts for the screen after the button `tap` was pressed
+        smoke = a.get("smoke") or {}
+        for key in ("after_tap", "after_tap_gone", "probe_after"):
+            if key in smoke:
+                if not isinstance(smoke[key], list) or not all(isinstance(t, str) and t.strip() for t in smoke[key]):
+                    err(f"{where} [app.smoke] {key} must be a list of texts")
+                elif not smoke.get("tap"):
+                    err(f"{where} [app.smoke] {key} is looked for after a button was pressed and the app names no `tap`")
+        if "probe_tap" in smoke:
+            if not isinstance(smoke["probe_tap"], str) or not smoke["probe_tap"].strip():
+                err(f"{where} [app.smoke] probe_tap must name the key of the first press")
+            elif not smoke.get("tap"):
+                err(f"{where} [app.smoke] probe_tap is a press before the `tap` one and the app names no `tap`")
+            elif not smoke.get("probe_after"):
+                err(f"{where} [app.smoke] probe_tap needs probe_after, the texts that must be on the screen 1 s after it")
         # the purpose strings of iOS: a usage key is `NS...UsageDescription` with a text, and an app that asks for a sensor on
         # Android has its key for iOS (the permissions are the list of what the app is allowed to use on a phone)
         usage = (a.get("ios") or {}).get("usage") or {}
@@ -389,6 +406,13 @@ def plan(m=None, e2e=False):
                                     if (a.get("smoke") or {}).get("tap")}, sort_keys=True)
     out["smoke_expects"] = json.dumps({a["package"]: a["smoke"]["expect"] for a in m["app"]
                                        if (a.get("smoke") or {}).get("expect")}, sort_keys=True)
+    # what must be on the screen once the button was pressed, and what must be gone: {package: {"found": [...], "gone": [...]}}
+    # and a FIRST press with a short effect (a toast) with what must be on the screen 1 s later (probe_tap, probe_found)
+    out["smoke_after"] = json.dumps({a["package"]: {"found": a["smoke"].get("after_tap", []), "gone": a["smoke"].get("after_tap_gone", []),
+                                                    "probe_tap": a["smoke"].get("probe_tap", ""), "probe_found": a["smoke"].get("probe_after", [])}
+                                     for a in m["app"] if (a.get("smoke") or {}).get("tap")
+                                     and (a["smoke"].get("after_tap") or a["smoke"].get("after_tap_gone") or a["smoke"].get("probe_tap"))},
+                                    sort_keys=True)
     return out
 
 
@@ -504,6 +528,12 @@ def boot_text(r):
             text += f", first window {r['displayed_ms']} ms (the platform's own number)"
         elif r.get("launch_ms") is not None:
             text += f", launched in {r['launch_ms']} ms (the platform's own number)"
+        # the engine's own mark (AZ_STARTUP=1): the first frame it handed to the OS, counted from the process creation
+        if r.get("first_present_ms") is not None:
+            text += f", first present {r['first_present_ms']:.0f} ms (the engine's mark)"
+        backend = re.search(r"backend=(\w+)", str(r.get("render_backend") or ""))
+        if backend:
+            text += f", {backend.group(1)} renderer"
     elif r.get("alive") and not r.get("fatal"):
         text = "boots" + ("" if r.get("screen_nonblank") else " (blank screen)")
     else:
@@ -650,6 +680,31 @@ def main(argv):
         for line in write_github_output(out):
             print(line)
         return 0
+    if cmd == "features":
+        # demo_apps.py features <leg> <variant>: the cargo features of one phone library of the plan (the QA variant included), for the
+        # scripts that build one by hand (scripts/ci/ios_build_qa.sh)
+        if len(rest) != 2:
+            print("usage: demo_apps.py features <leg> <variant>   (leg: android-arm64, android-x86_64, ios-device, ios-sim)", file=sys.stderr)
+            return 2
+        planned = plan(e2e=True)
+        for key in ("libs_android", "libs_ios"):
+            for entry in planned[key]:
+                if entry["leg"] == rest[0] and entry["variant"] == rest[1]:
+                    print(entry["features"])
+                    return 0
+        print(f"demo_apps: the plan builds no library {rest[1]} for {rest[0]}", file=sys.stderr)
+        return 1
+    if cmd == "mobile-lib":
+        # demo_apps.py mobile-lib <package>: the library variant a phone app links ([[app]] mobile_lib), for the scripts that build by hand
+        if len(rest) != 1:
+            print("usage: demo_apps.py mobile-lib <package>", file=sys.stderr)
+            return 2
+        for a in load()["app"]:
+            if a["package"] == rest[0] and any(p in MOBILE for p in a["platforms"]):
+                print(a["mobile_lib"])
+                return 0
+        print(f"demo_apps: {rest[0]} is no phone app of scripts/demo_apps.toml", file=sys.stderr)
+        return 1
     if cmd == "assets":
         m = load()
         for a in m["app"]:

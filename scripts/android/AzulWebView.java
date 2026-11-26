@@ -73,31 +73,46 @@ public final class AzulWebView {
             }
             Entry e = new Entry();
             e.ephemeral = !persistent;
-            if (persistent) {
-                persistentUsed = true;
-            } else if (ephemeralViews++ == 0 && !persistentUsed) {
-                clearStore();
+            boolean counted = false;
+            try {
+                if (persistent) {
+                    persistentUsed = true;
+                } else {
+                    counted = true;
+                    if (ephemeralViews++ == 0 && !persistentUsed) {
+                        clearStore();
+                    }
+                }
+                e.clip = new FrameLayout(activity);
+                e.clip.setClipChildren(true);
+                e.web = new WebView(activity);
+                WebSettings s = e.web.getSettings();
+                s.setJavaScriptEnabled(true);
+                s.setDomStorageEnabled(true);
+                s.setAllowFileAccess(false);
+                s.setAllowContentAccess(false);
+                e.web.setWebViewClient(new Client(id));
+                e.web.setWebChromeClient(new Chrome(id));
+                e.web.setPivotX(0f);
+                e.web.setPivotY(0f);
+                e.clip.addView(e.web, new FrameLayout.LayoutParams(1, 1));
+                e.popup = new PopupWindow(e.clip, 1, 1, true);
+                e.popup.setClippingEnabled(false);
+                e.popup.setOutsideTouchable(false);
+                if (Build.VERSION.SDK_INT >= 29) {
+                    e.popup.setTouchModal(false);
+                }
+                VIEWS.put(id, e);
+            } catch (Throwable t) {
+                // A device without a WebView provider (an emulator image without one, a phone whose provider is
+                // being updated or was disabled) throws here: `new WebView` and `CookieManager.getInstance()`
+                // raise WebViewFactory.MissingWebViewPackageException, and an exception nobody catches on the UI
+                // thread ends the whole app. The engine's view is told that it will not load.
+                if (counted) {
+                    ephemeralViews--;
+                }
+                nativeOnLoadFailed(id, "", "no WebView on this device: " + t);
             }
-            e.clip = new FrameLayout(activity);
-            e.clip.setClipChildren(true);
-            e.web = new WebView(activity);
-            WebSettings s = e.web.getSettings();
-            s.setJavaScriptEnabled(true);
-            s.setDomStorageEnabled(true);
-            s.setAllowFileAccess(false);
-            s.setAllowContentAccess(false);
-            e.web.setWebViewClient(new Client(id));
-            e.web.setWebChromeClient(new Chrome(id));
-            e.web.setPivotX(0f);
-            e.web.setPivotY(0f);
-            e.clip.addView(e.web, new FrameLayout.LayoutParams(1, 1));
-            e.popup = new PopupWindow(e.clip, 1, 1, true);
-            e.popup.setClippingEnabled(false);
-            e.popup.setOutsideTouchable(false);
-            if (Build.VERSION.SDK_INT >= 29) {
-                e.popup.setTouchModal(false);
-            }
-            VIEWS.put(id, e);
         });
     }
 

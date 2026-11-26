@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests of the pure parts of scripts/ci/mobile_qa.py (no device needed): the picture signatures, the BMP and PNG
 code, and the readers of what dumpsys / uiautomator / logcat print.   python3 -I scripts/ci/test_mobile_qa.py"""
+import json
 import struct
 import sys
 import unittest
@@ -288,9 +289,88 @@ class ModeComparisonTests(unittest.TestCase):
                 run = q.Run(d, "android", {})
                 run.step("modes", "x", lambda s: q.report_modes(run, s, res, expect, "android"))
                 self.assertEqual(run.steps[0].ok, ok, f"expect_gpu={expect}")
-                finding = [c for c in run.steps[0].checks if "GPU renderer ran" in c["what"]]
+                finding = [c for c in run.steps[0].checks if "GL renderer ran" in c["what"]]
                 self.assertTrue(finding and not finding[0]["ok"])      # the finding is there in both cases
                 self.assertIn("render_modes", run.meta)
+
+    def test_auto_on_a_software_gl_runs_the_cpu_renderer_by_design(self):
+        """The rule agreed for the GPU work: gpu FORCES GL (software GL included), auto takes GL only on a hardware GPU."""
+        import tempfile
+        w, h = 12, 12
+        px = solid(w, h, (90, 90, 90))
+
+        def row(ran, device):
+            return {"ran": ran, "requested": None, "device": device, "rgba": px, "dims": (w, h), "first_frame_s": 1.0,
+                    "displayed_ms": 1200, "frames": None}
+
+        def verdict(res, hardware=False, expect_gpu=False):
+            with tempfile.TemporaryDirectory() as d:
+                run = q.Run(d, "android", {})
+                run.step("modes", "x", lambda s: q.report_modes(run, s, res, expect_gpu, "android", hardware=hardware))
+                return run.steps[0]
+
+        # CI emulator, software GL: cpu -> cpu, gpu -> gpu (forced), auto -> cpu (by design): all pass
+        ok = verdict({"cpu": row("cpu", "cpu raster"), "gpu": row("gpu", "Android Emulator OpenGL ES (SwiftShader)"),
+                      "auto": row("cpu", "cpu raster")}, expect_gpu=True)
+        self.assertTrue(ok.ok, [c for c in ok.checks if not c["ok"]])
+        # auto that took the GL path on a software renderer is a failure, whatever --expect-gpu says
+        bad = verdict({"cpu": row("cpu", None), "gpu": row("gpu", "SwiftShader"), "auto": row("gpu", "SwiftShader")})
+        self.assertFalse(bad.ok)
+        self.assertTrue(any("by design" in c["what"] and not c["ok"] for c in bad.checks))
+        # a real phone (--hardware): auto must run GL when GPU is expected
+        phone = verdict({"cpu": row("cpu", None), "gpu": row("gpu", "Adreno (TM) 640"), "auto": row("cpu", "cpu raster")}, hardware=True, expect_gpu=True)
+        self.assertFalse(phone.ok)
+        self.assertTrue(any("hardware GPU" in c["what"] for c in phone.checks))
+        self.assertTrue(q.device_is_software("ANGLE (Apple, Apple Software Renderer)") and q.device_is_software("llvmpipe (LLVM 15)"))
+        self.assertFalse(q.device_is_software("Mali-G78") or q.device_is_software(None))
+
+
+class ImeAndTableTests(unittest.TestCase):
+    def test_the_ime_inset_says_whether_the_keyboard_is_up(self):
+        shown = "      InsetsSource type=ime frame=[0,1364][1080,2400] visible=true flags= \n"
+        hidden = "      InsetsSource type=ime frame=[0,2400][1080,2400] visible=false flags= \n"
+        older = "    InsetsSource: mType=ITYPE_IME mFrame=[0,1400][1080,2400] mVisible=true\n"
+        self.assertTrue(q.parse_ime_inset(shown))
+        self.assertFalse(q.parse_ime_inset(hidden))
+        self.assertTrue(q.parse_ime_inset(older))
+        self.assertFalse(q.parse_ime_inset(hidden + "  InsetsSource type=statusBars frame=[0,0][1080,128] visible=true\n"))
+        self.assertIsNone(q.parse_ime_inset("nothing about the keyboard here\n"))
+
+    def test_the_standing_render_section_is_in_qa_md_and_qa_json(self):
+        import tempfile
+        w, h = 12, 12
+        px = solid(w, h, (90, 90, 90))
+        res = {m: {"ran": "cpu", "requested": None, "device": "software", "rgba": px, "dims": (w, h), "first_frame_s": 0.5,
+                   "displayed_ms": 944, "frames": {"median": 25.2, "p95": 47.2, "n": 117}} for m in ("cpu", "gpu", "auto")}
+        with tempfile.TemporaryDirectory() as d:
+            run = q.Run(d, "android", {"label": "t"})
+            run.step("modes", "x", lambda s: q.report_modes(run, s, res, False, "android"))
+            md = (Path(d) / "qa.md").read_text()
+            self.assertIn("## Render backends: requested against ran", md)
+            self.assertIn("| gpu | cpu | software | 944 | 0.5 | 25.2 | 47.2 | 117 |", md)
+            self.assertIn("cpu against gpu, pixel by pixel", md)
+            doc = json.loads((Path(d) / "qa.json").read_text())
+            self.assertEqual(len(doc["render"]["table"]), 3)
+            self.assertTrue(doc["render"]["cpu_against_gpu"]["ok"])
+
+
+class LayoutOverflowTests(unittest.TestCase):
+    def test_nodes_crossing_the_right_edge_are_found_widest_first_without_their_children(self):
+        import mobile_e2e as e
+        nodes = [
+            {"node_id": 0, "tag": "body", "id": None, "classes": [], "rect": {"x": 0.0, "y": 0.0, "width": 411.4, "height": 817.5}},
+            {"node_id": 1, "tag": "div", "id": None, "classes": [], "rect": {"x": 42.0, "y": 1970.0, "width": 480.0, "height": 270.0}},
+            {"node_id": 2, "tag": "button", "id": "video-overlay", "classes": ["b"], "rect": {"x": 42.0, "y": 2000.0, "width": 480.0, "height": 40.0}},
+            {"node_id": 3, "tag": "p", "id": None, "classes": [], "rect": {"x": 85.0, "y": 2094.0, "width": 394.0, "height": 42.0}},
+            {"node_id": 4, "tag": "span", "id": None, "classes": [], "rect": None},
+            {"node_id": 5, "tag": "div", "id": None, "classes": [], "rect": {"x": 500.0, "y": 10.0, "width": 50.0, "height": 10.0}},   # entirely off to the right: not 'crossing'
+        ]
+        answer = {"status": "ok", "data": {"type": "all_nodes_layout", "value": {"dom_id": 0, "node_count": 6, "nodes": nodes}}}
+        count, top = e.layout_overflow(answer, 411.4)
+        self.assertEqual(count, 3)                       # the video box, the button inside it, the paragraph
+        self.assertEqual(top[0][:2], ("div", None))      # the widest first
+        self.assertTrue(all(t[1] != "video-overlay" for t in top))   # the button starts at the same x inside the box: not listed again
+        self.assertEqual(e.layout_overflow({"data": {}}, 411.4), (0, []))
 
 
 class ExitReasonTests(unittest.TestCase):

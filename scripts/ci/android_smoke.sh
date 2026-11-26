@@ -13,7 +13,9 @@
 #                    screen_nonblank, fatal, pass, reason, ...}
 # (and screenshot-after-tap.png, tap.json when the manifest names a button for the app: AZ_SMOKE_TAPS, a JSON map
 # of app name -> the label to press, from scripts/demo_apps.toml's [app.smoke] tap; AZ_SMOKE_EXPECTS the same for the text
-# the first screen must show) and <out-dir>/summary.json lists them. An app BOOTS (pass) when it is alive twice, is the
+# the first screen must show; AZ_SMOKE_AFTER, {app: {found: [...], gone: [...]}}, the texts that must be on the screen once the
+# button was pressed and the ones that must be gone, ui-after-tap.xml being the accessibility dump they are looked for in) and
+# <out-dir>/summary.json lists them. An app BOOTS (pass) when it is alive twice, is the
 # resumed activity, is on the screen (not the home screen, not one flat colour) and left no fatal line; the reason of a
 # failure is in result.json. Exit 0 when every app boots; 1 when one does not; 2 when the emulator itself could not be
 # started (nothing is said about the apps).
@@ -63,7 +65,30 @@ if [ "$booted" != "1" ]; then
 fi
 adb shell input keyevent 82 >/dev/null 2>&1 || true   # unlock
 adb shell settings put global window_animation_scale 0 >/dev/null 2>&1 || true
+# The engine's startup table: AZ_STARTUP=1 through the engine's own Android mechanism (the system property debug.az.startup), set
+# BEFORE the first launch. At its first present an app then writes `[startup] ...` lines and ONE `[startup-json] {...}` line with
+# first_present_ms to stderr (logcat tag RustStdoutStderr); scripts/ci/smoke_verdict.py reads it as information, never as the verdict.
+adb shell setprop debug.az.startup 1 >/dev/null 2>&1 || true
 echo "emulator booted: $(adb shell getprop ro.product.cpu.abi | tr -d '\r'), API $(adb shell getprop ro.build.version.sdk | tr -d '\r')"
+
+# the centre of the node whose text or content-desc holds <label> in a uiautomator dump: "x y"; fails when there is none
+node_centre() {
+  python3 - "$1" "$2" <<'PY'
+import re, sys, xml.etree.ElementTree as ET
+try:
+    root = ET.parse(sys.argv[1]).getroot()
+except Exception:
+    sys.exit(1)
+for n in root.iter("node"):
+    if sys.argv[2].lower() in (n.get("text", "") + " " + n.get("content-desc", "")).lower():
+        m = re.match(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", n.get("bounds", ""))
+        if m:
+            a, b, c, d = map(int, m.groups())
+            print((a + c) // 2, (b + d) // 2)
+            sys.exit(0)
+sys.exit(1)
+PY
+}
 
 all_ok=0
 for apk in "$@"; do
@@ -85,6 +110,11 @@ for apk in "$@"; do
       # (scripts/ci/smoke_verdict.py: an app that never came to the front leaves it behind).
       adb shell input keyevent KEYCODE_HOME >/dev/null 2>&1; sleep 2
       adb exec-out screencap -p >"$dir/baseline.png" 2>/dev/null || true
+      # An app the manifest presses a button of gets the engine's info log (AZ_LOG=info, through the system property debug.az.log): what
+      # a press did (an app that logs its taps: "tap <Action>") is then in the logcat of the run, tag azul
+      if [ -n "$(python3 -c 'import json,os,sys; print(json.loads(os.environ.get("AZ_SMOKE_TAPS") or "{}").get(sys.argv[1], ""))' "${app%-android-x86_64}")" ]; then
+        adb shell setprop debug.az.log info >/dev/null 2>&1 || true
+      fi
       adb shell am start -W -n "$pkg/$act" >"$dir/start.log" 2>&1 || true
       sleep "$wait_s"
       adb exec-out screencap -p >"$dir/screenshot.png" 2>/dev/null || true
@@ -104,22 +134,23 @@ for apk in "$@"; do
       if [ -n "$tap_label" ] && [ "$alive" = "1" ]; then
         tapped="no"
         adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 && adb pull /sdcard/ui.xml "$dir/ui-before.xml" >/dev/null 2>&1
-        xy="$(python3 - "$dir/ui-before.xml" "$tap_label" <<'PY'
-import re, sys, xml.etree.ElementTree as ET
-try:
-    root = ET.parse(sys.argv[1]).getroot()
-except Exception:
-    sys.exit(1)
-for n in root.iter("node"):
-    if sys.argv[2].lower() in (n.get("text", "") + " " + n.get("content-desc", "")).lower():
-        m = re.match(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", n.get("bounds", ""))
-        if m:
-            a, b, c, d = map(int, m.groups())
-            print((a + c) // 2, (b + d) // 2)
-            sys.exit(0)
-sys.exit(1)
-PY
-)" && tapped="by its name"
+        xy="$(node_centre "$dir/ui-before.xml" "$tap_label")" && tapped="by its name"
+        # A FIRST press whose effect is short ([app.smoke] probe_tap and probe_after: a toast of 2.5 s that the press below, looked at
+        # 5 s later, would never see). The picture and the accessibility dump of 1 s after it say whether a tap reaches the app's
+        # callbacks at all; the toast has gone before the main press.
+        probe_label="$(python3 "$(dirname "$0")/ui_find.py" --probe-label "${app%-android-x86_64}")"
+        probe_json="{}"
+        if [ -n "$probe_label" ]; then
+          if pxy="$(node_centre "$dir/ui-before.xml" "$probe_label")"; then
+            # shellcheck disable=SC2086
+            adb shell input tap $pxy
+            sleep 1
+            adb exec-out screencap -p >"$dir/screenshot-probe.png" 2>/dev/null || true
+            adb shell uiautomator dump /sdcard/ui-probe.xml >/dev/null 2>&1 && adb pull /sdcard/ui-probe.xml "$dir/ui-probe.xml" >/dev/null 2>&1
+            sleep 3
+          fi   # a key that is not on the screen presses nothing, and its texts are then not found either
+          probe_json="$(python3 "$(dirname "$0")/ui_find.py" --probe "$dir/ui-probe.xml" "${app%-android-x86_64}")"
+        fi
         if [ -z "$xy" ]; then
           wh="$(adb shell wm size | grep -o '[0-9]*x[0-9]*' | tail -n 1)"; dpi="$(adb shell wm density | grep -o '[0-9]*' | tail -n 1)"
           xy="$(( ${wh%x*} / 2 )) $(( ${wh#*x} - 130 * ${dpi:-160} / 160 ))"; tapped="by its place"
@@ -132,10 +163,17 @@ PY
         [ -n "$(adb shell pidof "$pkg" 2>/dev/null | tr -d '\r')" ] && tap_alive=1
         adb logcat -d -v threadtime >"$dir/logcat-after-tap.txt" 2>&1 || true
         tap_fatal="$(grep -E "FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT|UnsatisfiedLinkError|ANR in $pkg|Process $pkg .*(died|killed)|AndroidRuntime.*$pkg" "$dir/logcat-after-tap.txt" | head -n 1)"
-        python3 - "$dir/tap.json" "$tap_label" "$tapped" "$xy" "$tap_alive" "$tap_fatal" <<'PY'
+        # What the manifest says must be on the screen now and what must be gone ([app.smoke] after_tap, after_tap_gone, through
+        # AZ_SMOKE_AFTER): looked for in the accessibility dump of this moment (scripts/ci/ui_find.py)
+        adb shell uiautomator dump /sdcard/ui-after.xml >/dev/null 2>&1 && adb pull /sdcard/ui-after.xml "$dir/ui-after-tap.xml" >/dev/null 2>&1
+        after_json="$(python3 "$(dirname "$0")/ui_find.py" --after "$dir/ui-after-tap.xml" "${app%-android-x86_64}")"
+        python3 - "$dir/tap.json" "$tap_label" "$tapped" "$xy" "$tap_alive" "$tap_fatal" "$after_json" "$probe_json" <<'PY'
 import json, sys
-path, label, how, xy, alive, fatal = sys.argv[1:]
-json.dump({"label": label, "found": how, "at": xy, "alive": alive == "1", "fatal": fatal or None}, open(path, "w"), indent=2)
+path, label, how, xy, alive, fatal, after, probe = sys.argv[1:]
+facts = {"label": label, "found": how, "at": xy, "alive": alive == "1", "fatal": fatal or None}
+facts.update(json.loads(after or "{}"))
+facts.update(json.loads(probe or "{}"))
+json.dump(facts, open(path, "w"), indent=2)
 PY
         verdict_args+=(--tap "$dir/tap.json" --tap-before "$dir/screenshot.png" --tap-after "$dir/screenshot-after-tap.png")
       fi
@@ -151,6 +189,7 @@ PY
       # tombstones, when the native side died
       adb shell 'ls /data/tombstones 2>/dev/null' >"$dir/tombstones.txt" 2>&1 || true
       adb shell am force-stop "$pkg" >/dev/null 2>&1 || true
+      adb shell setprop debug.az.log "" >/dev/null 2>&1 || true   # the next app starts without the info log
       adb uninstall "$pkg" >/dev/null 2>&1 || true
     fi
   fi
@@ -158,7 +197,7 @@ PY
   [ -f "$dir/baseline.png" ] && verdict_args+=(--baseline "$dir/baseline.png" --after "$dir/screenshot-2.png")
   # the platform's own launch numbers (informational: `am start -W` and the activity manager's "Displayed" line)
   [ -f "$dir/start.log" ] && verdict_args+=(--start-log "$dir/start.log")
-  [ -f "$dir/logcat.txt" ] && verdict_args+=(--logcat "$dir/logcat.txt")
+  [ -f "$dir/logcat.txt" ] && verdict_args+=(--logcat "$dir/logcat.txt" --startup-log "$dir/logcat.txt")
   # THE pass line: scripts/ci/smoke_verdict.py (alive twice, on the screen, drawn, no fatal line); nothing else decides
   python3 "$(dirname "$0")/smoke_verdict.py" --out "$dir/result.json" --app "$app" --id "${pkg:-}" --alive "$alive" --alive-after "$alive_after" \
     --fatal "$fatal" --rust-lines "${rust_lines:-0}" --resumed "$resumed" --band 0.045,0.94 ${verdict_args[@]+"${verdict_args[@]}"} || all_ok=1
