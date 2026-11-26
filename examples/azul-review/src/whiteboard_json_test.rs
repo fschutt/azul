@@ -98,3 +98,53 @@ fn strings_are_written_with_what_json_needs_escaped() {
     assert_eq!(out, "\"a\\\"b\\\\c\\nd\\te\\u0001ä\"");
     assert_eq!(ok(&out), Json::Str("a\"b\\c\nd\te\u{1}ä".to_string()));
 }
+
+#[test]
+fn a_document_is_written_for_people_and_reads_back_to_what_it_was() {
+    let v = object(vec![
+        ("format", from_str("azboard/1")),
+        ("short", Json::Arr(vec![from_u64(1), from_u64(2), Json::Null, Json::Bool(true)])),
+        ("point", object(vec![("x", from_f32(0.1)), ("y", from_f32(-2.5))])),
+        (
+            "items",
+            Json::Arr(vec![
+                object(vec![("id", from_u64(1)), ("label", from_str("a \"quoted\"\nlabel")), ("lines", Json::Arr(vec![from_str("fn main() {"), from_str("}")]))]),
+                object(vec![("id", from_u64(2)), ("nested", object(vec![("deep", Json::Arr(vec![object(vec![("k", from_u64(3))])]))]))]),
+            ]),
+        ),
+        ("empty_list", Json::Arr(vec![])),
+        ("empty_object", Json::Obj(vec![])),
+        ("long", Json::Arr((0..60).map(from_u64).collect())),
+    ]);
+    let text = pretty(&v);
+    assert_eq!(parse(&text), Ok(v), "what is written is what is read back");
+    assert!(text.ends_with("}\n"), "a line feed at the end");
+    // Short lists and objects of scalars are one line; others take a line for each.
+    assert!(text.contains("\"short\": [1, 2, null, true]"), "{text}");
+    assert!(text.contains("\"point\": {\"x\": 0.1, \"y\": -2.5}"), "{text}");
+    assert!(text.contains("\"empty_list\": []") && text.contains("\"empty_object\": {}"), "{text}");
+    assert!(text.contains("  \"items\": [\n    {"), "{text}");
+    assert!(text.lines().all(|l| l.len() < 130), "no line of a short document is long: {text}");
+    // The list of 60 numbers is too long for a line: one number to a line.
+    assert!(text.contains("\"long\": [\n    0,\n    1,"), "{text}");
+}
+
+#[test]
+fn a_number_made_of_an_f32_keeps_the_digits_of_the_f32() {
+    let text = pretty(&Json::Arr(vec![from_f32(0.1), from_f32(0.7), from_f32(-120.5), from_f32(1.0 / 3.0), from_f32(0.0), from_f32(f32::NAN), from_f32(100_000.0)]));
+    assert_eq!(text, "[0.1, 0.7, -120.5, 0.33333334, 0, 0, 100000]\n");
+    // And back to the very same f32.
+    for v in [0.1_f32, 0.7, -120.5, 1.0 / 3.0, 12_345.678, 1e-5] {
+        assert_eq!(parse(&pretty(&from_f32(v))).ok().and_then(|j| j.as_f32()), Some(v), "{v}");
+    }
+    assert_eq!(from_u64(u64::MAX), Json::Num(9_007_199_254_740_992.0), "an id past what a double holds exactly is held at the limit");
+}
+
+#[test]
+fn a_longer_text_is_read_when_the_caller_allows_it_and_not_otherwise() {
+    let text = format!("[\"{}\"]", "a".repeat(MAX_TEXT));
+    assert!(parse(&text).is_err(), "the manifest's limit");
+    assert_eq!(parse_with(&text, MAX_TEXT + 10).ok().and_then(|j| j.as_arr().map(<[_]>::len)), Some(1));
+    assert!(parse_with(&text, 100).is_err());
+}
+

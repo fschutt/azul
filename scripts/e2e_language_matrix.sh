@@ -1670,7 +1670,10 @@ lang_v() {
     cp "$CODEGEN_DIR/azul.v" "$REPO_ROOT/examples/v/azul/azul.v" 2>/dev/null || true
     cp "$LIB_PATH"           "$REPO_ROOT/examples/v/" 2>/dev/null || true
     cd "$REPO_ROOT/examples/v" || exit 1
-    v -o hello-world-e2e . || exit 1
+    # -no-skip-unused: V writes a C prototype for every `fn C.` declaration of azul.v but not the
+    # types that only the functions the program does not call name, and gcc stops at the first
+    # prototype ("unknown type name azul__AzIconDesignedFor", V 0.5.2).
+    v -no-skip-unused -o hello-world-e2e . || exit 1
     LD_LIBRARY_PATH=. DYLD_LIBRARY_PATH=. ./hello-world-e2e
   ) >"$f" 2>&1
   finish v "v build/run failed (import azul subpackage)"

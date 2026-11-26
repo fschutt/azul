@@ -17,6 +17,8 @@ fn image(w: u32, h: u32, scale: f32) -> Arc<CutoutImage> {
 
 fn source(first: u32, last: u32) -> Source {
     Source {
+        rev: String::new(),
+        sha256: String::new(),
         file: "src/lib.rs".to_string(),
         page: 0,
         first_line: first,
@@ -506,6 +508,8 @@ fn the_hash_of_lines_is_stable_and_tells_different_lines_apart() {
 fn a_source_is_cut_to_what_the_board_keeps() {
     let limits = Limits { max_shape_points: 10, max_source_lines: 3, max_source_line_chars: 8, ..LIMITS };
     let raw = Source {
+        rev: String::new(),
+        sha256: String::new(),
         file: "src\\deep\\lib.rs".to_string(),
         page: 2,
         first_line: 30,

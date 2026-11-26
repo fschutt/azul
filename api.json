@@ -6289,7 +6289,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "LD_LIBRARY_PATH=. v run ."
+                                    "content": "LD_LIBRARY_PATH=. v -no-skip-unused run ."
                                 }
                             ]
                         },
@@ -6315,7 +6315,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "DYLD_LIBRARY_PATH=. v run ."
+                                    "content": "DYLD_LIBRARY_PATH=. v -no-skip-unused run ."
                                 }
                             ]
                         },
@@ -6341,7 +6341,7 @@
                                 },
                                 {
                                     "type": "command",
-                                    "content": "v run ."
+                                    "content": "v -no-skip-unused run ."
                                 }
                             ]
                         }

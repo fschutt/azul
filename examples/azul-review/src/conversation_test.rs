@@ -367,3 +367,9 @@ fn how_a_conversation_ended_is_what_was_taken_what_was_refused_what_was_answered
     closed.resolve();
     assert_eq!(closed.outcome(), Outcome::Closed, "no answer, no suggestion");
 }
+
+#[test]
+fn a_conversation_has_no_revision_until_the_window_says_which_the_workspace_was_at() {
+    let c = Conversation::default();
+    assert_eq!(c.base, None);
+}

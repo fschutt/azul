@@ -268,6 +268,13 @@ pub struct Source {
     pub range_hash: u64,
     /// The covered lines as they were, cut to the limits (what finds them again).
     pub lines: Vec<String>,
+    /// The full hash of the commit the workspace was at when the lines were circled: what a link to them names, so that
+    /// it keeps showing these lines. Empty when it was not known (no repository, or a board of a version that did not
+    /// record it).
+    pub rev: String,
+    /// `sha256:` and the hash of the covered lines as they were, all of them, not only the ones kept
+    /// ([`crate::whiteboard_hash::lines_tagged`]). Empty when it was not known.
+    pub sha256: String,
 }
 
 impl Source {
@@ -293,6 +300,8 @@ impl Source {
             file_hash: self.file_hash,
             range_hash: self.range_hash,
             lines: kept_lines(&self.lines, limits),
+            rev: if crate::whiteboard_git::is_hash(&self.rev) { self.rev.clone() } else { String::new() },
+            sha256: if crate::whiteboard_hash::is_tagged(&self.sha256) { self.sha256.clone() } else { String::new() },
         }
     }
 }
@@ -792,6 +801,11 @@ impl Board {
         self.view_revision += 1;
         self.saved_view_revision = self.view_revision;
         notices
+    }
+
+    /// The board as it is is not what is on disk (it came from somewhere else): the next save writes it.
+    pub const fn mark_unsaved(&mut self) {
+        self.saved_revision = self.revision.wrapping_sub(1);
     }
 
     /// What the board has told since it was last asked.

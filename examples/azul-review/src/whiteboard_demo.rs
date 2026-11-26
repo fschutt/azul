@@ -13,22 +13,28 @@
 //! `WBDEMO_DROPPED`, `WBDEMO_RENDERED <w>x<h> <ms>ms | <why>`, `WBDEMO_SAVED <path>`,
 //! `WBDEMO_LOADED <items>`, `WBDEMO_JUMP <file> <first> <last> <freshness>`, `WBDEMO_KEY <key> <items>`,
 //! `WBDEMO_BOARDS <shown> <open id> <open name>` (told at the start and after every change of the list),
-//! `WBDEMO_OPENED <id> <items>` (a board that was switched to has been read), `WBDEMO_COPY_SAVED <file>`.
+//! `WBDEMO_OPENED <id> <items>` (a board that was switched to has been read), `WBDEMO_COPY_SAVED <file>`,
+//! `WBDEMO_REPO <rev> <branch> <web address>` (what the repository of the demo's folder says, at the start),
+//! `WBDEMO_EXPORTED <path> <bytes> <pictures> <links> <remote>` / `WBDEMO_EXPORT_ERROR <why>`,
+//! `WBDEMO_IMPORTED <id> <name> <items> <left out> <pictures lost>` / `WBDEMO_IMPORT_ERROR <why>`.
 
 use std::path::{Path, PathBuf};
 
 use azul::{
     callbacks::{RenderImageCallbackInfo, WriteBackCallbackType},
+    dialog::{FileDialog, FileOpenResult, SaveTargetResult},
     dom::{DomNodeId, RenderImageCallback},
     image::{ImageRef, RawImage, RawImageFormat},
+    option::{OptionFileTypeList, OptionString},
     prelude::*,
+    str::String as AzString,
     task::TerminateTimer,
     time::SystemTimeDiff,
     vec::U8VecRef,
 };
 use azul_appkit::{
     args::AppArgs,
-    l10n::{begin_layout},
+    l10n::{begin_layout, t, t_args, Arg},
     ui as kit,
 };
 
@@ -42,10 +48,13 @@ use crate::{
     whiteboard_boards,
     whiteboard_boards_ui::BoardOutcome,
     whiteboard_drag::{Motion, Pointer, Press, Release},
+    whiteboard_export::{self, ExportRequest},
     whiteboard_geom::{Pt, Size},
+    whiteboard_git,
     whiteboard_jump::{find_block_in, jump, FileView},
     whiteboard_lasso::PageLines,
     whiteboard_render::{self, RenderRequest},
+    whiteboard_settings::{self, Settings},
     whiteboard_store,
     whiteboard_ui::{self, Host, Panel},
 };
@@ -77,6 +86,8 @@ struct Demo {
     saving_to: Option<PathBuf>,
     /// The bytes of the board file being read, kept for a copy aside if it cannot be used.
     loading_raw: Option<Vec<u8>>,
+    /// The export that waits for the person to say where the file goes.
+    exporting: Option<ExportRequest>,
     timer: Option<TimerId>,
     /// `WBDEMO_PROFILE`: the frame times are printed every two seconds.
     profile: bool,
@@ -552,6 +563,140 @@ fn on_plan(app: &mut RefAny, plan: Plan, info: &mut CallbackInfo) {
     if let Some(name) = plan.load {
         read_board(app, &files.join(name), info);
     }
+    if let Some(request) = plan.export {
+        ask_export_target(app, request);
+    }
+    if plan.import {
+        ask_import_file(app);
+    }
+}
+
+/// The person is asked where the exported file goes (a save dialog; an e2e run answers it from its mock store).
+fn ask_export_target(app: &RefAny, request: ExportRequest) {
+    let name = whiteboard_export::suggested_name(&request.meta.board_name);
+    {
+        let mut a = app.clone();
+        let Some(mut d) = a.downcast_mut::<Demo>() else {
+            return;
+        };
+        d.exporting = Some(request);
+    }
+    let _request = FileDialog::save_file(
+        AzString::from(t("azreview-whiteboard-export-go").as_str()),
+        AzString::from(name.as_str()),
+        app.clone(),
+        on_export_target,
+    );
+}
+
+/// The save dialog's answer: the board is written there on a Thread (a cancel drops the export).
+extern "C" fn on_export_target(mut data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
+    let path = SaveTargetResult::downcast(result)
+        .into_option()
+        .and_then(|r| r.target.into_option())
+        .and_then(|target| target.as_path().into_option())
+        .map(|p| PathBuf::from(p.inner.as_str()));
+    let request = data.downcast_mut::<Demo>().and_then(|mut d| d.exporting.take());
+    let (Some(path), Some(request)) = (path, request) else {
+        return Update::DoNothing;
+    };
+    whiteboard_archive::spawn_export(&mut info, &data, request, path, on_exported as WriteBackCallbackType);
+    Update::DoNothing
+}
+
+/// The Thread has written the file (or could not).
+extern "C" fn on_exported(mut app: RefAny, mut msg: RefAny, _info: CallbackInfo) -> Update {
+    let Some(result) = whiteboard_archive::take_exported(&mut msg) else {
+        return Update::DoNothing;
+    };
+    let Some(mut d) = app.downcast_mut::<Demo>() else {
+        return Update::DoNothing;
+    };
+    match result {
+        Ok(done) => {
+            say(&format!(
+                "WBDEMO_EXPORTED {} {} {} {} {}",
+                done.path.display(),
+                done.bytes,
+                done.pictures,
+                done.links,
+                done.remote.as_deref().unwrap_or("-")
+            ));
+            let told = t_args(
+                "azreview-whiteboard-exported",
+                &[("path", Arg::from(done.path.display().to_string())), ("pictures", Arg::from(done.pictures)), ("links", Arg::from(done.links))],
+            );
+            d.panel.tell(told);
+        }
+        Err(why) => {
+            say(&format!("WBDEMO_EXPORT_ERROR {why}"));
+            let told = t_args("azreview-whiteboard-export-failed", &[("why", Arg::from(why))]);
+            d.panel.tell(told);
+        }
+    }
+    Update::RefreshDom
+}
+
+/// The person is asked for a file of a board (an open dialog; an e2e run answers it from its mock store).
+fn ask_import_file(app: &RefAny) {
+    let _request = FileDialog::open_file(
+        AzString::from(t("azreview-whiteboard-import").as_str()),
+        OptionString::None,
+        OptionFileTypeList::None,
+        app.clone(),
+        on_import_picked,
+    );
+}
+
+/// The open dialog's answer: the file is read and its pictures decoded on a Thread (a cancel changes nothing).
+extern "C" fn on_import_picked(data: RefAny, mut info: CallbackInfo, result: RefAny) -> Update {
+    let Some(picked) = FileOpenResult::downcast(result).into_option() else {
+        return Update::DoNothing;
+    };
+    let Some(path) = picked.path.into_option() else {
+        return Update::DoNothing;
+    };
+    whiteboard_archive::spawn_import(&mut info, &data, PathBuf::from(path.inner.as_str()), crate::whiteboard::LIMITS, on_imported as WriteBackCallbackType);
+    Update::DoNothing
+}
+
+/// The file has been read: it becomes a board of its own (once the open board is kept), or the person is told why not.
+extern "C" fn on_imported(mut app: RefAny, mut msg: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(answer) = whiteboard_archive::take_imported(&mut msg) else {
+        return Update::DoNothing;
+    };
+    let outcome = {
+        let Some(mut d) = app.downcast_mut::<Demo>() else {
+            return Update::DoNothing;
+        };
+        match answer.result {
+            Ok(loaded) => {
+                let (left_out, lost, name) = (loaded.left_out, loaded.unreadable_pictures, loaded.meta.board_name.clone());
+                let outcome = d.panel.import_loaded(loaded);
+                if matches!(outcome, BoardOutcome::Done(_)) {
+                    let (id, shown) = (d.panel.wb.active_board().0.to_string(), d.panel.wb.active_board().1.to_string());
+                    say(&format!("WBDEMO_IMPORTED {id} {} {} {left_out} {lost}", name.replace(' ', "_"), d.panel.wb.board.len()));
+                    let told = t_args("azreview-whiteboard-imported", &[("name", Arg::from(shown)), ("file", Arg::from(answer.file.clone()))]);
+                    d.panel.tell(told);
+                }
+                Some(outcome)
+            }
+            Err(e) => {
+                say(&format!("WBDEMO_IMPORT_ERROR {}", e.english()));
+                let why = e.why().map_or_else(|| e.english(), str::to_string);
+                let told = t_args("azreview-whiteboard-import-failed", &[("why", Arg::from(why))]);
+                d.panel.tell(told);
+                None
+            }
+        }
+    };
+    let kept = matches!(outcome, Some(BoardOutcome::Done(_)));
+    follow(&mut app, outcome, &mut info);
+    if kept {
+        // The board that was read has no file of its own yet: it is kept now.
+        on_changed(&mut app, &mut info);
+    }
+    Update::RefreshDom
 }
 
 /// The copy a duplicate made is written.
@@ -709,6 +854,34 @@ pub fn run() {
     let mut panel = Panel::new("whiteboard-demo");
     panel.wb.set_bar(true, BAR_W, 1_280.0);
     panel.perf_on = profile;
+    // The folder the demo's page lies in, and what its repository says (the files of `.git`): the folder of the demo's own
+    // source, or `WBDEMO_WORKSPACE`. The settings are the app's own (`whiteboard-author`, `whiteboard-permalink-template`),
+    // with `WBDEMO_AUTHOR` and `WBDEMO_PERMALINK` to set them for a script.
+    let folder = std::env::var_os("WBDEMO_WORKSPACE").map_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), PathBuf::from);
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from);
+    let facts = whiteboard_git::read(&folder, home.as_deref());
+    say(&format!(
+        "WBDEMO_REPO {} {} {}",
+        facts.as_ref().and_then(|f| f.rev.as_deref()).unwrap_or("-"),
+        facts.as_ref().and_then(|f| f.branch.as_deref()).unwrap_or("-"),
+        facts.as_ref().and_then(|f| f.web_url.as_deref()).unwrap_or("-"),
+    ));
+    panel.wb.set_folder(Some(folder));
+    panel.wb.set_repo(facts);
+    let (settings, notes) = Settings::parse(&|key| {
+        let env = match key {
+            whiteboard_settings::KEY_AUTHOR => "WBDEMO_AUTHOR",
+            _ => "WBDEMO_PERMALINK",
+        };
+        std::env::var(env).ok().or_else(|| {
+            let mut k = kit_ref.clone();
+            k.downcast_ref::<kit::Kit>().and_then(|k| k.settings.get(key).map(str::to_string))
+        })
+    });
+    for note in &notes {
+        say(&format!("WBDEMO_SETTINGS_NOTE {note}"));
+    }
+    panel.wb.set_settings(settings);
     // The list of boards first, then the board it says is open.
     let unix_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(0));
     let start = panel.wb.index_loaded(
@@ -754,6 +927,7 @@ pub fn run() {
         files,
         saving_to: None,
         loading_raw: None,
+        exporting: None,
         timer: None,
         profile,
         ticks: 0,
@@ -777,6 +951,8 @@ fn fill_board(panel: &mut Panel, n: usize) {
         let rgba: Vec<u8> = (0..w * h).flat_map(|_| [tint[0], tint[1], tint[2], 255]).collect();
         let image = Arc::new(CutoutImage { width: w, height: h, scale: 2.0, rgba, png: Vec::new() });
         let source = Source {
+            rev: String::new(),
+            sha256: String::new(),
             file: "whiteboard_demo.rs".to_string(),
             page: 0,
             first_line: 1,

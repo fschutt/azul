@@ -24,7 +24,8 @@
 //! AzReview-Patch: 1
 //! Conversation: 7                      the conversation's number in the review (a whole number)
 //! Outcome: accepted                    accepted | rejected | answered | closed
-//! Base: 3833f10608241be94251152c...    the workspace's git revision, or "none" (no repository, or not read yet)
+//! Base: 3833f10608241be94251152c...    the workspace's git revision (HEAD) when the conversation BEGAN, or "none" (no repository,
+//!                                      no commit yet, or it began before the revision was kept)
 //! Time: 2025-11-26T05:40:12Z           when it was resolved, ISO 8601 UTC
 //! Said: rename step three to ...       what the reviewer said, as it was heard (the dictation, then each follow-up after " / ")
 //! Understood: rename step_3 to ...     what the words came to against the workspace's names (only where they were read as names)
@@ -103,7 +104,8 @@ impl Outcome {
 pub struct Header<'a> {
     pub conversation: u64,
     pub outcome: Outcome,
-    /// The workspace's revision (a git hash) when the conversation was resolved; none where there is no repository.
+    /// The workspace's revision (a git hash) when the conversation began, which is what its suggestions were made against; none
+    /// where there was no repository.
     pub base: Option<&'a str>,
     /// When it was resolved, Unix ms.
     pub time_unix_ms: u64,

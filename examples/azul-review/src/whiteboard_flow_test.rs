@@ -126,6 +126,8 @@ fn a_loop_becomes_a_cutout_two_cutouts_get_an_arrow_the_board_is_kept_and_a_jump
         let image = picture.into_shared_image(p.scale, png);
 
         let source = Source {
+            rev: String::new(),
+            sha256: String::new(),
             file: "src/lib.rs".to_string(),
             page: 0,
             first_line: taken.first_line,
@@ -152,7 +154,8 @@ fn a_loop_becomes_a_cutout_two_cutouts_get_an_arrow_the_board_is_kept_and_a_jump
     // Kept in a file and read back: the same board.
     let name = board_name("/work/azul");
     assert!(name.starts_with("boards/azul-"));
-    let entries = write(&board.snapshot(), "/work/azul", 1_700_000_000_000);
+    let meta = crate::whiteboard_azboard::Meta { workspace_name: "azul".to_string(), modified_ms: 1_700_000_000_000, ..Default::default() };
+    let entries = write(&board.snapshot(), &meta);
     assert_eq!(entries.iter().filter(|e| e.name != MANIFEST).count(), 2, "a picture for each cutout");
     let by_name: BTreeMap<String, Vec<u8>> = entries.iter().map(|e| (e.name.clone(), e.bytes.clone())).collect();
     let loaded = read(&by_name[MANIFEST], &|n| by_name.get(n).cloned(), &Codec, &LIMITS).expect("read");

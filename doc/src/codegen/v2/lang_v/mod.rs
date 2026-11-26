@@ -54,8 +54,14 @@
 //! `#flag -L.` + `#flag -lazul` (plus the macOS `#flag darwin -framework
 //! …` set) make V's C backend link `libazul`. The user drops
 //! `libazul.{so,dylib}` / `azul.dll` on the library path and builds with
-//! `v run .`. The generated `azul.v` is meant to live in an `azul/`
-//! subdirectory imported via `import azul`.
+//! `v -no-skip-unused run .`. The generated `azul.v` is meant to live in an
+//! `azul/` subdirectory imported via `import azul`.
+//!
+//! `-no-skip-unused` is needed: V writes a C prototype for every `fn C.` declaration (they carry
+//! `@[c_extern]`, see `functions.rs`) but leaves out the types that only the functions the program
+//! does not call name, and gcc stops at the first prototype ("unknown type name
+//! `azul__AzIconDesignedFor`", V 0.5.2, run 45765384332); with the flag the C compiles and only
+//! the link wants libazul (run 45766307680).
 
 pub mod fields;
 pub mod functions;
@@ -123,7 +129,8 @@ fn emit_header(b: &mut CodeBuilder) {
     b.line("// / Odin / Nim bindings.");
     b.line("//");
     b.line("// Build: place libazul.{so,dylib}/azul.dll on the link path (`#flag -L.`)");
-    b.line("// and build the directory with `v run .`.");
+    b.line("// and build the directory with `v -no-skip-unused run .`: V leaves out the types");
+    b.line("// of the functions a program does not call, but not their C prototypes.");
     b.line("// ============================================================================");
     b.blank();
 }

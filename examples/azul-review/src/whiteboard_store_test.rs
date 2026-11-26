@@ -41,6 +41,8 @@ fn picture(w: u32, h: u32, rgb: u8) -> Arc<CutoutImage> {
 
 fn source(file: &str, first: u32, last: u32) -> Source {
     Source {
+        rev: String::new(),
+        sha256: String::new(),
         file: file.to_string(),
         page: 3,
         first_line: first,
@@ -75,6 +77,11 @@ fn sample() -> BoardData {
     }
 }
 
+/// What a document of the board of the folder `ws` says besides its items, kept at `ms`.
+fn meta(ws: &str, ms: u64) -> Meta {
+    Meta { board_id: "b1".to_string(), board_name: "Board 1".to_string(), workspace_name: folder_name(ws), modified_ms: ms, ..Meta::default() }
+}
+
 fn blobs(entries: &[Entry]) -> BTreeMap<String, Vec<u8>> {
     entries.iter().map(|e| (e.name.clone(), e.bytes.clone())).collect()
 }
@@ -87,14 +94,15 @@ fn read_entries(entries: &[Entry], limits: &Limits) -> Result<Loaded, StoreError
 
 #[test]
 fn a_board_is_written_as_one_manifest_and_a_picture_for_each_cutout_that_has_one() {
-    let entries = write(&sample(), "/work/azul", 1_700_000_000_123);
+    let entries = write(&sample(), &meta("/work/azul", 1_700_000_000_123));
     let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
     assert_eq!(names, vec!["board.json", "img-1.png", "img-2.png"], "the third has no picture, the arrows none");
     let manifest = String::from_utf8(entries[0].bytes.clone()).expect("text");
     let json = crate::whiteboard_json::parse(&manifest).expect("the manifest is JSON");
-    assert_eq!(json.get("format").and_then(|f| f.as_str()), Some(FORMAT));
-    assert_eq!(json.get("workspace").and_then(|f| f.as_str()), Some("/work/azul"));
-    assert_eq!(json.get("saved_ms").and_then(|f| f.as_u64()), Some(1_700_000_000_123));
+    assert_eq!(json.get("format").and_then(|f| f.as_str()), Some(azboard::FORMAT));
+    assert_eq!(json.get("workspace").and_then(|w| w.get("name")).and_then(|f| f.as_str()), Some("azul"), "the folder's name, not its path");
+    assert!(!manifest.contains("/work/"), "nothing of where the folder is");
+    assert_eq!(json.get("board").and_then(|b| b.get("modified_ms")).and_then(|f| f.as_u64()), Some(1_700_000_000_123));
     assert_eq!(json.get("items").and_then(|i| i.as_arr()).map(<[_]>::len), Some(6));
     assert_eq!(entries[1].bytes, picture(8, 4, 200).png, "the picture is written as it was made: no new encode");
 }
@@ -102,10 +110,10 @@ fn a_board_is_written_as_one_manifest_and_a_picture_for_each_cutout_that_has_one
 #[test]
 fn what_is_written_is_read_back_whole() {
     let board = sample();
-    let entries = write(&board, "/work/azul", 42);
+    let entries = write(&board, &meta("/work/azul", 42));
     let loaded = read_entries(&entries, &LIMITS).expect("read");
-    assert_eq!(loaded.workspace, "/work/azul");
-    assert_eq!(loaded.saved_ms, 42);
+    assert_eq!(loaded.meta.workspace_name, "azul");
+    assert_eq!(loaded.meta.modified_ms, 42);
     assert_eq!((loaded.left_out, loaded.unreadable_pictures), (0, 0));
     assert_eq!(loaded.data.items, board.items, "the same items, in the same order, with the same everything");
     assert_eq!(loaded.data.view, board.view);
@@ -122,7 +130,7 @@ fn a_picture_with_see_through_pixels_comes_back_as_it_was_to_a_level() {
     let premultiplied = crate::whiteboard_cutout::Raster::from_straight(4, 1, straight).expect("raster");
     let image = Arc::new(CutoutImage { width: 4, height: 1, scale: 2.0, rgba: premultiplied.px.clone(), png });
     let data = BoardData { items: vec![cutout(1, 0.0, "", ImageSlot::Ready(image))], view: View::default(), next_id: 2 };
-    let loaded = read_entries(&write(&data, "w", 0), &LIMITS).expect("read");
+    let loaded = read_entries(&write(&data, &meta("w", 0)), &LIMITS).expect("read");
     let Item::Cutout(c) = &loaded.data.items[0] else { panic!("a cutout") };
     let ImageSlot::Ready(img) = &c.image else { panic!("a picture") };
     for (a, b) in premultiplied.px.iter().zip(&img.rgba) {
@@ -134,7 +142,7 @@ fn a_picture_with_see_through_pixels_comes_back_as_it_was_to_a_level() {
 
 #[test]
 fn the_texts_and_numbers_of_a_board_survive_exactly() {
-    let loaded = read_entries(&write(&sample(), "/work/ünï", 1), &LIMITS).expect("read");
+    let loaded = read_entries(&write(&sample(), &meta("/work/ünï", 1)), &LIMITS).expect("read");
     let Item::Cutout(first) = &loaded.data.items[0] else { panic!("a cutout") };
     assert_eq!(first.label, "the parser\nof two lines");
     assert_eq!(first.source.lines, source("x", 1, 2).lines, "quotes, a tab, umlauts, a tick");
@@ -142,7 +150,7 @@ fn the_texts_and_numbers_of_a_board_survive_exactly() {
     assert_eq!(first.source.range_hash, u64::MAX, "a 64 bit number is kept whole");
     assert_eq!(first.source.shape[0], Pt::new(10.5, 10.25));
     assert_eq!(first.source.page, 3);
-    assert_eq!(loaded.workspace, "/work/ünï");
+    assert_eq!(loaded.meta.workspace_name, "ünï");
 }
 
 #[test]
@@ -157,7 +165,7 @@ fn a_cutout_without_a_picture_says_why_it_has_none() {
         view: View::default(),
         next_id: 4,
     };
-    let entries = write(&data, "w", 0);
+    let entries = write(&data, &meta("w", 0));
     assert_eq!(entries.len(), 1, "only the manifest");
     let loaded = read_entries(&entries, &LIMITS).expect("read");
     let reasons: Vec<String> = loaded
@@ -177,13 +185,15 @@ fn a_cutout_without_a_picture_says_why_it_has_none() {
 
 #[test]
 fn unknown_keys_are_ignored_and_an_unknown_kind_is_left_out_and_counted() {
-    let mut text = String::from_utf8(write(&sample(), "w", 1)[0].bytes.clone()).expect("text");
-    text = text.replacen("{\"kind\":\"arrow\"", "{\"kind\":\"sticker\",\"id\":99,\"shine\":true},\n  {\"kind\":\"arrow\",\"future\":[1,2]", 1);
-    text = text.replacen("\"format\"", "\"made_by\":\"a newer minor\",\"format\"", 1);
-    let map = blobs(&write(&sample(), "w", 1));
-    let loaded = read(text.as_bytes(), &|n| map.get(n).cloned(), &Codec, &LIMITS).expect("read");
+    // The first version's manifest, with what a newer minor version might add.
+    let text = r#"{"made_by":"a newer minor","format":"azreview-board/1","items":[
+        {"kind":"sticker","id":99,"shine":true},
+        {"kind":"cutout","id":1,"x":0,"y":0,"w":50,"h":20,"image":null,"state":"failed","why":"x","future":[1,2],"source":{"file":"a.rs","first_line":1,"last_line":2}},
+        {"kind":"arrow","id":2,"from":{"item":1},"to":{"free":[5,6]},"future":{"a":1}}
+    ]}"#;
+    let loaded = read(text.as_bytes(), &|_| None, &Codec, &LIMITS).expect("read");
     assert_eq!(loaded.left_out, 1);
-    assert_eq!(loaded.data.items.len(), 6, "the six items of the board");
+    assert_eq!(loaded.data.items.len(), 2, "the cutout and the arrow");
 }
 
 #[test]
@@ -207,7 +217,7 @@ fn an_item_missing_what_it_cannot_do_without_is_left_out_and_counted() {
 
 #[test]
 fn a_picture_that_is_missing_or_damaged_leaves_the_cutout_with_the_lines_and_a_reason() {
-    let entries = write(&sample(), "w", 1);
+    let entries = write(&sample(), &meta("w", 1));
     // 1: gone from the file; 2: cut short.
     let mut map = blobs(&entries);
     map.remove("img-1.png");
@@ -225,7 +235,7 @@ fn a_picture_that_is_missing_or_damaged_leaves_the_cutout_with_the_lines_and_a_r
 #[test]
 fn a_picture_past_the_caps_is_not_loaded_and_the_cutout_stays() {
     // The pictures have 32 and 18 pixels.
-    let entries = write(&sample(), "w", 1);
+    let entries = write(&sample(), &meta("w", 1));
     let one = Limits { max_image_px: 20, ..LIMITS };
     let loaded = read_entries(&entries, &one).expect("read");
     assert_eq!(loaded.unreadable_pictures, 1, "the 32 pixel picture is over the cap of one picture");
@@ -322,7 +332,7 @@ fn a_manifest_that_is_too_large_is_refused_before_it_is_read() {
 
 #[test]
 fn a_file_cut_short_or_damaged_anywhere_is_never_a_panic() {
-    let entries = write(&sample(), "/work/azul", 7);
+    let entries = write(&sample(), &meta("/work/azul", 7));
     let map = blobs(&entries);
     let manifest = map.get(MANIFEST).cloned().unwrap_or_default();
     let read_it = |m: &[u8]| {
@@ -436,7 +446,7 @@ fn a_full_board_is_written_and_read_back_in_a_blink() {
     }
     let data = BoardData { items, view: View::default(), next_id: 2_000 };
     let began = std::time::Instant::now();
-    let entries = write(&data, "/work/azul", 1);
+    let entries = write(&data, &meta("/work/azul", 1));
     let wrote = began.elapsed();
     let began = std::time::Instant::now();
     let loaded = read_entries(&entries, &LIMITS).expect("read");

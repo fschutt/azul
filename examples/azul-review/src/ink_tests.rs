@@ -291,3 +291,12 @@ fn the_cpu_frame_of_a_page_that_grew_has_its_ink_lower() {
     assert!(alpha(&grown, 40, line as usize + 30) > 0, "painted two rows lower");
     assert_eq!(alpha(&grown, 40, line as usize), 0);
 }
+
+#[test]
+fn the_marker_s_nib_is_broader_than_the_pen_s_and_both_are_what_the_brush_paints_with() {
+    assert_eq!(ink::nib_width(Semantic::Scope), ink::brush(Semantic::Scope, 1.0).radius * 2.0);
+    for semantic in [Semantic::Issue, Semantic::Question, Semantic::Duplicate, Semantic::Praise] {
+        assert_eq!(ink::nib_width(semantic), ink::brush(semantic, 1.0).radius * 2.0, "{semantic:?}: at full pressure");
+        assert!(ink::nib_width(semantic) < ink::nib_width(Semantic::Scope));
+    }
+}
