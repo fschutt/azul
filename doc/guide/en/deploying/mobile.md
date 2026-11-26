@@ -223,10 +223,15 @@ That is the *entire* difference from a desktop app.
   `getFilesDir()`, `XDG_CONFIG_HOME` to `files/config`, and `XDG_CACHE_HOME` and `TMPDIR` to `getCacheDir()` before the
   library loads (what the caller set is kept), so `FilePath::get_data_dir()`, `get_config_dir()` and
   `get_cache_dir()` answer, and `std::env::temp_dir()` is writable. `libazul` logs one line
-  `[Android] app dirs: HOME=... (writable)` at `AZ_LOG=info` (an error line when one is not writable).
+  `[Android] app dirs: home=... (writable) data=... cache=... temp=...` at `AZ_LOG=info` (an error line when one is missing or not writable).
 - `WindowCreateOptions::create_callback` runs once per window, when the window's surface first exists (Android's first
   `InitWindow`: the real size and density are in the window state) and before its first layout, as on the desktop
   shells. Start the timers and workers that live as long as the window there.
+- A finger is a *tap candidate* until it has moved more than the touch slop (8 dp, the engine's logical pixel) from where
+  it landed: inside the slop nothing scrolls, a release is a click at the landing point and a long press stays a long
+  press; the move that crosses it makes the contact a pan for good (the page does not jump by the slop) and its release
+  clicks nothing. A mouse, a stylus and an eraser have no slop. A widget a finger drags (a slider, a map, a paint canvas)
+  therefore starts to move 8 dp after the touch under a finger and at once under a stylus.
 
 ### Package the APK (no Android Studio)
 
