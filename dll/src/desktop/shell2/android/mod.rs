@@ -455,6 +455,10 @@ impl AndroidWindow {
         // garbage. Going native needs the Wayland slot model keyed by the
         // returned bits pointer (per-buffer stale tracking + the in/out
         // dirty-bounds contract); design when a device run exists to verify.
+        // The PRESENT does not need it: the renderer keeps its own pixmap as its
+        // base and `android_core::present` copies into the locked buffer exactly
+        // the rows the system returns as the dirty region (the in/out contract of
+        // `ANativeWindow_lock`), so no per-buffer bookkeeping exists any more.
         //
         // CPU-render the frame — populates `self.cpu_backend.last_frame`
         // so the next `render_frame()` call can blit pixels.
