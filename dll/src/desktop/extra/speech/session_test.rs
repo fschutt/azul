@@ -17,7 +17,7 @@ use super::{
     mock::{words_of, ManualClock, MockSpeech, Step},
     recognizer::{Kind, Outcome, SharedClock, SystemClock},
     answer_to_heard, heard_to_answer, with_timed_words, BuiltinSpeechStatus, HeardStatus, SpeechHeard,
-    SpeechLimits, SpeechPreference, SpeechRecognizer, SpeechSession,
+    SpeechLimits, SpeechPreference, SpeechRecognizer, SpeechSession, SpeechStandby, SpeechState,
 };
 
 const ORIGIN: u64 = 1_700_000_000_000;
@@ -427,4 +427,89 @@ fn the_session_decides_how_long_the_microphone_stays_open_and_lets_it_go_on_canc
         assert!(began.elapsed() < std::time::Duration::from_secs(2), "the microphone outlived its session");
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
+}
+
+fn watched_session(native: Vec<Step>) -> (SpeechSession, MicKeeper, Arc<AtomicU32>) {
+    let closed = Arc::new(AtomicU32::new(0));
+    let keeper = MicKeeper::new(Box::new(CountingSource(Arc::clone(&closed))));
+    let clock = ManualClock::shared(ORIGIN);
+    let session = SpeechSession::on_chain_with_keeper(
+        Chain::new(clock).with(Box::new(MockSpeech::new(Kind::Native, native))),
+        keeper.clone(),
+    );
+    session.set_limits(SpeechLimits::default());
+    (session, keeper, closed)
+}
+
+#[test]
+fn the_state_goes_from_cold_through_armed_and_warm_to_listening_and_back() {
+    let (session, keeper, closed) = watched_session(vec![say(100, "first")]);
+    assert_eq!(session.state(), SpeechState::Cold, "nothing was done yet");
+    // Arming opens the microphone: armed, whatever was initialised.
+    assert_eq!(session.arm().as_str(), "", "armed");
+    assert_eq!(session.state(), SpeechState::Armed);
+    assert!(keeper.is_held());
+    session.disarm();
+    assert_eq!((session.state(), closed.load(Ordering::SeqCst)), (SpeechState::Cold, 1));
+    // A call initialises the recognizer (a scripted one does not touch the microphone).
+    let _ = ask(&session, "en");
+    assert_eq!(session.state(), SpeechState::Warm, "initialised, microphone closed");
+    // A call that kept the microphone leaves the session armed until it is let go.
+    keeper.acquire().expect("a microphone").finish(true);
+    assert_eq!(session.state(), SpeechState::Armed);
+    session.reset();
+    assert_eq!(session.state(), SpeechState::Warm);
+    // While a call runs it is listening.
+    let clock: SharedClock = Arc::new(SystemClock::new());
+    let listening = SpeechSession::on_chain(Chain::new(clock).with(Box::new(MockSpeech::new(Kind::Native, vec![Step::Silence]))));
+    let worker = listening.clone();
+    let handle = std::thread::spawn(move || worker.listen_blocking(AzString::from("en".to_string()), 60_000));
+    let began = std::time::Instant::now();
+    while listening.state() != SpeechState::Listening {
+        assert!(began.elapsed() < std::time::Duration::from_secs(5), "the call never listened");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    listening.cancel();
+    let _ = handle.join().expect("the worker");
+    assert_ne!(listening.state(), SpeechState::Listening, "the call ended");
+    assert_eq!(SpeechSession::default().state(), SpeechState::Cold, "a closed session has nothing");
+}
+
+#[test]
+fn the_standby_decides_what_stays_open_and_arm_says_why_when_it_cannot() {
+    let (session, keeper, _closed) = watched_session(vec![say(100, "first"), say(100, "second"), say(100, "third")]);
+    // Off: nothing is kept, and an arm says so.
+    session.set_standby(SpeechStandby::Off);
+    assert!(session.arm().as_str().contains("off"), "{}", session.arm().as_str());
+    let _ = ask(&session, "en");
+    assert!(!keeper.is_held(), "off: the call closed the microphone");
+    // On demand (the default): kept for mic_keep_ms after a call (a scripted call does not use the
+    // microphone: the keeper is asked as a recognizer that listens with it would).
+    session.set_standby(SpeechStandby::OnDemand);
+    keeper.acquire().expect("a microphone").finish(true);
+    assert!(keeper.is_held());
+    session.reset();
+    // While armed: an arm holds it for the armed time, which a short keep time does not end.
+    session.set_limits(SpeechLimits {
+        mic_keep_ms: 50,
+        armed_idle_ms: 5_000,
+        ..SpeechLimits::default()
+    });
+    session.set_standby(SpeechStandby::WhileArmed);
+    assert_eq!(session.arm().as_str(), "");
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    assert!(keeper.is_held(), "armed: the 50 ms of a call do not apply");
+    session.disarm();
+    assert!(!keeper.is_held());
+    // Always: no limit; a cancel does not close it, a disarm does.
+    session.set_standby(SpeechStandby::Always);
+    assert_eq!(session.arm().as_str(), "");
+    session.cancel();
+    assert!(keeper.is_held(), "always open: a cancel of a call is not the end of it");
+    session.disarm();
+    assert!(!keeper.is_held());
+    // Leaving Always puts the limits back.
+    session.set_standby(SpeechStandby::OnDemand);
+    assert_eq!(SpeechStandby::default(), SpeechStandby::OnDemand);
+    assert_eq!(SpeechLimits::default().armed_idle_ms, 60_000);
 }

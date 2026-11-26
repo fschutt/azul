@@ -30,8 +30,14 @@ pub const PREROLL_MS: u32 = 2_000;
 /// The longest a microphone may be kept after a call, ms.
 pub const MAX_KEEP_MS: u32 = 60_000;
 
+/// The longest an armed microphone may wait without an arm or a call, ms.
+pub const MAX_ARMED_IDLE_MS: u32 = 600_000;
+
 /// How long a session keeps its microphone open after a call unless the app says otherwise, ms.
 pub const DEFAULT_KEEP_MS: u32 = 5_000;
+
+/// How long an armed microphone waits without an arm or a call unless the app says otherwise, ms.
+pub const DEFAULT_ARMED_IDLE_MS: u32 = 60_000;
 
 /// How long one read of the kept microphone waits for sound, ms: the longest a call that wants the
 /// microphone can wait for the thread that reads it.
@@ -48,8 +54,10 @@ struct Held {
     microphone: Box<dyn Microphone>,
     /// What came in since the last call, oldest first, at most [`PREROLL_MS`].
     preroll: Vec<f32>,
-    /// When the last call let go of it.
+    /// When the last call let go of it, or the app armed it last.
     idle_since: Instant,
+    /// The app armed it: it waits for the longer time of an armed microphone, not the short one of a call.
+    armed: bool,
 }
 
 impl Held {
@@ -68,6 +76,15 @@ struct Shared {
     held: Mutex<Option<Held>>,
     changed: Condvar,
     keep_ms: AtomicU32,
+    /// How long an armed microphone waits without an arm or a call, ms (0: an armed microphone
+    /// waits like any other).
+    armed_idle_ms: AtomicU32,
+    /// The microphone stays open without a limit once it is open.
+    always: AtomicBool,
+    /// The app armed the microphone while a call had it: the call gives it back armed.
+    arm_pending: AtomicBool,
+    /// How many calls have the microphone.
+    leased: AtomicU32,
     /// The thread that reads the kept microphone was started.
     started: AtomicBool,
     /// How many calls wait for the lock of the kept microphone: the thread that reads it lets them
@@ -76,6 +93,23 @@ struct Shared {
 }
 
 impl Shared {
+    /// How long `held` may wait, `None` for no limit.
+    fn limit_of(&self, held: &Held) -> Option<Duration> {
+        if self.always.load(Ordering::SeqCst) {
+            return None;
+        }
+        let armed_idle = self.armed_idle_ms.load(Ordering::SeqCst);
+        let ms = if held.armed && armed_idle > 0 { armed_idle } else { self.keep_ms.load(Ordering::SeqCst) };
+        Some(Duration::from_millis(u64::from(ms)))
+    }
+
+    /// Whether the standby keeps nothing: no time after a call, no armed time, not always.
+    fn is_off(&self) -> bool {
+        self.keep_ms.load(Ordering::SeqCst) == 0
+            && self.armed_idle_ms.load(Ordering::SeqCst) == 0
+            && !self.always.load(Ordering::SeqCst)
+    }
+
     /// The kept microphone, for a call: it goes before the thread that reads it.
     fn held(&self) -> MutexGuard<'_, Option<Held>> {
         self.waiting.fetch_add(1, Ordering::SeqCst);
@@ -94,11 +128,12 @@ impl Shared {
         self.held().take()
     }
 
-    fn hold(self: &Arc<Self>, microphone: Box<dyn Microphone>) {
+    fn hold(self: &Arc<Self>, microphone: Box<dyn Microphone>, preroll: Vec<f32>, armed: bool) {
         *self.held() = Some(Held {
             microphone,
-            preroll: Vec::new(),
+            preroll,
             idle_since: Instant::now(),
+            armed,
         });
         if !self.started.swap(true, Ordering::SeqCst) {
             let weak = Arc::downgrade(self);
@@ -123,14 +158,13 @@ fn keep_loop(weak: &Weak<Shared>) {
         let Some(shared) = weak.upgrade() else {
             return;
         };
-        let keep = Duration::from_millis(u64::from(shared.keep_ms.load(Ordering::SeqCst)));
         let mut held = shared.held_by_thread();
         let Some(kept) = held.as_mut() else {
             // Nothing to keep: wait for a call to give a microphone back (or for the keeper to go).
             let _ = shared.changed.wait_timeout(held, IDLE_CHECK).unwrap_or_else(PoisonError::into_inner);
             continue;
         };
-        if keep.is_zero() || kept.idle_since.elapsed() >= keep {
+        if shared.limit_of(kept).is_some_and(|limit| limit.is_zero() || kept.idle_since.elapsed() >= limit) {
             let old = held.take();
             drop(held);
             drop(old);
@@ -178,6 +212,10 @@ impl MicKeeper {
                 held: Mutex::new(None),
                 changed: Condvar::new(),
                 keep_ms: AtomicU32::new(0),
+                armed_idle_ms: AtomicU32::new(0),
+                always: AtomicBool::new(false),
+                arm_pending: AtomicBool::new(false),
+                leased: AtomicU32::new(0),
                 started: AtomicBool::new(false),
                 waiting: AtomicU32::new(0),
             }),
@@ -201,10 +239,70 @@ impl MicKeeper {
     pub fn set_keep_ms(&self, ms: u32) {
         let ms = ms.min(MAX_KEEP_MS);
         self.shared.keep_ms.store(ms, Ordering::SeqCst);
-        if ms == 0 {
+        if ms == 0 && self.shared.is_off() {
             self.release();
         }
         self.shared.changed.notify_all();
+    }
+
+    /// How long an armed microphone waits without an arm or a call before it is given up, ms (kept
+    /// to ten minutes; 0: an armed microphone waits like any other). A forgotten disarm cannot
+    /// leave the microphone on for ever.
+    pub fn set_armed_idle_ms(&self, ms: u32) {
+        self.shared.armed_idle_ms.store(ms.min(MAX_ARMED_IDLE_MS), Ordering::SeqCst);
+        self.shared.changed.notify_all();
+    }
+
+    /// Whether the microphone stays open without a limit once it is open (an explicit opt-in: the
+    /// system's microphone indicator stays on). Only a disarm, a reset or the end of the session
+    /// closes it.
+    pub fn set_always(&self, always: bool) {
+        self.shared.always.store(always, Ordering::SeqCst);
+        self.shared.changed.notify_all();
+    }
+
+    /// Opens the microphone now and keeps it until [`Self::disarm`] (or, when the standby has a
+    /// time for an armed microphone, until that time passes without an arm or a call). Arming an
+    /// open microphone opens nothing and starts the time again; arming while a call has it makes
+    /// the call give it back armed.
+    ///
+    /// # Errors
+    ///
+    /// The source's refusal, or that the standby keeps nothing.
+    pub fn arm(&self) -> Result<(), (Outcome, String)> {
+        if self.shared.is_off() {
+            return Err((
+                Outcome::Unavailable,
+                "the microphone standby is off: nothing is kept open (choose another standby to arm it)".to_string(),
+            ));
+        }
+        {
+            let mut held = self.shared.held();
+            if let Some(kept) = held.as_mut() {
+                kept.armed = true;
+                kept.idle_since = Instant::now();
+                return Ok(());
+            }
+        }
+        if self.shared.leased.load(Ordering::SeqCst) > 0 {
+            self.shared.arm_pending.store(true, Ordering::SeqCst);
+            return Ok(());
+        }
+        let microphone = self.shared.source.lock().unwrap_or_else(PoisonError::into_inner).open()?;
+        self.shared.hold(microphone, Vec::new(), true);
+        Ok(())
+    }
+
+    /// Closes the microphone that waits, and forgets an arm that a call was going to hand on.
+    pub fn disarm(&self) {
+        self.shared.arm_pending.store(false, Ordering::SeqCst);
+        self.release();
+    }
+
+    /// Whether a call has the microphone now.
+    #[must_use]
+    pub fn is_leased(&self) -> bool {
+        self.shared.leased.load(Ordering::SeqCst) > 0
     }
 
     /// The time a microphone stays open after a call, ms.
@@ -231,13 +329,18 @@ impl MicKeeper {
     ///
     /// The source's refusal: `Denied` when the user said no, `Unavailable` when there is none.
     pub fn acquire(&self) -> Result<Lease, (Outcome, String)> {
-        let keep = Duration::from_millis(u64::from(self.keep_ms()));
         if let Some(held) = self.shared.take_held() {
-            if !keep.is_zero() && held.idle_since.elapsed() < keep {
+            let in_time = self
+                .shared
+                .limit_of(&held)
+                .map_or(true, |limit| !limit.is_zero() && held.idle_since.elapsed() < limit);
+            if in_time {
+                self.shared.leased.fetch_add(1, Ordering::SeqCst);
                 return Ok(Lease {
                     microphone: Some(held.microphone),
                     preroll: held.preroll,
                     warm: true,
+                    armed: held.armed,
                     shared: Arc::clone(&self.shared),
                 });
             }
@@ -250,10 +353,12 @@ impl MicKeeper {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .open()?;
+        self.shared.leased.fetch_add(1, Ordering::SeqCst);
         Ok(Lease {
             microphone: Some(microphone),
             preroll: Vec::new(),
             warm: false,
+            armed: false,
             shared: Arc::clone(&self.shared),
         })
     }
@@ -268,6 +373,8 @@ pub struct Lease {
     pub preroll: Vec<f32>,
     /// The microphone was open before the call: its sound flows from the first read.
     pub warm: bool,
+    /// The app had armed the microphone: it goes back armed.
+    armed: bool,
     shared: Arc<Shared>,
 }
 
@@ -291,11 +398,21 @@ impl Lease {
     /// not zero, else closed.
     pub fn finish(mut self, keep: bool) {
         let microphone = self.microphone.take();
+        let armed = self.armed || self.shared.arm_pending.swap(false, Ordering::SeqCst);
         if let Some(microphone) = microphone {
-            if keep && self.shared.keep_ms.load(Ordering::SeqCst) > 0 {
-                self.shared.hold(microphone);
+            let always = self.shared.always.load(Ordering::SeqCst);
+            let kept_for_a_time = keep && self.shared.keep_ms.load(Ordering::SeqCst) > 0;
+            let kept_armed = keep && armed && self.shared.armed_idle_ms.load(Ordering::SeqCst) > 0;
+            if always || kept_for_a_time || kept_armed {
+                self.shared.hold(microphone, Vec::new(), armed);
             }
         }
+    }
+}
+
+impl Drop for Lease {
+    fn drop(&mut self) {
+        self.shared.leased.fetch_sub(1, Ordering::SeqCst);
     }
 }
 

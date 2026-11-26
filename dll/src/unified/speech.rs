@@ -11,8 +11,8 @@ use azul_css::{impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_p
 #[cfg(az_desktop)]
 pub use crate::desktop::extra::speech::{
     BuiltinSpeechStatus, HeardStatus, OptionSpeechWord, Speech, SpeechHeard, SpeechLimits, SpeechPreference,
-    SpeechRecognizer, SpeechSession, SpeechStatus, SpeechWord, SpeechWordVec, SpeechWordVecDestructor,
-    SpeechWordVecDestructorType, SpeechWordVecSlice,
+    SpeechRecognizer, SpeechSession, SpeechStandby, SpeechState, SpeechStatus, SpeechWord, SpeechWordVec,
+    SpeechWordVecDestructor, SpeechWordVecDestructorType, SpeechWordVecSlice,
 };
 
 /// wasm stub of the desktop `SpeechStatus`; `#[repr(C)]` layout MUST match.
@@ -76,6 +76,35 @@ impl Default for SpeechPreference {
     }
 }
 
+/// wasm stub of the desktop `SpeechState`; `#[repr(C)]` layout MUST match.
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum SpeechState {
+    Cold,
+    Warm,
+    Armed,
+    Listening,
+}
+
+/// wasm stub of the desktop `SpeechStandby`; `#[repr(C)]` layout MUST match.
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum SpeechStandby {
+    Off,
+    OnDemand,
+    WhileArmed,
+    Always,
+}
+
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+impl Default for SpeechStandby {
+    fn default() -> Self {
+        Self::OnDemand
+    }
+}
+
 /// wasm stub of the desktop `SpeechLimits`; `#[repr(C)]` layout MUST match.
 #[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
@@ -86,6 +115,7 @@ pub struct SpeechLimits {
     pub max_keywords: u32,
     pub max_model_mb: u32,
     pub mic_keep_ms: u32,
+    pub armed_idle_ms: u32,
 }
 
 #[cfg(any(target_arch = "wasm32", az_engine_stubs))]
@@ -97,6 +127,7 @@ impl Default for SpeechLimits {
             max_keywords: 200,
             max_model_mb: 128,
             mic_keep_ms: 5_000,
+            armed_idle_ms: 60_000,
         }
     }
 }
@@ -248,6 +279,18 @@ impl SpeechSession {
     pub fn set_limits(&self, _limits: SpeechLimits) {}
     /// Nothing is asked on wasm.
     pub fn set_preference(&self, _preference: SpeechPreference) {}
+    /// A session on wasm has nothing: it is cold.
+    pub fn state(&self) -> SpeechState {
+        SpeechState::Cold
+    }
+    /// There is no microphone on wasm.
+    pub fn arm(&self) -> AzString {
+        AzString::from("no microphone on the web yet".to_string())
+    }
+    /// Nothing waits on wasm.
+    pub fn disarm(&self) {}
+    /// Nothing is kept open on wasm.
+    pub fn set_standby(&self, _standby: SpeechStandby) {}
     /// No sound flows on wasm.
     pub fn audio_flowing(&self) -> bool {
         false

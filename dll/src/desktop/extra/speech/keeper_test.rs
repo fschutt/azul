@@ -302,6 +302,111 @@ fn a_call_that_wants_the_kept_microphone_is_not_kept_waiting_by_the_thread_that_
 }
 
 #[test]
+fn an_armed_microphone_is_opened_now_and_waits_until_it_is_disarmed_or_idle_for_too_long() {
+    let room = Room::default();
+    let keeper = keeper(&room, 5_000);
+    keeper.set_armed_idle_ms(150);
+    keeper.arm().expect("armed");
+    assert_eq!(room.opened(), 1);
+    assert!(keeper.is_held());
+    // Arming again refreshes the wait and opens nothing.
+    std::thread::sleep(Duration::from_millis(100));
+    keeper.arm().expect("armed again");
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(keeper.is_held(), "200 ms after the first arm, 100 after the second: still inside the 150 ms");
+    assert_eq!(room.opened(), 1);
+    // Forgotten: the safety closes it.
+    assert!(room.wait_closed(1), "an armed microphone nobody disarmed stayed open for ever");
+    assert!(!keeper.is_held());
+    // Disarming closes it at once.
+    keeper.arm().expect("armed");
+    keeper.disarm();
+    assert_eq!((room.closed(), keeper.is_held()), (2, false));
+}
+
+#[test]
+fn a_call_gives_an_armed_microphone_back_armed_and_a_microphone_it_opened_itself_is_kept_for_the_short_time() {
+    let room = Room::default();
+    let keeper = keeper(&room, 60);
+    keeper.set_armed_idle_ms(5_000);
+    keeper.arm().expect("armed");
+    let lease = keeper.acquire().expect("the armed microphone");
+    assert!(lease.warm);
+    assert!(!keeper.is_held());
+    lease.finish(true);
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(keeper.is_held(), "armed: the short time of a call does not apply");
+    keeper.disarm();
+    // Not armed: kept for the short time only.
+    keeper.acquire().expect("a microphone").finish(true);
+    assert!(room.wait_closed(2), "a microphone kept by a call outlived its 60 ms");
+}
+
+#[test]
+fn arming_while_a_call_has_the_microphone_arms_it_for_when_the_call_gives_it_back() {
+    let room = Room::default();
+    let keeper = keeper(&room, 60);
+    keeper.set_armed_idle_ms(5_000);
+    let lease = keeper.acquire().expect("a microphone");
+    keeper.arm().expect("armed during the call");
+    assert_eq!(room.opened(), 1, "no second microphone for the arm");
+    lease.finish(true);
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(keeper.is_held(), "armed during the call: kept armed after it");
+}
+
+#[test]
+fn an_always_open_microphone_has_no_limit_and_survives_a_cancelled_call() {
+    let room = Room::default();
+    let keeper = keeper(&room, 0);
+    keeper.set_always(true);
+    keeper.arm().expect("armed");
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(keeper.is_held(), "no limit");
+    let lease = keeper.acquire().expect("the microphone");
+    lease.finish(false);
+    assert!(keeper.is_held(), "a cancelled call does not close what the app wants always open");
+    assert_eq!(room.opened(), 1);
+    keeper.disarm();
+    assert_eq!((room.closed(), keeper.is_held()), (1, false), "a disarm closes it anyway");
+    keeper.set_always(false);
+}
+
+#[test]
+fn nothing_is_armed_when_the_standby_is_off_or_the_microphone_is_refused() {
+    let room = Room::default();
+    let off = keeper(&room, 0);
+    let Err((outcome, message)) = off.arm() else {
+        panic!("armed with the standby off");
+    };
+    assert_eq!(outcome, Outcome::Unavailable);
+    assert!(message.contains("off"), "{message}");
+    assert_eq!(room.opened(), 0);
+
+    *room.refuse.lock().unwrap() = Some((Outcome::Denied, "the microphone is turned off for Terminal".to_string()));
+    let on = keeper(&room, 5_000);
+    let Err((outcome, message)) = on.arm() else {
+        panic!("armed a refused microphone");
+    };
+    assert_eq!(outcome, Outcome::Denied);
+    assert!(message.contains("Terminal"), "{message}");
+    assert!(!on.is_held());
+}
+
+#[test]
+fn the_armed_microphone_collects_what_comes_in_for_the_first_call() {
+    let room = Room::default();
+    let keeper = keeper(&room, 5_000);
+    keeper.arm().expect("armed");
+    room.push(samples(0, 1_600));
+    room.wait_until_read();
+    let lease = keeper.acquire().expect("the armed microphone");
+    assert!(lease.warm);
+    assert_eq!(lease.preroll, samples(0, 1_600), "the first call hears what came in while it was armed");
+    assert_eq!(room.opened(), 1);
+}
+
+#[test]
 fn the_time_is_kept_to_a_minute() {
     let room = Room::default();
     let keeper = keeper(&room, 4_000_000_000);

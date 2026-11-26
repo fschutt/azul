@@ -161,6 +161,11 @@ impl Recognizer for MockSpeech {
         self.label.clone()
     }
 
+    fn warm(&self) -> bool {
+        // A scripted recognizer is initialised by its first call.
+        self.calls.load(Ordering::SeqCst) > 0
+    }
+
     fn readiness(&mut self) -> Readiness {
         // What the next step would say, without using it up.
         match self.steps.front() {

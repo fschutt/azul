@@ -467,6 +467,10 @@ impl Recognizer for Builtin {
         }
     }
 
+    fn warm(&self) -> bool {
+        matches!(self.state, State::Ready(_))
+    }
+
     fn set_vocabulary(&mut self, words: &[String]) -> Option<String> {
         self.set_keywords(words)
     }

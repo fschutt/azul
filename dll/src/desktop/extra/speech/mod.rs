@@ -40,7 +40,7 @@ use core::ffi::c_void;
 use std::{
     path::PathBuf,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
         Arc, Mutex, PoisonError,
     },
 };
@@ -88,7 +88,7 @@ use self::windows as platform;
 use self::{
     builtin::{Builtin, BuiltinStatus, Tuning},
     chain::{Chain, Health},
-    keeper::{MicKeeper, DEFAULT_KEEP_MS},
+    keeper::{MicKeeper, DEFAULT_ARMED_IDLE_MS, DEFAULT_KEEP_MS},
     mock::{words_of, MockSpeech},
     order::Preference,
     recognizer::{Answer, Kind, Limits, Listen, Outcome, Readiness, Recognizer, SharedClock, SystemClock, Word},
@@ -215,6 +215,45 @@ impl From<SpeechPreference> for Preference {
             SpeechPreference::NativeFirst => Self::NativeFirst,
             SpeechPreference::BuiltinFirst => Self::BuiltinFirst,
         }
+    }
+}
+
+/// What the session is ready for: how much a call would still have to do first.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum SpeechState {
+    /// Nothing is initialised and the microphone is closed.
+    Cold,
+    /// A recognizer is initialised (the model is loaded, the system's recognizer was used) and the
+    /// microphone is closed: a call opens it (about 270 ms on a Mac).
+    Warm,
+    /// The microphone is open and fills a buffer of the last 2 s (nothing is recorded or saved:
+    /// the buffer is memory that is overwritten): a call starts at once and hears what came in.
+    Armed,
+    /// A call or a stream is listening.
+    Listening,
+}
+
+/// How long the session keeps the microphone open between calls. The operating system's microphone
+/// indicator is on for as long as it is open.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum SpeechStandby {
+    /// Closed at the end of every call. `arm` is refused.
+    Off,
+    /// Kept `mic_keep_ms` after a call or an `arm` (the default).
+    OnDemand,
+    /// Opened by `arm` and kept until `disarm`, but given up when `armed_idle_ms` pass without an
+    /// `arm` or a call (so a forgotten `disarm` cannot leave it on); after a call it is still armed.
+    WhileArmed,
+    /// Opened by the first `arm` or call and kept until `disarm`, `reset` or the end of the
+    /// session, whatever happens in between: an explicit opt-in.
+    Always,
+}
+
+impl Default for SpeechStandby {
+    fn default() -> Self {
+        Self::OnDemand
     }
 }
 
@@ -478,6 +517,9 @@ pub struct SpeechLimits {
     /// shows its microphone indicator for as long. A cancel, a `reset` and the end of the session
     /// close it at once.
     pub mic_keep_ms: u32,
+    /// How long an armed microphone waits without an `arm` or a call before the session gives it up,
+    /// ms (60000, at most 600000): the safety of [`SpeechStandby::WhileArmed`].
+    pub armed_idle_ms: u32,
 }
 
 impl Default for SpeechLimits {
@@ -490,6 +532,7 @@ impl Default for SpeechLimits {
             max_keywords: u32::try_from(tuning.max_keywords).unwrap_or(u32::MAX),
             max_model_mb: u32::try_from(tuning.max_model_bytes / (1024 * 1024)).unwrap_or(u32::MAX),
             mic_keep_ms: DEFAULT_KEEP_MS,
+            armed_idle_ms: DEFAULT_ARMED_IDLE_MS,
         }
     }
 }
@@ -509,6 +552,10 @@ struct SessionInner {
     vocabulary: Mutex<Vec<String>>,
     /// The microphone: opened for a call, kept for the next one for `mic_keep_ms`.
     keeper: MicKeeper,
+    /// What the app chose to keep open.
+    standby: Mutex<SpeechStandby>,
+    /// How many calls and streams are listening.
+    active: AtomicU32,
     /// Sound is reaching the recognizer of the call that runs.
     flowing: AtomicBool,
     /// What the app asked for: who is asked first.
@@ -621,6 +668,8 @@ impl SpeechSession {
             limits: Mutex::new(SpeechLimits::default()),
             vocabulary: Mutex::new(Vec::new()),
             keeper,
+            standby: Mutex::new(SpeechStandby::OnDemand),
+            active: AtomicU32::new(0),
             flowing: AtomicBool::new(false),
             preference: Mutex::new(preference),
             identifiers: AtomicBool::new(false),
@@ -732,6 +781,56 @@ impl SpeechSession {
         AzString::from(note.unwrap_or_default())
     }
 
+    /// What the session is ready for ([`SpeechState`]).
+    #[must_use]
+    pub fn state(&self) -> SpeechState {
+        let Some(inner) = self.inner() else {
+            return SpeechState::Cold;
+        };
+        if inner.active.load(Ordering::SeqCst) > 0 || inner.keeper.is_leased() {
+            SpeechState::Listening
+        } else if inner.keeper.is_held() {
+            SpeechState::Armed
+        } else if inner.chain.try_lock().map_or(true, |chain| chain.is_warm()) {
+            SpeechState::Warm
+        } else {
+            SpeechState::Cold
+        }
+    }
+
+    /// Opens the microphone now and keeps it open (see [`SpeechStandby`]), so that the next call
+    /// starts at once and hears what came in meanwhile (the last 2 s): arm when the user is about
+    /// to speak (the pen comes in range, the button is hovered), not when they have begun. Opening
+    /// costs about 270 ms once. Answers why it could not, empty when the session is armed (the
+    /// permission rules of the microphone apply: a refusal is a sentence the user can act on).
+    /// Arming an armed session starts the waiting time again.
+    pub fn arm(&self) -> AzString {
+        let Some(inner) = self.inner() else {
+            return AzString::from("this speech session is closed".to_string());
+        };
+        match inner.keeper.arm() {
+            Ok(()) => AzString::from(String::new()),
+            Err((_outcome, message)) => AzString::from(message),
+        }
+    }
+
+    /// Closes the microphone that waits for a call: the system's indicator goes out. A call that
+    /// is running goes on.
+    pub fn disarm(&self) {
+        if let Some(inner) = self.inner() {
+            inner.keeper.disarm();
+        }
+    }
+
+    /// What stays open between calls: [`SpeechStandby::OnDemand`] by default.
+    pub fn set_standby(&self, standby: SpeechStandby) {
+        let Some(inner) = self.inner() else {
+            return;
+        };
+        *inner.standby.lock().unwrap_or_else(PoisonError::into_inner) = standby;
+        inner.apply_standby();
+    }
+
     /// Whether sound is reaching the recognizer in the call that runs: false until the
     /// microphone delivers its first sound (it takes a moment to start: about 270 ms on a Mac),
     /// true from then until the call ends. A window shows "speak now" from the moment it turns
@@ -758,7 +857,7 @@ impl SpeechSession {
             return;
         };
         *inner.limits.lock().unwrap_or_else(PoisonError::into_inner) = limits;
-        inner.keeper.set_keep_ms(limits.mic_keep_ms);
+        inner.apply_standby();
         inner.chain.lock().unwrap_or_else(PoisonError::into_inner).set_limits(Limits {
             min_listen_ms: limits.min_listen_ms,
             max_listen_ms: limits.max_listen_ms.max(limits.min_listen_ms),
@@ -776,6 +875,7 @@ impl SpeechSession {
         };
         inner.cancel.store(false, Ordering::SeqCst);
         inner.flowing.store(false, Ordering::SeqCst);
+        let _listening = ActiveGuard::new(&inner.active);
         let heard = {
             let mut chain = inner.chain.lock().unwrap_or_else(PoisonError::into_inner);
             let _ = inner.arrange(&mut chain, language.as_str());
@@ -797,8 +897,11 @@ impl SpeechSession {
         if let Some(inner) = self.inner() {
             inner.cancel.store(true, Ordering::SeqCst);
             // A microphone that waits for the next call is let go too: the user is done (a call that
-            // is running has the microphone, and gives it up at its end).
-            inner.keeper.release();
+            // is running has the microphone, and gives it up at its end) - unless the app wants it
+            // always open.
+            if *inner.standby.lock().unwrap_or_else(PoisonError::into_inner) != SpeechStandby::Always {
+                inner.keeper.release();
+            }
         }
     }
 
@@ -831,7 +934,38 @@ enum BuiltinSource {
     Bytes(Vec<u8>),
 }
 
+/// Counts a listening call for as long as it lives.
+struct ActiveGuard<'a>(&'a AtomicU32);
+
+impl<'a> ActiveGuard<'a> {
+    fn new(counter: &'a AtomicU32) -> Self {
+        counter.fetch_add(1, Ordering::SeqCst);
+        Self(counter)
+    }
+}
+
+impl Drop for ActiveGuard<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 impl SessionInner {
+    /// What the keeper is told from the standby and the limits.
+    fn apply_standby(&self) {
+        let limits = *self.limits.lock().unwrap_or_else(PoisonError::into_inner);
+        let standby = *self.standby.lock().unwrap_or_else(PoisonError::into_inner);
+        let (keep_ms, armed_idle_ms, always) = match standby {
+            SpeechStandby::Off => (0, 0, false),
+            SpeechStandby::OnDemand => (limits.mic_keep_ms, 0, false),
+            SpeechStandby::WhileArmed => (limits.mic_keep_ms, limits.armed_idle_ms, false),
+            SpeechStandby::Always => (limits.mic_keep_ms, 0, true),
+        };
+        self.keeper.set_always(always);
+        self.keeper.set_armed_idle_ms(armed_idle_ms);
+        self.keeper.set_keep_ms(keep_ms);
+    }
+
     /// Puts who goes first for a call in `language` first in `chain` (the rule is
     /// [`order::choose`]) and remembers the language for the status lines.
     fn arrange(&self, chain: &mut Chain, language: &str) -> order::Order {
@@ -944,6 +1078,8 @@ struct NativeRecognizer {
     vocabulary: Vocabulary,
     /// The session's microphone (macOS and iOS: the recognizer is fed from it).
     keeper: MicKeeper,
+    /// A call has listened: the frameworks are loaded and the permissions known.
+    used: bool,
 }
 
 impl NativeRecognizer {
@@ -951,6 +1087,7 @@ impl NativeRecognizer {
         Self {
             vocabulary: Vocabulary::default(),
             keeper,
+            used: false,
         }
     }
 }
@@ -966,6 +1103,10 @@ impl Recognizer for NativeRecognizer {
 
     fn readiness(&mut self) -> Readiness {
         native_readiness()
+    }
+
+    fn warm(&self) -> bool {
+        self.used
     }
 
     fn set_vocabulary(&mut self, words: &[String]) -> Option<String> {
@@ -995,6 +1136,7 @@ impl Recognizer for NativeRecognizer {
         if answer.started_unix_ms == 0 && answer.outcome == Outcome::Heard {
             answer.started_unix_ms = began;
         }
+        self.used |= matches!(answer.outcome, Outcome::Heard | Outcome::NothingHeard);
         answer
     }
 }

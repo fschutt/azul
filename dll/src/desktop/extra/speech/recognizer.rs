@@ -249,6 +249,12 @@ pub trait Recognizer: Send {
     /// at least every few hundred milliseconds and answers `NothingHeard` when it is set.
     fn listen(&mut self, call: &Listen<'_>) -> Answer;
 
+    /// Whether it is initialised: its model is loaded, its recognizer made; what a first call
+    /// would otherwise have to do first (a status, not a promise that a call will not wait).
+    fn warm(&self) -> bool {
+        false
+    }
+
     /// The words to favour (names, jargon), for a recognizer that takes them; answers the word
     /// about what it cut, `None` when nothing was or it takes none.
     fn set_vocabulary(&mut self, _words: &[String]) -> Option<String> {

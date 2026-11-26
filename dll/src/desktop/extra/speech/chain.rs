@@ -119,6 +119,12 @@ impl Chain {
             .is_some_and(|link| link.health == Health::Ready && matches!(link.recognizer.readiness(), Readiness::Ready))
     }
 
+    /// Whether a recognizer of the chain is initialised.
+    #[must_use]
+    pub fn is_warm(&self) -> bool {
+        self.links.iter().any(|link| link.recognizer.warm())
+    }
+
     /// The limits a call is kept to.
     pub fn set_limits(&mut self, limits: Limits) {
         self.limits = limits;
