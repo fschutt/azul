@@ -297,6 +297,9 @@ for the values.
 ## Text decoration and selection
 
 - `text-decoration` accepts `none`, `underline`, `overline`, or `line-through`.
+- `text-decoration-color` accepts `currentcolor` (the initial value) or a colour, a `system:` colour included. The line is drawn in the colour of the box that sets it (its `color`, which a line follows when only the colour changes), whatever the colour of the text it crosses: the underline of a red block is red under the blue span in it.
+- `text-decoration-thickness` accepts `auto` (the initial value: 8 percent of the font size, at least 1 px), `from-font`, a length, or a percentage (of one em). An `em` and a percentage are parts of the font size of the box that sets the line, not of the text under it. A thickness of 0 draws no line, a negative one is no value, and one beyond 1,000 px is read as 1,000 px with a diagnostic. `from-font` reads no metric of the face yet, so it is `auto`.
+- Neither is inherited, and each kind of line has the paint of the box that sets it: an underline of a block and a line-through of a span in it are two lines of two paints under the text of the span. A thicker underline or overline grows downwards from the place the font puts it, a thicker line-through around its middle.
 - `text-shadow` accepts `<x> <y> [blur] [color]`. The text is painted between a push and a pop of the shadow in the display list, so both rasterizers draw the shadow under the glyphs.
 - `user-select` accepts `auto`, `text`, `none`, or `all`.
 - `vertical-align` accepts `baseline`, `top`, `middle`, `bottom`, `sub`, `super`, `text-top`, `text-bottom`, `<percentage>`, or `<length>`.
@@ -358,6 +361,8 @@ double-click text selection from overlapping the click.
 - `hyphens`. Default `manual`.
 - `direction`. Default `ltr`.
 - `text-decoration`. Default `none`.
+- `text-decoration-color`. Default `currentcolor`.
+- `text-decoration-thickness`. Default `auto`.
 - `user-select`. Default `auto`.
 - `vertical-align`. Default `baseline`.
 
@@ -372,6 +377,6 @@ what they say. Each row says what the layout does today.
 | `text-orientation: upright`, `sideways` | parsed; in a vertical block `upright` sets the line direction to left-to-right as the spec says, and no value turns a glyph: the text is `mixed` |
 | `hanging-punctuation` | parsed and kept by the cascade, not applied: the punctuation stays inside the line box |
 | `initial-letter` | makes room: the lines beside the first letter start after a box N lines high, and the letter is drawn at the size of the text, not bigger and not moved into the room |
-| `text-decoration-style`, `-color`, `-thickness`, `text-underline-position`, `-offset`, `text-emphasis` | not properties: `text-decoration` is three switches (underline, overline, line-through) drawn in the colour of the text |
+| `text-decoration-style`, `text-underline-position`, `-offset`, `text-emphasis` | not properties: the lines of `text-decoration` are solid and drawn at the place the font size suggests (the colour and the thickness are `text-decoration-color` and `-thickness`) |
 | `font-size-adjust` | not a property: the font size never follows the x-height of the face |
 | `hyphenate-character`, `font-variant-alternates` | not properties (the stylesheet parser reports them as unknown): the hyphen drawn at the end of a line is a `-` of the font of the text, and the alternates of a font are reached by `font-feature-settings` |

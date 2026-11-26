@@ -311,7 +311,16 @@ impl Parser<'_> {
 /// # Errors
 /// Why `text` is no JSON (or one a board file cannot be), and the byte it went wrong at.
 pub fn parse(text: &str) -> Result<Json, JsonError> {
-    if text.len() > MAX_TEXT {
+    parse_with(text, MAX_TEXT)
+}
+
+/// Reads `text` as one JSON value, when it is no longer than `max_text` bytes (a document that holds its pictures in the
+/// clear is far longer than a manifest is).
+///
+/// # Errors
+/// Why `text` is no JSON (or one a board file cannot be), and the byte it went wrong at.
+pub fn parse_with(text: &str, max_text: usize) -> Result<Json, JsonError> {
+    if text.len() > max_text {
         return Err(JsonError { at: 0, why: "the text is longer than a board file may be" });
     }
     let mut p = Parser { text: text.as_bytes(), at: 0 };
@@ -350,6 +359,135 @@ pub fn num(v: f32) -> String {
         return "0".to_string();
     }
     format!("{v}")
+}
+
+/// The JSON number of an `f32` with the digits [`num`] gives (`0.1` stays `0.1` and does not become the `f64` that is
+/// nearest to the `f32`), so that a document written from `f32`s reads back to the same `f32`s and is short.
+#[must_use]
+pub fn from_f32(v: f32) -> Json {
+    Json::Num(num(v).parse::<f64>().unwrap_or(0.0))
+}
+
+/// A whole number (an id, a time in milliseconds): exact up to 2^53.
+#[must_use]
+pub fn from_u64(v: u64) -> Json {
+    Json::Num(v.min(9_007_199_254_740_992) as f64)
+}
+
+/// A text.
+#[must_use]
+pub fn from_str(v: &str) -> Json {
+    Json::Str(v.to_string())
+}
+
+/// An object from its fields, in the order given.
+#[must_use]
+pub fn object(fields: Vec<(&str, Json)>) -> Json {
+    Json::Obj(fields.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
+}
+
+/// The longest a list or an object is that is written on one line, characters.
+const INLINE: usize = 100;
+
+fn scalar(v: &Json) -> bool {
+    !matches!(v, Json::Arr(_) | Json::Obj(_))
+}
+
+fn push_scalar(out: &mut String, v: &Json) {
+    match v {
+        Json::Null => out.push_str("null"),
+        Json::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        Json::Num(n) => {
+            if n.is_finite() {
+                out.push_str(&format!("{n}"));
+            } else {
+                out.push('0');
+            }
+        }
+        Json::Str(s) => push_string(out, s),
+        Json::Arr(_) | Json::Obj(_) => {}
+    }
+}
+
+/// `v` on one line, when it is a list or object of scalars that is short enough, or a scalar.
+fn inline(v: &Json) -> Option<String> {
+    let mut out = String::new();
+    match v {
+        Json::Arr(items) if items.iter().all(scalar) => {
+            out.push('[');
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                push_scalar(&mut out, item);
+                if out.len() > INLINE {
+                    return None;
+                }
+            }
+            out.push(']');
+        }
+        Json::Obj(pairs) if pairs.iter().all(|(_, v)| scalar(v)) => {
+            out.push('{');
+            for (i, (k, item)) in pairs.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(", ");
+                }
+                push_string(&mut out, k);
+                out.push_str(": ");
+                push_scalar(&mut out, item);
+                if out.len() > INLINE {
+                    return None;
+                }
+            }
+            out.push('}');
+        }
+        Json::Arr(_) | Json::Obj(_) => return None,
+        other => push_scalar(&mut out, other),
+    }
+    (out.len() <= INLINE || scalar(v)).then_some(out)
+}
+
+fn render(v: &Json, depth: usize, out: &mut String) {
+    if let Some(line) = inline(v) {
+        out.push_str(&line);
+        return;
+    }
+    let pad = "  ".repeat(depth + 1);
+    match v {
+        Json::Arr(items) => {
+            out.push_str("[\n");
+            for (i, item) in items.iter().enumerate() {
+                out.push_str(&pad);
+                render(item, depth + 1, out);
+                out.push_str(if i + 1 < items.len() { ",\n" } else { "\n" });
+            }
+            out.push_str(&"  ".repeat(depth));
+            out.push(']');
+        }
+        Json::Obj(pairs) => {
+            out.push_str("{\n");
+            for (i, (k, item)) in pairs.iter().enumerate() {
+                out.push_str(&pad);
+                push_string(out, k);
+                out.push_str(": ");
+                render(item, depth + 1, out);
+                out.push_str(if i + 1 < pairs.len() { ",\n" } else { "\n" });
+            }
+            out.push_str(&"  ".repeat(depth));
+            out.push('}');
+        }
+        scalar_value => push_scalar(out, scalar_value),
+    }
+}
+
+/// `v` as text a person can read and a diff can follow: two spaces for each level, a list or object of a few scalars
+/// on one line, a line feed at the end. What [`parse`] reads back to `v`.
+#[must_use]
+pub fn pretty(v: &Json) -> String {
+    let mut out = String::new();
+    render(v, 0, &mut out);
+    out.push('\n');
+    out
 }
 
 #[cfg(test)]

@@ -608,6 +608,12 @@ macro_rules! css_property_from_type {
             CssPropertyType::FontKerning => {
                 CssProperty::FontKerning(CssPropertyValue::$content_type)
             }
+            CssPropertyType::TextDecorationColor => {
+                CssProperty::TextDecorationColor(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::TextDecorationThickness => {
+                CssProperty::TextDecorationThickness(CssPropertyValue::$content_type)
+            }
             CssPropertyType::TextWrap => {
                 CssProperty::TextWrap(CssPropertyValue::$content_type)
             }

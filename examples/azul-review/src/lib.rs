@@ -122,6 +122,7 @@ pub mod recorder_settings;
 pub mod recorder_track;
 pub mod recorder_wb;
 pub mod recorder_writer;
+pub mod request_strokes;
 pub mod seen_watch;
 pub mod session;
 pub mod slash;
@@ -155,17 +156,23 @@ pub mod workspace_view;
 pub mod whiteboard;
 pub mod whiteboard_app;
 pub mod whiteboard_archive;
+pub mod whiteboard_azboard;
+pub mod whiteboard_base64;
 pub mod whiteboard_boards;
 pub mod whiteboard_boards_ui;
 pub mod whiteboard_cutout;
 pub mod whiteboard_demo;
 pub mod whiteboard_drag;
+pub mod whiteboard_export;
 pub mod whiteboard_geom;
+pub mod whiteboard_git;
+pub mod whiteboard_hash;
 pub mod whiteboard_input;
 pub mod whiteboard_jump;
 pub mod whiteboard_json;
 pub mod whiteboard_lasso;
 pub mod whiteboard_render;
+pub mod whiteboard_settings;
 pub mod whiteboard_store;
 pub mod whiteboard_ui;
 
@@ -786,11 +793,11 @@ impl AppState {
         self.sync_chips();
     }
 
-    /// The strokes an agent is told of for conversation `id`: the ink near its anchor (the stroke samples come with the
-    /// request's strokes; none are sent yet).
+    /// The strokes an agent is told of for conversation `id`: the ink near its anchor and the ink drawn while its words were said,
+    /// as the samples the pen gave ([`request_strokes::pick`]).
     #[must_use]
-    pub fn strokes_for_request(&self, _id: u64) -> Vec<agent_stroke::StrokeInput> {
-        Vec::new()
+    pub fn strokes_for_request(&self, id: u64) -> Vec<agent_stroke::StrokeInput> {
+        self.notes.iter().find(|n| n.id == id).map_or_else(Vec::new, |n| request_strokes::pick(n, &self.strokes))
     }
 
     /// Whether the workspace has anything to show in the tree.

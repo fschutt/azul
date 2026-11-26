@@ -306,6 +306,17 @@ impl LiveProgress {
     }
 }
 
+/// The width of the nib of the pen that draws `semantic`, at full pressure, px: the marker's broad one or the pen's fine one
+/// (what an agent is told a stroke was drawn with).
+#[must_use]
+pub fn nib_width(semantic: Semantic) -> f32 {
+    if semantic.is_highlighter() {
+        MARKER_RADIUS * 2.0
+    } else {
+        PEN_RADIUS * 2.0
+    }
+}
+
 /// The engine brush a segment of a `semantic` stroke is drawn with (AzPaint's
 /// `brush_for`): the pen's width follows the pressure; the marker is a broad
 /// nib in the colour it leaves on the paper.
