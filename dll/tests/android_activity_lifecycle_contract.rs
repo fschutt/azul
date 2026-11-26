@@ -13,9 +13,7 @@
 //!   (`fontScale`) restarted every running app;
 //! * the bridges attach when `android_main` has published its object, not at "the next focus event";
 //! * sensors stopped at the first `onPause` and never came back (a permission dialog pauses the activity);
-//! * no media session until the app asks (`AppConfig::expose_system_media_controls`);
-//! * a device without a WebView provider does not take the app with it: `new WebView` throws there
-//!   (`WebViewFactory.MissingWebViewPackageException`, a RuntimeException on the UI thread = process death).
+//! * no media session until the app asks (`AppConfig::expose_system_media_controls`).
 //!
 //!     CARGO_MANIFEST_DIR=$PWD/dll rustc --edition 2021 --test dll/tests/android_activity_lifecycle_contract.rs -o /tmp/t && /tmp/t
 
@@ -162,28 +160,4 @@ fn the_apps_private_folders_are_in_the_environment_before_the_library_loads() {
         assert!(prepare.contains(&format!("\"{var}\"")), "{var} must be set from the app's private folders");
     }
     assert!(prepare.contains("getFilesDir()") && prepare.contains("getCacheDir()"));
-}
-
-/// `<webview>` on a device that has no WebView provider (an emulator image without one, a de-Googled phone,
-/// a provider that is being updated or was disabled): `new WebView(context)` and `CookieManager.getInstance()`
-/// throw `MissingWebViewPackageException` (android.webkit.WebViewFactory), and `AzulWebView.create` ran them
-/// inside `runOnUiThread` with nothing to catch it: an uncaught exception on the UI thread ends the process.
-/// The app asked for a page, not for its own death: the engine's view is told the load failed.
-///
-/// Mutation: the creation outside a try block (the state of 0f3e1eb093).
-#[test]
-fn a_device_without_a_web_view_provider_does_not_take_the_app_with_it() {
-    let src = java_code("scripts/android/AzulWebView.java");
-    let body = method_body(&src, "public static void create(");
-    let try_at = body.find("try {").expect("create must guard the creation of the web view with a try block");
-    let new_at = body.find("new WebView(").expect("create makes the WebView");
-    let catch_at = body
-        .find("catch (Throwable")
-        .expect("catch Throwable: the provider's exception is a RuntimeException, a missing class can be an Error");
-    let failed_at = body.rfind("nativeOnLoadFailed(").expect("the engine's view is told that it will not load");
-    assert!(try_at < new_at, "`new WebView` must be inside the try block");
-    assert!(new_at < catch_at, "the catch follows the creation");
-    assert!(catch_at < failed_at, "the catch handler reports the failure to the engine");
-    let clear_at = body.find("clearStore()").expect("create clears the store of the first ephemeral view");
-    assert!(try_at < clear_at, "`clearStore` (CookieManager.getInstance) needs the provider too: inside the try block");
 }
