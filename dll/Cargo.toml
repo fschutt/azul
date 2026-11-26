@@ -1197,8 +1197,11 @@ font_loading_multithreaded = ["font_loading", "azul-layout/font_loading_multithr
 font_async_registry = ["font_loading", "azul-layout/font_async_registry"]
 text_layout = ["azul-layout", "azul-layout/text_layout"]
 
-# ICU4X internationalization support
-icu = ["azul-layout", "azul-layout/icu"]
+# ICU4X internationalization support, with the clock: `IcuDate::now()`, `IcuTime::now()`,
+# `IcuDateTime::now()` and the timestamp functions (api.json's docs of format_date, format_time and
+# format_datetime tell the user to call them) need azul-layout's `icu_chrono`, so every build that has
+# `icu` has it: chrono is in the shipped closures already, on the mobile ones it is a few small crates.
+icu = ["azul-layout", "azul-layout/icu", "azul-layout/icu_chrono"]
 icu_chrono = ["icu", "azul-layout/icu_chrono"]
 
 # macOS Foundation ICU backend (replaces ICU4X data blobs on macOS, ~3.3 MB savings).
