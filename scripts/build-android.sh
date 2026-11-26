@@ -246,7 +246,18 @@ fi
 AUTH_FILE="$BUILD_DIR/auth-redirect.xml"
 printf '%s' "$AUTH_REDIRECT_XML" > "$AUTH_FILE"
 
+# A launcher icon (scripts/demo_icon.py draws one from the app's name; an app of its own would bring its own). Without
+# the script, or with AZ_ANDROID_NO_ICON=1, the manifest names none and Android shows its default.
+ICON_ATTR=""
+rm -rf "$BUILD_DIR/res" "$BUILD_DIR/compiled-res.zip"
+if [[ -f "$ASSET_ROOT/scripts/demo_icon.py" && "${AZ_ANDROID_NO_ICON:-}" != "1" ]]; then
+    python3 "$ASSET_ROOT/scripts/demo_icon.py" android "$APP_NAME" "$BUILD_DIR/res"
+    "$BT/aapt2" compile --dir "$BUILD_DIR/res" -o "$BUILD_DIR/compiled-res.zip"
+    ICON_ATTR='android:icon="@mipmap/ic_launcher"'
+fi
+
 sed \
+    -e "s|@ICON_ATTR@|$ICON_ATTR|g" \
     -e "/@EXTRA_PERMISSIONS@/r $PERM_FILE" \
     -e "/@EXTRA_PERMISSIONS@/d" \
     -e "/@AUTH_REDIRECT_ACTIVITY@/r $AUTH_FILE" \
@@ -265,7 +276,8 @@ echo "==> aapt2 link (compile manifest)"
 "$BT/aapt2" link \
     --manifest AndroidManifest.xml \
     -I "$PLATFORM/android.jar" \
-    -o base.apk
+    -o base.apk \
+    $( [[ -f compiled-res.zip ]] && echo compiled-res.zip )
 
 echo "==> add lib/$ABI/*.so to APK"
 # zip from BUILD_DIR so entries carry the FULL lib/<abi>/ prefix. `cd lib`

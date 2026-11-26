@@ -216,14 +216,22 @@ rm -f "$PLIST_EXTRA_FILE"
 # What the template cannot say: which platform the bundle is for, and a launch screen (without one iOS
 # runs the app letterboxed in a small window). plistlib, so the file stays well-formed whatever the
 # environment put in it.
-python3 - "$BUNDLE_DIR/Info.plist" "$IS_SIM" <<'PY'
+# A home-screen icon (scripts/demo_icon.py draws one from the app's name; without the script the app has none).
+HAVE_ICON=0
+if [[ -f "$ASSET_ROOT/scripts/demo_icon.py" && "${AZ_IOS_NO_ICON:-}" != "1" ]]; then
+    python3 "$ASSET_ROOT/scripts/demo_icon.py" ios "$APP_NAME" "$BUNDLE_DIR" && HAVE_ICON=1
+fi
+python3 - "$BUNDLE_DIR/Info.plist" "$IS_SIM" "$HAVE_ICON" <<'PY'
 import plistlib, sys
-path, is_sim = sys.argv[1], sys.argv[2] == "1"
+path, is_sim, icon = sys.argv[1], sys.argv[2] == "1", sys.argv[3] == "1"
 with open(path, "rb") as f:
     plist = plistlib.load(f)
 plist["CFBundleSupportedPlatforms"] = ["iPhoneSimulator" if is_sim else "iPhoneOS"]
 plist["UILaunchScreen"] = {}
 plist.pop("UILaunchStoryboardName", None)
+if icon:
+    plist["CFBundleIcons"] = {"CFBundlePrimaryIcon": {"CFBundleIconFiles": ["AppIcon60x60"]}}
+    plist["CFBundleIcons~ipad"] = {"CFBundlePrimaryIcon": {"CFBundleIconFiles": ["AppIcon60x60", "AppIcon76x76", "AppIcon83.5x83.5"]}}
 with open(path, "wb") as f:
     plistlib.dump(plist, f, fmt=plistlib.FMT_XML)
 PY

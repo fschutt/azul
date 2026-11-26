@@ -16,6 +16,7 @@ sys.path.insert(0, str(HERE))
 import demo_apps  # noqa: E402
 import demo_build  # noqa: E402
 import demo_gate  # noqa: E402
+import demo_icon  # noqa: E402
 import demo_publish  # noqa: E402
 
 
@@ -300,6 +301,34 @@ class PublishTest(unittest.TestCase):
             out = pathlib.Path(d) / "release"
             demo_publish.assemble(root, out, "0.2.0", "abc")
             self.assertFalse((out / "companion.json").exists())
+
+
+class IconTest(unittest.TestCase):
+    def test_an_icon_is_a_valid_png_of_the_asked_size(self):
+        rows = demo_icon.render("AzMaps", 48, True)
+        data = demo_icon.png(rows, 48, rgba=True)
+        self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
+        self.assertEqual(int.from_bytes(data[16:20], "big"), 48)
+        self.assertEqual(int.from_bytes(data[20:24], "big"), 48)
+        self.assertEqual(len(rows), 48)
+        self.assertTrue(all(len(r) == 48 * 4 for r in rows))
+
+    def test_the_corners_of_an_android_icon_are_transparent_and_an_ios_icon_is_square(self):
+        self.assertEqual(demo_icon.render("AzMaps", 48, True)[0][3], 0)
+        self.assertEqual(demo_icon.render("AzMaps", 48, False)[0][3], 255)
+
+    def test_apps_have_their_own_colour_and_the_companion_its_blue(self):
+        self.assertNotEqual(demo_icon.colour("AzMaps"), demo_icon.colour("AzPaint"))
+        r, g, b = demo_icon.colour("AzCompanion")
+        self.assertGreater(b, r)
+
+    def test_the_icons_of_a_platform_land_where_its_packager_looks(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            demo_icon.main(["android", "AzMaps", str(root / "res")])
+            demo_icon.main(["ios", "AzMaps", str(root / "app")])
+            self.assertTrue((root / "res" / "mipmap-xxxhdpi" / "ic_launcher.png").is_file())
+            self.assertTrue((root / "app" / "AppIcon60x60@3x.png").is_file())
 
 
 if __name__ == "__main__":
