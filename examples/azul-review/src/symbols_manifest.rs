@@ -22,7 +22,10 @@ pub fn scan_manifest(kind: ManifestKind, _rel: &str, bytes: &[u8], caps: &ScanCa
     let defs = match kind {
         ManifestKind::Cargo => scan_cargo(&String::from_utf8_lossy(bytes), caps),
         ManifestKind::PackageJson => scan_package_json(bytes, caps),
-        ManifestKind::GoMod | ManifestKind::Requirements | ManifestKind::Pyproject | ManifestKind::CMake => Vec::new(),
+        ManifestKind::GoMod => scan_go_mod(&String::from_utf8_lossy(bytes), caps),
+        ManifestKind::Requirements => scan_requirements(&String::from_utf8_lossy(bytes), caps),
+        ManifestKind::Pyproject => scan_pyproject(&String::from_utf8_lossy(bytes), caps),
+        ManifestKind::CMake => scan_cmake(&String::from_utf8_lossy(bytes), caps),
     };
     Scanned {
         lang: None,
@@ -273,6 +276,167 @@ fn scan_cargo(text: &str, caps: &ScanCaps) -> Vec<RawDef> {
         depth = (depth + bracket_delta(line, &mut triple)).max(0);
     }
     out.truncate(caps.max_defs);
+    out
+}
+
+// ---- go.mod ----
+
+/// A module path's last part (`github.com/acme/store` is `store`; a major-version suffix `v2` is looked past).
+fn last_path_part(path: &str) -> &str {
+    let mut parts = path.trim_end_matches('/').rsplit('/');
+    let last = parts.next().unwrap_or("");
+    let is_version = last.len() >= 2 && last.starts_with('v') && last[1..].chars().all(|c| c.is_ascii_digit());
+    if is_version {
+        parts.next().unwrap_or(last)
+    } else {
+        last
+    }
+}
+
+fn scan_go_mod(text: &str, caps: &ScanCaps) -> Vec<RawDef> {
+    let mut out = Vec::new();
+    let mut in_require = false;
+    for (n, line) in text.lines().enumerate() {
+        if out.len() >= caps.max_defs {
+            break;
+        }
+        let line_no = u32::try_from(n + 1).unwrap_or(u32::MAX);
+        let t = line.split("//").next().unwrap_or("").trim();
+        if t.is_empty() {
+            continue;
+        }
+        if in_require {
+            if t.starts_with(')') {
+                in_require = false;
+            } else if let Some(path) = t.split_whitespace().next() {
+                out.push(def(last_path_part(path), Kind::Dependency, line_no));
+            }
+            continue;
+        }
+        if let Some(rest) = t.strip_prefix("module ") {
+            let path = rest.trim().trim_matches('"');
+            if !path.is_empty() {
+                out.push(def(last_path_part(path), Kind::Package, line_no));
+            }
+        } else if let Some(rest) = t.strip_prefix("require") {
+            let rest = rest.trim();
+            if rest.starts_with('(') {
+                in_require = true;
+            } else if let Some(path) = rest.split_whitespace().next() {
+                out.push(def(last_path_part(path), Kind::Dependency, line_no));
+            }
+        }
+    }
+    out
+}
+
+// ---- requirements.txt ----
+
+fn scan_requirements(text: &str, caps: &ScanCaps) -> Vec<RawDef> {
+    let mut out = Vec::new();
+    for (n, line) in text.lines().enumerate() {
+        if out.len() >= caps.max_defs {
+            break;
+        }
+        let t = line.split('#').next().unwrap_or("").trim();
+        if t.is_empty() || t.starts_with('-') || t.contains("://") || t.starts_with('.') {
+            continue;
+        }
+        let end = t.find(|c: char| !(c.is_alphanumeric() || matches!(c, '_' | '-' | '.'))).unwrap_or(t.len());
+        if end > 0 {
+            out.push(def(&t[..end], Kind::Dependency, u32::try_from(n + 1).unwrap_or(u32::MAX)));
+        }
+    }
+    out
+}
+
+// ---- pyproject.toml ----
+
+/// The package of a dependency string (`click>=8`, `rich[all] ; python_version < "3.9"`).
+fn requirement_name(spec: &str) -> &str {
+    let t = spec.trim().trim_matches(|c| c == '"' || c == '\'' || c == ',').trim();
+    let end = t.find(|c: char| !(c.is_alphanumeric() || matches!(c, '_' | '-' | '.'))).unwrap_or(t.len());
+    &t[..end]
+}
+
+fn scan_pyproject(text: &str, caps: &ScanCaps) -> Vec<RawDef> {
+    let mut out = Vec::new();
+    let mut section = String::new();
+    let mut in_array = false;
+    for (n, line) in text.lines().enumerate() {
+        if out.len() >= caps.max_defs {
+            break;
+        }
+        let line_no = u32::try_from(n + 1).unwrap_or(u32::MAX);
+        let t = line.split('#').next().unwrap_or("").trim();
+        if t.is_empty() {
+            continue;
+        }
+        if in_array {
+            let closes = t.contains(']');
+            for part in t.trim_end_matches(']').split(',') {
+                let name = requirement_name(part);
+                if !name.is_empty() {
+                    out.push(def(name, Kind::Dependency, line_no));
+                }
+            }
+            in_array = !closes;
+            continue;
+        }
+        if t.starts_with('[') {
+            section = t.trim_matches(|c| c == '[' || c == ']').trim().to_string();
+            continue;
+        }
+        let Some((key, value)) = t.split_once('=') else {
+            continue;
+        };
+        let (key, value) = (key.trim().trim_matches('"'), value.trim());
+        if section == "project" && key == "name" {
+            let name = requirement_name(value);
+            if !name.is_empty() {
+                out.push(def(name, Kind::Package, line_no));
+            }
+        } else if (section == "project" && key == "dependencies") || section == "project.optional-dependencies" {
+            if let Some(items) = value.strip_prefix('[') {
+                let closes = items.contains(']');
+                for part in items.trim_end_matches(']').split(',') {
+                    let name = requirement_name(part);
+                    if !name.is_empty() {
+                        out.push(def(name, Kind::Dependency, line_no));
+                    }
+                }
+                in_array = !closes;
+            }
+        } else if section.starts_with("tool.poetry") && section.ends_with("dependencies") && key != "python" && !key.is_empty() {
+            out.push(def(key, Kind::Dependency, line_no));
+        }
+    }
+    out
+}
+
+// ---- CMakeLists.txt ----
+
+fn scan_cmake(text: &str, caps: &ScanCaps) -> Vec<RawDef> {
+    let mut out = Vec::new();
+    for (n, line) in text.lines().enumerate() {
+        if out.len() >= caps.max_defs {
+            break;
+        }
+        let t = line.split('#').next().unwrap_or("").trim();
+        let Some((command, rest)) = t.split_once('(') else {
+            continue;
+        };
+        let kind = match command.trim().to_ascii_lowercase().as_str() {
+            "project" => Kind::Package,
+            "add_library" | "add_executable" => Kind::Module,
+            "find_package" => Kind::Dependency,
+            _ => continue,
+        };
+        let name = rest.split_whitespace().next().unwrap_or("").trim_end_matches(')');
+        if !name.is_empty() && !name.starts_with('$') {
+            out.push(def(name, kind, u32::try_from(n + 1).unwrap_or(u32::MAX)));
+        }
+    }
     out
 }
 
