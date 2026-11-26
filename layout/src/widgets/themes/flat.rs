@@ -928,6 +928,12 @@ pub fn button(mut btn: Button) -> Dom {
         }
     }
 
+    // A finger needs room: 48 dp on Android, 44 pt on iOS, nothing on a desktop. A link is text
+    // on the line it sits in, and a button that owns its style (a ribbon's key) sizes itself.
+    if btn_owns_style && btn_type != crate::widgets::button::ButtonType::Link {
+        container_style.extend(super::decl::touch_target_floor());
+    }
+
     // A disabled button has no hover / pressed paint and is dimmed - whoever
     // owns the style (a ribbon button hands in its own).
     if disabled {

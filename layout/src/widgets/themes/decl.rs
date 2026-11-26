@@ -29,15 +29,16 @@
 use alloc::vec::Vec;
 
 use azul_css::{
-    dynamic_selector::CssPropertyWithConditions,
+    dynamic_selector::{CssPropertyWithConditions, DynamicSelector, OsCondition},
     props::{
         basic::{
             color::ColorU, pixel::PixelValue, pixel::PixelValueNoPercent, Direction,
             DirectionCorner, DirectionCorners, PercentageValue, StyleFontSize, StyleFontWeight,
         },
         layout::{
-            LayoutMarginBottom, LayoutMarginLeft, LayoutMarginRight, LayoutMarginTop,
-            LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop,
+            LayoutMarginBottom, LayoutMarginLeft, LayoutMarginRight, LayoutMarginTop, LayoutMinHeight,
+            LayoutMinWidth, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight,
+            LayoutPaddingTop,
         },
         property::CssProperty,
         style::{
@@ -1128,6 +1129,39 @@ pub(crate) static BUTTON_FACE: &[&str] = &[
 
 /// How long a button's face takes to follow the pointer.
 pub(crate) const BUTTON_FADE_MS: u32 = 120;
+
+/// The least a tappable control is, in each direction, on Android (Material's touch target, 48 dp)
+/// and on iOS (Apple's, 44 pt). A desktop button is 29 px tall (6 px of padding round a 14 px line):
+/// the zoom buttons of AzMaps measured 41 x 29 dp on the Android emulator, which a finger misses.
+pub(crate) const ANDROID_TOUCH_TARGET: isize = 48;
+/// See [`ANDROID_TOUCH_TARGET`].
+pub(crate) const IOS_TOUCH_TARGET: isize = 44;
+
+/// `min-width` and `min-height` of a touch target, for Android and iOS only: nothing on a desktop,
+/// where a pointer is as precise as a pixel. The floor of the controls a finger presses (a button);
+/// a control that owns its whole style (a ribbon's key) does not take it.
+#[must_use]
+pub(crate) fn touch_target_floor() -> [CssPropertyWithConditions; 4] {
+    let on = |os: OsCondition| DynamicSelector::Os(os);
+    [
+        CssPropertyWithConditions::with_condition(
+            CssProperty::const_min_width(LayoutMinWidth::const_px(ANDROID_TOUCH_TARGET)),
+            on(OsCondition::Android),
+        ),
+        CssPropertyWithConditions::with_condition(
+            CssProperty::const_min_height(LayoutMinHeight::const_px(ANDROID_TOUCH_TARGET)),
+            on(OsCondition::Android),
+        ),
+        CssPropertyWithConditions::with_condition(
+            CssProperty::const_min_width(LayoutMinWidth::const_px(IOS_TOUCH_TARGET)),
+            on(OsCondition::IOS),
+        ),
+        CssPropertyWithConditions::with_condition(
+            CssProperty::const_min_height(LayoutMinHeight::const_px(IOS_TOUCH_TARGET)),
+            on(OsCondition::IOS),
+        ),
+    ]
+}
 
 // ==== shadow slots, by name (FLORA11) ====
 
