@@ -8,7 +8,9 @@ import argparse
 import contextlib
 import io
 import json
+import os
 import pathlib
+import plistlib
 import subprocess
 import sys
 import tarfile
@@ -250,6 +252,7 @@ class E2eVariantTest(unittest.TestCase):
             feats = e["features"].split(",")
             self.assertIn("debug-server", feats)
             self.assertIn("e2e-scripting", feats)
+            self.assertIn("test-hooks", feats)   # the failure-injection hooks of the QA matrix (AZ_GPU_FAIL, ...), read only when asked
             self.assertEqual("android-activity" in feats, leg.startswith("android"))
             self.assertEqual(e["artifact"], f"demolib-{leg}-mobile-e2e")
         entries = {e["leg"]: e for k in ("apps_android", "apps_ios") for e in plan[k] if e.get("variant") == "mobile-e2e"}
@@ -274,6 +277,22 @@ class E2eVariantTest(unittest.TestCase):
         with contextlib.redirect_stdout(buf):
             self.assertEqual(demo_apps.main(["plan"]), 0)
         self.assertNotIn("mobile-e2e", buf.getvalue())
+
+    def test_only_an_artifact_only_lib_may_carry_test_hooks(self):
+        # a build with the cargo feature `test-hooks` reads stand-ins and failure injections from the environment: never what ships
+        for variant in ("mobile", "desktop", "mobile-iroh"):
+            m = demo_apps.load()
+            m["lib"][variant]["features"] += ",test-hooks"
+            errors = demo_apps.check(m)
+            self.assertTrue(any(variant in e and "test-hooks" in e and "artifact_only" in e for e in errors), (variant, errors))
+
+    def test_the_lib_script_checks_the_test_hooks_marker_both_ways(self):
+        # scripts/check_no_test_hooks.py: a library built without the feature must not hold the marker, one built with it must (the
+        # negative control: a check that cannot fail checks nothing)
+        text = (HERE / "demo_lib.sh").read_text(encoding="utf-8")
+        self.assertIn("check_no_test_hooks.py", text)
+        self.assertIn("--expect-marker=test-hooks", text)
+        self.assertRegex(text, r'case ",\$features," in\s+\*,test-hooks,\*\)')
 
     def test_an_app_never_ships_against_the_qa_lib(self):
         self.app("AzMaps")["mobile_lib"] = "mobile-e2e"
@@ -444,7 +463,9 @@ class FloorApkTest(unittest.TestCase):
         self.assertIn("scripts/android/debug.keystore", script)
         for tool in ("aapt2", "d8", "zipalign", "apksigner", "javac"):
             self.assertIn(tool, script)
-        self.assertNotIn("cargo", "\n".join(l for l in script.splitlines() if not l.lstrip().startswith("#")))
+        code = "\n".join(l for l in script.splitlines() if not l.lstrip().startswith("#"))
+        self.assertNotIn("cargo", code)
+        self.assertNotRegex(code, r"\brm\b")   # it is run on developers' machines too: it never deletes
         self.assertEqual(subprocess.run(["bash", "-n", str(self.dir / "build.sh")]).returncode, 0)
 
 
@@ -499,6 +520,58 @@ class PurposeStringsTest(unittest.TestCase):
 
     def test_the_builder_names_the_file_the_symbol_gate_writes_its_numbers_to(self):
         self.assertIn("AZ_IOS_SYMBOL_JSON", (HERE / "demo_build.py").read_text(encoding="utf-8"))
+
+
+class IosPlistTest(unittest.TestCase):
+    """The Info.plist of an iOS app is rendered by build-ios.sh from the texts of the manifest: this runs that section of the script
+    for real (bash, sed, python3) with the environment demo_build.py gives it and reads the plist back."""
+
+    def render(self, package):
+        text = (HERE / "build-ios.sh").read_text(encoding="utf-8")
+        start = text.index('PLIST_EXTRA_FILE="$(mktemp)"')
+        end = text.index('rm -f "$PLIST_EXTRA_FILE"') + len('rm -f "$PLIST_EXTRA_FILE"')
+        app = next(a for a in demo_apps.load()["app"] if a["package"] == package)
+        with tempfile.TemporaryDirectory() as d:
+            bundle = pathlib.Path(d) / f"{package}.app"
+            bundle.mkdir()
+            env = dict(os.environ, **demo_build.ios_plist_env(app), ASSET_ROOT=str(demo_apps.ROOT), APP_NAME=package,
+                       BUNDLE_ID=app["bundle_id"], DISPLAY_NAME=app["name"], VERSION="0.2.0", BUILD="1", MIN_OS="16.0",
+                       BUNDLE_DIR=str(bundle))
+            subprocess.run(["bash", "-c", "set -euo pipefail\n" + text[start:end]], env=env, check=True)
+            return plistlib.loads((bundle / "Info.plist").read_bytes()), app
+
+    def test_the_companion_asks_for_the_local_network_and_names_the_bonjour_service_of_its_link(self):
+        plist, app = self.render("AzCompanion")
+        # without these two keys iOS refuses the lookup of the Mac (the denied prompt is what its "Local Network is off" screen shows)
+        self.assertEqual(plist["NSLocalNetworkUsageDescription"], app["ios"]["local_network"])
+        self.assertEqual(plist["NSBonjourServices"], ["_irohv1._udp"])
+        self.assertEqual(plist["NSCameraUsageDescription"], app["ios"]["usage"]["NSCameraUsageDescription"])
+
+    def test_an_app_that_does_not_use_the_local_network_does_not_ask_for_it(self):
+        plist, _ = self.render("AzWidgets")
+        self.assertNotIn("NSLocalNetworkUsageDescription", plist)
+        self.assertNotIn("NSBonjourServices", plist)
+        self.assertFalse([k for k in plist if k.endswith("UsageDescription")])
+
+    def test_the_meeting_app_says_why_it_wants_the_camera_and_the_microphone(self):
+        plist, app = self.render("AzMeet")
+        for key, text in app["ios"]["usage"].items():
+            self.assertEqual(plist[key], text)
+        self.assertEqual(sorted(k for k in plist if k.endswith("UsageDescription")), ["NSCameraUsageDescription", "NSMicrophoneUsageDescription"])
+
+    def test_every_phone_app_renders_a_plist_with_its_identity_and_the_oldest_ios(self):
+        for app in demo_apps.load()["app"]:
+            if "ios" not in app["platforms"]:
+                continue
+            plist, _ = self.render(app["package"])
+            self.assertEqual(plist["CFBundleIdentifier"], app["bundle_id"], app["package"])
+            self.assertEqual(plist["CFBundleExecutable"], app["package"])
+            self.assertEqual(plist["MinimumOSVersion"], "16.0")
+
+    def test_a_text_with_xml_in_it_cannot_break_the_plist(self):
+        # the texts are escaped: a quote, an ampersand and a tag are text, not markup
+        env = demo_build.ios_plist_env({"ios": {"usage": {"NSCameraUsageDescription": 'Tom & "Jerry" <b>look</b>.'}}})
+        self.assertEqual(env["AZ_IOS_USAGE"], 'NSCameraUsageDescription=Tom & "Jerry" <b>look</b>.')
 
 
 class ApkGateTest(unittest.TestCase):
