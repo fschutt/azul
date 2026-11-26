@@ -17,7 +17,8 @@
        Shift+Mod+Z takes them off again, Mod+Z once more (the board is kept after each);
     7. a label is typed under the selected cutout (double click under it) and on the arrow (double click on its
        line); the text area takes the keyboard by itself; leaving it keeps the label;
-    8. the restart: a second demo on the same data folder reads the board back (`WBDEMO_LOADED 3`: the
+    8. the second cutout is carried by its body and resized by its corner handle (one step each, undone by Mod+Z);
+    9. the restart: a second demo on the same data folder reads the board back (`WBDEMO_LOADED 3`: the
        two cutouts and the arrow, with their labels).
 
 With `--window cpu` (or `gpu`) it runs in a real window, at the display's scale, and the screenshots are the
@@ -373,6 +374,34 @@ def body(args, logs, out):
         app.until("the arrow's label kept", lambda: label_of(arrow_id()) == "calls")
         app.frame(2)
         shoot(app, os.path.join(out, "8b-labelled.png"))
+
+        # Moving and resizing: the body dragged carries the cutout, the handle at the corner of the selected one
+        # resizes it with its proportions kept; each gesture is ONE step (Mod+Z puts it back).
+        def rect_of(item_id):
+            found = [i for i in read_board(board_file(data_dir))[0]["items"] if i["id"] == item_id]
+            return tuple(float(found[0][k]) for k in ("x", "y", "w", "h")) if found else None
+
+        def near(r, x, y):
+            return r is not None and abs(r[0] - x) < 3.0 and abs(r[1] - y) < 3.0
+
+        bar = app.rect(SURFACE)
+        r0 = rect_of(2)
+        second = app.rect("__azreview_whiteboard-cutout-2")
+        mx, my = second["x"] + second["width"] / 2.0, second["y"] + second["height"] / 2.0
+        app.drag(mx, my, mx - 40.0, my + 60.0, steps=8)
+        app.until("the cutout carried and kept", lambda: near(rect_of(2), r0[0] - 40.0, r0[1] + 60.0))
+        r1 = rect_of(2)
+        hx, hy = bar["x"] + r1[0] + r1[2], bar["y"] + r1[1] + r1[3]
+        app.drag(hx, hy, hx + 30.0, hy + 20.0, steps=6)
+        app.until("the cutout resized and kept", lambda: (rect_of(2) or r1)[2] > r1[2] + 12.0)
+        r2 = rect_of(2)
+        if abs(r2[2] / r2[3] - r1[2] / r1[3]) > 0.03:
+            raise Failure("the resize did not keep the proportions: %s -> %s" % (r1, r2))
+        shoot(app, os.path.join(out, "8c-resized.png"))
+        app.key("z", primary=True)
+        app.until("the resize is one step back", lambda: rect_of(2) == r1)
+        app.key("z", primary=True)
+        app.until("and the carry is one step back", lambda: rect_of(2) == r0)
     except Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
         raise
