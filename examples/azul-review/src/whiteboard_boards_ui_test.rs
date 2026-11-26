@@ -205,6 +205,7 @@ fn a_board_being_renamed_has_a_field_that_takes_the_keyboard_in_place_of_its_nam
 
 #[test]
 fn the_bar_that_tells_a_deletion_has_its_words_and_an_undo() {
+    crate::l10n::in_english();
     let toast = Toast { text: "Whiteboard \"Ideas\" deleted".to_string(), undo: Some("b2".to_string()), until_ms: 9_000 };
     let bar = toast_dom(&toast, &host());
     assert!(texts(&bar).iter().any(|t| t.contains("Ideas")));
