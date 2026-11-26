@@ -56,10 +56,12 @@ fn const_css(name: &str) -> String {
     panic!("the literal of {name} does not end");
 }
 
-/// The card in the demo's page: body > page > [stage > overlay, controls > three boxes].
+/// The card in the demo's page: body > page > [frame > stage > overlay, controls > three boxes].
 fn lay_out(window_width: f32) -> LayoutWindow {
     let overlay = Dom::create_div().with_css(&const_css("OVERLAY_CSS"));
-    let stage = Dom::create_div().with_css(&const_css("STAGE_CSS")).with_child(overlay);
+    let stage = Dom::create_div()
+        .with_css(&const_css("FRAME_CSS"))
+        .with_child(Dom::create_div().with_css(&const_css("STAGE_CSS")).with_child(overlay));
     let controls = Dom::create_div()
         .with_css(&const_css("CONTROLS_CSS"))
         .with_child(Dom::create_div().with_css(&const_css("TOGGLE_CSS")))
@@ -118,7 +120,7 @@ const WIDTHS: [f32; 4] = [320.0, 360.0, 411.0, 1024.0];
 fn no_node_of_the_video_card_crosses_the_right_edge_of_a_phone() {
     for width in WIDTHS {
         let rects = every_rect(&lay_out(width));
-        assert!(rects.len() >= 7, "the card's nodes were laid out: {}", rects.len());
+        assert!(rects.len() >= 8, "the card's nodes were laid out: {}", rects.len());
         for (node, r) in rects {
             assert!(
                 r.origin.x + r.size.width <= width + 0.5,
@@ -134,9 +136,9 @@ fn no_node_of_the_video_card_crosses_the_right_edge_of_a_phone() {
 fn the_stage_is_as_wide_as_the_page_leaves_it_up_to_the_clips_480_and_keeps_16_to_9() {
     for width in WIDTHS {
         let rects = every_rect(&lay_out(width));
-        // body 0, page 1, stage 2, overlay 3
-        let stage = rects.iter().find(|(node, _)| *node == 2).expect("the stage").1;
-        let overlay = rects.iter().find(|(node, _)| *node == 3).expect("the overlay").1;
+        // body 0, page 1, frame 2, stage 3, overlay 4
+        let stage = rects.iter().find(|(node, _)| *node == 3).expect("the stage").1;
+        let overlay = rects.iter().find(|(node, _)| *node == 4).expect("the overlay").1;
         let wanted = (width - 2.0 * PAGE_PADDING).min(480.0);
         assert!(
             (stage.size.width - wanted).abs() <= 1.0,

@@ -45,13 +45,17 @@ const BBB_PATH: &str = "/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_2
 // the card surface - light and dark with one value each. The stage is the
 // clip's own 16:9, so the decoder scales the frames without stretching them.
 
-/// The video's frame: the widget fills it, the overlay lies on top of it. As wide as the page
-/// leaves it up to the clip's own 480 px, in the clip's own 16:9 - a phone is narrower than 480
-/// (the box was a fixed 480 x 270 and ran out of the screen, its overlay button and seek bar with it).
+/// The room the stage may take: as wide as the page leaves it, up to the clip's own 480 px. A
+/// phone is narrower than 480 (the box was a fixed 480 x 270 and ran out of the screen, its overlay
+/// button and seek bar with it). A box of its own, so that the stage below has a DEFINITE width
+/// whose height the ratio derives: the solver applies `aspect-ratio` before `max-width`, and a stage
+/// that carried both would be as tall as the unclamped width on a wide page.
+const FRAME_CSS: &str = "width: 100%; max-width: 480px;";
+/// The video's frame: the widget fills it, the overlay lies on top of it; the frame's width, in the
+/// clip's own 16:9.
 const STAGE_CSS: &str =
-    "position: relative; width: 100%; max-width: 480px; aspect-ratio: 16 / 9; border-radius: 8px; \
-     overflow: hidden; background-color: system:control-background; @theme(flora) { \
-     border-radius: 5px; }";
+    "position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 8px; overflow: hidden; \
+     background-color: system:control-background; @theme(flora) { border-radius: 5px; }";
 /// The overlay over the whole video is a button: a click anywhere on the
 /// video plays or pauses it, and so do Space and Enter once it has focus.
 /// A button has a face of its own, as in a browser: this one is see-through,
@@ -177,10 +181,12 @@ pub fn card(state: &RefAny, theme: UiTheme) -> Dom {
         on_toggle,
     );
 
-    let stage = Dom::create_div()
-        .with_css(STAGE_CSS)
-        .with_child(video)
-        .with_child(overlay);
+    let stage = Dom::create_div().with_css(FRAME_CSS).with_child(
+        Dom::create_div()
+            .with_css(STAGE_CSS)
+            .with_child(video)
+            .with_child(overlay),
+    );
 
     let mut toggle = Dom::create_node(NodeType::Button)
         .with_accessibility_name(if paused { "Play" } else { "Pause" })
