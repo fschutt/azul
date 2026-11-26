@@ -491,6 +491,15 @@ def line_rects(app, first, last):
     return out
 
 
+def css_of(app, node):
+    """The computed CSS the debug server tells of `#node`, in whichever of the window's DOMs it is (the pages are a
+    VirtualView's)."""
+    for dom in app.dom_ids():
+        if app._has_in("#%s" % node, dom):
+            return app.value("get_node_css_properties", selector="#%s" % node, dom_id=dom)
+    raise Failure("no DOM of the window has #%s" % node)
+
+
 def slash(args, logs, out, binary):
     """The quick slash, in a real window: a quick level stroke across words takes them - they are drawn in the
     colour of the page and every line keeps its rect - Mod+Z gives them back, Mod+Shift+Z takes them again. No
@@ -519,10 +528,12 @@ def slash(args, logs, out, binary):
             raise Failure("a column of the page is %.3f px, not 6.6: a word is found %.1f px off at column 40"
                           % (cw, abs(cw - 6.6) * 40))
 
-        # The slash: down, one move, up - as quick as the debug server's requests are.
-        x0 = line["x"] + SLASH_COLS[0] * cw
-        x1 = line["x"] + SLASH_COLS[1] * cw
-        y = line["y"] + line["height"] / 2.0
+        # The slash: down, two moves, up - as quick as the debug server's requests are. The rects of the lines are in the
+        # pages' own DOM (a VirtualView's), whose origin is the strip's corner: the pointer is in the window's.
+        strip = app.rect(STRIP)
+        x0 = strip["x"] + line["x"] + SLASH_COLS[0] * cw
+        x1 = strip["x"] + line["x"] + SLASH_COLS[1] * cw
+        y = strip["y"] + line["y"] + line["height"] / 2.0
         app.must("mouse_move", x=x0, y=y)
         app.must("mouse_down", x=x0, y=y)
         app.must("mouse_move", x=(x0 + x1) / 2.0, y=y - 1.0)
@@ -541,23 +552,25 @@ def slash(args, logs, out, binary):
         if st["tree_open"] is not True:
             raise Failure("the slash moved a panel: %s" % st)
 
-        # The words are drawn in the colour of the page, where they were; nothing else moved.
-        starts = {"fn": 4, "step_2": 7, "(": 13, "x": 14, ":": 15, "u32": 17, ")": 20, "->": 22}
-        for word in SLASH_TAKEN:
-            node = "__azreview_hidden-%d-%d" % (SLASH_LINE, starts[word])
-            app.until("the hidden %s" % word, lambda node=node: app.has_id(node, every_dom=True))
-            props = app.value("get_node_css_properties", selector="#" + node)
-            said = json.dumps(props).lower()
+        # The words are drawn in the colour of the page, where they were; nothing else moved. Words that touch are one
+        # piece of the line: "step_2(x:" is one, "u32)" another.
+        pieces = [(4, 2), (7, 9), (17, 4), (22, 2)]  # (the column it starts in, how many columns it takes)
+        for start, cols in pieces:
+            node = "__azreview_hidden-%d-%d" % (SLASH_LINE, start)
+            app.until("the hidden piece at column %d" % start, lambda node=node: app.has_id(node, every_dom=True))
+            said = json.dumps(css_of(app, node)).lower()
             if "ffffff" not in said and "255, 255, 255" not in said and "255,255,255" not in said:
-                raise Failure("the hidden %s is not in the colour of the page: %s" % (word, said[:300]))
+                raise Failure("the hidden piece at column %d is not in the colour of the page: %s" % (start, said[:300]))
             rect = app.rect(node, every_dom=True)
-            want_x = line["x"] + starts[word] * cw
-            if abs(rect["x"] - want_x) > 0.6 or abs(rect["y"] - line["y"]) > 0.6:
-                raise Failure("the hidden %s moved: %s, it was at x %.1f" % (word, rect, want_x))
+            want_x = line["x"] + start * cw
+            if abs(rect["x"] - want_x) > 0.6 or abs(rect["y"] - line["y"]) > 0.6 or abs(rect["width"] - cols * cw) > 0.8:
+                raise Failure("the hidden piece at column %d moved or changed its size: %s, it was to be at x %.1f, %d columns"
+                              % (start, rect, want_x, cols))
         after = line_rects(app, 1, 30)
         for n, was in before.items():
             now = after.get(n)
-            if not now or any(abs(now[k] - was[k]) > 0.01 for k in ("x", "y", "width", "height")):
+            # a line cut into pieces is the sum of the widths of its pieces: a 32nd of a pixel off at most, no more
+            if not now or any(abs(now[k] - was[k]) > 0.1 for k in ("x", "y", "width", "height")):
                 raise Failure("line %d moved or changed its size: %s -> %s" % (n, was, now))
         app.screenshot(os.path.join(out, "8-slash.png"))
 
@@ -593,6 +606,11 @@ def notes_in(path):
 
 def run_all(args, logs, out):
     binary = e2e.find_binary("AzReview", args.bin, "AZREVIEW_BIN")
+    # AZREVIEW_E2E_ONLY=slash runs that step alone (the others each take minutes).
+    only = os.environ.get("AZREVIEW_E2E_ONLY", "")
+    if only == "slash":
+        slash(args, logs, out, binary)
+        return True
     body(args, logs, out)
     # The dictation steps need the fake speech backend (a libazul with the test hooks). Without it the real recogniser
     # would be asked, and where the terminal holds the microphone and speech permissions it LISTENS: a test must never
