@@ -544,7 +544,8 @@ jobs:
     needs: [plan, codegen_macos, lib_ios]
     strategy:
       fail-fast: false
-      max-parallel: 2
+      # macOS runners are 5 at once on this account: the Apple apps take 3, the phone apps 1, the rest is for others
+      max-parallel: 1
       matrix: ${{ fromJSON(needs.plan.outputs.apps_ios) }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
