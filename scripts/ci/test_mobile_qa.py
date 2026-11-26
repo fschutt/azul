@@ -160,5 +160,66 @@ class RunRecordTests(unittest.TestCase):
             self.assertTrue(run.steps[0].ok)
 
 
+def bmp_v5(w, h, rgba_rows_top_down, top_down=True):
+    """The BMP `sips -s format bmp` writes: 32 bit, BITMAPV5HEADER, BI_BITFIELDS with B,G,R,A byte order, top-down."""
+    body = bytearray()
+    rows = [rgba_rows_top_down[y * w * 4:(y + 1) * w * 4] for y in range(h)]
+    if not top_down:
+        rows.reverse()
+    for row in rows:
+        bgra = bytearray(len(row))
+        bgra[0::4], bgra[1::4], bgra[2::4], bgra[3::4] = row[2::4], row[1::4], row[0::4], row[3::4]
+        body += bgra
+    dib = struct.pack("<IiiHHIIiiII", 124, w, -h if top_down else h, 1, 32, 3, len(body), 2835, 2835, 0, 0)
+    dib += struct.pack("<IIII", 0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000) + b"\0" * (124 - 40 - 16)
+    return b"BM" + struct.pack("<IHHI", 14 + len(dib) + len(body), 0, 0, 14 + len(dib)) + dib + bytes(body)
+
+
+def bmp24(w, h, rgb_rows_top_down):
+    """A 24-bit bottom-up BMP (rows padded to 4 bytes)."""
+    stride = (w * 3 + 3) // 4 * 4
+    rows = []
+    for y in range(h):
+        row = bytearray()
+        for x in range(w):
+            r, g, b = rgb_rows_top_down[(y * w + x) * 3:(y * w + x) * 3 + 3]
+            row += bytes((b, g, r))
+        rows.append(bytes(row) + b"\0" * (stride - w * 3))
+    body = b"".join(reversed(rows))
+    dib = struct.pack("<IiiHHIIiiII", 40, w, h, 1, 24, 0, len(body), 2835, 2835, 0, 0)
+    return b"BM" + struct.pack("<IHHI", 14 + len(dib) + len(body), 0, 0, 14 + len(dib)) + dib + body
+
+
+class BmpVariantTests(unittest.TestCase):
+    def test_the_sips_bmp_gives_the_same_signature_as_the_raw_frame(self):
+        w, h = 40, 80
+        px = bytearray(halves(w, h, (250, 10, 10), (10, 10, 250)))
+        px[(5 * w + 7) * 4:(5 * w + 7) * 4 + 3] = b"\x00\xff\x00"
+        raw_sig, *_ = q.signature_android_raw(android_raw(w, h, bytes(px)))
+        for top_down in (True, False):
+            sig, bw, bh, rgba = q.parse_bmp(bmp_v5(w, h, bytes(px), top_down))
+            self.assertEqual((bw, bh), (w, h))
+            self.assertEqual(sig, raw_sig, f"top_down={top_down}")
+            self.assertEqual(rgba, bytes(px))
+
+    def test_a_24_bit_bmp_with_padded_rows(self):
+        w, h = 5, 4           # 15 bytes a row: padded to 16
+        rgb = bytes((x * 40 + y * 3) % 256 for y in range(h) for x in range(w) for _c in range(3))
+        sig, bw, bh, rgba = q.parse_bmp(bmp24(w, h, rgb))
+        self.assertEqual((bw, bh), (w, h))
+        self.assertEqual(rgba[0:3], rgb[0:3])
+        self.assertEqual(rgba[(h - 1) * w * 4:(h - 1) * w * 4 + 3], rgb[(h - 1) * w * 3:(h - 1) * w * 3 + 3])
+        self.assertEqual(len(sig), q.COLS * q.ROWS * 3)
+
+    def test_png_size_reads_the_header(self):
+        path = Path(__file__).resolve().parent / "_test_size.png"
+        try:
+            q.write_png(path, 7, 9, bytes(7 * 9 * 4))
+            self.assertEqual(q.png_size(path), (7, 9))
+        finally:
+            if path.exists():
+                path.unlink()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -5,21 +5,24 @@
     demo_icon.py ios <AppName> <app-dir>         <app-dir>/AppIcon60x60@2x.png (120), @3x (180), AppIcon76x76@2x.png (152),
                                                  AppIcon83.5x83.5@2x.png (167)
 
-A rounded square in a colour taken from the app's name (so the apps of one phone differ) with a white "A" of the Az family
-drawn as strokes: no font, no image library, only the standard library (a PNG is a zlib stream and three checksums).
-The icons are meant to be replaced by an app's own; a manifest field for that belongs to the day an app has one.
+A rounded square in a colour taken from the app's name (so the apps of one phone differ) with the first letters of the name in
+white: "WI" for AzWidgets, "IM" for AzInstallManager (the first letters of its words), "RC" for AzReview Companion. The letters are
+a 5 by 7 dot font of this file (A to Z, 0 to 9): no font file, no image library, no art of anybody's, only the standard library
+(a PNG is a zlib stream and three checksums). The icons are meant to be replaced by an app's own; a manifest field for that
+belongs to the day an app has one.
 """
 import colorsys
 import hashlib
 import math
 import pathlib
+import re
 import struct
 import sys
 import zlib
 
 ANDROID = {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi": 192}
 IOS = {"AppIcon60x60@2x.png": 120, "AppIcon60x60@3x.png": 180, "AppIcon76x76@2x.png": 152, "AppIcon83.5x83.5@2x.png": 167}
-FIXED = {"AzCompanion": (0.585, 0.78, 0.69)}   # the phone remote's own blue (hue, saturation, value)
+FIXED = {"AzCompanion": (0.585, 0.78, 0.69), "AzReview Companion": (0.585, 0.78, 0.69)}   # the phone remote's own blue (hue, saturation, value)
 
 
 def colour(name):
@@ -27,18 +30,95 @@ def colour(name):
     return colorsys.hsv_to_rgb(h, s, v)
 
 
-def seg_distance(px, py, ax, ay, bx, by):
-    dx, dy = bx - ax, by - ay
-    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)))
-    return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+# the letters of an app whose name does not give them: the phone remote of AzReview
+LETTERS = {"AzCompanion": "RC", "AzReview Companion": "RC"}
+
+# a dot font: 5 columns by 7 rows, '#' is a lit dot
+FONT = {
+    "A": [".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
+    "B": ["####.", "#...#", "#...#", "####.", "#...#", "#...#", "####."],
+    "C": [".###.", "#...#", "#....", "#....", "#....", "#...#", ".###."],
+    "D": ["####.", "#...#", "#...#", "#...#", "#...#", "#...#", "####."],
+    "E": ["#####", "#....", "#....", "####.", "#....", "#....", "#####"],
+    "F": ["#####", "#....", "#....", "####.", "#....", "#....", "#...."],
+    "G": [".###.", "#...#", "#....", "#.###", "#...#", "#...#", ".####"],
+    "H": ["#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
+    "I": [".###.", "..#..", "..#..", "..#..", "..#..", "..#..", ".###."],
+    "J": ["..###", "...#.", "...#.", "...#.", "...#.", "#..#.", ".##.."],
+    "K": ["#...#", "#..#.", "#.#..", "##...", "#.#..", "#..#.", "#...#"],
+    "L": ["#....", "#....", "#....", "#....", "#....", "#....", "#####"],
+    "M": ["#...#", "##.##", "#.#.#", "#.#.#", "#...#", "#...#", "#...#"],
+    "N": ["#...#", "#...#", "##..#", "#.#.#", "#..##", "#...#", "#...#"],
+    "O": [".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."],
+    "P": ["####.", "#...#", "#...#", "####.", "#....", "#....", "#...."],
+    "Q": [".###.", "#...#", "#...#", "#...#", "#.#.#", "#..#.", ".##.#"],
+    "R": ["####.", "#...#", "#...#", "####.", "#.#..", "#..#.", "#...#"],
+    "S": [".####", "#....", "#....", ".###.", "....#", "....#", "####."],
+    "T": ["#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."],
+    "U": ["#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."],
+    "V": ["#...#", "#...#", "#...#", "#...#", "#...#", ".#.#.", "..#.."],
+    "W": ["#...#", "#...#", "#...#", "#.#.#", "#.#.#", "##.##", "#...#"],
+    "X": ["#...#", "#...#", ".#.#.", "..#..", ".#.#.", "#...#", "#...#"],
+    "Y": ["#...#", "#...#", ".#.#.", "..#..", "..#..", "..#..", "..#.."],
+    "Z": ["#####", "....#", "...#.", "..#..", ".#...", "#....", "#####"],
+    "0": [".###.", "#...#", "#..##", "#.#.#", "##..#", "#...#", ".###."],
+    "1": ["..#..", ".##..", "..#..", "..#..", "..#..", "..#..", ".###."],
+    "2": [".###.", "#...#", "....#", "...#.", "..#..", ".#...", "#####"],
+    "3": ["#####", "...#.", "..#..", "...#.", "....#", "#...#", ".###."],
+    "4": ["...#.", "..##.", ".#.#.", "#..#.", "#####", "...#.", "...#."],
+    "5": ["#####", "#....", "####.", "....#", "....#", "#...#", ".###."],
+    "6": ["..##.", ".#...", "#....", "####.", "#...#", "#...#", ".###."],
+    "7": ["#####", "....#", "...#.", "..#..", ".#...", ".#...", ".#..."],
+    "8": [".###.", "#...#", "#...#", ".###.", "#...#", "#...#", ".###."],
+    "9": [".###.", "#...#", "#...#", ".####", "....#", "...#.", ".##.."],
+    "?": [".###.", "#...#", "....#", "...#.", "..#..", ".....", "..#.."],
+}
+CELL = 0.062   # one dot of the font, in the unit square of the icon: two letters are 0.68 wide, 0.43 high
+GAP = 0.06     # of a dot, on every side: a hint of a grid at large sizes, nothing at small ones
 
 
-# the Az family's letter: two legs and a bar, in the unit square
-STROKES = [((0.26, 0.78), (0.50, 0.22)), ((0.50, 0.22), (0.74, 0.78)), ((0.35, 0.60), (0.65, 0.60))]
-HALF_WIDTH = 0.045
+def letters(name):
+    """The letters of the icon of `name`: after the family's "Az" the first two ("WI" for AzWidgets, "PD" for AzPdf), or the first
+    letters of its words when it has two ("IM" for AzInstallManager, "RC" for AzReview Companion)."""
+    if name in LETTERS:
+        return LETTERS[name]
+    base = name[2:] if name.startswith("Az") and len(name) > 2 else name
+    base = "".join(c for c in base if c.isascii() and c.isalnum())
+    humps = re.findall(r"[A-Z][a-z0-9]*|[0-9]+|[a-z]+", base)
+    if len(humps) >= 2 and not base.isupper():
+        text = humps[0][0] + humps[1][0]
+    else:
+        text = base[:2]
+    return text.upper() or "?"
 
 
-def pixel(x, y, rgb, rounded):
+def text_box(text):
+    """x0, y0, x1, y1 of the letters in the unit square, centred."""
+    w, h = (6 * len(text) - 1) * CELL, 7 * CELL
+    return 0.5 - w / 2, 0.5 - h / 2, 0.5 + w / 2, 0.5 + h / 2
+
+
+def cell_centre(text, letter_index, col, row):
+    x0, y0, _, _ = text_box(text)
+    return x0 + (letter_index * 6 + col + 0.5) * CELL, y0 + (row + 0.5) * CELL
+
+
+def lit(text, x, y):
+    """Is the point (x, y) of the unit square inside a lit dot of the letters?"""
+    x0, y0, x1, y1 = text_box(text)
+    if not (x0 <= x < x1 and y0 <= y < y1):
+        return False
+    cx, cy = (x - x0) / CELL, (y - y0) / CELL
+    col, row = int(cx), int(cy)
+    letter, c = divmod(col, 6)
+    if c == 5:                       # the space between two letters
+        return False
+    if not (GAP <= cx - col < 1 - GAP and GAP <= cy - row < 1 - GAP):
+        return False
+    return FONT[text[letter]][row][c] == "#"
+
+
+def pixel(x, y, rgb, rounded, text):
     """RGBA of the point (x, y) in the unit square."""
     if rounded:
         # a rounded square: the corner circles of radius 0.22
@@ -48,7 +128,7 @@ def pixel(x, y, rgb, rounded):
             return (0, 0, 0, 0)
     top = 1.0 - 0.28 * y   # a little lighter at the top: a gradient, so the square is not a flat swatch
     r, g, b = (min(1.0, c * top + 0.12 * (1 - y)) for c in rgb)
-    if any(seg_distance(x, y, *a, *b2) <= HALF_WIDTH for a, b2 in STROKES):
+    if lit(text, x, y):
         return (255, 255, 255, 255)
     return (int(r * 255), int(g * 255), int(b * 255), 255)
 
@@ -56,6 +136,7 @@ def pixel(x, y, rgb, rounded):
 def render(name, size, rounded):
     """RGBA rows from the top, 3x3 supersampled (colours weighted by their alpha, alpha averaged)."""
     rgb = colour(name)
+    text = letters(name)
     sub = [(i + 0.5) / 3 for i in range(3)]
     rows = []
     for py in range(size):
@@ -65,7 +146,7 @@ def render(name, size, rounded):
             alpha = 0.0
             for sy in sub:
                 for sx in sub:
-                    r, g, b, a = pixel((px + sx) / size, (py + sy) / size, rgb, rounded)
+                    r, g, b, a = pixel((px + sx) / size, (py + sy) / size, rgb, rounded, text)
                     premul[0] += r * a
                     premul[1] += g * a
                     premul[2] += b * a
