@@ -162,6 +162,24 @@ fn the_linux_install_steps_compile_with_aas() {
 }
 
 #[test]
+fn the_lazarus_project_compiles_with_aas_and_is_what_the_generator_writes() {
+    let project = super::lpi::generate_lpi("hello-world");
+    assert_eq!(
+        repo_file("examples/pascal/hello-world.lpi"),
+        project,
+        "examples/pascal/hello-world.lpi is not what lang_pascal::lpi::generate_lpi(\"hello-world\") writes"
+    );
+    if !past_the_limit() {
+        return;
+    }
+    assert!(
+        project.contains("<CustomOptions Value=\"-Aas\"/>"),
+        "the unit has more sections than an ELF header numbers, so the Lazarus project must pass -Aas:\n{}",
+        project
+    );
+}
+
+#[test]
 fn the_programs_of_the_css_compiler_say_aas_too() {
     if !past_the_limit() {
         return;
