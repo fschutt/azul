@@ -70,6 +70,14 @@ const NEEDS_DISPLAY: &str = "needs the main thread and a real display";
 /// THE LEDGER. Keep the rows sorted by file, then by test.
 const LEDGER: &[Row] = &[
     Row {
+        file: "core/src/resources_brush_test.rs",
+        test: "how_long_the_brush_takes",
+        kind: Kind::Diagnostic,
+        id: None,
+        owner: "core/resources",
+        reason: "a measurement of the CPU brush, old against new (X-EDGE-C-2): cargo test --release -p azul-core --lib -- --ignored --nocapture how_long_the_brush_takes",
+    },
+    Row {
         file: "dll/src/desktop/display.rs",
         test: "test_get_display_at_point",
         kind: Kind::Hardware,
@@ -353,7 +361,8 @@ const COUNTS: &[(Kind, usize)] = &[
     (Kind::Gap, 2),
     (Kind::Stale, 12),
     // + the halo dilation's timing (layout/src/cpurender/raster.rs): 4 -> 5.
-    (Kind::Diagnostic, 5),
+    // + the CPU brush's timing, old against new (core/src/resources_brush_test.rs): 5 -> 6.
+    (Kind::Diagnostic, 6),
     // + the built-in speech recogniser's real-engine test (dll/tests/speech_builtin_engine.rs): 11 -> 12.
     // + the two real-network tests of iroh's local discovery (extra/iroh/engine_test.rs, bonjour_test.rs): 12 -> 14.
     // + the real desktop of a Mac (extra/desktop_state/desktop_state_test.rs): 14 -> 15.
