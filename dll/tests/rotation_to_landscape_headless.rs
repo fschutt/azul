@@ -96,11 +96,12 @@ fn open(size: (f32, f32)) -> HeadlessWindow {
     window
 }
 
-/// A frame as the shell holds it after a `render_frame`: its size and its RGBA bytes.
+/// A frame as the shell holds it after a `render_frame`: its size, its RGBA bytes and the rects the backend says it painted.
 struct Frame {
     width: u32,
     height: u32,
     rgba: Vec<u8>,
+    painted: String,
 }
 
 impl Frame {
@@ -117,7 +118,7 @@ fn paint(window: &mut HeadlessWindow) -> Frame {
         (ws.size.dimensions.width, ws.size.dimensions.height, ws.size.dpi as f32 / 96.0)
     };
     let lw = window.common.layout_window.as_ref().expect("a layout window");
-    let _ = window
+    let painted = window
         .cpu_backend
         .render_frame(lw, &window.common.renderer_resources, width, height, factor);
     let frame = window.cpu_backend.last_frame.as_ref().expect("a painted frame");
@@ -125,6 +126,7 @@ fn paint(window: &mut HeadlessWindow) -> Frame {
         width: frame.width(),
         height: frame.height(),
         rgba: frame.data().to_vec(),
+        painted: format!("{painted:?}"),
     }
 }
 
@@ -189,7 +191,7 @@ fn a_rotation_to_landscape_is_painted_like_a_full_repaint() {
     let page = page_colour(&portrait);
     rotate(&mut window);
     let incremental = paint(&mut window);
-    let how = format!("{:?}", window.cpu_backend.last_frame_damage);
+    let how = format!("{:?}; it painted {}", window.cpu_backend.last_frame_damage, incremental.painted);
     assert_eq!((incremental.width, incremental.height), (2100, 1050));
 
     // What the page looks like where the window did not exist before: right of the old width, next to the right edge.
