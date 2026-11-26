@@ -689,6 +689,39 @@ fn rust_an_item_inside_the_value_of_a_const_or_static_is_local_to_it() {
     assert_eq!(got, want);
 }
 
+#[test]
+fn rust_a_const_whose_value_is_an_if_or_a_match_runs_to_its_semicolon() {
+    let got = rust(&[
+        "pub const A: Profile = if on() {",
+        "    Profile::Local",
+        "} else {",
+        "    Profile::Production",
+        "};",
+        "static B: u8 = match x {",
+        "    1 => 2,",
+        "    _ => 3,",
+        "};",
+        "const C: u8 = {",
+        "    1",
+        "}",
+        ";",
+        "impl T {",
+        "    const D: u8 = if X { 1 } else {",
+        "        2",
+        "    };",
+        "}",
+        "fn after() {}",
+    ]);
+    let want = vec![
+        d("A", Kind::Const, 1, 5, None),
+        d("B", Kind::Static, 6, 4, None),
+        d("C", Kind::Const, 10, 4, None),
+        d("D", Kind::Const, 15, 3, Some("T")),
+        d("after", Kind::Fn, 19, 1, None),
+    ];
+    assert_eq!(got, want);
+}
+
 // ---- The line of what is found, after every kind of literal ----
 
 /// Every definition's reported line must hold its name: the check the context builder makes before it

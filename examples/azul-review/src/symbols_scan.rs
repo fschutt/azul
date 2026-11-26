@@ -774,9 +774,14 @@ impl Rs<'_> {
                 // A brace that opened inside brackets while an item is being read is a struct literal or a block in
                 // the item's value (`const T: [P; 2] = [P { a: 1 }, ..];`): the item goes on to its semicolon.
                 let mut in_value = false;
+                let mut repend = None;
                 if let Some(scope) = self.scopes.pop() {
                     if let Some(d) = scope.def {
                         self.out[d].lines = tok.line.saturating_sub(self.out[d].line) + 1;
+                        // The value of a const or static goes on to its semicolon (`if a { 1 } else { 2 };`).
+                        if matches!(scope.kind, Sk::Value) {
+                            repend = Some(Pending { def: scope.def, kind: Sk::Value, paren: scope.paren, test: scope.test });
+                        }
                     }
                     if matches!(scope.kind, Sk::Fn | Sk::Value) {
                         self.fn_depth = self.fn_depth.saturating_sub(1);
@@ -790,7 +795,7 @@ impl Rs<'_> {
                     }
                 }
                 if !in_value {
-                    self.pending = None;
+                    self.pending = repend;
                     self.paren = 0;
                     self.vis = Vis::Private;
                     self.attr_test = false;
