@@ -218,6 +218,11 @@ fn css_px(v: f32) -> String {
     format!("{v:.2}px")
 }
 
+/// What the screen reader is told of a picture that only decorates: nothing (the cutout round it has the name).
+fn decorative() -> AccessibilityInfo {
+    AccessibilityInfo { role: AccessibilityRole::Nothing, ..AccessibilityInfo::create_default() }
+}
+
 /// One cutout as a node: its picture (or the lines it was made from while there is none), its label under it.
 fn cutout_dom(panel: &mut Panel, c: &Cutout, selected: bool, ghost: bool) -> Dom {
     let view = panel.wb.display().view();
@@ -248,7 +253,7 @@ fn cutout_dom(panel: &mut Panel, c: &Cutout, selected: bool, ghost: bool) -> Dom
         ));
     match panel.image_of(c) {
         Some(image) => {
-            node.add_child(Dom::create_image(image).with_css("width: 100%; height: 100%;"));
+            node.add_child(Dom::create_image(image).with_accessibility_info(decorative()).with_css("width: 100%; height: 100%;"));
         }
         None => {
             let why = match &c.image {
