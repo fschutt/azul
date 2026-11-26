@@ -428,6 +428,13 @@ fn ensure_timer(host: &Host, info: &mut CallbackInfo) {
     }
 }
 
+/// Starts a recording with the very call the Start button makes (for a program that records on its own, with no one
+/// to press it); whether one is going now.
+pub fn start_now(host: &Host, info: &mut CallbackInfo) -> bool {
+    let _ = press(host, Do::Start, info);
+    host.run(|app| app.host.current().is_some()).unwrap_or(false)
+}
+
 fn press(host: &Host, what: Do, info: &mut CallbackInfo) -> Update {
     match what {
         Do::Start => {

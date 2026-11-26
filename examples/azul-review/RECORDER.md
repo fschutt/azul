@@ -464,7 +464,12 @@ widgets while the host asks for them and hands each frame to it, with a timer of
 three times a second while it records, `DesktopState::query()`) and the pause key (a global hotkey, `Cmd+Shift+P`
 on a Mac, `Ctrl+Alt+P` elsewhere, that says when another program has it). Closing the window finishes a recording
 that is going. `cargo run -p AzReview --example recorder_demo` is that window on its own (recordings go to
-`review/recordings` of the data folder; a cut-off one is put right at the start).
+`review/recordings` of the data folder; a cut-off one is put right at the start). `--record screen,camera,mic`
+says which of the three it takes, and `--auto SECONDS` makes it record without anyone pressing the button: the
+window starts a recording with the call the Start button makes, a timer stops it after SECONDS (2 to 600; a
+number outside is brought into the range with a note on stderr) and the window closes. For a script it prints
+`RECDEMO_STARTED <folder>` and `RECDEMO_STOPPED <folder>` (or `RECDEMO_FAILED <why>`). It is how the real devices
+are tried with no one at the keyboard: `recorder_demo --record camera,mic --auto 10`.
 
 ## 9. What it costs
 
