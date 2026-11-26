@@ -123,6 +123,8 @@ struct View {
     preview: bool,
     recording: bool,
     fps: u32,
+    /// The size the camera's picture is cut to for the recording.
+    camera: (u32, u32),
 }
 
 impl View {
@@ -138,6 +140,10 @@ impl View {
             will: crate::recorder_panel::will_record(app.host.settings()),
             preview: app.host.preview(),
             fps: app.host.settings().screen_fps,
+            camera: {
+                let preset = app.host.settings().quality.camera();
+                (preset.width, preset.height)
+            },
         }
     }
 }
@@ -263,7 +269,8 @@ pub fn hud_dom(host: &Host, hotkey_note: Option<String>) -> Dom {
     if view.wants.camera {
         page.add_child(
             CameraWidget::create(CameraConfig { facing: CameraFacing::Front, output_format: RawImageFormat::RGBA8, ..CameraConfig::default() })
-                .with_on_frame(RefAny::new(Press { host: host.clone(), what: Do::Start }), on_camera_frame)
+                .with_consumer(FrameConsumer::create(RECORDER_CONSUMER, view.camera.0, view.camera.1))
+                .with_on_consumer_frame(RefAny::new(Press { host: host.clone(), what: Do::Start }), on_camera_frame)
                 .dom()
                 .with_id(ids::REC_CAMERA)
                 .with_css("width: 100%; aspect-ratio: 16 / 9; background: #000000; border-radius: 6px;")
@@ -554,11 +561,14 @@ extern "C" fn on_screen_frame(mut data: RefAny, _info: CallbackInfo, frame: Cons
     Update::DoNothing
 }
 
-extern "C" fn on_camera_frame(mut data: RefAny, _info: CallbackInfo, frame: VideoFrame) -> Update {
+extern "C" fn on_camera_frame(mut data: RefAny, _info: CallbackInfo, frame: ConsumerFrame) -> Update {
+    if frame.consumer.id != RECORDER_CONSUMER {
+        return Update::DoNothing;
+    }
     let Some(p) = data.downcast_ref::<Press>() else { return Update::DoNothing };
     let host = p.host.clone();
     drop(p);
-    if let Some(raw) = raw_frame(&frame) {
+    if let Some(raw) = raw_frame(&frame.frame) {
         host.run(|app| app.host.camera_frame(raw));
     }
     Update::DoNothing
