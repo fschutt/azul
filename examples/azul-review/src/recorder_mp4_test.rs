@@ -759,3 +759,210 @@ fn microseconds_and_ticks_convert_to_the_nearest_whole_tick() {
     assert_eq!(ticks_to_us(3_000, 90_000), 33_333);
     assert_eq!(us_to_ticks(u64::MAX, u32::MAX), u64::MAX, "no overflow: it saturates");
 }
+
+// ---- a picture and a voice in one file ----
+
+/// A joint file: `seconds` of video (a keyframe every `gop` frames, `frame_us` apart) with a voice of 20 ms packets
+/// from `voice_from_us` on, finished at the end of the video.
+fn joint_file(seconds: u64, gop: usize, frame_us: u64, voice_from_us: u64) -> (Vec<u8>, MuxStats) {
+    let (mut w, mut file) = JointWriter::new(video_config(), OpusConfig::mono_48k(), 1_764_108_000, Limits::default());
+    let frames = (seconds * 1_000_000 / frame_us) as usize;
+    let mut next_voice = voice_from_us;
+    for i in 0..frames {
+        let at = i as u64 * frame_us;
+        // The voice that is due before this picture goes in first, as the recorder hands them out in time order.
+        while next_voice < at {
+            file.extend(w.push_voice(next_voice, opus_packet((next_voice / 20_000) as u8)).unwrap());
+            next_voice += 20_000;
+        }
+        let key = i % gop == 0;
+        let au = if key { keyframe(i as u8, 300) } else { delta(i as u8, 100) };
+        file.extend(w.push_video(at, annexb_to_avcc(&au).bytes, key).unwrap());
+    }
+    while next_voice < seconds * 1_000_000 {
+        file.extend(w.push_voice(next_voice, opus_packet((next_voice / 20_000) as u8)).unwrap());
+        next_voice += 20_000;
+    }
+    file.extend(w.finish(seconds * 1_000_000));
+    (file, w.stats())
+}
+
+/// The track fragments of every fragment of a joint file: `(track id, base time, samples (duration, size, flags), data offset)`
+/// and the media.
+type TrackRun = (u32, u64, Vec<(u32, u32, u32)>, u32);
+
+fn read_joint(file: &[u8]) -> Vec<(Vec<TrackRun>, Vec<u8>, usize)> {
+    let boxes = top_boxes(file);
+    let moofs: Vec<_> = boxes.iter().filter(|b| &b.0 == b"moof").collect();
+    let mdats: Vec<_> = boxes.iter().filter(|b| &b.0 == b"mdat").collect();
+    moofs
+        .iter()
+        .zip(&mdats)
+        .map(|(moof, mdat)| {
+            let body = &file[moof.1 + 8..moof.1 + moof.2];
+            let runs = children(body)
+                .into_iter()
+                .filter(|(k, _)| k == b"traf")
+                .map(|(_, traf)| {
+                    let tfhd = child(traf, b"tfhd").unwrap();
+                    let tfdt = child(traf, b"tfdt").unwrap();
+                    let trun = child(traf, b"trun").unwrap();
+                    let n = be32(trun, 4).unwrap() as usize;
+                    let entries = (0..n).map(|i| (be32(trun, 12 + i * 12).unwrap(), be32(trun, 16 + i * 12).unwrap(), be32(trun, 20 + i * 12).unwrap())).collect();
+                    (be32(tfhd, 4).unwrap(), be64(tfdt, 4).unwrap(), entries, be32(trun, 8).unwrap())
+                })
+                .collect();
+            (runs, file[mdat.1 + 8..mdat.1 + mdat.2].to_vec(), moof.1)
+        })
+        .collect()
+}
+
+/// The head of a joint file says what is in it: the picture as track 1, the voice as track 2, and that
+/// fragments follow for both.
+///
+/// Mutation: the voice's track given the picture's id; a track missing from `mvex`.
+#[test]
+fn a_joint_file_describes_a_picture_as_track_one_and_a_voice_as_track_two() {
+    let (_w, head) = JointWriter::new(video_config(), OpusConfig::mono_48k(), 1_764_108_000, Limits::default());
+    let boxes = top_boxes(&head);
+    assert_eq!(boxes.iter().map(|b| b.0).collect::<Vec<_>>(), vec![*b"ftyp", *b"moov"]);
+    let moov = &head[boxes[1].1 + 8..boxes[1].1 + boxes[1].2];
+    let traks: Vec<&[u8]> = children(moov).into_iter().filter(|(k, _)| k == b"trak").map(|(_, b)| b).collect();
+    assert_eq!(traks.len(), 2);
+    let id = |trak: &[u8]| be32(child(trak, b"tkhd").unwrap(), 12).unwrap();
+    assert_eq!((id(traks[0]), id(traks[1])), (1, 2));
+    assert_eq!(&find(traks[0], &[b"mdia", b"hdlr"]).unwrap()[8..12], b"vide");
+    assert_eq!(&find(traks[1], &[b"mdia", b"hdlr"]).unwrap()[8..12], b"soun");
+    let (kind, _) = children(&find(traks[0], &[b"mdia", b"minf", b"stbl", b"stsd"]).unwrap()[8..]).into_iter().next().unwrap();
+    assert_eq!(&kind, b"avc1");
+    let (kind, _) = children(&find(traks[1], &[b"mdia", b"minf", b"stbl", b"stsd"]).unwrap()[8..]).into_iter().next().unwrap();
+    assert_eq!(&kind, b"Opus");
+    assert_eq!(be32(find(traks[0], &[b"mdia", b"mdhd"]).unwrap(), 12), Some(VIDEO_TIMESCALE));
+    assert_eq!(be32(find(traks[1], &[b"mdia", b"mdhd"]).unwrap(), 12), Some(OPUS_TIMESCALE));
+    let mvex = child(moov, b"mvex").unwrap();
+    let trex: Vec<u32> = children(mvex).into_iter().filter(|(k, _)| k == b"trex").map(|(_, b)| be32(b, 4).unwrap()).collect();
+    assert_eq!(trex, vec![1, 2], "both tracks say that fragments follow");
+    let mvhd = child(moov, b"mvhd").unwrap();
+    assert_eq!(be32(mvhd, 96), Some(3), "the next track id is 3");
+    // The scanner reads the first track: the picture.
+    let s = scan(&mut Cursor::new(&head)).unwrap();
+    assert!(s.has_moov);
+    assert_eq!((s.kind, s.codec, s.width, s.height), (Some(TrackKind::Video), Some(*b"avc1"), 1280, 720));
+}
+
+/// A fragment closes at a keyframe of the picture and holds the voice up to that picture: both tracks' samples
+/// of the same seconds, the picture's run first, then the voice's, and the voice after the keyframe in the
+/// next fragment.
+///
+/// Mutation: the voice that is after the keyframe put in the fragment before it; the runs in the other order.
+#[test]
+fn a_fragment_holds_the_picture_and_the_voice_of_the_same_seconds() {
+    // 6 s at 30 pictures a second, a keyframe every 60 pictures (2 s): three fragments of 2 s, 100 voice packets each.
+    let (file, stats) = joint_file(6, 60, 33_333, 0);
+    assert_eq!(stats.fragments, 3);
+    let fragments = read_joint(&file);
+    assert_eq!(fragments.len(), 3);
+    for (i, (runs, media, moof_at)) in fragments.iter().enumerate() {
+        assert_eq!(runs.iter().map(|r| r.0).collect::<Vec<_>>(), vec![1, 2], "the picture's run, then the voice's, in fragment {i}");
+        let (video, voice) = (&runs[0], &runs[1]);
+        assert_eq!(video.2.len(), 60, "sixty pictures");
+        let first_voice = i * 100;
+        assert_eq!(voice.2.len(), 100, "fragment {i}: a hundred packets of 20 ms");
+        assert_eq!(voice.1, first_voice as u64 * 960, "the voice's time in 48 kHz ticks");
+        // The data offsets point (from the moof's start) at each run's first sample, the picture's first.
+        let media_start = (video.3 as usize) - 8; // the offset of the first byte of the mdat's media, from the moof's start
+        assert_eq!(voice.3 as usize, video.3 as usize + video.2.iter().map(|s| s.1 as usize).sum::<usize>(), "the voice's media follows the picture's");
+        let _ = (media_start, moof_at);
+        // The first voice packet is where the offset says.
+        let packet_at = voice.3 as usize - video.3 as usize;
+        assert_eq!(media[packet_at + 1], (first_voice % 256) as u8, "the first packet of the voice's run (its tag)");
+    }
+}
+
+/// Every sample of both tracks comes back out with its bytes, size, flags and duration; the voice's packets last
+/// 960 ticks each.
+///
+/// Mutation: a voice packet lost at a boundary; a voice packet's flags that say it is not a sync sample.
+#[test]
+fn every_sample_of_both_tracks_comes_back_out_of_a_joint_file() {
+    let (file, _) = joint_file(6, 60, 33_333, 0);
+    let mut voice_tags = Vec::new();
+    let mut pictures = 0;
+    for (runs, media, _) in read_joint(&file) {
+        let mut at = 0_usize;
+        for (id, _, samples, _) in &runs {
+            for (duration, size, flags) in samples {
+                let bytes = &media[at..at + *size as usize];
+                at += *size as usize;
+                if *id == 1 {
+                    pictures += 1;
+                } else {
+                    assert_eq!((*duration, *flags), (960, 0x0200_0000), "a packet of 20 ms and a sync sample");
+                    voice_tags.push(bytes[1]);
+                }
+            }
+        }
+        assert_eq!(at, media.len(), "the sizes add up to the media of the fragment");
+    }
+    assert_eq!(pictures, 180);
+    assert_eq!(voice_tags.len(), 300);
+    assert!(voice_tags.iter().enumerate().all(|(i, t)| *t == (i % 256) as u8), "the packets in order");
+}
+
+/// A fragment before the voice began has the picture's run alone, and the voice's first run is at its time.
+///
+/// Mutation: an empty run written for the voice; the voice's time counted from the fragment's start.
+#[test]
+fn a_fragment_before_the_voice_began_has_the_pictures_run_alone() {
+    // The voice begins 3 s in: the first fragment (0 to 2 s) has none, the second (2 to 4 s) has the last second of it.
+    let (file, _) = joint_file(6, 60, 33_333, 3_000_000);
+    let fragments = read_joint(&file);
+    assert_eq!(fragments[0].0.iter().map(|r| r.0).collect::<Vec<_>>(), vec![1], "no voice yet");
+    assert_eq!(fragments[1].0.iter().map(|r| r.0).collect::<Vec<_>>(), vec![1, 2]);
+    assert_eq!(fragments[1].0[1].1, 150 * 960, "the voice's first packet is at 3 s, in ticks");
+    assert_eq!(fragments[1].0[1].2.len(), 50);
+}
+
+/// The index at the end points at the fragments of the picture, and the file ends in it; a file that is cut in the
+/// middle of a fragment is whole up to the fragment before, as the scanner reads it by the picture.
+///
+/// Mutation: a voice run counted in the picture's sample count; an index that is missing.
+#[test]
+fn a_joint_file_has_an_index_and_a_cut_one_is_whole_up_to_the_fragment_before() {
+    let (file, _) = joint_file(6, 60, 33_333, 0);
+    let boxes = top_boxes(&file);
+    assert_eq!(&boxes.last().unwrap().0, b"mfra");
+    let full = scan(&mut Cursor::new(&file)).unwrap();
+    assert!(full.finished && !full.truncated);
+    assert_eq!((full.fragments, full.samples), (3, 180), "the picture's samples, not the voice's");
+    let mdats: Vec<_> = boxes.iter().filter(|b| &b.0 == b"mdat").collect();
+    let cut = mdats[2].1 + mdats[2].2 / 2;
+    let s = scan(&mut Cursor::new(&file[..cut])).unwrap();
+    assert_eq!((s.fragments, s.samples), (2, 120));
+    assert!(s.truncated && !s.finished);
+    assert_eq!(s.whole_end as usize, mdats[1].1 + mdats[1].2);
+}
+
+/// What the writer refuses: an empty or a too large sample, anything after the end; and the voice's bytes count
+/// towards the fragment's size limit.
+///
+/// Mutation: a voice sample that is not counted in the fragment's bytes; an empty voice packet taken.
+#[test]
+fn a_joint_writer_refuses_what_a_single_one_does_and_counts_the_voice_in_its_limits() {
+    let (mut w, _head) = JointWriter::new(video_config(), OpusConfig::mono_48k(), 0, Limits::default());
+    assert_eq!(w.push_voice(0, Vec::new()), Err(MuxError::EmptySample));
+    assert_eq!(w.push_video(0, Vec::new(), true), Err(MuxError::EmptySample));
+    assert!(matches!(w.push_voice(0, vec![0xf8; Limits::default().max_sample_bytes + 1]), Err(MuxError::SampleTooLarge { .. })));
+    w.finish(0);
+    assert_eq!(w.push_voice(0, opus_packet(1)), Err(MuxError::Finished));
+    assert_eq!(w.push_video(0, vec![1], true), Err(MuxError::Finished));
+
+    // A fragment that would pass its byte limit with the voice in it is closed.
+    let limits = Limits { max_fragment_bytes: 1_000, ..Limits::default() };
+    let (mut w, _) = JointWriter::new(video_config(), OpusConfig::mono_48k(), 0, limits);
+    let mut closed = 0;
+    for i in 0..20_u64 {
+        closed += usize::from(!w.push_voice(i * 20_000, vec![0xf8; 200]).unwrap().is_empty());
+    }
+    assert!(closed >= 1 || w.stats().fragments >= 1, "the voice alone fills a fragment");
+}
