@@ -1169,7 +1169,7 @@ fn the_numbers_of_a_small_manifest_are_the_ones_one_counts_by_hand() {
 // ---------------------------------------------------------------------------------------------
 
 #[test]
-fn the_page_calls_the_demos_self_contained() {
+fn the_page_and_the_readme_call_the_demos_self_contained_and_separate_downloads() {
     let html = section(&manifest());
     assert!(html.contains("self-contained"), "{}", intro_html());
     assert!(
@@ -1177,13 +1177,35 @@ fn the_page_calls_the_demos_self_contained() {
         "{}",
         intro_html()
     );
+    let readme = deploy::examples_readme(VERSION);
+    assert!(readme.contains("self-contained"), "{readme}");
+    assert!(
+        readme.contains("linked statically against the prebuilt libazul.a"),
+        "{readme}"
+    );
+    // the archive holds the example sources and libazul; the demos are separate downloads
+    assert!(
+        readme.contains("separate downloads on the release page"),
+        "{readme}"
+    );
+    assert!(readme.contains("example sources"), "{readme}");
     for old in [
         "one dll, many small binaries",
         "instead of bundling",
         "every app links the same one library",
+        "under `demos/`",
+        "added by CI",
     ] {
+        assert!(
+            !readme.contains(old),
+            "the README of examples.zip still says {old:?}"
+        );
         assert!(!html.contains(old), "the page still says {old:?}");
     }
+    assert!(
+        readme.starts_with("# Azul GUI Framework v0.2.0\n"),
+        "{readme}"
+    );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1399,4 +1421,37 @@ fn every_docker_app_has_a_dockerfile_and_only_they_have_one() {
             if has { "exists" } else { "does not exist" }
         );
     }
+}
+
+#[test]
+fn the_release_page_and_the_deploy_keep_no_list_of_apps_of_their_own() {
+    let m = manifest();
+    for (file, text) in [
+        ("doc/src/dllgen/deploy.rs", include_str!("deploy.rs")),
+        ("doc/src/main.rs", include_str!("../main.rs")),
+    ] {
+        for app in &m.apps {
+            let quoted = format!("\"{}\"", app.package);
+            assert!(
+                !text.contains(&quoted),
+                "{file} spells {quoted}: the apps come from scripts/demo_apps.toml"
+            );
+        }
+        for old in [
+            "const DEMO_APPS",
+            "const DESKTOP_ONLY",
+            "const ANDROID_READY",
+            "const DEMO_OSES",
+            "azul-vault",
+            "azul-gamepad",
+        ] {
+            assert!(!text.contains(old), "{file} still has {old}");
+        }
+    }
+    let deploy_source = include_str!("deploy.rs");
+    assert!(
+        deploy_source.contains("demo_apps::demos_section_html(")
+            && deploy_source.contains("{demos_section}"),
+        "the release page does not take its Demos section from the manifest"
+    );
 }

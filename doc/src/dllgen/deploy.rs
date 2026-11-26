@@ -10,7 +10,7 @@ use anyhow::Result;
 
 use crate::{
     api::ApiData,
-    dllgen::{bundles, license::License},
+    dllgen::{bundles, demo_apps, license::License},
     docgen::HTML_ROOT,
 };
 
@@ -1619,6 +1619,25 @@ pub fn copy_go_package(version_dir: &Path, codegen_dir: &Path) -> Result<usize> 
     Ok(n)
 }
 
+/// The README.md of examples.zip.
+///
+/// The archive holds the example sources, the C and C++ headers and the shared library to build them
+/// against. It does NOT hold the compiled demo apps: each of them is a separate download on the
+/// release page (the Demos table), one self-contained binary linked statically against the prebuilt
+/// libazul.a, which needs no library next to it.
+pub(crate) fn examples_readme(version: &str) -> String {
+    format!(
+        "# Azul GUI Framework v{version}\n\nCross-platform GUI framework with bindings for \
+         Rust, C, C++, Python and 20+ other languages (all per-language `hello-world` / \
+         `widgets` sources are bundled here, one directory per language).\n\nThis archive \
+         holds the example sources, the C and C++ headers (`include/`) and the shared library \
+         (`libazul.so` / `libazul.dylib` / `azul.dll`) to build the examples against. The \
+         compiled demo apps are separate downloads on the release page: each one is a single \
+         self-contained binary, linked statically against the prebuilt libazul.a, so it needs \
+         no library next to it and runs on its own.\n",
+    )
+}
+
 /// Creates examples.zip by reading example paths from api.json and loading files from disk.
 /// This ensures the zip always matches the examples defined in api.json.
 pub fn create_examples(
@@ -1746,19 +1765,7 @@ pub fn create_examples(
 
     // Add README
     source_zip.start_file("README.md", options)?;
-    source_zip.write_all(
-        format!(
-            "# Azul GUI Framework v{version}\n\nCross-platform GUI framework with bindings for \
-             Rust, C, C++, Python and 20+ other languages (all per-language `hello-world` / \
-             `widgets` sources are bundled here, one directory per language).\n\nThis archive \
-             demonstrates the \"one dll, many small binaries\" model: a single shared library \
-             (`libazul.so` / `libazul.dylib` / `azul.dll`) plus the compiled demo apps under \
-             `demos/` (added by CI) — every app links the same one library instead of bundling \
-             its own runtime. Build any example against the bundled lib; headers are in \
-             `include/`.\n",
-        )
-        .as_bytes(),
-    )?;
+    source_zip.write_all(examples_readme(version).as_bytes())?;
 
     // Finalize source zip
     source_zip.finish()?;
@@ -1868,16 +1875,22 @@ const PAGES_PINNED: &[&str] = &[
 ///
 /// So LARGE = any build output of that class, *unless* it is [`PAGES_PINNED`]:
 /// static libs (`.a`, `.lib`), shared libs and extensions (`.so`, `.dylib`,
-/// `.dll`, `.pyd`), system packages (`.deb`, `.rpm`), the demo binaries, the
-/// installable mobile apps, plus `examples.zip` and `guide.pdf` by name.
+/// `.dll`, `.pyd`), system packages (`.deb`, `.rpm`), plus `examples.zip` and
+/// `guide.pdf` by name.
 ///
 /// Everything else stays SMALL and on Pages: the pinned libs above, the C/C++
 /// headers, `api.json`, `azul-java.zip`, the per-language binding sources, the
 /// `LICENSE-*.txt` files, `statistics/`, `coverage/`.
 ///
-/// MUST stay in sync with the collector in rust.yml's "Host LARGE assets on the
-/// GitHub Release" step — this function decides where the link points, that
-/// step decides where the file ends up, and a disagreement is a 404.
+/// `demos/<file>` and `mobile-apps/<file>` are LARGE as well, but nothing is stored under those
+/// paths any more: they are only the NAMES the Demos table of the release page builds its links
+/// from (`demo_apps::asset_path`). They route to the release asset `<release_name>` that the publish
+/// job of demos.yml uploads (scripts/demo_publish.py), so the collector of rust.yml does not handle
+/// them.
+///
+/// For everything else this MUST stay in sync with the collector in rust.yml's "Host LARGE assets
+/// on the GitHub Release" step — this function decides where the link points, that step decides
+/// where the file ends up, and a disagreement is a 404.
 pub(crate) fn is_large(filename: &str) -> bool {
     let basename = filename.rsplit('/').next().unwrap_or(filename);
 
@@ -1919,14 +1932,18 @@ pub(crate) fn is_large(filename: &str) -> bool {
         || basename == "guide.pdf"
 }
 
-/// LARGE assets that the deploy step uploads to the Release as `.tar.gz`
-/// (uncompressed archives that compress several times over): the static `.a`
-/// and `.lib` libs and the demo executables. Everything else uploads raw —
+/// LARGE assets that are uploaded to the Release as `.tar.gz` (uncompressed
+/// archives that compress several times over): the static `.a` and `.lib` libs
+/// and the desktop demo executables. Everything else uploads raw —
 /// already-compressed packages (`.deb`/`.rpm`/`.apk`/`.zip`/`.pdf`) gain
 /// nothing, and a drop-in shared library is far more useful as a direct
 /// download than as a tarball.
-/// MUST stay in sync with the `*.a|*.lib|*/demos/*` case in rust.yml's
-/// "Host LARGE assets on the GitHub Release" step.
+///
+/// The `.a` / `.lib` rule MUST stay in sync with the matching case in rust.yml's
+/// "Host LARGE assets on the GitHub Release" step. `demos/<file>` is only the name of a desktop
+/// demo (see [`is_large`]): the publish job of demos.yml uploads it as `<file>.tar.gz`
+/// (`release_name` of scripts/demo_apps.py), and the phone files under `mobile-apps/` are not
+/// tarred.
 pub(crate) fn is_tarred(filename: &str) -> bool {
     filename.ends_with(".a")
         || filename.ends_with(".lib")
@@ -1938,13 +1955,15 @@ pub(crate) fn is_tarred(filename: &str) -> bool {
 /// GitHub Release and SMALL assets to the Pages-hosted release dir.
 ///
 /// LARGE (see [`is_large`]) → `https://github.com/fschutt/azul/releases/download/{version}/{basename}`
-/// (GitHub flattens the path: a demo at `demos/azul-maps-linux` uploads as the
-/// bare `azul-maps-linux` asset). SMALL → `https://azul.rs/ui/release/{version}/{filename}`.
+/// (GitHub flattens the path, and a tarred asset gains `.tar.gz`: the name `demos/AzMaps-linux`
+/// is the release asset `AzMaps-linux.tar.gz`, the name `mobile-apps/AzMaps-android-arm64.apk` the
+/// asset `AzMaps-android-arm64.apk`; both are names only, nothing is stored under those paths).
+/// SMALL → `https://azul.rs/ui/release/{version}/{filename}`.
 pub(crate) fn asset_url(version: &str, filename: &str) -> String {
     if is_large(filename) {
         // GitHub Release assets are flat — strip any `demos/` path prefix so the
         // link matches the uploaded asset name. Tarred assets (.a, demos) get a
-        // `.tar.gz` suffix to match what the deploy step uploaded.
+        // `.tar.gz` suffix to match what was uploaded.
         let basename = filename.rsplit('/').next().unwrap_or(filename);
         let suffix = if is_tarred(filename) { ".tar.gz" } else { "" };
         format!("https://github.com/fschutt/azul/releases/download/{version}/{basename}{suffix}")
@@ -2294,149 +2313,18 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
         .join("\n                ");
 
     // ---- Demos — download & run -----------------------------------------
-    // Self-contained release binaries of the demo "goal apps" (Rust apps built
-    // statically against azul). The build_demos CI job stages them as
-    // <crate>-<os>[.exe] and the deploy lays them into release/{version}/demos/.
-    // Each demo has up to four desktop variants (linux, macos = Apple Silicon, macos-intel =
-    // x86_64, windows). We link them
-    // unconditionally (like the exotic-arch/package links) since the skeleton
-    // build doesn't placeholder these — a not-yet-built one 404s rather than
-    // vanishing. (crate, friendly name, one-line description.)
-    // Five apps, each showing something the others do not, in the order a
-    // reader should meet them. The set was pruned: AzVideo, AzScreenShare and
-    // AzCamera are all things AzMeet already does in one app; AzGamepad is a
-    // desktop rarity; AzSelfTest is a CI smoke test rather than a demo; and
-    // AzVault duplicated AzWriter's "real application" role.
-    const DEMO_APPS: &[(&str, &str, &str)] = &[
-        // First field is the ASSET stem: package name == binary name == asset
-        // name, one string with nothing to drift. It used to be the old
-        // package name while the display name was already AzXxx, which is
-        // precisely how azul-writer's downloads 404'd for a whole release.
-        (
-            "AzWidgets",
-            "AzWidgets",
-            "every built-in widget in one window",
-        ),
-        (
-            "AzMaps",
-            "AzMaps",
-            "a slippy-map tile viewer - async work in the UI",
-        ),
-        ("AzPaint", "AzPaint", "a small paint app - canvas drawing"),
-        (
-            "AzMeet",
-            "AzMeet",
-            "screenshare, video and audio capture and playback",
-        ),
-        (
-            "AzWriter",
-            "AzWriter",
-            "a document editor - a full application",
-        ),
-        // The visual GUI builder. Desktop only: it drives its window from a
-        // browser tab on the same machine (and ships no Dockerfile).
-        (
-            "AzBuilder",
-            "AzBuilder",
-            "the drag-and-drop GUI builder - opens its editor in your browser",
-        ),
-    ];
-    const DESKTOP_ONLY: &[&str] = &["AzBuilder"];
-    // OS suffix → label + filename extension, matching the build_demos staging
-    // names (AzMaps-linux, AzMaps-macos, AzMaps-macos-intel, AzMaps-windows.exe).
-    const DEMO_OSES: &[(&str, &str, &str)] = &[
-        ("linux", "Linux", ""),
-        ("macos", "macOS (M1+)", ""),
-        ("macos-intel", "macOS (Intel)", ""),
-        ("windows", "Windows", ".exe"),
-    ];
-    // Grouped by OS: each OS is a heading with a sub-list of "Name: what it is",
-    // so the OS and filename aren't repeated on every line. .apk = the demos set
-    // up as a NativeActivity cdylib; every demo ships an installable iOS .app.
-    const ANDROID_READY: &[&str] = &["AzMaps", "AzPaint", "AzWidgets"];
-    // (os heading, path template with {c}=crate). Desktop = demos/<crate>-<os>[.exe];
-    // mobile = mobile-apps/<crate>-{ios.app.zip,android.apk} (Pages-hosted).
-    let os_groups: &[(&str, &str, fn(&str) -> bool)] = &[
-        ("Linux", "demos/{c}-linux", |_| true),
-        // Apple Silicon and Intel apart: an arm64 binary on an Intel Mac only says "bad CPU
-        // type in executable". The Intel ones run on macOS 10.12 (Sierra) and later.
-        ("macOS (M1+)", "demos/{c}-macos", |_| true),
-        ("macOS (Intel, 10.12+)", "demos/{c}-macos-intel", |_| true),
-        ("Windows", "demos/{c}-windows.exe", |_| true),
-        (
-            "iOS device (.ipa, signed)",
-            "mobile-apps/{c}-ios.ipa",
-            |c| !DESKTOP_ONLY.contains(&c),
-        ),
-        (
-            "iOS device (.app)",
-            "mobile-apps/{c}-ios.app.zip",
-            |c| !DESKTOP_ONLY.contains(&c),
-        ),
-        (
-            "iOS Simulator (.app)",
-            "mobile-apps/{c}-ios-sim.app.zip",
-            |c| !DESKTOP_ONLY.contains(&c),
-        ),
-        (
-            "Android (.apk, sideload)",
-            "mobile-apps/{c}-android.apk",
-            |c| ANDROID_READY.contains(&c),
-        ),
-    ];
-    let mut demo_links: String = os_groups
-        .iter()
-        .map(|(os_label, path_tmpl, include)| {
-            let items: String = DEMO_APPS
-                .iter()
-                .filter(|(crate_name, _, _)| include(crate_name))
-                .map(|(crate_name, friendly, _desc)| {
-                    // Description intentionally dropped here: it's stated once under
-                    // the "Demos" heading instead of repeated on every OS row.
-                    release_link_li(version, &path_tmpl.replace("{c}", crate_name), friendly)
-                })
-                .collect::<Vec<_>>()
-                .join("\n                    ");
-            format!(
-                "<li class='release-os'><strong>{os_label}</strong>\n                  \
-                 <ul>\n                    {items}\n                  </ul></li>",
-                os_label = os_label,
-                items = items
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n                ");
-
-    // Web (Docker): run any demo as a web app with one command. The link is the
-    // demo's Dockerfile (a release-hosted copy of examples/<crate>/Dockerfile); it
-    // FROMs ghcr.io/fschutt/azul and REUSES the Linux x86-64 desktop
-    // binary — azul lifts it to WASM in-process (remill) and serves it, no
-    // separate web build, no recompile. The label is the ready-to-run command.
-    let web_items: String = DEMO_APPS
-        .iter()
-        .filter(|(crate_name, _, _)| !DESKTOP_ONLY.contains(crate_name))
-        .map(|(crate_name, friendly, _desc)| {
-            let url = asset_url(version, &format!("{crate_name}.Dockerfile"));
-            // The image tag is the app's own name, lowercased - so the command
-            // a reader copies names the thing they just clicked on, not the
-            // crate it happens to be built from.
-            let tag = friendly.to_lowercase();
-            format!(
-                "<li><strong>{friendly}</strong>\n                      <pre><code \
-                 class='language-bash'>docker build {url} -t {tag}\ndocker run -p 8080:8080 \
-                 {tag}</code></pre></li>",
-                friendly = friendly,
-                url = url,
-                tag = tag
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n                    ");
-    demo_links.push_str(&format!(
-        "\n                <li class='release-os release-os-web'><strong>Web (Docker, experimental)</strong>\n                  \
-         <ul>\n                    {web_items}\n                  </ul></li>",
-        web_items = web_items
-    ));
+    // One table of every demo app, generated from scripts/demo_apps.toml (compiled in: the ONE
+    // list of the apps, the same one rust.yml builds from): a row per app, a column per built
+    // file, a link per file that CI builds, a dash where the app is not built for the platform and
+    // "not available" with the reason where the manifest lists the build as failing. The demos
+    // are separate release assets (the publish job of demos.yml uploads them under the names of
+    // scripts/demo_apps.py: <Name>-linux.tar.gz, <Name>-android-arm64.apk, <Name>-ios-device.app.zip,
+    // ...). Every link is written whether or not the file has been published yet (the skeleton build
+    // does not have it): scripts/prune_dead_release_links.py turns the ones whose asset is missing
+    // into a visible "not available" at deploy time. Each desktop demo is statically linked
+    // against the prebuilt libazul.a, so it is one self-contained binary.
+    let demos_section =
+        demo_apps::demos_section_html(version, &demo_apps::Manifest::embedded(), asset_url);
 
     // MIT license tile ahead of the bundled per-platform license texts.
     let mit_card = card(
@@ -2486,9 +2374,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
                   <p><a href='{HTML_ROOT}/guide/architecture/gui-builder'>GUI builder guide</a></p>
                 </div>
               </div>
-              <ul class='release-demos' id='demo-list'>
-                {demo_links}
-              </ul>
+              {demos_section}
 
               <h2 id='native-libraries'>Native libraries</h2>
               <h3>Windows</h3>
