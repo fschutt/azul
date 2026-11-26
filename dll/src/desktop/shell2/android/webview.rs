@@ -138,6 +138,8 @@ fn with_bridge<T>(
     }
     let vm = unsafe { jni::JavaVM::from_raw(vm_ptr.cast()) }.map_err(|e| format!("{e:?}"))?;
     let mut env = vm.attach_current_thread().map_err(|e| format!("{e:?}"))?;
+    // Released when this helper returns: this thread never returns to Java (see `LocalFrame`).
+    let _frame = crate::desktop::extra::LocalFrame::push(&env, crate::desktop::extra::LocalFrame::DEFAULT_CAPACITY);
     let activity = unsafe { JObject::from_raw(activity_ptr as jni::sys::jobject) };
     let class = crate::desktop::extra::find_app_class(&mut env, &activity, BRIDGE).ok_or_else(
         || String::from("this app has no AzulWebView bridge (scripts/android/AzulWebView.java)"),

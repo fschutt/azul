@@ -100,6 +100,7 @@ platforms = ["linux", "macos-arm64", "macos-intel", "windows", "android", "ios"]
 weight = 2
 docker = true
 mobile_lib = "mobile"
+e2e = true   # the QA variant too: the layout audit and the scripted checks of the phone apps (an artifact, never shipped)
 needs = ["a network connection for the map tiles"]
 [app.android]
 permissions = ["android.permission.ACCESS_FINE_LOCATION"]
@@ -114,6 +115,7 @@ platforms = ["linux", "macos-arm64", "macos-intel", "windows", "android", "ios"]
 weight = 1
 docker = true
 mobile_lib = "mobile"
+e2e = true   # the QA variant too: the layout audit and the scripted checks of the phone apps (an artifact, never shipped)
 
 [[app]]
 package = "AzMeet"
@@ -123,6 +125,7 @@ platforms = ["linux", "macos-arm64", "macos-intel", "windows", "android", "ios"]
 weight = 2
 docker = true
 mobile_lib = "mobile"
+e2e = true   # the QA variant too: the layout audit and the scripted checks of the phone apps (an artifact, never shipped)
 needs = ["a meeting server (the `meet` worker) to start or join a meeting"]
 [app.android]
 permissions = ["android.permission.CAMERA", "android.permission.RECORD_AUDIO"]
@@ -140,6 +143,7 @@ platforms = ["linux", "macos-arm64", "macos-intel", "windows", "android", "ios"]
 weight = 2
 docker = true
 mobile_lib = "mobile"
+e2e = true   # the QA variant too: the layout audit and the scripted checks of the phone apps (an artifact, never shipped)
 
 [[app]]
 package = "AzCompanion"
@@ -169,6 +173,11 @@ tap = "Try it without a Mac"
 # "Explain", "Shorter" and "Doc"; "Demo Mac" is the safest single text.)
 after_tap = ["Demo Mac"]
 after_tap_gone = ["Connect to AzReview"]
+# A FIRST press whose effect is short: "Scan QR code" only shows a toast for 2.5 s, which the press above, looked at 5 s later, would never
+# see. The boot test presses it first and looks 1 s after: if the toast is there a tap reaches the app's callbacks, if not none does
+# (the input path), which tells a broken demo key from a broken touch.
+probe_tap = "Scan QR code"
+probe_after = ["Scanning the code comes with the next version"]
 [app.ios]
 # build-ios.sh writes NSLocalNetworkUsageDescription and NSBonjourServices = [_irohv1._udp] from this text
 local_network = "AzReview Companion finds AzReview on your Mac over your Wi-Fi to use your phone as its remote control."

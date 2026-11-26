@@ -61,4 +61,10 @@ pub trait PhoneApi {
 
     /// Forgets the Mac: the phone is unpaired again.
     fn forget_mac(&mut self, now: Millis);
+
+    /// What the connection noticed that a person debugging it may want to read (a dial that failed, a frame that was not understood, a
+    /// cap that was hit), oldest first. The settings screen shows the newest lines under "Connection log".
+    fn log(&self) -> Vec<String> {
+        Vec::new()
+    }
 }

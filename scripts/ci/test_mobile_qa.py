@@ -289,9 +289,87 @@ class ModeComparisonTests(unittest.TestCase):
                 run = q.Run(d, "android", {})
                 run.step("modes", "x", lambda s: q.report_modes(run, s, res, expect, "android"))
                 self.assertEqual(run.steps[0].ok, ok, f"expect_gpu={expect}")
-                finding = [c for c in run.steps[0].checks if "GPU renderer ran" in c["what"]]
+                finding = [c for c in run.steps[0].checks if "GL renderer ran" in c["what"]]
                 self.assertTrue(finding and not finding[0]["ok"])      # the finding is there in both cases
                 self.assertIn("render_modes", run.meta)
+
+    def test_auto_on_a_software_gl_runs_the_cpu_renderer_by_design(self):
+        """The rule agreed for the GPU work: gpu FORCES GL (software GL included), auto takes GL only on a hardware GPU."""
+        import tempfile
+        w, h = 12, 12
+        px = solid(w, h, (90, 90, 90))
+
+        def row(ran, device):
+            return {"ran": ran, "requested": None, "device": device, "rgba": px, "dims": (w, h), "first_frame_s": 1.0,
+                    "displayed_ms": 1200, "frames": None}
+
+        def verdict(res, hardware=False, expect_gpu=False):
+            with tempfile.TemporaryDirectory() as d:
+                run = q.Run(d, "android", {})
+                run.step("modes", "x", lambda s: q.report_modes(run, s, res, expect_gpu, "android", hardware=hardware))
+                return run.steps[0]
+
+        # CI emulator, software GL: cpu -> cpu, gpu -> gpu (forced), auto -> cpu (by design): all pass
+        ok = verdict({"cpu": row("cpu", "cpu raster"), "gpu": row("gpu", "Android Emulator OpenGL ES (SwiftShader)"),
+                      "auto": row("cpu", "cpu raster")}, expect_gpu=True)
+        self.assertTrue(ok.ok, [c for c in ok.checks if not c["ok"]])
+        # auto that took the GL path on a software renderer is a failure, whatever --expect-gpu says
+        bad = verdict({"cpu": row("cpu", None), "gpu": row("gpu", "SwiftShader"), "auto": row("gpu", "SwiftShader")})
+        self.assertFalse(bad.ok)
+        self.assertTrue(any("by design" in c["what"] and not c["ok"] for c in bad.checks))
+        # a real phone (--hardware): auto must run GL when GPU is expected
+        phone = verdict({"cpu": row("cpu", None), "gpu": row("gpu", "Adreno (TM) 640"), "auto": row("cpu", "cpu raster")}, hardware=True, expect_gpu=True)
+        self.assertFalse(phone.ok)
+        self.assertTrue(any("hardware GPU" in c["what"] for c in phone.checks))
+        self.assertTrue(q.device_is_software("ANGLE (Apple, Apple Software Renderer)") and q.device_is_software("llvmpipe (LLVM 15)"))
+        self.assertFalse(q.device_is_software("Mali-G78") or q.device_is_software(None))
+
+    def test_a_gpu_request_waits_long_for_its_first_frame(self):
+        # the first GL frame on a software renderer compiles every shader: two minutes are normal there, not a missing picture
+        self.assertEqual(q.first_frame_timeout_for("gpu", 45), 120)
+        self.assertEqual(q.first_frame_timeout_for("gpu", 300), 300)       # a longer wish stays
+        self.assertEqual(q.first_frame_timeout_for("cpu", 45), 45)
+        self.assertEqual(q.first_frame_timeout_for("auto", 45), 45)
+
+
+LOGCAT_START = """\
+11-26 07:41:11.070   517   886 I ActivityTaskManager: START u0 {flg=0x10000000 cmp=com.azul.AzWidgets/com.azul.app.AzulActivity} with LAUNCH_SINGLE_TOP from uid 2000 (BAL_ALLOW_PERMISSION) result code=0
+11-26 07:41:11.083   517   546 I ActivityManager: Start proc 2878:com.azul.AzWidgets/u0a141 for next-top-activity {com.azul.AzWidgets/com.azul.app.AzulActivity}
+11-26 07:41:11.426  2878  2904 I RustStdoutStderr: [           0us][Info][EventLoop] [Android] android_main entered
+11-26 07:41:11.933   517   534 I ActivityTaskManager: Displayed com.azul.AzWidgets/com.azul.app.AzulActivity for user 0: +872ms
+11-26 07:41:12.224  2878  2904 I RustStdoutStderr: [      798868us][Info][Rendering] [Android] present full - 2400 of 2400 rows
+11-26 07:41:12.342  2878  2904 I RustStdoutStderr: [      916085us][Info][Rendering] [Android] present full - 2400 of 2400 rows
+11-26 07:41:20.043   517   576 I ActivityTaskManager: START u0 {flg=0x10000000 cmp=com.azul.AzWidgets/com.azul.app.AzulActivity} with LAUNCH_SINGLE_TOP from uid 2000 (BAL_ALLOW_PERMISSION) result code=0
+11-26 07:41:20.055   517   546 I ActivityManager: Start proc 2984:com.azul.AzWidgets/u0a141 for next-top-activity {com.azul.AzWidgets/com.azul.app.AzulActivity}
+11-26 07:41:20.378  2984  3010 I RustStdoutStderr: [           0us][Info][EventLoop] [Android] android_main entered
+11-26 07:41:20.930   517   534 I ActivityTaskManager: Displayed com.azul.AzWidgets/com.azul.app.AzulActivity for user 0: +1s897ms
+11-26 07:41:21.204  2984  3010 I RustStdoutStderr: [      826074us][Info][Rendering] [Android] present full - 2400 of 2400 rows
+11-26 07:41:25.000   517   576 I ActivityTaskManager: START u0 {flg=0x10000000 cmp=com.azul.floor/.FloorActivity} with LAUNCH_SINGLE_TOP
+11-26 07:41:25.030   517   546 I ActivityManager: Start proc 3999:com.azul.floor/u0a150 for next-top-activity {com.azul.floor/.FloorActivity}
+11-26 07:41:25.400   517   534 I ActivityTaskManager: Displayed com.azul.floor/.FloorActivity for user 0: +402ms
+"""
+
+
+class StartTimelineTests(unittest.TestCase):
+    def test_a_start_is_followed_from_the_system_to_the_first_picture(self):
+        recs = q.start_timelines(LOGCAT_START, "com.azul.AzWidgets")
+        self.assertEqual(len(recs), 2)                       # the floor app's start is another package
+        self.assertEqual(recs[0], {"proc": 13, "main": 356, "displayed": 872, "present": 1154})
+        # the second start: 1 s 897 ms is one second and 897 ms; its engine lines belong to its own process
+        self.assertEqual(recs[1], {"proc": 12, "main": 335, "displayed": 1897, "present": 1161})
+
+    def test_the_floor_app_has_no_engine_lines(self):
+        recs = q.start_timelines(LOGCAT_START, "com.azul.floor")
+        self.assertEqual(recs, [{"proc": 30, "displayed": 402}])
+
+    def test_the_summary_is_a_median_per_mark_and_the_engine_share(self):
+        out = q.summarize_timelines([{"proc": 10, "main": 300, "displayed": 800, "present": 1000},
+                                     {"proc": 12, "main": 340, "displayed": 900, "present": 1100},
+                                     {"proc": 14, "main": 320, "present": 1040}])
+        self.assertEqual(out["main"], {"median": 320, "min": 300, "max": 340, "n": 3})
+        self.assertEqual(out["displayed"]["n"], 2)
+        self.assertEqual(out["main_to_present"]["median"], 720)      # 700, 760, 720
+        self.assertEqual(q.summarize_timelines([]), {})
 
 
 class ImeAndTableTests(unittest.TestCase):

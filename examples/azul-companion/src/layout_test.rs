@@ -227,3 +227,30 @@ fn with_a_ribbon_nothing_overlaps_and_the_pad_is_still_big_enough_to_use() {
         assert!(z.pad.w >= 200.0 && z.pad.h >= 160.0, "the pad is {} x {} in {env:?}", z.pad.w, z.pad.h);
     }
 }
+
+/// A phone as the engine reports it, whatever it is (an emulator's navigation bar and cut-out, a tiny window, a window that is not
+/// there yet, an inset that is not a number): the zones never panic, are numbers and never have a negative size.
+#[test]
+fn whatever_the_screen_and_its_insets_the_zones_are_numbers_and_never_negative() {
+    use crate::env::{Insets, Platform};
+    let mut count = 0;
+    for width in [0.0, 120.0, 280.0, 360.0, 393.0, 412.0, 600.0, 900.0, 1400.0] {
+        for height in [0.0, 120.0, 300.0, 600.0, 800.0, 873.0, 915.0, 1400.0, 2400.0] {
+            // (top, bottom): none, a phone's, the emulator's of the demos run (46.5 and 138), a notch, absurd ones, not numbers
+            for (top, bottom) in [(0.0, 0.0), (24.0, 24.0), (46.5, 138.0), (59.0, 34.0), (200.0, 400.0), (-5.0, f32::NAN), (f32::INFINITY, 10.0)] {
+                let insets = Insets { top, right: 0.0, bottom, left: 0.0 }.held(width, height);
+                let env = Env { width, height, insets, platform: Platform::Android, lang: Lang::En };
+                for ribbon in [false, true] {
+                    let z = zones_with(&env, ribbon);
+                    for (name, zone) in named(&z) {
+                        let sane = [zone.x, zone.y, zone.w, zone.h].iter().all(|v| v.is_finite()) && zone.w >= 0.0 && zone.h >= 0.0;
+                        assert!(sane, "{name} {zone:?} for {env:?}");
+                    }
+                    assert!(z.button_h.is_finite() && z.button_h >= 0.0, "{env:?}");
+                    count += 1;
+                }
+            }
+        }
+    }
+    assert!(count > 800, "{count}");
+}

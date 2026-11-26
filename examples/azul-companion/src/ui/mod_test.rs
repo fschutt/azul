@@ -88,7 +88,8 @@ impl PhoneApi for TestApi {
 
     fn begin_pairing(&mut self, _now: Millis, offer: &str) -> Result<(), OfferError> {
         self.calls.lock().unwrap().push(Call::BeginPairing(offer.to_string()));
-        Ok(())
+        // the real answer: the text is an offer or it says why not
+        azul_review_link::pairing::PairingOffer::parse(offer).map(|_| ())
     }
 
     fn retry(&mut self, _now: Millis) {
@@ -556,4 +557,125 @@ fn a_cancelled_gesture_ends_at_the_mac_and_the_hint_can_be_dismissed() {
     root.ui.hint = true;
     root.perform(3, Action::DismissHint);
     assert!(!root.ui.hint);
+}
+
+// ---- pasting the pairing code
+
+fn offer_text() -> String {
+    azul_review_link::pairing::PairingOffer { ticket: "t-1".into(), secret: [3; 16] }.to_text()
+}
+
+fn toast_key(root: &Root) -> Option<&str> {
+    root.ui.toast.as_ref().map(|t| t.0.as_str())
+}
+
+#[test]
+fn the_text_of_an_offer_from_the_clipboard_starts_the_pairing() {
+    let (mut root, calls) = root_with(PhoneView::new());
+    root.ui.pair_again = true;
+    root.perform(0, Action::PairPaste(format!("  {}\n", offer_text())));
+    assert_eq!(taken(&calls), [Call::BeginPairing(format!("  {}\n", offer_text()))], "the text goes as it is: the connection trims it");
+    assert_eq!(toast_key(&root), None);
+    assert!(!root.ui.pair_again, "the pairing screen of a Mac that could not be reached is over");
+}
+
+#[test]
+fn nothing_on_the_clipboard_says_so_and_asks_nothing_of_the_connection() {
+    let (mut root, calls) = root_with(PhoneView::new());
+    for text in ["", "   \n\t "] {
+        root.perform(0, Action::PairPaste(text.into()));
+        assert_eq!(toast_key(&root), Some("pair-paste-empty"), "{text:?}");
+    }
+    assert!(taken(&calls).is_empty());
+}
+
+#[test]
+fn a_text_that_is_no_offer_says_why_in_words() {
+    let good = offer_text();
+    let mut damaged = good.clone();
+    // the check of the offer is the third part: a changed digit is a damaged offer
+    let at = good.splitn(3, ':').take(2).map(|p| p.len() + 1).sum::<usize>();
+    let flipped = if damaged.as_bytes()[at] == b'0' { "1" } else { "0" };
+    damaged.replace_range(at..=at, flipped);
+    for (text, key) in [
+        ("hello there".to_string(), "pair-paste-not-offer"),
+        ("azrv9:00:00:x".to_string(), "pair-paste-version"),
+        (damaged, "pair-paste-damaged"),
+        ("x".repeat(5_000), "pair-paste-toolong"),
+    ] {
+        let (mut root, calls) = root_with(PhoneView::new());
+        root.perform(0, Action::PairPaste(text.clone()));
+        assert_eq!(toast_key(&root), Some(key), "{}", &text[..text.len().min(20)]);
+        assert_eq!(taken(&calls).len(), 1, "the connection was asked and said no");
+    }
+}
+
+// ---- trying it without a Mac
+
+#[test]
+fn trying_it_without_a_mac_puts_a_pretend_mac_in_place_of_the_connection_and_the_remote_comes_up() {
+    let (mut root, calls) = root_with(PhoneView::new());
+    assert!(!root.demo);
+    assert!(root.perform(0, Action::Demo), "the screen changes");
+    assert!(root.demo);
+    assert_eq!(root.view().session, Session::Connected { mac_name: "Demo Mac".into() });
+    assert!(!root.ui.pair_card && root.ui.screen == Screen::Remote, "the remote is what shows, not the pairing card");
+    assert!(taken(&calls).is_empty(), "nothing is asked of the real connection");
+    // the pretend Mac's pen walks on its own: after a moment the pad has something to show
+    root.tick(0);
+    root.tick(200);
+    assert!(root.view().pen.is_some());
+}
+
+#[test]
+fn a_second_tap_on_the_demo_key_changes_nothing_and_leaving_brings_the_real_connection_back() {
+    let (mut root, _calls) = root_with(PhoneView::new());
+    root.perform(0, Action::Demo);
+    root.tick(0);
+    root.tick(200);
+    let pen = root.view().pen.clone();
+    root.perform(300, Action::Demo);
+    assert_eq!(root.view().pen, pen, "the same pretend Mac, not a new one");
+    root.perform(400, Action::LeaveDemo);
+    assert!(!root.demo);
+    assert_eq!(root.view().session, Session::Unpaired, "the real connection, as it was");
+}
+
+// ---- the window's setup is done once
+
+#[test]
+fn the_windows_setup_is_asked_for_by_two_callbacks_and_done_once_in_either_order() {
+    let (mut root, _calls) = root_with(PhoneView::new());
+    assert!(!root.window_ready);
+    assert!(root.first_window_ready(), "the first to say the window is ready does the setup");
+    assert!(root.window_ready);
+    assert!(!root.first_window_ready(), "the second finds it done");
+    assert!(!root.first_window_ready(), "and so does every later mount of the screens");
+}
+
+// ---- the real connection comes when the window exists
+
+#[test]
+fn the_real_connection_replaces_the_stand_in_when_it_comes_and_the_screens_follow_it() {
+    let (mut root, _calls) = root_with(PhoneView::new());
+    root.connect_later = true;
+    let mut searching = PhoneView::new();
+    searching.session = Session::Searching { attempt: 1 };
+    searching.mac_name = "Studio Mac".into();
+    root.connect_now(Box::new(TestApi { view: searching, calls: Arc::new(Mutex::new(Vec::new())) }));
+    assert!(!root.connect_later, "it is made once");
+    assert_eq!(root.view().session, Session::Searching { attempt: 1 });
+    assert_eq!(root.view().mac_name, "Studio Mac");
+}
+
+#[test]
+fn a_real_connection_that_comes_while_the_demo_is_on_waits_behind_the_pretend_mac() {
+    let (mut root, _calls) = root_with(PhoneView::new());
+    root.perform(0, Action::Demo);
+    let mut real = PhoneView::new();
+    real.session = Session::Searching { attempt: 1 };
+    root.connect_now(Box::new(TestApi { view: real, calls: Arc::new(Mutex::new(Vec::new())) }));
+    assert_eq!(root.view().session, Session::Connected { mac_name: "Demo Mac".into() }, "the pretend Mac is still what the screens talk to");
+    root.perform(10, Action::LeaveDemo);
+    assert_eq!(root.view().session, Session::Searching { attempt: 1 }, "and leaving the demo brings the real connection that came meanwhile");
 }
