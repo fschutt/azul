@@ -521,6 +521,42 @@ fn rested(data: &mut RefAny, info: &mut CallbackInfo, anchor: Anchor) -> Update 
 
 // ==== The session ====
 
+/// What the thread that makes the speech session answers.
+struct SpeechReady {
+    session: SpeechSession,
+    builtin: BuiltinSpeechStatus,
+}
+
+extern "C" fn make_speech(_init: RefAny, mut sender: ThreadSender, _receiver: ThreadReceiver) {
+    // The chain of recognisers (the system's, then the built-in one where its files are found next to the binary or in
+    // the bundle), its vocabulary, and the call a stop ends.
+    let session = SpeechSession::create();
+    let builtin = session.set_builtin_files("", "");
+    let _sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::create(
+        on_speech_ready,
+        RefAny::new(SpeechReady { session, builtin }),
+    )));
+}
+
+/// The session is made: the window has it from now on (a dictation that began before it was made asked the engine's own
+/// call, which has no vocabulary).
+extern "C" fn on_speech_ready(mut app: RefAny, mut msg: RefAny, _info: CallbackInfo) -> Update {
+    let Some((session, builtin)) = msg.downcast_ref::<SpeechReady>().map(|r| (r.session.clone(), r.builtin)) else {
+        return Update::DoNothing;
+    };
+    eprintln!("[AzReview] speech: the built-in recogniser is {}", builtin_word(builtin));
+    if let Some(mut s) = app.downcast_mut::<AppState>() {
+        s.voice.speech = Some(session);
+    }
+    crate::startup::phase("speech");
+    Update::DoNothing
+}
+
+/// Makes the speech session on a thread of its own (the window does not wait for it).
+pub fn spawn_speech_session(info: &mut CallbackInfo, app: &RefAny) {
+    info.add_thread(ThreadId::unique(), Thread::create(RefAny::new(()), app.clone(), make_speech));
+}
+
 /// What the built-in recogniser's loading came to, in words (a line for the log and the status).
 pub(crate) fn builtin_word(status: BuiltinSpeechStatus) -> &'static str {
     match status {

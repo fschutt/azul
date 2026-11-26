@@ -196,6 +196,7 @@ pub extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let Some(s) = d.downcast_ref::<AppState>() else {
         return Dom::create_body();
     };
+    s.told.first_layout();
     let content = if kit::settings_open(&s.kit) {
         // azul-appkit's settings page: Appearance, Data, Shortcuts, About.
         Dom::create_div()
@@ -585,6 +586,9 @@ extern "C" fn tree_virtual_view(mut data: RefAny, info: VirtualViewCallbackInfo)
     };
     let size = info.bounds.get_logical_size();
     let total = s.rows.len();
+    if total > 0 {
+        s.told.tree_rows();
+    }
     let window = crate::tree::row_window(total, info.scroll_offset.y, size.height, crate::tree::ROW_H, crate::tree::OVERSCAN);
     let mut col = Dom::create_div().with_css("display: flex; flex-direction: column;");
     for row in &s.rows[window.clone()] {

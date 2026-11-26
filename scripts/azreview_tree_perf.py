@@ -115,7 +115,15 @@ def body(args, logs, out):
         durations = [round((end - start) * 1000.0, 2) for start, end in frames]
         report = app.value("get_frame_report")
         counters = {k: v for k, v in report.items() if isinstance(v, (int, float)) and "rss" not in k}
-        result["scroll"] = {"steps": steps, "seconds": round(scrolled_s, 2), "frames_from_damage_lines": len(frames),
+        # the three slowest painted frames, with the damage lines the engine printed for them: what was painted, how much
+        slowest = []
+        for i in sorted(range(len(frames)), key=lambda k: frames[k][1] - frames[k][0], reverse=True)[:3]:
+            a, b = frames[i]
+            slowest.append({"ms": round((b - a) * 1000.0, 2), "seconds_into_the_scroll": round(a - t0, 2),
+                            "frame_number": i,
+                            "lines": [line[:220] for t, line in tail.lines if a - 0.002 <= t <= b + 0.002][:14]})
+        result["scroll"] = {"steps": steps, "seconds": round(scrolled_s, 2), "slowest_frames": slowest,
+                            "frames_from_damage_lines": len(frames),
                             "frame_ms_from_damage_lines": quantiles(durations),
                             "ms_per_step_request_to_frame": quantiles(per_step), "frame_report": counters}
         app.screenshot(os.path.join(out, "tree-scrolled.png"))

@@ -111,6 +111,7 @@ pub mod stroke_features;
 /// whiteboard's lasso and the quick slash that deletes a word.
 #[cfg(test)]
 pub(crate) mod stroke_fixtures;
+pub mod startup;
 pub mod state_op;
 pub mod switches;
 pub mod tree;
@@ -226,6 +227,8 @@ pub struct AppState {
     pub open_node: Option<tree::NodeId>,
     /// Which workspace the listings that come back belong to: a folder chosen later ends the ones under way.
     pub workspace: u64,
+    /// Which steps of the start were told (`startup`).
+    pub told: startup::Told,
     /// When the state was made, and how long after that the root of the workspace was listed (ms): what a script that
     /// measures the start reads (`AZREVIEW_STARTUP`).
     pub started: std::time::Instant,
@@ -363,6 +366,7 @@ impl AppState {
             open: None,
             open_node: None,
             workspace: 0,
+            told: startup::Told::default(),
             started: std::time::Instant::now(),
             root_listed_ms: None,
             progress: progress::Book::default(),
@@ -1083,6 +1087,7 @@ fn derive_findings(
 }
 
 pub fn run() {
+    startup::phase("main");
     // AzReview's own switches first; the kit's parser gets the rest (and refuses what it does not know).
     let (own, argv) = match switches::Switches::extract(std::env::args().skip(1).collect()) {
         Ok(parsed) => parsed,
@@ -1101,12 +1106,14 @@ pub fn run() {
             std::process::exit(2);
         }
     };
+    startup::phase("args");
     let named_root = args.files.first().cloned();
     // The width the window starts at (`--size`, else the default): whether the file tree starts open depends on it.
     let start_w = args.size.map_or(WINDOW_DEFAULT.0, |size| size.0);
     // A `--shot` run is a fixture: it never takes the folder the user last reviewed.
     let remember = args.shot.is_none();
     let kit_ref = kit::create_kit(SPEC, ABOUT, &SHORTCUTS, &["dictation"], args);
+    startup::phase("kit");
     // The words first: everything from here is said in the language chosen (Settings,
     // `--language`; the system's otherwise).
     let mut config = kit::app_config(&kit_ref);
@@ -1143,6 +1150,7 @@ pub fn run() {
     if let Some(first) = state.file() {
         println!("AZREVIEW_FILE {}", first.display);
     }
+    startup::phase("state");
     state.remember_folder = remembered;
     let (panels, panel_notes) = layout::Panels::remembered(&|key| values.get(key).cloned());
     for note in &panel_notes {
@@ -1176,12 +1184,8 @@ pub fn run() {
     state.voice.start_standby();
     state.switches = own;
     state.perf = perf::Perf::new(std::env::var_os("AZREVIEW_PROFILE").is_some());
-    // The speech session of the window: the chain of recognisers (the system's, then the built-in one where its files
-    // are found next to the binary or in the bundle), its vocabulary, and the call a stop ends.
-    let speech = azul::speech::SpeechSession::create();
-    let builtin = speech.set_builtin_files("", "");
-    eprintln!("[AzReview] speech: the built-in recogniser is {}", voice::builtin_word(builtin));
-    state.voice.speech = Some(speech);
+    // The speech session of the window (the chain of recognisers, its vocabulary, the call a stop ends) is made on a thread
+    // once the window is there (`voice::spawn_speech_session`): 25 to 95 ms the first window need not wait for.
     state.pointer_log = pointer::PointerLog::new(pointer::Echo::parse(
         std::env::var("AZREVIEW_EVENTS").ok().as_deref(),
     ));
@@ -1191,9 +1195,11 @@ pub fn run() {
         state_op::register_ops(&mut config);
     }
     let app = App::create(RefAny::new(state), config);
+    startup::phase("app_created");
     let mut window =
         kit::window_options(&kit_ref, ui::layout, WINDOW_DEFAULT, WINDOW_MIN, on_window_created);
     window.renderer = OptionRendererOptions::Some(window_renderer());
+    startup::phase("run_called");
     app.run(window);
 }
 
@@ -1214,6 +1220,7 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
             kit::set_value(&kit_ref, &mut info, switches::KEY_FOLDER, &folder.to_string_lossy());
         }
     }
+    startup::phase("window_created");
     // How long the start took, for the scripts that measure it (and for a report of a folder that opens slowly).
     if let Some(s) = data.downcast_ref::<AppState>() {
         println!(
@@ -1224,6 +1231,7 @@ extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Upd
             s.tree.dir_count(),
         );
     }
+    voice::spawn_speech_session(&mut info, &data);
     // The pages that are looked at long enough are seen; the workspace is counted behind the window.
     seen_watch::start(&mut info, &data);
     census::start(&mut info, &data);
