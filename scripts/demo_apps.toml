@@ -124,6 +124,10 @@ permissions = [
     "android.permission.CHANGE_WIFI_MULTICAST_STATE",
     "android.permission.CAMERA",
 ]
+# The first build has no network layer: its first screen offers "Try it without a Mac" (a stand-in Mac inside the
+# app); the boot test presses it (by its accessibility name) and looks again: the remote must come up, no crash.
+[app.smoke]
+tap = "Try it without a Mac"
 # The crate is not mobile-ready on master yet (no cdylib for Android, no AzCompanion bin for iOS; the companion
 # agent lands it). The build is still tried, and a pass shows in the table; delete these two lines then.
 [app.known_failing]

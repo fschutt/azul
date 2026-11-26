@@ -50,6 +50,7 @@ jobs:
       apps_windows: ${{ steps.plan.outputs.apps_windows }}
       apps_android: ${{ steps.plan.outputs.apps_android }}
       apps_ios: ${{ steps.plan.outputs.apps_ios }}
+      smoke_taps: ${{ steps.plan.outputs.smoke_taps }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -562,7 +563,7 @@ jobs:
   # ------------------------------------------------------------------------------------------------
   smoke_android:
     name: Boot test (Android emulator)
-    needs: [apps_android]
+    needs: [plan, apps_android]
     if: ${{ !cancelled() && needs.apps_android.result != 'skipped' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 60
@@ -580,6 +581,8 @@ jobs:
           name: demoapps-android-x86_64
           path: apks
       - name: Start every app on an emulator
+        env:
+          AZ_SMOKE_TAPS: ${{ needs.plan.outputs.smoke_taps }}
         run: bash scripts/ci/android_smoke.sh demosmoke-android 15 apks/demos-out/*.apk
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
@@ -591,7 +594,7 @@ jobs:
 
   smoke_ios:
     name: Boot test (iOS Simulator)
-    needs: [apps_ios]
+    needs: [plan, apps_ios]
     if: ${{ !cancelled() && needs.apps_ios.result != 'skipped' }}
     runs-on: macos-15
     timeout-minutes: 45

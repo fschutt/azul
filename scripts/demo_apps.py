@@ -292,6 +292,9 @@ def plan(m=None):
                 lib_artifacts=" ".join(sorted({f"demolib-{col}-{a['mobile_lib']}" for a in apps})),
                 artifact=f"demoapps-{col}"))
         out["apps_" + kind] = entries
+    # the buttons the boot tests press after the first screenshot: {package: label}
+    out["smoke_taps"] = json.dumps({a["package"]: a["smoke"]["tap"] for a in m["app"]
+                                    if (a.get("smoke") or {}).get("tap")}, sort_keys=True)
     return out
 
 
@@ -356,7 +359,11 @@ def boot_text(r):
     if r is None:
         return None
     if r.get("alive") and not r.get("fatal"):
-        return "boots" + ("" if r.get("screen_nonblank") else " (blank screen)")
+        text = "boots" + ("" if r.get("screen_nonblank") else " (blank screen)")
+        tap = r.get("tap")
+        if tap:
+            text += f", \"{tap.get('label')}\" pressed {tap.get('found')}: " + ("fine" if tap.get("alive") and not tap.get("fatal") else "CRASHED")
+        return text
     return "BOOT FAILED: " + str(r.get("fatal") or "not alive after the wait")[:90]
 
 
