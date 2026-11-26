@@ -13137,14 +13137,17 @@ where
                             .ok()
                             .map(NodeId::new)
                             .and_then(|box_id| {
-                                sd.styled_nodes
-                                    .as_container()
-                                    .get(box_id)
-                                    .map(|styled| (box_id, &styled.styled_node_state))
+                                // the colour is read inside the closure: a reference to the node's
+                                // state must not outlive the temporary container it comes from
+                                sd.styled_nodes.as_container().get(box_id).map(|styled| {
+                                    super::getters::get_used_text_color(
+                                        sd,
+                                        box_id,
+                                        &styled.styled_node_state,
+                                    )
+                                })
                             })
-                            .map_or(live_color, |(box_id, state)| {
-                                super::getters::get_used_text_color(sd, box_id, state)
-                            }),
+                            .unwrap_or(live_color),
                         DecorationColor::Color(color) => {
                             super::getters::system_colors_resolved(sd, color)
                         }
