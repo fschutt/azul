@@ -872,6 +872,34 @@ mod tests {
                 "{what}: an Apple linker drops the initializer section's symbols: naming the \
                  static there fails every app's link"
             );
+            // ... and ONLY that line: the first call into libazul compares the hashes on every platform, Apple
+            // included (the wrappers reach `az_abi_check_slow` through `az_abi_check()`, the test below), and the
+            // load-time entry above stays in its section (`#[used]`; the section type is a root of the linker's
+            // dead stripping, so it runs before `main` without being named: shown on a Mac by a miniature of this
+            // guard at deployment targets 11.0 and 14.0). A cfg on the comparison or on the flag that records it
+            // would silence the check on a platform without anyone noticing.
+            let compare = lines[slow..]
+                .iter()
+                .position(|l| *l == "az_abi_check_hash(unsafe { AzAbi_getHash() });")
+                .unwrap_or_else(|| panic!("{what}: az_abi_check_slow does not compare the hashes"))
+                + slow;
+            let cfgs: Vec<usize> = (slow..compare)
+                .filter(|i| lines[*i].starts_with("#["))
+                .collect();
+            assert_eq!(
+                cfgs,
+                vec![naming - 1],
+                "{what}: the only attribute inside az_abi_check_slow is the cfg of the keep-alive reference"
+            );
+            assert!(
+                lines[naming].contains("read_volatile") && naming + 1 == compare,
+                "{what}: the comparison follows the reference directly, with nothing gating it"
+            );
+            assert_eq!(
+                lines[compare + 1],
+                "AZ_ABI_CHECKED.store(true, core::sync::atomic::Ordering::Relaxed);",
+                "{what}: the comparison is recorded unconditionally"
+            );
         }
         // libazul itself (and link-static) has nothing to check against.
         let dll = CodeGenerator::generate(ir, &CodegenConfig::dll_internal()).unwrap();

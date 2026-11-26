@@ -413,10 +413,12 @@ static W0: &[Allow] = &[
     Allow::exactly(
         "core/src/run_mode.rs",
         NAME,
-        12,
+        13,
         "TestHooks::from_env: the one place that knows which variable of the test run means what \
          (keyring_gate, RF38; AZ_DESKTOP_STATE_FILE is the desktop's script of the recorder's tests, \
-         next to the battery's and the network's); a settings file of its own would be the same list",
+         next to the battery's and the network's; AZ_GPU_FAIL is the failure plan of the phone GPU \
+         path's tests, read only through TestHooks and ignored by every release app); a settings \
+         file of its own would be the same list",
     ),
     Allow::exactly(
         "css/src/codegen/lang/cobol.rs",

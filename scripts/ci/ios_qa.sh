@@ -13,6 +13,12 @@
 # verdicts are in qa.json: a failing app is a RESULT of this job, not a failure of it); 2 when the simulator itself
 # could not be started.
 #
+# Environment: AZ_QA_EXPECT_GPU=1 (a gpu request that ran the CPU renderer FAILS), AZ_QA_ONLY=03,05 (only those steps),
+# AZ_QA_BACKEND=cpu|gpu|auto (every step of the lifecycle starts the app with that renderer; gpu also requires that no GL command
+# goes out in the background), AZ_QA_DEBUG_PORT (the debug server of the e2e app, default 8795), AZ_QA_SCENARIOS (the e2e files),
+# AZ_QA_E2E_ARGS (more options for mobile_e2e.py), AZ_QA_HOOKS=1 (a `qa` session of the mobile-e2e app: the failure hooks and the debug
+# server are expected, as in the `both` session). SIMCTL_CHILD_AZ_BACKEND=gpu in the environment runs the e2e session on the GPU.
+#
 # What it can and cannot press on a runner: simctl launches, terminates, installs, switches the appearance and the
 # text size and takes pictures; it has no touch. Rotation and the memory warning go through the Simulator app's
 # menu with osascript (the runner may refuse the accessibility permission: the step says so). Touches need the
@@ -63,13 +69,24 @@ exe="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$appdir/Info.plis
 echo "app: $appdir bundle=$bid executable=$exe"
 
 if [ "$session" = qa ] || [ "$session" = both ]; then
+  # The session names the app: `both` is the mobile-e2e app, which has the engine's failure hooks (step 04b) and its debug server (the
+  # scripted swipe of step 04 reads the frame times through it); the plain `qa` is the app that ships and has neither, unless
+  # AZ_QA_HOOKS=1 says that this `qa` session is of the mobile-e2e app too.
+  extra=()
+  if [ "$session" = both ] || [ -n "${AZ_QA_HOOKS:-}" ]; then extra+=(--expect-hooks --debug-port "${AZ_QA_DEBUG_PORT:-8795}"); fi
+  # AZ_QA_BACKEND=gpu|cpu|auto: every step of the lifecycle starts the app with that renderer (gpu: the checks that no GL command
+  # goes out in the background are required)
   python3 "$here/mobile_qa.py" ios --out "$out" --udid "$udid" --bundle "$bid" --exe "$exe" --app "$appdir" --label "$label" \
-    ${AZ_QA_EXPECT_GPU:+--expect-gpu} ${AZ_QA_ONLY:+--only "$AZ_QA_ONLY"} 2>&1 | tee "$out/qa.log"
+    ${AZ_QA_EXPECT_GPU:+--expect-gpu} ${AZ_QA_ONLY:+--only "$AZ_QA_ONLY"} ${AZ_QA_BACKEND:+--backend "$AZ_QA_BACKEND"} \
+    ${extra[@]+"${extra[@]}"} 2>&1 | tee "$out/qa.log"
 fi
 if [ "$session" = e2e ] || [ "$session" = both ]; then
   scen=()
   for f in ${AZ_QA_SCENARIOS:-}; do scen+=(--scenario "$f"); done
+  # AZ_QA_E2E_ARGS: more options for mobile_e2e.py (a GPU run on the Simulator needs `--first-frame-timeout 240 --server-timeout 300`:
+  # the first frame compiles every shader on Apple's software GL)
+  # shellcheck disable=SC2086
   python3 "$here/mobile_e2e.py" ios --out "$out/e2e" --udid "$udid" --bundle "$bid" --exe "$exe" --apk "$appdir" \
-    --label "$label e2e" ${scen[@]+"${scen[@]}"} 2>&1 | tee "$out/e2e.log"
+    --label "$label e2e" ${scen[@]+"${scen[@]}"} ${AZ_QA_E2E_ARGS:-} 2>&1 | tee "$out/e2e.log"
 fi
 exit 0

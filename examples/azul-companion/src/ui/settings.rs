@@ -124,7 +124,7 @@ pub fn dom(cx: &Cx) -> Dom {
     }
     for line in log.iter().rev().take(LOG_LINES).rev() {
         report.add_child(
-            column("width: 100%; padding: 3px 16px;").with_child(text(&shorten(line, LOG_LINE_CHARS), &format!("font-size: 11px; line-height: 1.3; color: {}; text-align: left;", th::TEXT_DIM))),
+            column("width: 100%; padding: 3px 16px;").with_child(text(&shorten(line, LOG_LINE_CHARS), &format!("font-size: 11px; line-height: 1.3; color: {}; text-align: left; user-select: text;", th::TEXT_DIM))),
         );
     }
     let list_h = (z.safe.h - if cx.env.landscape() { 48.0 } else { z.header.h }).max(0.0);

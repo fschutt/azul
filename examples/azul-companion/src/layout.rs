@@ -9,6 +9,10 @@ use crate::env::Env;
 /// buttons are 48 or more, except in the smallest landscape with the return bar, where they are 44).
 pub const MIN_TARGET: f32 = 44.0;
 
+/// How far above the system's bar the lowest key of a page that is made to fit stays, in logical pixels: a finger that aims at it lands on
+/// it, and not in the strip where the system's own gestures begin.
+pub const BAR_CLEARANCE: f32 = 48.0;
+
 /// A rectangle in logical pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Zone {

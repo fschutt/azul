@@ -5,7 +5,7 @@
 //! screenshot run) and gives them here; the tests give it boxes made by hand.
 
 use crate::env::Env;
-use crate::layout::{zones, Zone, MIN_TARGET};
+use crate::layout::{zones, Zone, BAR_CLEARANCE, MIN_TARGET};
 
 /// A node of the laid-out DOM.
 #[derive(Debug, Clone, PartialEq)]
@@ -63,6 +63,22 @@ pub fn check(nodes: &[NodeBox], env: &Env) -> Vec<Violation> {
         }
         false
     };
+    // the nearest ancestor that has the class
+    let ancestor_with = |position: usize, class: &str| {
+        let mut current = parent_of(position);
+        let mut steps = 0;
+        while let Some(p) = current {
+            if nodes[p].has(class) {
+                return Some(p);
+            }
+            steps += 1;
+            if steps > 256 {
+                return None;
+            }
+            current = parent_of(p);
+        }
+        None
+    };
     let inside = |r: &Zone| r.x >= safe.x - TOLERANCE && r.y >= safe.y - TOLERANCE && r.right() <= safe.right() + TOLERANCE && r.bottom() <= safe.bottom() + TOLERANCE;
     let mut out = Vec::new();
 
@@ -115,6 +131,32 @@ pub fn check(nodes: &[NodeBox], env: &Env) -> Vec<Violation> {
                     detail: format!("overlaps node {} by {overlap_w:.0} x {overlap_h:.0} px", nodes[first].index),
                 });
             }
+        }
+    }
+
+    // a page that is made to fit its box (the class `az-fit`): nothing of it lies beyond the box, which would make it scroll under a press,
+    // and its lowest key keeps clear of the bar
+    for i in 0..nodes.len() {
+        let Some(page) = ancestor_with(i, "az-fit") else {
+            continue;
+        };
+        let (n, p) = (&nodes[i], &nodes[page].rect);
+        if n.rect.w <= 0.0 || n.rect.h <= 0.0 {
+            continue;
+        }
+        if n.rect.bottom() > p.bottom() + TOLERANCE || n.rect.right() > p.right() + TOLERANCE {
+            out.push(Violation {
+                rule: "page-overflow",
+                node: n.index,
+                detail: format!("reaches ({:.0}, {:.0}) where its page ends, at ({:.0}, {:.0}): the page would scroll", n.rect.right(), n.rect.bottom(), p.right(), p.bottom()),
+            });
+        }
+        if n.has("az-target") && p.bottom() - n.rect.bottom() < BAR_CLEARANCE - TOLERANCE {
+            out.push(Violation {
+                rule: "key-near-bar",
+                node: n.index,
+                detail: format!("ends {:.0} px above the bar, a key keeps {BAR_CLEARANCE:.0}", p.bottom() - n.rect.bottom()),
+            });
         }
     }
 

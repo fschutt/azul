@@ -304,10 +304,16 @@ impl DeviceInfo {
     }
 }
 
-/// `text` as one line: whitespace runs (newlines included) become one space, capped at
-/// [`LINE_TEXT_MAX_CHARS`] characters; `blank` stands for nothing.
+/// `text` as one line: whitespace runs (newlines included) and control characters become one space, capped at
+/// [`LINE_TEXT_MAX_CHARS`] characters; `blank` stands for nothing. Control characters matter because the engine's GL
+/// table hands out driver strings WITH their terminating NUL (`gl-context-loader`'s `get_string`), and a log line
+/// that carries a NUL is cut or dropped by the platforms' loggers (Android's dropped the whole contract line).
 fn one_line(text: &str, blank: &str) -> String {
-    let joined = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let joined = text
+        .split(|c: char| c.is_whitespace() || c.is_control())
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
     if joined.is_empty() {
         return blank.to_string();
     }
