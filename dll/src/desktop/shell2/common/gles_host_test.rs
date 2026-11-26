@@ -386,13 +386,33 @@ fn difference(a: &AzulPixmap, b: &AzulPixmap) -> Difference {
     }
 }
 
-/// Writes both frames into `$AZ_GPU_PIXELS_DIR` when it is set, to look at what a failing test saw.
+/// The picture the phone QA keeps of a comparison: the CPU picture dimmed to a third, every pixel that differs by more than
+/// [`PIXEL_TOLERANCE`] in some channel red.
+fn diff_picture(gpu: &AzulPixmap, cpu: &AzulPixmap) -> Option<AzulPixmap> {
+    let mut out = AzulPixmap::new(gpu.width, gpu.height)?;
+    for i in (0..gpu.data().len().min(cpu.data().len())).step_by(4) {
+        let worst = (0..3)
+            .map(|c| gpu.data()[i + c].abs_diff(cpu.data()[i + c]))
+            .max()
+            .unwrap_or(0);
+        let dst = &mut out.data_mut()[i..i + 4];
+        if worst > PIXEL_TOLERANCE {
+            dst.copy_from_slice(&[255, 0, 0, 255]);
+        } else {
+            dst.copy_from_slice(&[cpu.data()[i] / 3, cpu.data()[i + 1] / 3, cpu.data()[i + 2] / 3, 255]);
+        }
+    }
+    Some(out)
+}
+
+/// Writes both frames and their difference into `$AZ_GPU_PIXELS_DIR` when it is set, to look at what a failing test saw.
 fn keep(name: &str, gpu: &AzulPixmap, cpu: &AzulPixmap) {
     let Some(dir) = std::env::var_os("AZ_GPU_PIXELS_DIR") else {
         return;
     };
-    for (backend, pixmap) in [("gles", gpu), ("cpu", cpu)] {
-        if let Ok(png) = pixmap.encode_png() {
+    let diff = diff_picture(gpu, cpu);
+    for (backend, pixmap) in [("gles", Some(gpu)), ("cpu", Some(cpu)), ("diff", diff.as_ref())] {
+        if let Some(Ok(png)) = pixmap.map(AzulPixmap::encode_png) {
             let _ = std::fs::write(
                 std::path::Path::new(&dir).join(format!("{name}-{backend}.png")),
                 png,
@@ -450,6 +470,107 @@ pub(super) fn page() -> Dom {
             Dom::create_div_with_text("The same page, drawn on the CPU, must look like it.")
                 .with_css("font-size: 14px; color: #424242; padding: 10px;"),
         )
+}
+
+/// A 64 x 64 checkerboard picture, orange and teal squares of 8 px.
+fn checker_image() -> azul_core::resources::ImageRef {
+    use azul_core::resources::{ImageRef, RawImage, RawImageData, RawImageFormat};
+    let (w, h) = (64_usize, 64_usize);
+    let mut pixels = Vec::with_capacity(w * h * 4);
+    for y in 0..h {
+        for x in 0..w {
+            let orange = (x / 8 + y / 8) % 2 == 0;
+            pixels.extend_from_slice(if orange { &[0xff, 0x6f, 0x00, 0xff] } else { &[0x00, 0x69, 0x5c, 0xff] });
+        }
+    }
+    ImageRef::new_rawimage(RawImage {
+        pixels: RawImageData::U8(pixels.into()),
+        width: w,
+        height: h,
+        premultiplied_alpha: false,
+        data_format: RawImageFormat::RGBA8,
+        tag: Vec::new().into(),
+    })
+    .expect("a well-formed picture")
+}
+
+/// What a phone UI is made of, in one page: a gradient app bar with bold text, chips (round borders), a card with a soft shadow and
+/// text of four sizes (the glyph atlas), linear and radial gradients, a picture, a scroll container (a clip), a translucent group
+/// of overlapping shapes (a render target), a rotated box (another spatial node) and a blurred one. The families of WebRender's
+/// shader set that Android's AzWidgets showcase hits: solid and gradient quads, rounded clips, box shadows (blur), text, images,
+/// groups and transforms.
+pub(super) fn showcase() -> Dom {
+    let chip = |text: &str, colour: &str| {
+        Dom::create_div_with_text(text).with_css(
+            format!(
+                "padding: 6px 14px; border: 2px solid {colour}; border-radius: 18px; color: {colour}; font-size: 13px; background: #ffffff;"
+            )
+            .as_str(),
+        )
+    };
+    let row = |padding: &str, children: Vec<Dom>| {
+        let mut row = Dom::create_div().with_css(
+            format!("display: flex; flex-direction: row; gap: 10px; align-items: center; padding: {padding};").as_str(),
+        );
+        for child in children {
+            row = row.with_child(child);
+        }
+        row
+    };
+    let rows_of_text = (0..7).fold(Dom::create_div().with_css("padding: 4px;"), |list, i| {
+        list.with_child(
+            Dom::create_div_with_text(format!("scroll row {i}").as_str())
+                .with_css("height: 26px; font-size: 14px; color: #37474f;"),
+        )
+    });
+    Dom::create_body()
+        .with_css("margin: 0px; background: #fafafa; display: flex; flex-direction: column; gap: 12px;")
+        .with_child(
+            Dom::create_div_with_text("Widget Showcase").with_css(
+                "padding: 16px; font-size: 22px; font-weight: bold; color: #ffffff; background: linear-gradient(to right, #6200ee, #3700b3);",
+            ),
+        )
+        .with_child(row(
+            "0px 12px",
+            vec![chip("Filter", "#6200ee"), chip("Sort", "#00897b"), chip("Share", "#c2185b")],
+        ))
+        .with_child(
+            Dom::create_div()
+                .with_css("margin: 0px 12px; padding: 12px; border-radius: 12px; background: #ffffff; box-shadow: 0px 6px 16px rgba(0, 0, 0, 0.30);")
+                .with_child(Dom::create_div_with_text("Card title").with_css("font-size: 18px; font-weight: bold; color: #212121;"))
+                .with_child(Dom::create_div_with_text("The glyph atlas holds four sizes of text.").with_css("font-size: 14px; color: #424242;"))
+                .with_child(Dom::create_div_with_text("Twelve pixel secondary text, grey.").with_css("font-size: 12px; color: #757575;"))
+                .with_child(Dom::create_div_with_text("28").with_css("font-size: 28px; color: #6200ee;")),
+        )
+        .with_child(row(
+            "0px 12px",
+            vec![
+                Dom::create_div().with_css("width: 90px; height: 60px; border-radius: 8px; background: linear-gradient(to bottom, #ffeb3b, #f44336);"),
+                Dom::create_div().with_css("width: 90px; height: 60px; border-radius: 8px; background: radial-gradient(circle, #ffffff, #1976d2);"),
+                Dom::create_image(checker_image()).with_css("width: 60px; height: 60px;"),
+            ],
+        ))
+        .with_child(row(
+            "0px 12px",
+            vec![
+                Dom::create_div()
+                    .with_css("width: 150px; height: 90px; overflow: auto; border: 1px solid #90a4ae; background: #ffffff;")
+                    .with_child(rows_of_text),
+                Dom::create_div()
+                    .with_css("width: 110px; height: 90px; opacity: 0.5;")
+                    .with_child(Dom::create_div().with_css("width: 70px; height: 70px; background: #d32f2f;"))
+                    .with_child(Dom::create_div().with_css("margin-top: -40px; margin-left: 30px; width: 70px; height: 70px; background: #1976d2;")),
+            ],
+        ))
+        .with_child(row(
+            "12px",
+            vec![
+                Dom::create_div_with_text("rotated")
+                    .with_css("width: 90px; height: 40px; padding: 8px; transform: rotate(8deg); background: #ffe082; border-radius: 6px; font-size: 14px;"),
+                Dom::create_div()
+                    .with_css("width: 90px; height: 50px; margin-left: 20px; background: #3f51b5; border-radius: 10px; filter: blur(3px);"),
+            ],
+        ))
 }
 
 /// The page WebRender draws over OpenGL ES 3 is the page the CPU renderer draws: every shader of the first frame compiled
