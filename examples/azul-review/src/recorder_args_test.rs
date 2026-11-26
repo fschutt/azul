@@ -49,3 +49,57 @@ fn the_record_switch_is_taken_out_and_the_rest_is_left_for_the_app() {
     assert!(own_arguments(args(&["--record"])).is_err());
     assert!(own_arguments(args(&["--record", "video"])).is_err());
 }
+
+fn args(list: &[&str]) -> Vec<String> {
+    list.iter().map(ToString::to_string).collect()
+}
+
+/// A recording the demo makes on its own (`--auto SECONDS`): taken out of the arguments, the rest left in order; the
+/// last one given counts; none given is none.
+///
+/// Mutation: the number left in the app's arguments; the first of two taken; a recording asked for when none was.
+#[test]
+fn the_auto_switch_is_taken_out_with_its_seconds_and_the_rest_is_left_in_order() {
+    assert_eq!(take_auto(args(&["--record", "camera,mic", "--auto", "12", "--data-dir", "/d"])), Ok((Some(Auto { seconds: 12, note: None }), args(&["--record", "camera,mic", "--data-dir", "/d"]))));
+    assert_eq!(take_auto(args(&["--language", "de"])), Ok((None, args(&["--language", "de"]))));
+    assert_eq!(take_auto(Vec::new()), Ok((None, Vec::new())));
+    assert_eq!(take_auto(args(&["--auto", "5", "--auto", "9"])).unwrap().0, Some(Auto { seconds: 9, note: None }));
+}
+
+/// A time outside what an unattended recording is for is brought into the range and said so, not refused and not
+/// obeyed: nothing shorter than two seconds (no fragment is whole in it), nothing longer than ten minutes (a recording
+/// left running by mistake); the ends themselves are taken as they are.
+///
+/// Mutation: a limit that is off by one; a time over the limit that is taken; a time under it that is taken; a
+/// note that is missing.
+#[test]
+fn a_time_outside_the_range_is_brought_into_it_and_said_so() {
+    let seconds = |text: &str| take_auto(args(&["--auto", text])).unwrap().0.unwrap();
+    assert_eq!(seconds("2"), Auto { seconds: AUTO_SECONDS_MIN, note: None });
+    assert_eq!(seconds("600"), Auto { seconds: AUTO_SECONDS_MAX, note: None });
+    let low = seconds("1");
+    assert_eq!(low.seconds, AUTO_SECONDS_MIN);
+    assert!(low.note.as_deref().is_some_and(|n| n.contains("--auto 1:") && n.contains("recording 2 seconds instead")), "{low:?}");
+    let zero = seconds("0");
+    assert_eq!(zero.seconds, AUTO_SECONDS_MIN);
+    assert!(zero.note.is_some());
+    let high = seconds("601");
+    assert_eq!(high.seconds, AUTO_SECONDS_MAX);
+    assert!(high.note.as_deref().is_some_and(|n| n.contains("--auto 601:") && n.contains("recording 600 seconds instead")), "{high:?}");
+    let huge = seconds("99999999999999999999");
+    assert_eq!(huge.seconds, AUTO_SECONDS_MAX, "a number that does not fit is the most, not an error");
+    assert!(huge.note.is_some());
+}
+
+/// What is no number of seconds is refused in words, and a switch without one too.
+///
+/// Mutation: a word taken as zero; a switch without a number taken.
+#[test]
+fn what_is_no_number_of_seconds_is_refused() {
+    for bad in ["", "ten", "-5", "1.5", "5s", " 5"] {
+        let why = take_auto(args(&["--auto", bad])).unwrap_err();
+        assert!(why.contains("--auto") && why.contains("seconds"), "{bad:?}: {why}");
+    }
+    assert!(take_auto(args(&["--record", "mic", "--auto"])).unwrap_err().contains("--auto"));
+}
+
