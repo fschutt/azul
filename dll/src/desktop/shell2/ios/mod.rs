@@ -882,25 +882,28 @@ extern "C" fn layout_subviews(this: &Object, _cmd: Sel) {
         // env(safe-area-inset-*) reflect the device.
         let insets: UIEdgeInsets =
             unsafe { msg_send![this as *const Object as *mut Object, safeAreaInsets] };
-        if let Some(lw) = window.common.layout_window.as_mut() {
-            let mk = |v: f64| {
-                if v > 0.5 {
-                    azul_css::props::basic::OptionPixelValue::Some(
-                        azul_css::props::basic::PixelValue::px(v as f32),
-                    )
-                } else {
-                    azul_css::props::basic::OptionPixelValue::None
-                }
-            };
-            lw.safe_area_insets = azul_css::system::SafeAreaInsets {
-                top: mk(insets.top),
-                bottom: mk(insets.bottom),
-                left: mk(insets.left),
-                right: mk(insets.right),
-                // No keyboard inset at this site: a titlebar/desktop
-                // surface never has an on-screen keyboard over it.
-                keyboard: azul_css::props::basic::pixel::OptionPixelValue::None,
-            };
+        let inset_changed = window.common.layout_window.as_mut().is_some_and(|lw| {
+            let after = crate::desktop::shell2::common::ios_logic::safe_area_after_layout(
+                &lw.safe_area_insets,
+                insets.top,
+                insets.left,
+                insets.bottom,
+                insets.right,
+            );
+            let changed = after != lw.safe_area_insets;
+            lw.safe_area_insets = after;
+            changed
+        });
+        // A change of the insets alone IS a change of layout: landscape-left and landscape-right
+        // have the same bounds and the notch on opposite sides, so the size check above never
+        // sees a turn from one to the other, and a window whose status bar or home indicator came
+        // or went kept laying itself out around the old insets. (The first pass of a launch runs
+        // before the window is registered and returns early above; its insets arrive with the
+        // next one.)
+        if inset_changed && !window.common.regeneration_pending() {
+            window
+                .common
+                .request_regeneration(RelayoutReason::Resize);
         }
     }
     let _ = sel!(layoutSubviews);
@@ -1062,15 +1065,83 @@ extern "C" fn on_rotation(_this: &Object, _cmd: Sel, sender: *mut Object) {
     }
 }
 
+/// How many names [`declare_class`] tries (`Name`, `Name_1`, ... ) before it gives up.
+const CLASS_NAME_ATTEMPTS: u32 = 16;
+
+/// Declare an Objective-C class, taking the next free name when the runtime already has the one
+/// asked for.
+///
+/// `ClassDecl::new` is `None` for a name that is taken - a second copy of this library in the
+/// process (a static libazul and a plug-in linking its own) - and every class of this shell was
+/// declared with `.unwrap()`: in a phone app a panic is an abort at launch, with no window and
+/// nothing on screen. A copy that finds its name taken registers `Name_1` instead and reaches
+/// only the classes it made itself (its own `static` pointers hold them).
+fn declare_class(name: &str, superclass: &Class) -> Option<ClassDecl> {
+    use crate::desktop::shell2::common::ios_logic::class_name_attempt;
+    for attempt in 0..CLASS_NAME_ATTEMPTS {
+        if let Some(decl) = ClassDecl::new(&class_name_attempt(name, attempt), superclass) {
+            return Some(decl);
+        }
+    }
+    log_error!(
+        LogCategory::Platform,
+        "[iOS] the Objective-C class {} could not be declared under any of {} names",
+        name,
+        CLASS_NAME_ATTEMPTS
+    );
+    None
+}
+
+/// A protocol UIKit declares, found by name - and, when the runtime does not know the name,
+/// through a class that adopts it (`adopters`, searched with the protocols they incorporate).
+///
+/// `objc_getProtocol` only finds a protocol that some loaded image has REGISTERED, and a protocol
+/// nothing in the process adopts has no registered object: UIKit adopts `UIKeyInput` and
+/// `UITextInput` itself (`UITextField`, `UITextView`) but not `UIApplicationDelegate`, which only
+/// apps adopt. The shell's `Protocol::get("UIApplicationDelegate").unwrap()` was `None` on the
+/// iOS 26.2 simulator and aborted the process at launch (SIGABRT right after `main`: the app
+/// "launched and exited"). A lookup that fails is an answer - the caller degrades - never a panic.
+fn find_protocol(name: &str, adopters: &[&str]) -> Option<&'static Protocol> {
+    fn within(
+        protocol: &'static Protocol,
+        name: &str,
+        depth: u32,
+    ) -> Option<&'static Protocol> {
+        if protocol.name() == name {
+            return Some(protocol);
+        }
+        if depth == 0 {
+            return None;
+        }
+        protocol
+            .adopted_protocols()
+            .iter()
+            .copied()
+            .find_map(|inner| within(inner, name, depth - 1))
+    }
+
+    if let Some(found) = Protocol::get(name) {
+        return Some(found);
+    }
+    adopters.iter().find_map(|adopter| {
+        Class::get(adopter)?
+            .adopted_protocols()
+            .iter()
+            .copied()
+            .find_map(|protocol| within(protocol, name, 4))
+    })
+}
+
 /// Dynamically register an empty NSObject subclass whose only purpose
 /// is to be the `target:` of every gesture recognizer. UIKit expects an
 /// Objective-C object; an empty subclass is the cheapest legal one.
-fn get_or_create_gesture_target_class() -> &'static Class {
+fn get_or_create_gesture_target_class() -> Option<&'static Class> {
     static ONCE: Once = Once::new();
     static mut CLS: *const Class = ptr::null();
     ONCE.call_once(|| unsafe {
-        let superclass = class!(NSObject);
-        let mut decl = ClassDecl::new("AzulGestureTarget", superclass).unwrap();
+        let Some(mut decl) = declare_class("AzulGestureTarget", class!(NSObject)) else {
+            return;
+        };
         decl.add_method(
             sel!(onDoubleTap:),
             on_double_tap as extern "C" fn(&Object, Sel, *mut Object),
@@ -1109,7 +1180,8 @@ fn get_or_create_gesture_target_class() -> &'static Class {
         );
         CLS = decl.register();
     });
-    unsafe { &*CLS }
+    // SAFETY: a registered class is never freed; null when it could not be declared.
+    unsafe { CLS.as_ref() }
 }
 
 extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
@@ -1156,15 +1228,24 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
         // Distinct from the focus-driven raise in `common/event.rs`: this is
         // the app saying "show it now" (a compose button, dismissing after
         // submit), which the engine deliberately does NOT infer from focus.
-        if let Some(lw) = window.common.layout_window.as_mut() {
-            if let Some(visible) = lw.text_edit_manager.take_soft_keyboard_request() {
-                log_debug!(
-                    LogCategory::Input,
-                    "[iOS] app requested soft keyboard visible={}",
-                    visible
-                );
-                set_soft_keyboard_visible(visible);
-            }
+        //
+        // The request is TAKEN first and acted on after the borrow of the layout window is gone:
+        // `becomeFirstResponder` / `resignFirstResponder` call back into the view SYNCHRONOUSLY
+        // (`canBecomeFirstResponder`, then the `UITextInput` queries, which read the window through
+        // `azul_ios_window()`), and doing that inside `if let Some(lw) = ...as_mut()` aliased the
+        // `&mut LayoutWindow` the tick still held.
+        let keyboard_request = window
+            .common
+            .layout_window
+            .as_mut()
+            .and_then(|lw| lw.text_edit_manager.take_soft_keyboard_request());
+        if let Some(visible) = keyboard_request {
+            log_debug!(
+                LogCategory::Input,
+                "[iOS] app requested soft keyboard visible={}",
+                visible
+            );
+            set_soft_keyboard_visible(visible);
         }
 
         // The device light/dark setting. iOS built its window from
@@ -1245,7 +1326,13 @@ unsafe fn install_display_link(_view: *mut Object) {
     // The gesture target class also carries the display tick selector —
     // one extra method, same shared NSObject instance (constructed in
     // install_gesture_recognizers ahead of this call).
-    let target_class = get_or_create_gesture_target_class();
+    let Some(target_class) = get_or_create_gesture_target_class() else {
+        log_error!(
+            LogCategory::Window,
+            "[iOS] no display link: the render target class could not be declared"
+        );
+        return;
+    };
     let target_alloc: *mut Object = msg_send![target_class, alloc];
     let target: *mut Object = msg_send![target_alloc, init];
 
@@ -1271,14 +1358,39 @@ unsafe fn install_display_link(_view: *mut Object) {
 /// lifetime is tied to the application.
 unsafe fn install_gesture_recognizers(view: *mut Object) {
     use objc::sel;
-    let target_class = get_or_create_gesture_target_class();
+    let Some(target_class) = get_or_create_gesture_target_class() else {
+        log_error!(
+            LogCategory::Input,
+            "[iOS] no gesture recognizers: the target class could not be declared"
+        );
+        return;
+    };
     let target_alloc: *mut Object = msg_send![target_class, alloc];
     let target: *mut Object = msg_send![target_alloc, init];
 
     // Helper closure to alloc + init + addGestureRecognizer:
+    //
+    // EVERY recognizer here only OBSERVES: the view's own `touches...` stream is the engine's
+    // input (clicks, drags, scrolling), and the recognizers add the native gestures on top of it.
+    // UIKit's defaults make a recognizer an owner of the touches instead:
+    //  - `cancelsTouchesInView = YES`: once a recognizer recognizes its gesture the view gets
+    //    `touchesCancelled:` and no more moves. A scrolling flick IS a swipe, so the first fifty
+    //    points of every quick scroll ended it (phase 3: the pan was released, no momentum), and a
+    //    pinch or a long press cancelled the drawing under it.
+    //  - `delaysTouchesEnded = YES`: while a recognizer may still succeed, `touchesEnded:` is held
+    //    back. The double-tap recognizer is "possible" until its interval (about 0.35 s) runs out,
+    //    so EVERY single tap on every button reached the view a third of a second late.
+    // (UIGestureRecognizer.cancelsTouchesInView / delaysTouchesEnded: "set this property to false
+    // to prevent UIKit from ...".)
+    let observe_only = |recognizer: *mut Object| {
+        let _: () = msg_send![recognizer, setCancelsTouchesInView: false];
+        let _: () = msg_send![recognizer, setDelaysTouchesEnded: false];
+        let _: () = msg_send![recognizer, setDelaysTouchesBegan: false];
+    };
     let attach_basic = |class_name: &Class, action: Sel| {
         let r_alloc: *mut Object = msg_send![class_name, alloc];
         let r: *mut Object = msg_send![r_alloc, initWithTarget: target action: action];
+        observe_only(r);
         let _: () = msg_send![view, addGestureRecognizer: r];
         r
     };
@@ -1297,6 +1409,7 @@ unsafe fn install_gesture_recognizers(view: *mut Object) {
     let attach_swipe = |dir: u64, action: Sel| {
         let r_alloc: *mut Object = msg_send![class!(UISwipeGestureRecognizer), alloc];
         let r: *mut Object = msg_send![r_alloc, initWithTarget: target action: action];
+        observe_only(r);
         let _: () = msg_send![r, setDirection: dir];
         let _: () = msg_send![view, addGestureRecognizer: r];
     };
@@ -1306,12 +1419,17 @@ unsafe fn install_gesture_recognizers(view: *mut Object) {
     attach_swipe(8, sel!(onSwipeDown:));
 }
 
-fn get_or_create_view_class() -> &'static Class {
+/// The classes UIKit itself declares that adopt the text-input protocols: where a protocol the
+/// runtime cannot find by name is found instead (see [`find_protocol`]).
+const TEXT_INPUT_ADOPTERS: &[&str] = &["UITextField", "UITextView"];
+
+fn get_or_create_view_class() -> Option<&'static Class> {
     static ONCE: Once = Once::new();
     static mut AZUL_VIEW_CLASS: *const Class = ptr::null();
     ONCE.call_once(|| unsafe {
-        let superclass = class!(UIView);
-        let mut decl = ClassDecl::new("AzulView", superclass).unwrap();
+        let Some(mut decl) = declare_class("AzulView", class!(UIView)) else {
+            return;
+        };
 
         // `displayLayer:` (CALayerDelegate), deliberately NOT `drawRect:`.
         // A view that implements `drawRect:` gets a CGContext backing store,
@@ -1400,8 +1518,12 @@ fn get_or_create_view_class() -> &'static Class {
         // the way the note above warns about. The three methods are already
         // added; declaring conformance is what makes UIKit ASK for them and
         // raise the keyboard.
-        if let Some(p) = Protocol::get("UIKeyInput") {
-            decl.add_protocol(p);
+        match find_protocol("UIKeyInput", TEXT_INPUT_ADOPTERS) {
+            Some(p) => decl.add_protocol(p),
+            None => log_error!(
+                LogCategory::Input,
+                "[iOS] UIKeyInput is not known to the runtime: the keyboard will not appear"
+            ),
         }
 
         // UITextInput: marked text (the IME preedit), the edit menu,
@@ -1410,7 +1532,7 @@ fn get_or_create_view_class() -> &'static Class {
         // missing a method can never be advertised as conforming - UIKit
         // probes for the protocol and then calls straight into it.
         text_input::register(&mut decl);
-        if let Some(p) = Protocol::get("UITextInput") {
+        if let Some(p) = find_protocol("UITextInput", TEXT_INPUT_ADOPTERS) {
             decl.add_protocol(p);
         }
 
@@ -1430,13 +1552,14 @@ fn get_or_create_view_class() -> &'static Class {
         // Optional, like UIKeyInput above: the protocol is absent from SDKs
         // older than iOS 12.1, and `Protocol::get` returning None there must
         // not abort class registration.
-        if let Some(p) = Protocol::get("UIPencilInteractionDelegate") {
+        if let Some(p) = find_protocol("UIPencilInteractionDelegate", &[]) {
             decl.add_protocol(p);
         }
 
         AZUL_VIEW_CLASS = decl.register();
     });
-    unsafe { &*AZUL_VIEW_CLASS }
+    // SAFETY: a registered class is never freed; null when it could not be declared.
+    unsafe { AZUL_VIEW_CLASS.as_ref() }
 }
 
 // ─── AppDelegate ──────────────────────────────────────────────────────
@@ -1468,7 +1591,11 @@ extern "C" fn did_finish_launching(
         // `get_permission_status(Capability::Notifications)`.
         crate::desktop::notifications::install_launch_hooks();
 
-        let window = match IOSWindow::new(
+        #[cfg_attr(
+            not(any(feature = "debug-server", feature = "e2e-scripting")),
+            allow(unused_mut)
+        )]
+        let mut window = match IOSWindow::new(
             root_window,
             fc_cache,
             config,
@@ -1479,10 +1606,20 @@ extern "C" fn did_finish_launching(
         ) {
             Ok(w) => w,
             Err(e) => {
-                log_error!(LogCategory::EventLoop, "[iOS] IOSWindow::new: {:?}", e);
+                // Said where it can be read: stderr of a phone app goes nowhere.
+                let message = format!("[azul] the iOS window could not be created: {e:?}");
+                log_error!(LogCategory::EventLoop, "{}", message);
+                system_log(&message);
                 return false;
             }
         };
+        // The debug/E2E channel `run()` stashed: the timer that drains it is driven by the same
+        // display tick that drives every other timer. Dropped on the floor before, so the e2e
+        // runner of a phone queued its scenarios and waited for a receiver nobody read.
+        #[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
+        if let Some((rx, cm)) = super::run::IOS_DEBUG_CHANNEL.take() {
+            crate::desktop::shell2::common::debug_server::register_debug_timer(&mut window, rx, cm);
+        }
         AZUL_IOS_WINDOW = Box::into_raw(Box::new(window));
         log_info!(
             LogCategory::EventLoop,
@@ -1564,14 +1701,22 @@ extern "C" fn app_will_terminate(_this: &Object, _cmd: Sel, _app: *mut Object) {
     }
 }
 
-fn get_or_create_app_delegate_class() -> &'static Class {
+fn get_or_create_app_delegate_class() -> Option<&'static Class> {
     static ONCE: Once = Once::new();
     static mut APP_DELEGATE_CLASS: *const Class = ptr::null();
     ONCE.call_once(|| unsafe {
-        let superclass = class!(NSObject);
-        let mut decl = ClassDecl::new("AppDelegate", superclass).unwrap();
+        let Some(mut decl) = declare_class("AppDelegate", class!(NSObject)) else {
+            return;
+        };
 
-        decl.add_protocol(Protocol::get("UIApplicationDelegate").unwrap());
+        // The protocol is a courtesy, not a requirement: UIKit sends the delegate its selectors
+        // whether or not the class declares `UIApplicationDelegate`. It is OPTIONAL here because
+        // the runtime cannot always find it by name (nothing in a process adopts it but the app,
+        // see `find_protocol`), and `Protocol::get("UIApplicationDelegate").unwrap()` aborted
+        // EVERY launch on the iOS 26.2 simulator, before `UIApplicationMain` ran.
+        if let Some(p) = find_protocol("UIApplicationDelegate", &[]) {
+            decl.add_protocol(p);
+        }
 
         decl.add_method(
             sel!(application:didFinishLaunchingWithOptions:),
@@ -1602,23 +1747,75 @@ fn get_or_create_app_delegate_class() -> &'static Class {
 
         APP_DELEGATE_CLASS = decl.register();
     });
-    unsafe { &*APP_DELEGATE_CLASS }
+    // SAFETY: a registered class is never freed; null when it could not be declared.
+    unsafe { APP_DELEGATE_CLASS.as_ref() }
+}
+
+/// Write one message to the system log, where `simctl spawn <device> log stream`, Console.app and
+/// `idevicesyslog` read it.
+///
+/// An iOS app's `stderr` goes nowhere unless a debugger or `simctl launch --console` is attached:
+/// a panic, a `log_error!` and every `eprintln!` of the engine vanish, which is why "the app
+/// launched and exited" had no cause anywhere in the log. `NSLog` goes to the unified log
+/// (and to stderr as well where something is listening). The text goes as an ARGUMENT of
+/// `%@` - never as the format - and in pieces that fit the log's message limit.
+pub fn system_log(message: &str) {
+    use crate::desktop::shell2::common::ios_logic::{log_pieces, SYSTEM_LOG_PIECE_BYTES};
+
+    #[link(name = "Foundation", kind = "framework")]
+    extern "C" {
+        fn NSLog(format: *mut Object, ...);
+    }
+    for piece in log_pieces(message, SYSTEM_LOG_PIECE_BYTES) {
+        // SAFETY: both strings are autoreleased `NSString`s made in a pool of our own; `NSLog`'s
+        // one variadic argument is the object `%@` takes.
+        unsafe {
+            let pool = objc_autoreleasePoolPush();
+            let format_cstr = b"%@\0".as_ptr() as *const i8;
+            let format: *mut Object =
+                msg_send![class!(NSString), stringWithUTF8String: format_cstr];
+            let text: *mut Object = msg_send![
+                class!(NSString),
+                stringWithBytes: piece.as_ptr()
+                         length: piece.len()
+                       encoding: 4usize // NSUTF8StringEncoding
+            ];
+            if !format.is_null() && !text.is_null() {
+                NSLog(format, text);
+            }
+            objc_autoreleasePoolPop(pool);
+        }
+    }
 }
 
 /// Bootstraps the UIKit run-loop. Never returns.
 pub unsafe fn launch_app() {
     let pool = objc_autoreleasePoolPush();
-    let _ = get_or_create_app_delegate_class();
+    let Some(delegate_class) = get_or_create_app_delegate_class() else {
+        // No delegate class, no `UIApplicationMain`: say so where it can be read and end the
+        // process, instead of panicking (which is an abort with a crash report and no message).
+        let message = "[azul] the iOS application delegate class could not be declared: the app \
+                       cannot start";
+        log_error!(LogCategory::EventLoop, "{}", message);
+        system_log(message);
+        std::process::exit(1);
+    };
 
     // NSString*: the principal class + delegate class names UIApplicationMain
-    // uses to instantiate the application + delegate. `obj_alloc_init` is
-    // simpler than constructing an NSString.
+    // uses to instantiate the application + delegate. The delegate's name is the one the class was
+    // declared under (`declare_class` may have taken a free one).
     let principal_cstr = b"UIApplication\0".as_ptr() as *const i8;
-    let delegate_cstr = b"AppDelegate\0".as_ptr() as *const i8;
+    let delegate_cstr = match std::ffi::CString::new(delegate_class.name()) {
+        Ok(name) => name,
+        Err(_) => {
+            system_log("[azul] the iOS application delegate class has a name with a NUL in it");
+            std::process::exit(1);
+        }
+    };
     let principal_name: *mut Object =
         msg_send![class!(NSString), stringWithUTF8String: principal_cstr];
     let delegate_name: *mut Object =
-        msg_send![class!(NSString), stringWithUTF8String: delegate_cstr];
+        msg_send![class!(NSString), stringWithUTF8String: delegate_cstr.as_ptr()];
 
     UIApplicationMain(0, ptr::null_mut(), principal_name, delegate_name);
 
@@ -1763,7 +1960,11 @@ impl IOSWindow {
             let vc_alloc: *mut Object = msg_send![class!(UIViewController), alloc];
             let vc: *mut Object = msg_send![vc_alloc, init];
 
-            let view_class = get_or_create_view_class();
+            let Some(view_class) = get_or_create_view_class() else {
+                return Err(WindowError::PlatformError(String::from(
+                    "the render view's Objective-C class could not be declared",
+                )));
+            };
             let view_alloc: *mut Object = msg_send![view_class, alloc];
             let view: *mut Object = msg_send![view_alloc, initWithFrame: bounds];
 
@@ -2558,34 +2759,41 @@ extern "C" fn ui_keyboard_frame_changed(this: &Object, _cmd: Sel, notification: 
         // intersecting is the only way to learn how much of THIS view is
         // actually covered; using the raw height over-insets a split-view app
         // by however much of the keyboard lies outside it.
+        //
+        // Two steps, as UIKit documents them: `UIKeyboardFrameEndUserInfoKey` is in SCREEN
+        // coordinates, `-[UIWindow convertRect:fromWindow:]` with a nil window converts FROM THE
+        // SCREEN into the window's, and `-[UIView convertRect:fromView:]` with a nil view converts
+        // from the window into the view's. `fromView:nil` alone took a screen rect for a window
+        // one, which is the same only while the window fills the screen (not in a split view,
+        // Slide Over or Stage Manager).
+        let nil_object = ptr::null_mut::<Object>();
+        let window_object: *mut Object = msg_send![view, window];
+        let frame_in_window: CGRect = if window_object.is_null() {
+            frame_screen
+        } else {
+            msg_send![window_object, convertRect: frame_screen fromWindow: nil_object]
+        };
         let frame_local: CGRect =
-            msg_send![view, convertRect: frame_screen fromView: ptr::null_mut::<Object>()];
+            msg_send![view, convertRect: frame_in_window fromView: nil_object];
         let bounds: CGRect = msg_send![view, bounds];
 
-        let view_bottom = bounds.origin.y + bounds.size.height;
-        let kb_top = frame_local.origin.y;
-        let overlap = view_bottom - kb_top;
-        // Negative when the keyboard is fully off-screen (the dismissed case:
-        // UIKit reports it as a frame BELOW the view rather than as a
-        // zero-height one), and clamped so a keyboard taller than the view
-        // cannot report more coverage than there is view to cover.
-        overlap.clamp(0.0, bounds.size.height as f64)
+        // Zero when the keyboard is fully off-screen (the dismissed case: UIKit reports it as a
+        // frame BELOW the view rather than as a zero-height one), and never more than the view
+        // is high; never NaN (`f64::clamp` panics on a NaN bound).
+        crate::desktop::shell2::common::ios_logic::keyboard_cover(
+            bounds.origin.y + bounds.size.height,
+            frame_local.origin.y,
+            bounds.size.height,
+        )
     };
 
     if let Some(lw) = window.common.layout_window.as_mut() {
         let previous = lw.safe_area_insets.keyboard;
-        lw.safe_area_insets.keyboard = if covered > 0.5 {
-            Some(azul_css::props::basic::pixel::PixelValue::px(
-                covered as f32,
-            ))
-            .into()
-        } else {
-            // `None`, not `Some(0)`: the field's own docs distinguish "no
-            // keyboard" from "a keyboard covering nothing", and an app that
-            // lays out around a zero inset would reserve a row for a keyboard
-            // that is not there.
-            None.into()
-        };
+        // `None`, not `Some(0)`, for a keyboard that covers nothing: the field's own docs
+        // distinguish "no keyboard" from "a keyboard covering nothing", and an app that lays out
+        // around a zero inset would reserve a row for a keyboard that is not there.
+        lw.safe_area_insets.keyboard =
+            crate::desktop::shell2::common::ios_logic::keyboard_inset(covered);
         if previous == lw.safe_area_insets.keyboard {
             return;
         }

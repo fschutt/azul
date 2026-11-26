@@ -153,28 +153,33 @@ fn document_len(window: &IOSWindow) -> usize {
 
 // ─── AzulTextPosition / AzulTextRange ─────────────────────────────────
 
-fn position_class() -> &'static Class {
+/// `None` when the class could not be declared (a panic here was an abort in a phone app, and a
+/// name that is taken is handled by [`super::declare_class`]): the text-input queries then answer
+/// "nothing" instead of an object of a class that is not there.
+fn position_class() -> Option<&'static Class> {
     use std::sync::Once;
     static ONCE: Once = Once::new();
     static mut CLS: *const Class = core::ptr::null();
     ONCE.call_once(|| unsafe {
-        let superclass = class!(UITextPosition);
-        let mut decl = ClassDecl::new("AzulTextPosition", superclass)
-            .expect("AzulTextPosition class name already registered");
+        let Some(mut decl) = super::declare_class("AzulTextPosition", class!(UITextPosition))
+        else {
+            return;
+        };
         decl.add_ivar::<i64>(POSITION_IVAR);
         CLS = decl.register();
     });
-    unsafe { &*CLS }
+    // SAFETY: a registered class is never freed; null when it could not be declared.
+    unsafe { CLS.as_ref() }
 }
 
-fn range_class() -> &'static Class {
+fn range_class() -> Option<&'static Class> {
     use std::sync::Once;
     static ONCE: Once = Once::new();
     static mut CLS: *const Class = core::ptr::null();
     ONCE.call_once(|| unsafe {
-        let superclass = class!(UITextRange);
-        let mut decl = ClassDecl::new("AzulTextRange", superclass)
-            .expect("AzulTextRange class name already registered");
+        let Some(mut decl) = super::declare_class("AzulTextRange", class!(UITextRange)) else {
+            return;
+        };
         decl.add_ivar::<i64>(RANGE_START_IVAR);
         decl.add_ivar::<i64>(RANGE_END_IVAR);
         // `start`, `end` and `isEmpty` are the three readonly properties
@@ -193,14 +198,22 @@ fn range_class() -> &'static Class {
         );
         CLS = decl.register();
     });
-    unsafe { &*CLS }
+    // SAFETY: a registered class is never freed; null when it could not be declared.
+    unsafe { CLS.as_ref() }
 }
 
 /// Build an `AzulTextPosition`. Always non-nil: UIKit treats a nil where the
 /// header promises an object as a programmer error and crashes.
+///
+/// AUTORELEASED: these answers go back to UIKit from methods that are not `alloc`/`new`/`copy`,
+/// so the caller does not own them (the convention every Cocoa caller follows, ARC or not). The
+/// objects used to leave `alloc`/`init` at +1 and never be released: UIKit asks for positions and
+/// ranges on every selection change and every keystroke, one leaked object per question.
 fn make_position(offset: usize) -> *mut Object {
     unsafe {
-        let cls = position_class();
+        let Some(cls) = position_class() else {
+            return core::ptr::null_mut();
+        };
         let obj: *mut Object = msg_send![cls, alloc];
         let obj: *mut Object = msg_send![obj, init];
         if obj.is_null() {
@@ -208,7 +221,7 @@ fn make_position(offset: usize) -> *mut Object {
         }
         let ob: &mut Object = &mut *obj;
         ob.set_ivar::<i64>(POSITION_IVAR, i64::try_from(offset).unwrap_or(i64::MAX));
-        obj
+        msg_send![obj, autorelease]
     }
 }
 
@@ -221,7 +234,9 @@ fn make_range(start: usize, end: usize) -> *mut Object {
         (end, start)
     };
     unsafe {
-        let cls = range_class();
+        let Some(cls) = range_class() else {
+            return core::ptr::null_mut();
+        };
         let obj: *mut Object = msg_send![cls, alloc];
         let obj: *mut Object = msg_send![obj, init];
         if obj.is_null() {
@@ -230,7 +245,8 @@ fn make_range(start: usize, end: usize) -> *mut Object {
         let ob: &mut Object = &mut *obj;
         ob.set_ivar::<i64>(RANGE_START_IVAR, i64::try_from(start).unwrap_or(i64::MAX));
         ob.set_ivar::<i64>(RANGE_END_IVAR, i64::try_from(end).unwrap_or(i64::MAX));
-        obj
+        // Autoreleased, like `make_position`.
+        msg_send![obj, autorelease]
     }
 }
 
@@ -241,7 +257,8 @@ unsafe fn position_offset(pos: *mut Object) -> Option<usize> {
     if pos.is_null() {
         return None;
     }
-    let is_ours: bool = msg_send![pos, isKindOfClass: position_class()];
+    let cls = position_class()?;
+    let is_ours: bool = msg_send![pos, isKindOfClass: cls];
     if !is_ours {
         return None;
     }
@@ -253,7 +270,8 @@ unsafe fn range_bounds(range: *mut Object) -> Option<(usize, usize)> {
     if range.is_null() {
         return None;
     }
-    let is_ours: bool = msg_send![range, isKindOfClass: range_class()];
+    let cls = range_class()?;
+    let is_ours: bool = msg_send![range, isKindOfClass: cls];
     if !is_ours {
         return None;
     }
