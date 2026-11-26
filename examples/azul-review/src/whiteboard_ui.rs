@@ -455,7 +455,11 @@ fn brush(rgba: [u8; 4], radius: f32) -> Brush {
     let mut b = Brush::create(ColorU { r: rgba[0], g: rgba[1], b: rgba[2], a: rgba[3] }, radius);
     b.hardness = 0.85;
     b.flow = 1.0;
-    b.spacing = 0.2;
+    // The engine stamps a dab every `radius * spacing` px along a piece, each dab a disc of its radius. A quarter of
+    // the nib's width between dabs (0.5 of the radius) is continuous to the eye; the tenth it was (0.2) stamped two and
+    // a half times as often, and on a full board the stamping is what a frame of the surface costs (measured with
+    // `sample` on the demo: 138 of the 172 samples of the surface callback were its strokes, 6 the placing of the arrows).
+    b.spacing = 0.5;
     b
 }
 
