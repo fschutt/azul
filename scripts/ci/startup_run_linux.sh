@@ -9,6 +9,10 @@
 set +e
 echo "=== runner: $(uname -a)"; . /etc/os-release; echo "$PRETTY_NAME"; grep -m1 'model name' /proc/cpuinfo; echo "cores: $(nproc), mem: $(free -m | awk '/Mem:/ {print $2}') MB"; uptime
 sudo apt-get install -y -qq xvfb xauth strace linux-tools-common linux-tools-generic "linux-tools-$(uname -r)" gsettings-desktop-schemas dconf-gsettings-backend dbus-x11 libglib2.0-bin >/dev/null 2>&1
+# What a window needs on a desktop and a bare runner image lacks: EGL (the X11 shell requires it even for the CPU renderer), Mesa's
+# software GL (llvmpipe) for the GL series, xkbcommon, the X extension libraries
+sudo apt-get install -y -qq libegl1 libegl-mesa0 libgl1 libgl1-mesa-dri libglx-mesa0 libgles2 libxkbcommon0 libxkbcommon-x11-0 libx11-6 libx11-xcb1 libxext6 libxrender1 libxrandr2 libxi6 libxcursor1 >/dev/null 2>&1
+echo "gtk3 installed: $(ldconfig -p | grep -c 'libgtk-3.so.0'), libEGL: $(ldconfig -p | grep -c 'libEGL.so.1'), gsettings: $(command -v gsettings)"
 echo "=== release libazul (build-dll)"
 cargo build --release -p azul-dll --features build-dll 2>&1 | tail -30
 mkdir -p "$RUNNER_TEMP/azul-cabi" out
