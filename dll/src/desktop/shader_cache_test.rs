@@ -56,6 +56,27 @@ fn an_android_app_keeps_the_programs_in_its_cache_directory_first() {
     );
 }
 
+/// The directory an app really gets: the first candidate whose app directory exists. `cache` is made by the system for every app, so
+/// it is the first; an app directory with no `cache` (a device that has none) gets `files/azul-shaders`; no app directory, no cache.
+#[test]
+fn the_cache_directory_is_the_first_candidate_whose_app_directory_exists() {
+    let files = Path::new("/data/user/0/com.azul.AzWidgets/files");
+    let app = Path::new("/data/user/0/com.azul.AzWidgets");
+    let cache = Path::new("/data/user/0/com.azul.AzWidgets/cache");
+    // The system's `cache` directory is there: it holds the programs.
+    assert_eq!(
+        choose_android_cache_dir(files, |dir| dir == app || dir == cache),
+        Some(PathBuf::from("/data/user/0/com.azul.AzWidgets/cache/azul/shaders"))
+    );
+    // No `cache` but the app's directory: the programs go beside the files.
+    assert_eq!(
+        choose_android_cache_dir(files, |dir| dir == app),
+        Some(PathBuf::from("/data/user/0/com.azul.AzWidgets/files/azul-shaders"))
+    );
+    // Neither exists: the app keeps no programs and says so.
+    assert_eq!(choose_android_cache_dir(files, |_| false), None);
+}
+
 #[test]
 fn the_cache_is_one_directory_per_renderer_and_version_under_the_base() {
     let base = scratch("per-renderer");

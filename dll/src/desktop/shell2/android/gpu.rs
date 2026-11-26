@@ -62,15 +62,10 @@ impl AndroidWindow {
         let Some(files) = internal_data_path else {
             return;
         };
-        let dir = crate::desktop::shader_cache::android_cache_candidates(&files)
-            .into_iter()
-            .find(|candidate| {
-                // The first whose parent exists (`cache` always does); the other is the fallback.
-                candidate
-                    .ancestors()
-                    .nth(2)
-                    .is_some_and(|app_dir| std::fs::metadata(app_dir).is_ok_and(|m| m.is_dir()))
-            });
+        // The first candidate whose app directory exists (`cache` always does); the other is the fallback.
+        let dir = crate::desktop::shader_cache::choose_android_cache_dir(&files, |dir| {
+            std::fs::metadata(dir).is_ok_and(|m| m.is_dir())
+        });
         if let (Some(gpu), Some(dir)) = (self.gpu.as_mut(), dir) {
             gpu.set_shader_cache_dir(Some(dir));
         }

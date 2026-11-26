@@ -77,6 +77,19 @@ pub fn android_cache_candidates(internal_data_path: &Path) -> Vec<PathBuf> {
     candidates
 }
 
+/// The directory an Android app keeps the compiled programs in: the first of [`android_cache_candidates`] whose app directory
+/// (two levels above the candidate: `cache` for the first, the app's own for the second) `is_dir` says exists, or `None` when none
+/// does. The caller passes the file system's answer; the choice itself is pure.
+#[must_use]
+pub fn choose_android_cache_dir(
+    internal_data_path: &Path,
+    is_dir: impl Fn(&Path) -> bool,
+) -> Option<PathBuf> {
+    android_cache_candidates(internal_data_path)
+        .into_iter()
+        .find(|candidate| candidate.ancestors().nth(2).is_some_and(&is_dir))
+}
+
 /// What opening a program cache did: the cache WebRender takes, how many program binaries were read from disk
 /// (0 is a cold start, more a warm one), where, and why there is none.
 #[derive(Debug, Clone, Default)]
