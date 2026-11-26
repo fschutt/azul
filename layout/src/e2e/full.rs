@@ -4570,14 +4570,12 @@ fn resolve_all_matching_nodes(
     use azul_css::parser2::parse_css_path;
     let layout_window = callback_info.get_layout_window();
 
-    let layout_result = match layout_window.layout_results.get(&dom_id) {
-        Some(lr) => lr,
-        None => return Vec::new(),
+    let Some(layout_result) = layout_window.layout_results.get(&dom_id) else {
+        return Vec::new();
     };
 
-    let css_path = match parse_css_path(selector) {
-        Ok(p) => p,
-        Err(_) => return Vec::new(),
+    let Ok(css_path) = parse_css_path(selector) else {
+        return Vec::new();
     };
 
     let styled_dom = &layout_result.styled_dom;
@@ -7548,24 +7546,20 @@ fn eval_assert_text(
         Some(s) if !s.is_empty() => s,
         _ => return AssertionResult::fail("assert_text: missing 'selector' parameter"),
     };
-    let expected = match params.get("expected").and_then(|v| v.as_str()) {
-        Some(s) => s,
-        None => return AssertionResult::fail("assert_text: missing 'expected' parameter"),
+    let Some(expected) = params.get("expected").and_then(|v| v.as_str()) else {
+        return AssertionResult::fail("assert_text: missing 'expected' parameter");
     };
 
-    let node_id = match resolve_node_target(
+    let Some(node_id) = resolve_node_target(
         callback_info,
         params_dom(params),
         Some(selector),
         None,
         None,
-    ) {
-        Some(nid) => nid,
-        None => {
-            return AssertionResult::fail(format!(
-                "assert_text: no node matches selector '{selector}'"
-            ))
-        }
+    ) else {
+        return AssertionResult::fail(format!(
+            "assert_text: no node matches selector '{selector}'"
+        ));
     };
 
     // Get text content: try callback_info first, fall back to raw NodeType::Text
@@ -7733,9 +7727,8 @@ fn eval_assert_window_state(
         Some(p) if !p.is_empty() => p,
         _ => return AssertionResult::fail("assert_window_state: missing 'property' parameter"),
     };
-    let expected_val = match params.get("expected") {
-        Some(v) => v,
-        None => return AssertionResult::fail("assert_window_state: missing 'expected' parameter"),
+    let Some(expected_val) = params.get("expected") else {
+        return AssertionResult::fail("assert_window_state: missing 'expected' parameter");
     };
 
     let window_state = callback_info.get_current_window_state();
@@ -7743,13 +7736,10 @@ fn eval_assert_window_state(
 
     // --- boolean properties ---
     if property == "focused" || property == "window_focused" {
-        let expected = match expected_val.as_bool() {
-            Some(b) => b,
-            None => {
-                return AssertionResult::fail(format!(
-                    "assert_window_state: '{property}' needs a boolean 'expected'"
-                ))
-            }
+        let Some(expected) = expected_val.as_bool() else {
+            return AssertionResult::fail(format!(
+                "assert_window_state: '{property}' needs a boolean 'expected'"
+            ));
         };
         // `flags.has_focus` is the OS-level flag; `window_focused` is the field
         // the state-diff pass reads to emit WindowFocusIn / WindowFocusOut.
@@ -7770,13 +7760,10 @@ fn eval_assert_window_state(
     }
 
     // --- numeric properties ---
-    let expected = match expected_val.as_f64() {
-        Some(n) => n,
-        None => {
-            return AssertionResult::fail(format!(
-                "assert_window_state: '{property}' needs a numeric 'expected'"
-            ))
-        }
+    let Some(expected) = expected_val.as_f64() else {
+        return AssertionResult::fail(format!(
+            "assert_window_state: '{property}' needs a numeric 'expected'"
+        ));
     };
     let tolerance = params
         .get("tolerance")
@@ -8197,9 +8184,8 @@ fn eval_assert_layout(
         Some(s) if !s.is_empty() => s,
         _ => return AssertionResult::fail("assert_layout: missing 'selector' parameter"),
     };
-    let property = match params.get("property").and_then(|v| v.as_str()) {
-        Some(p) => p,
-        None => return AssertionResult::fail("assert_layout: missing 'property' parameter"),
+    let Some(property) = params.get("property").and_then(|v| v.as_str()) else {
+        return AssertionResult::fail("assert_layout: missing 'property' parameter");
     };
     let expected: f64 = match params.get("expected").and_then(serde_json::Value::as_f64) {
         Some(n) => n,
@@ -8210,19 +8196,16 @@ fn eval_assert_layout(
         .and_then(serde_json::Value::as_f64)
         .unwrap_or(0.5);
 
-    let node_id = match resolve_node_target(
+    let Some(node_id) = resolve_node_target(
         callback_info,
         params_dom(params),
         Some(selector),
         None,
         None,
-    ) {
-        Some(nid) => nid,
-        None => {
-            return AssertionResult::fail(format!(
-                "assert_layout: no node matches selector '{selector}'"
-            ))
-        }
+    ) else {
+        return AssertionResult::fail(format!(
+            "assert_layout: no node matches selector '{selector}'"
+        ));
     };
 
     use azul_core::dom::{DomId, DomNodeId};
@@ -8231,13 +8214,10 @@ fn eval_assert_layout(
         node: Some(node_id).into(),
     };
 
-    let rect = match callback_info.get_node_rect(dom_node_id) {
-        Some(r) => r,
-        None => {
-            return AssertionResult::fail(format!(
-                "assert_layout: node '{selector}' has no layout rect"
-            ))
-        }
+    let Some(rect) = callback_info.get_node_rect(dom_node_id) else {
+        return AssertionResult::fail(format!(
+            "assert_layout: node '{selector}' has no layout rect"
+        ));
     };
 
     let actual = match property {
@@ -8281,28 +8261,23 @@ fn eval_assert_css(
         Some(s) if !s.is_empty() => s,
         _ => return AssertionResult::fail("assert_css: missing 'selector' parameter"),
     };
-    let property = match params.get("property").and_then(|v| v.as_str()) {
-        Some(p) => p,
-        None => return AssertionResult::fail("assert_css: missing 'property' parameter"),
+    let Some(property) = params.get("property").and_then(|v| v.as_str()) else {
+        return AssertionResult::fail("assert_css: missing 'property' parameter");
     };
-    let expected = match params.get("expected").and_then(|v| v.as_str()) {
-        Some(e) => e,
-        None => return AssertionResult::fail("assert_css: missing 'expected' parameter"),
+    let Some(expected) = params.get("expected").and_then(|v| v.as_str()) else {
+        return AssertionResult::fail("assert_css: missing 'expected' parameter");
     };
 
-    let node_id = match resolve_node_target(
+    let Some(node_id) = resolve_node_target(
         callback_info,
         params_dom(params),
         Some(selector),
         None,
         None,
-    ) {
-        Some(nid) => nid,
-        None => {
-            return AssertionResult::fail(format!(
-                "assert_css: no node matches selector '{selector}'"
-            ))
-        }
+    ) else {
+        return AssertionResult::fail(format!(
+            "assert_css: no node matches selector '{selector}'"
+        ));
     };
 
     use azul_core::dom::{DomId, DomNodeId};
@@ -8315,13 +8290,10 @@ fn eval_assert_css(
 
     // Try to parse the property name into CssPropertyType
     let key_map = get_css_key_map();
-    let prop_type = match CssPropertyType::from_str(property, &key_map) {
-        Some(pt) => pt,
-        None => {
-            return AssertionResult::fail(format!(
-                "assert_css: unknown CSS property '{property}'"
-            ))
-        }
+    let Some(prop_type) = CssPropertyType::from_str(property, &key_map) else {
+        return AssertionResult::fail(format!(
+            "assert_css: unknown CSS property '{property}'"
+        ));
     };
 
     match callback_info.get_computed_css_property(dom_node_id, prop_type) {
@@ -8365,9 +8337,8 @@ fn eval_assert_app_state(
         Some(p) if !p.is_empty() => p,
         _ => return AssertionResult::fail("assert_app_state: missing 'path' parameter"),
     };
-    let expected = match params.get("expected") {
-        Some(v) => v,
-        None => return AssertionResult::fail("assert_app_state: missing 'expected' parameter"),
+    let Some(expected) = params.get("expected") else {
+        return AssertionResult::fail("assert_app_state: missing 'expected' parameter");
     };
 
     if !app_data.can_serialize() {
@@ -8378,9 +8349,8 @@ fn eval_assert_app_state(
 
     // Serialize app_data → JSON
     use azul_layout::json::serialize_refany_to_json;
-    let json = match serialize_refany_to_json(app_data) {
-        Some(j) => j,
-        None => return AssertionResult::fail("assert_app_state: serialization returned null"),
+    let Some(json) = serialize_refany_to_json(app_data) else {
+        return AssertionResult::fail("assert_app_state: serialization returned null");
     };
 
     // Convert our internal JSON into serde_json::Value
@@ -8653,19 +8623,16 @@ fn eval_assert_scroll(
         .and_then(serde_json::Value::as_f64)
         .unwrap_or(1.0);
 
-    let node_id = match resolve_node_target(
+    let Some(node_id) = resolve_node_target(
         callback_info,
         params_dom(params),
         Some(selector),
         None,
         None,
-    ) {
-        Some(nid) => nid,
-        None => {
-            return AssertionResult::fail(format!(
-                "assert_scroll: no node matches selector '{selector}'"
-            ))
-        }
+    ) else {
+        return AssertionResult::fail(format!(
+            "assert_scroll: no node matches selector '{selector}'"
+        ));
     };
 
     use azul_core::dom::{DomId, DomNodeId};
@@ -8680,13 +8647,10 @@ fn eval_assert_scroll(
         .scroll_manager
         .get_current_offset(dom_id, node_id);
 
-    let offset = match scroll_offset {
-        Some(o) => o,
-        None => {
-            return AssertionResult::fail(format!(
-                "assert_scroll: node '{selector}' is not scrollable or has no scroll state"
-            ))
-        }
+    let Some(offset) = scroll_offset else {
+        return AssertionResult::fail(format!(
+            "assert_scroll: node '{selector}' is not scrollable or has no scroll state"
+        ));
     };
 
     // Check x if specified
@@ -15402,20 +15366,17 @@ pub extern "C" fn debug_timer_callback(
     // while `timer_data`'s exclusive borrow must not stay live across the
     // callbacks below.
     let (mut app_data, component_map, request_rx, my_window_id, my_slot, mut session) = {
-        let mut dtd = match timer_data.downcast_mut::<DebugTimerData>() {
-            Some(d) => d,
-            None => {
-                log(
-                    LogLevel::Error,
-                    DebugServer,
-                    "[timer] Failed to downcast DebugTimerData",
-                    None,
-                );
-                return TimerCallbackReturn {
-                    should_update: Update::DoNothing,
-                    should_terminate: TerminateTimer::Continue,
-                };
-            }
+        let Some(mut dtd) = timer_data.downcast_mut::<DebugTimerData>() else {
+            log(
+                LogLevel::Error,
+                DebugServer,
+                "[timer] Failed to downcast DebugTimerData",
+                None,
+            );
+            return TimerCallbackReturn {
+                should_update: Update::DoNothing,
+                should_terminate: TerminateTimer::Continue,
+            };
         };
         (
             dtd.app_data.clone(),
@@ -16203,9 +16164,8 @@ fn styled_dom_to_render_tree(styled_dom: &azul_core::styled_dom::StyledDom) -> s
         use serde_json::json;
 
         let idx = node_id.index();
-        let nd = match node_data_vec.as_ref().get(idx) {
-            Some(nd) => nd,
-            None => return json!({}),
+        let Some(nd) = node_data_vec.as_ref().get(idx) else {
+            return json!({});
         };
 
         let tag = match &nd.node_type {
@@ -23161,15 +23121,12 @@ fn serve_debug_event(
                 .cloned();
             drop(map_guard);
 
-            let comp = match comp_found {
-                Some(c) => c,
-                None => {
-                    send_err(
-                        request,
-                        format!("Component '{name}' not found in library '{library}'"),
-                    );
-                    return needs_update;
-                }
+            let Some(comp) = comp_found else {
+                send_err(
+                    request,
+                    format!("Component '{name}' not found in library '{library}'"),
+                );
+                return needs_update;
             };
 
             // --- 2. Override data_model defaults with provided args ---
