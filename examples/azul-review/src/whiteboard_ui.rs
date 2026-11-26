@@ -246,7 +246,6 @@ fn cutout_dom(panel: &mut Panel, host: &Host, c: &Cutout, selected: bool) -> Dom
     group
 }
 
-
 /// What a label's text area tells back: which cutout, and the panel it is on.
 struct LabelTag {
     host: Host,
