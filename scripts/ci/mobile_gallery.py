@@ -96,7 +96,13 @@ def cell(shot, caption, work, name, missing_text):
         magick("-size", f"{CELL_W}x{CELL_H}", "xc:#383838", "-fill", "#aaaaaa", "-gravity", "center", "-pointsize", "14",
                "-annotate", "+0+0", missing_text, out)
     else:
-        magick(shot, "-resize", f"{CELL_W}x{CELL_H}", "-background", "#202020", "-gravity", "center", "-extent", f"{CELL_W}x{CELL_H}", out)
+        size = subprocess.run(["magick", "identify", "-format", "%w %h", str(shot)], capture_output=True).stdout.split()
+        landscape = len(size) == 2 and int(size[0]) > int(size[1])
+        if landscape:
+            # a landscape picture gets a cell as wide as the portrait ones are tall: 480 x 216 inside a 480 x 480 cell
+            magick(shot, "-resize", f"{CELL_H}x{CELL_W}", "-background", "#202020", "-gravity", "center", "-extent", f"{CELL_H}x{CELL_H}", out)
+        else:
+            magick(shot, "-resize", f"{CELL_W}x{CELL_H}", "-background", "#202020", "-gravity", "center", "-extent", f"{CELL_W}x{CELL_H}", out)
     labelled = work / f"{name}-l.png"
     magick(out, "-background", "#202020", "-gravity", "south", "-splice", "0x26", "-fill", "white", "-pointsize", "13",
            "-annotate", "+0+4", caption, labelled)

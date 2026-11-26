@@ -229,6 +229,43 @@ def e2e_session(args):
 
     run.step("e02-engine-frame-and-device-frame", "the engine's full-repaint frame and the device's frame of the same moment, plus every node's layout", s_frames)
 
+    # ---- touch (BEFORE the scenarios: they scroll the page to its end, where a swipe up has nothing left to scroll)
+    def s_touch(s):
+        srv.op("scroll_into_view", text="Azul Widget Showcase", block="start", behavior="instant")
+        srv.op("wait_frame")
+        dev.settle(1.0)
+        before = device_shot(s, "before-touch-swipe")
+        w, h = dev.dims
+        try:
+            st0 = srv.op("get_scroll_states")
+        except Exception as e:  # noqa: BLE001
+            st0 = {"error": str(e)}
+        (run.logs_dir / "scroll-before.json").write_text(json.dumps(st0), encoding="utf-8")
+        # the server's coordinates are the window's logical pixels
+        s.note("window: " + json.dumps(srv.op("get_state"))[:200])
+        x, y0, y1 = w * 0.5, h * 0.7, h * 0.3
+        scale = args.logical_scale or state.get("scale") or 1.0
+        srv.op("touch_start", id=1, x=x / scale, y=y0 / scale)
+        srv.op("wait_frame")
+        for k in range(1, 9):
+            srv.op("touch_move", id=1, x=x / scale, y=(y0 + (y1 - y0) * k / 8) / scale)
+            srv.op("wait_frame")           # one move per frame: the engine reads the touch STATE once a frame
+        srv.op("touch_end", id=1)
+        srv.op("wait_frame")
+        dev.settle(1.5)
+        after = device_shot(s, "after-touch-swipe")
+        s.check("an in-process touch swipe scrolls the page", q.sig_diff(after, before) > q.SAME_BELOW, f"differs {q.sig_diff(after, before):.3f}")
+        st1 = srv.op("get_scroll_states")
+        (run.logs_dir / "scroll-after.json").write_text(json.dumps(st1), encoding="utf-8")
+        s.check("the scroll states changed", st1 != st0, "", required=False)
+        if args.platform == "android":
+            dev.swipe(w * 0.5, h * 0.3, w * 0.5, h * 0.7, 350)   # a real finger the other way, through the OS
+            dev.settle(1.5)
+            back = device_shot(s, "after-adb-swipe")
+            s.check("an adb swipe (a real touch through Android's input) scrolls it back", q.sig_diff(back, after) > q.SAME_BELOW, f"differs {q.sig_diff(back, after):.3f}")
+
+    run.step("e05-touch", "in-process touch events as a swipe (and on Android a real one through adb)", s_touch)
+
     # ---- the scenario files
     for i, path in enumerate(args.scenario or []):
         name = Path(path).stem
@@ -253,41 +290,6 @@ def e2e_session(args):
             device_shot(s, f"after-{name}")
 
         run.step(f"e{10 + i}-scenario-{name}", f"the scenario file {path} through the server", s_scenario)
-
-    # ---- touch
-    def s_touch(s):
-        before = device_shot(s, "before-touch-swipe")
-        w, h = dev.dims
-        try:
-            st0 = srv.op("get_scroll_states")
-        except Exception as e:  # noqa: BLE001
-            st0 = {"error": str(e)}
-        (run.logs_dir / "scroll-before.json").write_text(json.dumps(st0), encoding="utf-8")
-        # the server's coordinates are the window's logical pixels
-        win = srv.op("get_state")
-        size = json.dumps(win)
-        s.note("window: " + size[:200])
-        x, y0, y1 = w * 0.5, h * 0.7, h * 0.3
-        scale = args.logical_scale or state.get("scale") or 1.0
-        for ev, extra in (("touch_start", {"id": 1}), ):
-            srv.op(ev, x=x / scale, y=y0 / scale, **extra)
-        for k in range(1, 9):
-            srv.op("touch_move", id=1, x=x / scale, y=(y0 + (y1 - y0) * k / 8) / scale)
-        srv.op("touch_end", id=1)
-        srv.op("wait_frame")
-        dev.settle(1.5)
-        after = device_shot(s, "after-touch-swipe")
-        s.check("an in-process touch swipe scrolls the page", q.sig_diff(after, before) > q.SAME_BELOW, f"differs {q.sig_diff(after, before):.3f}")
-        st1 = srv.op("get_scroll_states")
-        (run.logs_dir / "scroll-after.json").write_text(json.dumps(st1), encoding="utf-8")
-        s.check("the scroll states changed", st1 != st0, "", required=False)
-        if args.platform == "android":
-            dev.swipe(w * 0.5, h * 0.3, w * 0.5, h * 0.7, 350)   # a real finger the other way, through the OS
-            dev.settle(1.5)
-            back = device_shot(s, "after-adb-swipe")
-            s.check("an adb swipe (a real touch through Android's input) scrolls it back", q.sig_diff(back, after) > q.SAME_BELOW, f"differs {q.sig_diff(back, after):.3f}")
-
-    run.step("e30-touch", "in-process touch events as a swipe (and on Android a real one through adb)", s_touch)
 
     # ---- the server survives the lifecycle
     def s_lifecycle(s):
@@ -325,26 +327,23 @@ def e2e_session(args):
 
     # ---- keyboard
     def s_keyboard(s):
+        # the scenarios before scrolled the page about: put the field on the screen first (an off-screen node has no position)
+        try:
+            srv.op("scroll_into_view", text="TextInput", block="center", behavior="instant")
+            srv.op("wait_frame")
+            dev.settle(1.0)
+        except Exception as e:  # noqa: BLE001
+            s.note(f"scroll_into_view: {e}")
         if args.platform == "android":
-            dev.sh("uiautomator dump /sdcard/qa-ui.xml", timeout=40)
-            nodes = q.parse_bounds(dev.sh("cat /sdcard/qa-ui.xml"))
-            field = [n for n in nodes if n[0] == "TextInput" and n[1] > 0 and n[2] > 0]
-            if not field:
-                s.check("the accessibility tree names the TextInput field with a position", False, f"{len(nodes)} labelled nodes")
+            x, y, how = dev.tap_label("TextInput")      # a real touch through Android's input, at the node's place
+            if x is None:
+                s.check("the accessibility tree names the TextInput field with a position", False, "not found")
                 return
-            x, y = field[0][1], field[0][2]
             s.note(f"the TextInput field is at ({x}, {y}) in the accessibility tree")
-            dev.tap(x, y)                   # a real touch through Android's input
             dev.settle(2.5)
             shown = dev.ime_shown()
-            s.check("a touch on a text field raises the soft keyboard", shown, "input_method says " + ("shown" if shown else "hidden"))
+            s.check("a touch on a text field raises the soft keyboard", shown, "the window system says " + ("shown" if shown else "hidden"))
             device_shot(s, "text-field-touched")
-        else:
-            try:
-                srv.op("scroll_into_view", text="TextInput", block="center", behavior="instant")
-                srv.op("wait_frame")
-            except Exception as e:  # noqa: BLE001
-                s.note(f"scroll_into_view: {e}")
         srv.op("text_input", text="hello azul")      # in process: into the focused node
         srv.op("wait_frame")
         dev.settle(1.0)
