@@ -579,12 +579,32 @@ pub fn split_into_bidi_runs(
     } else {
         Some(Level::ltr())
     };
+    // `unicode-bidi: bidi-override` and `isolate-override` on the paragraph's block make its text run
+    // in the direction of the block, whatever the direction of its letters (CSS Writing Modes 3,
+    // 2.2): UAX 9 says so with LRO or RLO in front of the text and PDF behind it. They are no part
+    // of the runs: their levels are taken off the levels of the text below.
+    let (override_open, override_close) = match unicode_bidi {
+        UnicodeBidi::BidiOverride | UnicodeBidi::IsolateOverride => {
+            if base_direction == BidiDirection::Rtl {
+                ("\u{202E}", "\u{202C}")
+            } else {
+                ("\u{202D}", "\u{202C}")
+            }
+        }
+        _ => ("", ""),
+    };
     // +spec:writing-modes:15bf17 - bidi isolation handled by unicode_bidi UAX #9 implementation
-    let bidi_info = BidiInfo::new(&bidi_str, bidi_level);
-    // The level the bidi algorithm resolved for each byte, in logical order.
+    let marked_text;
+    let bidi_info = if override_open.is_empty() {
+        BidiInfo::new(&bidi_str, bidi_level)
+    } else {
+        marked_text = format!("{override_open}{bidi_str}{override_close}");
+        BidiInfo::new(&marked_text, bidi_level)
+    };
+    // The level the bidi algorithm resolved for each byte of the text, in logical order.
     // Rule L1 and the reordering of rule L2 apply per line, so they wait
     // until the paragraph is broken into lines (`LogicalLine::into_visual`).
-    let levels = &bidi_info.levels;
+    let levels = &bidi_info.levels[override_open.len()..override_open.len() + bidi_str.len()];
 
     // One run per stretch of bytes at one level within one logical item. A
     // level changes only at a character boundary, so does an item.

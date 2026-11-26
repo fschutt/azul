@@ -745,3 +745,82 @@ fn parse_font_style_survives_angles_of_any_length() {
     assert!(parse_font_style(&format!("oblique {}", "(".repeat(10_000))).is_err());
     assert!(parse_font_style(&"oblique ".repeat(10_000)).is_err());
 }
+
+// ---- font-feature-settings: at most MAX_FONT_FEATURES distinct tags, read in linear time -------
+
+/// `count` distinct feature tags, `"a000", "a001" 0, "a002" 2, ...`: every value of the cycle.
+#[cfg(feature = "parser")]
+fn feature_list(count: usize) -> String {
+    (0..count)
+        .map(|index| format!("\"a{index:03}\" {}", index % 3))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// A value of more distinct tags than a node keeps keeps the first of them, in order.
+#[cfg(feature = "parser")]
+#[test]
+fn a_font_feature_list_over_the_cap_keeps_its_first_tags() {
+    let written = MAX_FONT_FEATURES + 6;
+    let settings = parse_style_font_feature_settings(&feature_list(written)).unwrap();
+    let kept = settings.features();
+    assert_eq!(kept.len(), MAX_FONT_FEATURES);
+    assert_eq!(kept[0], (*b"a000", 0));
+    assert_eq!(kept[1], (*b"a001", 1));
+    assert_eq!(kept[MAX_FONT_FEATURES - 1].0, *b"a063", "the tags written first stay");
+    assert_eq!(count_font_features(&feature_list(written)), Some(written));
+}
+
+/// A later value of a kept tag still wins and stands last; a tag over the cap stays dropped
+/// whatever follows.
+#[cfg(feature = "parser")]
+#[test]
+fn a_kept_feature_tag_still_takes_its_last_value_over_the_cap() {
+    let mut text = feature_list(MAX_FONT_FEATURES + 4);
+    text.push_str(", \"a001\" 5, \"a070\" 1");
+    let kept = parse_style_font_feature_settings(&text).unwrap().features();
+    assert_eq!(kept.len(), MAX_FONT_FEATURES);
+    assert_eq!(kept.last(), Some(&(*b"a001", 5)), "the last value of a kept tag, where it last stands");
+    assert!(kept.iter().all(|(tag, _)| tag != b"a070"), "a dropped tag stays dropped");
+}
+
+/// A value at the cap, `normal`, and a value that is no list keep everything and warn of nothing.
+#[cfg(feature = "parser")]
+#[test]
+fn a_font_feature_list_within_the_cap_is_kept_whole() {
+    let settings = parse_style_font_feature_settings(&feature_list(MAX_FONT_FEATURES)).unwrap();
+    assert_eq!(settings.features().len(), MAX_FONT_FEATURES);
+    assert_eq!(count_font_features("normal"), Some(0));
+    assert_eq!(count_font_features("\"liga\" 0, \"tnum\""), Some(2));
+    assert_eq!(count_font_features("liga"), None, "an unquoted tag is no list");
+    assert_eq!(count_font_features("\"liga\", \"liga\" 0, \"liga\" 1"), Some(1), "distinct tags");
+}
+
+/// The hostile value: fifty thousand distinct tags are read in time proportional to their number
+/// (the list used to be scanned for every tag it kept).
+#[cfg(feature = "parser")]
+#[test]
+fn fifty_thousand_font_features_are_read_in_bounded_time() {
+    let tags: String = (0..50_000_u32)
+        .map(|index| {
+            let (a, b, c) = (index / 2704, (index / 52) % 52, index % 52);
+            let letter = |n: u32| {
+                char::from(if n < 26 {
+                    b'a' + u8::try_from(n).unwrap()
+                } else {
+                    b'A' + u8::try_from(n - 26).unwrap()
+                })
+            };
+            format!("\"z{}{}{}\" 1", letter(a), letter(b), letter(c))
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let start = std::time::Instant::now();
+    let settings = parse_style_font_feature_settings(&tags).unwrap();
+    let kept = settings.features();
+    let count = count_font_features(&tags);
+    let elapsed = start.elapsed();
+    assert!(elapsed < std::time::Duration::from_secs(5), "50,000 features took {elapsed:?}");
+    assert_eq!(kept.len(), MAX_FONT_FEATURES);
+    assert_eq!(count, Some(50_000));
+}
