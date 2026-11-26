@@ -40,6 +40,9 @@ pub const FAMILIES: &str = r#"
     font-variation-settings: "wght" 650, "wdth" 87.5;
     font-optical-sizing: none;
     font-kerning: none;
+    font-variant-position: super;
+    text-rendering: optimizeLegibility;
+    text-wrap: balance;
     font-variant-ligatures: no-common-ligatures discretionary-ligatures;
     font-variant-east-asian: jis78 full-width ruby;
     font-synthesis-weight: none;

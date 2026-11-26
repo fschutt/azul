@@ -41040,6 +41040,15 @@
                                 "FontKerning": {
                                     "type": "StyleFontKerningValue"
                                 },
+                                "TextWrap": {
+                                    "type": "StyleTextWrapValue"
+                                },
+                                "FontVariantPosition": {
+                                    "type": "StyleFontVariantPositionValue"
+                                },
+                                "TextRendering": {
+                                    "type": "StyleTextRenderingValue"
+                                },
                                 "FontVariantLigatures": {
                                     "type": "StyleFontVariantLigaturesValue"
                                 },
@@ -52562,6 +52571,9 @@
                                 "FontVariationSettings": {},
                                 "FontOpticalSizing": {},
                                 "FontKerning": {},
+                                "TextWrap": {},
+                                "FontVariantPosition": {},
+                                "TextRendering": {},
                                 "FontVariantLigatures": {},
                                 "FontVariantEastAsian": {},
                                 "FontSynthesisWeight": {},
@@ -61763,6 +61775,105 @@
                             "target": "CssPropertyValue",
                             "generic_args": [
                                 "StyleFontVariationSettings"
+                            ]
+                        }
+                    },
+                    "StyleFontVariantPosition": {
+                        "external": "azul_css::props::basic::font_variation::StyleFontVariantPosition",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Normal": {},
+                                "Subscript": {},
+                                "Superscript": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleFontVariantPositionValue": {
+                        "external": "azul_css::props::property::StyleFontVariantPositionValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleFontVariantPosition"
+                            ]
+                        }
+                    },
+                    "StyleTextRendering": {
+                        "external": "azul_css::props::basic::font_variation::StyleTextRendering",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "OptimizeSpeed": {},
+                                "OptimizeLegibility": {},
+                                "GeometricPrecision": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleTextRenderingValue": {
+                        "external": "azul_css::props::property::StyleTextRenderingValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleTextRendering"
+                            ]
+                        }
+                    },
+                    "StyleTextWrap": {
+                        "external": "azul_css::props::basic::font_variation::StyleTextWrap",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Wrap": {},
+                                "Nowrap": {},
+                                "Balance": {},
+                                "Stable": {},
+                                "Pretty": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleTextWrapValue": {
+                        "external": "azul_css::props::property::StyleTextWrapValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleTextWrap"
                             ]
                         }
                     }

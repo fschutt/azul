@@ -15,7 +15,10 @@ use azul_css::{
     css::CssPropertyValue,
     props::{
         basic::{
-            font_variation::{StyleFontKerning, StyleFontOpticalSizing, StyleFontSynthesis},
+            font_variation::{
+                StyleFontKerning, StyleFontOpticalSizing, StyleFontSynthesis, StyleFontVariantPosition,
+                StyleTextRendering, StyleTextWrap,
+            },
             length::SizeMetric,
         },
         layout::{
@@ -2823,6 +2826,25 @@ fn update_dom_declared_flags(prop: &CssProperty, flags: &mut u64) {
                 .is_some_and(|kerning| *kerning != StyleFontKerning::Auto)
             {
                 *flags |= DOM_HAS_FONT_KERNING;
+            }
+        }
+        CssProperty::TextWrap(v) => {
+            if v.get_property().is_some_and(|wrap| *wrap != StyleTextWrap::Wrap) {
+                *flags |= DOM_HAS_TEXT_WRAP;
+            }
+        }
+        CssProperty::FontVariantPosition(v) => {
+            if v.get_property()
+                .is_some_and(|position| *position != StyleFontVariantPosition::Normal)
+            {
+                *flags |= DOM_HAS_FONT_VARIANT_POSITION;
+            }
+        }
+        CssProperty::TextRendering(v) => {
+            if v.get_property()
+                .is_some_and(|rendering| *rendering != StyleTextRendering::Auto)
+            {
+                *flags |= DOM_HAS_TEXT_RENDERING;
             }
         }
         CssProperty::FontVariantLigatures(v) => {

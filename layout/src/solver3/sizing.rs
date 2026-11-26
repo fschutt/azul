@@ -2741,6 +2741,20 @@ pub(crate) fn ifc_measure_constraints(
             MultiValue::Exact(v) => v,
             _ => StyleWhiteSpace::Normal,
         };
+        // `text-wrap: nowrap` takes the wrapping out of the `white-space` (a box that does not
+        // wrap is as wide as its text in the intrinsic sizes as well).
+        let cache = &styled_dom.css_property_cache.ptr;
+        let text_wrap = if cache.compact_cache.as_ref().is_none_or(|cc| {
+            cc.dom_declared(azul_css::compact_cache::DOM_HAS_TEXT_WRAP)
+        }) {
+            cache
+                .get_text_wrap(&styled_dom.node_data.as_container()[dom_id], &dom_id, node_state)
+                .and_then(|v| v.get_property().copied())
+                .unwrap_or_default()
+        } else {
+            azul_css::props::basic::font_variation::StyleTextWrap::default()
+        };
+        let ws = crate::solver3::fc::white_space_under_text_wrap(ws, text_wrap);
         constraints.white_space_mode = match ws {
             StyleWhiteSpace::Normal => crate::text3::cache::WhiteSpaceMode::Normal,
             StyleWhiteSpace::Nowrap => crate::text3::cache::WhiteSpaceMode::Nowrap,
