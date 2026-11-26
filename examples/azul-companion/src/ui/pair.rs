@@ -239,14 +239,14 @@ pub fn dom(cx: &Cx) -> Dom {
     } else {
         // the keys stay clear of the system's bar (48 dp on a screen with room for it): a finger that aims at the lowest key lands on the
         // key, and not in the strip where the system's own gestures begin
-        let bottom = if cx.env.short() { pad + 8.0 } else { 48.0 };
+        let bottom_pad = if cx.env.short() { pad + 8.0 } else { 48.0 };
         column(&format!(
             "width: {}; height: {}; padding: {} {} {} {}; justify-content: space-between; overflow-y: auto; align-items: center;",
             px(z.safe.w),
             px(z.safe.h),
             px(pad + 8.0),
             px(pad),
-            px(bottom),
+            px(bottom_pad),
             px(pad)
         ))
         .with_class("az-scroll")
