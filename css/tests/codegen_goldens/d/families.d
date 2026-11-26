@@ -68,6 +68,8 @@ CssPropertyWithConditions[] styleText()
         CssPropertyWithConditions.simple(CssProperty.direction(StyleDirectionValue.exact(StyleDirection.rtl))),
         CssPropertyWithConditions.simple(CssProperty.userSelect(StyleUserSelect.none)),
         CssPropertyWithConditions.simple(CssProperty.textDecoration(StyleTextDecoration.underline)),
+        CssPropertyWithConditions.simple(CssProperty.textDecorationColor(StyleTextDecorationColorValue.exact(StyleTextDecorationColor.color(ColorU(204, 51, 0, 255))))),
+        CssPropertyWithConditions.simple(CssProperty.textDecorationThickness(StyleTextDecorationThicknessValue.exact(StyleTextDecorationThickness.length(PixelValue.px(2.0f))))),
         CssPropertyWithConditions.simple(CssProperty.hyphenationLanguage(StyleHyphenationLanguageValue.exact(StyleHyphenationLanguage("en-US")))),
         CssPropertyWithConditions.simple(CssProperty.exclusionMargin(StyleExclusionMarginValue.exact(StyleExclusionMargin(FloatValue(10.5f))))),
         CssPropertyWithConditions.simple(CssProperty.caretColor(CaretColor(ColorU(255, 0, 0, 255)))),

@@ -35,6 +35,8 @@ fn cutout(id: u64, x: f32, image: ImageSlot) -> Item {
         image,
         label: format!("cutout {id}"),
         source: Source {
+            rev: String::new(),
+            sha256: String::new(),
             file: "src/lib.rs".to_string(),
             page: 1,
             first_line: 50,
@@ -97,7 +99,7 @@ fn a_board_goes_into_a_zip_and_comes_back_the_same() {
     assert_eq!(&bytes[..2], b"PK", "a zip");
     let loaded = load(&bytes, &LIMITS).expect("read");
     assert_eq!((loaded.left_out, loaded.unreadable_pictures), (0, 0));
-    assert_eq!(loaded.workspace, "/work/azul");
+    assert_eq!(loaded.meta.workspace_name, "azul");
     assert_eq!(loaded.data.view, data.view);
     assert_eq!(loaded.data.next_id, 4);
     assert_eq!(loaded.data.items.len(), 3);
@@ -122,7 +124,7 @@ fn a_board_goes_into_a_zip_and_comes_back_the_same() {
 #[test]
 fn a_save_adds_next_to_nothing_to_the_pictures_it_holds() {
     let data = board();
-    let entries = store::write(&data, "w", 1);
+    let entries = store::write(&data, &Meta::default());
     let content: usize = entries.iter().map(|e| e.bytes.len()).sum();
     let bytes = pack(&entries).expect("packed");
     // The pictures are PNGs, which deflate cannot shrink: the archive is what it holds, the headers and a little more.
@@ -167,7 +169,7 @@ fn an_archive_whose_directory_declares_far_more_than_a_board_is_refused_before_i
 #[test]
 fn a_picture_that_is_no_png_leaves_its_cutout_with_the_lines() {
     let data = board();
-    let mut entries = store::write(&data, "w", 1);
+    let mut entries = store::write(&data, &Meta::default());
     for e in &mut entries {
         if e.name == "img-2.png" {
             e.bytes = b"this is not a picture".to_vec();
@@ -224,7 +226,7 @@ fn the_zip_a_save_writes_is_the_board_and_a_save_on_a_thread_answers_through_one
     let path = dir.join("w.azboard.zip");
     let data = board();
     // What the Thread does, here: pack the store's entries and write them.
-    let entries = store::write(&data, "w", 1);
+    let entries = store::write(&data, &Meta::default());
     write_atomic(&path, &pack(&entries).expect("packed")).expect("written");
     let loaded = load(&std::fs::read(&path).expect("read"), &LIMITS).expect("the file is a board");
     assert_eq!(loaded.data.items.len(), data.items.len());
@@ -235,3 +237,35 @@ fn the_zip_a_save_writes_is_the_board_and_a_save_on_a_thread_answers_through_one
     assert!(take_saved(&mut msg).is_none(), "taken once");
     assert!(take_saved(&mut RefAny::new(0_u8)).is_none(), "not a save's message");
 }
+
+#[test]
+fn a_file_of_a_board_is_read_whether_it_is_the_zip_a_board_is_kept_in_or_an_exported_document() {
+    let dir = scratch("import");
+    std::fs::create_dir_all(&dir).expect("made");
+    let data = board();
+    // The zip (what a data folder holds, or was sent).
+    let (_, zip) = archive(&data, "/work/azul", 1).expect("an archive");
+    std::fs::write(dir.join("kept.azboard.zip"), &zip).expect("written");
+    let from_zip = import_file(&dir.join("kept.azboard.zip"), &LIMITS).expect("read");
+    assert_eq!(from_zip.data.items.len(), data.items.len());
+    // The document with its pictures inside (what an export writes).
+    let written = crate::whiteboard_azboard::document(&data, &Meta::default(), &crate::whiteboard_azboard::Pictures::Embedded);
+    std::fs::write(dir.join("shared.azboard.json"), written.text.as_bytes()).expect("written");
+    let from_json = import_file(&dir.join("shared.azboard.json"), &LIMITS).expect("read");
+    assert_eq!(from_json.data.items.len(), data.items.len());
+    assert_eq!((from_json.left_out, from_json.unreadable_pictures), (0, 0), "azul decodes the pictures the document holds");
+    // Neither: told.
+    std::fs::write(dir.join("junk.json"), b"nonsense").expect("written");
+    assert!(matches!(import_file(&dir.join("junk.json"), &LIMITS), Err(StoreError::NotABoard(_))));
+    assert!(matches!(import_file(&dir.join("missing.json"), &LIMITS), Err(StoreError::NotABoard(_))));
+    // The messages of the export's Thread and the import's are taken out whole, once.
+    let mut msg = RefAny::new(Some(ExportAnswer { result: Err("no room".to_string()) }));
+    assert_eq!(take_exported(&mut msg), Some(Err("no room".to_string())));
+    assert!(take_exported(&mut msg).is_none(), "taken once");
+    let mut msg = RefAny::new(Some(ImportAnswer { result: Err(StoreError::NotABoard("x".to_string())), file: "f.json".to_string() }));
+    assert_eq!(take_imported(&mut msg).map(|a| a.file), Some("f.json".to_string()));
+    assert!(take_imported(&mut msg).is_none(), "taken once");
+    assert!(take_imported(&mut RefAny::new(0_u8)).is_none(), "not an import's message");
+    let _gone = std::fs::remove_dir_all(&dir);
+}
+

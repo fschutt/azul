@@ -7,13 +7,16 @@
 //! anything is reserved for it), and refuses what follows a complete frame. [`encode`] refuses to write what
 //! [`decode`] would refuse.
 
+use crate::access::ScreenId;
 use crate::frame::{
-    ButtonSet, Context, Entry, EntryKind, FileState, Focus, Frame, Hello, Notice, NoticeLevel, PairReject, PenMark, PenState, Phase,
-    QuickButton, Rect, Refusal, Reply, ReplyStatus, Role, Rows, ThumbFormat, Thumbnail, ViewportCmd, ViewportOp,
+    AgentFinished, ButtonSet, Context, Entry, EntryKind, FileState, FinishKind, Focus, Frame, Hello, HostSettings, Notice, NoticeLevel,
+    PageSurface, PairReject, PenMark, PenState, Phase, QuickButton, Rect, Refusal, Reply, ReplyStatus, ReturnPoint, Role, Rows, Surface,
+    ThumbFormat, Thumbnail, ViewportCmd, ViewportOp, WhiteboardSurface,
 };
 use crate::limits::{
-    BUTTON_COUNT, MAGIC, MAX_BUTTON_TEXT_CHARS, MAX_ENTRY_NAME_BYTES, MAX_FRAME_BYTES, MAX_LABEL_CHARS, MAX_NAME_BYTES,
-    MAX_NOTICE_BYTES, MAX_PATH_BYTES, MAX_ROWS, MAX_THUMBNAIL_BYTES, MAX_THUMBNAIL_SIDE, MAX_TICKET_BYTES, MAX_VERSION_BYTES,
+    BUTTON_COUNT, MAGIC, MAX_ASPECT, MAX_BOARD_ITEMS, MAX_BUTTON_TEXT_CHARS, MAX_ENTRY_NAME_BYTES, MAX_FRAME_BYTES, MAX_LABEL_CHARS,
+    MAX_NAME_BYTES, MAX_NOTICE_BYTES, MAX_PAGE_COUNT, MAX_PAGE_GAP, MAX_PATH_BYTES, MAX_ROWS, MAX_THUMBNAIL_BYTES,
+    MAX_THUMBNAIL_SIDE, MAX_TICKET_BYTES, MAX_VERSION_BYTES, MIN_ASPECT,
 };
 
 /// The wire format's version, the second byte of every frame.
@@ -32,6 +35,7 @@ pub mod tag {
     pub const BUTTON: u8 = 9;
     pub const SET_BUTTONS: u8 = 10;
     pub const NEED_THUMBNAIL: u8 = 11;
+    pub const CONTINUE_REVIEWING: u8 = 12;
     pub const PAIR_ACCEPTED: u8 = 16;
     pub const PAIR_REJECTED: u8 = 17;
     pub const REFUSED: u8 = 18;
@@ -41,6 +45,8 @@ pub mod tag {
     pub const BUTTONS: u8 = 22;
     pub const REPLY: u8 = 23;
     pub const NOTICE: u8 = 24;
+    pub const SETTINGS: u8 = 25;
+    pub const AGENT_FINISHED: u8 = 26;
 }
 
 /// Why bytes are not a frame.
@@ -110,10 +116,7 @@ pub fn encode(frame: &Frame) -> Result<Vec<u8>, EncodeError> {
     let mut w = Writer::new(frame_tag(frame));
     match frame {
         Frame::Hello(h) => {
-            w.u8(match h.role {
-                Role::Host => 0,
-                Role::Phone => 1,
-            });
+            w.u8(h.role.tag());
             w.u16(h.protocol);
             w.u16(h.min_protocol);
             w.string(&h.app_version, "app version", MAX_VERSION_BYTES)?;
@@ -127,6 +130,7 @@ pub fn encode(frame: &Frame) -> Result<Vec<u8>, EncodeError> {
             w.string(phone_name, "phone name", MAX_NAME_BYTES)?;
         }
         Frame::Viewport(cmd) => {
+            w.u32(cmd.screen.0);
             w.u32(cmd.seq);
             match cmd.op {
                 ViewportOp::Gesture { id, phase, pan_x, pan_y, zoom, focus } => {
@@ -163,7 +167,8 @@ pub fn encode(frame: &Frame) -> Result<Vec<u8>, EncodeError> {
             w.string(path, "path", MAX_PATH_BYTES)?;
             w.u32(*offset);
         }
-        Frame::OpenFile { request_id, path, line } => {
+        Frame::OpenFile { screen, request_id, path, line } => {
+            w.u32(screen.0);
             w.u32(*request_id);
             w.string(path, "path", MAX_PATH_BYTES)?;
             match line {
@@ -174,10 +179,11 @@ pub fn encode(frame: &Frame) -> Result<Vec<u8>, EncodeError> {
                 None => w.u8(0),
             }
         }
-        Frame::Button { request_id, index } => {
+        Frame::Button { screen, request_id, index } => {
             if usize::from(*index) >= BUTTON_COUNT {
                 return Err(EncodeError::BadValue { field: "button index" });
             }
+            w.u32(screen.0);
             w.u32(*request_id);
             w.u8(*index);
         }
@@ -186,6 +192,7 @@ pub fn encode(frame: &Frame) -> Result<Vec<u8>, EncodeError> {
             w.buttons(buttons)?;
         }
         Frame::NeedThumbnail { id } => w.u32(*id),
+        Frame::ContinueReviewing { screen } => w.u32(screen.0),
         Frame::PairAccepted { code } => {
             if *code > 999_999 {
                 return Err(EncodeError::BadValue { field: "code" });
@@ -204,21 +211,13 @@ pub fn encode(frame: &Frame) -> Result<Vec<u8>, EncodeError> {
             Refusal::NotPaired => 0,
             Refusal::UpdateCompanion => 1,
             Refusal::UpdateAzReview => 2,
+            Refusal::UnsupportedRole => 3,
         }),
         Frame::PenState(p) => {
             w.u32(p.seq);
+            w.u32(p.screen.0);
             w.string(&p.folder, "folder", MAX_ENTRY_NAME_BYTES)?;
-            w.string(&p.file, "file", MAX_PATH_BYTES)?;
-            w.u32(p.page_index);
-            w.u32(p.page_count);
-            w.u32(p.line);
-            w.u32(p.line_count);
-            w.finite(p.page_w, "page size")?;
-            w.finite(p.page_h, "page size")?;
-            w.finite(p.view.x, "view")?;
-            w.finite(p.view.y, "view")?;
-            w.finite(p.view.w, "view")?;
-            w.finite(p.view.h, "view")?;
+            w.rect(p.view, "view")?;
             w.finite(p.zoom, "zoom")?;
             match p.pen {
                 Some(pen) => {
@@ -235,6 +234,47 @@ pub fn encode(frame: &Frame) -> Result<Vec<u8>, EncodeError> {
                 Context::Line => 1,
                 Context::Region => 2,
             });
+            match &p.return_point {
+                Some(point) => {
+                    w.u8(1);
+                    w.string(&point.file, "return file", MAX_PATH_BYTES)?;
+                    w.u32(point.page_index);
+                    w.u32(point.line);
+                    w.string(&point.label, "return label", MAX_NAME_BYTES)?;
+                }
+                None => w.u8(0),
+            }
+            match &p.surface {
+                Surface::Page(page) => {
+                    w.u8(0);
+                    if page.page_count > MAX_PAGE_COUNT {
+                        return Err(EncodeError::TooLong { field: "pages", len: page.page_count as usize, max: MAX_PAGE_COUNT as usize });
+                    }
+                    if !(MIN_ASPECT..=MAX_ASPECT).contains(&page.aspect) || !(0.0..=MAX_PAGE_GAP).contains(&page.gap) {
+                        return Err(EncodeError::BadValue { field: "page shape" });
+                    }
+                    w.string(&page.file, "file", MAX_PATH_BYTES)?;
+                    w.u32(page.page_index);
+                    w.u32(page.page_count);
+                    w.u32(page.line);
+                    w.u32(page.line_count);
+                    w.finite(page.aspect, "page shape")?;
+                    w.finite(page.gap, "page shape")?;
+                }
+                Surface::Whiteboard(board) => {
+                    w.u8(1);
+                    if board.item_count > MAX_BOARD_ITEMS {
+                        return Err(EncodeError::TooLong { field: "board items", len: board.item_count as usize, max: MAX_BOARD_ITEMS as usize });
+                    }
+                    if !(MIN_ASPECT..=MAX_ASPECT).contains(&board.aspect) {
+                        return Err(EncodeError::BadValue { field: "board shape" });
+                    }
+                    w.u32(board.board_id);
+                    w.string(&board.name, "board name", MAX_NAME_BYTES)?;
+                    w.finite(board.aspect, "board shape")?;
+                    w.u32(board.item_count);
+                }
+            }
         }
         Frame::Thumbnail(t) => {
             check_thumbnail(t.width, t.height, t.format, t.bytes.len()).map_err(|e| match e {
@@ -294,6 +334,18 @@ pub fn encode(frame: &Frame) -> Result<Vec<u8>, EncodeError> {
             });
             w.string(&notice.text, "notice", MAX_NOTICE_BYTES)?;
         }
+        Frame::Settings(settings) => w.u8(settings_bits(settings)),
+        Frame::AgentFinished(done) => {
+            w.u32(done.conversation_id);
+            w.string(&done.file, "file", MAX_PATH_BYTES)?;
+            w.u32(done.line);
+            w.u8(match done.kind {
+                FinishKind::Done => 0,
+                FinishKind::Suggestion => 1,
+                FinishKind::NoAction => 2,
+                FinishKind::Failed => 3,
+            });
+        }
     }
     if w.buf.len() > MAX_FRAME_BYTES {
         return Err(EncodeError::TooLong { field: "frame", len: w.buf.len(), max: MAX_FRAME_BYTES });
@@ -321,11 +373,7 @@ pub fn decode(bytes: &[u8]) -> Result<Frame, DecodeError> {
     }
     let frame = match kind {
         tag::HELLO => {
-            let role = match r.u8("role")? {
-                0 => Role::Host,
-                1 => Role::Phone,
-                _ => return Err(DecodeError::BadValue { field: "role" }),
-            };
+            let role = Role::from_tag(r.u8("role")?).ok_or(DecodeError::BadValue { field: "role" })?;
             let protocol = r.u16("protocol")?;
             let min_protocol = r.u16("protocol")?;
             Frame::Hello(Hello {
@@ -346,6 +394,7 @@ pub fn decode(bytes: &[u8]) -> Result<Frame, DecodeError> {
             Frame::PairRequest { proof, phone_name: r.string("phone name", MAX_NAME_BYTES)? }
         }
         tag::VIEWPORT => {
+            let screen = ScreenId(r.u32("screen")?);
             let seq = r.u32("seq")?;
             let op = match r.u8("viewport op")? {
                 0 => {
@@ -372,7 +421,7 @@ pub fn decode(bytes: &[u8]) -> Result<Frame, DecodeError> {
                 3 => ViewportOp::Reset,
                 _ => return Err(DecodeError::BadValue { field: "viewport op" }),
             };
-            Frame::Viewport(ViewportCmd { seq, op })
+            Frame::Viewport(ViewportCmd { screen, seq, op })
         }
         tag::LIST_DIR => Frame::ListDir {
             request_id: r.u32("request")?,
@@ -380,6 +429,7 @@ pub fn decode(bytes: &[u8]) -> Result<Frame, DecodeError> {
             offset: r.u32("offset")?,
         },
         tag::OPEN_FILE => {
+            let screen = ScreenId(r.u32("screen")?);
             let request_id = r.u32("request")?;
             let path = r.string("path", MAX_PATH_BYTES)?;
             let line = match r.u8("line")? {
@@ -387,18 +437,20 @@ pub fn decode(bytes: &[u8]) -> Result<Frame, DecodeError> {
                 1 => Some(r.u32("line")?),
                 _ => return Err(DecodeError::BadValue { field: "line" }),
             };
-            Frame::OpenFile { request_id, path, line }
+            Frame::OpenFile { screen, request_id, path, line }
         }
         tag::BUTTON => {
+            let screen = ScreenId(r.u32("screen")?);
             let request_id = r.u32("request")?;
             let index = r.u8("button index")?;
             if usize::from(index) >= BUTTON_COUNT {
                 return Err(DecodeError::BadValue { field: "button index" });
             }
-            Frame::Button { request_id, index }
+            Frame::Button { screen, request_id, index }
         }
         tag::SET_BUTTONS => Frame::SetButtons { request_id: r.u32("request")?, buttons: r.buttons()? },
         tag::NEED_THUMBNAIL => Frame::NeedThumbnail { id: r.u32("thumbnail")? },
+        tag::CONTINUE_REVIEWING => Frame::ContinueReviewing { screen: ScreenId(r.u32("screen")?) },
         tag::PAIR_ACCEPTED => {
             let code = r.u32("code")?;
             if code > 999_999 {
@@ -419,19 +471,14 @@ pub fn decode(bytes: &[u8]) -> Result<Frame, DecodeError> {
             0 => Refusal::NotPaired,
             1 => Refusal::UpdateCompanion,
             2 => Refusal::UpdateAzReview,
+            3 => Refusal::UnsupportedRole,
             _ => return Err(DecodeError::BadValue { field: "refusal" }),
         }),
         tag::PEN_STATE => {
             let seq = r.u32("seq")?;
+            let screen = ScreenId(r.u32("screen")?);
             let folder = r.string("folder", MAX_ENTRY_NAME_BYTES)?;
-            let file = r.string("file", MAX_PATH_BYTES)?;
-            let page_index = r.u32("page")?;
-            let page_count = r.u32("page")?;
-            let line = r.u32("line")?;
-            let line_count = r.u32("line")?;
-            let page_w = r.finite("page size")?;
-            let page_h = r.finite("page size")?;
-            let view = Rect { x: r.finite("view")?, y: r.finite("view")?, w: r.finite("view")?, h: r.finite("view")? };
+            let view = r.rect("view")?;
             let zoom = r.finite("zoom")?;
             let pen = match r.u8("pen")? {
                 0 => None,
@@ -445,7 +492,49 @@ pub fn decode(bytes: &[u8]) -> Result<Frame, DecodeError> {
                 2 => Context::Region,
                 _ => return Err(DecodeError::BadValue { field: "context" }),
             };
-            Frame::PenState(PenState { seq, folder, file, page_index, page_count, line, line_count, page_w, page_h, view, zoom, pen, thumb_id, context })
+            let return_point = match r.u8("return point")? {
+                0 => None,
+                1 => Some(ReturnPoint {
+                    file: r.string("return file", MAX_PATH_BYTES)?,
+                    page_index: r.u32("return page")?,
+                    line: r.u32("return line")?,
+                    label: r.string("return label", MAX_NAME_BYTES)?,
+                }),
+                _ => return Err(DecodeError::BadValue { field: "return point" }),
+            };
+            let surface = match r.u8("surface")? {
+                0 => {
+                    let file = r.string("file", MAX_PATH_BYTES)?;
+                    let page_index = r.u32("page")?;
+                    let page_count = r.u32("page")?;
+                    if page_count > MAX_PAGE_COUNT {
+                        return Err(DecodeError::TooLong { field: "pages", len: page_count as usize, max: MAX_PAGE_COUNT as usize });
+                    }
+                    let line = r.u32("line")?;
+                    let line_count = r.u32("line")?;
+                    let aspect = r.finite("page shape")?;
+                    let gap = r.finite("page shape")?;
+                    if !(MIN_ASPECT..=MAX_ASPECT).contains(&aspect) || !(0.0..=MAX_PAGE_GAP).contains(&gap) {
+                        return Err(DecodeError::BadValue { field: "page shape" });
+                    }
+                    Surface::Page(PageSurface { file, page_index, page_count, line, line_count, aspect, gap })
+                }
+                1 => {
+                    let board_id = r.u32("board")?;
+                    let name = r.string("board name", MAX_NAME_BYTES)?;
+                    let aspect = r.finite("board shape")?;
+                    if !(MIN_ASPECT..=MAX_ASPECT).contains(&aspect) {
+                        return Err(DecodeError::BadValue { field: "board shape" });
+                    }
+                    let item_count = r.u32("board items")?;
+                    if item_count > MAX_BOARD_ITEMS {
+                        return Err(DecodeError::TooLong { field: "board items", len: item_count as usize, max: MAX_BOARD_ITEMS as usize });
+                    }
+                    Surface::Whiteboard(WhiteboardSurface { board_id, name, aspect, item_count })
+                }
+                _ => return Err(DecodeError::BadValue { field: "surface" }),
+            };
+            Frame::PenState(PenState { seq, screen, folder, surface, view, zoom, pen, thumb_id, context, return_point })
         }
         tag::THUMBNAIL => {
             let id = r.u32("thumbnail")?;
@@ -508,6 +597,20 @@ pub fn decode(bytes: &[u8]) -> Result<Frame, DecodeError> {
             };
             Frame::Notice(Notice { level, text: r.string("notice", MAX_NOTICE_BYTES)? })
         }
+        tag::SETTINGS => Frame::Settings(settings_of_bits(r.u8("settings")?)),
+        tag::AGENT_FINISHED => {
+            let conversation_id = r.u32("conversation")?;
+            let file = r.string("file", MAX_PATH_BYTES)?;
+            let line = r.u32("line")?;
+            // a way to end that this build does not know is read as "nothing to do": the phone shows the line and does not buzz
+            let kind = match r.u8("finish kind")? {
+                0 => FinishKind::Done,
+                1 => FinishKind::Suggestion,
+                3 => FinishKind::Failed,
+                _ => FinishKind::NoAction,
+            };
+            Frame::AgentFinished(AgentFinished { conversation_id, file, line, kind })
+        }
         other => return Err(DecodeError::UnknownTag(other)),
     };
     r.end()?;
@@ -528,6 +631,7 @@ fn frame_tag(frame: &Frame) -> u8 {
         Frame::Button { .. } => tag::BUTTON,
         Frame::SetButtons { .. } => tag::SET_BUTTONS,
         Frame::NeedThumbnail { .. } => tag::NEED_THUMBNAIL,
+        Frame::ContinueReviewing { .. } => tag::CONTINUE_REVIEWING,
         Frame::PairAccepted { .. } => tag::PAIR_ACCEPTED,
         Frame::PairRejected(_) => tag::PAIR_REJECTED,
         Frame::Refused(_) => tag::REFUSED,
@@ -537,6 +641,29 @@ fn frame_tag(frame: &Frame) -> u8 {
         Frame::Buttons(_) => tag::BUTTONS,
         Frame::Reply(_) => tag::REPLY,
         Frame::Notice(_) => tag::NOTICE,
+        Frame::Settings(_) => tag::SETTINGS,
+        Frame::AgentFinished(_) => tag::AGENT_FINISHED,
+    }
+}
+
+/// The settings as one byte: reverse pan, snap to the page top, buzz for a result, for a suggestion, for a failure.
+fn settings_bits(settings: &HostSettings) -> u8 {
+    u8::from(settings.reverse_pan)
+        | (u8::from(settings.snap_to_page_top) << 1)
+        | (u8::from(settings.haptic_done) << 2)
+        | (u8::from(settings.haptic_suggestion) << 3)
+        | (u8::from(settings.haptic_failed) << 4)
+}
+
+/// The settings of a byte. A bit this build does not know is a setting a newer AzReview has: it is left alone (a phone obeys what
+/// it understands), not refused.
+fn settings_of_bits(bits: u8) -> HostSettings {
+    HostSettings {
+        reverse_pan: bits & 1 != 0,
+        snap_to_page_top: bits & 2 != 0,
+        haptic_done: bits & 4 != 0,
+        haptic_suggestion: bits & 8 != 0,
+        haptic_failed: bits & 16 != 0,
     }
 }
 
@@ -586,6 +713,13 @@ impl Writer {
         }
         self.buf.extend_from_slice(&v.to_le_bytes());
         Ok(())
+    }
+
+    fn rect(&mut self, rect: Rect, field: &'static str) -> Result<(), EncodeError> {
+        self.finite(rect.x, field)?;
+        self.finite(rect.y, field)?;
+        self.finite(rect.w, field)?;
+        self.finite(rect.h, field)
     }
 
     fn string(&mut self, s: &str, field: &'static str, max: usize) -> Result<(), EncodeError> {
@@ -656,6 +790,10 @@ impl<'a> Reader<'a> {
         } else {
             Err(DecodeError::BadValue { field })
         }
+    }
+
+    fn rect(&mut self, field: &'static str) -> Result<Rect, DecodeError> {
+        Ok(Rect { x: self.finite(field)?, y: self.finite(field)?, w: self.finite(field)?, h: self.finite(field)? })
     }
 
     /// A list's length, against its cap, before anything is reserved for it.

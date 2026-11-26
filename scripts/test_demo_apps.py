@@ -4,9 +4,12 @@
 
     python3 scripts/test_demo_apps.py            (Python 3.11+, standard library only)
 """
+import contextlib
+import io
 import json
 import pathlib
 import sys
+import tarfile
 import tempfile
 import unittest
 
@@ -15,6 +18,8 @@ sys.path.insert(0, str(HERE))
 import demo_apps  # noqa: E402
 import demo_build  # noqa: E402
 import demo_gate  # noqa: E402
+import demo_icon  # noqa: E402
+import demo_publish  # noqa: E402
 
 
 def cargo_json(*artifacts):
@@ -28,6 +33,27 @@ def cargo_json(*artifacts):
     lines.append(json.dumps({"reason": "build-finished", "success": True}))
     return "\n".join(lines) + "\n"
 
+
+# What `python3 scripts/demo_apps.py assets <package>` prints: app, column, staged name, release name, one line
+# per built file. doc/src/dllgen/demo_apps_test.rs holds the SAME lines against the names the release page
+# generator gives the files (GOLDEN_AZWIDGETS and GOLDEN_AZCOMPANION there), and a test of that file reads this
+# one for them: the script and the page agree to the byte as long as both match these, so change them together.
+GOLDEN_AZWIDGETS = (
+    "AzWidgets\tlinux\tAzWidgets-linux\tAzWidgets-linux.tar.gz\n"
+    "AzWidgets\tmacos-arm64\tAzWidgets-macos\tAzWidgets-macos.tar.gz\n"
+    "AzWidgets\tmacos-intel\tAzWidgets-macos-intel\tAzWidgets-macos-intel.tar.gz\n"
+    "AzWidgets\twindows\tAzWidgets-windows.exe\tAzWidgets-windows.exe.tar.gz\n"
+    "AzWidgets\tandroid-arm64\tAzWidgets-android-arm64.apk\tAzWidgets-android-arm64.apk\n"
+    "AzWidgets\tandroid-x86_64\tAzWidgets-android-x86_64.apk\tAzWidgets-android-x86_64.apk\n"
+    "AzWidgets\tios-device\tAzWidgets-ios-device.app.zip\tAzWidgets-ios-device.app.zip\n"
+    "AzWidgets\tios-sim\tAzWidgets-ios-sim.app.zip\tAzWidgets-ios-sim.app.zip\n"
+)
+GOLDEN_AZCOMPANION = (
+    "AzCompanion\tandroid-arm64\tAzCompanion-android-arm64.apk\tAzCompanion-android-arm64.apk\n"
+    "AzCompanion\tandroid-x86_64\tAzCompanion-android-x86_64.apk\tAzCompanion-android-x86_64.apk\n"
+    "AzCompanion\tios-device\tAzCompanion-ios-device.app.zip\tAzCompanion-ios-device.app.zip\n"
+    "AzCompanion\tios-sim\tAzCompanion-ios-sim.app.zip\tAzCompanion-ios-sim.app.zip\n"
+)
 
 FACADE = "path+file:///w/dll#azul-dll@0.2.0"
 CORE = "path+file:///w/core#azul-core@0.0.21"
@@ -96,6 +122,13 @@ class NamesTest(unittest.TestCase):
         self.assertEqual(demo_apps.staged_name(a, "ios-device"), "AzCompanion-ios-device.app.zip")
         self.assertEqual(demo_apps.staged_name(a, "ios-sim"), "AzCompanion-ios-sim.app.zip")
         self.assertEqual(demo_apps.release_name(a, "ios-device"), "AzCompanion-ios-device.app.zip")
+
+    def test_the_assets_command_prints_the_names_the_release_page_generator_pins(self):
+        for package, golden in (("AzWidgets", GOLDEN_AZWIDGETS), ("AzCompanion", GOLDEN_AZCOMPANION)):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(demo_apps.main(["assets", package]), 0)
+            self.assertEqual(out.getvalue(), golden, package)
 
     def test_no_two_assets_share_a_name(self):
         seen = {}
@@ -240,6 +273,92 @@ class StatusTest(unittest.TestCase):
         self.assertEqual((cell["status"], cell["boot"]), ("built", "boots"))
         self.assertEqual(data["summary"]["assets"], 1)
         self.assertIn("built, boots", md)
+
+
+class PublishTest(unittest.TestCase):
+    def run_dir(self, root, names):
+        out = root / "demoapps-x" / "demos-out"
+        out.mkdir(parents=True)
+        for n in names:
+            (out / n).write_bytes(b"binary of " + n.encode())
+        (out / "logs").mkdir()
+        (out / "logs" / "AzWidgets-linux").write_bytes(b"a log that happens to share the name")
+        return root
+
+    def test_a_desktop_binary_is_shipped_as_a_tar_gz_and_a_macos_one_with_its_unquarantine_script(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = self.run_dir(pathlib.Path(d), ["AzWidgets-linux", "AzWidgets-macos", "AzWidgets-windows.exe"])
+            out = pathlib.Path(d) / "release"
+            listing = demo_publish.assemble(root, out, "0.2.0", "abc")
+            self.assertEqual(sorted(x["name"] for x in listing),
+                             ["AzWidgets-linux.tar.gz", "AzWidgets-macos.tar.gz", "AzWidgets-windows.exe.tar.gz"])
+            with tarfile.open(out / "AzWidgets-macos.tar.gz") as t:
+                self.assertEqual(sorted(t.getnames()), ["AzWidgets-macos", "README-macOS.txt", "unquarantine.sh"])
+                self.assertEqual(t.getmember("AzWidgets-macos").mode, 0o755)
+                self.assertIn(b'exec "./AzWidgets-macos"', t.extractfile("unquarantine.sh").read())
+            with tarfile.open(out / "AzWidgets-linux.tar.gz") as t:
+                self.assertEqual(t.getnames(), ["AzWidgets-linux"])
+
+    def test_a_phone_file_is_shipped_as_it_is_and_the_listing_names_every_asset(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = self.run_dir(pathlib.Path(d), ["AzCompanion-android-arm64.apk", "AzCompanion-ios-device.app.zip"])
+            out = pathlib.Path(d) / "release"
+            demo_publish.assemble(root, out, "0.2.0", "abc")
+            self.assertEqual((out / "AzCompanion-android-arm64.apk").read_bytes(), b"binary of AzCompanion-android-arm64.apk")
+            listing = json.loads((out / "release-assets.json").read_text())
+            self.assertEqual(sorted(x["name"] for x in listing),
+                             ["AzCompanion-android-arm64.apk", "AzCompanion-ios-device.app.zip", "companion.json"])
+
+    def test_companion_json_names_every_file_with_its_hash_and_says_it_is_unsigned(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = self.run_dir(pathlib.Path(d), ["AzCompanion-android-arm64.apk", "AzCompanion-ios-sim.app.zip"])
+            out = pathlib.Path(d) / "release"
+            demo_publish.assemble(root, out, "0.2.0", "deadbeef")
+            c = json.loads((out / "companion.json").read_text())
+        self.assertEqual((c["schema"], c["app"], c["release"], c["git"]), (1, "AzCompanion", "0.2.0", "deadbeef"))
+        self.assertEqual([f["name"] for f in c["files"]], ["AzCompanion-android-arm64.apk", "AzCompanion-ios-sim.app.zip"])
+        self.assertEqual([f["platform"] for f in c["files"]], ["android-arm64", "ios-sim"])
+        for f in c["files"]:
+            self.assertRegex(f["sha256"], r"^[0-9a-f]{64}$")
+            self.assertGreater(f["size"], 0)
+        self.assertIsNone(c["signature"])
+        self.assertIn("unsigned", c["signature_note"])
+        self.assertIsInstance(c["protocol_version"], int)
+
+    def test_a_run_without_the_companion_makes_no_companion_json(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = self.run_dir(pathlib.Path(d), ["AzWidgets-linux"])
+            out = pathlib.Path(d) / "release"
+            demo_publish.assemble(root, out, "0.2.0", "abc")
+            self.assertFalse((out / "companion.json").exists())
+
+
+class IconTest(unittest.TestCase):
+    def test_an_icon_is_a_valid_png_of_the_asked_size(self):
+        rows = demo_icon.render("AzMaps", 48, True)
+        data = demo_icon.png(rows, 48, rgba=True)
+        self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
+        self.assertEqual(int.from_bytes(data[16:20], "big"), 48)
+        self.assertEqual(int.from_bytes(data[20:24], "big"), 48)
+        self.assertEqual(len(rows), 48)
+        self.assertTrue(all(len(r) == 48 * 4 for r in rows))
+
+    def test_the_corners_of_an_android_icon_are_transparent_and_an_ios_icon_is_square(self):
+        self.assertEqual(demo_icon.render("AzMaps", 48, True)[0][3], 0)
+        self.assertEqual(demo_icon.render("AzMaps", 48, False)[0][3], 255)
+
+    def test_apps_have_their_own_colour_and_the_companion_its_blue(self):
+        self.assertNotEqual(demo_icon.colour("AzMaps"), demo_icon.colour("AzPaint"))
+        r, g, b = demo_icon.colour("AzCompanion")
+        self.assertGreater(b, r)
+
+    def test_the_icons_of_a_platform_land_where_its_packager_looks(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = pathlib.Path(d)
+            demo_icon.main(["android", "AzMaps", str(root / "res")])
+            demo_icon.main(["ios", "AzMaps", str(root / "app")])
+            self.assertTrue((root / "res" / "mipmap-xxxhdpi" / "ic_launcher.png").is_file())
+            self.assertTrue((root / "app" / "AppIcon60x60@3x.png").is_file())
 
 
 if __name__ == "__main__":

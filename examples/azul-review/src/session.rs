@@ -156,6 +156,10 @@ fn push_talk(out: &mut String, talk: &Conversation) {
         out.push_str(",\"patch\":");
         push_string(out, patch);
     }
+    if let Some(base) = &talk.base {
+        out.push_str(",\"base\":");
+        push_string(out, base);
+    }
     if !talk.proposals.is_empty() {
         out.push_str(",\"suggestions\":[");
         for (i, p) in talk.proposals.iter().enumerate() {
@@ -527,6 +531,7 @@ fn talk_from(json: &Json) -> Conversation {
     talk.asked = count(json, "asked").and_then(|n| u32::try_from(n).ok()).unwrap_or(0);
     talk.logged = key(json, "logged").and_then(|v| v.as_bool().into_option()).unwrap_or(talk.phase == Phase::Done);
     talk.patch = text_of(json, "patch").filter(|p| crate::patch::is_name(p));
+    talk.base = text_of(json, "base").filter(|b| crate::patch_store::is_revision(b));
     for item in items(json, "suggestions") {
         if let Some(p) = proposal_from(&item) {
             talk.restore_proposal(p.suggestion, p.decision);

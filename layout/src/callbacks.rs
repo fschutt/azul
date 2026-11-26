@@ -6444,10 +6444,16 @@ impl CallbackInfo {
     /// that device's report descriptor and a framework guessing at it would
     /// be wrong more often than useful. This is the same trade `WebHID` makes.
     ///
+    /// The HID devices are enumerated when something first uses them (a node that listens for `HidReport`, or this
+    /// call, or `get_hid_devices`): the first call answers what there is (nothing before the first enumeration) and
+    /// asks for it, and the reports come from the next event on.
+    ///
     /// Returns an owned vec rather than a borrowed slice because this crosses
     /// the C API, where a slice has no representation.
     #[must_use]
     pub fn get_hid_reports(&self) -> azul_core::hid::HidReportVec {
+        // Asking is the first use of the HID devices: they are enumerated from the next pass on.
+        self.get_layout_window().app_services.hid.want();
         self.get_layout_window()
             .hid_manager
             .reports()
@@ -6457,10 +6463,16 @@ impl CallbackInfo {
 
     /// The HID devices the platform enumerated.
     ///
+    /// The devices are enumerated when something first uses them (a node that listens for `HidReport`, or this call,
+    /// or `get_hid_reports`): opening every HID device of the machine takes a while, and an app that uses none of them
+    /// should not pay it at its first window. The first call therefore answers the list as it is (empty before the
+    /// first enumeration) and asks for the enumeration; the list is there from the next event on.
+    ///
     /// Returns an owned vec rather than a borrowed slice because this crosses
     /// the C API, where a slice has no representation.
     #[must_use]
     pub fn get_hid_devices(&self) -> azul_core::hid::HidDeviceVec {
+        self.get_layout_window().app_services.hid.want();
         self.get_layout_window()
             .hid_manager
             .devices()

@@ -1,0 +1,229 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "azboard/1",
+  "description": "A whiteboard of code: cutouts of source files (a picture of some lines, with the path, the lines, a hash of them, the revision they were circled at and a permalink to them there) and the arrows between them, with a history of snapshots that say why the architecture is shaped the way it is. Written by AzReview; read by it and by any viewer. A reader ignores a field it does not know and leaves out an item of a kind it does not know; it refuses a document whose format names a newer major version. See azboard.md.",
+  "type": "object",
+  "required": ["format", "board", "workspace", "canvas", "items"],
+  "properties": {
+    "format": {
+      "description": "The name and the major version of the format. A reader of version 1 refuses azboard/2 and later.",
+      "const": "azboard/1"
+    },
+    "generator": {
+      "description": "The program that wrote the document and its version, for a person to read.",
+      "type": "string",
+      "maxLength": 200
+    },
+    "board": {
+      "description": "Which board of its workspace this is.",
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": {"description": "Stable among the boards of the workspace.", "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"},
+        "name": {"type": "string", "maxLength": 80},
+        "created_ms": {"description": "Unix milliseconds.", "type": "integer", "minimum": 0},
+        "modified_ms": {"description": "Unix milliseconds: when the board was last kept, or exported.", "type": "integer", "minimum": 0}
+      }
+    },
+    "workspace": {
+      "description": "The folder the code was in: its own name, never its path on the machine.",
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string"},
+        "path_in_repo": {
+          "description": "Where the folder lies inside the repository, with '/' and none at either end. Absent when it is the repository's own folder. The paths of the items are the repository's own: this is what is taken off to get the folder's.",
+          "type": "string",
+          "$ref": "#/$defs/path"
+        },
+        "repo": {"$ref": "#/$defs/repo"}
+      }
+    },
+    "author": {
+      "description": "The name the board is written with: the name git is configured with (never the e-mail address), or the one the setting whiteboard-author gives. Absent when the setting is off or git has no name.",
+      "type": "string",
+      "maxLength": 200
+    },
+    "canvas": {
+      "description": "The coordinates of the items: px, x grows to the right, y downwards from the top-left corner; the origin is arbitrary and the canvas has no edge.",
+      "type": "object",
+      "required": ["unit", "origin", "view"],
+      "properties": {
+        "unit": {"const": "px"},
+        "origin": {"const": "top-left"},
+        "view": {
+          "description": "How the person last looked at the canvas: the pan (the canvas point at the panel's top-left corner, in px) and the zoom.",
+          "type": "object",
+          "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "zoom": {"type": "number", "exclusiveMinimum": 0}}
+        },
+        "bounds": {
+          "description": "The rectangle that holds every cutout and every free end of an arrow: where a viewer fits the picture. Derived; a reader may ignore it.",
+          "type": "object",
+          "required": ["x", "y", "width", "height"],
+          "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "width": {"type": "number"}, "height": {"type": "number"}}
+        }
+      }
+    },
+    "next_id": {
+      "description": "An id no item of this board has had: ids are never given twice on a board, so an id names one item for ever.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "assets": {
+      "description": "The pictures, by id. A cutout names its picture here.",
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/asset"}
+    },
+    "items": {
+      "description": "What is on the board, in the order it is drawn (the last is on top).",
+      "type": "array",
+      "items": {"$ref": "#/$defs/item"}
+    },
+    "snapshots": {
+      "description": "The history of the board: save points that are never changed once written, oldest first, each with the reason it was taken.",
+      "type": "array",
+      "items": {"type": "object"}
+    }
+  },
+  "$defs": {
+    "path": {
+      "description": "A relative path of plain segments: no '..', no '.', no empty segment, no backslash, no drive.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000,
+      "pattern": "^(?![A-Za-z]:)(?!/)([^/\\\\\\u0000-\\u001f]+/)*[^/\\\\\\u0000-\\u001f]+$",
+      "not": {"pattern": "(^|/)\\.\\.?(/|$)"}
+    },
+    "rev": {
+      "description": "A full commit hash: 40 hex digits (SHA-1) or 64 (SHA-256), lower case.",
+      "type": "string",
+      "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "hash": {
+      "description": "'sha256:' and 64 lower-case hex digits.",
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "point": {
+      "type": "array",
+      "prefixItems": [{"type": "number"}, {"type": "number"}],
+      "items": false,
+      "minItems": 2
+    },
+    "repo": {
+      "description": "The git repository the code is in, as far as it is known; absent for a folder that is no repository (then there are no links, only paths and lines).",
+      "type": "object",
+      "properties": {
+        "remote": {"description": "The remote as git says it, without a password or token in it.", "type": "string"},
+        "web_url": {"description": "The remote as a web address: https://github.com/owner/repo.", "type": "string", "pattern": "^https?://"},
+        "host": {"description": "Which form a link to a line takes.", "enum": ["github", "gitlab", "bitbucket", "gitea", "other"]},
+        "rev": {"description": "The commit the folder was at when the document was written.", "$ref": "#/$defs/rev"},
+        "branch": {"description": "A hint: the branch HEAD was on.", "type": "string"},
+        "dirty": {"description": "Whether the working tree had changes that were not committed (files git tracks). Absent when it was not looked at.", "type": "boolean"}
+      }
+    },
+    "asset": {
+      "type": "object",
+      "required": ["type", "src"],
+      "properties": {
+        "type": {"const": "image/png"},
+        "width": {"description": "In pixels of the picture itself.", "type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1},
+        "src": {
+          "description": "A data: address (data:image/png;base64,...), or a name relative to the document: a file beside it, or an entry of the archive the document is kept in. Never an address on the web: a reader does not fetch one.",
+          "type": "string"
+        }
+      }
+    },
+    "item": {
+      "type": "object",
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": {"description": "cutout or arrow; a reader leaves out a kind it does not know.", "type": "string"},
+        "id": {"description": "Stable and never given twice on the board.", "type": "integer", "minimum": 1}
+      },
+      "allOf": [
+        {"if": {"properties": {"kind": {"const": "cutout"}}, "required": ["kind"]}, "then": {"$ref": "#/$defs/cutout"}},
+        {"if": {"properties": {"kind": {"const": "arrow"}}, "required": ["kind"]}, "then": {"$ref": "#/$defs/arrow"}}
+      ]
+    },
+    "cutout": {
+      "description": "A picture of some lines of a file, with where they came from.",
+      "type": "object",
+      "required": ["x", "y", "width", "height", "source"],
+      "properties": {
+        "x": {"description": "The top-left corner on the canvas.", "type": "number"},
+        "y": {"type": "number"},
+        "width": {"description": "How large the cutout is shown on the canvas.", "type": "number", "exclusiveMinimum": 0},
+        "height": {"type": "number", "exclusiveMinimum": 0},
+        "label": {"description": "What the person wrote under it.", "type": "string"},
+        "image": {
+          "type": "object",
+          "required": ["asset"],
+          "properties": {
+            "asset": {"description": "A key of the document's assets.", "type": "string"},
+            "scale": {"description": "Device pixels of the picture for one px of the canvas: the picture is shown width/scale of the canvas wide.", "type": "number", "exclusiveMinimum": 0}
+          }
+        },
+        "image_state": {"description": "Why there is no picture: it was not drawn yet, or could not be.", "enum": ["pending", "failed"]},
+        "image_note": {"type": "string"},
+        "source": {"$ref": "#/$defs/source"}
+      }
+    },
+    "source": {
+      "description": "The lines of code a cutout shows.",
+      "type": "object",
+      "required": ["path", "line_start", "line_end"],
+      "properties": {
+        "path": {"description": "Relative to the repository's root (to the workspace's folder when it is no repository).", "$ref": "#/$defs/path"},
+        "line_start": {"description": "Counted from 1, both ends included.", "type": "integer", "minimum": 1},
+        "line_end": {"type": "integer", "minimum": 1},
+        "hash": {
+          "description": "The SHA-256 of the covered lines, each followed by a line feed (a carriage return at the end of a line is not part of it), as UTF-8: cut the lines out of the file at 'rev', write a line feed after each, hash. All the covered lines, also when 'code' holds fewer.",
+          "$ref": "#/$defs/hash"
+        },
+        "rev": {"description": "The commit the lines were circled at. Absent when it was not known; then there is no permalink.", "$ref": "#/$defs/rev"},
+        "permalink": {
+          "description": "The address of these lines at 'rev' on the repository's host (GitHub: https://github.com/owner/repo/blob/REV/PATH#L10-L20; GitLab, Bitbucket and Gitea have their own forms; another host the template of the settings, else GitHub's). A link that names a commit shows the same lines for ever.",
+          "type": "string",
+          "pattern": "^https?://"
+        },
+        "language": {"description": "By the file's name, for colouring the code.", "type": "string"},
+        "code": {"description": "The lines as the board kept them (at most 200 lines of 300 characters): what a viewer shows and searches.", "type": "array", "items": {"type": "string"}},
+        "azreview": {"description": "What only AzReview itself uses (the page of the file the loop was drawn on, its outline, two quick hashes); another reader leaves it alone.", "type": "object"}
+      }
+    },
+    "arrow": {
+      "description": "An arrow from one end to another, the head at 'to'.",
+      "type": "object",
+      "required": ["from", "to"],
+      "properties": {
+        "from": {"$ref": "#/$defs/end"},
+        "to": {"$ref": "#/$defs/end"},
+        "bend": {"description": "0 is straight; the sign says to which side it curves.", "type": "number"},
+        "label": {"type": "string"}
+      }
+    },
+    "end": {
+      "description": "Fastened to an item (it follows it), or loose at a point of the canvas.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["item"],
+          "properties": {
+            "item": {"description": "The id of the cutout.", "type": "integer", "minimum": 1},
+            "anchor": {"description": "Where on the cutout: auto (where the line to the other end meets its edge), the middle of a side, or a point given as fractions of its width and height.", "enum": ["auto", "side", "point"]},
+            "side": {"enum": ["top", "right", "bottom", "left"]},
+            "u": {"type": "number"},
+            "v": {"type": "number"}
+          }
+        },
+        {
+          "type": "object",
+          "required": ["free"],
+          "properties": {"free": {"$ref": "#/$defs/point"}}
+        }
+      ]
+    }
+  }
+}

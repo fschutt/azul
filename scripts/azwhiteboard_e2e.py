@@ -21,7 +21,13 @@
     9. the boards: the header's list opens, a new board opens empty, is renamed (the name typed, Enter), board 1 is
        opened again with its cutouts, duplicated (the copy's zip holds its cutouts), one deleted (a bar says so)
        and brought back by Undo, one moved up; the list is kept in the data folder;
-   10. the restart: a second demo on the same data folder reads the board back (`WBDEMO_LOADED 3`: the
+   10. the export: the list's Export opens a sheet that names the author and asks where the pictures go; the save
+       dialog is answered from the mock store; the file is the publishable document (`azboard/1`): the repository's
+       revision, the path in the repository, the lines, the SHA-256 of them, a link to them at the revision, the pictures
+       (inside the file, or in a folder beside it, the very PNGs of the board's zip);
+   11. the import: the exported file (and the one with its pictures beside it) become new boards with the same cutouts, a
+       file of a newer format and one that is no board are told and change nothing;
+   12. the restart: a second demo on the same data folder reads the board back (`WBDEMO_LOADED 3`: the
        two cutouts and the arrow, with their labels).
 
 The pen is not driven here: the debug server's pen_down / pen_move / pen_up only move the mouse state (the engine does
@@ -36,6 +42,8 @@ the bar lies against its right edge. Run ONE app at a time:
     python3 scripts/azwhiteboard_e2e.py --bin target/debug/examples/whiteboard_demo --out /tmp/azwhiteboard-shots
 """
 
+import base64
+import hashlib
 import json
 import math
 import os
@@ -95,6 +103,71 @@ def read_board(path):
         manifest = json.loads(z.read("board.json").decode("utf-8"))
         pictures = {n: z.read(n) for n in z.namelist() if n.endswith(".png")}
     return manifest, pictures
+
+
+def picture_bytes(manifest, pictures, item):
+    """The PNG of a cutout of a board's manifest (`azboard/1`): its asset's name in the zip."""
+    asset = manifest["assets"][item["image"]["asset"]]
+    return pictures[asset["src"]]
+
+
+def git(root, *args):
+    """What git says in `root`, or None (no git, no repository)."""
+    try:
+        done = subprocess.run(["git", "-C", root] + list(args), capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return done.stdout.strip() if done.returncode == 0 else None
+
+
+def web_of(remote):
+    """`https://github.com/owner/repo` of a GitHub remote, as the app writes it; None for another host."""
+    m = re.match(r"^(?:https?://(?:[^@/]+@)?|ssh://git@|git@)github\.com[:/]([^/]+/[^/]+?)(?:\.git)?/?$", remote or "")
+    return "https://github.com/%s" % m.group(1) if m else None
+
+
+def check_document(doc, board_name, author, repo, pictures_from):
+    """What a published board must hold. `repo` is {rev, web} of the checkout the demo was pointed at (or None);
+    `pictures_from(asset)` gives the PNG bytes an asset names."""
+    if doc.get("format") != "azboard/1":
+        raise Failure("the document's format is %r" % doc.get("format"))
+    if doc["board"]["name"] != board_name or doc.get("author") != author:
+        raise Failure("the document names board %r by %r, expected %r by %r" % (doc["board"]["name"], doc.get("author"), board_name, author))
+    if doc["canvas"].get("unit") != "px" or "view" not in doc["canvas"]:
+        raise Failure("the canvas has no unit or view: %s" % doc["canvas"])
+    if not isinstance(doc.get("snapshots"), list):
+        raise Failure("the document has no history list")
+    cutouts = [i for i in doc["items"] if i["kind"] == "cutout"]
+    arrows = [i for i in doc["items"] if i["kind"] == "arrow"]
+    if len(cutouts) != 2 or len(arrows) != 1:
+        raise Failure("the document should hold two cutouts and an arrow: %s" % [i["kind"] for i in doc["items"]])
+    if repo:
+        r = doc["workspace"].get("repo") or {}
+        if r.get("rev") != repo["rev"]:
+            raise Failure("the document's revision is %r, the checkout's HEAD is %r" % (r.get("rev"), repo["rev"]))
+        if repo["web"] and r.get("web_url") != repo["web"]:
+            raise Failure("the document's web address is %r, expected %r" % (r.get("web_url"), repo["web"]))
+    for c in cutouts:
+        s = c["source"]
+        digest = "sha256:" + hashlib.sha256(("\n".join(s["code"]) + "\n").encode("utf-8")).hexdigest()
+        if s.get("hash") != digest:
+            raise Failure("a cutout's hash %r is not the SHA-256 of the code it holds (%s)" % (s.get("hash"), digest))
+        if s["line_start"] < 1 or s["line_end"] < s["line_start"] or len(s["code"]) != s["line_end"] - s["line_start"] + 1:
+            raise Failure("a cutout's lines %s-%s do not match its %d lines of code" % (s["line_start"], s["line_end"], len(s["code"])))
+        if s.get("language") != "rust":
+            raise Failure("the language of a Rust file is %r" % s.get("language"))
+        if repo:
+            if s["path"] != "examples/azul-review/src/whiteboard_demo.rs" or s.get("rev") != repo["rev"]:
+                raise Failure("a cutout names %r at %r" % (s["path"], s.get("rev")))
+            if repo["web"]:
+                lines = "L%d" % s["line_start"] if s["line_start"] == s["line_end"] else "L%d-L%d" % (s["line_start"], s["line_end"])
+                want = "%s/blob/%s/%s#%s" % (repo["web"], repo["rev"], s["path"], lines)
+                if s.get("permalink") != want:
+                    raise Failure("a cutout's link is %r, expected %r" % (s.get("permalink"), want))
+        png = pictures_from(doc["assets"][c["image"]["asset"]])
+        if not png.startswith(b"\x89PNG"):
+            raise Failure("a cutout's picture is no PNG")
+    return cutouts
 
 
 def window_number(pid):
@@ -265,10 +338,18 @@ def body(args, logs, out):
     data_dir = os.path.join(logs, "data")
     os.makedirs(data_dir, exist_ok=True)
     argv = ["--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en"]
-    app = e2e.App("whiteboard", binary, argv, args.debug_port, logs, args.timeout)
+    # The demo's page is its own source: its folder is where the repository is looked at (the checkout this script is in).
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    folder = os.path.join(root, "examples", "azul-review", "src")
+    rev = git(root, "rev-parse", "HEAD")
+    repo = {"rev": rev, "web": web_of(git(root, "remote", "get-url", "origin"))} if rev and os.path.isdir(folder) else None
+    env = {"WBDEMO_WORKSPACE": folder, "WBDEMO_AUTHOR": "E2E Author"}
+    app = e2e.App("whiteboard", binary, argv, args.debug_port, logs, args.timeout, extra_env=env)
     try:
         app.until("the demo's window", lambda: app.has_id(SURFACE) and app.has_id(PAGE))
         app.frame(3)
+        if repo:
+            wait_for(app, "WBDEMO_REPO", re.escape(repo["rev"]) + r" .*", "the demo read the checkout's revision")
         demo = Demo(app)
         shoot(app, os.path.join(out, "1-empty.png"))
 
@@ -308,7 +389,9 @@ def body(args, logs, out):
         cutouts = [i for i in manifest["items"] if i["kind"] == "cutout"]
         if len(cutouts) != 1 or not pictures:
             raise Failure("the kept board does not hold one cutout and its picture: %s" % [i["kind"] for i in manifest["items"]])
-        if not pictures[cutouts[0]["image"]].startswith(b"\x89PNG"):
+        if manifest.get("format") != "azboard/1":
+            raise Failure("the kept board is %r, not azboard/1" % manifest.get("format"))
+        if not picture_bytes(manifest, pictures, cutouts[0]).startswith(b"\x89PNG"):
             raise Failure("the cutout's picture is no PNG")
         print("[azwhiteboard] armed %s, cutout %s, kept as %s" % (armed, size, os.path.basename(saved)))
 
@@ -407,7 +490,7 @@ def body(args, logs, out):
         # resizes it with its proportions kept; each gesture is ONE step (Mod+Z puts it back).
         def rect_of(item_id):
             found = [i for i in read_board(board_file(data_dir))[0]["items"] if i["id"] == item_id]
-            return tuple(float(found[0][k]) for k in ("x", "y", "w", "h")) if found else None
+            return tuple(float(found[0][k]) for k in ("x", "y", "width", "height")) if found else None
 
         def near(r, x, y):
             return r is not None and abs(r[0] - x) < 3.0 and abs(r[1] - y) < 3.0
@@ -486,6 +569,119 @@ def body(args, logs, out):
         app.until("the copy is moved", lambda: [i for i, _ in boards()] == ["b1", "b3", "b2"])
         shoot(app, os.path.join(out, "9e-list.png"))
         print("[azwhiteboard] boards: %s" % boards())
+
+        # The export: the sheet names the author and asks where the pictures go; the save dialog is answered from the mock
+        # store; what is written is the publishable document.
+        site = os.path.join(logs, "export")
+        os.makedirs(site, exist_ok=True)
+        manifest1, zipped = read_board(board_file(data_dir, "b1"))
+        zip_pngs = [picture_bytes(manifest1, zipped, c) for c in manifest1["items"] if c["kind"] == "cutout"]
+
+        def open_list():
+            """The list of boards open (a click on the header's name toggles it)."""
+            if not app.has_id("__azreview_whiteboard-board-list"):
+                app.click("#__azreview_whiteboard-boards")
+            app.until("the list of boards", lambda: app.has_id("__azreview_whiteboard-board-list"))
+
+        def export(name, beside):
+            target = os.path.join(site, name)
+            before = say("WBDEMO_EXPORTED")
+            open_list()
+            app.click("#__azreview_whiteboard-board-export")
+            app.until("the export sheet", lambda: app.has_id("__azreview_whiteboard-export"))
+            words = " ".join(app.texts())
+            if "E2E Author" not in words or "JSON" not in words:
+                raise Failure("the sheet does not name the author or the file: %s" % words[:400])
+            if beside:
+                app.click("#__azreview_whiteboard-export-beside")
+            shoot(app, os.path.join(out, "10a-export-sheet.png" if not beside else "10b-export-sheet-beside.png"))
+            app.scenario_assert("mock", set={"save_file": {"path": target}})
+            app.click("#__azreview_whiteboard-export-go")
+            app.until("the file is written", lambda: say("WBDEMO_EXPORTED") > before)
+            app.until("and the sheet is gone", lambda: not app.has_id("__azreview_whiteboard-export"))
+            return target
+
+        embedded = export("Parser.azboard.json", False)
+        with open(embedded, encoding="utf-8") as f:
+            doc = json.load(f)
+
+        def inline(asset):
+            src = asset["src"]
+            if not src.startswith("data:image/png;base64,"):
+                raise Failure("the picture is not inside the file: %s" % src[:60])
+            return base64.b64decode(src.split(",", 1)[1])
+
+        check_document(doc, "Board 1", "E2E Author", repo, inline)
+        embedded_pngs = [inline(doc["assets"][c["image"]["asset"]]) for c in doc["items"] if c["kind"] == "cutout"]
+        if embedded_pngs != zip_pngs:
+            raise Failure("the pictures in the file are not the PNGs of the board's zip")
+        if any(not isinstance(i["id"], int) for i in doc["items"]) or doc["next_id"] <= max(i["id"] for i in doc["items"]):
+            raise Failure("the items' ids are not stable integers below next_id")
+        print("[azwhiteboard] exported: %d bytes, %d links, rev %s" % (os.path.getsize(embedded), sum(1 for i in doc["items"] if i["kind"] == "cutout" and i["source"].get("permalink")), (doc["workspace"].get("repo") or {}).get("rev", "-")))
+        beside_json = export("Parser2.azboard.json", True)
+        with open(beside_json, encoding="utf-8") as f:
+            doc2 = json.load(f)
+
+        def from_folder(asset):
+            src = asset["src"]
+            if src.startswith("data:") or ".." in src or src.startswith("/"):
+                raise Failure("the picture is not in the folder beside the file: %s" % src[:60])
+            with open(os.path.join(site, src), "rb") as f:
+                return f.read()
+
+        check_document(doc2, "Board 1", "E2E Author", repo, from_folder)
+        if "base64" in open(beside_json, encoding="utf-8").read():
+            raise Failure("the file with its pictures beside it holds a picture")
+
+        # The import: the file with its pictures inside becomes a board, and so does the one with its pictures beside it;
+        # a file of a newer format and one that is no board are told and change nothing.
+        def import_file(path, fresh):
+            app.scenario_assert("mock", set={"file_open": {"path": path}})
+            open_list()
+            app.click("#__azreview_whiteboard-board-import")
+            if fresh:
+                app.until("the file is read", lambda: say("WBDEMO_IMPORTED") >= fresh)
+            return app.printed("WBDEMO_IMPORTED", r".+")[-1] if fresh else None
+
+        said = import_file(embedded, 1)
+        if not re.match(r"b4 Board_1 3 0 0$", said):
+            raise Failure("the import said %r, expected b4 Board_1 3 0 0" % said)
+        app.until("the imported board is listed and kept", lambda: [i for i, _ in boards()][-1:] == ["b4"] and board_file(data_dir, "b4") is not None)
+        app.until("and open with its cutouts", lambda: app.has_id("__azreview_whiteboard-cutout-1") and app.has_id("__azreview_whiteboard-cutout-2"))
+        shoot(app, os.path.join(out, "10c-imported.png"))
+        imported, _ = read_board(board_file(data_dir, "b4"))
+
+        def essence(manifest):
+            """What makes a board that board: the items without the pictures' asset ids and the times."""
+            return [{k: v for k, v in i.items() if k != "image"} for i in manifest["items"]]
+
+        if essence(imported) != essence(manifest1):
+            raise Failure("the imported board is not the exported one:\n%s\n%s" % (json.dumps(essence(imported))[:600], json.dumps(essence(manifest1))[:600]))
+        said = import_file(beside_json, 2)
+        if not re.match(r"b5 Board_1 3 0 0$", said):
+            raise Failure("the import of the file with its pictures beside it said %r" % said)
+        app.until("the second imported board is kept", lambda: board_file(data_dir, "b5") is not None)
+        shoot(app, os.path.join(out, "10d-imported-beside.png"))
+        # Told, not opened.
+        newer = os.path.join(site, "newer.azboard.json")
+        with open(newer, "w", encoding="utf-8") as f:
+            f.write('{"format": "azboard/2", "items": []}')
+        junk = os.path.join(site, "junk.azboard.json")
+        with open(junk, "w", encoding="utf-8") as f:
+            f.write("this is not a board")
+        before_boards = boards()
+        import_file(newer, 0)
+        app.until("a newer format is told", lambda: say("WBDEMO_IMPORT_ERROR", r".*newer.*") >= 1)
+        import_file(junk, 0)
+        app.until("a file that is no board is told", lambda: say("WBDEMO_IMPORT_ERROR") >= 2)
+        app.until("and said in the panel", lambda: any("could not be opened" in t for t in app.texts()))
+        shoot(app, os.path.join(out, "10e-import-told.png"))
+        if boards() != before_boards:
+            raise Failure("a refused file changed the boards: %s -> %s" % (before_boards, boards()))
+        # Back to board 1 for the restart.
+        open_list()
+        app.click("#__azreview_whiteboard-board-b1")
+        app.until("board 1 is open again", lambda: say("WBDEMO_OPENED", r"b1 3") >= 2)
     except Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
         raise
@@ -497,7 +693,7 @@ def body(args, logs, out):
     try:
         app.until("the second window", lambda: app.has_id(SURFACE))
         app.expect_line("WBDEMO_LOADED", "3", "the board read back (two cutouts and the arrow)")
-        app.expect_line("WBDEMO_BOARDS", "3 b1 Board 1", "the list of boards read back, board 1 open")
+        app.expect_line("WBDEMO_BOARDS", "5 b1 Board 1", "the list of boards read back, board 1 open")
         app.frame(3)
         for i in (1, 2):
             if not app.rect("__azreview_whiteboard-cutout-%d" % i):
@@ -509,7 +705,7 @@ def body(args, logs, out):
         raise
     finally:
         app.stop()
-    print("[azwhiteboard] PASS: a loop became a cutout, two cutouts an arrow, the board was kept and came back")
+    print("[azwhiteboard] PASS: a loop became a cutout, two cutouts an arrow, the board was kept, exported, imported and came back")
     return True
 
 

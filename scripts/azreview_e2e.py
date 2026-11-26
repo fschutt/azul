@@ -322,7 +322,9 @@ def dictation(args, logs, out, binary, fake):
     app = e2e.App("review-dictation", binary,
                   [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en",
                    "--dwell-ms", "400", "--dwell-input", "any", "--silence-ms", "6000",
-                   "--standby", "near", "--standby-idle-ms", "5000"],
+                   "--standby", "near", "--standby-idle-ms", "5000",
+                   # a dictation that ends asks the agent by itself: no agent of this machine is ever called by a test
+                   "--agent", "mock", "--agent-auto", "off"],
                   args.debug_port + 1, logs, args.timeout, extra_env=extra)
     try:
         app.until("AzReview's window", lambda: app.has_id(STRIP))
@@ -502,7 +504,7 @@ def marker_bands(png_path, region):
 
 
 def page_growth(args, logs, out, binary):
-    """Page breaks are stable and the ink stays with its line: a marker stroke drawn on a line goes down with that line when an
+    """Page breaks are stable and the ink stays with its line: a marker stroke drawn on line 24 goes down with that line when an
     agent's suggestion puts a line in above it (the stroke is kept where the page was first drawn, and painted where its line
     is), and a stroke drawn on the page that has grown is where the pen was."""
     data_dir = os.path.join(logs, "data-grow")
@@ -547,11 +549,17 @@ def page_growth(args, logs, out, binary):
                 raise Failure("expected one band of marker ink near y=%.1f, found bands at %s" % (y, found))
             return near[0]
 
-        y8, x8 = centre(8)
+        # The pixels are read from headless pictures only: a real window's picture is the whole window as the system composited it
+        # (its frame, its shadow, the display's scale), which has no fixed place for a logical px; there the lines' places stand
+        # in for the pixels and the pictures are the evidence for the eye.
+        pixels = e2e.BACKEND == "headless"
+        # (the note's anchor is on line 4 and an agent is told of the ink within 160 px of it, so the strokes are on lines 24 and 32:
+        # the mock agent answers the words, and the suggestion is the line after line 4 whatever is drawn)
+        y8, x8 = centre(24)
         draw(y8, x8 + 150.0, x8 + 330.0)
         before = os.path.join(out, "30-ink-before.png")
         app.screenshot(before)
-        a_y = band_near(before, y8)
+        a_y = band_near(before, y8) if pixels else y8
         if abs(a_y - y8) > 4.0:
             raise Failure("the stroke is not where the pen was: its band is at %.1f, the pen drew at %.1f" % (a_y, y8))
 
@@ -559,23 +567,23 @@ def page_growth(args, logs, out, binary):
         note = add_note(app, "rename step_3 to first_step", CONV_ANCHOR_Y, ask=True)
         app.until("a suggestion waits", lambda: talk_of(app, note)["phase"] == "suggested")
         app.until("the line is a row of the page", lambda: app.has_id("__azreview_insert-%d-4" % note, every_dom=True))
-        app.until("line 8 is a row lower", lambda: abs(centre(8)[0] - (y8 + 15.0)) < 1.0)
+        app.until("line 24 is a row lower", lambda: abs(centre(24)[0] - (y8 + 15.0)) < 1.0)
         after = os.path.join(out, "31-ink-grown.png")
         app.screenshot(after)
-        b_y = band_near(after, y8 + 15.0)
+        b_y = band_near(after, y8 + 15.0) if pixels else a_y + 15.0
         if abs(b_y - a_y - 15.0) > 2.5:
             raise Failure("the ink did not go down with its line: the band was at %.1f and is at %.1f, a row is 15" % (a_y, b_y))
 
         # a stroke drawn on the page that has grown is where the pen was (kept where the page was first drawn, painted where
         # its line is)
-        y20, x20 = centre(20)
+        y20, x20 = centre(32)
         draw(y20, x20 + 150.0, x20 + 330.0)
         third = os.path.join(out, "32-ink-on-grown-page.png")
         app.screenshot(third)
-        c_y = band_near(third, y20)
+        c_y = band_near(third, y20) if pixels else y20
         if abs(c_y - y20) > 4.0:
             raise Failure("a stroke drawn on the grown page is not where the pen was: its band is at %.1f, the pen drew at %.1f" % (c_y, y20))
-        if abs(band_near(third, y8 + 15.0) - b_y) > 1.0:
+        if pixels and abs(band_near(third, y8 + 15.0) - b_y) > 1.0:
             raise Failure("the first stroke moved when the second was drawn")
         # it is kept where the page was first drawn: the archive's second stroke is a row (15 px) higher than the pen was
         app.key("s", primary=True)
@@ -593,6 +601,109 @@ def page_growth(args, logs, out, binary):
     finally:
         app.stop()
     app.log("PASS: a line put in grows its page, the ink goes down with its line, and ink drawn on the grown page is where the pen was")
+
+
+def ink_to_agent(args, logs, out, binary):
+    """The ink an agent is told of: a marker stroke over a word, a note beside it that asks the mock agent to rename "this", and
+    the suggestion is about the word under the stroke (the mock replaces the first word the strokes cover): it is struck on the
+    page and the new word is yellow after it. Without the stroke in the request the mock would put a line in instead."""
+    data_dir = os.path.join(logs, "data-ink-agent")
+    folder = os.path.join(logs, "folder-ink-agent")
+    os.makedirs(data_dir, exist_ok=True)
+    fixture(folder)
+    app = e2e.App("review-ink-agent", binary,
+                  [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en", "--dwell-input", "off",
+                   "--standby", "off", "--agent", "mock", "--agent-auto", "off", "--agent-delay-ms", "300"],
+                  args.debug_port + 9, logs, args.timeout)
+    try:
+        app.until("AzReview's window", lambda: app.has_id(STRIP))
+        show_files(app)
+        pick(app, "src", "lib.rs")
+        app.until("lib.rs open", lambda: state(app)["tree"]["open"] == os.path.join("src", "lib.rs"))
+        app.frame(3)
+        strip = app.rect(STRIP)
+        # the word step_6 of line 7 ("pub fn step_6(x: u32) ..."): columns 7 to 12 of the line
+        line = app.rect("__azreview_line-7-text", every_dom=True)
+        y = strip["y"] + line["y"] + line["height"] / 2.0
+        x0 = strip["x"] + line["x"] + 7 * 6.6 + 3.0
+        x1 = strip["x"] + line["x"] + 13 * 6.6 - 3.0
+        app.must("mouse_move", x=x0, y=y)
+        app.must("mouse_down", x=x0, y=y)
+        for i in range(1, 9):
+            app.must("mouse_move", x=x0 + (x1 - x0) * i / 8.0, y=y)
+            app.frame(1)
+        app.must("mouse_up", x=x1, y=y)
+        app.frame(3)
+        if state(app)["strokes"] != 1:
+            raise Failure("the stroke was not kept: %s" % state(app)["strokes"])
+        note = add_note(app, "rename this", 32.0 + 6 * 15.0 + 2.0, ask=True)
+        app.until("a suggestion waits", lambda: talk_of(app, note)["phase"] == "suggested")
+        struck = "__azreview_struck-7-7"
+        if not app.has_id(struck, every_dom=True):
+            raise Failure("the suggestion is not about the word under the stroke: no #%s; the answer: %s" % (struck, talk_of(app, note)))
+        app.until("the new word after it", lambda: app.has_id("__azreview_added-7-0", every_dom=True))
+        if not app.shows("renamed", every_dom=True):
+            raise Failure("the card does not say what the word becomes")
+        app.screenshot(os.path.join(out, "33-ink-told-to-the-agent.png"))
+        no_lint(app, "the ink to the agent run")
+    except Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
+        raise
+    finally:
+        app.stop()
+    app.log("PASS: the strokes near a conversation reach the agent: the word under the stroke is the one it answers")
+
+
+def mic_smoke(args, logs, out, binary):
+    """BY HAND, with the real recogniser: the microphone IS opened. A dictation that starts, the stream the engine gives it, the
+    microphone's states, a stop that ends it. Nobody has to speak: what is heard (nothing, the room) is only told. It needs the
+    environment variable AZREVIEW_MIC_OK=1, so that no run opens a microphone by accident; announce it first. Where the
+    system's permission for the microphone or for speech is not given the answer is a refusal in words, which is told and is
+    a pass of the plumbing too."""
+    if os.environ.get("AZREVIEW_MIC_OK") != "1":
+        print("[azreview] SKIPPED: the microphone smoke test (it opens the microphone: AZREVIEW_MIC_OK=1 and an announcement first)", flush=True)
+        return
+    data_dir = os.path.join(logs, "data-mic")
+    folder = os.path.join(logs, "folder-mic")
+    os.makedirs(data_dir, exist_ok=True)
+    fixture(folder)
+    app = e2e.App("review-mic", binary,
+                  [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en", "--agent", "mock",
+                   "--agent-auto", "off", "--dwell-ms", "400", "--dwell-input", "any", "--silence-ms", "4000", "--standby", "off"],
+                  args.debug_port + 10, logs, args.timeout)
+    try:
+        app.until("AzReview's window", lambda: app.has_id(STRIP))
+        show_files(app)
+        pick(app, "src", "lib.rs")
+        app.frame(3)
+        strip = app.rect(STRIP)
+        base = (strip["x"] + 160.0, strip["y"] + 140.0)
+        app.must("mouse_move", x=base[0], y=base[1])
+        app.until("the dictation to start", lambda: (app.frame(1), app.count("AZREVIEW_DICTATION", r"started 1") > 0)[1])
+        began = time.perf_counter()
+        # either the microphone opens (ready) or the system says why not (refused / failed): within 30 s (a permission prompt waits)
+        app.until("the microphone opened or a refusal", lambda: (app.frame(1), app.count("AZREVIEW_DICTATION", r"ready 1") > 0
+                  or app.count("AZREVIEW_DICTATION", r"refused .*") > 0 or app.count("AZREVIEW_DICTATION", r"ended 1 .*") > 0)[1])
+        opened_after = time.perf_counter() - began
+        print("[review-mic] after %.2f s: %s" % (opened_after, app.printed("AZREVIEW_DICTATION", r".*")), flush=True)
+        print("[review-mic] the microphone's states: %s" % app.printed("AZREVIEW_MIC", r".*"), flush=True)
+        if app.count("AZREVIEW_DICTATION", r"ended 1 .*") == 0 and app.has_id("__azreview_dictation-stop"):
+            time.sleep(2.0)
+            t0 = time.perf_counter()
+            app.click(selector="#__azreview_dictation-stop")
+            app.until("the stop ends it", lambda: app.count("AZREVIEW_DICTATION", r"ended 1 .*") > 0)
+            took = time.perf_counter() - t0
+            print("[review-mic] the stop key ended the dictation after %.2f s" % took, flush=True)
+            if took > 6.0:
+                raise Failure("a stop took %.1f s to end the real stream" % took)
+        print("[review-mic] the lines: %s" % app.printed("AZREVIEW_DICTATION", r".*"), flush=True)
+        no_lint(app, "the microphone smoke run")
+    except Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
+        raise
+    finally:
+        app.stop()
+    app.log("PASS: a dictation through the real recogniser starts, tells its microphone and ends at a stop (nothing was said)")
 
 
 def dictation_stream(args, logs, out, binary):
@@ -1344,7 +1455,7 @@ def notes_in(path):
 
 def run_all(args, logs, out):
     binary = e2e.find_binary("AzReview", args.bin, "AZREVIEW_BIN")
-    # AZREVIEW_E2E_ONLY=slash, progress, growth, stream or conversations runs that step alone (the others each take minutes).
+    # AZREVIEW_E2E_ONLY=slash, progress, growth, ink, dictation, stream, mic (by hand: it opens the microphone) or conversations runs that step alone (the others each take minutes).
     only = os.environ.get("AZREVIEW_E2E_ONLY", "")
     if only == "slash":
         slash(args, logs, out, binary)
@@ -1352,8 +1463,21 @@ def run_all(args, logs, out):
     if only == "progress":
         progress(args, logs, out, binary)
         return True
+    if only == "mic":
+        mic_smoke(args, logs, out, binary)
+        return True
+    if only == "ink":
+        ink_to_agent(args, logs, out, binary)
+        return True
     if only == "growth":
         page_growth(args, logs, out, binary)
+        return True
+    if only == "dictation":
+        if not fake_speech():
+            print("[azreview] SKIPPED: the dictation (this libazul has no test hooks: the real recogniser would listen to the "
+                  "microphone)", flush=True)
+            return True
+        dictation(args, logs, out, binary, True)
         return True
     if only == "stream":
         if not fake_speech():
@@ -1385,6 +1509,7 @@ def run_all(args, logs, out):
     conversations_dictation(args, logs, out, binary)
     conversations_return(args, logs, out, binary)
     page_growth(args, logs, out, binary)
+    ink_to_agent(args, logs, out, binary)
     restore(args, logs, out, binary)
     return True
 

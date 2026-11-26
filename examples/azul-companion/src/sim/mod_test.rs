@@ -86,14 +86,14 @@ fn a_screen_with_room_leaves_the_phone_at_its_own_size() {
 
 #[test]
 fn every_phone_both_ways_round_fits_the_screen_of_a_small_laptop() {
-    for device in 0..DEVICES.len() {
+    for (device, phone) in DEVICES.iter().enumerate() {
         for landscape in [false, true] {
             let mut e = on_screen(LAPTOP);
             e.device = device;
             e.landscape = landscape;
             let (w, h) = e.window_size();
             let scale = e.scale();
-            assert!(w <= LAPTOP.0 && h <= LAPTOP.1 - WINDOW_FRAME, "{} landscape {landscape}: {w} x {h}", DEVICES[device].name);
+            assert!(w <= LAPTOP.0 && h <= LAPTOP.1 - WINDOW_FRAME, "{} landscape {landscape}: {w} x {h}", phone.name);
             assert!((0.3..=1.0).contains(&scale) && steps_of_five_percent(scale), "{scale}");
             let phone = (e.env().width * scale, e.env().height * scale);
             assert!(phone.0 + 2.0 * BEZEL * scale <= w - PANEL_W && phone.1 + 2.0 * BEZEL * scale <= h, "the phone is inside the window");

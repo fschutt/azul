@@ -319,7 +319,7 @@ def phone(args, job, kind):
         app = job.apps[pkg]
         started = time.time()
         tag = f"{pkg}.{column}"
-        artifact_name = f"demos-lib-{column}-{app['mobile_lib']}"
+        artifact_name = f"demolib-{column}-{app['mobile_lib']}"
         lib = lib_file(args.libs, artifact_name, kind)
         if lib is None:
             job.result(app, column, args.target, "failed", f"the library {artifact_name} did not arrive",

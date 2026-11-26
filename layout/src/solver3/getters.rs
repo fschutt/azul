@@ -2245,13 +2245,16 @@ pub(crate) const RARE_TEXT_FLAGS: u64 = azul_css::compact_cache::DOM_HAS_FONT_VA
     | azul_css::compact_cache::DOM_HAS_FONT_SYNTHESIS
     | azul_css::compact_cache::DOM_HAS_FONT_VARIANT_POSITION
     | azul_css::compact_cache::DOM_HAS_TEXT_RENDERING
+    | azul_css::compact_cache::DOM_HAS_TEXT_DECORATION_COLOR
+    | azul_css::compact_cache::DOM_HAS_TEXT_DECORATION_THICKNESS
     | azul_css::compact_cache::DOM_HAS_TEXT_COMBINE_UPRIGHT;
 
 /// A hash of what a node asks through the text properties that have no compact slot (the
 /// [`RARE_TEXT_FLAGS`]): the variation settings and the optical sizing
 /// ([`font_variation_inputs_hash`]), the kerning, the ligatures, the East Asian forms, the
 /// numeric and caps variants, the feature settings, the synthesis switches, the position forms,
-/// the rendering hint and the combining of digits. The cache of the collected inline content of a formatting
+/// the rendering hint, the colour and the thickness of the decoration lines and the combining of
+/// digits. The cache of the collected inline content of a formatting
 /// context folds it in for a document that declares one of them (it keys on the nodes and on the
 /// compact cache, which holds none of these), so that a restyle that moves only one - another
 /// stylesheet over the same nodes - collects the text in its new style. A property the document
@@ -2339,6 +2342,18 @@ pub(crate) fn rare_text_inputs_hash(
     if declared(flags::DOM_HAS_TEXT_RENDERING) {
         cache
             .get_text_rendering(node_data, &node_id, node_state)
+            .and_then(|v| v.get_property())
+            .hash(&mut hasher);
+    }
+    if declared(flags::DOM_HAS_TEXT_DECORATION_COLOR) {
+        cache
+            .get_text_decoration_color(node_data, &node_id, node_state)
+            .and_then(|v| v.get_property())
+            .hash(&mut hasher);
+    }
+    if declared(flags::DOM_HAS_TEXT_DECORATION_THICKNESS) {
+        cache
+            .get_text_decoration_thickness(node_data, &node_id, node_state)
             .and_then(|v| v.get_property())
             .hash(&mut hasher);
     }
@@ -4886,16 +4901,146 @@ pub fn get_style_properties_with(
     )
 }
 
+/// The greatest length, in px, that sets a decoration line (`text-decoration-thickness`,
+/// `text-underline-offset`): no text needs a line thicker or further from its text than this,
+/// and a rectangle that big costs every renderer the same as one the size of the window. A length
+/// beyond it is read as it, with a diagnostic.
+pub const MAX_DECORATION_LENGTH_PX: f32 = 1000.0;
+
+/// A length that sets a decoration line of the box `dom_id`, in px: an `em` and a percentage
+/// (of one em) are parts of the font size of THAT box - the box that sets the line, whatever the
+/// font size of the text under it (CSS Text Decoration 4) - a zoom scales an absolute length like
+/// any other, and the result is capped at [`MAX_DECORATION_LENGTH_PX`] either way.
+///
+/// `property` names the property in the diagnostic of a length that was capped.
+fn decoration_length_px(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    node_state: &StyledNodeState,
+    viewport: PhysicalSize,
+    length: PixelValue,
+    property: &str,
+) -> f32 {
+    use core::hash::{Hash, Hasher};
+
+    use azul_css::props::basic::length::SizeMetric;
+
+    let font_size = get_element_font_size_in_viewport(styled_dom, dom_id, node_state, viewport);
+    let px = if length.metric == SizeMetric::Percent {
+        length.number.get() / 100.0 * font_size
+    } else {
+        let context = ResolutionContext {
+            vertical_writing_mode: false,
+            element_font_size: font_size,
+            parent_font_size: font_size,
+            root_font_size: get_root_font_size(styled_dom, node_state),
+            containing_block_size: PhysicalSize::new(0.0, 0.0),
+            element_size: None,
+            viewport_size: viewport,
+        };
+        zoomed_length(
+            styled_dom,
+            dom_id,
+            length.metric,
+            length.resolve_with_context(&context, PropertyContext::Other),
+        )
+    };
+    if px.is_finite() && px.abs() <= MAX_DECORATION_LENGTH_PX {
+        return px;
+    }
+    let mut key = std::collections::hash_map::DefaultHasher::new();
+    "decoration length capped".hash(&mut key);
+    property.hash(&mut key);
+    azul_core::diagnostics::emit_once(key.finish(), || {
+        alloc::format!(
+            "[azul][css] {property}: a length of {px}px is read as {MAX_DECORATION_LENGTH_PX}px, \
+             the greatest that sets a line of text"
+        )
+    });
+    if px.is_nan() {
+        0.0
+    } else {
+        px.clamp(-MAX_DECORATION_LENGTH_PX, MAX_DECORATION_LENGTH_PX)
+    }
+}
+
+/// How the lines the box `dom_id` sets are painted: the colour and the thickness it declares
+/// (`text-decoration-color`, `text-decoration-thickness`), `currentcolor` of the box and `auto`
+/// where it declares none. A document that declares neither anywhere is not asked.
+fn decoration_paint_of(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    node_state: &StyledNodeState,
+    viewport: PhysicalSize,
+) -> crate::text3::cache::LinePaint {
+    use azul_css::{
+        compact_cache as flags,
+        props::style::text::{StyleTextDecorationColor, StyleTextDecorationThickness},
+    };
+
+    use crate::text3::cache::{DecorationColor, LinePaint, LineThickness};
+
+    let cache = &styled_dom.css_property_cache.ptr;
+    let declared = |flag: u64| {
+        cache
+            .compact_cache
+            .as_ref()
+            .is_none_or(|cc| cc.dom_declared(flag))
+    };
+    let node_data = &styled_dom.node_data.as_container()[dom_id];
+    // `currentcolor` of this box: its node, by index (a document of more than four billion
+    // nodes paints the line in the colour of the text)
+    let current_color = u32::try_from(dom_id.index())
+        .map_or(DecorationColor::Text, DecorationColor::CurrentOf);
+    let color = if declared(flags::DOM_HAS_TEXT_DECORATION_COLOR) {
+        match cache
+            .get_text_decoration_color(node_data, &dom_id, node_state)
+            .and_then(|v| v.get_property().copied())
+        {
+            Some(StyleTextDecorationColor::Color(color)) => DecorationColor::Color(color),
+            Some(StyleTextDecorationColor::CurrentColor) | None => current_color,
+        }
+    } else {
+        current_color
+    };
+    let thickness = if declared(flags::DOM_HAS_TEXT_DECORATION_THICKNESS) {
+        match cache
+            .get_text_decoration_thickness(node_data, &dom_id, node_state)
+            .and_then(|v| v.get_property().copied())
+        {
+            Some(StyleTextDecorationThickness::FromFont) => LineThickness::FromFont,
+            Some(StyleTextDecorationThickness::Length(length)) => {
+                LineThickness::Px(azul_css::props::basic::FloatValue::new(
+                    decoration_length_px(
+                        styled_dom,
+                        dom_id,
+                        node_state,
+                        viewport,
+                        length,
+                        "text-decoration-thickness",
+                    )
+                    .max(0.0),
+                ))
+            }
+            Some(StyleTextDecorationThickness::Auto) | None => LineThickness::Auto,
+        }
+    } else {
+        LineThickness::Auto
+    };
+    LinePaint { color, thickness }
+}
+
 /// The text decorations `dom_id` declares itself (`text-decoration` is not
 /// inherited; what a run carries from the boxes around it is
-/// [`propagated_text_decoration`]). The compact cache keeps a
-/// `has_text_decoration` flag: for the overwhelmingly common undecorated
-/// node, no cascade walk.
+/// [`propagated_text_decoration`]), each line with the paint the box declares
+/// for it. The compact cache keeps a `has_text_decoration` flag: for the
+/// overwhelmingly common undecorated node, no cascade walk.
 #[must_use]
 pub fn own_text_decoration(
     styled_dom: &StyledDom,
     dom_id: NodeId,
     node_state: &StyledNodeState,
+    viewport: PhysicalSize,
 ) -> crate::text3::cache::TextDecoration {
     let cache = &styled_dom.css_property_cache.ptr;
     if node_state.is_normal() {
@@ -4906,11 +5051,15 @@ pub fn own_text_decoration(
         }
     }
     let node_data = &styled_dom.node_data.as_container()[dom_id];
-    cache
+    let lines = cache
         .get_text_decoration(node_data, &dom_id, node_state)
         .and_then(|v| v.get_property().copied())
         .map(crate::text3::cache::TextDecoration::from_css)
-        .unwrap_or_default()
+        .unwrap_or_default();
+    if !lines.has_lines() {
+        return lines;
+    }
+    lines.painted(decoration_paint_of(styled_dom, dom_id, node_state, viewport))
 }
 
 /// The decorations the text of the inline formatting context rooted at
@@ -4921,11 +5070,13 @@ pub fn own_text_decoration(
 /// out-of-flow descendants, nor to the contents of atomic inline-level
 /// descendants such as inline blocks": the walk up stops at a float, an
 /// absolutely or fixed positioned box, and an inline-block, -flex, -grid or
-/// -table, each keeping its own.
+/// -table, each keeping its own. Each line keeps the paint of the box that
+/// sets it.
 #[must_use]
 pub fn propagated_text_decoration(
     styled_dom: &StyledDom,
     ifc_root: NodeId,
+    viewport: PhysicalSize,
 ) -> crate::text3::cache::TextDecoration {
     use azul_css::props::layout::{LayoutDisplay, LayoutFloat, LayoutPosition};
 
@@ -4937,8 +5088,8 @@ pub fn propagated_text_decoration(
     let mut any = false;
     let mut node = Some(ifc_root);
     while let Some(id) = node {
-        if own_text_decoration(styled_dom, id, &styled_nodes[id].styled_node_state)
-            != crate::text3::cache::TextDecoration::default()
+        if own_text_decoration(styled_dom, id, &styled_nodes[id].styled_node_state, viewport)
+            .has_lines()
         {
             any = true;
             break;
@@ -4951,7 +5102,7 @@ pub fn propagated_text_decoration(
     let mut node = Some(ifc_root);
     while let Some(id) = node {
         let state = &styled_nodes[id].styled_node_state;
-        decoration = decoration.with(own_text_decoration(styled_dom, id, state));
+        decoration = decoration.with(own_text_decoration(styled_dom, id, state, viewport));
         let out_of_flow = matches!(
             crate::solver3::positioning::get_position_type(styled_dom, Some(id)),
             LayoutPosition::Absolute | LayoutPosition::Fixed
@@ -5287,7 +5438,7 @@ pub fn get_style_properties_for_state_with(
     // unset (the overwhelmingly common case — plain body text has no
     // decoration set), skip the 4-pseudo-state × 6-layer cascade walk
     // entirely. Only nodes that actually set text-decoration pay the walk.
-    let text_decoration = own_text_decoration(styled_dom, dom_id, node_state);
+    let text_decoration = own_text_decoration(styled_dom, dom_id, node_state, viewport_size);
 
     // Get tab-size (tab-size) from CSS.
     //
