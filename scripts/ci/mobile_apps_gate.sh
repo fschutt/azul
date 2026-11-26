@@ -94,6 +94,42 @@ run red_layout_on_the_previous_files red_layout
 run dll_check cargo check -p azul-dll --features build-dll --lib --test headless_safe_area_moved --test localization_headless --test android_language_contract
 run apps_check cargo check -p azul-appkit -p AzPaint -p AzMaps -p AzMeet -p AzWriter -p AzWidgets --lib --profile test --features azul-appkit/azul
 
+# 1d. RED of the ribbon's tests: the picker without the application button's row and the group list's rows 44 px tall, as they were
+red_ribbon() {
+  local file=layout/src/widgets/ribbon.rs
+  python3 - "$file" <<'PY'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+old_row = """            RibbonChromeMode::Adaptive | RibbonChromeMode::Mobile => app_button
+                .clone()
+                .into_option()
+                .map(|ab| mobile_file_entry(ab, &style)),
+"""
+old_height = """        Cond::simple(P::const_height(LayoutHeight::const_px(48))),
+        Cond::simple(P::const_font_size(StyleFontSize::const_px(15))),
+"""
+assert text.count(old_row) == 1 and text.count(old_height) == 1, "the lines the RED step edits are gone"
+text = text.replace(old_row, "            RibbonChromeMode::Adaptive | RibbonChromeMode::Mobile => None,\n")
+text = text.replace(old_height, old_height.replace("const_px(48)", "const_px(44)"))
+open(path, "w").write(text)
+PY
+  if git diff --quiet -- "$file"; then
+    echo "the RED step could not edit $file"
+    return 2
+  fi
+  local out
+  out="$(mktemp)"
+  cargo test -p azul-layout --lib -- ribbon_mobile_test > "$out" 2>&1
+  git checkout -q -- "$file"
+  must_fail "$out" \
+    widgets::ribbon::ribbon_mobile_test::the_picker_lists_the_application_button_first_with_its_click \
+    widgets::ribbon::ribbon_mobile_test::the_adaptive_ribbon_has_the_row_too \
+    widgets::ribbon::ribbon_mobile_test::a_button_that_only_opens_a_menu_hangs_the_menu_on_its_row \
+    widgets::ribbon::ribbon_mobile_test::the_rows_of_the_picker_and_of_the_group_list_are_48_px_tall
+}
+run red_ribbon_without_the_file_row red_ribbon
+
 # 2. the engine through the headless shell: RED (the guard out: the precheck is always false, as it was), then GREEN
 red_safe_area() {
   local file=dll/src/desktop/shell2/common/layout.rs
