@@ -43,6 +43,9 @@ pub mod macos;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
+// The parts of the Android shell that need no Android (present planning, lifecycle, metrics, the
+// UI-thread queues): compiled on every host so they are tested where the tests run.
+pub mod android_core;
 // Always available — headless window (no native window, CPU rendering)
 pub mod headless;
 // Main event loop implementation

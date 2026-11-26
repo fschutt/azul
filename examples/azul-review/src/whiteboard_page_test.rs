@@ -159,6 +159,23 @@ fn a_loop_on_the_second_page_is_armed_with_the_numbers_of_that_pages_lines() {
 }
 
 #[test]
+fn a_loop_whose_stroke_is_taken_back_or_erased_is_not_armed_any_more() {
+    let mut s = app_with_slash_file();
+    draw_fixture(&mut s, &stroke_fixtures::closed_loop(), 0).expect("ended");
+    arm_last(&s).expect("armed");
+    assert_eq!(s.wb.borrow().panel.wb.armed.len(), 1);
+    assert!(s.undo(), "the loop is taken back");
+    assert_eq!(s.wb.borrow().panel.wb.armed.len(), 0, "its stroke is not on the page: nor is the loop armed");
+    // the stroke comes back, the loop is not armed again by it; the pen arms it when it is drawn
+    assert!(s.redo());
+    assert_eq!(s.wb.borrow().panel.wb.armed.len(), 0);
+    arm_last(&s).expect("armed again");
+    let at = s.strokes.len() - 1;
+    s.erase(at).expect("the stroke is erased");
+    assert_eq!(s.wb.borrow().panel.wb.armed.len(), 0, "an erased loop is no loop");
+}
+
+#[test]
 fn a_page_shows_the_layer_of_loops_only_while_a_loop_waits_on_it() {
     let mut s = app_with_slash_file();
     assert!(!page_has_regions(&s, 0));

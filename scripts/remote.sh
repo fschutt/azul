@@ -53,13 +53,23 @@ case "$cmd" in
     gh run view "$1" --repo "$REPO" --json status,conclusion --jq 'if .status == "completed" then .conclusion else .status end'
     ;;
   wait)
+    # Every agent and every coordinator shares ONE token with a 5000/h REST quota: 60 s polls of ~20 runs plus
+    # log downloads emptied it (2026-11-26 08:50). Poll every REMOTE_POLL_SECONDS (default 180), and treat a
+    # failed or empty API answer (rate limit, network) as "no verdict yet", never as a failed run.
+    fails=0
     while true; do
-      s="$(gh run view "$1" --repo "$REPO" --json status,conclusion --jq 'if .status == "completed" then .conclusion else .status end')"
-      case "$s" in
-        success) echo success; exit 0;;
-        queued|in_progress|waiting|pending|requested) sleep 60;;   # 20 s polls of ten agents drained the 5000/h REST quota
-        *) echo "$s"; exit 1;;
-      esac
+      if s="$(gh run view "$1" --repo "$REPO" --json status,conclusion --jq 'if .status == "completed" then .conclusion else .status end' 2>/dev/null)" && [ -n "$s" ]; then
+        fails=0
+        case "$s" in
+          success) echo success; exit 0;;
+          queued|in_progress|waiting|pending|requested) ;;
+          *) echo "$s"; exit 1;;
+        esac
+      else
+        fails=$((fails + 1))
+        if [ "$fails" -ge 30 ]; then echo "api-unavailable"; exit 2; fi
+      fi
+      sleep "${REMOTE_POLL_SECONDS:-180}"
     done
     ;;
   log)
