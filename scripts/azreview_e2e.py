@@ -62,6 +62,12 @@ TREE = "__azreview_tree"
 SIDEBAR_TOGGLE = "__azreview_sidebar-toggle"
 
 
+def state(app):
+    """What AzReview says its state is (the debug op `azreview_state`): pen, meaning, nib, panels."""
+    answer = app.must("azreview_state")
+    return answer["data"]["value"]["result"]["state"]
+
+
 def settled(app, node_id, tries=40):
     """The rect of `node_id` once it stops moving (a panel slides for about 180 ms)."""
     last = None
@@ -189,9 +195,13 @@ def body(args, logs, out):
 
         # A meaning the marker cannot write (key 3, a question) takes the pen; scope (key 1) the marker again.
         app.key("3")
-        app.until("the pen for a question", lambda: "pen" in app.texts())
+        app.until("the question pen with its pen nib",
+                  lambda: (state(app)["meaning"], state(app)["nib"]) == ("question", "pen"))
+        app.key("3")
+        app.until("its next nib, the audio pen", lambda: state(app)["nib"] == "audio pen")
         app.key("1")
-        app.until("the marker for scope", lambda: "marker" in app.texts())
+        app.until("the scope pen with the marker",
+                  lambda: (state(app)["meaning"], state(app)["nib"]) == ("scope", "marker"))
 
         # Mod+Z takes the stroke back, Mod+Shift+Z brings it again; each is written to the archive.
         app.key("z", primary=True)

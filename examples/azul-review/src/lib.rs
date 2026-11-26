@@ -84,6 +84,7 @@ pub mod session;
 /// whiteboard's lasso and the quick slash that deletes a word.
 #[cfg(test)]
 pub(crate) mod stroke_fixtures;
+pub mod state_op;
 pub mod switches;
 pub mod ui;
 pub mod voice;
@@ -631,6 +632,7 @@ pub fn run() {
     if std::env::var_os("AZ_DEBUG").is_some() || std::env::var_os("AZ_E2E").is_some() {
         pointer::register_ops(&mut config);
         chips_op::register_ops(&mut config);
+        state_op::register_ops(&mut config);
     }
     let app = App::create(RefAny::new(state), config);
     let mut window =
