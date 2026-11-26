@@ -1450,7 +1450,7 @@ impl TextStyleKey {
         Self {
             own: get_style_properties_cached(styles, styled_dom, dom_id, system_style, viewport),
             decoration: parent
-                .map(|p| propagated_text_decoration(styled_dom, p))
+                .map(|p| propagated_text_decoration(styled_dom, p, viewport))
                 .unwrap_or_default(),
             inline_boxes,
         }

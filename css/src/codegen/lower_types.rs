@@ -230,6 +230,8 @@ pub(crate) fn lower_css_property(p: &crate::props::property::CssProperty) -> Exp
         P::FontVariationSettings(v) => prop_value(v, "FontVariationSettings", "StyleFontVariationSettingsValue", "StyleFontVariationSettings", None),
         P::FontOpticalSizing(v) => prop_value(v, "FontOpticalSizing", "StyleFontOpticalSizingValue", "StyleFontOpticalSizing", None),
         P::FontKerning(v) => prop_value(v, "FontKerning", "StyleFontKerningValue", "StyleFontKerning", None),
+        P::TextDecorationColor(v) => prop_value(v, "TextDecorationColor", "StyleTextDecorationColorValue", "StyleTextDecorationColor", None),
+        P::TextDecorationThickness(v) => prop_value(v, "TextDecorationThickness", "StyleTextDecorationThicknessValue", "StyleTextDecorationThickness", None),
         P::TextWrap(v) => prop_value(v, "TextWrap", "StyleTextWrapValue", "StyleTextWrap", None),
         P::FontVariantPosition(v) => prop_value(v, "FontVariantPosition", "StyleFontVariantPositionValue", "StyleFontVariantPosition", None),
         P::TextRendering(v) => prop_value(v, "TextRendering", "StyleTextRenderingValue", "StyleTextRendering", None),
@@ -3170,7 +3172,11 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("StyleTextCombineUprightParseErrorOwned", "css"),
     ("StyleTextCombineUprightValue", "css"),
     ("StyleTextDecoration", "css"),
+    ("StyleTextDecorationColor", "css"),
+    ("StyleTextDecorationColorValue", "css"),
     ("StyleTextDecorationParseErrorOwned", "css"),
+    ("StyleTextDecorationThickness", "css"),
+    ("StyleTextDecorationThicknessValue", "css"),
     ("StyleTextDecorationValue", "css"),
     ("StyleTextIndent", "css"),
     ("StyleTextIndentParseErrorOwned", "css"),
@@ -4145,6 +4151,8 @@ pub(crate) static CSS_PROPERTY_ALIASES: &[(&str, &str, &str)] = &[
     ("FontVariationSettings", "StyleFontVariationSettingsValue", ""),
     ("FontOpticalSizing", "StyleFontOpticalSizingValue", ""),
     ("FontKerning", "StyleFontKerningValue", ""),
+    ("TextDecorationColor", "StyleTextDecorationColorValue", ""),
+    ("TextDecorationThickness", "StyleTextDecorationThicknessValue", ""),
     ("TextWrap", "StyleTextWrapValue", ""),
     ("FontVariantPosition", "StyleFontVariantPositionValue", ""),
     ("TextRendering", "StyleTextRenderingValue", ""),
@@ -4384,6 +4392,8 @@ pub(crate) static CSS_PROPERTY_VARIANTS: &[&str] = &[
     "FontVariationSettings",
     "FontOpticalSizing",
     "FontKerning",
+    "TextDecorationColor",
+    "TextDecorationThickness",
     "TextWrap",
     "FontVariantPosition",
     "TextRendering",
@@ -7920,6 +7930,25 @@ impl Lower for crate::props::style::text::StyleTextCombineUpright {
             Self::None => Expr::unit("StyleTextCombineUpright", EnumShape::Tagged, "None"),
             Self::All => Expr::unit("StyleTextCombineUpright", EnumShape::Tagged, "All"),
             Self::Digits(v) => Expr::variant("StyleTextCombineUpright", EnumShape::Tagged, "Digits", vec![v.lower()]),
+        }
+    }
+}
+
+impl Lower for crate::props::style::text::StyleTextDecorationColor {
+    fn lower(&self) -> Expr {
+        match self {
+            Self::CurrentColor => Expr::unit("StyleTextDecorationColor", EnumShape::Tagged, "CurrentColor"),
+            Self::Color(v) => Expr::variant("StyleTextDecorationColor", EnumShape::Tagged, "Color", vec![v.lower()]),
+        }
+    }
+}
+
+impl Lower for crate::props::style::text::StyleTextDecorationThickness {
+    fn lower(&self) -> Expr {
+        match self {
+            Self::Auto => Expr::unit("StyleTextDecorationThickness", EnumShape::Tagged, "Auto"),
+            Self::FromFont => Expr::unit("StyleTextDecorationThickness", EnumShape::Tagged, "FromFont"),
+            Self::Length(v) => Expr::variant("StyleTextDecorationThickness", EnumShape::Tagged, "Length", vec![v.lower()]),
         }
     }
 }

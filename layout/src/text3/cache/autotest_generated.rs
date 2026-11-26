@@ -1443,6 +1443,7 @@
                 underline: true,
                 strikethrough: false,
                 overline: false,
+                ..TextDecoration::default()
             },
             border: Some(InlineBorderInfo::default()),
             ..StyleProperties::default()

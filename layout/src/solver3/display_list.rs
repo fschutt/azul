@@ -56,7 +56,9 @@ use azul_css::{
 #[cfg(feature = "text_layout")]
 use crate::text3;
 #[cfg(feature = "text_layout")]
-use crate::text3::cache::{InlineShape, PositionedItem};
+use crate::text3::cache::{
+    DecorationColor, InlineShape, LinePaint, LineThickness, PositionedItem,
+};
 use crate::{
     debug_info,
     font_traits::{
@@ -13118,45 +13120,86 @@ where
                     // Use font metrics to determine decoration positions
                     // Standard ratios based on CSS specification
                     let font_size = glyph_run.font_size_px;
-                    let thickness = (font_size * APPROX_UNDERLINE_THICKNESS_RATIO).max(1.0);
+                    let font_thickness = (font_size * APPROX_UNDERLINE_THICKNESS_RATIO).max(1.0);
 
                     // Baseline is at glyph.point.y
                     let baseline_y = run_origin.y + first_glyph.point.y;
 
+                    // What each kind of line is painted with: the paint of the box that sets
+                    // it (`text-decoration-color`, `-thickness`). A colour the box does not
+                    // set is its `currentcolor`, read now - the colour a line follows is the
+                    // colour it has when it is painted - and a line no box sets (the
+                    // composition of an input method) is in the colour of the text.
+                    let sd = self.ctx.styled_dom;
+                    let colour_of = |paint: &LinePaint| match paint.color {
+                        DecorationColor::Text => live_color,
+                        DecorationColor::CurrentOf(box_id) => sd
+                            .styled_nodes
+                            .as_container()
+                            .get(box_id)
+                            .map_or(live_color, |styled| {
+                                super::getters::get_used_text_color(
+                                    sd,
+                                    box_id,
+                                    &styled.styled_node_state,
+                                )
+                            }),
+                        DecorationColor::Color(color) => {
+                            super::getters::system_colors_resolved(sd, color)
+                        }
+                    };
+                    let thickness_of = |paint: &LinePaint| match paint.thickness {
+                        LineThickness::Px(px) => px.get().max(0.0),
+                        // `from-font` names the thickness of the face; none is read yet
+                        LineThickness::Auto | LineThickness::FromFont => font_thickness,
+                    };
+
                     if needs_underline {
                         // Underline is typically 10-15% below baseline
                         // IME composition always gets underlined
+                        let paint = glyph_run.text_decoration.underline_paint;
+                        let thickness = thickness_of(&paint);
+                        // The top edge of the line is where the font puts it: a thicker line
+                        // grows downwards.
                         let underline_y = baseline_y + (font_size * APPROX_UNDERLINE_OFFSET_RATIO);
                         let underline_bounds = LogicalRect::new(
                             LogicalPosition::new(decoration_start_x, underline_y),
                             LogicalSize::new(decoration_width, thickness),
                         );
-                        builder.push_underline(underline_bounds, glyph_run.color, thickness);
+                        builder.push_underline(underline_bounds, colour_of(&paint), thickness);
                     }
 
                     if needs_strikethrough {
                         // Strikethrough is typically 40% above baseline (middle of x-height)
-                        let strikethrough_y =
-                            baseline_y - (font_size * APPROX_STRIKETHROUGH_OFFSET_RATIO);
+                        let paint = glyph_run.text_decoration.strikethrough_paint;
+                        let thickness = thickness_of(&paint);
+                        // The middle of the line is where the font puts it: a thicker line
+                        // grows both ways.
+                        let strikethrough_y = baseline_y
+                            - (font_size * APPROX_STRIKETHROUGH_OFFSET_RATIO)
+                            + (font_thickness - thickness) / 2.0;
                         let strikethrough_bounds = LogicalRect::new(
                             LogicalPosition::new(decoration_start_x, strikethrough_y),
                             LogicalSize::new(decoration_width, thickness),
                         );
                         builder.push_strikethrough(
                             strikethrough_bounds,
-                            glyph_run.color,
+                            colour_of(&paint),
                             thickness,
                         );
                     }
 
                     if needs_overline {
                         // Overline is typically at cap-height (75% above baseline)
+                        let paint = glyph_run.text_decoration.overline_paint;
+                        let thickness = thickness_of(&paint);
+                        // The top edge of the line is where the font puts it.
                         let overline_y = baseline_y - (font_size * APPROX_OVERLINE_OFFSET_RATIO);
                         let overline_bounds = LogicalRect::new(
                             LogicalPosition::new(decoration_start_x, overline_y),
                             LogicalSize::new(decoration_width, thickness),
                         );
-                        builder.push_overline(overline_bounds, glyph_run.color, thickness);
+                        builder.push_overline(overline_bounds, colour_of(&paint), thickness);
                     }
                 }
             }
