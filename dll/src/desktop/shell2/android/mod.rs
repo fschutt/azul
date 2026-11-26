@@ -32,6 +32,10 @@ use rust_fontconfig::{registry::FcFontRegistry, FcFontCache};
 use crate::{
     desktop::{
         shell2::{
+            android_core::{
+                lifecycle::{frame_work, FrameWork},
+                present::{rows_to_write, PresentState, RowDamage},
+            },
             common::{
                 debug_server::LogCategory,
                 event::{self, CommonWindowState, HitTestNode, PlatformWindow},
@@ -109,32 +113,10 @@ pub struct AndroidWindow {
     /// the `LayoutWindow`.
     pub accessibility_adapter: accessibility::AndroidAccessibilityAdapter,
 
-    /// Monotonic frame counter, bumped once per POSTED frame.
-    ///
-    /// The unit of the staleness bookkeeping below: a buffer is identified by
-    /// its mapped address and tagged with the frame it last received.
-    frame_seq: u64,
-
-    /// Which frame each `ANativeWindow` buffer currently holds, keyed by the
-    /// address `lock()` mapped it at.
-    ///
-    /// This is the whole reason partial present is possible here at all.
-    /// `ANativeWindow_lock` hands back a DEQUEUED buffer with undefined
-    /// contents — Android guarantees nothing about back-buffer preservation —
-    /// so "copy only the damage" is unsound in general. It IS sound for a
-    /// buffer we can prove still holds a frame we produced: the pool is small
-    /// (double/triple buffering) and rotates, so the same addresses come back
-    /// round and each one is a known-good base to patch. An address we have
-    /// never seen, or one whose frame has aged out of `damage_history`, takes
-    /// the full copy.
-    buffer_frames: std::collections::BTreeMap<usize, u64>,
-
-    /// Dirty ROW RANGES per recent frame, oldest first: `(frame_seq, rows)`.
-    ///
-    /// Rows, not rects, because the blit is row-based — a partial row saves no
-    /// memcpy, and row granularity already captures what actually changes
-    /// (a scrolled region, a caret, a repainted ribbon band).
-    damage_history: std::collections::VecDeque<(u64, Vec<(usize, usize)>)>,
+    /// What was rendered and what was posted to the surface: the rows that changed between two
+    /// presents and what to tell `ANativeWindow_lock` about them (`android_core::present`). The system
+    /// keeps the rest of the last frame per buffer; the shell no longer guesses which buffer it got.
+    present: PresentState,
 
     /// Selection-toolbar actions (cut/copy/paste/select-all) from the UI thread.
     pending_selection_actions: std::sync::Mutex<Vec<i32>>,
@@ -277,9 +259,7 @@ impl AndroidWindow {
             icon_provider,
             font_registry,
             accessibility_adapter: accessibility::AndroidAccessibilityAdapter::new(),
-            frame_seq: 0,
-            buffer_frames: std::collections::BTreeMap::new(),
-            damage_history: std::collections::VecDeque::new(),
+            present: PresentState::new(),
             pending_ime_commits: std::sync::Mutex::new(Vec::new()),
             pending_pointer_capture: std::sync::Mutex::new(None),
             pending_raw_motion: std::sync::Mutex::new(None),
@@ -361,79 +341,6 @@ impl AndroidWindow {
         self.is_open = false;
     }
 
-    /// Run a full layout regeneration pass and CPU-render the resulting
-    /// display list. Mirrors `HeadlessWindow::regenerate_layout()`; the
-    /// lifecycle-event dispatch step is skipped for now (Android backend
-    /// has no callback driver yet — pending sprint H).
-    /// How many frames of damage to remember.
-    ///
-    /// A buffer comes back round after as many swaps as the pool is deep
-    /// (2-3), so a handful covers every realistic rotation. Anything older
-    /// falls back to a full copy, which is always correct.
-    const DAMAGE_HISTORY: usize = 8;
-
-    /// Dirty row range of a frame's present damage, or `None` for "everything".
-    ///
-    /// Logical rects -> physical rows: the pixmap is in device pixels and
-    /// `FrameDamage` is in logical ones. Rounded OUTWARDS (floor the top, ceil
-    /// the bottom) — a row half-covered by damage is a row that changed, and
-    /// rounding it away leaves a stale line on screen.
-    fn damage_rows(&self, dpi: f32, height: usize) -> Option<Vec<(usize, usize)>> {
-        use azul_layout::window::FrameDamage;
-        match &self.cpu_backend.last_present_damage {
-            FrameDamage::Full => None,
-            FrameDamage::None => Some(Vec::new()),
-            FrameDamage::Rects(rects) => {
-                let mut rows: Vec<(usize, usize)> = rects
-                    .iter()
-                    .filter_map(|r| {
-                        let top = (r.origin.y * dpi).floor().max(0.0) as usize;
-                        let bottom = (((r.origin.y + r.size.height) * dpi).ceil().max(0.0)
-                            as usize)
-                            .min(height);
-                        (bottom > top).then_some((top, bottom))
-                    })
-                    .collect();
-                // Merge overlaps so the copy loop never writes a row twice.
-                rows.sort_unstable();
-                let mut merged: Vec<(usize, usize)> = Vec::with_capacity(rows.len());
-                for (top, bottom) in rows {
-                    match merged.last_mut() {
-                        Some(last) if top <= last.1 => last.1 = last.1.max(bottom),
-                        _ => merged.push((top, bottom)),
-                    }
-                }
-                Some(merged)
-            }
-        }
-    }
-
-    /// Rows that changed since frame `seq`, or `None` if that frame has aged
-    /// out of the history (in which case only a full copy is sound).
-    fn rows_dirty_since(&self, seq: u64) -> Option<Vec<(usize, usize)>> {
-        // The oldest entry we still have must be at or before the frame the
-        // buffer holds, or there is a gap we cannot account for.
-        let oldest = self.damage_history.front().map(|(s, _)| *s)?;
-        if seq + 1 < oldest {
-            return None;
-        }
-        let mut rows: Vec<(usize, usize)> = Vec::new();
-        for (s, r) in &self.damage_history {
-            if *s > seq {
-                rows.extend_from_slice(r);
-            }
-        }
-        rows.sort_unstable();
-        let mut merged: Vec<(usize, usize)> = Vec::with_capacity(rows.len());
-        for (top, bottom) in rows {
-            match merged.last_mut() {
-                Some(last) if top <= last.1 => last.1 = last.1.max(bottom),
-                _ => merged.push((top, bottom)),
-            }
-        }
-        Some(merged)
-    }
-
     /// Re-raster the frame from the CURRENT layout — no layout callback, no
     /// solve, no DOM work.
     ///
@@ -466,6 +373,16 @@ impl AndroidWindow {
                     width,
                     height,
                     dpi,
+                );
+            }
+            // What this render changed joins what the renders since the last present changed: a
+            // regeneration renders several times before the shell posts (its bounded lifecycle loop),
+            // and the present has to carry all of it, not the last render's.
+            if let Some(pixmap) = self.cpu_backend.last_frame.as_ref() {
+                let (frame_w, frame_h) = (pixmap.width() as u32, pixmap.height() as u32);
+                self.present.note_render(
+                    (frame_w, frame_h),
+                    row_damage_of(&self.cpu_backend.last_present_damage, dpi, frame_w, frame_h),
                 );
             }
         }
@@ -570,6 +487,27 @@ impl AndroidWindow {
         self.common
             .clear_regeneration_unless_reraised(regen_epoch_seen);
         Ok(result)
+    }
+}
+
+/// The rows of a frame's PRESENT damage (what visually changed and must reach the surface): the
+/// engine's own conversion to device pixel rects (rounded outwards, clamped), as a band of rows.
+#[cfg(feature = "cpurender")]
+fn row_damage_of(
+    damage: &azul_layout::window::FrameDamage,
+    dpi: f32,
+    frame_w: u32,
+    frame_h: u32,
+) -> RowDamage {
+    use azul_layout::window::FrameDamage;
+    match damage {
+        FrameDamage::None => RowDamage::Nothing,
+        FrameDamage::Full => RowDamage::Full,
+        FrameDamage::Rects(_) => RowDamage::from_rects(
+            &damage
+                .to_rects_physical(dpi, frame_w, frame_h)
+                .unwrap_or_default(),
+        ),
     }
 }
 
@@ -1098,26 +1036,38 @@ pub fn android_main(app: AndroidApp) {
         }
 
         let mut frame_dirty = false;
-        if window.common.regeneration_pending() {
-            // A regeneration re-rasters on its way through, so a redraw request
-            // raised earlier in the same iteration is already satisfied.
-            window.needs_rerender = false;
-            match window.regenerate_layout() {
-                Ok(_) => frame_dirty = true,
-                Err(e) => {
-                    log_error!(
-                        LogCategory::Layout,
-                        "[Android] regenerate_layout failed: {}",
-                        e
-                    );
+        // No layout and no frame without a surface (`android_core::lifecycle`): android-activity
+        // delivers ONE event per poll and the first is `Start`, long before `InitWindow`, so the app's
+        // layout callback used to run at the default window size and 96 dpi, a first layout nobody
+        // saw. The request stays queued until the surface arrives.
+        match frame_work(
+            has_surface(&window),
+            window.common.regeneration_pending(),
+            window.needs_rerender,
+        ) {
+            FrameWork::Nothing => {}
+            FrameWork::Regenerate => {
+                // A regeneration re-rasters on its way through, so a redraw request
+                // raised earlier in the same iteration is already satisfied.
+                window.needs_rerender = false;
+                match window.regenerate_layout() {
+                    Ok(_) => frame_dirty = true,
+                    Err(e) => {
+                        log_error!(
+                            LogCategory::Layout,
+                            "[Android] regenerate_layout failed: {}",
+                            e
+                        );
+                    }
                 }
             }
-        } else if window.needs_rerender {
-            // Repaint only: the pixels changed (a scroll offset, a hover
-            // restyle), the layout did not. No app callback, no solve.
-            window.needs_rerender = false;
-            window.rerender_cpu();
-            frame_dirty = true;
+            FrameWork::Repaint => {
+                // Repaint only: the pixels changed (a scroll offset, a hover
+                // restyle), the layout did not. No app callback, no solve.
+                window.needs_rerender = false;
+                window.rerender_cpu();
+                frame_dirty = true;
+            }
         }
 
         // Present ONLY when this iteration produced a frame. The loop wakes
@@ -1139,6 +1089,21 @@ pub fn android_main(app: AndroidApp) {
         LogCategory::EventLoop,
         "[Android] android_main exiting cleanly"
     );
+}
+
+/// Whether the window has a surface to lay out for and paint to: false before `InitWindow` and
+/// between `TerminateWindow` and the next `InitWindow` (the activity is in the background).
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn has_surface(window: &AndroidWindow) -> bool {
+    #[cfg(feature = "ndk")]
+    {
+        window.native_window.is_some()
+    }
+    #[cfg(not(feature = "ndk"))]
+    {
+        let _ = window;
+        true
+    }
 }
 
 /// The reason tag for a geometry/density-driven regeneration.
@@ -1246,6 +1211,8 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                                 ws.size.dimensions.height = logical_h;
                             });
                         window.native_window = Some(nw);
+                        // A surface that is new to the shell: its buffers hold nothing of ours.
+                        window.present.surface_changed();
                         // On the launch InitWindow this preserves the queued
                         // `Initial`; on a re-attach (rotation recreates the
                         // surface with new dimensions and does NOT deliver
@@ -1262,6 +1229,8 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 {
                     window.native_window = None;
                 }
+                // The next surface (home and back, a rotation, split screen) is a new one.
+                window.present.surface_changed();
             }
             MainEvent::WindowResized { .. } => {
                 // Contract shape (snapshot → mutate → pass) — see InitWindow.
@@ -1323,13 +1292,14 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 drain_input(app, window);
             }
             MainEvent::RedrawNeeded { .. } => {
-                // The system needs the window's content re-posted (resume,
-                // compositor state loss). Presents are gated on regeneration,
-                // so raise the request — the regenerate takes the incremental
-                // "nothing changed" path and the blit re-posts the pixmap.
-                window
-                    .common
-                    .request_regeneration(RelayoutReason::RefreshDom);
+                // The system needs the window's content re-posted (resume, compositor state loss,
+                // every resize). That is a PRESENT, not a new DOM: the frame the shell holds is posted
+                // whole. A shell that has no frame yet gets its first one from the regeneration that
+                // InitWindow queued.
+                if window.present.has_frame() {
+                    window.present.redraw_needed();
+                    window.needs_rerender = true;
+                }
             }
             MainEvent::Destroy => {
                 window.close();
@@ -2096,48 +2066,63 @@ fn map_keycode(k: Keycode) -> Option<azul_core::window::VirtualKeyCode> {
     feature = "cpurender"
 ))]
 fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
-    // Sprint G: pixmap → ANativeWindow_lock → memcpy → unlockAndPost.
+    // pixmap -> ANativeWindow_lock -> memcpy -> unlockAndPost.
     //
     // Caller must arrange for `window.cpu_backend.last_frame` to be populated
-    // (typically by a regenerate_layout() invocation). Until that wiring is
-    // in place we present whatever pixmap is present, or no-op.
-    let nw = match window.native_window.as_ref() {
-        Some(nw) => nw,
-        None => return Ok(()), // background — surface released
+    // (a regenerate_layout() or rerender_cpu() before it).
+    let Some(nw) = window.native_window.as_ref() else {
+        return Ok(()); // background - surface released
     };
-
-    let pixmap = match window.cpu_backend.last_frame.as_ref() {
-        Some(p) => p,
-        None => return Ok(()), // nothing to present yet
+    let Some(pixmap) = window.cpu_backend.last_frame.as_ref() else {
+        return Ok(()); // nothing to present yet
     };
-
-    let pw = pixmap.width() as i32;
-    let ph = pixmap.height() as i32;
+    let (pw, ph) = (pixmap.width() as i32, pixmap.height() as i32);
     if pw <= 0 || ph <= 0 {
         return Ok(());
     }
+    // What this present has to do (`android_core::present`): nothing when no row changed since the
+    // frame on the surface; otherwise the rows to hand to the lock as the dirty region (or none:
+    // the whole buffer), and whether the surface still has to be told the frame's size.
+    let Some(plan) = window.present.plan() else {
+        return Ok(());
+    };
 
     // Tell the surface we want RGBA8 of this exact size. If Android can't
     // satisfy (surface gone, surfaceflinger rejected the format) SKIP the
     // frame: locking anyway hands us a buffer whose format/geometry does not
     // match the bytes we are about to write, and the old `let _ =` swallow
     // then blitted RGBA rows into it regardless.
-    if let Err(e) = nw.set_buffers_geometry(
-        pw,
-        ph,
-        Some(ndk::hardware_buffer_format::HardwareBufferFormat::R8G8B8A8_UNORM),
-    ) {
-        log_debug!(
-            LogCategory::Rendering,
-            "[Android] setBuffersGeometry({}x{} RGBA8) failed: {}; skipping frame",
+    if plan.set_geometry {
+        if let Err(e) = nw.set_buffers_geometry(
             pw,
             ph,
-            e,
-        );
-        return Ok(());
+            Some(ndk::hardware_buffer_format::HardwareBufferFormat::R8G8B8A8_UNORM),
+        ) {
+            log_debug!(
+                LogCategory::Rendering,
+                "[Android] setBuffersGeometry({}x{} RGBA8) failed: {}; skipping frame",
+                pw,
+                ph,
+                e,
+            );
+            window.present.geometry_failed();
+            return Ok(());
+        }
     }
 
-    let mut guard = match nw.lock(None) {
+    // The NDK's own partial-present contract (`ANativeWindow_lock`): "inOutDirtyBounds is used as an
+    // in/out parameter, upon entering the function, it contains the dirty region, that is, the
+    // region the caller intends to redraw. When the function returns, inOutDirtyBounds is updated
+    // with the actual area the caller needs to redraw -- this region is often extended". The
+    // surface carries everything outside it over from the buffer it posted last, per buffer. With no
+    // region the whole buffer is dirty and nothing is carried over, so every row is written.
+    let mut region = plan.dirty.map(|(top, bottom)| ndk::native_window::Rect {
+        left: 0,
+        top: top as i32,
+        right: pw,
+        bottom: bottom as i32,
+    });
+    let mut guard = match nw.lock(region.as_mut()) {
         Ok(g) => g,
         Err(e) => {
             log_debug!(
@@ -2152,7 +2137,7 @@ fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
     // The locked buffer's REAL format. `lines()` derives its bytes-per-pixel
     // from this, so a producer that ignored the RGBA8 request (legacy fixed-
     // format surfaces) would make the copy below reinterpret RGBA bytes as
-    // 565/etc. — garbage on every pixel. There is no "unlock without post"
+    // 565/etc. - garbage on every pixel. There is no "unlock without post"
     // in the NDK (ANativeWindow_unlockAndPost is the only unlock), so on a
     // mismatch present a deterministic cleared frame instead of the buffer's
     // undefined contents.
@@ -2171,54 +2156,36 @@ fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
                     core::ptr::write_bytes(bytes.as_mut_ptr().cast::<u8>(), 0, bytes.len());
                 }
             }
+            // The surface holds a cleared frame now, not ours: the next present is whole.
+            window.present.surface_changed();
             return Ok(()); // guard drop unlockAndPosts the cleared buffer
         }
     }
 
-    // Per-line blit. `lines()` returns one mutable slice per scanline,
-    // trimmed to the visible width — exactly what we need for an RGBA→RGBA
-    // copy where stride may exceed width.
-    //
-    // Any part of the buffer the pixmap does not cover MUST still be written:
-    // ANativeWindow_lock hands back a dequeued buffer with UNDEFINED contents
-    // (typically a stale frame from several swaps ago — Android does not
-    // guarantee back-buffer preservation), so rows/columns we skip would show
-    // garbage. Normally geometry matches the pixmap exactly and the fills
-    // below are no-ops; they only run if the buffer disagrees with the
-    // geometry we just set.
+    // Per-row blit into a buffer whose rows are `stride` PIXELS apart (stride >= width): the
+    // destination offset of row y is y * stride * 4, the source's y * width * 4. Any part of the buffer
+    // the pixmap does not cover is cleared, never left as it was (undefined contents). Normally the
+    // geometry matches the pixmap exactly and the clears are no-ops.
     let src = pixmap.data();
     let src_stride = (pw as usize) * 4;
     let dst_stride = guard.stride() * 4;
-    let dst_rows = guard.height().min(ph as usize);
+    let buffer_height = guard.height();
+    // The rows to write: the region the system answered with (it may be larger than the one asked
+    // for, and is the whole buffer when it could not carry the last frame over), or every row.
+    let returned = region
+        .filter(|_| plan.dirty.is_some())
+        .map(|r| (r.top.max(0) as u32, r.bottom.max(0) as u32));
+    let (first_row, last_row) = rows_to_write(&plan, returned, buffer_height as u32);
 
-    // WHICH ROWS. Full copy unless we can prove this exact buffer already holds
-    // a frame we produced and we know everything that changed since.
-    let dpi = window.common.current_window_state().size.dpi as f32 / 96.0;
-    let this_frame_rows = window.damage_rows(dpi, ph as usize);
-    let buffer_id = guard.bytes().map_or(0usize, |b| b.as_ptr() as usize);
-    let rows_to_copy: Option<Vec<(usize, usize)>> = match (
-        this_frame_rows.as_ref(),
-        window.buffer_frames.get(&buffer_id).copied(),
-    ) {
-        // Known buffer AND bounded damage: patch only what changed since the
-        // frame it holds. Its own frame counts as already-present content.
-        (Some(_), Some(seq)) => window.rows_dirty_since(seq),
-        // Unseen buffer, or a full-damage frame: the contents are undefined,
-        // so every row must be written.
-        _ => None,
-    };
-
-    let guard_height_for_log = guard.height();
     let Some(dst) = guard.bytes() else {
         return Ok(());
     };
     let dst_ptr = dst.as_mut_ptr().cast::<u8>();
     let dst_len = dst.len();
 
-    // SAFETY (shared by both arms): `dst` is `&mut [MaybeUninit<u8>]` of
-    // `dst_len` bytes; every write below is bounds-checked against it and
-    // writes initialised bytes. Nothing reads `dst` before writing it.
-    let mut copy_row = |y: usize| {
+    // SAFETY: `dst` is `&mut [MaybeUninit<u8>]` of `dst_len` bytes; every write below is
+    // bounds-checked against it and writes initialised bytes. Nothing reads `dst` before writing it.
+    let copy_row = |y: usize| {
         let dst_off = y * dst_stride;
         if dst_off >= dst_len {
             return;
@@ -2236,72 +2203,30 @@ fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
                 core::ptr::copy_nonoverlapping(src.as_ptr().add(src_off), row, n);
             }
             if n < dst_room {
-                // Beyond the pixmap: the buffer may be wider/taller than the
-                // frame and its contents are undefined, so clear rather than
-                // leave whatever was there.
                 core::ptr::write_bytes(row.add(n), 0, dst_room - n);
             }
         }
     };
-
-    match &rows_to_copy {
-        Some(ranges) => {
-            for (top, bottom) in ranges {
-                for y in *top..(*bottom).min(dst_rows) {
-                    copy_row(y);
-                }
-            }
-        }
-        None => {
-            for y in 0..guard_height_for_log {
-                copy_row(y);
-            }
-        }
+    for y in first_row as usize..last_row as usize {
+        copy_row(y);
     }
 
     // AZ_DUMP_PRESENT=1 reports whether the partial path is actually engaging.
-    // Bookkeeping that always falls back to a full copy is worse than no
-    // bookkeeping, and the two are indistinguishable from the rendering.
     #[cfg(feature = "std")]
     if window.common.app.settings().shell.dump_present {
-        let (kind, rows) = match &rows_to_copy {
-            Some(r) => ("partial", r.iter().map(|(a, b)| b - a).sum::<usize>()),
-            None => ("full", guard_height_for_log),
-        };
         log_info!(
             LogCategory::Rendering,
-            "[Android] present {} — {} of {} rows",
-            kind,
-            rows,
-            guard_height_for_log,
+            "[Android] present {} - rows {}..{} of {}",
+            if plan.dirty.is_some() { "partial" } else { "full" },
+            first_row,
+            last_row,
+            buffer_height,
         );
     }
 
-    // Bookkeeping AFTER a successful copy: this buffer now holds this frame,
-    // and this frame's damage joins the history for the next rotation.
-    window.frame_seq = window.frame_seq.wrapping_add(1);
-    let seq = window.frame_seq;
-    window.buffer_frames.insert(buffer_id, seq);
-    // A full copy makes every row current, so it contributes NO damage to
-    // subsequent frames — recording it as "everything dirty" would force the
-    // next rotation into a full copy for no reason.
-    let recorded = match (&rows_to_copy, this_frame_rows) {
-        (None, _) => Vec::new(),
-        (Some(_), Some(rows)) => rows,
-        (Some(_), None) => Vec::new(),
-    };
-    window.damage_history.push_back((seq, recorded));
-    while window.damage_history.len() > AndroidWindow::DAMAGE_HISTORY {
-        window.damage_history.pop_front();
-    }
-    // Buffer pools are tiny; a map that only ever grows would be a slow leak
-    // if a surface were recreated repeatedly.
-    if window.buffer_frames.len() > 8 {
-        let cutoff = seq.saturating_sub(AndroidWindow::DAMAGE_HISTORY as u64);
-        window.buffer_frames.retain(|_, v| *v >= cutoff);
-    }
-
-    // guard.drop() calls ANativeWindow_unlockAndPost
+    // guard.drop() calls ANativeWindow_unlockAndPost: the frame is posted from here.
+    drop(guard);
+    window.present.posted(&plan);
     Ok(())
 }
 
