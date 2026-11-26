@@ -9,7 +9,7 @@
 use azul_appkit::phrase::{Arg, Phrase, Text};
 
 use crate::{
-    recorder::{Indicator, PauseReason, Perm, State, TrackName},
+    recorder::{Indicator, Notice, PauseReason, Perm, StartError, State, TrackName},
     recorder_fs::RecordingInfo,
     recorder_manifest::SessionState,
     recorder_policy::DiskState,
@@ -208,6 +208,42 @@ fn disk_note(ind: &Indicator, decimal: char) -> Note {
         DiskState::Fine => Note { severity: Severity::Info, text: with_hours(Text::from(Phrase::new("azreview-rec-disk-free").arg("free", free))) },
         DiskState::Low => Note { severity: Severity::Warning, text: with_hours(Text::from(Phrase::new("azreview-rec-disk-low").arg("free", free))) },
         DiskState::Full => Note { severity: Severity::Warning, text: Text::from(Phrase::new("azreview-rec-disk-full").arg("free", free)) },
+    }
+}
+
+/// A notice of the recorder as a line of words with its weight: what needs the person's action is a warning, what
+/// only happened is information.
+#[must_use]
+pub fn notice_note(notice: &Notice, decimal: char) -> Note {
+    let problem = |track: Arg, why: &str| Text::from(Phrase::new("azreview-rec-problem").arg("track", track).arg("why", why));
+    let track_arg = |track: &str| Arg::word(&format!("azreview-rec-track-{track}"), track);
+    match notice {
+        Notice::DiskLow { free, min_free } => Note {
+            severity: Severity::Warning,
+            text: Text::from(Phrase::new("azreview-rec-notice-disk-low").arg("free", size_text(*free, decimal)).arg("min", size_text(*min_free, decimal))),
+        },
+        Notice::DiskUnknown => Note { severity: Severity::Info, text: Text::key("azreview-rec-disk-unknown") },
+        Notice::Paused(why) => Note { severity: if *why == PauseReason::Quota { Severity::Warning } else { Severity::Info }, text: Text::key(pause_word(*why).0) },
+        Notice::Resumed(_) => Note { severity: Severity::Info, text: Text::key("azreview-rec-notice-resumed") },
+        Notice::Ending { left_us } => Note { severity: Severity::Warning, text: Text::from(Phrase::new("azreview-rec-notice-ending").arg("time", duration_text(*left_us))) },
+        Notice::LengthReached => Note { severity: Severity::Warning, text: Text::key("azreview-rec-notice-length-reached") },
+        Notice::TrackFailed { track, why } => Note { severity: Severity::Warning, text: problem(track_arg(track), why) },
+        Notice::TrackOff { track, why } => Note { severity: Severity::Warning, text: problem(track_arg(track), why) },
+        Notice::ScreenGap { why } => Note { severity: Severity::Info, text: Text::from(Phrase::new("azreview-rec-notice-screen-gap").arg("why", why.as_str())) },
+        Notice::ManifestError(why) => Note { severity: Severity::Warning, text: Text::from(Phrase::new("azreview-rec-notice-manifest-error").arg("why", why.as_str())) },
+    }
+}
+
+/// Why a recording did not start, in words that say what to do.
+#[must_use]
+pub fn start_error_text(error: &StartError, decimal: char) -> Text {
+    match error {
+        StartError::Busy => Text::key("azreview-rec-error-busy"),
+        StartError::NothingToRecord => Text::key("azreview-rec-error-nothing"),
+        StartError::DiskFull { free, min_free } => {
+            Text::from(Phrase::new("azreview-rec-error-disk-full").arg("free", size_text(*free, decimal)).arg("min", size_text(*min_free, decimal)))
+        }
+        StartError::Io(why) => Text::from(Phrase::new("azreview-rec-error-io").arg("why", why.as_str())),
     }
 }
 

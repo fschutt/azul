@@ -5,7 +5,7 @@ use azul_appkit::phrase::{Arg, Phrase, Text};
 
 use super::*;
 use crate::{
-    recorder::{Indicator, PauseReason, State, TrackName},
+    recorder::{Indicator, Notice, PauseReason, StartError, State, TrackName},
     recorder_fs::RecordingInfo,
     recorder_manifest::SessionState,
     recorder_policy::DiskState,
@@ -314,6 +314,57 @@ fn a_refusal_goes_to_the_recorder_in_words_and_anything_else_is_allowed() {
     }
     let Perm::Denied(why) = access_perm(TrackName::Camera, Access::Restricted, "AzReview") else { panic!("restricted is a refusal") };
     assert!(why.contains("restricted") && !why.contains("switch"), "a restriction is not the person's to switch off: {why}");
+}
+
+// ---- what the recorder tells once ----
+
+/// Every notice of the recorder is a line of words with its weight: what needs the person's action is a warning,
+/// what only happened is information; the numbers in it are said in the language's units.
+///
+/// Mutation: a disk warning that is information; a pause for the disk that is not a warning; a notice with a
+/// value missing.
+#[test]
+fn a_notice_of_the_recorder_is_a_line_of_words_with_its_weight() {
+    let note = |n: Notice| notice_note(&n, '.');
+    let low = note(Notice::DiskLow { free: 15_000_000_000, min_free: 10_000_000_000 });
+    assert_eq!(low.severity, Severity::Warning);
+    let phrase = low.text.phrase("azreview-rec-notice-disk-low").expect("the words");
+    assert_eq!((phrase.get("free"), phrase.get("min")), (Some(&Arg::from("15.0 GB")), Some(&Arg::from("10.0 GB"))));
+    assert_eq!(note(Notice::DiskUnknown), Note { severity: Severity::Info, text: Text::key("azreview-rec-disk-unknown") });
+    assert_eq!(note(Notice::Paused(PauseReason::User)), Note { severity: Severity::Info, text: Text::key("azreview-rec-status-paused-user") });
+    assert_eq!(note(Notice::Paused(PauseReason::Idle)), Note { severity: Severity::Info, text: Text::key("azreview-rec-status-paused-idle") });
+    assert_eq!(note(Notice::Paused(PauseReason::Quota)).severity, Severity::Warning, "a disk that is full needs the person");
+    assert_eq!(note(Notice::Paused(PauseReason::Locked)).severity, Severity::Info);
+    assert_eq!(note(Notice::Resumed(PauseReason::Idle)), Note { severity: Severity::Info, text: Text::key("azreview-rec-notice-resumed") });
+    let ending = note(Notice::Ending { left_us: 754_000_000 });
+    assert_eq!(ending.severity, Severity::Warning);
+    assert_eq!(ending.text.phrase("azreview-rec-notice-ending").unwrap().get("time"), Some(&Arg::from("12:34")));
+    assert_eq!(note(Notice::LengthReached), Note { severity: Severity::Warning, text: Text::key("azreview-rec-notice-length-reached") });
+    for failed in [Notice::TrackFailed { track: String::from("camera"), why: String::from("unplugged") }, Notice::TrackOff { track: "audio", why: String::from("refused") }] {
+        let n = note(failed);
+        assert_eq!(n.severity, Severity::Warning);
+        let p = n.text.phrase("azreview-rec-problem").expect("said as a problem of the track");
+        assert!(matches!(p.get("track"), Some(Arg::Word { .. })) && p.get("why").is_some());
+    }
+    let gap = note(Notice::ScreenGap { why: String::from("the display slept") });
+    assert_eq!((gap.severity, gap.text.phrase("azreview-rec-notice-screen-gap").unwrap().get("why")), (Severity::Info, Some(&Arg::from("the display slept"))));
+    let manifest = note(Notice::ManifestError(String::from("disk error")));
+    assert_eq!((manifest.severity, manifest.text.phrase("azreview-rec-notice-manifest-error").unwrap().get("why")), (Severity::Warning, Some(&Arg::from("disk error"))));
+}
+
+/// A recording that did not start says why in words that say what to do.
+///
+/// Mutation: the numbers of a full disk missing; the system's words dropped.
+#[test]
+fn a_recording_that_did_not_start_says_why() {
+    let text = |e: StartError| start_error_text(&e, ',');
+    assert_eq!(text(StartError::Busy), Text::key("azreview-rec-error-busy"));
+    assert_eq!(text(StartError::NothingToRecord), Text::key("azreview-rec-error-nothing"));
+    let full = text(StartError::DiskFull { free: 4_500_000_000, min_free: 10_000_000_000 });
+    let p = full.phrase("azreview-rec-error-disk-full").expect("words");
+    assert_eq!((p.get("free"), p.get("min")), (Some(&Arg::from("4,5 GB")), Some(&Arg::from("10,0 GB"))));
+    let io = text(StartError::Io(String::from("Permission denied (os error 13)")));
+    assert_eq!(io.phrase("azreview-rec-error-io").unwrap().get("why"), Some(&Arg::from("Permission denied (os error 13)")));
 }
 
 // ---- the list of recordings ----
