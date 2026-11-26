@@ -371,6 +371,18 @@ def read_startchecks(dirs):
     return found
 
 
+def read_libs(dirs):
+    """The libazul.info.json files the library jobs leave: [{kind, target, features, seconds, size, ...}]."""
+    libs = []
+    for d in dirs:
+        for f in sorted(pathlib.Path(d).rglob("libazul.info.json")):
+            try:
+                libs.append(json.loads(f.read_text(encoding="utf-8")))
+            except ValueError:
+                continue
+    return libs
+
+
 def boot_text(r):
     if r is None:
         return None
@@ -426,7 +438,9 @@ def status(dirs, m=None, extra=None):
         rows.append(row)
     boot_failed = sorted(f"{r['app']}/{c}" for r in rows for c, cell in r["cells"].items()
                          if str(cell.get("boot", "")).startswith("BOOT FAILED"))
+    libs = read_libs(dirs)
     summary = {
+        "libs": libs,
         "assets": total_files, "bytes": total_bytes, "shipped_bytes": total_shipped,
         "artifacts_of_the_run": extra.get("artifacts"), "runner_minutes": extra.get("runner_minutes"),
         "unexplained_failures": unexplained, "boot_failures": boot_failed, "smoke": extra.get("smoke", {}),
@@ -467,6 +481,11 @@ def render_markdown(data):
     s = data["summary"]
     lines += ["", f"**{s['assets']} files, {human(s['bytes'])} stripped, {human(s['shipped_bytes'])} as shipped**; "
                   f"artifacts of the run: {s['artifacts_of_the_run']}; runner minutes: {s['runner_minutes']}."]
+    if s["libs"]:
+        lines += ["", "### The libazul every app of a target links (built once)", "",
+                  "| target | features | seconds | size |", "|---|---|---|---|"]
+        for l in sorted(s["libs"], key=lambda l: (l.get("kind", ""), l.get("target", ""), l.get("features", ""))):
+            lines.append(f"| {l.get('target') or 'host'} ({l.get('kind')}) | {l.get('features')} | {l.get('seconds')} | {human(l.get('size'))} |")
     if s["smoke"]:
         lines += ["", "### Boot tests", ""] + [f"- {k}: {v}" for k, v in sorted(s["smoke"].items())]
     if s["boot_failures"]:
