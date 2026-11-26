@@ -60,6 +60,7 @@ autofix_agrees() {
     cargo run -r -p azul-doc -- autofix apply 2>&1 | grep -E "Total changes|Failed" | head -3
   done
   git diff --stat | tail -4
+  git diff api.json | head -80
   section "CHECK LAYOUT"
   cargo run -r -p azul-doc -- check layout 2>&1 | tail -8
 }
@@ -81,9 +82,15 @@ compile_checks() {
   cargo check -p azul-dll --no-default-features --features "link-dynamic" > /tmp/dyncheck.log 2>&1
   echo "link-dynamic check exit $?"
   grep -E "^error" -A8 /tmp/dyncheck.log | head -30
-  section "CLIPPY (azul-layout with the updater, the lint set CI holds the library to)"
+  section "ENGINE PROFILE (azul-dll without the desktop: the stubs of the unified speech module)"
+  cargo check -p azul-dll --no-default-features --features engine > /tmp/enginecheck.log 2>&1
+  echo "engine profile check exit $?"
+  grep -E "^error" -A8 /tmp/enginecheck.log | head -30
+  section "CLIPPY (css, core and layout with the feature set the tests compile, the step CI holds them to)"
   rustup component add clippy > /dev/null 2>&1
-  cargo clippy -p azul-layout --features updater --lib -- -D warnings > /tmp/clippy.log 2>&1
+  cargo clippy -p azul-core -p azul-css -p azul-layout --all-targets \
+    --features azul-core/serde-json,azul-core/url,azul-layout/json,azul-layout/e2e-server,azul-layout/updater \
+    -- -D warnings > /tmp/clippy.log 2>&1
   echo "clippy exit $?"
   grep -E "^(error|warning)" -A6 /tmp/clippy.log | head -40
 }
@@ -212,11 +219,20 @@ case "$part" in
   static)
     static_linux
     ;;
+  all)
+    speech_tests
+    layout_tests
+    doc_tests
+    autofix_agrees
+    source_gates
+    compile_checks
+    static_linux
+    ;;
   macos)
     macos
     ;;
   *)
-    echo "usage: bash scripts/check_speech.sh gate | static | macos"
+    echo "usage: bash scripts/check_speech.sh gate | static | all | macos"
     ;;
 esac
 section "END"
