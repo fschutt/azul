@@ -181,3 +181,61 @@ fn a_window_reflects_the_wallpapers_it_knows_and_no_other_window_does() {
     );
     assert_eq!(b.material_renderer.desktop_generation(), 0, "the other window knows none");
 }
+
+// ── The noise's floor ──────────────────────────────────────────────────────────────────────────
+
+/// The floor the noise uses gives the bits `f32::floor` gives, for every float: the materials of a frame are the
+/// same pictures as before, drawn without a library call per `floor` (a software `floorf` was a fifth of the CPU
+/// time of a Linux start).
+#[test]
+fn the_noise_floor_is_the_floor_of_every_float() {
+    use super::surface::floor;
+    let same = |x: f32| {
+        let (ours, std) = (floor(x), x.floor());
+        (ours.is_nan() && std.is_nan()) || ours.to_bits() == std.to_bits()
+    };
+    for x in [
+        0.0,
+        -0.0,
+        0.5,
+        -0.5,
+        1.0,
+        -1.0,
+        1.5,
+        -1.5,
+        2.999_999_8,
+        -2.999_999_8,
+        8_388_607.5,
+        -8_388_607.5,
+        8_388_608.0,
+        -8_388_608.0,
+        16_777_216.0,
+        1e30,
+        -1e30,
+        f32::MAX,
+        f32::MIN,
+        f32::MIN_POSITIVE,
+        -f32::MIN_POSITIVE,
+        1e-45,
+        -1e-45,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        f32::NAN,
+    ] {
+        assert!(same(x), "floor({x:e}) is not the bits of f32::floor");
+    }
+    // Every exponent, both signs: the bit patterns at a stride that does not divide 2^32.
+    let mut bits = 0u32;
+    loop {
+        assert!(same(f32::from_bits(bits)), "bits {bits:#010x}");
+        match bits.checked_add(4099) {
+            Some(next) => bits = next,
+            None => break,
+        }
+    }
+    // The values the noise meets: a lattice of hundredths around zero.
+    for hundredths in -200_000..=200_000 {
+        let x = hundredths as f32 / 100.0;
+        assert!(same(x), "{x}");
+    }
+}

@@ -38,9 +38,28 @@ impl Sample {
     };
 }
 
+/// `x.floor()` without a library call, for the noise's hot loops. The baseline x86-64 target has no `roundss`, so
+/// `f32::floor` is a call into a software `floorf` inside libazul, which was a fifth of ALL the CPU time of a
+/// Linux start whose first window shows materials (twenty calls a pixel). A truncating conversion and one
+/// correction give the same bits for every `x`: an integer below 2^23 converts exactly, a larger `x` has no
+/// fraction, and zero (either sign), infinity and NaN are returned as they are.
+#[inline(always)]
+pub(crate) fn floor(x: f32) -> f32 {
+    if x.abs() < 8_388_608.0 && x != 0.0 {
+        let truncated = x as i32 as f32;
+        if truncated > x {
+            truncated - 1.0
+        } else {
+            truncated
+        }
+    } else {
+        x
+    }
+}
+
 #[inline]
 pub(crate) fn fract(x: f32) -> f32 {
-    x - x.floor()
+    x - floor(x)
 }
 
 #[inline]
@@ -57,7 +76,7 @@ pub(crate) fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
 /// GLSL's `mod`: `x - y * floor(x / y)`.
 #[inline]
 fn glsl_mod(x: f32, y: f32) -> f32 {
-    x - y * (x / y).floor()
+    x - y * floor(x / y)
 }
 
 /// GLSL's `step(edge, x)`: 0 below the edge, 1 from it on.
@@ -88,7 +107,7 @@ fn hash22(p: [f32; 2]) -> [f32; 2] {
 
 /// Value noise: hashes at the integer lattice, blended smoothly.
 pub(crate) fn vnoise(p: [f32; 2]) -> f32 {
-    let i = [p[0].floor(), p[1].floor()];
+    let i = [floor(p[0]), floor(p[1])];
     let f = [p[0] - i[0], p[1] - i[1]];
     let u = [f[0] * f[0] * (3.0 - 2.0 * f[0]), f[1] * f[1] * (3.0 - 2.0 * f[1])];
     let a = hash12(i);
@@ -114,7 +133,7 @@ pub(crate) fn fbm(p: [f32; 2]) -> f32 {
 /// The distances to the nearest and the second nearest cell point (Worley
 /// F1, F2), one jittered point per lattice cell.
 fn worley(p: [f32; 2]) -> [f32; 2] {
-    let i = [p[0].floor(), p[1].floor()];
+    let i = [floor(p[0]), floor(p[1])];
     let f = [p[0] - i[0], p[1] - i[1]];
     let mut d1 = 8.0_f32;
     let mut d2 = 8.0_f32;
@@ -207,7 +226,7 @@ pub(crate) fn aluminium(p: [f32; 2]) -> Sample {
 /// Denim: a 3/1 twill of sine-profiled threads 2.1 px apart, slubbed, with
 /// fibres.
 pub(crate) fn denim(p: [f32; 2]) -> Sample {
-    let c = [(p[0] / 2.1).floor(), (p[1] / 2.1).floor()];
+    let c = [floor(p[0] / 2.1), floor(p[1] / 2.1)];
     let f = [fract(p[0] / 2.1), fract(p[1] / 2.1)];
     let over = step(glsl_mod(c[0] - c[1] + 400.0, 4.0), 2.5);
     let warp = (f[0] * PI).sin();
@@ -229,7 +248,7 @@ pub(crate) fn vellum(p: [f32; 2]) -> Sample {
     let blot = fbm([p[0] * 0.012, p[1] * 0.012]);
     let fib = fbm([p[0] * 0.09 + p[1] * 0.03, p[1] * 0.35]);
     let cr = (1.0 - (fbm([p[0] * 0.04, p[1] * 0.04]) * 2.0 - 1.0).abs()).powf(6.0);
-    let speck = step(0.992, hash12([(p[0] * 1.5).floor(), (p[1] * 1.5).floor()]));
+    let speck = step(0.992, hash12([floor(p[0] * 1.5), floor(p[1] * 1.5)]));
     Sample {
         h: 0.6 * blot + 0.12 * fib - 0.3 * cr,
         luma: 0.94 - 0.16 * blot - 0.08 * fib - 0.22 * cr - 0.3 * speck,
@@ -335,7 +354,7 @@ mod tests {
         let mut over = 0;
         for c in 0..400 {
             let x = (c as f32 + 0.5) * 2.1;
-            if (glsl_mod((x / 2.1).floor() - 0.0 + 400.0, 4.0)) <= 2.5 {
+            if (glsl_mod(floor(x / 2.1) - 0.0 + 400.0, 4.0)) <= 2.5 {
                 over += 1;
             }
         }
