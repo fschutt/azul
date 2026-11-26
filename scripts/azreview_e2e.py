@@ -998,6 +998,18 @@ def whiteboard(args, logs, out, binary):
         app.until("all the pictures are drawn", lambda: all(c["picture"] == "ready" for c in board_of(app)["cutouts"]))
         app.frame(10)
         app.screenshot(os.path.join(out, "34-wb-three-cutouts.png"))
+
+        # 6. the board's keys: after a click on a cutout the board has the keyboard (Delete takes the cutout off, Mod+Z brings it
+        # back); a press anywhere else gives the keyboard back to the page
+        third = board_of(app)["cutouts"][-1]["id"]
+        app.click(selector="#__azreview_whiteboard-cutout-%d" % third)
+        app.until("the board has the keys", lambda: board_of(app)["keys"])
+        app.key("Delete")
+        app.until("the cutout is taken off", lambda: len(board_of(app)["cutouts"]) == 2)
+        app.key("z", primary=True)
+        app.until("the cutout is back", lambda: len(board_of(app)["cutouts"]) == 3)
+        app.click(selector="#__azreview_page-pill-1")
+        app.until("the page has the keys again", lambda: not board_of(app)["keys"])
         settle_saves(app)
         no_lint(app, "the whiteboard run")
     except Failure:
