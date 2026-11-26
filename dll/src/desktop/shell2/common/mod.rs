@@ -37,6 +37,8 @@ pub mod capability_pump;
 /// shell makes about it, and the values the platforms take.
 pub mod capture_exclusion;
 pub mod clipboard;
+/// `WindowCreateOptions::create_callback`: the one function a shell calls to fire it (a phone shell dropped it).
+pub mod create_callback;
 pub mod debug_server;
 #[cfg(feature = "e2e-test")]
 pub mod e2e_test;
