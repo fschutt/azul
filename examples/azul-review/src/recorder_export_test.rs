@@ -784,7 +784,10 @@ mod e2e {
         };
         let found = probe(&ffmpeg).unwrap_or_else(|e| panic!("{e}"));
         eprintln!("probe: {:?} {:?}", found.caps, found.notes);
-        assert!(found.caps.rounding, "the route did not round the made-up camera: {:?}", found.notes);
+        if !found.caps.rounding {
+            // (Under AZ_REQUIRE_FFMPEG=1 this fails: the gate's ffmpeg is the one the route has to work on.)
+            skipped(&format!("this ffmpeg did not round the made-up camera: {:?}", found.notes));
+        }
     }
 
     /// The bytes ffmpeg writes to its standard output for these arguments; `None` when it fails.
@@ -1159,30 +1162,36 @@ mod e2e {
         eprintln!("straight copy: {packets} pictures copied, {} bytes, {duration:.2} s of video in {:.2} s", report.bytes, took.as_secs_f64());
     }
 
+    /// The camera exported as `shape` (`rect` or `rounded`) at half the picture's width in the bottom right corner with
+    /// no margin: 320 x 240 at (320, 120) of a 640 x 360 picture. What the plan said it would do differently, and the video.
+    fn export_camera(rig: &Rig, started: &Started, manifest: &Manifest, shape: &str, caps: Capabilities) -> (Vec<String>, PathBuf) {
+        let mut edl = identity_edl(manifest, &[]);
+        edl.style.camera.shape = shape.to_string();
+        edl.style.camera.scale = 0.5;
+        edl.style.camera.margin = 0;
+        let out = rig.tmp.0.join(format!("export/{shape}-{}.mp4", caps.rounding));
+        let plan = build_plan(manifest, &edl, &started.dir, &rig.tmp.0.join(format!("work-{shape}-{}", caps.rounding)), &out, caps).unwrap();
+        let report = run(&plan, &rig.ffmpeg, &AtomicBool::new(false), &mut |_| {}).unwrap_or_else(|e| panic!("{e}"));
+        let decode = Process::new(&rig.ffmpeg).args(["-v", "error", "-i"]).arg(&report.output).args(["-f", "null", "-"]).output().unwrap();
+        assert!(decode.status.success() && decode.stderr.is_empty(), "{shape}: {}", String::from_utf8_lossy(&decode.stderr));
+        (plan.notes, report.output)
+    }
+
     /// A camera with rounded corners goes through the real ffmpeg: the export decodes clean, the very corner of the
     /// camera's picture shows the SCREEN (it is the screen alone there, and the rectangular camera is not), and
     /// the middle of the camera is the same camera picture, colours and all, in both exports.
     #[test]
     fn a_camera_with_rounded_corners_is_exported_and_shows_the_screen_in_its_corners() {
         let Some(rig) = rig("round") else { return };
+        if !rig.caps.rounding {
+            skipped("the probe says this ffmpeg cannot round the camera (the export keeps a rectangle: the next test)");
+            return;
+        }
         let started = record(&rig, false, true);
         let manifest = Manifest::parse(&fs::read_to_string(started.dir.join("manifest.json")).unwrap()).unwrap();
-        let export = |shape: &str| {
-            let mut edl = identity_edl(&manifest, &[]);
-            edl.style.camera.shape = shape.to_string();
-            edl.style.camera.scale = 0.5;
-            edl.style.camera.margin = 0;
-            let out = rig.tmp.0.join(format!("export/{shape}.mp4"));
-            let plan = build_plan(&manifest, &edl, &started.dir, &rig.tmp.0.join(format!("work-{shape}")), &out, rig.caps).unwrap();
-            assert!(plan.notes.is_empty(), "this ffmpeg rounds (the probe said so): {:?}", plan.notes);
-            let report = run(&plan, &rig.ffmpeg, &AtomicBool::new(false), &mut |_| {}).unwrap_or_else(|e| panic!("{e}"));
-            let decode = Process::new(&rig.ffmpeg).args(["-v", "error", "-i"]).arg(&report.output).args(["-f", "null", "-"]).output().unwrap();
-            assert!(decode.status.success() && decode.stderr.is_empty(), "{shape}: {}", String::from_utf8_lossy(&decode.stderr));
-            report.output
-        };
-        let (rect, rounded) = (export("rect"), export("rounded"));
-        // The camera is half the width, in the bottom right corner with no margin: 320 x 240 at (320, 120). The
-        // very corner of the picture is the camera's corner: cut away in the rounded one.
+        let ((notes_a, rect), (notes_b, rounded)) = (export_camera(&rig, &started, &manifest, "rect", rig.caps), export_camera(&rig, &started, &manifest, "rounded", rig.caps));
+        assert!(notes_a.is_empty() && notes_b.is_empty(), "this ffmpeg rounds (the probe said so): {notes_a:?} {notes_b:?}");
+        // The very corner of the picture is the camera's corner: cut away in the rounded one.
         let (w, h) = (640, 360);
         let (a, b) = (rgb_frame(&rig, &rect, "1.0", w, h), rgb_frame(&rig, &rounded, "1.0", w, h));
         let alone = rgb_frame(&rig, &started.dir.join("screen/0001.mp4"), "1.0", w, h);
@@ -1193,6 +1202,30 @@ mod e2e {
         assert!(rect_corner > 20.0, "the rectangle shows the camera where the screen is: {rect_corner}");
         assert!(rounded_corner < 4.0, "the rounded corner shows the screen: {rounded_corner}");
         assert!(middle < 8.0, "the rest of the camera is the camera, in its colours, in both: {middle}");
+    }
+
+    /// An ffmpeg that cannot round (told so, whatever this one can do): the export still happens, the camera is a
+    /// rectangle exactly as the cut list's `rect` makes it, and the plan said so beforehand.
+    ///
+    /// Mutation: a plan that rounds where it was told it cannot; one that fails the export instead of keeping a rectangle.
+    #[test]
+    fn a_rounded_camera_on_an_ffmpeg_that_cannot_round_is_exported_as_a_rectangle_with_a_note() {
+        let Some(rig) = rig("norounding") else { return };
+        let started = record(&rig, false, true);
+        let manifest = Manifest::parse(&fs::read_to_string(started.dir.join("manifest.json")).unwrap()).unwrap();
+        let cannot = Capabilities { rounding: false, ..rig.caps };
+        let (notes, fallback) = export_camera(&rig, &started, &manifest, "rounded", cannot);
+        let (no_notes, rect) = export_camera(&rig, &started, &manifest, "rect", cannot);
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(no_notes.is_empty(), "{no_notes:?}");
+        let (w, h) = (640, 360);
+        let (a, b) = (rgb_frame(&rig, &fallback, "1.0", w, h), rgb_frame(&rig, &rect, "1.0", w, h));
+        let alone = rgb_frame(&rig, &started.dir.join("screen/0001.mp4"), "1.0", w, h);
+        let corner = block_diff(&a, &alone, w, (w - 10, w, h - 10, h));
+        let same = block_diff(&a, &b, w, (0, w, 0, h));
+        eprintln!("rounded without the route: the camera's corner still differs from the screen by {corner:.1}; the whole picture differs from the rectangle's by {same:.2}");
+        assert!(corner > 20.0, "the camera is a rectangle, its corner is the camera: {corner}");
+        assert!(same < 1.0, "the fallback is the rectangle's picture: {same}");
     }
 
     /// One frame of `file` at `at` seconds as RGB bytes (all three channels: a picture that lost its colours is not
