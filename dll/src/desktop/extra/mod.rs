@@ -115,6 +115,68 @@ pub mod zip;
 /// this feature here, and which backend?". Non-destructive, never panic.
 pub mod capability;
 
+/// A JNI local-reference frame, popped when it drops.
+///
+/// Every `JObject`, `JString` and `JClass` a call hands back is a LOCAL reference, and a local
+/// reference lives until the thread returns to Java or detaches. `android_main` is a native thread that
+/// is attached for the whole run and never returns to Java, so everything a helper allocates on it
+/// stays allocated: the JNI tips say "if you attach a native thread with AttachCurrentThread, the code
+/// you are running will never automatically free local references until the thread detaches", and
+/// before Android 8.0 the table is capped (512 on Android 7: the VM aborts the process). A haptic tap,
+/// a keyboard that shows and hides, a paste, a permission probe: each leaked a handful of references
+/// (`find_app_class` alone: three), on the one thread that never lets go. Push a frame at the top of
+/// every helper that runs on it; the frame is dropped BEFORE the attach guard, so the references are
+/// released before the thread could detach.
+///
+/// Values that must outlive the frame (an owned `String`, a `bool`) are Rust values: copy them out
+/// first. A `JObject` may not leave the frame.
+#[cfg(all(target_os = "android", feature = "jni"))]
+pub struct LocalFrame {
+    env: *mut jni::sys::JNIEnv,
+    pushed: bool,
+}
+
+#[cfg(all(target_os = "android", feature = "jni"))]
+impl LocalFrame {
+    /// How many references a helper may hold at once (a class loader, a name, a class, a few results).
+    pub const DEFAULT_CAPACITY: i32 = 32;
+
+    /// Push a frame of `capacity` references on `env`'s thread. When the VM cannot (out of memory) the
+    /// guard is inert and the helper carries on as it did without one.
+    #[must_use]
+    pub fn push(env: &jni::JNIEnv<'_>, capacity: i32) -> Self {
+        // An exception a careless caller left pending (`.ok()?` on a failed call does) makes EVERY later
+        // JNI call on this thread fail or abort: "you must not call most JNI functions while an exception
+        // is pending". It is cleared on the way in as well as on the way out.
+        if env.exception_check().unwrap_or(false) {
+            let _ = env.exception_clear();
+        }
+        Self {
+            env: env.get_raw(),
+            pushed: env.push_local_frame(capacity).is_ok(),
+        }
+    }
+}
+
+#[cfg(all(target_os = "android", feature = "jni"))]
+impl Drop for LocalFrame {
+    fn drop(&mut self) {
+        if !self.pushed {
+            return;
+        }
+        // SAFETY: the pointer is the environment of the thread this guard lives on (a guard is never
+        // sent), and the frame it pushed is the innermost one: guards drop in reverse order.
+        if let Ok(env) = unsafe { jni::JNIEnv::from_raw(self.env) } {
+            // A failed call inside the scope may have left an exception pending: clear it, so it cannot
+            // poison the next helper that runs on this thread.
+            if env.exception_check().unwrap_or(false) {
+                let _ = env.exception_clear();
+            }
+            let _ = unsafe { env.pop_local_frame(&jni::objects::JObject::null()) };
+        }
+    }
+}
+
 /// Find an APP class from a thread that has no Java frame on its stack.
 ///
 /// `JNIEnv::find_class` resolves through the class loader of the method on top

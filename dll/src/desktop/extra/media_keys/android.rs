@@ -153,6 +153,8 @@ where
         let mut env = vm
             .attach_current_thread()
             .map_err(|e| format!("attach_current_thread: {e:?}"))?;
+        // Released when this helper returns: this thread never returns to Java (see `LocalFrame`).
+        let _frame = crate::desktop::extra::LocalFrame::push(&env, crate::desktop::extra::LocalFrame::DEFAULT_CAPACITY);
         let activity =
             unsafe { jni::objects::JObject::from_raw(activity_ptr as jni::sys::jobject) };
         let class = crate::desktop::extra::find_app_class(

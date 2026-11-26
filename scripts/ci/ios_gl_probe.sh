@@ -17,6 +17,8 @@ out="${1:?out-dir}"; udid="${2:-}"
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
 mkdir -p "$out"
+# absolute: the tool runs inside the simulator, whose working directory is not this one
+out="$(cd "$out" && pwd)"
 
 {
   echo "== sw_vers"; sw_vers
@@ -40,6 +42,7 @@ fw="$sdk/System/Library/Frameworks/OpenGLES.framework"
   echo "== OpenGLES.tbd (targets, install name, the EAGL and gl symbols counted)"
   tbd="$fw/OpenGLES.tbd"
   if [ -f "$tbd" ]; then
+    cp "$tbd" "$out/OpenGLES.tbd"
     head -24 "$tbd"
     echo "symbols mentioning EAGL: $(grep -c 'EAGL' "$tbd")"
     echo "symbols starting with _gl or _egl: $(grep -o '_gl[A-Za-z0-9_]*' "$tbd" | sort -u | wc -l | tr -d ' ')"
