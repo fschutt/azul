@@ -50,6 +50,13 @@ LEG_RUNNER = {
 }
 LEG_CODEGEN_OS = {"linux": "Linux", "macos-arm64": "macOS", "macos-intel": "macOS", "windows": "Windows"}
 MAX_DESCRIPTION = 110
+# The Info.plist text iOS wants for what an Android permission stands for (the engine refuses the feature without it, naming the key).
+IOS_KEY_OF_PERMISSION = {
+    "android.permission.CAMERA": "NSCameraUsageDescription",
+    "android.permission.RECORD_AUDIO": "NSMicrophoneUsageDescription",
+    "android.permission.ACCESS_FINE_LOCATION": "NSLocationWhenInUseUsageDescription",
+    "android.permission.ACCESS_COARSE_LOCATION": "NSLocationWhenInUseUsageDescription",
+}
 
 
 # ---------------------------------------------------------------------------------------------
@@ -164,6 +171,10 @@ def check(m=None):
     if all(isinstance(android.get(k), int) for k in ("min_sdk", "target_sdk")) and android["target_sdk"] < android["min_sdk"]:
         err(f"[android] target_sdk {android['target_sdk']} is below min_sdk {android['min_sdk']}")
     libs = m.get("lib", {})
+    for name, lib in libs.items():
+        if "test-hooks" in str(lib.get("features", "")).split(",") and not lib.get("artifact_only"):
+            err(f"lib {name} has the cargo feature test-hooks and is not artifact_only: a build that reads stand-ins and failure "
+                f"injections from the environment must never ship (scripts/check_no_test_hooks.py)")
     for name, lib in artifact_only_libs(m).items():
         bad = [t for t in lib.get("targets", []) if t not in MOBILE_TARGETS]
         if bad or not lib.get("targets"):
@@ -195,6 +206,19 @@ def check(m=None):
                     f"{[k for k in libs if k != 'desktop']}, not {lib!r}")
             elif libs[lib].get("artifact_only"):
                 err(f"{where} mobile_lib {lib!r} is artifact_only: a shipped app never links a QA variant of the library")
+        # the purpose strings of iOS: a usage key is `NS...UsageDescription` with a text, and an app that asks for a sensor on
+        # Android has its key for iOS (the permissions are the list of what the app is allowed to use on a phone)
+        usage = (a.get("ios") or {}).get("usage") or {}
+        for key, text in usage.items():
+            if not re.fullmatch(r"NS[A-Za-z]+UsageDescription", key):
+                err(f"{where} [app.ios.usage] {key!r} is no NS...UsageDescription key")
+            elif not str(text).strip():
+                err(f"{where} [app.ios.usage] {key} has no text: the prompt of the system shows it")
+        if "ios" in a["platforms"]:
+            for perm in (a.get("android") or {}).get("permissions") or []:
+                key = IOS_KEY_OF_PERMISSION.get(perm)
+                if key and key not in usage:
+                    err(f"{where} asks for {perm} on Android but has no {key} in [app.ios.usage]: iOS refuses it without the text")
         if a.get("e2e"):
             qa_columns = {c for lib_ in artifact_only_libs(m).values() for c in lib_.get("targets", [])}
             if not set(columns_of(a)) & qa_columns:
@@ -475,6 +499,17 @@ def boot_text(r):
         if not r["pass"]:
             return "BOOT FAILED: " + str(r.get("reason") or "no reason given")[:110]
         text = "boots"
+        # the platform's own launch number: informational, never part of the verdict
+        if r.get("displayed_ms") is not None:
+            text += f", first window {r['displayed_ms']} ms (the platform's own number)"
+        elif r.get("launch_ms") is not None:
+            text += f", launched in {r['launch_ms']} ms (the platform's own number)"
+        # the engine's own mark (AZ_STARTUP=1): the first frame it handed to the OS, counted from the process creation
+        if r.get("first_present_ms") is not None:
+            text += f", first present {r['first_present_ms']:.0f} ms (the engine's mark)"
+        backend = re.search(r"backend=(\w+)", str(r.get("render_backend") or ""))
+        if backend:
+            text += f", {backend.group(1)} renderer"
     elif r.get("alive") and not r.get("fatal"):
         text = "boots" + ("" if r.get("screen_nonblank") else " (blank screen)")
     else:

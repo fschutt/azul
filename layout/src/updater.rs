@@ -13,6 +13,13 @@
 //! 3. Checks are ASYNC (the `CallbackInfo::check_for_updates` wrapper runs this module on an azul
 //!    `Thread`) and observed through the existing `app_update_check_total` /
 //!    `app_update_apply_total` metrics.
+//! 4. **A store owns store installs.** On iOS and Android, and in any build made with the
+//!    `store_app` feature, the updater has no code that downloads or installs a program: a store
+//!    forbids an app to fetch code of its own (App Store Review Guideline 2.5.2, Google Play's
+//!    Device and Network Abuse policy). Such a build detects [`InstallKind::AppStore`], its mode
+//!    clamps to [`UpdateMode::NotifyOnly`] (a check may say that a newer version exists, the store
+//!    brings it), and what would fetch, stage or install a program is compiled out:
+//!    `stage_program_update` and its kin answer that the store delivers the updates.
 //!
 //! v1 ships the `HttpManifestSource` (a small JSON manifest) and the policy
 //! engine (install-kind backstops, anti-downgrade, check cooldown,
@@ -21,6 +28,25 @@
 //! manifest format already carries the digest field they need.
 
 use std::path::{Path, PathBuf};
+
+/// Whether this build is delivered by a store that updates it: iOS and Android always, any build
+/// made with the `store_app` feature. Such a build has no code that downloads or installs a
+/// program, because a store forbids an app to fetch code of its own (App Store Review Guideline
+/// 2.5.2, Google Play's Device and Network Abuse policy): every item that does is behind
+/// `#[cfg(not(any(target_os = "ios", target_os = "android", feature = "store_app")))]`, and
+/// `updater_store_test.rs` fails when one is not.
+const STORE_BUILD: bool = cfg!(any(
+    target_os = "ios",
+    target_os = "android",
+    feature = "store_app"
+));
+
+/// What a store build answers when it is asked to fetch or install a program.
+#[cfg(any(target_os = "ios", target_os = "android", feature = "store_app"))]
+const STORE_REFUSAL: &str = "this app is installed from a store, and the store delivers its \
+    updates: a store forbids an app to download or install code of its own (App Store Review \
+    Guideline 2.5.2, Google Play's Device and Network Abuse policy), so this build has no code \
+    that does";
 
 use azul_css::AzString;
 
@@ -44,6 +70,13 @@ pub enum InstallKind {
     /// The binary path is not writable by this user and not recognizably
     /// package-managed (system-wide manual install).
     ReadOnly,
+    /// An app store delivers this program's updates: the App Store on iOS, Google Play on
+    /// Android, or any build made with the `store_app` feature (the Mac App Store, the Microsoft
+    /// Store). Always so on iOS and Android, whatever the path of the binary. A store forbids an
+    /// app to download code of its own (App Store Review Guideline 2.5.2, Google Play's Device and
+    /// Network Abuse policy), so such a build has no code that fetches or installs a program: a
+    /// check can say that a newer version exists, and the store brings it.
+    AppStore,
 }
 
 impl InstallKind {
@@ -76,6 +109,11 @@ impl InstallKind {
     /// (`SNAP` is set).
     #[must_use]
     pub fn detect_with(exe: &Path, snap: bool) -> Self {
+        if STORE_BUILD {
+            // whatever the path says (an app bundle is writable by its owner as far as the
+            // permission bits go): the store owns the install
+            return Self::AppStore;
+        }
         if snap {
             return Self::Snap;
         }
@@ -131,6 +169,15 @@ impl InstallKind {
             Self::Snap => "snap refresh",
             Self::Flatpak => "flatpak update",
             Self::WindowsStore => "the Microsoft Store",
+            Self::AppStore => {
+                if cfg!(target_os = "ios") {
+                    "the App Store"
+                } else if cfg!(target_os = "android") {
+                    "Google Play"
+                } else {
+                    "the store this app came from"
+                }
+            }
             Self::UserWritable | Self::ReadOnly => "",
         }
     }
@@ -2050,7 +2097,7 @@ fn read_blocks(path: &Path, mut each: impl FnMut(&[u8])) -> Result<u64, String> 
 }
 
 /// The SHA-256 of the file at `path`.
-fn sha256_of_file(path: &Path) -> Result<[u8; 32], String> {
+pub(crate) fn sha256_of_file(path: &Path) -> Result<[u8; 32], String> {
     use sha2::Digest as _;
     let mut hasher = sha2::Sha256::new();
     read_blocks(path, |block| hasher.update(block))?;
@@ -2060,7 +2107,7 @@ fn sha256_of_file(path: &Path) -> Result<[u8; 32], String> {
 }
 
 /// `hash` as 64 lowercase hex digits.
-fn sha256_hex(hash: &[u8; 32]) -> String {
+pub(crate) fn sha256_hex(hash: &[u8; 32]) -> String {
     use core::fmt::Write as _;
     hash.iter().fold(String::with_capacity(64), |mut out, b| {
         let _ = write!(out, "{b:02x}");
@@ -2791,6 +2838,7 @@ pub struct DownloadOutcome {
 /// The digest check of a download: when the release pins a digest the file must match it. A
 /// release that pins none is not an error HERE - what that means is the policy's to say
 /// ([`verify_artifact`]: a signed chain vouches for the bytes, a digest-only policy refuses).
+#[cfg(not(any(target_os = "ios", target_os = "android", feature = "store_app")))]
 fn check_pin(path: &Path, release: &ReleaseInfo) -> Result<(), String> {
     let Some(pin) = pinned_digest(release)? else {
         return Ok(());
@@ -2805,6 +2853,7 @@ fn check_pin(path: &Path, release: &ReleaseInfo) -> Result<(), String> {
 
 /// The most bytes one update artifact may have. A server that answers `206` for ever (or lies
 /// about the size) used to fill the disk, one 1 MiB window after another (REVIEW Y8).
+#[cfg(not(any(target_os = "ios", target_os = "android", feature = "store_app")))]
 const MAX_UPDATE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 /// The file name of the artifact in the staging folder: the last segment of the download URL, or
@@ -2812,6 +2861,7 @@ const MAX_UPDATE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 /// `[A-Za-z0-9._+-]` becomes `-` - an OCI blob URL ends in `sha256:<hex>` and `:` cannot appear
 /// in a Windows file name, and a version such as `..\..\x` must not climb out of the folder
 /// (REVIEW Y8: the version-based name was the one unsanitised name).
+#[cfg(not(any(target_os = "ios", target_os = "android", feature = "store_app")))]
 fn staged_artifact_name(download_url: &str, version: &str) -> String {
     let safe = |text: &str| -> String {
         text.chars()
@@ -2830,24 +2880,6 @@ fn staged_artifact_name(download_url: &str, version: &str) -> String {
     } else {
         from_url
     }
-}
-
-/// `Content-Range: bytes <start>-<end>/<total>` (`total` may be `*`): the range and the total
-/// size when the server knows it.
-fn parse_content_range(value: &str) -> Option<(u64, u64, Option<u64>)> {
-    let rest = value.trim().strip_prefix("bytes")?.trim_start();
-    let (range, total) = rest.split_once('/')?;
-    let (start, end) = range.split_once('-')?;
-    let start = start.trim().parse::<u64>().ok()?;
-    let end = end.trim().parse::<u64>().ok()?;
-    if end < start {
-        return None;
-    }
-    let total = match total.trim() {
-        "*" => None,
-        digits => Some(digits.parse::<u64>().ok()?),
-    };
-    Some((start, end, total))
 }
 
 /// Downloads a release artifact into `staging_dir`, CACHED and RESUMABLE:
@@ -2871,6 +2903,7 @@ fn parse_content_range(value: &str) -> Option<(u64, u64, Option<u64>)> {
 ///
 /// Returns a description on transport or filesystem failure.
 #[cfg(feature = "http")]
+#[cfg(not(any(target_os = "ios", target_os = "android", feature = "store_app")))]
 pub fn download_update(
     release: &ReleaseInfo,
     staging_dir: &Path,
@@ -2880,6 +2913,7 @@ pub fn download_update(
 
 /// [`download_update`] with the limit as a parameter (the tests use a small one).
 #[cfg(feature = "http")]
+#[cfg(not(any(target_os = "ios", target_os = "android", feature = "store_app")))]
 fn download_update_capped(
     release: &ReleaseInfo,
     staging_dir: &Path,
@@ -2916,113 +2950,24 @@ fn download_update_capped(
         });
     }
     let partial_path = staging_dir.join(format!("{file_name}.partial"));
-    let resumed_from = std::fs::metadata(&partial_path).map_or(0, |m| m.len());
-    // A refused download leaves no partial file behind.
-    let refuse = |why: String| -> String {
-        drop(std::fs::remove_file(&partial_path));
-        why
-    };
-    let too_large = || {
-        format!(
-            "download: the file is larger than the {} MiB an update may be",
-            max_bytes / (1024 * 1024)
-        )
-    };
-    if resumed_from > max_bytes {
-        return Err(refuse(too_large()));
-    }
-
-    // CHUNKED-RANGE loop: each 1 MiB window lands on disk as it completes,
-    // so killing the process mid-download keeps every finished chunk and
-    // the next call resumes from the `.partial` length. (The HTTP layer
-    // buffers whole responses in memory — a single full-file request would
-    // leave NOTHING on disk when interrupted.) A server that ignores
-    // `Range` answers `200` with the whole file on the first request and
-    // the loop degrades to one buffered write.
-    const CHUNK: u64 = 1024 * 1024;
-    use std::io::Write as _;
-    let mut offset = resumed_from;
-    let mut written_this_call = 0u64;
-    let mut honored = false;
-    let mut known_total: Option<u64> = None;
-    loop {
-        let mut config = crate::http::HttpRequestConfig::new()
-            .with_header("Range", format!("bytes={offset}-{}", offset + CHUNK - 1));
-        // A registry blob needs the bearer token the manifest request got.
-        for pair in release.download_headers.as_ref() {
-            config = config.with_header(pair.key.as_str(), pair.value.as_str());
-        }
-        let response = crate::http::http_get_with_config(release.download_url.as_str(), &config)
-            .map_err(|e| format!("download: {e:?}"))?;
-        match response.status_code {
-            206 => {
-                let bytes = response.body.as_ref();
-                let length = bytes.len() as u64;
-                let range = response
-                    .headers
-                    .as_ref()
-                    .iter()
-                    .find(|h| h.name.as_str().eq_ignore_ascii_case("content-range"))
-                    .and_then(|h| parse_content_range(h.value.as_str()));
-                let Some((start, end, total)) = range else {
-                    return Err(refuse(
-                        "download: the server answered 206 without a usable Content-Range"
-                            .to_owned(),
-                    ));
-                };
-                // The bytes have to be the window that was asked for, where it was asked for.
-                if start != offset || end - start + 1 != length || length > CHUNK {
-                    return Err(refuse(format!(
-                        "download: the server sent bytes {start}-{end} ({length} bytes) for a                          request at {offset}"
-                    )));
-                }
-                if let Some(total) = total {
-                    if known_total.is_some_and(|known| known != total) {
-                        return Err(refuse(
-                            "download: the size of the file changed during the download".to_owned(),
-                        ));
-                    }
-                    if total > max_bytes {
-                        return Err(refuse(too_large()));
-                    }
-                    known_total = Some(total);
-                }
-                honored = true;
-                let mut file = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&partial_path)
-                    .map_err(|e| e.to_string())?;
-                file.write_all(bytes).map_err(|e| e.to_string())?;
-                offset += length;
-                written_this_call += length;
-                if offset > max_bytes {
-                    return Err(refuse(too_large()));
-                }
-                // The end of the file: the size the server named is reached, or the window came
-                // back short.
-                if known_total.is_some_and(|total| offset >= total) || length < CHUNK {
-                    break;
-                }
-            }
-            // 200 = the server ignored the Range header: it sent the WHOLE
-            // file; a previous partial is superseded.
-            200 => {
-                let bytes = response.body.as_ref();
-                if bytes.len() as u64 > max_bytes {
-                    return Err(refuse(too_large()));
-                }
-                std::fs::write(&partial_path, bytes).map_err(|e| e.to_string())?;
-                written_this_call = bytes.len() as u64;
-                honored = false;
-                break;
-            }
-            // 416 Range Not Satisfiable: offset is already at (or past) the
-            // end — the partial IS the complete file.
-            416 => break,
-            code => return Err(format!("download HTTP {code}")),
-        }
-    }
+    // The windows, the checks of what the server answers and the resume are `ranged_download`'s; a
+    // registry blob needs the bearer token the manifest request got (`download_headers`).
+    let headers: Vec<(&str, &str)> = release
+        .download_headers
+        .as_ref()
+        .iter()
+        .map(|pair| (pair.key.as_str(), pair.value.as_str()))
+        .collect();
+    let transferred = crate::ranged_download::download(&crate::ranged_download::Request {
+        url: release.download_url.as_str(),
+        headers: &headers,
+        partial_path: &partial_path,
+        max_bytes,
+        what: "an update",
+        progress: &|_, _| {},
+        cancel: &|| false,
+    })
+    .map_err(|e| e.message())?;
     // Verify BEFORE the artifact gains its final (trusted-looking) name; a
     // mismatch discards the partial so the next attempt starts clean.
     if let Err(e) = check_pin(&partial_path, release) {
@@ -3032,10 +2977,10 @@ fn download_update_capped(
     std::fs::rename(&partial_path, &final_path).map_err(|e| e.to_string())?;
     Ok(DownloadOutcome {
         path: final_path,
-        resumed_from_bytes: if honored { resumed_from } else { 0 },
-        bytes_written: written_this_call,
+        resumed_from_bytes: transferred.resumed_from_bytes,
+        bytes_written: transferred.bytes_written,
         used_cached: false,
-        server_supports_resume: honored,
+        server_supports_resume: transferred.server_supports_resume,
     })
 }
 
@@ -3052,6 +2997,7 @@ fn download_update_capped(
 ///
 /// Returns a description on transport, digest or signature-chain failure.
 #[cfg(feature = "http")]
+#[cfg(not(any(target_os = "ios", target_os = "android", feature = "store_app")))]
 pub fn download_and_verify(
     release: &ReleaseInfo,
     expect: &Expect,
@@ -3101,6 +3047,7 @@ fn unique_suffix() -> String {
 /// Copies `from` to the NEW file `to` and hashes what it writes: the copy has to be the bytes
 /// that were verified (`expected`). `to` is created exclusively - never through a link that is
 /// already there.
+#[cfg(not(any(target_os = "ios", target_os = "android", feature = "store_app")))]
 fn copy_verified(from: &Path, to: &Path, expected: &[u8; 32]) -> Result<(), String> {
     use std::io::{Read as _, Write as _};
 
@@ -3144,6 +3091,7 @@ fn copy_verified(from: &Path, to: &Path, expected: &[u8; 32]) -> Result<(), Stri
 /// The kind of archive or compressed stream `head` (the first bytes of a file) starts like, if it
 /// does. This updater replaces the program with the artifact AS IT IS and unpacks nothing, so an
 /// archive would overwrite the executable with a `.tar.gz` (REVIEW Y10).
+#[cfg(not(any(target_os = "ios", target_os = "android", feature = "store_app")))]
 fn archive_kind(head: &[u8]) -> Option<&'static str> {
     const MAGIC: [(&[u8], &str); 8] = [
         (&[0x1f, 0x8b], "gzip"),
@@ -3169,6 +3117,7 @@ fn archive_kind(head: &[u8]) -> Option<&'static str> {
 /// moved BACK - the program must not be left without its executable (REVIEW Y10: it was). `rename`
 /// is a parameter so the failure can be made to happen in a test.
 #[cfg(any(windows, test))]
+#[cfg(not(any(target_os = "ios", target_os = "android", feature = "store_app")))]
 fn swap_moving_the_old_aside(
     incoming: &Path,
     target: &Path,
@@ -3205,6 +3154,7 @@ fn swap_moving_the_old_aside(
 ///
 /// Returns a description on filesystem failure, when the staged file is no longer the file that
 /// was verified, or when it is an archive.
+#[cfg(not(any(target_os = "ios", target_os = "android", feature = "store_app")))]
 pub fn apply_update(artifact: &VerifiedArtifact, target: &Path) -> Result<(), String> {
     let dir = target
         .parent()
@@ -3303,6 +3253,7 @@ pub fn check_program_for_updates(
 /// Returns a description on a missing or unreadable root key, transport, digest or
 /// signature-chain failure; nothing refused stays staged.
 #[cfg(feature = "http")]
+#[cfg(not(any(target_os = "ios", target_os = "android", feature = "store_app")))]
 pub fn stage_program_update(
     release: &ReleaseInfo,
     app: &str,
@@ -3315,12 +3266,31 @@ pub fn stage_program_update(
     stage_program_update_with(release, &Expect::here(app), staging_dir, &policy, state_dir)
 }
 
+/// [`stage_program_update`] on a store build: it fetches nothing, the store delivers the updates
+/// (see `STORE_BUILD`).
+///
+/// # Errors
+///
+/// Always: `STORE_REFUSAL`.
+#[cfg(any(target_os = "ios", target_os = "android", feature = "store_app"))]
+pub fn stage_program_update(
+    _release: &ReleaseInfo,
+    _app: &str,
+    _staging_dir: &Path,
+    _root_public_key: &str,
+    _allow_unsigned: bool,
+    _state_dir: &Path,
+) -> Result<VerifiedArtifact, String> {
+    Err(STORE_REFUSAL.to_owned())
+}
+
 /// [`stage_program_update`] under a policy that is already a policy.
 ///
 /// # Errors
 ///
 /// As [`download_and_verify`].
 #[cfg(feature = "http")]
+#[cfg(not(any(target_os = "ios", target_os = "android", feature = "store_app")))]
 pub fn stage_program_update_with(
     release: &ReleaseInfo,
     expect: &Expect,
@@ -3341,6 +3311,22 @@ pub fn stage_program_update_with(
         }
         (Err(e), _) => Err(e),
     }
+}
+
+/// [`stage_program_update_with`] on a store build: it fetches nothing (see `STORE_BUILD`).
+///
+/// # Errors
+///
+/// Always: `STORE_REFUSAL`.
+#[cfg(any(target_os = "ios", target_os = "android", feature = "store_app"))]
+pub fn stage_program_update_with(
+    _release: &ReleaseInfo,
+    _expect: &Expect,
+    _staging_dir: &Path,
+    _policy: &UpdatePolicy,
+    _state_dir: &Path,
+) -> Result<VerifiedArtifact, String> {
+    Err(STORE_REFUSAL.to_owned())
 }
 
 /// Checks a staged file once more right before it is installed: what the policy demands (the
@@ -3722,6 +3708,7 @@ pub fn spawn_update_check(
 /// an update ([`crate::appenv::AppEnv::update_policy`]) stages nothing; and the staging is
 /// UNATTENDED work, so it defers to the machine's maintenance window (a gated stage just happens
 /// on a later check). The staged file's path when there is one.
+#[cfg(not(any(target_os = "ios", target_os = "android", feature = "store_app")))]
 fn stage_automatically(
     env: &crate::appenv::AppEnv,
     result: &UpdateCheckResult,
@@ -3762,6 +3749,19 @@ fn stage_automatically(
         }
         (Err(_), _) => azul_css::OptionString::None,
     }
+}
+
+/// A store build stages nothing: it has no code that downloads a program (see `STORE_BUILD`).
+#[cfg(any(target_os = "ios", target_os = "android", feature = "store_app"))]
+fn stage_automatically(
+    _env: &crate::appenv::AppEnv,
+    _result: &UpdateCheckResult,
+    _options: UpdateOptions,
+    _effective: UpdateMode,
+    _now_unix: u64,
+    _state_dir: &Path,
+) -> azul_css::OptionString {
+    azul_css::OptionString::None
 }
 
 /// Background half: check → (optional) stage → one `WriteBack`.
@@ -3855,7 +3855,10 @@ extern "C" fn update_check_writeback(
     callback.invoke(user_data, info, check)
 }
 
+// two attributes, not `cfg(all(test, not(..)))`: azul-srcgate blanks an item whose attribute is
+// `cfg(test)` and reads one whose cfg says `not`, so these tests would count as shipped code
 #[cfg(test)]
+#[cfg(not(any(target_os = "ios", target_os = "android", feature = "store_app")))]
 mod tests {
     use core::cmp::Ordering;
 
@@ -5499,27 +5502,6 @@ mod tests {
         drop(std::fs::remove_dir_all(&dir));
     }
 
-    #[test]
-    fn y8_a_content_range_is_read_strictly() {
-        assert_eq!(
-            parse_content_range("bytes 0-1048575/3145728"),
-            Some((0, 1_048_575, Some(3_145_728)))
-        );
-        assert_eq!(parse_content_range("bytes 10-19/*"), Some((10, 19, None)));
-        assert_eq!(parse_content_range(" bytes  5-5/9 "), Some((5, 5, Some(9))));
-        for bad in [
-            "",
-            "bytes */100",
-            "bytes 5-4/100",
-            "bytes a-b/100",
-            "items 0-9/10",
-            "bytes 0-9",
-            "bytes 0-9/x",
-        ] {
-            assert_eq!(parse_content_range(bad), None, "{bad:?}");
-        }
-    }
-
     // ---- REVIEW Y10: the generic self-update --------------------------------------------------
 
     /// The Windows branch cannot run here, so the swap it is made of takes its `rename`: the second
@@ -6858,5 +6840,10 @@ mod tests {
 }
 
 #[cfg(test)]
+#[cfg(not(any(target_os = "ios", target_os = "android", feature = "store_app")))]
 #[path = "updater_settings_test.rs"]
 mod settings_tests;
+
+#[cfg(test)]
+#[path = "updater_store_test.rs"]
+mod store_tests;

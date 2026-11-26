@@ -205,12 +205,26 @@ def e2e_session(args):
             (run.shots_dir / "engine-frame.png").write_bytes(png)
             s.shots.append("engine-frame.png")
             s.note(f"engine frame {len(png)} bytes; compared with the device frame offline (scripts/ci/mobile_gallery.py)")
+        for op, fname in (("get_html_string", "dom.html.json"), ("get_scroll_states", "scroll-states.json"),
+                          ("get_accessibility_tree", "a11y-tree.json")):
+            try:
+                (run.logs_dir / fname).write_text(json.dumps(srv.op(op, timeout=60)), encoding="utf-8")
+            except Exception as e:  # noqa: BLE001
+                s.note(f"{op}: {e}")
         try:
             layout = srv.op("get_all_nodes_layout", timeout=60)
             (run.logs_dir / "nodes-layout.json").write_text(json.dumps(layout), encoding="utf-8")
             s.note(f"{len(walk_nodes(layout))} nodes with a rect logged")
         except Exception as e:  # noqa: BLE001
             s.note(f"get_all_nodes_layout: {e}")
+        try:
+            # the startup timeline (GET /startup, when the engine has one): marks in ms since process start, for the startup work
+            with urllib.request.urlopen(f"http://127.0.0.1:{args.port}/startup", timeout=15) as response:
+                text = response.read().decode("utf-8", "replace")
+            (run.logs_dir / "startup.json").write_text(text, encoding="utf-8")
+            s.note(f"GET /startup: {len(text)} bytes kept in logs/startup.json")
+        except Exception as e:  # noqa: BLE001
+            s.note(f"GET /startup: {str(e)[:100]} (the engine has no startup timeline in this build)")
         state["first"] = device_sig
 
     run.step("e02-engine-frame-and-device-frame", "the engine's full-repaint frame and the device's frame of the same moment, plus every node's layout", s_frames)
@@ -311,19 +325,27 @@ def e2e_session(args):
 
     # ---- keyboard
     def s_keyboard(s):
-        try:
-            srv.op("scroll_into_view", text="TextInput", block="center", behavior="instant")
-            srv.op("wait_frame")
-            srv.op("click", text="Type something...")
-            srv.op("wait_frame")
-        except Exception as e:  # noqa: BLE001
-            s.note(f"click on the text field: {e}")
-        dev.settle(2.0)
-        device_shot(s, "text-field-clicked")
         if args.platform == "android":
+            dev.sh("uiautomator dump /sdcard/qa-ui.xml", timeout=40)
+            nodes = q.parse_bounds(dev.sh("cat /sdcard/qa-ui.xml"))
+            field = [n for n in nodes if n[0] == "TextInput" and n[1] > 0 and n[2] > 0]
+            if not field:
+                s.check("the accessibility tree names the TextInput field with a position", False, f"{len(nodes)} labelled nodes")
+                return
+            x, y = field[0][1], field[0][2]
+            s.note(f"the TextInput field is at ({x}, {y}) in the accessibility tree")
+            dev.tap(x, y)                   # a real touch through Android's input
+            dev.settle(2.5)
             shown = dev.ime_shown()
-            s.check("a click on a text field raises the soft keyboard", shown, "input_method says " + ("shown" if shown else "hidden"), required=False)
-        srv.op("text_input", text="hello azul")
+            s.check("a touch on a text field raises the soft keyboard", shown, "input_method says " + ("shown" if shown else "hidden"))
+            device_shot(s, "text-field-touched")
+        else:
+            try:
+                srv.op("scroll_into_view", text="TextInput", block="center", behavior="instant")
+                srv.op("wait_frame")
+            except Exception as e:  # noqa: BLE001
+                s.note(f"scroll_into_view: {e}")
+        srv.op("text_input", text="hello azul")      # in process: into the focused node
         srv.op("wait_frame")
         dev.settle(1.0)
         device_shot(s, "text-typed")
@@ -331,6 +353,7 @@ def e2e_session(args):
             dev.back()
             dev.settle(1.5)
             s.check("the keyboard hides again", not dev.ime_shown(), "")
+        s.check("the process is alive after the keyboard", dev.alive(), f"pid {dev.pid() or '-'}")
 
     run.step("e60-keyboard", "click a text field, type, hide the keyboard", s_keyboard)
 

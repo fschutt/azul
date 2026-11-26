@@ -779,6 +779,8 @@ dist = [
     "_internal_deps",
     "font_loading_multithreaded",
     "font_async_registry",
+    # `hyphens: auto` in every language, not English only.
+    "hyphenation-all",
     # Full functional surface for a complete libazul dylib - P4-P8 demos
     # consume these through api.json. New feature-gated subsystems
     # (db-sqlite, biometric, ...) MUST be added HERE as they land: `build-dll` includes this list.
@@ -956,12 +958,14 @@ _internal_deps = [
     "icu_windows",
     # Fluent localization support
     "fluent",
-    # NOTE: `http` (rustls + rustls-rustcrypto + the elliptic-curve/getrandom
-    # crypto stack) is deliberately NOT in the shared gate. Like db-sqlite/pdf
-    # it belongs to build-dll only, so the `link-static` mobile/cross gate — and
-    # wasm32-unknown-unknown — stay free of the crypto stack and cross-compile
-    # cleanly. Consumers that need HTTPS enable the `http` feature explicitly
-    # (e.g. azul-doc).
+    # The HTTP client (ureq, rustls 0.23 with the pure-Rust provider rustls-rustcrypto-azul: no
+    # ring, no C) is part of this shared gate, named here: map tiles, `http_get`, the telemetry
+    # upload and an app's own requests need HTTPS on a phone as much as on a desktop. wasm32 stays
+    # free of it (azul-layout declares ureq and rustls for non-wasm targets only). The
+    # `azul-layout` dependency above names `updater` as well, because the C API names its types on
+    # every target; on iOS and Android, and with azul-layout's `store_app`, what downloads or
+    # installs a program is compiled out of it (a store forbids an app to fetch code of its own).
+    "http",
     # ZIP file manipulation
     "zip",
     # JSON support
@@ -1121,6 +1125,22 @@ web-transpiler = ["web", "dep:goblin", "dep:pdb", "dep:iced-x86", "azul-layout?/
 # + emits the static-lib link line for cargo.
 web-transpiler-static = ["web-transpiler", "dep:cc"]
 
+# The Cactus speech engine, the vendor's prebuilt static library (`libcactus.a`, 2 to 3 MB), linked into
+# the program: the built-in recognizer then has its engine without a shared library to find at run time,
+# and it runs where no library can be opened (iOS). The engine is binary only, the LICENSE of its release
+# names no copyright holder and the licence of the weights' training data is not stated (see
+# dll/src/desktop/extra/speech/builtin/mod.rs), so this feature is OFF EVERYWHERE: in no other feature's
+# list (not default, not build-dll, not link-static, not dist), in no workflow and in no recipe, and a
+# public artifact (a release, the website, the demos, a crate) never carries it. The srcgate test
+# `speech_engine_gate` fails when anything but this line, build.rs, the speech module and the two speech
+# scripts (the fetch script, in comments; scripts/check_speech.sh, which only tests and compiles, never in a
+# release profile, and which no workflow runs) names it.
+# A build of one's own turns it on:
+#   scripts/fetch_whistle.sh --static target/speech-engine   # puts static/libcactus.a there (sha256 pinned)
+#   cargo build -p azul-dll --features speech-engine-static
+# build.rs links the archive (AZUL_CACTUS_LIB_DIR names another folder) and the C++ runtime it needs.
+speech-engine-static = []
+
 # -----------------------------------------------------------------------------
 # Windowing backends
 # -----------------------------------------------------------------------------
@@ -1195,8 +1215,11 @@ font_loading_multithreaded = ["font_loading", "azul-layout/font_loading_multithr
 font_async_registry = ["font_loading", "azul-layout/font_async_registry"]
 text_layout = ["azul-layout", "azul-layout/text_layout"]
 
-# ICU4X internationalization support
-icu = ["azul-layout", "azul-layout/icu"]
+# ICU4X internationalization support, with the clock: `IcuDate::now()`, `IcuTime::now()`,
+# `IcuDateTime::now()` and the timestamp functions (api.json's docs of format_date, format_time and
+# format_datetime tell the user to call them) need azul-layout's `icu_chrono`, so every build that has
+# `icu` has it: chrono is in the shipped closures already, on the mobile ones it is a few small crates.
+icu = ["azul-layout", "azul-layout/icu", "azul-layout/icu_chrono"]
 icu_chrono = ["icu", "azul-layout/icu_chrono"]
 
 # macOS Foundation ICU backend (replaces ICU4X data blobs on macOS, ~3.3 MB savings).
@@ -1206,6 +1229,11 @@ icu_macos = ["azul-layout", "azul-layout/icu_macos"]
 # Windows NLS ICU backend (replaces ICU4X data blobs on Windows, ~3.3 MB savings).
 # On non-Windows platforms this feature is a no-op.
 icu_windows = ["azul-layout", "azul-layout/icu_windows"]
+
+# Hyphenation for every language the `hyphenation` crate has patterns for (82; +2.8 MB in the library,
+# about 4 %): `hyphens: auto` on a German, French or Spanish text finds its dictionary. Without it only
+# English (US) is embedded, and a text in another language is not hyphenated. In `dist`.
+hyphenation-all = ["azul-layout", "azul-layout/text_layout_hyphenation_all"]
 
 # Project Fluent localization support (FTL files, language packs)
 fluent = ["azul-layout", "azul-layout/fluent"]

@@ -230,6 +230,8 @@ pub(crate) fn lower_css_property(p: &crate::props::property::CssProperty) -> Exp
         P::FontVariationSettings(v) => prop_value(v, "FontVariationSettings", "StyleFontVariationSettingsValue", "StyleFontVariationSettings", None),
         P::FontOpticalSizing(v) => prop_value(v, "FontOpticalSizing", "StyleFontOpticalSizingValue", "StyleFontOpticalSizing", None),
         P::FontKerning(v) => prop_value(v, "FontKerning", "StyleFontKerningValue", "StyleFontKerning", None),
+        P::TextUnderlineOffset(v) => prop_value(v, "TextUnderlineOffset", "StyleTextUnderlineOffsetValue", "StyleTextUnderlineOffset", None),
+        P::TextUnderlinePosition(v) => prop_value(v, "TextUnderlinePosition", "StyleTextUnderlinePositionValue", "StyleTextUnderlinePosition", None),
         P::TextDecorationColor(v) => prop_value(v, "TextDecorationColor", "StyleTextDecorationColorValue", "StyleTextDecorationColor", None),
         P::TextDecorationThickness(v) => prop_value(v, "TextDecorationThickness", "StyleTextDecorationThicknessValue", "StyleTextDecorationThickness", None),
         P::TextWrap(v) => prop_value(v, "TextWrap", "StyleTextWrapValue", "StyleTextWrap", None),
@@ -246,7 +248,7 @@ pub(crate) fn lower_css_property(p: &crate::props::property::CssProperty) -> Exp
 
 /// The api.json module of EVERY api.json class, sorted by name
 /// (binary-searchable): the lowering produces the CSS closure, and a
-/// component's constructor (`Button::create`, azul_core's
+/// component's constructor (`Button::create`, `azul_core`'s
 /// `ComponentCodegen::Call`) may name any class. Printers whose bindings
 /// are split into modules (Rust `azul::css`, `azul::widgets`, ...) import
 /// from it.
@@ -3192,6 +3194,10 @@ pub(crate) static API_MODULES: &[(&str, &str)] = &[
     ("StyleTextTransform", "css"),
     ("StyleTextTransformParseErrorOwned", "css"),
     ("StyleTextTransformValue", "css"),
+    ("StyleTextUnderlineOffset", "css"),
+    ("StyleTextUnderlineOffsetValue", "css"),
+    ("StyleTextUnderlinePosition", "css"),
+    ("StyleTextUnderlinePositionValue", "css"),
     ("StyleTextWrap", "css"),
     ("StyleTextWrapValue", "css"),
     ("StyleTransform", "css"),
@@ -3924,6 +3930,7 @@ pub(crate) static C_LIKE_ENUMS: &[&str] = &[
     "StyleTextOverflow",
     "StyleTextRendering",
     "StyleTextTransform",
+    "StyleTextUnderlinePosition",
     "StyleTextWrap",
     "StyleUnicodeBidi",
     "StyleUserSelect",
@@ -4151,6 +4158,8 @@ pub(crate) static CSS_PROPERTY_ALIASES: &[(&str, &str, &str)] = &[
     ("FontVariationSettings", "StyleFontVariationSettingsValue", ""),
     ("FontOpticalSizing", "StyleFontOpticalSizingValue", ""),
     ("FontKerning", "StyleFontKerningValue", ""),
+    ("TextUnderlineOffset", "StyleTextUnderlineOffsetValue", ""),
+    ("TextUnderlinePosition", "StyleTextUnderlinePositionValue", ""),
     ("TextDecorationColor", "StyleTextDecorationColorValue", ""),
     ("TextDecorationThickness", "StyleTextDecorationThicknessValue", ""),
     ("TextWrap", "StyleTextWrapValue", ""),
@@ -4392,6 +4401,8 @@ pub(crate) static CSS_PROPERTY_VARIANTS: &[&str] = &[
     "FontVariationSettings",
     "FontOpticalSizing",
     "FontKerning",
+    "TextUnderlineOffset",
+    "TextUnderlinePosition",
     "TextDecorationColor",
     "TextDecorationThickness",
     "TextWrap",
@@ -4405,7 +4416,8 @@ pub(crate) static CSS_PROPERTY_VARIANTS: &[&str] = &[
     "FontSynthesisPosition",
 ];
 
-/// The C tag of a variant of a tagged union the printers build by hand:
+/// The C tag of a variant of a tagged union the printers build by hand.
+///
 /// `CssProperty` variants by declaration order, `CssPropertyValue<T>`
 /// aliases Auto=0 None=1 Initial=2 Inherit=3 Revert=4 Unset=5 Exact=6.
 #[must_use]
@@ -7950,6 +7962,32 @@ impl Lower for crate::props::style::text::StyleTextDecorationThickness {
             Self::FromFont => Expr::unit("StyleTextDecorationThickness", EnumShape::Tagged, "FromFont"),
             Self::Length(v) => Expr::variant("StyleTextDecorationThickness", EnumShape::Tagged, "Length", vec![v.lower()]),
         }
+    }
+}
+
+impl Lower for crate::props::style::text::StyleTextUnderlineOffset {
+    fn lower(&self) -> Expr {
+        match self {
+            Self::Auto => Expr::unit("StyleTextUnderlineOffset", EnumShape::Tagged, "Auto"),
+            Self::Length(v) => Expr::variant("StyleTextUnderlineOffset", EnumShape::Tagged, "Length", vec![v.lower()]),
+        }
+    }
+}
+
+impl Lower for crate::props::style::text::StyleTextUnderlinePosition {
+    fn lower(&self) -> Expr {
+        let variant = match self {
+            Self::Auto => "Auto",
+            Self::FromFont => "FromFont",
+            Self::Under => "Under",
+            Self::Left => "Left",
+            Self::Right => "Right",
+            Self::FromFontLeft => "FromFontLeft",
+            Self::FromFontRight => "FromFontRight",
+            Self::UnderLeft => "UnderLeft",
+            Self::UnderRight => "UnderRight",
+        };
+        Expr::unit("StyleTextUnderlinePosition", EnumShape::CLike, variant)
     }
 }
 

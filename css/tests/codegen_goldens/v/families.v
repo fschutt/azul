@@ -7,7 +7,7 @@ import azul
 fn style_text() azul.AzCssPropertyWithConditionsVec {
 	mut t1 := [2]azul.AzStyleFontFamily{}
 	mut t2 := [1]azul.AzStyleFontFamily{}
-	mut t3 := [65]azul.AzCssPropertyWithConditions{}
+	mut t3 := [67]azul.AzCssPropertyWithConditions{}
 	t1[0] = C.AzStyleFontFamily_system(azul.az_str('Arial'))
 	t1[1] = C.AzStyleFontFamily_system(azul.az_str('sans-serif'))
 	t2[0] = C.AzStyleFontFamily_system(azul.az_str('caption'))
@@ -67,16 +67,18 @@ fn style_text() azul.AzCssPropertyWithConditionsVec {
 	t3[53] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textDecoration(azul.AzStyleTextDecoration.Underline))
 	t3[54] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textDecorationColor(azul.AzStyleTextDecorationColorValue{ Exact: azul.AzStyleTextDecorationColorValueVariant_Exact{ tag: 6, payload: C.AzStyleTextDecorationColor_color(azul.AzColorU{ r: 204, g: 51, b: 0, a: 255 }) } }))
 	t3[55] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textDecorationThickness(azul.AzStyleTextDecorationThicknessValue{ Exact: azul.AzStyleTextDecorationThicknessValueVariant_Exact{ tag: 6, payload: C.AzStyleTextDecorationThickness_length(C.AzPixelValue_px(2.0)) } }))
-	t3[56] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_hyphenationLanguage(azul.AzStyleHyphenationLanguageValue{ Exact: azul.AzStyleHyphenationLanguageValueVariant_Exact{ tag: 6, payload: azul.AzStyleHyphenationLanguage{ inner: azul.az_str('en-US') } } }))
-	t3[57] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_exclusionMargin(azul.AzStyleExclusionMarginValue{ Exact: azul.AzStyleExclusionMarginValueVariant_Exact{ tag: 6, payload: azul.AzStyleExclusionMargin{ inner: C.AzFloatValue_create(10.5) } } }))
-	t3[58] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_caretColor(azul.AzCaretColor{ inner: azul.AzColorU{ r: 255, g: 0, b: 0, a: 255 } }))
-	t3[59] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_caretAnimationDuration(azul.AzCaretAnimationDuration{ inner: azul.AzCssDuration{ inner: 500, unit: azul.AzCssDurationUnit.Milliseconds } }))
-	t3[60] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_caretWidth(azul.AzCaretWidthValue{ Exact: azul.AzCaretWidthValueVariant_Exact{ tag: 6, payload: azul.AzCaretWidth{ inner: C.AzPixelValue_px(2.0) } } }))
-	t3[61] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_selectionBackgroundColor(azul.AzSelectionBackgroundColor{ inner: azul.AzColorU{ r: 51, g: 153, b: 255, a: 255 } }))
-	t3[62] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_selectionColor(azul.AzSelectionColor{ inner: azul.AzColorU{ r: 255, g: 255, b: 255, a: 255 } }))
-	t3[63] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_selectionRadius(azul.AzSelectionRadiusValue{ Exact: azul.AzSelectionRadiusValueVariant_Exact{ tag: 6, payload: azul.AzSelectionRadius{ inner: C.AzPixelValue_px(3.0) } } }))
-	t3[64] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_font(C.AzStyleFontFamilyVec_copyFromPtr(unsafe { &t2[0] }, 1)))
-	return C.AzCssPropertyWithConditionsVec_copyFromPtr(unsafe { &t3[0] }, 65)
+	t3[56] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textUnderlineOffset(azul.AzStyleTextUnderlineOffsetValue{ Exact: azul.AzStyleTextUnderlineOffsetValueVariant_Exact{ tag: 6, payload: C.AzStyleTextUnderlineOffset_length(C.AzPixelValue_px(3.0)) } }))
+	t3[57] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_textUnderlinePosition(azul.AzStyleTextUnderlinePositionValue{ Exact: azul.AzStyleTextUnderlinePositionValueVariant_Exact{ tag: 6, payload: azul.AzStyleTextUnderlinePosition.UnderLeft } }))
+	t3[58] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_hyphenationLanguage(azul.AzStyleHyphenationLanguageValue{ Exact: azul.AzStyleHyphenationLanguageValueVariant_Exact{ tag: 6, payload: azul.AzStyleHyphenationLanguage{ inner: azul.az_str('en-US') } } }))
+	t3[59] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_exclusionMargin(azul.AzStyleExclusionMarginValue{ Exact: azul.AzStyleExclusionMarginValueVariant_Exact{ tag: 6, payload: azul.AzStyleExclusionMargin{ inner: C.AzFloatValue_create(10.5) } } }))
+	t3[60] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_caretColor(azul.AzCaretColor{ inner: azul.AzColorU{ r: 255, g: 0, b: 0, a: 255 } }))
+	t3[61] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_caretAnimationDuration(azul.AzCaretAnimationDuration{ inner: azul.AzCssDuration{ inner: 500, unit: azul.AzCssDurationUnit.Milliseconds } }))
+	t3[62] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_caretWidth(azul.AzCaretWidthValue{ Exact: azul.AzCaretWidthValueVariant_Exact{ tag: 6, payload: azul.AzCaretWidth{ inner: C.AzPixelValue_px(2.0) } } }))
+	t3[63] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_selectionBackgroundColor(azul.AzSelectionBackgroundColor{ inner: azul.AzColorU{ r: 51, g: 153, b: 255, a: 255 } }))
+	t3[64] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_selectionColor(azul.AzSelectionColor{ inner: azul.AzColorU{ r: 255, g: 255, b: 255, a: 255 } }))
+	t3[65] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_selectionRadius(azul.AzSelectionRadiusValue{ Exact: azul.AzSelectionRadiusValueVariant_Exact{ tag: 6, payload: azul.AzSelectionRadius{ inner: C.AzPixelValue_px(3.0) } } }))
+	t3[66] = C.AzCssPropertyWithConditions_simple(C.AzCssProperty_font(C.AzStyleFontFamilyVec_copyFromPtr(unsafe { &t2[0] }, 1)))
+	return C.AzCssPropertyWithConditionsVec_copyFromPtr(unsafe { &t3[0] }, 67)
 }
 
 // CSS: .shorthands

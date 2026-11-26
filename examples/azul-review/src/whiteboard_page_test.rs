@@ -194,3 +194,38 @@ fn the_ids_of_the_pieces_of_a_page_name_their_page_and_their_loop() {
     assert_eq!(chip_id(5), "__azreview_wb-chip-5");
     assert_eq!(send_id(5), "__azreview_wb-send-5");
 }
+
+// ---- a rest that is for the board
+
+#[test]
+fn a_pen_that_rests_on_the_grip_of_a_loop_is_reaching_for_it_and_is_not_asking_to_be_listened_to() {
+    let mut s = app_with_slash_file();
+    draw_fixture(&mut s, &stroke_fixtures::closed_loop(), 0).expect("ended");
+    let (id, ..) = arm_last(&s).expect("armed");
+    let grip = s.wb.borrow().panel.wb.armed.get(id).expect("armed").grip;
+    // on the grip, and a little way round it
+    assert!(rest_is_for_the_board(&s, 0, grip.center()));
+    assert!(rest_is_for_the_board(&s, 0, Pt::new(grip.right() + 5.0, grip.center().y)));
+    // far from it, on the loop's far side, on another page
+    assert!(!rest_is_for_the_board(&s, 0, Pt::new(grip.center().x - 150.0, grip.center().y)));
+    assert!(!rest_is_for_the_board(&s, 1, grip.center()));
+    // a loop that is gone has no grip
+    s.wb.borrow_mut().panel.wb.armed.clear();
+    assert!(!rest_is_for_the_board(&s, 0, grip.center()));
+}
+
+#[test]
+fn while_a_press_on_a_loop_is_followed_no_rest_asks_to_be_listened_to_anywhere() {
+    let mut s = app_with_slash_file();
+    draw_fixture(&mut s, &stroke_fixtures::closed_loop(), 0).expect("ended");
+    let (id, ..) = arm_last(&s).expect("armed");
+    let inside = {
+        let g = s.wb.borrow();
+        let r = g.panel.wb.armed.get(id).expect("armed");
+        Pt::new(r.bounds.x + 20.0, r.bounds.y + r.bounds.h / 2.0)
+    };
+    assert!(!rest_is_for_the_board(&s, 0, Pt::new(10.0, 10.0)));
+    let press = s.wb.borrow_mut().panel.wb.page_press(Pointer { page: 0, in_page: inside, in_window: inside }, 5);
+    assert!(matches!(press, Press::Inside(_)), "{press:?}");
+    assert!(rest_is_for_the_board(&s, 0, Pt::new(10.0, 10.0)), "the press is followed: the hand is at the board");
+}

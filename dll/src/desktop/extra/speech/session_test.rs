@@ -541,3 +541,182 @@ fn a_session_and_a_stream_print_their_state_and_counters_and_nothing_else() {
     assert!(format!("{stream:?}").contains("running: false"));
     assert_eq!(format!("{:?}", SpeechStream::default()), "SpeechStream(closed)");
 }
+
+/// The handles are moved to threads and shared between them: the session is made for it (a worker
+/// listens while the window cancels or asks its state) and the generated bindings say so too. Each
+/// handle goes to a thread of its own here; `Send` and `Sync` are checked by the compiler.
+#[test]
+fn the_session_and_stream_handles_are_moved_to_threads_and_shared_between_them() {
+    fn is_send<T: Send>() {}
+    fn is_sync<T: Sync>() {}
+    is_send::<SpeechSession>();
+    is_sync::<SpeechSession>();
+    is_send::<SpeechStream>();
+    is_sync::<SpeechStream>();
+
+    let (session, _keeper, _closed) = watched_session(vec![say(100, "first")]);
+    // A clone listens on a thread while this thread cancels, arms and asks.
+    let worker = session.clone();
+    let heard = std::thread::spawn(move || worker.listen_blocking(AzString::from("en".to_string()), 1_000))
+        .join()
+        .expect("the worker thread");
+    assert_eq!(heard.status, HeardStatus::Heard);
+    let asker = session.clone();
+    let state = std::thread::spawn(move || {
+        asker.cancel();
+        (asker.arm().as_str().to_string(), asker.state())
+    })
+    .join()
+    .expect("the asking thread");
+    assert_eq!(state, (String::new(), SpeechState::Armed));
+
+    // A stream is waited for on one thread and stopped from another.
+    let stream = session.start_stream(AzString::from("en".to_string()), SpeechStreamOptions::default());
+    let waiter = stream.clone();
+    let waiting = std::thread::spawn(move || {
+        let began = std::time::Instant::now();
+        while waiter.is_running() {
+            drop(waiter.wait_events(20));
+            assert!(began.elapsed() < std::time::Duration::from_secs(5), "the stream was not stopped");
+        }
+    });
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    let stopper = stream;
+    std::thread::spawn(move || stopper.stop()).join().expect("the stopping thread");
+    waiting.join().expect("the waiting thread");
+}
+
+// ---- the model the session fetches ----
+
+/// The built-in recognizer of a session that finds its files looks for the model where the program is, and
+/// then among the files of the model store. A call that the recognizer refuses is remembered by the chain;
+/// when the model's download ends the session takes the recognizer up again, so the next call asks it.
+#[test]
+fn a_model_that_finishes_downloading_makes_the_refused_built_in_recognizer_a_candidate_again() {
+    use super::{
+        builtin::{
+            engine_file_name,
+            model::model_test::{body, scratch, wait_for, Fake, TEST_MODEL},
+            Builtin, ModelPhase, ModelStore, Tuning,
+        },
+        order::Preference,
+    };
+
+    let dir = scratch("session-takes-up");
+    std::fs::create_dir_all(&dir).expect("a scratch folder");
+    // A file where the engine library is looked for (nothing loads it here), and no model.
+    std::fs::write(dir.join(engine_file_name(std::env::consts::OS)), b"only a file").expect("a file");
+    let fake = Fake::new(body());
+    let model = ModelStore::new(&TEST_MODEL, fake.clone(), Some(dir.join("models")));
+    let keeper = MicKeeper::without_microphone();
+    let clock: SharedClock = Arc::new(SystemClock::new());
+    let chain = Chain::new(clock).with(Box::new(
+        Builtin::discover(Some(dir.clone()), keeper.clone(), Tuning::default()).with_store(model.clone()),
+    ));
+    let session = SpeechSession::from_chain(chain, Some(dir.clone()), false, Preference::Automatic, true, keeper, model.clone());
+
+    // A call: the engine file here is no library, so the built-in recognizer refuses, and the chain remembers.
+    let heard = session.listen_blocking(AzString::from("en".to_string()), 200);
+    assert_eq!(heard.status, HeardStatus::Unavailable);
+    assert!(lines_of(&session).iter().any(|line| line.contains("built-in") && line.contains("unavailable")), "{:?}", lines_of(&session));
+    assert_eq!(fake.calls(), 0, "nothing is fetched before the app allows it");
+
+    // The user allows it: when it is there the recognizer is a candidate again.
+    model.allow();
+    wait_for(&model, "the model", |state| state.phase == ModelPhase::Present);
+    let began = std::time::Instant::now();
+    while lines_of(&session).iter().any(|line| line.contains("built-in") && line.contains("unavailable")) {
+        assert!(began.elapsed() < std::time::Duration::from_secs(5), "{:?}", lines_of(&session));
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(lines_of(&session).iter().any(|line| line.contains("built-in") && line.contains("ready")), "{:?}", lines_of(&session));
+    drop(std::fs::remove_dir_all(&dir));
+}
+
+/// The app's face of the model: the policy, the consent, offline, the folder and the state, as the C API
+/// hands them out.
+#[test]
+fn the_model_api_drives_the_store_and_reports_its_state() {
+    use super::{
+        builtin::model::model_test::{body, scratch, Fake, TEST_MODEL},
+        builtin::ModelStore,
+        order::Preference,
+        SpeechModelDownload, SpeechModelPhase,
+    };
+
+    let dir = scratch("session-api");
+    let fake = Fake::new(body());
+    // A platform with no cache folder of its own, as Android: the app names one.
+    let model = ModelStore::new(&TEST_MODEL, fake.clone(), None);
+    let chain = Chain::new(ManualClock::shared(ORIGIN)).with(Box::new(MockSpeech::new(Kind::Native, vec![say(0, "hello")])));
+    let session = SpeechSession::from_chain(chain, None, true, Preference::Automatic, true, MicKeeper::without_microphone(), model);
+    assert_eq!(session.model_state().phase, SpeechModelPhase::NoFolder);
+    assert!(session.model_state().message.as_str().contains("set_model_folder"));
+
+    session.set_model_folder(AzString::from(format!("  {}  ", dir.to_string_lossy())));
+    let state = session.model_state();
+    assert_eq!(state.phase, SpeechModelPhase::NeedsConsent, "the default asks first");
+    assert_eq!((state.bytes_done, state.bytes_total), (0, 3000));
+    assert!(state.url.as_str().starts_with("https://") && state.path.as_str().is_empty(), "{state:?}");
+    assert!(state.message.as_str().contains("allow_model_download"), "{}", state.message.as_str());
+    assert_eq!(fake.calls(), 0);
+
+    // Never is never; offline is offline; each says so.
+    session.set_model_download(SpeechModelDownload::Never);
+    assert_eq!(session.allow_model_download().phase, SpeechModelPhase::Missing);
+    session.set_model_download(SpeechModelDownload::Ask);
+    session.set_offline(true);
+    assert_eq!(session.allow_model_download().phase, SpeechModelPhase::Offline);
+    std::thread::sleep(std::time::Duration::from_millis(30));
+    assert_eq!(fake.calls(), 0);
+
+    // Online and allowed: it comes, and the state says where it is.
+    session.set_offline(false);
+    session.allow_model_download();
+    let began = std::time::Instant::now();
+    let state = loop {
+        let state = session.model_state();
+        if state.phase == SpeechModelPhase::Present {
+            break state;
+        }
+        assert!(began.elapsed() < std::time::Duration::from_secs(10), "{state:?}");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    };
+    assert_eq!(std::fs::read(state.path.as_str()).expect("the model"), body());
+    assert_eq!((state.bytes_done, state.bytes_total), (3000, 3000));
+    // The folder is the app's to take back: empty is the platform's again, which has none here.
+    session.set_model_folder(AzString::from(String::new()));
+    assert_eq!(session.model_state().phase, SpeechModelPhase::NoFolder);
+    // A clone is the same session: it sees the same model.
+    session.set_model_folder(AzString::from(dir.to_string_lossy().into_owned()));
+    assert_eq!(session.clone().model_state().phase, SpeechModelPhase::Present);
+    drop(std::fs::remove_dir_all(&dir));
+}
+
+/// A download that nobody waits for any more is not carried on: the end of the last handle stops it.
+#[test]
+fn the_end_of_the_session_stops_the_download_it_started() {
+    use super::{
+        builtin::model::model_test::{body, scratch, wait_for, Fake, TEST_MODEL},
+        builtin::{ModelPhase, ModelStore},
+        order::Preference,
+    };
+
+    let dir = scratch("session-drop");
+    let fake = Fake::new(body());
+    fake.hold_at(1000);
+    let model = ModelStore::new(&TEST_MODEL, fake.clone(), Some(dir.clone()));
+    let chain = Chain::new(ManualClock::shared(ORIGIN)).with(Box::new(MockSpeech::new(Kind::Native, vec![say(0, "hello")])));
+    let session = SpeechSession::from_chain(chain, None, true, Preference::Automatic, true, MicKeeper::without_microphone(), model.clone());
+    session.allow_model_download();
+    wait_for(&model, "the first window", |state| state.bytes_done == 1000);
+    drop(session);
+    fake.release();
+    let began = std::time::Instant::now();
+    while fake.cancelled() == 0 {
+        assert!(began.elapsed() < std::time::Duration::from_secs(10), "the download went on after its session ended");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_ne!(model.state().phase, ModelPhase::Present);
+    drop(std::fs::remove_dir_all(&dir));
+}

@@ -7935,7 +7935,11 @@
                                 }
                             }
                         ],
-                        "repr": "C"
+                        "repr": "C",
+                        "custom_impls": [
+                            "Send",
+                            "Sync"
+                        ]
                     },
                     "WindowIcon": {
                         "external": "azul_core::window::WindowIcon",
@@ -8292,7 +8296,10 @@
                                 "Unsupported": {}
                             }
                         ],
-                        "repr": "C, u8"
+                        "repr": "C, u8",
+                        "custom_impls": [
+                            "Send"
+                        ]
                     },
                     "MacOSHandle": {
                         "external": "azul_core::window::MacOSHandle",
@@ -22468,7 +22475,9 @@
                             "Hash",
                             "Ord",
                             "PartialEq",
-                            "PartialOrd"
+                            "PartialOrd",
+                            "Send",
+                            "Sync"
                         ],
                         "derive": [
                             "Debug"
@@ -29961,7 +29970,8 @@
                             "Hash",
                             "Ord",
                             "PartialEq",
-                            "PartialOrd"
+                            "PartialOrd",
+                            "Send"
                         ],
                         "derive": [
                             "Debug"
@@ -41147,6 +41157,12 @@
                                 },
                                 "FontKerning": {
                                     "type": "StyleFontKerningValue"
+                                },
+                                "TextUnderlineOffset": {
+                                    "type": "StyleTextUnderlineOffsetValue"
+                                },
+                                "TextUnderlinePosition": {
+                                    "type": "StyleTextUnderlinePositionValue"
                                 },
                                 "TextDecorationColor": {
                                     "type": "StyleTextDecorationColorValue"
@@ -52685,6 +52701,8 @@
                                 "FontVariationSettings": {},
                                 "FontOpticalSizing": {},
                                 "FontKerning": {},
+                                "TextUnderlineOffset": {},
+                                "TextUnderlinePosition": {},
                                 "TextDecorationColor": {},
                                 "TextDecorationThickness": {},
                                 "TextWrap": {},
@@ -58625,7 +58643,9 @@
                             "Hash",
                             "Ord",
                             "PartialEq",
-                            "PartialOrd"
+                            "PartialOrd",
+                            "Send",
+                            "Sync"
                         ],
                         "enum_fields": [
                             {
@@ -61458,7 +61478,9 @@
                             "Hash",
                             "Ord",
                             "PartialEq",
-                            "PartialOrd"
+                            "PartialOrd",
+                            "Send",
+                            "Sync"
                         ],
                         "struct_fields": [
                             {
@@ -62119,6 +62141,77 @@
                             "target": "CssPropertyValue",
                             "generic_args": [
                                 "StyleTextDecorationThickness"
+                            ]
+                        }
+                    },
+                    "StyleTextUnderlineOffset": {
+                        "external": "azul_css::props::style::text::StyleTextUnderlineOffset",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "Length": {
+                                    "type": "PixelValue"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StyleTextUnderlineOffsetValue": {
+                        "external": "azul_css::props::property::StyleTextUnderlineOffsetValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleTextUnderlineOffset"
+                            ]
+                        }
+                    },
+                    "StyleTextUnderlinePosition": {
+                        "external": "azul_css::props::style::text::StyleTextUnderlinePosition",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "FromFont": {},
+                                "Under": {},
+                                "Left": {},
+                                "Right": {},
+                                "FromFontLeft": {},
+                                "FromFontRight": {},
+                                "UnderLeft": {},
+                                "UnderRight": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StyleTextUnderlinePositionValue": {
+                        "external": "azul_css::props::property::StyleTextUnderlinePositionValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "StyleTextUnderlinePosition"
                             ]
                         }
                     }
@@ -129758,7 +129851,9 @@
                             "Hash",
                             "Ord",
                             "PartialEq",
-                            "PartialOrd"
+                            "PartialOrd",
+                            "Send",
+                            "Sync"
                         ],
                         "derive": [
                             "Debug"
@@ -130881,7 +130976,8 @@
                         "external": "azul_layout::resource_handles::ImageCacheSnapshot",
                         "custom_impls": [
                             "Clone",
-                            "Drop"
+                            "Drop",
+                            "Send"
                         ],
                         "derive": [
                             "Debug"
@@ -131816,7 +131912,9 @@
                             "Hash",
                             "Ord",
                             "PartialEq",
-                            "PartialOrd"
+                            "PartialOrd",
+                            "Send",
+                            "Sync"
                         ],
                         "struct_fields": [
                             {
@@ -132150,7 +132248,8 @@
                         "external": "azul_layout::resource_handles::FontCacheSnapshot",
                         "custom_impls": [
                             "Clone",
-                            "Drop"
+                            "Drop",
+                            "Send"
                         ],
                         "derive": [
                             "Debug"
@@ -135262,6 +135361,22 @@
                                 }
                             }
                         ],
+                        "constructors": {
+                            "now": {
+                                "doc": [
+                                    "Get the current local time."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::icu::IcuTime::now()"
+                            },
+                            "now_utc": {
+                                "doc": [
+                                    "Get the current UTC time."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::icu::IcuTime::now_utc()"
+                            }
+                        },
                         "repr": "C"
                     },
                     "DurationParseErrorOwned": {
@@ -191692,6 +191807,23 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionIcuDateTime": {
+                        "external": "azul_layout::icu::OptionIcuDateTime",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "IcuDateTime"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -196836,6 +196968,74 @@
                                 }
                             }
                         ],
+                        "constructors": {
+                            "from_timestamp": {
+                                "doc": [
+                                    "Convert a Unix timestamp (seconds) to IcuDateTime."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "timestamp_secs": "i64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionIcuDateTime"
+                                },
+                                "fn_body": "azul_layout::icu::IcuDateTime::from_timestamp(timestamp_secs).into()"
+                            },
+                            "from_timestamp_millis": {
+                                "doc": [
+                                    "Convert a Unix timestamp (milliseconds) to IcuDateTime."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "timestamp_millis": "i64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionIcuDateTime"
+                                },
+                                "fn_body": "azul_layout::icu::IcuDateTime::from_timestamp_millis(timestamp_millis).into()"
+                            },
+                            "now": {
+                                "doc": [
+                                    "Get the current local date and time."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::icu::IcuDateTime::now()"
+                            },
+                            "now_utc": {
+                                "doc": [
+                                    "Get the current UTC date and time."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::icu::IcuDateTime::now_utc()"
+                            }
+                        },
+                        "functions": {
+                            "timestamp_now": {
+                                "doc": [
+                                    "Get Unix timestamp in milliseconds (like JavaScript Date.now()).",
+                                    "",
+                                    "Returns the number of milliseconds since January 1, 1970 00:00:00 UTC."
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "i64"
+                                },
+                                "fn_body": "azul_layout::icu::IcuDateTime::timestamp_now()"
+                            },
+                            "timestamp_now_seconds": {
+                                "doc": [
+                                    "Get Unix timestamp in seconds."
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "i64"
+                                },
+                                "fn_body": "azul_layout::icu::IcuDateTime::timestamp_now_seconds()"
+                            }
+                        },
                         "repr": "C"
                     },
                     "PluralCategory": {
@@ -196885,6 +197085,22 @@
                                 }
                             }
                         ],
+                        "constructors": {
+                            "now": {
+                                "doc": [
+                                    "Get the current local date."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::icu::IcuDate::now()"
+                            },
+                            "now_utc": {
+                                "doc": [
+                                    "Get the current UTC date."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::icu::IcuDate::now_utc()"
+                            }
+                        },
                         "repr": "C"
                     },
                     "FormatLength": {
@@ -196915,10 +197131,12 @@
                     "IcuLocalizerHandle": {
                         "external": "azul_layout::icu::IcuLocalizerHandle",
                         "custom_impls": [
+                            "Clone",
                             "Debug",
                             "Default",
-                            "Clone",
-                            "Drop"
+                            "Drop",
+                            "Send",
+                            "Sync"
                         ],
                         "struct_fields": [
                             {
@@ -197364,10 +197582,12 @@
                     "FluentLocalizerHandle": {
                         "external": "azul_layout::fluent::FluentLocalizerHandle",
                         "custom_impls": [
+                            "Clone",
                             "Debug",
                             "Default",
-                            "Clone",
-                            "Drop"
+                            "Drop",
+                            "Send",
+                            "Sync"
                         ],
                         "struct_fields": [
                             {
@@ -198960,7 +199180,8 @@
                         "external": "azul_layout::resource_handles::PaginationSnapshot",
                         "custom_impls": [
                             "Clone",
-                            "Drop"
+                            "Drop",
+                            "Send"
                         ],
                         "derive": [
                             "Debug"
@@ -199248,7 +199469,8 @@
                                 "Flatpak": {},
                                 "WindowsStore": {},
                                 "UserWritable": {},
-                                "ReadOnly": {}
+                                "ReadOnly": {},
+                                "AppStore": {}
                             }
                         ],
                         "functions": {
@@ -202178,7 +202400,9 @@
                         "custom_impls": [
                             "Clone",
                             "Default",
-                            "Drop"
+                            "Drop",
+                            "Send",
+                            "Sync"
                         ],
                         "derive": [
                             "Debug"
@@ -203266,7 +203490,9 @@
                         "custom_impls": [
                             "Clone",
                             "Default",
-                            "Drop"
+                            "Drop",
+                            "Send",
+                            "Sync"
                         ],
                         "derive": [
                             "Debug"
@@ -219684,7 +219910,9 @@
                             "Clone",
                             "Debug",
                             "Default",
-                            "Drop"
+                            "Drop",
+                            "Send",
+                            "Sync"
                         ],
                         "struct_fields": [
                             {
@@ -219973,6 +220201,98 @@
                                     }
                                 ],
                                 "fn_body": "object.set_standby(standby)"
+                            },
+                            "set_model_download": {
+                                "doc": [
+                                    "Whether the built-in recognizer's model is fetched when it is missing: [`SpeechModelDownload::Ask`]",
+                                    "by default (the environment's `AZ_SPEECH_MODEL_DOWNLOAD`, `never`, `ask` or `automatic`, sets the",
+                                    "default of the session; this call wins over it). Set it at the start; after changing it later, call",
+                                    "[`SpeechSession::reset`] so that a recognizer that was refused for the missing model is asked again."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "policy": "SpeechModelDownload"
+                                    }
+                                ],
+                                "fn_body": "object.set_model_download(policy)"
+                            },
+                            "set_offline": {
+                                "doc": [
+                                    "An offline program fetches nothing, whatever the policy and whoever allowed it (the environment's",
+                                    "`AZ_SPEECH_OFFLINE` sets the default of the session)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "offline": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_offline(offline)"
+                            },
+                            "set_model_folder": {
+                                "doc": [
+                                    "The folder the model is kept in. Empty: the user's cache folder (`azul/speech` in it), which",
+                                    "some platforms (Android) do not have: the app then names one, its own cache or files folder."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "folder": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_model_folder(folder)"
+                            },
+                            "model_state": {
+                                "doc": [
+                                    "Where the built-in recognizer's model is, without waiting for anything: the phase, how far a",
+                                    "download is, and a sentence to show (for [`SpeechModelPhase::NeedsConsent`] the question for the",
+                                    "user: what is fetched, how large it is, from where, under which licence)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechModelState"
+                                },
+                                "fn_body": "object.model_state()"
+                            },
+                            "allow_model_download": {
+                                "doc": [
+                                    "The user said yes (or the app decided so): fetches the model now, on a thread of its own, unless it is",
+                                    "there, the program is offline, the policy is `Never` or there is no folder. When it is in place the",
+                                    "session takes the built-in recognizer up again by itself. Allowing again after a failure tries again.",
+                                    "Answers the state; poll [`SpeechSession::model_state`] for the progress."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "SpeechModelState"
+                                },
+                                "fn_body": "object.allow_model_download()"
+                            },
+                            "cancel_model_download": {
+                                "doc": [
+                                    "Stops a download at its next window (a megabyte); what came stays and the next",
+                                    "`allow_model_download` resumes from it. The consent is withdrawn."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "fn_body": "object.cancel_model_download()"
                             }
                         },
                         "repr": "C"
@@ -220031,7 +220351,9 @@
                             "Clone",
                             "Debug",
                             "Default",
-                            "Drop"
+                            "Drop",
+                            "Send",
+                            "Sync"
                         ],
                         "struct_fields": [
                             {
@@ -220263,6 +220585,83 @@
                                     "doc": [
                                         "Number of elements in the slice"
                                     ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechModelDownload": {
+                        "external": "azul_dll::unified::speech::SpeechModelDownload",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Never": {},
+                                "Ask": {},
+                                "Automatic": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechModelPhase": {
+                        "external": "azul_dll::unified::speech::SpeechModelPhase",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Present": {},
+                                "Downloading": {},
+                                "NeedsConsent": {},
+                                "Missing": {},
+                                "Failed": {},
+                                "Offline": {},
+                                "NoFolder": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "SpeechModelState": {
+                        "external": "azul_dll::unified::speech::SpeechModelState",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "bytes_done": {
+                                    "type": "u64"
+                                },
+                                "bytes_total": {
+                                    "type": "u64"
+                                },
+                                "message": {
+                                    "type": "String"
+                                },
+                                "path": {
+                                    "type": "String"
+                                },
+                                "url": {
+                                    "type": "String"
+                                },
+                                "phase": {
+                                    "type": "SpeechModelPhase"
                                 }
                             }
                         ],

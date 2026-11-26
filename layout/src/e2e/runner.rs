@@ -23,7 +23,7 @@
 //!   exactly that difference.
 //!
 //! The window/callback scaffolding mirrors the pattern in
-//! `tests/contenteditable_e2e.rs` (LayoutWindow + `RendererResources::default()`
+//! `tests/contenteditable_e2e.rs` (`LayoutWindow` + `RendererResources::default()`
 //! + `ExternalSystemCallbacks::rust_internal()` + `FullWindowState`).
 
 use std::{
@@ -63,6 +63,8 @@ use azul_css::system::DarkLightMode;
 
 // ── Headless window scaffolding ──────────────────────────────────────────────
 
+// The flags (`resize_pending`, `dpi_pending`, ...) are independent notes the host leaves for the next service pass.
+#[allow(clippy::struct_excessive_bools)]
 struct Runner {
     layout_window: LayoutWindow,
     renderer_resources: RendererResources,
@@ -70,7 +72,7 @@ struct Runner {
     window_state: FullWindowState,
     /// The sync baseline the state-diff pass reads, i.e.
     /// `CommonWindowState::previous_window_state`. `determine_all_events`
-    /// derives EVERY synthetic event (MouseDown/Up, KeyDown/Up, WindowFocusIn/
+    /// derives EVERY synthetic event (MouseDown/Up, KeyDown/Up, `WindowFocusIn`/
     /// Out, WindowMove/Resize) from `current` vs `previous`, so without this
     /// field the diff is always empty and no pointer or key event exists at
     /// all. Advanced by `ModifyWindowState` / `QueueWindowStateSequence`
@@ -78,7 +80,7 @@ struct Runner {
     previous_window_state: Option<FullWindowState>,
     /// Pointer→node resolution, i.e. `CommonWindowState::cpu_hit_tester`.
     ///
-    /// The runner has no WebRender, so this is the same `CpuHitTester` the
+    /// The runner has no `WebRender`, so this is the same `CpuHitTester` the
     /// headless / CPU-mode desktop backends use, rebuilt from the layout
     /// results (see [`Runner::rebuild_hit_tester`]).
     cpu_hit_tester: azul_layout::headless::CpuHitTester,
@@ -243,7 +245,7 @@ impl Runner {
     /// `ref_data` and the transient locals it borrows are dropped when `f`
     /// returns, releasing the borrow so the caller can relayout.
     fn with_callback_info<R>(
-        &mut self,
+        &self,
         changes: &Arc<Mutex<Vec<CallbackChange>>>,
         f: impl FnOnce(&mut CallbackInfo) -> R,
     ) -> R {
@@ -375,10 +377,10 @@ impl Runner {
         let hit_test = {
             let scroll_manager = &self.layout_window.scroll_manager;
             let gpu = &self.layout_window.gpu_state_manager;
-            let resolve = |d: azul_core::dom::DomId, n: azul_core::dom::NodeId| {
+            let resolve = |d: DomId, n: NodeId| {
                 scroll_manager.get_current_offset(d, n)
             };
-            let resolve_tf = |d: azul_core::dom::DomId, n: azul_core::dom::NodeId| {
+            let resolve_tf = |d: DomId, n: NodeId| {
                 gpu.painted_transform_of(d, n)
             };
             let hits = self
@@ -425,10 +427,10 @@ impl Runner {
             let hit_test = {
                 let scroll_manager = &self.layout_window.scroll_manager;
                 let gpu = &self.layout_window.gpu_state_manager;
-                let resolve = |d: azul_core::dom::DomId, n: azul_core::dom::NodeId| {
+                let resolve = |d: DomId, n: NodeId| {
                     scroll_manager.get_current_offset(d, n)
                 };
-                let resolve_tf = |d: azul_core::dom::DomId, n: azul_core::dom::NodeId| {
+                let resolve_tf = |d: DomId, n: NodeId| {
                     gpu.painted_transform_of(d, n)
                 };
                 let hits =
@@ -890,15 +892,16 @@ impl Runner {
                 let now = self.now();
                 let event = self.layout_window.webviews.begin_report(&report, &now);
                 let dispatched = event.is_some();
-                let mut prevented = false;
-                if let Some(event) = event {
+                let prevented = if let Some(event) = event {
                     let (r, update, any_prevented, _) = self.dispatch_events_propagated(&[event]);
                     result = result.max(r);
                     if matches!(update, Update::RefreshDom | Update::RefreshDomAllWindows) {
                         result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
                     }
-                    prevented = any_prevented;
-                }
+                    any_prevented
+                } else {
+                    false
+                };
                 let allowed = self
                     .layout_window
                     .webviews
@@ -938,7 +941,7 @@ impl Runner {
     /// and the next Tab restarted from the first stop. Now a fresh Escape
     /// dismisses every forced-open popup whose policy allows it (the manager
     /// records the focus it owes back), the Escape is SPENT like the DLL's
-    /// `consume_keyboard_delta` (no ClearFocus), and the owed focus - with
+    /// `consume_keyboard_delta` (no `ClearFocus`), and the owed focus - with
     /// its ring - is handed back at once, unless the user has moved it
     /// (the runner has no "next pass" hook to defer it to).
     ///
@@ -996,7 +999,7 @@ impl Runner {
                         .node_hierarchy
                         .as_container()
                         .get(node)
-                        .and_then(|item| item.parent_id())
+                        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
                 })
                 .and_then(|parent| {
                     lw.get_node_rect_in_viewport(DomNodeId {
@@ -1026,7 +1029,7 @@ impl Runner {
                 .copied()
                 .filter_map(|n| {
                     let Some(NodeType::TransientWindow(cfg)) =
-                        nodes.get(n).map(|nd| nd.get_node_type())
+                        nodes.get(n).map(azul_core::dom::NodeData::get_node_type)
                     else {
                         return None;
                     };
@@ -1060,7 +1063,7 @@ impl Runner {
             // No window is open in the runner, so `dismiss` returns None - its
             // bookkeeping (forced-open released, focus owed, node held
             // dismissed) is what counts.
-            let _ = self.layout_window.transient_windows.dismiss(node);
+            drop(self.layout_window.transient_windows.dismiss(node));
         }
         // The Escape is spent (a press is not: it goes on to its target).
         if by_escape {
@@ -1205,7 +1208,7 @@ impl Runner {
             let lw = &mut self.layout_window;
             let layout_results = &lw.layout_results;
             let in_release_path =
-                |press: azul_core::dom::DomNodeId, release: azul_core::dom::DomNodeId| -> bool {
+                |press: DomNodeId, release: DomNodeId| -> bool {
                     // Is `press` the release target or one of its DOM ancestors
                     // (i.e. already on the release's propagation path)?
                     if press.dom != release.dom {
@@ -1225,7 +1228,7 @@ impl Runner {
                         if current == press_node {
                             return true;
                         }
-                        match hierarchy.get(current).and_then(|n| n.parent_id()) {
+                        match hierarchy.get(current).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id) {
                             Some(parent) => current = parent,
                             None => return false,
                         }
@@ -1356,15 +1359,14 @@ impl Runner {
                             .text_edit_manager
                             .multi_cursor
                             .as_ref()
-                            .map(|mc| {
+                            .is_some_and(|mc| {
                                 mc.selections.iter().any(|s| {
                                     matches!(
                                         &s.selection,
                                         azul_core::selection::Selection::Range(_)
                                     )
                                 })
-                            })
-                            .unwrap_or(false),
+                            }),
                         // Mirrors the dll shell: a focus with a Paste
                         // callback (a terminal) asks for the paste chord.
                         focus_hears_paste: lw
@@ -1495,14 +1497,13 @@ impl Runner {
             .forget_queued_scroll_input();
         self.layout_window.scroll_manager.pending_wheel_event = None;
 
-        let mut should_recurse = false;
-        if matches!(
+        let should_recurse = matches!(
             callback_update,
             azul_core::callbacks::Update::RefreshDom
                 | azul_core::callbacks::Update::RefreshDomAllWindows
-        ) {
+        );
+        if should_recurse {
             result = result.max(ProcessEventResult::ShouldRegenerateDomCurrentWindow);
-            should_recurse = true;
         }
 
         // ── 3b. POST-CALLBACK TEXT INPUT ─────────────────────────────────
@@ -1604,7 +1605,7 @@ impl Runner {
                                 .node_hierarchy
                                 .as_container()
                                 .get(nid)
-                                .and_then(|h| h.parent_id())
+                                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
                         })
                     },
                     // Past a `VirtualView` page's root the walk goes on at
@@ -1661,16 +1662,17 @@ impl Runner {
         // single Tab walked the focus ring MAX_EVENT_RECURSION_DEPTH times and
         // set `hit_depth_cap` on every key press (it only produced the right
         // answer because 7 steps over 3 focusables is a net +1).
-        let mut default_action_focus_changed = false;
-        if !prevent_default
+        let default_action_focus_changed = if !prevent_default
             && synthetic_events
                 .iter()
                 .any(|e| e.event_type == azul_core::events::EventType::KeyDown)
         {
             let (r, changed) = self.run_keyboard_default_action(&synthetic_events);
             result = result.max(r);
-            default_action_focus_changed = changed;
-        }
+            changed
+        } else {
+            false
+        };
 
         // ── 6. FOCUS EVENTS + RE-ENTRY ───────────────────────────────────
         if (default_action_focus_changed || mouse_click_focus_changed)
@@ -2769,7 +2771,7 @@ impl Runner {
                         if let Some(id_str) = id.as_ref() {
                             dom = dom.with_id(id_str.clone());
                         }
-                        for class in classes.iter() {
+                        for class in classes {
                             dom = dom.with_class(class.clone());
                         }
                         // The node goes in as the creation of the styled DOM
@@ -3477,7 +3479,7 @@ impl Runner {
             CallbackChange::RetryGlobalHotkey { hotkey } => {
                 let hotkeys = self.layout_window.global_hotkeys.shared();
                 hotkeys.retry(*hotkey);
-                let _ = hotkeys.sync();
+                drop(hotkeys.sync());
                 ProcessEventResult::DoNothing
             }
             CallbackChange::SetPointerLock { locked } => {
@@ -3640,7 +3642,7 @@ impl Runner {
             CallbackChange::SetSelectionOwnerColor { owner, color } => {
                 self.layout_window
                     .text_edit_manager
-                    .set_owner_color(*owner, color.clone().into_option());
+                    .set_owner_color(*owner, (*color).into_option());
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
             CallbackChange::CommitUndoSnapshot => {
@@ -3689,14 +3691,16 @@ impl Runner {
                     let physics = lw
                         .system_style
                         .as_ref()
-                        .map(|s| s.scroll_physics.clone())
+                        .map(|s| s.scroll_physics)
                         .unwrap_or_default();
                     let interval_ms = physics.timer_interval_ms.max(1);
                     let state =
                         ScrollPhysicsState::new(lw.scroll_manager.get_input_queue(), physics);
+                    // `Timer::create` takes `Into<TimerCallback>`: the fn item must be the fn pointer first.
+                    let callback: TimerCallbackType = scroll_physics_timer_callback;
                     let timer = Timer::create(
-                        azul_core::refany::RefAny::new(state),
-                        scroll_physics_timer_callback as TimerCallbackType,
+                        RefAny::new(state),
+                        callback,
                         self.system_callbacks.get_system_time_fn,
                     )
                     .with_interval(azul_core::task::Duration::System(
@@ -3774,8 +3778,8 @@ impl Runner {
                 // "desktop" is its system style.
                 let desktop = match self.layout_window.system_style.as_deref().map(|s| s.mode)
                 {
-                    Some(DarkLightMode::Dark) => azul_core::window::DarkLightMode::Dark,
-                    _ => azul_core::window::DarkLightMode::Light,
+                    Some(DarkLightMode::Dark) => DarkLightMode::Dark,
+                    _ => DarkLightMode::Light,
                 };
                 self.layout_window.mode = *mode;
                 let target = self.layout_window.window_mode_for(desktop);
@@ -4006,9 +4010,9 @@ impl Runner {
         // An `autofocus` node that mounted takes the focus, as in the desktop shell.
         if let Some(n) = pending.as_ref().and_then(|p| p.autofocus) {
             self.layout_window
-                .focus_mounted_autofocus(azul_core::dom::DomNodeId {
+                .focus_mounted_autofocus(DomNodeId {
                     dom: DomId::ROOT_ID,
-                    node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(n)),
+                    node: NodeHierarchyItemId::from_crate_internal(Some(n)),
                 });
         }
 
@@ -4188,7 +4192,7 @@ impl Runner {
     }
 
     /// Port of the DLL event loop's keyboard-default-action pass: Tab →
-    /// FocusNext/Previous, Escape → ClearFocus. Runs once per pass that saw a
+    /// FocusNext/Previous, Escape → `ClearFocus`. Runs once per pass that saw a
     /// `KeyDown`, which is the DLL's `has_key_event` gate.
     ///
     /// Returns `(result, focus_changed)`; the caller uses `focus_changed` to
@@ -4492,7 +4496,7 @@ impl Runner {
         }
     }
 
-    /// Publish layout's scroll containers into the ScrollManager.
+    /// Publish layout's scroll containers into the `ScrollManager`.
     ///
     /// This used to be a hand-maintained PORT of the dll's copy, so a scroll
     /// bug could be fixed in one host and left standing in the other. Both
@@ -4693,7 +4697,7 @@ fn arm_caret_for_focus(
 }
 
 /// Port of the DLL's `apply_hover_restyle` (`.../common/event.rs`): apply this
-/// pass's MouseEnter / MouseLeave targets to the styled DOM so pure-CSS
+/// pass's `MouseEnter` / `MouseLeave` targets to the styled DOM so pure-CSS
 /// `:hover` rules take effect without a DOM regeneration.
 fn apply_hover_restyle(
     layout_window: &mut LayoutWindow,
@@ -4820,13 +4824,14 @@ fn window_listeners(styled_dom: &StyledDom) -> Vec<NodeId> {
         .nodes_with_window_callbacks
         .as_ref()
         .iter()
-        .filter_map(|id| id.into_crate_internal())
+        .filter_map(NodeHierarchyItemId::into_crate_internal)
         .collect();
     nodes.sort_unstable();
     nodes.dedup();
     nodes
 }
 
+#[must_use]
 pub fn run_e2e_test(test: &E2eTest) -> E2eTestResult {
     run_e2e_test_with_dom(test, None)
 }
@@ -4835,6 +4840,7 @@ pub fn run_e2e_test(test: &E2eTest) -> E2eTestResult {
 /// environment as a host read it once at the start - the traces of the runner (`AZ_ACT_DEBUG`,
 /// `AZ_ANIM_DEBUG`), the solver's and the text group's switches. [`run_e2e_test`] runs under the
 /// defaults, the behaviour of an empty environment.
+#[must_use]
 pub fn run_e2e_test_with_settings(
     test: &E2eTest,
     settings: &crate::settings::LayoutSettings,
@@ -4848,7 +4854,7 @@ pub fn run_e2e_test_with_settings(
 /// the same ops (`click`, `text_input`, ...) a JSON scenario uses — which is
 /// how the widgets (whose DOM no HTML `mount` can express: they carry
 /// datasets, callbacks and empty text nodes) get exercised end to end.
-pub fn run_e2e_test_with_dom(test: &E2eTest, initial_dom: Option<StyledDom>) -> E2eTestResult {
+pub(super) fn run_e2e_test_with_dom(test: &E2eTest, initial_dom: Option<StyledDom>) -> E2eTestResult {
     run_e2e_test_keeping_runner(test, initial_dom).0
 }
 

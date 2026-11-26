@@ -145,7 +145,10 @@ use self::linux as platform;
 use self::windows as platform;
 
 use self::{
-    builtin::{Builtin, BuiltinStatus, Tuning},
+    builtin::{
+        Builtin, BuiltinStatus, DownloadPolicy, LayoutFetch, ModelPhase, ModelState, ModelStore, NoNetwork, Tuning,
+        WHISTLE,
+    },
     chain::{Chain, Health},
     keeper::{MicKeeper, DEFAULT_ARMED_IDLE_MS, DEFAULT_KEEP_MS},
     mock::{words_of, MockSpeech},
@@ -316,6 +319,103 @@ pub enum SpeechStandby {
 impl Default for SpeechStandby {
     fn default() -> Self {
         Self::OnDemand
+    }
+}
+
+/// Whether the built-in recognizer's model is fetched when it is missing. The model is not bundled: it is
+/// a file of 16.9 MB that the program downloads once, into the user's cache folder, with its size and its
+/// SHA-256 checked (see [`SpeechSession::model_state`]).
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum SpeechModelDownload {
+    /// Nothing is fetched, even when the app allows it: a model that is not there stays missing.
+    Never,
+    /// Nothing is fetched until the app has asked its user and calls
+    /// [`SpeechSession::allow_model_download`] (the default).
+    Ask,
+    /// The model is fetched the first time the recognizer needs it, without asking.
+    Automatic,
+}
+
+impl Default for SpeechModelDownload {
+    fn default() -> Self {
+        Self::Ask
+    }
+}
+
+impl From<SpeechModelDownload> for DownloadPolicy {
+    fn from(policy: SpeechModelDownload) -> Self {
+        match policy {
+            SpeechModelDownload::Never => Self::Never,
+            SpeechModelDownload::Ask => Self::Ask,
+            SpeechModelDownload::Automatic => Self::Automatic,
+        }
+    }
+}
+
+/// Where the built-in recognizer's model is.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum SpeechModelPhase {
+    /// The file is there and complete: nothing to do.
+    Present,
+    /// It is being fetched: `bytes_done` of `bytes_total`.
+    Downloading,
+    /// It is not there, the policy is `Ask` and nobody has allowed it: ask the user, then call
+    /// `allow_model_download`.
+    NeedsConsent,
+    /// It is not there and nothing will fetch it (the policy is `Never`, or `Automatic` before the first
+    /// need).
+    Missing,
+    /// The last attempt failed: `message` says how; `allow_model_download` tries again.
+    Failed,
+    /// It is not there and the program is offline: nothing is fetched.
+    Offline,
+    /// There is no folder to keep it in: name one with `set_model_folder`.
+    NoFolder,
+}
+
+impl From<ModelPhase> for SpeechModelPhase {
+    fn from(phase: ModelPhase) -> Self {
+        match phase {
+            ModelPhase::Present => Self::Present,
+            ModelPhase::Downloading => Self::Downloading,
+            ModelPhase::NeedsConsent => Self::NeedsConsent,
+            ModelPhase::Missing => Self::Missing,
+            ModelPhase::Failed => Self::Failed,
+            ModelPhase::Offline => Self::Offline,
+            ModelPhase::NoFolder => Self::NoFolder,
+        }
+    }
+}
+
+/// Where the built-in recognizer's model is: a snapshot, read without waiting for a download.
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpeechModelState {
+    /// Bytes of the file that are on disk (the whole file once `Present`).
+    pub bytes_done: u64,
+    /// The size of the file, bytes.
+    pub bytes_total: u64,
+    /// A sentence to show: what is the matter, or how far the download is.
+    pub message: AzString,
+    /// Where the file is (empty until `Present`).
+    pub path: AzString,
+    /// Where the model is fetched from.
+    pub url: AzString,
+    pub phase: SpeechModelPhase,
+}
+
+impl From<ModelState> for SpeechModelState {
+    fn from(state: ModelState) -> Self {
+        Self {
+            bytes_done: state.bytes_done,
+            bytes_total: state.bytes_total,
+            message: AzString::from(state.message),
+            path: AzString::from(state.path.map(|path| path.to_string_lossy().into_owned()).unwrap_or_default()),
+            url: AzString::from(state.url),
+            phase: state.phase.into(),
+        }
     }
 }
 
@@ -744,6 +844,12 @@ struct SessionInner {
     exe_dir: Option<PathBuf>,
     /// A scripted run: nothing real is loaded, a registration is answered from the script.
     scripted: bool,
+    /// The built-in recognizer's model on the disk: what the download policy and the consent say, and
+    /// the download itself.
+    model: ModelStore,
+    /// The app registered the built-in recognizer's files itself: a model that finishes downloading
+    /// afterwards does not take its place.
+    registered: AtomicBool,
 }
 
 /// A session of speech recognition: the chain of recognizers and what it learned (which one
@@ -780,7 +886,14 @@ impl core::fmt::Debug for SpeechSession {
     }
 }
 
-// SAFETY: the session behind the pointer is `Sync` (its parts are mutexes and an atomic).
+// SAFETY: a handle is one `Arc` reference of a `SessionInner`, which is made to be used from several
+// threads at once: a worker thread listens while the window asks `cancel`, `recognizers`, `arm` or
+// `state`. Every field of it is behind a lock (the chain, the status lines, the limits, the vocabulary,
+// the settings) or an atomic (the cancel and flowing flags, the counters), the microphone's keeper
+// is the same, and the pointer is never read except through that `Arc`. A clone is one more reference,
+// the last handle to go frees the session. The bindings generated for the C ABI repeat this
+// declaration (api.json: `custom_impls` Send and Sync, read from here by autofix) for their mirror of
+// the type, and `session_test` moves each handle to a thread.
 unsafe impl Send for SpeechSession {}
 unsafe impl Sync for SpeechSession {}
 
@@ -834,12 +947,25 @@ impl SpeechSession {
         let scripted = backend_for(hooks) == Backend::Headless;
         if scripted {
             let (chain, preference) = scripted_chain(hooks, clock);
-            return Self::from_chain(chain, exe_dir, true, preference, true, MicKeeper::without_microphone());
+            // A scripted run loads nothing real and fetches nothing.
+            let model = ModelStore::new(&WHISTLE, Arc::new(NoNetwork), None);
+            model.set_policy(DownloadPolicy::Never);
+            return Self::from_chain(chain, exe_dir, true, preference, true, MicKeeper::without_microphone(), model);
         }
         let keeper = MicKeeper::new(capture::platform_source());
         keeper.set_keep_ms(DEFAULT_KEEP_MS);
-        let chain = platform_chain(clock, exe_dir.as_deref(), &keeper);
-        Self::from_chain(chain, exe_dir, false, Preference::Automatic, NATIVE_TAKES_VOCABULARY, keeper)
+        // The model is fetched into the user's cache folder, when and whether the environment says (the
+        // app's own choice, once it makes it, wins).
+        let settings = crate::desktop::extra::extra_settings::ExtraSettings::of_process();
+        let model = ModelStore::new(&WHISTLE, Arc::new(LayoutFetch), default_model_folder());
+        model.set_policy(match settings.speech_model_download {
+            Some(crate::desktop::extra::extra_settings::ModelDownloadSetting::Never) => DownloadPolicy::Never,
+            Some(crate::desktop::extra::extra_settings::ModelDownloadSetting::Automatic) => DownloadPolicy::Automatic,
+            Some(crate::desktop::extra::extra_settings::ModelDownloadSetting::Ask) | None => DownloadPolicy::Ask,
+        });
+        model.set_offline(settings.speech_offline);
+        let chain = platform_chain(clock, exe_dir.as_deref(), &keeper, &model);
+        Self::from_chain(chain, exe_dir, false, Preference::Automatic, NATIVE_TAKES_VOCABULARY, keeper, model)
     }
 
     fn from_chain(
@@ -849,6 +975,7 @@ impl SpeechSession {
         preference: Preference,
         native_takes_vocabulary: bool,
         keeper: MicKeeper,
+        model: ModelStore,
     ) -> Self {
         let inner = Arc::new(SessionInner {
             chain: Mutex::new(chain),
@@ -866,7 +993,17 @@ impl SpeechSession {
             last_language: Mutex::new(String::new()),
             exe_dir,
             scripted,
+            model,
+            registered: AtomicBool::new(false),
         });
+        // A model that has finished downloading is taken up by the session: the built-in recognizer
+        // looks for its files again (the chain marked it refused while the model was missing).
+        let weak = Arc::downgrade(&inner);
+        inner.model.set_ready_hook(Arc::new(move || {
+            if let Some(inner) = weak.upgrade() {
+                inner.rediscover_builtin();
+            }
+        }));
         inner.refresh_lines();
         Self {
             ptr: Arc::into_raw(inner).cast_mut().cast::<c_void>(),
@@ -877,13 +1014,21 @@ impl SpeechSession {
     /// A session on `chain` (for the tests of the chain through the public face).
     #[cfg(test)]
     pub(crate) fn on_chain(chain: Chain) -> Self {
-        Self::from_chain(chain, None, true, Preference::Automatic, true, MicKeeper::without_microphone())
+        Self::from_chain(chain, None, true, Preference::Automatic, true, MicKeeper::without_microphone(), Self::no_model())
     }
 
     /// The same with the keeper whose microphone a test watches.
     #[cfg(test)]
     pub(crate) fn on_chain_with_keeper(chain: Chain, keeper: MicKeeper) -> Self {
-        Self::from_chain(chain, None, true, Preference::Automatic, true, keeper)
+        Self::from_chain(chain, None, true, Preference::Automatic, true, keeper, Self::no_model())
+    }
+
+    /// The model store of a test that has none: nothing is fetched.
+    #[cfg(test)]
+    pub(crate) fn no_model() -> ModelStore {
+        let model = ModelStore::new(&WHISTLE, Arc::new(NoNetwork), None);
+        model.set_policy(DownloadPolicy::Never);
+        model
     }
 
     fn inner(&self) -> Option<&SessionInner> {
@@ -923,6 +1068,8 @@ impl SpeechSession {
                 .any(|state| state.kind == Kind::Builtin);
             return if has { BuiltinSpeechStatus::Ready } else { BuiltinSpeechStatus::EngineMissing };
         }
+        // What the app registers is the app's: a model that finishes downloading later does not replace it.
+        inner.registered.store(true, Ordering::SeqCst);
         let limits = *inner.limits.lock().unwrap_or_else(PoisonError::into_inner);
         let tuning = Tuning {
             max_keywords: limits.max_keywords as usize,
@@ -931,9 +1078,14 @@ impl SpeechSession {
         };
         let microphone = inner.keeper.clone();
         let built = match source {
-            BuiltinSource::File(model_path) => {
-                Builtin::from_files(engine_path, &model_path, inner.exe_dir.as_deref(), microphone, tuning.clone())
-            }
+            BuiltinSource::File(model_path) => Builtin::from_files_with_store(
+                engine_path,
+                &model_path,
+                inner.exe_dir.as_deref(),
+                Some(&inner.model),
+                microphone,
+                tuning.clone(),
+            ),
             BuiltinSource::Bytes(bytes) => {
                 Builtin::from_engine_and_bytes(engine_path, &bytes, inner.exe_dir.as_deref(), microphone, tuning.clone())
             }
@@ -1065,6 +1217,67 @@ impl SpeechSession {
         };
         *inner.standby.lock().unwrap_or_else(PoisonError::into_inner) = standby;
         inner.apply_standby();
+    }
+
+    /// Whether the built-in recognizer's model is fetched when it is missing: [`SpeechModelDownload::Ask`]
+    /// by default (the environment's `AZ_SPEECH_MODEL_DOWNLOAD`, `never`, `ask` or `automatic`, sets the
+    /// default of the session; this call wins over it). Set it at the start; after changing it later, call
+    /// [`SpeechSession::reset`] so that a recognizer that was refused for the missing model is asked again.
+    pub fn set_model_download(&self, policy: SpeechModelDownload) {
+        if let Some(inner) = self.inner() {
+            inner.model.set_policy(policy.into());
+        }
+    }
+
+    /// An offline program fetches nothing, whatever the policy and whoever allowed it (the environment's
+    /// `AZ_SPEECH_OFFLINE` sets the default of the session).
+    pub fn set_offline(&self, offline: bool) {
+        if let Some(inner) = self.inner() {
+            inner.model.set_offline(offline);
+        }
+    }
+
+    /// The folder the model is kept in. Empty: the user's cache folder (`azul/speech` in it), which
+    /// some platforms (Android) do not have: the app then names one, its own cache or files folder.
+    pub fn set_model_folder(&self, folder: AzString) {
+        if let Some(inner) = self.inner() {
+            let folder = folder.as_str().trim();
+            inner.model.set_folder((!folder.is_empty()).then(|| PathBuf::from(folder)));
+        }
+    }
+
+    /// Where the built-in recognizer's model is, without waiting for anything: the phase, how far a
+    /// download is, and a sentence to show (for [`SpeechModelPhase::NeedsConsent`] the question for the
+    /// user: what is fetched, how large it is, from where, under which licence).
+    pub fn model_state(&self) -> SpeechModelState {
+        self.inner().map_or_else(
+            || ModelState {
+                phase: ModelPhase::Missing,
+                bytes_done: 0,
+                bytes_total: 0,
+                path: None,
+                message: "no session".to_string(),
+                url: String::new(),
+            }
+            .into(),
+            |inner| inner.model.state().into(),
+        )
+    }
+
+    /// The user said yes (or the app decided so): fetches the model now, on a thread of its own, unless it is
+    /// there, the program is offline, the policy is `Never` or there is no folder. When it is in place the
+    /// session takes the built-in recognizer up again by itself. Allowing again after a failure tries again.
+    /// Answers the state; poll [`SpeechSession::model_state`] for the progress.
+    pub fn allow_model_download(&self) -> SpeechModelState {
+        self.inner().map_or_else(|| self.model_state(), |inner| inner.model.allow().into())
+    }
+
+    /// Stops a download at its next window (a megabyte); what came stays and the next
+    /// `allow_model_download` resumes from it. The consent is withdrawn.
+    pub fn cancel_model_download(&self) {
+        if let Some(inner) = self.inner() {
+            inner.model.cancel();
+        }
     }
 
     /// Whether sound is reaching the recognizer in the call that runs: false until the
@@ -1263,7 +1476,12 @@ impl core::fmt::Debug for SpeechStream {
     }
 }
 
-// SAFETY: the stream behind the pointer is `Sync` (its parts are mutexes and atomics).
+// SAFETY: a handle is one `Arc` reference of a `StreamShared`: the queue of events is behind a lock with
+// its condition variable, the stop, cancel and running flags are atomics, and the thread of the stream
+// holds only a `Weak` of it. `poll_events`, `wait_events`, `stop`, `cancel` and `is_running` may be
+// called from any thread, also at the same time (a worker thread waits for events while the window
+// stops the stream). The generated bindings repeat this declaration for their mirror of the type
+// (api.json `custom_impls` Send and Sync, read from here by autofix).
 unsafe impl Send for SpeechStream {}
 unsafe impl Sync for SpeechStream {}
 
@@ -1430,7 +1648,41 @@ impl Drop for ActiveGuard<'_> {
     }
 }
 
+impl Drop for SessionInner {
+    /// The last handle of the session is gone: a download that nobody waits for any more stops at its
+    /// next window (it would go on fetching 17 MB for a session that is over).
+    fn drop(&mut self) {
+        self.model.cancel();
+    }
+}
+
 impl SessionInner {
+    /// The model has finished downloading: the built-in recognizer looks for its files again, as it did
+    /// when the session began (the chain had marked it refused while the model was missing). It waits for
+    /// a call or a stream that is listening to end; a recognizer the app registered itself stays.
+    fn rediscover_builtin(&self) {
+        if self.scripted || self.registered.load(Ordering::SeqCst) {
+            return;
+        }
+        let limits = *self.limits.lock().unwrap_or_else(PoisonError::into_inner);
+        let tuning = Tuning {
+            max_keywords: limits.max_keywords as usize,
+            max_model_bytes: u64::from(limits.max_model_mb) * 1024 * 1024,
+            ..Tuning::default()
+        };
+        let mut builtin =
+            Builtin::discover(self.exe_dir.clone(), self.keeper.clone(), tuning).with_store(self.model.clone());
+        let vocabulary = self.vocabulary.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        drop(builtin.set_keywords(&vocabulary));
+        let mut chain = self.chain.lock().unwrap_or_else(PoisonError::into_inner);
+        if self.registered.load(Ordering::SeqCst) {
+            return;
+        }
+        chain.replace(Box::new(builtin));
+        drop(chain);
+        self.refresh_lines();
+    }
+
     /// What the keeper is told from the standby and the limits.
     fn apply_standby(&self) {
         let limits = *self.limits.lock().unwrap_or_else(PoisonError::into_inner);
@@ -1504,21 +1756,26 @@ impl SessionInner {
 
 /// The platform's chain: its own recognizer, then the built-in one (looked for next to the
 /// executable until the app registers it).
-fn platform_chain(clock: SharedClock, exe_dir: Option<&std::path::Path>, keeper: &MicKeeper) -> Chain {
+fn platform_chain(clock: SharedClock, exe_dir: Option<&std::path::Path>, keeper: &MicKeeper, model: &ModelStore) -> Chain {
     Chain::new(clock)
         .with(Box::new(NativeRecognizer::new(keeper.clone())))
-        .with(Box::new(Builtin::discover(
-            exe_dir.map(std::path::Path::to_path_buf),
-            keeper.clone(),
-            Tuning::default(),
-        )))
+        .with(Box::new(
+            Builtin::discover(exe_dir.map(std::path::Path::to_path_buf), keeper.clone(), Tuning::default())
+                .with_store(model.clone()),
+        ))
+}
+
+/// The folder the built-in recognizer's model is fetched into: `azul/speech` in the user's cache folder
+/// (`None` where the platform has none: the app names a folder).
+fn default_model_folder() -> Option<PathBuf> {
+    azul_layout::file::FilePath::get_cache_dir().map(|dir| PathBuf::from(dir.inner.as_str()).join("azul").join("speech"))
 }
 
 /// The chain of a headless or E2E test run: what `AZ_SPEECH_SCRIPT` scripts, else what
 /// `AZ_SPEECH_HEARD` holds (heard on every call, at once) or nothing.
 fn scripted_chain(hooks: &azul_core::run_mode::TestHooks, clock: SharedClock) -> (Chain, Preference) {
     let Some(path) = hooks.speech_script.as_deref().filter(|path| !path.is_empty()) else {
-        return (Chain::new(clock).with(Box::new(HeadlessRecognizer)), Preference::Automatic);
+        return (Chain::new(clock).with(Box::new(HeadlessRecognizer::new())), Preference::Automatic);
     };
     let read = std::fs::read_to_string(path).map_err(|e| e.to_string()).and_then(|text| script::parse(&text));
     match read {
@@ -1647,7 +1904,20 @@ impl Recognizer for NativeRecognizer {
 
 /// What a headless run hears (`AZ_SPEECH_HEARD`, or the test's own), at once, with every word 300 ms
 /// long: the old stand-in as a link of the chain.
-struct HeadlessRecognizer;
+struct HeadlessRecognizer {
+    /// What it hears now (the process' `AZ_SPEECH_HEARD` unless a test says otherwise).
+    heard: Box<dyn Fn() -> SpeechHeard + Send>,
+}
+
+impl HeadlessRecognizer {
+    fn new() -> Self {
+        Self::hearing(Box::new(headless::heard))
+    }
+
+    fn hearing(heard: Box<dyn Fn() -> SpeechHeard + Send>) -> Self {
+        Self { heard }
+    }
+}
 
 impl Recognizer for HeadlessRecognizer {
     fn kind(&self) -> Kind {
@@ -1663,9 +1933,73 @@ impl Recognizer for HeadlessRecognizer {
     }
 
     fn listen(&mut self, call: &Listen<'_>) -> Answer {
-        with_timed_words(heard_to_answer(&headless::heard()), call.clock.unix_ms())
+        with_timed_words(heard_to_answer(&(self.heard)()), call.clock.unix_ms())
+    }
+
+    /// The stand-in as a stream: what it hears is ONE utterance (a partial per word if asked, then the
+    /// final), then the room is quiet (`Quiet` every second) until the heard text changes (a new
+    /// utterance: a test or a script sets `AZ_SPEECH_HEARD` again), the time is up, the utterances
+    /// asked for are heard, or the stream is stopped or cancelled. It hears at once: its words carry
+    /// the 300 ms each of [`with_timed_words`] but nothing waits for them.
+    fn listen_stream(
+        &mut self,
+        call: &Listen<'_>,
+        options: &StreamOptions,
+        stop: &dyn Fn() -> bool,
+        emit: &dyn Fn(EventKind, Answer),
+    ) -> Answer {
+        let began = call.clock.now_ms();
+        let budget = u64::from(call.timeout_ms);
+        (call.flowing)();
+        let mut finals = 0u32;
+        let mut last_text: Option<String> = None;
+        let mut quiet_since = began;
+        loop {
+            let now = call.clock.now_ms();
+            if stop()
+                || (call.cancel)()
+                || now.saturating_sub(began) >= budget
+                || (options.max_utterances > 0 && finals >= options.max_utterances)
+            {
+                break;
+            }
+            let heard = (self.heard)();
+            if heard.status == HeardStatus::Heard && last_text.as_deref() != Some(heard.text.as_str()) {
+                let answer = with_timed_words(heard_to_answer(&heard), call.clock.unix_ms());
+                if options.partials {
+                    for at in 0..answer.words.len() {
+                        let mut partial =
+                            Answer::heard_words(answer.words[..=at].to_vec(), &answer.language, answer.started_unix_ms);
+                        partial.text = answer.words[..=at].iter().map(|w| w.text.as_str()).collect::<Vec<_>>().join(" ");
+                        emit(EventKind::Partial, partial);
+                    }
+                }
+                last_text = Some(heard.text.as_str().to_string());
+                finals += 1;
+                quiet_since = now;
+                emit(EventKind::Final, answer);
+                continue;
+            }
+            // Nothing new: the room is quiet (a second of it is reported), and the stand-in looks
+            // again in a moment, at stop and cancel as often as the wait slices.
+            let slice = call.wait(STAND_IN_POLL_MS.min(budget.saturating_sub(now.saturating_sub(began))));
+            if call.clock.now_ms().saturating_sub(quiet_since) >= STAND_IN_QUIET_MS {
+                quiet_since = call.clock.now_ms();
+                emit(EventKind::Quiet, Answer::none(Outcome::NothingHeard, "nothing was said"));
+            }
+            if slice == 0 && call.clock.now_ms() == now {
+                // A clock that does not move (no wait took any time): do not spin on it.
+                break;
+            }
+        }
+        Answer::none(if finals > 0 { Outcome::Heard } else { Outcome::NothingHeard }, "")
     }
 }
+
+/// How often the stand-in looks again at what it hears while a stream runs, ms.
+const STAND_IN_POLL_MS: u64 = 100;
+/// How long the stand-in's room is quiet before the stream says so, ms.
+const STAND_IN_QUIET_MS: u64 = 1_000;
 
 /// What the old headless stand-in heard, with a word's time: 300 ms for each, one after the other
 /// from the start, the audio dated `unix_ms`.

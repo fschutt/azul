@@ -66,6 +66,8 @@ def style_text():
         CssPropertyWithConditions.simple(CssProperty.text_decoration(StyleTextDecoration.Underline)),
         CssPropertyWithConditions.simple(CssProperty.TextDecorationColor(StyleTextDecorationColorValue.Exact(StyleTextDecorationColor.Color(_with(ColorU.default(), r=204, g=51, b=0, a=255))))),
         CssPropertyWithConditions.simple(CssProperty.TextDecorationThickness(StyleTextDecorationThicknessValue.Exact(StyleTextDecorationThickness.Length(PixelValue.px(2.0))))),
+        CssPropertyWithConditions.simple(CssProperty.TextUnderlineOffset(StyleTextUnderlineOffsetValue.Exact(StyleTextUnderlineOffset.Length(PixelValue.px(3.0))))),
+        CssPropertyWithConditions.simple(CssProperty.TextUnderlinePosition(StyleTextUnderlinePositionValue.Exact(StyleTextUnderlinePosition.UnderLeft))),
         CssPropertyWithConditions.simple(CssProperty.HyphenationLanguage(StyleHyphenationLanguageValue.Exact(_with(StyleHyphenationLanguage.default(), inner="en-US")))),
         CssPropertyWithConditions.simple(CssProperty.ExclusionMargin(StyleExclusionMarginValue.Exact(_with(StyleExclusionMargin.default(), inner=FloatValue.create(10.5))))),
         CssPropertyWithConditions.simple(CssProperty.caret_color(_with(CaretColor.default(), inner=_with(ColorU.default(), r=255, g=0, b=0, a=255)))),
