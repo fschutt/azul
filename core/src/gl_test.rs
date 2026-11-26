@@ -1789,6 +1789,88 @@ mod paint_stroke_state_tests {
         }
     }
 
+    /// A stroke of a soft brush (radius 4, a dab every pixel) on a 64 x 32 texture from (`x0`, `y0`) to (`x1`, `y1`), on a
+    /// driver in the renderer's state: what the driver was asked to do.
+    fn stroke_from(x0: f32, y0: f32, x1: f32, y1: f32) -> Gl {
+        with(|g| *g = renderers());
+        let mut texture = Texture::create(
+            21,
+            TextureFlags {
+                is_opaque: false,
+                is_video_texture: false,
+            },
+            PhysicalSizeU32 { width: 64, height: 32 },
+            ColorU::TRANSPARENT,
+            painting_context(),
+            RawImageFormat::RGBA8,
+        );
+        texture.paint_stroke(x0, y0, x1, y1, Brush::new(ColorU { r: 200, g: 20, b: 20, a: 255 }, 4.0));
+        with(|g| g.clone())
+    }
+
+    /// A stroke that lies off the texture draws no dab and sets nothing up on the driver: before, a dab was drawn
+    /// along the whole of it, one buffer upload and one draw call each (6001 for 6,000 px), every one of them
+    /// outside the texture.
+    #[test]
+    fn a_stroke_off_the_texture_draws_nothing_and_sets_nothing_up() {
+        for (x0, y0, x1, y1) in [
+            (5000.0, 10.0, 11000.0, 10.0),
+            (-11000.0, 10.0, -5000.0, 10.0),
+            (10.0, -11000.0, 20.0, -5000.0),
+            (10.0, 5000.0, 20.0, 11000.0),
+            // a dot off the texture, as `paint_dot` makes it: a stroke of no length
+            (5000.0, 10.0, 5000.0, 10.0),
+            (-500.0, 10.0, -500.0, 10.0),
+            (10.0, 500.0, 10.0, 500.0),
+        ] {
+            let after = stroke_from(x0, y0, x1, y1);
+            assert!(after.dabs.is_empty(), "({x0}, {y0}) -> ({x1}, {y1}): {} dabs drawn", after.dabs.len());
+            assert!(after.drawn_with.is_empty(), "no draw call");
+            assert!(after.attribs_set_on.is_empty(), "no vertex array was set up for nothing");
+            assert_eq!(after.next_name, renderers().next_name, "no object was made");
+        }
+    }
+
+    /// A stroke that crosses the texture draws the dabs whose box reaches it (the radius is 4 and a dab comes every
+    /// pixel: the 64 columns and four on each side), not the 6,001 along its whole length.
+    #[test]
+    fn a_stroke_that_crosses_the_texture_draws_the_dabs_in_view() {
+        let after = stroke_from(-3000.0, 16.0, 3000.0, 16.0);
+        assert!((64..=80).contains(&after.dabs.len()), "{} dabs drawn", after.dabs.len());
+        let xs = |d: &[f32; 16]| (d[0], d[4]);
+        for dab in &after.dabs {
+            let (left, right) = xs(dab);
+            assert!(right > -1.0 && left < 1.0, "a dab off the texture was drawn: NDC x {left} .. {right}");
+        }
+    }
+
+    /// A stroke on the texture draws every dab of it (the guard of the change above: nothing in view is dropped), and
+    /// a stroke shorter than a step draws its one dab.
+    #[test]
+    fn a_stroke_on_the_texture_draws_every_dab_of_it() {
+        // 32 px at a step of 1 px: 33 dabs, as before.
+        assert_eq!(one_stroke().dabs.len(), 33);
+        assert_eq!(stroke_from(20.0, 10.0, 20.0, 10.0).dabs.len(), 1);
+        assert_eq!(stroke_from(20.0, 10.0, 20.4, 10.0).dabs.len(), 1);
+        // A stroke that starts off the texture and ends on it draws the dabs from where its box first reaches it.
+        let enters = stroke_from(-40.0, 16.0, 30.0, 16.0);
+        assert!((34..=40).contains(&enters.dabs.len()), "{} dabs", enters.dabs.len());
+    }
+
+    /// A stroke with an end that is not a number or not finite draws nothing (a NaN length made one dab of NaN
+    /// corners, an infinite one two billion).
+    #[test]
+    fn a_stroke_that_is_not_finite_draws_nothing() {
+        for (x0, y0, x1, y1) in [
+            (0.0, 0.0, f32::INFINITY, 0.0),
+            (f32::NAN, 0.0, 10.0, 10.0),
+            (0.0, 0.0, 10.0, f32::NEG_INFINITY),
+        ] {
+            let after = stroke_from(x0, y0, x1, y1);
+            assert!(after.dabs.is_empty() && after.drawn_with.is_empty(), "({x0}, {y0}) -> ({x1}, {y1})");
+        }
+    }
+
     /// One dab of a soft brush with its centre at texture row `y` of a 64 x 32 texture.
     fn dab_at(y: f32) -> [f32; 16] {
         with(|g| *g = renderers());

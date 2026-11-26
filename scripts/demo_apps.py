@@ -50,6 +50,13 @@ LEG_RUNNER = {
 }
 LEG_CODEGEN_OS = {"linux": "Linux", "macos-arm64": "macOS", "macos-intel": "macOS", "windows": "Windows"}
 MAX_DESCRIPTION = 110
+# The Info.plist text iOS wants for what an Android permission stands for (the engine refuses the feature without it, naming the key).
+IOS_KEY_OF_PERMISSION = {
+    "android.permission.CAMERA": "NSCameraUsageDescription",
+    "android.permission.RECORD_AUDIO": "NSMicrophoneUsageDescription",
+    "android.permission.ACCESS_FINE_LOCATION": "NSLocationWhenInUseUsageDescription",
+    "android.permission.ACCESS_COARSE_LOCATION": "NSLocationWhenInUseUsageDescription",
+}
 
 
 # ---------------------------------------------------------------------------------------------
@@ -195,6 +202,19 @@ def check(m=None):
                     f"{[k for k in libs if k != 'desktop']}, not {lib!r}")
             elif libs[lib].get("artifact_only"):
                 err(f"{where} mobile_lib {lib!r} is artifact_only: a shipped app never links a QA variant of the library")
+        # the purpose strings of iOS: a usage key is `NS...UsageDescription` with a text, and an app that asks for a sensor on
+        # Android has its key for iOS (the permissions are the list of what the app is allowed to use on a phone)
+        usage = (a.get("ios") or {}).get("usage") or {}
+        for key, text in usage.items():
+            if not re.fullmatch(r"NS[A-Za-z]+UsageDescription", key):
+                err(f"{where} [app.ios.usage] {key!r} is no NS...UsageDescription key")
+            elif not str(text).strip():
+                err(f"{where} [app.ios.usage] {key} has no text: the prompt of the system shows it")
+        if "ios" in a["platforms"]:
+            for perm in (a.get("android") or {}).get("permissions") or []:
+                key = IOS_KEY_OF_PERMISSION.get(perm)
+                if key and key not in usage:
+                    err(f"{where} asks for {perm} on Android but has no {key} in [app.ios.usage]: iOS refuses it without the text")
         if a.get("e2e"):
             qa_columns = {c for lib_ in artifact_only_libs(m).values() for c in lib_.get("targets", [])}
             if not set(columns_of(a)) & qa_columns:
