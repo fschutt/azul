@@ -7912,6 +7912,10 @@
                     },
                     "PlatformSpecificOptions": {
                         "external": "azul_core::window::PlatformSpecificOptions",
+                        "custom_impls": [
+                            "Send",
+                            "Sync"
+                        ],
                         "derive": [
                             "Debug",
                             "Default",
@@ -7935,11 +7939,7 @@
                                 }
                             }
                         ],
-                        "repr": "C",
-                        "custom_impls": [
-                            "Send",
-                            "Sync"
-                        ]
+                        "repr": "C"
                     },
                     "WindowIcon": {
                         "external": "azul_core::window::WindowIcon",
@@ -8257,6 +8257,9 @@
                     },
                     "RawWindowHandle": {
                         "external": "azul_core::window::RawWindowHandle",
+                        "custom_impls": [
+                            "Send"
+                        ],
                         "derive": [
                             "Debug",
                             "Copy",
@@ -8296,10 +8299,7 @@
                                 "Unsupported": {}
                             }
                         ],
-                        "repr": "C, u8",
-                        "custom_impls": [
-                            "Send"
-                        ]
+                        "repr": "C, u8"
                     },
                     "MacOSHandle": {
                         "external": "azul_core::window::MacOSHandle",
@@ -220656,6 +220656,9 @@
                     },
                     "SpeechModelPhase": {
                         "external": "azul_dll::unified::speech::SpeechModelPhase",
+                        "custom_impls": [
+                            "From"
+                        ],
                         "derive": [
                             "Debug",
                             "Copy",
@@ -220679,6 +220682,9 @@
                     },
                     "SpeechModelState": {
                         "external": "azul_dll::unified::speech::SpeechModelState",
+                        "custom_impls": [
+                            "From"
+                        ],
                         "derive": [
                             "Debug",
                             "Clone",

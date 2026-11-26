@@ -411,6 +411,24 @@ pub fn write_stderr_line(line: &str) {
     write_line(&mut std::io::stderr().lock(), line);
 }
 
+/// One line of the startup timeline (`AZ_STARTUP=1`, `crate::desktop::startup_timeline`), whatever the
+/// log level says: the table is what the run was started for, so it does not wait for `AZ_LOG`. It goes
+/// where the engine's own log goes - stderr (logcat's `RustStdoutStderr` on Android, the console on iOS)
+/// and the log file - once, and `AZ_LOG_STDERR=0` keeps stderr clean as for every record.
+pub fn startup_line(line: &str) {
+    let mut text = String::with_capacity(line.len() + 1);
+    text.push_str(line);
+    text.push('\n');
+    if let Some(file) = log_file() {
+        if let Ok(mut f) = file.lock() {
+            write_line(&mut *f, &text);
+        }
+    }
+    if !stderr_explicitly_disabled() {
+        write_stderr_line(&text);
+    }
+}
+
 /// [`emit`] with the optional window id the two-argument `log_*!` arms carry.
 ///
 /// This is what every `log_*!` call site lands in once the gate passes. It

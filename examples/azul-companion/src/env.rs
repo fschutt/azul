@@ -126,8 +126,9 @@ pub static DEVICES: [Device; 3] = [
         width: 360.0,
         height: 800.0,
         platform: Platform::Android,
-        portrait: Insets { top: 28.0, right: 0.0, bottom: 24.0, left: 0.0 },
-        landscape: Insets { top: 24.0, right: 0.0, bottom: 24.0, left: 0.0 },
+        // the status bar, and the three-button navigation bar at the bottom (48 dp; sideways it stands at the right)
+        portrait: Insets { top: 24.0, right: 0.0, bottom: 48.0, left: 0.0 },
+        landscape: Insets { top: 24.0, right: 48.0, bottom: 0.0, left: 0.0 },
     },
     Device {
         id: "android-l",
@@ -135,8 +136,9 @@ pub static DEVICES: [Device; 3] = [
         width: 412.0,
         height: 915.0,
         platform: Platform::Android,
-        portrait: Insets { top: 32.0, right: 0.0, bottom: 24.0, left: 0.0 },
-        landscape: Insets { top: 24.0, right: 0.0, bottom: 24.0, left: 0.0 },
+        // a camera cutout makes the status bar 48 dp (the emulator of the demos run: 128 px at 2.625 = 48.8), and the navigation bar 48 dp
+        portrait: Insets { top: 48.0, right: 0.0, bottom: 48.0, left: 0.0 },
+        landscape: Insets { top: 24.0, right: 48.0, bottom: 0.0, left: 48.0 },
     },
 ];
 
