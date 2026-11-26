@@ -360,9 +360,13 @@ fn the_edge_of_a_panel_is_named_for_the_screen_reader() {
 // ---- the places other modules plug into ----
 
 #[test]
-fn the_right_panel_holds_the_placeholder_until_the_whiteboard_is_mounted() {
+fn the_right_panel_holds_the_whiteboard_of_the_workspace() {
+    crate::l10n::in_english();
     let content = right_panel_content(&reviewing("/work/proj"), &RefAny::new(0u8));
-    assert!(texts(&content).iter().any(|t| t.contains("whiteboard")), "{:?}", texts(&content));
+    let texts = texts(&content);
+    // the board's header names the board that is open, and an empty board says what it is for
+    assert!(texts.iter().any(|t| t.starts_with("Board 1")), "{texts:?}");
+    assert!(texts.iter().any(|t| t.contains("Circle some code with the pen")), "{texts:?}");
 }
 
 #[test]
@@ -376,7 +380,7 @@ fn the_presenter_and_the_picture_in_picture_have_their_slots_and_nothing_is_in_t
 fn the_settings_page_has_the_dictation_section_and_room_for_the_others() {
     let s = reviewing("/work/proj");
     let sections = settings_sections(&s, &RefAny::new(0u8));
-    assert_eq!(sections.len(), 1, "the dictation's; the agents', recorder's and speech panels come after it");
+    assert_eq!(sections.len(), 2, "the dictation's and the whiteboard's; the agents', recorder's and speech panels come after them");
 }
 
 // ---- a page of long lines, a file of many pages ----

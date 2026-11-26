@@ -9,10 +9,57 @@ use crate::AppState;
 /// The op's name.
 pub const OP_NAME: &str = "azreview_state";
 
+/// The whiteboard of the workspace: whether its panel is open and its board read, what is on the board (the cutouts with the
+/// lines they come from and whether their picture is drawn), the loops that wait to be taken (where the grip is on their page,
+/// how much time they have left), what a press on one is doing, the lines a jump lit, and what the board last said.
+fn whiteboard_json(s: &AppState) -> serde_json::Value {
+    let Ok(g) = s.wb.try_borrow() else {
+        return serde_json::Value::Null;
+    };
+    let now = g.panel.now_ms();
+    let rect = |r: &crate::whiteboard_geom::Rect| serde_json::json!({"x": r.x, "y": r.y, "w": r.w, "h": r.h});
+    let (board_id, board_name) = g.panel.wb.active_board();
+    serde_json::json!({
+        "open": s.panels.right_open,
+        "started": g.started,
+        "keys": g.keys,
+        "board": {"id": board_id, "name": board_name, "boards": g.panel.wb.boards().boards().count()},
+        "items": g.panel.wb.board.len(),
+        "cutouts": g.panel.wb.board.cutouts().map(|c| serde_json::json!({
+            "id": c.id,
+            "file": c.source.file,
+            "first": c.source.first_line,
+            "last": c.source.last_line,
+            "rect": rect(&c.rect),
+            "picture": match &c.image {
+                crate::whiteboard::ImageSlot::Ready(_) => "ready",
+                crate::whiteboard::ImageSlot::Pending => "pending",
+                crate::whiteboard::ImageSlot::Failed(_) => "failed",
+            },
+        })).collect::<Vec<_>>(),
+        "armed": g.panel.wb.armed.all().iter().map(|r| serde_json::json!({
+            "id": r.id,
+            "page": r.page,
+            "first": r.first_line,
+            "last": r.last_line,
+            "grip": rect(&r.grip),
+            "bounds": rect(&r.bounds),
+            "left_ms": r.expires_at_ms().saturating_sub(now),
+            "lifetime_ms": r.lifetime_ms,
+        })).collect::<Vec<_>>(),
+        "armed_ms": g.panel.wb.armed.lifetime_ms(),
+        "press": {"active": g.panel.wb.drag.is_active(), "carrying": g.panel.wb.drag.ghost().is_some()},
+        "flash": g.flash.as_ref().map(|f| serde_json::json!({"file": f.file, "first": f.first, "last": f.last})),
+        "hint": g.panel.hint,
+        "tip_shown": g.tip_shown,
+        "tip_for": g.tip_for,
+    })
+}
+
 /// The state as JSON: `pen` (the place of the pen in hand), `meaning`, `nib`, `tree_open`, `tree_w`, `right_open`,
 /// `right_w`, `chips` (the open file's conversations), `mic` (the microphone's state), `dictating` (a dictation runs),
 /// `ready` (its microphone takes words), `partial` (the words so far), `progress` (the pages seen of the open file, whether it is reviewed, the workspace's totals), `tree` (the rows, the files and folders known so far, the file open), `strokes` (how many the pen has drawn), `slashes` and `deleted_words` (what quick slashes took), `standby` (the policy: `mode`, `enabled`, `armed`, `arms`,
-/// `disarms`), `symbols` (the index of the workspace: `enabled`, `running`, how many names were `recent`ly found, the scan's `progress`), `speech` (the session's state while a thread makes it: `session` unasked, making, ready or failed; `waiting`: a dictation waits for it; `failure`), `conversations` (`open`, `bar_all`, `notes`: each note's id, page, phase, turns and what the agent made of it; `agents`: how many run, how many answers wait, the backend).
+/// `disarms`), `symbols` (the index of the workspace: `enabled`, `running`, how many names were `recent`ly found, the scan's `progress`), `speech` (the session's state while a thread makes it: `session` unasked, making, ready or failed; `waiting`: a dictation waits for it; `failure`), `whiteboard` (`open`, `started`, `board`, `cutouts`, `armed` loops with their `grip`, `press`, `flash`, `hint`), `conversations` (`open`, `bar_all`, `notes`: each note's id, page, phase, turns and what the agent made of it; `agents`: how many run, how many answers wait, the backend).
 #[must_use]
 pub fn state_json(s: &AppState) -> String {
     serde_json::json!({
@@ -47,6 +94,7 @@ pub fn state_json(s: &AppState) -> String {
             "arms": s.voice.arms,
             "disarms": s.voice.disarms,
         },
+        "whiteboard": whiteboard_json(s),
         "conversations": {
             "open": s.open_conv,
             "bar_all": s.bar_all,
