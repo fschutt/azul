@@ -1,0 +1,337 @@
+# scripts/demo_apps.toml: the ONE list of the demo apps.
+#
+# Everything that names an Az app reads THIS file and nothing keeps a second list:
+#   * rust.yml's `demos` run (the plan job turns it into the build matrices: scripts/demo_apps.py plan),
+#   * the staging of the binaries, the status table of a run (scripts/demo_apps.py status),
+#   * the release page's Demos section (doc/src/dllgen/demo_apps.rs, embedded at compile time),
+#   * the tests that fail when an Az package of the workspace, this file, the generator and the
+#     asset names disagree (scripts/demo_apps.py check; doc/src/dllgen/demo_apps_test.rs).
+#
+# An app is a cargo package of the workspace named AzXxx; its binary and its release assets carry the
+# same name (dll/tests/demo_naming_contract.rs). Every build links the ONE prebuilt libazul of its target
+# over the C ABI (no engine crate compiles in an app build: scripts/demo_gate.py), so a feature the
+# engine needs is a feature of a [lib.*] below, never of an app's dependency on azul-dll.
+#
+# PLATFORMS of an app (what it is built for, what the page links when the build exists):
+#   linux          x86_64
+#   macos-arm64    Apple Silicon, macOS 11 and later
+#   macos-intel    x86_64, macOS 10.12 and later (built on an Apple Silicon runner)
+#   windows        x86_64
+#   android        arm64 APK (+ an x86_64 emulator APK, the one the boot test starts)
+#   ios            an UNSIGNED device .app (zipped) + a Simulator .app (zipped)
+#
+# The asset names (one function, doc/src/dllgen/demo_apps.rs and scripts/demo_apps.py agree, a test pins both):
+#   <Name>-linux  <Name>-macos  <Name>-macos-intel  <Name>-windows.exe        (shipped as .tar.gz)
+#   <Name>-android-arm64.apk  <Name>-android-x86_64.apk
+#   <Name>-ios-device.app.zip  <Name>-ios-sim.app.zip
+
+schema = 1
+
+# ---------------------------------------------------------------------------------------------------
+# The libazul every app of a target links. One build per target and variant, uploaded once.
+# ---------------------------------------------------------------------------------------------------
+
+[lib.desktop]
+# What ships (build_lib): the full desktop libazul. Static archive: libazul.a (azul.lib on Windows).
+features = "dist"
+profile = "prod-release"
+targets = ["linux", "macos-arm64", "macos-intel", "windows"]
+
+[lib.mobile]
+# The lean engine of a phone (the "mobile gate" of dll/Cargo.toml: no db-sqlite, no iroh) plus what the
+# mobile apps ask for: AzMaps the tile worker, AzWriter the PDF export. Android adds android-activity.
+features = "std,logging,link-static,a11y,map-tiles,pdf"
+targets = ["android-arm64", "android-x86_64", "ios-device", "ios-sim"]
+
+[lib.mobile-iroh]
+# AzCompanion's transport: azul.iroh (QUIC on the local network). It brings ring and tokio onto a phone, so
+# it is a variant of its own and only the apps that ask for it link it; the other apps never carry it.
+features = "std,logging,link-static,a11y,map-tiles,pdf,iroh"
+targets = ["android-arm64", "android-x86_64", "ios-device", "ios-sim"]
+reason = "azul.iroh for the phone companion (AzReview talks to it over the local network)"
+
+# ---------------------------------------------------------------------------------------------------
+# The apps. `weight` (1 light .. 3 heavy) is what the plan job balances the build groups by: the guess
+# of the first run, replaced by the measured seconds of the status table.
+# ---------------------------------------------------------------------------------------------------
+
+[[app]]
+package = "AzWidgets"
+dir = "examples/azul-widgets"
+description = "every built-in widget in one window"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows", "android", "ios"]
+weight = 1
+docker = true
+mobile_lib = "mobile"
+
+[[app]]
+package = "AzMaps"
+dir = "examples/azul-maps"
+description = "a slippy-map tile viewer - async work in the UI"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows", "android", "ios"]
+weight = 2
+docker = true
+mobile_lib = "mobile"
+needs = ["a network connection for the map tiles"]
+[app.android]
+permissions = ["android.permission.ACCESS_FINE_LOCATION"]
+
+[[app]]
+package = "AzPaint"
+dir = "examples/azul-paint"
+description = "a small paint app - canvas drawing"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows", "android", "ios"]
+weight = 1
+docker = true
+mobile_lib = "mobile"
+
+[[app]]
+package = "AzMeet"
+dir = "examples/azul-meet"
+description = "screenshare, video and audio capture and playback"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows", "android", "ios"]
+weight = 2
+docker = true
+mobile_lib = "mobile"
+needs = ["a meeting server (the `meet` worker) to start or join a meeting"]
+[app.android]
+permissions = ["android.permission.CAMERA", "android.permission.RECORD_AUDIO"]
+
+[[app]]
+package = "AzWriter"
+dir = "examples/azul-writer"
+description = "a document editor - a full application"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows", "android", "ios"]
+weight = 2
+docker = true
+mobile_lib = "mobile"
+
+[[app]]
+package = "AzCompanion"
+dir = "examples/azul-companion"
+name = "AzReview Companion"
+description = "the phone remote control of AzReview: pan and zoom the review from your phone"
+# Phones only: the macOS simulator window (companion_sim) is a development tool, not a demo.
+platforms = ["android", "ios"]
+weight = 1
+bundle_id = "com.azul.azreview_companion"
+mobile_lib = "mobile-iroh"
+needs = ["AzReview on a Mac in the same network (the first build has a demo mode without one)"]
+# Installed from AzReview over a cable, re-signed there: the device .app is UNSIGNED on purpose.
+[app.android]
+permissions = [
+    "android.permission.ACCESS_WIFI_STATE",
+    "android.permission.CHANGE_WIFI_MULTICAST_STATE",
+    "android.permission.CAMERA",
+]
+# The crate is not mobile-ready on master yet (no cdylib for Android, no AzCompanion bin for iOS; the companion
+# agent lands it). The build is still tried, and a pass shows in the table; delete these two lines then.
+[app.known_failing]
+android = "the crate has no cdylib and no ctor entry point yet"
+ios = "the crate has no AzCompanion bin (main.rs) yet"
+[app.ios.plist]
+NSLocalNetworkUsageDescription = "AzReview Companion finds AzReview on your Mac over your Wi-Fi to use your phone as its remote control."
+NSBonjourServices = ["_irohv1._udp"]
+NSCameraUsageDescription = "AzReview Companion scans the pairing code AzReview shows on your Mac."
+UIDeviceFamily = [1]
+[app.ios.strings.de]
+NSLocalNetworkUsageDescription = "AzReview Companion findet AzReview auf deinem Mac über dein WLAN, damit dein Telefon als Fernbedienung dient."
+NSCameraUsageDescription = "AzReview Companion liest den Kopplungscode, den AzReview auf deinem Mac zeigt."
+
+[[app]]
+package = "AzBuilder"
+dir = "examples/azul-builder"
+description = "the drag-and-drop GUI builder - opens its editor in your browser"
+# Desktop only: it drives its window from a browser tab on the same machine.
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 1
+
+[[app]]
+package = "AzReview"
+dir = "examples/azul-review"
+description = "ink-first code review for a pen tablet"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 2
+
+[[app]]
+package = "AzCalculator"
+dir = "examples/azul-calculator"
+description = "Standard, Scientific, Programmer, Date and Convert calculators"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 1
+
+[[app]]
+package = "AzCalendar"
+dir = "examples/azul-calendar"
+description = "a calendar with a week view and event files; it mints AzMeet links"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 2
+
+[[app]]
+package = "AzClock"
+dir = "examples/azul-clock"
+description = "alarms, timers, a stopwatch and a world clock"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 2
+
+[[app]]
+package = "AzCode"
+dir = "examples/azul-code"
+description = "a code editor: file tree, tabs, syntax highlighting, find and replace"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 3
+
+[[app]]
+package = "AzContacts"
+dir = "examples/azul-contacts"
+description = "an address book, one vCard file per contact"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 2
+
+[[app]]
+package = "AzDashboard"
+dir = "examples/azul-dashboard"
+description = "500,000 orders in a sortable, filterable table, with charts"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 1
+
+[[app]]
+package = "AzDrive"
+dir = "examples/azul-drive"
+description = "an Explorer-like file browser for local folders and S3 drives"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 3
+
+[[app]]
+package = "AzERP"
+dir = "examples/azul-erp"
+description = "asset management: records, depreciation schedules and a maintenance log"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 2
+
+[[app]]
+package = "AzInstallManager"
+dir = "examples/azul-installmgr"
+description = "the first-run wizard and update manager of the Azul apps"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 1
+
+[[app]]
+package = "AzMail"
+dir = "examples/azul-mail"
+description = "a mail client: IMAP sync to plain files, folders and messages"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 3
+needs = ["an IMAP account"]
+
+[[app]]
+package = "AzMonitor"
+dir = "examples/azul-monitor"
+description = "processes in a table and CPU, memory, disk and network history"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 1
+
+[[app]]
+package = "AzMusic"
+dir = "examples/azul-music"
+description = "a music player: a library from a folder, album covers, gapless playback"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 2
+
+[[app]]
+package = "AzNews"
+dir = "examples/azul-news"
+description = "an RSS, Atom and JSON Feed reader with OPML import"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 2
+
+[[app]]
+package = "AzNotes"
+dir = "examples/azul-notes"
+description = "notes as Markdown files in notebooks, with tags and a rich-text editor"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 2
+
+[[app]]
+package = "AzPasswordManager"
+dir = "examples/azul-password-manager"
+description = "a password manager: encrypted vault files, TOTP and a generator"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 3
+
+[[app]]
+package = "AzPdf"
+dir = "examples/azul-pdf"
+description = "a PDF viewer with thumbnails, an outline, zoom and search"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 1
+
+[[app]]
+package = "AzPhoto"
+dir = "examples/azul-photo"
+description = "a photo editor on a tiled raster core with layers and blend modes"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 2
+
+[[app]]
+package = "AzPlayer"
+dir = "examples/azul-player"
+description = "a media center: music, pictures and video with a resume point"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 2
+
+[[app]]
+package = "AzReader"
+dir = "examples/azul-reader"
+description = "an EPUB reader with a library, a table of contents and bookmarks"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 2
+
+[[app]]
+package = "AzSetup"
+dir = "examples/azul-setup"
+description = "a fake installer: wizard pages, a settings dialog and the standard dialogs"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 1
+
+[[app]]
+package = "AzSheets"
+dir = "examples/azul-sheets"
+description = "a spreadsheet: a ribbon, a formula bar and a cell grid on the IronCalc engine"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 3
+
+[[app]]
+package = "AzShells"
+dir = "examples/azul-shells"
+description = "the eleven app shells with placeholder content, flat and flora, light and dark"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 1
+
+[[app]]
+package = "AzShow"
+dir = "examples/azul-show"
+description = "a presentation editor with a slide rail, a presenter view and a show"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 2
+
+[[app]]
+package = "AzTasks"
+dir = "examples/azul-tasks"
+description = "to-dos and reminders with smart lists and tags"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 2
+
+[[app]]
+package = "AzTerm"
+dir = "examples/azul-term"
+description = "a terminal emulator with tabs of shells on a PTY"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 3
+
+[[app]]
+package = "AzVideoCut"
+dir = "examples/azul-videocut"
+description = "a video editor: media bin, monitors, a timeline and an MP4 export"
+platforms = ["linux", "macos-arm64", "macos-intel", "windows"]
+weight = 2
