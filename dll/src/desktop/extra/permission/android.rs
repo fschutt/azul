@@ -118,10 +118,49 @@ pub fn probe_status(capability: Capability) -> PermissionState {
             // JNI failure (VM not yet published, etc.) degrades to NotDetermined.
             probe_permissions(capability, perms).unwrap_or(PermissionState::NotDetermined)
         }
-        // Nothing to ask at this API level: an install-time permission, usable.
-        Needs::NothingToAsk => PermissionState::Granted(PermissionQuality::Full),
+        // Nothing to ask at this API level: an install-time permission, usable. Except notifications
+        // below API 33, which have no runtime permission but a switch the user can turn off
+        // (Settings > Apps > Notifications): `NotificationManager.areNotificationsEnabled()`.
+        Needs::NothingToAsk => {
+            if capability == Capability::Notifications && notifications_switched_off() {
+                PermissionState::Denied
+            } else {
+                PermissionState::Granted(PermissionQuality::Full)
+            }
+        }
         Needs::NotAPermission => PermissionState::NotDetermined,
     }
+}
+
+/// Whether the user turned the app's notifications off in the system settings
+/// (`AzulNotifications.areEnabled(activity)`); `false` when the answer cannot be had.
+#[cfg(target_os = "android")]
+fn notifications_switched_off() -> bool {
+    use jni::objects::JValue;
+
+    attach(|env, activity| {
+        let helper = crate::desktop::extra::find_app_class(
+            env,
+            &activity,
+            "com/azul/notify/AzulNotifications",
+        )?;
+        let enabled = env
+            .call_static_method(
+                &helper,
+                "areEnabled",
+                "(Landroid/content/Context;)Z",
+                &[JValue::Object(&activity)],
+            )
+            .and_then(|v| v.z());
+        match enabled {
+            Ok(on) => Some(!on),
+            Err(_) => {
+                let _ = env.exception_clear();
+                None
+            }
+        }
+    })
+    .unwrap_or(false)
 }
 
 #[cfg(not(target_os = "android"))]
