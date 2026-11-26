@@ -111,14 +111,15 @@ pub fn set_up_logging(log_level: LevelFilter) {
 }
 
 /// In the (rare) case of a panic, print it to the stdout, log it to the file and
-/// prompt the user with a message box (not in a scripted run, `ShellSettings::e2e_run`: nobody
-/// would dismiss it).
-pub(super) fn set_up_panic_hooks(scripted_run: bool) {
+/// prompt the user with a message box (not in an unattended run, `ShellSettings::unattended`: a
+/// script drives it or no window exists, nobody would dismiss the box and the app would hang
+/// in its panic instead of ending with the message).
+pub(super) fn set_up_panic_hooks(unattended: bool) {
     use std::panic::{self, PanicInfo};
 
     use backtrace::{Backtrace, BacktraceFrame};
 
-    fn panic_fn(panic_info: &PanicInfo, scripted_run: bool) {
+    fn panic_fn(panic_info: &PanicInfo, unattended: bool) {
         use std::thread;
 
         let payload = panic_info.payload();
@@ -190,7 +191,7 @@ pub(super) fn set_up_panic_hooks(scripted_run: bool) {
         let telemetry_owns_crash = false;
         if SHOULD_ENABLE_PANIC_HOOK.load(Ordering::SeqCst)
             && !telemetry_owns_crash
-            && !scripted_run
+            && !unattended
         {
             // tfd (tinyfiledialogs) is desktop-only; Android/iOS have no
             // equivalent modal API from a Rust dep. Log to stderr instead;
@@ -286,7 +287,7 @@ pub(super) fn set_up_panic_hooks(scripted_run: bool) {
             .join("\r\n")
     }
 
-    panic::set_hook(Box::new(move |panic_info| panic_fn(panic_info, scripted_run)));
+    panic::set_hook(Box::new(move |panic_info| panic_fn(panic_info, unattended)));
 }
 
 // ============================================================================
