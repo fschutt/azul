@@ -95,8 +95,6 @@ pub struct Voice {
     /// A rest reported while the last worker was still finishing: it starts when that one ends, if
     /// the pen is still resting there.
     pub pending: Option<Anchor>,
-    /// The side column shows.
-    pub notes_open: bool,
     /// Why speech recognition cannot be had at all here (no recogniser, the app not set up for one):
     /// it cannot change before the app is started again, so a rest says so again and starts nothing.
     pub unavailable: Option<String>,
@@ -134,7 +132,6 @@ impl Voice {
             running: None,
             next_session: 1,
             pending: None,
-            notes_open: false,
             unavailable: None,
             speech: None,
             gate: Gate::new(),
@@ -667,6 +664,57 @@ pub(crate) fn builtin_word(status: BuiltinSpeechStatus) -> &'static str {
 const VOCABULARY_CAP: usize = 200;
 
 /// A list of words as the engine's string list.
+/// The most utterances a scripted dictation says, and the most letters of each.
+pub const MAX_SCRIPT_UTTERANCES: usize = 20;
+pub const MAX_SCRIPT_CHARS: usize = 400;
+
+/// A listener that says what it was given instead of listening (the debug op's dictation): an utterance a call, `gap_ms`
+/// after the call began, then nothing. It is the microphone's stand-in where nobody may open one, and goes the whole way a
+/// dictation goes.
+pub struct ScriptListener {
+    words: std::collections::VecDeque<String>,
+    gap_ms: u64,
+}
+
+impl ScriptListener {
+    /// A listener that says `words` (the first `MAX_SCRIPT_UTTERANCES`, each cut to `MAX_SCRIPT_CHARS` letters).
+    #[must_use]
+    pub fn new(words: Vec<String>, gap_ms: u64) -> Self {
+        let words = words
+            .into_iter()
+            .take(MAX_SCRIPT_UTTERANCES)
+            .map(|w| w.chars().take(MAX_SCRIPT_CHARS).collect::<String>())
+            .collect();
+        Self { words, gap_ms }
+    }
+
+    /// How many utterances are left to say.
+    #[must_use]
+    pub fn remaining(&self) -> usize {
+        self.words.len()
+    }
+
+    /// The utterance that is said next.
+    #[must_use]
+    pub fn first(&self) -> Option<&String> {
+        self.words.front()
+    }
+}
+
+impl Listener for ScriptListener {
+    fn listen(&mut self, _language: &str, timeout_ms: u32) -> Heard {
+        std::thread::sleep(StdDuration::from_millis(self.gap_ms.min(u64::from(timeout_ms))));
+        match self.words.pop_front() {
+            Some(text) => Heard {
+                started_unix_ms: crate::agent_window::unix_now_ms(),
+                recognizer: Recognizer::Scripted,
+                ..Heard::new(Status::Heard, &text, "")
+            },
+            None => Heard { recognizer: Recognizer::Scripted, ..Heard::new(Status::Nothing, "", "nothing was said") },
+        }
+    }
+}
+
 fn string_vec(words: &[String]) -> StringVec {
     let items: Vec<AzString> = words.iter().map(|w| AzString::from(w.as_str())).collect();
     match items.first() {
@@ -680,6 +728,8 @@ struct WorkerInit {
     plan: Plan,
     stop: Arc<AtomicBool>,
     session: u64,
+    /// What a dictation of the debug op says, and how long it takes to say each (none: the microphone listens).
+    script: Option<(Vec<String>, u64)>,
     /// The window's speech session (a clone: the same session): without one the engine's static recogniser is asked.
     speech: Option<SpeechSession>,
 }
@@ -755,15 +805,22 @@ impl Clock for WallClock {
 
 /// The worker thread: listens until it is told to stop, then says so.
 extern "C" fn worker(mut init: RefAny, mut sender: ThreadSender, _receiver: ThreadReceiver) {
-    let Some((plan, stop, session, speech)) = init
+    let Some((plan, stop, session, speech, script)) = init
         .downcast_ref::<WorkerInit>()
-        .map(|i| (i.plan.clone(), i.stop.clone(), i.session, i.speech.clone()))
+        .map(|i| (i.plan.clone(), i.stop.clone(), i.session, i.speech.clone(), i.script.clone()))
     else {
         return;
     };
+    // A script stands in for the microphone: the debug op's dictation says its words and nothing opens a microphone.
+    let mut scripted = script.map(|(words, gap_ms)| ScriptListener::new(words, gap_ms));
+    let mut spoken = SpeechListener { session: speech };
+    let listener: &mut dyn Listener = match scripted.as_mut() {
+        Some(script) => script,
+        None => &mut spoken,
+    };
     dictation::run(
         &plan,
-        &mut SpeechListener { session: speech },
+        listener,
         &mut WallClock(Instant::now()),
         &mut || stop.load(Ordering::Relaxed),
         &mut |out| {
@@ -775,9 +832,21 @@ extern "C" fn worker(mut init: RefAny, mut sender: ThreadSender, _receiver: Thre
     );
 }
 
-/// Starts a dictation at `anchor`: its note and marker, the worker, the column open. While the speech session is being
-/// made the rest is kept and starts when it is ready (or when it is given up on).
+/// Starts a dictation at `anchor`: its note and marker, the worker, its conversation open in the margin. While the speech
+/// session is being made the rest is kept and starts when it is ready (or when it is given up on).
 fn start(data: &mut RefAny, info: &mut CallbackInfo, anchor: Anchor) -> Update {
+    begin(data, info, anchor, None)
+}
+
+/// A dictation at `anchor` that says `words` (an utterance each, `gap_ms` apart) instead of listening: for the debug op, so
+/// that the whole way of a dictation can be driven where nobody may open a microphone.
+pub fn start_scripted(data: &mut RefAny, info: &mut CallbackInfo, anchor: Anchor, words: Vec<String>, gap_ms: u64) -> Update {
+    begin(data, info, anchor, Some((words, gap_ms)))
+}
+
+/// The dictation: what [`start`] and [`start_scripted`] do.
+fn begin(data: &mut RefAny, info: &mut CallbackInfo, anchor: Anchor, script: Option<(Vec<String>, u64)>) -> Update {
+    let scripted = script.is_some();
     let waits = {
         let Some(mut s) = data.downcast_mut::<AppState>() else {
             return Update::DoNothing;
@@ -786,11 +855,16 @@ fn start(data: &mut RefAny, info: &mut CallbackInfo, anchor: Anchor) -> Update {
             return Update::DoNothing;
         }
         let now = s.voice.now_ms();
-        match s.voice.gate.ask(anchor, now) {
-            Asked::Wait => true,
-            Asked::Start { report, .. } => {
-                tell_failure(report);
-                false
+        // a script needs no session: nothing listens
+        if scripted {
+            false
+        } else {
+            match s.voice.gate.ask(anchor, now) {
+                Asked::Wait => true,
+                Asked::Start { report, .. } => {
+                    tell_failure(report);
+                    false
+                }
             }
         }
     };
@@ -805,7 +879,7 @@ fn start(data: &mut RefAny, info: &mut CallbackInfo, anchor: Anchor) -> Update {
         if s.file().is_none() {
             return Update::DoNothing;
         }
-        if let Some(why) = s.voice.unavailable.clone() {
+        if let Some(why) = s.voice.unavailable.clone().filter(|_| !scripted) {
             // Nothing to listen with: say so again, over the pages, and start nothing.
             s.problem = Some(refusal(Status::Unavailable, &why));
             return Update::RefreshDom;
@@ -828,7 +902,9 @@ fn start(data: &mut RefAny, info: &mut CallbackInfo, anchor: Anchor) -> Update {
         });
         s.voice.dwell.session_started(anchor);
         s.voice.dictation_busy(true);
-        s.voice.notes_open = true;
+        // The conversation opens in the margin of its page, listening; its chip is the bar's.
+        s.open_conv = Some(id);
+        s.sync_chip(id);
         println!("AZREVIEW_DICTATION started {id}");
         // The words of the page under the pen, for the recogniser's keyword biasing (what it cut is told once).
         if let Some(speech) = &s.voice.speech {
@@ -855,7 +931,7 @@ fn start(data: &mut RefAny, info: &mut CallbackInfo, anchor: Anchor) -> Update {
     let (plan, stop, session, speech) = plan;
     info.add_thread(
         ThreadId::unique(),
-        Thread::create(RefAny::new(WorkerInit { plan, stop, session, speech }), data.clone(), worker),
+        Thread::create(RefAny::new(WorkerInit { plan, stop, session, script, speech }), data.clone(), worker),
     );
     info.trigger_all_virtual_view_rerender();
     Update::RefreshDom
@@ -868,6 +944,7 @@ extern "C" fn on_message(mut app: RefAny, mut msg: RefAny, mut info: CallbackInf
     };
     let mut save = false;
     let mut again = None;
+    let mut ask = None;
     let update = {
         let Some(mut s) = app.downcast_mut::<AppState>() else {
             return Update::DoNothing;
@@ -904,13 +981,21 @@ extern "C" fn on_message(mut app: RefAny, mut msg: RefAny, mut info: CallbackInf
                     Update::DoNothing
                 }
             }
-            Out::Text(words) => {
-                println!("AZREVIEW_DICTATION text {note_id} {words}");
+            Out::Text(said) => {
+                println!("AZREVIEW_DICTATION text {note_id} {}", said.text);
                 if let Some(note) = s.notes.iter_mut().find(|n| n.id == note_id) {
-                    note.text = dictation::join_text(&note.text, &words);
+                    note.text = dictation::join_text(&note.text, &said.text);
+                    // What the dictation heard, utterance by utterance, with the words and their moments (the last three
+                    // lines are shown; the agent is sent the words and their times).
+                    let mut said = said;
+                    if said.started_unix_ms == 0 {
+                        said.started_unix_ms = crate::agent_window::unix_now_ms();
+                    }
+                    note.talk.hear(said);
                     // What was said is kept at once: a window closed mid-dictation loses nothing.
                     save = true;
                 }
+                s.sync_chip(note_id);
                 Update::RefreshDom
             }
             Out::Failed { status, message } => {
@@ -941,8 +1026,16 @@ extern "C" fn on_message(mut app: RefAny, mut msg: RefAny, mut info: CallbackInf
                 }
                 if !kept {
                     s.notes.retain(|n| n.id != note_id);
+                    if s.open_conv == Some(note_id) {
+                        s.open_conv = None;
+                    }
                 }
+                s.sync_chip(note_id);
                 save = kept;
+                // A dictation that said something asks the agent by itself (the settings can say not).
+                if kept && s.hub.auto_ask && !matches!(cause, Cause::File | Cause::Closed) {
+                    ask = Some(note_id);
+                }
                 // A rest reported while this one was finishing starts now, if the pen still rests there.
                 again = s.voice.pending.take().filter(|a| s.voice.dwell.still_at(a));
                 Update::RefreshDom
@@ -955,6 +1048,9 @@ extern "C" fn on_message(mut app: RefAny, mut msg: RefAny, mut info: CallbackInf
     info.trigger_all_virtual_view_rerender();
     // The pen was near while it listened: the microphone is ready again, and its timer is to look after it.
     ensure_standby_timer(&mut app, &mut info);
+    if let Some(id) = ask {
+        let _ = crate::agent_window::ask(&mut app, &mut info, id);
+    }
     if let Some(anchor) = again {
         return start(&mut app, &mut info, anchor);
     }
@@ -985,15 +1081,6 @@ pub extern "C" fn on_stop(mut data: RefAny, _info: CallbackInfo) -> Update {
     }
 }
 
-/// The title row's switch for the side column.
-pub extern "C" fn on_toggle_notes(mut data: RefAny, _info: CallbackInfo) -> Update {
-    let Some(mut s) = data.downcast_mut::<AppState>() else {
-        return Update::DoNothing;
-    };
-    s.voice.notes_open = !s.voice.notes_open;
-    Update::RefreshDom
-}
-
 /// A note's text was edited (each key).
 pub extern "C" fn on_note_text(mut data: RefAny, _info: CallbackInfo, state: TextAreaState) -> OnTextInputReturn {
     let tag = data
@@ -1002,8 +1089,11 @@ pub extern "C" fn on_note_text(mut data: RefAny, _info: CallbackInfo, state: Tex
     if let Some((mut app, id)) = tag {
         let text = state.get_text().as_str().to_string();
         let mut guard = app.downcast_mut::<AppState>();
-        if let Some(note) = guard.as_mut().and_then(|s| s.notes.iter_mut().find(|n| n.id == id)) {
-            note.text = text;
+        if let Some(s) = guard.as_mut() {
+            if let Some(note) = s.notes.iter_mut().find(|n| n.id == id) {
+                note.text = text;
+            }
+            s.sync_chip(id);
         }
     }
     OnTextInputReturn {
@@ -1053,7 +1143,13 @@ pub extern "C" fn on_note_delete(mut data: RefAny, mut info: CallbackInfo) -> Up
         if s.voice.running_note() == Some(id) {
             s.voice.request_stop(Cause::Button);
         }
+        // an agent at work on it is called off, and its chip and its popover go with it
+        s.hub.pool.cancel_conversation(id);
         s.notes.retain(|n| n.id != id);
+        if s.open_conv == Some(id) {
+            s.open_conv = None;
+        }
+        s.sync_chip(id);
     }
     crate::save_session(&app, &mut info);
     info.trigger_all_virtual_view_rerender();

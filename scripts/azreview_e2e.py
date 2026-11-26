@@ -710,6 +710,268 @@ def progress(args, logs, out, binary):
     app.log("PASS: pages seen after a second and a half, a file reviewed when all are, the totals, a right click holds a file back, and a second window has all of it")
 
 
+def add_note(app, text, y, page=0, ask=False, open_it=False):
+    """A note at `y` of `page` of the open file, as a dictation would make one (the debug op: no microphone): its id."""
+    answer = app.must("azreview_add_note", text=text, page=page, y=y, ask=ask, open=open_it)["data"]["value"]["result"]
+    if not answer.get("success"):
+        raise Failure("azreview_add_note: %s" % answer)
+    return answer["id"]
+
+
+def talk_of(app, note):
+    """What the state says of conversation `note`."""
+    for n in state(app)["conversations"]["notes"]:
+        if n["id"] == note:
+            return n
+    raise Failure("no conversation %d in %s" % (note, state(app)["conversations"]))
+
+
+CONV_ANCHOR_Y = 32.0 + 3 * 15.0 + 2.0  # the fourth line of a page: under its padding and three lines
+
+
+def conversations(args, logs, out, binary):
+    """The conversations of a page with the mock agent: none, one, and many; a chip in the margin at the anchor, the
+    popover that opens from it, the agent that is asked and answers a suggestion (yellow), words that are nonsense and
+    end quietly (nothing is shown), resolving, the archive, and fifty of them. No microphone: the notes are made by the
+    debug op and the dwell is off."""
+    data_dir = os.path.join(logs, "data-conv")
+    folder = os.path.join(logs, "folder-conv")
+    os.makedirs(data_dir, exist_ok=True)
+    fixture(folder)
+    argv = [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en", "--dwell-input", "off",
+            "--standby", "off", "--agent", "mock", "--agent-delay-ms", "1500"]
+    app = e2e.App("review-conv", binary, argv, args.debug_port + 6, logs, args.timeout)
+    try:
+        app.until("AzReview's window", lambda: app.has_id(STRIP))
+        show_files(app)
+        pick(app, "src", "lib.rs")
+        app.until("lib.rs open", lambda: state(app)["tree"]["open"] == os.path.join("src", "lib.rs"))
+        app.frame(2)
+
+        # none: no chip, no margin, the bar says so
+        if state(app)["conversations"]["notes"] or state(app)["chips"] != 0:
+            raise Failure("conversations before anybody said anything: %s" % state(app)["conversations"])
+        if app.has_id("__azreview_margin-1", every_dom=True):
+            raise Failure("a margin with no conversation")
+        app.until("the bar says no agent works", lambda: app.shows("No agents are working."))
+        if state(app)["conversations"]["agents"]["backend"] != "mock":
+            raise Failure("the agents are not the mock: %s" % state(app)["conversations"]["agents"])
+
+        # one: a note on the fourth line of page 1; its chip stands in the margin of that page
+        first = add_note(app, "rename step_3 to first_step", CONV_ANCHOR_Y)
+        app.until("its chip in the margin", lambda: app.has_id("__azreview_conv-%d" % first, every_dom=True))
+        if talk_of(app, first)["phase"] != "draft" or state(app)["chips"] != 1:
+            raise Failure("a note nobody asked about: %s, %d chips" % (talk_of(app, first), state(app)["chips"]))
+        chip = app.rect("__azreview_conv-%d" % first, every_dom=True)
+        margin = app.rect("__azreview_margin-1", every_dom=True)
+        # the chip is as high as the anchor: the margin starts at the page's padding, the chip is centred on the anchor
+        want = CONV_ANCHOR_Y - 32.0 - 14.0
+        if abs(chip["y"] - margin["y"] - max(want, 0.0)) > 1.5:
+            raise Failure("the chip is not at the height of its anchor: chip %s, margin %s, wanted %.1f under the margin's top" % (chip, margin, want))
+        app.screenshot(os.path.join(out, "20-conversation-chip.png"))
+
+        # a click on the chip opens it (and is no stroke of the pen under it); a click on its close key closes it
+        strokes = state(app)["strokes"]
+        app.click(selector="#__azreview_conv-%d" % first, every_dom=True)
+        app.until("the open conversation", lambda: app.has_id("__azreview_conv-pop-%d" % first, every_dom=True))
+        if state(app)["conversations"]["open"] != first or state(app)["strokes"] != strokes:
+            raise Failure("opening a chip: open %s, strokes %d -> %d" % (state(app)["conversations"]["open"], strokes, state(app)["strokes"]))
+        if not app.shows("Page 1, line 4", every_dom=True):
+            raise Failure("the open conversation does not say where it is")
+        app.screenshot(os.path.join(out, "21-conversation-open.png"))
+        app.click(selector="#__azreview_conv-close-%d" % first, every_dom=True)
+        app.until("it closed", lambda: not app.has_id("__azreview_conv-pop-%d" % first, every_dom=True))
+        app.click(selector="#__azreview_conv-%d" % first, every_dom=True)
+        app.until("it opened again", lambda: app.has_id("__azreview_conv-pop-%d" % first, every_dom=True))
+        # Escape closes it too
+        app.key("Escape")
+        app.until("Escape closed it", lambda: not app.has_id("__azreview_conv-pop-%d" % first, every_dom=True))
+        app.click(selector="#__azreview_conv-%d" % first, every_dom=True)
+        app.until("open for the agent", lambda: app.has_id("__azreview_conv-send-%d" % first, every_dom=True))
+
+        # ask: the spinner while the agent works, then the mock's suggestion waits (yellow)
+        app.click(selector="#__azreview_conv-send-%d" % first, every_dom=True)
+        app.until("working", lambda: talk_of(app, first)["phase"] == "working")
+        app.until("the spinner in the conversation", lambda: app.has_id("__azreview_conv-working-%d" % first, every_dom=True))
+        app.until("the tree marks the file as worked on", lambda: app.has_id("__azreview_file-mark-working", every_dom=True))
+        app.screenshot(os.path.join(out, "22-conversation-working.png"))
+        app.until("a suggestion waits", lambda: talk_of(app, first)["phase"] == "suggested")
+        t = talk_of(app, first)
+        if t["pending"] != 1 or t["turns"] != 1:
+            raise Failure("the mock's answer: %s" % t)
+        if not app.shows("Mock agent: rename step_3 to first_step", every_dom=True):
+            raise Failure("the agent's words are not in the conversation")
+        if app.count("AZREVIEW_AGENT", r"done %d editing mock items=1 ms=\d+" % first) < 1:
+            raise Failure("no done line for the agent's answer: %s" % app.printed("AZREVIEW_AGENT", r".*"))
+        app.until("the tree marks the file yellow", lambda: app.has_id("__azreview_file-mark-suggested", every_dom=True))
+        app.screenshot(os.path.join(out, "23-conversation-suggested.png"))
+
+        # nonsense: the agent does nothing, and nothing is shown of it (the reason is in the log line only)
+        nonsense = add_note(app, "testing one two", CONV_ANCHOR_Y + 15.0 * 12, ask=True)
+        app.until("asked", lambda: talk_of(app, nonsense)["asked"] == 1)
+        app.until("it ended quietly", lambda: talk_of(app, nonsense)["phase"] == "draft"
+                  and app.count("AZREVIEW_AGENT", r"done %d editing mock items=0 ms=\d+ no_action=.*" % nonsense) > 0)
+        t = talk_of(app, nonsense)
+        if t["turns"] != 0 or t["problem"] is not None or t["pending"] != 0:
+            raise Failure("something was shown of an agent that did nothing: %s" % t)
+
+        # an answer that comes while another file is open: the tree marks the file at once, the conversation has it when the
+        # file is opened again (the mock takes 1.5 s: the reviewer is in the README by then)
+        late = add_note(app, "what does step_5 add to x", CONV_ANCHOR_Y + 15.0 * 20, ask=True)
+        app.until("the agent works on it", lambda: talk_of(app, late)["phase"] == "working")
+        app.click(text="README.md", every_dom=True)
+        app.until("the README is open", lambda: state(app)["tree"]["open"] == "README.md")
+        if state(app)["conversations"]["notes"]:
+            raise Failure("the conversations of the file that was left are still here: %s" % state(app)["conversations"]["notes"])
+        app.until("the file that was left is yellow while it waits", lambda: app.has_id("__azreview_file-mark-suggested", every_dom=True)
+                  or app.has_id("__azreview_file-mark-working", every_dom=True))
+        app.until("the answer came", lambda: app.count("AZREVIEW_AGENT", r"done %d editing mock items=1 ms=\d+" % late) > 0)
+        app.until("lib.rs is yellow", lambda: app.has_id("__azreview_file-mark-suggested", every_dom=True))
+        app.click(text="lib.rs", every_dom=True)
+        app.until("lib.rs is open again", lambda: state(app)["tree"]["open"] == os.path.join("src", "lib.rs"))
+        app.until("its conversations are back", lambda: any(n["id"] == late for n in state(app)["conversations"]["notes"]))
+        if talk_of(app, late)["phase"] != "suggested" or talk_of(app, late)["turns"] != 1:
+            raise Failure("the answer that came while the file was away: %s" % talk_of(app, late))
+        if state(app)["conversations"]["agents"]["late"] != 0:
+            raise Failure("an answer is still waiting: %s" % state(app)["conversations"]["agents"])
+
+        # closing a conversation: what waits is no longer waited for, and the file is not yellow any more
+        app.click(selector="#__azreview_conv-%d" % first, every_dom=True)
+        app.until("the first one open", lambda: state(app)["conversations"]["open"] == first)
+        app.click(selector="#__azreview_conv-resolve-%d" % first, every_dom=True)
+        app.until("resolved", lambda: talk_of(app, first)["phase"] == "done")
+        app.until("the reopen key", lambda: app.has_id("__azreview_conv-reopen-%d" % first, every_dom=True))
+        app.until("the one that waits is a suggestion still", lambda: talk_of(app, late)["phase"] == "suggested")
+        app.click(selector="#__azreview_conv-%d" % late, every_dom=True)
+        app.until("the other one open", lambda: state(app)["conversations"]["open"] == late)
+        app.click(selector="#__azreview_conv-resolve-%d" % late, every_dom=True)
+        app.until("it is resolved too", lambda: talk_of(app, late)["phase"] == "done")
+        app.until("the file is no longer yellow", lambda: not app.has_id("__azreview_file-mark-suggested", every_dom=True))
+
+        # the archive keeps the conversation: the phase and the turn are in it
+        app.key("s", primary=True)
+        path = os.path.join(data_dir, ARCHIVE)
+        app.until("the archive", lambda: os.path.exists(path) and notes_in(path))
+        mine = [n for n in notes_in(path) if n.get("id") == first]
+        if not mine or mine[0].get("phase") != "done" or not mine[0].get("turns"):
+            raise Failure("the archive's conversation: %s" % mine)
+
+        # many: fifty conversations over the three pages; each page's margin holds what it can and says how many it does not
+        for i in range(50):
+            add_note(app, "conversation number %d about this line" % i, 40.0 + (i % 9) * 15.0 * 4, page=i % 3)
+        app.until("fifty and the three", lambda: len(state(app)["conversations"]["notes"]) == 53)
+        app.until("the margin of page 1", lambda: app.has_id("__azreview_margin-1", every_dom=True))
+        app.screenshot(os.path.join(out, "24-fifty-conversations.png"))
+        no_lint(app, "the conversations run")
+    except Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
+        raise
+    finally:
+        app.stop()
+    app.log("PASS: chips in the margin at the height of their anchors, a popover from a chip, the mock agent's suggestion (yellow), "
+            "nonsense that ends quietly, resolving, the archive, and fifty conversations")
+
+
+def conversations_failing(args, logs, out, binary):
+    """An agent that cannot answer (a program that is not there): the conversation says why, in words, and has a key to ask
+    again. The settings file names a program that does not exist, so that no agent of this machine is ever called."""
+    data_dir = os.path.join(logs, "data-conv-fail")
+    folder = os.path.join(logs, "folder-conv-fail")
+    os.makedirs(os.path.join(data_dir, "review"), exist_ok=True)
+    with open(os.path.join(data_dir, "review", "settings.json"), "w", encoding="utf-8") as f:
+        json.dump({"theme": "", "mode": "", "values": {"agent-editing-backend": "claude-print",
+                                                        "agent-editing-program": "/nonexistent/azreview-no-such-agent"}}, f)
+    fixture(folder)
+    argv = [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en", "--dwell-input", "off",
+            "--standby", "off"]
+    app = e2e.App("review-conv-fail", binary, argv, args.debug_port + 7, logs, args.timeout)
+    try:
+        app.until("AzReview's window", lambda: app.has_id(STRIP))
+        show_files(app)
+        pick(app, "src", "lib.rs")
+        app.until("lib.rs open", lambda: state(app)["tree"]["open"] == os.path.join("src", "lib.rs"))
+        if state(app)["conversations"]["agents"]["backend"] != "claude-print":
+            raise Failure("the settings file was not read: %s" % state(app)["conversations"]["agents"])
+        note = add_note(app, "rename step_3 to first_step", CONV_ANCHOR_Y, ask=True, open_it=True)
+        app.until("it failed", lambda: talk_of(app, note)["phase"] == "failed")
+        why = talk_of(app, note)["problem"] or ""
+        if "claude" not in why or "not installed" not in why:
+            raise Failure("the reason is not in words: %r" % why)
+        app.until("the reason is shown", lambda: app.has_id("__azreview_conv-problem-%d" % note, every_dom=True))
+        app.until("the key to ask again", lambda: app.has_id("__azreview_conv-send-%d" % note, every_dom=True))
+        if app.count("AZREVIEW_AGENT", r"failed %d editing not-installed .*" % note) < 1:
+            raise Failure("no failed line: %s" % app.printed("AZREVIEW_AGENT", r".*"))
+        app.screenshot(os.path.join(out, "25-conversation-failed.png"))
+        no_lint(app, "the failing run")
+    except Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
+        raise
+    finally:
+        app.stop()
+    app.log("PASS: an agent that is not there is a conversation that says so and can be asked again")
+
+def conversations_dictation(args, logs, out, binary):
+    """A dictation that goes the whole way without a microphone (the debug op says what it is given): the note and its
+    conversation open in the margin of the page, the last three lines said are shown while it goes, the silence ends it,
+    and the agent is asked by itself when it ends."""
+    data_dir = os.path.join(logs, "data-conv-dictate")
+    folder = os.path.join(logs, "folder-conv-dictate")
+    os.makedirs(data_dir, exist_ok=True)
+    fixture(folder)
+    argv = [folder, "--data-dir", data_dir, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en", "--dwell-input", "off",
+            "--standby", "off", "--silence-ms", "2000", "--agent", "mock", "--agent-delay-ms", "600"]
+    app = e2e.App("review-conv-dictate", binary, argv, args.debug_port + 8, logs, args.timeout)
+    try:
+        app.until("AzReview's window", lambda: app.has_id(STRIP))
+        show_files(app)
+        pick(app, "src", "lib.rs")
+        app.until("lib.rs open", lambda: state(app)["tree"]["open"] == os.path.join("src", "lib.rs"))
+        said = ["rename step_3", "to first_step", "please", "right now"]
+        answer = app.must("azreview_dictate", words=said, page=0, y=CONV_ANCHOR_Y, gap_ms=700)["data"]["value"]["result"]
+        if not answer.get("success"):
+            raise Failure("azreview_dictate: %s" % answer)
+        note = answer["id"]
+        app.until("the dictation runs and its conversation is open", lambda: state(app)["dictating"] and state(app)["conversations"]["open"] == note)
+        app.until("its chip and its popover", lambda: app.has_id("__azreview_conv-pop-%d" % note, every_dom=True))
+        app.until("the listening pill", lambda: app.has_id("__azreview_listening", every_dom=True))
+        # three lines are shown, the last three said: after the fourth utterance the first is gone from the live lines
+        app.until("four utterances heard", lambda: talk_of(app, note)["said"] == 4)
+        app.frame(2)
+        if not app.has_id("__azreview_conv-live-%d" % note, every_dom=True):
+            raise Failure("no live lines while it listens")
+        live = [k for k in range(6) if app.has_id("__azreview_conv-live-%d-%d" % (note, k), every_dom=True)]
+        if live != [0, 1, 2]:
+            raise Failure("the live lines are %s, not the last three" % live)
+        for words in said[1:]:
+            if not app.shows(words, every_dom=True):
+                raise Failure("%r is not shown among the last three lines" % words)
+        app.screenshot(os.path.join(out, "26-dictation-live.png"))
+        # the silence ends it, and the agent is asked by itself
+        app.until("the dictation ended by silence", lambda: app.count("AZREVIEW_DICTATION", r"ended %d silence" % note) > 0)
+        app.until("it asked the agent", lambda: talk_of(app, note)["asked"] == 1)
+        app.until("a suggestion waits", lambda: talk_of(app, note)["phase"] == "suggested")
+        t = talk_of(app, note)
+        if t["said"] != 4 or t["turns"] != 1:
+            raise Failure("the conversation after the dictation: %s" % t)
+        if not app.shows("rename step_3 to first_step please right now", every_dom=True):
+            raise Failure("the words the dictation heard are not the note's")
+        app.screenshot(os.path.join(out, "27-dictation-answered.png"))
+        # the archive has what was heard, utterance by utterance
+        app.key("s", primary=True)
+        path = os.path.join(data_dir, ARCHIVE)
+        app.until("the archive", lambda: os.path.exists(path) and notes_in(path))
+        mine = [n for n in notes_in(path) if n.get("id") == note]
+        if not mine or len(mine[0].get("said", [])) != 4 or mine[0].get("phase") != "suggested":
+            raise Failure("the archive's conversation: %s" % mine)
+        no_lint(app, "the dictation run")
+    except Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
+        raise
+    finally:
+        app.stop()
+    app.log("PASS: a dictation without a microphone: its conversation opens in the margin, the last three lines show, the silence ends it, the agent answers and the archive has it all")
+
+
 def notes_in(path):
     with zipfile.ZipFile(path) as z:
         return json.loads(z.read("session.json").decode("utf-8")).get("notes", [])
@@ -717,13 +979,18 @@ def notes_in(path):
 
 def run_all(args, logs, out):
     binary = e2e.find_binary("AzReview", args.bin, "AZREVIEW_BIN")
-    # AZREVIEW_E2E_ONLY=slash runs that step alone (the others each take minutes).
+    # AZREVIEW_E2E_ONLY=slash, progress or conversations runs that step alone (the others each take minutes).
     only = os.environ.get("AZREVIEW_E2E_ONLY", "")
     if only == "slash":
         slash(args, logs, out, binary)
         return True
     if only == "progress":
         progress(args, logs, out, binary)
+        return True
+    if only == "conversations":
+        conversations(args, logs, out, binary)
+        conversations_failing(args, logs, out, binary)
+        conversations_dictation(args, logs, out, binary)
         return True
     body(args, logs, out)
     # The dictation steps need the fake speech backend (a libazul with the test hooks). Without it the real recogniser
@@ -736,6 +1003,9 @@ def run_all(args, logs, out):
               "to the microphone)", flush=True)
     slash(args, logs, out, binary)
     progress(args, logs, out, binary)
+    conversations(args, logs, out, binary)
+    conversations_failing(args, logs, out, binary)
+    conversations_dictation(args, logs, out, binary)
     restore(args, logs, out, binary)
     return True
 

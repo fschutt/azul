@@ -82,6 +82,32 @@ azreview-note-waiting = Warte auf Worte ...
 azreview-note-placeholder = Notiz tippen oder diktieren
 azreview-note-name = Notiz { $n }
 azreview-note-delete = Notiz { $n } löschen
+azreview-conv-chip-name = Gespräch { $n }: { $words }: { $state }
+azreview-conv-empty = (noch keine Worte)
+azreview-conv-more = { $n } weitere: die Leiste unten hat sie
+azreview-conv-you = Du
+azreview-conv-agent = Agent
+azreview-conv-working = Der Agent arbeitet ...
+azreview-conv-suggestions =
+    { $n ->
+        [one] Ein Vorschlag wartet
+       *[other] { $n } Vorschläge warten
+    }
+azreview-conv-done = Erledigt
+azreview-conv-title = Gespräch { $n } - { $where }
+azreview-conv-close = Das Gespräch schließen
+azreview-conv-reply-placeholder = Dem Agenten antworten
+azreview-conv-reply-name = Antwort an den Agenten
+azreview-conv-reopen = Das Gespräch wieder öffnen
+azreview-conv-resolve = Das Gespräch als erledigt markieren
+azreview-conv-send = An den Agenten senden
+azreview-conv-ask-again = Den Agenten noch einmal fragen
+azreview-conv-heard-as = Verstanden als: { $words }
+azreview-conv-earlier =
+    { $n ->
+        [one] Ein früherer Beitrag wird nicht gezeigt
+       *[other] { $n } frühere Beiträge werden nicht gezeigt
+    }
 azreview-dictation-denied = Diktieren braucht Spracherkennung, die für AzReview nicht erlaubt ist ({ $why }). Erlaube sie in den Systemeinstellungen unter Datenschutz & Sicherheit.
 azreview-dictation-unavailable = Diktieren ist hier nicht verfügbar: { $why }
 azreview-dictation-failed = Diktieren ist fehlgeschlagen: { $why }
@@ -140,6 +166,8 @@ azreview-agent-error-exit = { $program } wurde mit Exit-Code { $code } beendet: 
 azreview-agent-error-http = Der Dienst antwortete { $status } { $kind }: { $detail }
 azreview-agent-error-rate-limited = Der Dienst ist ausgelastet oder sein Limit ist erreicht: { $detail }
 azreview-agent-error-network = Der Dienst ist nicht erreichbar: { $why }
+azreview-agent-no-reply = Der Agent hat etwas geantwortet, das keine Antwort auf eine Durchsicht ist.
+azreview-agent-no-answer = Der Agent hat nicht rechtzeitig geantwortet.
 azreview-agent-error-budget = Der Aufruf würde mehr kosten als das Limit von { $limit }: erhöhe es in den Einstellungen
 azreview-agent-error-max-turns = Der Agent hat alle { $turns } Runden verbraucht, ohne zu antworten: erhöhe das Limit in den Einstellungen oder frage enger
 azreview-agent-error-refused = Der Agent hat abgelehnt: { $detail }
@@ -220,6 +248,10 @@ azreview-standby-note = Das Öffnen des Mikrofons dauert eine Drittelsekunde. Be
 azreview-chip-working = ein Agent arbeitet
 azreview-chip-suggested = ein Vorschlag wartet
 azreview-chip-done = erledigt
+azreview-chip-failed = der Agent konnte nicht antworten
+azreview-chip-draft = noch nicht gefragt
+azreview-chip-more-done = { $n } weitere erledigte: anzeigen
+azreview-chip-fewer-done = Die erledigten einklappen
 azreview-shortcut-files = Dateien ein- oder ausblenden
 azreview-shortcut-whiteboard = Whiteboard ein- oder ausblenden
 azreview-agent-field-effort = Aufwand

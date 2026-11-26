@@ -325,6 +325,7 @@ fn note(id: u64) -> crate::model::Note {
         text: "from before".to_string(),
         language: String::new(),
         state: crate::model::NoteState::Done,
+        talk: crate::conversation::Conversation::default(),
     }
 }
 

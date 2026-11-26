@@ -25,6 +25,11 @@ pub const KEY_STANDBY: &str = "dictation-standby";
 /// The settings file's value: how long the pen is away before the microphone is closed, ms.
 pub const KEY_STANDBY_IDLE: &str = "dictation-standby-idle-ms";
 
+/// The settings file's value: a dictation that is over asks the agent by itself (`on` or `off`).
+pub const KEY_ASK_AGENT: &str = "dictation-ask-agent";
+/// How long the mock agent takes to answer when nothing says otherwise, ms.
+pub const DEFAULT_AGENT_DELAY_MS: u64 = 800;
+
 /// The settings file's value: the folder reviewed last.
 pub const KEY_FOLDER: &str = "last-folder";
 
@@ -33,7 +38,10 @@ pub const HELP: &str = "    --dwell-ms <MS>          How long the pen rests befo
                         --dwell-input <NAME>     off | pen | any: which pointers may start a dictation (this run only)\n    \
                         --silence-ms <MS>        How long without words ends a dictation (this run only)\n    \
                         --standby <NAME>         off | near | always: when the microphone is kept ready (this run only)\n    \
-                        --standby-idle-ms <MS>   How long the pen is away before the microphone is closed (this run only)\n";
+                        --standby-idle-ms <MS>   How long the pen is away before the microphone is closed (this run only)\n    \
+                        --agent <NAME>           claude-print | anthropic-api | gemini-cli | gemini-api | mock: one backend for every task (this run only)\n    \
+                        --agent-delay-ms <MS>    How long the mock agent takes to answer (this run only)\n    \
+                        --agent-auto <on|off>    Whether a dictation that is over asks the agent by itself (this run only)\n";
 
 /// The switches of AzReview itself.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -48,6 +56,12 @@ pub struct Switches {
     pub standby: Option<Standby>,
     /// `--standby-idle-ms`.
     pub standby_idle_ms: Option<u64>,
+    /// `--agent`.
+    pub agent: Option<crate::agent_backend::BackendKind>,
+    /// `--agent-delay-ms`.
+    pub agent_delay_ms: Option<u64>,
+    /// `--agent-auto`.
+    pub agent_auto: Option<bool>,
 }
 
 impl Switches {
@@ -67,7 +81,14 @@ impl Switches {
             };
             if !matches!(
                 name.as_str(),
-                "--dwell-ms" | "--dwell-input" | "--silence-ms" | "--standby" | "--standby-idle-ms"
+                "--dwell-ms"
+                    | "--dwell-input"
+                    | "--silence-ms"
+                    | "--standby"
+                    | "--standby-idle-ms"
+                    | "--agent"
+                    | "--agent-delay-ms"
+                    | "--agent-auto"
             ) {
                 rest.push(arg);
                 continue;
@@ -80,6 +101,18 @@ impl Switches {
                 "--dwell-ms" => sw.dwell_ms = Some(millis(&name, &value)?),
                 "--silence-ms" => sw.silence_ms = Some(millis(&name, &value)?),
                 "--standby-idle-ms" => sw.standby_idle_ms = Some(millis(&name, &value)?),
+                "--agent-delay-ms" => sw.agent_delay_ms = Some(millis(&name, &value)?),
+                "--agent" => {
+                    sw.agent = Some(crate::agent_backend::BackendKind::from_key(&value).ok_or_else(|| {
+                        let keys: Vec<&str> = crate::agent_backend::BackendKind::ALL.iter().map(|k| k.key()).collect();
+                        format!("{name}: expected {}, got {value:?}", keys.join("|"))
+                    })?);
+                }
+                "--agent-auto" => {
+                    sw.agent_auto = Some(
+                        on_off(&value).ok_or_else(|| format!("{name}: expected on|off, got {value:?}"))?,
+                    );
+                }
                 "--standby" => {
                     sw.standby = Some(
                         Standby::parse(&value)
@@ -95,6 +128,15 @@ impl Switches {
             }
         }
         Ok((sw, rest))
+    }
+}
+
+/// `on` or `off`, whatever the case.
+fn on_off(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "on" => Some(true),
+        "off" => Some(false),
+        _ => None,
     }
 }
 
@@ -115,6 +157,12 @@ pub struct Resolved {
     pub standby: Standby,
     /// How long the pen is away before it is closed, ms.
     pub standby_idle_ms: u64,
+    /// One backend for every task (`--agent`), or none: the settings file's.
+    pub agent: Option<crate::agent_backend::BackendKind>,
+    /// How long the mock agent takes to answer, ms.
+    pub agent_delay_ms: u64,
+    /// A dictation that is over asks the agent by itself.
+    pub agent_auto: bool,
     /// What was changed on the way (a value capped, a word nobody knows), for the log.
     pub notes: Vec<String>,
 }
@@ -172,12 +220,23 @@ pub fn resolve(values: &BTreeMap<String, String>, sw: &Switches) -> Resolved {
         .unwrap_or(standby::DEFAULT_IDLE_MS);
     let (standby_idle_ms, why) = standby::cap_idle_ms(idle);
     notes.extend(why);
+    let agent_auto = match (sw.agent_auto, values.get(KEY_ASK_AGENT)) {
+        (Some(on), _) => on,
+        (None, Some(raw)) => on_off(raw).unwrap_or_else(|| {
+            notes.push(format!("the setting {KEY_ASK_AGENT} is {raw:?}, not on or off: using on"));
+            true
+        }),
+        (None, None) => true,
+    };
     Resolved {
         allow,
         rest_ms,
         silence_ms,
         standby: keep_ready,
         standby_idle_ms,
+        agent: sw.agent,
+        agent_delay_ms: sw.agent_delay_ms.unwrap_or(DEFAULT_AGENT_DELAY_MS),
+        agent_auto,
         notes,
     }
 }
