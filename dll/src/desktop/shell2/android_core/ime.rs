@@ -67,6 +67,32 @@ pub fn first_utf16_units(s: &str, n: usize) -> &str {
     &s[..end]
 }
 
+/// The `forward` argument of the engine's `LayoutWindow::delete_selection(node, forward)` for Backspace:
+/// the text BEFORE the caret goes (`CallbackChange::DeleteBackward` passes `false`, as every desktop shell
+/// does for Backspace). The shell passed `true` for `deleteSurroundingText`'s "before" and `false` for its
+/// "after": an IME's delete-before ate the character AFTER the caret.
+pub const DELETE_BACKWARD: bool = false;
+/// See [`DELETE_BACKWARD`]: the Delete key's direction, the text AFTER the caret.
+pub const DELETE_FORWARD: bool = true;
+
+/// What `InputConnection.deleteSurroundingText(before, after)` asks of the engine, in the engine's terms:
+/// `(backward_chars, forward_chars)`, the whole chars that cover the UTF-16 units asked for on each side
+/// of the caret. Each backward char is one `delete_selection(node, DELETE_BACKWARD)`, each forward char
+/// one `delete_selection(node, DELETE_FORWARD)`.
+#[must_use]
+pub fn surrounding_delete_plan(
+    text_before_caret: &str,
+    text_after_caret: &str,
+    before_units: i32,
+    after_units: i32,
+) -> (usize, usize) {
+    let units = |n: i32| usize::try_from(n).unwrap_or(0);
+    (
+        chars_covering_units_at_end(text_before_caret, units(before_units)),
+        chars_covering_units_at_start(text_after_caret, units(after_units)),
+    )
+}
+
 /// How many whole chars cover `units` UTF-16 units at the end of `s` (what `deleteSurroundingText`
 /// asks to delete before the caret): a surrogate pair is one char of two units, and a request that
 /// ends inside one deletes the whole char.

@@ -159,7 +159,11 @@ public class AzulActivity extends NativeActivity {
         // buttons and axes; what it cannot deliver is "a pad appeared", which
         // only InputManager.InputDeviceListener reports.
         AzulGamepad.attach(this);
-        AzulMediaSession.start(this);
+        // NOT AzulMediaSession.start(this) here: a media session is for an app that asked to be a media
+        // player (AppConfig::expose_system_media_controls; media_keys::ensure_started calls start from
+        // Rust then). Claiming it for every azul app made a widget demo appear on the lock screen as a
+        // player and take the hardware media buttons from the user's music app (emulator log:
+        // "MediaSessionStack: addSession ... com.azul.AzWidgets/azul").
     }
 
     /**
@@ -264,6 +268,51 @@ public class AzulActivity extends NativeActivity {
         if (nativePtr != 0L) {
             pushUiMode(nativePtr);
         }
+    }
+
+    /**
+     * Rust -> Java: the icon colour of the system bars. A NativeActivity's window is the app's own
+     * surface and it reaches under the status and navigation bars; the bars draw their clock, battery
+     * and buttons on top in WHITE unless the window says its bars have a LIGHT background. The shell
+     * measures what it drew behind each bar and calls this when it changes.
+     *
+     * @param statusLight     the background behind the status bar is light: dark icons
+     * @param navigationLight the background behind the navigation bar is light: dark buttons
+     */
+    public static void setSystemBarsAppearance(final android.app.Activity activity, final boolean statusLight,
+                                               final boolean navigationLight) {
+        if (activity == null) {
+            return;
+        }
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                View decor = activity.getWindow().getDecorView();
+                if (android.os.Build.VERSION.SDK_INT >= 30) {
+                    android.view.WindowInsetsController controller = decor.getWindowInsetsController();
+                    if (controller != null) {
+                        int light = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS;
+                        int lightNav = android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                        controller.setSystemBarsAppearance(statusLight ? light : 0, light);
+                        controller.setSystemBarsAppearance(navigationLight ? lightNav : 0, lightNav);
+                    }
+                } else {
+                    int flags = decor.getSystemUiVisibility();
+                    // SYSTEM_UI_FLAG_LIGHT_STATUS_BAR is API 23, ..._LIGHT_NAVIGATION_BAR API 26
+                    if (android.os.Build.VERSION.SDK_INT >= 23) {
+                        flags = statusLight
+                                ? (flags | View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR)
+                                : (flags & ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+                    }
+                    if (android.os.Build.VERSION.SDK_INT >= 26) {
+                        flags = navigationLight
+                                ? (flags | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR)
+                                : (flags & ~View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+                    }
+                    decor.setSystemUiVisibility(flags);
+                }
+            }
+        });
     }
 
     /** Map UI_MODE_NIGHT_MASK onto the codes the Rust side expects. */

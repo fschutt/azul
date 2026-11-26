@@ -353,6 +353,18 @@ fn configure_android() {
     println!("cargo:rustc-link-lib=camera2ndk"); // extra::camera::android (API 24)
     println!("cargo:rustc-link-lib=mediandk"); // AImageReader (API 24)
 
+    // 16 KB PAGES. Android 15 phones may run with 16 KB memory pages, and Google Play requires apps
+    // that target Android 15 (API 35) and higher to support them on 64-bit devices
+    // (https://developer.android.com/guide/practices/page-sizes). An ELF shared object that was
+    // linked with 4 KB alignment cannot be mapped there: NDK r28 and later align to 16 KB by default,
+    // "for r27 and lower" the page-sizes guide says to link with `-Wl,-z,max-page-size=16384
+    // -Wl,-z,common-page-size=16384` ("check the output lines to ensure that the load segments don't
+    // have values less than 2**14"). Every PT_LOAD of the libazul.so this build made had
+    // p_align = 0x1000. The app's own cdylib gets the same flags from the workspace's
+    // .cargo/config.toml (a dependency's build script cannot add link arguments to its dependents).
+    println!("cargo:rustc-cdylib-link-arg=-Wl,-z,max-page-size=16384");
+    println!("cargo:rustc-cdylib-link-arg=-Wl,-z,common-page-size=16384");
+
     if env::var("ANDROID_NDK_HOME").is_err() && env::var("ANDROID_HOME").is_err() {
         println!(
             "cargo:warning=ANDROID_NDK_HOME / ANDROID_HOME not set. Install with: brew install \

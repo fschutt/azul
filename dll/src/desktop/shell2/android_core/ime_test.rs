@@ -111,3 +111,21 @@ fn the_selection_rect_is_packed_into_four_16_bit_fields() {
     assert_eq!(packed & 0xFFFF, 1);
     assert_ne!(pack_rect(Some((0, 0, 0, 0))), 0);
 }
+
+/// "Delete before the caret" is BACKSPACE: the engine's flag is `forward`, and Backspace is `false`
+/// everywhere (`CallbackChange::DeleteBackward`, every desktop shell). The shell had it the other way
+/// round, so an IME's delete-before ate the character after the caret.
+///
+/// Mutation: the two constants swapped; the counts swapped.
+#[test]
+fn deleting_before_the_caret_is_backspace_and_after_is_the_delete_key() {
+    assert!(!DELETE_BACKWARD, "Backspace is `delete_selection(node, false)`");
+    assert!(DELETE_FORWARD, "the Delete key is `delete_selection(node, true)`");
+    assert_eq!(surrounding_delete_plan("abc", "def", 1, 0), (1, 0), "one char before, none after");
+    assert_eq!(surrounding_delete_plan("abc", "def", 0, 2), (0, 2));
+    assert_eq!(surrounding_delete_plan("abc", "def", 2, 1), (2, 1));
+    // units, not chars, on each side
+    assert_eq!(surrounding_delete_plan("a😀", "😀b", 2, 2), (1, 1));
+    assert_eq!(surrounding_delete_plan("", "", 5, 5), (0, 0));
+    assert_eq!(surrounding_delete_plan("abc", "def", -1, -1), (0, 0));
+}

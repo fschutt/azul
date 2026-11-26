@@ -33,9 +33,13 @@ use crate::{
     desktop::{
         shell2::{
             android_core::{
+                bars::{band_luma, BarsState},
                 ime::ImeMirror,
                 lifecycle::{frame_work, FrameWork},
                 present::{rows_to_write, PresentState, RowDamage},
+                keys::typed_text as typed_text_of,
+                metrics::{self, dpi_of_density, logical_size},
+                touch::{mouse_effect, HitTest, Phase as TouchPhase},
                 ui_bridge::{RawGesture, UiEvent},
             },
             common::{
@@ -110,6 +114,13 @@ pub struct AndroidWindow {
     /// keeps the rest of the last frame per buffer; the shell no longer guesses which buffer it got.
     present: PresentState,
 
+    /// What the system bars were last told about the colour behind them (`android_core::bars`): the
+    /// clock and the icons are white unless the window says its bars are light.
+    bars: BarsState,
+    /// The system insets as `View.onApplyWindowInsets` reported them, PHYSICAL pixels
+    /// `[top, bottom, left, right, ime]`: how many rows of the frame lie under the status and navigation
+    /// bars.
+    inset_px: [i32; 5],
     /// Whether the floating selection toolbar is up (U2), so it is started and
     /// stopped on the TRANSITION rather than asked for every frame.
     selection_toolbar_shown: bool,
@@ -233,6 +244,8 @@ impl AndroidWindow {
             font_registry,
             bridge: Arc::new(bridge::UiBridge::new()),
             present: PresentState::new(),
+            bars: BarsState::new(),
+            inset_px: [0; 5],
             selection_toolbar_shown: false,
             ime_dirty: false,
             needs_rerender: false,
@@ -989,7 +1002,7 @@ fn follow_ui_result(window: &mut AndroidWindow, r: azul_core::events::ProcessEve
 fn apply_ui_events(window: &mut AndroidWindow, events: Vec<UiEvent>) {
     use azul_core::events::SystemChange;
     use crate::desktop::shell2::android_core::ime::{
-        chars_covering_units_at_end, chars_covering_units_at_start,
+        surrounding_delete_plan, DELETE_BACKWARD, DELETE_FORWARD,
     };
 
     // Captured-pointer deltas arrive in bursts: summed, one pass (like the desktop's raw motion).
@@ -1039,9 +1052,9 @@ fn apply_ui_events(window: &mut AndroidWindow, events: Vec<UiEvent>) {
             }
             UiEvent::DeleteSurrounding { before, after } => {
                 // The IME counts UTF-16 units (`InputConnection.deleteSurroundingText`); the engine
-                // deletes chars: an emoji is two units and one char.
-                let units = |n: i32| usize::try_from(n).unwrap_or(0);
-                let (before_chars, after_chars) = window
+                // deletes chars, one `delete_selection` each, and its flag is `forward`: the text
+                // BEFORE the caret goes with `DELETE_BACKWARD` (= false, Backspace).
+                let (backward, forward) = window
                     .common
                     .layout_window
                     .as_mut()
@@ -1049,20 +1062,20 @@ fn apply_ui_events(window: &mut AndroidWindow, events: Vec<UiEvent>) {
                     .and_then(|(text, caret)| {
                         let caret = caret.min(text.len());
                         text.is_char_boundary(caret).then(|| {
-                            (
-                                chars_covering_units_at_end(&text[..caret], units(before)),
-                                chars_covering_units_at_start(&text[caret..], units(after)),
-                            )
+                            surrounding_delete_plan(&text[..caret], &text[caret..], before, after)
                         })
                     })
-                    .unwrap_or((units(before), units(after)));
+                    .unwrap_or((
+                        usize::try_from(before).unwrap_or(0),
+                        usize::try_from(after).unwrap_or(0),
+                    ));
                 if let Some(lw) = window.common.layout_window.as_mut() {
                     if let Some(focused) = lw.focus_manager.get_focused_node().copied() {
-                        for _ in 0..before_chars {
-                            lw.delete_selection(focused, true);
+                        for _ in 0..backward {
+                            lw.delete_selection(focused, DELETE_BACKWARD);
                         }
-                        for _ in 0..after_chars {
-                            lw.delete_selection(focused, false);
+                        for _ in 0..forward {
+                            lw.delete_selection(focused, DELETE_FORWARD);
                         }
                     }
                 }
@@ -1158,6 +1171,10 @@ fn apply_ui_events(window: &mut AndroidWindow, events: Vec<UiEvent>) {
 #[cfg(all(target_os = "android", feature = "android-activity"))]
 fn apply_insets(window: &mut AndroidWindow, px: [i32; 5]) {
     use azul_css::props::basic::pixel::{OptionPixelValue, PixelValue};
+
+    // Kept in pixels too: how many rows of the frame lie under the bars decides their icon colour.
+    window.inset_px = px;
+    window.bars.forget();
 
     // THE factor of the window's frame, the one layout and the pixmap use.
     let scale = azul_layout::window::present_geometry::frame_dpi_factor(
@@ -1393,7 +1410,9 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 // separately uses density / 160 directly (which is the
                 // Android-native scale factor, not the framework's).
                 let density = app.config().density().filter(|&d| d > 0).unwrap_or(160);
-                let dpi = ((density as f32) * 96.0 / 160.0).round() as u32;
+                // ONE factor for the size, the frame, the touches and the insets: the engine's own,
+                // `dpi / 96` (`android_core::metrics`).
+                let dpi = dpi_of_density(density);
                 if window.common.current_window_state().size.dpi != dpi.max(1) {
                     // A CPU frame at another scale is repainted in full
                     // (A10-08): the list's diff is in logical px.
@@ -1407,11 +1426,10 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 #[cfg(feature = "ndk")]
                 {
                     if let Some(nw) = app.native_window() {
-                        // Logical = physical / android-scale, where
-                        // android-scale = density / 160 (NOT dpi/96).
-                        let android_scale = (density as f32) / 160.0;
-                        let logical_w = (nw.width() as f32) / android_scale;
-                        let logical_h = (nw.height() as f32) / android_scale;
+                        // The logical size whose frame is EXACTLY the surface's size in pixels (a plain
+                        // division gave a frame one pixel too large for 63 of 440 density/size pairs, which
+                        // the compositor then resamples).
+                        let (logical_w, logical_h) = logical_size(nw.width(), nw.height(), dpi);
                         log_debug!(
                             LogCategory::Window,
                             "[Android] InitWindow physical={}x{} density={} (azul dpi={}) \
@@ -1457,13 +1475,16 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 #[cfg(feature = "ndk")]
                 {
                     if let Some(nw) = window.native_window.as_ref() {
-                        let density = app.config().density().filter(|&d| d > 0).unwrap_or(160);
-                        let android_scale = (density as f32) / 160.0;
+                        let (logical_w, logical_h) = logical_size(
+                            nw.width(),
+                            nw.height(),
+                            window.common.current_window_state().size.dpi,
+                        );
                         window
                             .common
                             .update_window_state(event::WindowStateSource::Os, |ws| {
-                                ws.size.dimensions.width = (nw.width() as f32) / android_scale;
-                                ws.size.dimensions.height = (nw.height() as f32) / android_scale;
+                                ws.size.dimensions.width = logical_w;
+                                ws.size.dimensions.height = logical_h;
                             });
                     }
                 }
@@ -1479,7 +1500,7 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                 // physical<->logical conversion — layout dpi, input scaling,
                 // a11y bounds — on the stale factor.
                 let density = app.config().density().filter(|&d| d > 0).unwrap_or(160);
-                let dpi = (((density as f32) * 96.0 / 160.0).round() as u32).max(1);
+                let dpi = dpi_of_density(density);
                 if window.common.current_window_state().size.dpi != dpi {
                     // Contract shape (snapshot → mutate → pass) — the dpi
                     // diff is what dispatches WindowDpiChanged.
@@ -1495,12 +1516,12 @@ fn handle_poll_event(app: &AndroidApp, window: &mut AndroidWindow, event: PollEv
                     window.cpu_backend.force_full_repaint = true;
                     #[cfg(feature = "ndk")]
                     if let Some(nw) = window.native_window.as_ref() {
-                        let android_scale = (density as f32) / 160.0;
+                        let (logical_w, logical_h) = logical_size(nw.width(), nw.height(), dpi);
                         window
                             .common
                             .update_window_state(event::WindowStateSource::Os, |ws| {
-                                ws.size.dimensions.width = (nw.width() as f32) / android_scale;
-                                ws.size.dimensions.height = (nw.height() as f32) / android_scale;
+                                ws.size.dimensions.width = logical_w;
+                                ws.size.dimensions.height = logical_h;
                             });
                     }
                     window.common.request_regeneration(reason);
@@ -1557,14 +1578,10 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
         }
     };
 
-    // dpi factor: device pixels per logical px. Android's baseline
-    // density is 160 dpi (mdpi); a 480-dpi xxhdpi screen returns 480,
-    // so logical = physical * (160/480) = physical * 0.333. Fall back
-    // to 1.0 on the rare device that returns no density.
-    let dpi = match app.config().density() {
-        Some(d) if d > 0 => (d as f32) / 160.0_f32,
-        _ => 1.0_f32,
-    };
+    // The factor of the window's FRAME (`dpi / 96`, `android_core::metrics`): device pixels per logical
+    // px, the one the layout and the pixmap use. It used to be `density / 160` here and `round(density *
+    // 96 / 160) / 96` in the layout, which differ for a density that is no multiple of 5.
+    let dpi = metrics::frame_factor(window.common.current_window_state().size.dpi);
 
     // Collect state-update tuples first; do the actual state diff +
     // process_window_events outside the iterator's closure because the
@@ -1603,6 +1620,8 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
         i32,
         bool,
     )> = Vec::new();
+    // The text hardware keys type (`android_core::keys`): committed after the key events, in order.
+    let mut typed_text: Vec<String> = Vec::new();
     // Pen / stylus samples — populated when any pointer in a MotionEvent
     // reports `ToolType::Stylus` or `ToolType::Eraser`. tilt is decomposed
     // into (x_tilt_deg, y_tilt_deg) so it matches the W3C
@@ -1741,6 +1760,29 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                 }
             }
             InputEvent::KeyEvent(k) => {
+                // A hardware keyboard sends KeyEvents the IME did not consume and the letters in them
+                // never became text: ask the device's KeyCharacterMap (a virtual device has none).
+                if matches!(k.action(), KeyAction::Down) && k.device_id() > 0 {
+                    let meta = k.meta_state();
+                    let mapped = app
+                        .device_key_character_map(k.device_id())
+                        .ok()
+                        .and_then(|map| map.get(k.key_code(), meta).ok())
+                        .and_then(|c| match c {
+                            android_activity::input::KeyMapChar::Unicode(c) => Some(c),
+                            _ => None,
+                        });
+                    if let Some(text) = typed_text_of(
+                        true,
+                        k.device_id(),
+                        meta.ctrl_on(),
+                        meta.alt_on(),
+                        meta.meta_on(),
+                        mapped,
+                    ) {
+                        typed_text.push(text);
+                    }
+                }
                 key_updates.push((
                     k.action(),
                     map_keycode(k.key_code()),
@@ -1827,8 +1869,19 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
                         ms.cursor_position = CursorPosition::InWindow(p);
                     }
                 }
-                MotionAction::Up | MotionAction::Cancel => {
+                MotionAction::Up => {
                     ms.left_down = false;
+                }
+                MotionAction::Cancel => {
+                    // ACTION_CANCEL: "The current gesture has been aborted ... You should treat this
+                    // as an up event, but not perform any action that you normally would." The button
+                    // comes up and the pointer LEAVES (the hit test below is empty), so no node is
+                    // clicked: a finger the system took over (the shade, the back gesture, a parent
+                    // that intercepted) is not a tap on what it was on.
+                    ms.left_down = false;
+                    if let CursorPosition::InWindow(p) = ms.cursor_position {
+                        ms.cursor_position = CursorPosition::OutOfWindow(p);
+                    }
                 }
                 MotionAction::PointerUp => {
                     // The PRIMARY lifting while others stay is a mouse
@@ -1867,8 +1920,20 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
             window.primary_pointer_id = None;
         }
 
-        // Update CPU hit-tester at the new cursor; dispatch callbacks.
-        window.update_hit_test_at(hit_pos);
+        // Update CPU hit-tester at the new cursor; dispatch callbacks. A cancelled gesture hit-tests
+        // NOWHERE and clears the hover chain, as a mouse leaving the window does on every desktop
+        // shell (`android_core::touch`).
+        match mouse_effect(phase_of(update.action), primary_lifting).hit_test {
+            HitTest::AtCursor => window.update_hit_test_at(hit_pos),
+            HitTest::Nowhere => {
+                if let Some(lw) = window.common.layout_window.as_mut() {
+                    lw.hover_manager.push_hit_test(
+                        azul_layout::managers::hover::InputPointId::Mouse,
+                        azul_core::hit_test::FullHitTest::empty(None),
+                    );
+                }
+            }
+        }
 
         // ONE-FINGER PAN -> SCROLL.
         //
@@ -2241,6 +2306,14 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
         }
     }
 
+    // The text the hardware keys typed, as the IME's commits are applied.
+    if !typed_text.is_empty() {
+        apply_ui_events(
+            window,
+            typed_text.into_iter().map(UiEvent::Commit).collect(),
+        );
+    }
+
     // After callbacks have observed any native-gesture override the
     // Android `GestureDetector` JNI bridge injected this frame, clear
     // the slot so a stale OS gesture doesn't keep firing. No-op until
@@ -2248,6 +2321,21 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
     if let Some(lw) = window.common.layout_window.as_mut() {
         lw.gesture_drag_manager.clear_native_gesture();
         lw.gesture_drag_manager.note_pinch_dispatched();
+    }
+}
+
+/// The phase of a `MotionEvent` action, as `android_core::touch` reads it.
+#[cfg(all(target_os = "android", feature = "android-activity"))]
+fn phase_of(action: MotionAction) -> TouchPhase {
+    match action {
+        MotionAction::Down => TouchPhase::Down,
+        MotionAction::PointerDown => TouchPhase::PointerDown,
+        MotionAction::Move => TouchPhase::Move,
+        MotionAction::HoverMove => TouchPhase::HoverMove,
+        MotionAction::PointerUp => TouchPhase::PointerUp,
+        MotionAction::Up => TouchPhase::Up,
+        MotionAction::Cancel => TouchPhase::Cancel,
+        _ => TouchPhase::Other,
     }
 }
 
@@ -2433,6 +2521,36 @@ fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
         copy_row(y);
     }
 
+    // THE COLOUR BEHIND THE SYSTEM BARS: the status bar draws its clock over the top rows of this frame and
+    // the navigation bar its buttons over the bottom rows, white unless the window says its bars are
+    // light. Sampled from what was just written, only when those rows changed.
+    let frame_rows = ph as usize;
+    let scale = azul_layout::window::present_geometry::frame_dpi_factor(
+        window.common.current_window_state().size.dpi,
+    );
+    let status_rows = {
+        let known = window.inset_px[0].max(0) as usize;
+        let height = if known > 0 { known } else { (24.0 * scale) as usize };
+        (0, height.min(frame_rows))
+    };
+    let navigation_rows = {
+        let height = window.inset_px[1].max(0) as usize;
+        (frame_rows.saturating_sub(height), frame_rows)
+    };
+    let touches = |rows: (usize, usize)| {
+        rows.0 < rows.1
+            && plan
+                .dirty
+                .map_or(true, |(top, bottom)| (top as usize) < rows.1 && (bottom as usize) > rows.0)
+    };
+    let status_luma = touches(status_rows)
+        .then(|| band_luma(src, src_stride, pw as usize, status_rows))
+        .flatten();
+    let navigation_luma = touches(navigation_rows)
+        .then(|| band_luma(src, src_stride, pw as usize, navigation_rows))
+        .flatten();
+    let bars_to_tell = window.bars.update(status_luma, navigation_luma);
+
     // AZ_DUMP_PRESENT=1 reports whether the partial path is actually engaging.
     #[cfg(feature = "std")]
     if window.common.app.settings().shell.dump_present {
@@ -2449,6 +2567,9 @@ fn render_frame(window: &mut AndroidWindow) -> Result<(), WindowError> {
     // guard.drop() calls ANativeWindow_unlockAndPost: the frame is posted from here.
     drop(guard);
     window.present.posted(&plan);
+    if let Some((status_light, navigation_light)) = bars_to_tell {
+        set_system_bars_appearance(status_light, navigation_light);
+    }
     Ok(())
 }
 
@@ -2594,6 +2715,54 @@ pub fn set_soft_keyboard_visible(visible: bool) {
         log_debug!(LogCategory::Input, "[Android] soft keyboard: {e}");
     }
 }
+
+/// Tell the activity which icon colour the system bars need: `true` when what the shell draws behind a
+/// bar is LIGHT (dark icons), `false` when it is dark (light icons). `AzulActivity.setSystemBarsAppearance`
+/// does it on the UI thread (`WindowInsetsController`, API 30; the system UI flags below).
+#[cfg(all(target_os = "android", feature = "jni"))]
+pub fn set_system_bars_appearance(status_light: bool, navigation_light: bool) {
+    use jni::{objects::JValue, JavaVM};
+
+    let vm_ptr = java_vm_ptr();
+    let activity_ptr = activity_ptr();
+    if vm_ptr.is_null() || activity_ptr.is_null() {
+        return;
+    }
+    let result = (|| -> Result<(), String> {
+        let vm = unsafe { JavaVM::from_raw(vm_ptr as *mut jni::sys::JavaVM) }
+            .map_err(|e| format!("JavaVM::from_raw: {e:?}"))?;
+        let mut env = vm
+            .attach_current_thread()
+            .map_err(|e| format!("attach_current_thread: {e:?}"))?;
+        let _frame = crate::desktop::extra::LocalFrame::push(&env, crate::desktop::extra::LocalFrame::DEFAULT_CAPACITY);
+        let activity =
+            unsafe { jni::objects::JObject::from_raw(activity_ptr as jni::sys::jobject) };
+        let class = crate::desktop::extra::find_app_class(&mut env, &activity, "com/azul/app/AzulActivity")
+            .ok_or_else(|| "AzulActivity not in this APK".to_string())?;
+        env.call_static_method(
+            &class,
+            "setSystemBarsAppearance",
+            "(Landroid/app/Activity;ZZ)V",
+            &[
+                JValue::Object(&activity),
+                JValue::Bool(u8::from(status_light)),
+                JValue::Bool(u8::from(navigation_light)),
+            ],
+        )
+        .map(|_| ())
+        .map_err(|e| {
+            let _ = env.exception_clear();
+            format!("call setSystemBarsAppearance: {e:?}")
+        })
+    })();
+    if let Err(e) = result {
+        log_debug!(LogCategory::Window, "[Android] system bars: {e}");
+    }
+}
+
+/// Without `jni` there is no activity to tell.
+#[cfg(all(target_os = "android", not(feature = "jni")))]
+pub fn set_system_bars_appearance(_status_light: bool, _navigation_light: bool) {}
 
 /// Show or hide Android's floating Cut/Copy/Paste toolbar (U2).
 ///
