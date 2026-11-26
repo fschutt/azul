@@ -268,11 +268,13 @@ impl EaglContext {
     /// What the context says about itself. Needs it current.
     #[must_use]
     pub(super) fn device_info(gl: &GenericGlContext) -> DeviceInfo {
+        // the engine's GL table hands the strings out WITH their terminating NUL: a line with one in it is cut or dropped
+        let text = |name| gl.get_string(name).trim_end_matches('\0').trim().to_string();
         DeviceInfo {
-            vendor: gl.get_string(glconst::VENDOR),
-            renderer: gl.get_string(glconst::RENDERER),
-            version: gl.get_string(glconst::VERSION),
-            glsl: gl.get_string(glconst::SHADING_LANGUAGE_VERSION),
+            vendor: text(glconst::VENDOR),
+            renderer: text(glconst::RENDERER),
+            version: text(glconst::VERSION),
+            glsl: text(glconst::SHADING_LANGUAGE_VERSION),
         }
     }
 
