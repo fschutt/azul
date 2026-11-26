@@ -794,3 +794,228 @@ fn an_identifier_goes_to_the_engine_with_its_spoken_parts_and_the_words_of_both_
     assert!(note.contains("spoken parts"), "{note}");
     assert_eq!(rig.builtin.vocabulary.entries().len(), 200);
 }
+
+// ---- the stream ----
+
+use super::super::recognizer::{Answer, EventKind, StreamOptions};
+
+/// Every event of a stream over the microphone of `rig`, and how it ended. `stop` and `cancel` are
+/// asked at every turn of the loop.
+fn run_stream(
+    rig: &mut KeptRig,
+    options: &StreamOptions,
+    timeout_ms: u32,
+    stop: &dyn Fn() -> bool,
+    cancel: &dyn Fn() -> bool,
+) -> (Vec<(EventKind, Answer, usize)>, Answer) {
+    let events = std::cell::RefCell::new(Vec::new());
+    let ended = rig.builtin.listen_stream(
+        &Listen {
+            language: "de",
+            timeout_ms,
+            clock: &*rig.clock,
+            cancel,
+            flowing: &|| {},
+        },
+        options,
+        stop,
+        &|kind, answer| {
+            // How much of the microphone's sound was still to be read when the event came: the
+            // moment of the event in the audio.
+            let unread = rig.room.sound.lock().unwrap().len();
+            events.borrow_mut().push((kind, answer, unread));
+        },
+    );
+    (events.into_inner(), ended)
+}
+
+fn stream_options(partials: bool, max_utterances: u32) -> StreamOptions {
+    StreamOptions {
+        partials,
+        endpoint_ms: 0,
+        max_ms: 0,
+        max_utterances,
+    }
+}
+
+fn kinds_of(events: &[(EventKind, Answer, usize)]) -> Vec<EventKind> {
+    events.iter().map(|(kind, _, _)| *kind).collect()
+}
+
+#[test]
+fn a_stream_gives_partials_while_an_utterance_goes_on_then_its_final_then_the_next_utterance() {
+    let mut rig = kept_rig(0);
+    // A sentence of 1.5 s, a pause, a second sentence of 1.5 s, the room.
+    rig.room.push_takes(400, 1_500, 1_000);
+    rig.room.push_takes(0, 1_500, 1_500);
+    let never = || false;
+    let (events, ended) = run_stream(&mut rig, &stream_options(true, 2), 30_000, &never, &never);
+    assert_eq!(ended.outcome, Outcome::Heard, "{}", ended.message);
+    let kinds = kinds_of(&events);
+    let finals: Vec<usize> = kinds.iter().enumerate().filter(|(_, k)| **k == EventKind::Final).map(|(i, _)| i).collect();
+    assert_eq!(finals.len(), 2, "{kinds:?}");
+    let first_partials = kinds[..finals[0]].iter().filter(|k| **k == EventKind::Partial).count();
+    let second_partials = kinds[finals[0]..finals[1]].iter().filter(|k| **k == EventKind::Partial).count();
+    assert!(first_partials >= 2, "1.5 s of speech gives a partial about every 500 ms: {kinds:?}");
+    assert!(second_partials >= 2, "{kinds:?}");
+    // The engine was asked for each: the partials of an utterance grow, its final is the longest.
+    let seen = rig.seen.lock().unwrap().clone();
+    let lengths: Vec<usize> = seen.calls.iter().map(|(samples, _, _)| *samples).collect();
+    assert_eq!(lengths.len(), first_partials + second_partials + 2, "{lengths:?}");
+    assert!(lengths[..first_partials].windows(2).all(|w| w[0] < w[1]), "{lengths:?}");
+    assert!(lengths[first_partials] >= lengths[first_partials - 1], "the final holds all of it");
+    // A partial is the utterance so far: its words are the engine's, with the audio's moment.
+    assert!(events[0].1.started_unix_ms >= ORIGIN, "{}", events[0].1.started_unix_ms);
+    assert_eq!(events[finals[0]].1.language, "de");
+}
+
+#[test]
+fn partials_are_not_decoded_when_not_asked_for() {
+    let mut rig = kept_rig(0);
+    rig.room.push_takes(400, 1_500, 1_500);
+    let never = || false;
+    let (events, _) = run_stream(&mut rig, &stream_options(false, 1), 30_000, &never, &never);
+    assert_eq!(kinds_of(&events), [EventKind::Final]);
+    assert_eq!(rig.seen.lock().unwrap().calls.len(), 1, "one decode for the one utterance");
+}
+
+#[test]
+fn a_shorter_pause_ends_an_utterance_sooner() {
+    let unread_at_final = |endpoint_ms: u32| {
+        let mut rig = kept_rig(0);
+        rig.room.push_takes(400, 1_000, 3_000);
+        let options = StreamOptions {
+            endpoint_ms,
+            ..stream_options(false, 1)
+        };
+        let never = || false;
+        let (events, _) = run_stream(&mut rig, &options, 30_000, &never, &never);
+        events.iter().find(|(kind, _, _)| *kind == EventKind::Final).map(|(_, _, unread)| *unread).expect("a final")
+    };
+    // 100 ms of audio per chunk: 400 ms against 800 ms of end pause is 4 chunks that were not needed.
+    let (short, long) = (unread_at_final(400), unread_at_final(0));
+    assert!(short >= long + 3, "the final came with {short} chunks unread at 400 ms and {long} at the default");
+    // What is asked is kept to what an end-point can be: 5 ms is taken as 200 ms.
+    assert_eq!(unread_at_final(5), unread_at_final(200));
+    assert!(unread_at_final(200) >= short);
+}
+
+#[test]
+fn a_stop_ends_the_utterance_that_goes_on_with_what_was_said_and_a_cancel_drops_it() {
+    // 400 ms of room, then a sentence that has not ended when the stop comes after 14 reads.
+    let reads = std::cell::Cell::new(0);
+    let after = |n: u32| {
+        let reads = &reads;
+        move || {
+            reads.set(reads.get() + 1);
+            reads.get() > n
+        }
+    };
+    let never = || false;
+    let mut rig = kept_rig(0);
+    rig.room.push_takes(400, 3_000, 0);
+    let stop = after(14);
+    let (events, ended) = run_stream(&mut rig, &stream_options(false, 0), 30_000, &stop, &never);
+    assert_eq!(kinds_of(&events), [EventKind::Final], "the speech so far is the last utterance");
+    assert_eq!(ended.outcome, Outcome::Heard);
+    let said = rig.seen.lock().unwrap().calls[0].0;
+    assert!(said < 16_000 * 3, "{said} samples: only what was said until the stop");
+
+    reads.set(0);
+    let mut rig = kept_rig(0);
+    rig.room.push_takes(400, 3_000, 0);
+    let cancel = after(14);
+    let (events, ended) = run_stream(&mut rig, &stream_options(false, 0), 30_000, &never, &cancel);
+    assert!(events.is_empty(), "cancelled: no final for the utterance that was cut: {:?}", kinds_of(&events));
+    assert_eq!(ended.outcome, Outcome::NothingHeard);
+    assert!(rig.seen.lock().unwrap().calls.is_empty(), "nothing was decoded");
+}
+
+#[test]
+fn a_room_without_speech_is_reported_every_three_seconds_and_nothing_is_decoded() {
+    let mut rig = kept_rig(0);
+    rig.room.push_takes(7_500, 0, 0);
+    let never = || false;
+    let (events, ended) = run_stream(&mut rig, &stream_options(true, 0), 7_000, &never, &never);
+    assert_eq!(kinds_of(&events), [EventKind::Quiet, EventKind::Quiet], "at 3 s and at 6 s");
+    assert_eq!(ended.outcome, Outcome::NothingHeard);
+    assert!(rig.seen.lock().unwrap().calls.is_empty());
+}
+
+#[test]
+fn an_utterance_longer_than_the_model_takes_is_cut_into_utterances() {
+    let mut rig = kept_rig(0);
+    // Speech-like: 400 ms of voice and 100 ms of quiet over and over (a steady tone would be taken
+    // for the room once the noise floor, the quietest of the last 3 s, rose to it).
+    rig.room.push_takes(300, 0, 0);
+    for _ in 0..54 {
+        rig.room.push_takes(0, 400, 100);
+    }
+    rig.room.push_takes(0, 0, 1_500);
+    let never = || false;
+    let (events, _) = run_stream(&mut rig, &stream_options(false, 0), 40_000, &never, &never);
+    let finals = events.iter().filter(|(kind, _, _)| *kind == EventKind::Final).count();
+    assert_eq!(finals, 2, "{:?}", kinds_of(&events));
+    let longest = rig.seen.lock().unwrap().calls.iter().map(|(samples, _, _)| *samples).max().unwrap();
+    assert!(longest <= 16_000 * 27, "{longest} samples in one decode");
+}
+
+#[test]
+fn what_the_engine_fails_at_while_a_partial_is_decoded_ends_the_stream_with_that() {
+    let room = Room::default();
+    let keeper = MicKeeper::new(Box::new(RoomSource(room.clone())));
+    let (engine, _) = FakeEngine::new(Err("the model ran out of memory".to_string()));
+    let mut builtin = Builtin::with_engine(engine, &[0u8; 1234], keeper, Tuning::default()).expect("a model");
+    room.push_takes(400, 3_000, 1_500);
+    let clock = ManualClock::shared(ORIGIN);
+    let never = || false;
+    let seen = std::cell::RefCell::new(Vec::new());
+    let ended = builtin.listen_stream(
+        &Listen {
+            language: "en",
+            timeout_ms: 30_000,
+            clock: &*clock,
+            cancel: &never,
+            flowing: &|| {},
+        },
+        &stream_options(true, 0),
+        &never,
+        &|kind, _| seen.borrow_mut().push(kind),
+    );
+    assert_eq!(ended.outcome, Outcome::Failed);
+    assert!(ended.message.contains("speech engine failed") && ended.message.contains("out of memory"), "{}", ended.message);
+    assert!(seen.borrow().is_empty());
+    assert_eq!(*room.closed.lock().unwrap(), 1, "the microphone of a failed stream is closed");
+}
+
+#[test]
+fn what_an_armed_microphone_heard_before_the_stream_began_is_part_of_its_first_utterance() {
+    let mut rig = kept_rig(5_000);
+    assert!(rig.keeper.arm().is_ok());
+    // 300 ms of room and 600 ms of a sentence came in while armed; the other 600 ms come with the
+    // stream (with some room before: a tone with none would make the room's level the tone's).
+    rig.room.push_takes(300, 600, 0);
+    rig.room.wait_until_read();
+    rig.room.push_takes(0, 600, 1_500);
+    let flowed_at = std::cell::Cell::new(None);
+    let never = || false;
+    let events = std::cell::RefCell::new(Vec::new());
+    let began = rig.clock.now_ms();
+    let ended = rig.builtin.listen_stream(
+        &Listen {
+            language: "de",
+            timeout_ms: 30_000,
+            clock: &*rig.clock,
+            cancel: &never,
+            flowing: &|| flowed_at.set(Some(rig.clock.now_ms())),
+        },
+        &stream_options(false, 1),
+        &never,
+        &|kind, answer| events.borrow_mut().push((kind, answer)),
+    );
+    assert_eq!(ended.outcome, Outcome::Heard);
+    assert_eq!(flowed_at.get(), Some(began), "the armed microphone was flowing already");
+    assert_eq!(*rig.room.opened.lock().unwrap(), 1);
+    let said = rig.seen.lock().unwrap().calls[0].0;
+    assert!(said >= 16_000 * 3 / 2, "{said} samples: the part said while it was armed is in it");
+}
