@@ -855,6 +855,15 @@ class AfterTapTest(unittest.TestCase):
         next(a for a in m["app"] if a["package"] == "AzCompanion")["smoke"]["probe_tap"] = ""
         self.assertTrue(any("AzCompanion" in e and "probe_tap" in e for e in demo_apps.check(m)))
 
+    def test_the_probe_can_be_left_out_and_the_build_and_boot_script_can_run_both_ways(self):
+        # run 45787048273: the key pressed after the toast of the probe did nothing, and the page scrolled; whether the toast layer
+        # or the key is at fault is told by the same test with the key pressed FIRST, in a fresh process
+        smoke = (HERE / "ci" / "android_smoke.sh").read_text(encoding="utf-8")
+        self.assertIn('AZ_SMOKE_NO_PROBE', smoke)
+        build = (HERE / "ci" / "android_build_smoke.sh").read_text(encoding="utf-8")
+        self.assertIn("AZ_SMOKE_BOTH_WAYS", build)
+        self.assertIn("AZ_SMOKE_NO_PROBE=1 bash scripts/ci/android_smoke.sh demo-out/smoke-noprobe", build)
+
     def test_the_android_boot_test_turns_the_apps_info_log_on_for_an_app_with_a_press(self):
         text = (HERE / "ci" / "android_smoke.sh").read_text(encoding="utf-8")
         self.assertIn("setprop debug.az.log info", text)    # AZ_LOG=info: the app's own lines of what a press did ("tap <Action>")
