@@ -126,8 +126,18 @@ impl IOSWindow {
     /// window's construction (its view exists and has its size). Writes the one line the QA harness reads, and the
     /// one diagnostic of a request for the GPU that fell back.
     pub(super) fn gpu_start(&mut self) {
+        // `AZ_BACKEND` first; an app that is not started from a shell with an environment (an iPhone) asks
+        // in its Info.plist (`AZBackend`: `gpu`, `auto` or `cpu`) instead
+        let backend = self
+            .common
+            .app
+            .settings()
+            .shell
+            .backend
+            .clone()
+            .or_else(plist_backend);
         let request = GpuRequest::resolve(
-            self.common.app.settings().shell.backend.as_deref(),
+            backend.as_deref(),
             Some(self.common.current_window_state().renderer_options.hw_accel),
         );
         // a test run's failure plan; a shipped build has no hooks and an empty plan
@@ -167,8 +177,12 @@ impl IOSWindow {
     fn gpu_report(&self, decision: &crate::desktop::shell2::common::gpu_select::Decision) {
         if let Some(line) = decision.fallback_line() {
             log_warn!(LogCategory::Rendering, "{}", line);
+            // an iPhone has no stderr to read: the unified log (Console.app, `idevicesyslog`) does
+            super::system_log(&line);
         }
-        log_info!(LogCategory::Rendering, "{}", decision.render_line());
+        let line = decision.render_line();
+        log_info!(LogCategory::Rendering, "{}", line);
+        super::system_log(&line);
     }
 
     /// The drawable the window asks for: its size in device pixels and its scale.
@@ -708,6 +722,38 @@ impl IOSWindow {
     /// The system wants memory back (`applicationDidReceiveMemoryWarning:`).
     pub(super) fn gpu_memory_warning(&mut self) {
         self.gpu_event(Event::TrimMemory(TrimLevel::Light));
+    }
+}
+
+/// What the app's own `Info.plist` says about the renderer (`AZBackend`), when the environment does not: a phone
+/// app is started by the home screen, not by a shell that can set `AZ_BACKEND`. `None` when the key is not there
+/// or is not text.
+fn plist_backend() -> Option<String> {
+    use std::ffi::{CStr, CString};
+
+    let bundle_class = objc2::runtime::AnyClass::get(c"NSBundle")?;
+    let string_class = objc2::runtime::AnyClass::get(c"NSString")?;
+    let key = CString::new("AZBackend").ok()?;
+    // SAFETY: Foundation on the main thread; every object is autoreleased and read at once.
+    unsafe {
+        let bundle: *mut AnyObject = msg_send![bundle_class, mainBundle];
+        if bundle.is_null() {
+            return None;
+        }
+        let name: *mut AnyObject = msg_send![string_class, stringWithUTF8String: key.as_ptr()];
+        let value: *mut AnyObject = msg_send![bundle, objectForInfoDictionaryKey: name];
+        if value.is_null() {
+            return None;
+        }
+        let is_text: objc2::runtime::Bool = msg_send![value, isKindOfClass: string_class];
+        if !is_text.as_bool() {
+            return None;
+        }
+        let bytes: *const std::ffi::c_char = msg_send![value, UTF8String];
+        if bytes.is_null() {
+            return None;
+        }
+        Some(CStr::from_ptr(bytes).to_string_lossy().into_owned())
     }
 }
 

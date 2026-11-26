@@ -164,7 +164,10 @@ A phone window draws with one of two renderers, chosen when the window is made:
 
 An app can ask for the same from code (`WindowCreateOptions` →
 `window_state.renderer_options.hw_accel`: `Enabled` is `gpu`, `Disabled` is `cpu`); the
-environment variable wins over it. One libazul
+environment variable wins over it. A phone app started from the home screen has no environment
+to set: on iOS the `Info.plist` key `AZBackend` (`gpu`, `auto` or `cpu`) says the same when
+`AZ_BACKEND` is not set — `/usr/libexec/PlistBuddy -c 'Add :AZBackend string gpu' MyApp.app/Info.plist`,
+then sign and install as usual. One libazul
 holds both renderers and chooses at run time: there is no second build and no cargo feature
 for the GPU path.
 
