@@ -27,6 +27,7 @@
 //! - The destroying actions make the context current themselves: an answer that tears down holds no `MakeCurrent`.
 
 use std::{
+    cell::Cell,
     ffi::c_void,
     path::PathBuf,
     sync::{Arc, Condvar, Mutex},
@@ -194,6 +195,9 @@ pub struct GlesGpu {
     mark: Option<Marker>,
     /// Set by WebRender's notifier (on its backend thread) when it has built a frame; the loop presents when it finds it set.
     frame_ready: Arc<(Mutex<bool>, Condvar)>,
+    /// The current renderer has built at least one frame (what [`Self::has_frame`] says): a present before that would swap an
+    /// empty buffer (WebRender renders nothing when it holds no document), a black flash before the first picture.
+    frame_seen: Cell<bool>,
     session: Option<EglSession>,
     functions: Option<GlesFunctions>,
     /// The cell WebRender reports the damaged region of a frame to (buffer age).
@@ -255,6 +259,7 @@ impl GlesGpu {
             wake,
             mark: None,
             frame_ready: Arc::new((Mutex::new(false), Condvar::new())),
+            frame_seen: Cell::new(false),
             session: None,
             functions: None,
             damage: PartialPresentDamage::default(),
@@ -303,10 +308,21 @@ impl GlesGpu {
     /// at once (a render right after the transaction draws the frame before it).
     #[must_use]
     pub fn take_frame_ready(&self) -> bool {
-        match self.frame_ready.0.lock() {
+        let ready = match self.frame_ready.0.lock() {
             Ok(mut ready) => std::mem::take(&mut *ready),
             Err(poisoned) => std::mem::take(&mut *poisoned.into_inner()),
+        };
+        if ready {
+            self.frame_seen.set(true);
         }
+        ready
+    }
+
+    /// Whether the current renderer has built a frame (and so has something to show): the shell presents a surface's content
+    /// again (`RedrawNeeded`, a new surface) only then, and the first picture is the frame WebRender announces.
+    #[must_use]
+    pub fn has_frame(&self) -> bool {
+        self.frame_seen.get()
     }
 
     /// Waits up to `timeout` for WebRender to build a frame, and clears the flag: `true` when it did. For a host test; a
@@ -329,6 +345,7 @@ impl GlesGpu {
             }
         }
         *ready = false;
+        self.frame_seen.set(true);
         true
     }
 
@@ -600,6 +617,9 @@ impl GlesGpu {
             gpu_renderer::forget_renderer_state(ctx.common);
         }
 
+        // A frame the renderer before announced is no frame of this one.
+        let _ = self.take_frame_ready();
+        self.frame_seen.set(false);
         let notifier = Notifier {
             new_frame_ready: self.frame_ready.clone(),
             wake: self.wake.clone(),

@@ -221,9 +221,12 @@ fn the_first_surface_brings_the_path_up_and_draws_the_cpu_page() {
     let line = decision.render_line();
     assert!(line.starts_with("[render] backend=gpu requested=gpu device="), "{line}");
     assert!(decision.fallback_line().is_none());
+    // A renderer that was just made holds no frame: a present now would swap an empty buffer, so the shell waits for the first one.
+    assert!(!gpu.has_frame(), "nothing was built yet");
 
     lay_out(&mut window.common, page(), DPI);
     let picture = draw(&mut gpu, &mut window, surface);
+    assert!(gpu.has_frame(), "WebRender announced the frame that was drawn");
     assert_same_picture("executor-page", &picture, &cpu_picture(&window.common, DPI));
 
     let mut ctx = GpuCtx { common: &mut window.common, native_window: None };
@@ -276,6 +279,7 @@ fn a_lost_context_is_rebuilt_and_a_second_one_without_a_frame_falls_back() {
     assert_eq!(gpu.context_lost(&mut ctx), Outcome::Gpu);
     assert_eq!(gpu.renderers_made(), 2, "a new renderer on a new context");
     assert!(ctx.common.renderer.is_some());
+    assert!(!gpu.has_frame(), "the new renderer has built nothing yet");
 
     // The window's keys named the old renderer: its registries were cleared and the next frame sends everything.
     let picture = draw(&mut gpu, &mut window, surface);

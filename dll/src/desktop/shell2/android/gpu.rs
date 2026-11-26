@@ -149,7 +149,11 @@ impl AndroidWindow {
             return;
         }
         let ready = self.gpu.as_ref().is_some_and(GlesGpu::take_frame_ready);
-        if ready || std::mem::take(&mut self.gpu_present_owed) {
+        // The content again (a new surface, `RedrawNeeded`) is presented once the renderer has a frame to show: before that
+        // WebRender draws nothing and the swap would show an empty buffer.
+        let owed = self.gpu_present_owed && self.gpu.as_ref().is_some_and(GlesGpu::has_frame);
+        if ready || owed {
+            self.gpu_present_owed = false;
             let outcome = self.with_gpu(GlesGpu::present);
             self.after_gpu(outcome);
         }
