@@ -236,7 +236,7 @@ extern "C" fn pump(mut data: RefAny, _info: TimerCallbackInfo) -> TimerCallbackR
 }
 ```
 
-- `connect(ticket)` dials. The outcome arrives as a `PeerConnected` or `Error` event.
+- `connect(ticket)` dials. The outcome arrives as a `PeerConnected` or `Error` event. `connect` also takes a bare endpoint id when a peer on the same network announces itself (see [Finding a peer on the local network](#finding-a-peer-on-the-local-network)).
 - `send_frame(peer, track, data)` and `broadcast_frame(track, data)` send each frame on its own QUIC stream. A frame that has not left yet is replaced by the next frame of the same track, so a slow link lowers the frame rate instead of adding latency. The receiver likewise keeps only the newest frame of each track until `recv` takes it, so a stream where every piece counts (audio) repeats recent data in each frame. JPEG frames from `RawImage::encode_jpeg` are the simplest video format.
 - `send_message(peer, data)` is reliable and ordered, for chat and control data.
 - When the link cannot carry everything, higher priority goes first. Frames start at 0 and messages at 1; `set_track_priority(track, priority)` and `set_message_priority(priority)` change that for every peer. A call app that sends video as messages sets its audio track to 2, so video never starves audio.
@@ -244,6 +244,26 @@ extern "C" fn pump(mut data: RefAny, _info: TimerCallbackInfo) -> TimerCallbackR
 - `IrohConfig::with_relay_only(true)` binds no UDP socket, so there is never a direct path and nothing is hole-punched: every packet goes through the relay (`relay_mode` `Default` or `Custom`; with relays disabled `bind` fails). Use it on networks that block UDP, or to test a relay. A local relay for tests is iroh's own server in dev mode, `iroh-relay --dev` (plain HTTP on port 3340), reached with `with_relay_url("http://127.0.0.1:3340")`.
 - Nothing arrives unless you poll `recv`, so drive it from a timer.
 - For rooms, `IrohLoadBalancer` picks the peers that forward media for everyone (`backbone_size`, `select_backbone`), and `IrohTileRole::rendition_height` picks the resolution a video tile should request.
+
+### Finding a peer on the local network
+
+`IrohConfig::create` turns local-network discovery on. An endpoint then dials a peer on the same network by its endpoint id alone, `connect(id)` instead of a ticket, also after the peer's address changed, with no saved address and no relay, and it announces itself there. The announcement is multicast DNS on the local link (service `irohv1`, UDP port 5353) and is never routed. It carries the endpoint id, a public key, and the network addresses that another computer on the link can use: private and link-local IPv4 addresses and IPv6 addresses; not the relay and not a public IPv4 address. What a dial believes of an announcement is cut down first: no loopback, multicast, unspecified or port-0 address, at most 16 addresses per peer, no relay and no user data. A neighbour that announces false addresses cannot take a peer over, because the connection is authenticated by the key of the id that was dialled.
+
+Turn it off with `IrohConfig::with_local_discovery(false)` for a server, or for an app that must not announce itself to the network it sits on. An endpoint that accepts nobody (`with_allowed_peers` with an empty list) only looks and does not announce, and `with_relay_only(true)` never uses the local network. `local_discovery_status()` says what it does: text that starts with `off`, `on`, or `unavailable: <reason>`. A network or an OS that refuses multicast leaves the endpoint working without it, through ticket addresses and relays; no `Error` event is raised for it.
+
+An app that accepts only its paired devices (`with_allowed_peers`) opens a pairing window with `clear_allowed_peers()`, which accepts every peer again from the next connection, and closes it with `set_allowed_peers`.
+
+| Platform | What the app or the user has to allow |
+|---|---|
+| Linux | A firewall must let UDP 5353 (multicast) and the endpoint's UDP port in. |
+| macOS | A bundled app gets the Local Network prompt (macOS 15) the first time it announces or looks; its text is `NSLocalNetworkUsageDescription` in the bundle: `usage = ["NSLocalNetworkUsageDescription=..."]` in the crate's `[package.metadata.bundle]`. A command-line tool run from Terminal is allowed. A sandboxed app needs `com.apple.security.network.client` and `.server`. |
+| Windows | The first start on a private network shows Windows Defender Firewall's prompt, once per program: allow private networks. |
+| Android | The manifest template declares `CHANGE_WIFI_MULTICAST_STATE` (a normal permission); the engine holds a `WifiManager.MulticastLock` for as long as an endpoint with local discovery is bound, and releases it when the endpoint is dropped. |
+| iOS | Another path, see below. |
+
+**iOS asks the system's Bonjour.** iOS lets an app send or receive multicast only with the restricted `com.apple.developer.networking.multicast` entitlement (Apple's TN3179), which Apple grants a team on request and a personal (free) team cannot have. So the engine does not open multicast sockets on iOS: it browses `_irohv1._udp` through Bonjour, reads the SRV records of the instance named by the endpoint id and asks the system for the addresses of their hosts. That needs the Local Network permission and only the service type the app lists, no entitlement. The Info.plist needs `NSLocalNetworkUsageDescription` (the text of the prompt) and `NSBonjourServices` with `_irohv1._udp`: `AZ_IOS_LOCAL_NETWORK="why the app uses the local network"` in the environment of `scripts/build-ios.sh` writes both ([Mobile](../deploying/mobile.md#local-network-on-a-phone)). An iPhone is a client of the computer it controls, so it only looks and announces nothing. A Mac announces records for the system's browse to read; whether the system's cache keeps the address records of that announcement long enough to read them after the browse is confirmed only on a real phone, and until then the ticket's saved addresses stay the way back to a computer whose address did not change. A Bonjour failure (permission denied, Info.plist keys missing) is a message in the dial's error, not a failure of the endpoint.
+
+*Changed:* `IrohConfig` gained `local_discovery` (on) and `with_local_discovery`, its fields are ordered by decreasing alignment, and `IrohEndpoint` gained `clear_allowed_peers` and `local_discovery_status`.
 
 The engine needs the dll's `iroh` feature, which `build-dll` enables; `PlatformCapability::iroh()` reports whether it is compiled in. In the browser the handle exists but does not bind yet. `examples/azul-meet` uses it for meetings: video and 20 ms audio packets as frames, mute state as messages (see [Realtime Media](../system/realtime-media.md#azmeet-meetings-audio-leaving)).
 

@@ -35,6 +35,13 @@
 # is the signal that somebody has to read the diff. `--update` writes the new
 # digest so the mechanics are cheap, but the review is the point.
 
+[crate."acto"]  # build-script
+allow = true
+risk = "low"
+review = "audited"
+reason = "ten lines: build.rs sets a cfg for the compiler's release channel (CHANNEL_STABLE, ...) from rustc_version; it reads nothing but rustc's version and runs nothing else"
+reviewed = ["0.8.2:94bb1ff506287de95ad209ee124b2ee56ad0f2c9dc504f05d0006bbb1b1a4296"]
+
 [crate."adler2"]  # build-dependency
 allow = true
 risk = "low"

@@ -86,6 +86,33 @@ fn main() {
         }
     }
 
+    // How an iroh endpoint finds peers on the local network (the engine's local discovery; see
+    // extra/iroh/discovery.rs): `az_iroh_mdns` = swarm-discovery's raw multicast sockets through
+    // `iroh-mdns-address-lookup`, on every engine target except iOS (the same target set as that
+    // crate's `[target.'cfg(...)'.dependencies]` entry in Cargo.toml: iOS lets an app use multicast
+    // only with a restricted entitlement a personal team cannot have, TN3179); `az_iroh_bonjour` =
+    // the system's Bonjour (dns_sd) on iOS, where it is the only way, and on macOS, where it is
+    // compiled so the hand test can check that what the mDNS lookup announces is what the phone's
+    // resolver finds (the engine uses mDNS there).
+    println!("cargo:rustc-check-cfg=cfg(az_iroh_mdns)");
+    println!("cargo:rustc-check-cfg=cfg(az_iroh_bonjour)");
+    {
+        let os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+        let engine = {
+            let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+            let family = env::var("CARGO_CFG_TARGET_FAMILY").unwrap_or_default();
+            matches!(arch.as_str(), "x86_64" | "x86" | "aarch64" | "arm")
+                && !family.split(',').any(|f| f == "wasm")
+                && env::var("CARGO_FEATURE_IROH").is_ok()
+        };
+        if engine && os != "ios" {
+            println!("cargo:rustc-cfg=az_iroh_mdns");
+        }
+        if engine && (os == "ios" || os == "macos") {
+            println!("cargo:rustc-cfg=az_iroh_bonjour");
+        }
+    }
+
     // `az_desktop`: the desktop module (the window shells, the GPU renderer, clipboard, dialogs,
     // devices) is compiled in - an internal build (`cabi_internal`) with the `desktop` feature
     // (part of `_internal_deps`: build-dll, link-static), off wasm. `az_engine_stubs`: an

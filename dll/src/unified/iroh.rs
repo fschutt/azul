@@ -110,6 +110,14 @@ mod wasm_stub {
         pub fn set_allowed_peers(&self, _peers: StringVec) -> bool {
             false
         }
+        /// Nothing is bound on wasm: nothing changes.
+        pub fn clear_allowed_peers(&self) -> bool {
+            false
+        }
+        /// Nothing is bound on wasm.
+        pub fn local_discovery_status(&self) -> AzString {
+            AzString::from_const_str("")
+        }
         pub fn peer_count(&self) -> usize {
             0
         }
