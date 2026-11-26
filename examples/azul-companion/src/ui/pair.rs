@@ -125,10 +125,16 @@ fn page(cx: &Cx) -> Page {
                 permission_card(cx),
             ],
             bottom: {
-                let mut keys = vec![primary(cx, &cx.t("pair-find"), Action::PairFind), secondary(cx, &cx.t("pair-scan"), Some("qr_code_scanner"), Action::PairScan)];
+                // the phone's own app pairs with the text AzReview shows (the clipboard); the simulator's stand-in Mac can also be "found"
+                let device = cx.root.sim.is_none() || ui.device_look;
+                let mut keys = vec![primary(cx, &cx.t("pair-paste"), Action::PairPaste(String::new()))];
+                if !device {
+                    keys.push(secondary(cx, &cx.t("pair-find"), None, Action::PairFind));
+                }
+                keys.push(secondary(cx, &cx.t("pair-scan"), Some("qr_code_scanner"), Action::PairScan));
                 if ui.pair_again {
                     keys.push(secondary(cx, &cx.t("pair-back"), Some("arrow_back"), Action::PairBack));
-                } else if cx.root.sim.is_none() {
+                } else if device {
                     // no Mac at hand: a pretend one inside the app, to try the touch pad, the pinch and the haptics
                     keys.push(
                         tap(&cx.t("pair-demo"), "width: 100%; height: 48px; border-radius: 14px; background: transparent; flex-direction: row; gap: 8px;", cx, Action::Demo)
@@ -186,10 +192,10 @@ fn page(cx: &Cx) -> Page {
                     vec![primary(cx, &cx.t("fail-pairagain"), Action::PairAgain), secondary(cx, &cx.t("fail-retry"), None, Action::PairRetry)]
                 }
                 FailureKind::WrongCode | FailureKind::Expired => {
-                    vec![primary(cx, &cx.t("fail-scan"), Action::PairScan), secondary(cx, &cx.t("fail-retry"), None, Action::PairRetry)]
+                    vec![primary(cx, &cx.t("fail-paste"), Action::PairPaste(String::new())), secondary(cx, &cx.t("fail-retry"), None, Action::PairRetry)]
                 }
                 FailureKind::UpdateCompanion | FailureKind::UpdateAzReview => vec![primary(cx, &cx.t("fail-retry"), Action::PairRetry)],
-                _ => vec![primary(cx, &cx.t("fail-retry"), Action::PairRetry), secondary(cx, &cx.t("fail-scan"), Some("qr_code_scanner"), Action::PairScan)],
+                _ => vec![primary(cx, &cx.t("fail-retry"), Action::PairRetry), secondary(cx, &cx.t("pair-paste"), None, Action::PairPaste(String::new()))],
             };
             Page {
                 top: vec![

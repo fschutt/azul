@@ -16,6 +16,7 @@ use crate::ui::{Action, Root, Screen, Ui};
 /// Every scene: its name (the file's name) and what it shows.
 pub const ALL: &[(&str, &str)] = &[
     ("a1-intro", "Pairing: the first screen"),
+    ("a1b-intro-device", "Pairing: the first screen as the phone's own app draws it"),
     ("a2-searching", "Pairing: looking for the Mac"),
     ("a3-found", "Pairing: the Mac is found, the code is shown"),
     ("a4-connected", "Pairing: connected"),
@@ -95,6 +96,10 @@ pub fn setup(name: &str, root: &mut Root, extras: &Extras, now: u64) -> bool {
     };
     match name {
         "a1-intro" => show(SessionScene::Unpaired),
+        "a1b-intro-device" => {
+            show(SessionScene::Unpaired);
+            root.ui.device_look = true;
+        }
         "a2-searching" => show(SessionScene::Searching),
         "a3-found" => show(SessionScene::Found),
         "a4-connected" => {

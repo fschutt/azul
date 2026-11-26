@@ -30,3 +30,6 @@ default = []
 # The Link over azul's IrohEndpoint (the local network, relay off). The consumer enables link-dynamic or
 # link-static on azul-dll; the default build of this crate stays free of azul.
 azul = ["dep:azul"]
+# `azul` plus the dynamic link to libazul (AZ_LINK_PATH): what `cargo test -p azul-review-link --features link-dynamic` needs to run the
+# transport tests over the real iroh engine (the phone app and AzReview choose their own link mode).
+link-dynamic = ["azul", "azul/link-dynamic"]
