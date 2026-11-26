@@ -104,6 +104,16 @@ pub struct MockSpeech {
     calls: Arc<AtomicU32>,
 }
 
+impl std::fmt::Debug for MockSpeech {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MockSpeech")
+            .field("kind", &self.kind)
+            .field("label", &self.label)
+            .field("steps_left", &self.steps.len())
+            .finish_non_exhaustive()
+    }
+}
+
 impl MockSpeech {
     /// A mock that stands in for the recognizer of `kind` and follows `steps`.
     #[must_use]

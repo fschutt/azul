@@ -55,6 +55,13 @@ pub struct Chain {
     limits: Limits,
 }
 
+impl std::fmt::Debug for Chain {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let links: Vec<(Kind, &Health)> = self.links.iter().map(|link| (link.recognizer.kind(), &link.health)).collect();
+        f.debug_struct("Chain").field("links", &links).field("limits", &self.limits).finish_non_exhaustive()
+    }
+}
+
 /// What one refused try left behind, for the message.
 struct Refusal {
     kind: Kind,

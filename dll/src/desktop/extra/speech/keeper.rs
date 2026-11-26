@@ -364,6 +364,16 @@ impl MicKeeper {
     }
 }
 
+impl std::fmt::Debug for MicKeeper {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MicKeeper")
+            .field("keep_ms", &self.keep_ms())
+            .field("held", &self.is_held())
+            .field("leased", &self.is_leased())
+            .finish_non_exhaustive()
+    }
+}
+
 /// A microphone for one call. [`Self::finish`] gives it back to be kept; a lease that is dropped
 /// instead (the call returned early) closes it.
 pub struct Lease {
@@ -417,6 +427,16 @@ impl Lease {
                 self.shared.hold(microphone, Vec::new(), armed);
             }
         }
+    }
+}
+
+impl std::fmt::Debug for Lease {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Lease")
+            .field("warm", &self.warm)
+            .field("preroll_samples", &self.preroll.len())
+            .field("armed", &self.armed)
+            .finish_non_exhaustive()
     }
 }
 

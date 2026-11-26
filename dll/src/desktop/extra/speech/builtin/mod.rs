@@ -198,6 +198,21 @@ pub struct Builtin {
     floor: f32,
 }
 
+impl std::fmt::Debug for Builtin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let state = match &self.state {
+            State::Ready(_) => "ready".to_string(),
+            State::Refused(message) => format!("refused: {message}"),
+            State::Discover(_) => "to be discovered".to_string(),
+        };
+        f.debug_struct("Builtin")
+            .field("state", &state)
+            .field("vocabulary", &self.vocabulary)
+            .field("keeper", &self.keeper)
+            .finish_non_exhaustive()
+    }
+}
+
 enum State {
     /// Registered and loaded.
     Ready(Box<dyn Engine>),

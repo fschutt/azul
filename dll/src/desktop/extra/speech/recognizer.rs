@@ -209,6 +209,15 @@ pub struct Listen<'a> {
     pub flowing: &'a dyn Fn(),
 }
 
+impl std::fmt::Debug for Listen<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Listen")
+            .field("language", &self.language)
+            .field("timeout_ms", &self.timeout_ms)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Listen<'_> {
     /// Waits `ms` on the clock, looking at the cancel flag between slices; returns the time
     /// waited, which is less than `ms` only when the call was cancelled.

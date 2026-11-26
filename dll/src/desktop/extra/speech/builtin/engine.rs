@@ -83,6 +83,12 @@ mod cactus {
         transcribe: TranscribeFn,
     }
 
+    impl std::fmt::Debug for CactusEngine {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("CactusEngine").finish_non_exhaustive()
+        }
+    }
+
     /// A function of the engine's ABI.
     fn symbol<T: Copy>(library: &libloading::Library, name: &'static str) -> Result<T, EngineError> {
         // SAFETY: `T` is the function type the engine's header declares for `name`.
@@ -207,6 +213,7 @@ mod cactus {
 
     use super::{Engine, EngineError};
 
+    #[derive(Debug, Clone, Copy)]
     pub struct CactusEngine;
 
     impl CactusEngine {
