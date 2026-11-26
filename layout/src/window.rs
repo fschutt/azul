@@ -26341,11 +26341,32 @@ impl LayoutWindow {
                 // instead, so the node-local cursor keeps reading (and may
                 // run negative / past the size, which is what a drag wants).
                 .or_else(|| {
-                    let rect = self.get_node_rect_in_viewport(hit_dom_node)?;
                     let c = cursor_in_viewport.into_option()?;
+                    // Through the scroll frames and the reference frames the node is painted
+                    // in - its own `transform` and those of its ancestors - the way the hit
+                    // tester maps a pointer that IS over the node: the node's rect has its
+                    // layout size, and a drag under `scale(0.5)` has moved half as far in it
+                    // as on the screen. (A rect subtracted untransformed gave a pan of
+                    // (-0.19, +0.11) for the drag that gives (-0.39, 0.00) at scale 1.)
+                    let layout_result = self.layout_results.get(&hit_dom_node.dom)?;
+                    let layout_idx = layout_result
+                        .layout_tree
+                        .dom_to_layout
+                        .get(&node_id)?
+                        .first()?
+                        .index();
+                    let origin = *layout_result.calculated_positions.get(layout_idx)?;
+                    let local = crate::headless::screen_point_to_layout_space(
+                        layout_result,
+                        hit_dom_node.dom,
+                        layout_idx,
+                        c,
+                        &|d, n| self.scroll_manager.get_current_offset(d, n),
+                        &|d, n| self.painted_transform_of(d, n),
+                    )?;
                     Some(BorderBoxLocal::new(LogicalPosition::new(
-                        c.x - rect.origin.x,
-                        c.y - rect.origin.y,
+                        local.x - origin.x,
+                        local.y - origin.y,
                     )))
                 })
                 .map_or(OptionLogicalPosition::None, |p| {
