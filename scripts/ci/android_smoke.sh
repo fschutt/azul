@@ -85,11 +85,7 @@ for apk in "$@"; do
       # emulator crash now and then and are not this app's verdict)
       fatal="$(grep -E "FATAL EXCEPTION|Fatal signal|SIGSEGV|SIGABRT|UnsatisfiedLinkError|dlopen failed|ANR in $pkg|Process $pkg .*(died|killed)|AndroidRuntime.*$pkg" "$dir/logcat.txt" | head -n 1)"
       rust_lines="$(grep -c -E 'RustStdoutStderr| azul' "$dir/logcat.txt" || true)"
-      python3 - "$dir/screenshot.png" <<'PY' && nonblank=1
-import sys
-data = open(sys.argv[1], "rb").read()
-sys.exit(0 if data[:8] == b"\x89PNG\r\n\x1a\n" and len(data) > 8000 else 1)
-PY
+      python3 "$(dirname "$0")/png_nonblank.py" "$dir/screenshot.png" >/dev/null && nonblank=1
       # The text the manifest expects on the first screen ([app.smoke] expect): in uiautomator's dump of it.
       expect_text="$(python3 -c 'import json,os,sys; print(json.loads(os.environ.get("AZ_SMOKE_EXPECTS") or "{}").get(sys.argv[1], ""))' "${app%-android-x86_64}")"
       expect_found=""

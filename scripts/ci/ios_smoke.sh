@@ -80,11 +80,7 @@ for app in "$@"; do
     [ -n "$crash" ] && fatal="crash report: $crash"
     [ -z "$fatal" ] && fatal="$(grep -m1 -E 'Terminating app|SIGABRT|SIGSEGV|Fatal error|panicked at' "$dir/log.txt" || true)"
     rust_lines="$(grep -c -v '^$' "$dir/log.txt" 2>/dev/null || true)"
-    python3 - "$dir/screenshot.png" <<'PY' && nonblank=1
-import sys
-data = open(sys.argv[1], "rb").read()
-sys.exit(0 if data[:8] == b"\x89PNG\r\n\x1a\n" and len(data) > 8000 else 1)
-PY
+    python3 "$(dirname "$0")/png_nonblank.py" "$dir/screenshot.png" >/dev/null && nonblank=1
     # A button the manifest names ([app.smoke] tap): press it with idb (a simulator has no tap of its own in simctl),
     # by its accessibility label; else where the app's own notes put it (130 pt above the bottom edge, centred). Best
     # effort: without idb the app is judged by its first screen alone and the result says so.
