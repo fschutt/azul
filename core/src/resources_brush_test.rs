@@ -729,6 +729,71 @@ fn a_brush_or_an_image_that_is_not_what_it_should_be_paints_what_the_old_brush_p
     }
 }
 
+/// The byte of a blend is the byte the old rounding made, `v.round().clamp(0.0, 255.0) as u8`, for every float
+/// that can come out of a blend and the odd ones that cannot: a sweep of the bit patterns from -2 to 258, the
+/// half-way point of every byte and the floats around it (the one below one half is the one `v + 0.5` in `f32`
+/// gets wrong), the integers, subnormals, infinities and NaN.
+#[test]
+fn the_byte_of_a_blend_is_the_byte_the_old_rounding_made() {
+    let old = |v: f32| v.round().clamp(0.0, 255.0) as u8;
+    let mut checked = 0_u64;
+    let mut check = |v: f32| {
+        assert_eq!(to_byte(v), old(v), "{v} ({:#x})", v.to_bits());
+        checked += 1;
+    };
+    let mut bits = 0_u32;
+    while bits <= 258.0_f32.to_bits() {
+        check(f32::from_bits(bits));
+        check(-f32::from_bits(bits));
+        bits += 4099;
+    }
+    for k in 0..=257_u32 {
+        for centre in [k as f32 + 0.5, k as f32] {
+            for step in -40_i64..=40 {
+                let v = f32::from_bits((i64::from(centre.to_bits()) + step) as u32);
+                check(v);
+                check(-v);
+            }
+        }
+    }
+    for v in [
+        0.0_f32,
+        -0.0,
+        0.49999997,
+        0.5,
+        1.5,
+        254.5,
+        255.0,
+        255.49998,
+        255.5,
+        1.0e9,
+        -1.0e9,
+        f32::MAX,
+        f32::MIN,
+        f32::MIN_POSITIVE,
+        f32::from_bits(1),
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        f32::NAN,
+    ] {
+        check(v);
+    }
+    eprintln!("BRUSH_ROUNDING {checked} floats: the byte of a blend is the old rounding");
+    assert!(checked > 300_000);
+}
+
+/// The table of `byte / 255` holds the very floats the division makes.
+#[test]
+fn the_table_of_byte_fractions_is_the_division() {
+    for byte in 0..=255_u8 {
+        assert_eq!(
+            BYTE_FRACTIONS[usize::from(byte)].to_bits(),
+            (f32::from(byte) / 255.0).to_bits(),
+            "{byte} / 255"
+        );
+    }
+}
+
 /// A dab that covers a pixel fully stores the colour: what the blend of the old code worked out to.
 #[test]
 fn a_pixel_under_the_hard_core_of_an_opaque_dab_is_the_colour() {
