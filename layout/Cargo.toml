@@ -627,6 +627,10 @@ webpki-roots = { version = "1.0", optional = true }
 minisign = "0.9"
 # The throwaway authorities and the TLS test server (azul-core's tls_testing), TESTS ONLY.
 azul-core = { version = "0.0.21", path = "../core", default-features = false, features = ["tls-testing"] }
+# Compressed HTTP bodies for the tests of the client's decoding (gzip, brotli, a decompression
+# bomb), TESTS ONLY. Both are in Cargo.lock already (zip, allsorts, the dll's web backend).
+flate2 = "1"
+brotli = "8"
 # The REAL accesskit consumer, TESTS ONLY: the a11y contract test feeds every
 # TreeUpdate the manager parks through the same crate whose invariant
 # `panic!`s abort a `panic = "abort"` release build.

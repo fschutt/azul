@@ -3923,3 +3923,7 @@ mod trust_roots_tests {
         ));
     }
 }
+
+#[cfg(all(test, feature = "http", not(target_arch = "wasm32")))]
+#[path = "http_encoding_test.rs"]
+mod encoding_tests;
