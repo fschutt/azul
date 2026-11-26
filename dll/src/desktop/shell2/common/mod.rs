@@ -24,11 +24,18 @@ pub mod error;
 pub mod gl_loader;
 /// What an OpenGL ES context says about itself, read as a decision: version, software or emulated, WebRender's minimum.
 pub mod gles_probe;
-/// The shared WebRender bring-up of the phone shells' GPU paths and the steps of a GPU frame.
-pub mod gpu_renderer;
 /// The GPU renderer on OpenGL ES against the CPU renderer, on a host with Mesa (test only).
 #[cfg(all(test, target_os = "linux"))]
 mod gles_host_test;
+/// The shared WebRender bring-up of the phone shells' GPU paths and the steps of a GPU frame.
+pub mod gpu_renderer;
+/// What happens to a phone's GL context, surface and renderer when the surface goes, the context is lost, the
+/// app goes to the background or the system wants memory back: a pure reducer both phone shells follow (the
+/// platform's executor performs its actions), tested against a fake platform that enforces the platforms' rules.
+pub mod gpu_lifecycle;
+/// Which renderer a phone window gets: `AZ_BACKEND` and `hw_accel`, what the GPU bring-up said stage by
+/// stage, the one decision, the failure plan of a test run (`AZ_GPU_FAIL`) and the one line the QA harness reads.
+pub mod gpu_select;
 
 // Unified cross-platform modules
 pub mod accessibility;

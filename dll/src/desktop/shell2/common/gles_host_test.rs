@@ -42,7 +42,8 @@ use webrender::render_api::Transaction;
 use super::{
     egl_gles::{DisplayKind, EglApi, EglSession, GlesFunctions},
     egl_pure::EGL_PBUFFER_BIT,
-    gpu_renderer::{init_webrender, GpuParts},
+    gpu_renderer::{init_webrender, GpuParts, InitParams},
+    gpu_select::FailPlan,
 };
 use crate::desktop::wr_translate2::{generate_frame, wr_translate_document_id, Notifier};
 
@@ -196,8 +197,14 @@ impl<'a> GpuSession<'a> {
         let mut options = WindowCreateOptions::default();
         options.window_state.background_color =
             azul_css::props::basic::OptionColorU::Some(azul_css::props::basic::ColorU::WHITE);
-        let parts = init_webrender(&gl, &options, notifier, None, size_px, None)
-            .map_err(|e| format!("the bring-up failed at {e}"))?;
+        let params = InitParams {
+            notifier,
+            damage: None,
+            framebuffer_px: size_px,
+            shader_cache_dir: None,
+        };
+        let parts = init_webrender(&gl, &options, params, &mut FailPlan::default())
+            .map_err(|e| format!("the bring-up failed at {}: {}", e.stage.name(), e.cause))?;
         let mut window = LayoutWindow::new(FcFontCache::build()).map_err(|e| format!("{e:?}"))?;
         window.document_id = parts.document_id;
         window.id_namespace = parts.id_namespace;
@@ -490,6 +497,45 @@ fn a_second_frame_shows_its_own_page_and_nothing_of_the_first() {
     assert!(corner.iter().all(|c| *c > 240), "the corner of the second frame is white, not {corner:?}");
 }
 
+/// A stage that is made to fail (`AZ_GPU_FAIL`) ends the bring-up with that stage and leaves nothing behind: a bring-up
+/// made after each failure, on the same context, works.
+#[test]
+fn a_failure_at_each_stage_of_the_bring_up_names_it_and_leaves_the_context_usable() {
+    let Some(gles) = gles_or_skip("a_failure_at_each_stage_of_the_bring_up_names_it") else {
+        return;
+    };
+    let gl = gles.gl();
+    let attempt = |fail_at: &str| {
+        let notifier = Notifier {
+            new_frame_ready: Arc::new((Mutex::new(false), Condvar::new())),
+            wake: None,
+        };
+        let params = InitParams {
+            notifier,
+            damage: None,
+            framebuffer_px: (64, 64),
+            shader_cache_dir: None,
+        };
+        init_webrender(
+            &gl,
+            &WindowCreateOptions::default(),
+            params,
+            &mut FailPlan::parse(Some(fail_at)),
+        )
+    };
+    for stage in ["probe", "renderer", "document", "shaders"] {
+        let failure = attempt(stage).expect_err("the stage was made to fail");
+        assert_eq!(failure.stage.name(), stage);
+        assert!(failure.cause.contains("AZ_GPU_FAIL"), "{failure:?}");
+    }
+    // Nothing failed on purpose: the same context brings WebRender up after four failed attempts.
+    let parts = attempt("").expect("the bring-up after the failures");
+    let GpuParts { renderer, render_api, gl_context_ptr, .. } = parts;
+    drop(render_api);
+    drop(gl_context_ptr);
+    renderer.deinit();
+}
+
 /// The probe reads what Mesa answers, and the bring-up keeps what the driver is: an OpenGL ES context of 3.0 or later, a
 /// renderer string, a class.
 #[test]
@@ -502,8 +548,19 @@ fn the_bring_up_reports_the_driver_it_ran_on() {
         new_frame_ready: Arc::new((Mutex::new(false), Condvar::new())),
         wake: None,
     };
-    let parts = init_webrender(&gl, &WindowCreateOptions::default(), notifier, None, (64, 64), None)
-        .expect("the bring-up");
+    let params = InitParams {
+        notifier,
+        damage: None,
+        framebuffer_px: (64, 64),
+        shader_cache_dir: None,
+    };
+    let parts = init_webrender(
+        &gl,
+        &WindowCreateOptions::default(),
+        params,
+        &mut FailPlan::default(),
+    )
+    .expect("the bring-up");
     eprintln!("driver: {:?}", parts.info);
     assert!(parts.gles.major >= 3, "{:?}", parts.gles);
     assert!(!parts.info.renderer.is_empty() && !parts.info.version.is_empty());

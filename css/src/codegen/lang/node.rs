@@ -28,6 +28,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use crate::codegen::{
     doc::{render, Doc},
@@ -221,27 +222,31 @@ fn dom_item_fn(item: &Item) -> String {
     let syntax = WrapperDom(NodeDom);
     let mut out = String::new();
     for line in &item_comments(&syntax, item) {
-        out.push_str(&format!("// {line}\n"));
+        let _ = writeln!(out, "// {line}");
     }
     let name = item.name.lower_camel();
     let params = item
         .params
         .iter()
-        .map(|p| match &p.default {
-            Some(d) => format!("{} = {}", js_param(&p.name), expr_doc(&syntax, d).flat()),
-            None => js_param(&p.name),
+        .map(|p| {
+            p.default.as_ref().map_or_else(
+                || js_param(&p.name),
+                |d| format!("{} = {}", js_param(&p.name), expr_doc(&syntax, d).flat()),
+            )
         })
         .collect::<Vec<_>>()
         .join(", ");
     match item_doc(&syntax, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "function {name}({params}) {{\n    return {};\n}}\n",
             render(&doc, "    ", 1)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "// not expressible with the Node bindings: {reason}\nfunction {name}({params}) {{\n    \
              return undefined;\n}}\n"
-        )),
+        ); },
     }
     out
 }
@@ -287,19 +292,21 @@ fn package_json(name: &str) -> String {
 fn item_fn(item: &Item) -> String {
     let mut out = String::new();
     for line in &item_comments(&Node, item) {
-        out.push_str(&format!("// {line}\n"));
+        let _ = writeln!(out, "// {line}");
     }
     let name = item.name.lower_camel();
     match item_doc(&Node, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "function {name}() {{\n    return new azul.{}({});\n}}\n",
             item.ty,
             render(&doc, "    ", 1)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "// not expressible with the Node bindings: {reason}\nfunction {name}() {{\n    return \
              undefined;\n}}\n"
-        )),
+        ); },
     }
     out
 }
@@ -345,11 +352,11 @@ impl CodegenBackend for Node {
             }
         }
         let names: Vec<String> = m.items.iter().map(|i| i.name.lower_camel()).collect();
-        out.push_str(&format!("\nmodule.exports = {{ {} }};\n", names.join(", ")));
+        let _ = write!(out, "\nmodule.exports = {{ {} }};\n", names.join(", "));
         if let Some(lib) = &m.library {
             out.push('\n');
             for line in registration_note(lib, NO_REGISTRATION) {
-                out.push_str(&format!("// {line}\n"));
+                let _ = writeln!(out, "// {line}");
             }
         }
         out
@@ -378,9 +385,10 @@ impl CodegenBackend for Node {
             names.join(", ")
         );
         for name in &names {
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "\nconst {name}Value = {name}();\nconsole.log(`{name}: ${{{name}Value.raw.len}} properties`);\n"
-            ));
+            );
         }
         vec![
             GeneratedFile {

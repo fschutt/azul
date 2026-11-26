@@ -25,6 +25,7 @@ use alloc::{
     vec,
     vec::Vec,
 };
+use core::fmt::Write;
 
 use crate::codegen::{
     doc::{render, Doc},
@@ -207,7 +208,7 @@ impl ExprSyntax for Swift {
         for p in parts {
             match p {
                 ConcatPart::Lit(s) => out.push_str(&escape_quoted(s, &[], &unicode_braced)),
-                ConcatPart::Param(i) => out.push_str(&format!("\\({})", swift_param(i))),
+                ConcatPart::Param(i) => { let _ = write!(out, "\\({})", swift_param(i)); },
             }
         }
         out.push('"');
@@ -240,29 +241,33 @@ impl ExprSyntax for Swift {
 fn dom_item_fn(item: &Item) -> String {
     let mut out = String::new();
     for line in &item_comments(&Swift, item) {
-        out.push_str(&format!("// {line}\n"));
+        let _ = writeln!(out, "// {line}");
     }
     let name = item.name.lower_camel();
     let params = item
         .params
         .iter()
-        .map(|p| match &p.default {
-            Some(d) => format!("{}: String = {}", swift_param(&p.name), expr_doc(&Swift, d).flat()),
-            None => format!("{}: String", swift_param(&p.name)),
+        .map(|p| {
+            p.default.as_ref().map_or_else(
+                || format!("{}: String", swift_param(&p.name)),
+                |d| format!("{}: String = {}", swift_param(&p.name), expr_doc(&Swift, d).flat()),
+            )
         })
         .collect::<Vec<_>>()
         .join(", ");
     match item_doc(&Swift, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "public func {name}({params}) -> {} {{\n    return {}\n}}\n",
             item.ty,
             render(&doc, "    ", 1)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "// not expressible with the Swift bindings: {reason}\npublic func {name}({params}) -> \
              {}? {{\n    return nil\n}}\n",
             item.ty
-        )),
+        ); },
     }
     out
 }
@@ -302,7 +307,7 @@ fn item_fn(item: &Item) -> String {
     }
     let mut out = String::new();
     for line in &item_comments(&Swift, item) {
-        out.push_str(&format!("// {line}\n"));
+        let _ = writeln!(out, "// {line}");
     }
     let name = item.name.lower_camel();
     let ty = if is_droppable_vec(&item.ty) {
@@ -311,14 +316,16 @@ fn item_fn(item: &Item) -> String {
         item.ty.clone()
     };
     match item_doc(&Swift, item) {
-        Ok(doc) => out.push_str(&format!(
+        Ok(doc) => { let _ = write!(
+            out,
             "public func {name}() -> {ty} {{\n    return {}\n}}\n",
             render(&doc, "    ", 1)
-        )),
-        Err(reason) => out.push_str(&format!(
+        ); },
+        Err(reason) => { let _ = write!(
+            out,
             "// not expressible with the Swift bindings: {reason}\npublic func {name}() -> {ty}? \
              {{\n    return nil\n}}\n"
-        )),
+        ); },
     }
     out
 }
@@ -350,7 +357,7 @@ impl CodegenBackend for Swift {
         if let Some(lib) = &m.library {
             out.push('\n');
             for line in registration_note(lib, NO_REGISTRATION) {
-                out.push_str(&format!("// {line}\n"));
+                let _ = writeln!(out, "// {line}");
             }
         }
         out
@@ -376,9 +383,10 @@ impl CodegenBackend for Swift {
         let mut main = String::new();
         for item in &m.items {
             let name = item.name.lower_camel();
-            main.push_str(&format!(
+            let _ = write!(
+                main,
                 "let {name}Value = {name}()\nprint(\"{name}: \\({name}Value.count) properties\")\n"
-            ));
+            );
         }
         vec![
             GeneratedFile {
@@ -397,7 +405,7 @@ impl CodegenBackend for Swift {
     }
 }
 
-/// The SwiftPM manifest of an executable named `name` (its sources in
+/// The `SwiftPM` manifest of an executable named `name` (its sources in
 /// `Sources/<name>`).
 fn package(name: &str) -> String {
     PACKAGE.replace("AzulStyles", name)

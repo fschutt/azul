@@ -27,8 +27,18 @@
        (inside the file, or in a folder beside it, the very PNGs of the board's zip);
    11. the import: the exported file (and the one with its pictures beside it) become new boards with the same cutouts, a
        file of a newer format and one that is no board are told and change nothing;
-   12. the restart: a second demo on the same data folder reads the board back (`WBDEMO_LOADED 3`: the
-       two cutouts and the arrow, with their labels).
+   12. the history: a snapshot asks why (a sheet that says what changed since the last, a text area for the reason, a field
+       for tags) and keeps the board with the reason, the code's revision and a SHA-256 any RFC 8785 library reproduces; a second
+       one says what moved; the list shows them newest first; one is looked at read-only with its reason on a banner (the
+       pointer changes nothing), set against its parent, restored as a snapshot of its own; the whole history exported and
+       imported again, and a snapshot changed after it was written is told apart;
+   13. the restart: a second demo on the same data folder reads the board back (`WBDEMO_LOADED 3`: the
+       two cutouts and the arrow, with their labels, and its three snapshots);
+   14. the code moves on: in a git repository of its own (the demo's page is a file of it, read from the disk each time
+       the cutouts are looked for) two cutouts are made and a snapshot taken; lines are put above them and one is edited, a
+       commit moves HEAD; the demo asks whether to take a new snapshot (with what was done since as the start of the
+       reason), flags the cutout whose code moved and the one whose code changed, and the snapshot records both with the
+       lines, hashes and revision a script checks against `git show`.
 
 The pen is not driven here: the debug server's pen_down / pen_move / pen_up only move the mouse state (the engine does
 not inject a pen state yet, see DebugEvent::PenDown), so `PointerKind::Pen` (a stroke from empty space is an arrow,
@@ -48,6 +58,7 @@ import json
 import math
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -331,6 +342,151 @@ def perf_body(args, logs, out):
     return True
 
 
+def code_moves(args, logs, out, binary, root):
+    """The code moves on: references found again, flagged, recorded; the question when HEAD moves."""
+    if git(root, "--version") is None and subprocess.run(["git", "--version"], capture_output=True).returncode != 0:
+        print("[azwhiteboard] no git here: the steps of the code that moves on are skipped")
+        return
+    work = os.path.join(logs, "moves")
+    os.makedirs(work, exist_ok=True)
+    shutil.copy(os.path.join(root, "examples", "azul-review", "src", "whiteboard_demo.rs"), os.path.join(work, "whiteboard_demo.rs"))
+
+    def g(*a):
+        subprocess.run(["git", "-C", work, "-c", "user.name=E2E", "-c", "user.email=e2e@example.org", "-c", "commit.gpgsign=false"] + list(a), check=True, capture_output=True)
+
+    g("init", "-q")
+    g("add", "-A")
+    g("commit", "-q", "-m", "the page, as it is")
+    r1 = git(work, "rev-parse", "HEAD")
+    material = os.path.join(logs, "material.txt")
+    data = os.path.join(logs, "data3")
+    os.makedirs(data, exist_ok=True)
+    env = {"WBDEMO_FILES": work, "WBDEMO_WORKSPACE": work, "WBDEMO_AUTHOR": "E2E Author", "WBDEMO_MATERIAL": material}
+    argv = ["--data-dir", data, "--size", "%dx%d" % (WIDTH, HEIGHT), "--language", "en"]
+    app = e2e.App("whiteboard3", binary, argv, args.debug_port, logs, args.timeout, extra_env=env)
+    try:
+        app.until("the demo's window", lambda: app.has_id(SURFACE) and app.has_id(PAGE))
+        app.frame(3)
+        wait_for(app, "WBDEMO_REPO", re.escape(r1) + r" .*", "the demo read the new repository's revision")
+        demo = Demo(app)
+        bar = app.rect(SURFACE)
+        bar_x = bar["x"] + bar["width"] / 2.0
+        # Two cutouts, the second lifted by its hold.
+        loop = ellipse(330.0, 104.0, 90.0, 26.0)
+        demo.draw(loop)
+        wait_for(app, "WBDEMO_ARMED", r"\d+ \d+", "the first loop arms")
+        grip = max(loop, key=lambda p: p[0] - p[1])
+        demo.carry(grip, (bar_x, 220.0))
+        app.until("the first cutout is drawn", lambda: app.count("WBDEMO_RENDERED") >= 1)
+        demo.draw(ellipse(330.0, 170.0, 90.0, 26.0))
+        app.until("the second loop arms", lambda: app.count("WBDEMO_ARMED") >= 2)
+        demo.carry((330.0, 170.0), (bar_x - 20, min(520.0, bar["y"] + bar["height"] - 90.0)), hold=0.6)
+        app.until("the second cutout is drawn", lambda: app.count("WBDEMO_RENDERED") >= 2)
+        armed = [tuple(int(v) for v in a.split()) for a in app.printed("WBDEMO_ARMED", r"\d+ \d+")]
+        (a1, b1), (a2, b2) = armed[0], armed[1]
+        app.until("both are kept", lambda: len(read_board(board_file(data, "b1"))[0]["items"]) == 2)
+        # The first snapshot, at the first revision.
+        def sheet_snapshot(why, shot):
+            app.click("#__azreview_whiteboard-snapshot")
+            app.until("the sheet", lambda: app.has_id("__azreview_whiteboard-sheet") and app.has_id("__azreview_whiteboard-why"))
+            app.frame(2)
+            if why:
+                app.text_input("#__azreview_whiteboard-why", why)
+                app.key("Tab")
+            shoot(app, os.path.join(out, shot))
+            before = len(read_board(board_file(data, "b1"))[0].get("snapshots", []))
+            app.click("#__azreview_whiteboard-sheet-save")
+            app.until("the snapshot is kept", lambda: len(read_board(board_file(data, "b1"))[0].get("snapshots", [])) == before + 1)
+            return read_board(board_file(data, "b1"))[0]["snapshots"][-1]
+
+        s1 = sheet_snapshot("Before the code moves.", "12a-before-the-move.png")
+        if s1["code"].get("rev") != r1 or any(i["source"].get("rev") != r1 for i in s1["items"] if i["kind"] == "cutout"):
+            raise Failure("the first snapshot is not at the first revision: %s" % json.dumps(s1["code"]))
+        # The code moves on: seven lines above, the last line of the second cutout edited; a commit.
+        path = os.path.join(work, "whiteboard_demo.rs")
+        with open(path, encoding="utf-8") as f:
+            lines = f.read().split("\n")
+        lines[b2 - 1] = lines[b2 - 1] + "  // edited by the e2e"
+        lines = ["// put here by the e2e: line %d" % i for i in range(7)] + lines
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+        with open(material, "w", encoding="utf-8") as f:
+            f.write("Conversation \"rename the page\": done\nPatch rename.patch applied\n")
+        g("add", "-A")
+        g("commit", "-q", "-m", "seven lines above, one line edited")
+        r2 = git(work, "rev-parse", "HEAD")
+        wait_for(app, "WBDEMO_HEAD", re.escape(r2), "the demo noticed that HEAD moved")
+        app.until("the question", lambda: app.has_id("__azreview_whiteboard-head"))
+        words = " ".join(app.texts())
+        if "moved from %s to %s" % (r1[:7], r2[:7]) not in words or "2 things that were done" not in words:
+            raise Failure("the question does not say what moved: %s" % words[:500])
+        shoot(app, os.path.join(out, "12b-the-question.png"))
+        app.click("#__azreview_whiteboard-head-take")
+        app.until("the sheet", lambda: app.has_id("__azreview_whiteboard-sheet"))
+        app.until("with the flags on the cutouts", lambda: app.has_id("__azreview_whiteboard-flag-1") and app.has_id("__azreview_whiteboard-flag-2"))
+        words = " ".join(app.texts())
+        if "1 moved, 1 changed, 0 gone" not in words:
+            raise Failure("the sheet does not say what the code did: %s" % words[:600])
+        shoot(app, os.path.join(out, "12c-flags-and-sheet.png"))
+        app.click("#__azreview_whiteboard-sheet-save")
+        app.until("the second snapshot is kept", lambda: len(read_board(board_file(data, "b1"))[0].get("snapshots", [])) == 2)
+        manifest, _ = read_board(board_file(data, "b1"))
+        s2 = manifest["snapshots"][-1]
+        if s2["code"].get("rev") != r2 or s2.get("parent") != "s1":
+            raise Failure("the second snapshot is not at the second revision: %s" % json.dumps({k: s2.get(k) for k in ("parent", "code")}))
+        if not s2["why"].startswith("Since the last snapshot:\n- Conversation \"rename the page\": done\n- Patch rename.patch applied"):
+            raise Failure("the reason does not start with what was done: %r" % s2["why"])
+        refs = {r["id"]: r for r in s2["summary"]["references"]}
+        if sorted(refs) != [1, 2] or refs[1]["status"] != "moved" or refs[2]["status"] != "changed":
+            raise Failure("the references the snapshot records are %s" % json.dumps(s2["summary"]["references"]))
+        if refs[1]["from"] != [a1, b1] or refs[1]["to"] != [a1 + 7, b1 + 7] or refs[2]["from"] != [a2, b2] or refs[2]["to"] != [a2 + 7, b2 + 7]:
+            raise Failure("the lines are %s, expected %s -> %s and %s -> %s" % (json.dumps(refs), [a1, b1], [a1 + 7, b1 + 7], [a2, b2], [a2 + 7, b2 + 7]))
+        # What git says of the lines at the second revision is what the items hold: the text, the hash, the revision.
+        shown = subprocess.run(["git", "-C", work, "show", "%s:whiteboard_demo.rs" % r2], capture_output=True, text=True).stdout.split("\n")
+        for item in (i for i in s2["items"] if i["kind"] == "cutout"):
+            src = item["source"]
+            want = shown[src["line_start"] - 1:src["line_end"]]
+            digest = "sha256:" + hashlib.sha256(("\n".join(want) + "\n").encode("utf-8")).hexdigest()
+            if src["code"] != want or src["hash"] != digest or src.get("rev") != r2:
+                raise Failure("cutout %d does not hold the lines %d-%d at %s: %s" % (item["id"], src["line_start"], src["line_end"], r2[:7], json.dumps(src)[:300]))
+        if s2["hash"] != snapshot_hash_of(s2):
+            raise Failure("the second snapshot does not hash to its hash")
+        app.until("the question is answered", lambda: not app.has_id("__azreview_whiteboard-head"))
+        app.until("and the flags are off the board", lambda: not app.has_id("__azreview_whiteboard-flag-1"))
+        # Looked at: the snapshot says what the code did, in the same flags.
+        app.click("#__azreview_whiteboard-history")
+        app.click("#__azreview_whiteboard-snap-s2")
+        app.until("the snapshot shows the flags it recorded", lambda: app.has_id("__azreview_whiteboard-flag-1") and app.has_id("__azreview_whiteboard-flag-2"))
+        shoot(app, os.path.join(out, "12d-the-snapshot-flags.png"))
+        app.click("#__azreview_whiteboard-back")
+        # A third revision: asked again, "not now" is said once.
+        with open(path, "a", encoding="utf-8") as f:
+            f.write("\n// and one more line\n")
+        g("add", "-A")
+        g("commit", "-q", "-m", "one more line")
+        r3 = git(work, "rev-parse", "HEAD")
+        wait_for(app, "WBDEMO_HEAD", re.escape(r3), "the demo noticed the next revision")
+        app.until("asked again for the new revision", lambda: app.has_id("__azreview_whiteboard-head"))
+        app.click("#__azreview_whiteboard-head-dismiss")
+        app.until("not now is said", lambda: not app.has_id("__azreview_whiteboard-head"))
+        app.frame(5)
+        if app.has_id("__azreview_whiteboard-head"):
+            raise Failure("the question came back for the revision that was said 'not now' to")
+    except Failure:
+        print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
+        raise
+    finally:
+        app.stop()
+    print("[azwhiteboard] code that moves on: moved %s -> %s, changed %s -> %s, snapshot at %s" % ([a1, b1], [a1 + 7, b1 + 7], [a2, b2], [a2 + 7, b2 + 7], r2[:7]))
+
+
+def snapshot_hash_of(snapshot):
+    """What any RFC 8785 (JCS) library gives for the snapshot without its hash: sorted members, no space."""
+    body = {k: v for k, v in snapshot.items() if k != "hash"}
+    text = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def body(args, logs, out):
     if os.environ.get("WBE2E_PERF"):
         return perf_body(args, logs, out)
@@ -594,7 +750,7 @@ def body(args, logs, out):
                 raise Failure("the sheet does not name the author or the file: %s" % words[:400])
             if beside:
                 app.click("#__azreview_whiteboard-export-beside")
-            shoot(app, os.path.join(out, "10a-export-sheet.png" if not beside else "10b-export-sheet-beside.png"))
+            shoot(app, os.path.join(out, "10a-export-sheet.png" if not beside else "10b-export-sheet-beside.png") if name.startswith("Parser") else os.path.join(out, "11h-export-sheet-history.png"))
             app.scenario_assert("mock", set={"save_file": {"path": target}})
             app.click("#__azreview_whiteboard-export-go")
             app.until("the file is written", lambda: say("WBDEMO_EXPORTED") > before)
@@ -682,6 +838,165 @@ def body(args, logs, out):
         open_list()
         app.click("#__azreview_whiteboard-board-b1")
         app.until("board 1 is open again", lambda: say("WBDEMO_OPENED", r"b1 3") >= 2)
+
+        # The history: a snapshot asks why (a sheet with what changed since the last one worked out, a text area for the
+        # reason, a field for tags), the list of snapshots, one looked at read-only with its reason, set against its
+        # parent, restored as a snapshot of its own; the whole history exported, imported, and one that was changed
+        # after it was written told apart.
+        def open_history():
+            """The list of snapshots open (a click on the History button toggles it)."""
+            if not app.has_id("__azreview_whiteboard-history-list"):
+                app.click("#__azreview_whiteboard-history")
+            app.until("the list of snapshots", lambda: app.has_id("__azreview_whiteboard-history-list"))
+
+        def snapshots_of(board="b1"):
+            manifest, _ = read_board(board_file(data_dir, board))
+            return manifest.get("snapshots", [])
+
+        def snapshot_hash(snapshot):
+            """What any RFC 8785 (JCS) library gives for the snapshot without its hash: sorted members, no space."""
+            body = {k: v for k, v in snapshot.items() if k != "hash"}
+            text = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+            return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+        def take_snapshot(why, tags, shot):
+            before = len(snapshots_of())
+            app.click("#__azreview_whiteboard-snapshot")
+            app.until("the sheet that asks why", lambda: app.has_id("__azreview_whiteboard-sheet") and app.has_id("__azreview_whiteboard-why"))
+            app.frame(2)
+            words = " ".join(app.texts())
+            if "Why?" not in words or "Since" not in words and "The first snapshot" not in words:
+                raise Failure("the sheet does not ask why or say what changed: %s" % words[:500])
+            app.text_input("#__azreview_whiteboard-why", why)
+            app.key("Tab")
+            app.must("focus_node", selector="#__azreview_whiteboard-tags")
+            app.must("text_input", text=tags)
+            app.key("Tab")
+            shoot(app, os.path.join(out, shot))
+            app.click("#__azreview_whiteboard-sheet-save")
+            app.until("the snapshot is kept", lambda: len(snapshots_of()) == before + 1)
+            app.until("and the sheet is gone", lambda: not app.has_id("__azreview_whiteboard-sheet"))
+            return snapshots_of()[-1]
+
+        why1 = "The first cut: two boxes and an arrow between them."
+        s1 = take_snapshot(why1, "ADR-7, #123", "11a-snapshot-sheet.png")
+        if (s1["id"], s1.get("parent"), s1["why"], s1["tags"], s1.get("author")) != ("s1", None, why1, ["ADR-7", "#123"], "E2E Author"):
+            raise Failure("the first snapshot is %s" % json.dumps({k: s1.get(k) for k in ("id", "parent", "why", "tags", "author")}))
+        if s1["hash"] != snapshot_hash(s1):
+            raise Failure("the snapshot's hash %s is not what a JCS library gives, %s" % (s1["hash"], snapshot_hash(s1)))
+        if len(s1["summary"]["added"]) != 3 or s1["summary"]["moved"] or s1["summary"]["removed"]:
+            raise Failure("the first snapshot's summary is %s" % json.dumps(s1["summary"]))
+        if repo and (s1["code"].get("rev") != repo["rev"] or (repo["web"] and s1["code"]["repo"].get("web_url") != repo["web"])):
+            raise Failure("the snapshot's code is %s, the checkout is at %s" % (json.dumps(s1["code"]), repo["rev"]))
+        if len([i for i in s1["items"] if i["kind"] == "cutout"]) != 2 or not all(i["source"].get("hash") for i in s1["items"] if i["kind"] == "cutout"):
+            raise Failure("the snapshot does not hold the two cutouts with their references")
+        print("[azwhiteboard] snapshot s1: %s" % s1["hash"][:23])
+        # The second cutout carried to the right (as the board was kept before): a second snapshot says what changed.
+        live_before = app.rect("__azreview_whiteboard-cutout-2")
+        r_before = rect_of(2)
+        mx, my = live_before["x"] + live_before["width"] / 2.0, live_before["y"] + live_before["height"] / 2.0
+        app.drag(mx, my, mx + 40.0, my + 50.0, steps=8)
+        app.until("the cutout is carried and kept", lambda: near(rect_of(2), r_before[0] + 40.0, r_before[1] + 50.0))
+        live_after = app.rect("__azreview_whiteboard-cutout-2")
+        why2 = "The second box moved right and down: it is the solver's now, not the parser's."
+        s2 = take_snapshot(why2, "", "11b-second-sheet.png")
+        if (s2["id"], s2.get("parent")) != ("s2", "s1") or s2["hash"] != snapshot_hash(s2):
+            raise Failure("the second snapshot is %s" % json.dumps({k: s2.get(k) for k in ("id", "parent")}))
+        if [m["id"] for m in s2["summary"]["moved"]] != [2] or s2["summary"]["added"] or s2["summary"]["removed"]:
+            raise Failure("what changed since the first is %s" % json.dumps(s2["summary"]))
+        # The list: the newest first, each with what was said.
+        open_history()
+        words = app.texts()
+        if not (any(w.startswith("s2  ") for w in words) and any(w.startswith("s1  ") for w in words) and why1 in words):
+            raise Failure("the list does not show both snapshots with a reason: %s" % words)
+        shoot(app, os.path.join(out, "11c-history-list.png"))
+        # Looked at: its reason on a banner, the board as it was (the second cutout where it was), read-only.
+        app.click("#__azreview_whiteboard-snap-s1")
+        app.until("the banner", lambda: app.has_id("__azreview_whiteboard-viewing"))
+        if why1 not in app.texts() or not any("read-only" in w for w in app.texts()):
+            raise Failure("the banner does not say why and that it is read-only: %s" % app.texts())
+        app.frame(2)
+        seen = app.rect("__azreview_whiteboard-cutout-2")
+        if abs(seen["x"] - live_before["x"]) > 1.5 or abs(seen["x"] - live_after["x"]) < 20.0:
+            raise Failure("the snapshot shows the second cutout at %s, it was at %s and is at %s" % (seen["x"], live_before["x"], live_after["x"]))
+        shoot(app, os.path.join(out, "11d-viewing.png"))
+        # Nothing the pointer does changes it: a drag on the cutout leaves the board as it was kept.
+        kept_before = rect_of(2)
+        app.drag(seen["x"] + seen["width"] / 2.0, seen["y"] + seen["height"] / 2.0, seen["x"] + 100.0, seen["y"] + 80.0, steps=6)
+        app.frame(3)
+        if rect_of(2) != kept_before or len(snapshots_of()) != 2:
+            raise Failure("looking at a snapshot changed the board or the history")
+        # Set against its parent: what moved is told and drawn.
+        app.click("#__azreview_whiteboard-back")
+        app.until("back on the board", lambda: not app.has_id("__azreview_whiteboard-viewing"))
+        open_history()
+        app.click("#__azreview_whiteboard-snap-s2")
+        app.until("the second snapshot is shown", lambda: app.has_id("__azreview_whiteboard-viewing"))
+        app.click("#__azreview_whiteboard-compare")
+        app.until("the comparison's legend", lambda: app.has_id("__azreview_whiteboard-compare-legend"))
+        legend = [w for w in app.texts() if w.startswith("Against s1")]
+        if not legend or "1 moved" not in legend[0]:
+            raise Failure("the comparison says %s" % legend)
+        app.frame(2)
+        shoot(app, os.path.join(out, "11e-compare.png"))
+        app.click("#__azreview_whiteboard-back")
+        app.until("back on the board again", lambda: not app.has_id("__azreview_whiteboard-viewing"))
+        # Restored: the old state is a new snapshot, and the board is what it was.
+        open_history()
+        app.click("#__azreview_whiteboard-snap-s1")
+        app.until("the first snapshot is shown", lambda: app.has_id("__azreview_whiteboard-viewing"))
+        app.click("#__azreview_whiteboard-restore")
+        app.until("the sheet that restores", lambda: app.has_id("__azreview_whiteboard-sheet"))
+        app.frame(2)
+        shoot(app, os.path.join(out, "11f-restore-sheet.png"))
+        app.click("#__azreview_whiteboard-sheet-save")
+        app.until("the restore is a snapshot", lambda: len(snapshots_of()) == 3)
+        s3 = snapshots_of()[-1]
+        if (s3["id"], s3["parent"], s3["why"]) != ("s3", "s2", "Restored the board of snapshot s1.") or s3["hash"] != snapshot_hash(s3):
+            raise Failure("the restoring snapshot is %s" % json.dumps({k: s3.get(k) for k in ("id", "parent", "why")}))
+        app.until("and the board is what it was", lambda: near(rect_of(2), r_before[0], r_before[1]))
+        if [s["id"] for s in snapshots_of()] != ["s1", "s2", "s3"] or snapshots_of()[0] != s1 or snapshots_of()[1] != s2:
+            raise Failure("the snapshots that were there are not as they were")
+        # The whole history exported: the snapshots in order, each as it was written; the pictures once.
+        history_file = export("History.azboard.json", False)
+        with open(history_file, encoding="utf-8") as f:
+            hdoc = json.load(f)
+        if [s["id"] for s in hdoc["snapshots"]] != ["s1", "s2", "s3"] or [s.get("parent") for s in hdoc["snapshots"]] != [None, "s1", "s2"]:
+            raise Failure("the exported history is %s" % [(s["id"], s.get("parent")) for s in hdoc["snapshots"]])
+        if any(s["hash"] != snapshot_hash(s) for s in hdoc["snapshots"]):
+            raise Failure("a snapshot of the exported history does not hash to its hash")
+        if sorted(hdoc["assets"]) != sorted(set("img-%d" % i["id"] for i in hdoc["items"] if i["kind"] == "cutout")):
+            raise Failure("the pictures of the history are not each there once: %s" % sorted(hdoc["assets"]))
+        # Imported: three snapshots, all of them checking; one changed after it was written is told apart.
+        said = import_file(history_file, 3)
+        if not re.match(r"b6 Board_1 3 0 0$", said):
+            raise Failure("the import of the history said %r" % said)
+        app.until("the history came with it", lambda: say("WBDEMO_HISTORY", r"3") >= 1)
+        app.until("the imported board is kept", lambda: board_file(data_dir, "b6") is not None and len(snapshots_of("b6")) == 3)
+        open_history()
+        app.until("its list of snapshots", lambda: app.has_id("__azreview_whiteboard-snap-s3"))
+        if any(app.has_id("__azreview_whiteboard-snap-s%d-unverified" % n) for n in (1, 2, 3)):
+            raise Failure("a snapshot that was not changed says it does not check")
+        app.click("#__azreview_whiteboard-history")
+        changed = os.path.join(site, "Changed.azboard.json")
+        with open(history_file, encoding="utf-8") as f:
+            text = f.read()
+        if why1 not in text:
+            raise Failure("the first reason is not in the exported file")
+        with open(changed, "w", encoding="utf-8") as f:
+            f.write(text.replace(why1, "Nothing to see here."))
+        import_file(changed, 4)
+        app.until("the changed one is imported", lambda: say("WBDEMO_IMPORTED", r"b7 .*") >= 1)
+        open_history()
+        app.until("its list of snapshots", lambda: app.has_id("__azreview_whiteboard-snap-s1"))
+        if not app.has_id("__azreview_whiteboard-snap-s1-unverified") or app.has_id("__azreview_whiteboard-snap-s2-unverified"):
+            raise Failure("only the snapshot that was changed after it was written should say so")
+        shoot(app, os.path.join(out, "11g-unverified.png"))
+        app.click("#__azreview_whiteboard-history")
+        # Back to board 1 for the restart.
+        open_list()
+        app.click("#__azreview_whiteboard-board-b1")
+        app.until("board 1 is open for the restart", lambda: say("WBDEMO_OPENED", r"b1 3") >= 3)
     except Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
         raise
@@ -693,7 +1008,8 @@ def body(args, logs, out):
     try:
         app.until("the second window", lambda: app.has_id(SURFACE))
         app.expect_line("WBDEMO_LOADED", "3", "the board read back (two cutouts and the arrow)")
-        app.expect_line("WBDEMO_BOARDS", "5 b1 Board 1", "the list of boards read back, board 1 open")
+        app.expect_line("WBDEMO_BOARDS", "7 b1 Board 1", "the list of boards read back, board 1 open")
+        app.expect_line("WBDEMO_HISTORY", "3", "the three snapshots of board 1 read back")
         app.frame(3)
         for i in (1, 2):
             if not app.rect("__azreview_whiteboard-cutout-%d" % i):
@@ -705,7 +1021,8 @@ def body(args, logs, out):
         raise
     finally:
         app.stop()
-    print("[azwhiteboard] PASS: a loop became a cutout, two cutouts an arrow, the board was kept, exported, imported and came back")
+    code_moves(args, logs, out, binary, root)
+    print("[azwhiteboard] PASS: a loop became a cutout, two cutouts an arrow, the board was kept, exported, imported, given a history and came back")
     return True
 
 

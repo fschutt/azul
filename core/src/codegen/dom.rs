@@ -1,8 +1,10 @@
 //! Lower MARKUP — a subtree of the builder's document, a component's
 //! template, a page, pasted HTML — to the language-neutral codegen IR
-//! ([`azul_css::codegen::ir`]), which every binding language's printer
-//! ([`azul_css::codegen::lang`]) turns into source: AzBuilder's
-//! "Subtree → code", "Component → code", "HTML → DOM (code)" and Export > Code.
+//! ([`azul_css::codegen::ir`]).
+//!
+//! Every binding language's printer ([`azul_css::codegen::lang`]) turns the IR
+//! into source: `AzBuilder`'s "Subtree → code", "Component → code",
+//! "HTML → DOM (code)" and Export > Code.
 //!
 //! This module only DECIDES; it prints nothing. The decisions: the semantic /
 //! accessibility-aware constructor of an element (`analyze_node_ctor`), the
@@ -113,8 +115,9 @@ impl FragmentParam {
 
 /// Lower `root_nodes` — a subtree or a component template, NOT a whole page
 /// — to one IR item `fn_name` that builds it as a `Dom`, every tag an
-/// element (see [`lower_components_fragment`] for markup with component
-/// instances).
+/// element.
+///
+/// See [`lower_components_fragment`] for markup with component instances.
 ///
 /// `stylesheet` is CSS source whose matching rules become each node's
 /// `with_css`. `params`: `Some` lowers a TEMPLATE (`{name}` placeholders
@@ -142,10 +145,10 @@ pub fn lower_xml_fragment(
     }
 }
 
-/// Lower `root_nodes` to an app ([`Module::app`]): one item `render_ui`,
-/// which a printer's `emit_project_files` puts in a window titled `title`.
-/// A single `<body>` root IS the window's body; anything else goes inside
-/// one.
+/// Lower `root_nodes` to an app ([`Module::app`]): one item `render_ui`, which
+/// a printer's `emit_project_files` puts in a window titled `title`.
+///
+/// A single `<body>` root IS the window's body; anything else goes inside one.
 #[must_use]
 pub fn lower_xml_fragment_app(root_nodes: &[XmlNodeChild], stylesheet: &str, title: &str) -> Module {
     let mut m = lower_xml_fragment(root_nodes, stylesheet, APP_ROOT, None, Vec::new());
@@ -193,10 +196,11 @@ pub fn document_style_text(root_nodes: &[XmlNodeChild]) -> String {
     out.join("\n")
 }
 
-/// Markup as what code builds: a whole document (an `<html>` root, or a
-/// root `<body>` / `<head>`) is its `<body>`, anything else the markup
-/// itself; with every `<style>` block's text as the stylesheet, and whether
-/// it was a document.
+/// Markup as what code builds.
+///
+/// A whole document (an `<html>` root, or a root `<body>` / `<head>`) is its
+/// `<body>`, anything else the markup itself; with every `<style>` block's text
+/// as the stylesheet, and whether it was a document.
 ///
 /// # Errors
 /// A document without a body.
@@ -218,7 +222,8 @@ pub fn markup_parts(
     Ok((vec![XmlNodeChild::Element(body)], css, true))
 }
 
-/// The name a render function of `root_nodes` gets:
+/// The name a render function of `root_nodes` gets.
+///
 /// `render_<first id | first class | tag>` of the only element root, else
 /// `render_ui` (also for a lone component instance, whose own function is
 /// `render_<name>`).
@@ -272,7 +277,7 @@ const APP_ROOT_BASE: &str = "ui";
 // with a note), a missing component is an empty div with a note.
 
 /// A component's markup, as the code export reads it.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComponentMarkup {
     /// The template WITH its `{placeholders}` and nested instances as tags
     /// (`is_template`), or what the component renders with its default data.
@@ -305,12 +310,21 @@ impl ComponentMarkup {
 
 /// What the lowering knows about components: the component map (a tag
 /// `<library:name>` is an instance of `map.get(library, name)`) and where a
-/// component's TEMPLATE comes from. Core has no XML parser: a caller that
-/// has templates (AzBuilder's) parses them; `template` answers `None` for a
-/// component without one, which is then exported as what it renders.
+/// component's TEMPLATE comes from.
+///
+/// Core has no XML parser: a caller that has templates (`AzBuilder`'s) parses
+/// them; `template` answers `None` for a component without one, which is then
+/// exported as what it renders.
 pub struct Components<'a> {
     pub map: &'a ComponentMap,
     pub template: &'a dyn Fn(&ComponentDef) -> Option<Result<ComponentMarkup, String>>,
+}
+
+impl core::fmt::Debug for Components<'_> {
+    /// The template callback has nothing to print.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Components").finish_non_exhaustive()
+    }
 }
 
 impl<'a> Components<'a> {
@@ -324,13 +338,15 @@ impl<'a> Components<'a> {
     }
 }
 
-fn no_template(_: &ComponentDef) -> Option<Result<ComponentMarkup, String>> {
+const fn no_template(_: &ComponentDef) -> Option<Result<ComponentMarkup, String>> {
     None
 }
 
 /// Lower `root_nodes` (plain markup that may hold component instances) to a
-/// module: one item per component it uses (each lowered once, callees
-/// first), then item `fn_name` that builds the markup and calls them.
+/// module.
+///
+/// One item per component it uses (each lowered once, callees first), then item
+/// `fn_name` that builds the markup and calls them.
 #[must_use]
 pub fn lower_components_fragment(
     root_nodes: &[XmlNodeChild],
@@ -369,9 +385,10 @@ pub fn lower_components_app(
 }
 
 /// The component library `library`: one item per component of `defs` (its
-/// render function) plus the components they use, and the
-/// [`LibrarySpec`] the printers register `defs` from. `warnings`: a
-/// component without a template, one that fails to render.
+/// render function) plus the components they use, and the [`LibrarySpec`] the
+/// printers register `defs` from.
+///
+/// `warnings`: a component without a template, one that fails to render.
 #[must_use]
 pub fn lower_component_library(
     library: &str,
@@ -415,8 +432,10 @@ pub fn lower_component_library(
 
 /// A component's parameters: every data-model field that is a value (not a
 /// callback, not a child slot), with its default as text, and each field's
-/// description. A render function takes them as strings, in this order (the
-/// builder's templates substitute text).
+/// description.
+///
+/// A render function takes them as strings, in this order (the builder's
+/// templates substitute text).
 #[must_use]
 pub fn component_params(dm: &ComponentDataModel) -> (Vec<FragmentParam>, Vec<String>) {
     dm.fields
@@ -465,9 +484,11 @@ pub fn default_text(v: &OptionComponentDefaultValue) -> String {
 }
 
 /// A rendered `StyledDom` as markup, the code export's view of a DOM: every
-/// element with its tag, classes and ids, and its text (whitespace-only text
-/// is left out). What [`ComponentMarkup::rendered`] lowers; a caller with a
-/// DOM instead of markup lowers this.
+/// element with its tag, classes and ids, and its text (whitespace-only text is
+/// left out).
+///
+/// What [`ComponentMarkup::rendered`] lowers; a caller with a DOM instead of
+/// markup lowers this.
 #[must_use]
 pub fn styled_dom_markup(sd: &StyledDom) -> Vec<XmlNodeChild> {
     let mut budget = sd.node_data.as_ref().len();
@@ -521,7 +542,7 @@ fn markup_node(sd: &StyledDom, id: NodeId, depth: usize, budget: &mut usize) -> 
             if let Some(x) = markup_node(sd, c, depth + 1, budget) {
                 children.push(x);
             }
-            next = hierarchy.get(c.index()).and_then(|h| h.next_sibling_id());
+            next = hierarchy.get(c.index()).and_then(super::super::styled_dom::NodeHierarchyItem::next_sibling_id);
         }
     }
     Some(XmlNodeChild::Element(XmlNode {
@@ -566,9 +587,9 @@ fn lower_item(
     reg: Option<&Registry<'_>>,
 ) -> Item {
     let css = parse_stylesheet(stylesheet);
-    let notes = RefCell::new(Vec::new());
-    let value = lower_roots(nodes, &css, params, reg, &notes);
-    for n in notes.into_inner() {
+    let collected = RefCell::new(Vec::new());
+    let value = lower_roots(nodes, &css, params, reg, &collected);
+    for n in collected.into_inner() {
         if !doc.contains(&n) {
             doc.push(n);
         }
@@ -787,10 +808,7 @@ fn default_value(f: &ComponentDataField) -> Expr {
 /// A text or attribute value: [`Expr::Str`], [`Expr::Param`], or an
 /// [`Expr::Concat`] of both — placeholders only in a template.
 fn text_expr(raw: &str, params: Option<&[FragmentParam]>) -> Expr {
-    match params {
-        None => Expr::str(raw),
-        Some(params) => split_template(raw, params),
-    }
+    params.map_or_else(|| Expr::str(raw), |params| split_template(raw, params))
 }
 
 /// `{name}` → the parameter, `{{` / `}}` → a literal brace, anything else
@@ -799,17 +817,17 @@ fn split_template(raw: &str, params: &[FragmentParam]) -> Expr {
     let mut parts: Vec<Expr> = Vec::new();
     let mut lit = String::new();
     let mut rest = raw;
-    while let Some(pos) = rest.find(|c: char| c == '{' || c == '}') {
+    while let Some(pos) = rest.find(['{', '}']) {
         lit.push_str(&rest[..pos]);
         let tail = &rest[pos..];
-        if tail.starts_with("{{") {
+        if let Some(after) = tail.strip_prefix("{{") {
             lit.push('{');
-            rest = &tail[2..];
+            rest = after;
             continue;
         }
-        if tail.starts_with("}}") {
+        if let Some(after) = tail.strip_prefix("}}") {
             lit.push('}');
-            rest = &tail[2..];
+            rest = after;
             continue;
         }
         if tail.starts_with('{') {
@@ -948,7 +966,7 @@ fn child_matcher(parent: &CssMatcher, idx: usize, len: usize) -> CssMatcher {
     m
 }
 
-fn split_words(v: Option<&azul_css::AzString>) -> Vec<String> {
+fn split_words(v: Option<&AzString>) -> Vec<String> {
     v.map(|s| s.as_str().split_whitespace().map(ToString::to_string).collect())
         .unwrap_or_default()
 }
@@ -990,13 +1008,12 @@ impl Lower<'_, '_> {
                 let args = args
                     .iter()
                     .map(|a| match a {
-                        CtorArg::Str(s) => self.text(s),
+                        // `OptSome`: only `ANoA11y` takes an OptionString (handled above).
+                        CtorArg::Str(s) | CtorArg::OptSome(s) => self.text(s),
                         CtorArg::Aria(s) => {
                             Expr::call("SmallAriaInfo", "label", vec![self.text(s)])
                         }
                         CtorArg::Float(f) => Expr::f32(*f),
-                        // Only `ANoA11y` takes an OptionString (handled above).
-                        CtorArg::OptSome(s) => self.text(s),
                         CtorArg::OptNone => Expr::str(""),
                     })
                     .collect();
@@ -1170,13 +1187,13 @@ impl Lower<'_, '_> {
                     .params
                     .iter()
                     .map(|p| {
-                        if let Some(v) = node.attributes.get_key(&p.name) {
-                            self.text(v.as_str())
-                        } else if p.name == "text" && !text.is_empty() {
-                            text_used = true;
-                            self.text(&text)
-                        } else {
-                            Expr::str(&p.default)
+                        match node.attributes.get_key(&p.name) {
+                            Some(v) => self.text(v.as_str()),
+                            None if p.name == "text" && !text.is_empty() => {
+                                text_used = true;
+                                self.text(&text)
+                            }
+                            None => Expr::str(&p.default),
                         }
                     })
                     .collect();
@@ -1216,7 +1233,7 @@ impl Lower<'_, '_> {
         let style = if is_field("style") {
             None
         } else {
-            node.attributes.get_key("style").map(|s| s.as_str())
+            node.attributes.get_key("style").map(AzString::as_str)
         };
         let css = inline_css(&get_css_blocks(self.css, &matcher), None, style);
         if !css.is_empty() {
@@ -1415,7 +1432,7 @@ impl CssMatcher {
         let mut cur_selfgroup_scan = 0;
         let mut cur_pathgroup_scan = 0;
         let mut valid = false;
-        let mut path_group = path_groups[cur_pathgroup_scan].clone();
+        let mut path_group = path_groups[cur_pathgroup_scan];
 
         while cur_selfgroup_scan < self_groups.len() {
             let mut advance = None;
@@ -1423,8 +1440,8 @@ impl CssMatcher {
             // scan all remaining path groups
             for (id, cg) in self_groups[cur_selfgroup_scan..].iter().enumerate() {
                 let gm = group_matches(
-                    &path_group.0,
-                    &self_groups[cur_selfgroup_scan + id].0,
+                    path_group.0,
+                    self_groups[cur_selfgroup_scan + id].0,
                     self.indices_in_parent[cur_selfgroup_scan + id],
                     self.children_length[cur_selfgroup_scan + id],
                 );
@@ -1447,7 +1464,7 @@ impl CssMatcher {
                     }
                     cur_pathgroup_scan += 1;
                     cur_selfgroup_scan += n;
-                    path_group = path_groups[cur_pathgroup_scan].clone();
+                    path_group = path_groups[cur_pathgroup_scan];
                 }
                 None => return false, // group was not found in remaining items
             }

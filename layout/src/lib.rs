@@ -179,6 +179,10 @@ use unicode_normalization as _;
 use webpki_roots as _;
 #[cfg(feature = "xml")]
 use xmlwriter as _;
+// `zune-jpeg`: the JPEG decoder of `image`. This crate names it only to ask for 0.5.8 or newer, whose
+// SIMD paths build (see the `jpeg` feature in Cargo.toml); the default features have `jpeg` now.
+#[cfg(feature = "jpeg")]
+use zune_jpeg as _;
 // `libc`: the probe feature's rusage/dladdr calls exist on unix only.
 #[cfg(all(feature = "probe", not(unix)))]
 use libc as _;
@@ -324,6 +328,11 @@ pub mod telemetry;
 /// cooldown/suspend state. Requires the `updater` feature.
 #[cfg(feature = "updater")]
 pub mod updater;
+/// A resumable, windowed download of one file with a size limit, progress and a way to stop: what the
+/// updater downloads with and what a program can fetch a big file with (the speech model of the
+/// built-in recognizer). Requires the `updater` feature, whose dependencies it shares.
+#[cfg(feature = "updater")]
+pub mod ranged_download;
 
 /// C-compatible string formatting via `strfmt`.
 #[cfg(feature = "strfmt")]

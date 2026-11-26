@@ -98,6 +98,13 @@ for f in libazul.so libazul.a azul.lib; do
   if [ -f "$out/$f" ]; then lib="$out/$f"; break; fi
 done
 [ -n "$lib" ] || { echo "::error::no library staged in $out"; exit 1; }
+# A library built WITHOUT the cargo feature test-hooks must not hold its marker (nothing that ships reads stand-ins or failure
+# injections from the environment), one built WITH it must (the negative control: a check that cannot fail checks nothing).
+# scripts/check_no_test_hooks.py; the feature is only ever in an artifact-only variant (demo_apps.py check).
+case ",$features," in
+  *,test-hooks,*) python3 scripts/check_no_test_hooks.py --expect-marker=test-hooks "$lib" ;;
+  *)              python3 scripts/check_no_test_hooks.py "$lib" ;;
+esac
 sum="$( (sha256sum "$lib" 2>/dev/null || shasum -a 256 "$lib") | cut -d' ' -f1)"
 size="$(wc -c < "$lib" | tr -d ' ')"
 python3 - "$out/libazul.info.json" "$kind" "${target:-host}" "$features" "$(git rev-parse HEAD)" "$(( $(date +%s) - started ))" "$size" "$sum" "$(basename "$lib")" <<'PY'

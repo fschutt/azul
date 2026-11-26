@@ -3,9 +3,9 @@
 //! (`x11/mod.rs`, "GPU rendering initialized"), as functions that return what failed and at which stage instead of
 //! falling back in the middle of a window's construction, so that the shell decides what a failure means.
 //!
-//! The stages are the names of the GPU path's diagnostics and of the `AZ_GPU_FAIL` hook: `probe` (the context is OpenGL
-//! ES 3 with a texture large enough), `renderer` (`create_webrender_instance`), `document` (the render API), `shaders` (the
-//! engine's own GL programs compile), `frame` (a frame that did not render).
+//! The stages are those of `gpu_select::GpuStage`, the names of the GPU path's diagnostics and of the `AZ_GPU_FAIL` hook:
+//! `probe` (the context is OpenGL ES 3 with a texture large enough), `renderer` (`create_webrender_instance`),
+//! `document` (the render API), `shaders` (the engine's own GL programs compile), `frame` (a frame that did not render).
 
 use std::{panic::AssertUnwindSafe, path::Path, rc::Rc};
 
@@ -23,34 +23,24 @@ use super::{
     compositor::{query_gpu_info, GpuCheckResult, GpuInfo},
     event::CommonWindowState,
     gles_probe::{self, GlesVersion, RendererClass},
+    gpu_select::{DeviceInfo, FailPlan, GpuFallback, GpuStage},
 };
 use crate::desktop::{
     shader_cache::ProgramCacheStatus,
     wr_translate2::{self, AsyncHitTester, Notifier, PartialPresentDamage, WrRenderApi},
 };
 
-/// A step of the bring-up that failed: the stage, and what the driver or WebRender said.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GpuInitFailure {
-    /// `probe`, `renderer`, `document` or `shaders`.
-    pub stage: &'static str,
-    /// The cause, in one line.
-    pub cause: String,
-}
-
-impl GpuInitFailure {
-    fn new(stage: &'static str, cause: impl Into<String>) -> Self {
-        Self {
-            stage,
-            cause: cause.into(),
-        }
-    }
-}
-
-impl std::fmt::Display for GpuInitFailure {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.stage, self.cause)
-    }
+/// What a shell gives the bring-up besides the context and the window's options.
+pub struct InitParams<'a> {
+    /// The notifier WebRender calls from its backend thread when a frame is built (its `wake` is what wakes the loop).
+    pub notifier: Notifier,
+    /// The cell WebRender reports the damaged region of each frame to, when the shell swaps with damage (EGL buffer
+    /// age); `None` draws every frame in full.
+    pub damage: Option<PartialPresentDamage>,
+    /// The size of the surface the frames will be drawn to, in device pixels.
+    pub framebuffer_px: (u32, u32),
+    /// Where the compiled programs are kept between runs (`None`: the platform's own directory, or none).
+    pub shader_cache_dir: Option<&'a Path>,
 }
 
 /// What a successful bring-up hands to the window: the renderer and its API, the document, the hit tester, the engine's
@@ -89,6 +79,33 @@ impl std::fmt::Debug for GpuParts {
     }
 }
 
+/// What the driver is, as the shell keeps it after the parts are installed: for the log line, the startup timeline and
+/// the GPU-check dialog.
+#[derive(Debug, Clone)]
+pub struct GpuDevice {
+    /// The driver's strings (`GL_VENDOR`, `GL_RENDERER`, `GL_VERSION`, the GLSL version).
+    pub info: GpuInfo,
+    /// The OpenGL ES version of the context.
+    pub gles: GlesVersion,
+    /// Software, emulated or hardware.
+    pub class: RendererClass,
+    /// What the program cache did.
+    pub shader_cache: ProgramCacheStatus,
+}
+
+impl GpuDevice {
+    /// The strings in the form `gpu_select::decide` reads.
+    #[must_use]
+    pub fn device_info(&self) -> DeviceInfo {
+        DeviceInfo {
+            vendor: self.info.vendor.clone(),
+            renderer: self.info.renderer.clone(),
+            version: self.info.version.clone(),
+            glsl: self.info.glsl_version.clone(),
+        }
+    }
+}
+
 /// Reads `GL_MAX_TEXTURE_SIZE` of the current context.
 fn max_texture_size(gl: &GenericGlContext) -> i32 {
     let mut value = [0_i32];
@@ -97,68 +114,80 @@ fn max_texture_size(gl: &GenericGlContext) -> i32 {
     value[0]
 }
 
+fn device_size(px: (u32, u32)) -> DeviceIntSize {
+    DeviceIntSize::new(
+        i32::try_from(px.0).unwrap_or(i32::MAX).max(1),
+        i32::try_from(px.1).unwrap_or(i32::MAX).max(1),
+    )
+}
+
 /// Makes the renderer, its API and the document for the GL context that is current on this thread.
 ///
-/// `framebuffer_px` is the size of the surface the frames will be drawn to; `damage` is the cell WebRender reports
-/// the region of each frame to when the shell swaps with damage (EGL buffer age); `shader_cache_dir` is where the
-/// compiled programs are kept between runs (`None`: not kept).
+/// `plan` is what a test run made fail on purpose (`AZ_GPU_FAIL`); the stages it is asked about are `probe`, `renderer`,
+/// `document` and `shaders`, in that order. An empty plan fails nothing.
 ///
 /// Nothing is left behind on a failure: a renderer that was made is `deinit`ed before the failure returns.
 ///
 /// # Errors
 ///
-/// The stage that failed (see the module's documentation) and its cause.
+/// The stage that failed and the cause.
 pub fn init_webrender(
     gl: &Rc<GenericGlContext>,
     options: &WindowCreateOptions,
-    notifier: Notifier,
-    damage: Option<PartialPresentDamage>,
-    framebuffer_px: (u32, u32),
-    shader_cache_dir: Option<&Path>,
-) -> Result<GpuParts, GpuInitFailure> {
+    params: InitParams<'_>,
+    plan: &mut FailPlan,
+) -> Result<GpuParts, GpuFallback> {
     // The probe: the strings (which also publish the GpuStatus the GPU-check dialog shows), then WebRender's minimum.
+    if plan.fails(GpuStage::Probe) {
+        return Err(GpuFallback::injected(GpuStage::Probe));
+    }
     let (info, renderer_type) = match query_gpu_info(gl) {
         GpuCheckResult::Ok(info) => (info, RendererType::Hardware),
         // A software GL stack (llvmpipe, swrast): WebRender composites, the engine's own GL programs are skipped.
         GpuCheckResult::Blacklisted { info, .. } => (info, RendererType::Software),
-        GpuCheckResult::QueryFailed(reason) => return Err(GpuInitFailure::new("probe", reason)),
+        GpuCheckResult::QueryFailed(reason) => {
+            return Err(GpuFallback::new(GpuStage::Probe, &reason))
+        }
     };
     let probe = gles_probe::probe(&info.version, &info.renderer, max_texture_size(gl))
-        .map_err(|cause| GpuInitFailure::new("probe", cause))?;
+        .map_err(|cause| GpuFallback::new(GpuStage::Probe, &cause))?;
 
     // The programs compiled by an earlier run, when the shell has a directory to keep them in.
+    if plan.fails(GpuStage::Renderer) {
+        return Err(GpuFallback::injected(GpuStage::Renderer));
+    }
     let (program_cache, shader_cache) =
-        wr_translate2::create_program_cache_with_status(gl, shader_cache_dir);
+        wr_translate2::create_program_cache_with_status(gl, params.shader_cache_dir);
 
     // The renderer. Inside a catch: a driver that makes the device layer panic must be a fallback, not a dead process
     // (where panics abort, there is nothing to catch and this is the same call).
     let created = std::panic::catch_unwind(AssertUnwindSafe(|| {
         webrender::create_webrender_instance(
             gl.clone(),
-            Box::new(notifier),
-            wr_translate2::default_renderer_options(options, program_cache, damage),
+            Box::new(params.notifier),
+            wr_translate2::default_renderer_options(options, program_cache, params.damage),
             None,
         )
     }));
     let (mut renderer, sender) = match created {
         Ok(Ok(made)) => made,
-        Ok(Err(e)) => return Err(GpuInitFailure::new("renderer", format!("{e:?}"))),
+        Ok(Err(e)) => return Err(GpuFallback::new(GpuStage::Renderer, &format!("{e:?}"))),
         Err(panic) => {
-            return Err(GpuInitFailure::new(
-                "renderer",
-                format!("WebRender panicked: {}", panic_message(panic.as_ref())),
+            return Err(GpuFallback::new(
+                GpuStage::Renderer,
+                &format!("WebRender panicked: {}", panic_message(panic.as_ref())),
             ))
         }
     };
     // External images (the app's GL textures, the paint canvas) need a handler or WebRender panics on the first one.
     renderer.set_external_image_handler(Box::new(wr_translate2::Compositor::default()));
 
+    if plan.fails(GpuStage::Document) {
+        renderer.deinit();
+        return Err(GpuFallback::injected(GpuStage::Document));
+    }
     let render_api = sender.create_api();
-    let size = DeviceIntSize::new(
-        i32::try_from(framebuffer_px.0).unwrap_or(i32::MAX).max(1),
-        i32::try_from(framebuffer_px.1).unwrap_or(i32::MAX).max(1),
-    );
-    let wr_document = render_api.add_document(size);
+    let wr_document = render_api.add_document(device_size(params.framebuffer_px));
     let document_id = wr_translate2::translate_document_id_wr(wr_document);
     let id_namespace = wr_translate2::translate_id_namespace_wr(render_api.get_namespace_id());
     let hit_tester = AsyncHitTester::Requested(render_api.request_hit_tester(wr_document));
@@ -166,14 +195,21 @@ pub fn init_webrender(
     // The engine's own GL context: compiles its programs at once, so a driver that rejects them is found here and not in
     // the middle of the first frame. A software stack skips them by construction.
     let gl_ptr = GlContextPtr::new(renderer_type, gl.clone());
-    if matches!(renderer_type, RendererType::Hardware) && !gl_ptr.is_gl_usable() {
+    let shaders_fail = plan.fails(GpuStage::Shaders);
+    if shaders_fail
+        || (matches!(renderer_type, RendererType::Hardware) && !gl_ptr.is_gl_usable())
+    {
         drop(gl_ptr);
         drop(render_api);
         renderer.deinit();
-        return Err(GpuInitFailure::new(
-            "shaders",
-            "the engine's GL programs did not compile at any GLSL version",
-        ));
+        return Err(if shaders_fail {
+            GpuFallback::injected(GpuStage::Shaders)
+        } else {
+            GpuFallback::new(
+                GpuStage::Shaders,
+                "the engine's GL programs did not compile at any GLSL version",
+            )
+        });
     }
 
     Ok(GpuParts {
@@ -207,6 +243,16 @@ pub fn install(common: &mut CommonWindowState, parts: GpuParts) -> GpuDevice {
     common.document_id = Some(parts.document_id);
     common.id_namespace = Some(parts.id_namespace);
     common.gl_context_ptr = parts.gl_context_ptr;
+    // The layout window mints its keys in the renderer's namespace and names its document.
+    if let Some(window) = common.layout_window.as_mut() {
+        window.document_id = parts.document_id;
+        window.id_namespace = parts.id_namespace;
+        window.renderer_type = Some(if parts.class.software {
+            RendererType::Software
+        } else {
+            RendererType::Hardware
+        });
+    }
     // The first frame of a renderer sends the whole display list.
     common.display_list_initialized = false;
     GpuDevice {
@@ -215,20 +261,6 @@ pub fn install(common: &mut CommonWindowState, parts: GpuParts) -> GpuDevice {
         class: parts.class,
         shader_cache: parts.shader_cache,
     }
-}
-
-/// What the driver is, as the shell keeps it after the parts are installed: for the log line, the startup timeline and
-/// the GPU-check dialog.
-#[derive(Debug, Clone)]
-pub struct GpuDevice {
-    /// The driver's strings (`GL_VENDOR`, `GL_RENDERER`, `GL_VERSION`, the GLSL version).
-    pub info: GpuInfo,
-    /// The OpenGL ES version of the context.
-    pub gles: GlesVersion,
-    /// Software, emulated or hardware.
-    pub class: RendererClass,
-    /// What the program cache did.
-    pub shader_cache: ProgramCacheStatus,
 }
 
 /// Takes the renderer away from the window the way WebRender requires (`Renderer::deinit` in a current context) and
@@ -316,23 +348,19 @@ pub fn render_frame(
     common: &mut CommonWindowState,
     framebuffer_px: (u32, u32),
     buffer_age: usize,
-) -> Result<(), GpuInitFailure> {
+) -> Result<(), GpuFallback> {
     // The canvas follows the mode the window shows.
     common.sync_renderer_clear_color();
     let Some(renderer) = common.renderer.as_mut() else {
-        return Err(GpuInitFailure::new("frame", "no renderer"));
+        return Err(GpuFallback::new(GpuStage::Frame, "no renderer"));
     };
     renderer.update();
-    let size = DeviceIntSize::new(
-        i32::try_from(framebuffer_px.0).unwrap_or(i32::MAX).max(1),
-        i32::try_from(framebuffer_px.1).unwrap_or(i32::MAX).max(1),
-    );
-    match renderer.render(size, buffer_age) {
+    match renderer.render(device_size(framebuffer_px), buffer_age) {
         Ok(_) => {
             common.display_list_initialized = true;
             Ok(())
         }
-        Err(errors) => Err(GpuInitFailure::new("frame", format!("{errors:?}"))),
+        Err(errors) => Err(GpuFallback::new(GpuStage::Frame, &format!("{errors:?}"))),
     }
 }
 
