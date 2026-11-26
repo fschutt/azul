@@ -363,3 +363,26 @@ fn the_sentences_of_a_store_error_say_what_happens_to_the_file() {
     assert_eq!(errors[0].why(), Some("a comma was expected (byte 7)"));
     assert_eq!(errors[1].args(), vec![("found", 3)]);
 }
+
+#[test]
+fn a_full_board_is_written_and_read_back_in_a_blink() {
+    // 200 cutouts with 40 x 30 pictures (a PNG of 4 KB each) and 199 arrows.
+    let mut items = Vec::new();
+    for i in 1..=200_u64 {
+        items.push(cutout(i, i as f32 * 220.0, "a label of some length", ImageSlot::Ready(picture(40, 30, (i % 250) as u8))));
+    }
+    for i in 1..200_u64 {
+        items.push(arrow(1_000 + i, End::item(i), End::item(i + 1), 0.2, ""));
+    }
+    let data = BoardData { items, view: View::default(), next_id: 2_000 };
+    let began = std::time::Instant::now();
+    let entries = write(&data, "/work/azul", 1);
+    let wrote = began.elapsed();
+    let began = std::time::Instant::now();
+    let loaded = read_entries(&entries, &LIMITS).expect("read");
+    let read_it = began.elapsed();
+    let bytes: usize = entries.iter().map(|e| e.bytes.len()).sum();
+    eprintln!("a board of {} items, {bytes} bytes: written in {wrote:?}, read in {read_it:?}", data.items.len());
+    assert_eq!(loaded.data.items.len(), 399);
+    assert!(wrote.as_millis() < 500 && read_it.as_millis() < 1_000, "{wrote:?} / {read_it:?}");
+}

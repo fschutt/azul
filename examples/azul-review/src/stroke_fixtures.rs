@@ -53,6 +53,7 @@ pub struct Fixture {
 impl Fixture {
     /// The x, y of every sample.
     #[must_use]
+    #[allow(dead_code)] // for the suites that take the fixtures as plain points
     pub fn xy(&self) -> Vec<(f32, f32)> {
         xy(&self.samples)
     }
@@ -60,6 +61,7 @@ impl Fixture {
 
 /// The x, y of every sample.
 #[must_use]
+#[allow(dead_code)] // for the suites that take the fixtures as plain points
 pub fn xy(samples: &[Sample]) -> Vec<(f32, f32)> {
     samples.iter().map(|s| (s.x, s.y)).collect()
 }
