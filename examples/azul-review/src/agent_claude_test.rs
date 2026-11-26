@@ -30,7 +30,7 @@ fn config() -> ClaudeConfig {
 }
 
 fn request(task: Task) -> Request {
-    Request::Review(ReviewRequest {
+    Request::Review(ReviewRequest { symbols: String::new(),
         task,
         conversation: 1,
         language: "en".to_string(),

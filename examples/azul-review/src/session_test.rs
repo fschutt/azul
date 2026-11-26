@@ -48,6 +48,7 @@ fn note(id: u64, page: usize, text: &str) -> Note {
         text: text.to_string(),
         language: "de-DE".to_string(),
         state: NoteState::Done,
+        talk: crate::conversation::Conversation::default(),
     }
 }
 
@@ -343,4 +344,129 @@ fn archive_timing() {
         let out = zip.to_bytes_with_level(level);
         println!("zip level {level}: {} KB in {:.2} ms", out.as_slice().len() / 1024, t.elapsed().as_secs_f64() * 1000.0);
     }
+}
+
+// ==== What the conversations keep ====
+
+#[test]
+fn the_conversation_of_a_note_travels_with_it() {
+    use crate::{
+        conversation::{Phase, Said, Turn, Who},
+        dictation::HeardWord,
+    };
+    let mut s = state();
+    let mut n = note(3, 0, "this loop is off by one");
+    n.talk.hear(Said {
+        text: "this loop is off by one".to_string(),
+        started_unix_ms: 1_700_000_000_123,
+        words: vec![HeardWord { text: "this".to_string(), start_ms: 40, end_ms: 310, probability: 0.75 }],
+    });
+    n.talk.turns.push(Turn { who: Who::Agent, text: "It is read \"twice\".\nSee line 4.".to_string(), at_unix_ms: 1_700_000_005_000 });
+    n.talk.turns.push(Turn { who: Who::Reviewer, text: "and the second?".to_string(), at_unix_ms: 1_700_000_009_000 });
+    n.talk.heard_as = Some("this loop is off by one".to_string());
+    n.talk.phase = Phase::Suggested;
+    n.talk.pending = 2;
+    n.talk.asked = 1;
+    s.notes.push(n.clone());
+    let (_, bytes) = archive(&s);
+    let back = load(&bytes).expect("it loads");
+    assert_eq!(back.notes.len(), 1);
+    let got = &back.notes[0].talk;
+    assert_eq!(got.phase, Phase::Suggested);
+    assert_eq!((got.pending, got.asked), (2, 1));
+    assert_eq!(got.turns, n.talk.turns, "the words, their speakers and their moments");
+    assert_eq!(got.heard_as.as_deref(), Some("this loop is off by one"));
+    assert_eq!(got.said.len(), 1);
+    assert_eq!(got.said[0].started_unix_ms, 1_700_000_000_123);
+    assert_eq!(got.said[0].words, n.talk.said[0].words);
+}
+
+#[test]
+fn a_note_nobody_talked_to_writes_no_conversation_keys() {
+    let mut s = state();
+    s.notes.push(note(1, 0, "just a note"));
+    let (_, bytes) = archive(&s);
+    let json = session_json(&bytes);
+    let first = json.get_key("notes").into_option().and_then(|n| n.get_index(0).into_option()).expect("one note");
+    for key in ["phase", "turns", "said", "heard_as", "problem", "asked", "pending"] {
+        assert!(first.get_key(key).into_option().is_none(), "{key} is not written for a draft nobody asked about");
+    }
+}
+
+#[test]
+fn an_agent_that_was_working_when_the_window_closed_comes_back_as_a_failure_to_ask_again() {
+    use crate::conversation::Phase;
+    let mut s = state();
+    let mut n = note(1, 0, "rename this");
+    n.talk.asking();
+    s.notes.push(n);
+    let (_, bytes) = archive(&s);
+    let back = load(&bytes).expect("it loads");
+    assert_eq!(back.notes[0].talk.phase, Phase::Failed);
+    assert!(back.notes[0].talk.problem.as_deref().is_some_and(|p| p.contains("closed")));
+}
+
+#[test]
+fn an_archive_from_before_conversations_loads_its_notes_as_drafts() {
+    use crate::conversation::Phase;
+    let old = r#"{"format":"azreview/1","root":"/w","file":"a.rs","strokes":[],"notes":[{"id":4,"page":0,"x":10.0,"y":20.0,"line":2,"language":"en","text":"hello"}],"findings":[],"clips":[]}"#;
+    let back = load(&zip_of(old)).expect("an old archive loads");
+    assert_eq!(back.notes.len(), 1);
+    assert_eq!(back.notes[0].talk.phase, Phase::Draft);
+    assert!(back.notes[0].talk.turns.is_empty());
+}
+
+#[test]
+fn a_conversation_in_an_archive_is_read_within_its_bounds() {
+    use crate::conversation::{MAX_SAID, MAX_TURNS};
+    // an archive somebody edited: far more turns and utterances than a conversation keeps
+    let turns: Vec<String> = (0..MAX_TURNS + 50).map(|i| format!(r#"{{"who":"agent","text":"t{i}","at":{i}}}"#)).collect();
+    let said: Vec<String> = (0..MAX_SAID + 50).map(|i| format!(r#"{{"text":"u{i}","started":{i}}}"#)).collect();
+    let json = format!(
+        r#"{{"format":"azreview/1","root":"/w","file":"a.rs","strokes":[],"notes":[{{"id":1,"page":0,"x":1.0,"y":2.0,"language":"en","text":"x","phase":"done","turns":[{}],"said":[{}]}}],"findings":[],"clips":[]}}"#,
+        turns.join(","),
+        said.join(",")
+    );
+    let back = load(&zip_of(&json)).expect("it loads");
+    let talk = &back.notes[0].talk;
+    assert_eq!(talk.turns.len(), MAX_TURNS);
+    assert_eq!(talk.turns[0].text, "t50", "the newest are kept");
+    assert_eq!(talk.said.len(), MAX_SAID);
+    assert_eq!(talk.said[0].text, "u50");
+}
+
+#[test]
+fn a_turn_or_a_phase_that_cannot_be_read_is_left_out_and_the_rest_kept() {
+    use crate::conversation::Phase;
+    let json = r#"{"format":"azreview/1","root":"/w","file":"a.rs","strokes":[],"notes":[{"id":1,"page":0,"x":1.0,"y":2.0,"language":"en","text":"x","phase":"sleeping","turns":[{"who":"robot","text":"a","at":1},{"who":"agent","text":"b","at":2},{"text":"no speaker"}]}],"findings":[],"clips":[]}"#;
+    let back = load(&zip_of(json)).expect("it loads");
+    let talk = &back.notes[0].talk;
+    assert_eq!(talk.phase, Phase::Draft, "an unknown phase is a draft");
+    assert_eq!(talk.turns.len(), 1);
+    assert_eq!(talk.turns[0].text, "b");
+}
+
+#[test]
+fn what_the_words_were_understood_as_travels_beside_each_utterance() {
+    use crate::dictation::Said;
+    let mut s = state();
+    let mut n = note(3, 0, "compute stale flag and then rename it");
+    n.talk.hear_understood(Said { text: "compute stale flag".to_string(), started_unix_ms: 10, words: Vec::new() }, Some("compute_stale_flag".to_string()));
+    n.talk.hear_understood(Said { text: "and then rename it".to_string(), started_unix_ms: 20, words: Vec::new() }, None);
+    s.notes.push(n);
+    let (_, bytes) = archive(&s);
+    let back = load(&bytes).expect("it loads");
+    let talk = &back.notes[0].talk;
+    assert_eq!(talk.said.len(), 2);
+    assert_eq!(talk.understood, vec![Some("compute_stale_flag".to_string()), None]);
+    assert_eq!(talk.said[0].text, "compute stale flag", "the words as heard are what is kept as they were");
+}
+
+#[test]
+fn an_archive_from_before_the_index_has_nothing_understood_and_keeps_its_utterances() {
+    let old = r#"{"format":"azreview/1","root":"/w","file":"a.rs","strokes":[],"notes":[{"id":1,"page":0,"x":1.0,"y":2.0,"language":"en","text":"x","said":[{"text":"hello there","started":5}]}],"findings":[],"clips":[]}"#;
+    let back = load(&zip_of(old)).expect("it loads");
+    let talk = &back.notes[0].talk;
+    assert_eq!(talk.said.len(), 1);
+    assert_eq!(talk.understood, vec![None]);
 }

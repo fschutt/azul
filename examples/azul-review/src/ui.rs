@@ -22,7 +22,7 @@ use azul_appkit::{
 use crate::{
     code, column, ids,
     ink::{self, InkCanvas, Layer},
-    model::{Note, Semantic},
+    model::Semantic,
     AppState,
 };
 
@@ -59,7 +59,7 @@ pub fn line_of(y: f32) -> usize {
     ((y - PAGE_PAD) / LINE_H).floor().max(0.0) as usize
 }
 
-fn page_h() -> f32 {
+pub(crate) fn page_h() -> f32 {
     code::LINES_PER_PAGE as f32 * LINE_H + 40.0
 }
 
@@ -304,6 +304,10 @@ fn tree_column(s: &AppState, data: &RefAny, solved: &crate::layout::Solved) -> D
         Some(line) => inner.with_child(line),
         None => inner,
     };
+    let inner = match symbols_line(s) {
+        Some(line) => inner.with_child(line),
+        None => inner,
+    };
     Dom::create_div()
         .with_id(ids::TREE)
         .with_css(
@@ -361,8 +365,8 @@ fn main_column(s: &AppState, data: &RefAny, solved: &crate::layout::Solved) -> D
         .with_child(bottom_bar(s, data))
 }
 
-/// The middle: the page strip at the left, the pages (what went wrong over them), the side column of dictated notes,
-/// the right bar and, beside it, the right panel.
+/// The middle: the page strip at the left, the pages (what went wrong over them; the conversations are in the margin of
+/// each page), the right bar and, beside it, the right panel.
 fn middle(s: &AppState, data: &RefAny, solved: &crate::layout::Solved) -> Dom {
     let mut pages = Dom::create_div().with_css(
         "position: relative; display: flex; flex-direction: column; flex-grow: 1; min-height: \
@@ -379,9 +383,6 @@ fn middle(s: &AppState, data: &RefAny, solved: &crate::layout::Solved) -> Dom {
         row.add_child(page_strip(s, data));
     }
     row.add_child(pages);
-    if s.voice.notes_open {
-        row.add_child(column::column(s, data));
-    }
     row.add_child(right_bar(data));
     if solved.right_w > 0.0 {
         row.add_child(right_panel(s, solved.right_w, data));
@@ -690,6 +691,18 @@ fn reviewed_line(s: &AppState) -> Option<Dom> {
     )
 }
 
+/// How far the symbol index of the workspace is, at the foot of the tree, while it is being built; nothing once it is.
+fn symbols_line(s: &AppState) -> Option<Dom> {
+    let progress = s.symbols_shown?;
+    let (key, args) = crate::symbols_window::status_of(&progress)?;
+    let args: Vec<(&str, Arg)> = args.into_iter().map(|(k, v)| (k, Arg::from(v))).collect();
+    Some(
+        Dom::create_p_with_text(t_args(key, &args).as_str())
+            .with_id(ids::SYMBOLS_STATUS)
+            .with_css("margin: 0px; padding: 0px 10px 6px 10px; font-size: 10px; line-height: 1.35; flex-shrink: 0; color: system:secondary-text;"),
+    )
+}
+
 /// The primary modifier of a menu item's key: Command on a Mac, Control elsewhere.
 const fn cmd_key() -> VirtualKeyCode {
     if cfg!(target_os = "macos") {
@@ -863,11 +876,15 @@ fn finder_row(
     // when all are done; a file nobody talked about has no mark.
     if let Some(state) = mark {
         let id = match state {
-            crate::chips::State::Working => ids::FILE_MARK_WORKING,
-            crate::chips::State::Suggested => ids::FILE_MARK_SUGGESTED,
-            crate::chips::State::Done => ids::FILE_MARK_DONE,
+            crate::chips::State::Working => Some(ids::FILE_MARK_WORKING),
+            crate::chips::State::Suggested => Some(ids::FILE_MARK_SUGGESTED),
+            crate::chips::State::Done => Some(ids::FILE_MARK_DONE),
+            // a draft and a failure give a file no mark (`AppState::file_mark` never says them)
+            crate::chips::State::Draft | crate::chips::State::Failed => None,
         };
-        row.add_child(state_mark(state, 13).with_id(id).with_accessibility_name(state_word(state)));
+        if let Some(id) = id {
+            row.add_child(state_mark_on(state, 13, selected).with_id(id).with_accessibility_name(state_word(state)));
+        }
     }
     let (id, on_click) = match action {
         RowAction::Dir(id) => (id, crate::on_toggle_dir as CallbackType),
@@ -1074,8 +1091,20 @@ fn bottom_bar(s: &AppState, data: &RefAny) -> Dom {
     if chips.is_empty() {
         bar.add_child(Dom::create_span_with_text(label("azreview-agents-none")));
     }
-    for (i, chip) in chips.into_iter().enumerate() {
-        bar.add_child(chip_key(i, chip, data));
+    // What works, what waits, what failed and what is only a draft first, the finished ones last (the newest, the older
+    // folded into a count): fifty conversations are a short bar, and what needs the reviewer is never the one folded.
+    let max_done = if s.bar_all { usize::MAX } else { crate::chips::BAR_DONE };
+    for item in crate::chips::bar_items(&chips, max_done) {
+        match item {
+            crate::chips::BarItem::Chip(chip) => {
+                let at = chips.iter().position(|c| c.id == chip.id).unwrap_or(0);
+                bar.add_child(chip_key(at, chip, data));
+            }
+            crate::chips::BarItem::MoreDone(n) => bar.add_child(more_done_key(n, data)),
+        }
+    }
+    if s.bar_all && chips.iter().filter(|c| c.state == crate::chips::State::Done).count() > crate::chips::BAR_DONE {
+        bar.add_child(fewer_done_key(data));
     }
     bar
 }
@@ -1086,23 +1115,36 @@ const fn state_colour(state: crate::chips::State) -> &'static str {
         crate::chips::State::Working => "#5aafff",
         crate::chips::State::Suggested => "#e5a800",
         crate::chips::State::Done => "#2fa84f",
+        crate::chips::State::Failed => "#d62d20",
+        crate::chips::State::Draft => "#9a9a9a",
     }
 }
 
 /// What a state is called for the screen reader and the tooltip.
-fn state_word(state: crate::chips::State) -> AzString {
+pub(crate) fn state_word(state: crate::chips::State) -> AzString {
     label(match state {
         crate::chips::State::Working => "azreview-chip-working",
         crate::chips::State::Suggested => "azreview-chip-suggested",
         crate::chips::State::Done => "azreview-chip-done",
+        crate::chips::State::Failed => "azreview-chip-failed",
+        crate::chips::State::Draft => "azreview-chip-draft",
     })
 }
 
 /// The mark of a state: the macOS spinner while an agent works, a dot in the colour of the state otherwise.
-fn state_mark(state: crate::chips::State, size: isize) -> Dom {
+pub(crate) fn state_mark(state: crate::chips::State, size: isize) -> Dom {
+    state_mark_on(state, size, false)
+}
+
+/// [`state_mark`] on a row in the colour of the selection (`on_accent`): the blue spinner would not show on it, so it is white.
+pub(crate) fn state_mark_on(state: crate::chips::State, size: isize, on_accent: bool) -> Dom {
     match state {
         crate::chips::State::Working => Spinner::with_size(size)
-            .with_color(ColorU { r: 90, g: 175, b: 255, a: 255 })
+            .with_color(if on_accent {
+                ColorU { r: 255, g: 255, b: 255, a: 255 }
+            } else {
+                ColorU { r: 90, g: 175, b: 255, a: 255 }
+            })
             .with_indicator(SpinnerStyle::Spokes)
             .dom(),
         _ => Dom::create_div().with_css(
@@ -1114,6 +1156,39 @@ fn state_mark(state: crate::chips::State, size: isize) -> Dom {
             .as_str(),
         ),
     }
+}
+
+/// The key that stands for the finished conversations that are folded away: "N done"; it shows them all.
+fn more_done_key(n: usize, data: &RefAny) -> Dom {
+    let name = AzString::from(t_args("azreview-chip-more-done", &[("n", Arg::from(n))]).as_str());
+    with_tip(
+        key(
+            "padding: 0px 8px; gap: 6px; background: transparent; border: 1px dashed system:separator; color: system:secondary-text;",
+            name.clone(),
+            data.clone(),
+            crate::on_bar_more,
+        ),
+        &name,
+    )
+    .with_id(ids::BAR_MORE_DONE)
+    .with_child(state_mark(crate::chips::State::Done, 12))
+    .with_child(Dom::create_span_with_text(format!("+{n}").as_str()))
+}
+
+/// The key that folds the finished conversations again.
+fn fewer_done_key(data: &RefAny) -> Dom {
+    let name = label("azreview-chip-fewer-done");
+    with_tip(
+        key(
+            "padding: 0px 8px; background: transparent; border: 1px dashed system:separator; color: system:secondary-text;",
+            name.clone(),
+            data.clone(),
+            crate::on_bar_more,
+        ),
+        &name,
+    )
+    .with_id(ids::BAR_FEWER_DONE)
+    .with_child(Dom::create_icon("unfold_less").with_css("font-size: 14px;"))
 }
 
 /// A conversation's chip: its mark and the first words, a key named by the words and the state; `i` is its place among
@@ -1377,9 +1452,10 @@ extern "C" fn sheets_virtual_view(
 
         let mut row = Dom::create_div()
             .with_css("display: flex; flex-direction: row; align-items: flex-start;");
-        let listening = s.voice.ready_note();
         for page in first..first + count {
-            row.add_child(page_sheet(&cb_app, file, page, &s.notes, listening, &s.hidden_ranges(page)));
+            // how far across this page the window shows: the open conversation keeps inside it
+            let visible_right = info.scroll_offset.x.max(0.0) + viewport_w - page as f32 * stride;
+            row.add_child(page_sheet(&cb_app, file, page, &s, &s.hidden_ranges(page), visible_right));
         }
         (row, first, count, total, leftmost)
     };
@@ -1405,10 +1481,11 @@ fn page_sheet(
     data: &RefAny,
     file: &code::SourceFile,
     page: usize,
-    notes: &[Note],
-    listening: Option<u64>,
+    s: &AppState,
     hidden: &[Vec<(usize, usize)>],
+    visible_right: f32,
 ) -> Dom {
+    let (notes, listening) = (&s.notes[..], s.voice.ready_note());
     let (first_line, lines) = file.page(page);
     let mut sheet = Dom::create_div().with_css(
         format!(
@@ -1445,6 +1522,14 @@ fn page_sheet(
         sheet.add_child(marker);
     }
     sheet.add_child(ink_layer(data, page, Layer::Pen));
+    // The conversations of the page: a chip for each in the margin, and the open one over it (above the pen's layer, which
+    // they take no stroke and no rest from).
+    if let Some(margin) = crate::conv_ui::margin(s, data, page) {
+        sheet.add_child(margin);
+    }
+    if let Some(open) = crate::conv_ui::popover(s, data, page, visible_right) {
+        sheet.add_child(open);
+    }
     sheet
 }
 
