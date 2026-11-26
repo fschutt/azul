@@ -13158,6 +13158,17 @@ where
                     // the one before. A line that two boxes both draw, in one place and one
                     // colour, is one line.
                     let mut drawn: Vec<(LineKind, f32, f32, ColorU)> = Vec::new();
+                    // The face the run is set in, asked only for a line that reads the metrics
+                    // of the face (`from-font`).
+                    let reads_face = glyph_run.text_decoration.lines().iter().any(|line| {
+                        line.paint.thickness == LineThickness::FromFont
+                            || line.place.base == UnderlineBase::FromFont
+                    });
+                    let face = if reads_face {
+                        self.ctx.font_manager.get_font_by_hash(glyph_run.font_hash)
+                    } else {
+                        None
+                    };
                     for line in glyph_run
                         .text_decoration
                         .lines()
@@ -13175,10 +13186,20 @@ where
                             }
                         };
                         let font_thickness = (size * APPROX_UNDERLINE_THICKNESS_RATIO).max(1.0);
+                        // What the face names for this kind of line: `(position, thickness)` as
+                        // fractions of the em, from the face of the run in the size of the box
+                        // that sets the line.
+                        let face_metrics = face.as_ref().and_then(|face| match line.kind {
+                            LineKind::Strikethrough => face.strikeout_metrics(),
+                            LineKind::Underline | LineKind::Overline => face.underline_metrics(),
+                        });
                         let thickness = match line.paint.thickness {
                             LineThickness::Px(px) => px.get().max(0.0),
-                            // `from-font` names the thickness of the face; none is read yet
-                            LineThickness::Auto | LineThickness::FromFont => font_thickness,
+                            // `from-font` is the thickness the face names, `auto` where it names
+                            // none
+                            LineThickness::FromFont => face_metrics
+                                .map_or(font_thickness, |(_, thickness)| (thickness * size).max(1.0)),
+                            LineThickness::Auto => font_thickness,
                         };
                         let y = match line.kind {
                             // The top edge of the line is where the font puts it - or, `under`,
@@ -13187,10 +13208,13 @@ where
                             LineKind::Underline => {
                                 let initial = match line.place.base {
                                     UnderlineBase::Under => size * APPROX_UNDER_POSITION_RATIO,
-                                    // `from-font` names the place of the face; none is read yet
-                                    UnderlineBase::Auto | UnderlineBase::FromFont => {
-                                        size * APPROX_UNDERLINE_OFFSET_RATIO
-                                    }
+                                    // `from-font` is the place the face names, `auto` where it
+                                    // names none
+                                    UnderlineBase::FromFont => face_metrics.map_or(
+                                        size * APPROX_UNDERLINE_OFFSET_RATIO,
+                                        |(position, _)| position * size,
+                                    ),
+                                    UnderlineBase::Auto => size * APPROX_UNDERLINE_OFFSET_RATIO,
                                 };
                                 let offset = match line.place.offset {
                                     LineOffset::Px(px) => px.get(),

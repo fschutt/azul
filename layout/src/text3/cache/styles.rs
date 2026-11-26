@@ -267,8 +267,9 @@ pub enum LineThickness {
     /// `auto`: the thickness the font size suggests.
     #[default]
     Auto,
-    /// `from-font`: the thickness the font names. The faces' own metrics are not read yet, so it
-    /// is `auto`, as the property allows for a face that names none.
+    /// `from-font`: the thickness the face of the run names (the `post` table's for an underline
+    /// and an overline, the OS/2 table's strike-through size for a line-through); `auto` for a
+    /// face that names none, as the property allows.
     FromFont,
     /// A length in px: what `text-decoration-thickness` said, an `em` or a percentage resolved
     /// against the font size of the box that sets the line, a zoom applied, capped.
@@ -299,8 +300,8 @@ pub enum UnderlineBase {
     /// `auto`: the place the font size suggests.
     #[default]
     Auto,
-    /// `from-font`: the place the font names. The faces' own metrics are not read yet, so it is
-    /// `auto`, as the property allows for a face that names none.
+    /// `from-font`: the place the face of the run names (the `post` table's `underlinePosition`:
+    /// the top of the underline); `auto` for a face that names none, as the property allows.
     FromFont,
     /// `under`: below the descenders, where the em box ends.
     Under,

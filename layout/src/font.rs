@@ -927,6 +927,12 @@ pub mod parsed {
         /// `sxHeight` and `sCapHeight` (OS/2 version 2 and later).
         pub sx_height: Option<i16>,
         pub s_cap_height: Option<i16>,
+        // -- POST table fields (0 if table not present or it names none) --
+        /// `post` `underlinePosition`: where the face puts the top of an underline, in font units
+        /// (negative below the baseline).
+        pub underline_position: i16,
+        /// `post` `underlineThickness`: how thick the face draws an underline, in font units.
+        pub underline_thickness: i16,
     }
 
     impl Default for PdfFontMetrics {
@@ -966,6 +972,8 @@ pub mod parsed {
                 us_win_descent: None,
                 sx_height: None,
                 s_cap_height: None,
+                underline_position: 0,
+                underline_thickness: 0,
             }
         }
 
@@ -2397,6 +2405,17 @@ pub mod parsed {
                     let scope = ReadScope::new(&data);
                     scope.read_dep::<Os2>(data.len()).ok()
                 });
+            // The face's own underline: the `post` table's (0 and 0 where there is none).
+            let (underline_position, underline_thickness) = provider
+                .as_ref()
+                .and_then(|p| p.table_data(tag::POST).ok())
+                .and_then(|post_data| {
+                    let data = post_data?;
+                    let scope = ReadScope::new(&data);
+                    let post = scope.read::<allsorts::post::PostTable<'_>>().ok()?;
+                    Some((post.header.underline_position, post.header.underline_thickness))
+                })
+                .unwrap_or((0, 0));
 
             // Base metrics from HEAD and HHEA (always present)
             let base = PdfFontMetrics {
@@ -2412,6 +2431,8 @@ pub mod parsed {
                 advance_width_max: hhea_table.advance_width_max,
                 caret_slope_rise: hhea_table.caret_slope_rise,
                 caret_slope_run: hhea_table.caret_slope_run,
+                underline_position,
+                underline_thickness,
                 ..PdfFontMetrics::zero()
             };
 
