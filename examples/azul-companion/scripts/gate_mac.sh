@@ -22,6 +22,19 @@ export DYLD_LIBRARY_PATH="$PWD/target/azul-lib"
 step "build the programs" cargo build -r -p AzCompanion --bin AzCompanion --bin companion_sim
 cp target/release/AzCompanion target/release/companion_sim target/azul-lib/ 2>/dev/null || true
 step "check the app" cargo check -p AzCompanion --all-targets
+# clippy over the two crates: only what it says about their own files counts (the engine's crates are the CI clippy job's business)
+clippy_own() {
+  local out code
+  out="$(mktemp)"
+  cargo clippy "$@" > "$out" 2>&1
+  code=$?
+  grep -E -B3 -A10 -e '--> examples/azul-(companion|review-link)/' "$out" | head -300
+  if grep -q -E -e '--> examples/azul-(companion|review-link)/' "$out"; then return 1; fi
+  if [ "$code" -ne 0 ]; then tail -40 "$out"; fi
+  return "$code"
+}
+step "clippy (app)" clippy_own -p AzCompanion --all-targets
+step "clippy (link crate with the engine adapter)" clippy_own -p azul-review-link --all-targets --features link-dynamic
 step "app tests" cargo test -p AzCompanion --lib
 step "link tests" cargo test -p azul-review-link --lib
 step "transport tests (real iroh engine)" env AZ_REQUIRE_IROH_ENGINE=1 cargo test -p azul-review-link --lib --features link-dynamic

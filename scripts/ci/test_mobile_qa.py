@@ -372,6 +372,45 @@ class StartTimelineTests(unittest.TestCase):
         self.assertEqual(q.summarize_timelines([]), {})
 
 
+class RunFolderTests(unittest.TestCase):
+    def test_the_run_folder_is_absolute_even_when_it_was_given_relative(self):
+        # `simctl launch --stdout=<path>` is opened by the Simulator's own launchd, whose root is not the runner's folder
+        import os
+        import tempfile
+        old = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp:
+            os.chdir(tmp)
+            try:
+                run = q.Run("demo-out/qa", "ios", {})
+                self.assertTrue(run.out.is_absolute() and run.logs_dir.is_absolute() and run.shots_dir.is_absolute())
+                self.assertTrue(str(run.logs_dir).endswith("demo-out/qa/logs"))
+            finally:
+                os.chdir(old)
+
+
+class MarkerTests(unittest.TestCase):
+    LOG = """\
+11-26 08:10:01.100  3000  3020 I RustStdoutStderr: AZPAINT_STROKES 0
+11-26 08:10:05.200  3000  3020 I RustStdoutStderr: [      900000us][Info][Rendering] [Android] present full - 2400 of 2400 rows
+11-26 08:10:06.300  3000  3020 I RustStdoutStderr: AZPAINT_STROKES 1
+11-26 08:10:07.400  3000  3020 I RustStdoutStderr: AZMAPS_VIEW 48.5216 9.0576 14
+11-26 08:10:08.500  3000  3020 I RustStdoutStderr: AZMAPS_SIDEBAR open
+11-26 08:10:09.600  3000  3020 I RustStdoutStderr: AZWRITER_READY
+11-26 08:10:10.700  3000  3020 I RustStdoutStderr: AZPAINT_STROKES 0
+"""
+
+    def test_the_values_come_in_the_order_the_app_printed_them(self):
+        self.assertEqual(q.marker_values(self.LOG, "AZPAINT_STROKES"), ["0", "1", "0"])
+        self.assertEqual(q.marker_values(self.LOG, "AZMAPS_VIEW"), ["48.5216 9.0576 14"])
+        self.assertEqual(q.marker_values(self.LOG, "AZMAPS_SIDEBAR"), ["open"])
+        self.assertEqual(q.marker_values(self.LOG, "AZWRITER_READY"), [""])         # a marker without a value
+        self.assertEqual(q.marker_values(self.LOG, "AZPAINT_STROKE"), [])           # a longer name is another marker
+
+    def test_since_keeps_only_the_lines_of_this_step(self):
+        self.assertEqual(q.marker_values(self.LOG, "AZPAINT_STROKES", since="11-26 08:10:06"), ["1", "0"])
+        self.assertEqual(q.marker_values(self.LOG, "AZPAINT_STROKES", since="11-26 08:10:10"), ["0"])
+
+
 class ImeAndTableTests(unittest.TestCase):
     def test_the_ime_inset_says_whether_the_keyboard_is_up(self):
         shown = "      InsetsSource type=ime frame=[0,1364][1080,2400] visible=true flags= \n"

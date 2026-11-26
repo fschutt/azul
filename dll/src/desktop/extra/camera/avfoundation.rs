@@ -250,21 +250,44 @@ unsafe fn apply_fps(device: &AVCaptureDevice, fps: u32) {
     }
 }
 
-/// Read a possibly-NULL `AVCaptureDeviceType` extern static. Device-type
-/// constants from newer SDKs (`External` is macOS 14+, `ContinuityCamera`
-/// macOS 13+) resolve to NULL at runtime on older systems, so every use goes
-/// through this null check instead of trusting the `&'static` type.
-unsafe fn devtype_opt(
-    s: *const &'static AVCaptureDeviceType,
-) -> Option<&'static AVCaptureDeviceType> { unsafe {
-    let raw: *const *const AVCaptureDeviceType = s.cast();
-    let v = *raw;
-    if v.is_null() {
+/// An `AVCaptureDeviceType` constant looked up BY NAME at run time; `None` when this system does
+/// not have it.
+///
+/// The constants of newer SDKs (`External` is macOS 14 / iOS 17, `ExternalUnknown` its older
+/// synonym, `ContinuityCamera` macOS 13 / iOS 16.0+) were named as extern statics
+/// (`addr_of!(AVCaptureDeviceTypeExternal)`) with a null check on the value. A Rust extern static
+/// is a STRONG import - the binary records the symbol as required with no weak flag - so on a
+/// system that lacks it dyld refuses to LAUNCH the whole app ("Symbol not found") before a single
+/// line runs: the check came too late to matter. `dlsym(RTLD_DEFAULT, ..)` asks the loaded images
+/// instead and the binary imports nothing newer than its deployment target. The address it
+/// returns is the address of the exported `NSString *` variable.
+unsafe fn devtype_named(name: &core::ffi::CStr) -> Option<&'static AVCaptureDeviceType> {
+    extern "C" {
+        fn dlsym(handle: *mut c_void, symbol: *const core::ffi::c_char) -> *mut c_void;
+    }
+    /// `RTLD_DEFAULT` on Darwin: every image loaded into the process.
+    const RTLD_DEFAULT: *mut c_void = -2_isize as *mut c_void;
+
+    let address = unsafe { dlsym(RTLD_DEFAULT, name.as_ptr()) };
+    if address.is_null() {
+        return None;
+    }
+    let value = unsafe { *(address as *const *const AVCaptureDeviceType) };
+    if value.is_null() {
         None
     } else {
-        Some(&*v)
+        Some(unsafe { &*value })
     }
-}}
+}
+
+/// The device types this system knows, by their exported names, in the order they are asked for.
+const DEVICE_TYPE_NAMES: [&core::ffi::CStr; 4] = [
+    c"AVCaptureDeviceTypeBuiltInWideAngleCamera",
+    c"AVCaptureDeviceTypeExternal",
+    // The pre-macOS-14 synonym of `External`.
+    c"AVCaptureDeviceTypeExternalUnknown",
+    c"AVCaptureDeviceTypeContinuityCamera",
+];
 
 /// Pick the capture device for `index` via `AVCaptureDeviceDiscoverySession`
 /// (built-in wide angle + external + Continuity cameras — whichever device
@@ -272,23 +295,9 @@ unsafe fn devtype_opt(
 /// device 0 → `defaultDeviceWithMediaType`. Logs the enumerated device names
 /// (localizedName) once per process.
 unsafe fn select_device(media: &AVMediaType, index: u32) -> Option<Retained<AVCaptureDevice>> { unsafe {
-    #[allow(deprecated)] // pre-macOS-14 synonym for AVCaptureDeviceTypeExternal
-    use objc2_av_foundation::AVCaptureDeviceTypeExternalUnknown;
-    use objc2_av_foundation::{
-        AVCaptureDeviceTypeBuiltInWideAngleCamera, AVCaptureDeviceTypeContinuityCamera,
-        AVCaptureDeviceTypeExternal,
-    };
-
-    #[allow(deprecated)]
-    let external_unknown = core::ptr::addr_of!(AVCaptureDeviceTypeExternalUnknown);
     let mut types: Vec<&'static AVCaptureDeviceType> = Vec::new();
-    for ptr in [
-        core::ptr::addr_of!(AVCaptureDeviceTypeBuiltInWideAngleCamera),
-        core::ptr::addr_of!(AVCaptureDeviceTypeExternal),
-        external_unknown,
-        core::ptr::addr_of!(AVCaptureDeviceTypeContinuityCamera),
-    ] {
-        if let Some(t) = devtype_opt(ptr) {
+    for name in DEVICE_TYPE_NAMES {
+        if let Some(t) = devtype_named(name) {
             // Dedup External vs ExternalUnknown (same string on macOS 14+
             // would double-count; the discovery session rejects dupes).
             if !types.iter().any(|e| *e == t) {

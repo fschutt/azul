@@ -265,32 +265,39 @@ pub const TICK_MS: u64 = 33;
 /// (`chrome::phone` asks for it; every shell reports a mount). The phones' shells (Android, iOS) never call the creation callback, so
 /// an app that waited for it alone would never start its timer: no tick, no connection, a demo that does not walk.
 pub extern "C" fn on_window_ready(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    if !data.downcast_mut::<Root>().is_some_and(|mut root| root.first_window_ready()) {
-        return Update::DoNothing;
-    }
-    let timer = Timer::create(data.clone(), tick, info.get_system_time_fn())
-        .with_interval(Duration::System(SystemTimeDiff::from_millis(TICK_MS)));
-    info.add_timer(TimerId::unique(), timer);
-    // the phone's own app connects now, not when the library loaded: the window (on Android: the activity) exists
-    let Some(mut root) = data.downcast_mut::<Root>() else {
+    let Some(setup) = data.downcast_mut::<Root>().map(|mut root| root.window_setup()) else {
         return Update::DoNothing;
     };
-    if !root.connect_later {
+    if setup.timer {
+        let timer = Timer::create(data.clone(), tick, info.get_system_time_fn())
+            .with_interval(Duration::System(SystemTimeDiff::from_millis(TICK_MS)));
+        info.add_timer(TimerId::unique(), timer);
+    }
+    if !setup.connect {
         return Update::DoNothing;
     }
+    // the phone's own app connects now, not when the library loaded: the window (on Android: the activity) exists
     let net = crate::net::connect();
     for note in &net.notes {
         info.log(AppLogLevel::Info, AzString::from(format!("AzCompanion: {note}").as_str()));
     }
+    let Some(mut root) = data.downcast_mut::<Root>() else {
+        return Update::DoNothing;
+    };
     root.connect_now(net.api);
     Update::RefreshDom
 }
 
-/// The window of the phone's own app: the title and the setup on creation; the size is the screen's.
+/// The window of the phone's own app: the title and the setup on creation; the size is the screen's. The root fills the whole surface
+/// (`extend_into_safe_area`): the screens pad themselves by the system's insets (`chrome::phone`), and left to the engine's default, which
+/// insets the root by the same amounts, the insets were applied twice: the page started one top inset too low, was one pair of insets taller
+/// than the viewport (the emulator, 2026-11-26: a scroll bar on the pairing page, its last line under the navigation bar, a press on the key
+/// near the bottom scrolled the page instead of tapping).
 #[must_use]
 pub fn phone_window_options(title: &str) -> WindowCreateOptions {
     let mut window = WindowCreateOptions::create(layout);
     window.window_state.title = AzString::from(title);
+    window.window_state.flags.extend_into_safe_area = true;
     window.create_callback = Some(Callback::create(on_window_ready)).into();
     window
 }
