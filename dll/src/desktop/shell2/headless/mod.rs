@@ -5101,6 +5101,62 @@ mod tests {
         );
     }
 
+    /// The function the phone shells call (`common::create_callback::invoke_create_callback`) does what the
+    /// headless method does: the callback runs with the APP's data and what it asked for (a timer) is applied;
+    /// a window with no callback is left alone. The phone shells dropped the callback altogether.
+    #[test]
+    fn the_shared_create_callback_function_runs_the_callback_and_applies_its_changes() {
+        use azul_core::icon::{IconProviderHandle, SharedIconProvider};
+        let state = Arc::new(RefCell::new(RefAny::new(CreateState { fired: 0 })));
+
+        let fc_cache = Arc::new(FcFontCache::default());
+        let icon_provider = SharedIconProvider::from_handle(IconProviderHandle::default());
+        let mut opts = WindowCreateOptions::default();
+        opts.window_state.layout_callback = LayoutCallback {
+            cb: harness_layout,
+            ctx: OptionRefAny::None,
+        };
+        opts.window_state.size.dimensions = LogicalSize::new(400.0, 300.0);
+        let mut window = HeadlessWindow::new(
+            opts,
+            state.clone(),
+            event::SharedUndoManager::new(),
+            AppConfig::default(),
+            icon_provider,
+            fc_cache,
+            None,
+        )
+        .unwrap();
+        inject_harness_font(&window);
+        assert!(!window.has_active_timers(), "no timer before the callback ran");
+
+        let callback =
+            azul_layout::callbacks::OptionCallback::Some(azul_layout::callbacks::Callback {
+                cb: create_cb_installs_timer,
+                ctx: OptionRefAny::None,
+            });
+        crate::desktop::shell2::common::create_callback::invoke_create_callback(&mut window, callback);
+        assert_eq!(
+            state.borrow_mut().downcast_ref::<CreateState>().unwrap().fired,
+            1,
+            "the callback runs with the APP's data"
+        );
+        assert!(
+            window.has_active_timers(),
+            "the timer the callback added must land in the window (the AddTimer change is applied)"
+        );
+
+        crate::desktop::shell2::common::create_callback::invoke_create_callback(
+            &mut window,
+            azul_layout::callbacks::OptionCallback::None,
+        );
+        assert_eq!(
+            state.borrow_mut().downcast_ref::<CreateState>().unwrap().fired,
+            1,
+            "no callback: nothing runs"
+        );
+    }
+
     #[test]
     fn damage_noop_relayout_is_clean() {
         let state = Arc::new(RefCell::new(RefAny::new(UiState {

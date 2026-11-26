@@ -288,11 +288,16 @@ pub extern "C" fn on_window_ready(mut data: RefAny, mut info: CallbackInfo) -> U
     Update::RefreshDom
 }
 
-/// The window of the phone's own app: the title and the setup on creation; the size is the screen's.
+/// The window of the phone's own app: the title and the setup on creation; the size is the screen's. The root fills the whole surface
+/// (`extend_into_safe_area`): the screens pad themselves by the system's insets (`chrome::phone`), and left to the engine's default, which
+/// insets the root by the same amounts, the insets were applied twice: the page started one top inset too low, was one pair of insets taller
+/// than the viewport (the emulator, 2026-11-26: a scroll bar on the pairing page, its last line under the navigation bar, a press on the key
+/// near the bottom scrolled the page instead of tapping).
 #[must_use]
 pub fn phone_window_options(title: &str) -> WindowCreateOptions {
     let mut window = WindowCreateOptions::create(layout);
     window.window_state.title = AzString::from(title);
+    window.window_state.flags.extend_into_safe_area = true;
     window.create_callback = Some(Callback::create(on_window_ready)).into();
     window
 }

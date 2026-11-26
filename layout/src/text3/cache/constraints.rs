@@ -245,7 +245,6 @@ pub(crate) struct CursorBoundsError {
 /// - `text_indent`: \u2705 First line indentation
 /// - `text_justify`: \u2705 Justification algorithm (auto, inter-word, inter-character)
 /// - `hyphenation`: \u2705 Hyphens property (none / manual / auto)
-/// - `hanging_punctuation`: \u2705 Hanging punctuation at line edges
 ///
 /// ## CSS Text Level 4
 /// - `text_wrap`: \u2705 balance, pretty, stable
@@ -335,7 +334,6 @@ pub struct UnifiedConstraints {
     pub text_wrap: TextWrap,
     pub columns: u32,
     pub column_gap: f32,
-    pub hanging_punctuation: bool,
     pub overflow_wrap: OverflowWrap,
     pub text_align_last: TextAlign,
     // §5.2 word-break property on constraints
@@ -443,7 +441,6 @@ impl Default for UnifiedConstraints {
             columns: 1,
             column_gap: 0.0,
             column_flow: None,
-            hanging_punctuation: false,
             text_indent: 0.0,
             text_indent_each_line: false,
             text_indent_hanging: false,
@@ -515,7 +512,6 @@ impl UnifiedConstraints {
             text_wrap,
             columns,
             column_gap,
-            hanging_punctuation,
             overflow_wrap,
             text_align_last,
             word_break,
@@ -553,7 +549,6 @@ impl UnifiedConstraints {
         columns.hash(state);
         (column_gap.round() as isize).hash(state);
         column_flow.hash(state);
-        hanging_punctuation.hash(state);
         overflow_wrap.hash(state);
         text_align_last.hash(state);
         word_break.hash(state);
@@ -596,7 +591,6 @@ impl PartialEq for UnifiedConstraints {
             text_wrap,
             columns,
             column_gap,
-            hanging_punctuation,
             overflow_wrap,
             text_align_last,
             word_break,
@@ -644,7 +638,6 @@ impl PartialEq for UnifiedConstraints {
             && *columns == other.columns
             && round_eq(*column_gap, other.column_gap)
             && *column_flow == other.column_flow
-            && *hanging_punctuation == other.hanging_punctuation
             && *overflow_wrap == other.overflow_wrap
             && *text_align_last == other.text_align_last
             && *word_break == other.word_break

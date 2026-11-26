@@ -325,6 +325,19 @@ impl ShellSettings {
         cfg!(debug_assertions) || self.validate
     }
 
+    /// Nobody is at the screen to answer a dialog: a script drives the run (`AZ_E2E`), or the
+    /// backend is the headless one (`AZ_BACKEND=headless`: no window exists, a harness talks to the
+    /// app through the debug server). Nothing may wait on a dialog then - the fatal-panic modal
+    /// among them, which a headless run showed (osascript) and waited on for good, so a panic in
+    /// the layout pass froze the app instead of ending it with its message.
+    #[must_use]
+    pub fn unattended(&self) -> bool {
+        self.e2e_run
+            || crate::desktop::shell2::common::compositor::AzBackend::headless_selected_by(
+                self.backend.as_deref(),
+            )
+    }
+
     /// The knobs that are set in the environment but that this build cannot honour (their cargo
     /// feature is compiled out): the start says so, because a knob that does nothing in silence
     /// looks exactly like a feature that ran and found nothing to do.

@@ -1492,6 +1492,44 @@ pub(super) const fn is_hanging_punctuation_char(c: char) -> bool {
     )
 }
 
+/// Returns true if `c` is an opening bracket or quote that `hanging-punctuation: first` hangs
+/// at the start of the first line (CSS Text 3 §8.2: the Unicode categories Ps and Pi, and the
+/// ASCII quotation mark and apostrophe, which are both an opening and a closing quote): the
+/// brackets and quotes of Latin, CJK and fullwidth text.
+pub(super) const fn is_opening_mark_char(c: char) -> bool {
+    matches!(
+        c,
+        '(' | '[' | '{' | '"' | '\'' |
+        '\u{00AB}' | // « LEFT-POINTING DOUBLE ANGLE QUOTATION MARK
+        '\u{2018}' | '\u{201A}' | '\u{201B}' | // single quotes: left, low-9, high-reversed-9
+        '\u{201C}' | '\u{201E}' | '\u{201F}' | // double quotes: left, low-9, high-reversed-9
+        '\u{2039}' | // ‹
+        '\u{2045}' | '\u{207D}' | '\u{208D}' | // square bracket with quill, super- and subscript (
+        '\u{2308}' | '\u{230A}' | '\u{2329}' | // ceiling, floor, angle bracket
+        '\u{3008}' | '\u{300A}' | '\u{300C}' | '\u{300E}' | '\u{3010}' | '\u{3014}' |
+        '\u{3016}' | '\u{3018}' | '\u{301A}' | '\u{301D}' | // CJK brackets
+        '\u{FF08}' | '\u{FF3B}' | '\u{FF5B}' | '\u{FF5F}' | '\u{FF62}' // fullwidth and halfwidth
+    )
+}
+
+/// Returns true if `c` is a closing bracket or quote that `hanging-punctuation: last` hangs at
+/// the end of the last line (the Unicode categories Pe and Pf, and the ASCII quotation mark and
+/// apostrophe).
+pub(super) const fn is_closing_mark_char(c: char) -> bool {
+    matches!(
+        c,
+        ')' | ']' | '}' | '"' | '\'' |
+        '\u{00BB}' | // » RIGHT-POINTING DOUBLE ANGLE QUOTATION MARK
+        '\u{2019}' | '\u{201D}' | // right single and double quotation marks
+        '\u{203A}' | // ›
+        '\u{2046}' | '\u{207E}' | '\u{208E}' | // square bracket with quill, super- and subscript )
+        '\u{2309}' | '\u{230B}' | '\u{232A}' | // ceiling, floor, angle bracket
+        '\u{3009}' | '\u{300B}' | '\u{300D}' | '\u{300F}' | '\u{3011}' | '\u{3015}' |
+        '\u{3017}' | '\u{3019}' | '\u{301B}' | '\u{301E}' | '\u{301F}' | // CJK brackets
+        '\u{FF09}' | '\u{FF3D}' | '\u{FF5D}' | '\u{FF60}' | '\u{FF63}' // fullwidth and halfwidth
+    )
+}
+
 /// Helper to check if a cluster contains only hanging punctuation.
 // +spec:box-model:8bbcd1 - non-zero inline-axis borders/padding between hangable glyph and line
 // edge prevent hanging

@@ -1018,7 +1018,7 @@ impl AppInternal {
         #[cfg(feature = "logging")]
         {
             if app_config.enable_logging_on_panic {
-                crate::desktop::logging::set_up_panic_hooks(settings.shell.e2e_run);
+                crate::desktop::logging::set_up_panic_hooks(settings.shell.unattended());
             }
 
             if app_config.enable_visual_panic_hook {
