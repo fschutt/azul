@@ -22,7 +22,9 @@ use crate::{
     },
     agent_export::{cut_list_text, Chapter, CutList, CutSegment, ExportRequest},
     agent_limits::Limits,
-    agent_review::{reply_text, Intent, Pos, Reply, ReviewRequest, Suggestion},
+    agent_review::{
+        is_biased, reply_text, vocabulary, Intent, Pos, Reply, ReviewRequest, SaidWord, Suggestion,
+    },
     agent_stroke::Meaning,
     stroke_features::offline_intent_for,
 };
@@ -174,13 +176,221 @@ fn first_words(text: &str, max: usize) -> String {
     crate::agent_limits::cap_chars(&text.split_whitespace().collect::<Vec<_>>().join(" "), max).0
 }
 
+// ==== What the words are worth ====
+
+/// Words said to try a microphone: what is said is no more than these, it is no instruction.
+static TEST_WORDS: &[&str] = &[
+    "hello",
+    "world",
+    "test",
+    "testing",
+    "one",
+    "two",
+    "three",
+    "check",
+    "mic",
+    "microphone",
+    "sound",
+    "hear",
+    "hallo",
+    "welt",
+    "eins",
+    "zwei",
+    "drei",
+    "mikrofon",
+    "probe",
+];
+/// The words of TEST_WORDS that begin a test (one of them has to be there).
+static TEST_STARTS: &[&str] = &[
+    "test",
+    "testing",
+    "hello",
+    "hallo",
+    "check",
+    "mic",
+    "microphone",
+    "mikrofon",
+    "sound",
+];
+/// Words that fill speech and mean nothing.
+static FILLERS: &[&str] = &[
+    "uh", "um", "umm", "er", "erm", "hmm", "hm", "ah", "oh", "mhm", "äh", "ähm", "ehm", "like",
+];
+/// Words too small to be what a reviewer means by themselves.
+static SMALL_WORDS: &[&str] = &[
+    "the", "a", "an", "and", "or", "to", "of", "it", "is", "are", "this", "that", "these", "those",
+    "in", "on", "at", "for", "so", "but", "can", "you", "me", "i", "we", "my", "here", "there",
+    "der", "die", "das", "ein", "eine", "und", "oder", "zu", "ist", "es", "dies", "diese", "hier",
+    "da", "ich", "du", "mich",
+];
+/// Words of an instruction or a question: one of them is enough to act on.
+static INSTRUCTION_WORDS: &[&str] = &[
+    "remove", "delete", "rename", "replace", "entfern", "lösch", "umbenenn", "ersetz", "why",
+    "what", "warum", "was",
+];
+
+/// The words of `text`, lower-cased: runs of letters, digits and `_`.
+fn tokens(text: &str) -> Vec<String> {
+    text.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .filter(|w| !w.is_empty())
+        .map(str::to_lowercase)
+        .collect()
+}
+
+/// The number of single-character edits from `a` to `b`.
+fn distance(a: &str, b: &str) -> usize {
+    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    let mut row: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.iter().enumerate() {
+        let mut diagonal = row[0];
+        row[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let above = row[j + 1];
+            row[j + 1] = (above + 1)
+                .min(row[j] + 1)
+                .min(diagonal + usize::from(ca != cb));
+            diagonal = above;
+        }
+    }
+    row[b.len()]
+}
+
+/// The name of `names` that `word` is a mishearing of: one edit away for a word of three to six
+/// characters, two for a longer one (a name the word is already is not a mishearing of anything).
+fn resolve_word<'a>(word: &str, names: &'a [String]) -> Option<&'a String> {
+    let len = word.chars().count();
+    if len < 3 || names.iter().any(|n| n.eq_ignore_ascii_case(word)) {
+        return None;
+    }
+    let allowed = if len > 6 { 2 } else { 1 };
+    names
+        .iter()
+        .map(|n| (distance(&word.to_lowercase(), &n.to_lowercase()), n))
+        .filter(|(d, _)| *d > 0 && *d <= allowed)
+        .min_by_key(|(d, _)| *d)
+        .map(|(_, n)| n)
+}
+
+/// `text` with every word that is a mishearing of a name of `names` put right; none when no word was.
+fn corrected(text: &str, names: &[String]) -> Option<String> {
+    let mut out = String::new();
+    let mut changed = false;
+    let mut word = String::new();
+    let flush = |word: &mut String, out: &mut String, changed: &mut bool| {
+        if word.is_empty() {
+            return;
+        }
+        let plain = FILLERS.contains(&word.to_lowercase().as_str())
+            || SMALL_WORDS.contains(&word.to_lowercase().as_str())
+            || INSTRUCTION_WORDS.contains(&word.to_lowercase().as_str());
+        match resolve_word(word, names).filter(|_| !plain) {
+            Some(name) => {
+                out.push_str(name);
+                *changed = true;
+            }
+            None => out.push_str(word),
+        }
+        word.clear();
+    };
+    for c in text.chars() {
+        if c.is_alphanumeric() || c == '_' {
+            word.push(c);
+        } else {
+            flush(&mut word, &mut out, &mut changed);
+            out.push(c);
+        }
+    }
+    flush(&mut word, &mut out, &mut changed);
+    changed.then_some(out)
+}
+
+/// What the mock made of the words.
+struct Heard {
+    /// The transcript with the mishearings put right.
+    text: String,
+    /// The same, when anything was put right.
+    heard_as: Option<String>,
+}
+
+/// Whether the mock acts on what was said: the words put right, or why it does nothing. Like the
+/// agents it stands for, it does nothing for a test phrase, filler words, words the recogniser was
+/// unsure of (not those it was told to listen for: a low probability on a name of the vocabulary
+/// is no doubt) and a single word that is no instruction.
+fn hear(review: &ReviewRequest, limits: &Limits) -> Result<Heard, String> {
+    let mut parts: Vec<&str> = review.utterances.iter().map(|u| u.text.as_str()).collect();
+    if parts.is_empty() {
+        parts.extend(review.turns.iter().rev().take(1).map(|t| t.text.as_str()));
+    }
+    let text = parts.join(" ");
+    let toks = tokens(&text);
+    if toks.is_empty() {
+        return Err("nothing was said".to_string());
+    }
+    let names = vocabulary(&review.context, limits.max_vocabulary);
+    let is_plain = |t: &str| FILLERS.contains(&t) || SMALL_WORDS.contains(&t);
+    let content: Vec<&str> = toks
+        .iter()
+        .map(String::as_str)
+        .filter(|t| !is_plain(t))
+        .collect();
+    if content.is_empty() {
+        return Err("only filler words were said".to_string());
+    }
+    if content.iter().all(|t| TEST_WORDS.contains(t))
+        && content.iter().any(|t| TEST_STARTS.contains(t))
+    {
+        return Err("a test phrase, not an instruction".to_string());
+    }
+    // the recogniser's doubt counts for the words it was not told to listen for
+    let said_words: Vec<&SaidWord> = review.utterances.iter().flat_map(|u| &u.words).collect();
+    let unbiased: Vec<&&SaidWord> = said_words
+        .iter()
+        .filter(|w| !is_biased(w, &names))
+        .collect();
+    let probabilities: Vec<f32> = unbiased.iter().filter_map(|w| w.p).collect();
+    if !probabilities.is_empty() {
+        let mean = probabilities.iter().sum::<f32>() / probabilities.len() as f32;
+        if mean < 0.4 {
+            return Err(format!(
+                "the words are too uncertain (mean probability {mean:.2})"
+            ));
+        }
+    }
+    for w in &unbiased {
+        let bare = w.w.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+        let lower = bare.to_lowercase();
+        if let Some(p) = w.p.filter(|p| *p < 0.5) {
+            if !bare.is_empty()
+                && !is_plain(&lower)
+                && !INSTRUCTION_WORDS.contains(&lower.as_str())
+                && resolve_word(bare, &names).is_none()
+            {
+                return Err(format!(
+                    "a word the recogniser was unsure of (\"{bare}\", {p:.2}) is nowhere in the code shown"
+                ));
+            }
+        }
+    }
+    if content.len() == 1
+        && !INSTRUCTION_WORDS.iter().any(|k| content[0].starts_with(k))
+        && !names.iter().any(|n| n.eq_ignore_ascii_case(content[0]))
+    {
+        return Err("too short to act on".to_string());
+    }
+    let heard_as = corrected(&text, &names);
+    Ok(Heard {
+        text: heard_as.clone().unwrap_or(text),
+        heard_as,
+    })
+}
+
 /// What the auto mock answers to a review request.
 fn auto_reply(review: &ReviewRequest) -> Reply {
-    let mut said: Vec<&str> = review.utterances.iter().map(|u| u.text.as_str()).collect();
-    if said.is_empty() {
-        said.extend(review.turns.iter().rev().take(1).map(|t| t.text.as_str()));
-    }
-    let said = said.join(" ");
+    let heard = match hear(review, &Limits::default()) {
+        Ok(heard) => heard,
+        Err(reason) => return Reply::nothing(&reason),
+    };
+    let said = heard.text.clone();
     let lower = said.to_lowercase();
     let any = |words: &[&str]| words.iter().any(|w| lower.contains(w));
     // what the words say, when they say it plainly; else what the shapes of the strokes the reviewer
@@ -217,6 +427,8 @@ fn auto_reply(review: &ReviewRequest) -> Reply {
             ),
             suggestions: Vec::new(),
             intent,
+            heard_as: heard.heard_as,
+            no_action: None,
         };
     }
     let word = review.context.words_under.first();
@@ -249,14 +461,9 @@ fn auto_reply(review: &ReviewRequest) -> Reply {
                 .context
                 .focus
                 .map_or(review.context.first_line, |(_, last)| last);
-            let note = if said.trim().is_empty() {
-                "reviewed".to_string()
-            } else {
-                first_words(&said, 40)
-            };
             Suggestion::InsertLines {
                 after_line,
-                lines: vec![format!("// mock: {note}")],
+                lines: vec![format!("// mock: {}", first_words(&said, 40))],
             }
         }
     };
@@ -264,6 +471,8 @@ fn auto_reply(review: &ReviewRequest) -> Reply {
         answer: format!("Mock agent: {}", first_words(&said, 60)),
         suggestions: vec![suggestion],
         intent,
+        heard_as: heard.heard_as,
+        no_action: None,
     }
 }
 
