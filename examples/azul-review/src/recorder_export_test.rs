@@ -1162,6 +1162,67 @@ mod e2e {
         eprintln!("straight copy: {packets} pictures copied, {} bytes, {duration:.2} s of video in {:.2} s", report.bytes, took.as_secs_f64());
     }
 
+    /// A file of a picture and a voice in one (the camera's chunk with the voice in it), made from real H.264 and real
+    /// Opus, is read by ffprobe as two streams and decodes clean, both to its end; two of them join with `-c copy`.
+    ///
+    /// Mutation: a voice track that ffprobe does not see; fragments that do not decode.
+    #[test]
+    fn a_file_of_a_picture_and_a_voice_is_read_by_ffprobe_as_two_streams_and_decodes_clean() {
+        use crate::recorder_mp4::{annexb_to_avcc, JointWriter, Limits, OpusConfig, VideoConfig};
+        let Some(rig) = rig("joint") else { return };
+        let config = VideoConfig::from_keyframe(&rig.screen[0]).expect("the first access unit is a keyframe with its sets");
+        let make = |name: &str, from: usize| -> PathBuf {
+            let (mut writer, mut bytes) = JointWriter::new(config.clone(), OpusConfig::mono_48k(), 1_764_108_000, Limits::chunked(2_000_000));
+            // The voice is a little ahead of the pictures, as a microphone's chunks are.
+            let mut next_voice = 0_usize;
+            for (i, au) in rig.screen.iter().enumerate().skip(from) {
+                let at = (i - from) as u64 * 33_333;
+                while next_voice < rig.voice.len() && (next_voice as u64 * 20_000) < at + 100_000 {
+                    bytes.extend(writer.push_voice(next_voice as u64 * 20_000, rig.voice[next_voice].clone()).unwrap());
+                    next_voice += 1;
+                }
+                let sample = annexb_to_avcc(au);
+                bytes.extend(writer.push_video(at, sample.bytes, sample.keyframe).unwrap());
+            }
+            bytes.extend(writer.finish((rig.screen.len() - from) as u64 * 33_333));
+            let path = rig.tmp.0.join(name);
+            fs::write(&path, bytes).unwrap();
+            path
+        };
+        let one = make("joint-1.mp4", 0);
+        let probe = |args: &[&str], file: &Path| {
+            let o = Process::new(&rig.ffprobe).args(["-v", "error"]).args(args).arg(file).output().unwrap();
+            assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+            String::from_utf8_lossy(&o.stdout).into_owned()
+        };
+        let streams = probe(&["-show_entries", "stream=codec_name,codec_type", "-of", "csv=p=0"], &one);
+        assert!(streams.contains("h264,video") && streams.contains("opus,audio"), "{streams}");
+        for stream in ["v:0", "a:0"] {
+            let o = Process::new(&rig.ffmpeg).args(["-v", "error", "-i"]).arg(&one).args(["-map", stream, "-f", "null", "-"]).output().unwrap();
+            assert!(o.status.success() && o.stderr.is_empty(), "{stream} decodes clean: {}", String::from_utf8_lossy(&o.stderr));
+        }
+        let durations = probe(&["-show_entries", "stream=codec_type,duration", "-of", "csv=p=0"], &one);
+        for line in durations.lines().filter(|l| l.contains("video") || l.contains("audio")) {
+            let seconds: f64 = line.rsplit(',').next().unwrap().trim().parse().unwrap();
+            assert!((seconds - 6.0).abs() < 0.5, "a stream of about six seconds: {line}");
+        }
+        // Two of them join without a new encoding, and the joined file has both streams too.
+        let two = make("joint-2.mp4", 0);
+        let list = rig.tmp.0.join("joint.txt");
+        fs::write(&list, format!("file '{}'\nfile '{}'\n", one.display(), two.display())).unwrap();
+        let joined = rig.tmp.0.join("joined.mp4");
+        let o = Process::new(&rig.ffmpeg).args(["-v", "error", "-f", "concat", "-safe", "0", "-i"]).arg(&list).args(["-c", "copy", "-y"]).arg(&joined).output().unwrap();
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+        let streams = probe(&["-show_entries", "stream=codec_name,codec_type", "-of", "csv=p=0"], &joined);
+        assert!(streams.contains("h264,video") && streams.contains("opus,audio"), "{streams}");
+        eprintln!("a joint file of a picture and a voice: {} bytes, ffprobe: {}", fs::metadata(&one).unwrap().len(), streams.replace('\n', " "));
+        // One small file may be kept to look at (AVFoundation, HandBrake), where the caller names a place for it.
+        if let Ok(keep) = std::env::var("AZREVIEW_KEEP_JOINT") {
+            fs::copy(&one, &keep).unwrap();
+            eprintln!("kept: {keep}");
+        }
+    }
+
     /// The camera exported as `shape` (`rect` or `rounded`) at half the picture's width in the bottom right corner with
     /// no margin: 320 x 240 at (320, 120) of a 640 x 360 picture. What the plan said it would do differently, and the video.
     fn export_camera(rig: &Rig, started: &Started, manifest: &Manifest, shape: &str, caps: Capabilities) -> (Vec<String>, PathBuf) {
