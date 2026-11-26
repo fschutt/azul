@@ -176,6 +176,15 @@ fn supports_extension(extensions: &[String], extension: &str) -> bool {
     extensions.iter().any(|s| s == extension)
 }
 
+/// A string of the driver (`glGetString`, `glGetStringi`) as the name it is. `gl-context-loader` returns the C string WITH its
+/// terminating NUL (`cstr_from_ptr` takes `len + 1` bytes), and this device compares whole names: `supports_extension` never found
+/// an extension (every one was "not supported": no buffer storage, no float colour buffers, no dual-source blending, no BGRA
+/// formats, no copy image), and the workarounds that name a renderer (`renderer_name == "Mali-G76"`, `"Adreno (TM) 308"`) never
+/// applied; the Mali Bifrost parts were taken for Valhall.
+pub fn driver_string(raw: String) -> String {
+    raw.trim_end_matches('\0').to_owned()
+}
+
 /// `GL_DEPTH`, the buffer argument of `glClearBufferfv`.
 const GL_DEPTH_BUFFER: u32 = 0x1801;
 
@@ -1507,9 +1516,9 @@ impl Device {
         // Bug 1702494 tracks re-evaluating this cap.
         let max_texture_size = max_texture_size[0].min(16384);
 
-        let renderer_name = gl.get_string(gl::RENDERER);
+        let renderer_name = driver_string(gl.get_string(gl::RENDERER));
         info!("Renderer: {}", renderer_name);
-        let version_string = gl.get_string(gl::VERSION);
+        let version_string = driver_string(gl.get_string(gl::VERSION));
         info!("Version: {}", version_string);
         info!("Max texture size: {}", max_texture_size);
 
@@ -1520,7 +1529,7 @@ impl Device {
         let extension_count = extension_count[0] as gl::GLuint;
         let mut extensions = Vec::new();
         for i in 0..extension_count {
-            extensions.push(gl.get_string_i(gl::EXTENSIONS, i));
+            extensions.push(driver_string(gl.get_string_i(gl::EXTENSIONS, i)));
         }
 
         if supports_extension(&extensions, "GL_ANGLE_provoking_vertex") {
@@ -4897,5 +4906,26 @@ fn texels_to_u8_slice<T: Texel>(texels: &[T]) -> &[u8] {
             texels.as_ptr() as *const u8,
             texels.len() * mem::size_of::<T>(),
         )
+    }
+}
+
+#[cfg(test)]
+mod driver_string_tests {
+    use super::{driver_string, supports_extension};
+
+    /// What the loader hands over for an extension and for a renderer: the name and the NUL that ends the C string.
+    #[test]
+    fn a_name_the_loader_returned_with_its_terminator_matches_again() {
+        let extensions = vec![
+            driver_string("GL_EXT_buffer_storage\0".to_owned()),
+            driver_string("GL_EXT_blend_func_extended\0".to_owned()),
+        ];
+        assert!(supports_extension(&extensions, "GL_EXT_buffer_storage"));
+        assert!(supports_extension(&extensions, "GL_EXT_blend_func_extended"));
+        assert!(!supports_extension(&extensions, "GL_EXT_copy_image"));
+        // The case the terminator hid: a whole-name comparison of a renderer.
+        assert_eq!(driver_string("Mali-G76\0".to_owned()), "Mali-G76");
+        assert_eq!(driver_string("Adreno (TM) 308".to_owned()), "Adreno (TM) 308");
+        assert_eq!(driver_string(String::new()), "");
     }
 }

@@ -930,8 +930,8 @@ impl Renderer {
     pub fn get_graphics_api_info(&self) -> GraphicsApiInfo {
         GraphicsApiInfo {
             kind: GraphicsApi::OpenGL,
-            version: self.device.gl().get_string(gl::VERSION),
-            renderer: self.device.gl().get_string(gl::RENDERER),
+            version: crate::device::driver_string(self.device.gl().get_string(gl::VERSION)),
+            renderer: crate::device::driver_string(self.device.gl().get_string(gl::RENDERER)),
         }
     }
 
