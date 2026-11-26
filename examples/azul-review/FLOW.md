@@ -95,6 +95,12 @@ keychain item, never the key in the settings file). Everything mockable: agent, 
 | Slash deletion, conversations in the page's sidebar, suggestions with accept, stable page breaks, stroke samples to the agent | planned |
 | Whiteboard, presenter, agents and models panels | other modules, plugged in by the layout |
 
+## 6b. The places other modules plug into (`ui.rs`, "The places other modules plug into")
+`right_panel_content` (the whiteboard's panel, `whiteboard_ui::panel_dom`), `presenter_slot` (the recorder's key in the top bar) and `overlay_slot`
+(the camera's picture in picture over the pages), `settings_sections` (the settings page after the dictation's: the agents and their models, the recorder's
+devices, the speech recogniser's chain), the bottom bar's conversations (`AppState::chips`: the agent pool's messages set their states), and the window's
+debug ops (`azreview_pointer_log`, `azreview_mock_chips`, `azreview_state`).
+
 ## 7. Interpretations (open until the user corrects them)
 1. The tree pushes the pages to the right (not left). 2. The nib folds into the pens (double click cycles). 3. Files: yellow = unresolved suggestions, blue spinner = working, green = clean. 4. The whiteboard is per workspace
 (the opened folder), one board. 5. The presenter records camera + voice only (the screen is not recorded by AzReview).

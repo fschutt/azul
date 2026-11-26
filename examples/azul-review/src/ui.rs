@@ -196,7 +196,7 @@ pub extern "C" fn layout(data: RefAny, info: LayoutCallbackInfo) -> Dom {
             .with_child(kit::title_row(crate::SPEC.name))
             .with_child(kit::settings_page_with_reload(
                 &s.kit,
-                vec![column::settings_section(&s, &data)],
+                settings_sections(&s, &data),
                 &data,
                 column::reload_settings,
             ))
@@ -258,6 +258,9 @@ pub fn main_view(s: &AppState, data: &RefAny, window_w: f32) -> Dom {
     root.add_child(main_column(s, data, &solved));
     if has_files {
         root.add_child(tree_switch(s, data, chrome.left.max(0.0) + 6.0));
+    }
+    if let Some(overlay) = overlay_slot(s, data) {
+        root.add_child(overlay);
     }
     root
 }
@@ -364,7 +367,7 @@ fn middle(s: &AppState, data: &RefAny, solved: &crate::layout::Solved) -> Dom {
     }
     row.add_child(right_bar(data));
     if solved.right_w > 0.0 {
-        row.add_child(right_panel(solved.right_w, data));
+        row.add_child(right_panel(s, solved.right_w, data));
     }
     row
 }
@@ -431,6 +434,9 @@ fn top_bar(s: &AppState, data: &RefAny, left_pad: f32) -> Dom {
         "display: flex; flex-direction: row; align-items: center; gap: 4px; flex: 1 1 0px; min-width: 0px; \
          justify-content: flex-end;",
     );
+    if let Some(presenter) = presenter_slot(s, data) {
+        right.add_child(presenter);
+    }
     for tool in tools(s, data) {
         right.add_child(tool);
     }
@@ -833,9 +839,9 @@ fn right_bar(data: &RefAny) -> Dom {
         )
 }
 
-/// The right panel: the whiteboard's place, `width` wide while it slides, its edge to be dragged. It holds a word
-/// about what it will be until the whiteboard is mounted in it.
-fn right_panel(width: f32, data: &RefAny) -> Dom {
+/// The right panel: the whiteboard's place, `width` wide while it slides, its edge to be dragged. What fills it is
+/// `right_panel_content`.
+fn right_panel(s: &AppState, width: f32, data: &RefAny) -> Dom {
     Dom::create_div()
         .with_id(ids::RIGHT_PANEL)
         .with_css(
@@ -845,12 +851,44 @@ fn right_panel(width: f32, data: &RefAny) -> Dom {
             )
             .as_str(),
         )
-        .with_child(
-            Dom::create_div()
-                .with_css("padding: 16px; font-size: 12px; color: system:secondary-text;")
-                .with_child(Dom::create_span_with_text(label("azreview-whiteboard-placeholder"))),
-        )
+        .with_child(right_panel_content(s, data))
         .with_child(grip(crate::layout::Panel::Right, "left: 0px;", data))
+}
+
+// ==== The places other modules plug into ====
+//
+// The layout owns the room and these functions say what goes in it; each is the one place to change when the module
+// that fills it lands (FLOW.md lists them):
+//
+// * `right_panel_content`: the whiteboard's panel (`whiteboard_ui::panel_dom`), which fills its parent;
+// * `presenter_slot`: the presenter's key in the top bar (the recorder's start / stop), and `overlay_slot` the
+//   picture in picture of the camera over the pages;
+// * `settings_sections`: the sections of the settings page after the dictation's (the agents and their models, the
+//   recorder's devices, the speech recogniser's chain);
+// * the bottom bar's conversations come from `AppState::chips` (the agent pool's messages set their states).
+
+/// What fills the right panel: a word about what it will be, until the whiteboard is mounted in it.
+fn right_panel_content(_s: &AppState, _data: &RefAny) -> Dom {
+    Dom::create_div()
+        .with_css("padding: 16px; font-size: 12px; color: system:secondary-text;")
+        .with_child(Dom::create_span_with_text(label("azreview-whiteboard-placeholder")))
+}
+
+/// The presenter's key in the top bar (`None` until the recorder is mounted).
+#[must_use]
+fn presenter_slot(_s: &AppState, _data: &RefAny) -> Option<Dom> {
+    None
+}
+
+/// The picture in picture over the pages: the camera preview while the presenter records (`None` until mounted).
+#[must_use]
+fn overlay_slot(_s: &AppState, _data: &RefAny) -> Option<Dom> {
+    None
+}
+
+/// The sections of the settings page, in order: the dictation's, then what the other modules add.
+fn settings_sections(s: &AppState, data: &RefAny) -> Vec<kit::AppSection> {
+    vec![column::settings_section(s, data)]
 }
 
 /// The bottom bar: the conversations of the open file, one chip each (a blue spinner while its agent works, yellow

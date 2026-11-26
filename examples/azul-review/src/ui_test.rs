@@ -306,3 +306,25 @@ fn the_edge_of_a_panel_is_named_for_the_screen_reader() {
         .expect("the tree's grip");
     assert!(!grip.root.accessibility.is_null(), "named");
 }
+
+// ---- the places other modules plug into ----
+
+#[test]
+fn the_right_panel_holds_the_placeholder_until_the_whiteboard_is_mounted() {
+    let content = right_panel_content(&reviewing("/work/proj"), &RefAny::new(0u8));
+    assert!(texts(&content).iter().any(|t| t.contains("whiteboard")), "{:?}", texts(&content));
+}
+
+#[test]
+fn the_presenter_and_the_picture_in_picture_have_their_slots_and_nothing_is_in_them_yet() {
+    let s = reviewing("/work/proj");
+    assert!(presenter_slot(&s, &RefAny::new(0u8)).is_none(), "the presenter is not mounted");
+    assert!(overlay_slot(&s, &RefAny::new(0u8)).is_none(), "no picture in picture");
+}
+
+#[test]
+fn the_settings_page_has_the_dictation_section_and_room_for_the_others() {
+    let s = reviewing("/work/proj");
+    let sections = settings_sections(&s, &RefAny::new(0u8));
+    assert_eq!(sections.len(), 1, "the dictation's; the agents', recorder's and speech panels come after it");
+}
