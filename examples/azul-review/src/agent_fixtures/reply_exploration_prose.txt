@@ -1,0 +1,1 @@
+`foo` holds `frame.width() * scale` (src/render.rs:11): the frame's width multiplied by the `scale` argument. Its type depends on what `Frame::width()` returns; the file doesn't show that.

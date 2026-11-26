@@ -13,6 +13,39 @@
 //! or a search of the PATH never waits on the window), runs the request, and reports through a
 //! callback; the window's thread glue turns each [`JobMessage`] into the window's message, as the
 //! dictation worker does.
+//!
+//! # How the window uses the agents (in order)
+//!
+//! 1. At the start, once: the settings (`AgentSettings::from_values(&settings.values)`: its
+//!    problems are for the log), the environment (`Env::from_pairs(std::env::vars())`), a [`Pool`]
+//!    of `settings.max_concurrent`, and a `Wiring` (the keys with `AzulKeychain` as the keychain, a
+//!    `Host` of the PATH and the home folder, the limits `settings.limits()`, a scratch folder under
+//!    the data root, `AzulTransport` as the transport of the APIs).
+//! 2. A conversation asks: build the request from what the window knows (`agent_review`: the words
+//!    as timed utterances, the strokes as samples, the code around them), `pool.start(conversation,
+//!    task, now_ms, timeout_secs)` (a [`AgentError::Busy`] says so on the bottom bar), then a worker
+//!    thread that calls [`run_job`] with a [`JobSpec`] whose factory is
+//!    `agent_factory::factory(task, settings.task(task), wiring)`, and a `ThreadWriteBackMsg` for
+//!    every [`JobMessage`].
+//! 3. The window's message callback: `JobEvent::Done` gives `pool.finish(job, now_ms)` (`None`: a job
+//!    that was given up on, its message is ignored), then the `Response` (suggestions become the
+//!    yellow chips, the answer the conversation's text, `diagnostics` the log) or the failure
+//!    (`l10n_key()` and `l10n_args()` through the window's `t_args`; `kind_name()` for the e2e lines).
+//!    A reply with `no_action: Some(reason)` is an agent that chose to do nothing (a test phrase, nonsense,
+//!    words too uncertain or too ambiguous to act on): it has no answer and no suggestion, the window
+//!    shows nothing and the conversation ends quietly; the reason is for the debug line only
+//!    (`JobMessage::log_line` prints it). `heard_as` is what the agent made of a misheard transcript, for
+//!    the note beside the raw words, which stay as they were.
+//! 4. Cancel is `pool.cancel(id)` (the worker kills its process or drops its answer); a timer calls
+//!    `pool.reap(now_ms)` for the workers that never report.
+//! 5. An export asks the same way with `Request::Export(ExportRequest)` (the session's facts, the
+//!    summary and the transcript the recorder writes, the target) and `Task::Export`; the answer is
+//!    `response.cut_list()`, and `cut_list.to_edl(&identity_edl(&manifest, &file_changes),
+//!    Some(&identity.label()))` puts it on the recorder's own cut list, which `Edl::problems(&manifest)`
+//!    checks before `recorder_export` renders it.
+//! 6. With no agent set up the window can still guess what the strokes mean from their shapes:
+//!    `stroke_features::offline_intent_for(&strokes, &context, &limits)` (a small rule table, never
+//!    above a confidence of 0.45, and never for a stroke whose meaning the reviewer chose).
 
 use std::{
     panic::{catch_unwind, AssertUnwindSafe},
@@ -273,6 +306,57 @@ pub struct JobMessage {
     pub job: u64,
     pub conversation: u64,
     pub event: JobEvent,
+}
+
+impl JobMessage {
+    /// The line the end-to-end scripts read on standard output (`AZREVIEW_AGENT started|done|failed
+    /// <conversation> <task> ...`), as the dictation has its `AZREVIEW_DICTATION` lines.
+    #[must_use]
+    pub fn log_line(&self, task: Task) -> String {
+        let key = task.key();
+        match &self.event {
+            JobEvent::Started => {
+                format!(
+                    "AZREVIEW_AGENT started {} {key} job={}",
+                    self.conversation, self.job
+                )
+            }
+            JobEvent::Done(result) => match result.as_ref() {
+                Ok(response) => {
+                    let items = response
+                        .reply()
+                        .map(|r| r.suggestions.len())
+                        .or_else(|| response.cut_list().map(|l| l.segments.len()))
+                        .unwrap_or(0);
+                    // what the agent did not do, and what it heard, are for this line and the log only
+                    let quoted = |text: &str| {
+                        format!("\"{}\"", text.replace(['\n', '\r'], " ").replace('"', "'"))
+                    };
+                    let mut extra = String::new();
+                    if let Some(reply) = response.reply() {
+                        if let Some(reason) = &reply.no_action {
+                            extra.push_str(&format!(" no_action={}", quoted(reason)));
+                        }
+                        if let Some(heard) = &reply.heard_as {
+                            extra.push_str(&format!(" heard_as={}", quoted(heard)));
+                        }
+                    }
+                    format!(
+                        "AZREVIEW_AGENT done {} {key} {} items={items} ms={}{extra}",
+                        self.conversation,
+                        response.identity.kind.key(),
+                        response.usage.elapsed_ms
+                    )
+                }
+                Err(error) => format!(
+                    "AZREVIEW_AGENT failed {} {key} {} {}",
+                    self.conversation,
+                    error.kind_name(),
+                    error.message().replace('\n', " ")
+                ),
+            },
+        }
+    }
 }
 
 /// Makes the backend on the worker.

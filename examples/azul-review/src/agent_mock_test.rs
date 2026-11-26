@@ -6,9 +6,9 @@ use std::{cell::Cell, rc::Rc};
 
 use super::*;
 use crate::{
-    agent_backend::{never_cancelled, run_task, Body, Clock, ManualClock, Response},
+    agent_backend::{never_cancelled, run_task, Clock, ManualClock, Response},
     agent_limits::Limits,
-    agent_review::{Context, ReviewRequest, Speaker, Turn, Utterance, WordRef},
+    agent_review::{Context, PageGrid, ReviewRequest, SaidWord, Speaker, Turn, Utterance, WordRef},
     agent_stroke::{Sample, StrokeInput},
 };
 
@@ -52,6 +52,7 @@ fn request(task: Task, said: &str, pinned: bool) -> Request {
                 text: said.to_string(),
                 start_ms: 0,
                 end_ms: 40,
+                words: Vec::new(),
             }]
         },
         strokes: vec![stroke(1, pinned)],
@@ -92,9 +93,7 @@ fn run(
 }
 
 fn reply_of(response: &Response) -> &Reply {
-    match &response.body {
-        Body::Review(reply) => reply,
-    }
+    response.reply().expect("a review answer")
 }
 
 #[test]
@@ -106,6 +105,7 @@ fn a_scripted_reply_arrives_after_its_delay_on_the_clock_the_test_moves() {
             lines: vec!["// x".to_string()],
         }],
         intent: None,
+        ..Reply::default()
     };
     let mut mock = MockBackend::scripted(vec![Step::reply(1_200, &scripted)]);
     let mut clock = ManualClock::new();
@@ -338,19 +338,367 @@ fn auto_guesses_an_intent_only_for_strokes_the_reviewer_did_not_pin() {
     assert!(reply_of(&pinned).intent.is_none());
 }
 
+/// A stroke along the points, unpinned, whatever its pen was.
+fn drawn(id: u64, pinned: bool, from: (f32, f32), to: (f32, f32)) -> StrokeInput {
+    let mut s = stroke(id, pinned);
+    s.samples = (0..12)
+        .map(|i| {
+            let t = i as f32 / 11.0;
+            Sample {
+                x: from.0 + (to.0 - from.0) * t,
+                y: from.1 + (to.1 - from.1) * t,
+                pressure: 0.5,
+                dt_ms: i * 30,
+                tilt: None,
+            }
+        })
+        .collect();
+    s
+}
+
+/// The request of `request()` with these strokes on a page whose lines are 16 px high and 8 px wide
+/// (line 10, `let value = foo(1);`, is y 100 to 116 and `foo` is x 96 to 120).
+fn on_the_grid(said: &str, strokes: Vec<StrokeInput>) -> Request {
+    let mut req = request(Task::Editing, said, false);
+    let Request::Review(r) = &mut req else {
+        panic!("a review request")
+    };
+    r.strokes = strokes;
+    r.context.grid = Some(PageGrid {
+        first_line: 10,
+        origin_x: 0.0,
+        origin_y: 100.0,
+        line_height: 16.0,
+        char_width: 8.0,
+    });
+    req
+}
+
+fn intent_of(response: &Response) -> Intent {
+    reply_of(response).intent.clone().expect("an intent")
+}
+
 #[test]
-fn a_mock_that_says_nothing_still_answers_something_readable() {
+fn auto_reads_the_shape_when_the_words_say_nothing_plain() {
+    let mut mock = MockBackend::auto(0);
+    let mut clock = ManualClock::new();
+    // a line through the middle of `foo`: a strike-through, which means an issue
+    let strike = drawn(1, false, (92.0, 108.0), (124.0, 108.0));
+    let response = run(
+        &mut mock,
+        &on_the_grid("this looks odd", vec![strike]),
+        &mut clock,
+    )
+    .expect("answers");
+    let intent = intent_of(&response);
+    assert_eq!(intent.meaning, Some(Meaning::Issue));
+    assert!(
+        intent.rationale.contains("rule of shape") && intent.rationale.contains("strike-through"),
+        "{}",
+        intent.rationale
+    );
+    assert!(intent.confidence > 0.0 && intent.confidence <= 0.5);
+    // and under it: an underline, which means scope
+    let under = drawn(1, false, (92.0, 114.4), (124.0, 114.4));
+    let response = run(
+        &mut mock,
+        &on_the_grid("this looks odd", vec![under]),
+        &mut clock,
+    )
+    .expect("answers");
+    assert_eq!(intent_of(&response).meaning, Some(Meaning::Scope));
+}
+
+#[test]
+fn auto_prefers_what_the_reviewer_said_to_what_a_shape_may_mean() {
+    let mut mock = MockBackend::auto(0);
+    let mut clock = ManualClock::new();
+    let strike = drawn(1, false, (92.0, 108.0), (124.0, 108.0));
+    let response = run(
+        &mut mock,
+        &on_the_grid("why is this here?", vec![strike]),
+        &mut clock,
+    )
+    .expect("answers");
+    let intent = intent_of(&response);
+    assert_eq!(intent.meaning, Some(Meaning::Question));
+    assert_eq!(intent.rationale, "the mock's rule of thumb");
+}
+
+#[test]
+fn auto_never_reads_the_shape_of_a_stroke_the_reviewer_chose_a_meaning_for() {
+    let mut mock = MockBackend::auto(0);
+    let mut clock = ManualClock::new();
+    let pinned = drawn(1, true, (92.0, 108.0), (124.0, 108.0));
+    let response = run(
+        &mut mock,
+        &on_the_grid("this looks odd", vec![pinned]),
+        &mut clock,
+    )
+    .expect("answers");
+    assert!(reply_of(&response).intent.is_none());
+    // two strokes: the one that is pinned is left out of the guess, the other one is guessed at
+    let pinned_underline = drawn(1, true, (92.0, 114.4), (124.0, 114.4));
+    let strike = drawn(2, false, (92.0, 108.0), (124.0, 108.0));
+    let response = run(
+        &mut mock,
+        &on_the_grid("this looks odd", vec![pinned_underline, strike]),
+        &mut clock,
+    )
+    .expect("answers");
+    assert_eq!(intent_of(&response).meaning, Some(Meaning::Issue));
+}
+
+#[test]
+fn auto_falls_back_to_scope_when_neither_the_words_nor_the_shape_say_anything() {
+    let mut mock = MockBackend::auto(0);
+    let mut clock = ManualClock::new();
+    // a short slanted line: no rule fits
+    let slanted = drawn(1, false, (92.0, 100.0), (124.0, 140.0));
+    let response = run(
+        &mut mock,
+        &on_the_grid("this looks odd", vec![slanted]),
+        &mut clock,
+    )
+    .expect("answers");
+    let intent = intent_of(&response);
+    assert_eq!(intent.meaning, Some(Meaning::Scope));
+    assert_eq!(intent.rationale, "the mock's rule of thumb");
+}
+
+#[test]
+fn a_mock_that_is_told_nothing_does_nothing() {
     let mut mock = MockBackend::auto(0);
     let mut clock = ManualClock::new();
     let mut req = request(Task::Editing, "", true);
-    let Request::Review(r) = &mut req;
+    let Request::Review(r) = &mut req else {
+        panic!("a review request")
+    };
     r.turns.clear();
     let response = run(&mut mock, &req, &mut clock).expect("answers");
+    let reply = reply_of(&response);
+    assert_eq!(reply.no_action.as_deref(), Some("nothing was said"));
+    assert!(reply.answer.is_empty() && reply.suggestions.is_empty() && reply.intent.is_none());
+}
+
+// ==== doing nothing, and hearing what was meant ====
+
+/// `request()` with the words the recogniser heard, as (word, probability, told to listen for it).
+fn heard(said: &str, words: &[(&str, f32, bool)]) -> Request {
+    let mut req = request(Task::Editing, said, false);
+    let Request::Review(r) = &mut req else {
+        panic!("a review request")
+    };
+    r.utterances[0].words = words
+        .iter()
+        .map(|(w, p, biased)| SaidWord {
+            w: (*w).to_string(),
+            p: Some(*p),
+            biased: *biased,
+        })
+        .collect();
+    req
+}
+
+/// A request about an `enum` at line 10 under the stroke (so `enum` is a name of the vocabulary), or
+/// about code that has no `enum` anywhere and nothing under the stroke.
+fn about_an_enum(said: &str, words: &[(&str, f32, bool)], in_the_code: bool) -> Request {
+    let mut req = heard(said, words);
+    let Request::Review(r) = &mut req else {
+        panic!("a review request")
+    };
+    if in_the_code {
+        r.context.lines[0] = "enum Kind { A, B }".to_string();
+        r.context.words_under = vec![WordRef {
+            stroke: 1,
+            line: 10,
+            col: 0,
+            text: "enum".to_string(),
+        }];
+    } else {
+        r.context.lines = vec![
+            "let value = compute(1);".to_string(),
+            "let other = 2;".to_string(),
+            "// end".to_string(),
+        ];
+        r.context.words_under.clear();
+    }
+    req
+}
+
+fn outcome(req: &Request) -> Reply {
+    let mut mock = MockBackend::auto(0);
+    let mut clock = ManualClock::new();
+    let response = run(&mut mock, req, &mut clock).expect("answers");
+    reply_of(&response).clone()
+}
+
+#[test]
+fn test_phrases_filler_nonsense_and_a_lone_word_do_nothing_and_show_nothing() {
+    for said in [
+        "Hello world, this is a test",
+        "testing one two",
+        "Testing, testing",
+        "can you hear me",
+        "mic check",
+        "one two three test",
+        "hallo welt, das ist ein test",
+        "Mikrofon Test eins zwei drei",
+        "uh um er",
+        "ähm",
+        "the a and",
+        "weather",
+        "",
+    ] {
+        let reply = outcome(&request(Task::Editing, said, false));
+        assert!(reply.is_no_action(), "{said:?}: {reply:?}");
+        assert!(
+            reply.answer.is_empty() && reply.suggestions.is_empty() && reply.intent.is_none(),
+            "{said:?}: nothing to show: {reply:?}"
+        );
+        let reason = reply.no_action.expect("a reason");
+        assert!(!reason.is_empty(), "{said:?}");
+    }
+    // the exploration is as quiet
+    let reply = outcome(&request(Task::Exploration, "testing one two", false));
+    assert!(reply.is_no_action() && reply.answer.is_empty(), "{reply:?}");
+}
+
+#[test]
+fn a_clear_instruction_still_produces_its_suggestion_even_with_test_words_in_it() {
+    for (said, expect_remove) in [
+        ("please remove this", true),
+        ("delete this word", true),
+        ("entferne das hier", true),
+        ("remove", true),
+        ("rename hello world to greeting", false),
+    ] {
+        let reply = outcome(&request(Task::Editing, said, false));
+        assert!(!reply.is_no_action(), "{said:?}: {reply:?}");
+        assert_eq!(reply.suggestions.len(), 1, "{said:?}");
+        assert_eq!(
+            matches!(reply.suggestions[0], Suggestion::RemoveRange { .. }),
+            expect_remove,
+            "{said:?}: {reply:?}"
+        );
+    }
+}
+
+#[test]
+fn words_the_recogniser_was_unsure_of_are_no_ground_to_edit_on() {
+    // all of them guesses
+    let guesses = heard(
+        "rename widget gadget",
+        &[
+            ("rename", 0.2, false),
+            ("widget", 0.15, false),
+            ("gadget", 0.2, false),
+        ],
+    );
+    let reply = outcome(&guesses);
+    assert!(
+        reply.is_no_action() && reply.suggestions.is_empty(),
+        "{reply:?}"
+    );
+    assert!(
+        reply
+            .no_action
+            .as_deref()
+            .is_some_and(|r| r.contains("too uncertain")),
+        "{reply:?}"
+    );
+    // the same words, sure of: acted on
+    let sure = heard(
+        "rename widget gadget",
+        &[
+            ("rename", 0.95, false),
+            ("widget", 0.9, false),
+            ("gadget", 0.9, false),
+        ],
+    );
+    assert!(!outcome(&sure).is_no_action());
+}
+
+#[test]
+fn a_low_probability_on_a_name_the_recogniser_was_told_to_listen_for_is_no_doubt() {
+    let words = [
+        ("rename", 0.9, false),
+        ("enum", 0.32, false),
+        ("to", 0.9, false),
+        ("kind", 0.9, false),
+    ];
+    // the code has an enum under the stroke: it is a name of the vocabulary, so the low probability
+    // is not counted, and the clear instruction is carried out
+    let reply = outcome(&about_an_enum("rename enum to kind", &words, true));
+    assert!(!reply.is_no_action(), "{reply:?}");
+    assert!(
+        matches!(&reply.suggestions[..], [Suggestion::ReplaceRange { old, .. }] if old == "enum"),
+        "{reply:?}"
+    );
+    // the speech layer says the word was biased: it counts even where the code has no such name
+    let flagged = [
+        ("rename", 0.9, false),
+        ("enum", 0.32, true),
+        ("to", 0.9, false),
+        ("kind", 0.9, false),
+    ];
+    let reply = outcome(&about_an_enum("rename enum to kind", &flagged, false));
+    assert!(!reply.is_no_action(), "{reply:?}");
+}
+
+#[test]
+fn the_same_low_probability_on_an_unlisted_word_with_no_code_to_explain_it_is_doubt() {
+    let words = [
+        ("rename", 0.9, false),
+        ("enum", 0.32, false),
+        ("to", 0.9, false),
+        ("kind", 0.9, false),
+    ];
+    let reply = outcome(&about_an_enum("rename enum to kind", &words, false));
+    assert!(
+        reply.is_no_action() && reply.suggestions.is_empty(),
+        "{reply:?}"
+    );
+    let reason = reply.no_action.expect("a reason");
+    assert!(
+        reason.contains("enum") && reason.contains("0.32"),
+        "{reason}"
+    );
+}
+
+#[test]
+fn a_misheard_name_is_put_right_against_the_code_and_what_was_heard_is_said() {
+    // "food" for foo (under the stroke), low probability, not told to listen for
+    let req = heard(
+        "rename food to count",
+        &[
+            ("rename", 0.9, false),
+            ("food", 0.35, false),
+            ("to", 0.9, false),
+            ("count", 0.9, false),
+        ],
+    );
+    let reply = outcome(&req);
+    assert!(!reply.is_no_action(), "{reply:?}");
+    assert_eq!(reply.heard_as.as_deref(), Some("rename foo to count"));
+    assert!(
+        matches!(&reply.suggestions[..], [Suggestion::ReplaceRange { old, .. }] if old == "foo"),
+        "{reply:?}"
+    );
+    // the transcript the reply is about is untouched in the request
+    let Request::Review(r) = &req else {
+        panic!("a review request")
+    };
+    assert_eq!(r.utterances[0].text, "rename food to count");
+    // words that need no correction say nothing about what was heard
+    let plain = outcome(&heard(
+        "rename foo to count",
+        &[("rename", 0.9, false), ("foo", 0.9, false)],
+    ));
+    assert_eq!(plain.heard_as, None);
+    // a word that is a name already is not a mishearing of another
     assert_eq!(
-        reply_of(&response).suggestions,
-        vec![Suggestion::InsertLines {
-            after_line: 11,
-            lines: vec!["// mock: reviewed".to_string()]
-        }]
+        outcome(&request(Task::Editing, "remove this word", false)).heard_as,
+        None
     );
 }

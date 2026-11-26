@@ -501,6 +501,7 @@ impl Backend for Scripted {
                 ..Usage::default()
             },
             model: "script-1".to_string(),
+            notes: Vec::new(),
         })
     }
 }
@@ -537,9 +538,7 @@ fn the_three_steps_build_send_and_read_and_the_response_says_who_and_how_long() 
     );
     let response = result.expect("answered");
     assert_eq!(calls, 1);
-    match &response.body {
-        Body::Review(reply) => assert_eq!(reply.answer, "fine"),
-    }
+    assert_eq!(response.reply().map(|r| r.answer.as_str()), Some("fine"));
     assert_eq!(response.identity.kind, BackendKind::Mock);
     assert_eq!(response.usage.elapsed_ms, 2_500);
     assert_eq!(response.usage.input_tokens, Some(100));
@@ -585,6 +584,14 @@ fn the_first_words_of_an_answer_without_text_count_its_suggestions() {
     let reply = r#"{"answer": "", "suggestions": [{"kind": "insert_lines", "after_line": 1, "lines": ["// a"]}]}"#;
     let response = run(Ok(reply.to_string()), 1, false).0.expect("answered");
     assert_eq!(response.first_words(40), "1 suggestion(s)");
+}
+
+#[test]
+fn the_first_words_of_an_answer_that_does_nothing_say_so_and_why() {
+    let reply = r#"{"action": "none", "reason": "a test phrase"}"#;
+    let response = run(Ok(reply.to_string()), 1, false).0.expect("answered");
+    assert_eq!(response.first_words(40), "no action: a test phrase");
+    assert!(response.reply().is_some_and(|r| r.is_no_action()));
 }
 
 #[test]

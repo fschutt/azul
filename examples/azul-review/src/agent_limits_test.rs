@@ -13,6 +13,8 @@ fn the_defaults_are_realistic_and_none_is_zero() {
         ("context lines", l.max_context_lines),
         ("line chars", l.max_line_chars),
         ("words under", l.max_words_under),
+        ("vocabulary", l.max_vocabulary),
+        ("said words", l.max_said_words),
         ("utterances", l.max_utterances),
         ("transcript", l.max_transcript_chars),
         ("turns", l.max_turns),
@@ -27,6 +29,9 @@ fn the_defaults_are_realistic_and_none_is_zero() {
         ("stdout", l.max_stdout_bytes),
         ("stderr", l.max_stderr_bytes),
         ("http", l.max_http_response_bytes),
+        ("cut segments", l.max_cut_segments),
+        ("export lines", l.max_export_lines),
+        ("export items", l.max_export_items),
     ] {
         assert!(n > 0, "{name} is 0");
     }

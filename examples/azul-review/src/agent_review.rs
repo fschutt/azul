@@ -10,6 +10,11 @@
 //! tolerant of what models do (a code fence, a sentence before the object, a column that is a few
 //! bytes off).
 //!
+//! The words are speech-to-text: a request carries them with the probability the recogniser gave
+//! each ([`SaidWord`]) and a [`vocabulary`] of the names near the strokes to read them against, and
+//! a reply may say what it understood ([`Reply::heard_as`]) or that there is nothing to do
+//! ([`Reply::no_action`]: a test phrase, nonsense, words too uncertain or ambiguous to edit on).
+//!
 //! Nothing here runs a process or opens a socket: it is text in and text out, and every cut it
 //! makes (a long line, too many strokes, a suggestion that points at text that is not there) is a
 //! note in the answer's diagnostics.
@@ -21,16 +26,33 @@ use crate::{
     agent_json::{self, json, Json},
     agent_limits::{cap_bytes, cap_chars, Limits, Notes},
     agent_stroke::{fmt_num, shape, svg_document, Meaning, Shape, StrokeInput},
+    stroke_features::{analyze, describe},
 };
 
 // ==== The request ====
 
+/// A word of what the reviewer said, as the recogniser heard it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SaidWord {
+    pub w: String,
+    /// How sure the recogniser was, 0 to 1 (none: it does not say). The raw value, whatever the word.
+    pub p: Option<f32>,
+    /// The recogniser was told to listen for this word (it is in the vocabulary it was given), so its
+    /// probability is often low although the word is right. [`is_biased`] also counts a word that is in
+    /// the request's own vocabulary.
+    pub biased: bool,
+}
+
 /// Something the reviewer said, on the session's clock.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Utterance {
+    /// The transcript as the recogniser wrote it (never changed on its way: what the agent made of it
+    /// is [`Reply::heard_as`]).
     pub text: String,
     pub start_ms: u64,
     pub end_ms: u64,
+    /// The words with their probabilities, when the recogniser gives them (empty: it does not).
+    pub words: Vec<SaidWord>,
 }
 
 /// A word of the code a stroke is on.
@@ -151,16 +173,70 @@ pub struct Reply {
     pub answer: String,
     pub suggestions: Vec<Suggestion>,
     pub intent: Option<Intent>,
+    /// What the agent understood the reviewer said, when the transcript had to be corrected (a
+    /// misheard name resolved against the vocabulary and the code). The raw transcript is not touched.
+    pub heard_as: Option<String>,
+    /// The agent chose to do nothing, and why (the reason is for the log, never for the reviewer):
+    /// then there is no answer, no suggestion and no intent, and the window shows nothing - the
+    /// conversation ends quietly.
+    pub no_action: Option<String>,
+}
+
+impl Reply {
+    /// A reply that does nothing, for `reason`.
+    #[must_use]
+    pub fn nothing(reason: &str) -> Self {
+        Self {
+            no_action: Some(reason.trim().to_string()),
+            ..Self::default()
+        }
+    }
+
+    /// The agent chose to do nothing.
+    #[must_use]
+    pub fn is_no_action(&self) -> bool {
+        self.no_action.is_some()
+    }
 }
 
 // ==== The prompt ====
 
+/// When to do nothing, as ONE block of both system prompts.
+macro_rules! no_action_rules {
+    () => {
+        "\
+When to do nothing: reply with exactly {\"action\": \"none\", \"reason\": \"one short sentence for the log\"} and nothing else (no answer, no suggestions, no code fence) when:
+- the words are nonsense, unrelated to the code at hand, or a test phrase (\"hello world, this is a test\", \"testing one two\", \"can you hear me\");
+- they are empty, too short, or made of words the recogniser was unsure of, so that nothing can be acted on;
+- they only wish for something vague (\"make it better\", \"clean this up\", \"fix this\") without saying what to change: guessing the likeliest edit is still guessing;
+- they allow several different edits that do different things and nothing (not the strokes, not the code) says which is meant, or you cannot resolve them with confidence.
+A stroke settles what \"this\", \"that\" and \"it\" mean: they are what the strokes mark (the words under them, the lines they cover), so with a stroke on code they are clear; take the smallest whole piece of code that makes the edit sound (removing only the name of a variable would break its line: remove the line).
+The reviewer is told nothing when you do nothing, so do not explain, apologise or ask a question: the reason is for the log.
+When in doubt, do nothing: never change code on a doubtful input (a wrong edit costs the reviewer more than none, and an answer to nonsense is noise). A clear instruction is not doubtful: do it."
+    };
+}
+
+/// How to read the words, as ONE block of both system prompts.
+macro_rules! speech_rules {
+    () => {
+        "\
+The words are the output of speech-to-text, which mishears: names of identifiers, short words, numbers, words of another language. Each word may come with the probability the recogniser gave it (0 to 1; a low one is a guess), and the request lists a vocabulary of names near the strokes (how a name is spoken is in brackets). Read the words as speech with likely mishearings: resolve a misheard word against that vocabulary and the code shown (a word that sounds like one of those names is that name), and say what you understood, with the mishearings corrected, in \"heard_as\" (one sentence, no label in it; in a plain-text answer, not in JSON, a first line \"Heard as: ...\"); the raw transcript stays untouched in the note. Do this whenever you read a word as another one: a misheard word put right, and a name that was spoken as separate words read as that name (\"compute stale flag\" is compute_stale_flag). Leave heard_as out when the words were clear. A word marked biased is one the recogniser was told to listen for (it is in the vocabulary): its probability is often low although the word is right, so a low probability on a biased word is no reason to do nothing. If you cannot resolve the words with confidence, do nothing."
+    };
+}
+
+/// The block of both system prompts that says when to do nothing.
+pub const NO_ACTION_RULES: &str = no_action_rules!();
+/// The block of both system prompts that says how to read the words.
+pub const SPEECH_RULES: &str = speech_rules!();
+
 /// The standing instructions of the editing agent.
-pub const EDITING_SYSTEM: &str = "\
+pub const EDITING_SYSTEM: &str = concat!(
+    "\
 You are the editing agent of AzReview, an ink-first code review app. A reviewer reads source code on pages, marks it with a pen and talks while drawing. You get the strokes, the words said while they were drawn and the code around them. You PROPOSE edits; the reviewer accepts or rejects each one. You never write files and you never say that something was changed.
 
 Reply with exactly one JSON object and nothing else (no prose, no code fence):
 {\"answer\": \"one or two plain sentences for the reviewer\",
+ \"heard_as\": \"what you understood the reviewer said (only when the words were misheard)\",
  \"suggestions\": [
   {\"kind\": \"insert_lines\", \"after_line\": 41, \"lines\": [\"    let n = items.len();\"]},
   {\"kind\": \"replace\", \"start\": {\"line\": 39, \"col\": 8}, \"end\": {\"line\": 39, \"col\": 11}, \"old\": \"foo\", \"text\": \"bar\"},
@@ -172,18 +248,157 @@ Rules:
 - old is the exact text now in the range: always give it for replace and remove, so the app can check the range.
 - Propose only what the reviewer asked for or clearly meant with their words and strokes, and keep each edit small. A comment you write follows the comment syntax of the file.
 - If the reviewer asks a question, or you are not sure what they mean, put your reply in answer and send no suggestions.
-- Write answer in the reviewer's language.";
+- \"Shape features\" are hints computed on the reviewer's machine from the strokes (an underline, a circle, a scribble, the words a stroke covers): read them with the SVG; they can be wrong.
+- Write answer in the reviewer's language.
+
+",
+    no_action_rules!(),
+    "
+
+",
+    speech_rules!()
+);
 
 /// The standing instructions of the exploration agent.
-pub const EXPLORATION_SYSTEM: &str = "\
-You are the exploration agent of AzReview, an ink-first code review app. A reviewer reads source code on pages, marks it with a pen and talks while drawing. You get the strokes, the words said while they were drawn and the code around them, and you answer their questions about the code. You may read the files of the workspace with the read-only tools you have; you cannot change anything and you never say that something was changed.
+pub const EXPLORATION_SYSTEM: &str = concat!(
+    "\
+You are the exploration agent of AzReview, an ink-first code review app. A reviewer reads source code on pages, marks it with a pen and talks while drawing. You get the strokes, the words said while they were drawn and the code around them, and you answer their questions about the code. The request also lists \"Shape features\" of the strokes: hints computed on the reviewer's machine (an underline, a circle, the words a stroke covers); they can be wrong. You may read the files of the workspace with the read-only tools you have; you cannot change anything and you never say that something was changed.
 
 Answer in plain text (Markdown is fine): short, concrete, in the reviewer's language; name files and line numbers.
-Only if the reviewer asks for a change, end your answer with one fenced json block {\"suggestions\": [...]} whose entries are {\"kind\": \"insert_lines\", \"after_line\": N, \"lines\": [...]}, {\"kind\": \"replace\", \"start\": {\"line\": L, \"col\": C}, \"end\": {\"line\": L, \"col\": C}, \"old\": \"...\", \"text\": \"...\"} or {\"kind\": \"remove\", \"start\": {...}, \"end\": {...}, \"old\": \"...\"}: lines are 1-based as shown, col is a 0-based byte offset, end is exclusive, old is the exact text now in the range.";
+Only if the reviewer asks for a change, end your answer with one fenced json block {\"suggestions\": [...]} whose entries are {\"kind\": \"insert_lines\", \"after_line\": N, \"lines\": [...]}, {\"kind\": \"replace\", \"start\": {\"line\": L, \"col\": C}, \"end\": {\"line\": L, \"col\": C}, \"old\": \"...\", \"text\": \"...\"} or {\"kind\": \"remove\", \"start\": {...}, \"end\": {...}, \"old\": \"...\"}: lines are 1-based as shown, col is a 0-based byte offset, end is exclusive, old is the exact text now in the range.
+
+",
+    no_action_rules!(),
+    "
+
+",
+    speech_rules!()
+);
 
 /// The clause that asks for an intent when a stroke has no chosen meaning.
 pub const INTENT_CLAUSE: &str = "\
 - Some strokes carry no meaning the reviewer chose. Add \"intent\": {\"meaning\": \"scope|issue|question|duplicate|praise|other\", \"confidence\": 0.0 to 1.0, \"rationale\": \"one short sentence\"} saying what you think those strokes mean. A meaning the reviewer chose is final: never change them.";
+
+// ==== The vocabulary ====
+
+/// Names of code that are no name worth listening for (the words every line of a language has).
+static PLAIN_WORDS: &[&str] = &[
+    "let", "mut", "pub", "use", "mod", "impl", "else", "for", "while", "loop", "return", "self",
+    "Self", "true", "false", "def", "class", "import", "from", "var", "const", "function", "int",
+    "str", "void", "null", "None", "new", "this", "then", "end", "not", "and", "with", "try",
+    "pass", "the", "ref", "dyn", "move", "elif", "bool", "char", "float",
+];
+
+/// The names of a line of code, in order: three to forty-eight characters, no number, no word every
+/// line has.
+fn identifiers(line: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut start: Option<usize> = None;
+    for (i, c) in line.char_indices() {
+        let part = c.is_alphanumeric() || c == '_';
+        match (part, start) {
+            (true, None) => start = Some(i),
+            (false, Some(begin)) => {
+                out.push(&line[begin..i]);
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    if let Some(begin) = start {
+        out.push(&line[begin..]);
+    }
+    out.retain(|w| {
+        (3..=48).contains(&w.chars().count())
+            && w.chars()
+                .next()
+                .is_some_and(|c| c.is_alphabetic() || c == '_')
+            && !PLAIN_WORDS.contains(w)
+    });
+    out
+}
+
+/// How a name is spoken: `get_user_name` and `getUserName` are "get user name", `AzReview` is "az
+/// review" (none for a name of one part).
+#[must_use]
+pub fn spoken(name: &str) -> Option<String> {
+    let chars: Vec<char> = name.chars().collect();
+    let mut parts: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for (i, &c) in chars.iter().enumerate() {
+        if matches!(c, '_' | '-' | '.' | '/') {
+            if !current.is_empty() {
+                parts.push(std::mem::take(&mut current));
+            }
+            continue;
+        }
+        let boundary = i > 0
+            && c.is_uppercase()
+            && (chars[i - 1].is_lowercase()
+                || chars[i - 1].is_ascii_digit()
+                || (chars[i - 1].is_uppercase()
+                    && chars.get(i + 1).is_some_and(|n| n.is_lowercase())));
+        if boundary && !current.is_empty() {
+            parts.push(std::mem::take(&mut current));
+        }
+        current.push(c);
+    }
+    if !current.is_empty() {
+        parts.push(current);
+    }
+    (parts.len() >= 2).then(|| {
+        parts
+            .iter()
+            .map(|p| p.to_lowercase())
+            .collect::<Vec<_>>()
+            .join(" ")
+    })
+}
+
+/// The names near the strokes that the reviewer may have said: what the words are read against, and
+/// what a recogniser can be told to listen for. The words under the strokes come first, then the names
+/// on the lines they cover and on the lines nearby (the nearest first), then the parts of the file's
+/// path; each once, at most `max`.
+#[must_use]
+pub fn vocabulary(ctx: &Context, max: usize) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut add = |name: &str| {
+        if out.len() < max && !out.iter().any(|n| n == name) {
+            out.push(name.to_string());
+        }
+    };
+    for w in &ctx.words_under {
+        for name in identifiers(&w.text) {
+            add(name);
+        }
+    }
+    let middle = ctx
+        .focus
+        .map_or(ctx.first_line + ctx.lines.len() / 2, |(a, b)| (a + b) / 2);
+    let mut order: Vec<usize> = (0..ctx.lines.len()).collect();
+    order.sort_by_key(|i| (ctx.first_line + i).abs_diff(middle));
+    for i in order {
+        for name in identifiers(&ctx.lines[i]) {
+            add(name);
+        }
+    }
+    for part in ctx.file.split('/') {
+        for name in identifiers(part.split('.').next().unwrap_or(part)) {
+            add(name);
+        }
+    }
+    out
+}
+
+/// Whether the recogniser was told to listen for `word`: it says so, or the word is a name of the
+/// request's `vocabulary` (compared without regard to case, punctuation round it set aside).
+#[must_use]
+pub fn is_biased(word: &SaidWord, vocabulary: &[String]) -> bool {
+    let bare = word
+        .w
+        .trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+    word.biased || (!bare.is_empty() && vocabulary.iter().any(|v| v.eq_ignore_ascii_case(bare)))
+}
 
 /// The most characters of a language tag and of a file path that are sent.
 const MAX_LANGUAGE: usize = 35;
@@ -208,9 +423,15 @@ struct Parts<'a> {
     code: Vec<(usize, String)>,
     words: &'a [WordRef],
     svg: String,
+    /// What each stroke looks like, as a line each.
+    features: Vec<String>,
     stroke_ids: Vec<(u64, u64, u64)>,
     strokes: &'a [StrokeInput],
     utterances: &'a [Utterance],
+    /// The names the words are read against.
+    vocabulary: Vec<String>,
+    /// The most words of one utterance that are listed with their probabilities.
+    said_words_cap: usize,
     turns: &'a [Turn],
     workspace: bool,
 }
@@ -221,6 +442,35 @@ fn seconds(ms: u64) -> String {
 
 fn one_line(text: &str) -> String {
     text.replace(['\r', '\n'], " ")
+}
+
+/// The words of an utterance with the probability the recogniser gave each (`rename 0.91, enum 0.32
+/// (biased)`), when it gave any; at most `cap` words.
+fn word_probabilities(u: &Utterance, vocabulary: &[String], cap: usize) -> Option<String> {
+    if u.words.iter().all(|w| w.p.is_none()) {
+        return None;
+    }
+    let mut items: Vec<String> = u
+        .words
+        .iter()
+        .take(cap)
+        .map(|w| {
+            let word = one_line(&w.w);
+            let biased = if is_biased(w, vocabulary) {
+                " (biased)"
+            } else {
+                ""
+            };
+            match w.p {
+                Some(p) if p.is_finite() => format!("{word} {:.2}{biased}", p.clamp(0.0, 1.0)),
+                _ => format!("{word}{biased}"),
+            }
+        })
+        .collect();
+    if u.words.len() > cap {
+        items.push(format!("... ({} more words)", u.words.len() - cap));
+    }
+    Some(items.join(", "))
 }
 
 /// The user's part of the prompt.
@@ -278,6 +528,15 @@ fn assemble(parts: &Parts<'_>) -> String {
         out.push_str(&parts.svg);
         out.push('\n');
     }
+    if !parts.features.is_empty() {
+        out.push_str(
+            "\nShape features of the strokes (computed on this machine from the strokes: hints, not facts):\n",
+        );
+        for line in &parts.features {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
     if !parts.utterances.is_empty() {
         out.push_str("\nWhat the reviewer said (seconds on the session's clock):\n");
         for u in parts.utterances {
@@ -298,7 +557,25 @@ fn assemble(parts: &Parts<'_>) -> String {
                 seconds(u.end_ms),
                 one_line(&u.text)
             ));
+            if let Some(line) = word_probabilities(u, &parts.vocabulary, parts.said_words_cap) {
+                out.push_str("  word probabilities: ");
+                out.push_str(&line);
+                out.push('\n');
+            }
         }
+    }
+    if !parts.vocabulary.is_empty() {
+        out.push_str("\nVocabulary near the strokes (names the reviewer may have said; how a name is spoken is in brackets):\n");
+        let names: Vec<String> = parts
+            .vocabulary
+            .iter()
+            .map(|n| match spoken(n) {
+                Some(said) => format!("{n} [{said}]"),
+                None => n.clone(),
+            })
+            .collect();
+        out.push_str(&names.join(", "));
+        out.push('\n');
     }
     if !parts.strokes.is_empty() {
         out.push_str("\nMeaning of the strokes:\n");
@@ -430,6 +707,30 @@ pub fn build_call<'a>(
         ));
     }
 
+    // what the strokes look like and the names near them, on the lines that are sent (not on a whole
+    // file of them)
+    let view = Context {
+        file: ctx.file.clone(),
+        page: ctx.page,
+        first_line: code.first().map_or(ctx.first_line, |(n, _)| *n),
+        lines: code.iter().map(|(_, text)| text.clone()).collect(),
+        total_lines: ctx.total_lines,
+        focus: ctx.focus,
+        words_under: ctx
+            .words_under
+            .iter()
+            .take(limits.max_words_under)
+            .cloned()
+            .collect(),
+        grid: ctx.grid,
+    };
+    let features: Vec<String> = pairs
+        .iter()
+        .filter(|(_, sh)| !sh.points.is_empty())
+        .map(|(s, sh)| describe(&analyze(s, sh, &view)))
+        .collect();
+    let vocabulary = vocabulary(&view, limits.max_vocabulary);
+
     // the words under the strokes
     let words: &[WordRef] = if ctx.words_under.len() > limits.max_words_under {
         notes.push(format!(
@@ -522,9 +823,12 @@ pub fn build_call<'a>(
             code: code.clone(),
             words,
             svg: svg.clone(),
+            features: features.clone(),
             stroke_ids: stroke_ids.clone(),
             strokes,
             utterances: &utterances[utter_from..],
+            vocabulary: vocabulary.clone(),
+            said_words_cap: limits.max_said_words,
             turns: &turns_kept[turn_from..],
             workspace: workdir.is_some(),
         };
@@ -973,11 +1277,74 @@ fn intent_of(value: &Json, limits: &Limits, notes: &mut Notes) -> Option<Intent>
     })
 }
 
+/// What a model calls "do nothing" in the `action` of a reply.
+static NO_ACTION_WORDS: &[&str] = &[
+    "none",
+    "no_action",
+    "no-action",
+    "noaction",
+    "nothing",
+    "do_nothing",
+    "do-nothing",
+    "ignore",
+    "skip",
+    "noop",
+    "no_op",
+];
+
+/// The longest `heard_as` that is kept, in characters.
+const MAX_HEARD_AS: usize = 400;
+
+/// Whether the object says to do nothing (`{"action": "none", "reason": "..."}`).
+fn action_is_none(value: &Json) -> bool {
+    agent_json::str_of(value, "action")
+        .is_some_and(|a| NO_ACTION_WORDS.contains(&a.trim().to_ascii_lowercase().as_str()))
+}
+
+/// The label a model puts in front of what it heard, even in a JSON value (`"Heard as: rename foo"`).
+const HEARD_AS_LABEL: &str = "heard as:";
+
+/// `text` without a leading `Heard as:` (the label is not part of what was heard).
+fn without_label(text: &str) -> &str {
+    let text = text.trim();
+    if text.len() >= HEARD_AS_LABEL.len()
+        && text.is_char_boundary(HEARD_AS_LABEL.len())
+        && text[..HEARD_AS_LABEL.len()].eq_ignore_ascii_case(HEARD_AS_LABEL)
+    {
+        text[HEARD_AS_LABEL.len()..].trim()
+    } else {
+        text
+    }
+}
+
+/// A first line `Heard as: ...` of a plain-text answer: what the agent understood, and the answer
+/// without that line.
+fn take_heard_as(answer: &str) -> (String, Option<String>) {
+    const LABEL: &str = HEARD_AS_LABEL;
+    let text = answer.trim_start();
+    let (first, rest) = text.split_once('\n').unwrap_or((text, ""));
+    let first = first.trim_start();
+    if first.len() >= LABEL.len()
+        && first.is_char_boundary(LABEL.len())
+        && first[..LABEL.len()].eq_ignore_ascii_case(LABEL)
+    {
+        let heard = cap_chars(first[LABEL.len()..].trim(), MAX_HEARD_AS).0;
+        return (
+            rest.trim().to_string(),
+            Some(heard).filter(|h| !h.is_empty()),
+        );
+    }
+    (answer.to_string(), None)
+}
+
 /// A JSON object that can be a reply: the exploration wants the words of the format, the editing
 /// takes what models call them as well.
 fn is_reply_object(value: &Json, task: Task) -> bool {
+    if action_is_none(value) {
+        return true;
+    }
     let keys: &[&str] = if task == Task::Exploration {
-        &["answer", "suggestions", "intent"]
+        &["answer", "suggestions", "intent", "heard_as"]
     } else {
         &[
             "answer",
@@ -989,6 +1356,7 @@ fn is_reply_object(value: &Json, task: Task) -> bool {
             "edits",
             "changes",
             "intent",
+            "heard_as",
         ]
     };
     keys.iter().any(|k| agent_json::get(value, k).is_some())
@@ -1000,6 +1368,26 @@ fn reply_from_json(
     limits: &Limits,
     notes: &mut Notes,
 ) -> Reply {
+    if action_is_none(value) {
+        let reason = first_str(value, &["reason", "why", "explanation", "message", "note"])
+            .unwrap_or("")
+            .trim();
+        let reason = cap_chars(&one_line(reason), limits.max_rationale_chars).0;
+        let said_something = !first_str(value, &["answer", "reply", "response", "text"])
+            .unwrap_or("")
+            .trim()
+            .is_empty()
+            || first_array(value, &["suggestions", "edits", "changes"])
+                .is_some_and(|a| !a.is_empty());
+        if said_something {
+            notes.push("the agent said to do nothing and gave an answer or suggestions as well: they were dropped");
+        }
+        return Reply::nothing(if reason.is_empty() {
+            "the agent chose to do nothing"
+        } else {
+            &reason
+        });
+    }
     let (answer, cut) = cap_chars(
         first_str(value, &["answer", "reply", "response", "message", "text"])
             .unwrap_or("")
@@ -1030,10 +1418,15 @@ fn reply_from_json(
         }
     }
     let intent = agent_json::get(value, "intent").and_then(|i| intent_of(i, limits, notes));
+    let heard_as = first_str(value, &["heard_as", "heard", "understood_as"])
+        .map(|t| cap_chars(&one_line(without_label(t)), MAX_HEARD_AS).0)
+        .filter(|t| !t.is_empty());
     Reply {
         answer,
         suggestions,
         intent,
+        heard_as,
+        no_action: None,
     }
 }
 
@@ -1077,6 +1470,17 @@ pub fn parse_body(
         return Err(bad("the reply is empty", ""));
     }
     let task = review.task;
+    // an object with nothing in it, alone (a `{}` in a text of prose is code, not a reply)
+    let bare = text
+        .trim_start_matches("```json")
+        .trim_start_matches("```JSON")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim();
+    if bare == "{}" {
+        notes.push("the reply was an empty object: it is read as doing nothing");
+        return Ok(Reply::nothing("the agent answered with nothing"));
+    }
     let found =
         agent_json::find_object_where(text, limits.max_reply_bytes, &|v| is_reply_object(v, task))
             .map_err(|e| bad(&format!("{e:?}"), text))?;
@@ -1101,16 +1505,33 @@ pub fn parse_body(
         if task == Task::Editing {
             notes.push("the agent answered in plain text, without suggestions");
         }
+        let (answer, heard_as) = take_heard_as(&answer);
+        if answer.trim().is_empty() {
+            return Err(bad(
+                "the reply has no answer but the line of what was heard",
+                text,
+            ));
+        }
         return Ok(Reply {
             answer,
             suggestions: Vec::new(),
             intent: None,
+            heard_as,
+            no_action: None,
         });
     };
     if found.repaired {
         notes.push("the reply's JSON had a line break inside a string or a comma before a bracket: it was repaired before it was read");
     }
     let mut reply = reply_from_json(&found.value, review, limits, notes);
+    if reply.is_no_action() {
+        if !text[..found.range.start].trim().is_empty() && task == Task::Exploration {
+            notes.push(
+                "the agent said to do nothing and wrote a text before it: the text was dropped",
+            );
+        }
+        return Ok(reply);
+    }
     if reply.answer.is_empty() && task == Task::Exploration {
         reply.answer = cap_chars(
             &prose_before(&text[..found.range.start]),
@@ -1118,11 +1539,25 @@ pub fn parse_body(
         )
         .0;
     }
+    if reply.heard_as.is_none() {
+        let (answer, heard_as) = take_heard_as(&reply.answer);
+        if heard_as.is_some() {
+            reply.answer = answer;
+            reply.heard_as = heard_as;
+        }
+    }
     if reply.answer.trim().is_empty() && reply.suggestions.is_empty() {
-        return Err(bad(
-            "the reply has neither an answer nor a usable suggestion",
-            text,
-        ));
+        let tried = first_array(&found.value, &["suggestions", "edits", "changes"])
+            .is_some_and(|items| !items.is_empty());
+        if tried {
+            return Err(bad(
+                "the reply has neither an answer nor a usable suggestion",
+                text,
+            ));
+        }
+        // a reply that is well formed and says nothing at all is an agent that does nothing
+        notes.push("the reply was empty: it is read as doing nothing");
+        return Ok(Reply::nothing("the agent answered with nothing"));
     }
     Ok(reply)
 }
@@ -1130,6 +1565,9 @@ pub fn parse_body(
 /// A reply as the JSON the agents are asked to write (what the mock sends, what a test parses).
 #[must_use]
 pub fn reply_json(reply: &Reply) -> Json {
+    if let Some(reason) = &reply.no_action {
+        return json!({"action": "none", "reason": reason});
+    }
     let pos = |p: &Pos| json!({"line": p.line, "col": p.col});
     let suggestions: Vec<Json> = reply
         .suggestions
@@ -1152,6 +1590,9 @@ pub fn reply_json(reply: &Reply) -> Json {
         })
         .collect();
     let mut object = json!({"answer": reply.answer, "suggestions": suggestions});
+    if let (Some(heard), Some(map)) = (&reply.heard_as, object.as_object_mut()) {
+        map.insert("heard_as".to_string(), json!(heard));
+    }
     if let (Some(intent), Some(map)) = (&reply.intent, object.as_object_mut()) {
         map.insert(
             "intent".to_string(),

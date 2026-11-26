@@ -1,0 +1,25 @@
+{
+  "id": "msg_000000000000000000000000",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-haiku-5-5",
+  "content": [
+    {
+      "type": "thinking",
+      "thinking": "",
+      "signature": "c2lnbmF0dXJl"
+    },
+    {
+      "type": "text",
+      "text": "{\"answer\": \"ok\", \"suggestions\": []}"
+    }
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 1263,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 43
+  }
+}

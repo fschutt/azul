@@ -539,6 +539,27 @@ pub fn ensure_mic_backend() {
     }
 }
 
+/// A microphone as a plain set of functions: open at `rate` Hz x `channels`, read what was
+/// captured (interleaved `f32`, the frame count back), close. The speech recognizers call them
+/// themselves, because they need the samples and not a widget.
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy)]
+pub(crate) struct RawMicrophone {
+    pub open: fn(sample_rate: u32, channels: u16) -> u64,
+    pub read: fn(handle: u64, out: &mut Vec<f32>) -> u32,
+    pub close: fn(handle: u64),
+}
+
+/// The microphone of this platform as plain functions (ALSA, which delivers the rate asked for).
+#[cfg(target_os = "linux")]
+pub(crate) fn raw_microphone() -> Option<RawMicrophone> {
+    Some(RawMicrophone {
+        open: alsa::mic_open,
+        read: alsa::mic_read,
+        close: alsa::mic_close,
+    })
+}
+
 /// The audio output (sink) + input (source) devices on this machine, by name —
 /// enumerate them so the app can pick where to play audio or which mic to capture.
 /// (A device can be both, e.g. a duplex interface — it then appears in both lists.)

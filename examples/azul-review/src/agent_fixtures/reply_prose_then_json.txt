@@ -1,0 +1,3 @@
+Removing the whole `let stale = ...` line, since the underline sits on it. Nothing else in the function uses `stale`.
+
+{"answer": "I suggest removing line 12, `let stale = compute_stale_flag(frame);`. Nothing else in this function uses `stale`.", "suggestions": [{"kind": "remove", "start": {"line": 12, "col": 0}, "end": {"line": 13, "col": 0}, "old": "    let stale = compute_stale_flag(frame);\n"}]}
