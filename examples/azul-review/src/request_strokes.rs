@@ -142,6 +142,38 @@ pub fn pick(note: &Note, strokes: &[Stroke]) -> Vec<StrokeInput> {
     about.into_iter().map(|(_, _, s)| handed_over(s)).collect()
 }
 
+/// The lines (their numbers in the file, both included) that the loops among `strokes` go round, as the whiteboard recognises a
+/// loop (`whiteboard_lasso`): what the reviewer circled is what they are talking about, so these lines are the focus of the
+/// request (the code the agent reads marks them) and not only the line of the anchor. Several loops give the range from the first
+/// line of the one to the last line of the other; strokes that are no loop, or go round no line, give `None`. `lines` are the
+/// lines of the strokes' page, whose first line is number `first_line`.
+#[must_use]
+pub fn circled_lines(strokes: &[StrokeInput], first_line: usize, lines: &[String]) -> Option<(usize, usize)> {
+    use crate::{
+        whiteboard_geom::Pt,
+        whiteboard_glue::{page_chars, page_lines},
+        whiteboard_lasso::{covered_lines, recognize},
+    };
+    if lines.is_empty() {
+        return None;
+    }
+    let chars = page_chars(lines);
+    let page = page_lines(first_line, &chars);
+    let mut range: Option<(usize, usize)> = None;
+    for stroke in strokes {
+        let points: Vec<Pt> = stroke.samples.iter().map(|s| Pt::new(s.x, s.y)).collect();
+        let Ok(lasso) = recognize(&points) else {
+            continue;
+        };
+        let Some(covered) = covered_lines(&lasso.polygon, &page) else {
+            continue;
+        };
+        let (a, b) = (covered.first as usize, covered.last as usize);
+        range = Some(range.map_or((a, b), |(x, y)| (x.min(a), y.max(b))));
+    }
+    range
+}
+
 /// A word is something with a letter, a digit or `_` in it: the signs between words (`{`, `->`, `;`) are not what a stroke is on.
 fn is_word(text: &str) -> bool {
     text.chars().any(|c| c.is_alphanumeric() || c == '_')
