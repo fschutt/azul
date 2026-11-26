@@ -38,8 +38,12 @@ pub(super) const CONTEXT_NOT_READY: &str = "the Android context is not ready: Ir
     the window exists, from a callback such as the first layout callback or a button press";
 
 /// `Ok` when the engine may start I/O, the diagnostic when it may not.
-pub(super) fn require_context(_platform: &dyn Platform) -> Result<(), String> {
-    Ok(())
+pub(super) fn require_context(platform: &dyn Platform) -> Result<(), String> {
+    if platform.android_context_ready() {
+        Ok(())
+    } else {
+        Err(CONTEXT_NOT_READY.to_string())
+    }
 }
 
 #[cfg(test)]
