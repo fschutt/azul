@@ -158,6 +158,17 @@ pub const REQUIRED_FUNCTIONS: &[&str] = &[
     "glGetProgramBinary",
 ];
 
+/// A string of the driver (`glGetString`) as one line of text: control characters (the terminating NUL the loader leaves on every
+/// string it returns, newlines, tabs) and runs of blanks become single spaces, the ends are trimmed. A log line cannot carry a NUL
+/// (Android's logger drops the whole line), and an exact comparison of a driver's name never matches one that has it.
+#[must_use]
+pub fn clean_driver_string(raw: &str) -> String {
+    raw.split(|c: char| c.is_control() || c.is_whitespace())
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 #[cfg(test)]
 #[path = "gles_probe_test.rs"]
 mod tests;

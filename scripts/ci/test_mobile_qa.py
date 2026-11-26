@@ -532,5 +532,38 @@ class GpuPathTests(unittest.TestCase):
             self.assertEqual(seen, ["a-needs"])
 
 
+class EngineLinesTests(unittest.TestCase):
+    DUMP = "\n".join([
+        "11-26 10:00:01.000  100  100 I ActivityManager: Start proc 2492:com.azul.AzWidgets/u0a141",
+        "11-26 10:00:02.100  2492  2492 I RustStdoutStderr: [render] backend=gpu requested=gpu device=Mali-G78",
+        "11-26 10:00:02.200  2492  2492 I Choreographer: Skipped 3 frames",
+        "11-26 10:00:03.300  2492  2530 E RustStdoutStderr: thread 'WRRenderBackend#0' panicked at render_backend.rs:463",
+        "11-26 10:00:04.400  2492  2492 W libEGL  : EGL_BAD_SURFACE",
+    ])
+
+    def test_only_what_the_renderer_said_is_kept(self):
+        kept = q.engine_lines(self.DUMP).splitlines()
+        self.assertEqual(len(kept), 3)
+        self.assertTrue(all("ActivityManager" not in l and "Choreographer" not in l for l in kept))
+        self.assertIn("[render] backend=gpu", kept[0])
+
+    def test_the_last_lines_win_and_long_lines_are_cut(self):
+        many = "\n".join(f"11-26 10:00:00.000  1  1 I x: [render] line {i} " + "y" * 500 for i in range(50))
+        kept = q.engine_lines(many, limit=10).splitlines()
+        self.assertEqual(len(kept), 10)
+        self.assertIn("line 49", kept[-1])
+        self.assertTrue(all(len(l) <= 300 for l in kept))
+
+    def test_a_gpu_run_calls_a_black_window_with_the_system_bars_no_page(self):
+        # a black window with the status and navigation bars: 99.7 % of the samples are one colour
+        bars = [0, 0, 0] * 997 + [255, 255, 255, 200, 200, 200, 100, 100, 100]
+        self.assertGreaterEqual(q.flat_fraction(bars), 0.99)
+        self.assertLess(q.flat_fraction(bars), q.FLAT_FRACTION, "the old test calls it a picture")
+        self.assertGreater(q.flat_fraction(bars), q.GPU_CONTENT_FLAT_BELOW)
+        # the first screen of AzWidgets shares about half of its samples
+        page = [255, 255, 255] * 53 + [v for n in range(47) for v in (n, n, n)]
+        self.assertLess(q.flat_fraction(page), q.GPU_CONTENT_FLAT_BELOW)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -304,10 +304,11 @@ impl DeviceInfo {
     }
 }
 
-/// `text` as one line: whitespace runs (newlines included) become one space, capped at
+/// `text` as one line: whitespace and control characters (newlines included) become one space, capped at
 /// [`LINE_TEXT_MAX_CHARS`] characters; `blank` stands for nothing.
 fn one_line(text: &str, blank: &str) -> String {
-    let joined = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    // Control characters too: a line with a NUL in it is dropped whole by Android's logger.
+    let joined = super::gles_probe::clean_driver_string(text);
     if joined.is_empty() {
         return blank.to_string();
     }

@@ -214,6 +214,8 @@ pub struct GlesGpu {
     renderers_made: u32,
     /// The first frame of the current renderer is timed (WebRender compiles its programs lazily, in that frame).
     first_frame_pending: bool,
+    /// A swap that found the surface gone was reported for the current surface (one line, not one per frame).
+    swap_loss_reported: bool,
     /// What the window decided about its renderer.
     decision: Option<Decision>,
     /// The frames this path presents, measured inside the engine: one `[render] frames n=..` line a second while they come
@@ -271,6 +273,7 @@ impl GlesGpu {
             full_swap_owed: true,
             renderers_made: 0,
             first_frame_pending: false,
+            swap_loss_reported: false,
             decision: None,
             frame_stats: FrameStats::new(),
             clock: Instant::now(),
@@ -583,6 +586,7 @@ impl GlesGpu {
         }
         self.size_px = (surface.width, surface.height);
         self.full_swap_owed = true;
+        self.swap_loss_reported = false;
         let _ = self.damage.take();
         Ok(())
     }
@@ -712,6 +716,17 @@ impl GlesGpu {
         // What the window surface is, as EGL says it (it follows the native window at the next swap).
         let size = session.surface_size().unwrap_or(self.size_px);
         let age = session.buffer_age();
+        if self.first_frame_pending {
+            // The loop's thread is inside this frame until WebRender has compiled the programs it needs: a phone's GPU takes a
+            // fraction of a second, a software GL (the emulator's) a minute or two, and the window stays empty until then.
+            log_info!(
+                LogCategory::Rendering,
+                "[render] drawing the first frame at {}x{} px: WebRender compiles the programs it needs in it",
+                size.0,
+                size.1
+            );
+            self.note("first_gpu_frame_started", &format!("{}x{}", size.0, size.1));
+        }
         gpu_renderer::render_frame(ctx.common, size, age)?;
         // What the draw cost the loop's thread: WebRender's commands for the frame, before the swap that may wait for the display.
         let draw_us = u64::try_from(started.elapsed().as_micros()).ok();
@@ -748,7 +763,16 @@ impl GlesGpu {
                 Ok(())
             }
             // The system took the window; `TerminateWindow` is on its way and the next surface gets the next frame.
-            Err(SwapError::SurfaceLost) => Ok(()),
+            Err(SwapError::SurfaceLost) => {
+                if !self.swap_loss_reported {
+                    self.swap_loss_reported = true;
+                    log_warn!(
+                        LogCategory::Rendering,
+                        "[render] eglSwapBuffers: the window surface is gone; frames are dropped until the next surface"
+                    );
+                }
+                Ok(())
+            }
             Err(SwapError::ContextLost) => Err(GpuFallback::new(
                 GpuStage::Lost,
                 "eglSwapBuffers: the context was lost",

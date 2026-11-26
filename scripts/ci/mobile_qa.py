@@ -230,6 +230,17 @@ def backend_ran(text):
     return found or ("unknown", None, None)
 
 
+ENGINE_LINE_KEYS = ("[render]", "panicked", "FATAL", "libEGL", "EGL_", "WebRender", "webrender", "GLES", "RustStdoutStderr", "AndroidRuntime",
+                    "DEBUG", "tombstone", "signal ")
+
+
+def engine_lines(text, limit=400):
+    """The lines of a `logcat -v threadtime` dump that tell what the engine's renderer did (its `[render]` lines, the driver's, WebRender's, a
+    panic, a native crash): the last `limit` of them, each cut at 300 characters, to keep beside the verdict of the step."""
+    keep = [line[:300] for line in text.splitlines() if any(key in line for key in ENGINE_LINE_KEYS)]
+    return "\n".join(keep[-limit:]) + "\n"
+
+
 # The one diagnostic of a request for the GPU that fell back (the engine writes it BEFORE the contract line, once):
 #     [render] gpu unavailable at <stage>: <cause>; drawing on the CPU
 FALLBACK_LINE = re.compile(r"\[render\] gpu unavailable at (\w+): (.*?); drawing on the CPU")
@@ -563,6 +574,9 @@ def device_is_software(device):
 
 
 GPU_FIRST_FRAME_SECONDS = 120
+# A GPU window that has drawn its page shares its dominant colour with at most this fraction of the samples (AzWidgets' first screen is about
+# 0.5); a black window with the system bars is 0.997, which FLAT_FRACTION (0.999) calls a picture: a GPU run waits for the page itself.
+GPU_CONTENT_FLAT_BELOW = 0.97
 
 
 def first_frame_timeout_for(mode, base):
@@ -664,6 +678,8 @@ def ran_pair(cpu, gpu):
 # ---------------------------------------------------------------------------------------------
 class Android:
     def __init__(self, run, package, activity="", serial=""):
+        # how flat the screen may be to count as the app's first frame (`wait_for_front`); a GPU run sets it lower: see GPU_CONTENT_FLAT_BELOW
+        self.front_flat = FLAT_FRACTION
         self.run, self.package, self.activity, self.serial = run, package, activity, serial
         self.home_sig = None
         self.last_sig = None
@@ -820,7 +836,11 @@ class Android:
         self.sh(f"settings put system user_rotation {quarter_turns}")
 
     def wait_for_front(self, timeout=40):
-        """Seconds until the app is alive, has the focus and its screen is neither flat nor the launcher; None on timeout."""
+        """Seconds until the app is alive, has the focus and its screen is neither flat nor the launcher; None on timeout. A GPU run
+        (`front_flat` below FLAT_FRACTION) waits for the page itself, up to GPU_FIRST_FRAME_SECONDS: on a software GL the window is
+        black until WebRender has compiled its programs."""
+        if self.front_flat < FLAT_FRACTION:
+            timeout = max(timeout, GPU_FIRST_FRAME_SECONDS)
         t0 = time.time()
         seen_alive = False
         while time.time() - t0 < timeout:
@@ -831,7 +851,7 @@ class Android:
                     sig, _w, _h, _rgba = signature_android_raw(self.adb("exec-out", "screencap", binary=True, timeout=60))
                 except ValueError:
                     sig = None
-                if sig and not is_flat(sig) and (self.home_sig is None or sig_diff(sig, self.home_sig) > LAUNCHER_BELOW):
+                if sig and flat_fraction(sig) < self.front_flat and (self.home_sig is None or sig_diff(sig, self.home_sig) > LAUNCHER_BELOW):
                     self.last_sig = sig
                     return time.time() - t0
             elif alive:
@@ -879,6 +899,9 @@ def android_scenarios(args):
     run = Run(args.out, "android", {"label": args.label, "package": args.package, "gpu": args.gpu, "apk": os.path.basename(args.apk or "")})
     run.only = set(args.only.split(",")) if args.only else None
     dev = Android(run, args.package, args.activity, args.serial)
+    if args.backend == "gpu":
+        dev.front_flat = GPU_CONTENT_FLAT_BELOW
+        args.first_frame_timeout = max(args.first_frame_timeout, GPU_FIRST_FRAME_SECONDS)
     pts = json.loads(args.points) if args.points else {}
     P = {  # fractions of the screen, from the Widget Showcase in portrait (AzWidgets)
         "dark": (0.511, 0.113), "system": (0.234, 0.113), "text_input": (0.50, 0.332), "switch": (0.15, 0.68),
@@ -997,12 +1020,14 @@ def android_scenarios(args):
         for mode in ("cpu", "gpu", "auto"):
             dev.sh(f"setprop debug.az.env '{render_env(f'AZ_BACKEND={mode}')}'")
             dev.adb("logcat", "-c")
+            dev.front_flat = GPU_CONTENT_FLAT_BELOW if mode == "gpu" else FLAT_FRACTION
             dev.launch(cold=True)
             t = dev.wait_for_front(timeout=first_frame_timeout_for(mode, args.first_frame_timeout))
             dev.settle(2.5)
             sig = dev.look(s, f"AZ_BACKEND-{mode}")
             rgba, dims = dev.last_rgba, dev.dims
             text = dev.adb("logcat", "-d", "-v", "threadtime", timeout=120)
+            dev.save_log(f"engine-AZ_BACKEND-{mode}.txt", engine_lines(text))
             ran, requested, device = backend_ran(text)
             if ran == "unknown" and any("[Android] present" in l for l in text.splitlines()):
                 ran, device = "cpu", "inferred: the CPU present path (ANativeWindow_lock) logged its frames"
@@ -1016,6 +1041,7 @@ def android_scenarios(args):
             results[mode] = {"ran": ran, "requested": requested, "device": device, "rgba": rgba, "dims": dims, "first_frame_s": t,
                              "displayed_ms": displayed_ms(text, args.package), "frames": frames, "mem": mem}
         report_modes(run, s, results, args.expect_gpu, "android", hardware=args.hardware)
+        dev.front_flat = GPU_CONTENT_FLAT_BELOW if args.backend == "gpu" else FLAT_FRACTION
         dev.sh(f"setprop debug.az.env '{render_env(base_backend)}'")
         dev.launch(cold=True)       # the default start again: what the later steps compare with
         dev.wait_for_front(timeout=args.first_frame_timeout)
@@ -1069,7 +1095,9 @@ def android_scenarios(args):
         that was lost and made again, a context that was rebuilt, must not have put the window on the CPU renderer without a word."""
         if args.backend != "gpu":
             return
-        ran, requested, device = backend_ran(dev.adb("logcat", "-d", "-v", "threadtime", timeout=120))
+        text = dev.adb("logcat", "-d", "-v", "threadtime", timeout=120)
+        dev.save_log(f"engine-{s.name}.txt", engine_lines(text))
+        ran, requested, device = backend_ran(text)
         s.check("the renderer after this step is still the GPU one", ran == "gpu", f"the engine's last [render] line says {ran} ({requested})",
                 required=args.expect_gpu)
 

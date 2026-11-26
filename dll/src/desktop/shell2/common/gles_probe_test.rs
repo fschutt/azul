@@ -113,3 +113,23 @@ fn the_required_functions_are_the_es_3_core_ones_and_name_no_desktop_only_call()
     sorted.dedup();
     assert_eq!(sorted.len(), REQUIRED_FUNCTIONS.len());
 }
+
+/// `gl-context-loader`'s `get_string` returns the C string WITH its terminating NUL (`cstr_from_ptr` takes `len + 1` bytes). Android's
+/// logger drops a whole line that has a NUL in it (the `[render] backend=gpu requested=gpu device=<GL_RENDERER>` line the QA reads was
+/// missing from the log of every GPU run for this reason), so the strings of the driver are cleaned before they go anywhere.
+#[test]
+fn a_driver_string_loses_the_terminator_the_loader_leaves_on_it() {
+    assert_eq!(clean_driver_string("Android Emulator OpenGL ES Translator (Google SwiftShader)\0"), "Android Emulator OpenGL ES Translator (Google SwiftShader)");
+    assert_eq!(clean_driver_string("Mali-G78\0"), "Mali-G78");
+    assert_eq!(clean_driver_string("Adreno (TM) 740"), "Adreno (TM) 740");
+    assert_eq!(clean_driver_string("\0"), "");
+    assert_eq!(clean_driver_string(""), "");
+}
+
+/// A line is one line: every control character and every run of blanks is one space, the ends are trimmed.
+#[test]
+fn control_characters_and_runs_of_blanks_become_single_spaces() {
+    assert_eq!(clean_driver_string("  OpenGL ES 3.2\n\tV@0502.0 \r\n"), "OpenGL ES 3.2 V@0502.0");
+    assert_eq!(clean_driver_string("a\0b\u{7}c"), "a b c");
+    assert_eq!(clean_driver_string("Mesa  llvmpipe\0\0"), "Mesa llvmpipe");
+}
