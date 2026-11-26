@@ -1244,15 +1244,16 @@ pub fn content_rect_to_screen(
 /// scroll frame's offset inside the frames around it - as the bounding box of
 /// the four corners. `rect` itself when no frame is around it, or when a
 /// corner is not drawn.
-fn rect_to_screen(
+/// The reference frames and the scroll frames a box of `layout_idx` is painted in, outermost
+/// first (empty when it is painted in none): what [`rect_to_screen`] maps a rect through and
+/// [`screen_point_to_layout_space`] maps a point back through.
+fn frame_chain(
     layout_result: &DomLayoutResult,
     dom_id: DomId,
     layout_idx: usize,
-    rect: LogicalRect,
     inclusivity: Inclusivity,
-    resolve_scroll: &dyn Fn(DomId, NodeId) -> Option<LogicalPosition>,
     resolve_transform: &dyn Fn(DomId, NodeId) -> Option<azul_core::transform::ComputedTransform3D>,
-) -> LogicalRect {
+) -> Vec<HitChainLink> {
     let tree = &layout_result.layout_tree;
     let nodes = &tree.nodes;
 
@@ -1313,18 +1314,68 @@ fn rect_to_screen(
         links.push((up, 1, HitChainLink::Scroll(dom_id, link.node)));
     }
     if links.is_empty() {
-        return rect;
+        return Vec::new();
     }
     // Outermost first; of one box, its reference frame is around its scroll
     // frame (the frame wraps the box, the scroll frame its content).
     links.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
-    let chain: Vec<HitChainLink> = links.into_iter().map(|(_, _, link)| link).collect();
+    links.into_iter().map(|(_, _, link)| link).collect()
+}
+
+fn rect_to_screen(
+    layout_result: &DomLayoutResult,
+    dom_id: DomId,
+    layout_idx: usize,
+    rect: LogicalRect,
+    inclusivity: Inclusivity,
+    resolve_scroll: &dyn Fn(DomId, NodeId) -> Option<LogicalPosition>,
+    resolve_transform: &dyn Fn(DomId, NodeId) -> Option<azul_core::transform::ComputedTransform3D>,
+) -> LogicalRect {
+    let chain = frame_chain(layout_result, dom_id, layout_idx, inclusivity, resolve_transform);
+    if chain.is_empty() {
+        return rect;
+    }
     let live = LiveValues {
         scroll: resolve_scroll,
         transform: resolve_transform,
         view_shift: &no_view_shift,
     };
     chain_rect_to_screen(&chain, rect, &live).unwrap_or(rect)
+}
+
+/// The inverse of [`node_rect_to_screen`] for a point: where `point` of the window is in the
+/// layout space of the box `layout_idx` of `dom_id` (the space its `calculated_positions` entry
+/// is in), after the scroll frames and the reference frames - the box's own included - that the
+/// raster paints it through are taken off, the outermost first. `point` itself when the box is
+/// painted in no frame; `None` when a frame cannot be inverted (a zero scale: nothing of the box
+/// is drawn).
+///
+/// What a pointer that left its node while it holds the capture is measured with: the same
+/// mapping the hit tester has for a pointer inside the node.
+pub fn screen_point_to_layout_space(
+    layout_result: &DomLayoutResult,
+    dom_id: DomId,
+    layout_idx: usize,
+    point: LogicalPosition,
+    resolve_scroll: &dyn Fn(DomId, NodeId) -> Option<LogicalPosition>,
+    resolve_transform: &dyn Fn(DomId, NodeId) -> Option<azul_core::transform::ComputedTransform3D>,
+) -> Option<LogicalPosition> {
+    let chain = frame_chain(
+        layout_result,
+        dom_id,
+        layout_idx,
+        Inclusivity::AncestorsOnly,
+        resolve_transform,
+    );
+    if chain.is_empty() {
+        return Some(point);
+    }
+    let live = LiveValues {
+        scroll: resolve_scroll,
+        transform: resolve_transform,
+        view_shift: &no_view_shift,
+    };
+    chain_to_local(&chain, point, &live).map(plane_point)
 }
 
 /// One interned chain: the chain it extends, and one more link inside it.
