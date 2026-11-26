@@ -96,10 +96,12 @@ fn the_generic_keywords_are_read_as_such() {
 
 #[test]
 fn what_is_no_colour_and_no_thickness_is_no_value() {
-    for bad in ["", "notacolor", "red blue", "#12", "currentcolor red", "none"] {
+    // (`none` is the generic keyword for every property that has no typed one: no value, not an
+    // error)
+    for bad in ["", "notacolor", "red blue", "#12", "currentcolor red"] {
         assert!(parse_css_property(CssPropertyType::TextDecorationColor, bad).is_err(), "{bad:?}");
     }
-    for bad in ["", "thick", "-1px", "-0.5em", "auto auto", "1px 2px", "none", "from font"] {
+    for bad in ["", "thick", "-1px", "-0.5em", "auto auto", "1px 2px", "from font"] {
         assert!(
             parse_css_property(CssPropertyType::TextDecorationThickness, bad).is_err(),
             "{bad:?}"

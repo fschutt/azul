@@ -67,6 +67,8 @@
 ;; dropped a value these bindings cannot build: CFFI cannot build the union `StyleDirectionValue` from Lisp data (no constructor function)
 ;; dropped a value these bindings cannot build: CFFI cannot build the union `StyleTextDecorationColorValue` from Lisp data (no constructor function)
 ;; dropped a value these bindings cannot build: CFFI cannot build the union `StyleTextDecorationThicknessValue` from Lisp data (no constructor function)
+;; dropped a value these bindings cannot build: CFFI cannot build the union `StyleTextUnderlineOffsetValue` from Lisp data (no constructor function)
+;; dropped a value these bindings cannot build: CFFI cannot build the union `StyleTextUnderlinePositionValue` from Lisp data (no constructor function)
 ;; dropped a value these bindings cannot build: CFFI cannot build the union `StyleHyphenationLanguageValue` from Lisp data (no constructor function)
 ;; dropped a value these bindings cannot build: CFFI cannot build the union `StyleExclusionMarginValue` from Lisp data (no constructor function)
 ;; dropped a value these bindings cannot build: CFFI cannot build the union `CaretWidthValue` from Lisp data (no constructor function)
