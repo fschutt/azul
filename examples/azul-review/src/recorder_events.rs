@@ -64,11 +64,11 @@ pub const DEFAULT_MAX_LINE: usize = 8 * 1024;
 pub static UNKNOWN_KIND: KindSpec = kind("unknown", 10, 20, DEFAULT_MAX_LINE, "anything");
 
 /// Every kind of event the app records.
-pub static KINDS: [KindSpec; 40] = [
+pub static KINDS: [KindSpec; 43] = [
     kind("session.start", 5, 10, DEFAULT_MAX_LINE, "app (string), version (string), workspace (string)"),
     kind("session.stop", 5, 10, DEFAULT_MAX_LINE, "reason (string: user, quit, error)"),
-    kind("session.pause", 5, 10, DEFAULT_MAX_LINE, "reason (string: user, hotkey)"),
-    kind("session.resume", 5, 10, DEFAULT_MAX_LINE, "reason (string: user, hotkey, activity)"),
+    kind("session.pause", 5, 10, DEFAULT_MAX_LINE, "reason (string: user, hotkey, locked)"),
+    kind("session.resume", 5, 10, DEFAULT_MAX_LINE, "reason (string: user, hotkey, activity, unlocked)"),
     kind("session.idle_pause", 5, 10, DEFAULT_MAX_LINE, "idle_ms (number)"),
     kind("session.quota_pause", 5, 10, DEFAULT_MAX_LINE, "free_bytes (number), min_free_bytes (number)"),
     kind("layout.window", 2, 4, DEFAULT_MAX_LINE, "w (number), h (number), scale (number): logical size and device scale"),
@@ -78,6 +78,8 @@ pub static KINDS: [KindSpec; 40] = [
     kind("nav.page", 10, 20, DEFAULT_MAX_LINE, "file (string), page (number, 0-based), of (number)"),
     kind("nav.lines", 5, 10, DEFAULT_MAX_LINE, "file (string), first (number), last (number): the lines in view"),
     kind("pointer.move", 20, 20, DEFAULT_MAX_LINE, "x (number), y (number): window logical px; page (number), px (number), py (number): on the page; pen (bool), down (bool)"),
+    kind("pointer.global", 20, 20, DEFAULT_MAX_LINE, "x (number), y (number): points on the desktop from the top left of the primary display, whatever app the pointer is over"),
+    kind("app.front", 2, 4, DEFAULT_MAX_LINE, "bundle (string), name (string): the app in front changed"),
     kind("pen.select", 10, 20, DEFAULT_MAX_LINE, "meaning (string: scope, issue, question, duplicate, praise), nib (string: marker, pen, audio)"),
     kind("pen.stroke.begin", 30, 60, DEFAULT_MAX_LINE, "id (number), file (string), page (number), x (number), y (number)"),
     kind("pen.stroke", 30, 60, 128 * 1024, "id (number), file (string), page (number), meaning (string), nib (string), n (number), t0_us (number), bbox ([x0,y0,x1,y1]), s ([[dt_ms,x,y,pressure],...] at most 2000)"),
@@ -102,6 +104,7 @@ pub static KINDS: [KindSpec; 40] = [
     kind("marker", 5, 10, DEFAULT_MAX_LINE, "label (string): a chapter the user marked"),
     kind("recorder.track", 5, 10, DEFAULT_MAX_LINE, "track (string: screen, camera, audio), status (string), note (string)"),
     kind("recorder.segment", 5, 10, DEFAULT_MAX_LINE, "track (string), file (string), start_us (number)"),
+    kind("recorder.screen_gap", 2, 4, DEFAULT_MAX_LINE, "reason (string): the screen track's segment ended here and the next picture begins another"),
     kind("recorder.drop", 2, 4, DEFAULT_MAX_LINE, "kind (string), n (number), why (string: rate, queue, size, invalid, capped)"),
     kind("recorder.events_capped", 1, 1, DEFAULT_MAX_LINE, "bytes (number): the file reached its size cap"),
     kind("recorder.note", 5, 10, DEFAULT_MAX_LINE, "text (string): something the recorder says about itself"),

@@ -92,11 +92,23 @@ fn the_identity_cut_list_is_one_segment_for_each_run_with_the_camera_and_the_sou
     assert_eq!(e.problems(&m), Vec::<String>::new());
 }
 
+/// The picture of the video is the screen's own, so that a screen without a camera over it can be joined
+/// without a re-encode; only a screen bigger than 4K is scaled down to fit it, and none is enlarged.
+///
+/// Mutation: a cap of full HD (the 2880 x 1800 screen would be scaled, and every export would encode).
 #[test]
-fn the_picture_is_the_screens_shape_up_to_full_hd_and_a_default_without_a_screen() {
+fn the_picture_is_the_screens_own_size_up_to_4k_and_a_default_without_a_screen() {
     let m = session();
     let e = identity_edl(&m, &[]);
-    assert_eq!((e.output.width, e.output.height), (1728, 1080), "2880 x 1800 scaled to fit 1920 x 1080");
+    assert_eq!((e.output.width, e.output.height), (2880, 1800), "the screen's own size, no scaling");
+    let mut huge = session();
+    huge.tracks.screen.as_mut().unwrap().width = 5760;
+    huge.tracks.screen.as_mut().unwrap().height = 3600;
+    assert_eq!((identity_edl(&huge, &[]).output.width, identity_edl(&huge, &[]).output.height), (3456, 2160), "5760 x 3600 scaled to fit 3840 x 2160");
+    let mut odd = session();
+    odd.tracks.screen.as_mut().unwrap().width = 1281;
+    odd.tracks.screen.as_mut().unwrap().height = 721;
+    assert_eq!((identity_edl(&odd, &[]).output.width, identity_edl(&odd, &[]).output.height), (1282, 722), "made even: H.264 has no odd sizes");
     let mut small = session();
     small.tracks.screen.as_mut().unwrap().width = 800;
     small.tracks.screen.as_mut().unwrap().height = 600;
@@ -104,6 +116,25 @@ fn the_picture_is_the_screens_shape_up_to_full_hd_and_a_default_without_a_screen
     let mut none = session();
     none.tracks.screen = None;
     assert_eq!((identity_edl(&none, &[]).output.width, identity_edl(&none, &[]).output.height), (1920, 1080));
+}
+
+/// The camera is in the bottom right corner on top of the screen unless the cut list says otherwise, a
+/// fifth of the picture wide, a margin from the edges; its shape is a rectangle or has rounded corners.
+///
+/// Mutation: another corner or another scale as the default; a shape that is refused ("rounded") or one
+/// that is accepted without being one of the two.
+#[test]
+fn the_camera_is_a_fifth_of_the_picture_in_the_bottom_right_corner_by_default_and_may_have_round_corners() {
+    let c = Style::default().camera;
+    assert_eq!((c.corner.as_str(), c.margin, c.shape.as_str()), ("bottom_right", 24, "rect"));
+    assert!((c.scale - 0.20).abs() < 1e-9, "{}", c.scale);
+    let m = session();
+    let mut e = identity_edl(&m, &[]);
+    e.style.camera.shape = String::from("rounded");
+    assert_eq!(e.problems(&m), Vec::<String>::new());
+    e.style.camera.shape = String::from("circle");
+    let problems = e.problems(&m);
+    assert!(problems.iter().any(|p| p.contains("rect or rounded")), "{problems:?}");
 }
 
 #[test]

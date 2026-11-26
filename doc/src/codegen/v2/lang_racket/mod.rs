@@ -61,6 +61,10 @@ pub mod pkg;
 pub mod types;
 pub mod wrappers;
 
+#[cfg(test)]
+#[path = "example_test.rs"]
+mod example_test;
+
 use anyhow::Result;
 
 use super::{config::CodegenConfig, generator::CodeBuilder, ir::CodegenIR};

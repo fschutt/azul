@@ -754,6 +754,9 @@ fn menu_bar(data: &RefAny) -> Menu {
             .with_callback(data.clone(), crate::on_menu_reveal),
     ));
     session = session.with_child(MenuItem::String(
+        StringMenuItem::create(label("azreview-menu-recorder")).with_callback(data.clone(), crate::on_menu_recorder),
+    ));
+    session = session.with_child(MenuItem::String(
         StringMenuItem::create(label("azreview-save-pointer-log"))
             .with_callback(data.clone(), crate::on_menu_pointer_log),
     ));

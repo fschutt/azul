@@ -2175,6 +2175,17 @@ impl Runner {
             CallbackChange::StartHttpServer { .. } | CallbackChange::StopHttpServer => {
                 ProcessEventResult::DoNothing
             }
+            // The frame tap is state of the window, not of a shell: the headless frame is the CPU
+            // frame, so a scenario's tap hears the very frames a real window's would.
+            CallbackChange::SetFrameTap { tap } => {
+                self.layout_window.frame_tap = Some(tap.clone());
+                // (The tap hears the next frame, whole: it is asked for.)
+                ProcessEventResult::ShouldReRenderCurrentWindow
+            }
+            CallbackChange::ClearFrameTap => {
+                self.layout_window.frame_tap = None;
+                ProcessEventResult::DoNothing
+            }
             // A script asking to run a script. The headless runner is ALREADY
             // executing a scenario when it gets here, and `E2eSession` has one
             // continuation slot per window — accepting this would overwrite

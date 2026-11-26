@@ -36,7 +36,7 @@ use crate::{
         IdleWatch, LengthState, RateMeter,
     },
     recorder_screen::{Due, Pace, ScreenCapture, TapFrame, Tapped},
-    recorder_settings::{RecorderSettings, AUDIO_KBPS},
+    recorder_settings::{RecorderSettings, ScreenKind, AUDIO_KBPS},
     recorder_track::Kind,
     recorder_writer::{spawn, Cmd, Handle, Status, Writer, WriterConfig},
 };
@@ -74,9 +74,14 @@ pub struct StartRequest {
     pub utc_offset_minutes: i32,
     pub camera: Perm,
     pub microphone: Perm,
+    /// The system's answer for the screen: the display's or the window's capture needs the Screen
+    /// Recording permission (the app's own frames need none and are `Granted`).
+    pub screen: Perm,
     /// The devices' names, for the manifest.
     pub camera_device: Option<String>,
     pub microphone_device: Option<String>,
+    /// The name of the display or the window that is recorded, for the manifest.
+    pub screen_device: Option<String>,
 }
 
 /// What a started session is called and where it is.
@@ -136,6 +141,8 @@ pub enum PauseReason {
     Idle,
     /// The disk would fall under the free space the recorder keeps.
     Quota,
+    /// The screen is locked: the person is away and the display shows the lock.
+    Locked,
 }
 
 impl PauseReason {
@@ -144,8 +151,51 @@ impl PauseReason {
             Self::User => "user",
             Self::Idle => "idle",
             Self::Quota => "quota",
+            Self::Locked => "locked",
         }
     }
+}
+
+/// A track of a recording, to name the one that is meant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrackName {
+    Screen,
+    Camera,
+    Microphone,
+}
+
+impl TrackName {
+    /// The folder of the track and the name the manifest and the events know it by.
+    const fn dir(self) -> &'static str {
+        match self {
+            Self::Screen => "screen",
+            Self::Camera => "camera",
+            Self::Microphone => "audio",
+        }
+    }
+}
+
+/// The app that is in front.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FrontApp {
+    /// Its bundle id (`com.apple.Safari`).
+    pub bundle: String,
+    /// Its name.
+    pub name: String,
+}
+
+/// What the desktop is doing, as the app polls it a few times a second (no permission of the system is
+/// needed for any of it); what is not known is `None` or `false`.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct DesktopSample {
+    /// The app in front.
+    pub front: Option<FrontApp>,
+    /// The pointer on the desktop: points from the top left of the primary display.
+    pub pointer: Option<(f32, f32)>,
+    /// The screen is locked (or the screen saver asks for the password).
+    pub locked: bool,
+    /// The display is asleep.
+    pub display_asleep: bool,
 }
 
 /// Where the recorder stands.
@@ -173,6 +223,9 @@ pub enum Notice {
     LengthReached,
     /// A track broke: the words.
     TrackFailed { track: String, why: String },
+    /// The screen went away for a while (the display slept, was unplugged): its segment ended here and
+    /// the next picture begins another.
+    ScreenGap { why: String },
     /// A track could not start: the words (no encoder, a refused device).
     TrackOff { track: &'static str, why: String },
     /// The manifest could not be written: the words.
@@ -209,8 +262,10 @@ struct VideoPipe {
     pending: VecDeque<u64>,
     dropped: u64,
     off: Option<String>,
-    /// When a keyframe was last asked for (the camera: one at least every two seconds).
+    /// When a keyframe was last asked for (the camera: one every chunk).
     last_key_us: Option<u64>,
+    /// How often a keyframe is asked for, microseconds (the camera's chunk).
+    key_every_us: u64,
 }
 
 impl VideoPipe {
@@ -223,12 +278,20 @@ impl VideoPipe {
             dropped: 0,
             off: None,
             last_key_us: None,
+            key_every_us: 2_000_000,
         }
     }
 
-    /// Whether the picture taken at `now_us` should be a keyframe: the first, and every two seconds.
+    /// This pipe asks for a keyframe every `us` microseconds.
+    #[must_use]
+    const fn keyed_every(mut self, us: u64) -> Self {
+        self.key_every_us = us;
+        self
+    }
+
+    /// Whether the picture taken at `now_us` should be a keyframe: the first, and one every chunk.
     fn key_due(&mut self, now_us: u64) -> bool {
-        let due = self.last_key_us.is_none_or(|t| now_us.saturating_sub(t) >= 2_000_000);
+        let due = self.last_key_us.is_none_or(|t| now_us.saturating_sub(t) >= self.key_every_us);
         if due {
             self.last_key_us = Some(now_us);
         }
@@ -323,6 +386,18 @@ struct Session {
     screen_pipe: VideoPipe,
     camera_pipe: VideoPipe,
     audio_pipe: AudioPipe,
+    /// What the manifest calls the screen's source when the pictures come from the system's capture.
+    system_source: &'static str,
+    /// The display or window recorded, as the manifest names it.
+    screen_device: Option<String>,
+    /// The camera in use, as the manifest names it.
+    camera_device: Option<String>,
+    /// The desktop as it was last told: the app in front, the pointer (and when it was told), and whether
+    /// the display was asleep.
+    last_front: Option<FrontApp>,
+    last_pointer: Option<(f32, f32)>,
+    last_pointer_us: Option<u64>,
+    asleep: bool,
     /// What the writer was last seen to have written; only a new failure is told.
     told_failures: usize,
     told_manifest_error: bool,
@@ -438,6 +513,8 @@ impl Recorder {
             WriterConfig {
                 segment_us: s.segment_us,
                 created_unix_s: unix_ms / 1_000,
+                camera_chunk_us: s.camera_chunk_us,
+                voice_in_camera: s.camera_voice,
             },
             manifest,
             Box::new(DiskStore::new(dir.clone())),
@@ -455,8 +532,15 @@ impl Recorder {
             rate: RateMeter::new(120_000_000),
             screen: ScreenCapture::new(Pace::at_fps(s.screen_fps)),
             screen_pipe: VideoPipe::new("screen"),
-            camera_pipe: VideoPipe::new("camera"),
+            camera_pipe: VideoPipe::new("camera").keyed_every(s.camera_chunk_us),
             audio_pipe: AudioPipe::new(),
+            system_source: if s.screen_source == ScreenKind::Window { "window" } else { "display" },
+            screen_device: req.screen_device.clone(),
+            camera_device: req.camera_device.clone(),
+            last_front: None,
+            last_pointer: None,
+            last_pointer_us: None,
+            asleep: false,
             told_failures: 0,
             told_manifest_error: false,
             told_ending: false,
@@ -471,6 +555,11 @@ impl Recorder {
         // The tracks that are not asked for, or are refused, are off for the whole session, said in the manifest.
         if !s.screen {
             session.screen_pipe.off = Some(String::from("switched off in the settings"));
+        } else if let Perm::Denied(why) = &req.screen {
+            session.screen_pipe.off = Some(why.clone());
+            let track = off_track("screen", 0, 0, req.screen_device.clone(), TrackStatus::Denied, why);
+            session.writer.send(Cmd::AddTrack { dir: "screen", kind: Kind::Video, track: Box::new(track) });
+            Self::track_event(&session, now, "screen", "denied", why);
         }
         if !s.camera {
             session.camera_pipe.off = Some(String::from("switched off in the settings"));
@@ -478,6 +567,7 @@ impl Recorder {
             session.camera_pipe.off = Some(why.clone());
             let track = off_track("camera", s.quality.camera().width, s.quality.camera().height, req.camera_device.clone(), TrackStatus::Denied, why);
             session.writer.send(Cmd::AddTrack { dir: "camera", kind: Kind::Video, track: Box::new(track) });
+            Self::track_event(&session, now, "camera", "denied", why);
         }
         if !s.microphone {
             session.audio_pipe.off = Some(String::from("switched off in the settings"));
@@ -485,6 +575,7 @@ impl Recorder {
             session.audio_pipe.off = Some(why.clone());
             let track = off_track("audio", 0, 0, req.microphone_device.clone(), TrackStatus::Denied, why);
             session.writer.send(Cmd::AddTrack { dir: "audio", kind: Kind::Opus, track: Box::new(track) });
+            Self::track_event(&session, now, "audio", "denied", why);
         } else {
             match self.deps.factory.audio(48_000, 1, AUDIO_KBPS) {
                 Ok(codec) => {
@@ -611,6 +702,129 @@ impl Recorder {
             return self.resume("activity");
         }
         Vec::new()
+    }
+
+    // ---- the screen's troubles, the lock, the desktop ----
+
+    /// An event of the recorder about a track's state (`recorder.track`).
+    fn track_event(session: &Session, now: u64, dir: &str, status: &str, note: &str) {
+        let fields = format!(
+            "{{\"track\":\"{dir}\",\"status\":\"{status}\",\"note\":{}}}",
+            crate::recorder_events::json_string(note)
+        );
+        let _ = session.events.event_at(now, "recorder.track", &fields);
+    }
+
+    /// The screen went away for a while (the display went to sleep, was unplugged, the stream is being
+    /// started again): the open segment of the screen track ends here and the next picture begins another,
+    /// at a keyframe, so the hole is in the video as time that was not recorded. The other tracks go on.
+    /// Nothing happens when nothing is recording.
+    pub fn screen_gap(&mut self, why: &str) -> Vec<Notice> {
+        if self.state != State::Recording {
+            return Vec::new();
+        }
+        let Some(session) = self.session.as_mut() else {
+            return Vec::new();
+        };
+        if session.screen_pipe.off.is_some() {
+            return Vec::new();
+        }
+        let now = session.clock.now_us();
+        session.screen_pipe.flush(&session.writer);
+        session.writer.send(Cmd::EndSegment { dir: "screen", t_us: now });
+        session.screen.request_keyframe();
+        let _ = session.events.event_at(now, "recorder.screen_gap", &format!("{{\"reason\":{}}}", crate::recorder_events::json_string(why)));
+        vec![Notice::ScreenGap { why: why.to_string() }]
+    }
+
+    /// A track broke while it recorded (the screen's permission was withdrawn, its stream died, the camera
+    /// was unplugged): its file ends here, the manifest says `failed` with the reason, an event and a notice
+    /// say it, nothing more is taken for it, and the other tracks and the events go on. Told once.
+    pub fn track_failed(&mut self, track: TrackName, why: &str) -> Vec<Notice> {
+        if self.state == State::Idle {
+            return Vec::new();
+        }
+        let Some(session) = self.session.as_mut() else {
+            return Vec::new();
+        };
+        let off = match track {
+            TrackName::Screen => &mut session.screen_pipe.off,
+            TrackName::Camera => &mut session.camera_pipe.off,
+            TrackName::Microphone => &mut session.audio_pipe.off,
+        };
+        if off.is_some() {
+            return Vec::new();
+        }
+        *off = Some(why.to_string());
+        let now = session.clock.now_us();
+        match track {
+            TrackName::Screen => session.screen_pipe.flush(&session.writer),
+            TrackName::Camera => session.camera_pipe.flush(&session.writer),
+            TrackName::Microphone => session.audio_pipe.drain(&session.writer),
+        }
+        let dir = track.dir();
+        session.writer.send(Cmd::EndSegment { dir, t_us: now });
+        session.writer.send(Cmd::TrackStatus { dir, status: TrackStatus::Failed, note: Some(why.to_string()) });
+        Self::track_event(session, now, dir, "failed", why);
+        vec![Notice::TrackFailed { track: dir.to_string(), why: why.to_string() }]
+    }
+
+    /// The screen was locked or unlocked. A lock pauses a recording (when the settings say so) and an
+    /// unlock goes on, but only after a pause the lock made: one the person or the idle rule made stays.
+    pub fn set_locked(&mut self, locked: bool) -> Vec<Notice> {
+        if !self.settings.pause_on_lock {
+            return Vec::new();
+        }
+        match (locked, self.state) {
+            (true, State::Recording) => self.pause(PauseReason::Locked),
+            (false, State::Paused(PauseReason::Locked)) => self.resume("unlocked"),
+            _ => Vec::new(),
+        }
+    }
+
+    /// What the desktop is doing, polled by the app a few times a second: the app in front and the pointer
+    /// become events (`app.front` when the app changes, `pointer.global` when the pointer moved a point or
+    /// more and no faster than the setting says), a sleeping display is a gap of the screen (told as it
+    /// falls asleep), a lock is [`Recorder::set_locked`].
+    pub fn desktop_sample(&mut self, sample: &DesktopSample) -> Vec<Notice> {
+        let mut notices = Vec::new();
+        if self.state == State::Idle {
+            return notices;
+        }
+        let min_gap_us = 1_000_000 / u64::from(self.settings.pointer_hz.max(1));
+        let Some(session) = self.session.as_mut() else {
+            return notices;
+        };
+        let now = session.clock.now_us();
+        if self.state == State::Recording {
+            if let Some(front) = &sample.front {
+                if session.last_front.as_ref() != Some(front) {
+                    let fields = format!(
+                        "{{\"bundle\":{},\"name\":{}}}",
+                        crate::recorder_events::json_string(&front.bundle),
+                        crate::recorder_events::json_string(&front.name)
+                    );
+                    let _ = session.events.event_at(now, "app.front", &fields);
+                    session.last_front = Some(front.clone());
+                }
+            }
+            if let Some((x, y)) = sample.pointer {
+                let due = session.last_pointer_us.is_none_or(|t| now.saturating_sub(t) >= min_gap_us);
+                let moved = session.last_pointer.is_none_or(|(lx, ly)| (x - lx).abs() >= 1.0 || (y - ly).abs() >= 1.0);
+                if due && moved {
+                    let _ = session.events.event_at(now, "pointer.global", &format!("{{\"x\":{x:.1},\"y\":{y:.1}}}"));
+                    session.last_pointer = Some((x, y));
+                    session.last_pointer_us = Some(now);
+                }
+            }
+        }
+        let was_asleep = session.asleep;
+        session.asleep = sample.display_asleep;
+        if sample.display_asleep && !was_asleep {
+            notices.extend(self.screen_gap("the display went to sleep"));
+        }
+        notices.extend(self.set_locked(sample.locked));
+        notices
     }
 
     // ---- what comes in ----
@@ -765,10 +979,11 @@ impl Recorder {
         let source = if camera {
             "camera"
         } else if session.screen.is_external() {
-            "screencapturekit"
+            session.system_source
         } else {
             "frame-tap"
         };
+        let device = if camera { session.camera_device.clone() } else { session.screen_device.clone() };
         let writer = &session.writer;
         let pipe = if camera { &mut session.camera_pipe } else { &mut session.screen_pipe };
         pipe.flush(writer);
@@ -777,7 +992,8 @@ impl Recorder {
         match factory.video(size.0, size.1, kbps) {
             Ok(codec) => {
                 let first = pipe.size == (0, 0);
-                let meta = video_track(&codec.name(), codec.hardware(), size, kbps, fps, source, scale);
+                let mut meta = video_track(&codec.name(), codec.hardware(), size, kbps, fps, source, scale);
+                meta.device = device;
                 pipe.size = size;
                 pipe.codec = Some(codec);
                 if first {

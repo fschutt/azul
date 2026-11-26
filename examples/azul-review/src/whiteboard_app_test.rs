@@ -6,7 +6,8 @@ use std::sync::Arc;
 use super::*;
 use crate::{
     stroke_fixtures as fx,
-    whiteboard::{CutoutImage, ImageSlot, Item, LIMITS},
+    whiteboard::{CutoutDraft, CutoutImage, ImageSlot, Item, Source, LIMITS},
+    whiteboard_boards::{self as boards, BoardIndex},
     whiteboard_geom::{Pt, Size},
     whiteboard_store::DecodedPng,
 };
@@ -97,9 +98,9 @@ fn lifting_a_region_and_dropping_it_on_the_bar_makes_a_cutout_that_waits_for_its
     assert!(c.source.shape.len() >= 8);
     // Its size on the board is the picture's: a 2x picture is shown at half its pixels.
     assert!((c.rect.w - job.plan.logical.w).abs() < 1e-3 && (c.rect.h - job.plan.logical.h).abs() < 1e-3);
-    // It lies where it was dropped: centred on the point of the board under the pointer.
+    // It lies where it was dropped: centred on the point of the board under the pointer (the bar's header is not the board).
     let centre = c.rect.center();
-    assert!((centre.x - 120.0).abs() < 1.0 && (centre.y - 170.0).abs() < 1.0, "{centre:?}");
+    assert!((centre.x - 120.0).abs() < 1.0 && (centre.y - (170.0 - HEADER_PX)).abs() < 1.0, "{centre:?}");
     assert!(wb.board.needs_save());
 }
 
@@ -295,4 +296,229 @@ fn a_board_read_with_a_missing_picture_or_a_repair_says_how_many() {
     wb.loaded(Ok(loaded), None, 1);
     assert!(matches!(wb.status, Status::Repaired { left_out: 2, pictures: 3 }));
     let _ = Arc::new(0);
+}
+
+// ---- the boards of a workspace
+
+const WS: &str = "/work/azul";
+
+fn started(raw: Option<&str>, legacy_file: bool) -> (Whiteboard, IndexStart) {
+    let mut wb = Whiteboard::new(WS);
+    let start = wb.index_loaded(raw.map(|t| t.as_bytes().to_vec()), legacy_file, "Board 1", 1_000);
+    (wb, start)
+}
+
+fn index_of(effect: &Effect) -> BoardIndex {
+    BoardIndex::from_json(std::str::from_utf8(&effect.bytes).expect("text"), WS).expect("an index").0
+}
+
+/// The board is changed (a cutout is put on it) and not kept.
+fn change(wb: &mut Whiteboard) {
+    let source = Source { file: "src/lib.rs".to_string(), page: 0, first_line: 1, last_line: 2, shape: Vec::new(), file_hash: 1, range_hash: 2, lines: Vec::new() };
+    wb.board.add_cutout(CutoutDraft::pending(Pt::new(0.0, 0.0), Size::new(100.0, 50.0), source)).expect("room");
+    assert!(wb.board.needs_save());
+}
+
+/// The board is kept (a save built, its write done).
+fn keep(wb: &mut Whiteboard, now: u64) {
+    let _job = wb.save_job(now).expect("a save");
+    assert!(!wb.save_done(&Ok(())), "nothing was asked meanwhile");
+    assert!(!wb.board.needs_save());
+}
+
+#[test]
+fn a_workspace_with_the_one_board_file_of_the_old_version_opens_it_as_board_one_and_writes_the_list() {
+    let (wb, start) = started(None, true);
+    assert_eq!(start.load, store::board_name(WS), "the file is read where it is");
+    assert_eq!(wb.active_board(), ("b1", "Board 1"));
+    assert_eq!(start.effects.len(), 1);
+    assert_eq!(start.effects[0].name, boards::index_name(WS));
+    assert_eq!(index_of(&start.effects[0]).active().file, store::board_name(WS));
+    assert!(start.told.is_none() && start.kept_as.is_none());
+    assert_eq!(wb.board_file(), store::board_name(WS), "saves go to that file too");
+}
+
+#[test]
+fn a_workspace_with_no_file_starts_board_one_in_a_file_of_its_own() {
+    let (wb, start) = started(None, false);
+    assert_eq!(start.load, boards::file_name(WS, "b1"));
+    assert_eq!(index_of(&start.effects[0]).get("b1").map(|b| (b.created_ms, b.name.as_str())), Some((1_000, "Board 1")));
+    assert_eq!(wb.boards().boards().count(), 1);
+}
+
+#[test]
+fn a_list_that_is_there_is_read_and_the_open_board_is_the_one_it_says() {
+    let mut idx = BoardIndex::migrated(WS, "Board 1", 5);
+    idx.create("Design", 6).expect("created");
+    idx.set_active("b2").expect("active");
+    let (wb, start) = started(Some(&idx.to_json()), true);
+    assert_eq!(wb.active_board(), ("b2", "Design"));
+    assert_eq!(start.load, boards::file_name(WS, "b2"));
+    assert!(start.effects.is_empty(), "nothing to write: the list is as it was");
+    assert_eq!(wb.boards().boards().count(), 2);
+}
+
+#[test]
+fn a_list_that_is_damaged_is_kept_aside_and_a_new_one_started_and_one_of_a_newer_version_is_never_replaced() {
+    let (wb, start) = started(Some("{\"format\": \"azreview-boards/1\", "), true);
+    assert_eq!(wb.active_board().0, "b1");
+    assert!(matches!(start.told, Some(boards::BoardsError::NotAnIndex(_))));
+    let aside = start.kept_as.clone().expect("kept");
+    assert_eq!(aside, store::quarantine_name(&boards::index_name(WS), 1_000));
+    assert_eq!(start.effects.len(), 2, "the damaged bytes, and the list started anew");
+    assert_eq!((start.effects[0].name.as_str(), start.effects[1].name.as_str()), (aside.as_str(), boards::index_name(WS).as_str()));
+    assert_eq!(start.effects[0].bytes, b"{\"format\": \"azreview-boards/1\", ".to_vec());
+    assert_eq!(start.load, store::board_name(WS), "the old file is still the first board's");
+    // A newer version wrote it: nothing is written, nothing will be.
+    let (mut newer, start) = started(Some("{\"format\": \"azreview-boards/9\", \"boards\": []}"), true);
+    assert_eq!(start.told, Some(boards::BoardsError::TooNew { found: 9 }));
+    assert!(start.effects.is_empty() && start.kept_as.is_none());
+    change(&mut newer);
+    assert!(newer.save_job(2_000).is_none(), "a file of a newer version is not replaced");
+}
+
+#[test]
+fn a_list_with_entries_that_cannot_be_used_is_repaired_with_a_copy_of_what_it_was() {
+    let own = store::board_name(WS);
+    let text = format!(
+        "{{\"format\": \"azreview-boards/1\", \"boards\": [{{\"id\": \"b1\", \"name\": \"One\", \"file\": \"{own}\"}}, {{\"id\": \"b2\", \"name\": \"Bad\", \"file\": \"../x\"}}]}}"
+    );
+    let (wb, start) = started(Some(&text), true);
+    assert_eq!(wb.boards().boards().count(), 1);
+    assert_eq!(start.effects.len(), 2, "a copy of the list as it was, then the list as it is");
+    assert_eq!(start.effects[0].bytes, text.as_bytes());
+    assert_eq!(start.effects[1].name, boards::index_name(WS));
+}
+
+#[test]
+fn a_save_goes_to_the_file_of_the_open_board() {
+    let (mut wb, _) = started(None, false);
+    change(&mut wb);
+    let job = wb.save_job(2_000).expect("a save");
+    assert_eq!(job.name, boards::file_name(WS, "b1"));
+    assert!(!wb.save_done(&Ok(())));
+}
+
+#[test]
+fn another_board_is_opened_only_when_this_one_is_kept_and_is_read_from_its_own_file() {
+    let (mut wb, _) = started(None, false);
+    let plan = wb.new_board("Design", 2_000).expect("a new board");
+    assert_eq!(wb.active_board(), ("b2", "Design"));
+    assert!(plan.load.is_none(), "a new board is empty: nothing to read");
+    keep_or_nothing(&mut wb);
+    change(&mut wb);
+    // Changed and not kept: the board is not left.
+    assert_eq!(wb.switch_board("b1", 3_000), Err(Notice::BoardBusy));
+    assert_eq!(wb.active_board().0, "b2", "nothing happened");
+    // A save is running: not left either.
+    let _job = wb.save_job(3_100).expect("a save");
+    assert_eq!(wb.switch_board("b1", 3_200), Err(Notice::BoardBusy));
+    assert!(!wb.save_done(&Ok(())));
+    // Kept: it is.
+    let plan = wb.switch_board("b1", 3_300).expect("opened");
+    assert_eq!(plan.load, Some(boards::file_name(WS, "b1")));
+    assert_eq!(plan.effects.len(), 1);
+    assert_eq!(index_of(&plan.effects[0]).active().id, "b1");
+    assert!(wb.is_loading(), "until its file has been read");
+    assert_eq!(wb.board.len(), 0, "and what is shown meanwhile is empty");
+    // Nothing is dropped on a board that is being read: it would be replaced by what is read.
+    assert_eq!(wb.switch_board("b2", 3_400), Err(Notice::BoardBusy), "one at a time");
+    wb.loaded_none();
+    assert!(!wb.is_loading());
+    // The board that is open is not opened again.
+    assert_eq!(wb.switch_board("b1", 3_500).map(|p| p.load), Ok(None));
+    assert_eq!(wb.switch_board("nope", 3_600), Err(Notice::NoSuchBoard));
+}
+
+/// Keeps the board if it has anything to keep.
+fn keep_or_nothing(wb: &mut Whiteboard) {
+    if wb.board.needs_save() {
+        keep(wb, 9_000);
+    }
+}
+
+#[test]
+fn a_new_board_is_empty_opens_at_once_is_named_and_is_listed_and_a_name_too_long_is_cut_and_told() {
+    let (mut wb, _) = started(None, false);
+    let plan = wb.new_board(&"n".repeat(200), 2_000).expect("a new board");
+    assert_eq!(wb.active_board().0, "b2");
+    assert_eq!(wb.board.len(), 0);
+    assert!(!wb.is_loading());
+    assert_eq!(index_of(&plan.effects[0]).boards().count(), 2);
+    assert!(wb.take_notices().contains(&Notice::BoardNameCut { limit: boards::MAX_NAME_CHARS }));
+    // A name with nothing in it: no board.
+    assert_eq!(wb.new_board("  ", 2_100), Err(Notice::BoardNameEmpty));
+    assert_eq!(wb.boards().boards().count(), 2);
+}
+
+#[test]
+fn a_duplicate_is_a_copy_of_the_board_as_it_is_in_a_file_of_its_own_and_the_open_board_stays_open() {
+    let (mut wb, _) = started(None, false);
+    change(&mut wb);
+    let plan = wb.duplicate_board("Copy of One", 2_000).expect("a duplicate");
+    assert_eq!(wb.active_board().0, "b1", "the board that is open stays");
+    assert!(wb.board.needs_save(), "its own changes are still to be kept");
+    let copy = plan.copy.expect("a copy to write");
+    assert_eq!(copy.name, boards::file_name(WS, "b2"));
+    assert!(copy.entries.iter().any(|e| e.name == store::MANIFEST));
+    assert_eq!(index_of(&plan.effects[0]).get("b2").map(|b| b.name.clone()), Some("Copy of One".to_string()));
+    assert!(plan.load.is_none());
+}
+
+#[test]
+fn deleting_the_open_board_opens_its_neighbour_from_its_file_and_restoring_brings_it_back() {
+    let (mut wb, _) = started(None, false);
+    wb.new_board("Two", 2_000).expect("a new board");
+    keep_or_nothing(&mut wb);
+    wb.switch_board("b1", 2_100).expect("opened");
+    wb.loaded_none();
+    // The open board is deleted: the next one opens, read from its file.
+    let plan = wb.delete_board("b1", 2_200, "Board 3").expect("deleted");
+    assert_eq!(wb.active_board().0, "b2");
+    assert_eq!(plan.load, Some(boards::file_name(WS, "b2")));
+    assert!(wb.is_loading());
+    wb.loaded_none();
+    assert_eq!(wb.boards().boards().count(), 1);
+    // Undo: it is back in the list (not opened).
+    let plan = wb.restore_board("b1", 2_300).expect("restored");
+    assert_eq!(wb.boards().boards().count(), 2);
+    assert_eq!(index_of(&plan.effects[0]).boards().count(), 2);
+    assert_eq!(wb.active_board().0, "b2");
+    // A board that is not open is deleted without leaving the one that is.
+    let plan = wb.delete_board("b1", 2_400, "x").expect("deleted");
+    assert!(plan.load.is_none() && !wb.is_loading());
+    assert_eq!(wb.active_board().0, "b2");
+    // The only board: a new empty one takes its place at once.
+    let plan = wb.delete_board("b2", 2_500, "Board 9").expect("deleted");
+    assert!(plan.load.is_none(), "the new board is empty");
+    assert_eq!(wb.active_board().1, "Board 9");
+    assert_eq!(wb.board.len(), 0);
+}
+
+#[test]
+fn renaming_and_moving_change_the_list_and_nothing_else() {
+    let (mut wb, _) = started(None, false);
+    wb.new_board("Two", 2_000).expect("a new board");
+    keep_or_nothing(&mut wb);
+    change(&mut wb);
+    let plan = wb.rename_board("b1", "Parser", 2_100).expect("renamed");
+    assert_eq!(index_of(&plan.effects[0]).get("b1").map(|b| b.name.clone()), Some("Parser".to_string()));
+    assert!(plan.load.is_none() && plan.copy.is_none());
+    assert!(wb.board.needs_save(), "the board that is open is as it was");
+    let plan = wb.move_board("b2", 0, 2_200).expect("moved");
+    assert_eq!(index_of(&plan.effects[0]).boards().map(|b| b.id.clone()).collect::<Vec<_>>(), vec!["b2", "b1"]);
+    assert_eq!(wb.rename_board("nope", "x", 2_300), Err(Notice::NoSuchBoard));
+    assert_eq!(wb.move_board("nope", 0, 2_300), Err(Notice::NoSuchBoard));
+}
+
+#[test]
+fn the_list_is_written_again_only_when_it_changed_and_a_kept_board_is_told_to_it() {
+    let (mut wb, start) = started(None, false);
+    assert!(wb.take_index_effect().is_none(), "the start wrote it");
+    drop(start);
+    change(&mut wb);
+    keep(&mut wb, 4_000);
+    let effect = wb.take_index_effect().expect("the board was kept: its time is new");
+    assert_eq!(index_of(&effect).get("b1").map(|b| b.modified_ms), Some(4_000));
+    assert!(wb.take_index_effect().is_none(), "once");
 }
