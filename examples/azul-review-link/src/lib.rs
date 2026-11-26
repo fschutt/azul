@@ -17,6 +17,7 @@
 pub mod frame;
 pub mod limits;
 pub mod link;
+pub mod mock;
 pub mod pace;
 pub mod pairing;
 pub mod phone;
