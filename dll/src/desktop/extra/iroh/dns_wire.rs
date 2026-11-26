@@ -164,7 +164,19 @@ pub(super) fn describe_error(code: i32) -> String {
 /// value may hold `=` or be empty. `None` when the key is absent, has no value, or the value is not
 /// UTF-8, and when the data runs out in the middle of a string: never a panic.
 pub(super) fn txt_value(rdata: &[u8], key: &str) -> Option<String> {
-    let _ = (rdata, key);
+    let mut at = 0usize;
+    while at < rdata.len() {
+        let length = usize::from(rdata[at]);
+        at += 1;
+        let string = rdata.get(at..at + length)?;
+        at += length;
+        let Some(equals) = string.iter().position(|byte| *byte == b'=') else {
+            continue;
+        };
+        if string[..equals].eq_ignore_ascii_case(key.as_bytes()) {
+            return String::from_utf8(string[equals + 1..].to_vec()).ok();
+        }
+    }
     None
 }
 

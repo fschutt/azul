@@ -137,6 +137,8 @@ struct Inner {
     peers: BTreeMap<EndpointId, NearbyPeer>,
     /// What the app was told: an event is what differs between the two.
     reported: BTreeMap<EndpointId, NearbyPeer>,
+    /// Why the lookup that feeds the list failed, when it did.
+    trouble: Option<String>,
 }
 
 impl Nearby {
@@ -216,12 +218,12 @@ impl Nearby {
     /// The lookup that feeds the list failed (the system's Bonjour refused it): the first reason
     /// is kept, for the status.
     pub(super) fn set_trouble(&self, reason: String) {
-        let _ = reason;
+        lock(&self.inner).trouble.get_or_insert(reason);
     }
 
     /// Why the lookup that feeds the list failed, when it did.
     pub(super) fn trouble(&self) -> Option<String> {
-        None
+        lock(&self.inner).trouble.clone()
     }
 }
 
