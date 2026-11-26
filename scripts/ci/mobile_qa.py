@@ -1676,7 +1676,7 @@ def ios_scenarios(args):
         dev.settle(2.0)
         after = dev.look(s, "after-background")
         s.check("same process as before", dev.pid() == pid0, f"{pid0} -> {dev.pid()}", required=False)
-        s.check("the picture is the one from before", sig_diff(after, before) < 0.05, f"differs {sig_diff(after, before):.3f}", required=False)
+        s.check("the window shows the picture it had before (it was repainted after the return)", sig_diff(after, before) < 0.08, f"differs {sig_diff(after, before):.3f}")
         crashes = dev.crash_reports()
         s.check("the host wrote no crash report for the app", not crashes, ", ".join(crashes))
 
