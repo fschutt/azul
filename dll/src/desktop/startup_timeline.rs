@@ -1,8 +1,8 @@
 //! The startup timeline: where the first milliseconds of an app go, from the moment the OS created
 //! the process to the first frame on screen and the first input handled.
 //!
-//! Default OFF and free when off: `AZ_STARTUP=1` (on Android `adb shell setprop debug.az.startup 1`,
-//! or `debug.az.env` with the pair) turns it on. The app owns ONE [`StartupTimeline`] (an
+//! Default OFF and free when off: `AZ_STARTUP=1` (on Android `adb shell setprop debug.az.startup
+//! 1`, or `debug.az.env` with the pair) turns it on. The app owns ONE [`StartupTimeline`] (an
 //! `Arc` made by `App::create` and kept in the `AppShared` every window and worker receives; no
 //! static, no thread-local) and every layer marks named points on it:
 //!
@@ -124,7 +124,11 @@ impl StartupTimeline {
     /// The timeline of an app: on when `enabled`, the origin being `origin` (an `Instant` read at
     /// `entered_wall`, the first line of `App::create`), the process age read from the OS now.
     #[must_use]
-    pub fn for_process(enabled: bool, origin: Instant, entered_wall: std::time::SystemTime) -> Self {
+    pub fn for_process(
+        enabled: bool,
+        origin: Instant,
+        entered_wall: std::time::SystemTime,
+    ) -> Self {
         if !enabled {
             return Self::disabled();
         }
@@ -209,8 +213,8 @@ impl StartupTimeline {
         self.record(name, text, true)
     }
 
-    /// The first frame is handed to the OS: marks `first_present` (once, by whoever gets there first)
-    /// and prints the table. True when this call was the first.
+    /// The first frame is handed to the OS: marks `first_present` (once, by whoever gets there
+    /// first) and prints the table. True when this call was the first.
     pub fn mark_first_present(&self, detail: impl FnOnce() -> String) -> bool {
         if self.mark_once_with("first_present", detail) {
             self.print_table();
@@ -254,7 +258,12 @@ impl StartupTimeline {
                 .rev()
                 .find(|m| m.thread == thread)
                 .map(|m| at_us.saturating_sub(m.at_us));
-            let mark = Mark { name, detail, at_us, thread };
+            let mark = Mark {
+                name,
+                detail,
+                at_us,
+                thread,
+            };
             let line = self
                 .printed
                 .load(Ordering::Acquire)
@@ -274,7 +283,10 @@ impl StartupTimeline {
         if !self.enabled {
             return 0;
         }
-        let n = self.layouts.fetch_add(1, Ordering::AcqRel).saturating_add(1);
+        let n = self
+            .layouts
+            .fetch_add(1, Ordering::AcqRel)
+            .saturating_add(1);
         self.record("layout_begin", format!("#{n} reason={reason}"), false);
         n
     }
@@ -327,7 +339,8 @@ impl StartupTimeline {
             for line in self.report_lines() {
                 sink(&line);
             }
-            // The same table as ONE line of JSON, for a harness that wants numbers and not a layout.
+            // The same table as ONE line of JSON, for a harness that wants numbers and not a
+            // layout.
             sink(&format!("[startup-json] {}", self.to_json()));
         }
         true
@@ -346,7 +359,12 @@ impl StartupTimeline {
     /// else from the origin.
     #[must_use]
     pub fn to_json(&self) -> String {
-        render_json(self.enabled, &self.marks(), self.before_origin, self.layout_count())
+        render_json(
+            self.enabled,
+            &self.marks(),
+            self.before_origin,
+            self.layout_count(),
+        )
     }
 }
 
@@ -366,8 +384,15 @@ fn ms(us: u64) -> f64 {
 fn late_line(mark: &Mark, before_us: u64, since_previous: Option<u64>) -> String {
     let at = ms(before_us.saturating_add(mark.at_us));
     let step = since_previous.map_or_else(|| "-".to_owned(), |us| format!("{:.3}", ms(us)));
-    let detail = if mark.detail.is_empty() { String::new() } else { format!(" {}", mark.detail) };
-    format!("[startup] late: {} at {at:.3} ms (+{step} ms, {}){detail}", mark.name, mark.thread)
+    let detail = if mark.detail.is_empty() {
+        String::new()
+    } else {
+        format!(" {}", mark.detail)
+    };
+    format!(
+        "[startup] late: {} at {at:.3} ms (+{step} ms, {}){detail}",
+        mark.name, mark.thread
+    )
 }
 
 /// The table of `marks` as lines (every one begins `[startup] `).
@@ -377,12 +402,15 @@ pub fn render_table(marks: &[Mark], before: Option<ProcessAge>, layouts: u32) ->
     let mut lines = Vec::with_capacity(marks.len() + 8);
     let origin_note = match before {
         Some(age) => format!(
-            "process start from {} (resolution {} us), origin = App::create entry {:.3} ms after it",
+            "process start from {} (resolution {} us), origin = App::create entry {:.3} ms after \
+             it",
             age.source,
             age.resolution_us,
             ms(age.micros)
         ),
-        None => "process start unknown on this platform: times count from App::create entry".to_owned(),
+        None => {
+            "process start unknown on this platform: times count from App::create entry".to_owned()
+        }
     };
     lines.push(format!("[startup] timeline: {origin_note}"));
     lines.push(format!(
@@ -416,7 +444,11 @@ pub fn render_table(marks: &[Mark], before: Option<ProcessAge>, layouts: u32) ->
                 }
             }
         };
-        let detail = if m.detail.is_empty() { String::new() } else { format!(" {}", m.detail) };
+        let detail = if m.detail.is_empty() {
+            String::new()
+        } else {
+            format!(" {}", m.detail)
+        };
         lines.push(format!(
             "[startup] {:>3} {:>10.3} {:>9}  {:<22} {}{}",
             i + 1,
@@ -466,13 +498,22 @@ pub fn json_escape(text: &str) -> String {
 
 /// The JSON of a timeline ([`StartupTimeline::to_json`]).
 #[must_use]
-pub fn render_json(enabled: bool, marks: &[Mark], before: Option<ProcessAge>, layouts: u32) -> String {
+pub fn render_json(
+    enabled: bool,
+    marks: &[Mark],
+    before: Option<ProcessAge>,
+    layouts: u32,
+) -> String {
     let before_us = before.map_or(0, |a| a.micros);
     let mut out = String::with_capacity(256 + marks.len() * 96);
-    out.push_str(&format!("{{\"enabled\":{enabled},\"process_start_known\":{}", before.is_some()));
+    out.push_str(&format!(
+        "{{\"enabled\":{enabled},\"process_start_known\":{}",
+        before.is_some()
+    ));
     if let Some(age) = before {
         out.push_str(&format!(
-            ",\"process_start_source\":\"{}\",\"process_start_resolution_us\":{},\"before_library_ms\":{:.3}",
+            ",\"process_start_source\":\"{}\",\"process_start_resolution_us\":{},\"\
+             before_library_ms\":{:.3}",
             json_escape(age.source),
             age.resolution_us,
             ms(age.micros)
@@ -484,7 +525,8 @@ pub fn render_json(enabled: bool, marks: &[Mark], before: Option<ProcessAge>, la
             out.push(',');
         }
         out.push_str(&format!(
-            "{{\"i\":{},\"name\":\"{}\",\"at_ms\":{:.3},\"since_library_ms\":{:.3},\"thread\":\"{}\",\"detail\":\"{}\"}}",
+            "{{\"i\":{},\"name\":\"{}\",\"at_ms\":{:.3},\"since_library_ms\":{:.3},\"thread\":\"\
+             {}\",\"detail\":\"{}\"}}",
             i + 1,
             json_escape(m.name),
             ms(before_us.saturating_add(m.at_us)),
@@ -494,10 +536,13 @@ pub fn render_json(enabled: bool, marks: &[Mark], before: Option<ProcessAge>, la
         ));
     }
     out.push(']');
-    // The renderer the window ended up with (the detail of its `render_backend` mark), as the GPU and
-    // phone harnesses read it: `backend=<cpu|gpu> requested=<cpu|gpu|auto> device=<text>`.
+    // The renderer the window ended up with (the detail of its `render_backend` mark), as the GPU
+    // and phone harnesses read it: `backend=<cpu|gpu> requested=<cpu|gpu|auto> device=<text>`.
     if let Some(m) = marks.iter().find(|m| m.name == "render_backend") {
-        out.push_str(&format!(",\"render_backend\":\"{}\"", json_escape(&m.detail)));
+        out.push_str(&format!(
+            ",\"render_backend\":\"{}\"",
+            json_escape(&m.detail)
+        ));
     }
     // The numbers a script wants without walking the marks.
     for (key, name) in [
@@ -507,7 +552,10 @@ pub fn render_json(enabled: bool, marks: &[Mark], before: Option<ProcessAge>, la
         ("a11y_tree_first_built_ms", "a11y_tree_first_built"),
     ] {
         if let Some(at) = first_of(marks, name) {
-            out.push_str(&format!(",\"{key}\":{:.3}", ms(before_us.saturating_add(at))));
+            out.push_str(&format!(
+                ",\"{key}\":{:.3}",
+                ms(before_us.saturating_add(at))
+            ));
         }
     }
     out.push('}');
@@ -650,7 +698,12 @@ fn macos_process_start_unix_us() -> Option<u64> {
     const CTL_KERN: c_int = 1;
     const KERN_PROC: c_int = 14;
     const KERN_PROC_PID: c_int = 1;
-    let mut mib = [CTL_KERN, KERN_PROC, KERN_PROC_PID, c_int::try_from(std::process::id()).ok()?];
+    let mut mib = [
+        CTL_KERN,
+        KERN_PROC,
+        KERN_PROC_PID,
+        c_int::try_from(std::process::id()).ok()?,
+    ];
     // sizeof(struct kinfo_proc) is 648 on macOS and iOS; the room is larger so a different size
     // is read whole instead of failing with ENOMEM.
     let mut buffer = [0u8; 1024];
@@ -691,9 +744,22 @@ fn windows_process_start_unix_us() -> Option<u64> {
             user: *mut FileTime,
         ) -> i32;
     }
-    let (mut creation, mut exit, mut kernel, mut user) = (FileTime::default(), FileTime::default(), FileTime::default(), FileTime::default());
+    let (mut creation, mut exit, mut kernel, mut user) = (
+        FileTime::default(),
+        FileTime::default(),
+        FileTime::default(),
+        FileTime::default(),
+    );
     // SAFETY: the pseudo handle of the current process and four valid out pointers.
-    let ok = unsafe { GetProcessTimes(GetCurrentProcess(), &mut creation, &mut exit, &mut kernel, &mut user) };
+    let ok = unsafe {
+        GetProcessTimes(
+            GetCurrentProcess(),
+            &mut creation,
+            &mut exit,
+            &mut kernel,
+            &mut user,
+        )
+    };
     if ok == 0 {
         return None;
     }

@@ -2,9 +2,10 @@
 
 use super::*;
 
-/// The window the constructor laid out: its first frame builds the display list from that layout and
-/// asks for none. The rule before 2026-11-26 asked whenever the display list was not initialised yet,
-/// which on macOS ran the user's layout callback a second time before the first present.
+/// The window the constructor laid out: its first frame builds the display list from that layout
+/// and asks for none. The rule before 2026-11-26 asked whenever the display list was not
+/// initialised yet, which on macOS ran the user's layout callback a second time before the first
+/// present.
 ///
 /// Mutation: the old rule (`!display_list_initialized` alone); the layout flag ignored.
 #[test]
