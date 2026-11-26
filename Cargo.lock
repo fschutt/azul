@@ -1736,6 +1736,7 @@ dependencies = [
  "mimalloc",
  "mp4",
  "mvt-reader",
+ "n0-future",
  "ndk 0.9.0",
  "ndk-sys 0.6.0+11769913",
  "nokhwa",
