@@ -4985,7 +4985,7 @@ fn build_selector_for_node(
 
     // Get tag name from NodeTypeTag (lowercase HTML tag name)
     let node_type_tag = node_data.get_node_type().get_path();
-    let tag_name = alloc::format!("{:?}", node_type_tag).to_lowercase();
+    let tag_name = alloc::format!("{node_type_tag:?}").to_lowercase();
 
     let mut selector = tag_name;
 
@@ -6233,8 +6233,7 @@ pub fn queue_e2e_tests(tests: Vec<E2eTest>) -> std::sync::mpsc::Receiver<DebugRe
         LogLevel::Info,
         LogCategory::DebugServer,
         format!(
-            "[E2E] Queuing {} test(s) with {} total step(s)",
-            test_count, total_steps
+            "[E2E] Queuing {test_count} test(s) with {total_steps} total step(s)"
         ),
         None,
     );
@@ -6386,8 +6385,7 @@ fn log_internal(
             use std::io::Write;
             let _ = writeln!(
                 f,
-                "[{:>12}us] [{:?}] [{:?}] {}",
-                timestamp_us, level, category, message
+                "[{timestamp_us:>12}us] [{level:?}] [{category:?}] {message}"
             );
         }
     }
@@ -7146,7 +7144,7 @@ pub fn handle_event_request(
         }
         Err(e) => serialize_http_response(&DebugHttpResponse::Error(DebugHttpResponseError {
             request_id: None,
-            message: format!("Invalid JSON: {}", e),
+            message: format!("Invalid JSON: {e}"),
         })),
     }
 }
@@ -7467,7 +7465,7 @@ pub fn evaluate_assertion(
     log(
         LogLevel::Debug,
         LogCategory::DebugServer,
-        format!("[E2E] evaluate_assertion: op='{}', params={}", op, params),
+        format!("[E2E] evaluate_assertion: op='{op}', params={params}"),
         None,
     );
     let result = match op {
@@ -7506,7 +7504,7 @@ pub fn evaluate_assertion(
         "assert_notification" => eval_assert_notification(params, callback_info),
         // Global hotkeys, as the window's App manager holds them
         "assert_global_hotkeys" => eval_assert_global_hotkeys(params, callback_info),
-        other => AssertionResult::fail(format!("Unknown assertion: {}", other)),
+        other => AssertionResult::fail(format!("Unknown assertion: {other}")),
     };
     if result.passed {
         log(
@@ -7560,8 +7558,7 @@ fn eval_assert_text(
         Some(nid) => nid,
         None => {
             return AssertionResult::fail(format!(
-                "assert_text: no node matches selector '{}'",
-                selector
+                "assert_text: no node matches selector '{selector}'"
             ))
         }
     };
@@ -7596,10 +7593,10 @@ fn eval_assert_text(
         .unwrap_or_default();
 
     if actual_text == expected {
-        AssertionResult::pass(format!("assert_text: '{}' matches", selector))
+        AssertionResult::pass(format!("assert_text: '{selector}' matches"))
     } else {
         AssertionResult::fail_with(
-            format!("assert_text: selector '{}' text mismatch", selector),
+            format!("assert_text: selector '{selector}' text mismatch"),
             expected,
             actual_text,
         )
@@ -7623,8 +7620,7 @@ fn eval_assert_exists(
     let matches = resolve_all_matching_nodes(callback_info, params_dom(params), selector);
     if matches.is_empty() {
         AssertionResult::fail(format!(
-            "assert_exists: no node matches selector '{}'",
-            selector
+            "assert_exists: no node matches selector '{selector}'"
         ))
     } else {
         AssertionResult::pass(format!(
@@ -7652,8 +7648,7 @@ fn eval_assert_not_exists(
     let matches = resolve_all_matching_nodes(callback_info, params_dom(params), selector);
     if matches.is_empty() {
         AssertionResult::pass(format!(
-            "assert_not_exists: '{}' correctly has no matches",
-            selector
+            "assert_not_exists: '{selector}' correctly has no matches"
         ))
     } else {
         AssertionResult::fail(format!(
@@ -7692,12 +7687,11 @@ fn eval_assert_node_count(
 
     if actual == expected {
         AssertionResult::pass(format!(
-            "assert_node_count: '{}' has {} node(s)",
-            selector, actual
+            "assert_node_count: '{selector}' has {actual} node(s)"
         ))
     } else {
         AssertionResult::fail_with(
-            format!("assert_node_count: selector '{}' count mismatch", selector),
+            format!("assert_node_count: selector '{selector}' count mismatch"),
             expected.to_string(),
             actual.to_string(),
         )
@@ -8221,8 +8215,7 @@ fn eval_assert_layout(
         Some(nid) => nid,
         None => {
             return AssertionResult::fail(format!(
-                "assert_layout: no node matches selector '{}'",
-                selector
+                "assert_layout: no node matches selector '{selector}'"
             ))
         }
     };
@@ -8237,8 +8230,7 @@ fn eval_assert_layout(
         Some(r) => r,
         None => {
             return AssertionResult::fail(format!(
-                "assert_layout: node '{}' has no layout rect",
-                selector
+                "assert_layout: node '{selector}' has no layout rect"
             ))
         }
     };
@@ -8250,22 +8242,20 @@ fn eval_assert_layout(
         "height" => rect.size.height as f64,
         other => {
             return AssertionResult::fail(format!(
-                "assert_layout: unknown property '{}' (use x, y, width, height)",
-                other
+                "assert_layout: unknown property '{other}' (use x, y, width, height)"
             ))
         }
     };
 
     if (actual - expected).abs() <= tolerance {
         AssertionResult::pass(format!(
-            "assert_layout: '{}' {} = {:.1} (expected {:.1} ± {:.1})",
-            selector, property, actual, expected, tolerance
+            "assert_layout: '{selector}' {property} = {actual:.1} (expected {expected:.1} ± {tolerance:.1})"
         ))
     } else {
         AssertionResult::fail_with(
-            format!("assert_layout: '{}' {} mismatch", selector, property),
-            format!("{:.1} (± {:.1})", expected, tolerance),
-            format!("{:.1}", actual),
+            format!("assert_layout: '{selector}' {property} mismatch"),
+            format!("{expected:.1} (± {tolerance:.1})"),
+            format!("{actual:.1}"),
         )
     }
 }
@@ -8305,8 +8295,7 @@ fn eval_assert_css(
         Some(nid) => nid,
         None => {
             return AssertionResult::fail(format!(
-                "assert_css: no node matches selector '{}'",
-                selector
+                "assert_css: no node matches selector '{selector}'"
             ))
         }
     };
@@ -8325,23 +8314,21 @@ fn eval_assert_css(
         Some(pt) => pt,
         None => {
             return AssertionResult::fail(format!(
-                "assert_css: unknown CSS property '{}'",
-                property
+                "assert_css: unknown CSS property '{property}'"
             ))
         }
     };
 
     match callback_info.get_computed_css_property(dom_node_id, prop_type) {
         Some(computed) => {
-            let actual = format!("{:?}", computed);
+            let actual = format!("{computed:?}");
             if actual == expected {
                 AssertionResult::pass(format!(
-                    "assert_css: '{}' {} = {}",
-                    selector, property, actual
+                    "assert_css: '{selector}' {property} = {actual}"
                 ))
             } else {
                 AssertionResult::fail_with(
-                    format!("assert_css: '{}' {} mismatch", selector, property),
+                    format!("assert_css: '{selector}' {property} mismatch"),
                     expected,
                     actual,
                 )
@@ -8349,8 +8336,7 @@ fn eval_assert_css(
         }
         None => AssertionResult::fail_with(
             format!(
-                "assert_css: property '{}' not set on '{}'",
-                property, selector
+                "assert_css: property '{property}' not set on '{selector}'"
             ),
             expected,
             "(not set)",
@@ -8400,17 +8386,17 @@ fn eval_assert_app_state(
     match actual {
         Some(val) => {
             if val == expected {
-                AssertionResult::pass(format!("assert_app_state: '{}' = {}", path, val))
+                AssertionResult::pass(format!("assert_app_state: '{path}' = {val}"))
             } else {
                 AssertionResult::fail_with(
-                    format!("assert_app_state: '{}' mismatch", path),
+                    format!("assert_app_state: '{path}' mismatch"),
                     expected.to_string(),
                     val.to_string(),
                 )
             }
         }
         None => AssertionResult::fail_with(
-            format!("assert_app_state: path '{}' not found in state", path),
+            format!("assert_app_state: path '{path}' not found in state"),
             expected.to_string(),
             "(path not found)",
         ),
@@ -8672,8 +8658,7 @@ fn eval_assert_scroll(
         Some(nid) => nid,
         None => {
             return AssertionResult::fail(format!(
-                "assert_scroll: no node matches selector '{}'",
-                selector
+                "assert_scroll: no node matches selector '{selector}'"
             ))
         }
     };
@@ -8694,8 +8679,7 @@ fn eval_assert_scroll(
         Some(o) => o,
         None => {
             return AssertionResult::fail(format!(
-                "assert_scroll: node '{}' is not scrollable or has no scroll state",
-                selector
+                "assert_scroll: node '{selector}' is not scrollable or has no scroll state"
             ))
         }
     };
@@ -8705,9 +8689,9 @@ fn eval_assert_scroll(
         let actual_x = offset.x as f64;
         if (actual_x - expected_x).abs() > tolerance {
             return AssertionResult::fail_with(
-                format!("assert_scroll: '{}' scroll-x mismatch", selector),
-                format!("{:.1} (± {:.1})", expected_x, tolerance),
-                format!("{:.1}", actual_x),
+                format!("assert_scroll: '{selector}' scroll-x mismatch"),
+                format!("{expected_x:.1} (± {tolerance:.1})"),
+                format!("{actual_x:.1}"),
             );
         }
     }
@@ -8717,9 +8701,9 @@ fn eval_assert_scroll(
         let actual_y = offset.y as f64;
         if (actual_y - expected_y).abs() > tolerance {
             return AssertionResult::fail_with(
-                format!("assert_scroll: '{}' scroll-y mismatch", selector),
-                format!("{:.1} (± {:.1})", expected_y, tolerance),
-                format!("{:.1}", actual_y),
+                format!("assert_scroll: '{selector}' scroll-y mismatch"),
+                format!("{expected_y:.1} (± {tolerance:.1})"),
+                format!("{actual_y:.1}"),
             );
         }
     }
@@ -8801,8 +8785,7 @@ fn eval_assert_screenshot(
             Ok(p) => p,
             Err(e) => {
                 return AssertionResult::fail(format!(
-                    "assert_screenshot: decode rendered PNG failed: {}",
-                    e
+                    "assert_screenshot: decode rendered PNG failed: {e}"
                 ))
             }
         };
@@ -8858,8 +8841,7 @@ fn eval_assert_screenshot(
                     );
                 }
                 return AssertionResult::fail(format!(
-                    "assert_screenshot: cannot read reference {}: {}",
-                    reference_path, e
+                    "assert_screenshot: cannot read reference {reference_path}: {e}"
                 ));
             }
         };
@@ -8868,8 +8850,7 @@ fn eval_assert_screenshot(
             Ok(p) => p,
             Err(e) => {
                 return AssertionResult::fail(format!(
-                    "assert_screenshot: decode reference PNG failed: {}",
-                    e
+                    "assert_screenshot: decode reference PNG failed: {e}"
                 ))
             }
         };
@@ -8891,8 +8872,8 @@ fn eval_assert_screenshot(
                     "assert_screenshot: {}/{} pixels differ (max_delta={})",
                     result.diff_count, result.total_pixels, result.max_delta
                 ),
-                format!("diff_ratio <= {:.4}", max_diff_ratio),
-                format!("diff_ratio = {:.4}", ratio),
+                format!("diff_ratio <= {max_diff_ratio:.4}"),
+                format!("diff_ratio = {ratio:.4}"),
             );
         }
 
@@ -15011,8 +14992,7 @@ fn resume_e2e_continuation_inner(
                         None
                     } else {
                         Some(format!(
-                            "'{}' did nothing (no JSON serializer, or empty history)",
-                            op
+                            "'{op}' did nothing (no JSON serializer, or empty history)"
                         ))
                     },
                     response: None,
@@ -15280,7 +15260,7 @@ fn resume_e2e_continuation_inner(
                             duration_ms: step_start.elapsed().as_millis() as u64,
                             logs: vec![],
                             screenshot: None,
-                            error: Some(format!("Unknown op '{}': {}", op, e)),
+                            error: Some(format!("Unknown op '{op}': {e}")),
                             response: None,
                         });
                     }
@@ -15569,8 +15549,7 @@ pub extern "C" fn debug_timer_callback(
             LogLevel::Debug,
             LogCategory::DebugServer,
             format!(
-                "[timer] Processed {} request(s), needs_update={}",
-                processed_count, needs_update
+                "[timer] Processed {processed_count} request(s), needs_update={needs_update}"
             ),
             None,
         );
@@ -15989,7 +15968,7 @@ fn resolve_function_pointer(address: usize) -> ResolvedSymbolInfo {
             if parts.len() >= 2 {
                 let crate_name = parts[0].replace('_', "-");
                 let module = parts[1];
-                source_file = Some(format!("{}/src/{}.rs", crate_name, module));
+                source_file = Some(format!("{crate_name}/src/{module}.rs"));
                 approximate = true;
                 hint = Some("Guessed from symbol name (approximate)".into());
             }
@@ -16315,11 +16294,11 @@ fn override_data_model_defaults(
         let name = field.name.as_str();
         if let Some(json_val) = map.get(name) {
             let parsed = parse_json_to_default_value(&field.field_type, json_val)
-                .map_err(|e| format!("field '{}': {}", name, e))?;
+                .map_err(|e| format!("field '{name}': {e}"))?;
             field.default_value = OptionComponentDefaultValue::Some(parsed);
         } else if field.required {
             if let OptionComponentDefaultValue::None = &field.default_value {
-                return Err(format!("required field '{}' is missing", name));
+                return Err(format!("required field '{name}' is missing"));
             }
         }
     }
@@ -16354,100 +16333,100 @@ fn parse_json_to_default_value(
             serde_json::Value::String(s) => s
                 .parse::<bool>()
                 .map(ComponentDefaultValue::Bool)
-                .map_err(|_| format!("expected bool, got \"{}\"", s)),
-            other => Err(format!("expected bool, got {}", other)),
+                .map_err(|_| format!("expected bool, got \"{s}\"")),
+            other => Err(format!("expected bool, got {other}")),
         },
         ComponentFieldType::I32 => match val {
             serde_json::Value::Number(n) => n
                 .as_i64()
                 .and_then(|v| i32::try_from(v).ok())
                 .map(ComponentDefaultValue::I32)
-                .ok_or_else(|| format!("expected i32, got {}", n)),
+                .ok_or_else(|| format!("expected i32, got {n}")),
             serde_json::Value::String(s) => s
                 .parse::<i32>()
                 .map(ComponentDefaultValue::I32)
-                .map_err(|_| format!("expected i32, got \"{}\"", s)),
-            other => Err(format!("expected i32, got {}", other)),
+                .map_err(|_| format!("expected i32, got \"{s}\"")),
+            other => Err(format!("expected i32, got {other}")),
         },
         ComponentFieldType::I64 => match val {
             serde_json::Value::Number(n) => n
                 .as_i64()
                 .map(ComponentDefaultValue::I64)
-                .ok_or_else(|| format!("expected i64, got {}", n)),
+                .ok_or_else(|| format!("expected i64, got {n}")),
             serde_json::Value::String(s) => s
                 .parse::<i64>()
                 .map(ComponentDefaultValue::I64)
-                .map_err(|_| format!("expected i64, got \"{}\"", s)),
-            other => Err(format!("expected i64, got {}", other)),
+                .map_err(|_| format!("expected i64, got \"{s}\"")),
+            other => Err(format!("expected i64, got {other}")),
         },
         ComponentFieldType::U32 => match val {
             serde_json::Value::Number(n) => n
                 .as_u64()
                 .and_then(|v| u32::try_from(v).ok())
                 .map(ComponentDefaultValue::U32)
-                .ok_or_else(|| format!("expected u32, got {}", n)),
+                .ok_or_else(|| format!("expected u32, got {n}")),
             serde_json::Value::String(s) => s
                 .parse::<u32>()
                 .map(ComponentDefaultValue::U32)
-                .map_err(|_| format!("expected u32, got \"{}\"", s)),
-            other => Err(format!("expected u32, got {}", other)),
+                .map_err(|_| format!("expected u32, got \"{s}\"")),
+            other => Err(format!("expected u32, got {other}")),
         },
         ComponentFieldType::U64 => match val {
             serde_json::Value::Number(n) => n
                 .as_u64()
                 .map(ComponentDefaultValue::U64)
-                .ok_or_else(|| format!("expected u64, got {}", n)),
+                .ok_or_else(|| format!("expected u64, got {n}")),
             serde_json::Value::String(s) => s
                 .parse::<u64>()
                 .map(ComponentDefaultValue::U64)
-                .map_err(|_| format!("expected u64, got \"{}\"", s)),
-            other => Err(format!("expected u64, got {}", other)),
+                .map_err(|_| format!("expected u64, got \"{s}\"")),
+            other => Err(format!("expected u64, got {other}")),
         },
         ComponentFieldType::Usize => match val {
             serde_json::Value::Number(n) => n
                 .as_u64()
                 .map(|v| v as usize)
                 .map(ComponentDefaultValue::Usize)
-                .ok_or_else(|| format!("expected usize, got {}", n)),
+                .ok_or_else(|| format!("expected usize, got {n}")),
             serde_json::Value::String(s) => s
                 .parse::<usize>()
                 .map(ComponentDefaultValue::Usize)
-                .map_err(|_| format!("expected usize, got \"{}\"", s)),
-            other => Err(format!("expected usize, got {}", other)),
+                .map_err(|_| format!("expected usize, got \"{s}\"")),
+            other => Err(format!("expected usize, got {other}")),
         },
         ComponentFieldType::F32 => match val {
             serde_json::Value::Number(n) => n
                 .as_f64()
                 .map(|v| v as f32)
                 .map(ComponentDefaultValue::F32)
-                .ok_or_else(|| format!("expected f32, got {}", n)),
+                .ok_or_else(|| format!("expected f32, got {n}")),
             serde_json::Value::String(s) => s
                 .parse::<f32>()
                 .map(ComponentDefaultValue::F32)
-                .map_err(|_| format!("expected f32, got \"{}\"", s)),
-            other => Err(format!("expected f32, got {}", other)),
+                .map_err(|_| format!("expected f32, got \"{s}\"")),
+            other => Err(format!("expected f32, got {other}")),
         },
         ComponentFieldType::F64 => match val {
             serde_json::Value::Number(n) => n
                 .as_f64()
                 .map(ComponentDefaultValue::F64)
-                .ok_or_else(|| format!("expected f64, got {}", n)),
+                .ok_or_else(|| format!("expected f64, got {n}")),
             serde_json::Value::String(s) => s
                 .parse::<f64>()
                 .map(ComponentDefaultValue::F64)
-                .map_err(|_| format!("expected f64, got \"{}\"", s)),
-            other => Err(format!("expected f64, got {}", other)),
+                .map_err(|_| format!("expected f64, got \"{s}\"")),
+            other => Err(format!("expected f64, got {other}")),
         },
         ComponentFieldType::ColorU => match val {
             serde_json::Value::String(s) => {
                 let hex = s.strip_prefix('#').unwrap_or(s.as_str());
                 if hex.len() >= 6 {
                     let r = u8::from_str_radix(&hex[0..2], 16)
-                        .map_err(|_| format!("invalid color: {}", s))?;
+                        .map_err(|_| format!("invalid color: {s}"))?;
                     let g = u8::from_str_radix(&hex[2..4], 16)
-                        .map_err(|_| format!("invalid color: {}", s))?;
+                        .map_err(|_| format!("invalid color: {s}"))?;
                     let b = u8::from_str_radix(&hex[4..6], 16)
-                        .map_err(|_| format!("invalid color: {}", s))?;
+                        .map_err(|_| format!("invalid color: {s}"))?;
                     let a = if hex.len() >= 8 {
                         u8::from_str_radix(&hex[6..8], 16).unwrap_or(255)
                     } else {
@@ -16457,10 +16436,10 @@ fn parse_json_to_default_value(
                         azul_css::props::basic::color::ColorU { r, g, b, a },
                     ))
                 } else {
-                    Err(format!("expected #RRGGBB[AA], got \"{}\"", s))
+                    Err(format!("expected #RRGGBB[AA], got \"{s}\""))
                 }
             }
-            other => Err(format!("expected color string (#RRGGBB), got {}", other)),
+            other => Err(format!("expected color string (#RRGGBB), got {other}")),
         },
         ComponentFieldType::OptionType(inner) => match val {
             serde_json::Value::Null => Ok(ComponentDefaultValue::None),
@@ -16683,8 +16662,7 @@ fn parse_field_type_from_string(s: &str) -> Result<azul_core::xml::ComponentFiel
                     .and_then(|s| s.strip_suffix(")"))
                     .ok_or_else(|| {
                         format!(
-                            "Invalid RefAny syntax '{}', expected 'RefAny(TypeHint)'",
-                            other
+                            "Invalid RefAny syntax '{other}', expected 'RefAny(TypeHint)'"
                         )
                     })?;
                 Ok(ComponentFieldType::RefAny(AzString::from(hint)))
@@ -16694,8 +16672,7 @@ fn parse_field_type_from_string(s: &str) -> Result<azul_core::xml::ComponentFiel
                     .and_then(|s| s.strip_suffix(">"))
                     .ok_or_else(|| {
                         format!(
-                            "Invalid Option type syntax '{}', expected 'Option<InnerType>'",
-                            other
+                            "Invalid Option type syntax '{other}', expected 'Option<InnerType>'"
                         )
                     })?;
                 Ok(ComponentFieldType::OptionType(ComponentFieldTypeBox::new(
@@ -16707,8 +16684,7 @@ fn parse_field_type_from_string(s: &str) -> Result<azul_core::xml::ComponentFiel
                     .and_then(|s| s.strip_suffix(">"))
                     .ok_or_else(|| {
                         format!(
-                            "Invalid Vec type syntax '{}', expected 'Vec<InnerType>'",
-                            other
+                            "Invalid Vec type syntax '{other}', expected 'Vec<InnerType>'"
                         )
                     })?;
                 Ok(ComponentFieldType::VecType(ComponentFieldTypeBox::new(
@@ -16726,10 +16702,9 @@ fn parse_field_type_from_string(s: &str) -> Result<azul_core::xml::ComponentFiel
                 Ok(ComponentFieldType::EnumRef(AzString::from(name)))
             } else {
                 Err(format!(
-                    "Unknown field type '{}'. Valid types: String, bool, i32, i64, u32, u64, \
+                    "Unknown field type '{other}'. Valid types: String, bool, i32, i64, u32, u64, \
                      usize, f32, f64, ColorU, CssProperty, ImageRef, FontRef, StyledDom, \
-                     Callback(...), RefAny(...), Option<...>, Vec<...>, struct:Name, enum:Name",
-                    other
+                     Callback(...), RefAny(...), Option<...>, Vec<...>, struct:Name, enum:Name"
                 ))
             }
         }
@@ -16744,16 +16719,15 @@ fn validate_field_name(name: &str) -> Result<(), String> {
         return Err("Field name cannot be empty".to_string());
     }
     if name.starts_with(|c: char| c.is_ascii_digit()) {
-        return Err(format!("Field name '{}' cannot start with a digit", name));
+        return Err(format!("Field name '{name}' cannot start with a digit"));
     }
     if !name
         .chars()
         .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
     {
         return Err(format!(
-            "Field name '{}' contains invalid characters (only alphanumeric, underscore, hyphen \
-             allowed)",
-            name
+            "Field name '{name}' contains invalid characters (only alphanumeric, underscore, hyphen \
+             allowed)"
         ));
     }
     Ok(())
@@ -16802,49 +16776,49 @@ fn parse_default_value(
         ComponentFieldType::Bool => match value {
             "true" | "1" | "yes" => Ok(ComponentDefaultValue::Bool(true)),
             "false" | "0" | "no" => Ok(ComponentDefaultValue::Bool(false)),
-            _ => Err(format!("expected bool ('true'/'false'), got '{}'", value)),
+            _ => Err(format!("expected bool ('true'/'false'), got '{value}'")),
         },
         ComponentFieldType::I32 => value
             .parse::<i32>()
             .map(ComponentDefaultValue::I32)
-            .map_err(|e| format!("expected i32: {}", e)),
+            .map_err(|e| format!("expected i32: {e}")),
         ComponentFieldType::I64 => value
             .parse::<i64>()
             .map(ComponentDefaultValue::I64)
-            .map_err(|e| format!("expected i64: {}", e)),
+            .map_err(|e| format!("expected i64: {e}")),
         ComponentFieldType::U32 => value
             .parse::<u32>()
             .map(ComponentDefaultValue::U32)
-            .map_err(|e| format!("expected u32: {}", e)),
+            .map_err(|e| format!("expected u32: {e}")),
         ComponentFieldType::U64 => value
             .parse::<u64>()
             .map(ComponentDefaultValue::U64)
-            .map_err(|e| format!("expected u64: {}", e)),
+            .map_err(|e| format!("expected u64: {e}")),
         ComponentFieldType::Usize => value
             .parse::<usize>()
             .map(ComponentDefaultValue::Usize)
-            .map_err(|e| format!("expected usize: {}", e)),
+            .map_err(|e| format!("expected usize: {e}")),
         ComponentFieldType::F32 => value
             .parse::<f32>()
             .map(ComponentDefaultValue::F32)
-            .map_err(|e| format!("expected f32: {}", e)),
+            .map_err(|e| format!("expected f32: {e}")),
         ComponentFieldType::F64 => value
             .parse::<f64>()
             .map(ComponentDefaultValue::F64)
-            .map_err(|e| format!("expected f64: {}", e)),
+            .map_err(|e| format!("expected f64: {e}")),
         ComponentFieldType::ColorU => {
             // Accept #rrggbb or #rrggbbaa hex strings
             let hex = value.strip_prefix('#').unwrap_or(value);
             if hex.len() == 6 || hex.len() == 8 {
                 let r = u8::from_str_radix(&hex[0..2], 16)
-                    .map_err(|e| format!("invalid color: {}", e))?;
+                    .map_err(|e| format!("invalid color: {e}"))?;
                 let g = u8::from_str_radix(&hex[2..4], 16)
-                    .map_err(|e| format!("invalid color: {}", e))?;
+                    .map_err(|e| format!("invalid color: {e}"))?;
                 let b = u8::from_str_radix(&hex[4..6], 16)
-                    .map_err(|e| format!("invalid color: {}", e))?;
+                    .map_err(|e| format!("invalid color: {e}"))?;
                 let a = if hex.len() == 8 {
                     u8::from_str_radix(&hex[6..8], 16)
-                        .map_err(|e| format!("invalid color: {}", e))?
+                        .map_err(|e| format!("invalid color: {e}"))?
                 } else {
                     255
                 };
@@ -16853,8 +16827,7 @@ fn parse_default_value(
                 ))
             } else {
                 Err(format!(
-                    "expected #rrggbb or #rrggbbaa hex color, got '{}'",
-                    value
+                    "expected #rrggbb or #rrggbbaa hex color, got '{value}'"
                 ))
             }
         }
@@ -17363,7 +17336,7 @@ fn serve_debug_event(
             log(
                 LogLevel::Info,
                 LogCategory::Window,
-                format!("Resizing to {}x{}", width, height),
+                format!("Resizing to {width}x{height}"),
                 None,
             );
 
@@ -17648,7 +17621,7 @@ fn serve_debug_event(
             log(
                 LogLevel::Info,
                 LogCategory::Window,
-                format!("Moving window to ({}, {})", x, y),
+                format!("Moving window to ({x}, {y})"),
                 None,
             );
             let mut new_state = callback_info.get_current_window_state().clone();
@@ -17673,7 +17646,7 @@ fn serve_debug_event(
             log(
                 LogLevel::Info,
                 LogCategory::Window,
-                format!("DPI change {} -> {}", old_dpi, new_dpi),
+                format!("DPI change {old_dpi} -> {new_dpi}"),
                 None,
             );
             let mut new_state = callback_info.get_current_window_state().clone();
@@ -17826,7 +17799,7 @@ fn serve_debug_event(
             log(
                 LogLevel::Debug,
                 LogCategory::EventLoop,
-                format!("Debug mouse move to ({}, {}) seat {}", x, y, seat),
+                format!("Debug mouse move to ({x}, {y}) seat {seat}"),
                 None,
             );
 
@@ -17846,8 +17819,7 @@ fn serve_debug_event(
                 LogLevel::Debug,
                 LogCategory::EventLoop,
                 format!(
-                    "Debug mouse down at ({}, {}) button {:?} seat {}",
-                    x, y, button, seat
+                    "Debug mouse down at ({x}, {y}) button {button:?} seat {seat}"
                 ),
                 None,
             );
@@ -17881,8 +17853,7 @@ fn serve_debug_event(
                 LogLevel::Debug,
                 LogCategory::EventLoop,
                 format!(
-                    "Debug mouse up at ({}, {}) button {:?} seat {}",
-                    x, y, button, seat
+                    "Debug mouse up at ({x}, {y}) button {button:?} seat {seat}"
                 ),
                 None,
             );
@@ -17945,7 +17916,7 @@ fn serve_debug_event(
                     log(
                         LogLevel::Debug,
                         LogCategory::EventLoop,
-                        format!("Debug click at ({}, {}) button {:?}", cx, cy, button),
+                        format!("Debug click at ({cx}, {cy}) button {button:?}"),
                         None,
                     );
 
@@ -17988,7 +17959,7 @@ fn serve_debug_event(
 
                     let response = ClickNodeResponse {
                         success: true,
-                        message: format!("Clicked at ({:.1}, {:.1})", cx, cy),
+                        message: format!("Clicked at ({cx:.1}, {cy:.1})"),
                     };
                     send_ok(request, None, Some(ResponseData::ClickNode(response)));
                 }
@@ -18057,7 +18028,7 @@ fn serve_debug_event(
             log(
                 LogLevel::Debug,
                 LogCategory::EventLoop,
-                format!("Debug double click at ({}, {}) button {:?}", x, y, button),
+                format!("Debug double click at ({x}, {y}) button {button:?}"),
                 None,
             );
 
@@ -18110,8 +18081,7 @@ fn serve_debug_event(
                 LogLevel::Debug,
                 LogCategory::EventLoop,
                 format!(
-                    "Debug scroll at ({}, {}) delta ({}, {})",
-                    x, y, delta_x, delta_y
+                    "Debug scroll at ({x}, {y}) delta ({delta_x}, {delta_y})"
                 ),
                 None,
             );
@@ -18182,7 +18152,7 @@ fn serve_debug_event(
                 log(
                     LogLevel::Debug,
                     LogCategory::EventLoop,
-                    format!("No scrollable node found at ({}, {})", x, y),
+                    format!("No scrollable node found at ({x}, {y})"),
                     None,
                 );
             }
@@ -19191,7 +19161,7 @@ fn serve_debug_event(
             log(
                 LogLevel::Debug,
                 LogCategory::DebugServer,
-                format!("Getting CSS properties for node {}", nid),
+                format!("Getting CSS properties for node {nid}"),
                 None,
             );
 
@@ -19318,7 +19288,7 @@ fn serve_debug_event(
             log(
                 LogLevel::Debug,
                 LogCategory::DebugServer,
-                format!("Getting layout for node {}", nid),
+                format!("Getting layout for node {nid}"),
                 None,
             );
 
@@ -19725,7 +19695,7 @@ fn serve_debug_event(
                         node_type: node_type.to_string(),
                         is_anonymous: node.dom_node_id.is_none(),
                         anonymous_type: cold
-                            .and_then(|c| c.anonymous_type.as_ref().map(|t| format!("{:?}", t))),
+                            .and_then(|c| c.anonymous_type.as_ref().map(|t| format!("{t:?}"))),
                         formatting_context: format!("{:?}", node.formatting_context),
                         parent: node.parent.map(|p| p as i64).unwrap_or(-1),
                         children: layout_tree.children(idx).to_vec(),
@@ -19960,7 +19930,7 @@ fn serve_debug_event(
                             };
                             DisplayListItemInfo {
                                 index: idx,
-                                item_type: format!("scrollbar_{}", orient_str),
+                                item_type: format!("scrollbar_{orient_str}"),
                                 x: Some(bounds.0.origin.x),
                                 y: Some(bounds.0.origin.y),
                                 width: Some(bounds.0.size.width),
@@ -19998,7 +19968,7 @@ fn serve_debug_event(
                             );
                             DisplayListItemInfo {
                                 index: idx,
-                                item_type: format!("scrollbar_{}", orient_str),
+                                item_type: format!("scrollbar_{orient_str}"),
                                 x: Some(info.bounds.0.origin.x),
                                 y: Some(info.bounds.0.origin.y),
                                 width: Some(info.bounds.0.size.width),
@@ -20311,7 +20281,7 @@ fn serve_debug_event(
             log(
                 LogLevel::Debug,
                 LogCategory::DebugServer,
-                format!("Scrolling node {} by ({}, {})", nid, delta_x, delta_y),
+                format!("Scrolling node {nid} by ({delta_x}, {delta_y})"),
                 None,
             );
 
@@ -20369,7 +20339,7 @@ fn serve_debug_event(
             log(
                 LogLevel::Debug,
                 LogCategory::DebugServer,
-                format!("Scrolling node {} to position ({}, {})", nid, x, y),
+                format!("Scrolling node {nid} to position ({x}, {y})"),
                 None,
             );
 
@@ -20464,8 +20434,7 @@ fn serve_debug_event(
                 LogLevel::Debug,
                 LogCategory::DebugServer,
                 format!(
-                    "Scrolling node {} into view (block: {:?}, inline: {:?}, behavior: {:?})",
-                    nid, block_align, inline_align, scroll_behavior
+                    "Scrolling node {nid} into view (block: {block_align:?}, inline: {inline_align:?}, behavior: {scroll_behavior:?})"
                 ),
                 None,
             );
@@ -20502,7 +20471,7 @@ fn serve_debug_event(
             log(
                 LogLevel::Debug,
                 LogCategory::DebugServer,
-                format!("Finding node by text: {}", text),
+                format!("Finding node by text: {text}"),
                 None,
             );
             use azul_core::{
@@ -20572,7 +20541,7 @@ fn serve_debug_event(
             log(
                 LogLevel::Debug,
                 LogCategory::DebugServer,
-                format!("Clicking node {} with button {:?}", node_id, button),
+                format!("Clicking node {node_id} with button {button:?}"),
                 None,
             );
             use azul_core::{
@@ -20618,7 +20587,7 @@ fn serve_debug_event(
 
                 let response = ClickNodeResponse {
                     success: true,
-                    message: format!("Clicked node {} at ({}, {})", node_id, center_x, center_y),
+                    message: format!("Clicked node {node_id} at ({center_x}, {center_y})"),
                 };
                 send_ok(request, None, Some(ResponseData::ClickNode(response)));
             } else {
@@ -20648,9 +20617,8 @@ fn serve_debug_event(
                 LogLevel::Debug,
                 LogCategory::DebugServer,
                 format!(
-                    "Getting scrollbar info for node_id={:?}, selector={:?}, text={:?}, \
-                     orientation={:?}",
-                    node_id, selector, text, orientation
+                    "Getting scrollbar info for node_id={node_id:?}, selector={selector:?}, text={text:?}, \
+                     orientation={orientation:?}"
                 ),
                 None,
             );
@@ -21198,7 +21166,7 @@ fn serve_debug_event(
                     files,
                     drag_data: None,   // TODO: convert DragData to BTreeMap
                     drag_effect: None, // TODO: convert DragEffect
-                    debug: alloc::format!("{:?}", drag_ctx),
+                    debug: alloc::format!("{drag_ctx:?}"),
                 }
             } else {
                 DragContextResponse {
@@ -21387,7 +21355,7 @@ fn serve_debug_event(
                             }
                         }
                         None => {
-                            send_err(request, alloc::format!("Node {} has no dataset", node_id));
+                            send_err(request, alloc::format!("Node {node_id} has no dataset"));
                         }
                     }
                 } else {
@@ -21608,7 +21576,7 @@ fn serve_debug_event(
             log(
                 LogLevel::Debug,
                 LogCategory::EventLoop,
-                format!("Received text input via debug server: '{}'", text),
+                format!("Received text input via debug server: '{text}'"),
                 None,
             );
 
@@ -22116,8 +22084,7 @@ fn serve_debug_event(
                 send_err(
                     request,
                     format!(
-                        "Parent node {} not found (total nodes: {})",
-                        parent_id, node_count
+                        "Parent node {parent_id} not found (total nodes: {node_count})"
                     ),
                 );
             } else if !on_rightmost_spine {
@@ -22194,7 +22161,7 @@ fn serve_debug_event(
             if target_node_id.index() >= node_count || *node_id == 0 {
                 send_err(
                     request,
-                    format!("Cannot delete node {} (root or out of range)", node_id),
+                    format!("Cannot delete node {node_id} (root or out of range)"),
                 );
             } else {
                 callback_info.delete_node(dom_id, target_node_id);
@@ -22263,7 +22230,7 @@ fn serve_debug_event(
                 .unwrap_or(0);
 
             if target_node_id.index() >= node_count {
-                send_err(request, format!("Node {} not found", node_id));
+                send_err(request, format!("Node {node_id} not found"));
             } else {
                 let dom_node_id = DomNodeId {
                     dom: dom_id,
@@ -22322,7 +22289,7 @@ fn serve_debug_event(
                 .unwrap_or(0);
 
             if target_node_id.index() >= node_count {
-                send_err(request, format!("Node {} not found", node_id));
+                send_err(request, format!("Node {node_id} not found"));
             } else {
                 // "omit to keep current" — the variant's own doc comment. The
                 // handler did the OPPOSITE: `set_node_ids_and_classes` REPLACES
@@ -22419,7 +22386,7 @@ fn serve_debug_event(
                 .unwrap_or(0);
 
             if target_node_id.index() >= node_count {
-                send_err(request, format!("Node {} not found", node_id));
+                send_err(request, format!("Node {node_id} not found"));
             } else {
                 use azul_css::props::property::{
                     parse_combined_css_property, CombinedCssPropertyType,
@@ -22648,8 +22615,7 @@ fn serve_debug_event(
                 send_err(
                     request,
                     format!(
-                        "Library '{}' not found. Available: {:?}",
-                        library, available
+                        "Library '{library}' not found. Available: {available:?}"
                     ),
                 );
             }
@@ -22676,7 +22642,7 @@ fn serve_debug_event(
                     );
                 }
                 Err(e) => {
-                    send_err(request, format!("Export failed: {}", e));
+                    send_err(request, format!("Export failed: {e}"));
                 }
             }
         }
@@ -22701,7 +22667,7 @@ fn serve_debug_event(
                     match azul_layout::zip::zip_create_from_files(zip_entries, &config) {
                         Ok(zip_bytes) => {
                             let base64_str = azul_layout::callbacks::base64_encode(&zip_bytes);
-                            let data_uri = format!("data:application/zip;base64,{}", base64_str);
+                            let data_uri = format!("data:application/zip;base64,{base64_str}");
                             send_ok(
                                 request,
                                 None,
@@ -22716,12 +22682,12 @@ fn serve_debug_event(
                             );
                         }
                         Err(e) => {
-                            send_err(request, format!("ZIP creation failed: {:?}", e));
+                            send_err(request, format!("ZIP creation failed: {e:?}"));
                         }
                     }
                 }
                 Err(e) => {
-                    send_err(request, format!("Export failed: {}", e));
+                    send_err(request, format!("Export failed: {e}"));
                 }
             }
         }
@@ -22762,7 +22728,7 @@ fn serve_debug_event(
                     css: AzString::from(c.css.as_str()),
                     source: ComponentSource::UserDefined,
                     data_model: ComponentDataModel {
-                        name: AzString::from(format!("{}Data", display_name_str).as_str()),
+                        name: AzString::from(format!("{display_name_str}Data").as_str()),
                         description: AzString::from(c.description.as_str()),
                         fields: ComponentDataFieldVec::from_vec(validated_fields),
                     },
@@ -22847,9 +22813,8 @@ fn serve_debug_event(
                     send_err(
                         request,
                         format!(
-                            "Library '{}' not found or is not exportable (builtin/compiled \
-                             libraries cannot be exported)",
-                            name
+                            "Library '{name}' not found or is not exportable (builtin/compiled \
+                             libraries cannot be exported)"
                         ),
                     );
                 } else {
@@ -22920,7 +22885,7 @@ fn serve_debug_event(
                 .any(|l| l.name.as_str() == name.as_str())
             {
                 drop(map_guard);
-                send_err(request, format!("Library '{}' already exists", name));
+                send_err(request, format!("Library '{name}' already exists"));
             } else {
                 let new_lib = ComponentLibrary {
                     name: AzString::from(name.as_str()),
@@ -22958,7 +22923,7 @@ fn serve_debug_event(
                     drop(map_guard);
                     send_err(
                         request,
-                        format!("Library '{}' is not modifiable and cannot be deleted", name),
+                        format!("Library '{name}' is not modifiable and cannot be deleted"),
                     );
                 } else {
                     libs.retain(|l| l.name.as_str() != name.as_str());
@@ -22969,7 +22934,7 @@ fn serve_debug_event(
             } else {
                 map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                 drop(map_guard);
-                send_err(request, format!("Library '{}' not found", name));
+                send_err(request, format!("Library '{name}' not found"));
             }
         }
 
@@ -22998,7 +22963,7 @@ fn serve_debug_event(
                 if !lib.modifiable {
                     map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                     drop(map_guard);
-                    send_err(request, format!("Library '{}' is not modifiable", library));
+                    send_err(request, format!("Library '{library}' is not modifiable"));
                 } else if lib
                     .components
                     .iter()
@@ -23011,8 +22976,7 @@ fn serve_debug_event(
                     send_err(
                         request,
                         format!(
-                            "Component '{}' already exists in library '{}'",
-                            name, library
+                            "Component '{name}' already exists in library '{library}'"
                         ),
                     );
                 } else {
@@ -23025,7 +22989,7 @@ fn serve_debug_event(
                         css: AzString::from_const_str(""),
                         source: ComponentSource::UserDefined,
                         data_model: ComponentDataModel {
-                            name: AzString::from(format!("{}Data", display).as_str()),
+                            name: AzString::from(format!("{display}Data").as_str()),
                             description: AzString::from_const_str(""),
                             fields: ComponentDataFieldVec::from_const_slice(&[]),
                         },
@@ -23043,7 +23007,7 @@ fn serve_debug_event(
                     if let Err(e) = installed {
                         map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                         drop(map_guard);
-                        send_err(request, format!("create_component '{}': {}", name, e));
+                        send_err(request, format!("create_component '{name}': {e}"));
                         return needs_update;
                     }
                     let mut comps = core::mem::replace(&mut lib.components, Vec::new().into())
@@ -23057,7 +23021,7 @@ fn serve_debug_event(
             } else {
                 map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                 drop(map_guard);
-                send_err(request, format!("Library '{}' not found", library));
+                send_err(request, format!("Library '{library}' not found"));
             }
         }
 
@@ -23076,7 +23040,7 @@ fn serve_debug_event(
                 if !lib.modifiable {
                     map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                     drop(map_guard);
-                    send_err(request, format!("Library '{}' is not modifiable", library));
+                    send_err(request, format!("Library '{library}' is not modifiable"));
                 } else {
                     let mut comps = core::mem::replace(&mut lib.components, Vec::new().into())
                         .into_library_owned_vec();
@@ -23094,7 +23058,7 @@ fn serve_debug_event(
             } else {
                 map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                 drop(map_guard);
-                send_err(request, format!("Library '{}' not found", library));
+                send_err(request, format!("Library '{library}' not found"));
             }
         }
 
@@ -23122,7 +23086,7 @@ fn serve_debug_event(
                 if !lib.modifiable {
                     map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                     drop(map_guard);
-                    send_err(request, format!("Library '{}' is not modifiable", library));
+                    send_err(request, format!("Library '{library}' is not modifiable"));
                 } else {
                     let mut comps = core::mem::replace(&mut lib.components, Vec::new().into())
                         .into_library_owned_vec();
@@ -23152,7 +23116,7 @@ fn serve_debug_event(
                                     drop(map_guard);
                                     send_err(
                                         request,
-                                        format!("Validation error in component '{}': {}", name, e),
+                                        format!("Validation error in component '{name}': {e}"),
                                     );
                                     return needs_update;
                                 }
@@ -23169,7 +23133,7 @@ fn serve_debug_event(
                                 drop(map_guard);
                                 send_err(
                                     request,
-                                    format!("render_tree of component '{}': {}", name, e),
+                                    format!("render_tree of component '{name}': {e}"),
                                 );
                                 return needs_update;
                             }
@@ -23187,14 +23151,14 @@ fn serve_debug_event(
                         drop(map_guard);
                         send_err(
                             request,
-                            format!("Component '{}' not found in library '{}'", name, library),
+                            format!("Component '{name}' not found in library '{library}'"),
                         );
                     }
                 }
             } else {
                 map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                 drop(map_guard);
-                send_err(request, format!("Library '{}' not found", library));
+                send_err(request, format!("Library '{library}' not found"));
             }
         }
 
@@ -23233,7 +23197,7 @@ fn serve_debug_event(
                 None => {
                     send_err(
                         request,
-                        format!("Component '{}' not found in library '{}'", name, library),
+                        format!("Component '{name}' not found in library '{library}'"),
                     );
                     return needs_update;
                 }
@@ -23244,7 +23208,7 @@ fn serve_debug_event(
                 match override_data_model_defaults(&comp.data_model, args.as_ref()) {
                     Ok(v) => v,
                     Err(e) => {
-                        send_err(request, format!("Invalid args for '{}': {}", name, e));
+                        send_err(request, format!("Invalid args for '{name}': {e}"));
                         return needs_update;
                     }
                 };
@@ -23327,7 +23291,7 @@ fn serve_debug_event(
                 Ok(result) => {
                     // Base64-encode the PNG data
                     let base64_str = azul_layout::callbacks::base64_encode(&result.png_data);
-                    let data_uri = format!("data:image/png;base64,{}", base64_str);
+                    let data_uri = format!("data:image/png;base64,{base64_str}");
                     send_ok(
                         request,
                         None,
@@ -23339,7 +23303,7 @@ fn serve_debug_event(
                     );
                 }
                 Err(e) => {
-                    send_err(request, format!("Preview render failed: {}", e));
+                    send_err(request, format!("Preview render failed: {e}"));
                 }
             }
         }
@@ -23378,7 +23342,7 @@ fn serve_debug_event(
                         drop(map_guard);
                         send_err(
                             request,
-                            format!("Failed to build data model for '{}': {}", name, e),
+                            format!("Failed to build data model for '{name}': {e}"),
                         );
                         return needs_update;
                     }
@@ -23389,7 +23353,7 @@ fn serve_debug_event(
                     azul_core::xml::ResultStyledDomRenderDomError::Ok(sd) => sd,
                     azul_core::xml::ResultStyledDomRenderDomError::Err(e) => {
                         drop(map_guard);
-                        send_err(request, format!("render_fn failed for '{}': {:?}", name, e));
+                        send_err(request, format!("render_fn failed for '{name}': {e:?}"));
                         return needs_update;
                     }
                 };
@@ -23402,7 +23366,7 @@ fn serve_debug_event(
                 drop(map_guard);
                 send_err(
                     request,
-                    format!("Component '{}' not found in library '{}'", name, library),
+                    format!("Component '{name}' not found in library '{library}'"),
                 );
             }
         }
@@ -23439,7 +23403,7 @@ fn serve_debug_event(
                             .as_ref()
                             .map(|s| s.as_str().to_string())
                             .unwrap_or_else(|| {
-                                format!("// Built-in render function for '{}'", name)
+                                format!("// Built-in render function for '{name}'")
                             })
                     }
                     // The component as code in any language: the same printers
@@ -23456,7 +23420,7 @@ fn serve_debug_event(
                             Err(e) => format!("// {e}"),
                         }
                     }
-                    _ => format!("// Unknown source_type: {}", source_type),
+                    _ => format!("// Unknown source_type: {source_type}"),
                 };
                 send_ok(
                     request,
@@ -23468,7 +23432,7 @@ fn serve_debug_event(
             } else {
                 send_err(
                     request,
-                    format!("Component '{}' not found in library '{}'", name, library),
+                    format!("Component '{name}' not found in library '{library}'"),
                 );
             }
         }
@@ -23491,7 +23455,7 @@ fn serve_debug_event(
                 if !lib.modifiable {
                     map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
                     drop(map_guard);
-                    send_err(request, format!("Library '{}' is not modifiable", library));
+                    send_err(request, format!("Library '{library}' is not modifiable"));
                 } else {
                     let mut comps = core::mem::replace(&mut lib.components, Vec::new().into())
                         .into_library_owned_vec();
@@ -23520,13 +23484,13 @@ fn serve_debug_event(
                         lib.components = comps.into();
                         map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
                         drop(map_guard);
-                        send_err(request, format!("Component '{}' not found", name));
+                        send_err(request, format!("Component '{name}' not found"));
                     }
                 }
             } else {
                 map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
                 drop(map_guard);
-                send_err(request, format!("Library '{}' not found", library));
+                send_err(request, format!("Library '{library}' not found"));
             }
         }
 
@@ -23573,7 +23537,7 @@ fn serve_debug_event(
             };
             match result {
                 Ok(_) => send_ok(request, None, None),
-                Err(e) => send_err(request, format!("Failed to open {}: {}", file, e)),
+                Err(e) => send_err(request, format!("Failed to open {file}: {e}")),
             }
         }
 
