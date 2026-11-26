@@ -324,6 +324,11 @@ pub mod telemetry;
 /// cooldown/suspend state. Requires the `updater` feature.
 #[cfg(feature = "updater")]
 pub mod updater;
+/// A resumable, windowed download of one file with a size limit, progress and a way to stop: what the
+/// updater downloads with and what a program can fetch a big file with (the speech model of the
+/// built-in recognizer). Requires the `updater` feature, whose dependencies it shares.
+#[cfg(feature = "updater")]
+pub mod ranged_download;
 
 /// C-compatible string formatting via `strfmt`.
 #[cfg(feature = "strfmt")]

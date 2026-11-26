@@ -2050,7 +2050,7 @@ fn read_blocks(path: &Path, mut each: impl FnMut(&[u8])) -> Result<u64, String> 
 }
 
 /// The SHA-256 of the file at `path`.
-fn sha256_of_file(path: &Path) -> Result<[u8; 32], String> {
+pub(crate) fn sha256_of_file(path: &Path) -> Result<[u8; 32], String> {
     use sha2::Digest as _;
     let mut hasher = sha2::Sha256::new();
     read_blocks(path, |block| hasher.update(block))?;
@@ -2060,7 +2060,7 @@ fn sha256_of_file(path: &Path) -> Result<[u8; 32], String> {
 }
 
 /// `hash` as 64 lowercase hex digits.
-fn sha256_hex(hash: &[u8; 32]) -> String {
+pub(crate) fn sha256_hex(hash: &[u8; 32]) -> String {
     use core::fmt::Write as _;
     hash.iter().fold(String::with_capacity(64), |mut out, b| {
         let _ = write!(out, "{b:02x}");
@@ -2832,24 +2832,6 @@ fn staged_artifact_name(download_url: &str, version: &str) -> String {
     }
 }
 
-/// `Content-Range: bytes <start>-<end>/<total>` (`total` may be `*`): the range and the total
-/// size when the server knows it.
-fn parse_content_range(value: &str) -> Option<(u64, u64, Option<u64>)> {
-    let rest = value.trim().strip_prefix("bytes")?.trim_start();
-    let (range, total) = rest.split_once('/')?;
-    let (start, end) = range.split_once('-')?;
-    let start = start.trim().parse::<u64>().ok()?;
-    let end = end.trim().parse::<u64>().ok()?;
-    if end < start {
-        return None;
-    }
-    let total = match total.trim() {
-        "*" => None,
-        digits => Some(digits.parse::<u64>().ok()?),
-    };
-    Some((start, end, total))
-}
-
 /// Downloads a release artifact into `staging_dir`, CACHED and RESUMABLE:
 ///
 /// * a fully staged artifact from an earlier call is reused verbatim (`used_cached`) — "download
@@ -2916,113 +2898,24 @@ fn download_update_capped(
         });
     }
     let partial_path = staging_dir.join(format!("{file_name}.partial"));
-    let resumed_from = std::fs::metadata(&partial_path).map_or(0, |m| m.len());
-    // A refused download leaves no partial file behind.
-    let refuse = |why: String| -> String {
-        drop(std::fs::remove_file(&partial_path));
-        why
-    };
-    let too_large = || {
-        format!(
-            "download: the file is larger than the {} MiB an update may be",
-            max_bytes / (1024 * 1024)
-        )
-    };
-    if resumed_from > max_bytes {
-        return Err(refuse(too_large()));
-    }
-
-    // CHUNKED-RANGE loop: each 1 MiB window lands on disk as it completes,
-    // so killing the process mid-download keeps every finished chunk and
-    // the next call resumes from the `.partial` length. (The HTTP layer
-    // buffers whole responses in memory — a single full-file request would
-    // leave NOTHING on disk when interrupted.) A server that ignores
-    // `Range` answers `200` with the whole file on the first request and
-    // the loop degrades to one buffered write.
-    const CHUNK: u64 = 1024 * 1024;
-    use std::io::Write as _;
-    let mut offset = resumed_from;
-    let mut written_this_call = 0u64;
-    let mut honored = false;
-    let mut known_total: Option<u64> = None;
-    loop {
-        let mut config = crate::http::HttpRequestConfig::new()
-            .with_header("Range", format!("bytes={offset}-{}", offset + CHUNK - 1));
-        // A registry blob needs the bearer token the manifest request got.
-        for pair in release.download_headers.as_ref() {
-            config = config.with_header(pair.key.as_str(), pair.value.as_str());
-        }
-        let response = crate::http::http_get_with_config(release.download_url.as_str(), &config)
-            .map_err(|e| format!("download: {e:?}"))?;
-        match response.status_code {
-            206 => {
-                let bytes = response.body.as_ref();
-                let length = bytes.len() as u64;
-                let range = response
-                    .headers
-                    .as_ref()
-                    .iter()
-                    .find(|h| h.name.as_str().eq_ignore_ascii_case("content-range"))
-                    .and_then(|h| parse_content_range(h.value.as_str()));
-                let Some((start, end, total)) = range else {
-                    return Err(refuse(
-                        "download: the server answered 206 without a usable Content-Range"
-                            .to_owned(),
-                    ));
-                };
-                // The bytes have to be the window that was asked for, where it was asked for.
-                if start != offset || end - start + 1 != length || length > CHUNK {
-                    return Err(refuse(format!(
-                        "download: the server sent bytes {start}-{end} ({length} bytes) for a                          request at {offset}"
-                    )));
-                }
-                if let Some(total) = total {
-                    if known_total.is_some_and(|known| known != total) {
-                        return Err(refuse(
-                            "download: the size of the file changed during the download".to_owned(),
-                        ));
-                    }
-                    if total > max_bytes {
-                        return Err(refuse(too_large()));
-                    }
-                    known_total = Some(total);
-                }
-                honored = true;
-                let mut file = std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&partial_path)
-                    .map_err(|e| e.to_string())?;
-                file.write_all(bytes).map_err(|e| e.to_string())?;
-                offset += length;
-                written_this_call += length;
-                if offset > max_bytes {
-                    return Err(refuse(too_large()));
-                }
-                // The end of the file: the size the server named is reached, or the window came
-                // back short.
-                if known_total.is_some_and(|total| offset >= total) || length < CHUNK {
-                    break;
-                }
-            }
-            // 200 = the server ignored the Range header: it sent the WHOLE
-            // file; a previous partial is superseded.
-            200 => {
-                let bytes = response.body.as_ref();
-                if bytes.len() as u64 > max_bytes {
-                    return Err(refuse(too_large()));
-                }
-                std::fs::write(&partial_path, bytes).map_err(|e| e.to_string())?;
-                written_this_call = bytes.len() as u64;
-                honored = false;
-                break;
-            }
-            // 416 Range Not Satisfiable: offset is already at (or past) the
-            // end — the partial IS the complete file.
-            416 => break,
-            code => return Err(format!("download HTTP {code}")),
-        }
-    }
+    // The windows, the checks of what the server answers and the resume are `ranged_download`'s; a
+    // registry blob needs the bearer token the manifest request got (`download_headers`).
+    let headers: Vec<(&str, &str)> = release
+        .download_headers
+        .as_ref()
+        .iter()
+        .map(|pair| (pair.key.as_str(), pair.value.as_str()))
+        .collect();
+    let transferred = crate::ranged_download::download(&crate::ranged_download::Request {
+        url: release.download_url.as_str(),
+        headers: &headers,
+        partial_path: &partial_path,
+        max_bytes,
+        what: "an update",
+        progress: &|_, _| {},
+        cancel: &|| false,
+    })
+    .map_err(|e| e.message())?;
     // Verify BEFORE the artifact gains its final (trusted-looking) name; a
     // mismatch discards the partial so the next attempt starts clean.
     if let Err(e) = check_pin(&partial_path, release) {
@@ -3032,10 +2925,10 @@ fn download_update_capped(
     std::fs::rename(&partial_path, &final_path).map_err(|e| e.to_string())?;
     Ok(DownloadOutcome {
         path: final_path,
-        resumed_from_bytes: if honored { resumed_from } else { 0 },
-        bytes_written: written_this_call,
+        resumed_from_bytes: transferred.resumed_from_bytes,
+        bytes_written: transferred.bytes_written,
         used_cached: false,
-        server_supports_resume: honored,
+        server_supports_resume: transferred.server_supports_resume,
     })
 }
 
@@ -5497,27 +5390,6 @@ mod tests {
             assert!(name.starts_with("update-"), "{name}");
         }
         drop(std::fs::remove_dir_all(&dir));
-    }
-
-    #[test]
-    fn y8_a_content_range_is_read_strictly() {
-        assert_eq!(
-            parse_content_range("bytes 0-1048575/3145728"),
-            Some((0, 1_048_575, Some(3_145_728)))
-        );
-        assert_eq!(parse_content_range("bytes 10-19/*"), Some((10, 19, None)));
-        assert_eq!(parse_content_range(" bytes  5-5/9 "), Some((5, 5, Some(9))));
-        for bad in [
-            "",
-            "bytes */100",
-            "bytes 5-4/100",
-            "bytes a-b/100",
-            "items 0-9/10",
-            "bytes 0-9",
-            "bytes 0-9/x",
-        ] {
-            assert_eq!(parse_content_range(bad), None, "{bad:?}");
-        }
     }
 
     // ---- REVIEW Y10: the generic self-update --------------------------------------------------

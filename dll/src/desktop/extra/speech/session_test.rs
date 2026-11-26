@@ -585,3 +585,50 @@ fn the_session_and_stream_handles_are_moved_to_threads_and_shared_between_them()
     std::thread::spawn(move || stopper.stop()).join().expect("the stopping thread");
     waiting.join().expect("the waiting thread");
 }
+
+// ---- the model the session fetches ----
+
+/// The built-in recognizer of a session that finds its files looks for the model where the program is, and
+/// then among the files of the model store. A call that the recognizer refuses is remembered by the chain;
+/// when the model's download ends the session takes the recognizer up again, so the next call asks it.
+#[test]
+fn a_model_that_finishes_downloading_makes_the_refused_built_in_recognizer_a_candidate_again() {
+    use super::{
+        builtin::{
+            engine_file_name,
+            model::model_test::{body, scratch, wait_for, Fake, TEST_MODEL},
+            Builtin, ModelPhase, ModelStore, Tuning,
+        },
+        order::Preference,
+    };
+
+    let dir = scratch("session-takes-up");
+    std::fs::create_dir_all(&dir).expect("a scratch folder");
+    // A file where the engine library is looked for (nothing loads it here), and no model.
+    std::fs::write(dir.join(engine_file_name(std::env::consts::OS)), b"only a file").expect("a file");
+    let fake = Fake::new(body());
+    let model = ModelStore::new(&TEST_MODEL, fake.clone(), Some(dir.join("models")));
+    let keeper = MicKeeper::without_microphone();
+    let clock: SharedClock = Arc::new(SystemClock::new());
+    let chain = Chain::new(clock).with(Box::new(
+        Builtin::discover(Some(dir.clone()), keeper.clone(), Tuning::default()).with_store(model.clone()),
+    ));
+    let session = SpeechSession::from_chain(chain, Some(dir.clone()), false, Preference::Automatic, true, keeper, model.clone());
+
+    // A call: the engine file here is no library, so the built-in recognizer refuses, and the chain remembers.
+    let heard = session.listen_blocking(AzString::from("en".to_string()), 200);
+    assert_eq!(heard.status, HeardStatus::Unavailable);
+    assert!(lines_of(&session).iter().any(|line| line.contains("built-in") && line.contains("unavailable")), "{:?}", lines_of(&session));
+    assert_eq!(fake.calls(), 0, "nothing is fetched before the app allows it");
+
+    // The user allows it: when it is there the recognizer is a candidate again.
+    model.allow();
+    wait_for(&model, "the model", |state| state.phase == ModelPhase::Present);
+    let began = std::time::Instant::now();
+    while lines_of(&session).iter().any(|line| line.contains("built-in") && line.contains("unavailable")) {
+        assert!(began.elapsed() < std::time::Duration::from_secs(5), "{:?}", lines_of(&session));
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(lines_of(&session).iter().any(|line| line.contains("built-in") && line.contains("ready")), "{:?}", lines_of(&session));
+    drop(std::fs::remove_dir_all(&dir));
+}

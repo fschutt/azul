@@ -145,7 +145,7 @@ use self::linux as platform;
 use self::windows as platform;
 
 use self::{
-    builtin::{Builtin, BuiltinStatus, Tuning},
+    builtin::{Builtin, BuiltinStatus, DownloadPolicy, LayoutFetch, ModelStore, NoNetwork, Tuning, WHISTLE},
     chain::{Chain, Health},
     keeper::{MicKeeper, DEFAULT_ARMED_IDLE_MS, DEFAULT_KEEP_MS},
     mock::{words_of, MockSpeech},
@@ -744,6 +744,12 @@ struct SessionInner {
     exe_dir: Option<PathBuf>,
     /// A scripted run: nothing real is loaded, a registration is answered from the script.
     scripted: bool,
+    /// The built-in recognizer's model on the disk: what the download policy and the consent say, and
+    /// the download itself.
+    model: ModelStore,
+    /// The app registered the built-in recognizer's files itself: a model that finishes downloading
+    /// afterwards does not take its place.
+    registered: AtomicBool,
 }
 
 /// A session of speech recognition: the chain of recognizers and what it learned (which one
@@ -841,12 +847,25 @@ impl SpeechSession {
         let scripted = backend_for(hooks) == Backend::Headless;
         if scripted {
             let (chain, preference) = scripted_chain(hooks, clock);
-            return Self::from_chain(chain, exe_dir, true, preference, true, MicKeeper::without_microphone());
+            // A scripted run loads nothing real and fetches nothing.
+            let model = ModelStore::new(&WHISTLE, Arc::new(NoNetwork), None);
+            model.set_policy(DownloadPolicy::Never);
+            return Self::from_chain(chain, exe_dir, true, preference, true, MicKeeper::without_microphone(), model);
         }
         let keeper = MicKeeper::new(capture::platform_source());
         keeper.set_keep_ms(DEFAULT_KEEP_MS);
-        let chain = platform_chain(clock, exe_dir.as_deref(), &keeper);
-        Self::from_chain(chain, exe_dir, false, Preference::Automatic, NATIVE_TAKES_VOCABULARY, keeper)
+        // The model is fetched into the user's cache folder, when and whether the environment says (the
+        // app's own choice, once it makes it, wins).
+        let settings = crate::desktop::extra::extra_settings::ExtraSettings::of_process();
+        let model = ModelStore::new(&WHISTLE, Arc::new(LayoutFetch), default_model_folder());
+        model.set_policy(match settings.speech_model_download {
+            Some(crate::desktop::extra::extra_settings::ModelDownloadSetting::Never) => DownloadPolicy::Never,
+            Some(crate::desktop::extra::extra_settings::ModelDownloadSetting::Automatic) => DownloadPolicy::Automatic,
+            Some(crate::desktop::extra::extra_settings::ModelDownloadSetting::Ask) | None => DownloadPolicy::Ask,
+        });
+        model.set_offline(settings.speech_offline);
+        let chain = platform_chain(clock, exe_dir.as_deref(), &keeper, &model);
+        Self::from_chain(chain, exe_dir, false, Preference::Automatic, NATIVE_TAKES_VOCABULARY, keeper, model)
     }
 
     fn from_chain(
@@ -856,6 +875,7 @@ impl SpeechSession {
         preference: Preference,
         native_takes_vocabulary: bool,
         keeper: MicKeeper,
+        model: ModelStore,
     ) -> Self {
         let inner = Arc::new(SessionInner {
             chain: Mutex::new(chain),
@@ -873,7 +893,17 @@ impl SpeechSession {
             last_language: Mutex::new(String::new()),
             exe_dir,
             scripted,
+            model,
+            registered: AtomicBool::new(false),
         });
+        // A model that has finished downloading is taken up by the session: the built-in recognizer
+        // looks for its files again (the chain marked it refused while the model was missing).
+        let weak = Arc::downgrade(&inner);
+        inner.model.set_ready_hook(Arc::new(move || {
+            if let Some(inner) = weak.upgrade() {
+                inner.rediscover_builtin();
+            }
+        }));
         inner.refresh_lines();
         Self {
             ptr: Arc::into_raw(inner).cast_mut().cast::<c_void>(),
@@ -884,13 +914,21 @@ impl SpeechSession {
     /// A session on `chain` (for the tests of the chain through the public face).
     #[cfg(test)]
     pub(crate) fn on_chain(chain: Chain) -> Self {
-        Self::from_chain(chain, None, true, Preference::Automatic, true, MicKeeper::without_microphone())
+        Self::from_chain(chain, None, true, Preference::Automatic, true, MicKeeper::without_microphone(), Self::no_model())
     }
 
     /// The same with the keeper whose microphone a test watches.
     #[cfg(test)]
     pub(crate) fn on_chain_with_keeper(chain: Chain, keeper: MicKeeper) -> Self {
-        Self::from_chain(chain, None, true, Preference::Automatic, true, keeper)
+        Self::from_chain(chain, None, true, Preference::Automatic, true, keeper, Self::no_model())
+    }
+
+    /// The model store of a test that has none: nothing is fetched.
+    #[cfg(test)]
+    pub(crate) fn no_model() -> ModelStore {
+        let model = ModelStore::new(&WHISTLE, Arc::new(NoNetwork), None);
+        model.set_policy(DownloadPolicy::Never);
+        model
     }
 
     fn inner(&self) -> Option<&SessionInner> {
@@ -930,6 +968,8 @@ impl SpeechSession {
                 .any(|state| state.kind == Kind::Builtin);
             return if has { BuiltinSpeechStatus::Ready } else { BuiltinSpeechStatus::EngineMissing };
         }
+        // What the app registers is the app's: a model that finishes downloading later does not replace it.
+        inner.registered.store(true, Ordering::SeqCst);
         let limits = *inner.limits.lock().unwrap_or_else(PoisonError::into_inner);
         let tuning = Tuning {
             max_keywords: limits.max_keywords as usize,
@@ -938,9 +978,14 @@ impl SpeechSession {
         };
         let microphone = inner.keeper.clone();
         let built = match source {
-            BuiltinSource::File(model_path) => {
-                Builtin::from_files(engine_path, &model_path, inner.exe_dir.as_deref(), microphone, tuning.clone())
-            }
+            BuiltinSource::File(model_path) => Builtin::from_files_with_store(
+                engine_path,
+                &model_path,
+                inner.exe_dir.as_deref(),
+                Some(&inner.model),
+                microphone,
+                tuning.clone(),
+            ),
             BuiltinSource::Bytes(bytes) => {
                 Builtin::from_engine_and_bytes(engine_path, &bytes, inner.exe_dir.as_deref(), microphone, tuning.clone())
             }
@@ -1443,6 +1488,32 @@ impl Drop for ActiveGuard<'_> {
 }
 
 impl SessionInner {
+    /// The model has finished downloading: the built-in recognizer looks for its files again, as it did
+    /// when the session began (the chain had marked it refused while the model was missing). It waits for
+    /// a call or a stream that is listening to end; a recognizer the app registered itself stays.
+    fn rediscover_builtin(&self) {
+        if self.scripted || self.registered.load(Ordering::SeqCst) {
+            return;
+        }
+        let limits = *self.limits.lock().unwrap_or_else(PoisonError::into_inner);
+        let tuning = Tuning {
+            max_keywords: limits.max_keywords as usize,
+            max_model_bytes: u64::from(limits.max_model_mb) * 1024 * 1024,
+            ..Tuning::default()
+        };
+        let mut builtin =
+            Builtin::discover(self.exe_dir.clone(), self.keeper.clone(), tuning).with_store(self.model.clone());
+        let vocabulary = self.vocabulary.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        drop(builtin.set_keywords(&vocabulary));
+        let mut chain = self.chain.lock().unwrap_or_else(PoisonError::into_inner);
+        if self.registered.load(Ordering::SeqCst) {
+            return;
+        }
+        chain.replace(Box::new(builtin));
+        drop(chain);
+        self.refresh_lines();
+    }
+
     /// What the keeper is told from the standby and the limits.
     fn apply_standby(&self) {
         let limits = *self.limits.lock().unwrap_or_else(PoisonError::into_inner);
@@ -1516,14 +1587,19 @@ impl SessionInner {
 
 /// The platform's chain: its own recognizer, then the built-in one (looked for next to the
 /// executable until the app registers it).
-fn platform_chain(clock: SharedClock, exe_dir: Option<&std::path::Path>, keeper: &MicKeeper) -> Chain {
+fn platform_chain(clock: SharedClock, exe_dir: Option<&std::path::Path>, keeper: &MicKeeper, model: &ModelStore) -> Chain {
     Chain::new(clock)
         .with(Box::new(NativeRecognizer::new(keeper.clone())))
-        .with(Box::new(Builtin::discover(
-            exe_dir.map(std::path::Path::to_path_buf),
-            keeper.clone(),
-            Tuning::default(),
-        )))
+        .with(Box::new(
+            Builtin::discover(exe_dir.map(std::path::Path::to_path_buf), keeper.clone(), Tuning::default())
+                .with_store(model.clone()),
+        ))
+}
+
+/// The folder the built-in recognizer's model is fetched into: `azul/speech` in the user's cache folder
+/// (`None` where the platform has none: the app names a folder).
+fn default_model_folder() -> Option<PathBuf> {
+    azul_layout::file::FilePath::get_cache_dir().map(|dir| PathBuf::from(dir.inner.as_str()).join("azul").join("speech"))
 }
 
 /// The chain of a headless or E2E test run: what `AZ_SPEECH_SCRIPT` scripts, else what
