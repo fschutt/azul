@@ -31,7 +31,10 @@ use tokio::{
 
 use azul_core::tls::TrustRoots;
 
-use super::types::{IrohConfig, IrohEvent, IrohEventKind, IrohPeerStats, IrohRelayMode};
+use super::{
+    discovery::{self, Held, LocalDiscovery, LocalDiscoveryState, Wanted},
+    types::{IrohConfig, IrohEvent, IrohEventKind, IrohPeerStats, IrohRelayMode},
+};
 
 const FRAME_STREAM: u8 = 1;
 const MESSAGE_STREAM: u8 = 2;
@@ -81,6 +84,19 @@ fn endpoint_ids(
         .collect()
 }
 
+/// Starts local-network discovery as `config` asks (`discovery::wanted`): what it came to, and what
+/// it keeps alive. A failure is a state, never an error of the bind.
+fn start_local_discovery(
+    config: &IrohConfig,
+    endpoint: &Endpoint,
+    discovery: &dyn LocalDiscovery,
+    ignored: &Arc<AtomicU64>,
+) -> (LocalDiscoveryState, Option<Held>) {
+    // Not wired yet: the tests of `engine_test.rs` fail until the engine asks discovery.
+    let _ = (config, endpoint, discovery, ignored);
+    (LocalDiscoveryState::Off, None)
+}
+
 /// What the endpoint's TLS outside iroh's own connections trusts (its relays, address lookup,
 /// DNS over HTTPS): exactly `roots`' certificates (`TrustRoots::certificates`). An entry that
 /// does not parse fails the bind; it never falls back to the public roots.
@@ -92,6 +108,12 @@ pub(super) struct Engine {
     endpoint: Endpoint,
     alpn: Vec<u8>,
     state: Arc<State>,
+    /// What local-network discovery does for this endpoint (`IrohConfig::local_discovery`).
+    local: LocalDiscoveryState,
+    /// The announced addresses that local discovery did not use (`discovery::sanitised`).
+    ignored: Arc<AtomicU64>,
+    /// What local discovery keeps alive until the engine is dropped (Android's multicast lock).
+    _held: Option<Held>,
 }
 
 #[derive(Default)]
@@ -181,6 +203,14 @@ impl Priorities {
 
 impl Engine {
     pub(super) fn bind(config: &IrohConfig) -> Result<Engine, String> {
+        Self::bind_with(config, &*discovery::platform())
+    }
+
+    /// [`Engine::bind`] with the local-network discovery `discovery` (the system's, or a test's).
+    pub(super) fn bind_with(
+        config: &IrohConfig,
+        discovery: &dyn LocalDiscovery,
+    ) -> Result<Engine, String> {
         let runtime = runtime()?;
         let alpn = config.alpn.as_str().as_bytes().to_vec();
         if alpn.is_empty() {
@@ -226,9 +256,17 @@ impl Engine {
                 .bind_addr(SocketAddr::from((Ipv4Addr::UNSPECIFIED, config.port)))
                 .map_err(|e| format!("invalid port {}: {e}", config.port))?;
         }
-        let endpoint = runtime
-            .block_on(builder.bind())
-            .map_err(|e| format!("could not bind the endpoint: {e}"))?;
+        let ignored = Arc::new(AtomicU64::new(0));
+        // Local discovery starts inside the runtime (its lookups spawn tasks on it); a network
+        // that refuses it leaves the endpoint as it was, bound without it.
+        let (endpoint, local, held) = runtime.block_on(async {
+            let endpoint = builder
+                .bind()
+                .await
+                .map_err(|e| format!("could not bind the endpoint: {e}"))?;
+            let (local, held) = start_local_discovery(config, &endpoint, discovery, &ignored);
+            Ok::<_, String>((endpoint, local, held))
+        })?;
         let state = Arc::new(State {
             max_frame: config.max_frame_bytes as usize,
             next_peer: AtomicU64::new(1),
@@ -241,7 +279,16 @@ impl Engine {
             endpoint,
             alpn,
             state,
+            local,
+            ignored,
+            _held: held,
         })
+    }
+
+    /// What local-network discovery does for this endpoint (`IrohEndpoint::local_discovery_status`).
+    pub(super) fn local_discovery_status(&self) -> String {
+        let _ = &self.local;
+        String::new()
     }
 
     /// Accepts incoming connections from `peers` only (`None`: from every peer), from the
@@ -852,7 +899,8 @@ mod tests {
 
     fn local_endpoint() -> Engine {
         let config = IrohConfig::create(AzString::from_const_str("azul/iroh-test/1"))
-            .with_relay_mode(IrohRelayMode::Disabled);
+            .with_relay_mode(IrohRelayMode::Disabled)
+            .with_local_discovery(false);
         Engine::bind(&config).expect("a relay-less endpoint binds")
     }
 
@@ -1031,7 +1079,8 @@ mod tests {
     fn a_relay_only_endpoint_binds_no_udp_socket_and_offers_no_direct_address() {
         let config = IrohConfig::create(AzString::from_const_str("azul/iroh-test/1"))
             .with_relay_url(AzString::from_const_str(SILENT_RELAY))
-            .with_relay_only(true);
+            .with_relay_only(true)
+            .with_local_discovery(false);
         let relayed = Engine::bind(&config).expect("a relay-only endpoint binds");
         assert!(
             relayed.endpoint.bound_sockets().is_empty(),
@@ -1168,7 +1217,8 @@ mod tests {
     fn relay_only_without_a_relay_is_refused() {
         let config = IrohConfig::create(AzString::from_const_str("azul/iroh-test/1"))
             .with_relay_mode(IrohRelayMode::Disabled)
-            .with_relay_only(true);
+            .with_relay_only(true)
+            .with_local_discovery(false);
         match Engine::bind(&config) {
             Ok(_) => panic!("a relay-only endpoint without a relay bound"),
             Err(reason) => assert!(reason.contains("relay"), "{reason}"),
@@ -1202,6 +1252,7 @@ mod tests {
         let stranger = local_endpoint();
         let config = IrohConfig::create(AzString::from_const_str("azul/iroh-test/1"))
             .with_relay_mode(IrohRelayMode::Disabled)
+            .with_local_discovery(false)
             .with_allowed_peers(listed(&[paired.endpoint_id()]));
         let host = Engine::bind(&config).expect("binds");
         let ticket = next_of(&host, IrohEventKind::Ready).text;
@@ -1284,6 +1335,7 @@ mod tests {
         while seen.try_recv().is_ok() {}
         let config = IrohConfig::create(AzString::from_const_str("azul/iroh-test/1"))
             .with_relay_url(AzString::from(relay.to_string()))
+            .with_local_discovery(false)
             .with_trust_roots(roots);
         let engine = Arc::new(Engine::bind(&config).expect("binds"));
         let nobody = SecretKey::from_bytes(&[7u8; 32]).public().to_string();
@@ -1343,3 +1395,7 @@ mod tests {
         assert!(accepted.is_ok(), "a stays trusted: {accepted:?}");
     }
 }
+
+#[cfg(test)]
+#[path = "engine_test.rs"]
+mod local_discovery_tests;

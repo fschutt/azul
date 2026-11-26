@@ -246,3 +246,7 @@ pub struct IrohPeerStats {
     /// Payload bytes of `messages_queued`.
     pub message_bytes_queued: u64,
 }
+
+#[cfg(test)]
+#[path = "types_test.rs"]
+mod tests;

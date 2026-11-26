@@ -8,6 +8,8 @@ pub mod loadbalancer;
 mod types;
 
 #[cfg(az_iroh_engine)]
+mod discovery;
+#[cfg(az_iroh_engine)]
 mod engine;
 
 use core::ffi::c_void;
@@ -397,3 +399,7 @@ impl IrohEndpoint {
 #[cfg(all(az_iroh_engine, target_os = "macos"))]
 #[link(name = "SystemConfiguration", kind = "framework")]
 extern "C" {}
+
+#[cfg(test)]
+#[path = "mod_test.rs"]
+mod tests;
