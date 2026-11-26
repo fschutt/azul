@@ -323,6 +323,23 @@ pub fn snake_fields<'a>(names: impl IntoIterator<Item = &'a str>) -> Vec<String>
         .collect()
 }
 
+/// The name of a struct field in V. V refuses a field name that starts with an underscore ("field
+/// name `_reserved` cannot start with `_`", V 0.5.2: 27 members of `azul.v` - `_reserved`,
+/// `_abi_mut`, `_abi_ref` and the fields of tuple structs, `_0`, `_1`, `_2`), so the underscores
+/// move to the end (`reserved_`, `abi_mut_`) and a name that would then start with a digit gets an
+/// `f` (`f0`, `f1`). Layout is by position, the names are the binding's own.
+pub fn v_field_name(name: &str) -> String {
+    let rest = name.trim_start_matches('_');
+    if rest.len() == name.len() {
+        return sanitize_identifier(name);
+    }
+    match rest.chars().next() {
+        None => "unnamed".to_string(),
+        Some(c) if c.is_ascii_digit() => format!("f{rest}"),
+        Some(_) => format!("{rest}_"),
+    }
+}
+
 /// Sanitize a name for use as a V identifier. V reserved words get a
 /// trailing underscore (V is case-sensitive, so only exact keyword matches
 /// collide).

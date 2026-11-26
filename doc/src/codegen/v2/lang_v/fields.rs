@@ -24,8 +24,7 @@ use super::{
         ir::{CodegenIR, FunctionDef, TypeCategory},
         raw_field_access::{accessible_fields, RawFieldKind},
     },
-    ffi_type_name, field_type_for_ref_kind, include_struct, sanitize_identifier,
-    should_emit_function,
+    ffi_type_name, field_type_for_ref_kind, include_struct, should_emit_function, v_field_name,
 };
 
 /// `az_string_to_v(&s)`: the text of an AzString, copied, not consumed.
@@ -65,8 +64,11 @@ pub fn generate_field_accessors(b: &mut CodeBuilder, ir: &CodegenIR, config: &Co
         let st = ffi_type_name(&s.name);
         for f in accessible_fields(s, ir, config, &emitted) {
             let fty = field_type_for_ref_kind(&f.def.type_name, &f.def.ref_kind, ir);
-            let field = format!("self.{}", sanitize_identifier(&f.def.name));
-            let name = &f.def.name;
+            // The field as V names it (no leading underscore: `v_field_name`); the accessors of a
+            // field that had one are named after that name: `get_f2`, not `get__2`.
+            let field = format!("self.{}", v_field_name(&f.def.name));
+            let accessor_name = if f.def.name.starts_with('_') { v_field_name(&f.def.name) } else { f.def.name.clone() };
+            let name = &accessor_name;
             match &f.kind {
                 RawFieldKind::Str { delete } if has_strings => {
                     b.line(&format!("// A copy of the `{}` field (the field is not consumed).", name));

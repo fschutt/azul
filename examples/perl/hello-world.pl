@@ -46,16 +46,7 @@ print "[azul] Perl full-GUI hello-world starting.\n";
 my $app_data  = Azul::refany_create($model);
 my $layout_cb = Azul::register_callback('LayoutCallback', $layout);
 
-my $wco = Azul::FFI::AzWindowCreateOptions_default();
-{
-    no warnings 'portable';
-    my $SENTINEL = 0x0123456789ABCDEF;
-    my $probe = Azul::FFI::AzWindowCreateOptions_create($SENTINEL);
-    my $off = index($$probe, pack('Q', $SENTINEL));
-    die "could not locate layout_callback slot" if $off < 0;
-    my $LC_SIZE = 40;
-    substr($$wco, $off, $LC_SIZE) = substr($$layout_cb, 0, $LC_SIZE);
-}
+my $wco = Azul::FFI::AzWindowCreateOptions_create($layout_cb);
 
 my $app = Azul::FFI::AzApp_create($app_data, Azul::FFI::AzAppConfig_create());
 my ($app_ptr, $app_len) = scalar_to_buffer($$app);
