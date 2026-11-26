@@ -85,6 +85,7 @@ pub mod recorder_clock;
 pub mod recorder_codec;
 pub mod recorder_edl;
 pub mod recorder_events;
+pub mod recorder_hook;
 pub mod recorder_export;
 pub mod recorder_fs;
 pub mod recorder_manifest;
@@ -200,6 +201,8 @@ pub struct AppState {
     pub pens: pens::Pens,
     /// The conversations of the folder's files (the bottom bar shows the open file's; the tree marks each file).
     pub chips: chips::Chips,
+    /// Where what happens in the window is told to a recorder (nobody until a recorder is mounted).
+    pub recorder: std::sync::Arc<dyn recorder_hook::RecorderHook>,
     pub findings: Vec<Finding>,
     /// The notes dictated at spots of the open file (the side column, the markers on the pages).
     pub notes: Vec<Note>,
@@ -267,6 +270,7 @@ impl AppState {
             next_stroke_id: 1,
             pens: pens::Pens::new(),
             chips: chips::Chips::default(),
+            recorder: recorder_hook::none(),
             findings: Vec::new(),
             notes: Vec::new(),
             next_note_id: 1,
@@ -322,6 +326,14 @@ impl AppState {
         }
         self.begin_file(Some(index));
         self.rederive();
+        if let Some(file) = self.files.get(index) {
+            self.say(
+                "nav.file",
+                &crate::recorder_events::Fields::new()
+                    .string("file", &file.display)
+                    .int("lines", i64::try_from(file.lines.len()).unwrap_or(i64::MAX)),
+            );
+        }
     }
 
     /// Reviews another folder: its files replace the files and the first is open (a folder without files
@@ -351,13 +363,82 @@ impl AppState {
         self.visible_page = 0;
     }
 
+    /// Tells the recorder (one call, the recorder's vocabulary).
+    fn say(&self, kind: &str, fields: &crate::recorder_events::Fields) {
+        self.recorder.event(kind, &fields.build());
+    }
+
+    /// The pen in hand, as the recorder says it.
+    fn say_pen(&self) {
+        let nib = match self.pens.tool() {
+            Tool::Marker => "marker",
+            Tool::Pen => "pen",
+            Tool::AudioPen => "audio",
+        };
+        self.say(
+            "pen.select",
+            &crate::recorder_events::Fields::new().string("meaning", self.pens.semantic().label()).string("nib", nib),
+        );
+    }
+
     /// Takes the pen that writes `sem`: the pen lit in the top bar is what the next stroke is (each pen
     /// has the nib it was left with).
     pub fn pick(&mut self, sem: Semantic) {
         if let Some(index) = pens::pen_of(sem) {
-            self.pens.select(index);
-            self.nib_changed();
+            self.select_pen(index);
         }
+    }
+
+    /// Takes pen `index` (a click on it).
+    pub fn select_pen(&mut self, index: usize) {
+        if self.pens.select(index) {
+            self.nib_changed();
+            self.say_pen();
+        }
+    }
+
+    /// The key of pen `index`: the pen in hand has its next nib, another pen is taken.
+    pub fn press_pen_key(&mut self, index: usize) -> pens::Pressed {
+        let pressed = self.pens.press_key(index);
+        if pressed != pens::Pressed::Ignored {
+            self.nib_changed();
+            self.say_pen();
+        }
+        pressed
+    }
+
+    /// A double click on pen `index`: it is taken and has its next nib.
+    pub fn double_click_pen(&mut self, index: usize) {
+        if index < pens::PENS.len() {
+            self.pens.double_click(index);
+            self.nib_changed();
+            self.say_pen();
+        }
+    }
+
+    /// The pen in hand has its next (or its previous) nib.
+    pub fn cycle_nib(&mut self, backward: bool) {
+        self.pens.cycle(backward);
+        self.nib_changed();
+        self.say_pen();
+    }
+
+    /// Opens or closes a panel (the tree, the right panel); the recorder is told when it changed.
+    pub fn set_panel_open(&mut self, panel: layout::Panel, open: bool) {
+        let slot = match panel {
+            layout::Panel::Tree => &mut self.panels.tree_open,
+            layout::Panel::Right => &mut self.panels.right_open,
+        };
+        if *slot == open {
+            return;
+        }
+        *slot = open;
+        self.say(
+            "layout.toggle",
+            &crate::recorder_events::Fields::new()
+                .string("panel", if panel == layout::Panel::Tree { "tree" } else { "whiteboard" })
+                .flag("open", open),
+        );
     }
 
     /// The conversations of the open file, in the order they began.
@@ -939,7 +1020,7 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
                 return true;
             }
             if overlay && s.panels.tree_open {
-                s.panels.tree_open = false;
+                s.set_panel_open(layout::Panel::Tree, false);
                 folded = true;
                 return true;
             }
@@ -987,10 +1068,9 @@ pub extern "C" fn on_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
     };
     // The key of a pen takes it; the key of the pen in hand takes its next nib.
     if let Some(mut s) = data.downcast_mut::<AppState>() {
-        if s.pens.press_key(index) == pens::Pressed::Ignored {
+        if s.press_pen_key(index) == pens::Pressed::Ignored {
             return Update::DoNothing;
         }
-        s.nib_changed();
     }
     Update::RefreshDom
 }
@@ -1022,10 +1102,11 @@ fn toggle_panel(data: &mut RefAny, info: &mut CallbackInfo, panel: layout::Panel
         let Some(mut s) = data.downcast_mut::<AppState>() else {
             return Update::DoNothing;
         };
-        match panel {
-            layout::Panel::Tree => s.panels.tree_open = !s.panels.tree_open,
-            layout::Panel::Right => s.panels.right_open = !s.panels.right_open,
-        }
+        let open = match panel {
+            layout::Panel::Tree => s.panels.tree_open,
+            layout::Panel::Right => s.panels.right_open,
+        };
+        s.set_panel_open(panel, !open);
     }
     persist_panels(data, info);
     start_slide(data, info);
@@ -1215,8 +1296,7 @@ fn cycle_tool(data: &mut RefAny, backward: bool) -> Update {
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
-    s.pens.cycle(backward);
-    s.nib_changed();
+    s.cycle_nib(backward);
     Update::RefreshDom
 }
 
@@ -1618,8 +1698,7 @@ pub extern "C" fn on_pick_semantic(mut data: RefAny, mut info: CallbackInfo) -> 
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
-    s.pens.select(index);
-    s.nib_changed();
+    s.select_pen(index);
     Update::RefreshDom
 }
 
@@ -1631,8 +1710,7 @@ pub extern "C" fn on_pen_double_click(mut data: RefAny, mut info: CallbackInfo) 
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
-    s.pens.double_click(index);
-    s.nib_changed();
+    s.double_click_pen(index);
     Update::RefreshDom
 }
 
