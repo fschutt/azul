@@ -848,6 +848,13 @@ pdf = ["dep:printpdf", "serde_json"]
 # iOS). The handle is always present; without the feature `bind` reports an `Error` event instead of
 # binding.
 iroh = ["dep:iroh", "dep:iroh-tickets", "dep:iroh-mdns-address-lookup", "dep:n0-future", "dep:tokio", "azul-core/tls-roots"]
+# The iroh endpoint asks the router for a port: UPnP, NAT-PMP and PCP (iroh's `portmapper`, whose default
+# is on once the feature is). Off by default: it changes the user's router, it starts with an SSDP
+# multicast, relays and hole punching already cover the internet, and on iOS it is more multicast.
+iroh-portmapper = ["iroh"]
+# Full-text indexes in the SQL of the `Db` API (turso's `fts`, which brings tantivy). Off by default:
+# `azul-search-index` is the engine's full-text search, and the Db API promises SQL, not a search engine.
+db-fts = ["db-sqlite"]
 
 # -----------------------------------------------------------------------------
 # Link Modes (for consumers of the library)
@@ -1187,6 +1194,15 @@ tga = ["azul-layout", "azul-layout/tga"]
 hdr = ["azul-layout", "azul-layout/hdr"]
 webp = ["azul-layout", "azul-layout/webp"]
 pnm = ["azul-layout", "azul-layout/pnm"]
+# Formats that no shipped set turns on (see azul-layout's features of the same names): a build asks for them.
+qoi = ["azul-layout"]
+ff = ["azul-layout"]
+dds = ["azul-layout"]
+exr = ["azul-layout"]
+# The HTTP client keeps cookies (azul-layout's http-cookies), ZIP reads Deflate64 entries, PNG uses zlib-rs.
+http-cookies = ["azul-layout"]
+zip-deflate64 = ["azul-layout"]
+png-zlib-rs = ["azul-layout"]
 
 # -----------------------------------------------------------------------------
 # Layout Features
