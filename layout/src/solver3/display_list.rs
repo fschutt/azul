@@ -11485,7 +11485,7 @@ where
             if g.font_hash != run_hash && !run.is_empty() {
                 self.push_run(builder, 
                     core::mem::take(&mut run),
-                    self.run_face(run_hash, style.asks_for_bold()),
+                    self.run_face(run_hash, style.asks_for_synthetic_bold()),
                     style.font_size_px,
                     color,
                     content_box,
@@ -11508,7 +11508,7 @@ where
         if !run.is_empty() {
             self.push_run(builder, 
                 run,
-                self.run_face(run_hash, style.asks_for_bold()),
+                self.run_face(run_hash, style.asks_for_synthetic_bold()),
                 style.font_size_px,
                 color,
                 content_box,
@@ -12268,7 +12268,7 @@ where
         Some(TextOverflowEllipsis {
             glyphs,
             font_size_px: style.font_size_px,
-            asks_for_bold: style.asks_for_bold(),
+            asks_for_bold: style.asks_for_synthetic_bold(),
             color: super::getters::get_used_text_color(sd, dom_id, &state),
             cuts,
         })

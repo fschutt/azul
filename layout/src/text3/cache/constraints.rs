@@ -252,7 +252,8 @@ pub(crate) struct CursorBoundsError {
 /// - `line_clamp`: \u2705 Max number of lines
 ///
 /// ## CSS Writing Modes Level 4
-/// - `text_combine_upright`: \u2705 Tate-chu-yoko for vertical text
+/// - `text_combine_upright`: \u2705 Tate-chu-yoko for vertical text - decided from the style of the run
+///   (`StyleProperties::text_combine_upright`), not from the constraints
 ///
 /// ## CSS Shapes Module
 /// - `shape_boundaries`: \u2705 Custom line box shapes
@@ -322,7 +323,6 @@ pub struct UnifiedConstraints {
     pub segment_alignment: SegmentAlignment,
 
     // Advanced features
-    pub text_combine_upright: Option<TextCombineUpright>,
     pub hyphenation: Hyphens,
     pub hyphenation_language: Option<Language>,
     pub text_indent: f32,
@@ -438,7 +438,6 @@ impl Default for UnifiedConstraints {
             ch_width: DEFAULT_CH_WIDTH,
             overflow: OverflowBehavior::default(),
             segment_alignment: SegmentAlignment::default(),
-            text_combine_upright: None,
             hyphenation: Hyphens::default(),
             hyphenation_language: None,
             columns: 1,
@@ -506,7 +505,6 @@ impl UnifiedConstraints {
             ch_width,
             overflow,
             segment_alignment,
-            text_combine_upright,
             hyphenation,
             hyphenation_language,
             text_indent,
@@ -544,7 +542,6 @@ impl UnifiedConstraints {
         (ch_width.round() as isize).hash(state);
         overflow.hash(state);
         segment_alignment.hash(state);
-        text_combine_upright.hash(state);
         hyphenation.hash(state);
         hyphenation_language.hash(state);
         (text_indent.round() as isize).hash(state);
@@ -589,7 +586,6 @@ impl PartialEq for UnifiedConstraints {
             ch_width,
             overflow,
             segment_alignment,
-            text_combine_upright,
             hyphenation,
             hyphenation_language,
             text_indent,
@@ -637,7 +633,6 @@ impl PartialEq for UnifiedConstraints {
             && round_eq(*ch_width, other.ch_width)
             && *overflow == other.overflow
             && *segment_alignment == other.segment_alignment
-            && *text_combine_upright == other.text_combine_upright
             && *hyphenation == other.hyphenation
             && *hyphenation_language == other.hyphenation_language
             && round_eq(*text_indent, other.text_indent)

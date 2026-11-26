@@ -1142,6 +1142,7 @@ pub fn test_request(language: &str) -> Request {
                 .to_string(),
             start_ms: 0,
             end_ms: 1_000,
+            words: Vec::new(),
         }],
         strokes: Vec::new(),
         context: Context {

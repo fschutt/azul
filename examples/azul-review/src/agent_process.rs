@@ -119,12 +119,15 @@ fn reader(mut pipe: impl Read + Send + 'static) -> Receiver<Vec<u8>> {
         let mut buffer = [0_u8; 8 * 1024];
         loop {
             match pipe.read(&mut buffer) {
-                Ok(0) | Err(_) => break,
+                Ok(0) => break,
                 Ok(n) => {
                     if send.send(buffer[..n].to_vec()).is_err() {
                         break;
                     }
                 }
+                // a signal in the middle of the wait is no end of the pipe: read again
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(_) => break,
             }
         }
     });

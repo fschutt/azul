@@ -2231,6 +2231,109 @@ pub(crate) fn font_variation_inputs_hash(
     hasher.finish()
 }
 
+/// Every flag of a text property that has no compact slot and that only some documents declare
+/// (the `DOM_HAS_*` flags): when a document declares one of them anywhere, what its nodes ask
+/// through them is read from the cascade ([`rare_text_inputs_hash`]).
+pub(crate) const RARE_TEXT_FLAGS: u64 = azul_css::compact_cache::DOM_HAS_FONT_VARIATION_SETTINGS
+    | azul_css::compact_cache::DOM_HAS_FONT_OPTICAL_SIZING
+    | azul_css::compact_cache::DOM_HAS_FONT_KERNING
+    | azul_css::compact_cache::DOM_HAS_FONT_VARIANT_LIGATURES
+    | azul_css::compact_cache::DOM_HAS_FONT_VARIANT_EAST_ASIAN
+    | azul_css::compact_cache::DOM_HAS_FONT_VARIANT_NUMERIC
+    | azul_css::compact_cache::DOM_HAS_FONT_VARIANT_CAPS
+    | azul_css::compact_cache::DOM_HAS_FONT_FEATURE_SETTINGS
+    | azul_css::compact_cache::DOM_HAS_FONT_SYNTHESIS
+    | azul_css::compact_cache::DOM_HAS_TEXT_COMBINE_UPRIGHT;
+
+/// A hash of what a node asks through the text properties that have no compact slot (the
+/// [`RARE_TEXT_FLAGS`]): the variation settings and the optical sizing
+/// ([`font_variation_inputs_hash`]), the kerning, the ligatures, the East Asian forms, the
+/// numeric and caps variants, the feature settings, the synthesis switches and the combining of
+/// digits. The cache of the collected inline content of a formatting
+/// context folds it in for a document that declares one of them (it keys on the nodes and on the
+/// compact cache, which holds none of these), so that a restyle that moves only one - another
+/// stylesheet over the same nodes - collects the text in its new style. A property the document
+/// does not declare is not asked for.
+#[must_use]
+pub(crate) fn rare_text_inputs_hash(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> u64 {
+    use core::hash::{Hash, Hasher};
+
+    use azul_css::compact_cache as flags;
+
+    let cache = &styled_dom.css_property_cache.ptr;
+    let declared = |flag: u64| {
+        cache
+            .compact_cache
+            .as_ref()
+            .is_none_or(|cc| cc.dom_declared(flag))
+    };
+    let node_data = &styled_dom.node_data.as_container()[node_id];
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    font_variation_inputs_hash(styled_dom, node_id, node_state).hash(&mut hasher);
+    if declared(flags::DOM_HAS_FONT_KERNING) {
+        cache
+            .get_font_kerning(node_data, &node_id, node_state)
+            .and_then(|v| v.get_property())
+            .hash(&mut hasher);
+    }
+    if declared(flags::DOM_HAS_FONT_VARIANT_LIGATURES) {
+        cache
+            .get_font_variant_ligatures(node_data, &node_id, node_state)
+            .and_then(|v| v.get_property())
+            .hash(&mut hasher);
+    }
+    if declared(flags::DOM_HAS_FONT_VARIANT_EAST_ASIAN) {
+        cache
+            .get_font_variant_east_asian(node_data, &node_id, node_state)
+            .and_then(|v| v.get_property())
+            .hash(&mut hasher);
+    }
+    if declared(flags::DOM_HAS_FONT_VARIANT_NUMERIC) {
+        cache
+            .get_font_variant_numeric(node_data, &node_id, node_state)
+            .and_then(|v| v.get_property())
+            .hash(&mut hasher);
+    }
+    if declared(flags::DOM_HAS_FONT_VARIANT_CAPS) {
+        cache
+            .get_font_variant_caps(node_data, &node_id, node_state)
+            .and_then(|v| v.get_property())
+            .hash(&mut hasher);
+    }
+    if declared(flags::DOM_HAS_FONT_FEATURE_SETTINGS) {
+        cache
+            .get_font_feature_settings(node_data, &node_id, node_state)
+            .and_then(|v| v.get_property())
+            .hash(&mut hasher);
+    }
+    if declared(flags::DOM_HAS_FONT_SYNTHESIS) {
+        cache
+            .get_font_synthesis_weight(node_data, &node_id, node_state)
+            .and_then(|v| v.get_property())
+            .hash(&mut hasher);
+        cache
+            .get_font_synthesis_style(node_data, &node_id, node_state)
+            .and_then(|v| v.get_property())
+            .hash(&mut hasher);
+        cache
+            .get_font_synthesis_small_caps(node_data, &node_id, node_state)
+            .and_then(|v| v.get_property())
+            .hash(&mut hasher);
+        cache
+            .get_font_synthesis_position(node_data, &node_id, node_state)
+            .and_then(|v| v.get_property())
+            .hash(&mut hasher);
+    }
+    if declared(flags::DOM_HAS_TEXT_COMBINE_UPRIGHT) {
+        get_text_combine_upright(styled_dom, node_id, node_state).hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
 /// [`font_request_of_node`] at the node's used font size `font_size_px`:
 /// the optical size is the size in whole CSS px unless the node says
 /// `font-optical-sizing: none`.
@@ -4403,13 +4506,16 @@ struct StyleInputs {
 /// - a document that uses a viewport unit (the font-size memo is off) or a
 ///   CSS `zoom` (every length takes its node's zoom), or that declares
 ///   `font-variant-numeric`, `font-variant-caps`, `font-feature-settings`,
-///   `font-variation-settings` or `font-optical-sizing` anywhere (the build
-///   then asks the cascade for them);
+///   `font-variation-settings`, `font-optical-sizing`, `font-kerning`,
+///   `font-variant-ligatures`, `font-variant-east-asian`, a `font-synthesis*`
+///   longhand or `text-combine-upright` anywhere (the build then asks the
+///   cascade for them; the `writing-mode` is a tier-1 slot, part of the key);
 /// - a compact slot that sends the build to the cascade: a `font-size`, a
 ///   colour, a line height or a spacing the slot cannot hold;
 /// - `bolder` / `lighter` (resolved against the parent's weight), a
 ///   `text-decoration` of its own, a colour an ancestor's runtime override
-///   hands down, a `vertical-align` length or percentage;
+///   hands down, a `vertical-align` length or percentage, a `tab-size` that
+///   is a length;
 /// - an inline box that paints or moves something: a background, a border,
 ///   padding, a horizontal margin (all of it is in the box's style).
 ///
@@ -4445,7 +4551,12 @@ fn style_inputs_of(
                 | compact::DOM_HAS_FONT_VARIANT_CAPS
                 | compact::DOM_HAS_FONT_FEATURE_SETTINGS
                 | compact::DOM_HAS_FONT_VARIATION_SETTINGS
-                | compact::DOM_HAS_FONT_OPTICAL_SIZING,
+                | compact::DOM_HAS_FONT_OPTICAL_SIZING
+                | compact::DOM_HAS_FONT_KERNING
+                | compact::DOM_HAS_FONT_VARIANT_LIGATURES
+                | compact::DOM_HAS_FONT_VARIANT_EAST_ASIAN
+                | compact::DOM_HAS_FONT_SYNTHESIS
+                | compact::DOM_HAS_TEXT_COMBINE_UPRIGHT,
         )
     {
         return None;
@@ -4473,6 +4584,7 @@ fn style_inputs_of(
         || text.letter_spacing >= compact::PX_SLOT_THRESHOLD
         || text.word_spacing >= compact::PX_SLOT_THRESHOLD
         || cold.hot_flags & compact::HOT_FLAG_HAS_TEXT_DECORATION != 0
+        || cold.tab_size == compact::I16_AUTO
         || compact::decode_font_weight_slot(text.font_weight).is_relative()
     {
         return None;
@@ -5179,17 +5291,40 @@ pub fn get_style_properties_for_state_with(
                 let raw = cc.get_tab_size_raw(dom_id.index());
                 if raw < azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
                     fast_tab = Some(f32::from(raw) / 10.0);
-                } else {
+                } else if raw != azul_css::compact_cache::I16_AUTO {
                     // Sentinel / Inherit / Initial → spec default is 8.
                     fast_tab = Some(8.0);
                 }
+                // `auto`: a length (`tab-size: 30px`), which the slot cannot hold: the cascade
+                // answers it below.
             }
         }
         fast_tab.unwrap_or_else(|| {
             cache
                 .get_tab_size(node_data, &dom_id, node_state)
                 .and_then(|v| v.get_property().copied())
-                .map_or(DEFAULT_TAB_SIZE, |v| v.inner.number.get())
+                .map_or(DEFAULT_TAB_SIZE, |v| {
+                    if v.inner.metric == azul_css::props::basic::length::SizeMetric::Em {
+                        // a count of spaces (`tab-size: 4` is kept as `4em`)
+                        v.inner.number.get()
+                    } else {
+                        // a length is the distance between the stops: in units of the tab
+                        // size the shaper measures them in (`tab_stop_unit_px`)
+                        let length = v
+                            .inner
+                            .resolve_with_context(&font_size_context, PropertyContext::FontSize);
+                        let unit = crate::text3::cache::tab_stop_unit_px(
+                            font_size,
+                            letter_spacing.resolve_px(font_size),
+                            word_spacing.resolve_px(font_size),
+                        );
+                        if unit > 0.0 {
+                            length / unit
+                        } else {
+                            DEFAULT_TAB_SIZE
+                        }
+                    }
+                })
         })
     };
 
@@ -5266,6 +5401,104 @@ pub fn get_style_properties_for_state_with(
         Vec::new()
     };
 
+    // `font-kerning` (inherited), read only on a DOM that declares it (`DOM_HAS_FONT_KERNING`):
+    // `none` turns the pair adjustments off, `normal` asks for them. It is the FIRST of the
+    // features, so a `font-feature-settings: "kern" 1` after it has the last word (the shaper
+    // reads `kern` as its kerning switch).
+    let font_features: Vec<String> = if declared(azul_css::compact_cache::DOM_HAS_FONT_KERNING) {
+        use azul_css::props::basic::font_variation::StyleFontKerning;
+        let kerning = cache
+            .get_font_kerning(node_data, &dom_id, node_state)
+            .and_then(|v| v.get_property().copied())
+            .unwrap_or_default();
+        let first = match kerning {
+            StyleFontKerning::Auto => None,
+            StyleFontKerning::Normal => Some("kern=1".to_string()),
+            StyleFontKerning::None => Some("kern=0".to_string()),
+        };
+        first.into_iter().chain(font_features).collect()
+    } else {
+        font_features
+    };
+
+    // `font-variant-ligatures` and `font-variant-east-asian` (both inherited): the OpenType
+    // features the shaper takes out of the script's own, or turns on. Rare, like the other
+    // `font-variant-*`: a DOM that declares one nowhere skips its cascade walk.
+    let font_variant_ligatures = if declared(azul_css::compact_cache::DOM_HAS_FONT_VARIANT_LIGATURES)
+    {
+        cache
+            .get_font_variant_ligatures(node_data, &dom_id, node_state)
+            .and_then(|v| v.get_property().copied())
+            .unwrap_or_default()
+    } else {
+        crate::text3::cache::FontVariantLigatures::NORMAL
+    };
+    let font_variant_east_asian =
+        if declared(azul_css::compact_cache::DOM_HAS_FONT_VARIANT_EAST_ASIAN) {
+            cache
+                .get_font_variant_east_asian(node_data, &dom_id, node_state)
+                .and_then(|v| v.get_property().copied())
+                .unwrap_or_default()
+        } else {
+            crate::text3::cache::FontVariantEastAsian::NORMAL
+        };
+
+    // The four `font-synthesis-*` longhands (inherited): what the engine may fake where a face
+    // or a feature is missing. One flag for the four (`DOM_HAS_FONT_SYNTHESIS`): a DOM that
+    // writes `none` for none of them keeps everything on without a walk.
+    let font_synthesis = if declared(azul_css::compact_cache::DOM_HAS_FONT_SYNTHESIS) {
+        use azul_css::props::basic::font_variation::StyleFontSynthesis;
+        let allowed = |value: Option<&CssPropertyValue<StyleFontSynthesis>>| {
+            value.and_then(CssPropertyValue::get_property).copied() != Some(StyleFontSynthesis::None)
+        };
+        crate::text3::cache::FontSynthesis {
+            weight: allowed(cache.get_font_synthesis_weight(node_data, &dom_id, node_state)),
+            style: allowed(cache.get_font_synthesis_style(node_data, &dom_id, node_state)),
+            small_caps: allowed(cache.get_font_synthesis_small_caps(node_data, &dom_id, node_state)),
+            position: allowed(cache.get_font_synthesis_position(node_data, &dom_id, node_state)),
+        }
+    } else {
+        crate::text3::cache::FontSynthesis::default()
+    };
+
+    // `writing-mode` and `text-combine-upright` (both inherited) go into the style of the run:
+    // the PDF run of a vertical document says its writing mode, and the logical items combine
+    // the digits of a run only where its style asks for it. The writing mode is a tier-1 slot
+    // (read at once, and part of the style memo's key); `text-combine-upright` is rare, flagged
+    // like the other text properties (`DOM_HAS_TEXT_COMBINE_UPRIGHT`), and has an effect in
+    // vertical text only (CSS Writing Modes 3, 9.1): in a horizontal line it is ignored.
+    let writing_mode = match get_writing_mode(styled_dom, dom_id, node_state) {
+        MultiValue::Exact(LayoutWritingMode::VerticalRl) => {
+            crate::text3::cache::WritingMode::VerticalRl
+        }
+        MultiValue::Exact(LayoutWritingMode::VerticalLr) => {
+            crate::text3::cache::WritingMode::VerticalLr
+        }
+        _ => crate::text3::cache::WritingMode::HorizontalTb,
+    };
+    // +spec:line-breaking:9f150a - text-combine-upright:all composes glyphs horizontally,
+    // ignoring letter-spacing and forced line breaks +spec:line-breaking:1b88cd -
+    // text-combine-upright:all layout: inline-block with 1em square, ignoring forced line
+    // breaks +spec:inline-formatting-context:c8d8d9 - text-combine-upright compression
+    // passed to text shaping engine +spec:inline-formatting-context:f4ef7d -
+    // text-combine-upright layout rules (1em square composition)
+    let text_combine_upright = if writing_mode != crate::text3::cache::WritingMode::HorizontalTb
+        && declared(azul_css::compact_cache::DOM_HAS_TEXT_COMBINE_UPRIGHT)
+    {
+        use azul_css::props::style::text::StyleTextCombineUpright as Css;
+
+        use crate::text3::cache::TextCombineUpright as T3;
+        // +spec:display-property:6f174d - text-combine-upright horizontal-in-vertical
+        // composition
+        get_text_combine_upright(styled_dom, dom_id, node_state).map(|combine| match combine {
+            Css::None => T3::None,
+            Css::All => T3::All,
+            Css::Digits(digits) => T3::Digits(digits),
+        })
+    } else {
+        None
+    };
+
     StyleProperties {
         font_stack,
         font_size_px: font_size,
@@ -5286,10 +5519,13 @@ pub fn get_style_properties_for_state_with(
         vertical_align: get_vertical_align_for_node(styled_dom, dom_id, viewport_size),
         font_variant_numeric,
         font_variant_caps,
+        font_variant_ligatures,
+        font_variant_east_asian,
+        font_synthesis,
         font_features,
-        // These still use defaults - could be extended in future:
-        // font_variations, writing_mode, text_orientation,
-        // text_combine_upright, font_variant_ligatures / _east_asian
+        writing_mode,
+        text_combine_upright,
+        // The inline boxes around the text are the paint's to fill in.
         ..Default::default()
     }
 }

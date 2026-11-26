@@ -31,6 +31,11 @@
 //!    that was given up on, its message is ignored), then the `Response` (suggestions become the
 //!    yellow chips, the answer the conversation's text, `diagnostics` the log) or the failure
 //!    (`l10n_key()` and `l10n_args()` through the window's `t_args`; `kind_name()` for the e2e lines).
+//!    A reply with `no_action: Some(reason)` is an agent that chose to do nothing (a test phrase, nonsense,
+//!    words too uncertain or too ambiguous to act on): it has no answer and no suggestion, the window
+//!    shows nothing and the conversation ends quietly; the reason is for the debug line only
+//!    (`JobMessage::log_line` prints it). `heard_as` is what the agent made of a misheard transcript, for
+//!    the note beside the raw words, which stay as they were.
 //! 4. Cancel is `pool.cancel(id)` (the worker kills its process or drops its answer); a timer calls
 //!    `pool.reap(now_ms)` for the workers that never report.
 //! 5. An export asks the same way with `Request::Export(ExportRequest)` (the session's facts, the
@@ -323,8 +328,21 @@ impl JobMessage {
                         .map(|r| r.suggestions.len())
                         .or_else(|| response.cut_list().map(|l| l.segments.len()))
                         .unwrap_or(0);
+                    // what the agent did not do, and what it heard, are for this line and the log only
+                    let quoted = |text: &str| {
+                        format!("\"{}\"", text.replace(['\n', '\r'], " ").replace('"', "'"))
+                    };
+                    let mut extra = String::new();
+                    if let Some(reply) = response.reply() {
+                        if let Some(reason) = &reply.no_action {
+                            extra.push_str(&format!(" no_action={}", quoted(reason)));
+                        }
+                        if let Some(heard) = &reply.heard_as {
+                            extra.push_str(&format!(" heard_as={}", quoted(heard)));
+                        }
+                    }
                     format!(
-                        "AZREVIEW_AGENT done {} {key} {} items={items} ms={}",
+                        "AZREVIEW_AGENT done {} {key} {} items={items} ms={}{extra}",
                         self.conversation,
                         response.identity.kind.key(),
                         response.usage.elapsed_ms
