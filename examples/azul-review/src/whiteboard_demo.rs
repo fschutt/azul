@@ -221,6 +221,12 @@ extern "C" fn render_page_ink(mut data: RefAny, info: RenderImageCallbackInfo) -
     }
     let now = demo.panel.now_ms();
     whiteboard_ui::paint_armed(&mut image, k, &demo.panel.wb.armed, 0, now);
+    // A lifted region follows the pointer as its outline (over the bar the bar's frame takes over).
+    if let Some(ghost) = demo.panel.wb.drag.ghost() {
+        if let Some(region) = demo.panel.wb.armed.get(ghost.region) {
+            whiteboard_ui::paint_ghost(&mut image, k, &region.polygon, ghost.offset());
+        }
+    }
     ImageRef::create_rawimage(image).into_option().unwrap_or_else(blank)
 }
 

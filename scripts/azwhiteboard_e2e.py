@@ -125,8 +125,9 @@ class Demo:
         self.app.must("mouse_up", x=win[-1][0], y=win[-1][1])
         self.app.frame(2)
 
-    def carry(self, from_page, to_window, hold=0.0):
-        """Presses at a point of the page, holds, and drags to a point of the window, in steps."""
+    def carry(self, from_page, to_window, hold=0.0, shot=None):
+        """Presses at a point of the page, holds, and drags to a point of the window, in steps; with `shot`, the
+        window is shot on the way (the carried outline, a third of the way) and over the target (the bar's frame)."""
         page = self.page()
         x0, y0 = page["x"] + from_page[0], page["y"] + from_page[1]
         self.app.must("mouse_move", x=x0, y=y0)
@@ -138,6 +139,12 @@ class Demo:
             t = i / steps
             self.app.must("mouse_move", x=x0 + (to_window[0] - x0) * t, y=y0 + (to_window[1] - y0) * t)
             self.app.frame(1)
+            if shot and i == steps // 3:
+                self.app.frame(2)
+                shoot(self.app, shot % "on-the-way")
+        if shot:
+            self.app.frame(2)
+            shoot(self.app, shot % "over-the-bar")
         self.app.must("mouse_up", x=to_window[0], y=to_window[1])
         self.app.frame(3)
 
@@ -245,7 +252,7 @@ def body(args, logs, out):
         bar_x = bar["x"] + bar["width"] / 2.0
         low = min(520.0, bar["y"] + bar["height"] - 90.0)
         before = app.count("WBDEMO_DROPPED")
-        demo.carry(grip, (bar_x, 220.0))
+        demo.carry(grip, (bar_x, 220.0), shot=os.path.join(out, "3-%s.png"))
         app.until("the drop", lambda: app.count("WBDEMO_DROPPED") > before)
         size = wait_for(app, "WBDEMO_RENDERED", r"\d+x\d+", "the cutout drawn by the CPU renderer")
         w, h = (int(v) for v in size.split("x"))
@@ -253,7 +260,7 @@ def body(args, logs, out):
             raise Failure("the cutout's picture is %s: too small to be the loop's region" % size)
         saved = wait_for(app, "WBDEMO_SAVED", r".+", "the board kept")
         app.frame(3)
-        shoot(app, os.path.join(out, "3-dropped.png"))
+        shoot(app, os.path.join(out, "4-dropped.png"))
         path = board_file(data_dir)
         manifest, pictures = read_board(path)
         cutouts = [i for i in manifest["items"] if i["kind"] == "cutout"]
@@ -284,7 +291,7 @@ def body(args, logs, out):
         x1, y1 = second["x"] + second["width"] / 2.0, second["y"] + second["height"] / 2.0
         app.drag(x0, y0, x1, y1, steps=10)
         app.until("the arrow kept", lambda: any(i["kind"] == "arrow" for i in read_board(board_file(data_dir))[0]["items"]))
-        shoot(app, os.path.join(out, "4-arrow.png"))
+        shoot(app, os.path.join(out, "5-arrow.png"))
 
         # A double click on the first cutout jumps back to its lines.
         cx, cy = first["x"] + first["width"] / 2.0, first["y"] + first["height"] / 2.0
@@ -296,7 +303,7 @@ def body(args, logs, out):
         if not re.search(r"Fresh$", jump):
             raise Failure("the jump says %r, the file is as it was" % jump)
         app.frame(2)
-        shoot(app, os.path.join(out, "5-jumped.png"))
+        shoot(app, os.path.join(out, "6-jumped.png"))
         print("[azwhiteboard] jump: %s" % jump)
     except Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
@@ -313,7 +320,7 @@ def body(args, logs, out):
         for i in (1, 2):
             if not app.rect("__azreview_whiteboard-cutout-%d" % i):
                 raise Failure("cutout %d did not come back" % i)
-        shoot(app, os.path.join(out, "6-restarted.png"))
+        shoot(app, os.path.join(out, "7-restarted.png"))
     except Failure:
         print("---- stdout ----\n%s---- stderr ----\n%s" % (e2e.tail(app.out_path), e2e.tail(app.err_path)))
         raise

@@ -8,7 +8,7 @@ use azul::image::RawImageData;
 use super::*;
 use crate::{
     whiteboard::{CutoutDraft, CutoutImage, End, Source},
-    whiteboard_geom::Rect,
+    whiteboard_geom::{Rect, View},
 };
 
 fn with(app: &mut RefAny, f: &mut dyn FnMut(&mut Panel)) -> bool {
@@ -236,6 +236,37 @@ fn what_is_drawn_over_the_cutouts_is_drawn_at_the_scale_of_the_window() {
     assert!(row(&two, 600, 70) >= 60 && row(&two, 600, 70) <= 140, "{}", row(&two, 600, 70));
     let total = |a: &[u8]| a.iter().filter(|v| **v > 0).count();
     assert!(total(&two) > total(&one) * 3, "{} against {}", total(&two), total(&one));
+}
+
+#[test]
+fn an_arrow_wholly_off_the_surface_paints_nothing_and_one_that_runs_off_it_paints_what_is_on_it() {
+    let mut panel = Panel::new("/w");
+    let (a, _) = with_cutouts(&mut panel);
+    let far = |x: f32| CutoutDraft::ready(Pt::new(x, 10.0), picture(200, 100), source());
+    let c = panel.wb.board.add_cutout(far(3_000.0)).expect("room");
+    let d = panel.wb.board.add_cutout(far(3_300.0)).expect("room");
+    panel.wb.board.add_arrow(End::item(c), End::item(d), 0.0, "").expect("an arrow");
+    let painted = |panel: &Panel| alpha_of(&paint_surface(panel, 300, 100, 1.0)).iter().filter(|v| **v > 0).count();
+    assert_eq!(painted(&panel), 0, "an arrow far off the surface paints nothing");
+    // A straight arrow along a row (its box has no height) is on the surface all the same.
+    let near = panel.wb.board.add_arrow(End::item(a), End::item(c), 0.0, "").expect("an arrow");
+    assert!(painted(&panel) > 100, "an arrow that runs off the surface paints what is on it: {}", painted(&panel));
+    // The same arrow, the board panned so that it is wholly out of view: nothing.
+    panel.wb.board.set_view(View { pan: Pt::new(-5_000.0, 0.0), zoom: 1.0 });
+    assert_eq!(painted(&panel), 0, "{near:?} is out of view");
+}
+
+#[test]
+fn a_carried_region_is_drawn_as_its_outline_moved_by_the_carry() {
+    let square = [Pt::new(10.0, 10.0), Pt::new(50.0, 10.0), Pt::new(50.0, 40.0), Pt::new(10.0, 40.0)];
+    let mut image = RawImage::create_rgba8(300, 100, vec![0_u8; 300 * 100 * 4], true);
+    paint_ghost(&mut image, 1.0, &square, Pt::new(100.0, 20.0));
+    let alpha = alpha_of(&image);
+    let at = |x: usize, y: usize| alpha[y * 300 + x];
+    // Now at x 110..150, y 30..60: the top edge, the left edge, the closing edge...
+    assert!(at(130, 30) > 0 && at(110, 45) > 0 && at(130, 60) > 0 && at(150, 45) > 0, "the moved outline");
+    // ... and not where the region lies, nor inside the outline.
+    assert_eq!((at(30, 10), at(10, 25), at(130, 45)), (0, 0, 0));
 }
 
 #[test]

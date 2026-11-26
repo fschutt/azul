@@ -365,6 +365,8 @@ fn surface(host: &Host) -> Dom {
 
 // ---- drawing what is not a picture
 
+/// How far past its curve an arrow paints, logical px: its head (11 px) and the line's width.
+const ARROW_REACH: f32 = 16.0;
 const ARROW: [u8; 4] = [59, 66, 82, 255];
 const ACCENT: [u8; 4] = [32, 92, 214, 255];
 const PEN: [u8; 4] = [214, 45, 32, 255];
@@ -399,9 +401,12 @@ impl Painter<'_> {
         }
     }
 
-    /// An arrow along `curve` (in screen px): its line and an open head at its end.
+    /// An arrow along `curve` (in screen px): its line and an open head at its end. The line is drawn in pieces
+    /// of about ten px (at least two, so a bend shows; at most 32): each piece is a stroke of the engine's brush.
     fn arrow(&mut self, curve: &Curve, radius: f32, rgba: [u8; 4]) {
-        self.polyline(&curve.flatten(32), radius, rgba);
+        let way = (curve.a.dist(curve.b) + curve.a.dist(curve.c) + curve.c.dist(curve.b)) * 0.5;
+        let pieces = ((way / 10.0).ceil() as usize).clamp(2, 32);
+        self.polyline(&curve.flatten(pieces), radius, rgba);
         let [tip, a, b] = arrowhead(curve.b, curve.tangent_at(1.0), 11.0, 5.0);
         self.line(a, tip, radius, rgba);
         self.line(b, tip, radius, rgba);
@@ -433,6 +438,15 @@ pub fn paint_armed(image: &mut RawImage, k: f32, regions: &ArmedRegions, page: u
     }
 }
 
+/// Paints the outline of a region `polygon` (page px) carried by `offset`, `k` device pixels to a px: what the
+/// pointer holds, while a lifted region is on its way to the bar (`Ghost::offset`). The window draws it on the
+/// layer under the pointer; the armed outline stays where the region lies.
+pub fn paint_ghost(image: &mut RawImage, k: f32, polygon: &[Pt], offset: Pt) {
+    let mut paint = Painter { image, k };
+    let carried: Vec<Pt> = polygon.iter().chain(polygon.first()).map(|p| Pt::new(p.x + offset.x, p.y + offset.y)).collect();
+    paint.polyline(&carried, 2.0, [32, 92, 214, 235]);
+}
+
 /// The surface's picture: the arrows, the selection, the arrow being drawn, the pen's stroke.
 fn paint_surface(panel: &Panel, w: u32, h: u32, k: f32) -> RawImage {
     let mut image = RawImage::create_rgba8(w, h, vec![0_u8; w as usize * h as usize * 4], true);
@@ -443,6 +457,9 @@ fn paint_surface(panel: &Panel, w: u32, h: u32, k: f32) -> RawImage {
     let screen = |p: Pt| view.to_screen(p);
     let screen_curve = |c: &Curve| Curve { a: screen(c.a), c: screen(c.c), b: screen(c.b) };
     let mut paint = Painter { image: &mut image, k };
+    // What the surface shows, in logical px: an arrow wholly off it paints nothing (its control points hold the
+    // curve), so a board of hundreds only pays for the arrows in view.
+    let on_surface = crate::whiteboard_geom::Rect::new(0.0, 0.0, w as f32 / k.max(0.01), h as f32 / k.max(0.01));
     for a in board.arrows() {
         if preview.is_some_and(|p| p.replaces == Some(a.id)) {
             continue;
@@ -450,6 +467,12 @@ fn paint_surface(panel: &Panel, w: u32, h: u32, k: f32) -> RawImage {
         let Some(placed) = board.place_arrow(a.id) else { continue };
         let selected = input.selection() == Some(a.id);
         let curve = screen_curve(&placed.curve);
+        // (A straight arrow along a row or a column has a box of no height or width: the reach gives it some.)
+        if !crate::whiteboard_geom::Rect::from_points(&[curve.a, curve.c, curve.b])
+            .is_some_and(|r| r.inflate(ARROW_REACH).intersects(&on_surface))
+        {
+            continue;
+        }
         paint.arrow(&curve, if selected { 2.0 } else { 1.5 }, if selected { ACCENT } else { ARROW });
         if selected {
             for p in [curve.a, curve.b, curve.at(0.5)] {
