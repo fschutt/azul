@@ -98,6 +98,7 @@ pub mod stroke_features;
 pub(crate) mod stroke_fixtures;
 pub mod switches;
 pub mod symbols;
+pub mod symbols_context;
 pub mod symbols_manifest;
 pub mod symbols_resolve;
 pub mod symbols_scan;
