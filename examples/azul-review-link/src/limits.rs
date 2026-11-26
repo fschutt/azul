@@ -6,6 +6,9 @@
 pub const PROTOCOL_VERSION: u16 = 1;
 /// The oldest protocol this build still understands (a peer below it is told to update).
 pub const MIN_PROTOCOL_VERSION: u16 = 1;
+/// The oldest AzReview this companion works with (the demo pipeline writes it into `companion.json`; AzReview's own release
+/// says the same the other way round: the oldest companion it serves).
+pub const MIN_AZREVIEW_VERSION: &str = "0.1.0";
 /// The application protocol name of the iroh endpoint: only peers that bind the same name can connect.
 pub const ALPN: &str = "azreview/companion/1";
 
@@ -34,6 +37,16 @@ pub const MAX_ROWS: usize = 500;
 pub const MAX_THUMBNAIL_BYTES: usize = 128 * 1024;
 /// The side of a thumbnail in pixels.
 pub const MAX_THUMBNAIL_SIDE: u16 = 1024;
+
+/// The pages of a file under review (a column of a million sheets is more than any file).
+pub const MAX_PAGE_COUNT: u32 = 1_000_000;
+/// The items of a whiteboard.
+pub const MAX_BOARD_ITEMS: u32 = 1_000_000;
+/// The shape of a sheet, its width over its height: the least (a tall strip) and the most (a wide one).
+pub const MIN_ASPECT: f32 = 0.05;
+pub const MAX_ASPECT: f32 = 20.0;
+/// The break between two sheets, in sheet widths: at most two.
+pub const MAX_PAGE_GAP: f32 = 2.0;
 
 /// The quick buttons of the phone.
 pub const BUTTON_COUNT: usize = 4;

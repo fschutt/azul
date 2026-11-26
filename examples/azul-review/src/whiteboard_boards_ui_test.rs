@@ -5,6 +5,7 @@ use super::*;
 use crate::{
     whiteboard::{CutoutDraft, Source},
     whiteboard_app::HEADER_PX,
+    whiteboard_export::ExportPictures,
     whiteboard_geom::{Pt, Size},
 };
 
@@ -60,7 +61,7 @@ fn texts(dom: &Dom) -> Vec<String> {
 
 /// The open board is changed and not kept (a cutout on it).
 fn change(p: &mut Panel) {
-    let source = Source { file: "a.rs".to_string(), page: 0, first_line: 1, last_line: 2, shape: Vec::new(), file_hash: 1, range_hash: 2, lines: Vec::new() };
+    let source = Source { rev: String::new(), sha256: String::new(), file: "a.rs".to_string(), page: 0, first_line: 1, last_line: 2, shape: Vec::new(), file_hash: 1, range_hash: 2, lines: Vec::new() };
     p.wb.board.add_cutout(CutoutDraft::pending(Pt::new(0.0, 0.0), Size::new(90.0, 40.0), source)).expect("room");
 }
 
@@ -235,3 +236,136 @@ fn the_header_is_as_high_as_the_owner_takes_off_a_drop_and_the_panel_puts_the_bo
         .expect("a panel");
     assert_eq!(open.children.as_slice().len(), 4, "header, board, list, bar");
 }
+
+// ---- export and import
+
+fn loaded_board(name: &str) -> crate::whiteboard_store::Loaded {
+    crate::whiteboard_store::Loaded {
+        data: crate::whiteboard::BoardData::default(),
+        meta: crate::whiteboard_azboard::Meta { board_name: name.to_string(), ..Default::default() },
+        left_out: 0,
+        unreadable_pictures: 0,
+    }
+}
+
+#[test]
+fn the_list_ends_with_export_and_import() {
+    let p = panel();
+    let list = popover_dom(&p, &host());
+    assert!(with_id(&list, "__azreview_whiteboard-board-export").is_some());
+    assert!(with_id(&list, "__azreview_whiteboard-board-import").is_some());
+    let words = texts(&list);
+    assert!(words.iter().any(|w| w == "Export..."), "{words:?}");
+    assert!(words.iter().any(|w| w == "Import..."), "{words:?}");
+}
+
+#[test]
+fn export_asks_first_where_the_pictures_go_and_then_hands_the_host_the_board_to_write() {
+    let mut p = panel();
+    p.switcher.open = true;
+    assert_eq!(done(p.board_action(BoardAction::OpenExport)), Plan::default(), "nothing for the host yet");
+    assert_eq!(p.switcher.export, Some(ExportPictures::Embedded), "inside the file is the default");
+    assert!(!p.switcher.open, "the sheet takes the list's place");
+    done(p.board_action(BoardAction::Pictures(ExportPictures::Beside)));
+    assert_eq!(p.switcher.export, Some(ExportPictures::Beside));
+    change(&mut p);
+    let plan = done(p.board_action(BoardAction::Export));
+    let request = plan.export.expect("the board to write");
+    assert_eq!((request.pictures, request.meta.board_id.as_str()), (ExportPictures::Beside, "b1"));
+    assert_eq!(request.data.items.len(), 1, "the board as it is, with what is not kept yet");
+    assert!(p.switcher.export.is_none(), "the sheet is done");
+    assert!(!plan.import && plan.load.is_none());
+    // Without the sheet there is nothing to export; Cancel drops it.
+    assert_eq!(done(p.board_action(BoardAction::Export)).export, None);
+    done(p.board_action(BoardAction::OpenExport));
+    done(p.board_action(BoardAction::CloseExport));
+    assert!(p.switcher.export.is_none());
+    // A picture choice with no sheet open opens nothing.
+    done(p.board_action(BoardAction::Pictures(ExportPictures::Beside)));
+    assert!(p.switcher.export.is_none());
+}
+
+#[test]
+fn the_sheet_names_the_author_the_file_will_carry_and_says_when_it_names_none() {
+    use crate::whiteboard_git::RepoFacts;
+    let mut p = panel();
+    let h = host();
+    assert!(texts(&export_dialog_dom(&p, &h, ExportPictures::Embedded)).iter().any(|w| w.contains("names no author")), "git has no name yet");
+    p.wb.set_repo(Some(RepoFacts { author: Some("Ada Lovelace".to_string()), ..RepoFacts::default() }));
+    let words = texts(&export_dialog_dom(&p, &h, ExportPictures::Embedded));
+    assert!(words.iter().any(|w| w.contains("names its author") && w.contains("Ada Lovelace")), "{words:?}");
+    assert!(words.iter().any(|w| w.contains("Export") && w.contains("JSON")), "the title says what is exported: {words:?}");
+    let (off, _) = crate::whiteboard_settings::Settings::parse(&|k| (k == crate::whiteboard_settings::KEY_AUTHOR).then(|| "off".to_string()));
+    p.wb.set_settings(off);
+    assert!(texts(&export_dialog_dom(&p, &h, ExportPictures::Embedded)).iter().any(|w| w.contains("names no author")), "off writes none, whatever git says");
+    let sheet = export_dialog_dom(&p, &h, ExportPictures::Beside);
+    for id in ["", "-inside", "-beside", "-go", "-cancel"] {
+        assert!(with_id(&sheet, &format!("__azreview_whiteboard-export{id}")).is_some(), "{id}");
+    }
+    assert!(texts(&sheet).iter().any(|w| w.contains('\u{25c9}') && w.contains("folder beside")), "the chosen one is marked");
+}
+
+#[test]
+fn import_asks_the_host_for_a_file_and_the_file_becomes_a_board_once_the_open_one_is_kept() {
+    let mut p = panel();
+    assert!(done(p.board_action(BoardAction::Import)).import, "the host asks for a file");
+    // The file was read while the open board has a change that is not kept: it waits for the save.
+    change(&mut p);
+    assert_eq!(p.import_loaded(loaded_board("Parser")), BoardOutcome::Wait);
+    assert!(p.switcher.pending_import.is_some());
+    assert_eq!(p.wb.boards().boards().count(), 1, "nothing happened yet");
+    let _job = p.wb.save_job(2_000).expect("a save");
+    assert!(!p.wb.save_done(&Ok(())));
+    let plan = done(p.after_wait().expect("it waited"));
+    assert_eq!(p.wb.active_board(), ("b2", "Parser"));
+    assert_eq!(plan.effects.len(), 1, "the list is written");
+    assert!(p.switcher.pending_import.is_none() && !p.switcher.open);
+    assert!(p.after_wait().is_none(), "once");
+    // A file that names nothing is called what the app calls an imported board (the first one is kept by now).
+    let _job = p.wb.save_job(3_000).expect("a save");
+    assert!(!p.wb.save_done(&Ok(())));
+    let plan = done(p.import_loaded(loaded_board("")));
+    assert_eq!(plan.effects.len(), 1);
+    assert_eq!(p.wb.active_board().1, "Imported whiteboard");
+}
+
+#[test]
+fn a_file_that_cannot_be_taken_is_told_and_what_could_not_be_done_is_a_sentence() {
+    let mut p = panel();
+    for _ in 1..crate::whiteboard_boards::MAX_BOARDS {
+        done(p.import_loaded(loaded_board("x")));
+        let _ = p.wb.save_job(1);
+        let _ = p.wb.save_done(&Ok(()));
+    }
+    assert_eq!(p.import_loaded(loaded_board("one too many")), BoardOutcome::Told);
+    assert!(p.hint.as_deref().is_some_and(|h| h.contains("whiteboards")), "{:?}", p.hint);
+    p.tell("it could not be written".to_string());
+    assert_eq!(p.hint.as_deref(), Some("it could not be written"));
+}
+
+#[test]
+fn escape_closes_the_sheet_before_it_closes_anything_else() {
+    use crate::whiteboard_ui::{on_key, Key};
+    let mut p = panel();
+    p.switcher.export = Some(ExportPictures::Embedded);
+    assert!(on_key(&mut p, Key::Escape));
+    assert!(p.switcher.export.is_none());
+    assert!(!on_key(&mut p, Key::Escape), "nothing is left to let go of");
+}
+
+#[test]
+fn the_panel_puts_the_sheet_over_the_board_only_while_it_is_open() {
+    crate::l10n::in_english();
+    let h = host();
+    let plain = h.run(|p| crate::whiteboard_ui::panel_dom(p, &h)).expect("a panel");
+    assert_eq!(plain.children.as_slice().len(), 2);
+    let with_sheet = h
+        .run(|p| {
+            p.switcher.export = Some(ExportPictures::Embedded);
+            crate::whiteboard_ui::panel_dom(p, &h)
+        })
+        .expect("a panel");
+    assert_eq!(with_sheet.children.as_slice().len(), 3, "header, board, sheet");
+    assert!(with_id(&with_sheet.children.as_slice()[2], "__azreview_whiteboard-export").is_some());
+}
+

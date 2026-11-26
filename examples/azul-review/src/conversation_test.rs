@@ -2,7 +2,7 @@
 //! window, no agent and no clock but the one the test passes in.
 
 use super::*;
-use crate::agent_review::{Reply, Suggestion};
+use crate::agent_review::{Pos, Reply, Suggestion};
 
 fn said(text: &str, at: u64) -> Said {
     Said { text: text.to_string(), started_unix_ms: at, words: Vec::new() }
@@ -14,6 +14,10 @@ fn answer(text: &str) -> Reply {
 
 fn insert() -> Suggestion {
     Suggestion::InsertLines { after_line: 3, lines: vec!["let n = 1;".to_string()] }
+}
+
+fn remove_range() -> Suggestion {
+    Suggestion::RemoveRange { start: Pos { line: 4, col: 4 }, end: Pos { line: 4, col: 9 }, old: "stale".to_string() }
 }
 
 #[test]
@@ -54,20 +58,86 @@ fn an_answer_of_words_is_an_agent_turn_and_ends_the_conversation() {
 }
 
 #[test]
-fn an_answer_with_suggestions_waits_for_the_reviewer() {
+fn an_answer_with_suggestions_waits_for_the_reviewer_who_takes_or_refuses_each() {
     let mut c = Conversation::default();
     c.asking();
     let reply = Reply { suggestions: vec![insert(), insert()], ..answer("Two lines.") };
     assert_eq!(c.receive(&reply, 5), Landed::Suggested(2));
     assert_eq!(c.phase, Phase::Suggested);
     assert_eq!(c.chip_state(), chips::State::Suggested);
-    assert_eq!(c.pending, 2);
-    // taking them all is what ends it
-    assert!(c.settle(1));
-    assert_eq!((c.phase, c.pending), (Phase::Suggested, 1));
-    assert!(c.settle(1));
-    assert_eq!((c.phase, c.pending), (Phase::Done, 0));
-    assert!(!c.settle(1), "nothing is left to take");
+    assert_eq!(c.pending(), 2);
+    assert!(c.proposals.iter().all(|p| p.decision == Decision::Waiting));
+    // taking and refusing them all is what ends it
+    assert!(c.decide(0, Decision::Accepted));
+    assert_eq!((c.phase, c.pending()), (Phase::Suggested, 1));
+    assert!(c.decide(1, Decision::Rejected));
+    assert_eq!((c.phase, c.pending()), (Phase::Done, 0));
+    assert!(!c.decide(5, Decision::Accepted), "there is no such suggestion");
+    assert!(!c.decide(0, Decision::Accepted), "it was taken already: nothing changed");
+}
+
+#[test]
+fn a_decision_can_be_taken_back_and_the_conversation_waits_again() {
+    let mut c = Conversation::default();
+    c.asking();
+    c.receive(&Reply { suggestions: vec![insert()], ..answer("One.") }, 1);
+    assert!(c.decide(0, Decision::Accepted));
+    assert_eq!(c.phase, Phase::Done);
+    assert!(c.decide(0, Decision::Waiting));
+    assert_eq!((c.phase, c.pending()), (Phase::Suggested, 1), "waiting again for the reviewer");
+}
+
+#[test]
+fn all_that_waits_can_be_taken_or_refused_at_once_and_what_was_taken_is_listed_in_order() {
+    let mut c = Conversation::default();
+    c.asking();
+    let reply = Reply { suggestions: vec![insert(), remove_range(), insert()], ..answer("Three.") };
+    c.receive(&reply, 1);
+    assert!(c.decide(1, Decision::Rejected));
+    assert_eq!(c.accept_all(), 2, "the two that waited");
+    assert_eq!((c.phase, c.pending()), (Phase::Done, 0));
+    assert_eq!(c.accepted().count(), 2);
+    assert!(c.accepted().all(|s| matches!(s, Suggestion::InsertLines { .. })));
+    let mut d = Conversation::default();
+    d.asking();
+    d.receive(&Reply { suggestions: vec![insert(), insert()], ..answer("Two.") }, 1);
+    assert_eq!(d.reject_all(), 2);
+    assert_eq!(d.accepted().count(), 0);
+    assert_eq!(d.phase, Phase::Done);
+    assert_eq!(d.reject_all(), 0, "nothing waits");
+}
+
+#[test]
+fn a_second_answer_adds_its_suggestions_to_the_ones_before_and_keeps_what_was_decided() {
+    let mut c = Conversation::default();
+    c.asking();
+    c.receive(&Reply { suggestions: vec![insert()], ..answer("First.") }, 1);
+    c.decide(0, Decision::Accepted);
+    assert!(c.say("and one more", 2));
+    c.asking();
+    c.receive(&Reply { suggestions: vec![remove_range()], ..answer("Second.") }, 3);
+    assert_eq!(c.proposals.len(), 2);
+    assert_eq!(c.proposals[0].decision, Decision::Accepted, "what was decided stays");
+    assert_eq!(c.proposals[1].decision, Decision::Waiting);
+    assert_eq!(c.phase, Phase::Suggested);
+}
+
+#[test]
+fn the_suggestions_are_kept_to_a_number_the_decided_ones_going_first() {
+    let mut c = Conversation::default();
+    c.asking();
+    let many = Reply { suggestions: (0..MAX_PROPOSALS + 5).map(|_| insert()).collect(), ..answer("Many.") };
+    c.receive(&many, 1);
+    assert_eq!(c.proposals.len(), MAX_PROPOSALS, "no more than it keeps");
+    assert_eq!(c.pending(), MAX_PROPOSALS);
+    // decided ones make room for a later answer
+    c.accept_all();
+    c.say("again", 2);
+    c.asking();
+    c.receive(&Reply { suggestions: vec![remove_range()], ..answer("Later.") }, 3);
+    assert_eq!(c.proposals.len(), MAX_PROPOSALS);
+    assert!(matches!(c.proposals.last().map(|p| &p.suggestion), Some(Suggestion::RemoveRange { .. })), "the newest is in");
+    assert_eq!(c.proposals.last().map(|p| p.decision), Some(Decision::Waiting));
 }
 
 #[test]
@@ -121,7 +191,8 @@ fn a_conversation_the_reviewer_closes_is_done_and_can_be_opened_again() {
     c.asking();
     c.receive(&Reply { suggestions: vec![insert()], ..answer("One line.") }, 1);
     c.resolve();
-    assert_eq!((c.phase, c.pending), (Phase::Done, 0));
+    assert_eq!((c.phase, c.pending()), (Phase::Done, 0));
+    assert_eq!(c.proposals[0].decision, Decision::Rejected, "closing it takes nothing that waited");
     c.reopen();
     assert_eq!(c.phase, Phase::Draft);
 }
@@ -238,4 +309,67 @@ fn what_was_understood_goes_with_the_utterance_when_the_oldest_go() {
     c.hear(said("plain", 9));
     assert_eq!(c.understood.len(), c.said.len());
     assert_eq!(c.understood.last(), Some(&None));
+}
+
+// ==== What is due for the log of resolved conversations ====
+
+#[test]
+fn a_conversation_is_due_for_the_log_when_it_becomes_done_and_not_before() {
+    let mut c = Conversation::default();
+    assert!(!c.due(), "a draft is not resolved");
+    c.asking();
+    assert!(!c.due(), "nor is one the agent works on");
+    c.receive(&answer("It is read twice."), 1_000);
+    assert_eq!(c.phase, Phase::Done);
+    assert!(c.due(), "an answer of words resolves it");
+    c.mark_logged(None);
+    assert!(!c.due(), "once it is written it is not due again");
+    c.reopen();
+    assert!(!c.due(), "a conversation opened again is not resolved");
+    c.resolve();
+    assert!(c.due(), "resolved a second time, it is due a second time");
+}
+
+#[test]
+fn a_conversation_that_waits_is_not_due_and_one_whose_last_suggestion_is_decided_is_due_again_each_time() {
+    let mut c = Conversation::default();
+    c.asking();
+    c.receive(&Reply { suggestions: vec![insert()], ..answer("One line.") }, 1);
+    assert!(!c.due());
+    assert!(c.decide(0, Decision::Accepted));
+    assert!(c.due(), "the last suggestion is decided: done");
+    c.mark_logged(Some("20251126-054012-c1.patch".to_string()));
+    assert_eq!(c.patch.as_deref(), Some("20251126-054012-c1.patch"), "the name of what was written is kept");
+    assert!(c.decide(0, Decision::Waiting));
+    assert_eq!(c.phase, Phase::Suggested);
+    assert!(!c.due());
+    assert!(c.decide(0, Decision::Rejected));
+    assert!(c.due(), "decided again: a second entry that replaces the first");
+    assert_eq!(c.patch.as_deref(), Some("20251126-054012-c1.patch"), "the old name stays until the new entry is written");
+}
+
+#[test]
+fn how_a_conversation_ended_is_what_was_taken_what_was_refused_what_was_answered_or_nothing() {
+    use crate::patch::Outcome;
+    let mut taken = Conversation::default();
+    taken.receive(&Reply { suggestions: vec![insert(), remove_range()], ..answer("Two edits.") }, 1);
+    taken.decide(0, Decision::Accepted);
+    taken.decide(1, Decision::Rejected);
+    assert_eq!(taken.outcome(), Outcome::Accepted, "one taken is enough");
+    let mut refused = Conversation::default();
+    refused.receive(&Reply { suggestions: vec![insert()], ..answer("One edit.") }, 1);
+    refused.resolve();
+    assert_eq!(refused.outcome(), Outcome::Rejected, "closing it takes nothing");
+    let mut answered = Conversation::default();
+    answered.receive(&answer("It is read twice."), 1);
+    assert_eq!(answered.outcome(), Outcome::Answered);
+    let mut closed = Conversation::default();
+    closed.resolve();
+    assert_eq!(closed.outcome(), Outcome::Closed, "no answer, no suggestion");
+}
+
+#[test]
+fn a_conversation_has_no_revision_until_the_window_says_which_the_workspace_was_at() {
+    let c = Conversation::default();
+    assert_eq!(c.base, None);
 }

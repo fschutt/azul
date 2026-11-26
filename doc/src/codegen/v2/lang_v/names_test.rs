@@ -116,6 +116,33 @@ fn no_field_name_of_the_module_starts_with_an_underscore() {
     );
 }
 
+/// With no C header to include, V 0.5.2 writes no C declaration for `fn C.AzString_fromUtf8(...)`
+/// and the C compiler stops ("C function `C.AzString_fromUtf8` was declared in V, but the C
+/// compiler did not see a matching C declaration", run 45764257231): the V declaration of a symbol
+/// that a library provides carries `@[c_extern]`.
+#[test]
+fn every_c_function_the_module_declares_is_marked_extern() {
+    let lines: Vec<&str> = generated().lines().collect();
+    let mut declared = 0;
+    let mut bare = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        if line.starts_with("fn C.") {
+            declared += 1;
+            if i == 0 || lines[i - 1] != "@[c_extern]" {
+                bare.push(*line);
+            }
+        }
+    }
+    assert!(declared > 10_000, "only {declared} `fn C.` declarations found: the scan does not read the module");
+    assert!(
+        bare.is_empty(),
+        "{} of the {} C functions of azul.v are not marked `@[c_extern]`; the first: {:?}",
+        bare.len(),
+        declared,
+        &bare[..bare.len().min(3)]
+    );
+}
+
 #[test]
 fn the_example_spells_the_enum_values_it_uses_as_the_module_does() {
     let module = blocks(generated());
@@ -186,4 +213,62 @@ fn the_example_calls_only_functions_it_defines() {
         unknown,
         defined
     );
+}
+
+fn repo_file(rel: &str) -> String {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join(rel);
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {}", path.display(), e))
+}
+
+/// V 0.5.2 writes a C prototype for every `fn C.` declaration of azul.v (`@[c_extern]`) but leaves
+/// out the types that only the functions a program does not call name, and gcc stops at the first
+/// prototype: "unknown type name `azul__AzIconDesignedFor`" (run 45765384332). With
+/// `-no-skip-unused` the whole module and the example compile and only the link wants libazul (run
+/// 45766307680). Everything that builds a V program against the module says so.
+const NO_SKIP: &str = "-no-skip-unused";
+
+#[test]
+fn the_header_of_the_module_says_to_build_with_no_skip_unused() {
+    let head: Vec<&str> = generated().lines().take(40).collect();
+    assert!(head.iter().any(|l| l.contains(NO_SKIP)), "the header of azul.v does not say {NO_SKIP}:\n{}", head.join("\n"));
+}
+
+#[test]
+fn the_board_builds_the_v_example_with_no_skip_unused() {
+    let script = repo_file("scripts/e2e_language_matrix.sh");
+    let from = script.find("\nlang_v() {").expect("lang_v in the language board");
+    let leg = &script[from..from + script[from..].find("\n}\n").expect("end of lang_v")];
+    let build: Vec<&str> = leg.lines().filter(|l| l.trim_start().starts_with("v ") && l.contains("-o ")).collect();
+    assert!(!build.is_empty(), "no `v ... -o` build command in lang_v:\n{leg}");
+    assert!(build.iter().all(|l| l.contains(NO_SKIP)), "the build of lang_v does not say {NO_SKIP}: {build:?}");
+}
+
+#[test]
+fn the_install_steps_run_the_v_example_with_no_skip_unused() {
+    fn v(value: &serde_json::Value) -> Option<&serde_json::Value> {
+        match value {
+            serde_json::Value::Object(m) => {
+                if m.get("displayName").and_then(|d| d.as_str()) == Some("V") && m.contains_key("install") {
+                    return Some(value);
+                }
+                m.values().find_map(v)
+            }
+            serde_json::Value::Array(a) => a.iter().find_map(v),
+            _ => None,
+        }
+    }
+    let api: serde_json::Value = serde_json::from_str(&repo_file("api.json")).expect("api.json parses");
+    let flows = v(&api).expect("api.json has the V install steps")["install"].as_array().expect("flows");
+    assert!(flows.len() >= 3, "{} flows of V install steps", flows.len());
+    for flow in flows {
+        let runs: Vec<&str> = flow["steps"]
+            .as_array()
+            .expect("steps")
+            .iter()
+            .filter_map(|s| s["content"].as_str())
+            .filter(|c| c.contains(" run .") || c.starts_with("v run"))
+            .collect();
+        assert!(!runs.is_empty(), "the V flow `{}` has no step that runs the example", flow["id"]);
+        assert!(runs.iter().all(|c| c.contains(NO_SKIP)), "the V flow `{}` runs the example without {NO_SKIP}: {runs:?}", flow["id"]);
+    }
 }

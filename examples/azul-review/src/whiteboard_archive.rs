@@ -21,6 +21,8 @@ use azul::{
 
 use crate::{
     whiteboard::{BoardData, Limits},
+    whiteboard_azboard::Meta,
+    whiteboard_export::{self as export, ExportRequest, Exported},
     whiteboard_store::{self as store, DecodedPng, Entry, ImageCodec, Loaded, StoreError},
 };
 
@@ -136,7 +138,8 @@ pub fn pack(entries: &[Entry]) -> Result<Vec<u8>, String> {
 /// # Errors
 /// The zip could not be made.
 pub fn archive(data: &BoardData, workspace: &str, now_ms: u64) -> Result<(String, Vec<u8>), String> {
-    let bytes = pack(&store::write(data, workspace, now_ms))?;
+    let meta = Meta { workspace_name: store::folder_name(workspace), modified_ms: now_ms, ..Meta::default() };
+    let bytes = pack(&store::write(data, &meta))?;
     Ok((store::board_name(workspace), bytes))
 }
 
@@ -207,24 +210,7 @@ pub fn take_loaded(msg: &mut RefAny) -> Option<Result<Loaded, StoreError>> {
     guard.take().map(|l| l.result)
 }
 
-/// Writes `bytes` to `path` the way a board file is kept: the folder is made if need be, the bytes go to a file of
-/// their own beside it and that is renamed over `path`, so that the file is the old board or the new one, never half
-/// of one.
-///
-/// # Errors
-/// What the file system said.
-pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("board");
-    let beside = path.with_file_name(format!(".{name}.tmp"));
-    std::fs::write(&beside, bytes).map_err(|e| e.to_string())?;
-    std::fs::rename(&beside, path).map_err(|e| {
-        let _gone = std::fs::remove_file(&beside);
-        e.to_string()
-    })
-}
+pub use crate::whiteboard_export::write_atomic;
 
 /// What a save on its Thread is given.
 struct SaveInit {
@@ -265,6 +251,112 @@ pub fn spawn_save(info: &mut CallbackInfo, app: &RefAny, entries: Vec<Entry>, pa
 pub fn take_saved(msg: &mut RefAny) -> Option<Result<(), String>> {
     let mut guard = msg.downcast_mut::<Option<SaveAnswer>>()?;
     guard.take().map(|a| a.result)
+}
+
+// ---- a board as a file to share, on a Thread
+
+/// What an export on its Thread is given.
+struct ExportInit {
+    job: Option<(ExportRequest, PathBuf)>,
+    on_done: WriteBackCallbackType,
+}
+
+/// The answer of an export: the file is written, or why not.
+pub struct ExportAnswer {
+    pub result: Result<Exported, String>,
+}
+
+extern "C" fn export_worker(mut init: RefAny, mut sender: ThreadSender, _receiver: ThreadReceiver) {
+    let Some(((request, path), on_done)) = init
+        .downcast_mut::<ExportInit>()
+        .and_then(|mut i| Some((i.job.take()?, i.on_done)))
+    else {
+        return;
+    };
+    let result = export::export(request, &path, export::GIT_TIMEOUT);
+    let _sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::create(
+        on_done,
+        RefAny::new(Some(ExportAnswer { result })),
+    )));
+}
+
+/// Writes the board of `request` to `path` on an azul `Thread` (git is asked once there, for the remote and whether the tree
+/// has changes); `on_done(app, message, info)` hears of it on the UI thread ([`take_exported`]).
+pub fn spawn_export(info: &mut CallbackInfo, app: &RefAny, request: ExportRequest, path: PathBuf, on_done: WriteBackCallbackType) {
+    info.add_thread(
+        ThreadId::unique(),
+        Thread::create(RefAny::new(ExportInit { job: Some((request, path)), on_done }), app.clone(), export_worker),
+    );
+}
+
+/// The answer out of a write-back's message (`None` if it is not one).
+#[must_use]
+pub fn take_exported(msg: &mut RefAny) -> Option<Result<Exported, String>> {
+    let mut guard = msg.downcast_mut::<Option<ExportAnswer>>()?;
+    guard.take().map(|a| a.result)
+}
+
+/// The board in the file at `path`: a document (`azboard/1`, with the pictures it names beside it) or the zip a board is
+/// kept in (what is in a data folder, or was sent).
+///
+/// # Errors
+/// The file cannot be read, is no board of this version, is of a newer one, or is larger than a board file is.
+pub fn import_file(path: &Path, limits: &Limits) -> Result<Loaded, StoreError> {
+    use std::io::Read;
+    let mut head = [0_u8; 4];
+    let is_zip = std::fs::File::open(path).and_then(|mut f| f.read_exact(&mut head)).is_ok() && &head == b"PK\x03\x04";
+    if !is_zip {
+        return export::import(path, &AzulCodec, limits);
+    }
+    let size = std::fs::metadata(path).map_err(|e| StoreError::NotABoard(format!("it cannot be read: {e}")))?.len();
+    if size > MAX_ARCHIVE_BYTES as u64 {
+        return Err(StoreError::TooLarge { bytes: usize::try_from(size).unwrap_or(usize::MAX) });
+    }
+    let bytes = std::fs::read(path).map_err(|e| StoreError::NotABoard(format!("it cannot be read: {e}")))?;
+    load(&bytes, limits)
+}
+
+/// What an import on its Thread is given.
+struct ImportInit {
+    job: Option<(PathBuf, Limits)>,
+    on_done: WriteBackCallbackType,
+}
+
+/// The answer of an import: the board, or why not; `file` is the file's name, for what is told.
+pub struct ImportAnswer {
+    pub result: Result<Loaded, StoreError>,
+    pub file: String,
+}
+
+extern "C" fn import_worker(mut init: RefAny, mut sender: ThreadSender, _receiver: ThreadReceiver) {
+    let Some(((path, limits), on_done)) = init
+        .downcast_mut::<ImportInit>()
+        .and_then(|mut i| Some((i.job.take()?, i.on_done)))
+    else {
+        return;
+    };
+    let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let result = import_file(&path, &limits);
+    let _sent = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::create(
+        on_done,
+        RefAny::new(Some(ImportAnswer { result, file })),
+    )));
+}
+
+/// Reads the board in the file at `path` and decodes its pictures on an azul `Thread`; `on_done(app, message, info)` gets
+/// it on the UI thread ([`take_imported`]).
+pub fn spawn_import(info: &mut CallbackInfo, app: &RefAny, path: PathBuf, limits: Limits, on_done: WriteBackCallbackType) {
+    info.add_thread(
+        ThreadId::unique(),
+        Thread::create(RefAny::new(ImportInit { job: Some((path, limits)), on_done }), app.clone(), import_worker),
+    );
+}
+
+/// The answer out of a write-back's message (`None` if it is not one).
+#[must_use]
+pub fn take_imported(msg: &mut RefAny) -> Option<ImportAnswer> {
+    let mut guard = msg.downcast_mut::<Option<ImportAnswer>>()?;
+    guard.take()
 }
 
 #[cfg(test)]

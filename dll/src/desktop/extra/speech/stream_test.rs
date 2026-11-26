@@ -265,3 +265,22 @@ fn a_closed_stream_has_no_events_and_is_not_running() {
     assert_eq!(kinds(&events), [SpeechEventKind::Ended]);
     assert_eq!(events[0].heard.status, HeardStatus::Unavailable);
 }
+
+/// `is_running` is false once the `Ended` event can be read: the thread of a stream pushed the end and
+/// cleared the flag afterwards, so a caller that had just read `Ended` could still see `true` (the
+/// documented meaning of the flag is "events may still wait, but nothing is listening"). Many streams
+/// in a row, the flag read at once after each end.
+#[test]
+fn a_stream_is_not_running_any_more_when_its_ended_event_can_be_read() {
+    let session = session_of(vec![Step::Silence], None);
+    for round in 0..3_000 {
+        let stream = session.start_stream(AzString::from("en".to_string()), options(false, 0, 500));
+        let mut ended = false;
+        let began = Instant::now();
+        while !ended {
+            ended = stream.wait_events(50).as_slice().iter().any(|e| e.kind == SpeechEventKind::Ended);
+            assert!(began.elapsed() < Duration::from_secs(5), "round {round}: the stream never ended");
+        }
+        assert!(!stream.is_running(), "round {round}: Ended was readable while the stream still ran");
+    }
+}

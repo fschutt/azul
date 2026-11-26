@@ -110,3 +110,41 @@ fn what_was_kept_and_what_was_seen_since_are_both_kept() {
     assert_eq!(now.get("a.rs").map(|e| (e.seen.ranges(), e.held)), Some((vec![(1, 1), (5, 5)], true)));
     assert!(now.get("b.rs").is_some_and(|e| e.seen.is_seen(2)));
 }
+
+#[test]
+fn the_place_to_come_back_to_is_kept_with_the_progress() {
+    use crate::progress::Back;
+    let mut book = Book::default();
+    book.entry("a.rs").expect("room").seen.mark(1);
+    book.jumped_from(Back { file: "src/lib.rs".to_string(), page: 2, line: 93 });
+    let text = to_json(&book, "/w");
+    let back = from_json(text.as_bytes()).expect("reads");
+    assert_eq!(back.back(), Some(&Back { file: "src/lib.rs".to_string(), page: 2, line: 93 }));
+    assert!(back.get("a.rs").is_some(), "with the files");
+    // a book with no place says none
+    assert!(from_json(to_json(&Book::default(), "/w").as_bytes()).expect("reads").back().is_none());
+}
+
+#[test]
+fn a_place_that_cannot_be_read_is_left_out_and_the_rest_kept() {
+    let text = r#"{"format":"azreview-progress/1","return":{"file":"a.rs","page":"two"},"files":[{"path":"b.rs","seen":[[0,0]]}]}"#;
+    let book = from_json(text.as_bytes()).expect("reads");
+    assert!(book.back().is_none());
+    assert!(book.get("b.rs").is_some());
+    let old = r#"{"format":"azreview-progress/1","files":[]}"#;
+    assert!(from_json(old.as_bytes()).expect("reads").back().is_none(), "a file from before the place");
+}
+
+#[test]
+fn what_was_kept_and_what_is_now_keep_the_place_of_now_first() {
+    use crate::progress::Back;
+    let mut now = Book::default();
+    let mut kept = Book::default();
+    kept.jumped_from(Back { file: "old.rs".to_string(), page: 0, line: 1 });
+    now.merge(kept.clone());
+    assert_eq!(now.back().map(|b| b.file.as_str()), Some("old.rs"), "the kept place comes back with the window");
+    let mut now = Book::default();
+    now.jumped_from(Back { file: "new.rs".to_string(), page: 1, line: 47 });
+    now.merge(kept);
+    assert_eq!(now.back().map(|b| b.file.as_str()), Some("new.rs"), "a place set since is the place");
+}

@@ -321,3 +321,48 @@ fn the_book_has_room_for_so_many_files_and_no_more() {
     assert!(book.entry("a").is_some(), "a file that is there is still there");
     assert_eq!(book.len(), 3);
 }
+
+// ---- where the reviewer comes back to ----
+
+fn here(file: &str, page: usize, line: u32) -> Back {
+    Back { file: file.to_string(), page, line }
+}
+
+#[test]
+fn the_first_jump_to_a_conversation_is_where_the_reviewer_comes_back_to_and_the_next_ones_keep_it() {
+    let mut book = Book::default();
+    assert!(book.back().is_none());
+    assert!(book.jumped_from(here("src/lib.rs", 2, 93)), "the first jump sets it");
+    assert!(book.is_dirty(), "and it is to be kept");
+    assert_eq!(book.back(), Some(&here("src/lib.rs", 2, 93)));
+    // jumping from one conversation to another is no new place to come back to
+    assert!(!book.jumped_from(here("src/other.rs", 0, 1)));
+    assert_eq!(book.back(), Some(&here("src/lib.rs", 2, 93)), "the first one stays");
+}
+
+#[test]
+fn coming_back_gives_the_place_and_clears_it() {
+    let mut book = Book::default();
+    assert_eq!(book.come_back(), None, "nothing to come back to");
+    book.jumped_from(here("a.rs", 1, 47));
+    book.take_dirty();
+    assert_eq!(book.come_back(), Some(here("a.rs", 1, 47)));
+    assert!(book.back().is_none());
+    assert!(book.is_dirty(), "the clearing is kept too");
+    assert_eq!(book.come_back(), None);
+    // and the next jump sets a new one
+    assert!(book.jumped_from(here("b.rs", 0, 1)));
+}
+
+#[test]
+fn a_place_is_told_in_words_with_the_page_and_the_line() {
+    assert_eq!(here("src/lib.rs", 2, 93).words(), "src/lib.rs p3 l93", "pages are counted from one for the reviewer");
+}
+
+#[test]
+fn a_place_with_a_file_name_no_one_could_have_is_not_kept() {
+    let mut book = Book::default();
+    assert!(!book.jumped_from(here("", 0, 1)), "no file, no place");
+    assert!(!book.jumped_from(here(&"x".repeat(MAX_BACK_PATH + 1), 0, 1)), "a path longer than a path can be");
+    assert!(book.back().is_none());
+}

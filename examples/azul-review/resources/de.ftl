@@ -179,6 +179,23 @@ azreview-whiteboard-board-undo = Rückgängig
 azreview-whiteboard-board-deleted = Whiteboard "{ $name }" gelöscht
 azreview-whiteboard-board-rename-name = Name des Whiteboards { $name }
 azreview-whiteboard-board-loading = Das Whiteboard wird geöffnet ...
+azreview-whiteboard-board-imported = Importiertes Whiteboard
+azreview-whiteboard-export = Exportieren ...
+azreview-whiteboard-export-name = Das geöffnete Whiteboard als JSON-Datei exportieren
+azreview-whiteboard-import = Importieren ...
+azreview-whiteboard-import-name = Eine Whiteboard-Datei als neues Whiteboard öffnen
+azreview-whiteboard-export-title = "{ $name }" als JSON-Datei exportieren
+azreview-whiteboard-export-what = Eine Datei mit den Ausschnitten und Pfeilen und zu jedem Ausschnitt dem Code, den er zeigt, einem Link auf diese Zeilen in der Revision, in der sie eingekreist wurden, und dem Bild. Ein Web-Viewer kann sie öffnen.
+azreview-whiteboard-export-author = Die Datei nennt ihren Autor: { $author } (der Name, mit dem git eingerichtet ist; die Einstellung whiteboard-author ändert ihn oder lässt ihn weg).
+azreview-whiteboard-export-author-none = Die Datei nennt keinen Autor (die Einstellung whiteboard-author steht auf off, oder git hat keinen Namen).
+azreview-whiteboard-export-pictures-inside = Bilder in der Datei
+azreview-whiteboard-export-pictures-beside = Bilder in einem Ordner neben der Datei
+azreview-whiteboard-export-go = Datei wählen ...
+azreview-whiteboard-export-cancel = Abbrechen
+azreview-whiteboard-exported = Exportiert nach { $path }: { $pictures } Bilder, { $links } Links auf Code.
+azreview-whiteboard-export-failed = Der Export ist fehlgeschlagen: { $why }
+azreview-whiteboard-imported = "{ $name }" aus { $file } geöffnet.
+azreview-whiteboard-import-failed = Diese Datei konnte nicht geöffnet werden: { $why }
 
 ## Diktieren und die Seitenspalte der Notizen
 
@@ -208,7 +225,7 @@ azreview-conv-suggestions =
        *[other] { $n } Vorschläge warten
     }
 azreview-conv-done = Erledigt
-azreview-conv-title = Gespräch { $n } - { $where }
+azreview-conv-title = { $n }: { $where }
 azreview-conv-close = Das Gespräch schließen
 azreview-conv-reply-placeholder = Dem Agenten antworten
 azreview-conv-reply-name = Antwort an den Agenten
@@ -217,6 +234,20 @@ azreview-conv-resolve = Das Gespräch als erledigt markieren
 azreview-conv-send = An den Agenten senden
 azreview-conv-ask-again = Den Agenten noch einmal fragen
 azreview-conv-heard-as = Verstanden als: { $words }
+azreview-sugg-insert =
+    { $n ->
+        [one] Eine Zeile nach Zeile { $line } einfügen
+       *[other] { $n } Zeilen nach Zeile { $line } einfügen
+    }
+azreview-sugg-replace = { $old } durch die Wörter darunter ersetzen (Zeile { $line })
+azreview-sugg-remove = { $old } entfernen (Zeile { $line })
+azreview-sugg-accept = Diesen Vorschlag übernehmen
+azreview-sugg-reject = Diesen Vorschlag ablehnen
+azreview-sugg-undo = Neu entscheiden
+azreview-sugg-accept-all = Alle offenen übernehmen
+azreview-sugg-reject-all = Alle offenen ablehnen
+azreview-sugg-taken = Übernommen
+azreview-sugg-refused = Abgelehnt
 azreview-conv-understood = Verstanden (nach den Namen des Ordners) als: { $words }
 azreview-conv-earlier =
     { $n ->
@@ -339,6 +370,8 @@ azreview-page-skip = Weiter zu Seite { $n }
 azreview-reviewed-line = { $reviewed } von { $total } Zeilen geprüft ({ $percent } %), { $seen } gesehen
 azreview-reviewed-counting = Der Ordner wird noch gezählt ...
 azreview-shortcut-not-reviewed = Die Datei als nicht geprüft markieren oder wieder als geprüft (auch ein Rechtsklick im Baum)
+azreview-shortcut-continue = Weiter prüfen: zurück dorthin, wo der Sprung zu einem Gespräch begann
+azreview-back-label = Zurück zu { $place }
 azreview-not-shown = { $file } wird nicht angezeigt: { $why }
 azreview-not-shown-binary = Es ist kein Text.
 azreview-not-shown-large = Es hat { $size }, mehr als die { $limit }, die ein Seitenstreifen aufnimmt.

@@ -2,10 +2,11 @@
 //! the Mac may look up, and what two protocol versions make of each other.
 
 use super::*;
+use crate::access::ScreenId;
 use crate::limits::*;
 
 fn any_frames() -> Vec<Frame> {
-    let gesture = |phase| Frame::Viewport(ViewportCmd { seq: 1, op: ViewportOp::Gesture { id: 1, phase, pan_x: 0.0, pan_y: 0.0, zoom: 1.0, focus: Focus::Pen } });
+    let gesture = |phase| Frame::Viewport(ViewportCmd { screen: ScreenId::MAIN, seq: 1, op: ViewportOp::Gesture { id: 1, phase, pan_x: 0.0, pan_y: 0.0, zoom: 1.0, focus: Focus::Pen } });
     vec![
         Frame::Hello(Hello { role: Role::Phone, protocol: 1, min_protocol: 1, app_version: String::new(), name: String::new(), ticket: String::new() }),
         Frame::Ping { nonce: 1 },
@@ -15,12 +16,12 @@ fn any_frames() -> Vec<Frame> {
         gesture(Phase::Begin),
         gesture(Phase::Update),
         gesture(Phase::End),
-        Frame::Viewport(ViewportCmd { seq: 1, op: ViewportOp::Fit }),
-        Frame::Viewport(ViewportCmd { seq: 1, op: ViewportOp::PageStep(1) }),
-        Frame::Viewport(ViewportCmd { seq: 1, op: ViewportOp::Reset }),
+        Frame::Viewport(ViewportCmd { screen: ScreenId::MAIN, seq: 1, op: ViewportOp::Fit }),
+        Frame::Viewport(ViewportCmd { screen: ScreenId::MAIN, seq: 1, op: ViewportOp::PageStep(1) }),
+        Frame::Viewport(ViewportCmd { screen: ScreenId::MAIN, seq: 1, op: ViewportOp::Reset }),
         Frame::ListDir { request_id: 1, path: String::new(), offset: 0 },
-        Frame::OpenFile { request_id: 1, path: String::new(), line: None },
-        Frame::Button { request_id: 1, index: 0 },
+        Frame::OpenFile { screen: ScreenId::MAIN, request_id: 1, path: String::new(), line: None },
+        Frame::Button { screen: ScreenId::MAIN, request_id: 1, index: 0 },
         Frame::SetButtons { request_id: 1, buttons: ButtonSet::defaults() },
         Frame::NeedThumbnail { id: 1 },
         Frame::PairAccepted { code: 1 },
@@ -32,6 +33,9 @@ fn any_frames() -> Vec<Frame> {
         Frame::Buttons(ButtonSet::defaults()),
         Frame::Reply(Reply { request_id: 1, status: ReplyStatus::Done }),
         Frame::Notice(Notice { level: NoticeLevel::Info, text: String::new() }),
+        Frame::ContinueReviewing { screen: ScreenId::MAIN },
+        Frame::Settings(HostSettings::default()),
+        Frame::AgentFinished(AgentFinished { conversation_id: 1, file: String::new(), line: 0, kind: FinishKind::Done }),
     ]
 }
 
@@ -41,6 +45,7 @@ fn any_frames() -> Vec<Frame> {
 fn the_pen_state_and_the_gesture_updates_are_newest_wins_each_on_its_own_track() {
     assert_eq!(Frame::PenState(PenState::empty()).delivery(), Delivery::Latest(TRACK_PEN));
     let update = Frame::Viewport(ViewportCmd {
+        screen: ScreenId::MAIN,
         seq: 1,
         op: ViewportOp::Gesture { id: 1, phase: Phase::Update, pan_x: 0.1, pan_y: 0.0, zoom: 1.0, focus: Focus::Pen },
     });
@@ -61,8 +66,8 @@ fn everything_else_is_reliable_so_a_begin_an_end_a_fit_a_button_are_never_droppe
 
 #[test]
 fn each_frame_belongs_to_one_direction_or_to_both() {
-    let host_to_phone = ["pair accepted", "pair rejected", "refused", "pen state", "thumbnail", "rows", "buttons", "reply", "notice"];
-    let phone_to_host = ["pair request", "viewport", "list dir", "open file", "button", "set buttons", "need thumbnail"];
+    let host_to_phone = ["pair accepted", "pair rejected", "refused", "pen state", "thumbnail", "rows", "buttons", "reply", "notice", "settings", "agent finished"];
+    let phone_to_host = ["pair request", "viewport", "list dir", "open file", "button", "set buttons", "need thumbnail", "continue reviewing"];
     for frame in any_frames() {
         let name = frame.name();
         assert_eq!(frame.is_host_to_phone(), host_to_phone.contains(&name), "{name}");
@@ -185,4 +190,47 @@ fn a_protocol_of_zero_is_older_than_any_build_understands() {
 fn this_build_agrees_with_itself() {
     let me = hello(Role::Phone, PROTOCOL_VERSION, MIN_PROTOCOL_VERSION);
     assert_eq!(negotiate(Role::Host, (PROTOCOL_VERSION, MIN_PROTOCOL_VERSION), &me), Ok(PROTOCOL_VERSION));
+}
+
+// ---- what the settings make of a finished agent
+
+#[test]
+fn a_result_buzzes_as_a_success_a_suggestion_as_a_warning_a_failure_as_an_error_and_nothing_to_do_never_buzzes() {
+    let on = HostSettings::default();
+    assert_eq!(on.haptic_for(FinishKind::Done), Some(Haptic::Success));
+    assert_eq!(on.haptic_for(FinishKind::Suggestion), Some(Haptic::Warning));
+    assert_eq!(on.haptic_for(FinishKind::Failed), Some(Haptic::Error));
+    assert_eq!(on.haptic_for(FinishKind::NoAction), None);
+}
+
+#[test]
+fn each_kind_of_buzz_is_switched_off_on_its_own_and_both_off_is_silence() {
+    let only_done = HostSettings { haptic_suggestion: false, ..HostSettings::default() };
+    assert_eq!((only_done.haptic_for(FinishKind::Done), only_done.haptic_for(FinishKind::Suggestion)), (Some(Haptic::Success), None));
+    let only_suggestion = HostSettings { haptic_done: false, ..HostSettings::default() };
+    assert_eq!((only_suggestion.haptic_for(FinishKind::Done), only_suggestion.haptic_for(FinishKind::Suggestion)), (None, Some(Haptic::Warning)));
+    let only_failed = HostSettings { haptic_done: false, haptic_suggestion: false, ..HostSettings::default() };
+    assert_eq!(
+        [FinishKind::Done, FinishKind::Suggestion, FinishKind::Failed, FinishKind::NoAction].map(|k| only_failed.haptic_for(k)),
+        [None, None, Some(Haptic::Error), None]
+    );
+    let off = HostSettings { haptic_done: false, haptic_suggestion: false, haptic_failed: false, ..HostSettings::default() };
+    for kind in [FinishKind::Done, FinishKind::Suggestion, FinishKind::NoAction, FinishKind::Failed] {
+        assert_eq!(off.haptic_for(kind), None, "{kind:?}");
+    }
+}
+
+#[test]
+fn the_defaults_of_the_settings_are_direct_manipulation_no_snap_and_every_buzz_on() {
+    let d = HostSettings::default();
+    assert_eq!((d.reverse_pan, d.snap_to_page_top, d.haptic_done, d.haptic_suggestion, d.haptic_failed), (false, false, true, true, true));
+}
+
+#[test]
+fn a_pen_state_over_pages_has_a_file_and_one_over_the_board_has_none() {
+    let mut state = PenState::empty();
+    state.surface = Surface::Page(PageSurface { file: "a/b.rs".into(), ..PageSurface::empty() });
+    assert_eq!((state.file(), state.page().is_some(), state.board().is_some()), ("a/b.rs", true, false));
+    state.surface = Surface::Whiteboard(WhiteboardSurface { board_id: 1, name: "Layout".into(), aspect: 1.5, item_count: 3 });
+    assert_eq!((state.file(), state.page().is_some(), state.board().is_some()), ("", false, true));
 }

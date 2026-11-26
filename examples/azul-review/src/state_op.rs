@@ -36,6 +36,7 @@ pub fn state_json(s: &AppState) -> String {
             "visible": s.rows.iter().take(200).map(|r| serde_json::json!({"id": r.id, "name": r.name})).collect::<Vec<_>>(),
         },
         "progress": progress_json(s),
+        "visible_page": s.visible_page,
         "strokes": s.strokes.len(),
         "slashes": s.slashes.len(),
         "deleted_words": s.slashes.iter().map(|d| d.words.len()).sum::<usize>(),
@@ -54,7 +55,10 @@ pub fn state_json(s: &AppState) -> String {
                 "page": n.page,
                 "phase": n.talk.phase.name(),
                 "asked": n.talk.asked,
-                "pending": n.talk.pending,
+                "pending": n.talk.pending(),
+                "accepted": n.talk.accepted().count(),
+                "logged": n.talk.logged,
+                "patch": n.talk.patch,
                 "turns": n.talk.turns.len(),
                 "said": n.talk.said.len(),
                 "heard_as": n.talk.heard_as,
@@ -106,6 +110,7 @@ fn progress_json(s: &AppState) -> serde_json::Value {
     });
     let w = s.totals_of(s.tree.root());
     serde_json::json!({
+        "back": s.progress.back().map(|b| serde_json::json!({"file": b.file, "page": b.page, "line": b.line})),
         "seen_pages": seen,
         "pages": pages,
         "reviewed": reviewed,

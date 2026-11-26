@@ -53,3 +53,64 @@ fn text_justify_none_is_a_typed_value() {
         CssProperty::TextJustify(CssPropertyValue::Exact(LayoutTextJustify::InterWord))
     );
 }
+
+#[cfg(feature = "parser")]
+#[test]
+fn a_decoration_colour_is_currentcolor_or_a_colour_and_prints_as_either() {
+    for input in ["currentcolor", " CurrentColor ", "CURRENTCOLOR"] {
+        assert_eq!(
+            parse_style_text_decoration_color(input).unwrap(),
+            StyleTextDecorationColor::CurrentColor,
+            "{input:?}"
+        );
+    }
+    assert_eq!(StyleTextDecorationColor::default(), StyleTextDecorationColor::CurrentColor);
+    let red = parse_style_text_decoration_color("#ff0000").unwrap();
+    assert_eq!(red, StyleTextDecorationColor::Color(ColorU::new_rgb(255, 0, 0)));
+    for value in [StyleTextDecorationColor::CurrentColor, red] {
+        let printed = value.print_as_css_value();
+        assert_eq!(parse_style_text_decoration_color(&printed).unwrap(), value, "{printed}");
+    }
+    for bad in ["", "current color", "notacolor", "#12", "red blue"] {
+        assert!(parse_style_text_decoration_color(bad).is_err(), "{bad:?}");
+    }
+}
+
+#[cfg(feature = "parser")]
+#[test]
+fn a_decoration_thickness_is_auto_from_font_a_length_or_a_percentage_and_never_negative() {
+    assert_eq!(
+        parse_style_text_decoration_thickness(" AUTO ").unwrap(),
+        StyleTextDecorationThickness::Auto
+    );
+    assert_eq!(
+        parse_style_text_decoration_thickness("From-Font").unwrap(),
+        StyleTextDecorationThickness::FromFont
+    );
+    assert_eq!(StyleTextDecorationThickness::default(), StyleTextDecorationThickness::Auto);
+    for (input, length) in [
+        ("3px", PixelValue::px(3.0)),
+        ("0.1em", PixelValue::em(0.1)),
+        ("12.5%", PixelValue::percent(12.5)),
+        ("0", PixelValue::px(0.0)),
+        ("-0", PixelValue::px(-0.0)),
+    ] {
+        assert_eq!(
+            parse_style_text_decoration_thickness(input).unwrap(),
+            StyleTextDecorationThickness::Length(length),
+            "{input:?}"
+        );
+    }
+    for value in [
+        StyleTextDecorationThickness::Auto,
+        StyleTextDecorationThickness::FromFont,
+        StyleTextDecorationThickness::Length(PixelValue::px(2.0)),
+        StyleTextDecorationThickness::Length(PixelValue::percent(50.0)),
+    ] {
+        let printed = value.print_as_css_value();
+        assert_eq!(parse_style_text_decoration_thickness(&printed).unwrap(), value, "{printed}");
+    }
+    for bad in ["", "thick", "-1px", "-5%", "auto auto", "1px 2px", "from font"] {
+        assert!(parse_style_text_decoration_thickness(bad).is_err(), "{bad:?}");
+    }
+}
