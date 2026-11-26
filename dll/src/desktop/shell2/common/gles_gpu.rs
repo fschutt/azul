@@ -80,6 +80,37 @@ fn set_window_format(window: *mut c_void, format: EglInt) -> i32 {
     }
 }
 
+/// The first presents of a renderer that are described in the log.
+const DESCRIBED_PRESENTS: u32 = 3;
+
+/// The pixels of the bound framebuffer at five places (the centre and the four quarter points), as `#rrggbbaa` each: what WebRender
+/// left in the back buffer before the swap.
+fn sample_pixels(gl: &gl_context_loader::GenericGlContext, size: (u32, u32)) -> String {
+    gl.bind_framebuffer(azul_core::glconst::FRAMEBUFFER, 0);
+    let at = |x: u32, y: u32| {
+        let mut rgba = [0_u8; 4];
+        gl.read_pixels_into_buffer(
+            i32::try_from(x).unwrap_or(0),
+            i32::try_from(y).unwrap_or(0),
+            1,
+            1,
+            azul_core::glconst::RGBA,
+            azul_core::glconst::UNSIGNED_BYTE,
+            &mut rgba,
+        );
+        format!("#{:02x}{:02x}{:02x}{:02x}", rgba[0], rgba[1], rgba[2], rgba[3])
+    };
+    let (w, h) = (size.0.max(4), size.1.max(4));
+    format!(
+        "centre {} quarters {} {} {} {}",
+        at(w / 2, h / 2),
+        at(w / 4, h / 4),
+        at(3 * w / 4, h / 4),
+        at(w / 4, 3 * h / 4),
+        at(3 * w / 4, 3 * h / 4)
+    )
+}
+
 /// Where the path finds its libraries and what it makes its surfaces of.
 #[derive(Debug, Clone)]
 pub struct GlesGpuConfig {
@@ -216,6 +247,14 @@ pub struct GlesGpu {
     first_frame_pending: bool,
     /// A swap that found the surface gone was reported for the current surface (one line, not one per frame).
     swap_loss_reported: bool,
+    /// The window's new surface has shown nothing yet: it is cleared to the window's colour and swapped once (`prime_surface`), so that
+    /// the window is not black for the seconds WebRender needs to compile its programs on a cold start.
+    prime_owed: bool,
+    /// How many frames the current renderer presented (the first few are described in the log: what WebRender drew and what the
+    /// framebuffer held before the swap).
+    presents: u32,
+    /// Why the next present was asked for (`frame`: WebRender built one, `redraw`: the system wants the content again).
+    present_reason: &'static str,
     /// What the window decided about its renderer.
     decision: Option<Decision>,
     /// The frames this path presents, measured inside the engine: one `[render] frames n=..` line a second while they come
@@ -274,6 +313,9 @@ impl GlesGpu {
             renderers_made: 0,
             first_frame_pending: false,
             swap_loss_reported: false,
+            prime_owed: false,
+            presents: 0,
+            present_reason: "frame",
             decision: None,
             frame_stats: FrameStats::new(),
             clock: Instant::now(),
@@ -419,6 +461,12 @@ impl GlesGpu {
         self.feed(ctx, Event::TrimMemory(level))
     }
 
+    /// Why the next present is asked for (`frame`: WebRender announced one, `redraw`: the system wants the content again): said
+    /// in the log line that describes the first presents.
+    pub fn set_present_reason(&mut self, reason: &'static str) {
+        self.present_reason = reason;
+    }
+
     /// A frame is wanted: renders what WebRender has built and swaps it. The frame may be dropped (no surface), or the
     /// path may end (a context that cannot be rebuilt).
     pub fn present(&mut self, ctx: &mut GpuCtx<'_>) -> Outcome {
@@ -476,7 +524,13 @@ impl GlesGpu {
                 let _ = self.damage.take();
                 Ok(Performed::Done)
             }
-            Action::MakeCurrent => self.make_current().map(|()| Performed::Done),
+            Action::MakeCurrent => {
+                self.make_current()?;
+                // A surface that comes while the renderer is kept (a rotation, the app coming back) is shown at once; the first
+                // surface is shown after the function table is loaded (`build_renderer`).
+                self.prime_surface(ctx);
+                Ok(Performed::Done)
+            }
             Action::BuildRenderer => self.build_renderer(ctx).map(|()| Performed::Done),
             Action::Present => self.render_and_swap(ctx).map(|()| Performed::Done),
             Action::ReleaseCaches => {
@@ -583,6 +637,7 @@ impl GlesGpu {
             session
                 .create_window_surface(window)
                 .map_err(|e| fallback_of_egl(&e, GpuStage::Surface))?;
+            self.prime_owed = true;
         }
         self.size_px = (surface.width, surface.height);
         self.full_swap_owed = true;
@@ -609,6 +664,46 @@ impl GlesGpu {
         Ok(())
     }
 
+    /// A window surface that has shown nothing yet is cleared to the window's colour and swapped once: the window shows its own background
+    /// while WebRender compiles its programs (black until then otherwise: the system has nothing of the app to show), and the log says
+    /// whether a swap reaches the screen at all. Once per surface; nothing without a window surface and a function table.
+    fn prime_surface(&mut self, ctx: &mut GpuCtx<'_>) {
+        if !self.prime_owed || self.config.offscreen {
+            return;
+        }
+        let (Some(session), Some(functions)) = (self.session.as_ref(), self.functions.as_ref()) else {
+            return;
+        };
+        if !session.has_window_surface() {
+            return;
+        }
+        let colour = ctx.common.clear_color();
+        let unit = |channel: u8| f32::from(channel) / 255.0;
+        functions
+            .context
+            .clear_color(unit(colour.r), unit(colour.g), unit(colour.b), unit(colour.a));
+        functions.context.clear(azul_core::glconst::COLOR_BUFFER_BIT);
+        let size = session.surface_size().unwrap_or(self.size_px);
+        match session.swap(None, size.1) {
+            Ok(()) => log_info!(
+                LogCategory::Rendering,
+                "[render] the window surface ({}x{} px) is cleared to #{:02x}{:02x}{:02x}{:02x} and shown while the first frame is made",
+                size.0,
+                size.1,
+                colour.r,
+                colour.g,
+                colour.b,
+                colour.a
+            ),
+            Err(error) => log_warn!(
+                LogCategory::Rendering,
+                "[render] the first swap of the window surface failed: {:?}",
+                error
+            ),
+        }
+        self.prime_owed = false;
+    }
+
     /// The function table, the probe, WebRender and its document on the current context.
     fn build_renderer(&mut self, ctx: &mut GpuCtx<'_>) -> Result<(), GpuFallback> {
         let Some(session) = self.session.as_ref() else {
@@ -625,6 +720,9 @@ impl GlesGpu {
         let Some(gl) = self.functions.as_ref().map(|f| f.context.clone()) else {
             return Err(GpuFallback::new(GpuStage::Functions, "no function table"));
         };
+        let reports_damage = session.info().caps.buffer_age;
+        // The first surface is shown before WebRender is made (its programs compile in the first frame, seconds on a cold start).
+        self.prime_surface(ctx);
         // A renderer made before had keys of its own: the window's registries are cleared for the new one.
         if self.renderers_made > 0 {
             gpu_renderer::forget_renderer_state(ctx.common);
@@ -633,11 +731,12 @@ impl GlesGpu {
         // A frame the renderer before announced is no frame of this one.
         let _ = self.take_frame_ready();
         self.frame_seen.set(false);
+        self.presents = 0;
         let notifier = Notifier {
             new_frame_ready: self.frame_ready.clone(),
             wake: self.wake.clone(),
         };
-        let damage = session.info().caps.buffer_age.then(|| self.damage.clone());
+        let damage = reports_damage.then(|| self.damage.clone());
         let parts = gpu_renderer::init_webrender(
             &gl,
             &self.options,
@@ -727,9 +826,30 @@ impl GlesGpu {
             );
             self.note("first_gpu_frame_started", &format!("{}x{}", size.0, size.1));
         }
-        gpu_renderer::render_frame(ctx.common, size, age)?;
+        let outcome = gpu_renderer::render_frame(ctx.common, size, age)?;
         // What the draw cost the loop's thread: WebRender's commands for the frame, before the swap that may wait for the display.
         let draw_us = u64::try_from(started.elapsed().as_micros()).ok();
+        self.presents += 1;
+        if self.presents <= DESCRIBED_PRESENTS {
+            // What WebRender drew and what the framebuffer holds before the swap: a window that stays empty shows here whether the
+            // frame was empty, drawn black, or lost after the swap.
+            let (pixels, gl_error) = self.functions.as_ref().map_or((String::new(), 0), |f| {
+                (sample_pixels(&f.context, size), f.context.get_error())
+            });
+            log_info!(
+                LogCategory::Rendering,
+                "[render] present {} ({}): {}x{} px, WebRender drew {} calls in {} colour and {} alpha targets; pixels before the swap: {}; glGetError 0x{:x}",
+                self.presents,
+                self.present_reason,
+                size.0,
+                size.1,
+                outcome.draw_calls,
+                outcome.color_targets,
+                outcome.alpha_targets,
+                pixels,
+                gl_error
+            );
+        }
 
         // The damage of the frame, from WebRender, unless the swap must be a full one.
         let damage = if self.full_swap_owed {

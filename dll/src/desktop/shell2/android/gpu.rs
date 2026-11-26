@@ -173,6 +173,9 @@ impl AndroidWindow {
         let owed = self.gpu_present_owed && self.gpu.as_ref().is_some_and(GlesGpu::has_frame);
         if ready || owed {
             self.gpu_present_owed = false;
+            if let Some(gpu) = self.gpu.as_mut() {
+                gpu.set_present_reason(if ready { "frame" } else { "redraw" });
+            }
             let outcome = self.with_gpu(GlesGpu::present);
             self.after_gpu(outcome);
         }

@@ -394,6 +394,18 @@ pub fn submit_lightweight(common: &mut CommonWindowState, who: &str) -> bool {
     }
 }
 
+/// What a rendered frame was made of: how much WebRender drew (a frame with nothing in it draws nothing, and the swap that follows
+/// shows an empty buffer).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RenderOutcome {
+    /// Draw calls of the frame.
+    pub draw_calls: usize,
+    /// Colour render targets (the picture cache tiles and groups) it drew.
+    pub color_targets: usize,
+    /// Alpha render targets (clip masks, blurs) it drew.
+    pub alpha_targets: usize,
+}
+
 /// Draws the frame WebRender has built into the framebuffer that is bound (the window's surface, or the offscreen one
 /// of a test): takes the update in, draws, and says what went wrong. `buffer_age` is the age of the back buffer
 /// (`EglSession::buffer_age`), 0 when unknown.
@@ -405,7 +417,7 @@ pub fn render_frame(
     common: &mut CommonWindowState,
     framebuffer_px: (u32, u32),
     buffer_age: usize,
-) -> Result<(), GpuFallback> {
+) -> Result<RenderOutcome, GpuFallback> {
     // The canvas follows the mode the window shows.
     common.sync_renderer_clear_color();
     let Some(renderer) = common.renderer.as_mut() else {
@@ -413,9 +425,13 @@ pub fn render_frame(
     };
     renderer.update();
     match renderer.render(device_size(framebuffer_px), buffer_age) {
-        Ok(_) => {
+        Ok(results) => {
             common.display_list_initialized = true;
-            Ok(())
+            Ok(RenderOutcome {
+                draw_calls: results.stats.total_draw_calls,
+                color_targets: results.stats.color_target_count,
+                alpha_targets: results.stats.alpha_target_count,
+            })
         }
         Err(errors) => Err(GpuFallback::new(GpuStage::Frame, &format!("{errors:?}"))),
     }
