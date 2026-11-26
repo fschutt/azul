@@ -5463,7 +5463,11 @@ jobs:
     # Deploys to GitHub Pages. Merges all artifacts into the website tree.
     name: Deploy to GitHub Pages
     if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
-    needs: [test_lib, test_heavy, miri, wasm32_check, windows_storage_check, build_binaries, cross_build_binaries, build_rust9x, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, build_mobile, build_mobile_apps, build_mobile_apps_android, e2e_native, e2e_native_expensive, e2e_headless, ffi_safety_tests, pypi, npm, rubygems, nuget, maven-central]
+    # NOT in needs on purpose (2026-11-26): build_rust9x (experimental, fails on memory), build_mobile, build_mobile_apps and
+    # build_mobile_apps_android (best-effort, continue-on-error, hours long; being replaced by the demos pipeline). A page
+    # must not wait for them or be blocked by them; the links to what they did not publish are pruned below
+    # (scripts/prune_dead_release_links.py).
+    needs: [test_lib, test_heavy, miri, wasm32_check, windows_storage_check, build_binaries, cross_build_binaries, build_linux_packages, build_website_skeleton, coverage, build_demos, docs_pdf, e2e_native, e2e_native_expensive, e2e_headless, ffi_safety_tests, pypi, npm, rubygems, nuget, maven-central]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
