@@ -100,6 +100,7 @@ platforms = ["linux", "macos-arm64", "macos-intel", "windows", "android", "ios"]
 weight = 2
 docker = true
 mobile_lib = "mobile"
+e2e = true   # the QA variant too: the layout audit and the scripted checks of the phone apps (an artifact, never shipped)
 needs = ["a network connection for the map tiles"]
 [app.android]
 permissions = ["android.permission.ACCESS_FINE_LOCATION"]
@@ -114,6 +115,7 @@ platforms = ["linux", "macos-arm64", "macos-intel", "windows", "android", "ios"]
 weight = 1
 docker = true
 mobile_lib = "mobile"
+e2e = true   # the QA variant too: the layout audit and the scripted checks of the phone apps (an artifact, never shipped)
 
 [[app]]
 package = "AzMeet"
@@ -123,6 +125,7 @@ platforms = ["linux", "macos-arm64", "macos-intel", "windows", "android", "ios"]
 weight = 2
 docker = true
 mobile_lib = "mobile"
+e2e = true   # the QA variant too: the layout audit and the scripted checks of the phone apps (an artifact, never shipped)
 needs = ["a meeting server (the `meet` worker) to start or join a meeting"]
 [app.android]
 permissions = ["android.permission.CAMERA", "android.permission.RECORD_AUDIO"]
@@ -140,6 +143,7 @@ platforms = ["linux", "macos-arm64", "macos-intel", "windows", "android", "ios"]
 weight = 2
 docker = true
 mobile_lib = "mobile"
+e2e = true   # the QA variant too: the layout audit and the scripted checks of the phone apps (an artifact, never shipped)
 
 [[app]]
 package = "AzCompanion"
